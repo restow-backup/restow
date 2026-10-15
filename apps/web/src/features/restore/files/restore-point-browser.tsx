@@ -70,7 +70,7 @@ export function RestorePointBrowser<P extends RestorePointView>({
     createDownload.mutate(
       { snapshotId: point.id, paths: limits.paths },
       {
-        onSuccess: (prepared) => adapter.startDownload(adapter.downloadUrl(prepared.id)),
+        onSuccess: (prepared) => adapter.startDownload(adapter.downloadUrl(prepared.id, point)),
         onError: (error) =>
           toast.error(t("browser.selection.download.failed"), {
             description: t(adapter.errorKey(error)),
@@ -181,7 +181,7 @@ export function RestorePointBrowser<P extends RestorePointView>({
               canRestore={adapter.canRestore && !limits.restoreBlocked}
               onClear={() => setSelection(NO_SELECTION)}
               onDownload={download}
-              onRestore={() => setRestoring(true)}
+              onRestore={adapter.renderRestoreDialog ? () => setRestoring(true) : undefined}
               limits={adapter.limits}
               restoreLabel={adapter.restoreLabel}
             />
@@ -201,7 +201,7 @@ export function RestorePointBrowser<P extends RestorePointView>({
         )}
       </Card>
 
-      {point
+      {point && adapter.renderRestoreDialog
         ? adapter.renderRestoreDialog({
             open: restoring,
             onOpenChange: setRestoring,

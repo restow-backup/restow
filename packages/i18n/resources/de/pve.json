@@ -198,7 +198,8 @@
     "succeededWithGaps": "Mit Lücken erfolgreich ({count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gelesen werden)",
     "diskAllocated": "Disk: {size} zugewiesen",
     "unreadablePaths": "Nicht gelesen: {paths}",
-    "unreadableMore": "und {count} weitere"
+    "unreadableMore": "und {count} weitere",
+    "browseFiles": "Dateien durchsuchen"
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",

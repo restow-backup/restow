@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { PageHeader, RefreshButton, RelativeTime } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useTenantScope } from "@/features/endpoints/hooks";
+import { fileRestoreContainerTo } from "@/features/endpoints/paths";
 import { formatBytes, formatDateTime } from "@/lib/format";
 
 import {
@@ -43,6 +44,12 @@ import {
 import { BackupProgress } from "./backup-progress.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { pveTo } from "./paths.js";
+
+/** File restore with this container chosen, as `<Link>` takes it. */
+function fileRestoreLink(guestId: string) {
+  const target = fileRestoreContainerTo(guestId);
+  return { to: target.to, search: target.search as never };
+}
 
 function RestoreDialog({
   point,
@@ -353,6 +360,15 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                     <VerifyBadge point={p} />
                   </TableCell>
                   <TableCell className="space-x-1 text-right">
+                    {data && (p.browsable ?? p.kind === "ct") ? (
+                      // A container's files, one by one (#62): File restore with it chosen.
+                      <Link
+                        {...fileRestoreLink(data.guest.id)}
+                        className={buttonVariants({ size: "sm", variant: "ghost" })}
+                      >
+                        {t("guest.browseFiles")}
+                      </Link>
+                    ) : null}
                     <Button
                       type="button"
                       size="sm"

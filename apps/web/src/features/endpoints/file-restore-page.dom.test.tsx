@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type * as React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-
+import type { PveGuest, PveOverview } from "@/features/pve/api";
 import { i18n } from "@/i18n";
 
 import type { EndpointSummary } from "./api.js";
@@ -10,18 +10,25 @@ import { FileRestorePage } from "./file-restore-page.js";
 import "./i18n.js";
 
 /**
- * File restore lists the machines (servers and clients) only. Mailboxes,
- * OneDrives and IMAP accounts never appear here: they are restored in the
- * restore explorer, and the page does not even ask for them.
+ * File restore lists the machines (servers and clients) and the Proxmox VE
+ * containers with a restore point (#62). Mailboxes, OneDrives and IMAP
+ * accounts never appear here: they are restored in the restore explorer, and
+ * the page does not even ask for them.
  */
 
-vi.mock("@/lib/session", () => ({
-  useSession: () => ({
-    status: "authenticated",
-    activeTenant: { id: "t-1", name: "Contoso" },
-    user: { id: "u-1" },
-  }),
-}));
+const session = vi.hoisted(() => ({ role: "tenant_admin" as string | null }));
+vi.mock("@/lib/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/session")>();
+  return {
+    ...actual,
+    useSession: () => ({
+      status: "authenticated",
+      activeTenant: { id: "t-1", name: "Contoso" },
+      user: { id: "u-1" },
+      role: session.role,
+    }),
+  };
+});
 const navigate = vi.fn();
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
@@ -59,6 +66,40 @@ vi.mock("@/features/restore/api", async (importOriginal) => {
   };
 });
 
+const fetchOverview = vi.fn();
+const fetchGuest = vi.fn();
+const fetchContainerFiles = vi.fn();
+vi.mock("@/features/pve/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/pve/api")>();
+  return {
+    ...actual,
+    fetchOverview: (...args: unknown[]) => fetchOverview(...args),
+    fetchGuest: (...args: unknown[]) => fetchGuest(...args),
+    fetchContainerFiles: (...args: unknown[]) => fetchContainerFiles(...args),
+  };
+});
+
+function guest(over: Partial<PveGuest> = {}): PveGuest {
+  return {
+    id: "g-ct",
+    clusterId: "c-1",
+    vmid: 300,
+    kind: "ct",
+    name: "paperless",
+    node: "pve1",
+    lastSuccessAt: "2026-10-14T22:05:00.000Z",
+    backups: {
+      first: null,
+      last: { at: "2026-10-14T22:05:00.000Z", contains: 1, added: 1, unreadable: 0 },
+    },
+    ...over,
+  } as PveGuest;
+}
+
+function overview(guests: PveGuest[]): PveOverview {
+  return { clusters: [], guests, jobs: [], restorePool: "restow-restore" };
+}
+
 function machine(over: Partial<EndpointSummary> = {}): EndpointSummary {
   return {
     id: "11111111-1111-4111-8111-111111111111",
@@ -78,6 +119,10 @@ describe("FileRestorePage", () => {
 
   beforeEach(() => {
     navigate.mockReset();
+    session.role = "tenant_admin";
+    fetchOverview.mockReset().mockResolvedValue(overview([]));
+    fetchGuest.mockReset();
+    fetchContainerFiles.mockReset();
     fetchSnapshotObjects.mockReset().mockResolvedValue([]);
     fetchEndpoints
       .mockReset()
@@ -85,9 +130,9 @@ describe("FileRestorePage", () => {
   });
   afterEach(() => page?.unmount());
 
-  async function open(machineId: string | null = null) {
+  async function open(machineId: string | null = null, containerId: string | null = null) {
     page = mount();
-    await page.render(<FileRestorePage machineId={machineId} />);
+    await page.render(<FileRestorePage machineId={machineId} containerId={containerId} />);
     await page.settle();
   }
 
@@ -145,5 +190,119 @@ describe("FileRestorePage", () => {
     await open();
     expect(page.text()).toContain("Nothing backed up yet");
     expect(document.querySelector("[data-slot='machine-picker']")).toBeNull();
+  });
+
+  it("lists the containers with a restore point in their own group, by schedule or by hand (#62)", async () => {
+    fetchOverview.mockResolvedValue(
+      overview([
+        guest(),
+        // Backed up by hand, in no job: listed all the same.
+        guest({ id: "g-ct2", vmid: 301, name: null, jobId: null }),
+        // Never backed up: nothing to restore.
+        guest({
+          id: "g-ct3",
+          vmid: 302,
+          name: "new",
+          lastSuccessAt: null,
+          backups: { first: null, last: null },
+        }),
+        guest({ id: "g-vm", vmid: 100, kind: "vm", name: "web" }),
+      ]),
+    );
+    await open();
+    expect(page.text()).toContain("Machines and containers");
+    expect(page.text()).toContain("Proxmox VE containers");
+    const row = page.byText("[data-slot='container-list'] button", "paperless");
+    expect(row.textContent).toContain("CT 300 on pve1");
+    expect(page.byText("[data-slot='container-list'] button", "CT 301")).toBeTruthy();
+    expect(page.maybeByText("[data-slot='container-list'] button", "new")).toBeNull();
+    expect(page.maybeByText("[data-slot='container-list'] button", "web")).toBeNull();
+    // VMs are restored as a whole: a note says where.
+    const note = document.querySelector("[data-slot='vm-note']");
+    expect(note?.textContent).toContain("1 VM is restored as a whole, not file by file.");
+    expect(note?.querySelector("a")?.getAttribute("href")).toBe("/virtualization");
+    // With containers there, the one machine is not chosen on its own.
+    expect(page.text()).toContain("Choose a machine or container");
+
+    await page.click(row);
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/file-restore",
+      search: { container: "g-ct" },
+      replace: true,
+    });
+  });
+
+  it("searches the containers by name and VMID", async () => {
+    fetchOverview.mockResolvedValue(
+      overview([guest(), guest({ id: "g-2", vmid: 410, name: "dns" })]),
+    );
+    await open();
+    const search = page.container.querySelector<HTMLInputElement>("input[type='search']");
+    if (!search) throw new Error("no search");
+    expect(search.placeholder).toBe("Search machines and containers");
+    await page.type(search, "410");
+    expect(page.maybeByText("[data-slot='container-list'] button", "paperless")).toBeNull();
+    expect(page.byText("[data-slot='container-list'] button", "dns")).toBeTruthy();
+    await page.type(search, "nothing like it");
+    expect(page.text()).toContain("No machine or container matches the search.");
+  });
+
+  it("shows a container's restore points, what they contain, and offers the ZIP only", async () => {
+    fetchOverview.mockResolvedValue(overview([guest()]));
+    fetchGuest.mockResolvedValue({
+      guest: guest(),
+      cluster: null,
+      runs: [],
+      snapshots: [
+        {
+          id: "p-1",
+          sequence: 1,
+          kind: "ct",
+          archiveName: "ct/300/2026-10-14T22:00:00Z",
+          origin: "pve",
+          backupAt: "2026-10-14T22:00:00.000Z",
+          byteSize: 2_000_000,
+          added: 1000,
+          contents: ["/", "/mnt/data"],
+          browsable: true,
+          disks: [],
+          verify: null,
+        },
+      ],
+    });
+    fetchContainerFiles.mockResolvedValue({
+      snapshotId: "p-1",
+      path: "/",
+      entries: [{ name: "opt", path: "/opt", type: "dir", size: null, mtime: null }],
+      nextCursor: null,
+    });
+    await open(null, "g-ct");
+    expect(fetchGuest).toHaveBeenCalledWith("g-ct");
+    const point = document.querySelector("[data-slot='snapshot-list'] li button");
+    if (!point) throw new Error("no restore point");
+    await page.click(point);
+    expect(fetchContainerFiles).toHaveBeenCalledWith("p-1", "/", null);
+    const contents = document.querySelector("[data-slot='restore-point-contents']");
+    expect(contents?.textContent).toContain("This restore point contains:");
+    expect(contents?.textContent).toContain("/ (the whole container)");
+    expect(contents?.textContent).toContain("/mnt/data");
+    // The whole root file system is backed up: no hint about a job's folders.
+    expect(document.querySelector("[data-slot='restore-point-contents-hint']")).toBeNull();
+    const bar = document.querySelector("[data-slot='selection-bar']");
+    expect(bar?.textContent).toContain("Download as ZIP");
+    expect(bar?.textContent).not.toContain("Restore to the machine");
+    expect(page.text()).toContain("Files of a container are downloaded as a ZIP.");
+    // A path in the list opens that folder.
+    const mount = page.byText("[data-slot='restore-point-contents'] button", "/mnt/data");
+    await page.click(mount);
+    expect(fetchContainerFiles).toHaveBeenCalledWith("p-1", "/mnt/data", null);
+  });
+
+  it("asks nothing of Proxmox VE for a role that may not open it", async () => {
+    session.role = "tenant_user";
+    await open();
+    expect(fetchOverview).not.toHaveBeenCalled();
+    expect(page.text()).toContain("Choose a machine");
+    expect(page.text()).not.toContain("Proxmox VE containers");
   });
 });

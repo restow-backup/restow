@@ -253,7 +253,8 @@ export function SelectionBar({
   canRestore: boolean;
   onClear: () => void;
   onDownload: () => void;
-  onRestore: () => void;
+  /** Absent for a source that cannot take a restore (a container, #62): only the ZIP is offered. */
+  onRestore?: () => void;
   limits: SelectionLimitsOf;
   /** The restore button's label; "Restore to the machine" by default. */
   restoreLabel?: string;
@@ -276,7 +277,7 @@ export function SelectionBar({
             {t(`browser.selection.download.${blockedDownload}`, { max: limits.downloadPaths })}
           </p>
         ) : null}
-        {blockedRestore ? (
+        {blockedRestore && onRestore ? (
           <p className="text-xs text-destructive-text" aria-live="polite">
             {t("browser.selection.restore.too_many", { max: limits.restorePaths })}
           </p>
@@ -294,7 +295,7 @@ export function SelectionBar({
           {t("browser.selection.clear")}
         </Button>
         <Button
-          variant="outline"
+          variant={onRestore ? "outline" : "default"}
           size="sm"
           onClick={onDownload}
           disabled={count === 0 || blockedDownload !== null || downloading}
@@ -308,10 +309,12 @@ export function SelectionBar({
             ? t("browser.selection.download.preparing")
             : t("browser.selection.downloadZip")}
         </Button>
-        <Button size="sm" onClick={onRestore} disabled={!canRestore || count === 0}>
-          <RotateCw aria-hidden="true" />
-          {restoreLabel ?? t("browser.selection.restore.action")}
-        </Button>
+        {onRestore ? (
+          <Button size="sm" onClick={onRestore} disabled={!canRestore || count === 0}>
+            <RotateCw aria-hidden="true" />
+            {restoreLabel ?? t("browser.selection.restore.action")}
+          </Button>
+        ) : null}
       </div>
     </div>
   );

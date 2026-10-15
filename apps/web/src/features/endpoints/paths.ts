@@ -86,12 +86,14 @@ export function parseDetailSearch(search: Record<string, unknown>): { tab?: Endp
 }
 
 /**
- * Search of the file restore page: the chosen machine (`?machine=`). The page
- * lists machines only; `?mailbox=` is what earlier versions linked a mailbox
- * with, and the route sends such a link on to the restore explorer.
+ * Search of the file restore page: the chosen machine (`?machine=`) or Proxmox
+ * VE container (`?container=`, the guest id, #62). `?mailbox=` is what earlier
+ * versions linked a mailbox with, and the route sends such a link on to the
+ * restore explorer.
  */
 export interface FileRestoreSearch {
   machine?: string;
+  container?: string;
   mailbox?: string;
 }
 
@@ -103,6 +105,10 @@ export function parseFileRestoreSearch(search: Record<string, unknown>): FileRes
   const machine = searchId(search.machine);
   if (machine) {
     return { machine };
+  }
+  const container = searchId(search.container);
+  if (container) {
+    return { container };
   }
   const mailbox = searchId(search.mailbox);
   return mailbox ? { mailbox } : {};
@@ -121,4 +127,9 @@ export interface FileRestoreTarget {
  */
 export function fileRestoreTo(machineId: string): FileRestoreTarget {
   return { to: FILE_RESTORE_PATH as LinkProps["to"], search: { machine: machineId } };
+}
+
+/** File restore with this Proxmox VE container chosen (#62): its restore points and files. */
+export function fileRestoreContainerTo(guestId: string): FileRestoreTarget {
+  return { to: FILE_RESTORE_PATH as LinkProps["to"], search: { container: guestId } };
 }

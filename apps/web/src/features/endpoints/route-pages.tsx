@@ -74,14 +74,14 @@ export function EndpointDetailRoute() {
  */
 export function FileRestoreRoute() {
   const raw = useSearch({ strict: false }) as Record<string, unknown>;
-  const { machine, mailbox } = parseFileRestoreSearch(raw);
-  if (!machine && mailbox) {
+  const { machine, container, mailbox } = parseFileRestoreSearch(raw);
+  if (!machine && !container && mailbox) {
     const explorer = explorerAt(mailbox);
     return <Navigate to={explorer.to} search={explorer.search as never} replace />;
   }
   return (
     <RequireRole roles={ENDPOINT_ROLES}>
-      <FileRestorePage machineId={machine ?? null} />
+      <FileRestorePage machineId={machine ?? null} containerId={container ?? null} />
     </RequireRole>
   );
 }

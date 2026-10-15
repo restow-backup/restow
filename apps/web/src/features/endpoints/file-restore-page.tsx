@@ -1,5 +1,14 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Boxes, Building2, CircleSlash, FolderSearch, Search, Server } from "lucide-react";
+import {
+  Box,
+  Boxes,
+  Building2,
+  CircleSlash,
+  FolderSearch,
+  Monitor,
+  Search,
+  Server,
+} from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +17,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { PveGuest, PveOverview } from "@/features/pve/api";
+import { ContainerRestorePoints, containerName } from "@/features/pve/container-files";
+import { pveTo } from "@/features/pve/paths";
+import { usePveOverview } from "@/features/pve/use-overview";
 import { ApiError } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -15,7 +28,13 @@ import { cn } from "@/lib/utils";
 import type { EndpointSummary } from "./api.js";
 import { SnapshotsTab } from "./components/snapshots-tab.js";
 import { type EndpointFormat, useEndpoint, useEndpointFormat, useEndpoints } from "./hooks.js";
-import { endpointDetailTo, type FileRestoreTarget, fileRestoreTo, inventoryTo } from "./paths.js";
+import {
+  endpointDetailTo,
+  type FileRestoreTarget,
+  fileRestoreContainerTo,
+  fileRestoreTo,
+  inventoryTo,
+} from "./paths.js";
 import { endpointHostLine, endpointName, splitRevoked } from "./presenters.js";
 
 /** The machine list (a quarter, at least 13rem) beside the restore points and files. */
@@ -24,19 +43,32 @@ export const FILE_RESTORE_GRID = "xl:grid-cols-[minmax(13rem,1fr)_minmax(0,3fr)]
 /**
  * File restore of servers and clients: choose a machine, then one of its
  * restore points; the file browser and restore dialog of its own page (tab
- * Snapshots) sit next to the timeline. Machines only: mailboxes, OneDrives
- * and IMAP accounts are restored in the restore explorer (Mail & SaaS).
+ * Snapshots) sit next to the timeline. Proxmox VE containers with a restore
+ * point are listed in their own group (#62): the same timeline and browser,
+ * files downloaded as a ZIP. VMs are restored as a whole under VMs &
+ * containers, which a note says. Mailboxes, OneDrives and IMAP accounts are
+ * restored in the restore explorer (Mail & SaaS).
  * Side by side from the extra-large breakpoint on: the searchable list (a
  * quarter), the restore points (a quarter) and the files of the chosen one
  * (half the width, SNAPSHOTS_GRID); below that the list stays short above
  * them. The choice
- * stays in the URL (`?machine=`); with a single machine it is chosen right away.
+ * stays in the URL (`?machine=`, `?container=`); with a single machine and no
+ * container it is chosen right away.
  */
-export function FileRestorePage({ machineId }: { machineId: string | null }) {
+export function FileRestorePage({
+  machineId,
+  containerId = null,
+}: {
+  machineId: string | null;
+  containerId?: string | null;
+}) {
   const { t } = useTranslation("endpoints");
   const { activeTenant } = useSession();
   const navigate = useNavigate();
   const machines = useEndpoints(undefined);
+  const pve = usePveOverview();
+  const guests = restorableGuests(pve.query.data);
+  const hasContainers = guests.containers.length > 0;
   const choose = (target: FileRestoreTarget) => {
     void navigate({ to: target.to, search: target.search as never, replace: true });
   };
@@ -72,9 +104,17 @@ export function FileRestorePage({ machineId }: { machineId: string | null }) {
   }
 
   const list = machines.data ?? [];
-  const selectedMachine = machineId ?? (!machines.isPending ? onlyMachine(list) : null);
+  // The containers are known once the overview answered (or when it is not asked for).
+  const pveSettled = !pve.allowed || !pve.query.isPending;
+  const selectedMachine =
+    containerId !== null
+      ? null
+      : (machineId ??
+        (!machines.isPending && pveSettled && !hasContainers ? onlyMachine(list) : null));
+  const nothingAtAll =
+    !machines.isPending && list.length === 0 && pveSettled && !hasContainers && guests.vms === 0;
 
-  if (!machines.isPending && list.length === 0) {
+  if (nothingAtAll) {
     return (
       <div className="space-y-6">
         {header}
@@ -100,21 +140,57 @@ export function FileRestorePage({ machineId }: { machineId: string | null }) {
           machines={list}
           machinesPending={machines.isPending}
           selectedMachine={selectedMachine}
+          containers={guests.containers}
+          vmCount={guests.vms}
+          selectedContainer={containerId}
           onSelect={choose}
         />
-        {selectedMachine ? (
+        {containerId ? (
+          <ContainerRestorePoints key={containerId} guestId={containerId} />
+        ) : selectedMachine ? (
           <MachineRestorePoints key={selectedMachine} machineId={selectedMachine} />
         ) : (
           <EmptyState
             variant="plain"
             icon={FolderSearch}
-            title={t("fileRestore.pick.title")}
-            description={t("fileRestore.pick.description")}
+            title={t(
+              hasContainers ? "fileRestore.pickWithContainers.title" : "fileRestore.pick.title",
+            )}
+            description={t(
+              hasContainers
+                ? "fileRestore.pickWithContainers.description"
+                : "fileRestore.pick.description",
+            )}
           />
         )}
       </div>
     </div>
   );
+}
+
+/**
+ * What of Proxmox VE the file restore offers: the containers with a restore point, whether they
+ * were backed up by a job or by hand (#62), and how many VMs have one (restored as a whole only).
+ * A server before 0.3.5 names no restore point sizes; its last success stands in.
+ */
+export function restorableGuests(overview: PveOverview | undefined): {
+  containers: PveGuest[];
+  vms: number;
+} {
+  const withPoint = (overview?.guests ?? []).filter((guest) =>
+    guest.backups ? guest.backups.last !== null : guest.lastSuccessAt !== null,
+  );
+  return {
+    containers: withPoint
+      .filter((guest) => guest.kind === "ct")
+      .sort((a, b) => containerName(a).localeCompare(containerName(b)) || a.vmid - b.vmid),
+    vms: withPoint.filter((guest) => guest.kind === "vm").length,
+  };
+}
+
+/** Whether `guest` matches the search text: name or VMID. */
+export function containerMatches(guest: PveGuest, text: string): boolean {
+  return matchesText([guest.name, String(guest.vmid), `ct ${guest.vmid}`], text);
 }
 
 /** The one machine to choose right away, when the tenant has exactly one. */
@@ -138,22 +214,34 @@ export function machineMatches(machine: EndpointSummary, text: string): boolean 
 const ROW_CLASS =
   "flex w-full flex-col gap-0.5 px-4 py-3 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset";
 
-/** The machines of the tenant in one searchable list; a click opens the restore points of the one clicked. */
+/**
+ * The machines of the tenant in one searchable list, and its Proxmox VE containers with a restore
+ * point in a group of their own; a click opens the restore points of the one clicked.
+ */
 function MachinePicker({
   machines,
   machinesPending,
   selectedMachine,
+  containers = [],
+  vmCount = 0,
+  selectedContainer = null,
   onSelect,
 }: {
   machines: readonly EndpointSummary[];
   machinesPending: boolean;
   selectedMachine: string | null;
+  containers?: readonly PveGuest[];
+  /** VMs with a restore point: not browsable, a note says where they are restored. */
+  vmCount?: number;
+  selectedContainer?: string | null;
   onSelect: (target: FileRestoreTarget) => void;
 }) {
   const format = useEndpointFormat();
   const { t } = format;
   const [text, setText] = React.useState("");
+  const withPve = containers.length > 0 || vmCount > 0;
   const matching = machines.filter((machine) => machineMatches(machine, text));
+  const shownContainers = containers.filter((guest) => containerMatches(guest, text));
   // Revoked machines take no backups any more, but what they have stays restorable (#65):
   // they are listed apart, and only while they have a backup.
   const { active: shownMachines, revoked } = splitRevoked(matching);
@@ -162,12 +250,16 @@ function MachinePicker({
     text.trim().length > 0 &&
     !machinesPending &&
     shownMachines.length === 0 &&
-    revokedMachines.length === 0;
+    revokedMachines.length === 0 &&
+    shownContainers.length === 0;
+  const searchLabel = withPve ? t("fileRestore.searchWithContainers") : t("fileRestore.search");
 
   return (
     <Card className="gap-0 overflow-hidden py-0" data-slot="machine-picker">
       <CardHeader className="gap-3 border-b py-4">
-        <CardTitle className="text-base">{t("fileRestore.sources")}</CardTitle>
+        <CardTitle className="text-base">
+          {withPve ? t("fileRestore.sourcesWithContainers") : t("fileRestore.sources")}
+        </CardTitle>
         <div className="relative">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -177,15 +269,17 @@ function MachinePicker({
             type="search"
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder={t("fileRestore.search")}
-            aria-label={t("fileRestore.search")}
+            placeholder={searchLabel}
+            aria-label={searchLabel}
             className="pl-9"
           />
         </div>
       </CardHeader>
       <CardContent className="max-h-64 overflow-y-auto p-0 xl:max-h-[40rem]">
         {nothing ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">{t("fileRestore.noMatch")}</p>
+          <p className="px-4 py-6 text-sm text-muted-foreground">
+            {withPve ? t("fileRestore.noMatchWithContainers") : t("fileRestore.noMatch")}
+          </p>
         ) : (
           <PickerGroup
             icon={Server}
@@ -230,8 +324,80 @@ function MachinePicker({
             ))}
           </PickerGroup>
         ) : null}
+        {!nothing && shownContainers.length > 0 ? (
+          <PickerGroup
+            icon={Box}
+            title={t("fileRestore.containers")}
+            pending={false}
+            hidden={false}
+            slot="container-list"
+          >
+            {shownContainers.map((guest) => (
+              <ContainerRow
+                key={guest.id}
+                guest={guest}
+                format={format}
+                selected={guest.id === selectedContainer}
+                onSelect={() => onSelect(fileRestoreContainerTo(guest.id))}
+              />
+            ))}
+          </PickerGroup>
+        ) : null}
+        {vmCount > 0 ? (
+          <p
+            className="flex items-start gap-2 px-4 py-3 text-xs text-muted-foreground"
+            data-slot="vm-note"
+          >
+            <Monitor className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              {t("fileRestore.vmNote", { count: vmCount })}{" "}
+              <Link
+                {...pveTo()}
+                className="font-medium text-foreground underline underline-offset-2"
+              >
+                {t("fileRestore.vmNoteAction")}
+              </Link>
+            </span>
+          </p>
+        ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+/** A container in the picker: its name, VMID and node, and its newest restore point. */
+function ContainerRow({
+  guest,
+  format,
+  selected,
+  onSelect,
+}: {
+  guest: PveGuest;
+  format: EndpointFormat;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { t } = format;
+  const last = guest.backups?.last?.at ?? guest.lastSuccessAt;
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-current={selected ? "true" : undefined}
+        className={cn(ROW_CLASS, selected && "bg-accent")}
+      >
+        <span className="truncate font-medium">{containerName(guest)}</span>
+        <span className="truncate font-mono text-xs text-muted-foreground">
+          {guest.node
+            ? t("fileRestore.containerLine", { vmid: guest.vmid, node: guest.node })
+            : t("fileRestore.containerLineNoNode", { vmid: guest.vmid })}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {last ? t("fileRestore.lastBackup", { time: format.dateTime(last) }) : null}
+        </span>
+      </button>
+    </li>
   );
 }
 

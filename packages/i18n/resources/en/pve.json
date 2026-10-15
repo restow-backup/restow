@@ -198,7 +198,8 @@
     "succeededWithGaps": "Succeeded with gaps ({count, plural, one {# item} other {# items}} could not be read)",
     "diskAllocated": "Disk: {size} allocated",
     "unreadablePaths": "Not read: {paths}",
-    "unreadableMore": "and {count} more"
+    "unreadableMore": "and {count} more",
+    "browseFiles": "Browse files"
   },
   "restore": {
     "title": "Restore as a new guest",

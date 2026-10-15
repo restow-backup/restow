@@ -1,3 +1,4 @@
+import type { BrowseResult, PreparedDownload } from "@/features/endpoints/api";
 import { apiFetch } from "@/lib/api";
 
 /**
@@ -164,6 +165,13 @@ export interface PveRestorePoint {
   consistency?: string | null;
   /** The first unreadable items, when the node named them (0.4.0 on). */
   stats?: { unreadablePaths?: string[] } | null;
+  /**
+   * What a container restore point holds, as paths in the container: `/` and the mount points
+   * vzdump includes; null for a VM. Missing on servers before 0.4.0.
+   */
+  contents?: string[] | null;
+  /** Whether its files can be browsed and downloaded (containers, 0.4.0 on). */
+  browsable?: boolean;
   disks: {
     device: string;
     size: number;
@@ -231,6 +239,8 @@ export const pveKeys = {
   all: (tenantId: string | null) => ["pve", tenantId] as const,
   overview: (tenantId: string | null) => ["pve", tenantId, "overview"] as const,
   guest: (tenantId: string | null, id: string) => ["pve", tenantId, "guest", id] as const,
+  files: (tenantId: string | null, snapshotId: string, path: string) =>
+    ["pve", tenantId, "files", snapshotId, path] as const,
 };
 
 /** How often the overview refreshes: often while a guest waits for its node or backs up (#51). */
@@ -294,3 +304,49 @@ export const saveJob = (id: string | null, input: JobInput) =>
     : apiFetch<PveJob>("/pve/jobs", { method: "POST", body: input });
 export const deleteJob = (id: string) =>
   apiFetch<void>(`/pve/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+// --- File restore of containers (#62) ---------------------------------------------
+
+/** Entries one page of a container folder holds; "Load more" fetches the next page. */
+export const FILES_PAGE = 1000;
+
+/** One page of a folder of a container restore point (audited by the server). */
+export function fetchContainerFiles(
+  snapshotId: string,
+  path: string,
+  cursor?: string | null,
+): Promise<BrowseResult> {
+  const search = new URLSearchParams({ path, limit: String(FILES_PAGE) });
+  if (cursor) {
+    search.set("cursor", cursor);
+  }
+  return apiFetch<BrowseResult>(
+    `/pve/snapshots/${encodeURIComponent(snapshotId)}/files?${search.toString()}`,
+  );
+}
+
+/** Step one of a ZIP download: the server checks the selection and keeps it for ten minutes. */
+export function createContainerDownload(
+  snapshotId: string,
+  paths: readonly string[],
+): Promise<PreparedDownload> {
+  return apiFetch<PreparedDownload>(`/pve/snapshots/${encodeURIComponent(snapshotId)}/downloads`, {
+    method: "POST",
+    body: { paths },
+  });
+}
+
+const API_BASE_URL = ((import.meta.env.VITE_API_URL as string | undefined) ?? "/api/v1").replace(
+  /\/+$/,
+  "",
+);
+
+/** Step two: the address the browser is sent to; the tenant travels in the query (a navigation). */
+export function containerDownloadUrl(
+  snapshotId: string,
+  downloadId: string,
+  tenantId: string | null,
+): string {
+  const query = tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : "";
+  return `${API_BASE_URL}/pve/snapshots/${encodeURIComponent(snapshotId)}/downloads/${encodeURIComponent(downloadId)}${query}`;
+}
