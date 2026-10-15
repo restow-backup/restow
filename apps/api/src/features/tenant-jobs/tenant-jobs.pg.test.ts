@@ -567,4 +567,44 @@ describe.skipIf(!testDatabaseAdminUrl)("the jobs of every tenant at a glance", (
 
     expect((await call(`/api/v1/tenant-jobs/${randomUUID()}`, ownerCookie)).status).toBe(404);
   });
+
+  it("keeps each tenant's figures for every viewer a short while; without the cache they are fresh", async () => {
+    const before = (await (
+      await call("/api/v1/tenant-jobs", ownerCookie)
+    ).json()) as TenantJobSummariesDto;
+    expect(rowOf(before, alpha).kinds?.mail.running).toBe(1);
+    const [anna] = await owner
+      .select({ id: protectedObjects.id })
+      .from(protectedObjects)
+      .where(eq(protectedObjects.displayName, "anna"));
+    const [added] = await owner
+      .insert(jobs)
+      .values({
+        tenantId: alpha,
+        queue: "backup",
+        status: "active",
+        protectedObjectId: anna?.id ?? null,
+      })
+      .returning({ id: jobs.id });
+    try {
+      const cached = (await (
+        await call("/api/v1/tenant-jobs", ownerCookie)
+      ).json()) as TenantJobSummariesDto;
+      expect(rowOf(cached, alpha).kinds?.mail.running).toBe(1);
+
+      const shared = await import("../../db.js");
+      // Imported here: the module opens the pools, which need the roles of beforeAll.
+      const { loadTenantJobSummaries } = await import("./service.js");
+      const fresh = await loadTenantJobSummaries(
+        { db: shared.db, providerDb: shared.providerDb },
+        null,
+      );
+      expect(rowOf(fresh, alpha).kinds?.mail.running).toBe(2);
+      // The rest is what the cached overview says, read in parallel and in the same order.
+      expect(fresh.tenants.map((row) => row.name)).toEqual(["Alpha", "Beta", "Operator"]);
+      expect(rowOf(fresh, beta).kinds).toEqual(rowOf(cached, beta).kinds);
+    } finally {
+      await owner.delete(jobs).where(eq(jobs.id, added?.id ?? ""));
+    }
+  });
 });
