@@ -49,6 +49,46 @@ describe("renderAlert", () => {
     expect(german.text).toContain("Frei: 4,0 GiB");
   });
 
+  it("names the restore point and every finding of a suspicious backup", () => {
+    const suspicious = (language: "en" | "de") =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Ransomware",
+        payload: {
+          event: "backup.suspicious",
+          occurredAt: "2026-09-29T10:00:00.000Z",
+          details: {
+            objectName: "fs01",
+            restorePointAt: "2026-09-29T09:30:00.000Z",
+            findings: [
+              { code: "ransom_notes", value: 37, threshold: 2, examples: ["HOW_TO_DECRYPT.txt"] },
+              {
+                code: "change_rate_bytes",
+                value: 30 * 1024 ** 3,
+                threshold: 2 * 1024 ** 3,
+                baseline: 200 * 1024 ** 2,
+              },
+              { code: "mass_deletions", value: 3000, threshold: 1000, share: 0.6 },
+              { code: "from_a_newer_worker", value: 1, threshold: 1 },
+            ],
+          },
+        },
+      });
+    const english = suspicious("en");
+    expect(english.subject).toBe("[Contoso] Suspicious backup (signs of ransomware): fs01");
+    expect(english.text).toContain("Restore point: 29 Sept 2026, 09:30 UTC");
+    expect(english.text).toContain("37 files named like a ransom note (HOW_TO_DECRYPT.txt)");
+    expect(english.text).toContain("30 GiB added, usually about 200 MiB (alert above 2 GiB)");
+    expect(english.text).toContain("3,000 files deleted, 60% of the files before");
+    expect(english.text).toContain("Another finding (1)");
+    const german = suspicious("de");
+    expect(german.subject).toBe("[Contoso] Verdächtige Sicherung (Anzeichen von Ransomware): fs01");
+    expect(german.text).toContain("Befunde: 37 Dateien mit dem Namen einer Lösegeldforderung");
+    // German puts a no-break space before the percent sign.
+    expect(german.text).toMatch(/3\.000 Dateien gelöscht, 60\s% der vorherigen Dateien/);
+  });
+
   it("calls a red rating for a backup that is too old what it is, not a failed restore check", () => {
     const red = (redReason: string, language: "en" | "de" = "en") =>
       renderAlert({

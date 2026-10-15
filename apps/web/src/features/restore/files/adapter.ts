@@ -7,6 +7,7 @@ import type {
 import type * as React from "react";
 
 import type { BrowseEntry } from "@/features/endpoints/api";
+import type { SuspicionTarget } from "@/features/suspicion";
 
 /**
  * What the file restore of a source needs from it (docs/FILESHARES.md 12.4): the restore points,
@@ -76,6 +77,11 @@ export interface FileSourceAdapter<P extends RestorePointView> {
    * Proxmox VE container, #62): the browser then offers the ZIP alone.
    */
   renderRestoreDialog?: (props: RestoreDialogSlotProps<P>) => React.ReactNode;
+  /**
+   * The object whose restore points the ransomware detection judges (docs/RANSOMWARE.md): the
+   * timeline marks the suspicious ones and points to the last clean one. Absent: no marks.
+   */
+  suspicion?: { target: SuspicionTarget; objectName: string };
   /** The translation key of an error (`endpoints:` keys by default). */
   errorKey: (error: unknown) => string;
   isRetryable: (error: unknown) => boolean;

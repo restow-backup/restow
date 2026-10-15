@@ -947,6 +947,47 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
       });
     }, 30_000);
 
+    it("keeps the agent's activity report with the statistics, checked, and works without one", async () => {
+      const who = await enrolled("server");
+      const { runId, finish } = await finishedBackup(who, {
+        activity: {
+          v: 1,
+          added: 40,
+          modified: 2,
+          removed: 1,
+          renamed: 0,
+          extensions: [{ value: "txt", count: 40 }],
+          names: [{ value: "HOW_TO_DECRYPT.txt", count: 40 }],
+          entropy: [{ path: "/srv/a.txt", ext: "txt", size: 10, head: 7.99 }],
+          aFieldOfANewerAgent: true,
+        },
+      });
+      expect(finish.status).toBe(200);
+      const [row] = await fixture.db
+        .select({ stats: endpointRuns.stats })
+        .from(endpointRuns)
+        .where(eq(endpointRuns.id, runId));
+      expect(row?.stats).toMatchObject({
+        filesNew: 3,
+        activity: {
+          v: 1,
+          added: 40,
+          names: [{ value: "HOW_TO_DECRYPT.txt", count: 40 }],
+          entropy: [{ path: "/srv/a.txt", ext: "txt", size: 10, head: 7.99, tail: null }],
+        },
+      });
+      expect(row?.stats?.activity).not.toHaveProperty("aFieldOfANewerAgent");
+
+      // Nonsense is dropped, not refused: the backup itself is what counts.
+      const odd = await finishedBackup(who, { activity: "not a report" });
+      expect(odd.finish.status).toBe(200);
+      const [plain] = await fixture.db
+        .select({ stats: endpointRuns.stats })
+        .from(endpointRuns)
+        .where(eq(endpointRuns.id, odd.runId));
+      expect(plain?.stats).not.toHaveProperty("activity");
+    }, 30_000);
+
     it("finishing twice answers the same and changes nothing", async () => {
       const who = await enrolled("server");
       const { runId } = await finishedBackup(who);

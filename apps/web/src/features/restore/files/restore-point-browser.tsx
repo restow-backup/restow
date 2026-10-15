@@ -15,6 +15,14 @@ import {
   toggleItem,
 } from "@/features/endpoints/presenters";
 
+import {
+  judgementsById,
+  LastCleanHint,
+  SelectedPointNote,
+  SuspicionBadge,
+  useObjectSuspicions,
+} from "@/features/suspicion";
+
 import { type FileSourceAdapter, newestFirst, type RestorePointView } from "./adapter.js";
 import { BrowserBody, type FolderPages, PathBar, SelectionBar } from "./file-browser.js";
 
@@ -47,6 +55,23 @@ export function RestorePointBrowser<P extends RestorePointView>({
   const point = list.find((item) => item.id === pointId) ?? null;
   const folder = adapter.useFolder(point?.id ?? null, path);
   const createDownload = adapter.useCreateDownload();
+  // The ransomware judgements of the restore points (docs/RANSOMWARE.md), when the source has them.
+  const suspicions = useObjectSuspicions(adapter.suspicion?.target);
+  const judgements = React.useMemo(
+    () => judgementsById(suspicions.data?.restorePoints),
+    [suspicions.data],
+  );
+  const renderDetails = (item: P) => (
+    <>
+      {adapter.renderDetails(item)}
+      {adapter.suspicion ? (
+        <SuspicionBadge
+          judgement={judgements.get(item.id)}
+          objectName={adapter.suspicion.objectName}
+        />
+      ) : null}
+    </>
+  );
   // The pages fetched so far, joined: the server already lists them in order.
   const pages: FolderPages | undefined = folder.data
     ? {
@@ -116,100 +141,104 @@ export function RestorePointBrowser<P extends RestorePointView>({
   }
 
   return (
-    <div className={`grid items-start gap-4 ${SNAPSHOTS_GRID}`}>
-      <Card className="gap-0 overflow-hidden py-0" data-slot="snapshots-card">
-        <CardHeader className="border-b py-4">
-          <CardTitle className="text-base">{t("snapshots.title")}</CardTitle>
-          <CardDescription>{t("snapshots.description", { count: list.length })}</CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          <RestoreTimeline
-            items={list}
-            idOf={(item: P) => item.id}
-            timeOf={(item: P) => item.time}
-            selectedId={pointId}
-            onSelect={pick}
-            renderDetails={adapter.renderDetails}
-            label={adapter.timelineLabel}
-            slot="snapshot-list"
-          />
-        </CardContent>
-      </Card>
-
-      <Card className="min-w-0 gap-0 overflow-hidden py-0" data-slot="browser-card">
-        {point ? (
-          <>
-            <CardHeader className="gap-2 border-b py-4">
-              <CardTitle className="text-base">
-                {t("browser.title", { id: point.shortId })}
-              </CardTitle>
-              <CardDescription>{t("browser.auditNote")}</CardDescription>
-              {adapter.renderBrowserExtra?.(point, (next) => {
-                setPath(next);
-              })}
-              <PathBar
-                path={path}
-                onNavigate={(next) => {
-                  setPath(next);
-                }}
-              />
-            </CardHeader>
-            {/* A fixed height: the list scrolls inside, so the path bar and the actions
-                below stay where they are from folder to folder (#60). */}
-            <CardContent
-              className="h-96 overflow-y-auto overscroll-contain p-0 xl:h-[max(24rem,calc(100dvh-26rem))]"
-              data-slot="browser-list"
-            >
-              <BrowserBody
-                loading={folder.isPending}
-                error={folder.isError && !folder.isFetchNextPageError ? folder.error : null}
-                onRetry={() => void folder.refetch()}
-                retrying={folder.isFetching}
-                pages={pages}
-                selection={selection}
-                onToggle={(entry) => setSelection((current) => toggleItem(current, entry))}
-                onToggleAll={(entries) => setSelection((current) => toggleAll(current, entries))}
-                onOpenFolder={setPath}
-              />
-            </CardContent>
-            <SelectionBar
-              count={limits.paths.length}
-              singleFiles={effectiveFileCount(selection)}
-              blockedDownload={limits.downloadBlocked}
-              blockedRestore={limits.restoreBlocked}
-              downloading={createDownload.isPending}
-              canRestore={adapter.canRestore && !limits.restoreBlocked}
-              onClear={() => setSelection(NO_SELECTION)}
-              onDownload={download}
-              onRestore={adapter.renderRestoreDialog ? () => setRestoring(true) : undefined}
-              limits={adapter.limits}
-              restoreLabel={adapter.restoreLabel}
-            />
-            {adapter.note ? (
-              <p className="border-t px-4 py-2 text-xs text-muted-foreground">{adapter.note}</p>
-            ) : null}
-          </>
-        ) : (
-          <CardContent className="py-16">
-            <EmptyState
-              variant="plain"
-              icon={Camera}
-              title={t("browser.pick.title")}
-              description={t("browser.pick.description")}
+    <div className="space-y-4">
+      <LastCleanHint points={list} judgements={judgements} onPick={pick} />
+      <div className={`grid items-start gap-4 ${SNAPSHOTS_GRID}`}>
+        <Card className="gap-0 overflow-hidden py-0" data-slot="snapshots-card">
+          <CardHeader className="border-b py-4">
+            <CardTitle className="text-base">{t("snapshots.title")}</CardTitle>
+            <CardDescription>{t("snapshots.description", { count: list.length })}</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <RestoreTimeline
+              items={list}
+              idOf={(item: P) => item.id}
+              timeOf={(item: P) => item.time}
+              selectedId={pointId}
+              onSelect={pick}
+              renderDetails={renderDetails}
+              label={adapter.timelineLabel}
+              slot="snapshot-list"
             />
           </CardContent>
-        )}
-      </Card>
+        </Card>
 
-      {point && adapter.renderRestoreDialog
-        ? adapter.renderRestoreDialog({
-            open: restoring,
-            onOpenChange: setRestoring,
-            point,
-            paths: limits.paths,
-            onRequested: () => setSelection(NO_SELECTION),
-          })
-        : null}
+        <Card className="min-w-0 gap-0 overflow-hidden py-0" data-slot="browser-card">
+          {point ? (
+            <>
+              <CardHeader className="gap-2 border-b py-4">
+                <CardTitle className="text-base">
+                  {t("browser.title", { id: point.shortId })}
+                </CardTitle>
+                <CardDescription>{t("browser.auditNote")}</CardDescription>
+                <SelectedPointNote point={point} points={list} judgements={judgements} />
+                {adapter.renderBrowserExtra?.(point, (next) => {
+                  setPath(next);
+                })}
+                <PathBar
+                  path={path}
+                  onNavigate={(next) => {
+                    setPath(next);
+                  }}
+                />
+              </CardHeader>
+              {/* A fixed height: the list scrolls inside, so the path bar and the actions
+                below stay where they are from folder to folder (#60). */}
+              <CardContent
+                className="h-96 overflow-y-auto overscroll-contain p-0 xl:h-[max(24rem,calc(100dvh-26rem))]"
+                data-slot="browser-list"
+              >
+                <BrowserBody
+                  loading={folder.isPending}
+                  error={folder.isError && !folder.isFetchNextPageError ? folder.error : null}
+                  onRetry={() => void folder.refetch()}
+                  retrying={folder.isFetching}
+                  pages={pages}
+                  selection={selection}
+                  onToggle={(entry) => setSelection((current) => toggleItem(current, entry))}
+                  onToggleAll={(entries) => setSelection((current) => toggleAll(current, entries))}
+                  onOpenFolder={setPath}
+                />
+              </CardContent>
+              <SelectionBar
+                count={limits.paths.length}
+                singleFiles={effectiveFileCount(selection)}
+                blockedDownload={limits.downloadBlocked}
+                blockedRestore={limits.restoreBlocked}
+                downloading={createDownload.isPending}
+                canRestore={adapter.canRestore && !limits.restoreBlocked}
+                onClear={() => setSelection(NO_SELECTION)}
+                onDownload={download}
+                onRestore={adapter.renderRestoreDialog ? () => setRestoring(true) : undefined}
+                limits={adapter.limits}
+                restoreLabel={adapter.restoreLabel}
+              />
+              {adapter.note ? (
+                <p className="border-t px-4 py-2 text-xs text-muted-foreground">{adapter.note}</p>
+              ) : null}
+            </>
+          ) : (
+            <CardContent className="py-16">
+              <EmptyState
+                variant="plain"
+                icon={Camera}
+                title={t("browser.pick.title")}
+                description={t("browser.pick.description")}
+              />
+            </CardContent>
+          )}
+        </Card>
+
+        {point && adapter.renderRestoreDialog
+          ? adapter.renderRestoreDialog({
+              open: restoring,
+              onOpenChange: setRestoring,
+              point,
+              paths: limits.paths,
+              onRequested: () => setSelection(NO_SELECTION),
+            })
+          : null}
+      </div>
     </div>
   );
 }

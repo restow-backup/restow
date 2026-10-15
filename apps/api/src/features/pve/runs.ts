@@ -17,6 +17,7 @@ import {
   mapStats,
   type PveDiskObject,
   PveFormatError,
+  parseActivityReport,
   parseArchiveName,
   resticBinary,
   resticCacheBase,
@@ -400,12 +401,37 @@ export interface CommitInput {
   firewallConfig: string | null;
   resticSnapshotId?: string;
   resticBytesAdded?: number;
+  resticFilesNew?: number;
+  resticFilesChanged?: number;
+  resticFilesTotal?: number;
+  activity?: unknown;
   resticTotalBytes?: number;
   resticRoot?: string;
   pveVersion?: string;
   resticUnreadable?: number;
   resticUnreadablePaths?: string[];
   consistency?: string;
+}
+
+/**
+ * A container backup's file counts and activity report, as far as the node sent them (nodes from
+ * 0.4.0 on), for the ransomware judgement; the report checked and bounded.
+ */
+export function containerActivityStats(input: {
+  resticFilesNew?: number;
+  resticFilesChanged?: number;
+  resticFilesTotal?: number;
+  activity?: unknown;
+}): Record<string, unknown> {
+  const report = parseActivityReport(input.activity);
+  return {
+    ...(input.resticFilesNew !== undefined ? { resticFilesNew: input.resticFilesNew } : {}),
+    ...(input.resticFilesChanged !== undefined
+      ? { resticFilesChanged: input.resticFilesChanged }
+      : {}),
+    ...(input.resticFilesTotal !== undefined ? { resticFilesTotal: input.resticFilesTotal } : {}),
+    ...(report ? { activity: { ...report } } : {}),
+  };
 }
 
 interface WrittenObject {
@@ -664,6 +690,8 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
       zeroBlocks: (input.devices ?? []).reduce((s, d) => s + d.zeroBlocks, 0),
       hashSkipped: (input.devices ?? []).reduce((s, d) => s + d.hashSkipped, 0),
       ...(kind === "ct" ? { resticBytesAdded: input.resticBytesAdded ?? 0 } : {}),
+      // What the container backup changed, for the ransomware judgement (apps/worker suspicion).
+      ...(kind === "ct" ? containerActivityStats(input) : {}),
       // An incomplete container snapshot (restic exit 3) says what it misses.
       ...(kind === "ct" && input.resticUnreadable
         ? {

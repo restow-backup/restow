@@ -520,6 +520,11 @@ type CommitRequest struct {
 	ResticUnreadable int `json:"resticUnreadable,omitempty"`
 	// ResticUnreadablePaths names the first of them (an older server ignores it).
 	ResticUnreadablePaths []string `json:"resticUnreadablePaths,omitempty"`
+	// Restic's file counts of a container backup, for the ransomware signals
+	// of the server (an older server ignores them).
+	ResticFilesNew     uint64 `json:"resticFilesNew,omitempty"`
+	ResticFilesChanged uint64 `json:"resticFilesChanged,omitempty"`
+	ResticFilesTotal   uint64 `json:"resticFilesTotal,omitempty"`
 }
 
 // CommitResponse is the answer of a commit.

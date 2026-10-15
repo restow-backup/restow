@@ -322,6 +322,8 @@ export type EndpointRunStats = {
   dataAdded?: number;
   totalFilesProcessed?: number;
   totalBytesProcessed?: number;
+  /** What the backup changed (agent 0.4.0 and newer): @restow/core `ActivityReport`. */
+  activity?: Record<string, unknown>;
 };
 
 export type EndpointRunProgress = {

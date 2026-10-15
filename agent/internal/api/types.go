@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/restow-backup/restow/agent/internal/activity"
 )
 
 // Roles of an endpoint.
@@ -269,6 +271,10 @@ type FinishRequest struct {
 	LogTail    string       `json:"logTail"`
 	// RestoreTest is what a verify_sample run found, once restic restore ran.
 	RestoreTest *RestoreTest `json:"restoreTest,omitempty"`
+	// Activity is what a backup changed against the previous snapshot, for
+	// the ransomware signals of the server (agent 0.4.0 and newer; a server
+	// that does not know it ignores it).
+	Activity *activity.Report `json:"activity,omitempty"`
 }
 
 // RestoreTest is the result of a restore test (verify_sample) as the agent

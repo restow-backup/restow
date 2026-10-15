@@ -374,7 +374,8 @@
     "backup": {
       "failed": "Sicherung fehlgeschlagen",
       "overdue": "Sicherung überfällig",
-      "succeeded": "Sicherung erfolgreich"
+      "succeeded": "Sicherung erfolgreich",
+      "suspicious": "Verdächtige Sicherung (Anzeichen von Ransomware)"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen",
@@ -421,7 +422,8 @@
     "backup": {
       "failed": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos, Servers oder Clients wurde nicht abgeschlossen.",
       "overdue": "Ein Postfach, OneDrive, IMAP-Konto, Rechner oder Gast (VM oder Container) hatte länger keine erfolgreiche Sicherung, als seine Backup-Jobs vorsehen (doppelter längster Abstand der Zeitpläne, ohne Zeitplan zwei Tage), oder länger als die eigene Frist der Regel. Einmal je Objekt, bis wieder eine Sicherung gelingt.",
-      "succeeded": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos oder einer Dateifreigabe ist abgeschlossen. Jeder Lauf, also eher für einen Kanal, der jeden sehen soll."
+      "succeeded": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos oder einer Dateifreigabe ist abgeschlossen. Jeder Lauf, also eher für einen Kanal, der jeden sehen soll.",
+      "suspicious": "Was eine Sicherung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives gesehen hat, sieht nach Ransomware aus: weit mehr Änderungen als üblich, massenhafte Löschungen oder umbenannte Endungen, bekannte Ransomware-Namen oder verschlüsselt wirkende Dateien. Je Objekt einmal, bis ein Sicherungsstand ohne Befund folgt oder der Befund als Fehlalarm markiert wird."
     },
     "restore": {
       "failed": "Eine Wiederherstellung oder ein Download, auch eines Servers oder Clients, konnte nicht abgeschlossen werden.",
@@ -514,7 +516,9 @@
     "diskRepository": "Unter dem lokalen Standard-Repository",
     "location": "Ort",
     "free": "Frei",
-    "total": "Größe"
+    "total": "Größe",
+    "findings": "Befunde",
+    "restorePoint": "Sicherungsstand"
   },
   "summary": {
     "previous": "Vorzeitraum",
@@ -546,7 +550,8 @@
     "backup": {
       "failed": "Sicherung fehlgeschlagen: {object}",
       "overdue": "Keine erfolgreiche Sicherung {days, plural, one {seit über # Tag} other {seit über # Tagen}}: {object}",
-      "succeeded": "Sicherung erfolgreich: {object}"
+      "succeeded": "Sicherung erfolgreich: {object}",
+      "suspicious": "Verdächtige Sicherung: {object}"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen: {object}",

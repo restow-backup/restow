@@ -361,6 +361,11 @@ func (j *job) backup(ctx context.Context) Outcome {
 		"permissions": map[string]any{"mode": manifest.Permissions.Mode, "xattr": mode, "entries": counts.Entries,
 			"descriptors": counts.Descriptors, "errors": counts.Errors, "reused": walk.Reused},
 	}
+	// What changed against the parent, for the ransomware signals (runner 0.4.0 and newer).
+	sharePaths := args.Paths[:len(args.Paths)-1]
+	if act := j.activity(ctx, b.ParentSnapshotID, summary.SnapshotID, sharePaths); act != nil {
+		stats["activity"] = act
+	}
 	out := Outcome{Status: StatusSucceeded, SnapshotID: summary.SnapshotID, Stats: stats, Exit: ExitOK}
 	warn := res.ExitCode == restic.ExitIncomplete
 	for code, n := range j.rep.Counts() {

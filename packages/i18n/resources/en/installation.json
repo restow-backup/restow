@@ -17,7 +17,8 @@
     "updates": "Updates",
     "edition": "Edition",
     "about": "About",
-    "database": "Database"
+    "database": "Database",
+    "ransomware": "Ransomware detection"
   },
   "descriptions": {
     "server": "How browsers reach this server and whether passkeys are offered. Applies to {scope, select, organisation {your organisation} other {all tenants}}.",
@@ -31,7 +32,8 @@
     "updates": "Which version runs, which releases exist and how to update.",
     "edition": "Which build runs and the switch to the full build.",
     "about": "Version, source code and licenses of this installation.",
-    "database": "Where the database keeps its data, the free space of its disk and the repository's, and moving it to another disk."
+    "database": "Where the database keeps its data, the free space of its disk and the repository's, and moving it to another disk.",
+    "ransomware": "How restore points are checked for signs of ransomware, and the thresholds of each signal, for {scope, select, organisation {your organisation} other {all tenants}}."
   },
   "access": {
     "owner": "You can look at these settings. Changing them needs the Owner role in the provider team.",

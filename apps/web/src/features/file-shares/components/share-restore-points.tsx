@@ -120,6 +120,7 @@ export function ShareRestorePoints({ share, onShowRuns }: ShareRestorePointsProp
     canRestore: true,
     restoreLabel: t("points.restore"),
     timelineLabel: t("points.timelineLabel", { name: share.name }),
+    suspicion: { target: { kind: "file_share", objectId: share.id }, objectName: share.name },
     emptyTitle: t("points.empty.title"),
     emptyDescription: t("points.empty.description"),
     renderDetails: (point) => <PointDetails point={point} format={format} />,

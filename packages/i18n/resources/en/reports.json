@@ -374,7 +374,8 @@
     "backup": {
       "failed": "Backup failed",
       "overdue": "Backup overdue",
-      "succeeded": "Backup succeeded"
+      "succeeded": "Backup succeeded",
+      "suspicious": "Suspicious backup (signs of ransomware)"
     },
     "restore": {
       "failed": "Restore failed",
@@ -421,7 +422,8 @@
     "backup": {
       "failed": "A backup run of a mailbox, OneDrive, IMAP account, server or client did not finish.",
       "overdue": "A mailbox, OneDrive, IMAP account, machine or guest (VM or container) had no successful backup for longer than its backup jobs plan (twice the longest gap of the schedules, two days without one), or for longer than the rule's own deadline. Once per object, until a backup succeeds again.",
-      "succeeded": "A backup run of a mailbox, OneDrive, IMAP account or file share finished. Every run, so best for a channel that wants to see each one."
+      "succeeded": "A backup run of a mailbox, OneDrive, IMAP account or file share finished. Every run, so best for a channel that wants to see each one.",
+      "suspicious": "What a backup of a machine, file share, Proxmox VE guest, mailbox or OneDrive saw looks like ransomware at work: far more changes than usual, mass deletions or renamed extensions, known ransomware names or files that look encrypted. Once per object until a restore point without findings follows or the finding is marked as a false alarm."
     },
     "restore": {
       "failed": "A restore or a download, of a server or client too, could not be finished.",
@@ -514,7 +516,9 @@
     "diskRepository": "Under the local default repository",
     "location": "Location",
     "free": "Free",
-    "total": "Size"
+    "total": "Size",
+    "findings": "Findings",
+    "restorePoint": "Restore point"
   },
   "summary": {
     "previous": "previous period",
@@ -546,7 +550,8 @@
     "backup": {
       "failed": "Backup failed: {object}",
       "overdue": "No successful backup {days, plural, one {for over # day} other {for over # days}}: {object}",
-      "succeeded": "Backup succeeded: {object}"
+      "succeeded": "Backup succeeded: {object}",
+      "suspicious": "Suspicious backup: {object}"
     },
     "restore": {
       "failed": "Restore failed: {object}",

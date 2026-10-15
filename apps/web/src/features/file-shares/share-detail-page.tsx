@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ObjectSuspicionBadge } from "@/features/suspicion";
 import { ApiError } from "@/lib/api";
 
 import { OverviewTab } from "./components/overview-tab.js";
@@ -122,6 +123,7 @@ export function ShareDetailPage({ shareId, tab, onTabChange }: ShareDetailPagePr
           {t(readiness.key)}
         </StatusBadge>
         <StatusBadge tone="neutral">{t(`protocol.${share.protocol}`)}</StatusBadge>
+        <ObjectSuspicionBadge target={{ kind: "file_share", objectId: share.id }} />
         {share.protocol === "smb" && share.smbVersion === "2.1" ? (
           <StatusBadge tone="warning" icon>
             {t("detail.smb21")}

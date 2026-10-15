@@ -17,6 +17,7 @@ import {
   isSupportedEndpointOs,
   isValidTimeZone,
   judgeAgentRestoreTest,
+  parseActivityReport,
   RESTIC_VERSION,
   type RestoreTestTaskParams,
   redactAgentLog,
@@ -32,6 +33,7 @@ import {
   type EndpointAgentFacts,
   type EndpointConfig,
   type EndpointRun,
+  type EndpointRunStats,
   endpointEnrollmentTokens,
   endpointReports,
   endpointRuns,
@@ -698,6 +700,21 @@ export function failureRecordOf(
   return cause ? toFailureRecord(cause, { now }) : null;
 }
 
+/**
+ * The run's statistics with the agent's activity report (docs/RANSOMWARE.md) beside them, checked
+ * and bounded; a report without statistics (a failed run) is not kept.
+ */
+export function statsWithActivity(
+  stats: FinishRunInput["stats"],
+  activity: unknown,
+): EndpointRunStats | null {
+  if (!stats) {
+    return null;
+  }
+  const report = parseActivityReport(activity);
+  return report ? { ...stats, activity: { ...report } } : stats;
+}
+
 export interface FinishedRun {
   runId: string;
   status: EndpointRun["status"];
@@ -737,7 +754,7 @@ export async function finishRun(
         status: input.status,
         finishedAt: finishedAt.getTime() < run.startedAt.getTime() ? now : finishedAt,
         snapshotId: input.snapshotId ?? null,
-        stats: input.stats ?? null,
+        stats: statsWithActivity(input.stats, input.activity),
         errors,
         // What went wrong, explained: the headline, the reason and what to do, in the viewer's language.
         failure,

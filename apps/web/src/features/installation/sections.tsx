@@ -1,6 +1,17 @@
-import { AppWindow, Database, Download, HardDrive, Info, Layers, Mail, Server } from "lucide-react";
+import {
+  AppWindow,
+  Database,
+  Download,
+  HardDrive,
+  Info,
+  Layers,
+  Mail,
+  Server,
+  ShieldAlert,
+} from "lucide-react";
 
 import { AboutSection } from "@/features/settings/sections/about-section";
+import { RansomwareSection } from "@/features/suspicion/components/ransomware-section";
 import { UpdatesSection } from "@/features/updates/updates-section";
 import { extensionInstallationSections, type InstallationSectionSpec } from "@/lib/extensions";
 
@@ -19,7 +30,7 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  *
  *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
  *   40 Journal receiving (Business)    50 Default repository & network shares
- *   55 Database                        60 Provider API (Service Provider) 70 Updates
+ *   55 Database      57 Ransomware detection   60 Provider API (Service Provider) 70 Updates
  *   80 License (extension) or Edition  90 About
  *
  * Edition (core) is the Community build's place for what the License section is in the
@@ -74,6 +85,15 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     icon: Database,
     order: 55,
     component: DatabaseSection,
+  },
+  {
+    // The thresholds of the ransomware detection on backups (docs/RANSOMWARE.md).
+    id: "ransomware",
+    labelKey: "installation:sections.ransomware",
+    descriptionKey: "installation:descriptions.ransomware",
+    icon: ShieldAlert,
+    order: 57,
+    component: RansomwareSection,
   },
   {
     id: "updates",

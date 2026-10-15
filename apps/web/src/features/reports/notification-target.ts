@@ -1,6 +1,8 @@
 import { endpointDetailTo } from "@/features/endpoints/paths";
+import { FILE_SHARES_PATH } from "@/features/file-shares/paths";
 import { installationSectionPath } from "@/features/installation/paths";
 import { guestTo } from "@/features/pve/paths";
+import { RESTORE_PATHS } from "@/features/restore/navigation";
 import { verifyReportTo } from "@/features/verify/paths";
 import { tenantPagePath } from "@/lib/tenant-paths";
 
@@ -58,6 +60,16 @@ export function notificationTarget(
   const guestId = text(details.pveGuestId);
   if (guestId) {
     return at(String(guestTo(guestId).to));
+  }
+  // A file share: its restore points, where the suspicious ones are marked.
+  const shareId = text(details.fileShareId);
+  if (shareId && item.event === "backup.suspicious") {
+    return at(`${FILE_SHARES_PATH}/${encodeURIComponent(shareId)}?tab=restore-points`);
+  }
+  // A suspicious mailbox or OneDrive: the explorer at that account, its restore points marked.
+  const objectId = text(details.protectedObjectId);
+  if (objectId && item.event === "backup.suspicious") {
+    return at(`${RESTORE_PATHS.explorer}?object=${encodeURIComponent(objectId)}`);
   }
   if (item.event.startsWith("verify.")) {
     const reportId = text(details.reportId);

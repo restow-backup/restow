@@ -161,7 +161,8 @@
     "pve": "Proxmox VE",
     "file_share": "File shares",
     "warning": "Warnings",
-    "database": "Database"
+    "database": "Database",
+    "suspicion": "Ransomware detection"
   },
   "events": {
     "account": {
@@ -321,7 +322,10 @@
         "saved": "Microsoft 365 app registration saved",
         "tested": "Microsoft 365 app registration tested"
       },
-      "updated": "Settings changed"
+      "updated": "Settings changed",
+      "ransomware": {
+        "updated": "Thresholds of the ransomware detection changed"
+      }
     },
     "setup": {
       "completed": "Installation set up",
@@ -616,6 +620,10 @@
         "removal_requested": "Removal of the old database copy requested",
         "removed": "Old database copy removed"
       }
+    },
+    "suspicion": {
+      "false_alarm": "Suspicious restore point marked as a false alarm",
+      "false_alarm_revoked": "False alarm of a restore point taken back"
     }
   },
   "targetTypes": {
@@ -665,7 +673,8 @@
     "pve_enrollment_token": "Enrollment token (Proxmox VE)",
     "service": "Service",
     "database": "Database",
-    "dump": "Database backup"
+    "dump": "Database backup",
+    "restore_point": "Restore point"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
   "export": {

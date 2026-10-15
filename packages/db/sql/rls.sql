@@ -141,6 +141,7 @@ DECLARE
     'file_share_repository_locks',
     'file_share_downloads',
     'file_share_catalog',
+    'restore_point_suspicions',
     -- Read and written only by the installation role (packages/db roles.ts);
     -- the policy is a second line should the tenant role ever be granted it.
     'provider_member_tenants'

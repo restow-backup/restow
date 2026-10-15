@@ -43,7 +43,7 @@ func fakeContainerBackup(t *testing.T, stdout, stderr string, code int) (*Provid
 	return p, req, &log, runDir
 }
 
-const ctSummary = `{"message_type":"summary","snapshot_id":"` + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + `","data_added":2097152,"total_bytes_processed":4194304}`
+const ctSummary = `{"message_type":"summary","snapshot_id":"` + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + `","data_added":2097152,"total_bytes_processed":4194304,"files_new":3,"files_changed":2,"total_files_processed":40}`
 
 func TestContainerBackupLeavesOutLostAndFoundOfEveryFileSystem(t *testing.T) {
 	p, req, _, _ := fakeContainerBackup(t, ctSummary, "", 0)

@@ -290,5 +290,8 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	if rc.ctx.Err() == nil {
 		out.Sample = a.collectSample(rc, res.SnapshotID)
 	}
+	if rc.ctx.Err() == nil {
+		out.Activity = a.collectActivity(rc, res.SnapshotID, sources)
+	}
 	return out
 }

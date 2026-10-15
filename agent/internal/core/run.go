@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/restow-backup/restow/agent/internal/activity"
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/buildinfo"
 	"github.com/restow-backup/restow/agent/internal/restic"
@@ -48,6 +49,8 @@ type runOutcome struct {
 	Summary string
 	// RestoreTest is what a restore test (verify_sample) observed.
 	RestoreTest *api.RestoreTest
+	// Activity is what a backup changed (the ransomware signals).
+	Activity *activity.Report
 }
 
 func (o *runOutcome) fail(code, format string, args ...any) {
@@ -114,6 +117,7 @@ func (a *Agent) endRun(rc *runContext, out runOutcome) {
 	fin := api.FinishRequest{
 		Status: out.Status, FinishedAt: finished, SnapshotID: out.SnapshotID, Stats: out.Stats,
 		Sample: out.Sample, Errors: capErrors(out.Errors, out.Unlisted), LogTail: rc.rl.Tail(), RestoreTest: out.RestoreTest,
+		Activity: out.Activity,
 	}
 	timeout := 4 * time.Minute
 	base := rc.ctx

@@ -36,6 +36,9 @@ literally (use `{appName}`).
 | The optional container that mounts network shares and starts the runners (docs/MOUNTS.md) | mounter | Mounter | Mount-Dienst, Agent |
 | A job that writes the newest verified restore point of one file share into a folder of another | copy job | Kopierjob | Sicherungsjob, Spiegel (for the job) |
 | Restoring into the share the data came from | original location | ursprünglicher Ort | Quelle |
+| A restore point that shows signs of ransomware (docs/RANSOMWARE.md) | suspicious | verdächtig | infiziert, kompromittiert (it is a sign, not a proof) |
+| An administrator's verdict that a finding was harmless | false alarm | Fehlalarm | Fehlalarm bestätigen, ignorieren |
+| The newest restore point without findings | last clean restore point | letzter unauffälliger Sicherungsstand | letzter sauberer Stand, letzte gute Sicherung |
 | A VM or container of Proxmox VE | guest (VM, container) | Gast (VM, Container) | Instanz, Maschine, CT |
 | A Proxmox VE server with the node helper | node | Knoten | Host, Hypervisor (for a node) |
 

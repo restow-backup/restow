@@ -94,6 +94,7 @@ export const EVENT_GROUPS: Record<
     "file_share.repository_locked",
   ],
   recoverability: [
+    "backup.suspicious",
     "verify.red",
     "verify.yellow",
     "verify.recovered",

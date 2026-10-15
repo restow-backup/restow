@@ -231,6 +231,12 @@ export const settings = pgTable(
       .default({}),
     // The low disk space warning per watched disk (see DiskAlertState); `{}` before the first check.
     diskAlerts: jsonb("disk_alerts").$type<DiskAlertState>().notNull().default({}),
+    // The thresholds of the ransomware detection (docs/RANSOMWARE.md) an owner changed; `{}`
+    // takes every default (@restow/core `resolveRansomwareSettings`).
+    ransomwareDetection: jsonb("ransomware_detection")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     ...timestamps(),
   },
   (t) => [uniqueIndex("settings_singleton_uq").on(t.singleton)],

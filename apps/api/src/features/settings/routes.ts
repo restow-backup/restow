@@ -6,6 +6,8 @@ import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import { refuseApiKeys, requireProviderAdmin, type SessionEnv } from "../../middleware/session.js";
 import { acceptDisclaimerSchema, parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { ransomwareSettingsSchema } from "../suspicion/schemas.js";
+import { getRansomwareSettings, updateRansomwareSettings } from "../suspicion/service.js";
 import {
   getDefaultStorage,
   removeDefaultStorage,
@@ -60,6 +62,10 @@ import {
  *   PUT    /microsoft-app         save it (client secret or certificate are write-only)
  *   POST   /microsoft-app/test    acquire a Graph token and compare the granted permissions
  *   DELETE /microsoft-app         remove the saved registration
+ *   GET    /ransomware            the thresholds of the ransomware detection, their defaults and
+ *                                  ranges, the version of the name signatures
+ *   PUT    /ransomware            replace the stored thresholds (what is left out takes its
+ *                                  default; `{}` is every default)
  *   GET    /default-storage       the installation's default storage (saved here, else from the
  *                                  environment), how many tenants keep their data on it, which
  *                                  tenants keep it from moving, the last test of it
@@ -164,6 +170,17 @@ settingsRoutes.post("/microsoft-app/test", async (c) => {
 
 settingsRoutes.delete("/microsoft-app", async (c) => {
   return c.json(await removeMicrosoftApp(providerDb, actorOf(c), requestContext(c)));
+});
+
+// Ransomware detection (docs/RANSOMWARE.md): the thresholds every provider admin reads and the
+// owner changes (lib/provider-access.ts).
+settingsRoutes.get("/ransomware", async (c) => {
+  return c.json(await getRansomwareSettings(providerDb));
+});
+
+settingsRoutes.put("/ransomware", async (c) => {
+  const input = await parseJsonBody(c.req, ransomwareSettingsSchema);
+  return c.json(await updateRansomwareSettings(providerDb, input, actorOf(c)));
 });
 
 settingsRoutes.get("/default-storage", async (c) => {

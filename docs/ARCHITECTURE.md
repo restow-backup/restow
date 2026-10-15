@@ -475,7 +475,10 @@ Regeln je Mandant in `report_rules`, zwei Auslöser:
   `verify.yellow`, `verify.recovered`, `verify.completed`, `scrub.corrupt`, `scrub.repaired`,
   dazu für Server und
   Clients `endpoint.stale`, `endpoint.suspicious_snapshot`, `endpoint.storage_quota` und
-  `endpoint.repository_locked` (docs/AGENT.md, "Alarme"). Drosselung je
+  `endpoint.repository_locked` (docs/AGENT.md, "Alarme"), sowie `backup.suspicious`
+  (Gruppe Wiederherstellbarkeit, Fehler): ein Sicherungsstand eines Rechners, einer Freigabe,
+  eines Proxmox-VE-Gasts, Postfachs oder OneDrives zeigt Anzeichen von Ransomware, einmal je
+  Objekt und Episode (siehe "Ransomware-Erkennung" unten und docs/RANSOMWARE.md). Drosselung je
   Regel und Gegenstand (Objekt, Rechner, Gast, sonst Auftragstyp) über `throttle_minutes`.
   `backup.overdue` (`apps/worker/src/overdue.ts`, mit dem Endpoint-Monitor alle fünf Minuten):
   keine erfolgreiche Sicherung eines Postfachs, OneDrives, IMAP-Kontos, Rechners oder Gasts
@@ -551,6 +554,33 @@ das eine Regel an die Adresse schickt; ein Webhook bekommt die Katalogereignisse
 Stromabonnements und jedes Ereignis, das eine Regel an ihn schickt, ohne dass ein Webhook, an den nur
 Regeln senden, dadurch den Strom abonniert. Speichern der Matrix steht im Audit-Log
 (`report.matrix_updated`, mit Kanal-IDs und Anzahlen, nie Adressen).
+
+### Ransomware-Erkennung
+
+Jeder neue Sicherungsstand wird aus dem beurteilt, was die Sicherung ohnehin gesehen hat; die
+gesicherten Daten werden nie ein zweites Mal gelesen (Einzelheiten, Schwellenwerte und Grenzen:
+[RANSOMWARE.md](RANSOMWARE.md)).
+
+- **Signale** (`packages/core/src/ransomware/`): Menge der Änderungen (neue und geänderte
+  Dateien bzw. Elemente, hinzugekommene Bytes) gegen Median und MAD der letzten unauffälligen
+  Sicherungsstände desselben Objekts; massenhafte Löschungen; Umbenennungen mit angehängter
+  oder ersetzter Endung; bekannte Ransomware-Endungen und Namen von Lösegeldforderungen
+  (versionierte Liste, nur auf dem Server abgeglichen); Shannon-Entropie der ersten und letzten
+  64 KiB einiger neuer Dateien, nach Dateityp beurteilt, komprimierte Formate nie.
+- **Aktivitätsbericht**: Agent und Freigabe-Runner vergleichen den neuen Snapshot mit dem
+  vorigen per `restic diff --json --no-lock` (nur Metadaten) und schicken eine Zusammenfassung
+  (`activity`, Version 1) mit dem Abschluss des Laufs; ein OneDrive-Backup bildet sie aus den
+  Delta-Elementen. Ältere Agenten schicken keinen: Die Signale heißen dann "nicht verfügbar".
+- **Beurteilung** (`apps/worker/src/suspicion/scan.ts`): alle zwei Minuten, in einem Worker,
+  jeder fertige Backup-Lauf der letzten 72 Stunden ohne Beurteilung; Ergebnis je Sicherungsstand
+  in `restore_point_suspicions` (Migration `0045_ransomware_detection`). Die Vergleichsbasis
+  kommt aus den Lauf-Tabellen; verdächtige Sicherungsstände ohne Fehlalarm bleiben draußen.
+- **Alarm**: `backup.suspicious` nur für den ersten verdächtigen Sicherungsstand einer Episode;
+  eine Episode endet mit einem Sicherungsstand ohne Befund oder einem Fehlalarm.
+- **Oberfläche und API**: Badge "Verdächtig" (rot, nie grün) am Sicherungsstand und am Objekt,
+  der Hinweis auf den letzten unauffälligen Sicherungsstand in allen Restore-Ansichten,
+  Fehlalarm mit Notiz (`/api/v1/suspicions`, auditiert), Schwellenwerte je Installation unter
+  Installation > Ransomware-Erkennung (`/api/v1/settings/ransomware`, Inhaber).
 
 ## Setup und Betriebsmodi
 

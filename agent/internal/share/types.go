@@ -5,7 +5,7 @@
 // share's restic cache at /cache. It talks to the api on the internal
 // `runners` network only, with the run's own credential.
 //
-// The package uses the standard library and agent/internal/{restic,redact,
+// The package uses the standard library and agent/internal/{restic,activity,redact,
 // buildinfo} only. Everything that touches the kernel (statfs, mountinfo,
 // xattrs) sits behind small interfaces so the tests run on any temp folder.
 package share

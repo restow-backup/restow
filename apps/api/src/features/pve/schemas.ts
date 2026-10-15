@@ -167,6 +167,12 @@ export const commitSchema = z.object({
     .regex(/^[0-9a-f]{64}$/)
     .optional(),
   resticBytesAdded: z.number().int().min(0).optional(),
+  // Container backups, for the ransomware signals (docs/RANSOMWARE.md): restic's file counts and
+  // the activity report (nodes from 0.4.0 on; an older node sends none, a malformed one is dropped).
+  resticFilesNew: z.number().int().min(0).optional().catch(undefined),
+  resticFilesChanged: z.number().int().min(0).optional().catch(undefined),
+  resticFilesTotal: z.number().int().min(0).optional().catch(undefined),
+  activity: z.unknown().optional(),
   resticTotalBytes: z.number().int().min(0).optional(),
   resticRoot: z.string().max(4096).optional(),
   pveVersion: z.string().max(64).optional(),

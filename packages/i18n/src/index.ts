@@ -27,6 +27,7 @@ import setupDe from "../resources/de/setup.json" with { type: "json" };
 import sourcesDe from "../resources/de/sources.json" with { type: "json" };
 import statsDe from "../resources/de/stats.json" with { type: "json" };
 import storageDe from "../resources/de/storage.json" with { type: "json" };
+import suspicionDe from "../resources/de/suspicion.json" with { type: "json" };
 import teamDe from "../resources/de/team.json" with { type: "json" };
 import tenantpageDe from "../resources/de/tenantpage.json" with { type: "json" };
 import tenantsDe from "../resources/de/tenants.json" with { type: "json" };
@@ -62,6 +63,7 @@ import setupEn from "../resources/en/setup.json" with { type: "json" };
 import sourcesEn from "../resources/en/sources.json" with { type: "json" };
 import statsEn from "../resources/en/stats.json" with { type: "json" };
 import storageEn from "../resources/en/storage.json" with { type: "json" };
+import suspicionEn from "../resources/en/suspicion.json" with { type: "json" };
 import teamEn from "../resources/en/team.json" with { type: "json" };
 import tenantpageEn from "../resources/en/tenantpage.json" with { type: "json" };
 import tenantsEn from "../resources/en/tenants.json" with { type: "json" };
@@ -118,6 +120,7 @@ export const namespaces = [
   "updates",
   "notifications",
   "reports",
+  "suspicion",
 ] as const;
 
 export type Namespace = (typeof namespaces)[number];
@@ -175,6 +178,7 @@ export const resources = {
     updates: updatesDe,
     notifications: notificationsDe,
     reports: reportsDe,
+    suspicion: suspicionDe,
   },
   en: {
     common: commonEn,
@@ -212,6 +216,7 @@ export const resources = {
     updates: updatesEn,
     notifications: notificationsEn,
     reports: reportsEn,
+    suspicion: suspicionEn,
   },
 } satisfies Record<SupportedLanguage, Record<Namespace, Record<string, unknown>>>;
 

@@ -1,4 +1,4 @@
-import { Check, HardDrive, Inbox, Server, Users } from "lucide-react";
+import { Check, HardDrive, Inbox, Server, ShieldAlert, Users } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -27,6 +27,7 @@ import {
   matchesAccountType,
   sortAccounts,
 } from "@/features/restore/lib/accounts";
+import "@/features/suspicion/i18n";
 import { StateBadge } from "@/features/verify/components/status";
 import { cn } from "@/lib/utils";
 
@@ -49,7 +50,11 @@ interface AccountListProps {
   objects: readonly SnapshotObject[];
   value: string | null;
   onChange: (objectId: string) => void;
+  /** Accounts whose newest restore point shows signs of ransomware (docs/RANSOMWARE.md). */
+  suspicious?: ReadonlySet<string>;
 }
+
+const NONE: ReadonlySet<string> = new Set();
 
 /**
  * The explorer's account pane: a searchable, keyboard-navigable list of every
@@ -57,7 +62,7 @@ interface AccountListProps {
  * each account's protection and readiness status. Display names only, never
  * the raw id.
  */
-export function AccountList({ objects, value, onChange }: AccountListProps) {
+export function AccountList({ objects, value, onChange, suspicious = NONE }: AccountListProps) {
   const { t } = useTranslation("restore");
   const [typeFilter, setTypeFilter] = React.useState<AccountTypeFilter>("all");
 
@@ -141,6 +146,7 @@ export function AccountList({ objects, value, onChange }: AccountListProps) {
                 key={object.id}
                 object={object}
                 active={object.id === value}
+                suspicious={suspicious.has(object.id)}
                 onSelect={() => onChange(object.id)}
               />
             ))}
@@ -154,10 +160,12 @@ export function AccountList({ objects, value, onChange }: AccountListProps) {
 function AccountItem({
   object,
   active,
+  suspicious,
   onSelect,
 }: {
   object: SnapshotObject;
   active: boolean;
+  suspicious: boolean;
   onSelect: () => void;
 }) {
   const { t } = useTranslation("restore");
@@ -186,7 +194,7 @@ function AccountItem({
           {t(`explorer.object.kinds.${object.kind}`)}
           {address ? ` · ${address}` : ""}
         </p>
-        <AccountStatus object={object} />
+        <AccountStatus object={object} suspicious={suspicious} />
       </div>
       {active ? <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" /> : null}
     </CommandItem>
@@ -200,8 +208,9 @@ function AccountItem({
  * restore point it ever made, so its readiness and last-backup time are
  * exactly as relevant as for an active one — only the badge in front differs.
  */
-function AccountStatus({ object }: { object: SnapshotObject }) {
+function AccountStatus({ object, suspicious }: { object: SnapshotObject; suspicious: boolean }) {
   const { t } = useTranslation("restore");
+  const { t: ts } = useTranslation("suspicion");
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -221,6 +230,11 @@ function AccountStatus({ object }: { object: SnapshotObject }) {
           )}
         </StatusBadge>
       )}
+      {suspicious ? (
+        <StatusBadge tone="destructive" icon={ShieldAlert} title={ts("object.hint")}>
+          {ts("object.suspicious")}
+        </StatusBadge>
+      ) : null}
       {object.snapshotCount === 0 ? (
         <StatusBadge tone="muted">{t("explorer.restorePoint.none")}</StatusBadge>
       ) : (
