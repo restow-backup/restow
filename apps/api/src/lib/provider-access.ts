@@ -475,6 +475,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/pve/guests/:id/backup": operate(),
   "POST /api/v1/pve/snapshots/:id/verify": operate(),
   "POST /api/v1/pve/snapshots/:id/restore": operate(),
+  // A boot test restores to a temporary guest on the node, starts it and destroys it again.
+  "POST /api/v1/pve/snapshots/:id/boot-test": operate(),
   // A container's backed-up files (#62): reading them needs a technician, as for machines.
   "GET /api/v1/pve/snapshots/:id/files": operate(),
   "POST /api/v1/pve/snapshots/:id/downloads": operate(),

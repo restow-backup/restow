@@ -2,7 +2,9 @@ import {
   enrollmentTokenState,
   generateAgentSecret,
   hashSecret,
+  PVE_BOOT_TEST_CAPABILITY,
   parseArchiveName,
+  pveNodeDeclares,
 } from "@restow/core";
 import {
   type PveGuest,
@@ -31,6 +33,7 @@ import {
   readReleaseFile,
 } from "../endpoints/distribution.js";
 import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
+import { recordBootTestResult } from "./boot-tests.js";
 import type { NodeContext } from "./node-auth.js";
 import { finishFailedTaskRun } from "./runs.js";
 
@@ -50,6 +53,8 @@ export const pveEnrollFailures = new FailureTracker(20);
 export const DEFAULT_STORAGE_ID = "restow";
 
 const REDELIVER_AFTER_MS = 30 * 60 * 1000;
+const BOOT_TEST_UNSUPPORTED =
+  "The node does not run boot tests (restow-pve too old, or boot tests switched off on the node).";
 const MAX_TASKS = 5;
 /** A node that has not called for this long is offline. */
 export const NODE_ONLINE_MS = 3 * 60 * 1000;
@@ -261,6 +266,7 @@ export interface HeartbeatInput {
   problems: string[];
   restoresAllowed: boolean;
   activeRuns?: string[];
+  capabilities?: string[];
 }
 
 /** Whether an update pauses new job starts (#46); unreadable counts as not paused. */
@@ -296,6 +302,8 @@ export async function nodeHeartbeat(
           ...(input.activeRuns
             ? { activeRuns: input.activeRuns, activeRunsAt: now.toISOString() }
             : {}),
+          // An older node sends none: it gets none of the newer task kinds.
+          capabilities: (input.capabilities ?? []).slice(0, 32),
         },
         lastSeenAt: now,
       })
@@ -319,10 +327,34 @@ export async function nodeHeartbeat(
     for (const task of expired) {
       await finishFailedTaskRun(tx, task, "The node did not run the task in time.", now);
     }
+    // A boot test queued for a node that no longer announces them (an older helper after a
+    // reinstall, or boot tests switched off on the node) fails instead of being delivered.
+    const capable = pveNodeDeclares(
+      { capabilities: input.capabilities ?? [] },
+      PVE_BOOT_TEST_CAPABILITY,
+    );
+    if (!capable) {
+      const refused = await tx
+        .update(pveTasks)
+        .set({ status: "failed", finishedAt: now, errorMessage: BOOT_TEST_UNSUPPORTED })
+        .where(
+          and(
+            eq(pveTasks.nodeId, node.nodeId),
+            eq(pveTasks.kind, "boot_test"),
+            inArray(pveTasks.status, ["pending", "delivered"]),
+          ),
+        )
+        .returning();
+      for (const task of refused) {
+        await finishFailedTaskRun(tx, task, BOOT_TEST_UNSUPPORTED, now);
+      }
+    }
     // A node that was busy did not take new work; the state tells.
     if (input.state === "running") {
       return [];
     }
+    // Never a boot test beside a backup on the node: it waits for the next heartbeat.
+    const holdBootTests = (input.activeRuns?.length ?? 0) > 0;
     const due = await tx
       .select()
       .from(pveTasks)
@@ -330,6 +362,7 @@ export async function nodeHeartbeat(
         and(
           eq(pveTasks.nodeId, node.nodeId),
           paused ? ne(pveTasks.kind, "backup") : undefined,
+          holdBootTests ? ne(pveTasks.kind, "boot_test") : undefined,
           or(
             eq(pveTasks.status, "pending"),
             and(
@@ -343,6 +376,15 @@ export async function nodeHeartbeat(
       )
       .orderBy(asc(pveTasks.createdAt))
       .limit(MAX_TASKS);
+    // One boot test per heartbeat: the node runs them one after another anyway.
+    const firstBootTest = due.findIndex((t) => t.kind === "boot_test");
+    if (firstBootTest >= 0) {
+      due.splice(
+        0,
+        due.length,
+        ...due.filter((t, i) => t.kind !== "boot_test" || i === firstBootTest),
+      );
+    }
     if (due.length > 0) {
       await tx
         .update(pveTasks)
@@ -475,6 +517,10 @@ export async function taskResult(
       throw new ProblemError(404, "Task not found", {
         detail: "No open task with this id for this node.",
       });
+    }
+    if (task.kind === "boot_test") {
+      await recordBootTestResult(tx, task, input, now);
+      return;
     }
     if (input.status === "failed") {
       await finishFailedTaskRun(tx, task, task.errorMessage ?? "failed", now);

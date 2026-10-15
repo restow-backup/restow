@@ -22,6 +22,7 @@ import { instanceUrl } from "../endpoints/instance-url.js";
 import { ENDPOINT_PROBLEMS } from "../endpoints/problems.js";
 import { MAX_DOWNLOAD_BODY_BYTES } from "../endpoints/schemas.js";
 import type { PveActor } from "./audit.js";
+import { requestBootTest } from "./boot-tests.js";
 import { browseContainerFiles, openContainerDownload, prepareContainerDownload } from "./files.js";
 import {
   assignJobSchema,
@@ -61,6 +62,7 @@ import {
  *   PUT    /guests/:id/job                   put the guest into a job (or none)
  *   POST   /snapshots/:id/restore            restore as a new guest into the restore pool
  *   POST   /snapshots/:id/verify             read a sample of the restore point back now
+ *   POST   /snapshots/:id/boot-test          boot the restore point on its node now (boot test)
  *   GET    /snapshots/:id/files?path=&cursor=  one page of a folder of a container restore point
  *   POST   /snapshots/:id/downloads          check selected files and folders, prepare a ZIP
  *   GET    /snapshots/:id/downloads/:downloadId  start the prepared ZIP: streamed, audited first, once
@@ -147,6 +149,11 @@ pveRoutes.post("/snapshots/:id/verify", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   await requestVerify(db, c.get("tenantId"), id, actorOf(c));
   return c.body(null, 202);
+});
+
+pveRoutes.post("/snapshots/:id/boot-test", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await requestBootTest(db, c.get("tenantId"), id, actorOf(c)), 202);
 });
 
 pveRoutes.get("/snapshots/:id/files", admin, async (c) => {

@@ -29,6 +29,7 @@ import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { isSafeOrigin } from "../endpoints/distribution.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
+import { guestBootTestFacts } from "./boot-tests.js";
 import { containerBackupPaths } from "./files.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
 
@@ -63,6 +64,8 @@ function nodeDto(n: PveNode, now: Date) {
     pluginLoaded: n.facts.pluginLoaded ?? null,
     restoresAllowed: n.facts.restoresAllowed ?? null,
     state: n.facts.state ?? null,
+    // What the node runs beyond backups and restores (an older node announces nothing).
+    capabilities: n.facts.capabilities ?? [],
   };
 }
 
@@ -629,6 +632,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
       .limit(1);
     return {
       guest: guestDto(guest, new Map(jobs.map((j) => [j.id, j])), undefined),
+      bootTest: await guestBootTestFacts(tx, guest),
       followUp: followUpAverage(
         snapshots.map((s) => ({ sequence: s.sequence, added: addedBytes(s.kind, s.stats) })),
         firstSequence,
@@ -663,6 +667,8 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
           bitmapMode: d.bitmapMode,
         })),
         verify: s.verify,
+        // The newest rated boot test of the restore point (docs/PVE.md, "Boot test").
+        bootTest: s.bootTest ?? null,
       })),
       runs: runs.map((r) => ({
         id: r.id,

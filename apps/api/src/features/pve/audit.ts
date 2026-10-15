@@ -13,6 +13,7 @@ export const PVE_AUDIT_ACTIONS = {
   backupRequested: "pve.backup.requested",
   restoreRequested: "pve.restore.requested",
   verifyRequested: "pve.verify.requested",
+  bootTestRequested: "pve.boot_test.requested",
   jobChanged: "pve.job.changed",
   snapshotCommitted: "pve.snapshot.committed",
   snapshotPruned: "pve.snapshot.pruned",
