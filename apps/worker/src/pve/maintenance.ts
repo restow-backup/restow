@@ -13,6 +13,11 @@ import { createHash } from "node:crypto";
  *              map (containers: restic check of a 5 % subset)
  *   test       monthly restore check where a job asks for one: restore into the
  *              restore pool, check, delete (needs capacity, off by default)
+ *   boot       boot tests where a job asks for them (weekly, or after every backup): the
+ *              guest's node restores the newest restore point to a temporary guest, starts
+ *              it and waits for the guest agent; only nodes that announced the capability,
+ *              one per node at a time, never beside a backup on the node; a failed or
+ *              unproven boot test raises boot_test.failed / boot_test.unproven once
  *   tokens     an existing PVE API token an admin gave for an enrollment is deleted
  *              once that enrollment token is used, revoked or expired
  *   downloads  prepared ZIP downloads of container files go an hour after they expired
@@ -28,9 +33,14 @@ import {
   deleteOnAllTargets,
   loadManifest,
   mapChunkIds,
+  PVE_BOOT_TEST_CAPABILITY,
+  pveBootTestDue,
+  pveBootTestPlan,
+  pveBootTestTaskParams,
   pveDisksOf,
   pveGuestBackable,
   pveNextRunAt,
+  pveNodeDeclares,
   resticBinary,
   resticCacheBase,
   resticCheck,
@@ -70,6 +80,7 @@ import {
   type WorkerRuntime,
   withTenantTx,
 } from "../handlers/framework.js";
+import { raiseEvents } from "../reporting.js";
 
 export interface PveDeps {
   readonly db: Database;
@@ -126,6 +137,8 @@ export interface PvePassSummary {
   pruned: number;
   verified: number;
   restoreTests: number;
+  bootTests: number;
+  bootTestAlerts: number;
   pveTokensDropped: number;
   downloadsPurged: number;
 }
@@ -690,6 +703,193 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
 }
 
 // ---------------------------------------------------------------------------
+// Boot tests (docs/PVE.md, "Boot test")
+// ---------------------------------------------------------------------------
+
+/** A node silent for longer than this gets no new boot test (it would only wait and expire). */
+const BOOT_TEST_NODE_SEEN_MS = 10 * 60 * 1000;
+/** A boot test waits this long for its node. */
+const BOOT_TEST_TASK_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Plan the boot tests the jobs ask for: per guest of an enabled job with boot tests on, the newest
+ * restore point, when `pveBootTestDue` says so. Only on a node that announced boot tests, allows
+ * restores and was seen lately; never on a node that already waits for or runs a boot test, or
+ * runs a backup (the node checks again, and skips with the reason).
+ */
+export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
+  const jobs = await deps.providerDb
+    .select({ job: pveJobs })
+    .from(pveJobs)
+    .innerJoin(tenants, eq(tenants.id, pveJobs.tenantId))
+    .where(and(eq(pveJobs.enabled, true), eq(tenants.status, "active")));
+  let n = 0;
+  for (const { job } of jobs) {
+    const plan = pveBootTestPlan(job.settings.bootTest);
+    if (plan.schedule === "off") {
+      continue;
+    }
+    n += await withTenantTx(deps.db, job.tenantId, async (tx) => {
+      const guests = coveredBy(job, await tx.select().from(pveGuests)).filter(
+        (g) => g.lastSnapshotId !== null && !(g.kind === "ct" && g.privileged),
+      );
+      if (guests.length === 0) {
+        return 0;
+      }
+      const nodes = await tx.select().from(pveNodes).where(isNull(pveNodes.revokedAt));
+      const busy = new Set<string>();
+      for (const row of await tx
+        .select({ nodeId: pveTasks.nodeId })
+        .from(pveTasks)
+        .where(
+          and(eq(pveTasks.kind, "boot_test"), inArray(pveTasks.status, ["pending", "delivered"])),
+        )) {
+        busy.add(row.nodeId);
+      }
+      for (const row of await tx
+        .select({ nodeId: pveRuns.nodeId })
+        .from(pveRuns)
+        .where(and(eq(pveRuns.kind, "backup"), eq(pveRuns.status, "running")))) {
+        if (row.nodeId) busy.add(row.nodeId);
+      }
+      let planned = 0;
+      for (const guest of guests) {
+        const node = nodes.find((x) => x.clusterId === guest.clusterId && x.name === guest.node);
+        if (
+          !node ||
+          busy.has(node.id) ||
+          !pveNodeDeclares(node.facts, PVE_BOOT_TEST_CAPABILITY) ||
+          node.facts.restoresAllowed === false ||
+          !node.lastSeenAt ||
+          now.getTime() - node.lastSeenAt.getTime() > BOOT_TEST_NODE_SEEN_MS
+        ) {
+          continue;
+        }
+        const [snap] = await tx
+          .select()
+          .from(pveSnapshots)
+          .where(and(eq(pveSnapshots.guestId, guest.id), eq(pveSnapshots.status, "active")))
+          .orderBy(desc(pveSnapshots.sequence))
+          .limit(1);
+        if (!snap) {
+          continue;
+        }
+        const [tried] = await tx
+          .select({ id: pveRuns.id })
+          .from(pveRuns)
+          .where(and(eq(pveRuns.kind, "boot_test"), eq(pveRuns.snapshotId, snap.id)))
+          .limit(1);
+        const due = pveBootTestDue(
+          {
+            schedule: plan.schedule,
+            lastBootTestAt: guest.lastBootTestAt,
+            newest: {
+              backupAt: snap.backupAt,
+              tested: snap.bootTest !== null || tried !== undefined,
+            },
+          },
+          now,
+        );
+        if (!due) {
+          continue;
+        }
+        const [task] = await tx
+          .insert(pveTasks)
+          .values({
+            tenantId: job.tenantId,
+            nodeId: node.id,
+            guestId: guest.id,
+            kind: "boot_test",
+            params: { ...pveBootTestTaskParams(snap, guest.vmid, plan), jobId: job.id },
+            expiresAt: new Date(now.getTime() + BOOT_TEST_TASK_TTL_MS),
+          })
+          .returning({ id: pveTasks.id });
+        await tx.insert(pveRuns).values({
+          tenantId: job.tenantId,
+          clusterId: guest.clusterId,
+          nodeId: node.id,
+          guestId: guest.id,
+          kind: "boot_test",
+          origin: "restow",
+          archiveName: snap.archiveName,
+          taskId: task?.id ?? null,
+          snapshotId: snap.id,
+          startedAt: now,
+        });
+        // Marked now, so a failing test is not planned again on every pass.
+        await tx.update(pveGuests).set({ lastBootTestAt: now }).where(eq(pveGuests.id, guest.id));
+        busy.add(node.id);
+        planned++;
+      }
+      return planned;
+    });
+  }
+  return n;
+}
+
+/** Boot tests older than this are not alerted any more (a worker that was down for long). */
+const BOOT_TEST_ALERT_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
+
+/**
+ * Raise boot_test.failed for a red boot test and boot_test.unproven for a yellow one, once per
+ * run (`stats.bootTest.alertedAt`), into the bell and the event rules of the tenant.
+ */
+export async function alertBootTests(deps: PveDeps, now: Date): Promise<number> {
+  const due = await deps.providerDb
+    .select({ run: pveRuns, guest: pveGuests })
+    .from(pveRuns)
+    .innerJoin(pveGuests, eq(pveGuests.id, pveRuns.guestId))
+    .where(
+      and(
+        eq(pveRuns.kind, "boot_test"),
+        sql`${pveRuns.status} <> 'running'`,
+        sql`${pveRuns.finishedAt} > ${new Date(now.getTime() - BOOT_TEST_ALERT_WINDOW_MS)}`,
+        sql`${pveRuns.stats}->'bootTest'->>'outcome' IN ('red', 'yellow')`,
+        sql`${pveRuns.stats}->'bootTest'->>'alertedAt' IS NULL`,
+      ),
+    )
+    .limit(200);
+  let n = 0;
+  for (const { run, guest } of due) {
+    const test = run.stats.bootTest as { outcome?: string; reason?: string; message?: string };
+    const red = test.outcome === "red";
+    const name = guest.name?.trim() || `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`;
+    await withTenantTx(deps.db, run.tenantId, async (tx) => {
+      await raiseEvents(
+        tx,
+        [
+          {
+            tenantId: run.tenantId,
+            level: red ? "error" : "warning",
+            event: red ? "boot_test.failed" : "boot_test.unproven",
+            message: red
+              ? `The boot test of ${name} failed: ${test.message ?? ""}`.trim()
+              : `The boot test of ${name} has no proof: ${test.message ?? ""}`.trim(),
+            details: {
+              pveGuestId: guest.id,
+              objectName: name,
+              snapshotId: run.snapshotId,
+              runId: run.id,
+              archiveName: run.archiveName,
+              reason: test.reason ?? null,
+            },
+          },
+        ],
+        now,
+      );
+      await tx
+        .update(pveRuns)
+        .set({
+          stats: sql`jsonb_set(${pveRuns.stats}, '{bootTest,alertedAt}', to_jsonb(${now.toISOString()}::text))`,
+        })
+        .where(eq(pveRuns.id, run.id));
+    });
+    n++;
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
 // Existing PVE API tokens handed to an enrollment
 // ---------------------------------------------------------------------------
 
@@ -761,6 +961,8 @@ export async function pvePass(deps: PveDeps): Promise<PvePassSummary> {
     pruned: paused ? 0 : await applyRetention(deps, now),
     verified: paused ? 0 : await verifyDue(deps, now),
     restoreTests: paused ? 0 : await planRestoreTests(deps, now),
+    bootTests: paused ? 0 : await planBootTests(deps, now),
+    bootTestAlerts: await alertBootTests(deps, now),
     pveTokensDropped: await dropPveTokenSecrets(deps, now),
     downloadsPurged: await purgeDownloads(deps, now),
   };

@@ -130,6 +130,12 @@
     "modeStop": "Stop",
     "restoreTest": "Monthly restore check (restores one guest into the pool restow-restore and deletes it again)",
     "restoreTestStorage": "Storage for the restore check",
+    "bootTest": "Boot test",
+    "bootTestHint": "Proves that a restore point boots: the node restores it to a temporary guest with its network cut, starts it, waits for the QEMU Guest Agent and deletes the guest again. Needs memory and space on the node.",
+    "bootTestOff": "Off",
+    "bootTestWeekly": "Weekly (newest restore point)",
+    "bootTestAfterBackup": "After every backup",
+    "bootTestMemory": "Boot only guests with at most this memory (MiB)",
     "save": "Save",
     "delete": "Delete",
     "deleteTitle": "Delete backup job {name}?",
@@ -173,7 +179,8 @@
       "backup": "Backup",
       "restore": "Restore",
       "restore_test": "Restore check",
-      "verify": "Restore check"
+      "verify": "Restore check",
+      "boot_test": "Boot test"
     },
     "origin": {
       "restow": "started by {appName}",
@@ -199,7 +206,38 @@
     "diskAllocated": "Disk: {size} allocated",
     "unreadablePaths": "Not read: {paths}",
     "unreadableMore": "and {count} more",
-    "browseFiles": "Browse files"
+    "browseFiles": "Browse files",
+    "bootTest": "Boot test",
+    "bootTestNow": "Boot test now",
+    "bootTestQueued": "Boot test requested. The node starts it at its next check-in when it has room for it.",
+    "bootTestAlready": "A boot test of this restore point is already waiting.",
+    "bootTestNone": "Not tested",
+    "bootTestOutcome": {
+      "green": "Booted",
+      "yellow": "Started, no answer",
+      "red": "Did not boot",
+      "skipped": "Skipped",
+      "error": "Not carried out"
+    },
+    "bootTestDetail": {
+      "green": "The QEMU Guest Agent of the restored guest answered after {seconds} s.",
+      "greenContainer": "The init of the restored container runs.",
+      "yellow": "The restored VM started and kept running, but its QEMU Guest Agent did not answer. Install the guest agent in the VM for proof.",
+      "red": "The restore point did not boot: {message}"
+    },
+    "bootTestSchedule": {
+      "off": "Boot tests: off in the backup job",
+      "weekly": "Boot tests: weekly",
+      "after_backup": "Boot tests: after every backup"
+    },
+    "bootTestLast": "Last boot test:",
+    "bootTestBlocked": {
+      "no_node": "No boot test possible: restow-pve is not installed on the guest's node.",
+      "node_unsupported": "No boot test possible: restow-pve on the guest's node does not run boot tests (update it, or they are switched off there).",
+      "restores_off": "No boot test possible: restores are switched off on the guest's node.",
+      "privileged": "No boot test possible: Proxmox VE cannot restore privileged containers from a backup interface.",
+      "template": "No boot test for VM templates."
+    }
   },
   "restore": {
     "title": "Restore as a new guest",
@@ -224,7 +262,10 @@
       "red": "The restore check of the newest restore point failed: blocks did not match or could not be read.",
       "unverified": "A restore point exists but has not been checked yet.",
       "noBackup": "Nothing to check until the first backup has finished.",
-      "noBackupOverdue": "No backup within 24 hours after the guest was put into a backup job."
+      "noBackupOverdue": "No backup within 24 hours after the guest was put into a backup job.",
+      "bootGreen": "The newest restore point booted in its boot test: the guest agent answered.",
+      "bootYellow": "The newest restore point started in its boot test, but its guest agent did not answer: no proof the system works.",
+      "bootRed": "The newest restore point did not boot in its boot test."
     }
   },
   "inventory": {

@@ -980,8 +980,9 @@
     "recentSignIn": "Bestätigen Sie zuerst, dass Sie es sind: Das Setzen oder Ändern eines Hooks und das Anzeigen des Repository-Passworts erfordern eine Anmeldung aus den letzten 10 Minuten.",
     "invalidBandwidthWindows": "Die Zeitfenster lassen sich so nicht speichern. Prüfen Sie die Tage, die Uhrzeiten und dass sich keine zwei Zeitfenster überschneiden.",
     "assigneeUnknown": "Die Person steht nicht (mehr) im Verzeichnis dieses Mandanten. Wählen Sie eine Person aus der Liste.",
-    "containerNotBrowsable": "Nur Sicherungsstände von Containern lassen sich dateiweise durchsuchen. Eine VM stellen Sie als Ganzes unter VMs & Container wieder her.",
-    "containerNoRepository": "Die Sicherungen dieses Containers sind auf dem Server nicht verfügbar."
+    "containerNotBrowsable": "Dieser Sicherungsstand lässt sich nicht dateiweise durchsuchen.",
+    "containerNoRepository": "Die Sicherungen dieses Containers sind auf dem Server nicht verfügbar.",
+    "vmFilesUnreadable": "Das Dateisystem dieses Sicherungsstands konnte auf dem Server nicht gelesen werden. Stellen Sie die ganze VM unter VMs & Container wieder her."
   },
   "readinessSection": {
     "overdue": "Überfällig",
@@ -1050,7 +1051,7 @@
   },
   "fileRestore": {
     "title": "Datei-Restore",
-    "subtitle": "Dateien aus einem Sicherungsstand eines Servers, Clients oder Proxmox-VE-Containers wiederherstellen oder herunterladen. Postfächer, OneDrives und IMAP-Konten stellen Sie im Restore-Explorer wieder her.",
+    "subtitle": "Dateien aus einem Sicherungsstand eines Servers, Clients oder einer VM oder eines Containers von Proxmox VE wiederherstellen oder herunterladen. Postfächer, OneDrives und IMAP-Konten stellen Sie im Restore-Explorer wieder her.",
     "machines": "Rechner",
     "search": "Rechner suchen",
     "noMatch": "Kein Rechner passt zur Suche.",
@@ -1069,17 +1070,18 @@
     "sources": "Rechner",
     "noMachines": "Noch kein Rechner.",
     "revokedMachines": "Gesperrte Rechner",
-    "sourcesWithContainers": "Rechner und Container",
-    "searchWithContainers": "Rechner und Container suchen",
-    "noMatchWithContainers": "Kein Rechner und kein Container passt zur Suche.",
+    "sourcesWithContainers": "Rechner, VMs und Container",
+    "searchWithContainers": "Rechner, VMs und Container suchen",
+    "noMatchWithContainers": "Kein Rechner, keine VM und kein Container passt zur Suche.",
     "containers": "Proxmox-VE-Container",
+    "vms": "Proxmox-VE-VMs",
     "containerLine": "CT {vmid} auf {node}",
     "containerLineNoNode": "CT {vmid}",
-    "vmNote": "{count, plural, one {# VM wird als Ganzes wiederhergestellt, nicht dateiweise.} other {# VMs werden als Ganzes wiederhergestellt, nicht dateiweise.}}",
-    "vmNoteAction": "Zu VMs & Container",
+    "vmLine": "VM {vmid} auf {node}",
+    "vmLineNoNode": "VM {vmid}",
     "pickWithContainers": {
-      "title": "Rechner oder Container wählen",
-      "description": "Wählen Sie links einen Rechner oder Container. Danach wählen Sie einen Sicherungsstand auf der Zeitleiste und stellen Dateien wieder her oder laden sie herunter."
+      "title": "Rechner, VM oder Container wählen",
+      "description": "Wählen Sie links einen Rechner, eine VM oder einen Container. Danach wählen Sie einen Sicherungsstand auf der Zeitleiste und stellen Dateien wieder her oder laden sie herunter."
     }
   },
   "proxmox": {
@@ -1094,5 +1096,16 @@
     "emptyDescription": "Sobald der Container gesichert ist, können Sie hier seine Dateien durchsuchen und herunterladen.",
     "downloadOnly": "Dateien eines Containers laden Sie als ZIP herunter. Um den ganzen Container zurückzuholen, stellen Sie ihn unter VMs & Container wieder her.",
     "openGuest": "Container öffnen"
+  },
+  "vmFiles": {
+    "loadError": "Die VM konnte nicht geladen werden",
+    "notFound": "VM nicht gefunden",
+    "notFoundDescription": "Die VM gibt es in diesem Mandanten nicht (mehr).",
+    "emptyDescription": "Sobald die VM gesichert ist, können Sie hier die Dateien auf ihren Festplatten durchsuchen und herunterladen.",
+    "downloadOnly": "Die Dateien einer VM liest {appName} auf dem Server aus den Festplatten des Sicherungsstands, in einem abgeschotteten Leseprozess: Nichts wird eingehängt, die VM und ihr Knoten bleiben unberührt. Lesbar sind ext2/3/4, XFS, NTFS und FAT, auch auf LVM. Dateien laden Sie als ZIP herunter; um die ganze VM zurückzuholen, stellen Sie sie unter VMs & Container wieder her.",
+    "openGuest": "VM öffnen",
+    "unreadable": "In diesem Sicherungsstand nicht lesbar:",
+    "unreadableItem": "{name}: {reason}",
+    "volumes": "Jeder Ordner auf oberster Ebene ist ein Dateisystem der Festplatten der VM (scsi0-p2: Festplatte scsi0, Partition 2; vg0-root: logisches Volume root der Volume-Gruppe vg0)."
   }
 }

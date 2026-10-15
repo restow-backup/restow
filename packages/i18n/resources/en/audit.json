@@ -559,6 +559,9 @@
       "verify": {
         "requested": "Restore check of the restore point requested"
       },
+      "boot_test": {
+        "requested": "Boot test of the restore point requested"
+      },
       "job": {
         "changed": "Backup job for VMs and containers changed"
       },

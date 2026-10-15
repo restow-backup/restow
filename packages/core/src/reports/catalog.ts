@@ -19,6 +19,8 @@ export const REPORT_EVENTS = [
   "verify.yellow",
   "verify.recovered",
   "verify.completed",
+  "boot_test.failed",
+  "boot_test.unproven",
   "scrub.corrupt",
   "scrub.repaired",
   "endpoint.stale",
@@ -77,6 +79,12 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
     level: "info",
     webhookEvent: "verify.completed",
   },
+  // A boot test of a Proxmox VE restore point failed: the restore, the start or the boot of the
+  // temporary guest did not work (docs/PVE.md, "Boot test").
+  "boot_test.failed": { group: "recoverability", level: "error" },
+  // A boot test's temporary VM started and kept running, but its QEMU guest agent never
+  // answered: no proof that the system inside works.
+  "boot_test.unproven": { group: "recoverability", level: "warning" },
   "scrub.corrupt": { group: "storage", level: "error" },
   "scrub.repaired": { group: "storage", level: "info" },
   // An endpoint (server or client, docs/AGENT.md) went silent or missed its backups.

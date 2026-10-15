@@ -341,6 +341,7 @@ func cmdStatus(layout pve.Layout, args []string, stdout, stderr io.Writer) int {
 		"version": buildinfo.Version, "url": st.URL, "nodeId": st.NodeID, "node": st.NodeName,
 		"clusterId": st.ClusterID, "storageId": st.StorageID, "fleecingStorage": st.FleecingStorage,
 		"restoresAllowed": st.RestoresAllowed(), "service": svc,
+		"bootTests": !st.BootTestsDisabled, "bootTestStorage": bootTestStorage(st), "bootTestBridge": st.BootTestBridge,
 	}
 	if len(args) > 0 && args[0] == "--json" {
 		_ = json.NewEncoder(stdout).Encode(out)
@@ -349,7 +350,24 @@ func cmdStatus(layout pve.Layout, args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "restow-pve %s\nnode:      %s (%s)\ninstance:  %s\nstorage:   %s\nfleecing:  %s\nrestores:  %v\nheartbeat: %s %s\nproblems:  %s\n",
 		buildinfo.Version, st.NodeName, st.NodeID, st.URL, st.StorageID, st.FleecingStorage, st.RestoresAllowed(),
 		svc.LastHeartbeat, svc.LastError, strings.Join(svc.Problems, ", "))
+	boot := "off"
+	if !st.BootTestsDisabled {
+		boot = "on, storage " + bootTestStorage(st)
+		if st.BootTestBridge != "" {
+			boot += ", bridge " + st.BootTestBridge
+		} else {
+			boot += ", NICs link_down=1"
+		}
+	}
+	fmt.Fprintf(stdout, "boot tests: %s\n", boot)
 	return 0
+}
+
+func bootTestStorage(st *pve.State) string {
+	if st.BootTestStorage != "" {
+		return st.BootTestStorage
+	}
+	return st.FleecingStorage
 }
 
 type finding struct {
@@ -456,6 +474,9 @@ func cmdConfig(layout pve.Layout, args []string, stdout, stderr io.Writer) int {
 	fleecing := fs.String("fleecing-storage", "", "thin storage for fleecing images")
 	pin := fs.String("pve-cert-sha256", "", "pin the PVE API certificate (when not signed by the cluster CA)")
 	tmp := fs.String("restore-tmp", "", "folder for temporary container restores")
+	bootTests := fs.String("boot-tests", "", "true or false: whether this node runs boot tests")
+	bootStorage := fs.String("boot-test-storage", "", "storage for the temporary guests of boot tests (default: the fleecing storage)")
+	bootBridge := fs.String("boot-test-bridge", "", "isolated bridge for the NICs of boot tests (default: none, every NIC link_down=1; '-' clears it)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -481,6 +502,24 @@ func cmdConfig(layout pve.Layout, args []string, stdout, stderr io.Writer) int {
 	}
 	if *tmp != "" {
 		st.RestoreTmpDir = *tmp
+	}
+	switch *bootTests {
+	case "":
+	case "true", "false":
+		st.BootTestsDisabled = *bootTests == "false"
+	default:
+		fmt.Fprintln(stderr, "restow-pve: --boot-tests takes true or false")
+		return 2
+	}
+	if *bootStorage != "" {
+		st.BootTestStorage = *bootStorage
+	}
+	switch *bootBridge {
+	case "":
+	case "-":
+		st.BootTestBridge = ""
+	default:
+		st.BootTestBridge = *bootBridge
 	}
 	if err := pve.SaveState(layout.StateFile, st); err != nil {
 		fmt.Fprintln(stderr, "restow-pve:", err)

@@ -293,6 +293,24 @@ func (p *PVEAPI) WaitTask(ctx context.Context, node, upid string, poll time.Dura
 	}
 }
 
+// NodeTask is one entry of GET /nodes/{node}/tasks.
+type NodeTask struct {
+	UPID   string `json:"upid"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
+	ID     string `json:"id"`
+}
+
+// ActiveTasks lists the tasks running on a node now, of one type (vzdump, qmrestore, ...).
+func (p *PVEAPI) ActiveTasks(ctx context.Context, node, typeFilter string) ([]NodeTask, error) {
+	form := url.Values{"source": {"active"}}
+	if typeFilter != "" {
+		form.Set("typefilter", typeFilter)
+	}
+	var out []NodeTask
+	return out, p.call(ctx, http.MethodGet, "/nodes/"+url.PathEscape(node)+"/tasks", form, &out)
+}
+
 // TaskLogTail returns the last lines of a task log.
 func (p *PVEAPI) TaskLogTail(ctx context.Context, node, upid string, lines int) (string, error) {
 	var out []struct {

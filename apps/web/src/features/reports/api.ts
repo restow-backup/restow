@@ -18,6 +18,8 @@ export const REPORT_EVENTS = [
   "verify.yellow",
   "verify.recovered",
   "verify.completed",
+  "boot_test.failed",
+  "boot_test.unproven",
   "scrub.corrupt",
   "scrub.repaired",
   "endpoint.stale",

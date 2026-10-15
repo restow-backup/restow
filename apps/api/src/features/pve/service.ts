@@ -29,8 +29,10 @@ import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { isSafeOrigin } from "../endpoints/distribution.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
+import { guestBootTestFacts } from "./boot-tests.js";
 import { containerBackupPaths } from "./files.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
+import { browsableDisks } from "./vm-files.js";
 
 /**
  * The session side of the Proxmox VE feature (docs/PVE.md): clusters, nodes
@@ -63,6 +65,8 @@ function nodeDto(n: PveNode, now: Date) {
     pluginLoaded: n.facts.pluginLoaded ?? null,
     restoresAllowed: n.facts.restoresAllowed ?? null,
     state: n.facts.state ?? null,
+    // What the node runs beyond backups and restores (an older node announces nothing).
+    capabilities: n.facts.capabilities ?? [],
   };
 }
 
@@ -629,6 +633,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
       .limit(1);
     return {
       guest: guestDto(guest, new Map(jobs.map((j) => [j.id, j])), undefined),
+      bootTest: await guestBootTestFacts(tx, guest),
       followUp: followUpAverage(
         snapshots.map((s) => ({ sequence: s.sequence, added: addedBytes(s.kind, s.stats) })),
         firstSequence,
@@ -652,8 +657,9 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         stats: s.stats,
         // What a container restore point holds, as paths in the container (#59, #62).
         contents: s.kind === "ct" ? containerBackupPaths(s.guestConfig) : null,
-        // Whether its files can be browsed and downloaded (#62).
-        browsable: s.kind === "ct" && s.resticSnapshotId !== null,
+        // Whether its files can be browsed and downloaded: a container's restic snapshot (#62),
+        // a VM's disks through the sandboxed file system reader (vm-files.ts).
+        browsable: s.kind === "ct" ? s.resticSnapshotId !== null : browsableDisks(s).length > 0,
         disks: s.disks.map((d) => ({
           device: d.device,
           size: d.size,
@@ -663,6 +669,8 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
           bitmapMode: d.bitmapMode,
         })),
         verify: s.verify,
+        // The newest rated boot test of the restore point (docs/PVE.md, "Boot test").
+        bootTest: s.bootTest ?? null,
       })),
       runs: runs.map((r) => ({
         id: r.id,

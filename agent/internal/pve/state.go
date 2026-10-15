@@ -86,6 +86,14 @@ type State struct {
 	AllowRestores *bool `json:"allowRestores,omitempty"`
 	// RestoreTmpDir is where container restores are unpacked before PVE copies them.
 	RestoreTmpDir string `json:"restoreTmpDir,omitempty"`
+	// BootTestStorage is where boot tests restore their temporary guests (default: the
+	// fleecing storage, a thin storage local to the node).
+	BootTestStorage string `json:"bootTestStorage,omitempty"`
+	// BootTestBridge, when set, connects the NICs of a boot test's VM to this (isolated)
+	// bridge instead of setting link_down=1 on each.
+	BootTestBridge string `json:"bootTestBridge,omitempty"`
+	// BootTestsDisabled: the node does not announce boot tests (its own decision).
+	BootTestsDisabled bool `json:"bootTestsDisabled,omitempty"`
 	// AllowInsecureHTTP is for development only.
 	AllowInsecureHTTP bool `json:"allowInsecureHttp,omitempty"`
 }

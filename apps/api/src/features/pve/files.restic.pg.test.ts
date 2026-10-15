@@ -376,7 +376,7 @@ describe.skipIf(!canRun)("file restore of a container restore point (#62)", () =
     ).rejects.toMatchObject({ status: 404 });
   }, 60_000);
 
-  it("refuses a path outside the restore point and a VM restore point", async () => {
+  it("refuses a path outside the restore point and a VM restore point without disks", async () => {
     await expect(
       files.prepareContainerDownload(
         shared.db,

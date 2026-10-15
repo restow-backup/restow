@@ -43,10 +43,36 @@ type Service struct {
 	// InventoryEvery is how often the inventory is reported (default 5 min).
 	InventoryEvery time.Duration
 
+	// Cmd runs qm and pct (boot tests); nil means the real commands.
+	Cmd CommandRunner
+	// BootTests runs the boot tests; nil means one built from the fields above.
+	BootTests *BootTester
+
 	running      string
 	lastInvent   time.Time
 	pveVersion   string
 	lastProblems []string
+}
+
+// Capabilities are the task kinds beyond the original set this node announces.
+func (s *Service) Capabilities() []string {
+	caps := []string{}
+	if !s.State.BootTestsDisabled {
+		caps = append(caps, BootTestCapability)
+	}
+	return caps
+}
+
+func (s *Service) bootTester() *BootTester {
+	if s.BootTests == nil {
+		cmd := s.Cmd
+		if cmd == nil {
+			cmd = ExecRunner{}
+		}
+		s.BootTests = &BootTester{Layout: s.Layout, State: s.State, PVE: s.PVE, Cmd: cmd,
+			Resolve: s.Server.ResolveVolname, Logf: s.Logf}
+	}
+	return s.BootTests
 }
 
 // ServiceStatus is written after every heartbeat (status, diagnose).
@@ -65,6 +91,10 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 	if s.InventoryEvery == 0 {
 		s.InventoryEvery = 5 * time.Minute
+	}
+	// A boot test the last run of the service could not finish leaves a temporary guest.
+	if !s.State.BootTestsDisabled {
+		s.bootTester().Cleanup(ctx)
 	}
 	for {
 		if err := s.Tick(ctx); err != nil {
@@ -167,6 +197,7 @@ func (s *Service) Tick(ctx context.Context) error {
 		HelperVersion: buildinfo.Version, PVEVersion: s.pveVersion, FleecingStorage: s.State.FleecingStorage,
 		PluginLoaded: !contains(problems, "pve.plugin_not_loaded"), State: state, Problems: problems,
 		RestoresAllowed: s.State.RestoresAllowed(), ActiveRuns: activeRuns(s.Layout),
+		Capabilities: s.Capabilities(),
 	})
 	status := ServiceStatus{LastHeartbeat: time.Now().UTC().Format(time.RFC3339), PVEVersion: s.pveVersion, Problems: problems}
 	if err != nil {
@@ -401,6 +432,13 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 			}
 		}
 		return result, nil
+	case "boot_test":
+		var p BootTestParams
+		if err := json.Unmarshal(t.Params, &p); err != nil {
+			return nil, errors.New("invalid boot test task")
+		}
+		res, err := s.bootTester().Run(ctx, p)
+		return res.asMap(), err
 	case "refresh_inventory":
 		n, err := s.ReportInventory(ctx)
 		return map[string]any{"guests": n}, err

@@ -1,3 +1,9 @@
+import {
+  MAX_BOOT_TEST_MEMORY_MIB,
+  MAX_BOOT_TEST_TIMEOUT_SECONDS,
+  MIN_BOOT_TEST_MEMORY_MIB,
+  MIN_BOOT_TEST_TIMEOUT_SECONDS,
+} from "@restow/core";
 import { z } from "zod";
 import { MAX_BROWSE_LIMIT, MAX_DOWNLOAD_PATHS, snapshotPath } from "../endpoints/schemas.js";
 
@@ -55,6 +61,11 @@ export const heartbeatSchema = z.object({
   restoresAllowed: z.boolean().default(true),
   /** The backup runs the node works on (restow-pve 0.4.0 and later; older helpers omit it). */
   activeRuns: z.array(z.string().uuid()).max(64).optional(),
+  /**
+   * The task kinds beyond the original set the node runs (restow-pve with boot tests sends
+   * ["boot_test"]); absent from older helpers, which then never get such a task.
+   */
+  capabilities: z.array(z.string().max(64)).max(32).optional(),
 });
 
 export const inventorySchema = z.object({
@@ -246,6 +257,23 @@ export const jobSchema = z.object({
         .object({ enabled: z.boolean(), targetStorage: storageId.optional() })
         .optional(),
       bandwidthKbps: z.number().int().min(0).nullable().optional(),
+      bootTest: z
+        .object({
+          schedule: z.enum(["off", "weekly", "after_backup"]),
+          maxMemoryMiB: z
+            .number()
+            .int()
+            .min(MIN_BOOT_TEST_MEMORY_MIB)
+            .max(MAX_BOOT_TEST_MEMORY_MIB)
+            .optional(),
+          timeoutSeconds: z
+            .number()
+            .int()
+            .min(MIN_BOOT_TEST_TIMEOUT_SECONDS)
+            .max(MAX_BOOT_TEST_TIMEOUT_SECONDS)
+            .optional(),
+        })
+        .optional(),
     })
     .default({}),
 });

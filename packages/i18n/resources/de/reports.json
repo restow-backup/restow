@@ -392,6 +392,10 @@
       "recovered": "Wieder wiederherstellbar",
       "completed": "Restore-Prüfung abgeschlossen"
     },
+    "boot_test": {
+      "failed": "Startprüfung nicht bestanden",
+      "unproven": "Startprüfung ohne Nachweis"
+    },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",
       "repaired": "Speicherschaden behoben"
@@ -434,6 +438,10 @@
       "yellow": "Die Prüfung ist mit Hinweisen bestanden.",
       "recovered": "Ein Postfach, OneDrive, IMAP-Konto, Server oder Client, das rot oder gelb war, ist wieder grün.",
       "completed": "Eine Restore-Prüfung ist abgeschlossen, gleich mit welcher Bewertung. Jede Prüfung, also eher für einen Kanal, der jede sehen soll."
+    },
+    "boot_test": {
+      "failed": "Ein Sicherungsstand aus Proxmox VE ist nicht gestartet: Die Wiederherstellung als temporärer Gast, sein Start oder sein Hochfahren ist fehlgeschlagen.",
+      "unproven": "Eine aus einem Sicherungsstand von Proxmox VE wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nie geantwortet. Damit ist nicht nachgewiesen, dass das System darin funktioniert."
     },
     "scrub": {
       "corrupt": "Die Speicherprüfung hat beschädigte oder fehlende Pack-Dateien gefunden.",
@@ -556,6 +564,10 @@
       "yellow": "Restore-Prüfung mit Hinweisen: {object}",
       "recovered": "Wieder wiederherstellbar: {object}",
       "completed": "Restore-Prüfung abgeschlossen: {object}"
+    },
+    "boot_test": {
+      "failed": "Startprüfung nicht bestanden: {object}",
+      "unproven": "Startprüfung ohne Nachweis: {object}"
     },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",

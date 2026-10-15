@@ -559,6 +559,9 @@
       "verify": {
         "requested": "Restore-Prüfung des Sicherungsstands angefordert"
       },
+      "boot_test": {
+        "requested": "Startprüfung des Sicherungsstands angefordert"
+      },
       "job": {
         "changed": "Backup-Job für VMs und Container geändert"
       },

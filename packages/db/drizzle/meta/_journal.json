@@ -309,6 +309,13 @@
       "when": 1792081765035,
       "tag": "0043_disk_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1792099446986,
+      "tag": "0044_pve_boot_tests",
+      "breakpoints": true
     }
   ]
 }

@@ -1,11 +1,12 @@
 import {
   pveGuestBackable,
   pveJobOfGuest,
-  pveRestorePointReadiness,
+  pveRestorePointRating,
   pveStaleBackupHours,
 } from "@restow/core";
 import {
   type Database,
+  type PveBootTestResult,
   type PveVerifyResult,
   pveGuests,
   pveJobs,
@@ -36,9 +37,11 @@ import {
  *     point (flagged `withoutJob`, like a machine in no job). A guest the inventory found that
  *     nobody ever put into a job is listed as "in no job", never as "no backup": the inventory
  *     reports every guest of a cluster, and many are not meant to be backed up.
- *   - Readiness: the restore check (verify) of the newest restore point: green when the sample
- *     read back matched, red when it did not, unverified while no check of it ran; no backup
- *     without a restore point (overdue once the first backup's grace period is over).
+ *   - Readiness: the restore check (verify) and the boot test of the newest restore point
+ *     (`pveRestorePointRating`): red when either failed; a boot test is green only when the
+ *     restored VM's guest agent answered, yellow when the VM only started; without a boot test
+ *     the read-back decides (green when the sample matched); unverified while neither ran; no
+ *     backup without a restore point (overdue once the first backup's grace period is over).
  *   - Failed: the newest finished backup run of a protected guest failed.
  *   - Overdue (`backup.overdue`, the last-backup card): no successful backup for longer than the
  *     enabled PVE jobs' schedules allow (`pveStaleBackupHours`).
@@ -55,7 +58,11 @@ export interface GuestReadinessRowDto {
   node: string | null;
   state: ObjectState;
   /** The rating of the newest restore point; null while it is unverified or without one. */
-  readiness: "green" | "red" | null;
+  readiness: "green" | "yellow" | "red" | null;
+  /** What decided the rating: the read-back of blocks, or the boot test. */
+  basis: "verify" | "boot_test" | null;
+  /** The newest rated boot test of the newest restore point. */
+  bootTest: { outcome: string; reason: string; checkedAt: string } | null;
   checkedAt: string | null;
   overdue: boolean;
   latestBackupAt: string | null;
@@ -166,6 +173,7 @@ export async function loadGuestProtection(
       id: pveSnapshots.id,
       backupAt: pveSnapshots.backupAt,
       verify: pveSnapshots.verify,
+      bootTest: pveSnapshots.bootTest,
     })
     .from(pveSnapshots)
     .where(and(eq(pveSnapshots.tenantId, tenantId), eq(pveSnapshots.status, "active")))
@@ -280,9 +288,13 @@ export async function loadGuestProtection(
     }
     lastSuccess = latest(lastSuccess, guestLastSuccess);
     const verify = (snapshot?.verify ?? null) as PveVerifyResult | null;
-    const readiness = snapshot ? pveRestorePointReadiness(verify) : null;
+    const bootTest = (snapshot?.bootTest ?? null) as PveBootTestResult | null;
+    const rating = snapshot
+      ? pveRestorePointRating(verify, bootTest)
+      : { readiness: null, checkedAt: null, basis: null };
+    const readiness = rating.readiness;
     const state = objectStateOf(readiness, snapshot !== null);
-    const checkedAt = readiness && verify ? new Date(verify.checkedAt) : null;
+    const checkedAt = readiness && rating.checkedAt ? new Date(rating.checkedAt) : null;
     const overdue =
       state === "no_backup"
         ? isFirstBackupOverdue(protectedSince, now) && !busy.has(guest.id)
@@ -295,6 +307,10 @@ export async function loadGuestProtection(
       node: guest.node,
       state,
       readiness,
+      basis: readiness ? rating.basis : null,
+      bootTest: bootTest
+        ? { outcome: bootTest.outcome, reason: bootTest.reason, checkedAt: bootTest.checkedAt }
+        : null,
       checkedAt: checkedAt?.toISOString() ?? null,
       overdue,
       latestBackupAt: snapshot?.backupAt.toISOString() ?? null,

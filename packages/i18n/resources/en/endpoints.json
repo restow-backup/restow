@@ -980,8 +980,9 @@
     "recentSignIn": "Confirm it is you first: setting or changing a hook and showing the repository password need a sign-in from the last 10 minutes.",
     "invalidBandwidthWindows": "The time windows cannot be saved like this. Check the days, the times and that no two windows overlap.",
     "assigneeUnknown": "The person is not in the directory of this tenant (any more). Choose a person from the list.",
-    "containerNotBrowsable": "Only container restore points can be browsed file by file. A VM is restored as a whole under VMs & containers.",
-    "containerNoRepository": "The backups of this container are not available on the server."
+    "containerNotBrowsable": "This restore point cannot be browsed file by file.",
+    "containerNoRepository": "The backups of this container are not available on the server.",
+    "vmFilesUnreadable": "The file system of this restore point could not be read on the server. Restore the whole VM under VMs & containers."
   },
   "readinessSection": {
     "overdue": "Overdue",
@@ -1050,7 +1051,7 @@
   },
   "fileRestore": {
     "title": "File restore",
-    "subtitle": "Restore or download files from a restore point of a server, client or Proxmox VE container. Mailboxes, OneDrives and IMAP accounts are restored in the restore explorer.",
+    "subtitle": "Restore or download files from a restore point of a server, client, or Proxmox VE VM or container. Mailboxes, OneDrives and IMAP accounts are restored in the restore explorer.",
     "machines": "Machines",
     "search": "Search machines",
     "noMatch": "No machine matches the search.",
@@ -1069,17 +1070,18 @@
     "sources": "Machines",
     "noMachines": "No machine yet.",
     "revokedMachines": "Revoked machines",
-    "sourcesWithContainers": "Machines and containers",
-    "searchWithContainers": "Search machines and containers",
-    "noMatchWithContainers": "No machine or container matches the search.",
+    "sourcesWithContainers": "Machines, VMs and containers",
+    "searchWithContainers": "Search machines, VMs and containers",
+    "noMatchWithContainers": "No machine, VM or container matches the search.",
     "containers": "Proxmox VE containers",
+    "vms": "Proxmox VE VMs",
     "containerLine": "CT {vmid} on {node}",
     "containerLineNoNode": "CT {vmid}",
-    "vmNote": "{count, plural, one {# VM is restored as a whole, not file by file.} other {# VMs are restored as a whole, not file by file.}}",
-    "vmNoteAction": "Open VMs & containers",
+    "vmLine": "VM {vmid} on {node}",
+    "vmLineNoNode": "VM {vmid}",
     "pickWithContainers": {
-      "title": "Choose a machine or container",
-      "description": "Choose a machine or container on the left. Then choose a restore point on the timeline and restore or download files."
+      "title": "Choose a machine, VM or container",
+      "description": "Choose a machine, VM or container on the left. Then choose a restore point on the timeline and restore or download files."
     }
   },
   "proxmox": {
@@ -1094,5 +1096,16 @@
     "emptyDescription": "Once the container is backed up, its files can be browsed and downloaded here.",
     "downloadOnly": "Files of a container are downloaded as a ZIP. To put the whole container back, restore it under VMs & containers.",
     "openGuest": "Open the container"
+  },
+  "vmFiles": {
+    "loadError": "The VM could not be loaded",
+    "notFound": "VM not found",
+    "notFoundDescription": "The VM does not exist (any more) in this tenant.",
+    "emptyDescription": "Once the VM is backed up, the files on its disks can be browsed and downloaded here.",
+    "downloadOnly": "The files of a VM are read from the disks of the restore point on the server, in an isolated reader: nothing is mounted, the VM and its node are not touched. Readable: ext2/3/4, XFS, NTFS and FAT, also on LVM. Files are downloaded as a ZIP; to put the whole VM back, restore it under VMs & containers.",
+    "openGuest": "Open the VM",
+    "unreadable": "Not readable on this restore point:",
+    "unreadableItem": "{name}: {reason}",
+    "volumes": "Each folder at the top is a file system of the VM's disks (scsi0-p2: disk scsi0, partition 2; vg0-root: logical volume root of the volume group vg0)."
   }
 }

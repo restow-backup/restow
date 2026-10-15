@@ -297,6 +297,10 @@ type HeartbeatRequest struct {
 	// closes a running backup run of the node that is not listed instead of waiting 48
 	// hours for its end (servers from 0.4.0; older ones ignore it). Never null.
 	ActiveRuns []string `json:"activeRuns"`
+	// Capabilities are the task kinds beyond the original set this node runs ("boot_test").
+	// The server hands a node only what it announced; older servers ignore the field.
+	// Never null.
+	Capabilities []string `json:"capabilities"`
 }
 
 // Task is a job the server queued for this node.

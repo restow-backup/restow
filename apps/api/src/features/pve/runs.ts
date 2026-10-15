@@ -46,6 +46,7 @@ import { loadTenantDek, readSecret, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
+import { recordBootTestResult } from "./boot-tests.js";
 import type { NodeContext } from "./node-auth.js";
 import { checkArchiveName, guestForBackup } from "./node-service.js";
 import {
@@ -903,6 +904,11 @@ export async function finishFailedTaskRun(
   message: string,
   now: Date,
 ): Promise<void> {
+  if (task.kind === "boot_test") {
+    // A boot test's run says it could not be carried out; the restore point keeps its rating.
+    await recordBootTestResult(tx, task, { status: "failed", error: message }, now);
+    return;
+  }
   // Every run the task left open fails with it (a redelivered task can have opened several).
   const closed = await tx
     .update(pveRuns)
