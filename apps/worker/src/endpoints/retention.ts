@@ -15,6 +15,11 @@
  * they, and snapshots dated in the future, are flagged and announced once
  * (`endpoint.suspicious_snapshot`).
  *
+ * While the endpoint has an unresolved suspicious restore point, or a backup
+ * the ransomware judgement has not seen yet, nothing is forgotten
+ * (suspicion/holds.ts, docs/RANSOMWARE.md "Retention hold"); the run still
+ * audits the snapshots and measures the repository.
+ *
  * The policy is the endpoint's own: daily, weekly and monthly snapshots to
  * keep, 30 / 12 / 12 unless an admin changed them, counted in the tenant's
  * time zone. The run also measures the bytes the repository takes (the
@@ -44,6 +49,12 @@ import { type Endpoint, endpointRuns, endpointSnapshotFlags, endpoints, tenants 
 import { and, eq, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { withTenantTx } from "../handlers/framework.js";
 import { raiseEvents } from "../reporting.js";
+import {
+  loadRetentionHolds,
+  retentionHeld,
+  retentionHoldMode,
+  retentionHoldSummary,
+} from "../suspicion/holds.js";
 import {
   type EndpointJobDeps,
   openEndpointRepository,
@@ -213,6 +224,16 @@ async function retain(
   try {
     const removedLocks = await clearLocksBeforeMaintenance(deps, tenantId, endpointId, access, now);
     const timeZone = await tenantTimeZone(deps, tenantId);
+    const mode = await retentionHoldMode(deps.providerDb);
+    const holds = await withTenantTx(deps.db, tenantId, (tx) =>
+      loadRetentionHolds(tx, {
+        tenantId,
+        kind: "endpoint",
+        objectIds: [endpointId],
+        now,
+        mode,
+      }),
+    );
     const result = await withRepository(access, async (session) => {
       // Locks restic itself calls stale (by their content) go as well.
       await resticUnlock(session).catch(() => undefined);
@@ -236,12 +257,14 @@ async function retain(
       if (listing !== null) {
         throw listing;
       }
-      const decision = applyRetentionPolicy(audit.dated, policy, timeZone);
+      const planned = applyRetentionPolicy(audit.dated, policy, timeZone);
+      // Held on suspicion: every snapshot stays (and with it every pack it references).
+      const decision = retentionHeld(holds, endpointId) ? { ...planned, remove: [] } : planned;
       if (decision.remove.length > 0) {
         await resticForget(session, decision.remove, { signal });
         await resticPrune(session, { signal });
       }
-      return { audit, decision, total: stored.length };
+      return { audit, decision, heldBack: planned.remove.length, total: stored.length };
     });
     await recordMaintenanceUnlocked(deps, tenantId, endpointId);
     const repositoryBytes = await measureRepositoryBytes(access.storage, access.prefix);
@@ -262,6 +285,9 @@ async function retain(
           futureSnapshots: result.audit.flags.filter((flag) => flag.reasons.includes("future_time"))
             .length,
           removedLocks,
+          ...(retentionHeld(holds, endpointId)
+            ? { ...retentionHoldSummary(holds, endpointId), heldBackSnapshots: result.heldBack }
+            : {}),
         },
       },
       now,

@@ -7,7 +7,8 @@ import { createHash } from "node:crypto";
  *              a backup run its node no longer lists in its heartbeat closes at once (#46)
  *   retention  restore points beyond the job's keep rules are pruned: their chunk
  *              references are released (garbage collection takes the chunks later),
- *              their manifest deleted, a container's restic snapshot forgotten
+ *              their manifest deleted, a container's restic snapshot forgotten; nothing
+ *              of a guest held on suspicion (suspicion/holds.ts)
  *   verify     weekly, the newest restore point of every guest: a sample of its data
  *              blocks is read back from storage and compared with the SHA-256 in its
  *              map (containers: restic check of a 5 % subset)
@@ -81,6 +82,12 @@ import {
   withTenantTx,
 } from "../handlers/framework.js";
 import { raiseEvents } from "../reporting.js";
+import {
+  DEFAULT_RETENTION_HOLD_MODE,
+  loadRetentionHolds,
+  retentionHeld,
+  retentionHoldMode,
+} from "../suspicion/holds.js";
 
 export interface PveDeps {
   readonly db: Database;
@@ -420,9 +427,21 @@ export async function pruneSnapshot(deps: PveDeps, snap: PveSnapshot, now: Date)
 
 export async function applyRetention(deps: PveDeps, now: Date): Promise<number> {
   const guests = await deps.providerDb.select().from(pveGuests);
+  const mode = guests.length > 0 ? await retentionHoldMode(deps.providerDb) : null;
   let pruned = 0;
   for (const guest of guests) {
     const result = await withTenantTx(deps.db, guest.tenantId, async (tx) => {
+      const holds = await loadRetentionHolds(tx, {
+        tenantId: guest.tenantId,
+        kind: "pve_guest",
+        objectIds: [guest.id],
+        now,
+        mode: mode ?? DEFAULT_RETENTION_HOLD_MODE,
+      });
+      if (retentionHeld(holds, guest.id)) {
+        // Held on suspicion: no restore point goes, so no chunk reference is released either.
+        return null;
+      }
       const snaps = await tx
         .select()
         .from(pveSnapshots)
@@ -440,7 +459,7 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
         zone: tenant?.timeZone ?? DEFAULT_SCHEDULE_TIMEZONE,
       };
     });
-    if (result.snaps.length <= 1) {
+    if (result === null || result.snaps.length <= 1) {
       continue;
     }
     const decision = applyRetentionPolicy(

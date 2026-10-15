@@ -8,7 +8,8 @@
  *   retention   the job's keep rules (30 daily, 12 weekly, 12 monthly by default), decided by
  *               the server from what it recorded (@restow/core `auditSnapshots`,
  *               `applyRetentionPolicy`); the newest restore point with files is never removed,
- *               whatever the rules say; a retired share keeps everything until it is purged
+ *               whatever the rules say; a retired share keeps everything until it is purged;
+ *               nothing is removed while the share is held on suspicion (suspicion/holds.ts)
  *   check       `restic check` of one twentieth of the data, rotating weekly
  *   verify      the restore check of the newest restore point: its samples read back and
  *               hashed (@restow/core `restoreTestSamples`), green only when all match; yellow
@@ -64,6 +65,12 @@ import { ratingOf } from "../endpoints/verify.js";
 import { withTenantTx } from "../handlers/framework.js";
 import { emitWebhookEvent } from "../handlers/webhooks.js";
 import { raiseEvents } from "../reporting.js";
+import {
+  loadRetentionHolds,
+  retentionHeld,
+  retentionHoldMode,
+  retentionHoldSummary,
+} from "../suspicion/holds.js";
 import { pruneCatalog } from "./catalog.js";
 import {
   type FileShareDeps,
@@ -256,6 +263,17 @@ async function retain(
   try {
     const removedLocks = await clearShareLocks(deps, share, access, now);
     const { rules, zone } = await retentionRules(deps, share);
+    const mode = await retentionHoldMode(deps.providerDb);
+    const holds = await withTenantTx(deps.db, share.tenantId, (tx) =>
+      loadRetentionHolds(tx, {
+        tenantId: share.tenantId,
+        kind: "file_share",
+        objectIds: [share.id],
+        now,
+        mode,
+      }),
+    );
+    const held = retentionHeld(holds, share.id);
     const recorded = await withTenantTx(deps.db, share.tenantId, (tx) =>
       tx
         .select()
@@ -291,12 +309,14 @@ async function retain(
       const newestWithFiles = [...recorded]
         .filter((snap) => snap.files > 0)
         .sort((a, b) => b.sequence - a.sequence)[0];
-      const remove = decision.remove.filter((id) => id !== newestWithFiles?.resticSnapshotId);
+      const planned = decision.remove.filter((id) => id !== newestWithFiles?.resticSnapshotId);
+      // Held on suspicion: every restore point stays (and with it every pack it references).
+      const remove = held ? [] : planned;
       if (remove.length > 0) {
         await resticForget(session, remove, { signal });
         await resticPrune(session, { signal });
       }
-      return { audit, remove, total: stored.length };
+      return { audit, remove, heldBack: planned.length, total: stored.length };
     });
     await recordShareUnlocked(deps, share);
     const removedIds = new Set(result.remove);
@@ -342,6 +362,9 @@ async function retain(
           futureSnapshots: result.audit.flags.filter((flag) => flag.reasons.includes("future_time"))
             .length,
           removedLocks,
+          ...(held
+            ? { ...retentionHoldSummary(holds, share.id), heldBackSnapshots: result.heldBack }
+            : {}),
         },
       },
       now,

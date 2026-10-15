@@ -173,7 +173,12 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
   it("judges nothing while the installation switched the detection off", async () => {
     await q(`INSERT INTO settings (ransomware_detection) VALUES ('{"enabled": false}')`);
     const run = await endpointRun(ago(70 * HOUR), 300);
-    expect(await suspicionPass(deps)).toEqual({ judged: 0, suspicious: 0, alerts: 0 });
+    expect(await suspicionPass(deps)).toEqual({
+      judged: 0,
+      suspicious: 0,
+      alerts: 0,
+      reminders: 0,
+    });
     expect(await judgement(run)).toBeUndefined();
     await q(`UPDATE settings SET ransomware_detection = '{}'`);
   });
@@ -191,7 +196,7 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
 
     const summary = await suspicionPass(deps);
     // The run of the first test is judged now as well: six.
-    expect(summary).toEqual({ judged: 6, suspicious: 3, alerts: 2 });
+    expect(summary).toEqual({ judged: 6, suspicious: 3, alerts: 2, reminders: 0 });
 
     expect(await judgement(ordinary)).toMatchObject({
       verdict: "none",
@@ -223,6 +228,9 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
       restorePointId: first?.restore_point_id,
     });
     expect(raised[0]?.message).toContain("40 files named like a ransom note");
+    // The alert says that retention of the machine is paused now.
+    expect(raised[0]?.message).toContain("Retention of this object is paused");
+    expect(raised[0]?.details).toMatchObject({ retentionHeld: true });
     const queued = await q<{ subject_key: string; recipient: string }>(
       "SELECT subject_key, recipient FROM report_deliveries WHERE event = 'backup.suspicious'",
     );
@@ -232,7 +240,12 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     });
 
     // Judged once: a second pass finds nothing new.
-    expect(await suspicionPass(deps)).toEqual({ judged: 0, suspicious: 0, alerts: 0 });
+    expect(await suspicionPass(deps)).toEqual({
+      judged: 0,
+      suspicious: 0,
+      alerts: 0,
+      reminders: 0,
+    });
   });
 
   it("does not judge runs older than the window or runs that made no restore point", async () => {
@@ -321,5 +334,130 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     });
     const raised = await alerts();
     expect(raised.at(-1)?.details).toMatchObject({ fileShareId: shareId, objectName: "Projects" });
+  });
+  it("judges the compression and deduplication of a VM's new data against its own history", async () => {
+    const [cluster] = await q<{ id: string }>(
+      `INSERT INTO pve_clusters (tenant_id, name, fingerprint, storage_id)
+       VALUES ($1, 'lab', $2, 'restow') RETURNING id`,
+      [tenantId, "c".repeat(64)],
+    );
+    const guest = async (vmid: number) =>
+      (
+        await q<{ id: string }>(
+          `INSERT INTO pve_guests (tenant_id, cluster_id, vmid, kind, name, node)
+           VALUES ($1, $2, $3, 'vm', $4, 'pve1') RETURNING id`,
+          [tenantId, cluster?.id, vmid, `vm-${vmid}`],
+        )
+      )[0]?.id as string;
+    const GiB = 1024 ** 3;
+    const vmRun = async (
+      guestId: string,
+      at: Date,
+      shape: { newShare: number; compressed: number },
+    ) => {
+      const sampled = 64 * 1024 ** 2;
+      const [row] = await q<{ id: string }>(
+        `INSERT INTO pve_runs (tenant_id, cluster_id, guest_id, kind, status, started_at, finished_at, snapshot_id, stats)
+         VALUES ($1, $2, $3, 'backup', 'succeeded', $4, $4, $5, $6) RETURNING id`,
+        [
+          tenantId,
+          cluster?.id,
+          guestId,
+          at,
+          randomUUID(),
+          JSON.stringify({
+            // The same amount of changed blocks every day: the change rate stays quiet.
+            uploadedBytes: 3 * GiB,
+            chunkBytesIn: 3 * GiB,
+            chunkBytesNew: Math.round(3 * GiB * shape.newShare),
+            chunkBytesSampled: sampled,
+            chunkBytesSampledCompressed: Math.round(sampled * shape.compressed),
+          }),
+        ],
+      );
+      return row?.id as string;
+    };
+    const ordinary = await guest(201);
+    const bitlocker = await guest(202);
+    for (let day = 13; day >= 4; day--) {
+      const wobble = (day % 3) * 0.02;
+      await vmRun(ordinary, ago(day * DAY), { newShare: 0.35 + wobble, compressed: 0.45 + wobble });
+      // An encrypted disk: its new data never compresses and never deduplicates.
+      await vmRun(bitlocker, ago(day * DAY), { newShare: 0.97 + wobble / 4, compressed: 0.995 });
+    }
+    // The same day for both: every changed block is new and random.
+    const attacked = await vmRun(ordinary, ago(3 * HOUR), { newShare: 0.99, compressed: 0.999 });
+    const asAlways = await vmRun(bitlocker, ago(3 * HOUR), { newShare: 0.99, compressed: 0.999 });
+
+    await suspicionPass(deps);
+    const hit = await judgement(attacked);
+    expect(hit).toMatchObject({
+      verdict: "suspicious",
+      object_kind: "pve_guest",
+      signals: { changeRate: "clear", compressibility: "fired" },
+    });
+    expect(hit?.findings.map((f) => f.code)).toEqual(["incompressible_data", "dedup_collapse"]);
+    expect(await judgement(asAlways)).toMatchObject({
+      verdict: "none",
+      signals: { compressibility: "clear" },
+    });
+    const raised = await alerts();
+    expect(raised.at(-1)?.details).toMatchObject({ pveGuestId: ordinary, objectName: "vm-201" });
+    expect(raised.at(-1)?.message).toContain("do not compress");
+  });
+
+  it("announces an unresolved retention hold again after the reminder days, and a release ends the episode", async () => {
+    const reminders = () =>
+      q<{ details: Record<string, unknown>; level: string }>(
+        `SELECT details, level FROM notifications WHERE event = 'backup.suspicious_hold'
+         AND details->>'objectId' = $1 ORDER BY created_at`,
+        [endpointId],
+      );
+    // The machine's hold began with the judgements of the second test, just now: not yet due.
+    await suspicionPass(deps);
+    expect(await reminders()).toHaveLength(0);
+
+    // Fifteen days later (the judgements dated back), the hold is announced once.
+    await q(
+      `UPDATE restore_point_suspicions SET created_at = $2
+       WHERE object_id = $1 AND verdict = 'suspicious'`,
+      [endpointId, ago(15 * DAY)],
+    );
+    expect((await suspicionPass(deps)).reminders).toBeGreaterThanOrEqual(1);
+    const [first] = await reminders();
+    expect(first).toMatchObject({ level: "warning" });
+    expect(first?.details).toMatchObject({
+      endpointId,
+      objectKind: "endpoint",
+      objectName: "Fileserver",
+      heldDays: 15,
+      restorePoints: 3,
+    });
+    expect((await suspicionPass(deps)).reminders).toBe(0);
+    // And again once the reminder itself is that old.
+    await q(
+      "UPDATE restore_point_suspicions SET hold_reminded_at = $2 WHERE object_id = $1 AND hold_reminded_at IS NOT NULL",
+      [endpointId, ago(15 * DAY)],
+    );
+    await suspicionPass(deps);
+    expect(await reminders()).toHaveLength(2);
+
+    // An administrator releases the hold: no reminder any more, and the next finding is news
+    // although the restore point before it is still marked suspicious.
+    await q(
+      `UPDATE restore_point_suspicions SET hold_released_at = $2, hold_released_by = 'admin'
+       WHERE object_id = $1 AND verdict = 'suspicious'`,
+      [endpointId, now],
+    );
+    await q("UPDATE restore_point_suspicions SET hold_reminded_at = NULL WHERE object_id = $1", [
+      endpointId,
+    ]);
+    const before = (await alerts()).length;
+    const next = await endpointRun(ago(HOUR / 2), 50_000);
+    const summary = await suspicionPass(deps);
+    expect(summary.reminders).toBe(0);
+    expect(await judgement(next)).toMatchObject({ verdict: "suspicious" });
+    expect((await judgement(next))?.alerted_at).not.toBeNull();
+    expect((await alerts()).length).toBe(before + 1);
   });
 });

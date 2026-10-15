@@ -54,6 +54,7 @@ import {
   notifications,
   type RoleLogin,
   reportDeliveries,
+  restorePointSuspicions,
   webhookDeliveries,
   webhooks,
 } from "@restow/db";
@@ -377,6 +378,89 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         expect(report?.summary.repositoryBytes).toBeGreaterThan(0);
         expect((await endpointOf(made.id))?.lastRetentionAt).toBeInstanceOf(Date);
       }, 120_000);
+
+      it("forgets nothing while the endpoint is held on suspicion, and resumes after the release", async () => {
+        const made = await makeEndpoint({
+          snapshots: 4,
+          settings: { retention: { keepDaily: 2, keepWeekly: 0, keepMonthly: 0 } },
+        });
+        const [run] = await owner
+          .select()
+          .from(endpointRuns)
+          .where(eq(endpointRuns.endpointId, made.id))
+          .limit(1);
+        const [suspicion] = await owner
+          .insert(restorePointSuspicions)
+          .values({
+            tenantId: made.tenantId,
+            objectKind: "endpoint",
+            objectId: made.id,
+            runId: run?.id ?? randomUUID(),
+            restorePointId: run?.snapshotId ?? "x",
+            restorePointAt: run?.finishedAt ?? new Date(),
+            verdict: "suspicious",
+            findings: [{ code: "ransom_notes", value: 40, threshold: 2 }],
+            signals: { names: "fired" },
+            metrics: { itemsChanged: 1, itemsTotal: 1, bytesAdded: 1 },
+            signaturesVersion: "test",
+          })
+          .returning();
+        clock = new Date();
+        await endpointRetention(deps, { tenantId: made.tenantId, endpointId: made.id });
+        expect(await snapshotIds(made)).toHaveLength(4);
+        const [held] = await reportsOf(made.id, "retention");
+        expect(held?.summary).toMatchObject({
+          removedSnapshots: 0,
+          keptSnapshots: 4,
+          retentionHeld: "suspicious",
+          heldRestorePoints: 1,
+          heldBackSnapshots: 2,
+        });
+        expect(held?.summary.repositoryBytes).toBeGreaterThan(0);
+
+        await owner
+          .update(restorePointSuspicions)
+          .set({ holdReleasedAt: new Date(), holdReleasedBy: "admin@contoso.example" })
+          .where(eq(restorePointSuspicions.id, suspicion?.id ?? ""));
+        await endpointRetention(deps, { tenantId: made.tenantId, endpointId: made.id });
+        expect(await snapshotIds(made)).toHaveLength(2);
+      }, 180_000);
+
+      it("waits for the ransomware judgement of a backup from the last hours", async () => {
+        const made = await makeEndpoint({
+          snapshots: 3,
+          settings: { retention: { keepDaily: 1, keepWeekly: 0, keepMonthly: 0 } },
+        });
+        await backUp(made, { taken: new Date(Date.now() - 10 * 60 * 1000), record: true });
+        clock = new Date();
+        await endpointRetention(deps, { tenantId: made.tenantId, endpointId: made.id });
+        expect(await snapshotIds(made)).toHaveLength(4);
+        const [waiting] = await reportsOf(made.id, "retention");
+        expect(waiting?.summary).toMatchObject({
+          removedSnapshots: 0,
+          retentionHeld: "pending_judgement",
+        });
+        // Judged without findings (as the pass does within minutes): retention goes on.
+        const runs = await owner
+          .select()
+          .from(endpointRuns)
+          .where(eq(endpointRuns.endpointId, made.id));
+        await owner.insert(restorePointSuspicions).values(
+          runs.map((run) => ({
+            tenantId: made.tenantId,
+            objectKind: "endpoint" as const,
+            objectId: made.id,
+            runId: run.id,
+            restorePointId: run.snapshotId ?? "x",
+            restorePointAt: run.finishedAt ?? new Date(),
+            verdict: "none" as const,
+            metrics: { itemsChanged: 1, itemsTotal: 1, bytesAdded: 1 },
+            signaturesVersion: "test",
+          })),
+        );
+        await endpointRetention(deps, { tenantId: made.tenantId, endpointId: made.id });
+        expect(await snapshotIds(made)).toHaveLength(1);
+      }, 180_000);
 
       it("keeps 30 daily, 12 weekly and 12 monthly snapshots when nothing else is set", async () => {
         const made = await makeEndpoint({ snapshots: 3 });
