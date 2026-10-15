@@ -17,7 +17,7 @@ import {
 import type { BackupJob } from "../api.js";
 import { memberInputsOf } from "../form.js";
 import { useAddJobMembers } from "../hooks.js";
-import { type MemberConflict, conflictsOf, jobErrorKey } from "../problems.js";
+import { conflictsOf, jobErrorKey, type MemberConflict } from "../problems.js";
 import { type JobsAccess, JobsAccessNote } from "./access-note.js";
 import { MemberPicker, type PickerValue } from "./member-picker.js";
 

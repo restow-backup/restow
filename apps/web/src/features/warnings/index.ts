@@ -7,7 +7,7 @@ import { appLayoutRoute } from "@/routes/tree";
 
 import "./i18n";
 import { useOpenWarningsBadge } from "./hooks";
-import { WARNINGS_PATH, parseWarningsSearch } from "./paths";
+import { parseWarningsSearch, WARNINGS_PATH } from "./paths";
 import { WarningsRoute } from "./route-pages";
 
 /**
@@ -46,6 +46,6 @@ export const navItems: NavItem[] = [
   },
 ];
 
-export { WarningSheet } from "./components/warning-sheet";
 export { AcknowledgeDialog } from "./components/acknowledge-dialog";
+export { WarningSheet } from "./components/warning-sheet";
 export { WARNINGS_PATH, warningsTo } from "./paths";

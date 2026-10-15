@@ -20,8 +20,8 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   createDb,
+  type Database,
   protectedObjects,
   providers,
   secrets,

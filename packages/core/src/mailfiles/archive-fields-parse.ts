@@ -10,8 +10,9 @@
  * HTML conversion (textAsHtml, one allocation of several times the text), no link
  * or image rewriting, no HTML to text conversion.
  */
-import { simpleParser } from "mailparser";
+
 import type { AddressObject } from "mailparser";
+import { simpleParser } from "mailparser";
 import type { JournalEnvelope, JournalRecipient } from "../archive/journal.js";
 import { htmlToPlainText } from "./html-text.js";
 

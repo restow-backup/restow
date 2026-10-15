@@ -1,4 +1,4 @@
-import { type JobMemberOverrides, effectiveSettings } from "@restow/core";
+import { effectiveSettings, type JobMemberOverrides } from "@restow/core";
 import { type BackupJob, backupJobMembers, backupJobs } from "@restow/db";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DbExecutor } from "../../lib/tenant-context.js";

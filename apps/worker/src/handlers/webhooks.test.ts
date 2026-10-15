@@ -7,11 +7,11 @@
  * `restow_worker_webhooks_test`, recreated per run).
  */
 import { createHmac, randomUUID } from "node:crypto";
-import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
-  type Database,
   createDb,
+  type Database,
   providers,
   secrets,
   settings,
@@ -27,21 +27,14 @@ import {
   type AttemptPlan,
   CHAT_PERMANENT_STATUSES,
   type ChatContextSource,
-  DEFAULT_WEBHOOK_OPTIONS,
-  DeliveryFailure,
-  type DeliveryStore,
-  type DueDelivery,
-  type LoadedDelivery,
-  PgDeliveryStore,
-  RETRY_DELAYS_MS,
-  type ReceiverResponse,
-  WEBHOOK_MAX_ATTEMPTS,
-  WebhookDispatcher,
-  type WebhookHttpRequest,
   chatDeliveryHeaders,
   checkTargetUrl,
   classifyAddress,
   createHttpTransport,
+  DEFAULT_WEBHOOK_OPTIONS,
+  DeliveryFailure,
+  type DeliveryStore,
+  type DueDelivery,
   deliveryHeaders,
   emitJobWebhook,
   emitWebhookEvent,
@@ -53,12 +46,19 @@ import {
   isPermanentFailure,
   jobEventData,
   jobWebhookEvent,
+  type LoadedDelivery,
+  PgDeliveryStore,
   parseRetryAfter,
   pgChatContextSource,
   planAfterAttempt,
+  RETRY_DELAYS_MS,
+  type ReceiverResponse,
   retryDelayMs,
   sanitizeDetail,
   signWebhookBody,
+  WEBHOOK_MAX_ATTEMPTS,
+  WebhookDispatcher,
+  type WebhookHttpRequest,
   webhookOptionsFromEnv,
 } from "./webhooks.js";
 

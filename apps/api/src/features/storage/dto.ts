@@ -1,10 +1,10 @@
 import {
+  describeStorageLocation,
+  filesystemObjectLock,
   type InstallationDefaultStorage,
   type ObjectLockCapability,
   type StorageLocation,
   type StorageProbeResult,
-  describeStorageLocation,
-  filesystemObjectLock,
   validateStorageLocation,
 } from "@restow/core";
 import type { StorageMigration, StorageTarget } from "@restow/db";

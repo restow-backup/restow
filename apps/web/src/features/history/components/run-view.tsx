@@ -77,7 +77,7 @@ export function RunView({
       ) : (
         <div className="grid gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
           <ObjectsSection run={run} detail={detail} loading={loading} onOpenRun={onOpenRun} />
-          <TimelineSection run={run} detail={detail} loading={loading} />
+          <TimelineSection detail={detail} loading={loading} />
         </div>
       )}
     </div>
@@ -145,6 +145,7 @@ function FailedItemsSection({ run, detail }: { run: Run; detail: RunDetail | und
       <ul className="space-y-1.5 text-[12.5px]">
         {shown.map((error, index) => (
           <li
+            // biome-ignore lint/suspicious/noArrayIndexKey: a run's errors can repeat a path; the list is read-only and keeps its order.
             key={`${index}-${error.path ?? ""}`}
             className="min-w-0"
             data-cause={error.cause ?? undefined}
@@ -518,15 +519,7 @@ function ObjectRow({
 
 // --- Timeline ---------------------------------------------------------------------------------------------
 
-function TimelineSection({
-  run,
-  detail,
-  loading,
-}: {
-  run: Run;
-  detail: RunDetail | undefined;
-  loading: boolean;
-}) {
+function TimelineSection({ detail, loading }: { detail: RunDetail | undefined; loading: boolean }) {
   const { t, i18n } = useTranslation("history");
   const language = i18n.resolvedLanguage ?? i18n.language;
   const clock = React.useMemo(
@@ -549,7 +542,12 @@ function TimelineSection({
       ) : (
         <ol className="divide-y divide-border">
           {(detail?.events ?? []).map((event, index) => (
-            <TimelineLine key={`${event.at}-${event.type}-${index}`} event={event} clock={clock} />
+            <TimelineLine
+              // biome-ignore lint/suspicious/noArrayIndexKey: events can share time and type; the timeline only grows at its end.
+              key={`${event.at}-${event.type}-${index}`}
+              event={event}
+              clock={clock}
+            />
           ))}
         </ol>
       )}

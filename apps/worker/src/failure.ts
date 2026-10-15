@@ -8,11 +8,11 @@
  * its bound values never get in.
  */
 import {
+  buildCause,
   type ClassifyContext,
+  classifyFailure,
   type FailureCause,
   type FailureRecord,
-  buildCause,
-  classifyFailure,
   redactSensitiveText,
   toFailureRecord,
 } from "@restow/core";

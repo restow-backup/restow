@@ -21,11 +21,11 @@ import type { FailureRecord } from "../failures/types.js";
 import type { DeltaMode } from "../graph/delta.js";
 import type { PlanCounts } from "./plan.js";
 import {
+  normalizeOverrides,
+  normalizeRules,
   type ProtectionOverride,
   type ProtectionOverrides,
   type ProtectionRules,
-  normalizeOverrides,
-  normalizeRules,
   rulesToRecord,
 } from "./rules.js";
 import type { SyncWarning } from "./sync.js";

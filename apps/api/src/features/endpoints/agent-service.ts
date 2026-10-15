@@ -1,11 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   type AgentConfigResponse,
-  DEFAULT_SCHEDULE_TIMEZONE,
-  RESTIC_VERSION,
-  type RestoreTestTaskParams,
   agentFacingConfig,
   bandwidthTimeZone,
+  DEFAULT_SCHEDULE_TIMEZONE,
   effectiveBandwidthKbps,
   endpointPasswordKey,
   enrolledEndpointConfig,
@@ -17,6 +15,8 @@ import {
   isSupportedEndpointOs,
   isValidTimeZone,
   judgeAgentRestoreTest,
+  RESTIC_VERSION,
+  type RestoreTestTaskParams,
   redactAgentLog,
   redactAgentMessage,
   resticInit,
@@ -33,8 +33,8 @@ import {
   endpointReports,
   endpointRuns,
   endpointSamples,
-  endpointTasks,
   endpoints,
+  endpointTasks,
   tenants,
 } from "@restow/db";
 import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
@@ -44,12 +44,12 @@ import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { emitWebhookEvent } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
 import { type AgentContext, FailureTracker } from "./agent-auth.js";
-import { ENDPOINT_AUDIT_ACTIONS, agentActor, auditEndpoint } from "./audit.js";
+import { agentActor, auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "./audit.js";
 import { compareAgentVersions, isAgentVersion, latestAgentRelease } from "./distribution.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import {
-  REPOSITORY_SECRET_KIND,
   forgetTenantStorage,
+  REPOSITORY_SECRET_KIND,
   removeRepositoryObjects,
   removeSecret,
   repositoryAccess,
@@ -229,7 +229,7 @@ export async function enrollEndpoint(
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
-    if (!tenant || tenant.status !== "active") {
+    if (tenant?.status !== "active") {
       throw new ProblemError(403, "Tenant suspended", {
         detail: "The tenant of this enrollment token is currently suspended.",
       });

@@ -1,10 +1,10 @@
 import {
   DEFAULT_STORAGE_SECRET_KIND,
-  InstallationDefaultResolver,
-  type StorageTargets,
   deriveInstallationSecretsKey,
+  InstallationDefaultResolver,
   kekFromBase64,
   openInstallationDefault,
+  type StorageTargets,
 } from "@restow/core";
 import { type Database, findInstallationSecret } from "@restow/db";
 

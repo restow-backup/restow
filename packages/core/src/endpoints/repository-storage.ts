@@ -24,7 +24,7 @@
  *
  * Locks of the server's own restic runs are kept unless they are stale.
  */
-import { type StorageBackend, listWithSizes } from "../storage/backend.js";
+import { listWithSizes, type StorageBackend } from "../storage/backend.js";
 import { RESTIC_NAME } from "./restic-authz.js";
 
 /** restic refreshes a live lock every five minutes and calls one 30 minutes old stale. */

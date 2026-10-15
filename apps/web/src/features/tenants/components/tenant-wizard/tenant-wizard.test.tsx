@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act } from "react";
 import type * as React from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type UseFormReturn, useForm } from "react-hook-form";
 import { I18nextProvider } from "react-i18next";
@@ -15,13 +15,13 @@ import { type SessionContextValue, StaticSessionProvider } from "@/lib/session";
 
 import "../../i18n";
 import {
-  type TenantWizardValues,
-  WIZARD_STEPS,
   emptyAdmin,
   emptyContact,
   emptyRecipient,
   emptyTenantWizardForm,
+  type TenantWizardValues,
   tenantWizardSchema,
+  WIZARD_STEPS,
 } from "../../forms";
 import { AdminsStep } from "./step-admins";
 import { ContactsStep } from "./step-contacts";

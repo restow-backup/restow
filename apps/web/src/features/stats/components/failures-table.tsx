@@ -4,11 +4,11 @@ import { CircleCheck, Copy, History } from "lucide-react";
 import * as React from "react";
 
 import {
+  copyToClipboard,
   DataTable,
   DataTableSearch,
   EmptyState,
   RelativeTime,
-  copyToClipboard,
   rowActionsColumn,
 } from "@/components/kit";
 import { toast } from "@/components/ui/sonner";
@@ -16,7 +16,7 @@ import { historyTo } from "@/features/jobs/paths";
 
 import type { Dataset, FailureCauseRow } from "../api.js";
 import { useStatsFormat } from "../use-stats-format.js";
-import { MISSING_LAST, TableCard, rowsOf } from "./table-card.js";
+import { MISSING_LAST, rowsOf, TableCard } from "./table-card.js";
 
 /** The server's cause for a failure the engine gave no reason for. */
 const UNKNOWN_CAUSE = "unknown";

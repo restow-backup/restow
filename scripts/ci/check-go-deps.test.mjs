@@ -4,11 +4,11 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   DEPS_FORMAT,
-  MODULE_FORMAT,
-  TARGETS,
   foreignModules,
   foreignPackages,
   goImage,
+  MODULE_FORMAT,
+  TARGETS,
 } from "./check-go-deps.mjs";
 
 test("the module graph of a module without requirements has only the main module", () => {

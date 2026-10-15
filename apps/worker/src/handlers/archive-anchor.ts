@@ -17,10 +17,10 @@
  * archive catalog links entries in (apps/api features/archive/catalog.ts).
  */
 import {
-  type Database,
-  type NewArchiveAnchor,
   archiveAnchor,
   archiveItems,
+  type Database,
+  type NewArchiveAnchor,
   safeErrorMessage,
   tenants,
 } from "@restow/db";

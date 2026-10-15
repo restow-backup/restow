@@ -13,12 +13,12 @@ import {
 } from "@/components/ui/select";
 
 import {
+  fieldMessageKey,
   NAME_MAX_LENGTH,
   type TenantWizardValues,
   WIZARD_LENGTH_LIMITS,
-  fieldMessageKey,
 } from "../../forms";
-import { SLUG_MAX_LENGTH, SLUG_MIN_LENGTH, slugify } from "../../slug";
+import { SLUG_MAX_LENGTH, slugify } from "../../slug";
 
 interface StepProps {
   form: UseFormReturn<TenantWizardValues>;

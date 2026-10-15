@@ -3,8 +3,6 @@ import { act } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
-  type Mounted,
-  type RecordedRequest,
   buttonByText,
   click,
   enableActEnvironment,
@@ -12,13 +10,14 @@ import {
   installMemoryStorage,
   json,
   problem,
+  type RecordedRequest,
   type as typeInto,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 
 import { candidate, defaults, endpointJob, list, mailJob } from "../fixtures.js";
 import "../i18n.js";
-import { type Opened, focusOn, openJobs, press } from "../testing.js";
+import { focusOn, type Opened, openJobs, press } from "../testing.js";
 
 /**
  * The job editor: errors where they belong and announced, what is sent, the question before

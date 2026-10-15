@@ -7,21 +7,21 @@ import { useTranslation } from "react-i18next";
 import {
   DataTable,
   DataTableFacetedFilter,
-  RelativeTime,
-  StatusBadge,
   matchesAnyOf,
+  RelativeTime,
   rowActionsColumn,
+  StatusBadge,
 } from "@/components/kit";
 import { Switch } from "@/components/ui/switch";
 import { jobDetailTo } from "@/features/jobs/paths";
 
 import type { ScheduleItem, ScheduleKind } from "../api.js";
 import {
+  describeCadence,
+  describeScope,
   JOB_REPLACED_KINDS,
   JOB_STATUS_TONE,
   KIND_ICON,
-  describeCadence,
-  describeScope,
   lastActivityAt,
   usesTimeZone,
 } from "../presenters.js";

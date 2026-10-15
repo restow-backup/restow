@@ -1,10 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   type BlockMap,
-  IncompleteDiskError,
-  type PveDiskObject,
-  PveFormatError,
-  type StagedBlock,
   blockCount,
   blockLength,
   buildBlockMap,
@@ -15,17 +11,23 @@ import {
   encodeRestoreBlock,
   generateAgentSecret,
   hashListDigest,
+  IncompleteDiskError,
   manifestKey,
   mapChunkIds,
   mapStats,
+  type PveDiskObject,
+  PveFormatError,
   parseArchiveName,
+  resticBinary,
+  resticCacheBase,
   resticInit,
+  type StagedBlock,
   sealEndpointPassword,
   sealManifest,
   sha256Hex,
+  withRepository,
   writeToAllTargets,
 } from "@restow/core";
-import { resticBinary, resticCacheBase, withRepository } from "@restow/core";
 import {
   type PveRun,
   type PveSnapshot,
@@ -42,14 +44,14 @@ import { db } from "../../db.js";
 import { loadTenantDek, readSecret, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
-import { PVE_AUDIT_ACTIONS, auditPve, nodeActor } from "./audit.js";
+import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
 import type { NodeContext } from "./node-auth.js";
 import { checkArchiveName, guestForBackup } from "./node-service.js";
 import {
-  type TenantChunkStore,
   newChunkReader,
   newChunkWriter,
   readBlockMap,
+  type TenantChunkStore,
   tenantChunkStore,
 } from "./store.js";
 
@@ -516,7 +518,7 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
             .limit(1),
         );
         const baseDisk = baseSnap?.disks.find((x) => x.device === d.device);
-        if (!baseSnap || baseSnap.status !== "active" || !baseDisk) {
+        if (baseSnap?.status !== "active" || !baseDisk) {
           throw problem(
             409,
             "Base restore point gone",
@@ -932,7 +934,7 @@ async function snapshotInCluster(node: NodeContext, snapshotId: string): Promise
       .where(and(eq(pveSnapshots.id, snapshotId), eq(pveSnapshots.clusterId, node.clusterId)))
       .limit(1),
   );
-  if (!snap || snap.status !== "active") {
+  if (snap?.status !== "active") {
     throw problem(404, "Restore point not found", "No such restore point in this node's cluster.");
   }
   return snap;

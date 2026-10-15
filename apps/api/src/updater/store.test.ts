@@ -3,16 +3,16 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { memoryLogger } from "./logger.js";
-import { pendingSteps } from "./protocol.js";
 import type { Run } from "./protocol.js";
+import { pendingSteps } from "./protocol.js";
 import { Redactor } from "./redact.js";
 import {
   EVENT_LIMIT,
   HISTORY_LIMIT,
-  STATE_FILE,
-  StatusStore,
   initialState,
   parseState,
+  STATE_FILE,
+  StatusStore,
 } from "./store.js";
 
 let dir: string;

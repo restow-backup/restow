@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_IMAP_PORT,
   consentLinkSchema,
   createSourceSchema,
+  DEFAULT_IMAP_PORT,
   entraTenantHintSchema,
   hostSchema,
   imapTestSchema,

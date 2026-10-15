@@ -1,12 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
-
+import type { StatusTone } from "@/components/kit";
 import { type ReadinessState, verifyLink } from "@/features/verify/search";
 import { formatInteger } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-import type { StatusTone } from "@/components/kit";
 import type { ReadinessSegmentKey } from "../presenters.js";
 import "../i18n.js";
 

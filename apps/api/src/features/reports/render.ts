@@ -1,5 +1,5 @@
-import { type ReportEvent, isReportEvent } from "@restow/core";
-import { type SupportedLanguage, createI18n, failureVariables } from "@restow/i18n";
+import { isReportEvent, type ReportEvent } from "@restow/core";
+import { createI18n, failureVariables, type SupportedLanguage } from "@restow/i18n";
 
 /**
  * Turning an outbox row into what a person reads: the subject, a plain-text

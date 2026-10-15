@@ -24,13 +24,7 @@ export function useCauseTitle(): (code: string, failure?: Pick<Failure, "params"
   );
 }
 
-export function CauseLine({
-  failure,
-  className,
-}: {
-  failure: Failure;
-  className?: string;
-}) {
+export function CauseLine({ failure, className }: { failure: Failure; className?: string }) {
   const { t, i18n } = useTranslation("failures");
   const code = i18n.exists(`failures:cause.${failure.code}.title`) ? failure.code : "unknown";
   const variables = textVariables(failure);

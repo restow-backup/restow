@@ -9,9 +9,9 @@ import { nextRunAt } from "../schedule/cadence.js";
 import {
   BLOCK_FLAG_PRESENT,
   type BlockMap,
-  type MapEntry,
   blockCount,
   blockLength,
+  type MapEntry,
   zeroEntry,
 } from "./formats.js";
 

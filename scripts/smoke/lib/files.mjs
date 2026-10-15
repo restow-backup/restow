@@ -1,6 +1,6 @@
 /** Small file helpers for the checks that compare restored files with what was written. */
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /** Every file below `directory` as `{ path (relative, "/"-separated), sha256, size }`, sorted by path. */

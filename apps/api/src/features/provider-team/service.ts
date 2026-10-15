@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   type Database,
   member,
-  providerMemberTenants,
   providerMembers,
+  providerMemberTenants,
   session,
   tenants,
   user,
@@ -17,15 +17,15 @@ import type { requestLanguage } from "../../lib/language.js";
 import type { ProviderRole } from "../../lib/provider-access.js";
 import { resetSignInMethods } from "../../lib/sign-in-reset.js";
 import type { DbExecutor } from "../../lib/tenant-context.js";
-import { PROVIDER_ADMIN_USER_ROLE, isProviderAdminRole } from "../../middleware/rbac.js";
+import { isProviderAdminRole, PROVIDER_ADMIN_USER_ROLE } from "../../middleware/rbac.js";
 import { ProblemError } from "../../problem.js";
 import {
-  type MailOutcome,
   emailProviderInvitation,
   hasOpenSetPasswordLink,
   hasSignInMethod,
   invalidatePreviousLinks,
   issueProviderInvitationLink,
+  type MailOutcome,
   revealSetPasswordToken,
 } from "../accounts/service.js";
 import type { InviteMemberInput, UpdateMemberInput } from "./schemas.js";
@@ -165,11 +165,10 @@ function ownerCount(admins: readonly AdminRow[]): number {
 }
 
 /** An owner always covers every tenant; everyone else needs at least one. */
-function normalizeScope(input: {
-  role: ProviderRole;
+function normalizeScope(input: { role: ProviderRole; allTenants: boolean; tenantIds: string[] }): {
   allTenants: boolean;
   tenantIds: string[];
-}): { allTenants: boolean; tenantIds: string[] } {
+} {
   if (input.role === "owner" || input.allTenants) {
     return { allTenants: true, tenantIds: [] };
   }

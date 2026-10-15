@@ -2,8 +2,8 @@ import { type LinkProps, useMatch, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
 
 import {
-  type ExplorerSearch,
   compactSearch,
+  type ExplorerSearch,
   parseExplorerSearch,
 } from "@/features/restore/lib/explorer-search";
 

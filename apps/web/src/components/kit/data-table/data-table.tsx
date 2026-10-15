@@ -3,13 +3,6 @@ import {
   type Cell,
   type ColumnDef,
   type ColumnFiltersState,
-  type Header,
-  type PaginationState,
-  type Row,
-  type RowSelectionState,
-  type SortingState,
-  type Table as TanstackTable,
-  type Updater,
   flexRender,
   functionalUpdate,
   getCoreRowModel,
@@ -18,6 +11,13 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  type Header,
+  type PaginationState,
+  type Row,
+  type RowSelectionState,
+  type SortingState,
+  type Table as TanstackTable,
+  type Updater,
   useReactTable,
 } from "@tanstack/react-table";
 import {
@@ -55,7 +55,6 @@ import { DataTableLoadMore, DataTablePagination } from "./pagination.js";
 import { columnPin, declaredWidths, pinningState, truncatedTitle, widthStyle } from "./pinning.js";
 import { type RowAction, RowContextMenu, rowActionsOf } from "./row-actions.js";
 import {
-  TABLE_DEFAULTS,
   ariaSortFor,
   bodyState,
   clampPageIndex,
@@ -63,6 +62,7 @@ import {
   plainCell,
   samePage,
   sameState,
+  TABLE_DEFAULTS,
 } from "./state.js";
 import { DataTableViewOptions } from "./toolbar.js";
 import { useColumnVisibility, useHideableColumnIds } from "./use-column-visibility.js";

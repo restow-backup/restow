@@ -13,10 +13,10 @@ import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  DATABASE_ENV,
-  REPORT_FILE,
   checkPostgresSuites,
+  DATABASE_ENV,
   findPostgresTestFiles,
+  REPORT_FILE,
 } from "./assert-pg-suites.mjs";
 
 const ENV = { [DATABASE_ENV]: "postgres://ci@localhost:5432/postgres" };

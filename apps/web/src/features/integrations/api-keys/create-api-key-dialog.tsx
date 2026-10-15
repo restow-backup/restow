@@ -30,12 +30,12 @@ import { SecretReveal } from "../components/secret-reveal";
 import { useCreateApiKey } from "../hooks";
 import {
   type ApiKeyFormValues,
+  apiKeyFormSchema,
   EXPIRY_OPTIONS,
   type ExpiryOption,
-  SCOPE_GROUPS,
-  apiKeyFormSchema,
   emptyApiKeyForm,
   integrationErrorKey,
+  SCOPE_GROUPS,
   scopeKey,
   toCreateApiKeyInput,
   toggleItem,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReadinessObject, ReadinessReport, ReadinessSnapshot } from "./facts.js";
-import { ReadinessTimeline, countedTotal, isProtected, provenCount } from "./readiness.js";
+import { countedTotal, isProtected, provenCount, ReadinessTimeline } from "./readiness.js";
 
 /** Midnight UTC of a September day, plus hours. */
 const day = (n: number, hour = 0) => new Date(Date.UTC(2026, 8, n, hour));

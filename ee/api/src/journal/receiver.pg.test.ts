@@ -20,15 +20,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   EnvKeyProvider,
-  InstallationDefaultResolver,
   generateDek,
+  InstallationDefaultResolver,
   kekFromBase64,
 } from "@restow/core";
 import {
-  type Database,
   archiveItemMailboxes,
   archiveItems,
   createDb,
+  type Database,
   protectedObjects,
   providers,
   sources,

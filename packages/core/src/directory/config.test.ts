@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  capWarnings,
   EMPTY_DIRECTORY_STATE,
   FULL_SYNC_INTERVAL_MS,
-  MAX_STORED_WARNINGS,
-  capWarnings,
   fullSyncReason,
+  MAX_STORED_WARNINGS,
   protectionVersion,
   readDirectoryState,
   readProtection,

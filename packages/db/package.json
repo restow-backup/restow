@@ -21,7 +21,11 @@
       "default": "./dist/migrate.js"
     }
   },
-  "files": ["dist", "drizzle", "sql"],
+  "files": [
+    "dist",
+    "drizzle",
+    "sql"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",

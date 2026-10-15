@@ -3,25 +3,23 @@ import * as React from "react";
 
 import {
   ApiError,
+  fetchMe,
+  fetchTenants,
   GATED_FEATURES,
   type GatedFeature,
   type Me,
   type ProviderRole,
+  queryKeys,
   type Role,
   type SessionUser,
+  setupStateQueryOptions,
   type Tenant,
   type TenantKind,
   type TenantSummary,
-  fetchMe,
-  fetchTenants,
-  queryKeys,
-  setupStateQueryOptions,
 } from "@/lib/api";
 import { type AuthSession, authClient } from "@/lib/auth-client";
 import { requiresAuthenticatorEnrollment } from "@/lib/second-factor";
 import {
-  type SessionScope,
-  type TenantStatus,
   canEnterTenant,
   forgetActiveTenant,
   pickActiveTenant,
@@ -29,7 +27,9 @@ import {
   readRememberedTenantId,
   rememberScope,
   roleInActiveTenant,
+  type SessionScope,
   setActiveTenantId,
+  type TenantStatus,
 } from "@/lib/tenant";
 
 /**

@@ -3,7 +3,7 @@ import * as React from "react";
 import { createUploadTransport } from "../api";
 import type { ImportConfig, ImportUploadDto } from "../types";
 import { UploadEngine } from "./engine";
-import { SpeedMeter, overallProgress } from "./progress";
+import { overallProgress, SpeedMeter } from "./progress";
 import { assignResumes, resumableUploads } from "./resume";
 import { readyUploads, uploadReducer } from "./state";
 import type { UploadItem, UploadTransport } from "./types";

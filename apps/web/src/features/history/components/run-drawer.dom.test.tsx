@@ -13,10 +13,10 @@ import {
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 
-import { type Run, historyKeys } from "../api";
-import { RUN_IDS, agentRun, detail, finished, iso, run, samples } from "../fixtures";
+import { historyKeys, type Run } from "../api";
+import { agentRun, detail, finished, iso, RUN_IDS, run, samples } from "../fixtures";
 import "../i18n";
-import { type Opened, TENANT, adminSession, openHistory } from "../testing";
+import { type Opened, openHistory, TENANT } from "../testing";
 
 /**
  * The drawer a run opens in: reached by an address (`?run=<id>`), live while the run runs, closed

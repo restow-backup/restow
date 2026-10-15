@@ -1,7 +1,7 @@
 import {
+  buildCause,
   type FailureCause,
   type FailureTechnical,
-  buildCause,
   redactSensitiveText,
 } from "@restow/core";
 import type { ImapProbeResult } from "../sources/imap.js";

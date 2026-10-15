@@ -29,17 +29,17 @@
  * without touching this handler.
  */
 import {
+  classifyFailure,
   type JobRetentionAssignment,
+  jobRetentionAssignments,
   type LegalHoldScope,
   type Logger,
-  type RetentionJobPayload,
-  type RetentionPolicyRow,
-  type SnapshotCandidate,
-  classifyFailure,
-  jobRetentionAssignments,
   loadManifest,
   parseSnapshotPolicy,
   planRetentionRun,
+  type RetentionJobPayload,
+  type RetentionPolicyRow,
+  type SnapshotCandidate,
   withJobRetention,
 } from "@restow/core";
 import {
@@ -62,8 +62,8 @@ import type { TenantTxRunner } from "../progress.js";
 import {
   type JobHandler,
   type JobOutcome,
-  type WorkerJobContext,
   tenantRunner,
+  type WorkerJobContext,
 } from "./framework.js";
 
 const RELEASE_BATCH = 1000;

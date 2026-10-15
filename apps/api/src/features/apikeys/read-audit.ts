@@ -1,5 +1,5 @@
 import type { AuditEvent } from "../../lib/audit.js";
-import { type V1AuditAction, V1_AUDIT_ACTIONS, integrationEvent } from "../../routes/v1/audit.js";
+import { integrationEvent, V1_AUDIT_ACTIONS, type V1AuditAction } from "../../routes/v1/audit.js";
 import type { ApiScope } from "./scopes.js";
 
 /**

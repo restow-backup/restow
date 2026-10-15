@@ -6,7 +6,13 @@
   "description": "Restow pg-boss worker: one handler per job queue (backup, restore, verify, archive, directory, retention, scrub).",
   "license": "Apache-2.0",
   "main": "./dist/apps/worker/src/index.js",
-  "files": ["dist", "!**/*.test.*", "!**/testing", "!**/testdata", "!**/fixtures"],
+  "files": [
+    "dist",
+    "!**/*.test.*",
+    "!**/testing",
+    "!**/testdata",
+    "!**/fixtures"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/apps/worker/src/index.js",

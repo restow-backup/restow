@@ -14,8 +14,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resticBinary } from "@restow/core";
-import { type Database, createDb, providers, tenants, user } from "@restow/db";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../../testing/database-roles.js";
+import { createDb, type Database, providers, tenants, user } from "@restow/db";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

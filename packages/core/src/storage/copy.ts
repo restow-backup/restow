@@ -28,7 +28,7 @@ import { keyPrefix, manifestPrefix, packPrefix } from "../engine/layout.js";
 import type { Logger, PackRecord, ProgressReporter, StorageTargets } from "../engine/types.js";
 import { buildCause, classifyFailure } from "../failures/classify.js";
 import type { FailureCause } from "../failures/types.js";
-import { type StorageBackend, isObjectNotFound } from "./backend.js";
+import { isObjectNotFound, type StorageBackend } from "./backend.js";
 import { describeStorageError } from "./factory.js";
 
 /** One object to mirror. Packs carry their recorded size and hash; other objects are compared with the source. */

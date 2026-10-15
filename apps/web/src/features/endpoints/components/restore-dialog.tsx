@@ -1,6 +1,5 @@
 import { CircleCheck, TriangleAlert } from "lucide-react";
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";

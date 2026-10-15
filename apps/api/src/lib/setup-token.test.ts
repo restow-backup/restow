@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  MIN_SETUP_TOKEN_LENGTH,
   currentSetupToken,
   generateSetupToken,
+  MIN_SETUP_TOKEN_LENGTH,
   normalizeSetupToken,
   resetSetupTokenForTests,
   retireSetupToken,

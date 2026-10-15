@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-import { KEY_STATUS_VARIANT, expiresSoon, scopeKey } from "../presenters";
+import { expiresSoon, KEY_STATUS_VARIANT, scopeKey } from "../presenters";
 import { API_SCOPES, type ApiKey, type ApiScope } from "../types";
 import { useIntegrationsFormat } from "../use-format";
 

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ORGANISATION_NAME_MAX_LENGTH,
-  SETUP_LANGUAGES,
-  STEP_FIELDS,
-  STEP_KEYS,
-  type SetupFormValues,
   buildSubmission,
   defaultSetupValues,
+  ORGANISATION_NAME_MAX_LENGTH,
   publicUrlReason,
+  SETUP_LANGUAGES,
+  type SetupFormValues,
+  STEP_FIELDS,
+  STEP_KEYS,
   setupFormSchema,
 } from "./schema";
 

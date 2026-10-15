@@ -9,21 +9,21 @@
  * read the manifest vocabulary below (object types, version paths).
  */
 export {
+  createOneDriveBackupEngine,
+  looksLikeDriveId,
   ONEDRIVE_BACKUP_DEFAULTS,
   OneDriveBackupEngine,
   type OneDriveBackupEngineOptions,
   type OneDriveGraphClientResolver,
   type OneDriveIdResolver,
   OneDriveUnavailableError,
-  createOneDriveBackupEngine,
-  looksLikeDriveId,
   resolveOneDriveId,
 } from "./engine.js";
 export {
+  isVersionPath as isOneDriveVersionPath,
   ONEDRIVE_OBJECT_TYPES,
   type OneDriveObjectType,
   VERSION_PATH_MARKER as ONEDRIVE_VERSION_PATH_MARKER,
-  isVersionPath as isOneDriveVersionPath,
   versionPath as oneDriveVersionPath,
 } from "./items.js";
 export { ONEDRIVE_PHASES, type OneDrivePhase } from "./run.js";

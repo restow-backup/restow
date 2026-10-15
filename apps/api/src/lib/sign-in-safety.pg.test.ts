@@ -15,7 +15,7 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { createOTP } from "@better-auth/utils/otp";
-import { type Database, account, createDb, passkey, twoFactor, user } from "@restow/db";
+import { account, createDb, type Database, passkey, twoFactor, user } from "@restow/db";
 import { symmetricDecrypt } from "better-auth/crypto";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";

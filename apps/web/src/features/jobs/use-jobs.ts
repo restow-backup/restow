@@ -3,7 +3,6 @@ import * as React from "react";
 
 import { useLiveOpen } from "@/features/history/live/provider";
 import {
-  type BackupTarget,
   cancelJob,
   fetchBackupTargets,
   fetchSnapshotHistory,

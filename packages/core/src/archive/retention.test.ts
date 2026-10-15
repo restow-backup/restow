@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type RetentionPolicy, isDueForDeletion, retentionUntil } from "./retention.js";
+import { isDueForDeletion, type RetentionPolicy, retentionUntil } from "./retention.js";
 
 describe("retentionUntil", () => {
   it("from_capture: exactly N years after the capture date", () => {

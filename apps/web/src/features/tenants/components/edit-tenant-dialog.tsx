@@ -20,14 +20,14 @@ import { zodResolver } from "@/lib/form";
 
 import {
   type EditTenantValues,
-  NAME_MAX_LENGTH,
   editTenantFormFrom,
   editTenantSchema,
   fieldMessageKey,
+  NAME_MAX_LENGTH,
   toUpdateTenantInput,
 } from "../forms";
 import { useUpdateTenant } from "../hooks";
-import { type Message, genericError } from "../presenters";
+import { genericError, type Message } from "../presenters";
 import type { TenantDetail } from "../types";
 
 interface EditTenantDialogProps {

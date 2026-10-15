@@ -7,10 +7,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../../../../apps/api/src/config.js";
 import type { JournalReceiverDeps } from "./receiver.js";
 import {
-  type JournalServerOptions,
-  type JournalServerTls,
   createInMemoryRateLimiter,
   createJournalServer,
+  type JournalServerOptions,
+  type JournalServerTls,
 } from "./server.js";
 import { certificate, fingerprint, rawSmtp } from "./tls-test-support.js";
 

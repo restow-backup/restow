@@ -7,10 +7,10 @@ import { Readable } from "node:stream";
 import type { Dek } from "../crypto.js";
 import { Keyring } from "../engine/keyring.js";
 import {
+  createMemoryJobContext,
   MemoryChunkIndex,
   type MemoryProgressSink,
   MemorySnapshotIndex,
-  createMemoryJobContext,
 } from "../engine/memory.js";
 import { SnapshotWriter } from "../engine/snapshot.js";
 import type {

@@ -1,7 +1,7 @@
 /** One entry point for the coordinator: the writer that belongs to an export format. */
 import { createEmlZip } from "./eml-zip.js";
-import { isExportFormatAvailable } from "./formats.js";
 import type { ExportFormatId } from "./formats.js";
+import { isExportFormatAvailable } from "./formats.js";
 import { createMbox } from "./mbox.js";
 import type { ExportMessage, ExportOptions, ExportResult } from "./types.js";
 

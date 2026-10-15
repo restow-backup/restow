@@ -4,11 +4,11 @@ import { requireFeature } from "../../lib/features.js";
 import { requestLanguage } from "../../lib/language.js";
 import { clientIp } from "../../lib/request.js";
 import {
+  requireProviderAdmin,
+  requireTenant,
   type SessionEnv,
   type SessionVariables,
   type TenantEnv,
-  requireProviderAdmin,
-  requireTenant,
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { PDF_CONTENT_TYPE } from "../../reports/render.js";
@@ -16,12 +16,12 @@ import { parseOrProblem } from "../../schemas.js";
 import { contentDisposition } from "../restore/headers.js";
 import { exportQuerySchema, reportQuerySchema, statsQuerySchema } from "./schemas.js";
 import {
-  type StatsActor,
-  type StatsDeps,
-  type StatsScope,
   exportDataset,
   generateReport,
   loadStats,
+  type StatsActor,
+  type StatsDeps,
+  type StatsScope,
 } from "./service.js";
 
 /**

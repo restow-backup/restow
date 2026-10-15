@@ -4,12 +4,12 @@ import { must } from "../graph/testing/fake-graph.js";
 import { ExchangeRestoreEngine, eventTransactionId, targetMailboxOf } from "./exchange.js";
 import { FakeMailbox } from "./testing/fake-mailbox.js";
 import {
-  type FixtureObject,
-  type SnapshotFixture,
   corruptStoredObject,
   createSnapshotFixture,
+  type FixtureObject,
   mimeMessage,
   restoreRequestFor,
+  type SnapshotFixture,
 } from "./testing/fixtures.js";
 
 const USER = "anna@example.org";

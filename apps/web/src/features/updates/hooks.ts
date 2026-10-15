@@ -1,22 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-  type RestartService,
-  type RestartsView,
-  type ScheduleUpdateInput,
-  type UpdateSettingsInput,
-  type UpdatesView,
   cancelMaintenance,
   checkForUpdates,
   dismissRun,
   fetchRestarts,
   fetchUpdates,
   patchUpdateSettings,
+  type RestartService,
+  type RestartsView,
   removePendingLicenseKey,
   restartService,
+  type ScheduleUpdateInput,
   scheduleUpdate,
   storePendingLicenseKey,
   switchToFullBuild,
+  type UpdateSettingsInput,
+  type UpdatesView,
 } from "./api";
 import { isMaintenanceActive } from "./presenters";
 

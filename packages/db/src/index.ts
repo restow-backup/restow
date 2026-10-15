@@ -22,37 +22,31 @@ export function createDb(connectionString: string) {
 
 export type Database = ReturnType<typeof createDb>;
 
-// Re-export the full schema (tables, enums, and inferred row types).
-export * from "./schema/index.js";
-export { schema };
-
-// The database roles and the startup check of the pools.
-export * from "./roles.js";
-
-// Process liveness: heartbeat writer and the status /readyz reports.
-export * from "./heartbeat.js";
-
-// Services that need a manual restart, and why (the Updates tab shows them).
-export * from "./restart-requests.js";
-
-// Reporting a failed query without its SQL text and bound parameters.
-export { reportableError, safeErrorMessage, withoutQueryText } from "./errors.js";
+// How the archive is filtered and held by mailbox, journal assignments included (#32).
+export * from "./archive-mailboxes.js";
 export {
   type ConcurrentSetupOptions,
   isConcurrentSetupConflict,
   retryConcurrentSetup,
 } from "./concurrent-setup.js";
+// Reporting a failed query without its SQL text and bound parameters.
+export { reportableError, safeErrorMessage, withoutQueryText } from "./errors.js";
 
+// Process liveness: heartbeat writer and the status /readyz reports.
+export * from "./heartbeat.js";
 // Installation-level secrets (read on the installation pool).
 export * from "./installation-secrets.js";
-
+// The manifest index as versions: mirroring a snapshot, retention, the 0.3.5 conversion, reading.
+export * from "./manifest-versions.js";
 // The lock that keeps the server's own work on one endpoint repository from overlapping.
 export * from "./repository-lock.js";
+// Services that need a manual restart, and why (the Updates tab shows them).
+export * from "./restart-requests.js";
+// The database roles and the startup check of the pools.
+export * from "./roles.js";
 
 // The throughput history of runs (sparklines and the run drawer's charts).
 export * from "./run-samples.js";
-// How the archive is filtered and held by mailbox, journal assignments included (#32).
-export * from "./archive-mailboxes.js";
-
-// The manifest index as versions: mirroring a snapshot, retention, the 0.3.5 conversion, reading.
-export * from "./manifest-versions.js";
+// Re-export the full schema (tables, enums, and inferred row types).
+export * from "./schema/index.js";
+export { schema };

@@ -35,7 +35,11 @@ export function CopyButton({
   value,
   label,
   format,
-}: { value: string; label: string; format: AuditFormat }) {
+}: {
+  value: string;
+  label: string;
+  format: AuditFormat;
+}) {
   const [copied, setCopied] = React.useState(false);
   React.useEffect(() => {
     if (!copied) {

@@ -4,16 +4,16 @@ import {
   type DirectoryLastRun,
   type GroupSummary,
   type ImapAccountInput,
-  type ProtectionOverride,
-  type ProtectionRulesDto,
-  TokenAcquisitionError,
   isGraphError,
   normalizeAccounts,
+  type ProtectionOverride,
+  type ProtectionRulesDto,
   parseImapAccountsCsv,
   readDirectoryState,
   readProtection,
   rulesToRecord,
   searchGroups,
+  TokenAcquisitionError,
   writeDirectoryState,
   writeOverride,
   writeRules,
@@ -22,44 +22,44 @@ import {
   type CredentialStatus,
   type Database,
   type Job,
-  type ProtectedObject,
-  type Source,
   jobs,
   legalHolds,
+  type ProtectedObject,
   protectedObjects,
+  type Source,
   snapshots,
   sources,
   users,
 } from "@restow/db";
 import { productName } from "@restow/i18n";
-import { type SQL, and, asc, count, desc, eq, ilike, inArray, ne, not, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, ne, not, or, type SQL, sql } from "drizzle-orm";
 import { config as processConfig } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { deleteSecret, readSecret, replaceSecret, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
-import { type ObjectCoverage, coverageOf, loadMailCoverage } from "../backup-jobs/coverage.js";
-import { type FailureDto, causeToRecord, failureDto } from "../failures/dto.js";
+import { coverageOf, loadMailCoverage, type ObjectCoverage } from "../backup-jobs/coverage.js";
+import { causeToRecord, type FailureDto, failureDto } from "../failures/dto.js";
 import { causeOfImapProbe } from "../failures/probe.js";
 import type { JobThrottleDto } from "../jobs/dto.js";
 import { enqueueFirstBackups } from "../jobs/service.js";
 import { graphClientForSource } from "../sources/entra.js";
-import { storedHostMayBePrivate } from "../sources/imap-host.js";
 import {
   type ImapProbeFailure,
   type ImapProbeInput,
   type ImapProbeResult,
   probeImapConnection,
 } from "../sources/imap.js";
+import { storedHostMayBePrivate } from "../sources/imap-host.js";
 import type { ImapAuthMode } from "../sources/schemas.js";
 import { loadObjectVerifications } from "../verify/verification-state.js";
 import {
-  type WarningAcknowledgementDto,
-  type WarningCauseCountDto,
   acknowledgementDto,
   causeCountsDto,
+  type WarningAcknowledgementDto,
+  type WarningCauseCountDto,
 } from "../warnings/dto.js";
-import { type WarningFact, loadMailWarnings } from "../warnings/state.js";
+import { loadMailWarnings, type WarningFact } from "../warnings/state.js";
 import { type EnqueueOutcome, enqueueDirectorySync, findPendingSync } from "./enqueue.js";
 import {
   containsPattern,

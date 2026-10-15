@@ -11,7 +11,7 @@
  */
 import type { TokenAcquisitionError } from "../graph/auth/token.js";
 import type { GraphError } from "../graph/errors.js";
-import { redactSensitiveText, redactedPath } from "./redact.js";
+import { redactedPath, redactSensitiveText } from "./redact.js";
 import type { FailureCause, FailureParams, FailureTechnical } from "./types.js";
 
 /** What a Graph URL is about; picks the permission and the wording. */

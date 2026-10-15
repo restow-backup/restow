@@ -27,7 +27,7 @@ import { storeSecret } from "../../lib/secrets.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { isSafeOrigin } from "../endpoints/distribution.js";
-import { PVE_AUDIT_ACTIONS, type PveActor, auditPve } from "./audit.js";
+import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
 
 /**
@@ -566,7 +566,7 @@ export async function restoreSnapshot(
       .from(pveSnapshots)
       .where(eq(pveSnapshots.id, snapshotId))
       .limit(1);
-    if (!snap || snap.status !== "active") {
+    if (snap?.status !== "active") {
       throw new ProblemError(404, "Restore point not found");
     }
     const guest = await loadGuest(tx, snap.guestId);

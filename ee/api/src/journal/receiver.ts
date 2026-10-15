@@ -28,12 +28,12 @@
  * predecessor chain hash.
  */
 import { randomUUID } from "node:crypto";
-import { type KeyProvider, type Logger, archive } from "@restow/core";
+import { archive, type KeyProvider, type Logger } from "@restow/core";
 import type { Database } from "@restow/db";
 import { sql } from "drizzle-orm";
 import { PgArchiveCatalog } from "../../../../apps/api/src/features/archive/catalog.js";
 import { type DbExecutor, withTenantTx } from "../../../../apps/api/src/lib/tenant-context.js";
-import { PgChunkIndex, loadTenantKeyring, tenantRunner } from "./chunkstore.js";
+import { loadTenantKeyring, PgChunkIndex, tenantRunner } from "./chunkstore.js";
 import { assignArchiveItemMailboxes, envelopeAddresses } from "./mailboxes.js";
 import { resolveTenantWritableStorage } from "./storage.js";
 

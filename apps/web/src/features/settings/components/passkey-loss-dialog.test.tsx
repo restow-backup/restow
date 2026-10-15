@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { i18n } from "@/i18n";
 import type { PasskeyImpact } from "../api";
-import { ImpactSummary, blocksSelf } from "./passkey-loss-dialog";
+import { blocksSelf, ImpactSummary } from "./passkey-loss-dialog";
 
 function render(node: React.ReactNode): string {
   return renderToStaticMarkup(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>);

@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import {
+  deriveInstallationSecretsKey,
   type InstallationDefaultDocument,
   InstallationDefaultResolver,
+  installationDefaultDocument,
   type StorageBackend,
   type StorageTargets,
-  deriveInstallationSecretsKey,
-  installationDefaultDocument,
   sealSecret,
   serializeInstallationDefaultDocument,
 } from "@restow/core";
@@ -14,8 +14,8 @@ import { describe, expect, it } from "vitest";
 import { defaultStorageLookup } from "./default-storage.js";
 import {
   type ResolvedTenantStorage,
-  TenantCache,
   resolveStorageForJob,
+  TenantCache,
 } from "./handlers/framework.js";
 
 /**

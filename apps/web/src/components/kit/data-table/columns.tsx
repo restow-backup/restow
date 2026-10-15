@@ -53,8 +53,8 @@ export function matchesAnyOf<TData extends RowData>(
 
 export {
   type RowAction,
+  type RowActionsColumnOptions,
   RowActionsMenu,
   type RowActionsMenuProps,
-  type RowActionsColumnOptions,
   rowActionsColumn,
 } from "./row-actions.js";

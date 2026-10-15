@@ -140,7 +140,7 @@ export async function probePublicUrl(
     target = null;
   }
   const isLocal = target?.hostname === "localhost" || target?.hostname === "127.0.0.1";
-  if (!target || target.protocol !== "https:" || isLocal) {
+  if (target?.protocol !== "https:" || isLocal) {
     return result("skipped", null, null);
   }
 

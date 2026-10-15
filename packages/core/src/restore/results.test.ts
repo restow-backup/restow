@@ -5,10 +5,10 @@ import { ProgressTracker } from "../engine/progress.js";
 import { GraphError } from "../graph/errors.js";
 import type { ManifestObject } from "../manifest.js";
 import {
-  RestoreIntegrityError,
-  RestoreLedger,
   describeRestoreError,
   failureCodeOf,
+  RestoreIntegrityError,
+  RestoreLedger,
 } from "./results.js";
 
 function object(path: string, extra: Partial<ManifestObject> = {}): ManifestObject {

@@ -33,11 +33,11 @@ import type {
 } from "./types.js";
 import {
   DIRECTORY_DATE,
-  type Row,
-  ZipBuilder,
   finishWithManifest,
   newRow,
+  type Row,
   summarize,
+  ZipBuilder,
 } from "./zip-writer.js";
 
 const noop = (): void => undefined;

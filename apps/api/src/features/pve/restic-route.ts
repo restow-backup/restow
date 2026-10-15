@@ -1,7 +1,7 @@
 import {
-  type ResticLockRegistry,
   handleResticRequest,
   parseBasicAuthorization,
+  type ResticLockRegistry,
   secretMatchesHash,
 } from "@restow/core";
 import { pveRuns, tenants } from "@restow/db";
@@ -12,7 +12,7 @@ import { clientIp } from "../../lib/request.js";
 import { isUuid } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { authFailures } from "../endpoints/agent-auth.js";
-import { PVE_AUDIT_ACTIONS, auditPve } from "./audit.js";
+import { auditPve, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { PVE_RESTIC_PATH } from "./meta.js";
 import { guestRepositoryPrefix } from "./runs.js";
 import { tenantChunkStore } from "./store.js";

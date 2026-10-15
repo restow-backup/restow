@@ -8,16 +8,15 @@ import {
   DataTableFacetedFilter,
   DataTableSearch,
   EmptyState,
-  RelativeTime,
-  StatusBadge,
   matchesAnyOf,
+  RelativeTime,
   rowActionsColumn,
+  StatusBadge,
 } from "@/components/kit";
-import { formatBytes, formatInteger } from "@/lib/format";
-
 import type { LoadedTenantRow, ProviderTenantRow } from "@/features/dashboard/api";
 import { isStale, readinessRank, readinessTone, staleBound } from "@/features/dashboard/presenters";
 import type { ReadinessState } from "@/features/verify/search";
+import { formatBytes, formatInteger } from "@/lib/format";
 import "@/features/dashboard/i18n";
 
 /** The readiness facet of a row: its rating, `none` without objects, `unavailable` when unread. */

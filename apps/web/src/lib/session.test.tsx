@@ -6,11 +6,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { RequireRole } from "@/components/require-role";
 import { i18n } from "@/i18n";
 import type { Me } from "@/lib/api";
-import { type NavItem, groupNavItems } from "@/lib/navigation";
+import { groupNavItems, type NavItem } from "@/lib/navigation";
 
 import {
-  type SessionContextValue,
-  StaticSessionProvider,
   buildTenantList,
   canAccess,
   hasFeature,
@@ -18,6 +16,8 @@ import {
   readFeatures,
   readRunningVersion,
   resolveTenantView,
+  type SessionContextValue,
+  StaticSessionProvider,
 } from "./session.js";
 
 beforeAll(async () => {

@@ -17,10 +17,10 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   backupJobMembers,
   backupJobs,
   createDb,
+  type Database,
   endpointReports,
   endpointRuns,
   endpoints,
@@ -45,7 +45,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { registerApiExtension, resetExtensionsForTesting } from "../../extensions.js";
 import type { Role } from "../../middleware/rbac.js";
 import type { TenantEnv } from "../../middleware/session.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,
@@ -489,7 +489,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
   }
 
   function ok<T>(result: { state: "ok"; data: T } | { state: "error" } | undefined): T {
-    if (!result || result.state !== "ok") {
+    if (result?.state !== "ok") {
       throw new Error(`widget not ok: ${JSON.stringify(result)}`);
     }
     return result.data;

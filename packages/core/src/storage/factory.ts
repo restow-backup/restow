@@ -19,8 +19,8 @@
  * Nothing here logs or returns credentials; error texts name keys and paths only.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { type Stats, existsSync } from "node:fs";
-import { constants, access, stat } from "node:fs/promises";
+import { existsSync, type Stats } from "node:fs";
+import { access, constants, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import {
   GetObjectLockConfigurationCommand,

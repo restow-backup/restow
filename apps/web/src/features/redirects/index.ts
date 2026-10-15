@@ -5,7 +5,7 @@ import type { Me } from "@/lib/api";
 import { activeTenantIdFor } from "@/lib/tenant";
 import { appLayoutRoute } from "@/routes/tree";
 
-import { type RedirectTarget, legacyTarget } from "./targets";
+import { legacyTarget, type RedirectTarget } from "./targets";
 
 export { legacyTarget } from "./targets";
 

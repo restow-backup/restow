@@ -5,10 +5,10 @@ import { requireFeature } from "../../lib/features.js";
 import type { ProviderAccess } from "../../lib/provider-access.js";
 import { clientIp } from "../../lib/request.js";
 import {
-  type SessionEnv,
-  type TenantEnv,
   requireProviderAdmin,
   requireTenant,
+  type SessionEnv,
+  type TenantEnv,
 } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { contentDisposition } from "../restore/headers.js";
@@ -22,7 +22,6 @@ import {
   updateReportRuleSchema,
 } from "./schemas.js";
 import {
-  type ReportActor,
   createRule,
   deleteRule,
   deliveriesCsv,
@@ -36,6 +35,7 @@ import {
   markInstallationNotificationsRead,
   markNotificationsRead,
   markProviderNotificationsRead,
+  type ReportActor,
   reportCatalog,
   testRule,
   updateRule,

@@ -5,15 +5,14 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { DataTable, EmptyState, RelativeTime, StatusBadge } from "@/components/kit";
-import { formatInteger } from "@/lib/format";
-
 import { CauseLine, ItemCauseLines } from "@/features/failures";
 import { JOB_QUEUES } from "@/features/jobs/api";
+import { formatInteger } from "@/lib/format";
 
 import type { RecentJob, RecentJobsWidget as RecentJobsData } from "../api.js";
 import { LinkButton } from "../components/link-button.js";
 import { WidgetCard, type WidgetStateProps } from "../components/widget-frame.js";
-import { PATHS, jobTo, to } from "../paths.js";
+import { jobTo, PATHS, to } from "../paths.js";
 import { jobStatusView } from "../presenters.js";
 
 // Derived from the shared queue list so a new queue is never missed here.

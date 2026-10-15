@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { DEFAULT_PRODUCT_NAME, supportedLanguages } from "@restow/i18n";
@@ -6,13 +6,13 @@ import { describe, expect, it } from "vitest";
 
 import { FAILURE_CODES } from "../../src/features/updates/api";
 import {
-  MAINTENANCE_LANGUAGES,
   buildMaintenancePages,
   buildProductName,
   loadPageTexts,
+  MAINTENANCE_LANGUAGES,
   maintenancePagePlugin,
 } from "./index";
-import { MARK, STEP_IDS, STEP_STATUSES, STYLES, escapeHtml, renderPage } from "./template";
+import { escapeHtml, MARK, renderPage, STEP_IDS, STEP_STATUSES, STYLES } from "./template";
 
 /**
  * The generator of the static maintenance page: what it emits and the rules

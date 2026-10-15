@@ -269,7 +269,7 @@ export function base64url(input: Buffer | string): string {
 /** Extract the DER bytes of the first PEM block in `pem`. */
 export function derFromPem(pem: string): Buffer {
   const match = pem.match(/-----BEGIN [^-]+-----([\s\S]*?)-----END [^-]+-----/);
-  if (!match || !match[1]) {
+  if (!match?.[1]) {
     throw new Error("Expected a PEM block");
   }
   return Buffer.from(match[1].replace(/\s+/g, ""), "base64");

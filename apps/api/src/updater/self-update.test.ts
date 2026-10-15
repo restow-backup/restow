@@ -5,18 +5,18 @@ import { UPDATER_IMAGE_PROBE } from "./preflight.js";
 import { stateViewSchema } from "./protocol.js";
 import { Redactor } from "./redact.js";
 import {
-  type SelfUpdateDecisionInput,
-  pinOwnImage,
   pinnedReferenceOf,
+  pinOwnImage,
+  type SelfUpdateDecisionInput,
   selfUpdateDecision,
 } from "./self-update.js";
 import {
+  apiAt,
+  createHarness,
   DEFAULT_ENV,
   FakeLauncher,
   type Harness,
   type HarnessOptions,
-  apiAt,
-  createHarness,
   releaseDigests,
   scheduleRequest,
   settle,

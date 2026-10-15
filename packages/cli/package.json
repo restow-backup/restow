@@ -16,7 +16,11 @@
   "bin": {
     "restow-restore": "./dist/restow-restore.js"
   },
-  "files": ["dist", "README.md", "!**/*.test.*"],
+  "files": [
+    "dist",
+    "README.md",
+    "!**/*.test.*"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

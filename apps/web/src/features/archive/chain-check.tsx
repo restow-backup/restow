@@ -6,7 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { formatDateTime, formatInteger } from "@/lib/format";
 
-import { CONTENT_SAMPLE, type ChainVerification } from "./api.js";
+import { type ChainVerification, CONTENT_SAMPLE } from "./api.js";
 import { useVerifyChain } from "./hooks.js";
 import { chainVerdictOf } from "./presenters.js";
 

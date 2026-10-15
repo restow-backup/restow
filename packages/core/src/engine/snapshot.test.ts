@@ -11,13 +11,13 @@ import { ChunkReader, ChunkStoreFailedError } from "./chunkstore.js";
 import { Keyring } from "./keyring.js";
 import { manifestKey, partialManifestKey } from "./layout.js";
 import {
+  createMemoryJobContext,
   MemoryChunkIndex,
   MemoryCursorStore,
   MemorySnapshotIndex,
-  createMemoryJobContext,
 } from "./memory.js";
 import { isSealedManifest, openManifest } from "./sealed-manifest.js";
-import { SnapshotWriter, loadLatestManifest, loadManifest } from "./snapshot.js";
+import { loadLatestManifest, loadManifest, SnapshotWriter } from "./snapshot.js";
 import type { JobContext, ProtectedObjectRef } from "./types.js";
 
 const TENANT = "aaaaaaaa-0000-4000-8000-000000000001";

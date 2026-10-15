@@ -6,7 +6,7 @@ import {
   senderOf,
   subjectOf,
 } from "./archive-seed.js";
-import { DEMO_TENANTS, allMailboxes } from "./company.js";
+import { allMailboxes, DEMO_TENANTS } from "./company.js";
 import { planMessages } from "./generate-mail.js";
 
 const NOW = new Date("2026-09-30T01:00:00Z");

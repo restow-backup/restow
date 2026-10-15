@@ -18,7 +18,10 @@ import { Sparkline } from "./sparkline";
 export function RunBar({
   run,
   className,
-}: { run: Pick<Run, "state" | "progress">; className?: string }) {
+}: {
+  run: Pick<Run, "state" | "progress">;
+  className?: string;
+}) {
   const percent = barPercent(run);
   const indeterminate = percent === null && run.state === "running";
   return (

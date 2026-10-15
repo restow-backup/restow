@@ -3,10 +3,10 @@ import * as React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
-  type Mounted,
   enableActEnvironment,
   flush,
   installMemoryStorage,
+  type Mounted,
   mount,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";

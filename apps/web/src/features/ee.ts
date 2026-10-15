@@ -5,8 +5,8 @@
  * `ee/web` exports with the core's extension points (lib/extensions.tsx);
  * features/registry.ts imports it before it collects routes and menu entries.
  */
-import { eeWebExtension } from "../../../../ee/web/src/index";
 
 import { registerWebExtension } from "@/lib/extensions";
+import { eeWebExtension } from "../../../../ee/web/src/index";
 
 registerWebExtension(eeWebExtension);

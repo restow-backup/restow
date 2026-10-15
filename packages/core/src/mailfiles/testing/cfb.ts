@@ -146,7 +146,7 @@ export function buildCfb(options: CfbBuildOptions): BuiltCfb {
   const miniFatSectorCount = ceilDiv(miniCount, perSector);
   const directorySectorCount = ceilDiv(specs.length, entriesPerSector);
   const bigSectorCounts = bigStreams.map((index) =>
-    ceilDiv((specs[index]?.data as Buffer).length, sectorSize),
+    ceilDiv((specs[index].data as Buffer).length, sectorSize),
   );
   const dataSectors =
     directorySectorCount +

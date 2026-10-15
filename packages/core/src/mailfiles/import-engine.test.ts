@@ -7,11 +7,11 @@ import type { Dek } from "../crypto.js";
 import { ChunkReader, JobAbortedError } from "../engine/chunkstore.js";
 import { Keyring } from "../engine/keyring.js";
 import {
+  createMemoryJobContext,
   MemoryChunkIndex,
   MemoryCursorStore,
   MemoryProgressSink,
   MemorySnapshotIndex,
-  createMemoryJobContext,
 } from "../engine/memory.js";
 import { loadManifest } from "../engine/snapshot.js";
 import type { JobContext, ProtectedObjectRef, RestoreRequest } from "../engine/types.js";

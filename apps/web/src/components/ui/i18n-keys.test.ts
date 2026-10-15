@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { defaultNamespace, resources, supportedLanguages } from "@restow/i18n";
 import { describe, expect, it } from "vitest";

@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { usePublishedTitle } from "@/components/kit/page-context";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ApiError, NetworkError, errorMessageKey } from "@/lib/api";
+import { ApiError, errorMessageKey, NetworkError } from "@/lib/api";
 
 interface RouteErrorPageProps {
   error: unknown;

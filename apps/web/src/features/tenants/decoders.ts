@@ -1,4 +1,4 @@
-import { type TenantKind, type TenantRole, isTenantRole, unwrapList } from "@/lib/api";
+import { isTenantRole, type TenantKind, type TenantRole, unwrapList } from "@/lib/api";
 
 import { tenantRoleFromMemberRole } from "./presenters";
 import {

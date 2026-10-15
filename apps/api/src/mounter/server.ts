@@ -6,11 +6,11 @@ import type { Clock } from "../updater/ops.js";
 import type { Redactor } from "../updater/redact.js";
 import { type MountEngine, MountEngineError } from "./engine.js";
 import {
+  addMountRequestSchema,
+  isValidMountName,
   type MounterError,
   type MounterErrorCode,
   type MounterState,
-  addMountRequestSchema,
-  isValidMountName,
   removeMountRequestSchema,
   testMountRequestSchema,
 } from "./protocol.js";

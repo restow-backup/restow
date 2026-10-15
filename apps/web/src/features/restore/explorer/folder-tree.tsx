@@ -7,7 +7,7 @@ import type { ObjectKind, SnapshotObject, TreeEntry } from "@/features/restore/a
 import { ObjectIcon, objectLabel } from "@/features/restore/explorer/entry-icon";
 import { useEntryLabel } from "@/features/restore/explorer/use-entry-label";
 import { toNamedEntry } from "@/features/restore/lib/entries";
-import { ROOT_PATH, isWithin } from "@/features/restore/lib/paths";
+import { isWithin, ROOT_PATH } from "@/features/restore/lib/paths";
 import { useFolders } from "@/features/restore/use-restore-data";
 import { cn } from "@/lib/utils";
 

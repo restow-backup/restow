@@ -268,6 +268,7 @@ export interface RunBackupJobResult {
 
 const iso = (value: Date | string | null): string | null =>
   value === null ? null : new Date(value).toISOString();
+
 export { iso };
 
 /** Object kinds of mail jobs and machine profiles, as member kinds. */

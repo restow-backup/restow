@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type PublicStatus,
-  type StateView,
   publicStatusSchema,
+  type StateView,
   stateViewSchema,
   updaterErrorSchema,
 } from "./protocol.js";
 import { buildServer } from "./server.js";
 import {
-  type Harness,
   apiAt,
   createHarness,
   digestOf,
+  type Harness,
   scheduleRequest,
   settle,
 } from "./testing.js";

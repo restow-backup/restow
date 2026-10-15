@@ -5,14 +5,14 @@ import { messageObjectPath } from "../backup/imap/paths.js";
 import { catalogEntry } from "./catalog.js";
 import { classifyFailure } from "./classify.js";
 import {
-  type LatestBackupFact,
-  UNKNOWN_WARNING_CAUSE,
-  type WarningAckFact,
   acknowledgeRefusal,
   evaluateWarning,
   isWarning,
+  type LatestBackupFact,
   locateFailedItem,
   normalizeCauses,
+  UNKNOWN_WARNING_CAUSE,
+  type WarningAckFact,
 } from "./warnings.js";
 
 function latest(

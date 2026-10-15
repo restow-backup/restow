@@ -5,14 +5,15 @@
  * tenant starts with. Pure code without I/O, shared by the scheduler (which
  * runs schedules) and the API (which creates, changes and previews them).
  */
+
+export * from "./cadence.js";
 export {
-  CronSyntaxError,
   type CronSpec,
+  CronSyntaxError,
   isValidTimeZone,
   nextCronOccurrence,
   parseCron,
 } from "./cron.js";
-export * from "./cadence.js";
-export * from "./presets.js";
 export * from "./defaults.js";
+export * from "./presets.js";
 export * from "./recommended.js";

@@ -7,8 +7,8 @@ import {
   restoreTargetSchema,
   selectionEntrySchema,
 } from "../../features/restore/schemas.js";
-import { type RestoreCreatedDto, createRestore } from "../../features/restore/service.js";
-import { type KeyActor, asPersonActor } from "./actor.js";
+import { createRestore, type RestoreCreatedDto } from "../../features/restore/service.js";
+import { asPersonActor, type KeyActor } from "./actor.js";
 import { type IntegrationApi, type V1Deps, WRITE_ERRORS } from "./api.js";
 import { component } from "./components.js";
 import { uuidSchema } from "./schemas.js";

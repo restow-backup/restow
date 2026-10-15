@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 
-import { ApiError, NetworkError, errorMessageKey, isFeatureUnavailable } from "@/lib/api";
+import { ApiError, errorMessageKey, isFeatureUnavailable, NetworkError } from "@/lib/api";
 
 /** Codes the server gives a refused rule (apps/api features/reports `reportRuleProblem`). */
 export const RULE_PROBLEM_CODES = [

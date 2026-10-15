@@ -14,10 +14,10 @@ import type { JournalReceiver } from "./api";
 import { useJournalReceiver } from "./hooks";
 import {
   type ChecklistState,
-  STATUS_TONE,
   checklistItems,
   isNotSetUp,
   receiverStatus,
+  STATUS_TONE,
 } from "./presenters";
 
 const CHECKLIST_ICON = {

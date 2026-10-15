@@ -3,8 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { DumpStore } from "./dumps.js";
 import { UpdateEngine } from "./engine.js";
-import { EnvFile, assignedKey, assignedValue, parseEnvLines } from "./env-file.js";
-import { type ImageVariant, defaultImageRepositories } from "./image-variant.js";
+import { assignedKey, assignedValue, EnvFile, parseEnvLines } from "./env-file.js";
+import { defaultImageRepositories, type ImageVariant } from "./image-variant.js";
 import { memoryLogger } from "./logger.js";
 import type { MounterStatus } from "./mounter-status.js";
 import {
@@ -176,7 +176,7 @@ export class FakeDockerOps implements DockerOps {
 
   constructor(
     private readonly projectDir: string,
-    private readonly dumpsDir: string,
+    _dumpsDir: string,
   ) {
     for (const name of SERVICES) {
       this.containers.set(name, {
@@ -494,7 +494,7 @@ export class FakeDockerOps implements DockerOps {
   /** What the api answers to `GET /readyz` right now. */
   readyz(): ApiReadinessResult {
     const container = this.containers.get("api");
-    if (!container || container.state !== "running") {
+    if (container?.state !== "running") {
       return { ready: false, version: null, reason: "The api is not running." };
     }
     const behaviour = this.apiBehavior.get(container.image) ?? { kind: "ready" as const };

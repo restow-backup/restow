@@ -53,24 +53,23 @@ import {
   type CatalogPack,
   type GcBlocker,
   type JobQueue,
+  mirrorTenantStorage,
   type PackCatalog,
   type PackCheck,
   type PackReplacement,
+  runScrub,
   type ScrubJobPayload,
   type ScrubReport,
   type SupersededPack,
-  type TenantMirrorReport,
-  mirrorTenantStorage,
-  runScrub,
   scrubFindingDetails,
+  type TenantMirrorReport,
 } from "@restow/core";
 import {
-  type NewNotification,
   chunks,
   jobs,
+  type NewNotification,
   objectsReferencingChunks,
   packs,
-  snapshots,
   storageMigrations,
   storageTargets,
   verifyReports,
@@ -79,12 +78,12 @@ import { and, asc, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
 import {
-  type JobHandler,
-  type JobOutcome,
-  type WorkerJobContext,
   abandonedCheckpointProbe,
   discardAbandonedSnapshots,
+  type JobHandler,
+  type JobOutcome,
   tenantRunner,
+  type WorkerJobContext,
 } from "./framework.js";
 import { hasActiveMigration } from "./storage-migration.js";
 

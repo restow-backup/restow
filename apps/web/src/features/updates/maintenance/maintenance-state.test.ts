@@ -3,24 +3,24 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError, NetworkError } from "@/lib/api";
 
 import type { MaintenanceView, PublicStatus } from "../api";
-import { NOW, iso, maintenanceFixture } from "../testing";
+import { iso, maintenanceFixture, NOW } from "../testing";
 import {
   ACTIVE_POLL_MS,
-  IDLE_POLL_MS,
-  type MaintenanceSnapshot,
-  RELOAD_COOLDOWN_MS,
-  STALE_FAILURE_MS,
-  SUCCESS_RELOAD_DELAY_MS,
   bannerStateOf,
   decideReload,
   effectivePhase,
+  IDLE_POLL_MS,
   isAnnouncement,
   isMaintenanceGap,
+  type MaintenanceSnapshot,
   modalStateOf,
   nextReloadRecord,
   pollIntervalMs,
   pollMaintenance,
+  RELOAD_COOLDOWN_MS,
   reloadIsBlocked,
+  STALE_FAILURE_MS,
+  SUCCESS_RELOAD_DELAY_MS,
   smoothOffset,
 } from "./maintenance-state";
 

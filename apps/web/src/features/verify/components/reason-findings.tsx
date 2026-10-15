@@ -1,5 +1,5 @@
-import { FailureExplanation, useCauseTitle } from "@/features/failures";
 import type { Failure } from "@/features/failures";
+import { FailureExplanation, useCauseTitle } from "@/features/failures";
 import type { Reason } from "@/features/verify/api";
 import { ReasonList } from "@/features/verify/components/status";
 import { findingBlocks } from "@/features/verify/presenters";

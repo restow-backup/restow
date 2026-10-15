@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { RunLog, formatBytes, hashUnchanged, sampleCandidates, shortId } from "./endpoint-agent.js";
+import { formatBytes, hashUnchanged, RunLog, sampleCandidates, shortId } from "./endpoint-agent.js";
 import { mulberry32 } from "./prng.js";
 import type { ResticNode } from "./restic.js";
 

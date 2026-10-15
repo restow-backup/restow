@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { InstallationSettings } from "./api";
 import {
-  type MailFormValues,
   fieldMessageKey,
+  type MailFormValues,
   mailFormContext,
   mailFormFromSettings,
   mailFormSchema,
@@ -11,7 +11,7 @@ import {
   previewServiceAccountKey,
   toMailInput,
 } from "./forms";
-import { GMAIL_SEND_SCOPE, accessPolicyCommands, rbacCommands } from "./mail-guide";
+import { accessPolicyCommands, GMAIL_SEND_SCOPE, rbacCommands } from "./mail-guide";
 import { mailTestFailureKey } from "./presenters";
 
 /**

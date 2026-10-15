@@ -41,7 +41,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { is, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { PgTable, getTableConfig } from "drizzle-orm/pg-core";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { schema } from "./index.js";
@@ -53,14 +53,14 @@ import {
 } from "./manifest-versions.js";
 import { runMigrations } from "./migrate.js";
 import {
-  type RoleLogin,
-  TABLE_ACCESS,
-  TENANT_USER_COLUMNS,
   assertDatabaseRoles,
   deriveAuthLogin,
   grantQueueAccess,
   inspectCurrentRole,
+  type RoleLogin,
   roleProblems,
+  TABLE_ACCESS,
+  TENANT_USER_COLUMNS,
 } from "./roles.js";
 import { dropTestDatabase } from "./testing/database.js";
 

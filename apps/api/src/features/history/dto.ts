@@ -1,4 +1,4 @@
-import { RESTORE_TEST_RETRY_DELAYS_MS, isInterruptedOnly } from "@restow/core";
+import { isInterruptedOnly, RESTORE_TEST_RETRY_DELAYS_MS } from "@restow/core";
 import type {
   EndpointRun,
   EndpointRunProgress,

@@ -17,10 +17,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultEndpointConfig } from "@restow/core";
-import { type Database, auditLog, createDb, endpoints, providers, tenants } from "@restow/db";
+import { auditLog, createDb, type Database, endpoints, providers, tenants } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

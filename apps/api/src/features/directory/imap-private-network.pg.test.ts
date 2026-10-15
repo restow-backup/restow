@@ -21,7 +21,7 @@
 process.env.IMAP_ALLOW_PRIVATE_NETWORKS = "true";
 
 import { randomBytes, randomUUID } from "node:crypto";
-import { type Database, createDb, protectedObjects, providers, sources, tenants } from "@restow/db";
+import { createDb, type Database, protectedObjects, providers, sources, tenants } from "@restow/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   dropDatabase,

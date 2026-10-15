@@ -38,17 +38,17 @@ import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { useSnapshotLabel } from "@/features/restore/explorer/restore-point-label";
 import { useEntryLabel } from "@/features/restore/explorer/use-entry-label";
 import {
+  buildRestoreRequest,
+  hasErrors,
+  initialFormState,
+  modeApplies,
+  originalTargetDescriptionKey,
   type RestoreErrorDisplay,
   type RestoreFormContext,
   type RestoreFormErrors,
   type RestoreFormField,
   type RestoreFormState,
   type RestoreScope,
-  buildRestoreRequest,
-  hasErrors,
-  initialFormState,
-  modeApplies,
-  originalTargetDescriptionKey,
   restoreErrorOf,
   restoreModesFor,
   restoreStamp,

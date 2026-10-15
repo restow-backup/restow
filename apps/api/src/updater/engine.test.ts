@@ -1,19 +1,19 @@
 import * as fs from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineError } from "./engine.js";
-import { UPDATE_STEPS, journalEventSchema, runSchema, stateViewSchema } from "./protocol.js";
+import { journalEventSchema, runSchema, stateViewSchema, UPDATE_STEPS } from "./protocol.js";
 import { parseState } from "./store.js";
 import {
-  DEFAULT_ENV,
-  type Harness,
-  TEST_COSIGN_IMAGE,
   apiAt,
   createHarness,
+  DEFAULT_ENV,
   digestOf,
+  type Harness,
   releaseDigests,
   releaseSigner,
   scheduleRequest,
   settle,
+  TEST_COSIGN_IMAGE,
 } from "./testing.js";
 
 const NEW_APP = "ghcr.io/restow-backup/restow:0.2.0";
@@ -287,13 +287,13 @@ describe("image mode success", () => {
       signatureVerified: true,
     });
     const steps = (
-      succeeded?.details as { steps: { id: string; status: string; durationMs: number | null }[] }
+      succeeded.details as { steps: { id: string; status: string; durationMs: number | null }[] }
     ).steps;
     expect(steps.map((step) => step.id)).toEqual([...UPDATE_STEPS]);
     expect(
       steps.every((step) => step.status === "done" && typeof step.durationMs === "number"),
     ).toBe(true);
-    expect((succeeded?.details as { dumpFile: string }).dumpFile).toMatch(
+    expect((succeeded.details as { dumpFile: string }).dumpFile).toMatch(
       /^restow-\d{8}-\d{6}-0\.1\.0-to-0\.2\.0\.dump$/,
     );
     expect([...events.map((event) => event.id)].sort()).toEqual(events.map((event) => event.id));

@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 import { mailfiles } from "@restow/core";
 import {
+  archiveItems,
   type Database,
   type ExportFormat,
-  archiveItems,
   itemFailures,
   jobProgress,
   jobs,
@@ -13,7 +13,7 @@ import {
   user,
   users,
 } from "@restow/db";
-import { type SQL, and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { segmentStoreFor } from "../../lib/segment-store.js";
@@ -26,7 +26,7 @@ import { sendJob } from "../jobs/queue.js";
 import type { SelectionEntry } from "../restore/schemas.js";
 import { type ResolvedSelection, requestedKeys, resolveSelection } from "../restore/selection.js";
 import { implicitFolders, selectedEntries } from "../restore/service.js";
-import { type Viewer, isImpersonation, onBehalfOfOwner } from "../snapshots/access.js";
+import { isImpersonation, onBehalfOfOwner, type Viewer } from "../snapshots/access.js";
 import { loadSnapshotForViewer } from "../snapshots/service.js";
 import {
   type ExportCreatedDto,

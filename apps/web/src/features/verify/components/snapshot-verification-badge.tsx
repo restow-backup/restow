@@ -1,7 +1,7 @@
 import { ShieldAlert, ShieldCheck, ShieldQuestion, ShieldX } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { HintTooltip, StatusBadge, absoluteLabel, toDate } from "@/components/kit";
+import { absoluteLabel, HintTooltip, StatusBadge, toDate } from "@/components/kit";
 import type { SnapshotVerification, VerificationState } from "@/features/verify/api";
 import "@/features/verify/i18n";
 import { snapshotVerificationView } from "@/features/verify/presenters";

@@ -13,9 +13,9 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   notifications,
   providers,
   reportDeliveries,
@@ -28,11 +28,11 @@ import { and, eq, isNull } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
-import { type Role, type TenantRole, roleSatisfies } from "../../middleware/rbac.js";
+import { type Role, roleSatisfies, type TenantRole } from "../../middleware/rbac.js";
 import type { TenantEnv } from "../../middleware/session.js";
 import type { NotificationMessage, Notifier } from "../../notify.js";
 import { ProblemError } from "../../problem.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

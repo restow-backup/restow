@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { tenantSlugSchema } from "./schemas.js";
-import { FALLBACK_SLUG, availableSlug, slugify } from "./slug.js";
+import { availableSlug, FALLBACK_SLUG, slugify } from "./slug.js";
 
 describe("slugify", () => {
   it("writes German letters the conventional way and joins words with single hyphens", () => {

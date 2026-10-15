@@ -78,7 +78,7 @@ export function ActionFilter({
         <Button
           id={id}
           variant="outline"
-          // biome-ignore lint/a11y/useSemanticElements: a native <select> cannot search this list; this is the ARIA combobox pattern (a button opening a listbox)
+          // A native <select> cannot search this list; this is the ARIA combobox pattern (a button opening a listbox)
           role="combobox"
           // Radix sets aria-expanded and aria-controls (the popup holding the list).
           aria-haspopup="listbox"

@@ -4,15 +4,14 @@ import { useTranslation } from "react-i18next";
 
 import { EmptyState, PageHeader, RefreshButton } from "@/components/kit";
 import { Button } from "@/components/ui/button";
-import { useSession } from "@/lib/session";
-
 import { PveInventorySection } from "@/features/pve/inventory-section";
+import { useSession } from "@/lib/session";
 import { EndpointsTable } from "./components/endpoints-table.js";
 import { EnrollDialog } from "./components/enroll-dialog.js";
 import { PendingTokens } from "./components/pending-tokens.js";
 
 import { ProxmoxLink } from "./components/proxmox-link.js";
-import { WithoutBackupBanner, canManageJobs } from "./components/without-backup.js";
+import { canManageJobs, WithoutBackupBanner } from "./components/without-backup.js";
 import { useEndpoints } from "./hooks.js";
 import { type EndpointArea, type EndpointProfile, profileOfArea } from "./paths.js";
 

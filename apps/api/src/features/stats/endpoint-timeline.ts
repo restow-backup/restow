@@ -1,12 +1,12 @@
 import {
   type EndpointState,
-  type ReadinessReportFact,
   endpointReadiness,
   endpointVerifyOverdue,
+  type ReadinessReportFact,
 } from "@restow/core";
 import type { RatedObject } from "../verify/summary.js";
 import type { EndpointBackup, EndpointReportRow, EndpointRow } from "./endpoint-facts.js";
-import { type RatedSet, emptyReadinessCounts, lastIndexBefore, pushTo } from "./readiness.js";
+import { emptyReadinessCounts, lastIndexBefore, pushTo, type RatedSet } from "./readiness.js";
 
 /**
  * Recovery readiness of the endpoints at any moment of the period (pure, no

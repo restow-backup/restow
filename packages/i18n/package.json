@@ -14,7 +14,11 @@
     },
     "./resources/*": "./resources/*"
   },
-  "files": ["dist", "resources", "!**/*.test.*"],
+  "files": [
+    "dist",
+    "resources",
+    "!**/*.test.*"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

@@ -30,8 +30,10 @@ export function exampleRestoreCommand(storagePrefix: string): string {
 function SecretBox({ value, label }: { value: string; label: string }) {
   return (
     <div className="flex items-start gap-2 rounded-md border bg-muted/50 p-3">
+      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: a named secret box; a landmark role for it would only add noise */}
       <code
         className="min-w-0 flex-1 font-mono text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere] select-all"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: the box is focusable so its text can be reached and selected by keyboard
         tabIndex={0}
         aria-label={label}
       >
@@ -148,7 +150,10 @@ export function RepositoryKeyDialog({
 export function RepositoryKeyCard({
   endpointId,
   disabled = false,
-}: { endpointId: string; disabled?: boolean }) {
+}: {
+  endpointId: string;
+  disabled?: boolean;
+}) {
   const { t } = useTranslation("endpoints");
   const [open, setOpen] = React.useState(false);
   const reveal = useRevealRepositoryPassword(endpointId);

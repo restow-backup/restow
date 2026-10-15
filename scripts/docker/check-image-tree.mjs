@@ -36,7 +36,7 @@
  * (release smoke check 1).
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 
 /** Content of first-party files that only license signing code has. */

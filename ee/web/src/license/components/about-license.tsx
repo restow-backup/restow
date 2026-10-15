@@ -13,7 +13,7 @@ import { AccessNote, ReadOnlyGroup, useInstallationAccess } from "@/features/ins
 import type { InstallationSectionProps } from "@/lib/extensions";
 import { formatDateTime } from "@/lib/format";
 
-import { type LicensedEdition, editionAllows, requiredEditionOf, useEdition } from "../edition";
+import { editionAllows, type LicensedEdition, requiredEditionOf, useEdition } from "../edition";
 import {
   type EditionOrigin,
   editionOrigin,

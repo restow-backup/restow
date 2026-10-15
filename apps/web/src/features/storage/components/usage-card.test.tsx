@@ -2,7 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as React from "react";
 import { act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -46,8 +46,9 @@ vi.mock("recharts", async (importOriginal) => {
     ...actual,
     ResponsiveContainer: ({
       children,
-    }: { children: React.ReactElement<{ width?: number; height?: number }> }) =>
-      React.cloneElement(children, { width: 640, height: 224 }),
+    }: {
+      children: React.ReactElement<{ width?: number; height?: number }>;
+    }) => React.cloneElement(children, { width: 640, height: 224 }),
   };
 });
 

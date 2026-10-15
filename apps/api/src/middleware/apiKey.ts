@@ -4,8 +4,8 @@ import type { Context, MiddlewareHandler } from "hono";
 import { routePath } from "hono/route";
 import { db, providerDb } from "../db.js";
 import {
-  type KeyTenantDeps,
   isWriteMethod,
+  type KeyTenantDeps,
   resolveKeyTenant,
 } from "../features/apikeys/key-tenant.js";
 import { type RateDecision, SlidingWindowRateLimiter } from "../features/apikeys/rate-limit.js";
@@ -23,7 +23,7 @@ import { requireFeature } from "../lib/features.js";
 import { clientIp } from "../lib/request.js";
 import { ProblemError } from "../problem.js";
 import type { TenantRole } from "./rbac.js";
-import { TENANT_HEADER, type TenantEnv, requireTenant } from "./session.js";
+import { requireTenant, TENANT_HEADER, type TenantEnv } from "./session.js";
 
 /**
  * API-key authentication and scope enforcement (docs/ARCHITECTURE.md, "API").
@@ -40,8 +40,8 @@ import { TENANT_HEADER, type TenantEnv, requireTenant } from "./session.js";
  * installation role like the session lookup (packages/db/sql/rls.sql).
  */
 
-export { API_SCOPES, type ApiScope } from "../features/apikeys/scopes.js";
 export { tenantForApiKey } from "../features/apikeys/key-tenant.js";
+export { API_SCOPES, type ApiScope } from "../features/apikeys/scopes.js";
 
 export interface ApiKeyContext {
   keyId: string;

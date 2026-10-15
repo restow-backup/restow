@@ -1,4 +1,4 @@
-import { type TenantRole, isTenantRole, unwrapList } from "@/lib/api";
+import { isTenantRole, type TenantRole, unwrapList } from "@/lib/api";
 
 import type {
   AccountLinkStatus,

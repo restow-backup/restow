@@ -2,7 +2,7 @@ import exportsDe from "@restow/i18n/resources/de/exports.json" with { type: "jso
 import exportsEn from "@restow/i18n/resources/en/exports.json" with { type: "json" };
 import { describe, expect, it } from "vitest";
 
-import { KNOWN_PHASES, SKIPPED_KINDS, expiryMessage } from "@/features/exports/lib/exports";
+import { expiryMessage, KNOWN_PHASES, SKIPPED_KINDS } from "@/features/exports/lib/exports";
 import { FORMAT_ORDER } from "@/features/exports/lib/formats";
 import { EXPORT_ERROR_KEYS } from "@/features/exports/lib/request";
 

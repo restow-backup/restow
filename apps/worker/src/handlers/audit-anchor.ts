@@ -18,14 +18,14 @@
  * no anchor; the running day is never sealed.
  */
 import {
-  type Database,
-  type NewAuditAnchor,
   auditAnchor,
   auditLog,
+  type Database,
+  type NewAuditAnchor,
   safeErrorMessage,
   tenants,
 } from "@restow/db";
-import { type SQL, and, asc, count, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNull, lt, type SQL, sql } from "drizzle-orm";
 import type PgBoss from "pg-boss";
 import { writeArchiveAnchors } from "./archive-anchor.js";
 

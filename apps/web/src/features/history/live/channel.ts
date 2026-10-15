@@ -1,5 +1,9 @@
-import type { EventStreamHandle, EventStreamOptions, ServerEvent } from "@/features/jobs/sse";
-import type { StreamStatus } from "@/features/jobs/sse";
+import type {
+  EventStreamHandle,
+  EventStreamOptions,
+  ServerEvent,
+  StreamStatus,
+} from "@/features/jobs/sse";
 
 import { LIVE_PATH } from "../api";
 

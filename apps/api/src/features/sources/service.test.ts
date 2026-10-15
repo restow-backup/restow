@@ -1,13 +1,12 @@
 import type { ConnectionVerification } from "@restow/core";
-import { REQUIRED_PERMISSIONS, diffPermissions } from "@restow/core";
+import { diffPermissions, REQUIRED_PERMISSIONS } from "@restow/core";
 import type { Source } from "@restow/db";
 import { describe, expect, it } from "vitest";
 import { consentLandingUrl } from "./routes.js";
 import {
-  type SourceConfigExt,
   bindingConflict,
-  consentLinkTarget,
   consentingAdminLabel,
+  consentLinkTarget,
   derivedStatus,
   identityConsentError,
   isUniqueViolation,
@@ -15,6 +14,7 @@ import {
   patchNeedsPassword,
   probeSummary,
   retainedDataProblem,
+  type SourceConfigExt,
   statusAfterPatch,
   toDto,
   toPermissionsVerified,

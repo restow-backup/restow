@@ -6,10 +6,10 @@ import { Keyring } from "./keyring.js";
 import { manifestKey, partialManifestKey } from "./layout.js";
 import { noopLogger } from "./logger.js";
 import {
+  createMemoryJobContext,
   MemoryChunkIndex,
   MemoryCursorStore,
   MemorySnapshotIndex,
-  createMemoryJobContext,
 } from "./memory.js";
 import { SnapshotWriter } from "./snapshot.js";
 import type { JobContext, ProtectedObjectRef, StorageTargets } from "./types.js";

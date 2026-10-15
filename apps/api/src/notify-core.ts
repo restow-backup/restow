@@ -1,4 +1,4 @@
-import { type SupportedLanguage, createI18n } from "@restow/i18n";
+import { createI18n, type SupportedLanguage } from "@restow/i18n";
 
 /**
  * The shared shape of every notification transport (notify.ts, notify-graph.ts,

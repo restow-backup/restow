@@ -3,19 +3,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type MountSpec, mountSpecSchema } from "../../mounter/protocol.js";
 import { ProblemError } from "../../problem.js";
 import {
+  createMounterClient,
   MounterRejectedError,
   MounterUnavailableError,
-  createMounterClient,
 } from "./mounter-client.js";
 import { pendingMountService } from "./pending.js";
 import {
   type ComposeFacts,
+  liesOn,
   MOUNT_PROBLEMS,
-  type MountUser,
   MountsService,
+  type MountUser,
   type PendingMount,
   type PendingMountStore,
-  liesOn,
   updateComposeCommand,
 } from "./service.js";
 

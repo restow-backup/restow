@@ -5,11 +5,11 @@ import {
   resetExtensionsForTesting,
 } from "../../../../apps/api/src/extensions.js";
 import { errorHandler } from "../../../../apps/api/src/problem.js";
-import { buildV1 } from "../../../../apps/api/src/routes/v1.js";
 import type { JsonSchema } from "../../../../apps/api/src/routes/v1/openapi.js";
 import { featuresOn } from "../../../../apps/api/src/routes/v1/testing/features.js";
 import { fakeRequireKey } from "../../../../apps/api/src/routes/v1/testing/keys.js";
 import { scriptedDb } from "../../../../apps/api/src/routes/v1/testing/scripted-db.js";
+import { buildV1 } from "../../../../apps/api/src/routes/v1.js";
 import { registerProviderRoutes } from "./routes.js";
 
 /**

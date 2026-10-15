@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  type SelectionLookup,
   parseStoredSelection,
   requestedKeys,
   resolveSelection,
+  type SelectionLookup,
   summarizeSelection,
 } from "./selection.js";
 

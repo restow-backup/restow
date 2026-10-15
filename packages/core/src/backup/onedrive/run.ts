@@ -14,16 +14,16 @@ import type { DriveItemVersion } from "@microsoft/microsoft-graph-types";
 import { JobAbortedError, type WrittenObject } from "../../engine/chunkstore.js";
 import type { SnapshotWriter } from "../../engine/snapshot.js";
 import type { BackupResult, ItemFailureRecord, JobContext, Logger } from "../../engine/types.js";
-import { FailureError, classifyFailure } from "../../failures/classify.js";
+import { classifyFailure, FailureError } from "../../failures/classify.js";
 import type { GraphClient } from "../../graph/client.js";
 import type { DeltaMode } from "../../graph/delta.js";
 import { GraphError, isNotFound } from "../../graph/errors.js";
 import { collect } from "../../graph/resources/common.js";
 import {
   type DriveDeltaItem,
-  type ItemDownload,
   driveDeltaUrl,
   getItem,
+  type ItemDownload,
   listItemVersions,
   openItemDownload,
   openVersionDownload,
@@ -31,7 +31,6 @@ import {
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { type DriveWalkOutcome, walkDriveDelta } from "./delta.js";
 import {
-  ONEDRIVE_OBJECT_TYPES,
   canReuseContent,
   classifyItem,
   fileObject,
@@ -40,6 +39,7 @@ import {
   hasContent,
   historicalVersions,
   joinPath,
+  ONEDRIVE_OBJECT_TYPES,
   reusedFileObject,
   shortcutObject,
   staleFileObject,
@@ -49,11 +49,11 @@ import {
   versionUnchanged,
 } from "./items.js";
 import {
+  checkpointState,
   ENGINE_NAME,
   type OneDriveCursor,
   type OneDriveManifestState,
   type RunPlan,
-  checkpointState,
 } from "./state.js";
 import { DriveTree, type Placement } from "./tree.js";
 

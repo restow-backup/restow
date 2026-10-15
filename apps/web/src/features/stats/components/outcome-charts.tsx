@@ -15,9 +15,9 @@ import { useStatsFormat } from "../use-stats-format.js";
 import {
   AXIS_PROPS,
   DatasetMenu,
-  STATIC_SERIES,
-  type SeriesChartProps,
   datasetState,
+  type SeriesChartProps,
+  STATIC_SERIES,
   seriesOrder,
   valueAxis,
 } from "./chart-parts.js";

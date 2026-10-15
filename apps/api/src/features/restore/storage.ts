@@ -1,11 +1,11 @@
 import {
   type InstallationDefaultStorage,
-  type SecretReader,
-  type StorageBackend,
-  StorageTargetError,
   installationDefaultStorage,
   openInstallationDefault,
   resolveStorageTargets,
+  type SecretReader,
+  type StorageBackend,
+  StorageTargetError,
 } from "@restow/core";
 import { secrets, storageTargets } from "@restow/db";
 import { and, asc, eq } from "drizzle-orm";

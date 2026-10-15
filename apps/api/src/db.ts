@@ -1,10 +1,10 @@
 import {
-  type Database,
-  type ServiceStatuses,
   assertDatabaseRoles,
   authUrlFromEnvironment,
   createDb,
+  type Database,
   readServiceStatuses,
+  type ServiceStatuses,
   tenants,
 } from "@restow/db";
 import { config } from "./config.js";

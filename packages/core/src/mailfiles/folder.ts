@@ -8,7 +8,7 @@
  * and directories are ever listed, opened or walked; sockets, pipes, devices
  * and links that point outside are skipped.
  */
-import { type Stats, createReadStream } from "node:fs";
+import { createReadStream, type Stats } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { Readable } from "node:stream";

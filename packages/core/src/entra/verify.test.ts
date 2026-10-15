@@ -3,10 +3,10 @@ import { TokenAcquisitionError } from "../graph/auth/token.js";
 import { createFakeGraph } from "../graph/testing/fake-graph.js";
 import { REQUIRED_PERMISSIONS } from "./permissions.js";
 import {
-  type RefreshableTokenProvider,
-  TEST_CALL_SELECT,
   classifyTokenFailure,
   listFirstUsers,
+  type RefreshableTokenProvider,
+  TEST_CALL_SELECT,
   verifyTenantConnection,
 } from "./verify.js";
 

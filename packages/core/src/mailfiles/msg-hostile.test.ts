@@ -9,7 +9,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { shutdownIsolation } from "./isolate.js";
 import { readMsg } from "./msg.js";
 import { buildEml, buildMsg, buildZip, inputFileFromBuffer } from "./testing/builders.js";
-import { type BuiltCfb, ENTRY, buildCfb, entryNamed } from "./testing/cfb.js";
+import { type BuiltCfb, buildCfb, ENTRY, entryNamed } from "./testing/cfb.js";
 import type { MailWalkEvent } from "./types.js";
 import { walkMailFile } from "./walk.js";
 

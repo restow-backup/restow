@@ -4,20 +4,19 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { i18n } from "@/i18n";
 import { ApiError, NetworkError } from "@/lib/api";
-import { sessionAs } from "../testing";
-
 import type { MaintenanceView, PublicStatus, StepStatus, UpdateStepId } from "../api";
 import { UPDATE_STEPS } from "../api";
 import {
-  type Mounted,
-  NOW,
   buttonByText,
   click,
   enableActEnvironment,
   installMemoryStorage,
   iso,
+  type Mounted,
   maintenanceFixture,
   mount,
+  NOW,
+  sessionAs,
 } from "../testing";
 import { MaintenanceBanner } from "./maintenance-banner";
 import { MaintenanceModal } from "./maintenance-modal";
@@ -50,7 +49,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       search,
       children,
       ...props
-    }: { to: string; search?: Record<string, string>; children: React.ReactNode }) => (
+    }: {
+      to: string;
+      search?: Record<string, string>;
+      children: React.ReactNode;
+    }) => (
       <a
         href={
           search && Object.keys(search).length > 0
@@ -99,7 +102,7 @@ function banner(): HTMLElement | null {
   return document.body.querySelector<HTMLElement>('[data-slot="maintenance-banner"]');
 }
 
-function useFakeTime(clock = NOW) {
+function startFakeTime(clock = NOW) {
   vi.useFakeTimers({
     toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"],
   });
@@ -166,7 +169,7 @@ function edgeStatus(view: MaintenanceView): PublicStatus {
 describe("the banner", () => {
   it("counts down on the server's clock, whatever the browser's clock says", async () => {
     const skew = 3_600_000;
-    useFakeTime(NOW - skew);
+    startFakeTime(NOW - skew);
     const serverNow = () => new Date(Date.now() + skew).toISOString();
     const { deps } = sources(() =>
       maintenanceFixture({
@@ -190,7 +193,7 @@ describe("the banner", () => {
   });
 
   it("ends at zero with a message that the update starts", async () => {
-    useFakeTime();
+    startFakeTime();
     const { deps } = sources(() =>
       maintenanceFixture({
         phase: "scheduled",
@@ -210,7 +213,7 @@ describe("the banner", () => {
   });
 
   it("cannot be dismissed while the countdown runs, and shows no modal yet", async () => {
-    useFakeTime();
+    startFakeTime();
     const { deps } = sources(() =>
       maintenanceFixture({
         phase: "scheduled",
@@ -227,7 +230,7 @@ describe("the banner", () => {
   });
 
   it("is silent for assistive technology while it ticks and speaks at the start, one minute and ten seconds", async () => {
-    useFakeTime();
+    startFakeTime();
     const { deps } = sources(() =>
       maintenanceFixture({
         phase: "scheduled",
@@ -262,7 +265,7 @@ describe("the banner", () => {
   });
 
   it("has a running variant that spins only when motion is welcome", async () => {
-    useFakeTime();
+    startFakeTime();
     const { deps } = sources(() =>
       maintenanceFixture({
         phase: "running",
@@ -284,7 +287,7 @@ describe("the banner", () => {
   });
 
   it("words a build switch as a switch, scheduled and running", async () => {
-    useFakeTime();
+    startFakeTime();
     let view = maintenanceFixture({
       phase: "scheduled",
       runId: "r-1",
@@ -309,7 +312,7 @@ describe("the banner", () => {
   });
 
   it("tells a provider admin about a run that needs attention, with a link to the tab", async () => {
-    useFakeTime();
+    startFakeTime();
     const { deps } = sources(() =>
       maintenanceFixture({
         phase: "failed",
@@ -335,7 +338,7 @@ describe("the banner", () => {
   });
 
   it("shows nothing when nothing is announced", async () => {
-    useFakeTime();
+    startFakeTime();
     const { deps } = sources(() => maintenanceFixture({ serverTime: new Date().toISOString() }));
     shell(deps);
     await tick(10);
@@ -346,7 +349,7 @@ describe("the banner", () => {
 
 describe("the announcement toast", () => {
   it("shows once per run when the maintenance is announced while the page is open", async () => {
-    useFakeTime();
+    startFakeTime();
     let view: MaintenanceView = maintenanceFixture({ serverTime: iso(0) });
     const { state, deps } = sources(() => ({ ...view, serverTime: new Date().toISOString() }));
     shell(deps);
@@ -397,7 +400,7 @@ describe("the announcement toast", () => {
   });
 
   it("shows only the banner when the page is loaded during a maintenance", async () => {
-    useFakeTime();
+    startFakeTime();
     const { deps } = sources(() =>
       maintenanceFixture({
         phase: "scheduled",
@@ -766,7 +769,7 @@ describe("through an update that takes the api away", () => {
     });
 
   it("keeps the modal and keeps polling when the connection fails", async () => {
-    useFakeTime();
+    startFakeTime();
     const { state, deps } = sources(RUNNING);
     shell(deps);
     await tick(10);
@@ -792,7 +795,7 @@ describe("through an update that takes the api away", () => {
 
   it("does the same for a gateway that answers 502, 503 or 504 instead", async () => {
     for (const status of [502, 503, 504]) {
-      useFakeTime();
+      startFakeTime();
       const { state, deps } = sources(RUNNING);
       shell(deps);
       await tick(10);
@@ -808,7 +811,7 @@ describe("through an update that takes the api away", () => {
   });
 
   it("follows the edge's status while the api is away, and reloads once the new version answers", async () => {
-    useFakeTime();
+    startFakeTime();
     const { state, deps } = sources(RUNNING);
     const reload = shell(deps);
     await tick(10);
@@ -872,7 +875,7 @@ describe("through an update that takes the api away", () => {
   });
 
   it("does not reload when the api comes back on the same version", async () => {
-    useFakeTime();
+    startFakeTime();
     const { state, deps } = sources(RUNNING);
     const reload = shell(deps);
     await tick(10);
@@ -894,7 +897,7 @@ describe("through an update that takes the api away", () => {
   });
 
   it("reloads after a moment when the run this page watched succeeded on an unchanged version number", async () => {
-    useFakeTime();
+    startFakeTime();
     const { state, deps } = sources(RUNNING);
     const reload = shell(deps);
     await tick(10);
@@ -916,7 +919,7 @@ describe("through an update that takes the api away", () => {
   });
 
   it("does not reload a page that loaded after the update, and never loops", async () => {
-    useFakeTime();
+    startFakeTime();
     // A page that loaded on the new version and finds a finished run: nothing to do.
     const finished = () =>
       maintenanceFixture({
@@ -974,7 +977,7 @@ describe("through an update that takes the api away", () => {
   });
 
   it("does not reload at all when the browser gives no session storage to remember it in", async () => {
-    useFakeTime();
+    startFakeTime();
     const original = Object.getOwnPropertyDescriptor(window, "sessionStorage");
     Object.defineProperty(window, "sessionStorage", {
       configurable: true,
@@ -1007,7 +1010,7 @@ describe("through an update that takes the api away", () => {
   });
 
   it("stays silent when polling fails while nothing is going on", async () => {
-    useFakeTime();
+    startFakeTime();
     const { state, deps } = sources(() =>
       maintenanceFixture({ serverTime: new Date().toISOString() }),
     );
@@ -1041,7 +1044,7 @@ describe("through an update that takes the api away", () => {
 
 describe("dismissing a result", () => {
   it("remembers the dismissed run in this browser", async () => {
-    useFakeTime();
+    startFakeTime();
     const { deps } = sources(() =>
       maintenanceFixture({
         phase: "failed",
@@ -1068,7 +1071,7 @@ describe("dismissing a result", () => {
   });
 
   it("shows a newer run's result even after an older one was dismissed", async () => {
-    useFakeTime();
+    startFakeTime();
     window.localStorage.setItem("restow.maintenance.dismissed", "r-6");
     const { deps } = sources(() =>
       maintenanceFixture({
@@ -1085,7 +1088,7 @@ describe("dismissing a result", () => {
   });
 
   it("works without storage: the dismissal lasts for this page load", async () => {
-    useFakeTime();
+    startFakeTime();
     const original = Object.getOwnPropertyDescriptor(window, "localStorage");
     Object.defineProperty(window, "localStorage", {
       configurable: true,

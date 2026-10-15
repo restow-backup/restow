@@ -1,6 +1,6 @@
 import { causeOfReadinessReason } from "@restow/core";
 import { z } from "zod";
-import { type FailureDto, causeToFailureDto, failureDto } from "../failures/dto.js";
+import { causeToFailureDto, type FailureDto, failureDto } from "../failures/dto.js";
 
 /**
  * Tolerant readers for what the worker persists: `verify_reports.details`

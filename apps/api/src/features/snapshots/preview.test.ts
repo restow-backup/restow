@@ -24,14 +24,14 @@ vi.mock("sanitize-html", async (importOriginal) => {
 });
 
 import {
-  MAX_SANITIZED_HTML_CHARS,
-  PREVIEW_SIZE_CAP_BYTES,
   attachmentIndexOf,
   buildPreviewFromMime,
   detectProtection,
   downloadContentType,
   findAttachment,
   headersFromMetadata,
+  MAX_SANITIZED_HTML_CHARS,
+  PREVIEW_SIZE_CAP_BYTES,
   parseTopLevelContentType,
   sanitizeMailHtml,
   unavailablePreview,

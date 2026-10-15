@@ -7,14 +7,14 @@ import { i18n } from "@/i18n";
 
 import { button, click, jsonResponse, mount, text, until } from "../testing/dom";
 import {
-  IMPORT_ID,
-  OBJECT_ID,
-  SNAPSHOT_ID,
   detail,
   duplicateItem,
   failedItem,
+  IMPORT_ID,
   notMailItem,
+  OBJECT_ID,
   report,
+  SNAPSHOT_ID,
   summary,
 } from "../testing/fixtures";
 import type { ImportDetail, ImportSummary } from "../types";

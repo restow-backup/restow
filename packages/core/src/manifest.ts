@@ -29,7 +29,7 @@
  * zstd (node:zlib) is used when the runtime provides it; serialization falls
  * back to the uncompressed codec otherwise, and detection never throws.
  */
-import { Readable, type Transform, pipeline } from "node:stream";
+import { pipeline, Readable, type Transform } from "node:stream";
 import { pipeline as pipelineAsync } from "node:stream/promises";
 import * as zlib from "node:zlib";
 

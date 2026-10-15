@@ -25,9 +25,9 @@ import {
   wrappedKeyKey,
 } from "@restow/core";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   jobs,
   packs,
   protectedObjects,
@@ -906,9 +906,7 @@ describe.skipIf(!testDatabaseAdminUrl)("deleteTarget: finished migration referen
    * guard below is tested on its own, without depending on the replacement
    * flow covered elsewhere in this file.
    */
-  async function seedRetiredPrevious(options: {
-    readonly legacyOnPrimaryToo: boolean;
-  }): Promise<{
+  async function seedRetiredPrevious(options: { readonly legacyOnPrimaryToo: boolean }): Promise<{
     previousId: string;
     primaryId: string;
     packPath: string;

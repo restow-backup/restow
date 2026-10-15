@@ -8,8 +8,8 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  EndpointRepositoryBusyError,
   acquireEndpointRepositoryLock,
+  EndpointRepositoryBusyError,
   withEndpointRepositoryLock,
 } from "./repository-lock.js";
 

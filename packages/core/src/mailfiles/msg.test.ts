@@ -23,121 +23,117 @@ const addressesOf = (field: ParsedMail["to"] | ParsedMail["cc"] | ParsedMail["bc
   return lists.flatMap((list) => list.value.map((v) => v.address ?? ""));
 };
 
-describe(
-  "readMsg with MSG files made by Outlook (msgreader test data)",
-  { timeout: 60_000 },
-  () => {
-    it("rebuilds a received message with its transport headers and attachments", async () => {
-      const result = await readMsg(fixture("outlook-attachments-headers.msg"));
-      const built = ok(result);
-      const raw = built.raw.toString("utf8");
-      // Original transport headers are kept verbatim ...
-      expect(raw).toContain("Return-Path: hmailuser@hmailserver.test\r\n");
-      expect(raw).toContain(
-        "Received: from H270 (kubernetes.docker.internal [127.0.0.1])\r\n\tby H270 with ESMTPA\r\n\t; Wed, 1 Nov 2023 09:48:31 +0900\r\n",
-      );
-      expect(raw).toContain("Message-ID: <000001da0c5d$22ab1460$68013d20$@hmailserver.test>\r\n");
-      expect(raw).toContain("X-Mailer: Microsoft Outlook 15.0\r\n");
-      // ... the original boundary is gone with the structure it belonged to, exactly one MIME-Version is written.
-      expect(raw).not.toContain("_NextPart_000_0001_01DA0CA8");
-      expect(raw.match(/^MIME-Version:/gim)).toHaveLength(1);
-      expect(raw.match(/^Content-Type: multipart\/mixed/gim)).toHaveLength(1);
+describe("readMsg with MSG files made by Outlook (msgreader test data)", {
+  timeout: 60_000,
+}, () => {
+  it("rebuilds a received message with its transport headers and attachments", async () => {
+    const result = await readMsg(fixture("outlook-attachments-headers.msg"));
+    const built = ok(result);
+    const raw = built.raw.toString("utf8");
+    // Original transport headers are kept verbatim ...
+    expect(raw).toContain("Return-Path: hmailuser@hmailserver.test\r\n");
+    expect(raw).toContain(
+      "Received: from H270 (kubernetes.docker.internal [127.0.0.1])\r\n\tby H270 with ESMTPA\r\n\t; Wed, 1 Nov 2023 09:48:31 +0900\r\n",
+    );
+    expect(raw).toContain("Message-ID: <000001da0c5d$22ab1460$68013d20$@hmailserver.test>\r\n");
+    expect(raw).toContain("X-Mailer: Microsoft Outlook 15.0\r\n");
+    // ... the original boundary is gone with the structure it belonged to, exactly one MIME-Version is written.
+    expect(raw).not.toContain("_NextPart_000_0001_01DA0CA8");
+    expect(raw.match(/^MIME-Version:/gim)).toHaveLength(1);
+    expect(raw.match(/^Content-Type: multipart\/mixed/gim)).toHaveLength(1);
 
-      const mail = await parse(result);
-      expect(mail.subject).toBe("attachmentFiles");
-      expect(mail.from?.value[0]?.address).toBe("hmailuser@hmailserver.test");
-      expect(addressesOf(mail.to)).toEqual(["hmailuser@hmailserver.test"]);
-      expect(mail.text?.trim()).toBe("attachmentFiles");
-      expect(mail.attachments.map((a) => a.filename)).toEqual(["jpg.jpg", "png.png", "tif.tif"]);
-      expect(mail.attachments.map((a) => a.contentType)).toEqual([
-        "image/jpeg",
-        "image/png",
-        "image/tiff",
-      ]);
-      expect(mail.attachments.map((a) => a.size)).toEqual([726, 134, 664]);
-      expect(mail.attachments[0]?.content.subarray(0, 4).toString("hex")).toBe("ffd8ffe0");
-      expect(mail.attachments[1]?.content.subarray(0, 4).toString("hex")).toBe("89504e47");
-      expect(mail.messageId).toBe("<000001da0c5d$22ab1460$68013d20$@hmailserver.test>");
-      expect(mail.date?.toISOString()).toBe("2023-11-01T00:48:31.000Z");
+    const mail = await parse(result);
+    expect(mail.subject).toBe("attachmentFiles");
+    expect(mail.from?.value[0]?.address).toBe("hmailuser@hmailserver.test");
+    expect(addressesOf(mail.to)).toEqual(["hmailuser@hmailserver.test"]);
+    expect(mail.text?.trim()).toBe("attachmentFiles");
+    expect(mail.attachments.map((a) => a.filename)).toEqual(["jpg.jpg", "png.png", "tif.tif"]);
+    expect(mail.attachments.map((a) => a.contentType)).toEqual([
+      "image/jpeg",
+      "image/png",
+      "image/tiff",
+    ]);
+    expect(mail.attachments.map((a) => a.size)).toEqual([726, 134, 664]);
+    expect(mail.attachments[0]?.content.subarray(0, 4).toString("hex")).toBe("ffd8ffe0");
+    expect(mail.attachments[1]?.content.subarray(0, 4).toString("hex")).toBe("89504e47");
+    expect(mail.messageId).toBe("<000001da0c5d$22ab1460$68013d20$@hmailserver.test>");
+    expect(mail.date?.toISOString()).toBe("2023-11-01T00:48:31.000Z");
 
-      expect(built.attachmentCount).toBe(3);
-      expect(built.internalDate?.toISOString()).toBe("2023-11-01T00:48:31.000Z");
-      expect(built.flags).toEqual([]);
-    });
+    expect(built.attachmentCount).toBe(3);
+    expect(built.internalDate?.toISOString()).toBe("2023-11-01T00:48:31.000Z");
+    expect(built.flags).toEqual([]);
+  });
 
-    it("rebuilds an embedded message as message/rfc822 next to a regular attachment", async () => {
-      const result = await readMsg(fixture("outlook-embedded-message.msg"));
-      const built = ok(result);
-      expect(built.flags).toEqual(["\\Seen", "\\Draft"]);
-      const mail = await parse(result);
-      expect(mail.subject).toBe("I have attachments!");
-      expect(mail.text?.trim()).toBe("I have attachments!");
-      const names = mail.attachments.map((a) => a.filename);
-      expect(names).toEqual(["Microsoft Outlook テスト メッセージ.eml", "green.png"]);
-      const embedded = mail.attachments[0];
-      expect(embedded?.contentType).toBe("message/rfc822");
-      const inner = await simpleParser(embedded?.content as Buffer);
-      expect(inner.subject).toBe("Microsoft Outlook テスト メッセージ");
-      expect(inner.from?.value[0]?.address).toBe("xmailuser@xmailserver.test");
-      expect(inner.text).toContain("Microsoft Outlook");
-      expect(mail.attachments[1]?.size).toBe(134);
-      // The embedded message keeps its own transport headers.
-      expect(embedded?.content.toString("utf8")).toContain(
-        "Received: from H270 ([127.0.0.1]:56695)",
-      );
-    });
+  it("rebuilds an embedded message as message/rfc822 next to a regular attachment", async () => {
+    const result = await readMsg(fixture("outlook-embedded-message.msg"));
+    const built = ok(result);
+    expect(built.flags).toEqual(["\\Seen", "\\Draft"]);
+    const mail = await parse(result);
+    expect(mail.subject).toBe("I have attachments!");
+    expect(mail.text?.trim()).toBe("I have attachments!");
+    const names = mail.attachments.map((a) => a.filename);
+    expect(names).toEqual(["Microsoft Outlook テスト メッセージ.eml", "green.png"]);
+    const embedded = mail.attachments[0];
+    expect(embedded?.contentType).toBe("message/rfc822");
+    const inner = await simpleParser(embedded?.content as Buffer);
+    expect(inner.subject).toBe("Microsoft Outlook テスト メッセージ");
+    expect(inner.from?.value[0]?.address).toBe("xmailuser@xmailserver.test");
+    expect(inner.text).toContain("Microsoft Outlook");
+    expect(mail.attachments[1]?.size).toBe(134);
+    // The embedded message keeps its own transport headers.
+    expect(embedded?.content.toString("utf8")).toContain("Received: from H270 ([127.0.0.1]:56695)");
+  });
 
-    it("keeps an inline image (Content-ID) and an ordinary attachment of a rich text message", async () => {
-      const result = await readMsg(fixture("outlook-attachment-inline.msg"));
-      const mail = await parse(result);
-      expect(mail.subject).toBe("Attach and inline");
-      expect(addressesOf(mail.to)).toEqual(["xmailuser@xmailserver.test"]);
-      expect(mail.attachments.map((a) => a.filename)).toEqual(["attach.png", "image001.png"]);
-      expect(mail.attachments[1]?.contentId).toBe("<image001.png@01D78380.EF6DC500>");
-      expect(mail.attachments.map((a) => a.size)).toEqual([1558, 809]);
-      expect(mail.date?.toISOString()).toBe("2021-07-27T22:19:50.000Z");
-    });
+  it("keeps an inline image (Content-ID) and an ordinary attachment of a rich text message", async () => {
+    const result = await readMsg(fixture("outlook-attachment-inline.msg"));
+    const mail = await parse(result);
+    expect(mail.subject).toBe("Attach and inline");
+    expect(addressesOf(mail.to)).toEqual(["xmailuser@xmailserver.test"]);
+    expect(mail.attachments.map((a) => a.filename)).toEqual(["attach.png", "image001.png"]);
+    expect(mail.attachments[1]?.contentId).toBe("<image001.png@01D78380.EF6DC500>");
+    expect(mail.attachments.map((a) => a.size)).toEqual([1558, 809]);
+    expect(mail.date?.toISOString()).toBe("2021-07-27T22:19:50.000Z");
+  });
 
-    it("decodes 8-bit Japanese text using the message's code page", async () => {
-      const result = await readMsg(fixture("outlook-ansi-japanese.msg"));
-      const mail = await parse(result);
-      expect(mail.subject).toBe("日本語 Non Unicode タイトル");
-      expect(mail.text?.trim()).toBe("日本語 Non Unicode 本文");
-    });
+  it("decodes 8-bit Japanese text using the message's code page", async () => {
+    const result = await readMsg(fixture("outlook-ansi-japanese.msg"));
+    const mail = await parse(result);
+    expect(mail.subject).toBe("日本語 Non Unicode タイトル");
+    expect(mail.text?.trim()).toBe("日本語 Non Unicode 本文");
+  });
 
-    it("refuses contacts and notes as not mail", async () => {
-      const contact = await readMsg(fixture("outlook-contact.msg"));
-      expect(contact).toMatchObject({ ok: false, code: "not_mail" });
-      expect((contact as { reason: string }).reason).toContain("contact");
-      const note = await readMsg(fixture("outlook-sticky-note.msg"));
-      expect(note).toMatchObject({ ok: false, code: "not_mail" });
-      expect((note as { reason: string }).reason).toContain("note");
-    });
+  it("refuses contacts and notes as not mail", async () => {
+    const contact = await readMsg(fixture("outlook-contact.msg"));
+    expect(contact).toMatchObject({ ok: false, code: "not_mail" });
+    expect((contact as { reason: string }).reason).toContain("contact");
+    const note = await readMsg(fixture("outlook-sticky-note.msg"));
+    expect(note).toMatchObject({ ok: false, code: "not_mail" });
+    expect((note as { reason: string }).reason).toContain("note");
+  });
 
-    it("is deterministic: the same MSG bytes give the same EML bytes", async () => {
-      for (const name of [
-        "outlook-attachments-headers.msg",
-        "outlook-embedded-message.msg",
-        "outlook-attachment-inline.msg",
-        "outlook-ansi-japanese.msg",
-      ]) {
-        const bytes = fixture(name);
-        const first = ok(await readMsg(bytes)).raw;
-        const second = ok(await readMsg(Buffer.from(bytes))).raw;
-        expect(first.equals(second)).toBe(true);
-      }
-    });
+  it("is deterministic: the same MSG bytes give the same EML bytes", async () => {
+    for (const name of [
+      "outlook-attachments-headers.msg",
+      "outlook-embedded-message.msg",
+      "outlook-attachment-inline.msg",
+      "outlook-ansi-japanese.msg",
+    ]) {
+      const bytes = fixture(name);
+      const first = ok(await readMsg(bytes)).raw;
+      const second = ok(await readMsg(Buffer.from(bytes))).raw;
+      expect(first.equals(second)).toBe(true);
+    }
+  });
 
-    it("does not invent a Message-ID or a Date it does not know", async () => {
-      const raw = ok(await readMsg(fixture("outlook-ansi-japanese.msg"))).raw.toString("utf8");
-      expect(raw).not.toMatch(/^Message-ID:/im);
-      const embedded = ok(await readMsg(fixture("outlook-embedded-message.msg"))).raw.toString(
-        "utf8",
-      );
-      expect(embedded).not.toMatch(/^Message-ID:/im);
-    });
-  },
-);
+  it("does not invent a Message-ID or a Date it does not know", async () => {
+    const raw = ok(await readMsg(fixture("outlook-ansi-japanese.msg"))).raw.toString("utf8");
+    expect(raw).not.toMatch(/^Message-ID:/im);
+    const embedded = ok(await readMsg(fixture("outlook-embedded-message.msg"))).raw.toString(
+      "utf8",
+    );
+    expect(embedded).not.toMatch(/^Message-ID:/im);
+  });
+});
 
 describe("readMsg with MSG files made by @tutao/oxmsg", { timeout: 60_000 }, () => {
   const sent = new Date("2024-01-15T10:00:00Z");

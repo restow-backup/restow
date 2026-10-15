@@ -1,25 +1,23 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-
+import type { EventStreamOptions, ServerEvent, StreamStatus } from "@/features/jobs/sse";
 import {
-  type Mounted,
   enableActEnvironment,
   flush,
   installMemoryStorage,
+  type Mounted,
   mount,
   newQueryClient,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
-
-import type { EventStreamOptions, ServerEvent, StreamStatus } from "@/features/jobs/sse";
-import { type Run, historyKeys } from "../api";
+import { historyKeys, type Run } from "../api";
 import { run } from "../fixtures";
 import "../i18n";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { adminSession } from "../testing";
 import type { LiveRuns } from "./apply";
-import { type VisibilitySource, resetChannelsForTesting } from "./channel";
+import { resetChannelsForTesting, type VisibilitySource } from "./channel";
 import { LiveIndicator } from "./indicator";
 import {
   LiveChannelProvider,

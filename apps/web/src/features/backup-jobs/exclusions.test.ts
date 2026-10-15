@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  EXCLUSION_PRESETS,
   addOwnPattern,
+  EXCLUSION_PRESETS,
   excludesProblem,
   ownPatterns,
   parseLargerThanGib,

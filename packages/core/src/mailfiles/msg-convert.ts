@@ -27,16 +27,17 @@
  * only point to a file (no content in the MSG), and anything Outlook keeps in
  * properties that have no RFC 5322 equivalent.
  */
-import * as msgreaderModule from "@kenjiuno/msgreader";
+
 import type { FieldsData } from "@kenjiuno/msgreader";
+import * as msgreaderModule from "@kenjiuno/msgreader";
 import { checkCompoundFile } from "./cfb-guard.js";
 import {
-  type HeaderField,
-  type MimePart,
   encodeHeaderText,
   filePart,
   formatMailbox,
+  type HeaderField,
   headerSafe,
+  type MimePart,
   messagePart,
   mimeTypeForFile,
   multipart,

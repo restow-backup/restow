@@ -13,13 +13,12 @@ import { useTranslation } from "react-i18next";
 import { EmptyState, ErrorState, type KpiDelta, KpiTile } from "@/components/kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatBytes, formatInteger } from "@/lib/format";
-
 import type { ProviderView as ProviderData, ProviderKpis } from "@/features/dashboard/api";
 import { LinkButton } from "@/features/dashboard/components/link-button";
 import { PATHS, to } from "@/features/dashboard/paths";
 import type { WidgetView } from "@/features/dashboard/presenters";
 import type { ReadinessState } from "@/features/verify/search";
+import { formatBytes, formatInteger } from "@/lib/format";
 import { AlertList } from "./alert-list.js";
 import { ProviderReadinessCard } from "./readiness-card.js";
 import { TenantMatrix } from "./tenant-matrix.js";

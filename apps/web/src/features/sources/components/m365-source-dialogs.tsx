@@ -27,10 +27,10 @@ import {
 import { toast } from "@/components/ui/sonner";
 import { zodResolver } from "@/lib/form";
 import {
-  type M365EditValues,
-  type M365FormValues,
   emptyM365Form,
   fieldMessageKey,
+  type M365EditValues,
+  type M365FormValues,
   m365EditSchema,
   m365FormSchema,
   toCreateM365Input,

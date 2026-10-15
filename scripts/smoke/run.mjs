@@ -30,7 +30,7 @@ import { endpoint } from "./checks/10-endpoint.mjs";
 import { importExport } from "./checks/11-import-export.mjs";
 import { run } from "./lib/exec.mjs";
 import { createLicenseSigner } from "./lib/license.mjs";
-import { CheckRun, RESULT, Report, Skip, StepFailure, formatDuration } from "./lib/report.mjs";
+import { CheckRun, formatDuration, RESULT, Report, Skip, StepFailure } from "./lib/report.mjs";
 import { APP_IMAGE, Stack, WEB_IMAGE } from "./lib/stack.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -271,8 +271,11 @@ const CHECKS = [
 
 const STACK_CHECKS = new Set(["1", "2", "3", "4", "5", "6", "7", "8", "10", "11"]);
 
-/** Which checks run: the selection, widened by what they need, minus what is skipped. */
-export function selectChecks(all, { only, skip }) {
+/**
+ * Which checks run: the selection, widened by what they need. A check left out with --skip
+ * stays in the list; the run reports it as skipped on request.
+ */
+export function selectChecks(all, { only }) {
   const wanted = new Set(only ?? all.map((check) => check.id));
   let changed = true;
   while (changed) {

@@ -4,7 +4,7 @@ import {
   TokenAcquisitionError,
 } from "../graph/auth/token.js";
 import type { EntraAppSource, EntraCredentialKind, ResolvedEntraApp } from "./app-registration.js";
-import { type PermissionDiff, diffPermissions, rolesFromAccessToken } from "./permissions.js";
+import { diffPermissions, type PermissionDiff, rolesFromAccessToken } from "./permissions.js";
 
 /**
  * "Test connection" for the backup app registration itself, before any

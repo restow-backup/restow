@@ -42,30 +42,30 @@ import { buildCause, classifyFailure } from "../failures/classify.js";
 import type { FailureCause } from "../failures/types.js";
 import type { SnapshotManifest } from "../manifest.js";
 import {
+  checkObject,
   type InconclusiveRead,
   type ItemCheck,
   type ItemCheckStatus,
-  checkObject,
 } from "./check.js";
-import { VerifyIncompleteError, describeError, isAbortError, throwIfAborted } from "./errors.js";
+import { describeError, isAbortError, throwIfAborted, VerifyIncompleteError } from "./errors.js";
 import { isTestRestoreEvidence, readEvidence } from "./evidence.js";
 import type { RestoreProbe, TestRestoreOutcome } from "./probe.js";
 import { newSeed, seededRandom } from "./random.js";
-import { DEFAULT_READINESS_POLICY, type ReadinessPolicy, assessReadiness } from "./readiness.js";
+import { assessReadiness, DEFAULT_READINESS_POLICY, type ReadinessPolicy } from "./readiness.js";
 import {
+  listedItems,
   READINESS_REPORT_FORMAT,
   type ReportSnapshotRef,
   type VerifyCounts,
   type VerifyReportDetails,
-  listedItems,
 } from "./report.js";
 import {
-  type SamplePlan,
-  type SampleQuota,
   emptyCounts,
   planFull,
   planSample,
   quotaFor,
+  type SamplePlan,
+  type SampleQuota,
 } from "./sampling.js";
 
 export type VerifyRunOptions = VerifyOptions & {

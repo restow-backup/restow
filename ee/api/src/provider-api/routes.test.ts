@@ -7,16 +7,16 @@ import {
 } from "../../../../apps/api/src/extensions.js";
 import type { AuditEvent } from "../../../../apps/api/src/lib/audit.js";
 import { errorHandler, notFoundHandler } from "../../../../apps/api/src/problem.js";
-import { buildV1 } from "../../../../apps/api/src/routes/v1.js";
 import { decodeCursor } from "../../../../apps/api/src/routes/v1/cursor.js";
 import { featuresOn } from "../../../../apps/api/src/routes/v1/testing/features.js";
 import {
-  OTHER_TENANT_ID,
-  TENANT_ID,
   bearer,
   fakeRequireKey,
+  OTHER_TENANT_ID,
+  TENANT_ID,
 } from "../../../../apps/api/src/routes/v1/testing/keys.js";
 import { scriptedDb } from "../../../../apps/api/src/routes/v1/testing/scripted-db.js";
+import { buildV1 } from "../../../../apps/api/src/routes/v1.js";
 import { providerUserCursorSchema, registerProviderRoutes } from "./routes.js";
 
 /**

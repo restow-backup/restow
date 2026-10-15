@@ -1,7 +1,7 @@
+import { useQuery } from "@tanstack/react-query";
 import { Pencil, Shield } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-
 import { ErrorState } from "@/components/error-state";
 import { SetInInstallation } from "@/components/kit/set-in-installation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -21,7 +21,6 @@ import { setupStateQueryOptions } from "@/lib/api";
 import type { TenantSectionProps } from "@/lib/extensions";
 import { providerMay } from "@/lib/provider-role";
 import { hasFeature, useSession } from "@/lib/session";
-import { useQuery } from "@tanstack/react-query";
 
 /**
  * Master data of the tenant: its name, customer number, language, time zone,
@@ -125,13 +124,7 @@ function Fact({ label, value, mono }: { label: string; value: string; mono?: boo
  * is); the one organisation of an installation without tenant management has no
  * such question.
  */
-function OwnOrganisationCard({
-  tenant,
-  mayChange,
-}: {
-  tenant: TenantDetail;
-  mayChange: boolean;
-}) {
+function OwnOrganisationCard({ tenant, mayChange }: { tenant: TenantDetail; mayChange: boolean }) {
   const { t } = useTranslation("tenantpage");
   const session = useSession();
   const [marking, setMarking] = React.useState(false);

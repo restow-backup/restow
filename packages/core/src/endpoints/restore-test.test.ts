@@ -1,14 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LocalStorageBackend } from "../storage/local.js";
 import {
+  endpointPrefix,
   type RepositoryAccess,
   type ResticSession,
-  endpointPrefix,
   resticBinary,
   resticInit,
   resticSnapshots,
@@ -17,10 +17,10 @@ import {
 } from "./restic-cli.js";
 import {
   type AgentRestoreTestReport,
-  type RestoreTestResult,
   compareSamples,
   isRestoreFinding,
   judgeAgentRestoreTest,
+  type RestoreTestResult,
   restoreTestSamples,
 } from "./restore-test.js";
 

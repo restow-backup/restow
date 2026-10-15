@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type OverdueCandidate, dueForRule, overdueNotification, overdueOf } from "./overdue.js";
+import { dueForRule, type OverdueCandidate, overdueNotification, overdueOf } from "./overdue.js";
 
 const NOW = new Date("2026-10-07T12:00:00.000Z");
 const hoursAgo = (hours: number) => new Date(NOW.getTime() - hours * 3_600_000);

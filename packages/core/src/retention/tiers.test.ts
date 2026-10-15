@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_TIERS,
-  KEEP_ALL_TIERS,
   cutoffDays,
+  DEFAULT_TIERS,
   isRetentionPreset,
+  KEEP_ALL_TIERS,
   presetTiers,
   validateTiers,
 } from "./tiers.js";

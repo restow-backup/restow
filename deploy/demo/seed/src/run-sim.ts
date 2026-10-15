@@ -1,7 +1,7 @@
 import type { FinishRequest, ProgressRequest, RunError } from "./agent-api.js";
 import type { AgentStateEntry } from "./agent-state.js";
 import { formatBytes, shortId } from "./endpoint-agent.js";
-import { type Rng, chance, mulberry32, pick, randomInt, seedFrom } from "./prng.js";
+import { chance, mulberry32, pick, type Rng, randomInt, seedFrom } from "./prng.js";
 
 /**
  * The pure half of the demo's run simulator (deploy/demo/README.md, "Simulated

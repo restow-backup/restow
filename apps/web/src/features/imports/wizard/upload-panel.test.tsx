@@ -4,8 +4,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { i18n } from "@/i18n";
 
-import { TENANT_ID, button, click, mount, text, until } from "../testing/dom";
-import { type FakeImportApi, createFakeImportApi, textFile } from "../testing/fake-import-api";
+import { button, click, mount, TENANT_ID, text, until } from "../testing/dom";
+import { createFakeImportApi, type FakeImportApi, textFile } from "../testing/fake-import-api";
 import type { ImportConfig, ImportUploadDto } from "../types";
 import { useUploadManager } from "../upload/use-upload-manager";
 import { UploadPanel } from "./upload-panel";

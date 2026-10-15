@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { storedId } from "../chunkId.js";
 import { type Dek, encryptChunk } from "../crypto.js";
-import { Keyring, deriveChunkIdKey, sealedKeyVersion } from "./keyring.js";
+import { deriveChunkIdKey, Keyring, sealedKeyVersion } from "./keyring.js";
 import { matchesSelection } from "./types.js";
 
 const v1: Dek = { version: 1, material: Buffer.alloc(32, 0x01) };

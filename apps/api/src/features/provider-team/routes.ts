@@ -3,17 +3,17 @@ import { authDb, providerDb } from "../../db.js";
 import { requestLanguage } from "../../lib/language.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
-import { type SessionEnv, requireProviderAdmin } from "../../middleware/session.js";
+import { requireProviderAdmin, type SessionEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { inviteMemberSchema, memberParamSchema, updateMemberSchema } from "./schemas.js";
 import {
-  type TeamActor,
-  type TeamDeps,
   inviteMember,
   listTeam,
   reissueInvitation,
   removeMember,
   resetAccess,
+  type TeamActor,
+  type TeamDeps,
   updateMember,
 } from "./service.js";
 

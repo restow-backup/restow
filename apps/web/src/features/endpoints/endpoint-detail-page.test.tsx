@@ -1,11 +1,9 @@
 // @vitest-environment happy-dom
 import type * as React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-
+import type { Failure } from "@/features/failures";
 import { i18n } from "@/i18n";
 import { ApiError } from "@/lib/api";
-
-import type { Failure } from "@/features/failures";
 
 import type { EndpointDetail, EndpointTask, RunDetail } from "./api.js";
 import { type Mounted, mount } from "./dom-harness.js";

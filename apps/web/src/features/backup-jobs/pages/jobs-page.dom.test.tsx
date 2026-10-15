@@ -4,28 +4,27 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { historyKeys } from "@/features/history/api";
 import { run as liveRun } from "@/features/history/fixtures";
 import {
-  type Mounted,
   buttonByText,
   click,
   enableActEnvironment,
   flush,
   installMemoryStorage,
   json,
+  newQueryClient,
   problem,
 } from "@/features/updates/testing";
-import { newQueryClient } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 
 import { candidate, defaults, endpointJob, iso, list, mailJob, restoreCheck } from "../fixtures.js";
 import "../i18n.js";
 import {
-  type Opened,
-  TENANT,
   describedText,
   lookerSession,
+  type Opened,
   openJobs,
   openMenu,
   primaryButtons,
+  TENANT,
 } from "../testing.js";
 
 /**

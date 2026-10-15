@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEMO_TENANTS, allMailboxes, mailboxesMissingFrom } from "./company.js";
+import { allMailboxes, DEMO_TENANTS, mailboxesMissingFrom } from "./company.js";
 
 describe("demo companies", () => {
   it("are English, on the reserved example domain", () => {

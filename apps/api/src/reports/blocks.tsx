@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { ReactNode } from "react";
 import { pdfText } from "./text.js";
-import { type Tone, colors, fontSize, fonts, space, toneColor } from "./theme.js";
+import { colors, fontSize, fonts, space, type Tone, toneColor } from "./theme.js";
 
 /**
  * Building blocks between the frame and the figures: titled sections, a

@@ -12,7 +12,7 @@ import {
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 
-import { RUN_IDS, agentRun, detail, finished, run } from "../fixtures";
+import { agentRun, detail, finished, RUN_IDS, run } from "../fixtures";
 import "../i18n";
 import { type Opened, openHistory } from "../testing";
 

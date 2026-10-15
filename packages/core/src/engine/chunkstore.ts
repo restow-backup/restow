@@ -35,12 +35,12 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
+import { chunk, chunkAll, MAX_CHUNK_SIZE } from "../chunker.js";
 import { storedId } from "../chunkId.js";
-import { MAX_CHUNK_SIZE, chunk, chunkAll } from "../chunker.js";
 import { encryptChunk, sha256 } from "../crypto.js";
 import type { ManifestObject } from "../manifest.js";
 import { type PackEntry, PackReader, PackWriter } from "../pack.js";
-import { type StorageBackend, isObjectNotFound } from "../storage/backend.js";
+import { isObjectNotFound, type StorageBackend } from "../storage/backend.js";
 import { sealedAad } from "./keyring.js";
 import { packKey } from "./layout.js";
 import { noopLogger } from "./logger.js";

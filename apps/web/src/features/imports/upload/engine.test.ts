@@ -3,9 +3,9 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createUploadTransport } from "../api";
-import { type FakeImportApi, createFakeImportApi, textFile } from "../testing/fake-import-api";
+import { createFakeImportApi, type FakeImportApi, textFile } from "../testing/fake-import-api";
 import type { ImportUploadDto } from "../types";
-import { UploadEngine, bytesOfSegments, defaultBackoffMs } from "./engine";
+import { bytesOfSegments, defaultBackoffMs, UploadEngine } from "./engine";
 import type { UploadEvent } from "./types";
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");

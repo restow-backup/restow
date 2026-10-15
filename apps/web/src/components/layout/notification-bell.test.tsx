@@ -3,11 +3,11 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import type { BellList, BellNotification } from "@/features/reports/api";
 import {
-  type Mounted,
   click,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   mount,
   routedFetch,
   sessionAs,
@@ -15,10 +15,10 @@ import {
 import { i18n } from "@/i18n";
 
 import {
-  NotificationBell,
   bellBadgeClass,
   bellEventKey,
   isUpdateEvent,
+  NotificationBell,
   unreadAttentionCount,
 } from "./notification-bell";
 

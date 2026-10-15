@@ -22,8 +22,8 @@ import {
   type AttachmentStream,
   type EmailAddress,
   type HeaderLines,
-  type HeaderValue,
   type Headers,
+  type HeaderValue,
   MailParser,
   type MessageText,
 } from "mailparser";

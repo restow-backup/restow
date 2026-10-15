@@ -4,10 +4,10 @@ import { JobAbortedError } from "../engine/chunkstore.js";
 import { manifestKey, packKey, partialManifestKey, wrappedKeyKey } from "../engine/layout.js";
 import { MemoryStorage } from "../verify/testing.js";
 import {
-  type MirrorItem,
   checkCopyCompleteness,
   checkSourceExclusiveObjects,
   destinationObjectKeys,
+  type MirrorItem,
   mirrorObjects,
   mirrorTenantStorage,
   packMirrorItems,

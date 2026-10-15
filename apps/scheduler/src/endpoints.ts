@@ -13,7 +13,7 @@
 // `singletonSeconds` spaces the retries of an endpoint whose job keeps failing,
 // so a broken repository is tried every hour, not on every tick.
 
-import { ENDPOINT_QUEUES, ENDPOINT_QUEUE_SETTINGS, endpointSingletonKey } from "@restow/core";
+import { ENDPOINT_QUEUE_SETTINGS, ENDPOINT_QUEUES, endpointSingletonKey } from "@restow/core";
 import type { Pool } from "pg";
 import type PgBoss from "pg-boss";
 import { errorMessage, logger } from "./logger.js";

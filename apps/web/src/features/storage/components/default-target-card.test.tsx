@@ -10,7 +10,7 @@ import { StaticSessionProvider } from "@/lib/session";
 
 import "../i18n";
 import type { InstallationDefaultDto, StorageTargetDto } from "../types";
-import { DefaultTargetCard, backToDefault } from "./default-target-card";
+import { backToDefault, DefaultTargetCard } from "./default-target-card";
 
 /**
  * The installation default as an explicit choice on a tenant's storage page

@@ -24,7 +24,7 @@
  * a tick lists the snapshots that still have old rows on the installation
  * pool and converts each in a transaction pinned to its tenant.
  */
-import { type Database, convertLegacySnapshot, safeErrorMessage } from "@restow/db";
+import { convertLegacySnapshot, type Database, safeErrorMessage } from "@restow/db";
 import { sql } from "drizzle-orm";
 import { type WorkerRuntime, withTenantTx } from "./handlers/framework.js";
 

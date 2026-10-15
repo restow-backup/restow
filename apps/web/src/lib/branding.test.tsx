@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { DEFAULT_PRODUCT_NAME } from "@restow/i18n";
 import { act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 

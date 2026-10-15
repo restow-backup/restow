@@ -1,5 +1,7 @@
 import { Readable } from "node:stream";
 import {
+  createMemoryJobContext,
+  generateDek,
   type HeadResult,
   Keyring,
   MANIFEST_VERSION,
@@ -7,19 +9,17 @@ import {
   type RetentionPolicyRow,
   type SnapshotManifest,
   type StorageBackend,
-  createMemoryJobContext,
-  generateDek,
   serializeManifest,
 } from "@restow/core";
 import type { Database } from "@restow/db";
 import { describe, expect, it } from "vitest";
 import type { WorkerJobContext } from "./framework.js";
 import {
-  type RetentionStore,
-  RetentionTaskRegistry,
   createRetentionHandler,
   createSnapshotRetentionTask,
   pruneSnapshot,
+  type RetentionStore,
+  RetentionTaskRegistry,
 } from "./retention.js";
 
 const TENANT = "0f6e4b4e-2f2a-4d9a-9c2b-1a2b3c4d5e6f";

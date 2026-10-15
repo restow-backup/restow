@@ -4,8 +4,8 @@
  * they run on an endpoint's repository and not on a protected object.
  */
 import {
-  ENDPOINT_QUEUES,
   ENDPOINT_QUEUE_SETTINGS,
+  ENDPOINT_QUEUES,
   type EndpointJobPayload,
   type EndpointQueue,
 } from "@restow/core";
@@ -16,7 +16,7 @@ import { endpointCheck } from "./check.js";
 import type { EndpointJobDeps } from "./common.js";
 import { endpointMonitor } from "./monitor.js";
 import { endpointRetention } from "./retention.js";
-import { RestoreTestIncompleteError, endpointVerify } from "./verify.js";
+import { endpointVerify, RestoreTestIncompleteError } from "./verify.js";
 
 function payloadOf(data: unknown): EndpointJobPayload {
   const record = (data ?? {}) as Record<string, unknown>;

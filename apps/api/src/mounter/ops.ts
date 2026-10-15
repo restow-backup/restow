@@ -5,7 +5,6 @@ import { findComposeFile } from "../updater/config.js";
 import { EngineApiError, type EngineClient } from "../updater/engine-api.js";
 import { envValueOf } from "../updater/env-file.js";
 import type { Logger } from "../updater/logger.js";
-import { parseComposePs } from "../updater/ops-cli.js";
 import {
   type CommandResult,
   type CommandRunner,
@@ -13,6 +12,7 @@ import {
   type RunnerReadiness,
   type ServiceState,
 } from "../updater/ops.js";
+import { parseComposePs } from "../updater/ops-cli.js";
 import type { Redactor } from "../updater/redact.js";
 import { writeAtomic } from "../updater/store.js";
 import { nfsDevice, nfsMountOptions } from "./override.js";

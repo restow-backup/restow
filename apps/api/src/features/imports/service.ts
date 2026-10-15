@@ -3,12 +3,12 @@ import { mailfiles } from "@restow/core";
 import {
   type Database,
   type ImportUpload,
-  type MailImportRequestFile,
   importUploadSegments,
   importUploads,
   itemFailures,
   jobProgress,
   jobs,
+  type MailImportRequestFile,
   mailImports,
   protectedObjects,
   sources,
@@ -19,13 +19,14 @@ import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { segmentStoreFor } from "../../lib/segment-store.js";
 import { type DbExecutor, type Transaction, withTenantTx } from "../../lib/tenant-context.js";
-import { type Role, isTenantAdmin } from "../../middleware/rbac.js";
+import { isTenantAdmin, type Role } from "../../middleware/rbac.js";
 import { ProblemError } from "../../problem.js";
 import { cancelQueuedJob, sendJob } from "../jobs/queue.js";
 import { resolveTenantStorage } from "../restore/storage.js";
 import { SOURCE_AUDIT_ACTIONS } from "../sources/service.js";
 import { assertDeclaredLength, readSegmentBody } from "./body.js";
 import {
+  expectedSegmentSize,
   type ImportConfigDto,
   type ImportCreatedDto,
   type ImportDetailDto,
@@ -35,13 +36,12 @@ import {
   type ImportRow,
   type ImportSummaryDto,
   type ImportUploadDto,
-  REFUSED_IMPORT_FORMATS,
-  SUPPORTED_IMPORT_FORMATS,
-  expectedSegmentSize,
   isSupportedFormat,
   isUploadExpired,
   missingSegments,
+  REFUSED_IMPORT_FORMATS,
   refusalFor,
+  SUPPORTED_IMPORT_FORMATS,
   toDetailDto,
   toSummaryDto,
   toUploadDto,
@@ -60,7 +60,7 @@ import {
   normalizeFolderPath,
   segmentSha256Schema,
 } from "./schemas.js";
-import { type TenantFolder, openTenantFolder } from "./tenant-folder.js";
+import { openTenantFolder, type TenantFolder } from "./tenant-folder.js";
 
 /**
  * Mail file import (docs/IMPORT.md).

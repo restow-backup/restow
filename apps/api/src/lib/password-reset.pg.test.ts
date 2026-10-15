@@ -18,10 +18,10 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { createOTP } from "@better-auth/utils/otp";
 import {
-  type Database,
   account,
   auditLog,
   createDb,
+  type Database,
   member,
   organization,
   providers,

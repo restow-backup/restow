@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { navItems, routes } from "./index";
-import { RESOURCES_PATH, SOON_CONTENT, resourcesSoonItem, soonNavItems } from "./items";
+import { RESOURCES_PATH, resourcesSoonItem, SOON_CONTENT, soonNavItems } from "./items";
 
 describe("features of a later release", () => {
   it("lists capacity planning only: the job definitions shipped with 0.2.0", () => {

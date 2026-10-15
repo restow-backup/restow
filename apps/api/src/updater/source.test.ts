@@ -6,19 +6,19 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Redactor } from "./redact.js";
-import { parseSourceAllowlist } from "./source-policy.js";
 import {
   ArchiveSourceProvider,
-  MAX_REDIRECTS,
-  SourceError,
   assertArchiveUrl,
   buildImages,
   buildSpecs,
   describeUrl,
   downloadArchive,
   extractArchive,
+  MAX_REDIRECTS,
+  SourceError,
   sourceImageTags,
 } from "./source.js";
+import { parseSourceAllowlist } from "./source-policy.js";
 
 const TOKEN = "ghp_secretTOKEN0123456789";
 const policy = { allowInsecureHttp: true };

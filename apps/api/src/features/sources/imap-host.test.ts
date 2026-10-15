@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
 import {
-  type ImapHostContext,
   approveImapHost,
   decideImapHost,
+  type ImapHostContext,
   imapHostNotAllowed,
   probeMayReachPrivateNetworks,
   storedHostMayBePrivate,

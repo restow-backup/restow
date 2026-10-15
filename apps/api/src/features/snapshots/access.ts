@@ -1,5 +1,5 @@
 import { protectedObjects, users } from "@restow/db";
-import { type SQL, eq, or, sql } from "drizzle-orm";
+import { eq, or, type SQL, sql } from "drizzle-orm";
 import type { Role } from "../../middleware/rbac.js";
 import { restoresForTenant } from "../../middleware/rbac.js";
 

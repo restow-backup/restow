@@ -22,10 +22,10 @@ import { entryDate, toNamedEntry } from "@/features/restore/lib/entries";
 import { type ListDirection, moveActivePath } from "@/features/restore/lib/list-nav";
 import { parentPathOf } from "@/features/restore/lib/paths";
 import {
-  type Selection,
   coveringFolder,
   isSelected,
   listSelectionState,
+  type Selection,
 } from "@/features/restore/lib/selection";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -197,7 +197,7 @@ export function ItemList({
   return (
     <div className="@container">
       <Table
-        // biome-ignore lint/a11y/useSemanticElements: intentional — a data
+        // Intentional: a data
         // grid with per-row keyboard navigation and selection is exactly
         // what `role="grid"` is for; a plain <table> would tell assistive
         // tech this is a static, read-only listing.

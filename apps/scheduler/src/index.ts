@@ -8,13 +8,13 @@
 // Row Level Security (packages/db/src/roles.ts).
 
 import {
-  ServiceHeartbeatReporter,
   assertDatabaseRoles,
   clearRestartRequests,
   createDb,
   grantQueueAccess,
   heartbeatStore,
   retryConcurrentSetup,
+  ServiceHeartbeatReporter,
   safeErrorMessage,
 } from "@restow/db";
 import PgBoss from "pg-boss";

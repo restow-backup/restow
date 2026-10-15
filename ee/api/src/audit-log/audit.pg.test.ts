@@ -12,10 +12,10 @@
 import { randomUUID } from "node:crypto";
 import {
   type AuditLogEntry,
-  type Database,
   auditAnchor,
   auditLog,
   createDb,
+  type Database,
   providers,
   tenants,
 } from "@restow/db";

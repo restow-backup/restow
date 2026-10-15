@@ -1,7 +1,7 @@
 import {
-  type SupportedLanguage,
   createI18n,
   fallbackLanguage,
+  type SupportedLanguage,
   supportedLanguages,
 } from "@restow/i18n";
 

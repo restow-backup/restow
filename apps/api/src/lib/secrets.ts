@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
 import {
   type Dek,
+  deriveInstallationSecretsKey,
   EnvKeyProvider,
+  generateDek,
   INSTALLATION_SECRETS_KEY_VERSION,
   type KeyProvider,
-  deriveInstallationSecretsKey,
-  generateDek,
   kekFromBase64,
   openSecret,
   sealSecret,
   secretAad,
 } from "@restow/core";
-import { type SecretKind, findInstallationSecret, secrets, tenantKeys } from "@restow/db";
+import { findInstallationSecret, type SecretKind, secrets, tenantKeys } from "@restow/db";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { config } from "../config.js";
 import { ProblemError } from "../problem.js";

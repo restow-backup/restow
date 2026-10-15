@@ -2,12 +2,12 @@ import { createPrivateKey, createSign } from "node:crypto";
 import type { SupportedLanguage } from "@restow/i18n";
 import MailComposer from "nodemailer/lib/mail-composer";
 import {
+  errorMessage,
+  failed,
   type MailFailureReason,
   type NotificationMessage,
   type Notifier,
   type NotifyResult,
-  errorMessage,
-  failed,
   singleLine,
   testNotification,
 } from "./notify-core.js";

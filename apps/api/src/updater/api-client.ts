@@ -1,9 +1,9 @@
 import type { ApiClient, ApiReadinessResult } from "./ops.js";
 import {
-  UPDATER_AUTH_SCHEME,
-  UPDATER_SOURCE_TOKEN_PATH,
   apiReadinessSchema,
   sourceTokenResponseSchema,
+  UPDATER_AUTH_SCHEME,
+  UPDATER_SOURCE_TOKEN_PATH,
 } from "./protocol.js";
 import type { Redactor } from "./redact.js";
 
@@ -24,7 +24,7 @@ export interface HttpApiClientOptions {
 
 /** The database answers and every other check is a worker or scheduler that is `ok` or `missing`. */
 function onlyServicesMissing(checks: Record<string, unknown> | undefined): boolean {
-  if (!checks || checks.database !== true) {
+  if (checks?.database !== true) {
     return false;
   }
   return Object.entries(checks).every(

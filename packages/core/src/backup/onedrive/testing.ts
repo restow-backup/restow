@@ -11,21 +11,21 @@ import type { Dek } from "../../crypto.js";
 import { ChunkReader } from "../../engine/chunkstore.js";
 import { Keyring } from "../../engine/keyring.js";
 import {
+  createMemoryJobContext,
   MemoryChunkIndex,
   MemoryCursorStore,
   MemoryProgressSink,
   MemorySnapshotIndex,
-  createMemoryJobContext,
 } from "../../engine/memory.js";
 import type { ProgressUpdate } from "../../engine/progress.js";
 import { loadManifest } from "../../engine/snapshot.js";
 import type { BackupResult, JobContext, ProtectedObjectRef } from "../../engine/types.js";
 import type { GraphClient } from "../../graph/client.js";
 import {
+  createFakeGraph,
   type FakeGraph,
   type FixtureResponse,
   type FixtureRoute,
-  createFakeGraph,
 } from "../../graph/testing/fake-graph.js";
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import type { StorageBackend } from "../../storage/backend.js";

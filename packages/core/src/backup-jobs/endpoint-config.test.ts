@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  type AgentConfig as EndpointConfig,
   defaultEndpointConfig,
+  type AgentConfig as EndpointConfig,
   noSchedule,
 } from "../endpoints/config.js";
 import {

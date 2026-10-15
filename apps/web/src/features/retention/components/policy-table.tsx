@@ -7,8 +7,8 @@ import {
   DataTable,
   DataTableSearch,
   RelativeTime,
-  StatusBadge,
   rowActionsColumn,
+  StatusBadge,
 } from "@/components/kit";
 
 import type { RetentionPolicy } from "../api.js";

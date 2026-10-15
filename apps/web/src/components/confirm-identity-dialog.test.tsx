@@ -1,19 +1,17 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { i18n } from "@/i18n";
-
 import {
-  type Mounted,
   buttonByText,
   click,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   mount,
   routedFetch,
   sessionAs,
 } from "@/features/updates/testing";
+import { i18n } from "@/i18n";
 
 /**
  * The step-up dialog (lib/recent-sign-in.ts): a passkey confirms in place and

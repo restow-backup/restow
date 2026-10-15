@@ -11,8 +11,8 @@ import { defaultEndpointConfig } from "@restow/core";
 import { endpointRuns, endpoints, runSamples } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startFixture, testDatabaseAdminUrl } from "./testing/fixture.js";
 import type { EndpointFixture } from "./testing/fixture.js";
+import { startFixture, testDatabaseAdminUrl } from "./testing/fixture.js";
 
 type AgentService = typeof import("./agent-service.js");
 

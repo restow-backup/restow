@@ -38,7 +38,7 @@ import {
   pathAfterTenantSwitch,
   visibleNavItems,
 } from "@/lib/navigation";
-import { type SessionTenant, canAccess, hasFeature, sessionScope, useSession } from "@/lib/session";
+import { canAccess, hasFeature, type SessionTenant, sessionScope, useSession } from "@/lib/session";
 import { canEnterTenant } from "@/lib/tenant";
 import { TENANT_SETTINGS_NAV_IDS } from "@/lib/tenant-nav";
 import { parseTenantPagePath, tenantPageAfterSwitch } from "@/lib/tenant-paths";
@@ -116,7 +116,10 @@ export function useSwitchToAllTenants(): () => void {
 function TenantMark({
   tenant,
   className,
-}: { tenant: Pick<SessionTenant, "kind">; className?: string }) {
+}: {
+  tenant: Pick<SessionTenant, "kind">;
+  className?: string;
+}) {
   const Icon = tenant.kind === "internal" ? Shield : Building2;
   return (
     <span

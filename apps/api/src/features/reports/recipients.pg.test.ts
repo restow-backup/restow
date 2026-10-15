@@ -18,9 +18,9 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   providers,
   reportDeliveries,
   reportRules,
@@ -32,7 +32,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTenantTx } from "../../lib/tenant-context.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

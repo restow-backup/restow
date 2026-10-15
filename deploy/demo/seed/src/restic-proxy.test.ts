@@ -1,4 +1,4 @@
-import { type IncomingHttpHeaders, createServer } from "node:http";
+import { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { rewriteRepositoryUrl, startResticProxy, upstreamHeaders } from "./restic-proxy.js";

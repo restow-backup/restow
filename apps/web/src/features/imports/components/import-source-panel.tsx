@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { IMPORTS_TAB_SEARCH, importWizardTo, importsListTo } from "../paths";
+import { IMPORTS_TAB_SEARCH, importsListTo, importWizardTo } from "../paths";
 
 /**
  * The body of the source detail page for the source of kind `import`: what it

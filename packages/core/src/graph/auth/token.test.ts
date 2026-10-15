@@ -2,13 +2,13 @@ import { createHash, createVerify, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { must } from "../testing/fake-graph.js";
 import {
+  buildClientAssertion,
   CachingTokenProvider,
   ClientCredentialsTokenProvider,
-  TenantTokenProviders,
-  TokenAcquisitionError,
-  buildClientAssertion,
   certificateThumbprintSha1Hex,
   derFromPem,
+  TenantTokenProviders,
+  TokenAcquisitionError,
   tokenEndpointFor,
 } from "./token.js";
 

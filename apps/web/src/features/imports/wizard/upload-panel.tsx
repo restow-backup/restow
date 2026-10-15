@@ -72,6 +72,7 @@ export function UploadPanel({
 
   return (
     <div className="space-y-5">
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop zone for dragged files; its button opens the file picker for the keyboard */}
       <div
         onDragEnter={(event) => {
           if (hasFiles(event.dataTransfer)) {

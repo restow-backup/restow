@@ -5,7 +5,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,7 +24,7 @@ import { meQueryOptions, useSession } from "@/lib/session";
 
 import { ConfirmDialog } from "./components/confirm-dialog";
 import { decodeInvitationDetails } from "./decoders";
-import { INVITATIONS_PATH, homeTo } from "./paths";
+import { homeTo, INVITATIONS_PATH } from "./paths";
 import { type AuthFailure, type InvitationFailure, invitationFailure } from "./presenters";
 import type { InvitationDetails } from "./types";
 

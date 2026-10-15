@@ -11,7 +11,7 @@ import { i18n } from "@/i18n";
 
 import "../i18n";
 import { act } from "react";
-import { T0, samples } from "../fixtures";
+import { samples, T0 } from "../fixtures";
 import { ThroughputCharts } from "./throughput-charts";
 
 /**

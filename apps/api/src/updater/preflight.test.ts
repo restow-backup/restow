@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PREFLIGHT_TTL_MS, UPDATER_IMAGE_PROBE, updaterImageFollowsProbe } from "./preflight.js";
-import { type Harness, createHarness, scheduleRequest, settle } from "./testing.js";
+import { createHarness, type Harness, scheduleRequest, settle } from "./testing.js";
 
 let h: Harness;
 

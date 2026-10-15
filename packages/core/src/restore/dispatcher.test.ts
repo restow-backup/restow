@@ -6,10 +6,10 @@ import { ImapRestoreEngine } from "./imap.js";
 import { OneDriveRestoreEngine } from "./onedrive.js";
 import { FakeImapAccount } from "./testing/fake-imap.js";
 import {
-  type SnapshotFixture,
   createSnapshotFixture,
   mimeMessage,
   restoreRequestFor,
+  type SnapshotFixture,
 } from "./testing/fixtures.js";
 
 describe("createRestoreEngines", () => {

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { ApiError, NetworkError } from "@/lib/api";
 
 import {
-  type RestoreFormContext,
   archiveNameFor,
   buildRestoreRequest,
   defaultTarget,
@@ -11,6 +10,7 @@ import {
   initialFormState,
   modeApplies,
   originalTargetDescriptionKey,
+  type RestoreFormContext,
   restoreErrorOf,
   restoreModesFor,
   restoreStamp,

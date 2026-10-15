@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentFacingConfig,
   DEFAULT_CLIENT_INTERVAL_MINUTES,
   DEFAULT_ENDPOINT_RETENTION,
-  SUPPORTED_ENDPOINT_OS,
-  agentFacingConfig,
   defaultEndpointConfig,
   enrolledEndpointConfig,
   isSupportedEndpointOs,
   isUnscheduled,
   noSchedule,
+  SUPPORTED_ENDPOINT_OS,
 } from "./config.js";
 
 const options = { timeZone: "Europe/Berlin" };

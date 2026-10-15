@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { READINESS_STATES, isReadinessState, parseVerifySearch, verifyLink } from "./search";
+import { isReadinessState, parseVerifySearch, READINESS_STATES, verifyLink } from "./search";
 
 describe("the address of Recovery readiness", () => {
   it("knows the five states of the API", () => {

@@ -39,7 +39,6 @@ import { LinkButton } from "../components/link-button.js";
 import { TileWidget, type WidgetStateProps } from "../components/widget-frame.js";
 import { PATHS, to } from "../paths.js";
 import {
-  type WidgetView,
   byteTicks,
   dayLabel,
   lastDays,
@@ -47,6 +46,7 @@ import {
   storageChartRows,
   successRate,
   successRateDelta,
+  type WidgetView,
 } from "../presenters.js";
 
 /** The trend windows the page offers. */

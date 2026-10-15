@@ -1,6 +1,6 @@
 import { passkeyClient } from "@better-auth/passkey/client";
 import { adminClient, organizationClient, twoFactorClient } from "better-auth/client/plugins";
-import { type ReactAuthClient, createAuthClient } from "better-auth/react";
+import { createAuthClient, type ReactAuthClient } from "better-auth/react";
 
 /**
  * better-auth React client. It talks to the handler mounted at `/api/auth/*`

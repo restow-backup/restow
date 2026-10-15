@@ -7,10 +7,10 @@
  * mirrored oldest first per object, as the worker does.
  */
 import {
+  chunkIdsFromDriver,
   type Database,
   type ManifestMirrorEntry,
   type ManifestObjectKind,
-  chunkIdsFromDriver,
   manifestEntries,
   recordManifestVersions,
 } from "@restow/db";

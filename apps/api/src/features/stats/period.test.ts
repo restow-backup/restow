@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_PERIOD_DAYS,
   autoGranularity,
   bucketIndexByDay,
   bucketsOf,
+  MAX_PERIOD_DAYS,
   parseDay,
   resolvePeriod,
   truncate,

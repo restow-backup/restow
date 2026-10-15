@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,6 +8,7 @@ import { i18n } from "@/i18n";
 
 import {
   PIN_FIRST,
+  pinnedCell,
   Table,
   TableBody,
   TableCell,
@@ -15,7 +16,6 @@ import {
   TableHeader,
   type TablePin,
   TableRow,
-  pinnedCell,
 } from "./table";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

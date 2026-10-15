@@ -12,10 +12,10 @@
  * The tenant-A-never-sees-tenant-B behaviour itself is exercised against a
  * real Postgres in the integration stage (docs/TESTING.md).
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { is } from "drizzle-orm";
-import { PgTable, getTableConfig, isPgEnum } from "drizzle-orm/pg-core";
+import { getTableConfig, isPgEnum, PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { TABLE_ACCESS, tablesWithAccess } from "../roles.js";
 import * as authSchema from "./auth.js";
@@ -117,7 +117,9 @@ describe("migration snapshot is in sync with the schema", () => {
 
   it("has one SQL file per journal entry, in order", () => {
     expect(journal.entries.map((e) => `${e.tag}.sql`)).toEqual([...migrationFiles].sort());
-    journal.entries.forEach((entry, i) => expect(entry.idx).toBe(i));
+    journal.entries.forEach((entry, i) => {
+      expect(entry.idx).toBe(i);
+    });
   });
 
   const latest = journal.entries.at(-1);

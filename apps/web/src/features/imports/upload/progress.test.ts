@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ImportUploadDto } from "../types";
-import { SpeedMeter, itemRatio, overallProgress } from "./progress";
+import { itemRatio, overallProgress, SpeedMeter } from "./progress";
 import { assignResumes, receivedRatio, resumableUploads } from "./resume";
 import { readyUploadIds, uploadReducer } from "./state";
 import type { UploadItem } from "./types";

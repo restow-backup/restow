@@ -12,9 +12,9 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  createDb,
   type Database,
   type EndpointConfig,
-  createDb,
   endpointReports,
   endpointRuns,
   endpoints,
@@ -27,7 +27,7 @@ import {
   verifyReports,
 } from "@restow/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

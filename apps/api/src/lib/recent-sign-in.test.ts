@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ProblemError } from "../problem.js";
 import {
-  RECENT_SIGN_IN_MAX_AGE_SECONDS,
-  RECENT_SIGN_IN_PROBLEM,
   assertRecentSignIn,
   isRecentSignIn,
+  RECENT_SIGN_IN_MAX_AGE_SECONDS,
+  RECENT_SIGN_IN_PROBLEM,
 } from "./recent-sign-in.js";
 
 const NOW = new Date("2026-10-01T12:00:00.000Z");

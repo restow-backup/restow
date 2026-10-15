@@ -4,15 +4,14 @@ import { createElement } from "react";
 
 import "@/features/tenant-page/i18n";
 import type { NavItem } from "@/lib/navigation";
-import { DEFAULT_TENANT_SECTION, tenantPagePath } from "@/lib/tenant-paths";
-import { appLayoutRoute } from "@/routes/tree";
-
 import {
   ORGANISATION_SETTINGS_NAV_ID,
   TENANT_PAGE_MATCH,
   TENANT_SETTINGS_NAV_ID,
   TENANT_SETTINGS_PATH,
 } from "@/lib/tenant-nav";
+import { DEFAULT_TENANT_SECTION, tenantPagePath } from "@/lib/tenant-paths";
+import { appLayoutRoute } from "@/routes/tree";
 import { SUB_PAGES, type SubPage } from "./presenters";
 import { tenantSections } from "./sections";
 import { TenantPage } from "./tenant-page";

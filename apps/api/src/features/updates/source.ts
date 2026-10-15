@@ -177,7 +177,7 @@ export function parseEnvironmentSource(value: string | undefined): ParsedSource 
     return null;
   }
   const url = safeUrl(raw);
-  if (!url || url.protocol !== "https:" || url.username || url.password) {
+  if (url?.protocol !== "https:" || url.username || url.password) {
     return null;
   }
   const segments = trimSlashes(url.pathname).split("/").filter(Boolean);

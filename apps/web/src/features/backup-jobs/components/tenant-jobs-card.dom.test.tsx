@@ -5,11 +5,11 @@ import { EmbeddedPage } from "@/components/kit/page-context";
 import { JobsSection } from "@/features/tenant-page/sections/wrappers";
 import { openSection, tenantOf } from "@/features/tenant-page/testing";
 import {
-  type Mounted,
   enableActEnvironment,
   flush,
   installMemoryStorage,
   json,
+  type Mounted,
   routedFetch,
   sessionAs,
 } from "@/features/updates/testing";

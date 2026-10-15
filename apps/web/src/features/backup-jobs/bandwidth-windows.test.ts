@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   type BandwidthWindow,
-  WINDOW_LIMITS,
-  type WindowDraft,
   checkWindowDrafts,
   daysText,
   endsNextDay,
   newWindowDraft,
+  WINDOW_LIMITS,
+  type WindowDraft,
   weekdayName,
   windowDraftsOf,
   windowLength,

@@ -142,7 +142,10 @@ export function MarkOwnOrganisationDialog({ open, onOpenChange, choices }: MarkD
 function MarkForm({
   choices,
   onDone,
-}: { choices: readonly OwnOrganisationChoice[]; onDone: () => void }) {
+}: {
+  choices: readonly OwnOrganisationChoice[];
+  onDone: () => void;
+}) {
   const { t } = useTranslation("tenants");
   const { setActiveTenant } = useSession();
   const mark = useMarkOwnOrganisation();

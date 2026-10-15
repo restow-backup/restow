@@ -16,14 +16,18 @@ import {
   retentionLabel,
   scheduleUsesZone,
 } from "../presenters.js";
-import { type JobsAccess, closedProps } from "./access-note.js";
+import { closedProps, type JobsAccess } from "./access-note.js";
 import { useWindowSummary } from "./bandwidth-windows-field.js";
 
 function Section({
   title,
   description,
   children,
-}: { title: string; description?: string; children: React.ReactNode }) {
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
   return (
     <Card>
       <CardHeader>

@@ -3,11 +3,11 @@ import { Hourglass, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import type { Job } from "@/features/jobs/api";
 import {
-  type ThrottledRun,
   isWaitingForThrottle,
   progressBytesKey,
   progressCountKey,
   progressRatio,
+  type ThrottledRun,
   throttleRemainingMs,
 } from "@/features/jobs/presenters";
 import { useJobFormat } from "@/features/jobs/use-format";
@@ -108,7 +108,11 @@ export function ThrottleWaitLine({
   run,
   now,
   className,
-}: { run: ThrottledRun; now: number; className?: string }) {
+}: {
+  run: ThrottledRun;
+  now: number;
+  className?: string;
+}) {
   const { t, duration } = useJobFormat();
   if (!isWaitingForThrottle(run, now)) {
     return null;

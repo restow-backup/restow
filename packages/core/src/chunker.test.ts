@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AVG_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE, chunk, chunkAll } from "./chunker.js";
+import { AVG_CHUNK_SIZE, chunk, chunkAll, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE } from "./chunker.js";
 
 // A committed, deterministic pseudo-random source so the "reference vector" inputs
 // are identical on every machine without shipping large binary fixtures.

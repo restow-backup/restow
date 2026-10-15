@@ -68,11 +68,11 @@ import { activeTenantPageTo, tenantPageTo } from "@/lib/tenant-paths";
 import {
   DELIVERIES_EXPORT_PATH,
   type DeliveryStatus,
+  deliveryQuery,
   PROVIDER_DELIVERIES_EXPORT_PATH,
   type ReportDelivery,
   type ReportRule,
   type ReportTrigger,
-  deliveryQuery,
 } from "./api";
 import {
   useDeleteRule,
@@ -84,7 +84,7 @@ import {
   useUpdateRule,
 } from "./hooks";
 import { reportsTo } from "./paths";
-import { REPORTS_ROLES, channelSummary, presetOf } from "./presenters";
+import { channelSummary, presetOf, REPORTS_ROLES } from "./presenters";
 import { reportErrorMessage } from "./report-errors";
 import { RuleFormDialog } from "./rule-form-dialog";
 

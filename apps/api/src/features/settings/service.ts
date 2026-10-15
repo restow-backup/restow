@@ -6,34 +6,34 @@ import { type Config, config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { DISCLAIMER_VERSION } from "../../lib/disclaimer.js";
 import {
-  type SecretRef,
   deleteSecret,
   findProviderSecret,
   readSecret,
+  type SecretRef,
   upsertProviderSecret,
 } from "../../lib/secrets.js";
 import type { DbExecutor } from "../../lib/tenant-context.js";
+import { createNotifier, type Notifier, notifierForTransport } from "../../notify.js";
 import { parseServiceAccountKey } from "../../notify-google.js";
-import { type Notifier, createNotifier, notifierForTransport } from "../../notify.js";
-import { type PasskeyReadyResult, computePasskeyReady } from "../../passkeyReady.js";
+import { computePasskeyReady, type PasskeyReadyResult } from "../../passkeyReady.js";
 import { ProblemError } from "../../problem.js";
 import { toStoredSmtpSecurity } from "../../schemas.js";
 import { resolveEntraApp } from "../sources/entra.js";
 import {
   type CurrentSettings,
-  type EnvironmentView,
-  type MailEnvironment,
-  type MailSecretActions,
-  type SecretAction,
-  type SettingsView,
-  type StoredMailConfig,
   decideGoogleKey,
   decideGraphApp,
   decideSmtpPassword,
+  type EnvironmentView,
   environmentView,
   graphAppOf,
+  type MailEnvironment,
+  type MailSecretActions,
   planSettingsUpdate,
   readStoredMailConfig,
+  type SecretAction,
+  type SettingsView,
+  type StoredMailConfig,
   toSettingsView,
   validationProblem,
 } from "./logic.js";
@@ -43,7 +43,7 @@ import {
   runMailTest,
   transportSpec,
 } from "./mail.js";
-import { type ReachabilityProbe, probePublicUrl } from "./reachability.js";
+import { probePublicUrl, type ReachabilityProbe } from "./reachability.js";
 import type { MailInput, MailTestInput, UpdateSettingsInput } from "./schemas.js";
 
 /**

@@ -8,11 +8,11 @@ import { authDb } from "../db.js";
 import { PROVIDER_ADMIN_USER_ROLE } from "../middleware/rbac.js";
 import { isConfiguredDemoAccountEmail, isDemoAccountEmail } from "./demo.js";
 import {
-  type SessionAssurance,
   authMethodForNewSession,
   isPathAllowed,
   isSignInPath,
   providerAdminRevocationTarget,
+  type SessionAssurance,
   sessionAssurance,
   wouldRemoveLastProviderAdmin,
 } from "./session-assurance.js";

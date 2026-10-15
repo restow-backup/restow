@@ -29,8 +29,8 @@
  */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { type Dek, decryptChunk, deriveChunkIdKey, unwrapDek } from "@restow/core";
 import type { StorageBackend } from "@restow/core";
+import { type Dek, decryptChunk, deriveChunkIdKey, unwrapDek } from "@restow/core";
 
 /** Version of a tenant's first DEK, the one the chunk-id key is derived from. */
 const FIRST_KEY_VERSION = 1;

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { type ReactNode, act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { act, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 

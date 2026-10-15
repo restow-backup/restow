@@ -9,8 +9,8 @@ import {
   DataTableSearch,
   RelativeTime,
   type RowAction,
-  StatusBadge,
   rowActionsColumn,
+  StatusBadge,
 } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { directoryTo } from "@/features/directory/search";
@@ -21,12 +21,12 @@ import { cn } from "@/lib/utils";
 import type { BackupJob, JobMember } from "../api.js";
 import { overrideGroupsSet } from "../form.js";
 import {
-  MEMBER_KIND_ICON,
   describeJobSchedule,
+  MEMBER_KIND_ICON,
   memberOutcomeTone,
   pendingBackupView,
 } from "../presenters.js";
-import { type JobsAccess, closedProps } from "./access-note.js";
+import { closedProps, type JobsAccess } from "./access-note.js";
 
 export interface MembersTableProps {
   job: BackupJob;

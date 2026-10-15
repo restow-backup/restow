@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_STALE_BACKUP_HOURS,
-  MIN_STALE_BACKUP_HOURS,
   endpointScheduleOf,
   jobScheduleFromCadence,
   jobScheduleFromEndpoint,
   longestPlannedGapMinutes,
+  MIN_STALE_BACKUP_HOURS,
   mailCadenceOf,
   normalizeMailSchedule,
   runsAtLeastAsOften,

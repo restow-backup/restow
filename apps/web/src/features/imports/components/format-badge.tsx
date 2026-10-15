@@ -26,7 +26,10 @@ const FORMAT_ICON: Record<MailFileFormat, LucideIcon> = {
 export function FormatIcon({
   format,
   className,
-}: { format: MailFileFormat | null; className?: string }) {
+}: {
+  format: MailFileFormat | null;
+  className?: string;
+}) {
   const Icon = FORMAT_ICON[format ?? "unknown"];
   return <Icon aria-hidden="true" className={className} />;
 }

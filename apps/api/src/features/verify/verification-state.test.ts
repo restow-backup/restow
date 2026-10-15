@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  type RatedReport,
   isStorageFinding,
   newestOf,
   objectVerificationOf,
+  type RatedReport,
   ratingReport,
   snapshotVerificationOf,
   unverifiedSnapshot,

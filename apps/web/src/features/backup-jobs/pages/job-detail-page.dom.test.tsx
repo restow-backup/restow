@@ -2,8 +2,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
-  type Mounted,
-  type RecordedRequest,
   buttonByText,
   click,
   enableActEnvironment,
@@ -11,15 +9,16 @@ import {
   installMemoryStorage,
   json,
   problem,
+  type RecordedRequest,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 
 import { defaults, endpointJob, iso, mailJob, member } from "../fixtures.js";
 import "../i18n.js";
 import {
-  type Opened,
   describedText,
   focusOn,
+  type Opened,
   openJobs,
   openMenu,
   primaryButtons,

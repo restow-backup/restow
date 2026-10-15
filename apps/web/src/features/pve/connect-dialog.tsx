@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-import { type CreatedPveToken, type ExistingPveToken, createToken } from "./api.js";
+import { type CreatedPveToken, createToken, type ExistingPveToken } from "./api.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 
 /** `user@realm!name`, as the API accepts it (apps/api/src/features/pve/schemas.ts). */

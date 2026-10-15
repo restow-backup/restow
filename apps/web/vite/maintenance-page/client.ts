@@ -175,7 +175,7 @@ export function shouldReload(input: ReloadInput): boolean {
 /** Fill `{name}` placeholders; unknown names stay as they are. */
 export function fill(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (match: string, name: string) =>
-    Object.prototype.hasOwnProperty.call(values, name) ? (values[name] as string) : match,
+    Object.hasOwn(values, name) ? (values[name] as string) : match,
   );
 }
 
@@ -312,7 +312,7 @@ async function request(env: Environment, url: string): Promise<Response | null> 
 
 async function readStatus(env: Environment): Promise<PageStatus | null> {
   const response = await request(env, STATUS_URL);
-  if (!response || !response.ok) {
+  if (!response?.ok) {
     return null;
   }
   const type = response.headers.get("content-type") || "";

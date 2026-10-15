@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  GIB,
   endpointBudgetBytes,
   endpointQuotaLimits,
+  GIB,
   quotaLevelOf,
   quotaRatio,
   remainingQuotaBytes,

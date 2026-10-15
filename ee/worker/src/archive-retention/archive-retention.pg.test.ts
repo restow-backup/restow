@@ -9,11 +9,11 @@
  * there on every run, then migrated). Without it the suite is skipped.
  */
 import {
-  type Database,
   archiveItemMailboxes,
   archiveItems,
   auditLog,
   createDb,
+  type Database,
   legalHolds,
   protectedObjects,
   providers,

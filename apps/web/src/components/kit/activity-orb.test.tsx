@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import uiDe from "@restow/i18n/resources/de/ui.json" with { type: "json" };
 import uiEn from "@restow/i18n/resources/en/ui.json" with { type: "json" };
-import { MODE_FRAMES, STATE_TO_MODE, resolvePreset } from "thinking-orbs";
+import { MODE_FRAMES, resolvePreset, STATE_TO_MODE } from "thinking-orbs";
 import { paintFrame } from "thinking-orbs/engine";
 import { beforeAll, describe, expect, it } from "vitest";
 

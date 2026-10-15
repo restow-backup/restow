@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyImapError,
   type ImapProbeClient,
   type ImapProbeInput,
-  classifyImapError,
   imapFlowOptions,
   probeImapConnection,
 } from "./imap.js";

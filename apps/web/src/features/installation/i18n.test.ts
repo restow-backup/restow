@@ -1,5 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readdirSync, readFileSync } from "node:fs";
 
 import installationDe from "@restow/i18n/resources/de/installation.json" with { type: "json" };
 import archiveEn from "@restow/i18n/resources/en/archive.json" with { type: "json" };

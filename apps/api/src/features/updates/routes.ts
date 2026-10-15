@@ -2,10 +2,10 @@ import { type Context, Hono } from "hono";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import {
-  type SessionEnv,
   refuseApiKeys,
   requireProviderAdmin,
   requireSession,
+  type SessionEnv,
 } from "../../middleware/session.js";
 import { parseJsonBody } from "../../schemas.js";
 import { restartService, updateService } from "./instance.js";

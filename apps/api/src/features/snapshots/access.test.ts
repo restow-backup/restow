@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  type Viewer,
   canAccessObject,
   isImpersonation,
   isOwnObject,
   onBehalfOfOwner,
   seesAllObjects,
+  type Viewer,
   visibleObjectsCondition,
 } from "./access.js";
 

@@ -29,28 +29,28 @@
  * CONTENT_METADATA below).
  */
 import { createHash } from "node:crypto";
-import { type Readable, Transform, pipeline } from "node:stream";
+import { pipeline, type Readable, Transform } from "node:stream";
 import type { Message, Recipient } from "@microsoft/microsoft-graph-types";
 import { JobAbortedError } from "../../engine/chunkstore.js";
-import { type DeltaMode, RecordDeltaTokenStore, isRemoved } from "../../graph/delta.js";
+import { type DeltaMode, isRemoved, RecordDeltaTokenStore } from "../../graph/delta.js";
 import {
-  MESSAGE_DELTA_SELECT,
-  type MailFolderNode,
-  type MessageContent,
-  type MessageDeltaEntry,
-  type WellKnownFolderName,
   fetchMessageContent,
   getMessage,
   listMailFolderTree,
+  type MailFolderNode,
+  MESSAGE_DELTA_SELECT,
+  type MessageContent,
+  type MessageDeltaEntry,
   messagesDelta,
+  type WellKnownFolderName,
 } from "../../graph/resources/mail.js";
 import type { ManifestObject } from "../../manifest.js";
 import {
-  MAIL_ROOT,
   assignFolderPaths,
   attachmentObjectPath,
   attachmentsFolderOf,
   displayFolderPath,
+  MAIL_ROOT,
   mailJsonObjectPath,
   mailObjectPath,
   rebasePath,
@@ -58,15 +58,15 @@ import {
 import {
   type BackupRun,
   EXCHANGE_PHASES,
-  FOLDERS_GROUP,
   type FetchedObject,
+  FOLDERS_GROUP,
   ItemError,
-  MESSAGE_FORMAT,
-  META,
-  OBJECT_TYPES,
   isItemLevelError,
   isVanished,
+  MESSAGE_FORMAT,
+  META,
   mailGroup,
+  OBJECT_TYPES,
   toMailboxAccessError,
 } from "./run.js";
 import type { MailFolderState } from "./state.js";

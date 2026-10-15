@@ -1,10 +1,10 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  deriveInstallationSecretsKey,
   type EntraAppDocument,
   type EntraAppResolution,
   EntraAppResolver,
   type StoredEntraAppRow,
-  deriveInstallationSecretsKey,
   sealSecret,
   serializeEntraAppDocument,
 } from "@restow/core";

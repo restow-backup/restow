@@ -21,7 +21,7 @@ import type * as AuthModule from "./auth.js";
 import { dropDatabase } from "./features/snapshots/testing/explorer-fixture.js";
 import { AUTH_RATE_LIMIT } from "./lib/auth-surface.js";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/password-policy.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "./testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "./testing/database-roles.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 

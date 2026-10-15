@@ -1,7 +1,6 @@
 import type { S3StorageLocation, StorageLocation } from "@restow/core";
 import { describe, expect, it } from "vitest";
 import {
-  type StorageSituation,
   credentialsBoundElsewhere,
   decideCreate,
   decideDelete,
@@ -9,6 +8,7 @@ import {
   decideReplacePrimary,
   decideUpdate,
   movesLocation,
+  type StorageSituation,
 } from "./rules.js";
 
 const volume: StorageLocation = { kind: "local", basePath: "/data/chunks" };

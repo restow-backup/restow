@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  type BackupTargetView,
   automaticFirstBackupJobIds,
+  type BackupTargetView,
   classifyOutcomes,
   demoReportRules,
   isDemoJobInProgress,

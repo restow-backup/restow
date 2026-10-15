@@ -1,5 +1,5 @@
 import { snapshots, verifyReports } from "@restow/db";
-import { type SQL, and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import type { DbExecutor } from "../../lib/tenant-context.js";
 import type { Readiness } from "./details.js";
 import type { ObjectState } from "./summary.js";

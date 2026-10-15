@@ -30,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError } from "@/lib/api";
 
 import type { JobKind, JobMember } from "../api.js";
-import { JobsAccessNote, closedProps, useJobsAccess } from "../components/access-note.js";
+import { closedProps, JobsAccessNote, useJobsAccess } from "../components/access-note.js";
 import { AddMembersSheet } from "../components/add-members-sheet.js";
 import { useJobActions } from "../components/job-actions.js";
 import { JobStateBadge, RestoreCheckBadge } from "../components/job-cells.js";

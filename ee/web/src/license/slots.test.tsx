@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  RouterProvider,
   createMemoryHistory,
   createRootRoute,
   createRouter,
+  RouterProvider,
 } from "@tanstack/react-router";
 import type * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";

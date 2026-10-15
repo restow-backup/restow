@@ -15,14 +15,14 @@
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { StorageBackend } from "@restow/core";
 import {
-  LocalStorageBackend,
   endpointPasswordKey,
+  LocalStorageBackend,
   openEndpointPassword,
   readEndpointPasswordDocument,
   readOnlyFallbackChain,
 } from "@restow/core";
-import type { StorageBackend } from "@restow/core";
 import { Command, CommanderError } from "commander";
 import { type Keyring, loadKeyring } from "./keyring.js";
 import { type ObjectResult, type RunReport, restoreSnapshot, verifySnapshot } from "./restore.js";

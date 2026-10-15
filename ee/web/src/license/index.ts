@@ -10,7 +10,7 @@ import { ReportsScheduleLocked } from "./components/reports-schedule-locked";
 import { TeamScopeLocked } from "./components/team-scope-locked";
 import { TenantsCreationLocked } from "./components/tenants-creation-locked";
 import "./i18n";
-import { LICENSE_SECTION_ID, editionLock } from "./nav-lock";
+import { editionLock, LICENSE_SECTION_ID } from "./nav-lock";
 
 /**
  * The license module of ee/web: the edition read from the session
@@ -21,9 +21,9 @@ import { LICENSE_SECTION_ID, editionLock } from "./nav-lock";
  * never names an edition itself.
  */
 
-export { editionAllows, readEdition, requiredEditionOf, useEdition } from "./edition";
 export type { Edition, LicensedEdition } from "./edition";
-export { LICENSE_SECTION_ID, editionLock } from "./nav-lock";
+export { editionAllows, readEdition, requiredEditionOf, useEdition } from "./edition";
+export { editionLock, LICENSE_SECTION_ID } from "./nav-lock";
 
 /** Slots the license module fills (lib/extensions.tsx `SlotProps`). */
 export const licenseSlots = {

@@ -8,25 +8,25 @@
  * database `restow_api_explorer_test` is recreated there and dropped after).
  * Without it the suite is skipped; docs/TESTING.md lists it under integration.
  */
-import { type Database, auditLog, createDb } from "@restow/db";
+import { auditLog, createDb, type Database } from "@restow/db";
 import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
 import type { Viewer } from "./access.js";
 import { treeQuerySchema, versionsQuerySchema } from "./schemas.js";
 import {
-  SNAPSHOT_AUDIT_ACTIONS,
-  type SnapshotReader,
   listObjects,
   listSnapshots,
   listTree,
   listVersions,
+  SNAPSHOT_AUDIT_ACTIONS,
+  type SnapshotReader,
   search,
 } from "./service.js";
 import {
-  type ExplorerFixture,
   createExplorerFixture,
   dropDatabase,
+  type ExplorerFixture,
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "./testing/explorer-fixture.js";

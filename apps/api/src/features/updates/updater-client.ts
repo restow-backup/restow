@@ -4,8 +4,8 @@ import {
   type RestartableService,
   type ScheduleRequest,
   type StateView,
-  UPDATER_AUTH_SCHEME,
   stateViewSchema,
+  UPDATER_AUTH_SCHEME,
 } from "../../updater/protocol.js";
 
 /**

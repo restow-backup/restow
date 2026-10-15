@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type SnapshotRetentionPolicy, resolvePolicyFor } from "../retention/index.js";
+import { resolvePolicyFor, type SnapshotRetentionPolicy } from "../retention/index.js";
 import { jobRetentionAssignments, withJobRetention } from "./retention.js";
 
 const tiers = [{ fromDays: 0, toDays: null, keepEveryDays: 0 }] as const;

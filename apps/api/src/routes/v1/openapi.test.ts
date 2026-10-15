@@ -254,7 +254,7 @@ describe("the v1 OpenAPI document", () => {
       expect.arrayContaining(["Problem", "Status", "Job", "JobDetail", "DirectoryUser", "Webhook"]),
     );
     const paths = document.paths as Record<string, Record<string, JsonSchema>>;
-    const jobResponse = (paths["/jobs/{id}"]?.get?.responses as Record<string, JsonSchema>)["200"];
+    const jobResponse = (paths["/jobs/{id}"].get.responses as Record<string, JsonSchema>)["200"];
     expect(jobResponse).toEqual({
       description: "The job.",
       content: { "application/json": { schema: { $ref: "#/components/schemas/JobDetail" } } },

@@ -2,20 +2,20 @@ import { describe, expect, it } from "vitest";
 import type { AgentStateEntry } from "./agent-state.js";
 import { mulberry32 } from "./prng.js";
 import {
-  MAX_CONCURRENT_RUNS,
-  MIN_REST_MS,
-  type MachineSlot,
-  SIM_DEFAULTS,
   backoffMs,
   datasetOf,
   finishOf,
   initialSlots,
   interruptedFinish,
+  MAX_CONCURRENT_RUNS,
+  type MachineSlot,
+  MIN_REST_MS,
   nextToStart,
   paceOf,
   parseSimConfig,
   planRun,
   restAfterRun,
+  SIM_DEFAULTS,
 } from "./run-sim.js";
 
 const SERVER: Pick<AgentStateEntry, "hostname" | "profile" | "paths"> = {

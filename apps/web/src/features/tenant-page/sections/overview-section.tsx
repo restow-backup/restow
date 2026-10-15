@@ -36,6 +36,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import type { SetupItem } from "@/features/dashboard/api";
 import { useDashboard } from "@/features/dashboard/use-dashboard";
+import { useWordingScope } from "@/features/installation/scope";
 import { useSourceList } from "@/features/sources/use-sources";
 import { HealthSummary, TenantStatusBadge } from "@/features/tenants/components/badges";
 import { ConfirmDialog } from "@/features/tenants/components/confirm-dialog";
@@ -50,8 +51,6 @@ import { providerMay } from "@/lib/provider-role";
 import { hasFeature, useSession } from "@/lib/session";
 import { tenantPageTo } from "@/lib/tenant-paths";
 import { cn } from "@/lib/utils";
-
-import { useWordingScope } from "@/features/installation/scope";
 import { useTenantWriteBlock } from "../access";
 import { TENANT_SECTION_META } from "../meta";
 

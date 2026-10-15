@@ -2,13 +2,13 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import {
+  absoluteLabel,
   type ChartStatusTone,
+  relativeLabel,
   STATUS_CHART_COLOR,
   type StatusTone,
-  UI_NAMESPACE,
-  absoluteLabel,
-  relativeLabel,
   toDate,
+  UI_NAMESPACE,
   useMinuteClock,
 } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";

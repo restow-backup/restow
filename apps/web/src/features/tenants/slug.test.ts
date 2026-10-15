@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SLUG_MAX_LENGTH, slugProblem, slugify } from "./slug";
+import { SLUG_MAX_LENGTH, slugify, slugProblem } from "./slug";
 
 describe("slugify", () => {
   it("lowercases and joins words with single hyphens", () => {

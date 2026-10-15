@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { SnapshotCheckpoint } from "../../engine/types.js";
 import {
+  checkpointState,
   ENGINE_NAME,
   type OneDriveCursor,
   type OneDriveManifestState,
-  checkpointState,
   planRun,
   readCheckpointDeletions,
   readCursor,

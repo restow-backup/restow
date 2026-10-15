@@ -13,10 +13,10 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   archiveItems,
   auditLog,
   createDb,
+  type Database,
   license,
   providers,
   tenants,
@@ -33,8 +33,8 @@ import {
 } from "../../../../apps/api/src/features/snapshots/testing/explorer-fixture.js";
 import type { SessionEnv, TenantEnv } from "../../../../apps/api/src/middleware/session.js";
 import {
-  type TestDatabaseRoles,
   provisionTestRoles,
+  type TestDatabaseRoles,
 } from "../../../../apps/api/src/testing/database-roles.js";
 import type { JournalReceiverState } from "./receiver-state.js";
 import { tenantIdForJournalAddress } from "./recipient.js";

@@ -2,7 +2,7 @@ import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
-import { WIZARD_STEPS, type WizardStep, stepIndex } from "./wizard-state";
+import { stepIndex, WIZARD_STEPS, type WizardStep } from "./wizard-state";
 
 interface StepperProps {
   current: WizardStep;

@@ -4,15 +4,11 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  buildChatMessage,
   type ChatContext,
   type ChatMessage,
   DISCORD_COLORS,
   DISCORD_LIMITS,
-  SLACK_EMOJI,
-  SLACK_LIMITS,
-  TEAMS_STYLES,
-  WEBHOOK_FORMATS,
-  buildChatMessage,
   escapeDiscord,
   escapeSlack,
   escapeTeams,
@@ -23,8 +19,12 @@ import {
   renderDiscord,
   renderSlack,
   renderTeams,
+  SLACK_EMOJI,
+  SLACK_LIMITS,
+  TEAMS_STYLES,
   tenantAddressed,
   truncate,
+  WEBHOOK_FORMATS,
 } from "./webhook-formats.js";
 
 const TENANT = "11111111-1111-4111-8111-111111111111";
@@ -393,7 +393,7 @@ describe("renderSlack", () => {
         { type: "mrkdwn", text: "*Concerns*\nanna@contoso.example" },
       ],
     });
-    const context = (blocks[3]?.elements as { text: string }[])[0]?.text ?? "";
+    const context = (blocks[3].elements as { text: string }[])[0]?.text ?? "";
     expect(context).toContain("<https://backup.example.com/history/j-1|Open in Restow>");
     expect(context).toContain(`<!date^${Date.parse(AT) / 1000}^`);
     expect(context).toContain("Restow · Contoso");
@@ -436,10 +436,10 @@ describe("renderSlack", () => {
     expect((body.text as string).length).toBeLessThanOrEqual(SLACK_LIMITS.text);
     const blocks = body.blocks as Record<string, unknown>[];
     expect(blocks.length).toBeLessThanOrEqual(SLACK_LIMITS.blocks);
-    expect((blocks[0]?.text as { text: string }).text.length).toBeLessThanOrEqual(
+    expect((blocks[0].text as { text: string }).text.length).toBeLessThanOrEqual(
       SLACK_LIMITS.header,
     );
-    expect((blocks[1]?.text as { text: string }).text.length).toBeLessThanOrEqual(
+    expect((blocks[1].text as { text: string }).text.length).toBeLessThanOrEqual(
       SLACK_LIMITS.sectionText,
     );
     const sections = blocks.filter((block) => Array.isArray(block.fields));

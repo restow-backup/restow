@@ -16,7 +16,7 @@
  * after). Without it the suite is skipped.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { type Database, createDb, protectedObjects, providers, sources, tenants } from "@restow/db";
+import { createDb, type Database, protectedObjects, providers, sources, tenants } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {

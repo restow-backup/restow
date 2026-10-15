@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DEMO_MACHINES } from "./endpoint-files.js";
 import {
+  createJobRequest,
   DEMO_MACHINE_JOB_NAME,
   DEMO_MACHINE_JOB_SCHEDULE,
-  createJobRequest,
   jobMember,
   putMachineInJob,
 } from "./endpoint-job.js";

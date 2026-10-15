@@ -18,10 +18,10 @@ import { join } from "node:path";
 import {
   AGENT_SECRET_PREFIX,
   ENROLLMENT_TOKEN_PREFIX,
-  LocalStorageBackend,
   endpointPasswordKey,
   endpointPrefix,
   hashSecret,
+  LocalStorageBackend,
   measureRepositoryBytes,
   openEndpointPassword,
   secretMatchesHash,
@@ -37,8 +37,8 @@ import {
   endpointRuns,
   endpointSamples,
   endpointSnapshotFlags,
-  endpointTasks,
   endpoints,
+  endpointTasks,
   secrets,
   tenants,
   users,
@@ -49,8 +49,8 @@ import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  type EndpointFixture,
   basic,
+  type EndpointFixture,
   resticAvailable,
   startFixture,
   testDatabaseAdminUrl,
@@ -60,7 +60,6 @@ const DATABASE = "restow_api_endpoints_test";
 const canRun = Boolean(testDatabaseAdminUrl) && resticAvailable();
 
 type Service = typeof import("./service.js");
-type AgentService = typeof import("./agent-service.js");
 type Readiness = typeof import("./readiness.js");
 type Shared = typeof import("../../db.js");
 
@@ -77,7 +76,6 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
   let fixture: EndpointFixture;
   let shared: Shared;
   let service: Service;
-  let agentService: AgentService;
   let readiness: Readiness;
   let app: Hono;
   let ipCounter = 10;
@@ -94,7 +92,7 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
     fixture = await startFixture(DATABASE);
     shared = await import("../../db.js");
     service = await import("./service.js");
-    agentService = await import("./agent-service.js");
+    await import("./agent-service.js");
     readiness = await import("./readiness.js");
     const { agentRoutes } = await import("./agent-routes.js");
     const { resticRoutes } = await import("./restic-route.js");

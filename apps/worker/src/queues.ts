@@ -7,11 +7,11 @@
  * The list must stay in sync with the `job_queue` enum in @restow/db.
  */
 import {
+  isJobQueue,
   JOB_PRIORITY,
   JOB_QUEUES,
   type JobPayloads,
   type JobQueue,
-  isJobQueue,
   singletonKeyFor,
 } from "@restow/core";
 import type PgBoss from "pg-boss";

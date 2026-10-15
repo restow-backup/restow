@@ -1,5 +1,5 @@
-import { type KeyObject, createHash, verify } from "node:crypto";
-import { type KeyedEdition, isKeyedEdition } from "./editions.js";
+import { createHash, type KeyObject, verify } from "node:crypto";
+import { isKeyedEdition, type KeyedEdition } from "./editions.js";
 
 /**
  * License token format, version 1, and its offline verification. This build

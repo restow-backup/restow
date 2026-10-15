@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api";
 
 import {
-  STATUS_VARIANT,
   normalizeDraft,
+  STATUS_VARIANT,
   scopeIsValid,
   teamErrorKey,
   tenantScopeChoice,

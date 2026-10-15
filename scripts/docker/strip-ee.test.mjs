@@ -17,7 +17,7 @@ import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { ALLOWED_LOADERS } from "../ci/check-ee-boundary.mjs";
-import { LOADER_STUB, StripError, planStrip, stripEe } from "./strip-ee.mjs";
+import { LOADER_STUB, planStrip, StripError, stripEe } from "./strip-ee.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 

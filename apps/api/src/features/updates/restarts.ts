@@ -1,9 +1,9 @@
 import {
   type Database,
+  listRestartRequests,
   type OpenRestartRequest,
   RESTARTABLE_ROLES,
   type ServiceRole,
-  listRestartRequests,
 } from "@restow/db";
 import { audit } from "../../lib/audit.js";
 import { ProblemError } from "../../problem.js";

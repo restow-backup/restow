@@ -1,7 +1,7 @@
 import type { FieldError } from "react-hook-form";
 import { z } from "zod";
 
-import { type TenantRole, isTenantRole } from "@/lib/api";
+import { isTenantRole, type TenantRole } from "@/lib/api";
 
 import { SLUG_MAX_LENGTH, SLUG_MIN_LENGTH, slugProblem } from "./slug";
 import type {

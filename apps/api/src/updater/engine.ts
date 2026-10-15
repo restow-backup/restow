@@ -1,6 +1,6 @@
-import { type DumpStore, KEEP_DUMPS, dumpFileName } from "./dumps.js";
+import { type DumpStore, dumpFileName, KEEP_DUMPS } from "./dumps.js";
 import { type CapturedEnv, type EnvFile, EnvFileError, postgresSettings } from "./env-file.js";
-import { type ImageVariant, fullBuildRepositories } from "./image-variant.js";
+import { fullBuildRepositories, type ImageVariant } from "./image-variant.js";
 import type { Logger } from "./logger.js";
 import { type ApiClient, type Clock, type DockerOps, OpsError, type TimerHandle } from "./ops.js";
 import type { Preflight } from "./preflight.js";
@@ -9,6 +9,8 @@ import {
   type BlockerCode,
   type FailureCode,
   type JournalEvent,
+  pendingSteps,
+  progressOf,
   type Recovery,
   type Run,
   type RunOutcome,
@@ -17,17 +19,15 @@ import {
   type StepState,
   type UpdateMessage,
   type UpdateMessageCode,
-  type UpdateStepId,
   type UpdaterPhase,
-  pendingSteps,
-  progressOf,
+  type UpdateStepId,
 } from "./protocol.js";
-import { type Redactor, clip, sensitiveEnvValues } from "./redact.js";
+import { clip, type Redactor, sensitiveEnvValues } from "./redact.js";
 import type { SelfUpdater } from "./self-update.js";
 import { isNewerVersion, sameVersion, targetVersionOf } from "./semver.js";
 import { RELEASE_SIGNATURE_ISSUER, releaseSignerIdentity } from "./signature.js";
-import { SourceError, type SourceProvider, buildImages, sourceImageTags } from "./source.js";
-import { type RunContext, type StatusStore, emptyRunContext } from "./store.js";
+import { buildImages, SourceError, type SourceProvider, sourceImageTags } from "./source.js";
+import { emptyRunContext, type RunContext, type StatusStore } from "./store.js";
 
 /**
  * The update state machine. It is driven only through interfaces (DockerOps,

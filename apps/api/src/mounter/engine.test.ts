@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { memoryLogger } from "../updater/logger.js";
 import { type Clock, OpsError, type ServiceState } from "../updater/ops.js";
 import { Redactor } from "../updater/redact.js";
-import { MountEngine, MountEngineError, healthOf } from "./engine.js";
+import { healthOf, MountEngine, MountEngineError } from "./engine.js";
 import type { ManagedVolume, MountOps, ProbeOutcome } from "./ops.js";
 import { managedMountsOf, renderOverride, volumeKeyOf } from "./override.js";
 import { type MountSpec, mountSpecSchema } from "./protocol.js";

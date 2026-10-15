@@ -1,30 +1,30 @@
 import { countProtectedMailboxes } from "@restow/core";
-import { type Database, type User, protectedObjects, sources, users } from "@restow/db";
+import { type Database, protectedObjects, sources, type User, users } from "@restow/db";
 import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   type SyncQueueResult,
-  type UserProtectionResult,
   setUserProtection,
+  type UserProtectionResult,
 } from "../../features/directory/service.js";
 import { overallReadiness } from "../../features/verify/summary.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { type IntegrationApi, READ_ERRORS, type V1Deps, WRITE_ERRORS } from "./api.js";
-import { V1_AUDIT_ACTIONS, readRecorder } from "./audit.js";
+import { readRecorder, V1_AUDIT_ACTIONS } from "./audit.js";
 import { component } from "./components.js";
 import {
-  type CreatedCursor,
   afterCreated,
+  type CreatedCursor,
   createdAtMs,
   createdCursorSchema,
   decodeCursor,
   encodeCursor,
 } from "./cursor.js";
 import {
-  NO_FACTS,
-  type ObjectFacts,
   countsForReadiness,
   loadObjectFacts,
+  NO_FACTS,
+  type ObjectFacts,
   objectReadinessSchema,
   readinessOf,
 } from "./facts.js";

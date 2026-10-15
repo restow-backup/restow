@@ -33,15 +33,15 @@ import {
   type StorageTargets,
   type TenantKeyring,
 } from "@restow/core";
-import { type Database, chunks, createDb, packs } from "@restow/db";
+import { chunks, createDb, type Database, packs } from "@restow/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import {
-  type ExplorerFixture,
   createExplorerFixture,
   dropDatabase,
+  type ExplorerFixture,
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "./testing/explorer-fixture.js";

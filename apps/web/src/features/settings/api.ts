@@ -1,9 +1,9 @@
 import {
+  apiFetch,
   type MailTransport,
   type OperatingMode,
   type PasskeyReady,
   type SmtpSecurity,
-  apiFetch,
 } from "@/lib/api";
 
 /**

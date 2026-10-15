@@ -1,30 +1,30 @@
 import { randomUUID } from "node:crypto";
 import {
   type CopyCompleteness,
+  checkCopyCompleteness,
+  checkSourceExclusiveObjects,
+  classifyStorageError,
+  describeStorageError,
+  describeStorageLocation,
   type ExclusiveObjectsCheck,
+  endpointPrefix,
   type InstallationDefaultStorage,
+  installationDefaultStorage,
+  keyPrefix,
+  manifestPrefix,
   type ObjectLockCapability,
   type OpenedStorageTarget,
+  openInstallationDefault,
+  openStorageLocation,
+  openStorageTarget,
+  packPrefix,
+  parseS3CredentialsSecret,
   type StorageBackend,
   type StorageConfigIssue,
   type StorageLocation,
   type StorageMigrationJobPayload,
   type StorageProbeResult,
   StorageTargetError,
-  checkCopyCompleteness,
-  checkSourceExclusiveObjects,
-  classifyStorageError,
-  describeStorageError,
-  describeStorageLocation,
-  endpointPrefix,
-  installationDefaultStorage,
-  keyPrefix,
-  manifestPrefix,
-  openInstallationDefault,
-  openStorageLocation,
-  openStorageTarget,
-  packPrefix,
-  parseS3CredentialsSecret,
   serializeS3CredentialsSecret,
   storageLocationConfig,
   storageProbePrefix,
@@ -33,20 +33,20 @@ import {
 } from "@restow/core";
 import {
   type Database,
-  type Job,
-  type StorageMigration,
-  type StorageTarget,
   endpoints,
+  type Job,
   jobProgress,
   jobs as jobsTable,
   packs,
+  type StorageMigration,
+  type StorageTarget,
   snapshots,
   storageMigrations,
   storageTargets,
   tenantKeys,
 } from "@restow/db";
 import { productName } from "@restow/i18n";
-import { type SQL, and, asc, count, desc, eq, gte, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, or, type SQL, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { snapshotNotImported } from "../../lib/imported-objects.js";
 import { currentInstallationDefault } from "../../lib/installation-default.js";
@@ -56,28 +56,26 @@ import { ProblemError } from "../../problem.js";
 import { parseOrProblem } from "../../schemas.js";
 import { cancelQueuedJob, sendJob } from "../jobs/queue.js";
 import {
+  accessKeyIdHint,
+  compareTargets,
   type InstallationDefaultDto,
+  locationOf,
+  recordsOf,
   type StorageMigrationDto,
   type StorageTargetDto,
   type StorageTargetListDto,
   type TargetConfigRecords,
-  accessKeyIdHint,
-  compareTargets,
-  locationOf,
-  recordsOf,
   toInstallationDefaultDto,
   toMigrationDto,
   toTargetDto,
   withStalledJob,
 } from "./dto.js";
 import {
+  checkTenantEndpoint,
   type EndpointPolicyViolation,
   type HostResolver,
-  checkTenantEndpoint,
 } from "./endpoint-policy.js";
 import {
-  type StorageRuleViolation,
-  type StorageSituation,
   canManageKind,
   credentialsBoundElsewhere,
   decideCreate,
@@ -86,16 +84,18 @@ import {
   decideReplacePrimary,
   decideUpdate,
   movesLocation,
+  type StorageRuleViolation,
+  type StorageSituation,
 } from "./rules.js";
 import {
   type CreateStorageTargetInput,
+  configSchemaFor,
   type ProbeStorageInput,
   type S3CredentialsInput,
   type StorageMigrationModeInput,
   type UpdateStorageTargetInput,
-  configSchemaFor,
 } from "./schemas.js";
-import { type DailyBytes, SERIES_DAYS, type UsageDto, buildUsage, windowStart } from "./usage.js";
+import { buildUsage, type DailyBytes, SERIES_DAYS, type UsageDto, windowStart } from "./usage.js";
 
 /** `storage_migrations.status` values a migration is still in flight under. */
 export const UNFINISHED_MIGRATION_STATUSES: readonly StorageMigration["status"][] = [
@@ -1014,7 +1014,7 @@ async function startReplacePrimaryTx(
   input: CreateStorageTargetInput,
   location: StorageLocation,
   actor: Actor,
-  deps: StorageDeps,
+  _deps: StorageDeps,
   mode: StorageMigrationModeInput,
   defaults: InstallationDefaultStorage | null,
   now: () => Date,
@@ -1387,7 +1387,7 @@ export async function retryMigration(
       .from(storageTargets)
       .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.id, destinationTargetId)))
       .limit(1);
-    if (!destinationRow || destinationRow.role !== "copy") {
+    if (destinationRow?.role !== "copy") {
       throw notFound();
     }
     const jobId = randomUUID();
@@ -1971,7 +1971,7 @@ async function storedCredentials(
   const row = targetId
     ? await withTenantTx(db, tenantId, (tx) => loadTarget(tx, tenantId, targetId))
     : null;
-  if (!row || row.kind !== "s3" || !row.secretRef) {
+  if (row?.kind !== "s3" || !row.secretRef) {
     throw credentialsRequired();
   }
   if (credentialsBoundElsewhere(locationOf(row), location)) {

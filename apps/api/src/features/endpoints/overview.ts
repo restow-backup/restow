@@ -2,7 +2,7 @@ import { endpoints } from "@restow/db";
 import { and, asc, eq } from "drizzle-orm";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { jobsOfEndpoints } from "../backup-jobs/membership.js";
-import { type RatedObject, isFirstBackupOverdue } from "../verify/summary.js";
+import { isFirstBackupOverdue, type RatedObject } from "../verify/summary.js";
 import { loadEndpointReadiness } from "./readiness.js";
 
 /**

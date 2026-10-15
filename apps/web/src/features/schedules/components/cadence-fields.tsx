@@ -1,4 +1,3 @@
-import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
@@ -20,14 +19,14 @@ import { useSchedulePreview } from "../hooks.js";
 import {
   type CadenceDraft,
   type CadenceField,
-  type FieldProblem,
-  MAX_INTERVAL_MINUTES,
-  MIN_INTERVAL_MINUTES,
-  WEEK,
   checkCadence,
+  type FieldProblem,
   fieldProblem,
   formatRun,
   intervalRuns,
+  MAX_INTERVAL_MINUTES,
+  MIN_INTERVAL_MINUTES,
+  WEEK,
   weekdayLabel,
 } from "../presenters.js";
 import {

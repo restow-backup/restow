@@ -1,15 +1,13 @@
 import { createRoute, redirect } from "@tanstack/react-router";
 import { LayoutDashboard } from "lucide-react";
-
-import type { NavItem } from "@/lib/navigation";
-import { appLayoutRoute } from "@/routes/tree";
-
 import {
   ALL_TENANTS_STATS_PATH,
-  STATS_VIEW,
   legacyProviderScope,
   parseStatsSearch,
+  STATS_VIEW,
 } from "@/features/stats";
+import type { NavItem } from "@/lib/navigation";
+import { appLayoutRoute } from "@/routes/tree";
 
 import { DashboardPage } from "./dashboard-page.js";
 

@@ -27,10 +27,10 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   account,
   auditLog,
   createDb,
+  type Database,
   organization,
   providers,
   tenants,
@@ -61,7 +61,6 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
   let app: Hono;
   let authModule: typeof import("../../auth.js");
   let accounts: typeof import("../../features/accounts/service.js");
-  let sharedDb: Database;
   let tenantA: string;
   let tenantB: string;
   let ownerCookie: string;
@@ -193,8 +192,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
 
     authModule = await import("../../auth.js");
     accounts = await import("../../features/accounts/service.js");
-    const shared = await import("../../db.js");
-    sharedDb = shared.db as Database;
+    await import("../../db.js");
     const { buildApp } = await import("../../app.js");
     app = buildApp();
 

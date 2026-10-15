@@ -46,9 +46,9 @@ import {
 } from "@restow/core";
 import {
   type Database,
+  jobs,
   type NewNotification,
   type NewVerifyReport,
-  jobs,
   safeErrorMessage,
   verifyReports,
 } from "@restow/db";
@@ -59,8 +59,8 @@ import {
   InvalidPayloadError,
   type JobHandler,
   type JobOutcome,
-  type WorkerJobContext,
   tenantRunner,
+  type WorkerJobContext,
 } from "./framework.js";
 import { loadCorruptPackPaths } from "./scrub.js";
 import { emitWebhookEvent } from "./webhooks.js";

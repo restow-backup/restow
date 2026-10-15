@@ -3,12 +3,12 @@ import type { SupportedLanguage } from "@restow/i18n";
 import nodemailer, { type Transporter } from "nodemailer";
 import type { Config } from "./config.js";
 import {
+  errorMessage,
+  failed,
   type MailFailureReason,
   type NotificationMessage,
   type Notifier,
   type NotifyResult,
-  errorMessage,
-  failed,
   testNotification,
 } from "./notify-core.js";
 import { GoogleNotifier, type GoogleServiceAccountKey } from "./notify-google.js";
@@ -22,8 +22,8 @@ export {
   type NotifyResult,
   testNotification,
 } from "./notify-core.js";
-export { GraphNotifier } from "./notify-graph.js";
 export { GoogleNotifier } from "./notify-google.js";
+export { GraphNotifier } from "./notify-graph.js";
 
 /**
  * Notification transport (docs/ARCHITECTURE.md, notification mail service).

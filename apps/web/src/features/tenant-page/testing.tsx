@@ -1,14 +1,14 @@
 import type { QueryClient } from "@tanstack/react-query";
 import {
-  RouterProvider,
   createMemoryHistory,
   createRootRoute,
   createRoute,
   createRouter,
+  RouterProvider,
 } from "@tanstack/react-router";
 import { createElement } from "react";
 
-import { type Mounted, SESSION, mount, newQueryClient } from "@/features/updates/testing";
+import { type Mounted, mount, newQueryClient, SESSION } from "@/features/updates/testing";
 import { queryKeys } from "@/lib/api";
 import type { SessionContextValue, SessionTenant } from "@/lib/session";
 

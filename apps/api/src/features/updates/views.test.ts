@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  type Run,
-  type StateView,
   pendingSteps,
   publicStatusOf,
+  type Run,
   runSchema,
+  type StateView,
 } from "../../updater/protocol.js";
 import { maintenanceViewOf, toRunView } from "./views.js";
 

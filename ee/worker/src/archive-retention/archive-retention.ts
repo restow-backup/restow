@@ -29,9 +29,9 @@
  */
 import { archive } from "@restow/core";
 import {
-  type Database,
   archiveItemMailboxIds,
   archiveItems,
+  type Database,
   legalHolds,
   retentionPolicies,
 } from "@restow/db";

@@ -2,7 +2,7 @@ import type { MessageEnvelopeObject, MessageStructureObject } from "imapflow";
 import { describe, expect, it } from "vitest";
 import { noopLogger } from "../../engine/logger.js";
 import { BlockedAddressError } from "../../net/address-policy.js";
-import { ImapFlowConnector, buildClientOptions, deriveEnvelopeMeta } from "./imapflow-connector.js";
+import { buildClientOptions, deriveEnvelopeMeta, ImapFlowConnector } from "./imapflow-connector.js";
 import { type ImapAccountConfig, ImapAuthError, ImapConfigError } from "./types.js";
 
 const account: ImapAccountConfig = {

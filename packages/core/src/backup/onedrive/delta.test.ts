@@ -3,7 +3,7 @@ import { GraphError } from "../../graph/errors.js";
 import { graphError } from "../../graph/testing/fake-graph.js";
 import { type DrivePage, type DriveWalkOutcome, walkDriveDelta } from "./delta.js";
 import fixture from "./fixtures/drive-backup.json" with { type: "json" };
-import { DELTA_PATH, DRIVE, createFakeGraph, deltaUrl } from "./testing.js";
+import { createFakeGraph, DELTA_PATH, DRIVE, deltaUrl } from "./testing.js";
 
 async function drain(
   generator: AsyncGenerator<DrivePage, DriveWalkOutcome, unknown>,

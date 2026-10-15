@@ -4,16 +4,16 @@ import { z } from "zod";
 import type { Logger } from "./logger.js";
 import {
   type JournalEvent,
+  journalEventSchema,
   type Run,
   type RunSummary,
-  UPDATER_PHASES,
-  type UpdaterPhase,
-  journalEventSchema,
   releaseRefSchema,
   runSchema,
   runSummarySchema,
   selfUpdateRecordSchema,
   sourceRefSchema,
+  UPDATER_PHASES,
+  type UpdaterPhase,
 } from "./protocol.js";
 
 /**
@@ -119,7 +119,6 @@ export class StatusStore {
   private constructor(
     readonly filePath: string,
     private doc: StateFile,
-    private readonly logger: Logger,
   ) {}
 
   static async open(stateDir: string, logger: Logger, now: () => Date): Promise<StatusStore> {
@@ -130,15 +129,15 @@ export class StatusStore {
       raw = await fs.readFile(filePath, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return new StatusStore(filePath, initialState(), logger);
+        return new StatusStore(filePath, initialState());
       }
       throw error;
     }
     const parsed = parseState(raw);
     if (parsed.ok) {
-      return new StatusStore(filePath, parsed.state, logger);
+      return new StatusStore(filePath, parsed.state);
     }
-    const store = new StatusStore(filePath, initialState(), logger);
+    const store = new StatusStore(filePath, initialState());
     const aside = `${STATE_FILE}.corrupt-${now().getTime()}`;
     try {
       await fs.rename(filePath, path.join(stateDir, aside));

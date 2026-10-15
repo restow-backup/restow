@@ -4,8 +4,8 @@ import { InMemoryDeltaTokenStore } from "../delta.js";
 import { createFakeGraph, graphError, must } from "../testing/fake-graph.js";
 import fixture from "../testing/fixtures/drive-delta.json" with { type: "json" };
 import {
-  type DriveDeltaItem,
   createUploadSession,
+  type DriveDeltaItem,
   driveDelta,
   driveItemPath,
   ensureDriveFolderPath,
@@ -18,11 +18,11 @@ import {
 } from "./drive.js";
 import {
   DRIVE_FRAGMENT_BOUNDS,
+  normalizeFragmentSize,
   OUTLOOK_FRAGMENT_BOUNDS,
+  readFragments,
   UPLOAD_FRAGMENT_UNIT,
   UploadSessionError,
-  normalizeFragmentSize,
-  readFragments,
   uploadToSession,
 } from "./upload-session.js";
 

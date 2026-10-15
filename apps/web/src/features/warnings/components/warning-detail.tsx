@@ -222,7 +222,11 @@ function ItemsSection({ detail }: { detail: WarningDetail }) {
       ) : (
         <ul className="divide-y rounded-md border text-sm">
           {detail.items.map((item, index) => (
-            <ItemRow key={`${index}-${item.ref}`} item={item} />
+            <ItemRow
+              // biome-ignore lint/suspicious/noArrayIndexKey: items can repeat a reference; the list is read-only and keeps its order.
+              key={`${index}-${item.ref}`}
+              item={item}
+            />
           ))}
         </ul>
       )}

@@ -111,7 +111,7 @@ describe("GraphNotifier", () => {
     expect(tokenBody.get("scope")).toBe("https://graph.microsoft.com/.default");
     expect(tokenBody.get("client_id")).toBe(APP.clientId);
     const send = calls[1];
-    expect((send?.init.headers as Record<string, string>).Authorization).toBe("Bearer eyJ.fixture");
+    expect((send.init.headers as Record<string, string>).Authorization).toBe("Bearer eyJ.fixture");
     const body = JSON.parse(String(send?.init.body));
     expect(body.saveToSentItems).toBe(false);
     expect(body.message.toRecipients).toEqual([{ emailAddress: { address: "admin@contoso.com" } }]);

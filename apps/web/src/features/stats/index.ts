@@ -25,12 +25,12 @@ import "./i18n.js";
  * (features/redirects).
  */
 
-export { ALL_TENANTS_STATS_ROLES, STATS_ROLES, mayViewAllTenantsStats } from "./hooks.js";
+export { ALL_TENANTS_STATS_ROLES, mayViewAllTenantsStats, STATS_ROLES } from "./hooks.js";
 export {
   ALL_TENANTS_STATS_PATH,
-  STATS_VIEW,
   legacyProviderScope,
   parseStatsSearch,
+  STATS_VIEW,
 } from "./period.js";
 export { AllTenantsStatsPage, StatsPage } from "./stats-page.js";
 

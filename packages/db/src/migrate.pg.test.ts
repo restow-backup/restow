@@ -39,7 +39,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runMigrations } from "./migrate.js";
-import { type RoleLogin, deriveAuthLogin, provisionRoles } from "./roles.js";
+import { deriveAuthLogin, provisionRoles, type RoleLogin } from "./roles.js";
 import { dropTestDatabase } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;

@@ -1,6 +1,6 @@
 import type { Failure, ItemCauseCount } from "@/features/failures/api";
-import { apiFetch } from "@/lib/api";
 import type { Role } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 /**
  * GET /api/v1/dashboard: the whole start page in one response (see

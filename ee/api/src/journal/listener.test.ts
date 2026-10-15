@@ -3,16 +3,16 @@ import type { archive } from "@restow/core";
 import type { Database } from "@restow/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type JournalListenerOptions, startJournalListener } from "./listener.js";
-import type { JournalReceiverState } from "./receiver-state.js";
 import type { JournalReceiverDeps } from "./receiver.js";
+import type { JournalReceiverState } from "./receiver-state.js";
 import {
   type CertificateDir,
-  HOUR_MS,
-  type SelfSignedCertificate,
   certificate,
   certificateDir,
   fingerprint,
+  HOUR_MS,
   rawSmtp,
+  type SelfSignedCertificate,
 } from "./tls-test-support.js";
 
 /**

@@ -23,10 +23,10 @@ import {
   type StateView,
 } from "../../updater/protocol.js";
 import {
-  SOURCE_ALLOWLIST_VARIABLE,
   isSourceAllowed,
   isSourceHostListed,
   parseSourceAllowlist,
+  SOURCE_ALLOWLIST_VARIABLE,
   sourceTargetOf,
 } from "../../updater/source-policy.js";
 import { type FetchLike, fetchReleases, releasesForChannel } from "./feed.js";
@@ -42,9 +42,9 @@ import type {
   UpdateSettingsInput,
   UpdatesView,
 } from "./schemas.js";
-import { type UpdateRow, loadUpdateRow, saveCheck, snapshotOf } from "./settings-store.js";
+import { loadUpdateRow, saveCheck, snapshotOf, type UpdateRow } from "./settings-store.js";
 import { isDefaultSourceUrl, parseRepositoryUrl } from "./source.js";
-import { type UpdateStateCache, newerThan, releasesOf } from "./state.js";
+import { newerThan, releasesOf, type UpdateStateCache } from "./state.js";
 import { hasToken, removeToken, storeToken, tokenFor } from "./token.js";
 import {
   type UpdaterClient,

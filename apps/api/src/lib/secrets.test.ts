@@ -1,9 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
-  PROVIDER_KEY_VERSION,
   deriveProviderSecretsKey,
   openSecret,
+  PROVIDER_KEY_VERSION,
   sealSecret,
   secretAad,
 } from "./secrets.js";

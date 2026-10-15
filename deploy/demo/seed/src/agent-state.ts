@@ -50,7 +50,7 @@ export function parseState(text: string): AgentStateFile {
     throw new Error("the agent state file is not JSON");
   }
   const file = value as Partial<AgentStateFile> | null;
-  if (!file || file.version !== 1 || !Array.isArray(file.agents)) {
+  if (file?.version !== 1 || !Array.isArray(file.agents)) {
     throw new Error("the agent state file has an unknown format");
   }
   for (const [index, agent] of file.agents.entries()) {

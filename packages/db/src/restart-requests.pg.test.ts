@@ -17,12 +17,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDb } from "./index.js";
 import { legacyManifestBytes, runMigrations } from "./migrate.js";
 import {
-  InvalidRestartRequestError,
   clearRestartRequests,
+  InvalidRestartRequestError,
   listRestartRequests,
   requestServiceRestart,
 } from "./restart-requests.js";
-import { type RoleLogin, deriveAuthLogin } from "./roles.js";
+import { deriveAuthLogin, type RoleLogin } from "./roles.js";
 import { dropTestDatabase } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;

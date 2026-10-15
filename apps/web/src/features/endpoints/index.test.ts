@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { i18n } from "@/i18n";
-import { NAV_GROUPS, findActiveNavItem } from "@/lib/navigation";
+import { findActiveNavItem, NAV_GROUPS } from "@/lib/navigation";
 
 import { detailRoute, fileRestoreRoute, inventoryRoute, navItems, routes } from "./index";
 import {
-  ENDPOINT_DETAIL_PATTERN,
   areaOfKind,
+  ENDPOINT_DETAIL_PATTERN,
   endpointDetailTo,
   inventorySearch,
   parseInventorySearch,

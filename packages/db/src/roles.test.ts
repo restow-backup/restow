@@ -1,19 +1,19 @@
 import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
-  DatabaseRoleError,
-  type DatabaseRoleInfo,
-  type Queryable,
-  TABLE_ACCESS,
   assertDatabaseRoles,
   authLoginFromEnvironment,
   authUrlFromEnvironment,
+  DatabaseRoleError,
+  type DatabaseRoleInfo,
   deriveAuthLogin,
   describeRoleProblems,
+  type Queryable,
   roleLoginFromUrl,
   roleProblems,
   scramSha256Verifier,
   scramVerifierMatches,
+  TABLE_ACCESS,
 } from "./roles.js";
 
 const appRole: DatabaseRoleInfo = {

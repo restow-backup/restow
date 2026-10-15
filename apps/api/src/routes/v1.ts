@@ -10,7 +10,7 @@ import { registerArchiveRoutes } from "./v1/archive.js";
 import { registerEndpointRoutes } from "./v1/endpoints.js";
 import { registerJobRoutes } from "./v1/jobs.js";
 import { registerObjectRoutes } from "./v1/objects.js";
-import { type JsonSchema, buildOpenApiDocument } from "./v1/openapi.js";
+import { buildOpenApiDocument, type JsonSchema } from "./v1/openapi.js";
 import { registerRestoreRoutes } from "./v1/restore.js";
 import { registerStatusRoutes } from "./v1/status.js";
 import { registerStorageRoutes } from "./v1/storage.js";

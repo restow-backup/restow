@@ -25,9 +25,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateDek, kekFromBase64, wrapDek } from "@restow/core";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   jobs,
   providers,
   storageMigrations,
@@ -40,10 +40,10 @@ import { Hono, type MiddlewareHandler } from "hono";
 import PgBoss from "pg-boss";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
-import { type Role, type TenantRole, roleSatisfies } from "../../middleware/rbac.js";
+import { type Role, roleSatisfies, type TenantRole } from "../../middleware/rbac.js";
 import type { TenantEnv } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

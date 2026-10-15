@@ -1,17 +1,17 @@
 import {
   type ColumnDef,
-  type PaginationState,
-  type TableOptions,
-  type Updater,
   createTable,
   functionalUpdate,
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  type PaginationState,
+  type TableOptions,
+  type Updater,
 } from "@tanstack/react-table";
 import { describe, expect, it } from "vitest";
 
-import { TABLE_DEFAULTS, clampPageIndex, hasStaleError, samePage, sameState } from "./state.js";
+import { clampPageIndex, hasStaleError, samePage, sameState, TABLE_DEFAULTS } from "./state.js";
 
 interface Item {
   id: string;

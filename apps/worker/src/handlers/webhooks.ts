@@ -39,10 +39,10 @@
  * apps/api/src/lib/webhooks.ts; keep both in step.
  */
 import { createHmac, randomUUID } from "node:crypto";
-import { type LookupAddress, lookup as dnsLookup } from "node:dns";
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import http from "node:http";
 import https from "node:https";
-import { type LookupFunction, isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
 import {
   type Database,
   type Job,
@@ -53,21 +53,21 @@ import {
   webhookDeliveries,
   webhooks,
 } from "@restow/db";
-import { type SupportedLanguage, defaultLanguage } from "@restow/i18n";
+import { defaultLanguage, type SupportedLanguage } from "@restow/i18n";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import {
-  PgSecretReader,
-  type WorkerRuntime,
   isUuid,
+  PgSecretReader,
   tenantRunner,
+  type WorkerRuntime,
   withTenantTx,
 } from "./framework.js";
 import {
-  type ChatContext,
-  type WebhookFormat,
   buildChatMessage,
+  type ChatContext,
   isChatFormat,
   renderChatBody,
+  type WebhookFormat,
 } from "./webhook-formats.js";
 
 type Logger = WorkerRuntime["logger"];

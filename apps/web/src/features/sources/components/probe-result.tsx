@@ -13,7 +13,10 @@ import { ToneLine } from "./status";
 export function ProbeResult({
   probe,
   compact = false,
-}: { probe: ImapProbeResult; compact?: boolean }) {
+}: {
+  probe: ImapProbeResult;
+  compact?: boolean;
+}) {
   const { t, i18n } = useTranslation("sources");
   const language = i18n.resolvedLanguage ?? i18n.language;
   const testedAt = formatRelative(probe.checkedAt, language);

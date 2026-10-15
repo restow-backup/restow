@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { NOW, enableActEnvironment, iso } from "../testing";
+import { enableActEnvironment, iso, NOW } from "../testing";
 import { msUntilNextTick, nextStage, stageFor, useCountdown } from "./use-countdown";
 
 enableActEnvironment();

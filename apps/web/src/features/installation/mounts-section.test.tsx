@@ -2,12 +2,12 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  type Mounted,
   buttonByText,
   click,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   problem,
   routedFetch,
   type,
@@ -22,7 +22,7 @@ import {
   validNfsServer,
 } from "./sections/mounts-api";
 import { operationPercent } from "./sections/mounts-section";
-import { DEFAULT_STORAGE, SETTINGS, openInstallation, providerSession } from "./testing";
+import { DEFAULT_STORAGE, openInstallation, providerSession, SETTINGS } from "./testing";
 
 /**
  * Installation > Mounts in a DOM: what it says when the mounter is not running, the

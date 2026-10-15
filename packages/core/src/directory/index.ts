@@ -9,10 +9,11 @@
  * - csv.ts          IMAP account list and CSV import
  * - credentials.ts  Entra app credentials from environment values
  */
-export * from "./rules.js";
-export * from "./plan.js";
-export * from "./sync.js";
+
 export * from "./config.js";
-export * from "./groups.js";
-export * from "./csv.js";
 export * from "./credentials.js";
+export * from "./csv.js";
+export * from "./groups.js";
+export * from "./plan.js";
+export * from "./rules.js";
+export * from "./sync.js";

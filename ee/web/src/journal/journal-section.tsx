@@ -22,11 +22,11 @@ import type { JournalSetup } from "./api";
 import { useJournalScope, useJournalSetup, useRotateJournalAddress } from "./hooks";
 import {
   type ChecklistState,
-  GUIDE_STEPS,
-  STATUS_TONE,
   checklistItems,
+  GUIDE_STEPS,
   guideOpenByDefault,
   isNotSetUp,
+  STATUS_TONE,
 } from "./presenters";
 
 const CHECKLIST_ICON = {
@@ -141,6 +141,7 @@ function JournalSetupView({ setup }: { setup: JournalSetup }) {
           {setup.address ? t("journal.address.label") : t("journal.address.soFar")}
         </p>
         <div className="flex flex-wrap items-center gap-2">
+          {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: ties the address to its visible label; a landmark role would only add noise */}
           <code
             id="journal-address"
             aria-labelledby="journal-address-label"

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  SERIES_DAYS,
   buildGrowthSeries,
   buildUsage,
   growthOver,
+  SERIES_DAYS,
   utcDay,
   windowStart,
 } from "./usage.js";

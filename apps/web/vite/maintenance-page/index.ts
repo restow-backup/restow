@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { PRODUCT_NAME_ENV, normalizeProductName } from "@restow/i18n";
+import { normalizeProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
 import { transform } from "esbuild";
 import type { Plugin } from "vite";
 
-import { type PageTexts, STEP_IDS, STEP_STATUSES, STYLES, renderPage } from "./template";
+import { type PageTexts, renderPage, STEP_IDS, STEP_STATUSES, STYLES } from "./template";
 
 /**
  * Build-time generator of the static maintenance page.

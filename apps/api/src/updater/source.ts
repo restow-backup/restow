@@ -4,13 +4,13 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { type ImageVariant, buildTargetsOf, imageNamesOf } from "./image-variant.js";
+import { buildTargetsOf, type ImageVariant, imageNamesOf } from "./image-variant.js";
 import type { BuildSpec, DockerOps } from "./ops.js";
 import type { Redactor } from "./redact.js";
 import {
+  isSourceAllowed,
   SOURCE_ALLOWLIST_VARIABLE,
   type SourceAllowEntry,
-  isSourceAllowed,
   sourceTargetOf,
 } from "./source-policy.js";
 

@@ -1,7 +1,7 @@
 import { type Context, Hono } from "hono";
 import { db, providerDb } from "../../db.js";
 import { clientIp, observedOrigin } from "../../lib/request.js";
-import { type TenantEnv, requireTenant, sessionFromRequest } from "../../middleware/session.js";
+import { requireTenant, sessionFromRequest, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { LANDING_CSP, preferredLanguage, renderConsentLanding } from "./landing.js";
 import {

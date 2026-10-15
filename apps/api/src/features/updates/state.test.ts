@@ -1,7 +1,7 @@
 import type { StoredUpdateCheck, StoredUpdateRelease } from "@restow/db";
 import { describe, expect, it } from "vitest";
 import { defaultSource, parseEnvironmentSource } from "./source.js";
-import { UpdateStateCache, newerThan, releasesOf } from "./state.js";
+import { newerThan, releasesOf, UpdateStateCache } from "./state.js";
 
 function release(version: string, prerelease = false): StoredUpdateRelease {
   return {

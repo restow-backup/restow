@@ -8,37 +8,11 @@
  * `@restow/core` can re-export this module next to the backup engines
  * without name clashes.
  */
-export { createRestoreEngines } from "./dispatcher.js";
+
+export type { RestoreGraphClientFactory, RestoreRequestOptions } from "./common.js";
+export { defaultRestoreFolderName, restoreRequestOptions } from "./common.js";
 export type { RestoreEngines, RestoreEnginesOptions } from "./dispatcher.js";
-
-export { ExchangeRestoreEngine, eventTransactionId, targetMailboxOf } from "./exchange.js";
-export type { ExchangeRestoreEngineOptions } from "./exchange.js";
-
-export {
-  OneDriveRestoreEngine,
-  driveTargetOf,
-  parseDriveTargetRef,
-  resolveTargetDriveId,
-} from "./onedrive.js";
-export type { DriveTarget, OneDriveRestoreEngineOptions } from "./onedrive.js";
-
-export { ImapRestoreEngine, ImapRestoreError } from "./imap.js";
-export type { ImapRestoreEngineOptions, ImapRestoreSession, ImapSessionFactory } from "./imap.js";
-export { ImapFlowRestoreSession, createImapFlowSessionFactory } from "./imap-flow.js";
-export type {
-  ImapFlowClient,
-  ImapFlowSessionFactoryOptions,
-  ImapRestoreAccountResolver,
-} from "./imap-flow.js";
-
-export {
-  ARCHIVE_MANIFEST_COLUMNS,
-  ARCHIVE_MANIFEST_NAME,
-  DownloadRestoreEngine,
-  archiveEntryName,
-  archiveFileName,
-  createRestoreArchive,
-} from "./download.js";
+export { createRestoreEngines } from "./dispatcher.js";
 export type {
   ArchiveEntry,
   ArchiveEntryStatus,
@@ -46,23 +20,42 @@ export type {
   CreateRestoreArchiveOptions,
   DownloadRestoreEngineOptions,
 } from "./download.js";
-
-export { defaultRestoreFolderName, restoreRequestOptions } from "./common.js";
-export type { RestoreGraphClientFactory, RestoreRequestOptions } from "./common.js";
-
 export {
-  RestoreSourceError,
-  planRestore,
-  resolveRestoreSource,
-  selectObjects,
-} from "./selection.js";
-export type { RestorePlan, ResolvedSource } from "./selection.js";
-
+  ARCHIVE_MANIFEST_COLUMNS,
+  ARCHIVE_MANIFEST_NAME,
+  archiveEntryName,
+  archiveFileName,
+  createRestoreArchive,
+  DownloadRestoreEngine,
+} from "./download.js";
+export type { ExchangeRestoreEngineOptions } from "./exchange.js";
+export { ExchangeRestoreEngine, eventTransactionId, targetMailboxOf } from "./exchange.js";
+export type { ImapRestoreEngineOptions, ImapRestoreSession, ImapSessionFactory } from "./imap.js";
+export { ImapRestoreEngine, ImapRestoreError } from "./imap.js";
+export type {
+  ImapFlowClient,
+  ImapFlowSessionFactoryOptions,
+  ImapRestoreAccountResolver,
+} from "./imap-flow.js";
+export { createImapFlowSessionFactory, ImapFlowRestoreSession } from "./imap-flow.js";
+export type { DriveTarget, OneDriveRestoreEngineOptions } from "./onedrive.js";
+export {
+  driveTargetOf,
+  OneDriveRestoreEngine,
+  parseDriveTargetRef,
+  resolveTargetDriveId,
+} from "./onedrive.js";
+export { QuickXorHash, quickXorHash } from "./quickxorhash.js";
 export type {
   RestoreItemCode,
   RestoreItemResult,
   RestoreItemStatus,
   RestoreReport,
 } from "./results.js";
-
-export { QuickXorHash, quickXorHash } from "./quickxorhash.js";
+export type { ResolvedSource, RestorePlan } from "./selection.js";
+export {
+  planRestore,
+  RestoreSourceError,
+  resolveRestoreSource,
+  selectObjects,
+} from "./selection.js";

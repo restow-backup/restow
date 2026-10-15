@@ -15,7 +15,7 @@ import { TokenAcquisitionError } from "../graph/auth/token.js";
  * Nothing here persists anything; the API layer stores the result on the source.
  */
 import type { GraphClient } from "../graph/client.js";
-import { type PermissionDiff, diffPermissions, rolesFromAccessToken } from "./permissions.js";
+import { diffPermissions, type PermissionDiff, rolesFromAccessToken } from "./permissions.js";
 
 /** Why a token could not be acquired, in terms an operator can act on. */
 export type TokenFailureHint =

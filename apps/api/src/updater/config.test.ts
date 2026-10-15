@@ -4,9 +4,9 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ConfigError,
-  PROJECT_MOUNT,
   findComposeFile,
   loadConfig,
+  PROJECT_MOUNT,
   resolveProjectLocation,
 } from "./config.js";
 import { DEFAULT_CLI_IMAGE, DEFAULT_COSIGN_IMAGE } from "./signature.js";

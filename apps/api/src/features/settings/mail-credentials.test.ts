@@ -4,9 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 import { ProblemError } from "../../problem.js";
 import {
   type CurrentSettings,
-  type MailEnvironment,
   decideGoogleKey,
   decideGraphApp,
+  type MailEnvironment,
   planSettingsUpdate,
   readStoredMailConfig,
   toMailView,

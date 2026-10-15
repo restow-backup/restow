@@ -186,6 +186,7 @@ function TreeItem({ path, level, position, size, expandable, first }: TreeItemPr
       className={FOCUS_CLASS}
     >
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: the tree item handles the keyboard (arrows, Space, Enter); the pointer only mirrors it */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: same: the row is the pointer side of the focusable tree item around it */}
       <div
         data-slot="tree-row"
         className={ROW_CLASS}
@@ -257,7 +258,11 @@ function BrowseLevel({
   parent,
   level,
   root = false,
-}: { parent: string; level: number; root?: boolean }) {
+}: {
+  parent: string;
+  level: number;
+  root?: boolean;
+}) {
   const { t } = useTranslation("backupjobs");
   const tree = useTree();
   const browse = useBrowse(tree.machineId, tree.snapshotId, parent);
@@ -402,6 +407,7 @@ export function FolderTree({
     <TreeContext.Provider value={value}>
       <ul
         ref={treeRef}
+        // biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: the WAI-ARIA tree pattern, built on a list of tree items
         role="tree"
         aria-label={label}
         data-slot="folder-tree"

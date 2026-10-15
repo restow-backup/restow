@@ -16,10 +16,10 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   ApiError,
-  DISCLAIMER_VERSION_PROBLEM,
-  type SetupState,
   acceptInstallationDisclaimer,
+  DISCLAIMER_VERSION_PROBLEM,
   queryKeys,
+  type SetupState,
   setupStateQueryOptions,
 } from "@/lib/api";
 import { providerMay } from "@/lib/provider-role";

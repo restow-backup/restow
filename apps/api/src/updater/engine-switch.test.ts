@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { envValueOf } from "./env-file.js";
 import { scheduleRequestSchema } from "./protocol.js";
 import {
+  apiAt,
   COMMUNITY_ENV,
+  createHarness,
   FakeLauncher,
   type Harness,
-  apiAt,
-  createHarness,
   releaseDigests,
   releaseSigner,
   scheduleRequest,

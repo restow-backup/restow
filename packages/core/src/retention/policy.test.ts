@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type RetentionPolicyRow, parseSnapshotPolicy, policyAppliesTo } from "./policy.js";
+import { parseSnapshotPolicy, policyAppliesTo, type RetentionPolicyRow } from "./policy.js";
 import { DEFAULT_TIERS } from "./tiers.js";
 
 const row = (overrides: Partial<RetentionPolicyRow>): RetentionPolicyRow => ({

@@ -20,7 +20,7 @@
  * parent's dangling children are checkpointed mid-run.
  */
 import type { ManifestObject } from "../../manifest.js";
-import { ONEDRIVE_OBJECT_TYPES, VERSION_PATH_MARKER, joinPath } from "./items.js";
+import { joinPath, ONEDRIVE_OBJECT_TYPES, VERSION_PATH_MARKER } from "./items.js";
 
 /** Where an item hangs: its parent's Graph id (null when unknown) and its own name. */
 export interface Placement {

@@ -1,10 +1,10 @@
 import type { Job, JobProgress, Snapshot } from "@restow/db";
 import { describe, expect, it } from "vitest";
 import {
-  type JobObjectDto,
   backupBlockedReason,
   backupResultOf,
   isRetryable,
+  type JobObjectDto,
   runtimePhaseOf,
   runtimeThrottleOf,
   snapshotStateOf,

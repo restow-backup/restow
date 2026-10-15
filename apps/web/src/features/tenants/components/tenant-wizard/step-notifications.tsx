@@ -3,9 +3,6 @@ import { Info, Plus, Send, Settings as SettingsIcon, Trash2, TriangleAlert } fro
 import * as React from "react";
 import { type FieldError, type UseFormReturn, useFieldArray } from "react-hook-form";
 import { useTranslation } from "react-i18next";
-
-import { installationSectionTo } from "@/features/installation/paths";
-
 import { Field, messageId } from "@/components/forms/field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -13,15 +10,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { installationSectionTo } from "@/features/installation/paths";
 import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import {
+  emptyRecipient,
+  fieldMessageKey,
   NAME_MAX_LENGTH,
   OFFERED_NOTIFICATION_CATEGORIES,
   type TenantWizardValues,
-  emptyRecipient,
-  fieldMessageKey,
 } from "../../forms";
 import { useSendNotificationTestMail } from "../../hooks";
 import {

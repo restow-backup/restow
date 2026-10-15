@@ -1,9 +1,9 @@
 import type { StoredUpdateRelease } from "@restow/db";
 import {
+  maintenanceStatusOf,
   type Run,
   type RunSummary,
   type StateView,
-  maintenanceStatusOf,
 } from "../../updater/protocol.js";
 import type {
   MaintenanceView,

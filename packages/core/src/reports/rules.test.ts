@@ -3,17 +3,17 @@ import { describe, expect, it } from "vitest";
 import {
   FAILED_JOB_EVENTS,
   INSTALLATION_REPORT_EVENTS,
-  REPORT_EVENTS,
-  REPORT_EVENT_INFO,
   isInstallationReportEvent,
   isReportEvent,
+  REPORT_EVENT_INFO,
+  REPORT_EVENTS,
 } from "./catalog.js";
 import {
-  MAX_REPORT_ATTEMPTS,
-  type RuleForDelivery,
   isAlertThrottled,
+  MAX_REPORT_ATTEMPTS,
   nextAttemptAfter,
   plannedDeliveries,
+  type RuleForDelivery,
   rulesForEvent,
   subjectKeyOf,
 } from "./rules.js";

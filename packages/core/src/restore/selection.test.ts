@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { ManifestObject, SnapshotManifest } from "../manifest.js";
 import {
-  RestoreSourceError,
   planRestore,
+  RestoreSourceError,
   resolveRestoreSource,
   selectObjects,
 } from "./selection.js";
-import { type SnapshotFixture, createSnapshotFixture } from "./testing/fixtures.js";
+import { createSnapshotFixture, type SnapshotFixture } from "./testing/fixtures.js";
 
 function manifestOf(objects: ManifestObject[]): SnapshotManifest {
   return {

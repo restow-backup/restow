@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { X509Certificate, createPrivateKey } from "node:crypto";
+import { createPrivateKey, X509Certificate } from "node:crypto";
 import { test } from "node:test";
 import { createSelfSignedCertificate } from "./selfsigned.mjs";
 

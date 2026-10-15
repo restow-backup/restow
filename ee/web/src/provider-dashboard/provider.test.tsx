@@ -2,9 +2,6 @@ import type * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-
-import { i18n } from "@/i18n";
-
 import type {
   LoadedTenantRow,
   ProviderAlert,
@@ -12,9 +9,10 @@ import type {
   UnavailableTenantRow,
 } from "@/features/dashboard/api";
 import { widgetView } from "@/features/dashboard/presenters";
+import { i18n } from "@/i18n";
 import { ALERTS_COLLAPSED, AlertList } from "./alert-list.js";
 import { ProviderView } from "./provider-view.js";
-import { TenantMatrix, readinessFacet, sortTenantRows } from "./tenant-matrix.js";
+import { readinessFacet, sortTenantRows, TenantMatrix } from "./tenant-matrix.js";
 
 /**
  * The provider view rendered to static markup: tiles, alerts and the tenant

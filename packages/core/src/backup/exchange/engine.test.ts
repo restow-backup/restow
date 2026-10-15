@@ -6,19 +6,19 @@ import type { Dek } from "../../crypto.js";
 import { ChunkReader, JobAbortedError } from "../../engine/chunkstore.js";
 import { Keyring } from "../../engine/keyring.js";
 import {
+  createMemoryJobContext,
   MemoryChunkIndex,
   MemoryCursorStore,
   MemoryProgressSink,
   MemorySnapshotIndex,
-  createMemoryJobContext,
 } from "../../engine/memory.js";
 import { sealManifest } from "../../engine/sealed-manifest.js";
 import { loadManifest } from "../../engine/snapshot.js";
 import type { JobContext, ProtectedObjectRef } from "../../engine/types.js";
 import { isGraphError } from "../../graph/errors.js";
 import {
-  type FakeGraph,
   createFakeGraph,
+  type FakeGraph,
   graphError,
   must,
 } from "../../graph/testing/fake-graph.js";
@@ -37,7 +37,7 @@ import { planRestore } from "../../restore/selection.js";
 import { LocalStorageBackend } from "../../storage/local.js";
 import { ExchangeBackupEngine, type ExchangeBackupEngineOptions } from "./engine.js";
 import { mailObjectPath, shortId } from "./paths.js";
-import { EXCHANGE_PHASES, META, MailboxAccessError } from "./run.js";
+import { EXCHANGE_PHASES, MailboxAccessError, META } from "./run.js";
 import { MAIL_SELECT_VERSION, parseCursor, readState } from "./state.js";
 import { FakeMailbox, type FakeMessage } from "./testing/fake-mailbox.js";
 

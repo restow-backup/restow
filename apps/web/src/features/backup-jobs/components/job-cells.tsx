@@ -102,7 +102,10 @@ const RESTORE_ICON = {
 export function RestoreCheckBadge({
   check,
   className,
-}: { check: JobRestoreCheck; className?: string }) {
+}: {
+  check: JobRestoreCheck;
+  className?: string;
+}) {
   const { t } = useTranslation("backupjobs");
   const view = restoreCheckView(check);
   if (view.state === "none") {

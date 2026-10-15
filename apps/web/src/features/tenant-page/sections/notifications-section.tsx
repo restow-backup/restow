@@ -16,8 +16,8 @@ import { REPORTS_PATH } from "@/features/reports/paths";
 import { AlertRulesPanel } from "@/features/reports/reports-page";
 import { NotificationsStep } from "@/features/tenants/components/tenant-wizard/step-notifications";
 import {
-  type TenantWizardValues,
   emptyTenantWizardForm,
+  type TenantWizardValues,
   tenantWizardSchema,
   undefinedIfBlank,
 } from "@/features/tenants/forms";

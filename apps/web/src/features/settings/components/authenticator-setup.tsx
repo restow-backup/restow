@@ -15,23 +15,23 @@ import { toast } from "@/components/ui/sonner";
 import { zodResolver } from "@/lib/form";
 import { clearPasswordHandoff, peekPasswordForEnrolment } from "@/lib/password-handoff";
 import {
+  fieldMessageKey,
   type PasswordConfirmValues,
+  passwordConfirmSchema,
   TOTP_CODE_LENGTH,
   type TotpCodeValues,
-  fieldMessageKey,
-  passwordConfirmSchema,
   totpCodeSchema,
 } from "../forms";
 import {
-  AuthRequestError,
   type AuthenticatorEnrollment,
+  AuthRequestError,
   useConfirmAuthenticator,
   useStartAuthenticatorEnrollment,
 } from "../hooks";
 import {
-  type TotpSetupKey,
   backupCodesDocument,
   parseTotpUri,
+  type TotpSetupKey,
   twoFactorErrorKey,
 } from "../presenters";
 

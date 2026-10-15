@@ -18,13 +18,13 @@
  */
 import { randomUUID } from "node:crypto";
 import { type BandwidthWindow, generateAgentSecret } from "@restow/core";
-import { type EndpointConfig, endpointTasks, endpoints, tenants } from "@restow/db";
+import { type EndpointConfig, endpoints, endpointTasks, tenants } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  type EndpointFixture,
   basic,
+  type EndpointFixture,
   startFixture,
   testDatabaseAdminUrl,
 } from "./testing/fixture.js";

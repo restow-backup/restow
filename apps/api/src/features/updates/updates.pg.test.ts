@@ -17,9 +17,9 @@
  */
 import { randomBytes } from "node:crypto";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   notifications,
   providers,
   reportDeliveries,
@@ -33,13 +33,13 @@ import {
 import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
+  idlePublicStatus,
+  pendingSteps,
   type RestartableService,
   type ScheduleRequest,
   type StateView,
-  idlePublicStatus,
-  pendingSteps,
 } from "../../updater/protocol.js";
 import {
   dropDatabase,
@@ -549,7 +549,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       );
       expect(view.settings.tokenSet).toBe(false);
       const entries = await auditRows("update.settings.updated");
-      expect((entries.at(-1)?.details as { tokenAction: string }).tokenAction).toBe(
+      expect((entries[entries.length - 1].details as { tokenAction: string }).tokenAction).toBe(
         "removed_source_changed",
       );
       const last = feed.requests.at(-1);

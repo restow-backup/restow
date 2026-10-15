@@ -1,16 +1,14 @@
 import { Camera } from "lucide-react";
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 
 import { EmptyState, ErrorState, RestoreTimeline, StatusBadge } from "@/components/kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import { MissingDataFoldersNotice } from "@/features/backup-jobs/components/missing-data-folders";
 import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
 
-import { toast } from "@/components/ui/sonner";
-
-import { type EndpointDetail, type EndpointSnapshot, LIMITS, endpointDownloadUrl } from "../api.js";
+import { type EndpointDetail, type EndpointSnapshot, endpointDownloadUrl, LIMITS } from "../api.js";
 import { startBrowserDownload } from "../browser-download.js";
 import {
   useBrowse,
@@ -20,11 +18,11 @@ import {
   useTenantScope,
 } from "../hooks.js";
 import {
-  type Selection,
   effectiveFileCount,
   endpointErrorKey,
   endpointName,
   isRetryableProblem,
+  type Selection,
   selectionLimits,
   toggleAll,
   toggleItem,
@@ -65,6 +63,7 @@ function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
           {snapshot.paths.join(", ")}
         </span>
       ) : null}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: only keeps the badge's events from reaching the row's own handlers */}
       <span
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}

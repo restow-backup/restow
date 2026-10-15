@@ -4,12 +4,12 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import type { UpdatesView } from "@/features/updates/api";
 import {
-  type Mounted,
   buttonByText,
   click,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   mount,
   routedFetch,
   updatesFixture,

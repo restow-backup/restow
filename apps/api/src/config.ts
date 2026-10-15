@@ -1,5 +1,5 @@
 import { docsTroubleshootingUrl, mailfiles } from "@restow/core";
-import { PRODUCT_NAME_ENV, configureProductName, normalizeProductName } from "@restow/i18n";
+import { configureProductName, normalizeProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
 import { trustedProxyEntries } from "./lib/forwarded.js";
 
 /**

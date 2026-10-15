@@ -4,7 +4,7 @@ import { acceptDisclaimer } from "../../lib/disclaimer.js";
 import { requestLanguage } from "../../lib/language.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
-import { type SessionEnv, refuseApiKeys, requireProviderAdmin } from "../../middleware/session.js";
+import { refuseApiKeys, requireProviderAdmin, type SessionEnv } from "../../middleware/session.js";
 import { acceptDisclaimerSchema, parseJsonBody, parseOrProblem } from "../../schemas.js";
 import {
   getDefaultStorage,
@@ -29,9 +29,9 @@ import {
 } from "./schemas.js";
 import {
   type Actor,
-  type RequestContext,
   checkPasskeyReadiness,
   getSettings,
+  type RequestContext,
   removeMailConfiguration,
   sendTestMail,
   setMailNotNeeded,

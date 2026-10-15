@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router";
 import { History, Hourglass } from "lucide-react";
-import * as React from "react";
 
 import { RelativeTime, StatusBadge } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -93,7 +92,10 @@ export function PendingTasksCard({ tasks }: { tasks: readonly EndpointTask[] }) 
 export function RecentTasksCard({
   tasks,
   willRetry = true,
-}: { tasks: readonly EndpointTask[]; willRetry?: boolean }) {
+}: {
+  tasks: readonly EndpointTask[];
+  willRetry?: boolean;
+}) {
   const format = useEndpointFormat();
   const { t } = format;
   if (tasks.length === 0) {

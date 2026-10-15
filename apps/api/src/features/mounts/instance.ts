@@ -12,9 +12,9 @@ import { secretPendingMountStore } from "./pending.js";
 import {
   type ActiveWork,
   type ComposeFacts,
-  type MountUser,
-  MountsService,
   liesOn,
+  MountsService,
+  type MountUser,
 } from "./service.js";
 
 /** Endpoint runs older than this that still say "running" are stale, not running. */

@@ -11,20 +11,20 @@ import {
   archiveItemOfMailbox,
   archiveItems,
 } from "@restow/db";
-import { type SQL, and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, type SQL, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
-import {
-  PreviewBusyError,
-  PreviewUnreadableError,
-  previewInWorker,
-} from "../snapshots/preview-isolated.js";
 import {
   type MailPreviewDto,
   PREVIEW_SIZE_CAP_BYTES,
   type PreviewHeaders,
 } from "../snapshots/preview.js";
+import {
+  PreviewBusyError,
+  PreviewUnreadableError,
+  previewInWorker,
+} from "../snapshots/preview-isolated.js";
 import { PgArchiveCatalog } from "./catalog.js";
 import { ArchiveContentError, emlFileName, readArchiveItemBytes } from "./content.js";
 import type { ArchiveSearchQuery } from "./schemas.js";

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  attemptLegacyReclaim,
   LEGACY_RECLAIM_INTERVAL_MS,
   type LegacyReclaimDeps,
-  attemptLegacyReclaim,
   legacyReclaimFromEnvironment,
   startLegacyManifestReclaim,
 } from "./legacy-manifest-reclaim.js";

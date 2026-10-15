@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 import { MemoryStorage } from "../verify/testing.js";
 import type { ResticPrincipal } from "./restic-authz.js";
 import {
-  QUOTA_EXCEEDED_PROBLEM,
-  type ResticLockRegistry,
   handleResticRequest,
   objectKey,
   parseRange,
+  QUOTA_EXCEEDED_PROBLEM,
+  type ResticLockRegistry,
 } from "./restic-rest.js";
 
 /** The lock registry of the API, in memory. */

@@ -3,15 +3,15 @@ import type { UserDeltaEntry } from "../graph/resources/users.js";
 import fixture from "../graph/testing/fixtures/users-delta.json" with { type: "json" };
 import {
   type DirectoryUserRecord,
-  type KnownObject,
-  type PlanInput,
-  type UserProbe,
   hasMailbox,
   isPartialEntry,
+  type KnownObject,
+  type PlanInput,
   planDirectory,
   probeTargets,
   smtpAddresses,
   toDirectoryUser,
+  type UserProbe,
 } from "./plan.js";
 import { DEFAULT_PROTECTION_RULES, normalizeRules } from "./rules.js";
 

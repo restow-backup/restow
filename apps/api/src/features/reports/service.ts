@@ -1,27 +1,27 @@
 import {
-  REPORT_EVENTS,
-  REPORT_EVENT_INFO,
-  REPORT_PERIOD_DAYS,
-  REPORT_SECTIONS,
-  type ReportEvent,
   nextRunAt as cadenceNextRunAt,
   isInstallationReportEvent,
   plannedDeliveries,
+  REPORT_EVENT_INFO,
+  REPORT_EVENTS,
+  REPORT_PERIOD_DAYS,
+  REPORT_SECTIONS,
+  type ReportEvent,
   validateCadence,
 } from "@restow/core";
 import {
   type Database,
   type NewReportDelivery,
+  notifications,
   type ReportDelivery,
   type ReportRule,
-  notifications,
   reportDeliveries,
   reportRules,
   tenants,
   webhookDeliveries,
   webhooks,
 } from "@restow/db";
-import { type SQL, and, desc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne, type SQL, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { featureEnabled, requireFeature } from "../../lib/features.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
@@ -33,8 +33,8 @@ import {
   type ListDeliveriesQuery,
   type ListNotificationsQuery,
   type MarkNotificationsReadInput,
-  type UpdateReportRuleInput,
   reportRuleProblem,
+  type UpdateReportRuleInput,
 } from "./schemas.js";
 
 /**
@@ -395,7 +395,7 @@ async function assertWebhook(tx: DbExecutor, tenantId: string, webhookId: string
   }
 }
 
-async function assertScheduledAllowed(db: DbExecutor, trigger: string): Promise<void> {
+async function assertScheduledAllowed(_db: DbExecutor, trigger: string): Promise<void> {
   if (trigger === "schedule") {
     await requireFeature("reports.timed");
   }
@@ -433,7 +433,7 @@ async function findRule(tx: DbExecutor, tenantId: string, id: string): Promise<R
 }
 
 export async function reportCatalog(
-  db: Database,
+  _db: Database,
   options: { providerAdmin?: boolean } = {},
 ): Promise<ReportCatalogDto> {
   return {

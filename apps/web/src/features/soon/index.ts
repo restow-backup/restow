@@ -6,8 +6,8 @@ import { appLayoutRoute } from "@/routes/tree";
 import { RESOURCES_PATH, resourcesSoonItem, soonNavItems } from "./items";
 import { SoonPage } from "./soon-page";
 
-export { SoonPage } from "./soon-page";
 export { RESOURCES_PATH, SOON_CONTENT, soonNavItems } from "./items";
+export { SoonPage } from "./soon-page";
 
 /**
  * Pages of features that come with a later release (items.ts): capacity

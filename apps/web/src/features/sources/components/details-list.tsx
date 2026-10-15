@@ -6,7 +6,10 @@ import { cn } from "@/lib/utils";
 export function DetailsList({
   children,
   className,
-}: { children: React.ReactNode; className?: string }) {
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <dl className={cn("grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2", className)}>{children}</dl>
   );

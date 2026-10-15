@@ -5,17 +5,17 @@ import * as React from "react";
 import { ACCOUNT_PATH } from "@/lib/entry";
 import {
   ALL_TENANTS_NAV_ID,
+  findActiveNavItem,
+  isNavItemOffered,
   type LocationSearch,
   type NavGroupId,
   type NavItem,
   type NavLockContext,
-  findActiveNavItem,
-  isNavItemOffered,
   navGroupOf,
 } from "@/lib/navigation";
 import { canAccess, useSession } from "@/lib/session";
 import { TENANT_SETTINGS_NAV_IDS } from "@/lib/tenant-nav";
-import { TENANTS_PATH, parseTenantPagePath } from "@/lib/tenant-paths";
+import { parseTenantPagePath, TENANTS_PATH } from "@/lib/tenant-paths";
 import { useNavItems } from "@/lib/use-nav-items";
 
 /**

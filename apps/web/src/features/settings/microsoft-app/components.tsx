@@ -12,10 +12,10 @@ import { useTranslation } from "react-i18next";
 
 import {
   CopyButton,
+  copyToClipboard,
   StatusBadge,
   type StatusTone,
   UI_NAMESPACE,
-  copyToClipboard,
 } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

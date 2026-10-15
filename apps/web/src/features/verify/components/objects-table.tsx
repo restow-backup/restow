@@ -22,13 +22,13 @@ import type {
   ObjectReadiness,
   VerifyObject,
 } from "@/features/verify/api";
-import { StateChips, countsOfSummary } from "@/features/verify/components/state-chips";
+import { countsOfSummary, StateChips } from "@/features/verify/components/state-chips";
 import { ObjectKindIcon, StateBadge } from "@/features/verify/components/status";
 import { verifyReportTo } from "@/features/verify/paths";
 import {
-  type ReadinessRow,
   objectAddress,
   objectName,
+  type ReadinessRow,
   readinessRows,
   reasonMessage,
   rowRating,

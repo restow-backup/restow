@@ -7,7 +7,7 @@ import type { NavItem } from "@/lib/navigation";
 import { appLayoutRoute } from "@/routes/tree";
 
 import "./i18n.js";
-import { JOBS_PATH, JOB_DEFINITION_PATTERN, isJobKind } from "./paths.js";
+import { isJobKind, JOB_DEFINITION_PATTERN, JOBS_PATH } from "./paths.js";
 import { JOB_ROLES, JobDetailRoute, JobsRoute } from "./route-pages.js";
 
 /**

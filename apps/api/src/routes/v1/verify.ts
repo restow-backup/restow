@@ -7,9 +7,9 @@ import {
   readinessOverview,
   runVerify,
 } from "../../features/verify/service.js";
-import { type KeyActor, asPersonActor } from "./actor.js";
+import { asPersonActor, type KeyActor } from "./actor.js";
 import { type IntegrationApi, READ_ERRORS, type V1Deps, WRITE_ERRORS } from "./api.js";
-import { V1_AUDIT_ACTIONS, readRecorder } from "./audit.js";
+import { readRecorder, V1_AUDIT_ACTIONS } from "./audit.js";
 import { component } from "./components.js";
 import { decodeCursor, encodeCursor, idCursorSchema } from "./cursor.js";
 import {

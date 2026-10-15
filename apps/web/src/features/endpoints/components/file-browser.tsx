@@ -9,7 +9,6 @@ import {
   RotateCw,
   X,
 } from "lucide-react";
-import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/kit";
@@ -30,14 +29,14 @@ import { cn } from "@/lib/utils";
 import { type BrowseEntry, LIMITS } from "../api.js";
 import { type EndpointFormat, useEndpointFormat } from "../hooks.js";
 import {
-  MANY_ITEMS_NOTE_AT,
-  type Selection,
   allState,
   coveredByFolder,
   endpointErrorKey,
   isRetryableProblem,
   isSelectable,
+  MANY_ITEMS_NOTE_AT,
   pathSegments,
+  type Selection,
 } from "../presenters.js";
 
 /** The path bar: the snapshot's root and every folder down to the current one. */

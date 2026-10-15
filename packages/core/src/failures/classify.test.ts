@@ -9,7 +9,7 @@ import {
 } from "../engine/chunkstore.js";
 import { TokenAcquisitionError } from "../graph/auth/token.js";
 import { GraphError } from "../graph/errors.js";
-import { FailureError, classifyFailure } from "./classify.js";
+import { classifyFailure, FailureError } from "./classify.js";
 import { graphResourceOf } from "./graph.js";
 
 const BASE = "https://graph.microsoft.com/v1.0";

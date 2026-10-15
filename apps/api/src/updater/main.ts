@@ -5,23 +5,23 @@ import { HttpApiClient } from "./api-client.js";
 import { loadOrCreateSecret } from "./auth.js";
 import { ConfigError, loadConfig, resolveProjectLocation } from "./config.js";
 import { DumpStore } from "./dumps.js";
-import { EngineClient } from "./engine-api.js";
 import { UpdateEngine } from "./engine.js";
+import { EngineClient } from "./engine-api.js";
 import { EnvFile, postgresSettings } from "./env-file.js";
 import { consoleLogger } from "./logger.js";
 import { HttpMounterStatus } from "./mounter-status.js";
-import { CliDockerOps } from "./ops-cli.js";
 import { type CommandRunner, type SelfContainer, systemClock } from "./ops.js";
+import { CliDockerOps } from "./ops-cli.js";
 import { Preflight } from "./preflight.js";
 import { Redactor } from "./redact.js";
 import { ServiceRestarter } from "./restart.js";
 import { HelperRunner } from "./runner-helper.js";
 import { LocalRunner } from "./runner-local.js";
 import { EngineSelfRecreateLauncher, MOUNTER_RECREATE_TARGET } from "./self-recreate.js";
-import { type OwnImage, SelfUpdater, pinOwnImage } from "./self-update.js";
+import { type OwnImage, pinOwnImage, SelfUpdater } from "./self-update.js";
 import { buildServer } from "./server.js";
-import { formatAllowEntry } from "./source-policy.js";
 import { ArchiveSourceProvider } from "./source.js";
+import { formatAllowEntry } from "./source-policy.js";
 import { StatusStore } from "./store.js";
 
 /**

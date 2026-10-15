@@ -21,7 +21,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "@/components/ui/sonner";
 import { ConnectedSetPasswordLinkField } from "@/features/accounts/components/set-password-link-field";
 import { EditionLink } from "@/features/installation/edition-link";
-import { type ProviderRole, notificationMailConfigured, setupStateQueryOptions } from "@/lib/api";
+import { notificationMailConfigured, type ProviderRole, setupStateQueryOptions } from "@/lib/api";
 import { ExtensionSlot } from "@/lib/extensions";
 import { PROVIDER_ROLES } from "@/lib/provider-role";
 
@@ -29,8 +29,8 @@ import type { Invitation, TeamMember } from "./api";
 import { useInviteMember, useTeamScope, useTenantChoices, useUpdateMember } from "./hooks";
 import {
   EMAIL_PATTERN,
-  type ScopeDraft,
   normalizeDraft,
+  type ScopeDraft,
   scopeIsValid,
   teamErrorKey,
   tenantScopeChoice,

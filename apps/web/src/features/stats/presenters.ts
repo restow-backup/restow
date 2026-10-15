@@ -1,7 +1,7 @@
 import { dedupSavings, formatPercent, parseTimestamp } from "@/lib/format";
 
 import type { Kpi, KpiName, StatsOverview } from "./api.js";
-import { type Granularity, dayStart, toDay } from "./period.js";
+import { dayStart, type Granularity, toDay } from "./period.js";
 
 /**
  * Pure presentation logic of the statistics page: number and date

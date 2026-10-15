@@ -21,15 +21,15 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import {
-  PackReader,
-  type SnapshotManifest,
-  type StorageBackend,
   deserializeManifest,
   isManifestHeaderLine,
   isSealedManifest,
   openManifest,
+  PackReader,
   parseManifestKey,
   readManifestLines,
+  type SnapshotManifest,
+  type StorageBackend,
   sealedManifestKey,
 } from "@restow/core";
 import type { Keyring } from "./keyring.js";

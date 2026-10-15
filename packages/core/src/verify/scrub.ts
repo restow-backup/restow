@@ -34,23 +34,23 @@ import type { CatalogPack } from "./catalog.js";
 import { throwIfAborted } from "./errors.js";
 import {
   type AbandonedCheckpointProbe,
+  chunksHeldByPartialManifests,
+  collectGarbage,
   DEFAULT_SUPERSEDED_GRACE_MS,
   type GcBlocker,
   type GcSummary,
   type OrphanSweep,
+  releaseSupersededPacks,
   type ScrubEnvironment,
   type SupersededPack,
   type SupersededRelease,
-  chunksHeldByPartialManifests,
-  collectGarbage,
-  releaseSupersededPacks,
   sweepOrphanPacks,
 } from "./gc.js";
 import {
-  type PackCheck,
-  type ScrubMode,
   checkPack,
   isProvenDamage,
+  type PackCheck,
+  type ScrubMode,
   selectPacks,
 } from "./integrity.js";
 import { newSeed, seededRandom } from "./random.js";

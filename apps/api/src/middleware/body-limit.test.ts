@@ -8,9 +8,9 @@ import { parseJsonBody } from "../schemas.js";
 import {
   BODY_LIMIT_RULES,
   BULK_BODY_LIMIT,
+  bodyLimitFor,
   DEFAULT_BODY_LIMIT,
   PAYLOAD_TOO_LARGE_PROBLEM,
-  bodyLimitFor,
   requestBodyLimit,
 } from "./body-limit.js";
 

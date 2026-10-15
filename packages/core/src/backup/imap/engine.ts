@@ -50,25 +50,25 @@ import { ReadWriteGate } from "./gate.js";
 import { ImapFlowConnector } from "./imapflow-connector.js";
 import type { FetchLike } from "./oauth2.js";
 import {
-  FOLDER_OBJECT_TYPE,
-  MESSAGE_OBJECT_TYPE,
-  META,
   encodeEnvelope,
   encodeFlags,
+  FOLDER_OBJECT_TYPE,
   folderComponents,
   folderObjectId,
   folderObjectPath,
   hasEnvelopeMetadata,
   isMessageObject,
+  MESSAGE_OBJECT_TYPE,
+  META,
   messageObjectId,
   messageObjectPath,
   objectMailbox,
   objectUid,
 } from "./paths.js";
 import {
-  type FolderPlan,
   batchBySize,
   breakdownByUidNext,
+  type FolderPlan,
   orderFolders,
   planFolder,
   readImapState,

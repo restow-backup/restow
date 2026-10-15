@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  PASSWORD_HANDOFF_TTL_MS,
   clearPasswordHandoff,
   holdPasswordForEnrolment,
+  PASSWORD_HANDOFF_TTL_MS,
   peekPasswordForEnrolment,
   takePasswordForEnrolment,
 } from "./password-handoff";

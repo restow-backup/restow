@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { localToUtc, nextDailyRun, zoneOffsetMs, zonedParts } from "./tz.js";
+import { localToUtc, nextDailyRun, zonedParts, zoneOffsetMs } from "./tz.js";
 
 describe("zone arithmetic", () => {
   it("knows Berlin's offset in summer and winter", () => {

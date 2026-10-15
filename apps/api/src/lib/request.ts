@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { config } from "../config.js";
-import { type ProxyMatcher, clientFromForwardedFor, createProxyMatcher } from "./forwarded.js";
+import { clientFromForwardedFor, createProxyMatcher, type ProxyMatcher } from "./forwarded.js";
 
 /**
  * Request helpers shared by routes: the client IP for the audit log and the

@@ -12,12 +12,12 @@ import { type IsolatedTask, IsolatedTaskError, isolatedTimeoutMs, runIsolated } 
 import { UNAVAILABLE_MESSAGE_META } from "./meta-parse.js";
 import type { MessageMeta } from "./types.js";
 
+export { HTML_TEXT_DEFAULT_LIMIT, htmlToPlainText } from "./html-text.js";
 export {
   EMPTY_MESSAGE_META,
   MAX_BODY_TEXT_CHARS,
   UNAVAILABLE_MESSAGE_META,
 } from "./meta-parse.js";
-export { HTML_TEXT_DEFAULT_LIMIT, htmlToPlainText } from "./html-text.js";
 
 const TASK: IsolatedTask = {
   module: new URL("./meta-parse.js", import.meta.url).href,

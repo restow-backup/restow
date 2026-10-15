@@ -6,8 +6,6 @@ import { ApiError } from "@/lib/api";
 import type { ScheduleItem } from "./api.js";
 import "./i18n.js";
 import {
-  JOB_STATUS_TONE,
-  type ScheduleDraft,
   cadenceDraftFrom,
   checkCadence,
   checkDraft,
@@ -19,6 +17,7 @@ import {
   inputFromDraft,
   intervalRuns,
   isShownSchedule,
+  JOB_STATUS_TONE,
   lastActivityAt,
   maintenanceKinds,
   mondayFirst,
@@ -26,6 +25,7 @@ import {
   newCadenceDraft,
   newDraft,
   patchFromDraft,
+  type ScheduleDraft,
   timeZoneOptions,
 } from "./presenters.js";
 

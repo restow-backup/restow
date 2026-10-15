@@ -5,7 +5,7 @@
  * text of a screen to {@link untranslatedIssue}; this file is pure so its rules
  * are covered by i18n-scan.test.mjs.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Key paths of the shipped translations: `{ keys, topLevel }` over de and en. */

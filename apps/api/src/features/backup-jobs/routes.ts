@@ -3,7 +3,7 @@ import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db } from "../../db.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
-import { type TenantEnv, requireTenant } from "../../middleware/session.js";
+import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { mayConfigure } from "../endpoints/routes.js";
 import {
@@ -20,7 +20,6 @@ import {
   setOverridesSchema,
   updateBackupJobSchema,
 } from "./schemas.js";
-import type { JobActor, JobContext } from "./service-types.js";
 import {
   addMembers,
   createBackupJob,
@@ -37,6 +36,7 @@ import {
   setMemberOverrides,
   updateBackupJob,
 } from "./service.js";
+import type { JobActor, JobContext } from "./service-types.js";
 
 /**
  * /api/v1/backup-jobs — what is backed up, when, where and for how long, as definitions over

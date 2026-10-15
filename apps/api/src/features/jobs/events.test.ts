@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { JobDto } from "./dto.js";
 import {
+  endMessage,
+  errorMessage,
   HEARTBEAT_INTERVAL_MS,
+  heartbeatDue,
   JobChangeTracker,
+  jobMessage,
+  jobsMessage,
   RECONNECT_MS,
+  runStreamLoop,
   type SseMessage,
   type StreamIo,
   type StreamStep,
-  endMessage,
-  errorMessage,
-  heartbeatDue,
-  jobMessage,
-  jobsMessage,
-  runStreamLoop,
   singleJobStep,
   windowStart,
 } from "./events.js";

@@ -13,13 +13,13 @@
  * the chunk index only after `put` resolved on every target.
  */
 import { randomBytes } from "node:crypto";
-import { type Dirent, createReadStream } from "node:fs";
+import { createReadStream, type Dirent } from "node:fs";
 import {
   type FileHandle,
   mkdir,
   open,
-  readFile,
   readdir,
+  readFile,
   rename,
   rm,
   stat,

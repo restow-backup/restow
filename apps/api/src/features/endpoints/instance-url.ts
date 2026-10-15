@@ -2,8 +2,7 @@ import { settings } from "@restow/db";
 import type { Context } from "hono";
 import { config } from "../../config.js";
 import { providerDb } from "../../db.js";
-import { arrivalOrigin } from "../../middleware/browser-request.js";
-import { originOf } from "../../middleware/browser-request.js";
+import { arrivalOrigin, originOf } from "../../middleware/browser-request.js";
 
 /**
  * The public address of this installation, as an agent must reach it: the

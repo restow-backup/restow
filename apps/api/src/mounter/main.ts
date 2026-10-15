@@ -11,7 +11,7 @@ import { Redactor } from "../updater/redact.js";
 import { HelperRunner } from "../updater/runner-helper.js";
 import { LocalRunner } from "../updater/runner-local.js";
 import { type OwnImage, pinOwnImage } from "../updater/self-update.js";
-import { MounterConfigError, loadMounterConfig } from "./config.js";
+import { loadMounterConfig, MounterConfigError } from "./config.js";
 import { MountEngine } from "./engine.js";
 import { DockerMountOps } from "./ops.js";
 import { buildMounterServer } from "./server.js";

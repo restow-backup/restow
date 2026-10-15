@@ -20,11 +20,11 @@ import { TENANT_SECTION_META } from "@/features/tenant-page/meta";
 import { TENANTS_PATH } from "@/features/tenants/paths";
 import { ACCOUNT_PATH } from "@/lib/entry";
 import {
+  groupNavItems,
   type NavItem,
   type NavLockContext,
-  type RoleCheck,
-  groupNavItems,
   navGroupLabelKey,
+  type RoleCheck,
 } from "@/lib/navigation";
 import type { SessionTenant } from "@/lib/session";
 import { canEnterTenant } from "@/lib/tenant";

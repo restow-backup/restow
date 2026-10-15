@@ -82,7 +82,10 @@ function Tile({ label, hint, value, tone, icon }: TileProps) {
 export function SummaryTiles({
   summary,
   format,
-}: { summary: ReadinessSummary; format: VerifyFormat }) {
+}: {
+  summary: ReadinessSummary;
+  format: VerifyFormat;
+}) {
   const { t } = format;
   const notProven = summary.unverified + summary.noBackup;
   return (

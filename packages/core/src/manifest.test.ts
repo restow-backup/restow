@@ -1,13 +1,13 @@
 import * as zlib from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  deserializeManifest,
+  isManifestHeaderLine,
   MANIFEST_CODEC,
   MANIFEST_VERSION,
   type ManifestObject,
-  type SnapshotManifest,
-  deserializeManifest,
-  isManifestHeaderLine,
   readManifestLines,
+  type SnapshotManifest,
   serializeManifest,
 } from "./manifest.js";
 

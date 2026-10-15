@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSession } from "@/lib/session";
 
-import { CORE_LICENSE_URL, LOCAL_THIRD_PARTY_NOTICES_PATH, aboutLinks } from "../presenters";
+import { aboutLinks, CORE_LICENSE_URL, LOCAL_THIRD_PARTY_NOTICES_PATH } from "../presenters";
 
 /**
  * Installation, About: what this installation runs (product name, version and

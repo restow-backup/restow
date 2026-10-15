@@ -6,13 +6,13 @@ import { ProblemError } from "../../problem.js";
 import type { CreateInternalTenantInput, MarkInternalTenantInput } from "./schemas.js";
 import {
   type Actor,
-  INTERNAL_TENANT_UNIQUE_INDEX,
-  type TenantDto,
   createTenant,
+  INTERNAL_TENANT_UNIQUE_INDEX,
   internalTenantExistsProblem,
   isUniqueViolation,
   notFound,
   slugTaken,
+  type TenantDto,
   toDto,
 } from "./service.js";
 import { availableSlug } from "./slug.js";
@@ -220,7 +220,7 @@ export async function markTenantInternal(
  * tenant's audit log names the step ("system", `via: "update"`).
  */
 export async function adoptSoleTenantAsInternal(
-  db: Database,
+  _db: Database,
   providerDb: Database,
 ): Promise<TenantDto | null> {
   if (await featureEnabled("tenants.additional", providerDb)) {

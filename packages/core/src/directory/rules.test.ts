@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PROTECTION_RULES,
-  type ProtectionSubject,
   evaluateProtection,
   isSharedOrBlocked,
   matchesExclusion,
   normalizeOverrides,
   normalizeRules,
+  type ProtectionSubject,
   statusForOverride,
   uniqueIdentities,
 } from "./rules.js";

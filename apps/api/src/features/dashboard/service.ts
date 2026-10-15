@@ -2,17 +2,17 @@ import { type Database, safeErrorMessage } from "@restow/db";
 import { featureHook } from "../../extensions.js";
 import { requireFeature } from "../../lib/features.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
-import { type Role, isTenantAdmin } from "../../middleware/rbac.js";
+import { isTenantAdmin, type Role } from "../../middleware/rbac.js";
 import type { TenantContext } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { type TenantSummaryDto, loadTenantSummary } from "../../routes/v1/status.js";
+import { loadTenantSummary, type TenantSummaryDto } from "../../routes/v1/status.js";
 import { listJobsQuerySchema } from "../jobs/schemas.js";
 import { listJobs } from "../jobs/service.js";
 import { type GuestProtection, loadGuestCounts } from "../pve/protection.js";
 import {
-  type TenantUsageDto,
   countTenantMailboxes,
   loadTenantUsage,
+  type TenantUsageDto,
   totalMailboxes,
 } from "../usage/service.js";
 import {
@@ -32,20 +32,20 @@ import {
   BACKUP_TREND_DAYS,
   FORECAST_DAYS,
   HISTORY_DAYS,
-  type StaleThresholds,
-  type TenantFacts,
-  type TenantTrends,
   loadInstallationDefaultTest,
   loadMailFacts,
   loadStaleThresholds,
   loadTenantCap,
   loadTenantFacts,
   loadTenantTrends,
+  type StaleThresholds,
+  type TenantFacts,
+  type TenantTrends,
 } from "./queries.js";
 import { summarizeRetention } from "./retention.js";
 import type { DashboardQuery } from "./schemas.js";
 import { dayKeys, fillDays, linearForecast, runningTotals } from "./series.js";
-import { type SetupFacts, buildSetupChecklist } from "./setup.js";
+import { buildSetupChecklist, type SetupFacts } from "./setup.js";
 import "./hooks.js";
 import type { SettledSource } from "./hooks.js";
 

@@ -1,6 +1,6 @@
 import { mailfiles } from "@restow/core";
 import { config } from "../../config.js";
-import { PARSER_MAX_QUEUED, configureParserPool } from "../../lib/parser-pool.js";
+import { configureParserPool, PARSER_MAX_QUEUED } from "../../lib/parser-pool.js";
 import type { FoundAttachment, MailPreviewDto, PreviewMode } from "./preview.js";
 
 /**

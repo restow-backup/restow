@@ -1,15 +1,15 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act } from "react";
 import type * as React from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { toast } from "@/components/ui/sonner";
 import { i18n } from "@/i18n";
-import { type SetupState, queryKeys } from "@/lib/api";
+import { queryKeys, type SetupState } from "@/lib/api";
 
 import { SetupPage } from "./index";
 
@@ -348,7 +348,7 @@ describe("setup wizard, language step", () => {
     );
     await click(button("Einrichtung abschließen"));
 
-    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     expect(body.language).toBe("de");
   });
 });
@@ -406,7 +406,7 @@ describe("setup wizard, setup token step", () => {
     await click(button("Next"));
 
     expect(requests()).toEqual(["POST /setup/token"]);
-    const headers = new Headers((fetchMock.mock.calls[0]?.[1] as RequestInit).headers);
+    const headers = new Headers((fetchMock.mock.calls[0][1] as RequestInit).headers);
     expect(headers.get("x-restow-setup-token")).toBe("WRONG-TOKEN");
     expect(container.textContent).toContain("This is not the setup token of this server.");
     expect(container.textContent).toContain("Step 2 of 7");
@@ -629,7 +629,7 @@ describe("setup wizard, skipping the mail transport", () => {
     await click(button("Finish setup"));
 
     expect(requests()).toEqual(["POST /setup"]);
-    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     expect(body).not.toHaveProperty("mail");
     expect(body.sendTest).toBe(false);
     expect(body.providerName).toBe("Example IT Services GmbH");
@@ -652,7 +652,7 @@ describe("setup wizard, skipping the mail transport", () => {
 
     await click(button("Finish setup"));
 
-    const sent = (fetchMock.mock.calls[0]?.[1] as RequestInit).body as string;
+    const sent = (fetchMock.mock.calls[0][1] as RequestInit).body as string;
     expect(sent).not.toContain("mail.example.com");
     expect(JSON.parse(sent)).not.toHaveProperty("mail");
   });

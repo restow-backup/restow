@@ -1,19 +1,19 @@
 import type { QueryClient } from "@tanstack/react-query";
 import {
-  RouterProvider,
   createMemoryHistory,
   createRootRoute,
   createRoute,
   createRouter,
+  RouterProvider,
 } from "@tanstack/react-router";
 import { vi } from "vitest";
 
 import {
-  type Mounted,
-  type RecordedRequest,
   json,
+  type Mounted,
   mount,
   newQueryClient,
+  type RecordedRequest,
   routedFetch,
   sessionAs,
 } from "@/features/updates/testing";

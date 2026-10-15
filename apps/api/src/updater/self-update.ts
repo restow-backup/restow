@@ -1,4 +1,4 @@
-import { type EnvFile, MOUNTER_IMAGE_KEY, UPDATER_IMAGE_KEY, envValueOf } from "./env-file.js";
+import { type EnvFile, envValueOf, MOUNTER_IMAGE_KEY, UPDATER_IMAGE_KEY } from "./env-file.js";
 import type { Logger } from "./logger.js";
 import type { MounterStatus } from "./mounter-status.js";
 import type { Clock, DockerOps } from "./ops.js";
@@ -219,7 +219,7 @@ export class SelfUpdater {
   async reconcile(): Promise<void> {
     const { store, clock, updaterVersion, logger } = this.deps;
     const last = store.state.selfUpdate;
-    if (!last || last.status !== "pending") {
+    if (last?.status !== "pending") {
       return;
     }
     if (last.mounter?.status === "pending") {

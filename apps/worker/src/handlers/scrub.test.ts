@@ -18,25 +18,25 @@ import {
   type ChunkLocation,
   ChunkReader,
   ChunkWriter,
+  createMemoryJobContext,
+  generateDek,
   Keyring,
   LocalStorageBackend,
   type ManifestObject,
+  manifestKey,
+  noopLogger,
   type PackCatalog,
   type PackCheck,
+  packKey,
+  packPrefix,
   type ScrubReport,
   type StorageTargets,
   type TenantMirrorReport,
-  createMemoryJobContext,
-  generateDek,
-  manifestKey,
-  noopLogger,
-  packKey,
-  packPrefix,
   wrappedKeyKey,
 } from "@restow/core";
 import {
-  type Database,
   createDb,
+  type Database,
   jobs,
   packs,
   providers,
@@ -48,19 +48,19 @@ import { runMigrations } from "@restow/db/migrate";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { dropTestDatabase } from "../testing/database.js";
-import { PgChunkIndex, type WorkerJobContext, tenantRunner } from "./framework.js";
+import { PgChunkIndex, tenantRunner, type WorkerJobContext } from "./framework.js";
 import {
-  GC_GRACE_HOURS,
-  LegacyExcludingPackCatalog,
-  SCRUB_EVENTS,
   copyMirrorSummary,
   corruptPackPathsOf,
+  GC_GRACE_HOURS,
   gcBlockerFor,
   gcBlockerOf,
   gcCutoff,
+  LegacyExcludingPackCatalog,
   loadKeepCutover,
   loadPreviousScrub,
   mirrorCopies,
+  SCRUB_EVENTS,
   scrubHandler,
   scrubModeOf,
   scrubNotifications,
@@ -402,7 +402,7 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
     await scrubHandler.run(ctx, { tenantId: tenant.tenantId, jobId, mode });
     await finishJob(tenant.tenantId, jobId, now);
     const [row] = await db.select({ payload: jobs.payload }).from(jobs).where(eq(jobs.id, jobId));
-    return (row?.payload as { result: ScrubReport }).result;
+    return (row.payload as { result: ScrubReport }).result;
   }
 
   async function packFiles(tenant: { tenantId: string; storage: StorageTargets }) {

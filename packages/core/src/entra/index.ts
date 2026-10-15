@@ -10,21 +10,22 @@
  * The client-credentials token provider itself lives in ../graph/auth; the
  * pieces this module needs are re-exported so consumers have one import.
  */
-export * from "./permissions.js";
-export * from "./consent-state.js";
-export * from "./consent.js";
-export * from "./consent-identity.js";
-export * from "./verify.js";
-export * from "./certificate.js";
-export * from "./app-registration.js";
-export * from "./app-test.js";
-export * from "./source-app.js";
+
 export {
   type AccessTokenProvider,
   type AppCredentials,
   type ClientCredential,
   ClientCredentialsTokenProvider,
+  certificateThumbprintSha1Hex,
   TenantTokenProviders,
   TokenAcquisitionError,
-  certificateThumbprintSha1Hex,
 } from "../graph/auth/token.js";
+export * from "./app-registration.js";
+export * from "./app-test.js";
+export * from "./certificate.js";
+export * from "./consent.js";
+export * from "./consent-identity.js";
+export * from "./consent-state.js";
+export * from "./permissions.js";
+export * from "./source-app.js";
+export * from "./verify.js";

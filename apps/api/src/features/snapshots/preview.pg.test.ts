@@ -28,10 +28,10 @@ import {
   type TenantKeyring,
 } from "@restow/core";
 import {
-  type Database,
   auditLog,
   chunks,
   createDb,
+  type Database,
   manifestEntries,
   packs,
   protectedObjects,
@@ -43,9 +43,9 @@ import type { Viewer } from "./access.js";
 import { MAX_SANITIZED_HTML_CHARS, PREVIEW_SIZE_CAP_BYTES } from "./preview.js";
 import { attachmentParamSchema, listObjectsQuerySchema, treeQuerySchema } from "./schemas.js";
 import {
-  type ExplorerFixture,
   createExplorerFixture,
   dropDatabase,
+  type ExplorerFixture,
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "./testing/explorer-fixture.js";

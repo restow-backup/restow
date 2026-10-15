@@ -3,7 +3,7 @@ import commonEn from "@restow/i18n/resources/en/common.json" with { type: "json"
 import integrationsEn from "@restow/i18n/resources/en/integrations.json" with { type: "json" };
 import { describe, expect, it } from "vitest";
 
-import { EXPIRY_OPTIONS, SCOPE_GROUPS, eventKey, scopeKey } from "./presenters";
+import { EXPIRY_OPTIONS, eventKey, SCOPE_GROUPS, scopeKey } from "./presenters";
 import { API_SCOPES, WEBHOOK_EVENTS, WEBHOOK_TEST_EVENT } from "./types";
 
 /**

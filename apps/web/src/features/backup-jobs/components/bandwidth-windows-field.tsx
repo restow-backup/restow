@@ -9,15 +9,15 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 import "../i18n.js";
 import {
+  checkWindowDrafts,
+  daysText,
+  endsNextDay,
+  newWindowDraft,
   WEEKDAYS,
   WINDOW_LIMITS,
   type WindowDraft,
   type WindowListCheck,
   type WindowProblem,
-  checkWindowDrafts,
-  daysText,
-  endsNextDay,
-  newWindowDraft,
   weekdayName,
   windowLength,
 } from "../bandwidth-windows.js";

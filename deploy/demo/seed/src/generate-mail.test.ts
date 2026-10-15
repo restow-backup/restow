@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEMO_TENANTS, allMailboxes } from "./company.js";
+import { allMailboxes, DEMO_TENANTS } from "./company.js";
 import {
   type GeneratedMessagePlan,
   generateDemoMail,

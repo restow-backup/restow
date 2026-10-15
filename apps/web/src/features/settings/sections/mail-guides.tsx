@@ -8,11 +8,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
+  accessPolicyCommands,
   ENTRA_ADMIN_CENTER_URL,
   GMAIL_SEND_SCOPE,
   GOOGLE_ADMIN_CONSOLE_URL,
   GOOGLE_CLOUD_CONSOLE_URL,
-  accessPolicyCommands,
   rbacCommands,
 } from "../mail-guide";
 import {
@@ -52,6 +52,7 @@ function ExternalButton({ href, children }: { href: string; children: React.Reac
 function CommandBlock({ commands, label }: { commands: string; label: string }) {
   return (
     <div className="space-y-2">
+      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: names the command block; a landmark role would only add noise */}
       <pre
         aria-label={label}
         className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs leading-relaxed"

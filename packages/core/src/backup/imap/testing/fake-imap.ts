@@ -284,7 +284,7 @@ class FakeSession implements ImapSession {
       throw new ImapSessionError(`EXAMINE ${path}: NO Mailbox does not exist`, false);
     }
     const folder = this.server.folders.get(path);
-    if (!folder || !folder.selectable) {
+    if (!folder?.selectable) {
       throw new ImapSessionError(`EXAMINE ${path}: NO Mailbox does not exist`, false);
     }
     this.current = folder;

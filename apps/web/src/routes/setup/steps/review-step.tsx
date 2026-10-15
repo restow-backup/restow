@@ -60,7 +60,11 @@ function ReviewRow({
   label,
   value,
   mono = false,
-}: { label: string; value: string; mono?: boolean }) {
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <dt className="text-muted-foreground">{label}</dt>

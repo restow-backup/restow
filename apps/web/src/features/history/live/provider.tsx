@@ -4,14 +4,14 @@ import * as React from "react";
 import { openEventStream } from "@/features/jobs/sse";
 import { sessionScope, useSession } from "@/lib/session";
 
-import { type Run, historyKeys } from "../api";
-import { type LiveContext, type LiveRuns, applyEvent, createRefetcher, newKnown } from "./apply";
+import { historyKeys, type Run } from "../api";
+import { applyEvent, createRefetcher, type LiveContext, type LiveRuns, newKnown } from "./apply";
 import {
+  acquireChannel,
   type ChannelDeps,
+  documentVisibility,
   LiveChannel,
   type LiveState,
-  acquireChannel,
-  documentVisibility,
 } from "./channel";
 
 /**

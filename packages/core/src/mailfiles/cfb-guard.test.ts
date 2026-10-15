@@ -1,9 +1,9 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { CFB } from "@tutao/oxmsg";
 import { describe, expect, it } from "vitest";
-import { MAX_DIRECTORY_ENTRIES, MAX_STORAGE_DEPTH, checkCompoundFile } from "./cfb-guard.js";
+import { checkCompoundFile, MAX_DIRECTORY_ENTRIES, MAX_STORAGE_DEPTH } from "./cfb-guard.js";
 import { buildMsg } from "./testing/builders.js";
-import { type CfbEntrySpec, ENTRY, HEADER, buildCfb, entryNamed } from "./testing/cfb.js";
+import { buildCfb, type CfbEntrySpec, ENTRY, entryNamed, HEADER } from "./testing/cfb.js";
 
 const testdata = new URL("./testdata/", import.meta.url);
 

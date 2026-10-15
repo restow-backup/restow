@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  compareDirectoryEntries,
+  normaliseSnapshotPath,
   ResticError,
   type ResticNode,
   type ResticSession,
-  compareDirectoryEntries,
-  normaliseSnapshotPath,
   resticBinary,
   resticDump,
   resticForget,
@@ -21,7 +21,7 @@ import {
   runRestic,
 } from "./restic-cli.js";
 import { restoreTestSamples } from "./restore-test.js";
-import { SelectionError, resolveSelection } from "./zip.js";
+import { resolveSelection, SelectionError } from "./zip.js";
 
 /**
  * Browsing a snapshot: the listing order, paging through a folder and looking

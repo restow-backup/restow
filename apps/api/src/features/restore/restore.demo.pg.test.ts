@@ -13,14 +13,14 @@
  * database `restow_api_restore_demo_test` is recreated there and dropped
  * after). Without it the suite is skipped.
  */
-import { type Database, createDb, jobs, restoreJobs } from "@restow/db";
+import { createDb, type Database, jobs, restoreJobs } from "@restow/db";
 import { eq } from "drizzle-orm";
 import PgBoss from "pg-boss";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  type ExplorerFixture,
   createExplorerFixture,
   dropDatabase,
+  type ExplorerFixture,
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";

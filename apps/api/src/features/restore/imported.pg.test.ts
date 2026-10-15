@@ -11,9 +11,9 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   protectedObjects,
   restoreJobs,
   snapshots,
@@ -23,9 +23,9 @@ import { eq } from "drizzle-orm";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  type ExplorerFixture,
   createExplorerFixture,
   dropDatabase,
+  type ExplorerFixture,
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";

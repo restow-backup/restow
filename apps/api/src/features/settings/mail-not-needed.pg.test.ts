@@ -9,10 +9,10 @@
  * and dropped after, the roles with it). Without it the suite is skipped.
  */
 import { randomBytes } from "node:crypto";
-import { type Database, auditLog, createDb, settings } from "@restow/db";
+import { auditLog, createDb, type Database, settings } from "@restow/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

@@ -328,6 +328,7 @@ function AccountsForm({ source, onDone }: { source: DirectorySource; onDone: () 
                 const id = `accounts-entry-${index}`;
                 return (
                   <li
+                    // biome-ignore lint/suspicious/noArrayIndexKey: the rows are the pasted lines, where a login can be empty or repeat.
                     key={`${index}-${entry.login}`}
                     className="space-y-2 rounded-md border border-border p-3"
                   >

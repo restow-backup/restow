@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_TRUSTED_PROXIES,
-  PRIVATE_RANGES,
   clientFromForwardedFor,
   createProxyMatcher,
+  DEFAULT_TRUSTED_PROXIES,
   hopAddress,
+  PRIVATE_RANGES,
   trustedProxyEntries,
 } from "./forwarded.js";
 

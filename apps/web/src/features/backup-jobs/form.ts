@@ -1,8 +1,8 @@
 import {
   type CadenceDraft,
-  FALLBACK_TIME_ZONE,
   cadenceDraftFrom,
   checkCadence,
+  FALLBACK_TIME_ZONE,
   newCadenceDraft,
 } from "@/features/schedules/presenters";
 import type { StoredCadence } from "@/features/schedules/presets";
@@ -25,8 +25,8 @@ import {
   type UpdateBackupJobInput,
 } from "./api.js";
 import {
-  type WindowDraft,
   checkWindowDrafts,
+  type WindowDraft,
   windowDraftsOf,
   windowsKey,
   windowsOfDrafts,
@@ -778,7 +778,7 @@ export interface OverridesDraft {
 }
 
 function has(overrides: JobMemberOverrides, key: keyof JobMemberOverrides): boolean {
-  return Object.prototype.hasOwnProperty.call(overrides, key) && overrides[key] !== undefined;
+  return Object.hasOwn(overrides, key) && overrides[key] !== undefined;
 }
 
 /** The state of the overrides editor for a member: what it does differently is on, the rest starts as the job's value. */
@@ -798,9 +798,7 @@ export function overridesDraftOf(
       verify: has(overrides, "verifySchedule"),
       folders: has(overrides, "paths"),
       exclusions: has(overrides, "excludes") || has(overrides, "excludeLargerThanGib"),
-      bandwidth:
-        Object.prototype.hasOwnProperty.call(overrides, "bandwidthKbps") ||
-        has(overrides, "bandwidthWindows"),
+      bandwidth: Object.hasOwn(overrides, "bandwidthKbps") || has(overrides, "bandwidthWindows"),
       hooks: has(overrides, "hooks"),
       retention: has(overrides, "retention"),
     },
@@ -895,10 +893,7 @@ export function overrideGroupsSet(overrides: JobMemberOverrides): OverrideGroup[
   if (has(overrides, "paths")) groups.push("folders");
   if (has(overrides, "excludes") || has(overrides, "excludeLargerThanGib"))
     groups.push("exclusions");
-  if (
-    Object.prototype.hasOwnProperty.call(overrides, "bandwidthKbps") ||
-    has(overrides, "bandwidthWindows")
-  ) {
+  if (Object.hasOwn(overrides, "bandwidthKbps") || has(overrides, "bandwidthWindows")) {
     groups.push("bandwidth");
   }
   if (has(overrides, "hooks")) groups.push("hooks");

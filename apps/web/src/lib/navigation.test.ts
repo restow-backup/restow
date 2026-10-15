@@ -2,10 +2,6 @@ import { Archive, Building2, HardDrive, LayoutDashboard, ListChecks } from "luci
 import { describe, expect, it } from "vitest";
 
 import {
-  NAV_GROUPS,
-  type NavItem,
-  type NavLock,
-  type NavLockContext,
   findActiveNavItem,
   groupNavItems,
   inferNavGroup,
@@ -14,6 +10,10 @@ import {
   isNavItemOffered,
   isNavItemPage,
   matchedNavPath,
+  NAV_GROUPS,
+  type NavItem,
+  type NavLock,
+  type NavLockContext,
   navGroupLabelKey,
   pathAfterTenantSwitch,
   visibleNavItems,

@@ -15,7 +15,7 @@ import type { TenantSectionProps } from "@/lib/extensions";
 import { type ConnectionTab, tenantPageTo } from "@/lib/tenant-paths";
 
 import { cn } from "@/lib/utils";
-import { SUB_PAGES, parseConnectionsSearch } from "../presenters";
+import { parseConnectionsSearch, SUB_PAGES } from "../presenters";
 
 /**
  * Connections: what the tenant's data comes from. Tabs for Microsoft 365, IMAP,

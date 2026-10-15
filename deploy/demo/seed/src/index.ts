@@ -1,7 +1,7 @@
 import { seedInstallation } from "./api-seed.js";
 import { seedArchive } from "./archive-seed.js";
-import { type RunWindow, backdateRuns, databaseNow, simulatedTargets } from "./backdate.js";
-import { DEMO_TENANTS, allMailboxes, mailboxesMissingFrom } from "./company.js";
+import { backdateRuns, databaseNow, type RunWindow, simulatedTargets } from "./backdate.js";
+import { allMailboxes, DEMO_TENANTS, mailboxesMissingFrom } from "./company.js";
 import { runEndpointPhase } from "./endpoint-history.js";
 import { generateDemoMail, planWave, writeMessages } from "./generate-mail.js";
 import { runRound } from "./history.js";

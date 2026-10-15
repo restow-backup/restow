@@ -9,18 +9,18 @@ import { type CatalogPack, MemoryPackCatalog, type PackCatalog } from "./catalog
 import {
   DEFAULT_SUPERSEDED_GRACE_MS,
   type GcBlocker,
-  type ScrubEnvironment,
   isGcBlocker,
+  type ScrubEnvironment,
 } from "./gc.js";
 import { sampleSizeFor, selectPacks } from "./integrity.js";
 import { seededRandom } from "./random.js";
-import { type ScrubOptions, type ScrubReport, runScrub, scrubFindingDetails } from "./scrub.js";
+import { runScrub, type ScrubOptions, type ScrubReport, scrubFindingDetails } from "./scrub.js";
 import {
-  type MemoryStorage,
-  type StoreFixture,
   createStoreFixture,
   fixtureBytes,
+  type MemoryStorage,
   mailboxItems,
+  type StoreFixture,
   writeSnapshot,
 } from "./testing.js";
 

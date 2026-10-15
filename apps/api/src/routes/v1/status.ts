@@ -1,5 +1,5 @@
 import { type Database, jobProgress, jobs, protectedObjects, snapshots } from "@restow/db";
-import { and, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { loadGuestCounts } from "../../features/pve/protection.js";
 import { readinessOverview } from "../../features/verify/service.js";

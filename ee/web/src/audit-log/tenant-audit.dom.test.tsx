@@ -1,19 +1,19 @@
 // @vitest-environment happy-dom
 import {
-  RouterProvider,
   createMemoryHistory,
   createRootRoute,
   createRoute,
   createRouter,
+  RouterProvider,
 } from "@tanstack/react-router";
 import { createElement } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
-  type Mounted,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   mount,
   newQueryClient,
   sessionAs,

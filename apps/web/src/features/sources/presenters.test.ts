@@ -4,7 +4,6 @@ import type { Failure } from "@/features/failures/api";
 import { ApiError } from "@/lib/api";
 import { removeSource, upsertSource } from "./cache";
 import {
-  VERIFICATION_GRACE_MS,
   consentErrorMessage,
   describeConsentResult,
   describeSourceProblem,
@@ -18,6 +17,7 @@ import {
   sourceErrorKey,
   summarizeSource,
   syncProblem,
+  VERIFICATION_GRACE_MS,
 } from "./presenters";
 import type { ConnectionVerification, ImapProbeResult, SourceDto } from "./types";
 

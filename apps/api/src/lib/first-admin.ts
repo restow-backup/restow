@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { account, user } from "@restow/db";
 import { and, eq, like } from "drizzle-orm";
 import { auth } from "../auth.js";
-import { PROVIDER_ADMIN_USER_ROLE, isProviderAdminRole } from "../middleware/rbac.js";
+import { isProviderAdminRole, PROVIDER_ADMIN_USER_ROLE } from "../middleware/rbac.js";
 import { ProblemError } from "../problem.js";
 import type { DbExecutor } from "./tenant-context.js";
 

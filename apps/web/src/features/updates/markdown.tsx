@@ -963,6 +963,8 @@ function renderInline(nodes: readonly Inline[], depth: number): React.ReactNode[
         );
       }
     }
+    // Unreachable: the switch covers every node type.
+    return null;
   });
 }
 
@@ -1082,6 +1084,8 @@ function renderBlocks(blocks: readonly Block[], headingBase: number): React.Reac
           </div>
         );
     }
+    // Unreachable: the switch covers every block type.
+    return null;
   });
 }
 

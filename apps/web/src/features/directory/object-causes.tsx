@@ -3,8 +3,8 @@ import { ArrowRight } from "lucide-react";
 import type * as React from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CauseLine, FailureExplanation, useCauseTitle } from "@/features/failures";
 import type { Failure } from "@/features/failures";
+import { CauseLine, FailureExplanation, useCauseTitle } from "@/features/failures";
 import { jobDetailTo } from "@/features/jobs/paths";
 import { cn } from "@/lib/utils";
 

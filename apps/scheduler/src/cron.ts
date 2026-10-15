@@ -4,8 +4,8 @@
 // scheduler's imports short.
 
 export {
-  CronSyntaxError,
   type CronSpec,
+  CronSyntaxError,
   isValidTimeZone,
   nextCronOccurrence,
   parseCron,

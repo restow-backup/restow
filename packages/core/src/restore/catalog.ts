@@ -16,12 +16,12 @@
 import type { ManifestObject, SnapshotManifest } from "../manifest.js";
 import {
   type CalendarFacts,
-  type MailboxArea,
   calendarFactsOf,
   folderSegmentsOf,
   imapDelimiterOf,
   imapMailboxComponentsOf,
   imapSpecialUseOf,
+  type MailboxArea,
   mailboxAreaOf,
   objectTypeOf,
   parseBoolean,

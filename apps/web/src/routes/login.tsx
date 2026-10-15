@@ -20,11 +20,11 @@ import { zodResolver } from "@/lib/form";
 import { holdPasswordForEnrolment } from "@/lib/password-handoff";
 import {
   type DemoCredentials,
-  MICROSOFT_PROVIDER,
-  type SignInPhase,
   demoCredentialsOf,
   loginReturnPath,
+  MICROSOFT_PROVIDER,
   microsoftErrorKey,
+  type SignInPhase,
   signInErrorKey,
 } from "@/lib/sign-in";
 import { ForgotAccess } from "@/routes/forgot-access";

@@ -10,9 +10,9 @@ import { resolveStorageTargets } from "./factory.js";
 import {
   ENVIRONMENT_DEFAULT_GENERATION,
   InstallationDefaultResolver,
-  type StoredInstallationDefaultRow,
   installationDefaultDocument,
   parseInstallationDefaultDocument,
+  type StoredInstallationDefaultRow,
   serializeInstallationDefaultDocument,
 } from "./installation-default.js";
 

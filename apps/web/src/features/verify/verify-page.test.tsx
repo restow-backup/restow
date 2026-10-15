@@ -2,11 +2,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  type Mounted,
   click,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   mount,
   routedFetch,
   sessionAs,

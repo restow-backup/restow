@@ -9,16 +9,16 @@ import {
   DataTableSearch,
   EmptyState,
   type FacetOption,
-  StatusBadge,
   matchesAnyOf,
   rowActionsColumn,
+  StatusBadge,
 } from "@/components/kit";
 import { tenantDetailTo } from "@/features/tenants/paths";
 
 import type { Dataset, TenantRow } from "../api.js";
 import { readinessTone, runRateTone } from "../presenters.js";
 import { useStatsFormat } from "../use-stats-format.js";
-import { MISSING_LAST, TableCard, rowsOf } from "./table-card.js";
+import { MISSING_LAST, rowsOf, TableCard } from "./table-card.js";
 
 /** The tenant stays in view while the other columns scroll. */
 const PINNED = ["name"] as const;

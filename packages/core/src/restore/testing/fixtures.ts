@@ -10,9 +10,9 @@ import { join } from "node:path";
 import type { Dek } from "../../crypto.js";
 import { Keyring } from "../../engine/keyring.js";
 import {
+  createMemoryJobContext,
   type MemoryChunkIndex,
   MemoryProgressSink,
-  createMemoryJobContext,
 } from "../../engine/memory.js";
 import { SnapshotWriter } from "../../engine/snapshot.js";
 import type {

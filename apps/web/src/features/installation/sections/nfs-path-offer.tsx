@@ -25,9 +25,9 @@ import { useInstallationAccess } from "../access";
 import {
   type MountSpec,
   type MountsView,
+  mountsKeys,
   NFS_VERSIONS,
   type NfsVersion,
-  mountsKeys,
   useAddMountWhenIdle,
   useMounts,
   useTestMount,
@@ -41,11 +41,11 @@ import {
   UnavailableCard,
 } from "./mounts-section";
 import {
-  type NfsAddress,
   deriveMountName,
   existingMountFor,
   formatNfsAddress,
   joinPath,
+  type NfsAddress,
   parseNfsAddress,
   validSubfolder,
 } from "./nfs-address";

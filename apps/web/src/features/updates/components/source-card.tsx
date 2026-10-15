@@ -31,9 +31,9 @@ import {
 } from "../api";
 import { useSaveUpdateSettings } from "../hooks";
 import {
-  type SettingsForm,
   buildSettingsPatch,
   defaultSourceUrl,
+  type SettingsForm,
   settingsFormOf,
   sourceUrlIssueKey,
   tokenIntentReady,

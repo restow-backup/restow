@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  RouterProvider,
   createMemoryHistory,
   createRoute,
   createRouter,
+  RouterProvider,
 } from "@tanstack/react-router";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
@@ -12,7 +12,7 @@ import { z } from "zod";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { i18n } from "@/i18n";
-import { type SetupState, queryKeys } from "@/lib/api";
+import { queryKeys, type SetupState } from "@/lib/api";
 import { LoginPage } from "@/routes/login";
 import { rootRoute } from "@/routes/tree";
 

@@ -22,8 +22,8 @@ import { NotFoundPage } from "@/routes/not-found";
 import { ResetPasswordPage } from "@/routes/reset-password";
 import { SetupPage } from "@/routes/setup";
 import {
-  type RouterContext,
   appLayoutRoute,
+  type RouterContext,
   rootRoute,
   setupStateQueryOptions,
 } from "@/routes/tree";

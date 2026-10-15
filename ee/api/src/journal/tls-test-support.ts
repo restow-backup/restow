@@ -11,9 +11,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import tls from "node:tls";
 import {
+  createSelfSignedCertificate,
   type SelfSignedCertificate,
   type SelfSignedOptions,
-  createSelfSignedCertificate,
 } from "../../../../scripts/smoke/lib/selfsigned.mjs";
 
 export type { SelfSignedCertificate };

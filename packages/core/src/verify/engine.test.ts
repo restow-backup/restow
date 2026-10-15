@@ -4,7 +4,7 @@ import { noopLogger } from "../engine/logger.js";
 import { sealManifest } from "../engine/sealed-manifest.js";
 import { loadManifest } from "../engine/snapshot.js";
 import type { ChunkIndex, ChunkLocation, RestoreEngine, RestoreRequest } from "../engine/types.js";
-import { FailureError, buildCause } from "../failures/classify.js";
+import { buildCause, FailureError } from "../failures/classify.js";
 import type { FailureCause } from "../failures/types.js";
 import type { ManifestObject } from "../manifest.js";
 import { PackReader, PackWriter } from "../pack.js";
@@ -15,11 +15,11 @@ import type { ScrubEnvironment } from "./gc.js";
 import { restoreEngineProbe } from "./probe.js";
 import { runScrub } from "./scrub.js";
 import {
+  createStoreFixture,
   type FixtureItem,
   type MemoryStorage,
-  type StoreFixture,
-  createStoreFixture,
   mailboxItems,
+  type StoreFixture,
   writeSnapshot,
 } from "./testing.js";
 

@@ -16,7 +16,9 @@ describe("pack format", () => {
     ];
     const ids = plaintexts.map((p) => storedId(tenantKey, p));
     const sealed = plaintexts.map((p, i) => encryptChunk(dek, p, ids[i]));
-    sealed.forEach((s, i) => writer.append(ids[i], s));
+    sealed.forEach((s, i) => {
+      writer.append(ids[i], s);
+    });
 
     const file = writer.finalize();
     const reader = PackReader.open(file); // verifies the content hash by default

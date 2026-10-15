@@ -1,5 +1,5 @@
 import type { JobSchedule } from "@restow/core";
-import { type SupportedLanguage, createI18n, defaultLanguage } from "@restow/i18n";
+import { createI18n, defaultLanguage, type SupportedLanguage } from "@restow/i18n";
 
 /**
  * The names the system gives jobs it makes itself: the default mail job of a tenant and the jobs

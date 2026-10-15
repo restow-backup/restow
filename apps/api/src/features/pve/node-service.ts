@@ -29,7 +29,7 @@ import {
   distributionFile,
   readReleaseFile,
 } from "../endpoints/distribution.js";
-import { PVE_AUDIT_ACTIONS, auditPve, nodeActor } from "./audit.js";
+import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
 import type { NodeContext } from "./node-auth.js";
 import { finishFailedTaskRun } from "./runs.js";
 
@@ -111,7 +111,7 @@ export async function enrollNode(
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
-    if (!tenant || tenant.status !== "active") {
+    if (tenant?.status !== "active") {
       throw new ProblemError(403, "Tenant suspended", {
         detail: "The tenant of this enrollment token is currently suspended.",
       });

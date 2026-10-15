@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RestoreTarget } from "../engine/types.js";
 import { must } from "../graph/testing/fake-graph.js";
-import { ImapRestoreEngine, appendableFlags, targetMailboxComponents } from "./imap.js";
+import { appendableFlags, ImapRestoreEngine, targetMailboxComponents } from "./imap.js";
 import { FakeImapAccount } from "./testing/fake-imap.js";
 import {
-  type FixtureObject,
-  type SnapshotFixture,
   corruptStoredObject,
   createSnapshotFixture,
+  type FixtureObject,
   mimeMessage,
   restoreRequestFor,
+  type SnapshotFixture,
 } from "./testing/fixtures.js";
 
 const NOW = new Date(Date.UTC(2026, 8, 22, 14, 30));

@@ -7,10 +7,8 @@ import { MemorySecretReader } from "../engine/memory.js";
 import { MemoryStorage } from "../verify/testing.js";
 import type { StorageBackend } from "./backend.js";
 import {
-  DEFAULT_S3_REGION,
-  type S3CommandSender,
-  StorageTargetError,
   classifyStorageError,
+  DEFAULT_S3_REGION,
   describeStorageLocation,
   detectS3ObjectLock,
   inspectLocalPath,
@@ -21,6 +19,8 @@ import {
   parseS3CredentialsSecret,
   probeStorageBackend,
   resolveStorageTargets,
+  type S3CommandSender,
+  StorageTargetError,
   s3ClientConfig,
   serializeS3CredentialsSecret,
   storageLocationConfig,

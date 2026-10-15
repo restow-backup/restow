@@ -20,7 +20,7 @@ import {
   startErrorMessage,
   unverifiedRunMessage,
 } from "@/features/verify/presenters";
-import { type ReadinessState, parseVerifySearch, verifyLink } from "@/features/verify/search";
+import { parseVerifySearch, type ReadinessState, verifyLink } from "@/features/verify/search";
 import {
   useReadinessOverview,
   useStartVerify,

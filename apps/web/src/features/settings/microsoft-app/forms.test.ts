@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { MicrosoftAppView } from "./api";
 import {
-  type MicrosoftAppFormValues,
   formFromView,
+  type MicrosoftAppFormValues,
   mayKeepCredential,
   microsoftAppFormSchema,
   storedCredential,

@@ -53,13 +53,7 @@ const ICON_TONE: Record<CheckStatus["tone"], string> = {
 };
 
 /** The running version, what the update check found and when it ran. */
-export function VersionCard({
-  view,
-  canChange,
-}: {
-  view: UpdatesView;
-  canChange: boolean;
-}) {
+export function VersionCard({ view, canChange }: { view: UpdatesView; canChange: boolean }) {
   const { t, i18n } = useTranslation("updates");
   const checkNow = useCheckNow();
   const status = checkStatusOf(view);

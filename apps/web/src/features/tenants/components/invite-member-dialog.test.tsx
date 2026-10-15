@@ -7,9 +7,9 @@ import { i18n } from "@/i18n";
 
 import "@/features/accounts/i18n";
 import "../i18n";
-import type { ProvisionResult } from "@/features/accounts/types";
 
 import { Dialog } from "@/components/ui/dialog";
+import type { ProvisionResult } from "@/features/accounts/types";
 
 import { InviteDialogHeader, InvitedStep } from "./invite-member-dialog";
 

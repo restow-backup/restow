@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditEvent } from "../lib/audit.js";
-import { ProblemError, errorHandler } from "../problem.js";
+import { errorHandler, ProblemError } from "../problem.js";
 import { scriptedDb } from "../routes/v1/testing/scripted-db.js";
 
 /**

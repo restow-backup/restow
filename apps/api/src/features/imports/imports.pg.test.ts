@@ -21,11 +21,11 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import { Keyring, type StorageBackend, mailfiles } from "@restow/core";
+import type { StorageBackend } from "@restow/core";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   importUploadSegments,
   importUploads,
   itemFailures,
@@ -45,11 +45,11 @@ import { Hono } from "hono";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { errorHandler, notFoundHandler } from "../../problem.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
-  type ExplorerFixture,
   createExplorerFixture,
   dropDatabase,
+  type ExplorerFixture,
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
@@ -82,12 +82,7 @@ vi.mock("../../lib/segment-store.js", async () => {
 
 /** Self-made mail files (packages/core mailfiles/testing builders, not part of its API). */
 const builders = await vi.importActual<{
-  buildEml: (options: {
-    from: string;
-    to: string;
-    subject: string;
-    body: string;
-  }) => Buffer;
+  buildEml: (options: { from: string; to: string; subject: string; body: string }) => Buffer;
   buildMbox: (messages: readonly Buffer[]) => Buffer;
   buildZip: (entries: readonly { name: string; data?: string }[]) => Promise<Buffer>;
 }>("../../../../../packages/core/src/mailfiles/testing/builders.js");

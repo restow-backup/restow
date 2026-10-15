@@ -2,7 +2,7 @@ import { endpointErrorKey } from "@/features/endpoints/presenters";
 import type { FieldProblem } from "@/features/schedules/presenters";
 import { ApiError } from "@/lib/api";
 
-import { INVALID_JOB_PROBLEM, IN_OTHER_JOB_PROBLEM } from "./api.js";
+import { IN_OTHER_JOB_PROBLEM, INVALID_JOB_PROBLEM } from "./api.js";
 
 /**
  * What the jobs API says when it refuses a request, in the shapes the forms

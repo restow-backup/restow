@@ -28,7 +28,7 @@
  * Node built-ins only (it runs in the Node base image before the build).
  */
 
-import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ALLOWED_LOADERS, findViolations } from "../ci/check-ee-boundary.mjs";

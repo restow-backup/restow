@@ -64,9 +64,6 @@ import {
   toCreatableContact,
 } from "../graph/resources/contacts.js";
 import {
-  WELL_KNOWN_FOLDER_NAMES,
-  type WellKnownFolderName,
-  type WellKnownFolders,
   addFileAttachment,
   createMessageFromJson,
   createMessageFromMime,
@@ -75,44 +72,47 @@ import {
   patchMessage,
   resolveWellKnownFolders,
   toCreatableMessage,
+  WELL_KNOWN_FOLDER_NAMES,
+  type WellKnownFolderName,
+  type WellKnownFolders,
 } from "../graph/resources/mail.js";
 import type { ManifestObject } from "../manifest.js";
 import {
   type FolderStep,
-  type SnapshotCatalog,
   folderKindOf,
   isDefaultContactFolder,
   isMailRoot,
+  type SnapshotCatalog,
   splitAtAnchor,
 } from "./catalog.js";
 import {
-  LEGACY_REPLACE_MODE_NOTE,
-  type RestoreGraphClientFactory,
   chunkReaderFor,
   isRecord,
+  LEGACY_REPLACE_MODE_NOTE,
   mailboxRestoreMode,
+  type RestoreGraphClientFactory,
   readJsonObject,
   restoreFolderNameFor,
   restoreRequestOptions,
   throwIfAborted,
 } from "./common.js";
 import {
-  type CalendarFacts,
   attachmentFactsOf,
+  type CalendarFacts,
   messageFlagsOf,
   messageFormatOf,
   referenceAttachmentsOf,
 } from "./conventions.js";
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
 import {
-  type RestoreItemCode,
-  RestoreLedger,
-  type RestoreReport,
   describeRestoreError,
   failureCodeOf,
   isAbortError,
+  type RestoreItemCode,
+  RestoreLedger,
+  type RestoreReport,
 } from "./results.js";
-import { type RestorePlan, planRestore, resolveRestoreSource } from "./selection.js";
+import { planRestore, type RestorePlan, resolveRestoreSource } from "./selection.js";
 
 export interface ExchangeRestoreEngineOptions {
   readonly graph: RestoreGraphClientFactory;

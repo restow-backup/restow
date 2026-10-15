@@ -5,13 +5,14 @@
  * IMAP archiving (apps/worker, ARCHIVE-JOURNAL) build on this. See FORMAT.md
  * for the on-disk layout.
  */
+
+export * from "./chain.js";
+export * from "./format.js";
 export * from "./journal.js";
 export * from "./journal-isolated.js";
-export * from "./chain.js";
-export * from "./retention.js";
 export * from "./layout.js";
-export * from "./format.js";
-export * from "./types.js";
 export * from "./memory.js";
-export * from "./writer.js";
 export * from "./reader.js";
+export * from "./retention.js";
+export * from "./types.js";
+export * from "./writer.js";

@@ -1,4 +1,4 @@
-import { type TenantAggregate, type Totals, mergeTotals } from "./aggregate.js";
+import { mergeTotals, type TenantAggregate, type Totals } from "./aggregate.js";
 import { MAX_CAUSES, sortCauses } from "./causes.js";
 import type {
   Dataset,

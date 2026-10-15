@@ -2,7 +2,7 @@ import { ArchiveRestore, Download, FileDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { type Selection, countSelection } from "@/features/restore/lib/selection";
+import { countSelection, type Selection } from "@/features/restore/lib/selection";
 import { formatBytes } from "@/lib/format";
 
 /** What is ticked, across folders, and what can be done with it. Stays in view while scrolling. */

@@ -1,13 +1,13 @@
 import {
-  type Database,
   account,
+  type Database,
   member,
   providerMembers,
   settings,
   tenants,
   user,
 } from "@restow/db";
-import { type SupportedLanguage, createI18n } from "@restow/i18n";
+import { createI18n, type SupportedLanguage } from "@restow/i18n";
 import { and, eq } from "drizzle-orm";
 import { config } from "../config.js";
 import { createInstallationNotifier } from "../features/settings/service.js";

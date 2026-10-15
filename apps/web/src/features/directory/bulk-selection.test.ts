@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  EMPTY_SELECTION,
   bulkTarget,
   clearSelection,
+  EMPTY_SELECTION,
   isEmpty,
   isPageFullySelected,
   isPagePartiallySelected,

@@ -43,9 +43,9 @@ import {
 } from "../hooks";
 import { integrationsTo } from "../paths";
 import {
-  INTEGRATIONS_ROLES,
   displayUrl,
   eventKey,
+  INTEGRATIONS_ROLES,
   integrationErrorKey,
   isInsecureUrl,
   isSignedFormat,

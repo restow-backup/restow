@@ -15,7 +15,7 @@ import {
   fetchUploads,
   importKeys,
 } from "./api";
-import { type ImportedMailbox, collectMailboxes, isLive } from "./presenters";
+import { collectMailboxes, type ImportedMailbox, isLive } from "./presenters";
 import type { CreateImportInput, ImportDetail } from "./types";
 
 /** How often a running import is asked for its progress. */

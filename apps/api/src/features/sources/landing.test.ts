@@ -1,8 +1,8 @@
 import { configureProductName } from "@restow/i18n";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  LANDING_CSP,
   escapeHtml,
+  LANDING_CSP,
   landingVariant,
   preferredLanguage,
   renderConsentLanding,

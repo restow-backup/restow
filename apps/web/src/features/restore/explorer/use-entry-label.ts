@@ -2,7 +2,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import type { ObjectKind } from "@/features/restore/api";
-import { type NamedEntry, areaOf, displayName } from "@/features/restore/lib/entries";
+import { areaOf, displayName, type NamedEntry } from "@/features/restore/lib/entries";
 import { breadcrumbOf } from "@/features/restore/lib/paths";
 
 /**

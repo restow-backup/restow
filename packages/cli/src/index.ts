@@ -7,25 +7,25 @@
  * by the release smoke checks that prove a server-less restore still works
  * (docs/TESTING.md).
  */
-export { runCli, type CliIo } from "./cli.js";
-export { Keyring, chunkIdKeyFor, loadKeyring, type LoadKeyringOptions } from "./keyring.js";
+export { type CliIo, runCli } from "./cli.js";
+export { chunkIdKeyFor, Keyring, type LoadKeyringOptions, loadKeyring } from "./keyring.js";
+export {
+  IntegrityError,
+  type ObjectLayout,
+  type ObjectResult,
+  objectLayoutOf,
+  openChunk,
+  type RunReport,
+  restoreSnapshot,
+  verifySnapshot,
+} from "./restore.js";
 export {
   ChunkStore,
   isPlainJsonManifest,
+  type ManifestKeyringResolver,
+  type ParseManifestOptions,
   parseManifest,
   readManifest,
   safeJoin,
-  type ManifestKeyringResolver,
-  type ParseManifestOptions,
   type UnreadablePack,
 } from "./store.js";
-export {
-  IntegrityError,
-  objectLayoutOf,
-  openChunk,
-  restoreSnapshot,
-  verifySnapshot,
-  type ObjectLayout,
-  type ObjectResult,
-  type RunReport,
-} from "./restore.js";

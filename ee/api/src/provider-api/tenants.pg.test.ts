@@ -13,7 +13,7 @@
  * Without it the suite is skipped.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { type Database, createDb, providers, user } from "@restow/db";
+import { createDb, type Database, providers, user } from "@restow/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   registerApiExtension,
@@ -26,8 +26,8 @@ import {
 } from "../../../../apps/api/src/features/snapshots/testing/explorer-fixture.js";
 import type { Actor } from "../../../../apps/api/src/features/tenants/service.js";
 import {
-  type TestDatabaseRoles,
   provisionTestRoles,
+  type TestDatabaseRoles,
 } from "../../../../apps/api/src/testing/database-roles.js";
 import { licenseFeatureGate } from "../license/gate.js";
 import { installTestLicense } from "../license/testing.js";

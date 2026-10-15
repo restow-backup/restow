@@ -30,7 +30,6 @@ import { zodResolver } from "@/lib/form";
 import { SecretReveal } from "../components/secret-reveal";
 import { useCreateWebhook, useRotateSecret, useUpdateWebhook } from "../hooks";
 import {
-  type WebhookFormValues,
   detectWebhookFormat,
   formatFollowsUrl,
   integrationErrorKey,
@@ -39,6 +38,7 @@ import {
   needsNewSecret,
   suggestedFormat,
   toWebhookInput,
+  type WebhookFormValues,
   webhookFormFrom,
   webhookFormSchema,
   webhookPatch,

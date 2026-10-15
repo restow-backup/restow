@@ -13,7 +13,7 @@ import { RunDrawerHost } from "@/features/history/components/run-drawer";
 import { useRunDrawer } from "@/features/history/hooks";
 
 import type { BackupJob, JobKind } from "../api.js";
-import { JobsAccessNote, closedProps, useJobsAccess } from "../components/access-note.js";
+import { closedProps, JobsAccessNote, useJobsAccess } from "../components/access-note.js";
 import { useJobActions } from "../components/job-actions.js";
 import { JobEditor } from "../components/job-editor.js";
 import { JobsTable } from "../components/jobs-table.js";

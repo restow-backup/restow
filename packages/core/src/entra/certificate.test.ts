@@ -1,4 +1,4 @@
-import { X509Certificate, createPrivateKey } from "node:crypto";
+import { createPrivateKey, X509Certificate } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   describeCertificate,

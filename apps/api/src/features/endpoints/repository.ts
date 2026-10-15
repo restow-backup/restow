@@ -1,16 +1,16 @@
 import {
-  type RepositoryAccess,
-  type StorageBackend,
   endpointPrefix,
+  type RepositoryAccess,
   resticBinary,
   resticCacheBase,
+  type StorageBackend,
   withRepository,
 } from "@restow/core";
 import {
+  acquireEndpointRepositoryLock,
   type Database,
   type Endpoint,
   EndpointRepositoryBusyError,
-  acquireEndpointRepositoryLock,
   secrets,
 } from "@restow/db";
 import { and, eq } from "drizzle-orm";

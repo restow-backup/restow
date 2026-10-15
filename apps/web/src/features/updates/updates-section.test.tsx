@@ -9,13 +9,11 @@ import {
   CHECK_ERROR_CODES,
   type CheckError,
   type CheckErrorCode,
-  type UpdatesView,
   idleMaintenance,
+  type UpdatesView,
 } from "./api";
 import { updatesRefetchInterval } from "./hooks";
 import {
-  type Mounted,
-  NOW,
   blur,
   buttonByText,
   click,
@@ -23,8 +21,10 @@ import {
   flush,
   iso,
   json,
+  type Mounted,
   maintenanceFixture,
   mount,
+  NOW,
   problem,
   releaseFixture,
   routedFetch,

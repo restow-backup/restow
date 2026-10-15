@@ -69,7 +69,7 @@ const TIMEOUTS = {
 const IMAGE_BY_DIGEST = /^[a-z0-9][a-z0-9._/:-]{0,199}@sha256:[0-9a-f]{64}$/;
 const SIGNER_IDENTITY =
   /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/\.github\/workflows\/[A-Za-z0-9._-]+@refs\/tags\/v[0-9A-Za-z.-]+$/;
-const OIDC_ISSUER = /^https:\/\/[a-z0-9.-]+(?:\/[A-Za-z0-9._\/-]*)?$/;
+const OIDC_ISSUER = /^https:\/\/[a-z0-9.-]+(?:\/[A-Za-z0-9._/-]*)?$/;
 
 export interface CliDockerOpsOptions {
   runner: CommandRunner;

@@ -57,28 +57,28 @@ import { pathToFileURL } from "node:url";
  *   LOG_LEVEL                    debug | info | warn | error (default info)
  */
 import {
+  createLogger,
   EnvKeyProvider,
   type KeyProvider,
+  kekFromBase64,
   LocalStorageBackend,
+  parseLogLevel,
   S3StorageBackend,
   type StorageBackend,
   type StorageTargets,
   type TenantKeyring,
-  createLogger,
-  kekFromBase64,
-  parseLogLevel,
 } from "@restow/core";
 import {
-  ServiceHeartbeatReporter,
   assertDatabaseRoles,
   clearRestartRequests,
   createDb,
   grantQueueAccess,
   heartbeatStore,
   retryConcurrentSetup,
+  ServiceHeartbeatReporter,
   safeErrorMessage,
 } from "@restow/db";
-import { PRODUCT_NAME_ENV, configureProductName } from "@restow/i18n";
+import { configureProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
 import PgBoss from "pg-boss";
 import { grantContinuation } from "./continuation.js";
 import { configureDefaultStorage } from "./default-storage.js";
@@ -87,16 +87,16 @@ import { configureEntraApp } from "./entra-app.js";
 import { extensionHandlers, extensionRetentionTasks } from "./extensions.js";
 import { registerAuditAnchor } from "./handlers/audit-anchor.js";
 import {
-  HandlerRegistry,
-  PgSecretReader,
-  TenantCache,
-  TenantConcurrencyLimiter,
-  type WorkerRuntime,
   createWorkHandler,
+  HandlerRegistry,
   loadTenantKeyring,
   mirrorTenantKeys,
+  PgSecretReader,
   resolveTenantStorage,
+  TenantCache,
+  TenantConcurrencyLimiter,
   tenantRunner,
+  type WorkerRuntime,
   withTenantTx,
 } from "./handlers/framework.js";
 import { handlers } from "./handlers/index.js";
@@ -105,7 +105,7 @@ import { retentionTasks } from "./handlers/retention.js";
 import { emitJobWebhook, webhooksHandler } from "./handlers/webhooks.js";
 import { startManifestConversion } from "./manifest-conversion.js";
 import { startPveMaintenance } from "./pve/maintenance.js";
-import { QUEUE_NAMES, pgBossQueueOptions, queuePriority } from "./queues.js";
+import { pgBossQueueOptions, QUEUE_NAMES, queuePriority } from "./queues.js";
 import { raiseJobFinished } from "./reporting.js";
 
 type Env = Record<string, string | undefined>;

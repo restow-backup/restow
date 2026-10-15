@@ -6,11 +6,11 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import {
-  OBJECTS_NAV_COMMAND_ID,
-  type PaletteAction,
   buildPaletteGroups,
   commandValue,
+  OBJECTS_NAV_COMMAND_ID,
   objectGroup,
+  type PaletteAction,
 } from "@/components/command-palette/commands";
 import { isModifierShortcut } from "@/components/command-palette/shortcut";
 import { useSignOut } from "@/components/layout/use-sign-out";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type ReadinessReportFact, endpointReadiness, endpointVerifyOverdue } from "./readiness.js";
+import { endpointReadiness, endpointVerifyOverdue, type ReadinessReportFact } from "./readiness.js";
 
 const at = (iso: string) => new Date(iso);
 const SNAPSHOT = "a".repeat(64);

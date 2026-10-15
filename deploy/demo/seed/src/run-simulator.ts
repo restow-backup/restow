@@ -2,17 +2,17 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AgentApi } from "./agent-api.js";
 import type { AgentStateEntry } from "./agent-state.js";
 import { ApiRequestError } from "./http-client.js";
-import { type Rng, mulberry32 } from "./prng.js";
+import { mulberry32, type Rng } from "./prng.js";
 import {
-  type MachineSlot,
-  type SimConfig,
   backoffMs,
   finishOf,
   initialSlots,
   interruptedFinish,
+  type MachineSlot,
   nextToStart,
   planRun,
   restAfterRun,
+  type SimConfig,
 } from "./run-sim.js";
 
 /**

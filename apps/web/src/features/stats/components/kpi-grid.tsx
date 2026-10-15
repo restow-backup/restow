@@ -15,11 +15,11 @@ import { type KpiDelta, KpiTile } from "@/components/kit";
 
 import type { KpiName, StatsOverview } from "../api.js";
 import {
+  dedupFigures,
+  dedupUnavailableReason,
   KPI_SPECS,
   type KpiFormat,
   type KpiSpec,
-  dedupFigures,
-  dedupUnavailableReason,
   kpiChange,
 } from "../presenters.js";
 import { type StatsFormat, useStatsFormat } from "../use-stats-format.js";

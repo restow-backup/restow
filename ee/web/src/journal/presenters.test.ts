@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { JournalSetup } from "./api";
 import {
-  GUIDE_STEPS,
-  STATUS_TONE,
   checklistItems,
+  GUIDE_STEPS,
   guideOpenByDefault,
   isNotSetUp,
   receiverStatus,
+  STATUS_TONE,
 } from "./presenters";
 
 function setup(overrides: Partial<JournalSetup["requirements"]> = {}): JournalSetup {

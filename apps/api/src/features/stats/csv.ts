@@ -1,9 +1,9 @@
 import {
   type DatasetName,
+  isUnavailable,
   KPI_NAMES,
   type StatsDto,
   type UnavailableReason,
-  isUnavailable,
 } from "./dto.js";
 
 /**

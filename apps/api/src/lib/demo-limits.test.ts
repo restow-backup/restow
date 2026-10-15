@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  assertDemoRestoreBudgetOk,
+  assertDemoRestoreSizeOk,
   DEMO_DAILY_RESTORE_BYTES,
   DEMO_DAILY_RESTORE_ITEMS,
   DEMO_MAX_RESTORE_BYTES,
-  assertDemoRestoreBudgetOk,
-  assertDemoRestoreSizeOk,
   recordDemoRestoreUsage,
   resetDemoRestoreBudgetForTests,
 } from "./demo-limits.js";

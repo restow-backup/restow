@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { SetupItem, SetupWidget } from "@/features/dashboard/api";
 
 import {
-  type DismissStorage,
   canSeeStart,
+  type DismissStorage,
   justCompleted,
   notNeededOffer,
   readStartDismissed,

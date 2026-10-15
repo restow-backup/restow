@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import {
   Document,
-  type Pair,
-  Scalar,
-  YAMLMap,
-  YAMLSeq,
   isMap,
   isScalar,
   isSeq,
+  type Pair,
   parseDocument,
+  Scalar,
+  YAMLMap,
+  YAMLSeq,
 } from "yaml";
 import {
   MANAGED_MOUNTS_KEY,

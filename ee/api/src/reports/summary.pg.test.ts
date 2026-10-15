@@ -9,8 +9,8 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   createDb,
+  type Database,
   license,
   notifications,
   providers,
@@ -26,8 +26,8 @@ import {
 } from "../../../../apps/api/src/features/snapshots/testing/explorer-fixture.js";
 import type { NotificationMessage, Notifier } from "../../../../apps/api/src/notify.js";
 import {
-  type TestDatabaseRoles,
   provisionTestRoles,
+  type TestDatabaseRoles,
 } from "../../../../apps/api/src/testing/database-roles.js";
 
 const DATABASE = "restow_ee_reports_test";

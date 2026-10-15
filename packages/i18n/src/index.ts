@@ -1,8 +1,4 @@
 import i18next, { type i18n } from "i18next";
-
-import { normalizeProductName, productName } from "./branding.js";
-import { PortableIcu } from "./icu.js";
-
 import accountsDe from "../resources/de/accounts.json" with { type: "json" };
 import archiveDe from "../resources/de/archive.json" with { type: "json" };
 import auditDe from "../resources/de/audit.json" with { type: "json" };
@@ -37,7 +33,6 @@ import uiDe from "../resources/de/ui.json" with { type: "json" };
 import updatesDe from "../resources/de/updates.json" with { type: "json" };
 import verifyDe from "../resources/de/verify.json" with { type: "json" };
 import warningsDe from "../resources/de/warnings.json" with { type: "json" };
-
 import accountsEn from "../resources/en/accounts.json" with { type: "json" };
 import archiveEn from "../resources/en/archive.json" with { type: "json" };
 import auditEn from "../resources/en/audit.json" with { type: "json" };
@@ -72,6 +67,8 @@ import uiEn from "../resources/en/ui.json" with { type: "json" };
 import updatesEn from "../resources/en/updates.json" with { type: "json" };
 import verifyEn from "../resources/en/verify.json" with { type: "json" };
 import warningsEn from "../resources/en/warnings.json" with { type: "json" };
+import { normalizeProductName, productName } from "./branding.js";
+import { PortableIcu } from "./icu.js";
 
 /**
  * Translation namespaces. Each maps to one JSON file per language under
@@ -264,14 +261,14 @@ export function createI18n(options: CreateI18nOptions = {}): i18n {
   return instance;
 }
 
-export { FAILURE_TEXT_PARAMS, failureVariables } from "./failures.js";
-export type { FailureTextParam, FailureTextValue } from "./failures.js";
 export {
-  DEFAULT_PRODUCT_NAME,
-  MAX_PRODUCT_NAME_LENGTH,
-  PRODUCT_NAME_ENV,
   applyProductNameToInstance,
   configureProductName,
+  DEFAULT_PRODUCT_NAME,
+  MAX_PRODUCT_NAME_LENGTH,
   normalizeProductName,
+  PRODUCT_NAME_ENV,
   productName,
 } from "./branding.js";
+export type { FailureTextParam, FailureTextValue } from "./failures.js";
+export { FAILURE_TEXT_PARAMS, failureVariables } from "./failures.js";

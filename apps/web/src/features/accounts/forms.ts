@@ -1,7 +1,7 @@
 import type { DefaultValues, FieldError } from "react-hook-form";
 import { z } from "zod";
 
-import { type TenantRole, isTenantRole } from "@/lib/api";
+import { isTenantRole, type TenantRole } from "@/lib/api";
 import { PASSWORD_MIN_LENGTH } from "@/lib/password";
 
 /**

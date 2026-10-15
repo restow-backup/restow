@@ -44,10 +44,10 @@ import {
   useStatsSearch,
 } from "./hooks.js";
 import {
+  previousPeriodDays,
   type ResolvedPeriod,
   type StatsScope,
   type StatsSearch,
-  previousPeriodDays,
 } from "./period.js";
 import { boundsToDays, dedupFigures } from "./presenters.js";
 import { type StatsFormat, useStatsFormat } from "./use-stats-format.js";

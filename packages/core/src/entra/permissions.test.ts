@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  decodeJwtClaims,
+  diffPermissions,
   GRAPH_APPLICATION_PERMISSIONS,
   OPTIONAL_PERMISSIONS,
   REQUIRED_PERMISSIONS,
-  decodeJwtClaims,
-  diffPermissions,
   rolesFromAccessToken,
 } from "./permissions.js";
 

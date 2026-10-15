@@ -18,17 +18,17 @@ import { Switch } from "@/components/ui/switch";
 import { MountPathHints } from "@/features/installation/sections/mount-paths";
 import { NfsPathOffer } from "@/features/installation/sections/nfs-path-offer";
 import {
+  fieldMessageKey,
   HETZNER_LOCATIONS,
   type HetznerLocation,
-  PRESET_DEFAULTS,
-  type S3Preset,
-  S3_PRESETS,
-  type StoredLocation,
-  type TargetFormValues,
-  fieldMessageKey,
   hetznerEndpoint,
   hetznerLocationForEndpoint,
   needsCredentialsAgain,
+  PRESET_DEFAULTS,
+  S3_PRESETS,
+  type S3Preset,
+  type StoredLocation,
+  type TargetFormValues,
 } from "../forms";
 import type { EditableKind } from "../types";
 

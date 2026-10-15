@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { AuditEntry } from "../api";
 import type { AuditFormat } from "../hooks";
 import { formatDetails } from "../presenters";
-import { CopyButton, actorText } from "./actor";
+import { actorText, CopyButton } from "./actor";
 
 /**
  * Everything recorded for one entry, including the hash values that tie it
@@ -93,7 +93,11 @@ function HashValue({
   value,
   label,
   format,
-}: { value: string; label: string; format: AuditFormat }) {
+}: {
+  value: string;
+  label: string;
+  format: AuditFormat;
+}) {
   return (
     <span className="flex items-start gap-1">
       <code className="min-w-0 flex-1 select-all break-all font-mono text-xs leading-5">

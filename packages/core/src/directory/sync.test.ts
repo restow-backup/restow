@@ -3,7 +3,7 @@ import { batchEnvelope, createFakeGraph, graphError } from "../graph/testing/fak
 import fixture from "../graph/testing/fixtures/users-delta.json" with { type: "json" };
 import type { ProtectionConfig } from "./config.js";
 import { DEFAULT_PROTECTION_RULES, normalizeRules } from "./rules.js";
-import { MemoryDirectoryRepository, latestPerUser, syncDirectory } from "./sync.js";
+import { latestPerUser, MemoryDirectoryRepository, syncDirectory } from "./sync.js";
 
 type SubAnswer = { status: number; body?: unknown };
 
@@ -109,7 +109,7 @@ describe("syncDirectory", () => {
     // Guests are never probed; members are, both probes in one $batch.
     const batches = graph.callsTo("POST", "/$batch");
     expect(batches).toHaveLength(1);
-    const probed = (batches[0]?.json as { requests: { url: string }[] }).requests.map((r) =>
+    const probed = (batches[0].json as { requests: { url: string }[] }).requests.map((r) =>
       r.url.replace(/\?.*$/, ""),
     );
     expect(probed.sort()).toEqual([

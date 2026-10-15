@@ -3,14 +3,13 @@ import { dirname } from "node:path";
 import { AgentApi } from "./agent-api.js";
 import { nextRunFor, serializeState } from "./agent-state.js";
 import type { Logger } from "./api-seed.js";
-import { ENDPOINT_PLAN, type RunWindow, backdateRuns, databaseNow } from "./backdate.js";
+import { backdateRuns, databaseNow, ENDPOINT_PLAN, type RunWindow } from "./backdate.js";
 import { SimAgent } from "./endpoint-agent.js";
 import {
-  DEMO_MACHINES,
-  type DemoMachine,
   applyOps,
   assertEmptyRoots,
-  hostPath,
+  DEMO_MACHINES,
+  type DemoMachine,
   planEndpointHistory,
   screenshotsIn,
 } from "./endpoint-files.js";

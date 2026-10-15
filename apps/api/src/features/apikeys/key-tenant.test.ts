@@ -3,7 +3,7 @@ import { featureUnavailable } from "../../lib/features.js";
 import { ProblemError } from "../../problem.js";
 import { TENANT_ID } from "../../routes/v1/testing/keys.js";
 import { type ScriptedDb, scriptedDb } from "../../routes/v1/testing/scripted-db.js";
-import { type KeyTenantDeps, isWriteMethod, resolveKeyTenant } from "./key-tenant.js";
+import { isWriteMethod, type KeyTenantDeps, resolveKeyTenant } from "./key-tenant.js";
 
 /**
  * The tenant rules every API-key surface shares: the integration API and the

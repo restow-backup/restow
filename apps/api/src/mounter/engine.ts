@@ -5,9 +5,9 @@ import type { UpdateActor } from "../updater/protocol.js";
 import type { Redactor } from "../updater/redact.js";
 import type { MountOps } from "./ops.js";
 import {
-  OverrideError,
   conflictsOf,
   managedMountsOf,
+  OverrideError,
   renderOverride,
   volumeKeyOf,
 } from "./override.js";
@@ -16,19 +16,19 @@ import {
   MOUNT_PROTOCOLS,
   MOUNT_SERVICES,
   MOUNT_STEPS,
+  type MounterBlocker,
+  type MounterCapabilities,
+  type MounterErrorCode,
   type MountFailureCode,
   type MountSpec,
   type MountStepId,
   type MountStepStatus,
   type MountView,
-  type MounterBlocker,
-  type MounterCapabilities,
-  type MounterErrorCode,
+  mountPathOf,
   type Operation,
   type OperationKind,
   type OperationStatus,
   type TestResult,
-  mountPathOf,
 } from "./protocol.js";
 import type { OperationStore } from "./store.js";
 

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { scrubModeForCadence, validateCadence } from "./cadence.js";
 import { DEFAULT_SCHEDULE_TIMEZONE, RECOMMENDED_SCHEDULE_DEFAULTS } from "./defaults.js";
 import {
-  type ExistingSchedule,
   coversRecommendation,
+  type ExistingSchedule,
   kindsOfRecommendations,
   missingRecommendedSchedules,
   recommendedSchedules,

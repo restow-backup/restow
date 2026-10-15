@@ -28,8 +28,8 @@ import {
 } from "../../../../apps/api/src/extensions.js";
 import { dropDatabase } from "../../../../apps/api/src/features/snapshots/testing/explorer-fixture.js";
 import {
-  type TestDatabaseRoles,
   provisionTestRoles,
+  type TestDatabaseRoles,
 } from "../../../../apps/api/src/testing/database-roles.js";
 import { MICROSOFT_DISCOVERY_URL, MICROSOFT_PROVIDER_ID, microsoftSignIn } from "./config.js";
 

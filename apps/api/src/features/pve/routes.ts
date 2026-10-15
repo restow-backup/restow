@@ -1,7 +1,7 @@
 import { type Context, Hono } from "hono";
 import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
-import { type TenantEnv, requireTenant } from "../../middleware/session.js";
+import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import {

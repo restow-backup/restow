@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act } from "react";
 import type * as React from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -42,7 +42,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       to,
       className,
       children,
-    }: { to: string; className?: string; children: React.ReactNode }) => (
+    }: {
+      to: string;
+      className?: string;
+      children: React.ReactNode;
+    }) => (
       <a href={to} className={className}>
         {children}
       </a>

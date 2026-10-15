@@ -29,6 +29,7 @@ import { randomUUID } from "node:crypto";
 import {
   type BackupJobPayload,
   ClientCredentialsTokenProvider,
+  capWarnings,
   type DirectoryCommit,
   DirectoryConflictError,
   type DirectoryJobPayload,
@@ -37,32 +38,31 @@ import {
   type DirectoryRepository,
   type DirectorySnapshot,
   type DirectorySyncResult,
-  FULL_SYNC_INTERVAL_MS,
   type FailureRecord,
   FetchGraphClient,
   type FirstBackupCandidate,
+  FULL_SYNC_INTERVAL_MS,
+  fullSyncReason,
   type GraphClient,
   JobAbortedError,
   type KnownObject,
   type Logger,
   type NewlyActiveObject,
   type PlannedObject,
-  type ThrottleInfo,
-  capWarnings,
-  fullSyncReason,
   protectionVersion,
   readDirectoryState,
   readProtection,
   selectFirstBackupTargets,
   syncDirectory,
+  type ThrottleInfo,
   toTokenCallback,
   writeDirectoryState,
 } from "@restow/core";
 import {
   type FailureRecordJson,
-  type Source,
   jobs,
   protectedObjects,
+  type Source,
   safeErrorMessage,
   snapshots,
   sources,
@@ -77,17 +77,17 @@ import { pgBossExecutor } from "../pg-boss-tx.js";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
 import { sendOptionsFor } from "../queues.js";
 import {
-  PhaseRecorder,
-  RUNTIME_KEY,
   appCredentialsForSource,
   bossFor,
   mergeJobPayload,
+  PhaseRecorder,
+  RUNTIME_KEY,
 } from "./backup.js";
 import {
   InvalidPayloadError,
   type JobHandler,
-  type WorkerJobContext,
   tenantRunner,
+  type WorkerJobContext,
 } from "./framework.js";
 
 type Env = Record<string, string | undefined>;
