@@ -50,8 +50,13 @@ import {
 const HOUR_MS = 60 * 60 * 1000;
 /** Runs older than this are not judged any more (an outage or an upgrade must not flood). */
 export const SUSPICION_WINDOW_MS = 72 * HOUR_MS;
-/** How many runs one pass judges per kind at most; the next pass takes the rest. */
+/** How many runs are read at a time per kind; a pass reads more while its time lasts. */
 const BATCH = 200;
+/**
+ * How long one pass keeps reading further batches. Every kind gets its first batch; the rest
+ * waits for the next pass, and what ages out of the window meanwhile is logged as a warning.
+ */
+export const SUSPICION_PASS_BUDGET_MS = 60 * 1000;
 /** Earlier runs read for a baseline beyond the ones it keeps (some may be suspicious). */
 const HISTORY_SLACK = 20;
 export const SUSPICION_PASS_INTERVAL_MS = 2 * 60 * 1000;
@@ -76,6 +81,8 @@ interface RunRow extends Record<string, unknown> {
   extra: string | null;
   verdict: string | null;
   false_alarm_at: Date | string | null;
+  /** The run's time as Postgres has it (microseconds, which a Date would cut). */
+  cursor_at: string;
 }
 
 /** Where each kind's backup runs live, as SQL fragments over the alias `r`. */
@@ -134,7 +141,7 @@ const SOURCES: readonly KindSource[] = [
 ];
 
 function select(source: KindSource, where: SQL, order: SQL, limit: number): SQL {
-  return sql`SELECT ${source.columns}, s.verdict, s.false_alarm_at
+  return sql`SELECT ${source.columns}, ${source.time}::text AS cursor_at, s.verdict, s.false_alarm_at
     FROM ${source.from}
     LEFT JOIN restore_point_suspicions s ON s.object_kind = ${source.kind} AND s.run_id = ${source.run}
     WHERE ${source.eligible} AND ${where}
@@ -146,17 +153,56 @@ function dateOf(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
 
-/** The runs of the last {@link SUSPICION_WINDOW_MS} that were not judged yet, oldest first. */
-async function candidatesOf(db: Database, source: KindSource, since: Date): Promise<RunRow[]> {
-  const result = await db.execute<RunRow>(
-    select(
-      source,
-      sql`${source.time} >= ${since} AND s.id IS NULL`,
-      sql`${source.time} ASC`,
-      BATCH,
-    ),
-  );
+/** Where the previous batch of a kind ended. */
+export interface Cursor {
+  at: string;
+  runId: string;
+}
+
+/**
+ * The runs of the last {@link SUSPICION_WINDOW_MS} that were not judged yet, oldest first, after
+ * `after` (a run that could not be judged is not read again in the same pass). Read through the
+ * partial index of each run table whose predicate is `eligible` (migration perf_indexes).
+ */
+async function candidatesOf(
+  db: Database,
+  source: KindSource,
+  since: Date,
+  after: Cursor | null,
+  limit: number,
+): Promise<RunRow[]> {
+  const result = await db.execute<RunRow>(candidatesQuery(source.kind, since, after, limit));
   return result.rows;
+}
+
+/** The query of {@link candidatesOf} (exported for the test of its query plan). */
+export function candidatesQuery(
+  kind: SuspicionObjectKind,
+  since: Date,
+  after: Cursor | null,
+  limit: number,
+): SQL {
+  const source = SOURCES.find((candidate) => candidate.kind === kind) as KindSource;
+  const from = after
+    ? sql` AND (${source.time}, ${source.run}) > (${after.at}::timestamptz, ${after.runId}::uuid)`
+    : sql``;
+  return select(
+    source,
+    sql`${source.time} >= ${since}${from} AND s.id IS NULL`,
+    sql`${source.time} ASC, ${source.run} ASC`,
+    limit,
+  );
+}
+
+/** The eligible runs that left the window unjudged since about the previous pass. */
+async function agedOutOf(db: Database, source: KindSource, since: Date): Promise<number> {
+  const previous = new Date(since.getTime() - SUSPICION_PASS_INTERVAL_MS);
+  const result = await db.execute<{ count: number }>(sql`SELECT count(*)::int AS count
+    FROM ${source.from}
+    LEFT JOIN restore_point_suspicions s ON s.object_kind = ${source.kind} AND s.run_id = ${source.run}
+    WHERE ${source.eligible} AND ${source.time} >= ${previous} AND ${source.time} < ${since}
+      AND s.id IS NULL`);
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 /**
@@ -361,23 +407,46 @@ export async function loadRansomwareSettings(providerDb: Database): Promise<Rans
   return resolveRansomwareSettings(row?.value ?? {});
 }
 
-/** One pass over every kind. */
-export async function suspicionPass(deps: SuspicionDeps): Promise<SuspicionPassSummary> {
-  const summary: SuspicionPassSummary = { judged: 0, suspicious: 0, alerts: 0 };
-  const settings = await loadRansomwareSettings(deps.providerDb);
-  if (!settings.enabled) {
-    return summary;
-  }
-  const now = deps.runtime.now();
-  const since = new Date(now.getTime() - SUSPICION_WINDOW_MS);
-  for (const source of SOURCES) {
-    const rows = await candidatesOf(deps.providerDb, source, since);
+/** How much one pass reads: the batch size and the time it may take (tests make both small). */
+export interface SuspicionPassLimits {
+  batch: number;
+  budgetMs: number;
+  /** Milliseconds of a monotonic clock. */
+  clock: () => number;
+}
+
+const DEFAULT_LIMITS: SuspicionPassLimits = {
+  batch: BATCH,
+  budgetMs: SUSPICION_PASS_BUDGET_MS,
+  clock: () => performance.now(),
+};
+
+/** What the pass shares between the kinds. */
+interface PassContext {
+  deps: SuspicionDeps;
+  settings: RansomwareSettings;
+  now: Date;
+  since: Date;
+  limits: SuspicionPassLimits;
+  deadline: number;
+  summary: SuspicionPassSummary;
+}
+
+/**
+ * Judge the waiting runs of one kind, batch after batch while the pass has time (the first batch
+ * always). False when the worker shuts down.
+ */
+async function judgeKind(context: PassContext, source: KindSource): Promise<boolean> {
+  const { deps, limits } = context;
+  let after: Cursor | null = null;
+  for (;;) {
+    const rows = await candidatesOf(deps.providerDb, source, context.since, after, limits.batch);
     for (const row of rows) {
       if (deps.runtime.shutdownSignal.aborted) {
-        return summary;
+        return false;
       }
       try {
-        await judge(deps, source, row, settings, now, summary);
+        await judge(deps, source, row, context.settings, context.now, context.summary);
       } catch (error) {
         // One run that cannot be judged must not hold up the others; it is tried again next pass.
         deps.runtime.logger.warn("a restore point could not be judged", {
@@ -387,6 +456,45 @@ export async function suspicionPass(deps: SuspicionDeps): Promise<SuspicionPassS
         });
       }
     }
+    const last = rows.at(-1);
+    if (!last || rows.length < limits.batch || limits.clock() >= context.deadline) {
+      return true;
+    }
+    after = { at: last.cursor_at, runId: last.run_id };
+  }
+}
+
+/** Say so when restore points left the window before they could be judged. */
+async function warnAgedOut(context: PassContext, source: KindSource): Promise<void> {
+  const count = await agedOutOf(context.deps.providerDb, source, context.since);
+  if (count > 0) {
+    context.deps.runtime.logger.warn("restore points left the ransomware window unjudged", {
+      kind: source.kind,
+      count,
+      windowHours: SUSPICION_WINDOW_MS / HOUR_MS,
+    });
+  }
+}
+
+/** One pass over every kind. */
+export async function suspicionPass(
+  deps: SuspicionDeps,
+  limits: SuspicionPassLimits = DEFAULT_LIMITS,
+): Promise<SuspicionPassSummary> {
+  const summary: SuspicionPassSummary = { judged: 0, suspicious: 0, alerts: 0 };
+  const settings = await loadRansomwareSettings(deps.providerDb);
+  if (!settings.enabled) {
+    return summary;
+  }
+  const now = deps.runtime.now();
+  const since = new Date(now.getTime() - SUSPICION_WINDOW_MS);
+  const deadline = limits.clock() + limits.budgetMs;
+  const context: PassContext = { deps, settings, now, since, limits, deadline, summary };
+  for (const source of SOURCES) {
+    if (!(await judgeKind(context, source))) {
+      return summary;
+    }
+    await warnAgedOut(context, source);
   }
   return summary;
 }
