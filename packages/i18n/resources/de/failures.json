@@ -97,6 +97,10 @@
         "title": "Dieser Benutzer hat kein OneDrive, das {appName} erreichen kann",
         "why": "Microsoft meldet, dass das OneDrive dieses Benutzers nicht existiert. Übliche Gründe: Der Benutzer hat keine Lizenz mit OneDrive, oder OneDrive wurde nie bereitgestellt, weil der Benutzer es nie geöffnet hat."
       },
+      "site_unavailable": {
+        "title": "Diese SharePoint-Website gibt es nicht mehr",
+        "why": "Microsoft meldet, dass die SharePoint-Website nicht mehr existiert: Sie wurde gelöscht, oder ihre Adresse hat sich geändert. Vorhandene Sicherungsstände bleiben wiederherstellbar. Die nächste Verzeichnissynchronisierung kennzeichnet die Website als verwaist."
+      },
       "throttled": {
         "title": "Microsoft bremst {appName} aus (Drosselung)",
         "why": "Microsoft begrenzt, wie viele Anfragen eine App an einen Mandanten oder ein Postfach schicken darf, und hat \"zu viele Anfragen\" geantwortet{has_retryAfterSeconds, select, yes { und {appName} gebeten, {retryAfterSeconds, plural, one {# Sekunde} other {# Sekunden}} zu warten} other {}}. Das ist bei großen Backups normal und kein Fehler auf Ihrer Seite. {appName} wartet wie verlangt, fügt eine eigene Verzögerung hinzu und überlastet Microsoft nicht."

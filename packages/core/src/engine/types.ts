@@ -19,8 +19,11 @@ import type { StorageBackend } from "../storage/backend.js";
 // Job vocabulary (mirrors the enums in @restow/db; keep in lock-step).
 // ---------------------------------------------------------------------------
 
-/** What a protected object is: an Exchange mailbox, a OneDrive, or an IMAP account. */
-export type ProtectedObjectKind = "mailbox" | "onedrive" | "imap";
+/**
+ * What a protected object is: an Exchange mailbox, a OneDrive, an IMAP
+ * account, or a SharePoint Online site (its libraries and lists).
+ */
+export type ProtectedObjectKind = "mailbox" | "onedrive" | "imap" | "site";
 
 /** The pg-boss queues (docs/ARCHITECTURE.md, Job-System). */
 export type JobQueue =

@@ -21,6 +21,7 @@ export * from "./audit-chain.js";
 export * from "./backup/exchange/index.js";
 export * from "./backup/imap/index.js";
 export * from "./backup/onedrive/index.js";
+export * from "./backup/sharepoint/index.js";
 // Backup jobs: schedules, the configuration written to machines, the migration, job retention
 export * from "./backup-jobs/index.js";
 export * from "./chunker.js";
