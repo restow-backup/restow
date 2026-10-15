@@ -438,6 +438,41 @@ export const pveSnapshots = pgTable(
   ],
 );
 
+/** One file or folder of a prepared ZIP download, as resolved in the container's restic snapshot. */
+export type PveDownloadItem = { path: string; type: "file" | "dir" };
+
+/**
+ * A ZIP download of files of a container restore point (docs/PVE.md, "File
+ * restore"), prepared by `POST /api/v1/pve/snapshots/:id/downloads` and
+ * streamed once by `GET .../downloads/:downloadId`. Like the endpoint
+ * downloads: the selection is checked against the restic snapshot when it is
+ * prepared and kept here (no paths in a URL), the row is bound to the admin
+ * who asked, expires after a few minutes and can be started exactly once.
+ */
+export const pveDownloads = pgTable(
+  "pve_downloads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => pveSnapshots.id, { onDelete: "cascade" }),
+    selection: jsonb("selection").$type<PveDownloadItem[]>().notNull(),
+    // better-auth user id of the admin who prepared it; only that admin can start it.
+    createdBy: text("created_by").references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // Set by the request that started the download; a second one finds it gone.
+    startedAt: timestamp("started_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("pve_downloads_snapshot_idx").on(t.snapshotId),
+    index("pve_downloads_expires_idx").on(t.expiresAt),
+  ],
+);
+
 export type PveCluster = typeof pveClusters.$inferSelect;
 export type PveNode = typeof pveNodes.$inferSelect;
 export type PveGuest = typeof pveGuests.$inferSelect;
@@ -447,3 +482,4 @@ export type PveRun = typeof pveRuns.$inferSelect;
 export type PveRunBlock = typeof pveRunBlocks.$inferSelect;
 export type PveSnapshot = typeof pveSnapshots.$inferSelect;
 export type PveEnrollmentToken = typeof pveEnrollmentTokens.$inferSelect;
+export type PveDownload = typeof pveDownloads.$inferSelect;
