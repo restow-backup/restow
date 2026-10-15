@@ -13,7 +13,7 @@ import { useLiveState } from "./provider";
  * Whether the page is moving on its own, said plainly: "Live" with how long ago the server last
  * spoke, "Connecting", or, when the connection is lost, "Not connected, retrying" (and the pages
  * poll more slowly meanwhile). It is the one indicator of the one connection of the tab and
- * sits in the top bar; nothing shows where the channel is off (a tab in the background, "All
+ * sits in the top bar; nothing shows where the channel is off (closed for the background, "All
  * tenants", a person who is not an administrator).
  *
  * The age counts up locally, once a second, without a request, and stays out of the live region

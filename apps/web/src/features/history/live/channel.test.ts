@@ -5,6 +5,7 @@ import type { EventStreamOptions, ServerEvent, StreamStatus } from "@/features/j
 import {
   acquireChannel,
   type ChannelDeps,
+  HIDDEN_CLOSE_MS,
   LiveChannel,
   resetChannelsForTesting,
   STALE_AFTER_MS,
@@ -17,12 +18,14 @@ import {
 function harness(initiallyVisible = true) {
   let clock = 1_000_000;
   let visible = initiallyVisible;
+  let frozen = false;
   const visibilityListeners = new Set<() => void>();
   const streams: { options: EventStreamOptions; closed: boolean }[] = [];
   const stale: { reason: string; gapMs: number }[] = [];
   const events: ServerEvent[] = [];
   const visibility: VisibilitySource = {
     isVisible: () => visible,
+    isFrozen: () => frozen,
     subscribe: (listener) => {
       visibilityListeners.add(listener);
       return () => visibilityListeners.delete(listener);
@@ -60,6 +63,10 @@ function harness(initiallyVisible = true) {
     },
     setVisible(next: boolean) {
       visible = next;
+      for (const listener of [...visibilityListeners]) listener();
+    },
+    setFrozen(next: boolean) {
+      frozen = next;
       for (const listener of [...visibilityListeners]) listener();
     },
   };
@@ -161,33 +168,82 @@ describe("the live channel of a tab", () => {
     channel.stop();
   });
 
-  it("closes the stream when the tab goes to the background and reopens it on return", () => {
+  it("keeps the stream open while the tab is in the background for a while", () => {
     const h = harness();
     const channel = h.create();
     channel.start();
     h.status(0, "open");
     h.setVisible(false);
-    expect(h.streams[0]?.closed).toBe(true);
-    expect(channel.getState().status).toBe("paused");
-    expect(h.open()).toHaveLength(0);
-    h.advance(5_000);
+    expect(h.streams[0]?.closed).toBe(false);
+    expect(channel.getState().status).toBe("open");
+    // Keep-alives keep coming; nothing is replaced, nothing has to be read again on return.
+    for (let i = 0; i < 4; i++) {
+      h.advance(15_000);
+      h.activity();
+    }
     h.setVisible(true);
-    expect(h.streams).toHaveLength(2);
+    expect(h.streams).toHaveLength(1);
     expect(h.open()).toHaveLength(1);
-    expect(channel.getState().status).toBe("connecting");
-    // A short stay in the background is covered by the snapshot of the new stream.
+    expect(channel.getState().status).toBe("open");
     expect(h.stale).toEqual([]);
     channel.stop();
   });
 
-  it("asks the page to read again on return from a long time in the background", () => {
+  it("gives the stream back after a long time in the background and catches up on return", () => {
     const h = harness();
     const channel = h.create();
     channel.start();
     h.status(0, "open");
     h.setVisible(false);
-    h.advance(STALE_AFTER_MS + 1);
+    for (let elapsed = 0; elapsed < HIDDEN_CLOSE_MS; elapsed += 15_000) {
+      h.advance(15_000);
+      h.activity();
+    }
+    expect(h.open()).toHaveLength(1);
+    h.advance(2 * WATCHDOG_MS);
+    expect(h.open()).toHaveLength(0);
+    expect(channel.getState().status).toBe("paused");
+    h.advance(60_000);
     h.setVisible(true);
+    expect(h.streams).toHaveLength(2);
+    expect(h.open()).toHaveLength(1);
+    expect(channel.getState().status).toBe("connecting");
+    // Read again for the time the stream was closed, not for the whole absence.
+    expect(h.stale).toHaveLength(1);
+    expect(h.stale[0]?.reason).toBe("background");
+    expect(h.stale[0]?.gapMs).toBeGreaterThanOrEqual(60_000);
+    expect(h.stale[0]?.gapMs).toBeLessThan(60_000 + 2 * WATCHDOG_MS);
+    channel.stop();
+  });
+
+  it("closes the stream at once when the browser freezes the tab, and reopens it when it is back", () => {
+    const h = harness();
+    const channel = h.create();
+    channel.start();
+    h.status(0, "open");
+    h.setVisible(false);
+    h.setFrozen(true);
+    expect(h.open()).toHaveLength(0);
+    expect(channel.getState().status).toBe("paused");
+    h.advance(5_000);
+    // Resumed but still in the background: it stays closed until somebody looks.
+    h.setFrozen(false);
+    expect(h.open()).toHaveLength(0);
+    h.setVisible(true);
+    expect(h.open()).toHaveLength(1);
+    // A short freeze is covered by the snapshot of the new stream.
+    expect(h.stale).toEqual([]);
+    channel.stop();
+  });
+
+  it("asks the page to read again on return from a long freeze", () => {
+    const h = harness();
+    const channel = h.create();
+    channel.start();
+    h.status(0, "open");
+    h.setFrozen(true);
+    h.advance(STALE_AFTER_MS + 1);
+    h.setFrozen(false);
     expect(h.stale).toEqual([{ reason: "background", gapMs: STALE_AFTER_MS + 1 }]);
     channel.stop();
   });

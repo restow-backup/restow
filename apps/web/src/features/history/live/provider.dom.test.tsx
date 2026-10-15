@@ -105,9 +105,11 @@ const probe = (id: string) => document.querySelector<HTMLElement>(`[data-probe="
 
 function visibility(initial = true) {
   let visible = initial;
+  let frozen = false;
   const listeners = new Set<() => void>();
   const source: VisibilitySource = {
     isVisible: () => visible,
+    isFrozen: () => frozen,
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -117,6 +119,12 @@ function visibility(initial = true) {
     source,
     set(next: boolean) {
       visible = next;
+      act(() => {
+        for (const listener of listeners) listener();
+      });
+    },
+    freeze(next: boolean) {
+      frozen = next;
       act(() => {
         for (const listener of listeners) listener();
       });
@@ -177,7 +185,7 @@ describe("one connection per tab", () => {
     expect(s.alive()).toHaveLength(0);
   });
 
-  it("closes the stream in the background and opens it again, with a new snapshot, on return", async () => {
+  it("keeps the stream in the background, and opens it again, with a new snapshot, after a freeze", async () => {
     const s = streams();
     const tab = visibility(true);
     await show(<Probe id="a" />, { open: s.open, visibility: tab.source });
@@ -185,8 +193,14 @@ describe("one connection per tab", () => {
     expect(probe("a")?.getAttribute("data-open")).toBe("true");
     tab.set(false);
     await flush(1);
+    // Somebody looks at another tab for a moment: the run goes on moving, nothing reloads on return.
+    expect(s.alive()).toHaveLength(1);
+    expect(probe("a")?.getAttribute("data-status")).toBe("open");
+    tab.freeze(true);
+    await flush(1);
     expect(s.alive()).toHaveLength(0);
     expect(probe("a")?.getAttribute("data-status")).toBe("paused");
+    tab.freeze(false);
     tab.set(true);
     await flush(1);
     expect(s.opened).toHaveLength(2);
@@ -344,13 +358,14 @@ describe("the indicator", () => {
     expect(indicator()?.textContent).toContain("Live updates are off");
   });
 
-  it("is named, and shows nothing where the channel is off or the tab is in the background", async () => {
+  it("is named, and shows nothing where the channel is off or paused in the background", async () => {
     const s = streams();
     const tab = visibility(true);
     await show(<LiveIndicator />, { open: s.open, visibility: tab.source });
     await s.status("open");
     expect(indicator()?.getAttribute("aria-label")).toBe("Live updates");
     tab.set(false);
+    tab.freeze(true);
     await flush(1);
     expect(indicator()).toBeNull();
     await mounted?.unmount();
