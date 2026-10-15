@@ -1,6 +1,10 @@
 import { type AnyRoute, createRoute } from "@tanstack/react-router";
 import { ListChecks } from "lucide-react";
 
+import {
+  useEndpointJobsActivity,
+  useMailJobsActivity,
+} from "@/features/history/live/activity-badges";
 import { redirectTo } from "@/features/redirects";
 import { jobsTarget } from "@/features/redirects/targets";
 import type { NavItem } from "@/lib/navigation";
@@ -60,6 +64,7 @@ export const navItems: NavItem[] = [
     roles: [...JOB_ROLES],
     group: "mail",
     order: 10,
+    useBadge: useMailJobsActivity,
   },
   {
     id: "endpoint-jobs",
@@ -70,5 +75,6 @@ export const navItems: NavItem[] = [
     roles: [...JOB_ROLES],
     group: "endpoints",
     order: 10,
+    useBadge: useEndpointJobsActivity,
   },
 ];
