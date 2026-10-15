@@ -514,6 +514,31 @@ describe("toStoredBackupResult", () => {
     });
   });
 
+  it("keeps the chunk writer's numbers for the compression and deduplication signals", () => {
+    const chunkStats = {
+      bytesIn: 9000,
+      bytesNew: 4096,
+      bytesSampled: 4096,
+      bytesSampledCompressed: 900,
+    };
+    const stored = toStoredBackupResult({
+      result: {
+        snapshotId: "snap-1",
+        sequence: 4,
+        objectsWritten: 12,
+        objectsTotal: 900,
+        bytes: 4096,
+        failures: [],
+        chunkStats,
+      },
+      repairedCopies: 0,
+      verifyJobId: null,
+      throttle: { waits: 0, totalWaitMs: 0 },
+      completedAt: new Date(Date.UTC(2026, 0, 1)),
+    });
+    expect(stored.chunkStats).toEqual(chunkStats);
+  });
+
   it("keeps the activity report of an engine that sends one, for the ransomware judgement", () => {
     const activity = {
       v: 1,

@@ -320,6 +320,8 @@ export type EndpointRunStats = {
   filesChanged?: number;
   filesUnmodified?: number;
   dataAdded?: number;
+  /** What restic stored for the new data, compressed (agent 0.4.x and newer). */
+  dataAddedPacked?: number;
   totalFilesProcessed?: number;
   totalBytesProcessed?: number;
   /** What the backup changed (agent 0.4.0 and newer): @restow/core `ActivityReport`. */

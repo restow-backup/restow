@@ -262,7 +262,7 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	out.SnapshotID = res.SnapshotID
 	out.Stats = &api.Stats{
 		FilesNew: s.FilesNew, FilesChanged: s.FilesChanged, FilesUnmodified: s.FilesUnmodified, DataAdded: s.DataAdded,
-		TotalFilesProcessed: s.TotalFilesProcessed, TotalBytesProcessed: s.TotalBytesProcessed,
+		DataAddedPacked: s.DataAddedPacked, TotalFilesProcessed: s.TotalFilesProcessed, TotalBytesProcessed: s.TotalBytesProcessed,
 	}
 	for _, e := range res.Errors {
 		out.Errors = append(out.Errors, api.RunError{Path: e.Path, Message: e.Message, Code: e.During})

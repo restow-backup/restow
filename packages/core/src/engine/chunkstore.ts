@@ -24,6 +24,12 @@
  * claim is taken before the next await. A pack therefore never holds one id
  * twice.
  *
+ * The chunk store does not compress. For the ransomware signals (docs/RANSOMWARE.md,
+ * "Compression and deduplication") the writer estimates how well the new data would compress:
+ * the first {@link COMPRESSION_SAMPLE_WINDOW} bytes of every new chunk are deflated at the
+ * fastest level, up to {@link COMPRESSION_SAMPLE_BUDGET} bytes per writer
+ * (`bytesSampled`, `bytesSampledCompressed`). Encrypted data stays at its size.
+ *
  * Read path: locate the stored ids through the index, fetch the packs (primary
  * first, copies as fallback), open them with PackReader and decrypt with the
  * key version each chunk's header names. The fallback covers damage, not only
@@ -35,6 +41,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
+import { deflateRawSync } from "node:zlib";
 import { chunk, chunkAll, MAX_CHUNK_SIZE } from "../chunker.js";
 import { storedId } from "../chunkId.js";
 import { encryptChunk, sha256 } from "../crypto.js";
@@ -86,6 +93,37 @@ export interface ChunkWriterStats {
   bytesNew: number;
   bytesSealed: number;
   packsWritten: number;
+  /** Plaintext bytes of new chunks deflated for the compressibility estimate. */
+  bytesSampled: number;
+  /** What those bytes deflated to. */
+  bytesSampledCompressed: number;
+}
+
+/** Bytes of each new chunk the compressibility estimate deflates. */
+export const COMPRESSION_SAMPLE_WINDOW = 16 * 1024;
+/** Bytes one writer deflates at most for the estimate (a few hundred ms of CPU). */
+export const COMPRESSION_SAMPLE_BUDGET = 64 * 1024 * 1024;
+
+/**
+ * The run statistics of a chunk writer the ransomware signals read: bytes chunked, bytes new
+ * after deduplication, and the compressibility sample.
+ */
+export interface ChunkDataStats {
+  /** Plaintext bytes the run chunked (processed). */
+  readonly bytesIn: number;
+  /** Of those, the bytes of chunks that were not stored yet. */
+  readonly bytesNew: number;
+  readonly bytesSampled: number;
+  readonly bytesSampledCompressed: number;
+}
+
+export function chunkDataStats(stats: ChunkWriterStats): ChunkDataStats {
+  return {
+    bytesIn: stats.bytesIn,
+    bytesNew: stats.bytesNew,
+    bytesSampled: stats.bytesSampled,
+    bytesSampledCompressed: stats.bytesSampledCompressed,
+  };
 }
 
 export interface ChunkWriterOptions {
@@ -238,6 +276,8 @@ export class ChunkWriter {
     bytesNew: 0,
     bytesSealed: 0,
     packsWritten: 0,
+    bytesSampled: 0,
+    bytesSampledCompressed: 0,
   };
   /** Stored ids (hex) known to exist: in the index, or claimed by a write of this writer. */
   private readonly known = new Set<string>();
@@ -307,11 +347,22 @@ export class ChunkWriter {
       this.stats.chunksNew++;
       this.stats.bytesNew += plaintext.length;
       this.stats.bytesSealed += sealed.length;
+      this.sampleCompression(plaintext);
     }
 
     this.stats.objects++;
     this.stats.bytesIn += size;
     return { size, sha256: objectHash.digest(), chunks, newChunks, newBytes };
+  }
+
+  /** Deflate the head of a new chunk for the compressibility estimate, within the budget. */
+  private sampleCompression(plaintext: Buffer): void {
+    if (this.stats.bytesSampled >= COMPRESSION_SAMPLE_BUDGET || plaintext.length === 0) {
+      return;
+    }
+    const window = plaintext.subarray(0, COMPRESSION_SAMPLE_WINDOW);
+    this.stats.bytesSampled += window.length;
+    this.stats.bytesSampledCompressed += deflateRawSync(window, { level: 1 }).length;
   }
 
   /**

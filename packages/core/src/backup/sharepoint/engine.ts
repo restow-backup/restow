@@ -30,7 +30,7 @@
  */
 import { Readable } from "node:stream";
 import type { Permission } from "@microsoft/microsoft-graph-types";
-import { JobAbortedError } from "../../engine/chunkstore.js";
+import { chunkDataStats, JobAbortedError } from "../../engine/chunkstore.js";
 import { SnapshotWriter } from "../../engine/snapshot.js";
 import type {
   BackupEngine,
@@ -866,6 +866,7 @@ class SiteBackupRun {
       objectsTotal: committed.itemCount,
       bytes,
       failures: this.failures,
+      chunkStats: chunkDataStats(writer.chunks.stats),
     };
   }
 }

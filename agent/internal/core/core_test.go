@@ -42,7 +42,7 @@ func TestBackupTaskEndToEnd(t *testing.T) {
 	if fin.SnapshotID != "aaaa000000000000000000000000000000000000000000000000000000000000" {
 		t.Fatalf("snapshot id %q", fin.SnapshotID)
 	}
-	if fin.Stats == nil || fin.Stats.FilesNew != 2 || fin.Stats.FilesChanged != 1 || fin.Stats.DataAdded != 4096 || fin.Stats.TotalBytesProcessed != 300 {
+	if fin.Stats == nil || fin.Stats.FilesNew != 2 || fin.Stats.FilesChanged != 1 || fin.Stats.DataAdded != 4096 || fin.Stats.DataAddedPacked != 1024 || fin.Stats.TotalBytesProcessed != 300 {
 		t.Fatalf("stats: %+v", fin.Stats)
 	}
 	if fin.Errors == nil {

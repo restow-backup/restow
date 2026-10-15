@@ -37,7 +37,9 @@ type ctResult struct {
 	// UnreadablePaths names the first unreadable items for the restore point.
 	UnreadablePaths []string `json:"unreadablePaths,omitempty"`
 	BytesAdded      uint64   `json:"bytesAdded"`
-	TotalBytes      uint64   `json:"totalBytes"`
+	// BytesAddedPacked is what restic stored for the new data, compressed.
+	BytesAddedPacked uint64 `json:"bytesAddedPacked,omitempty"`
+	TotalBytes       uint64 `json:"totalBytes"`
 	// Restic's file counts, for the ransomware signals of the server.
 	FilesNew     uint64  `json:"filesNew,omitempty"`
 	FilesChanged uint64  `json:"filesChanged,omitempty"`
@@ -215,6 +217,7 @@ func readResticBackupOutput(r io.Reader, res *ctResult, reporter *ProgressReport
 			MessageType string `json:"message_type"`
 			SnapshotID  string `json:"snapshot_id"`
 			DataAdded   uint64 `json:"data_added"`
+			DataPacked  uint64 `json:"data_added_packed"`
 			TotalBytes  uint64 `json:"total_bytes_processed"`
 			BytesDone   uint64 `json:"bytes_done"`
 			StatusTotal uint64 `json:"total_bytes"`
@@ -238,6 +241,7 @@ func readResticBackupOutput(r io.Reader, res *ctResult, reporter *ProgressReport
 			reporter.Set(p)
 		case "summary":
 			res.SnapshotID, res.BytesAdded, res.TotalBytes = m.SnapshotID, m.DataAdded, m.TotalBytes
+			res.BytesAddedPacked = m.DataPacked
 			res.FilesNew, res.FilesChanged, res.FilesTotal = m.FilesNew, m.FilesChange, m.FilesTotal
 		default:
 			others.Write(line)
@@ -353,7 +357,7 @@ func (p *Provider) commitContainer(ctx context.Context, job *jobState) (uint64, 
 	}
 	commit, err := p.server.Commit(ctx, job.RunID, CommitRequest{CommitID: job.CommitID, GuestConfig: res.GuestConfig,
 		FirewallConfig: res.Firewall, ResticSnapshotID: res.SnapshotID, ResticBytesAdded: res.BytesAdded,
-		ResticTotalBytes: res.TotalBytes, ResticRoot: res.Root,
+		ResticBytesAddedPacked: res.BytesAddedPacked, ResticTotalBytes: res.TotalBytes, ResticRoot: res.Root,
 		ConsistencyRemark: res.Remark, ResticUnreadable: res.Unreadable,
 		ResticUnreadablePaths: res.UnreadablePaths, ResticFilesNew: res.FilesNew,
 		ResticFilesChanged: res.FilesChanged, ResticFilesTotal: res.FilesTotal})

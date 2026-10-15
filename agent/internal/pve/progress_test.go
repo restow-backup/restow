@@ -114,7 +114,7 @@ func TestReadResticBackupOutputTurnsStatusIntoProgress(t *testing.T) {
 	others := readResticBackupOutput(strings.NewReader(out), &res, r)
 	r.Stop()
 	if res.SnapshotID == "" || res.TotalBytes != 4194304 || res.BytesAdded != 2097152 ||
-		res.FilesNew != 3 || res.FilesChanged != 2 || res.FilesTotal != 40 {
+		res.FilesNew != 3 || res.FilesChanged != 2 || res.FilesTotal != 40 || res.BytesAddedPacked != 1048576 {
 		t.Fatalf("summary: %+v", res)
 	}
 	if len(got) != 1 || got[0].BytesDone != 2000 || got[0].BytesTotal == nil || *got[0].BytesTotal != 4000 {

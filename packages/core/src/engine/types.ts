@@ -16,6 +16,7 @@ import type { FailureCause } from "../failures/types.js";
 import type { ManifestObject } from "../manifest.js";
 import type { ActivityReport } from "../ransomware/activity.js";
 import type { StorageBackend } from "../storage/backend.js";
+import type { ChunkDataStats } from "./chunkstore.js";
 
 // ---------------------------------------------------------------------------
 // Job vocabulary (mirrors the enums in @restow/db; keep in lock-step).
@@ -432,6 +433,11 @@ export interface BackupResult {
    * (OneDrive) report it; absent for a first backup and for engines that cannot.
    */
   readonly activity?: ActivityReport;
+  /**
+   * Bytes chunked, new after deduplication, and the compressibility sample of the run's chunk
+   * writer, for the compression and deduplication signals (docs/RANSOMWARE.md).
+   */
+  readonly chunkStats?: ChunkDataStats;
 }
 
 export interface BackupEngine<Db = unknown> {

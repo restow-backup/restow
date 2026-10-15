@@ -13,6 +13,8 @@ import {
   ChunkReader,
   ChunkStoreFailedError,
   ChunkWriter,
+  COMPRESSION_SAMPLE_BUDGET,
+  chunkDataStats,
   JobAbortedError,
   MissingChunkError,
   RestoreIntegrityError,
@@ -125,6 +127,32 @@ describe("ChunkWriter / ChunkReader through the local pack store", () => {
 
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
+  });
+
+  it("estimates how well the new data compresses and how much of it was new", async () => {
+    const text = Buffer.from("invoice line, quantity 1, price 10.00 EUR\n".repeat(20_000));
+    const plain = writer();
+    await plain.write(text);
+    // The same text again is deduplicated: processed, but neither new nor sampled again.
+    await plain.write(text);
+    const plainStats = await plain.close();
+    expect(plainStats.bytesIn).toBe(text.length * 2);
+    expect(plainStats.bytesNew).toBeLessThanOrEqual(text.length);
+    expect(plainStats.bytesSampled).toBeGreaterThan(0);
+    expect(plainStats.bytesSampledCompressed / plainStats.bytesSampled).toBeLessThan(0.2);
+    expect(chunkDataStats(plainStats)).toEqual({
+      bytesIn: plainStats.bytesIn,
+      bytesNew: plainStats.bytesNew,
+      bytesSampled: plainStats.bytesSampled,
+      bytesSampledCompressed: plainStats.bytesSampledCompressed,
+    });
+
+    const random = writer();
+    await random.write(randomBytes(MAX_CHUNK_SIZE * 3));
+    const randomStats = await random.close();
+    expect(randomStats.bytesNew).toBe(randomStats.bytesIn);
+    expect(randomStats.bytesSampledCompressed / randomStats.bytesSampled).toBeGreaterThan(0.99);
+    expect(randomStats.bytesSampled).toBeLessThanOrEqual(COMPRESSION_SAMPLE_BUDGET);
   });
 
   it("round-trips objects byte for byte and records packs and chunks", async () => {

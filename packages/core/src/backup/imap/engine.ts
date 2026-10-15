@@ -29,7 +29,7 @@
  * every few hundred messages, so a restarted worker resumes without
  * downloading anything it already stored.
  */
-import { JobAbortedError } from "../../engine/chunkstore.js";
+import { chunkDataStats, JobAbortedError } from "../../engine/chunkstore.js";
 import { SnapshotWriter } from "../../engine/snapshot.js";
 import type {
   BackupEngine,
@@ -219,6 +219,7 @@ export class ImapBackupEngine implements BackupEngine {
       objectsTotal: committed.itemCount,
       bytes: writer.chunks.stats.bytesNew,
       failures: run.failures,
+      chunkStats: chunkDataStats(writer.chunks.stats),
     };
   }
 }

@@ -70,7 +70,7 @@ backup)
     exit 3 ;;
   esac
   echo '{"message_type":"status","percent_done":1,"total_files":3,"files_done":3,"total_bytes":300,"bytes_done":300}'
-  echo '{"message_type":"summary","files_new":2,"files_changed":1,"files_unmodified":0,"data_added":4096,"total_files_processed":3,"total_bytes_processed":300,"snapshot_id":"aaaa000000000000000000000000000000000000000000000000000000000000"}'
+  echo '{"message_type":"summary","files_new":2,"files_changed":1,"files_unmodified":0,"data_added":4096,"data_added_packed":1024,"total_files_processed":3,"total_bytes_processed":300,"snapshot_id":"aaaa000000000000000000000000000000000000000000000000000000000000"}'
   exit 0 ;;
 diff)
   printf '%s\n' "$@" > "$FAKE_DIR/diff-args.txt"

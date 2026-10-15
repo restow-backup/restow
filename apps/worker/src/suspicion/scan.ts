@@ -225,6 +225,10 @@ async function describeObject(
   }
 }
 
+function percent(ratio: number): string {
+  return `${Math.round(ratio * 1000) / 10} %`;
+}
+
 /** One finding in English, for the notification's message and the log. */
 export function describeFinding(finding: SuspicionFinding): string {
   const examples = finding.examples?.length ? ` (${finding.examples.slice(0, 3).join(", ")})` : "";
@@ -244,6 +248,10 @@ export function describeFinding(finding: SuspicionFinding): string {
       return `${finding.value} files named like a ransom note${examples}`;
     case "high_entropy":
       return `${finding.value} sampled files look encrypted${examples}`;
+    case "incompressible_data":
+      return `${finding.bytes ?? 0} bytes of new data do not compress (${percent(finding.value)} of their size), usually ${percent(finding.baseline ?? 0)}`;
+    case "dedup_collapse":
+      return `${percent(finding.value)} of the data read was new (nothing deduplicated), usually ${percent(finding.baseline ?? 0)}`;
   }
 }
 
@@ -299,6 +307,9 @@ async function judge(
           itemsChanged: current.itemsChanged,
           itemsTotal: current.itemsTotal,
           bytesAdded: current.bytesAdded,
+          newBytes: current.newBytes ?? null,
+          compressionRatio: current.compressionRatio ?? null,
+          dedupRatio: current.dedupRatio ?? null,
         },
         signaturesVersion: result.signaturesVersion,
       })

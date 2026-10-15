@@ -18,7 +18,7 @@
  * builds it from the source's Entra tenant and the app credentials), everything
  * else comes from the JobContext (engine/types.ts).
  */
-import { JobAbortedError } from "../../engine/chunkstore.js";
+import { chunkDataStats, JobAbortedError } from "../../engine/chunkstore.js";
 import { SnapshotWriter } from "../../engine/snapshot.js";
 import type {
   BackupEngine,
@@ -184,6 +184,7 @@ export class ExchangeBackupEngine<Db = unknown> implements BackupEngine<Db> {
         objectsTotal: committed.itemCount,
         bytes: writer.chunks.stats.bytesNew,
         failures: [...run.failures],
+        chunkStats: chunkDataStats(writer.chunks.stats),
         resumed,
         counters: { ...run.counters },
       };

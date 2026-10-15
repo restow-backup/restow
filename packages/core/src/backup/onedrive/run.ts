@@ -11,7 +11,7 @@
  */
 import type { Readable } from "node:stream";
 import type { DriveItemVersion } from "@microsoft/microsoft-graph-types";
-import { JobAbortedError, type WrittenObject } from "../../engine/chunkstore.js";
+import { chunkDataStats, JobAbortedError, type WrittenObject } from "../../engine/chunkstore.js";
 import type { SnapshotWriter } from "../../engine/snapshot.js";
 import type { BackupResult, ItemFailureRecord, JobContext, Logger } from "../../engine/types.js";
 import { classifyFailure, FailureError } from "../../failures/classify.js";
@@ -635,6 +635,7 @@ export class DriveBackupRun {
       objectsTotal: committed.itemCount,
       bytes,
       failures: this.failures,
+      chunkStats: chunkDataStats(this.writer.chunks.stats),
       ...(activity ? { activity } : {}),
     };
   }

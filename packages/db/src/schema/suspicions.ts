@@ -26,6 +26,7 @@ export type SuspicionFindingJson = {
   value: number;
   threshold: number;
   baseline?: number;
+  bytes?: number;
   share?: number;
   examples?: string[];
 };
@@ -35,6 +36,12 @@ export type SuspicionMetricsJson = {
   itemsChanged: number | null;
   itemsTotal: number | null;
   bytesAdded: number | null;
+  /** The raw new data the ratios were measured on (judgements from 0.4.x on). */
+  newBytes?: number | null;
+  /** Stored / raw of the new data; near 1.0: it does not compress. */
+  compressionRatio?: number | null;
+  /** New / processed; near 1.0: nothing deduplicated. */
+  dedupRatio?: number | null;
 };
 
 /**
