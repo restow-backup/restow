@@ -10,8 +10,10 @@ import { BlockList, isIP } from "node:net";
  * link-local network, no container-network names. Otherwise the storage test
  * would let a customer scan the provider's internal network (SSRF).
  *
- * Provider admins operate the installation and may use any endpoint, e.g. a
- * Garage node on the compose network (`http://garage:3900`).
+ * Provider admins operate the installation and may use any HTTPS endpoint,
+ * e.g. a Garage node on the compose network behind TLS. Plain HTTP is refused
+ * for everyone by `validateStorageLocation` (@restow/core) unless the host is
+ * loopback or S3_ALLOW_INSECURE is set (docs/STORAGE.md, "Encrypted transport").
  */
 
 export type EndpointPolicyViolation =

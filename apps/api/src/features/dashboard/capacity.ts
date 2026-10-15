@@ -60,7 +60,9 @@ export function capacityPath(
 ): string | null {
   let location: StorageLocation | null = null;
   if (facts.ownTarget) {
-    const validated = validateStorageLocation(facts.ownTarget.kind, facts.ownTarget.config);
+    const validated = validateStorageLocation(facts.ownTarget.kind, facts.ownTarget.config, {
+      allowInsecureEndpoint: true,
+    });
     location = validated.ok ? validated.location : null;
   } else if (soleTenantOnDefault) {
     location = installationDefault;

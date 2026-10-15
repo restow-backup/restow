@@ -51,6 +51,8 @@ export interface DefaultStorageView {
   source: "database" | "environment";
   kind: "local" | "s3" | null;
   location: string | null;
+  /** Plain HTTP over a network (set before 0.4.0): still used, should move to HTTPS. */
+  insecureEndpoint?: boolean;
   copyLocation: string | null;
   /** Why the default is not usable, as the server says it. */
   problem: string | null;

@@ -1,5 +1,6 @@
 import {
   describeStorageLocation,
+  endpointNeedsHttps,
   filesystemObjectLock,
   type InstallationDefaultStorage,
   type ObjectLockCapability,
@@ -41,6 +42,11 @@ export interface S3TargetDto {
   forcePathStyle: boolean;
   hasCredentials: boolean;
   accessKeyIdHint: string | null;
+  /**
+   * Plain HTTP over a network, saved before 0.4.0: still used, but the
+   * operator should switch it to HTTPS (docs/STORAGE.md).
+   */
+  insecureEndpoint: boolean;
 }
 
 export interface StorageTargetDto {
@@ -206,9 +212,13 @@ export function recordsOf(row: Pick<StorageTarget, "config">): TargetConfigRecor
   return (row.config ?? {}) as TargetConfigRecords;
 }
 
-/** The stored addressing, or null when it no longer validates. */
+/**
+ * The stored addressing, or null when it no longer validates. Plain HTTP to
+ * another host stays valid here (a target saved before 0.4.0); new and
+ * changed addressing must use HTTPS (`endpointNeedsHttps`, docs/STORAGE.md).
+ */
 export function locationOf(row: Pick<StorageTarget, "kind" | "config">): StorageLocation | null {
-  const validation = validateStorageLocation(row.kind, row.config);
+  const validation = validateStorageLocation(row.kind, row.config, { allowInsecureEndpoint: true });
   return validation.ok ? validation.location : null;
 }
 
@@ -253,6 +263,7 @@ export function toTargetDto(
             forcePathStyle: location.forcePathStyle,
             hasCredentials: row.secretRef !== null,
             accessKeyIdHint: records.accessKeyIdHint ?? null,
+            insecureEndpoint: endpointNeedsHttps(location),
           }
         : null,
     configValid: location !== null,

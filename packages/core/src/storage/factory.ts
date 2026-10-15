@@ -96,6 +96,8 @@ export type StorageConfigReason =
   | "prefix"
   | "endpoint_url"
   | "endpoint_protocol"
+  /** Plain `http://` to a host other than loopback (see {@link endpointTransport}). */
+  | "endpoint_insecure"
   | "endpoint_path"
   | "endpoint_credentials"
   | "region"
@@ -275,9 +277,74 @@ function validatePrefix(
   return trimmed;
 }
 
+/**
+ * How an S3 endpoint is reached: `https`, plain HTTP on this machine
+ * (`loopback_http`: `localhost`, `127.0.0.1`, `[::1]`, nothing leaves the
+ * host) or plain HTTP over a network (`insecure_http`: credentials and data
+ * travel unencrypted). Null for AWS (no endpoint) and for anything that is
+ * not an http(s) URL.
+ */
+export type EndpointTransport = "https" | "loopback_http" | "insecure_http";
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+export function endpointTransport(endpoint: string | null | undefined): EndpointTransport | null {
+  if (!endpoint) {
+    return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return null;
+  }
+  if (url.protocol === "https:") {
+    return "https";
+  }
+  if (url.protocol !== "http:") {
+    return null;
+  }
+  return LOOPBACK_HOSTS.has(url.hostname.toLowerCase()) ? "loopback_http" : "insecure_http";
+}
+
+/**
+ * S3_ALLOW_INSECURE=true: plain HTTP to any S3 endpoint is accepted, for test
+ * and development setups whose object store sits on the compose network
+ * (`http://garage:3900`). Never for production (docs/STORAGE.md).
+ */
+export function insecureS3Allowed(values: Env = process.env): boolean {
+  const value = values.S3_ALLOW_INSECURE?.trim().toLowerCase();
+  return value === "true" || value === "1";
+}
+
+/**
+ * True when a location talks plain HTTP over a network without the
+ * S3_ALLOW_INSECURE opt-in: a target saved before 0.4.0 required HTTPS. It
+ * keeps working (backups must not stop on an upgrade), but the operator is
+ * asked to switch it to HTTPS, and it cannot be saved again as it is.
+ */
+export function endpointNeedsHttps(location: StorageLocation, values: Env = process.env): boolean {
+  return (
+    location.kind === "s3" &&
+    endpointTransport(location.endpoint) === "insecure_http" &&
+    !insecureS3Allowed(values)
+  );
+}
+
+export interface StorageValidationOptions {
+  /**
+   * Accept plain `http://` to any host. Set when reading addressing that was
+   * already saved (a stored target, a saved or environment default), so an
+   * upgrade never makes an existing repository unusable; new and changed
+   * addressing is validated without it. Defaults to {@link insecureS3Allowed}.
+   */
+  readonly allowInsecureEndpoint?: boolean;
+}
+
 function validateEndpoint(
   raw: string | null | undefined,
   issues: StorageConfigIssue[],
+  allowInsecure: boolean,
 ): string | null {
   if (raw === undefined) {
     return null;
@@ -302,6 +369,10 @@ function validateEndpoint(
   }
   if ((url.pathname !== "/" && url.pathname !== "") || url.search || url.hash) {
     issues.push({ field: "endpoint", reason: "endpoint_path" });
+    return null;
+  }
+  if (!allowInsecure && endpointTransport(url.origin) === "insecure_http") {
+    issues.push({ field: "endpoint", reason: "endpoint_insecure" });
     return null;
   }
   return url.origin;
@@ -336,9 +407,15 @@ function validateForcePathStyle(
 /**
  * Validate and normalize the addressing of a target. Unknown keys in `config`
  * (health records, capability detection) are ignored, so a stored row can be
- * passed as is.
+ * passed as is. A stored row is read with `allowInsecureEndpoint` (see
+ * {@link StorageValidationOptions}); new or changed addressing without it.
  */
-export function validateStorageLocation(kind: unknown, config: unknown): StorageLocationValidation {
+export function validateStorageLocation(
+  kind: unknown,
+  config: unknown,
+  options: StorageValidationOptions = {},
+): StorageLocationValidation {
+  const allowInsecure = options.allowInsecureEndpoint ?? insecureS3Allowed();
   const issues: StorageConfigIssue[] = [];
   const record = isRecord(config) ? config : {};
 
@@ -352,7 +429,11 @@ export function validateStorageLocation(kind: unknown, config: unknown): Storage
   if (kind === "s3") {
     const bucket = validateBucket(optionalString(record, "bucket", issues), issues);
     const prefix = validatePrefix(optionalString(record, "prefix", issues), issues);
-    const endpoint = validateEndpoint(optionalString(record, "endpoint", issues), issues);
+    const endpoint = validateEndpoint(
+      optionalString(record, "endpoint", issues),
+      issues,
+      allowInsecure,
+    );
     const region = validateRegion(optionalString(record, "region", issues), issues);
     const forcePathStyle = validateForcePathStyle(record.forcePathStyle, endpoint, issues);
     return bucket !== null && issues.length === 0
@@ -573,7 +654,9 @@ export function openStorageLocation(
     prefix: location.prefix ?? undefined,
     client,
   });
-  const insecure = location.endpoint?.startsWith("http:") ?? false;
+  // Plain HTTP on loopback never leaves the machine; over a network it is
+  // only possible for a target saved before 0.4.0 or with S3_ALLOW_INSECURE.
+  const insecure = endpointTransport(location.endpoint) === "insecure_http";
   return {
     location,
     backend,
@@ -608,7 +691,10 @@ export async function openStorageTarget(
   secrets: SecretReader,
   options: Omit<OpenStorageOptions, "credentials"> = {},
 ): Promise<OpenedStorageTarget> {
-  const validation = validateStorageLocation(record.kind, record.config);
+  // Saved addressing: plain HTTP stays usable (see endpointNeedsHttps).
+  const validation = validateStorageLocation(record.kind, record.config, {
+    allowInsecureEndpoint: true,
+  });
   if (!validation.ok) {
     const fields = validation.issues.map((issue) => `${issue.field}: ${issue.reason}`).join(", ");
     throw new StorageTargetError(
@@ -656,7 +742,10 @@ function env(values: Env, name: string): string | undefined {
 }
 
 function requireValid(kind: StorageKind, config: Record<string, unknown>, variable: string) {
-  const validation = validateStorageLocation(kind, config);
+  // The environment is the operator's existing configuration: an S3_ENDPOINT
+  // over plain HTTP keeps working after an upgrade and is reported instead
+  // (endpointNeedsHttps, docs/STORAGE.md).
+  const validation = validateStorageLocation(kind, config, { allowInsecureEndpoint: true });
   if (!validation.ok) {
     const fields = validation.issues.map((issue) => `${issue.field}: ${issue.reason}`).join(", ");
     throw new StorageTargetError("invalid_config", `${variable} is invalid (${fields})`);
@@ -1030,7 +1119,10 @@ export type StorageProbeStep = "location" | "write" | "read" | "list" | "delete"
 export type StorageProbeWarning =
   /** A local directory on the container's root filesystem (lost on recreate). */
   | "ephemeral_path"
-  /** An S3 endpoint over plain HTTP: credentials and data travel unencrypted. */
+  /**
+   * An S3 endpoint over plain HTTP to another host: credentials and data
+   * travel unencrypted (a target saved before 0.4.0, or S3_ALLOW_INSECURE).
+   */
   | "insecure_endpoint"
   /** The probe object could not be removed again. */
   | "cleanup_failed";

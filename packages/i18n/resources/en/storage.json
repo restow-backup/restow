@@ -79,6 +79,7 @@
     "description": "The primary receives every backup first; copies receive the same data at another location.",
     "managedByProvider": "Server paths are managed by the provider admin.",
     "retiredLocation": "Stands in for the environment's default repository from before it was replaced. It has no location of its own to test.",
+    "insecureEndpoint": "This repository uses plain HTTP: access keys and backups travel unencrypted. {appName} keeps using it, but saving it again requires an https:// endpoint. Switch the storage service to HTTPS and change the endpoint.",
     "singleLocation": {
       "title": "Only one repository",
       "description": "All backups of this tenant are stored in one place. Add a copy repository somewhere else, such as offsite object storage, so a single failure cannot take every copy (3-2-1 rule)."
@@ -283,7 +284,8 @@
     "bucket_name": "3 to 63 characters: lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit.",
     "prefix": "Letters, digits, dots, underscores, hyphens and slashes only, without empty, . or .. segments.",
     "endpoint_url": "Enter a complete URL, e.g. https://fsn1.your-objectstorage.com.",
-    "endpoint_protocol": "The endpoint must start with https:// (or http://).",
+    "endpoint_protocol": "The endpoint must start with https://.",
+    "endpoint_insecure": "{appName} only connects to S3 over HTTPS: enter an https:// endpoint. Plain http:// is only possible on this machine (localhost, 127.0.0.1, [::1]).",
     "endpoint_path": "Enter only the service address, without a path or bucket name.",
     "endpoint_credentials": "The endpoint must not contain a user name or password.",
     "region": "Letters, digits, hyphens and underscores only.",

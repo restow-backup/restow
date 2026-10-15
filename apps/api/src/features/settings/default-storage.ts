@@ -1,6 +1,7 @@
 import {
   DEFAULT_STORAGE_SECRET_KIND,
   describeStorageLocation,
+  endpointNeedsHttps,
   type InstallationDefaultDocument,
   type InstallationDefaultResolution,
   InstallationDefaultResolver,
@@ -159,6 +160,12 @@ export interface DefaultStorageView {
   kind: StorageLocation["kind"] | null;
   /** A path, or `s3://bucket/prefix (host)`; never credentials. */
   location: string | null;
+  /**
+   * The default that applies talks plain HTTP over a network (saved or set
+   * in the environment before 0.4.0): still used, but it should move to
+   * HTTPS, and saving it again requires HTTPS (docs/STORAGE.md).
+   */
+  insecureEndpoint: boolean;
   /** The environment configures a copy path (STORAGE_COPY_LOCAL_PATH). */
   copyLocation: string | null;
   /** Why the default is not usable (names variables or this page, never a credential). */
@@ -423,7 +430,9 @@ function savedView(document: InstallationDefaultDocument | null): SavedDefaultSt
   if (!document) {
     return null;
   }
-  const validation = validateStorageLocation(document.kind, document.config);
+  const validation = validateStorageLocation(document.kind, document.config, {
+    allowInsecureEndpoint: true,
+  });
   const location = validation.ok ? validation.location : null;
   return {
     kind: document.kind,
@@ -461,6 +470,7 @@ function viewOf(
     source: resolution.source,
     kind: ready?.storage.primary.kind ?? null,
     location: ready ? describeStorageLocation(ready.storage.primary) : null,
+    insecureEndpoint: ready ? endpointNeedsHttps(ready.storage.primary) : false,
     copyLocation: ready?.storage.copy ? describeStorageLocation(ready.storage.copy) : null,
     problem: resolution.status === "unusable" ? resolution.detail : null,
     saved: savedView(ready?.document ?? null),

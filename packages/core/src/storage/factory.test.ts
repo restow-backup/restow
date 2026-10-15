@@ -11,6 +11,9 @@ import {
   DEFAULT_S3_REGION,
   describeStorageLocation,
   detectS3ObjectLock,
+  endpointNeedsHttps,
+  endpointTransport,
+  insecureS3Allowed,
   inspectLocalPath,
   installationDefaultStorage,
   installationProbePrefix,
@@ -146,6 +149,124 @@ describe("validateStorageLocation: s3", () => {
 
   it("rejects unknown kinds", () => {
     expect(issuesOf("ftp", {})).toEqual([{ field: "kind", reason: "unknown_kind" }]);
+  });
+});
+
+describe("plain HTTP endpoints", () => {
+  const strict = { allowInsecureEndpoint: false };
+
+  it.each([
+    ["https://s3.example.com", "https"],
+    ["http://localhost:3900", "loopback_http"],
+    ["http://LOCALHOST", "loopback_http"],
+    ["http://127.0.0.1:9000", "loopback_http"],
+    ["http://[::1]:3900", "loopback_http"],
+    ["http://garage:3900", "insecure_http"],
+    ["http://192.168.1.10:9000", "insecure_http"],
+    ["http://127.0.0.2", "insecure_http"],
+    ["http://localhost.example.com", "insecure_http"],
+    ["ftp://host", null],
+    [null, null],
+  ])("classifies %s as %s", (endpoint, transport) => {
+    expect(endpointTransport(endpoint)).toBe(transport);
+  });
+
+  it.each(["http://garage:3900", "http://192.168.1.10:9000", "http://s3.example.com"])(
+    "refuses new addressing over plain HTTP to another host: %s",
+    (endpoint) => {
+      expect(validateStorageLocation("s3", { bucket: "ok-bucket", endpoint }, strict)).toEqual({
+        ok: false,
+        issues: [{ field: "endpoint", reason: "endpoint_insecure" }],
+      });
+    },
+  );
+
+  it.each(["http://localhost:3900", "http://127.0.0.1:9000", "http://[::1]:3900"])(
+    "accepts plain HTTP on loopback: %s",
+    (endpoint) => {
+      expect(validateStorageLocation("s3", { bucket: "ok-bucket", endpoint }, strict).ok).toBe(
+        true,
+      );
+    },
+  );
+
+  it("accepts saved addressing over plain HTTP, so an upgrade keeps it working", () => {
+    const result = validateStorageLocation(
+      "s3",
+      { bucket: "ok-bucket", endpoint: "http://garage:3900" },
+      { allowInsecureEndpoint: true },
+    );
+    expect(result.ok && result.location).toMatchObject({ endpoint: "http://garage:3900" });
+  });
+
+  it("follows S3_ALLOW_INSECURE when the caller does not decide", () => {
+    const previous = process.env.S3_ALLOW_INSECURE;
+    try {
+      delete process.env.S3_ALLOW_INSECURE;
+      expect(issuesOf("s3", { bucket: "ok-bucket", endpoint: "http://garage:3900" })).toEqual([
+        { field: "endpoint", reason: "endpoint_insecure" },
+      ]);
+      process.env.S3_ALLOW_INSECURE = "true";
+      expect(issuesOf("s3", { bucket: "ok-bucket", endpoint: "http://garage:3900" })).toEqual([]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.S3_ALLOW_INSECURE;
+      } else {
+        process.env.S3_ALLOW_INSECURE = previous;
+      }
+    }
+  });
+
+  it("reads the opt-in", () => {
+    expect(insecureS3Allowed({})).toBe(false);
+    expect(insecureS3Allowed({ S3_ALLOW_INSECURE: "" })).toBe(false);
+    expect(insecureS3Allowed({ S3_ALLOW_INSECURE: "false" })).toBe(false);
+    expect(insecureS3Allowed({ S3_ALLOW_INSECURE: "true" })).toBe(true);
+    expect(insecureS3Allowed({ S3_ALLOW_INSECURE: " TRUE " })).toBe(true);
+    expect(insecureS3Allowed({ S3_ALLOW_INSECURE: "1" })).toBe(true);
+  });
+
+  it("asks to move saved plain HTTP to HTTPS unless the installation opted in", () => {
+    const location = (endpoint: string | null) => ({
+      kind: "s3" as const,
+      bucket: "ok-bucket",
+      prefix: null,
+      endpoint,
+      region: DEFAULT_S3_REGION,
+      forcePathStyle: true,
+    });
+    expect(endpointNeedsHttps(location("http://garage:3900"), {})).toBe(true);
+    expect(endpointNeedsHttps(location("http://garage:3900"), { S3_ALLOW_INSECURE: "true" })).toBe(
+      false,
+    );
+    expect(endpointNeedsHttps(location("http://127.0.0.1:3900"), {})).toBe(false);
+    expect(endpointNeedsHttps(location("https://s3.example.com"), {})).toBe(false);
+    expect(endpointNeedsHttps(location(null), {})).toBe(false);
+    expect(endpointNeedsHttps({ kind: "local", basePath: "/data" }, {})).toBe(false);
+  });
+
+  it("opens a target saved with plain HTTP before 0.4.0", async () => {
+    const secrets = new MemorySecretReader({});
+    const opened = await openStorageTarget(
+      {
+        id: "t",
+        kind: "s3",
+        config: { bucket: "ok-bucket", endpoint: "http://garage:3900" },
+        secretRef: null,
+      },
+      secrets,
+    );
+    expect(opened.location).toMatchObject({ endpoint: "http://garage:3900" });
+  });
+
+  it("keeps an S3_ENDPOINT over plain HTTP from the environment working", () => {
+    const defaults = installationDefaultStorage({
+      STORAGE_TARGET: "s3",
+      S3_BUCKET: "restow",
+      S3_ENDPOINT: "http://garage:3900",
+    });
+    expect(defaults.primary).toMatchObject({ endpoint: "http://garage:3900" });
+    expect(endpointNeedsHttps(defaults.primary, {})).toBe(true);
   });
 });
 

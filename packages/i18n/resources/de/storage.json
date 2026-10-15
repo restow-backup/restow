@@ -79,6 +79,7 @@
     "description": "Das primäre Repository erhält jedes Backup zuerst; Kopien erhalten dieselben Daten an einem anderen Ort.",
     "managedByProvider": "Serverpfade verwaltet der Provider-Admin.",
     "retiredLocation": "Steht für die Speichereinstellungen der Umgebung von vor der Ablösung. Es hat keinen eigenen Ort zum Testen.",
+    "insecureEndpoint": "Dieses Repository nutzt unverschlüsseltes HTTP: Zugangsschlüssel und Backups werden unverschlüsselt übertragen. {appName} nutzt es weiter, zum erneuten Speichern ist aber ein https://-Endpunkt nötig. Stellen Sie den Speicherdienst auf HTTPS um und ändern Sie den Endpunkt.",
     "singleLocation": {
       "title": "Nur ein Repository",
       "description": "Alle Backups dieses Mandanten liegen an einem Ort. Fügen Sie ein Kopie-Repository an einem anderen Ort hinzu, etwa externen Objektspeicher, damit ein einzelner Ausfall nicht alle Kopien trifft (3-2-1-Regel)."
@@ -283,7 +284,8 @@
     "bucket_name": "3 bis 63 Zeichen: Kleinbuchstaben, Ziffern, Punkte und Bindestriche, Beginn und Ende mit Buchstabe oder Ziffer.",
     "prefix": "Nur Buchstaben, Ziffern, Punkte, Unterstriche, Bindestriche und Schrägstriche, ohne leere, . oder .. Abschnitte.",
     "endpoint_url": "Geben Sie eine vollständige URL an, z. B. https://fsn1.your-objectstorage.com.",
-    "endpoint_protocol": "Der Endpunkt muss mit https:// (oder http://) beginnen.",
+    "endpoint_protocol": "Der Endpunkt muss mit https:// beginnen.",
+    "endpoint_insecure": "{appName} verbindet sich mit S3 nur über HTTPS: Geben Sie einen https://-Endpunkt an. Unverschlüsseltes http:// ist nur auf diesem Rechner möglich (localhost, 127.0.0.1, [::1]).",
     "endpoint_path": "Geben Sie nur die Adresse des Dienstes an, ohne Pfad oder Bucket-Namen.",
     "endpoint_credentials": "Der Endpunkt darf keinen Benutzernamen und kein Passwort enthalten.",
     "region": "Nur Buchstaben, Ziffern, Bindestriche und Unterstriche.",

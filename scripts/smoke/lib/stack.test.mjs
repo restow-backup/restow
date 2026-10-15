@@ -99,3 +99,11 @@ test("the release compose hands the stack's .env, the verification key included,
   assert.match(compose, /x-restow-app: &restow-app\n(?:.*\n)*?\s+env_file:\n\s+- \.env\n/);
   assert.match(compose, /\n {2}api:\n {4}<<: \*restow-app\n/);
 });
+
+test("the stack opts in to plain HTTP for the test S3 service on the compose network", () => {
+  withStack((stack) => {
+    // Check 8 creates its target at http://garage:3900; without the opt-in the
+    // api refuses http:// to any host but loopback (docs/STORAGE.md).
+    assert.equal(envOf(stack).S3_ALLOW_INSECURE, "true");
+  });
+});

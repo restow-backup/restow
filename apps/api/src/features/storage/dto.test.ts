@@ -53,12 +53,41 @@ describe("toTargetDto", () => {
         forcePathStyle: false,
         hasCredentials: true,
         accessKeyIdHint: "WXYZ",
+        insecureEndpoint: false,
       },
       configValid: true,
       objectLock: null,
       canManage: true,
     });
     expect(JSON.stringify(dto)).not.toContain("secret");
+  });
+
+  it("keeps a target saved over plain HTTP usable, and asks to move it to HTTPS", () => {
+    const previous = process.env.S3_ALLOW_INSECURE;
+    delete process.env.S3_ALLOW_INSECURE;
+    try {
+      const legacy = row({
+        config: {
+          bucket: "acme-restow",
+          endpoint: "http://garage:3900",
+          forcePathStyle: true,
+        } as StorageTarget["config"],
+      });
+      const dto = toTargetDto(legacy, { isProviderAdmin: true });
+      expect(dto.configValid).toBe(true);
+      expect(dto.s3).toMatchObject({ endpoint: "http://garage:3900", insecureEndpoint: true });
+      const loopback = row({
+        config: {
+          bucket: "acme-restow",
+          endpoint: "http://127.0.0.1:3900",
+        } as StorageTarget["config"],
+      });
+      expect(toTargetDto(loopback, { isProviderAdmin: true }).s3?.insecureEndpoint).toBe(false);
+    } finally {
+      if (previous !== undefined) {
+        process.env.S3_ALLOW_INSECURE = previous;
+      }
+    }
   });
 
   it("says plainly that a filesystem has no WORM, and keeps it with the provider", () => {
