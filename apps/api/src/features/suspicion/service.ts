@@ -332,7 +332,8 @@ export async function releaseRetentionHold(
       actor: actor.label,
       action: SUSPICION_AUDIT_ACTIONS.holdReleased,
       target: objectId,
-      targetType: kind,
+      // The audit log's own name for a mailbox, OneDrive, site or IMAP account.
+      targetType: kind === "m365" ? "protected_object" : kind,
       ip: actor.ip,
       details: {
         objectKind: kind,
