@@ -376,7 +376,8 @@
       "failed": "Sicherung fehlgeschlagen",
       "overdue": "Sicherung überfällig",
       "succeeded": "Sicherung erfolgreich",
-      "suspicious": "Verdächtige Sicherung (Anzeichen von Ransomware)"
+      "suspicious": "Verdächtige Sicherung (Anzeichen von Ransomware)",
+      "suspicious_hold": "Aufbewahrung nach verdächtiger Sicherung weiter angehalten"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen",
@@ -424,7 +425,8 @@
       "failed": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos, Servers oder Clients wurde nicht abgeschlossen.",
       "overdue": "Ein Postfach, OneDrive, IMAP-Konto, Rechner oder Gast (VM oder Container) hatte länger keine erfolgreiche Sicherung, als seine Backup-Jobs vorsehen (doppelter längster Abstand der Zeitpläne, ohne Zeitplan zwei Tage), oder länger als die eigene Frist der Regel. Einmal je Objekt, bis wieder eine Sicherung gelingt.",
       "succeeded": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos oder einer Dateifreigabe ist abgeschlossen. Jeder Lauf, also eher für einen Kanal, der jeden sehen soll.",
-      "suspicious": "Was eine Sicherung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives gesehen hat, sieht nach Ransomware aus: weit mehr Änderungen als üblich, massenhafte Löschungen oder umbenannte Endungen, bekannte Ransomware-Namen oder verschlüsselt wirkende Dateien. Je Objekt einmal, bis ein Sicherungsstand ohne Befund folgt oder der Befund als Fehlalarm markiert wird."
+      "suspicious": "Was eine Sicherung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives gesehen hat, sieht nach Ransomware aus: weit mehr Änderungen als üblich, massenhafte Löschungen oder umbenannte Endungen, bekannte Ransomware-Namen oder verschlüsselt wirkende Dateien. Je Objekt einmal, bis ein Sicherungsstand ohne Befund folgt oder der Befund als Fehlalarm markiert wird. Die Aufbewahrung des Objekts ist angehalten, bis ein Administrator den Befund klärt.",
+      "suspicious_hold": "Die Aufbewahrung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives ist seit einiger Zeit (standardmäßig 14 Tage) wegen eines verdächtigen Sicherungsstands angehalten, den niemand geklärt hat. Kein Sicherungsstand davon wird gelöscht, der Speicherbedarf wächst also weiter. Wiederholt sich im selben Abstand, bis ein Administrator den Befund als Fehlalarm markiert oder die Aufbewahrung wieder freigibt."
     },
     "restore": {
       "failed": "Eine Wiederherstellung oder ein Download, auch eines Servers oder Clients, konnte nicht abgeschlossen werden.",
@@ -519,7 +521,11 @@
     "free": "Frei",
     "total": "Größe",
     "findings": "Befunde",
-    "restorePoint": "Sicherungsstand"
+    "restorePoint": "Sicherungsstand",
+    "retention": "Aufbewahrung",
+    "retentionPaused": "Angehalten: Kein Sicherungsstand dieses Objekts wird gelöscht, bis ein Administrator den Befund als Fehlalarm markiert oder die Aufbewahrung wieder freigibt.",
+    "heldSince": "Angehalten seit",
+    "heldRestorePoints": "Zurückgehaltene Sicherungsstände"
   },
   "summary": {
     "previous": "Vorzeitraum",
@@ -552,7 +558,8 @@
       "failed": "Sicherung fehlgeschlagen: {object}",
       "overdue": "Keine erfolgreiche Sicherung {days, plural, one {seit über # Tag} other {seit über # Tagen}}: {object}",
       "succeeded": "Sicherung erfolgreich: {object}",
-      "suspicious": "Verdächtige Sicherung: {object}"
+      "suspicious": "Verdächtige Sicherung: {object}",
+      "suspicious_hold": "Aufbewahrung weiter angehalten: {object}"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen: {object}",

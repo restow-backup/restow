@@ -70,8 +70,17 @@ describe("renderAlert", () => {
                 baseline: 200 * 1024 ** 2,
               },
               { code: "mass_deletions", value: 3000, threshold: 1000, share: 0.6 },
+              {
+                code: "incompressible_data",
+                value: 0.998,
+                threshold: 0.95,
+                baseline: 0.45,
+                bytes: 4 * 1024 ** 3,
+              },
+              { code: "dedup_collapse", value: 0.99, threshold: 0.8, baseline: 0.4 },
               { code: "from_a_newer_worker", value: 1, threshold: 1 },
             ],
+            retentionHeld: true,
           },
         },
       });
@@ -81,12 +90,47 @@ describe("renderAlert", () => {
     expect(english.text).toContain("37 files named like a ransom note (HOW_TO_DECRYPT.txt)");
     expect(english.text).toContain("30 GiB added, usually about 200 MiB (alert above 2 GiB)");
     expect(english.text).toContain("3,000 files deleted, 60% of the files before");
+    expect(english.text).toContain(
+      "4 GiB of new data barely compress: stored at 99.8% of their size, usually 45% (alert from 95%)",
+    );
+    expect(english.text).toContain(
+      "99% of the data read was new, nothing deduplicated; usually 40% (alert from 80%)",
+    );
     expect(english.text).toContain("Another finding (1)");
+    expect(english.text).toContain("Retention: Paused: no restore point of this object is deleted");
     const german = suspicious("de");
     expect(german.subject).toBe("[Contoso] Verdächtige Sicherung (Anzeichen von Ransomware): fs01");
     expect(german.text).toContain("Befunde: 37 Dateien mit dem Namen einer Lösegeldforderung");
     // German puts a no-break space before the percent sign.
     expect(german.text).toMatch(/3\.000 Dateien gelöscht, 60\s% der vorherigen Dateien/);
+    expect(german.text).toContain("Aufbewahrung: Angehalten");
+  });
+
+  it("says since when retention of a held object is paused", () => {
+    const reminder = (language: "en" | "de") =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Ransomware",
+        payload: {
+          event: "backup.suspicious_hold",
+          occurredAt: "2026-10-13T10:00:00.000Z",
+          details: {
+            objectName: "fs01",
+            heldSince: "2026-09-29T09:30:00.000Z",
+            heldDays: 14,
+            restorePoints: 3,
+          },
+        },
+      });
+    const english = reminder("en");
+    expect(english.subject).toBe(
+      "[Contoso] Retention still paused after a suspicious backup: fs01",
+    );
+    expect(english.text).toContain("Paused since: 29 Sept 2026, 09:30 UTC");
+    expect(english.text).toContain("Restore points on hold: 3");
+    const german = reminder("de");
+    expect(german.text).toContain("Angehalten seit: 29.09.2026");
   });
 
   it("calls a red rating for a backup that is too old what it is, not a failed restore check", () => {

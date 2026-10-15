@@ -376,7 +376,8 @@
       "failed": "Backup failed",
       "overdue": "Backup overdue",
       "succeeded": "Backup succeeded",
-      "suspicious": "Suspicious backup (signs of ransomware)"
+      "suspicious": "Suspicious backup (signs of ransomware)",
+      "suspicious_hold": "Retention still paused after a suspicious backup"
     },
     "restore": {
       "failed": "Restore failed",
@@ -424,7 +425,8 @@
       "failed": "A backup run of a mailbox, OneDrive, IMAP account, server or client did not finish.",
       "overdue": "A mailbox, OneDrive, IMAP account, machine or guest (VM or container) had no successful backup for longer than its backup jobs plan (twice the longest gap of the schedules, two days without one), or for longer than the rule's own deadline. Once per object, until a backup succeeds again.",
       "succeeded": "A backup run of a mailbox, OneDrive, IMAP account or file share finished. Every run, so best for a channel that wants to see each one.",
-      "suspicious": "What a backup of a machine, file share, Proxmox VE guest, mailbox or OneDrive saw looks like ransomware at work: far more changes than usual, mass deletions or renamed extensions, known ransomware names or files that look encrypted. Once per object until a restore point without findings follows or the finding is marked as a false alarm."
+      "suspicious": "What a backup of a machine, file share, Proxmox VE guest, mailbox or OneDrive saw looks like ransomware at work: far more changes than usual, mass deletions or renamed extensions, known ransomware names or files that look encrypted. Once per object until a restore point without findings follows or the finding is marked as a false alarm. Retention of the object pauses until an administrator resolves the finding.",
+      "suspicious_hold": "Retention of a machine, file share, Proxmox VE guest, mailbox or OneDrive has been paused for a while (14 days by default) because of a suspicious restore point nobody resolved. No restore point of it is deleted, so its storage keeps growing. Repeated at the same interval until an administrator marks the finding as a false alarm or releases the hold."
     },
     "restore": {
       "failed": "A restore or a download, of a server or client too, could not be finished.",
@@ -519,7 +521,11 @@
     "free": "Free",
     "total": "Size",
     "findings": "Findings",
-    "restorePoint": "Restore point"
+    "restorePoint": "Restore point",
+    "retention": "Retention",
+    "retentionPaused": "Paused: no restore point of this object is deleted until an administrator marks the finding as a false alarm or releases the hold.",
+    "heldSince": "Paused since",
+    "heldRestorePoints": "Restore points on hold"
   },
   "summary": {
     "previous": "previous period",
@@ -552,7 +558,8 @@
       "failed": "Backup failed: {object}",
       "overdue": "No successful backup {days, plural, one {for over # day} other {for over # days}}: {object}",
       "succeeded": "Backup succeeded: {object}",
-      "suspicious": "Suspicious backup: {object}"
+      "suspicious": "Suspicious backup: {object}",
+      "suspicious_hold": "Retention still paused: {object}"
     },
     "restore": {
       "failed": "Restore failed: {object}",

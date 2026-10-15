@@ -63,12 +63,12 @@ export function notificationTarget(
   }
   // A file share: its restore points, where the suspicious ones are marked.
   const shareId = text(details.fileShareId);
-  if (shareId && item.event === "backup.suspicious") {
+  if (shareId && item.event.startsWith("backup.suspicious")) {
     return at(`${FILE_SHARES_PATH}/${encodeURIComponent(shareId)}?tab=restore-points`);
   }
   // A suspicious mailbox or OneDrive: the explorer at that account, its restore points marked.
   const objectId = text(details.protectedObjectId);
-  if (objectId && item.event === "backup.suspicious") {
+  if (objectId && item.event.startsWith("backup.suspicious")) {
     return at(`${RESTORE_PATHS.explorer}?object=${encodeURIComponent(objectId)}`);
   }
   if (item.event.startsWith("verify.")) {
