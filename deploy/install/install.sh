@@ -1972,6 +1972,7 @@ update_compose_file() {
     dry "replace $target with the release file if it differs, keeping the previous one as $target.bak-<time>"
     return 0
   fi
+  assert_database_location "$WORK/release/docker-compose.yml"
   if cmp -s "$WORK/release/docker-compose.yml" "$target"; then
     ok "$target is the release file already"
     return 0
@@ -1983,6 +1984,23 @@ update_compose_file() {
   run cp -p "$target" "$backup" || die "$EXIT_ERROR" "could not keep a backup of $target"
   run install -m 0644 "$WORK/release/docker-compose.yml" "$target" || die "$EXIT_ERROR" "could not write $target"
   ok "$target is now the file of v$VERSION; the previous one is $backup (merge your own changes into docker-compose.override.yml)"
+}
+
+# assert_database_location <compose file>: an installation whose database was moved to another
+# disk (RESTOW_POSTGRES_DATA in .env, docs/DATABASE.md) is never started from a compose file that
+# ignores the setting: PostgreSQL would come up on the old copy in the volume pgdata (which the
+# move left unusable on purpose, so it would not start at all). Without the setting nothing is
+# checked.
+assert_database_location() {
+  local file=$1 location
+  location=$(env_get "$OPT_DIR/.env" RESTOW_POSTGRES_DATA 2>/dev/null || true)
+  if [ -z "$location" ]; then
+    return 0
+  fi
+  if [ -f "$file" ] && grep -q 'RESTOW_POSTGRES_DATA' "$file"; then
+    return 0
+  fi
+  die "$EXIT_EXISTING" "the database of this installation is in $location (RESTOW_POSTGRES_DATA in $OPT_DIR/.env), but $file does not read that setting: the stack would start without its database. Use the docker-compose.yml of release 0.4.0 or later (docs/DATABASE.md); nothing was changed."
 }
 
 # ---- .env ------------------------------------------------------------------------------
@@ -3057,6 +3075,9 @@ resume_existing() {
     update_compose_file
   else
     warn "RESTOW_IMAGE names no release version; $OPT_DIR/docker-compose.yml is kept as it is"
+  fi
+  if ! is_dry; then
+    assert_database_location "$OPT_DIR/docker-compose.yml"
   fi
   step "Images"
   pull_and_verify "$APP_IMAGE"
