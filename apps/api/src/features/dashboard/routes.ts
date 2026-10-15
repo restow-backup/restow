@@ -41,6 +41,7 @@ export const dashboardRoutes = createDashboardRoutes({
   providerDb,
   env: process.env,
   defaultStorageConfigured: async () => (await currentInstallationDefault()) !== null,
+  installationDefault: currentInstallationDefault,
   now: () => new Date(),
   access: requireTenant("tenant_user"),
 });

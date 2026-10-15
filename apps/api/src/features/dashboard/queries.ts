@@ -20,6 +20,7 @@ import {
   packs,
   protectedObjects,
   pveRuns,
+  pveSnapshots,
   retentionPolicies,
   schedules,
   settings,
@@ -42,6 +43,7 @@ import type {
   StorageTargetHealth,
   VerificationDayDto,
 } from "./dto.js";
+import { type StorageWindow, storageWindow } from "./growth.js";
 import type { RetentionPolicyRow } from "./retention.js";
 import { windowStart } from "./series.js";
 import type { SetupFacts } from "./setup.js";
@@ -60,10 +62,8 @@ import type { SetupFacts } from "./setup.js";
 
 /** Days of backup history returned: the page compares the last 14 or 30 days with the ones before. */
 export const BACKUP_TREND_DAYS = 60;
-/** Days of verification history and storage growth. */
+/** Days of verification history (the storage growth has a window of its own, growth.ts). */
 export const HISTORY_DAYS = 30;
-/** How far the storage forecast looks ahead. */
-export const FORECAST_DAYS = 30;
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -501,12 +501,9 @@ export interface TenantTrends {
   backupDays: BackupDayDto[];
   verificationDays: VerificationDayDto[];
   lastCheckedAt: string | null;
-  /** Bytes stored before the storage window started. */
-  storageBaseline: number;
-  storageWritten: { date: string; bytes: number }[];
 }
 
-/** Backup outcomes, verification ratings and bytes written per UTC day (only days with activity). */
+/** Backup outcomes and verification ratings per UTC day (only days with activity). */
 export async function loadTenantTrends(
   db: Database,
   tenantId: string,
@@ -560,30 +557,136 @@ export async function loadTenantTrends(
       .from(verifyReports)
       .where(eq(verifyReports.tenantId, tenantId));
 
-    const bytes = sql<number>`coalesce(sum(${packs.size}), 0)`.mapWith(Number);
-    const [baseline] = await tx
-      .select({ bytes })
-      .from(packs)
-      .where(
-        and(eq(packs.tenantId, tenantId), sql`${packs.createdAt} < ${historySince.toISOString()}`),
-      );
-    const writtenDay = utcDay(sql`${packs.createdAt}`);
-    const storageWritten = await tx
-      .select({ date: writtenDay, bytes })
-      .from(packs)
-      .where(
-        and(eq(packs.tenantId, tenantId), sql`${packs.createdAt} >= ${historySince.toISOString()}`),
-      )
-      .groupBy(writtenDay);
-
     return {
       backupDays,
       verificationDays,
       lastCheckedAt: toIso(lastCheck?.at ?? null),
-      storageBaseline: baseline?.bytes ?? 0,
-      storageWritten,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Storage growth
+// ---------------------------------------------------------------------------
+
+export interface StorageHistory {
+  window: StorageWindow;
+  /** Bytes stored before the window started. */
+  baseline: number;
+  /** Bytes written per bucket of the window (only buckets with writes), keyed as growth.ts `bucketKey`. */
+  written: { bucket: string; bytes: number }[];
+}
+
+/**
+ * The stored bytes of the storage growth chart for a window of `requestedDays`
+ * days, clamped to the tenant's history. Two passes over the tenant's packs:
+ * when the first was written (which decides the window), then the bytes per
+ * bucket of the window, summed in Postgres per day, ISO week or month, with
+ * everything older folded into one baseline row. A year is at most 14 rows.
+ */
+export async function loadStorageHistory(
+  db: Database,
+  tenantId: string,
+  now: Date,
+  requestedDays: number,
+): Promise<StorageHistory> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const [first] = await tx
+      .select({
+        at: sql<Date | null>`min(${packs.createdAt})`.mapWith(packs.createdAt),
+      })
+      .from(packs)
+      .where(eq(packs.tenantId, tenantId));
+    const firstWrite = first?.at && !Number.isNaN(first.at.getTime()) ? first.at : null;
+    const window = storageWindow(now, requestedDays, firstWrite);
+    if (!firstWrite) {
+      return { window, baseline: 0, written: [] };
+    }
+    const since = window.start.toISOString();
+    // `date_trunc` on the UTC wall time: 'week' is the ISO week (Monday), as stats/period.ts counts it.
+    const unit = sql.raw(`'${window.granularity}'`);
+    const bucket = sql<
+      string | null
+    >`case when ${packs.createdAt} < ${since} then null else to_char(date_trunc(${unit}, ${packs.createdAt} at time zone 'UTC'), 'YYYY-MM-DD') end`;
+    const rows = await tx
+      .select({
+        bucket,
+        bytes: sql<number>`coalesce(sum(${packs.size}), 0)`.mapWith(Number),
+      })
+      .from(packs)
+      .where(eq(packs.tenantId, tenantId))
+      .groupBy(sql`1`);
+    let baseline = 0;
+    const written: StorageHistory["written"] = [];
+    for (const row of rows) {
+      if (row.bucket === null) {
+        baseline += row.bytes;
+      } else {
+        written.push({ bucket: row.bucket, bytes: row.bytes });
+      }
+    }
+    return { window, baseline, written };
+  });
+}
+
+/** Where a tenant's data goes and whether anything but the chart's own data is written there. */
+export interface StorageCapacityFacts {
+  /** The tenant's own primary target, or null when its data goes to the installation default. */
+  ownTarget: { kind: string; config: unknown } | null;
+  /**
+   * Machines, VMs and containers or file shares of the tenant keep restic repositories in the
+   * same repository; the chart counts the packs of mail and OneDrive data only.
+   */
+  otherData: boolean;
+}
+
+export async function loadStorageCapacityFacts(
+  db: Database,
+  tenantId: string,
+): Promise<StorageCapacityFacts> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const [target] = await tx
+      .select({ kind: storageTargets.kind, config: storageTargets.config })
+      .from(storageTargets)
+      .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.role, "primary")))
+      .limit(1);
+    const result = await tx.execute(sql`
+      select
+        exists (select 1 from ${endpoints} where ${endpoints.tenantId} = ${tenantId}
+          and (${endpoints.repositoryBytes} > 0 or ${endpoints.lastSuccessAt} is not null)) as machines,
+        exists (select 1 from ${fileShares} where ${fileShares.tenantId} = ${tenantId}
+          and (${fileShares.repositoryBytes} > 0 or ${fileShares.lastSuccessAt} is not null)) as shares,
+        exists (select 1 from ${pveSnapshots} where ${pveSnapshots.tenantId} = ${tenantId}) as guests`);
+    const other = result.rows[0] as
+      | { machines?: boolean; shares?: boolean; guests?: boolean }
+      | undefined;
+    return {
+      ownTarget: target ? { kind: target.kind, config: target.config } : null,
+      otherData: Boolean(other?.machines || other?.shares || other?.guests),
+    };
+  });
+}
+
+/**
+ * Whether `tenantId` is the only tenant whose data goes to the installation default (every
+ * other tenant that is not being deleted has a primary target of its own). Read on the
+ * installation pool: it spans tenants, and it answers nothing but this one fact.
+ */
+export async function soleTenantOnDefault(
+  providerDb: Database,
+  tenantId: string,
+): Promise<boolean> {
+  const [row] = await providerDb
+    .select({ n: count() })
+    .from(tenants)
+    .where(
+      and(
+        sql`${tenants.id} <> ${tenantId}`,
+        sql`${tenants.status} <> 'deleting'`,
+        sql`not exists (select 1 from ${storageTargets} where ${storageTargets.tenantId} = ${tenants.id} and ${storageTargets.role} = 'primary')`,
+      ),
+    );
+  return (row?.n ?? 0) === 0;
 }
 
 // ---------------------------------------------------------------------------

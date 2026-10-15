@@ -182,22 +182,67 @@ export interface StoragePointDto {
   bytes: number;
 }
 
-/** A straight-line projection of the recent growth. An estimate, labelled as one on the page. */
+/**
+ * The estimate of the growth to come: a straight line through the history,
+ * continued from today. An estimate, labelled as one on the page.
+ */
 export interface StorageForecastDto {
   method: "linear";
   /** Days of history the line was fitted to. */
   basisDays: number;
   slopeBytesPerDay: number;
+  /** Days the estimate reaches ahead: the requested horizon, never more than the history. */
+  horizonDays: number;
+  /** One point per day, week or (about) month after today, as the history is bucketed. */
   points: StoragePointDto[];
+  /**
+   * From 90 days of history on: the range between the slowest and the fastest growth seen in
+   * the history's whole weeks or months, shown instead of the line. Null for shorter windows.
+   */
+  band: StorageBandDto | null;
+}
+
+export interface StorageBandDto {
+  slowestBytesPerDay: number;
+  fastestBytesPerDay: number;
+  points: { date: string; low: number; high: number }[];
+}
+
+/**
+ * The capacity of the repository where it is known: the free space of a local
+ * filesystem, read by the API when the page is loaded. S3 reports none, and
+ * the installation default is only reported to a tenant that has it to itself.
+ */
+export interface StorageCapacityDto {
+  source: "filesystem";
+  freeBytes: number;
+  totalBytes: number;
+  /**
+   * The days the free space runs out at the growth of the estimate (`YYYY-MM-DD`, each null
+   * when more than ten years ahead or there is no growth): `estimate` for the line, `earliest`
+   * (fastest growth) and `latest` (slowest) for the band. Null as a whole when machines, VMs
+   * and containers or file shares of the tenant write to the repository as well: the chart
+   * does not count their data, so any day would be too late.
+   */
+  runsFull: { estimate: string | null; earliest: string | null; latest: string | null } | null;
 }
 
 export interface StorageGrowthWidget {
+  /** Days shown: the requested days, clamped to the history that exists (at least 7). */
   days: number;
-  /** Bytes stored at the end of each UTC day, by the day the data was written. */
+  /** Days the request asked for (`storageDays`, 30 by default). */
+  requestedDays: number;
+  /** How the series is bucketed: per day up to a month, per ISO week up to half a year, else per month. */
+  granularity: "day" | "week" | "month";
+  /**
+   * Bytes stored at the end of each bucket, by the day the data was written, dated with the
+   * bucket's last day (today for the current one).
+   */
   series: StoragePointDto[];
   /** Bytes written during the window. */
   growthBytes: number;
   forecast: StorageForecastDto | null;
+  capacity: StorageCapacityDto | null;
 }
 
 export interface RetentionPolicyDto {
