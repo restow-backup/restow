@@ -77,6 +77,7 @@ function fixtureConfig(overrides: Partial<Config> = {}): Config {
     },
     exports: { ttlHours: 24, maxTenantBytes: 50 * 1024 * 1024 * 1024 },
     preview: { workers: 2, timeoutMs: 10_000 },
+    pve: { blockMapCacheBytes: 256 * 1024 * 1024 },
     ...overrides,
   };
 }

@@ -210,6 +210,16 @@ describe("loadConfig, preview section", () => {
   });
 });
 
+describe("loadConfig, pve section", () => {
+  it("caches 256 MiB of block maps unless told otherwise", () => {
+    expect(loadConfig({}).pve).toEqual({ blockMapCacheBytes: 256 * 1024 * 1024 });
+    expect(loadConfig({ PVE_BLOCK_MAP_CACHE_MB: "1024" }).pve.blockMapCacheBytes).toBe(1024 ** 3);
+    expect(loadConfig({ PVE_BLOCK_MAP_CACHE_MB: "0" }).pve.blockMapCacheBytes).toBe(
+      256 * 1024 ** 2,
+    );
+  });
+});
+
 describe("loadConfig, export section", () => {
   it("keeps a finished export for 24 hours unless told otherwise", () => {
     expect(loadConfig({}).exports).toEqual({ ttlHours: 24, maxTenantBytes: 50 * 1024 ** 3 });

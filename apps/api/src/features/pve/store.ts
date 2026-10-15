@@ -14,6 +14,7 @@ import {
 } from "@restow/core";
 import { chunks, packs, secrets, storageTargets } from "@restow/db";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { config } from "../../config.js";
 import { db } from "../../db.js";
 import { loadTenantDek, openSecret } from "../../lib/secrets.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
@@ -129,7 +130,81 @@ export async function readObject(store: TenantChunkStore, ids: readonly string[]
   return Buffer.concat(parts);
 }
 
-const mapCache = new Map<string, BlockMap>();
+/**
+ * What a decoded block map takes in memory, estimated: an entry object with its hash string and
+ * chunk list, and a chunk id string per reference (ids shared between blocks are counted each
+ * time, so the estimate errs high). A 2 TB disk in 4 MiB blocks comes to about 200 MB.
+ */
+export function blockMapBytes(map: BlockMap): number {
+  let refs = 0;
+  for (const entry of map.entries) {
+    refs += entry.chunks.length;
+  }
+  return 64 + map.entries.length * BLOCK_ENTRY_BYTES + refs * CHUNK_REF_BYTES;
+}
+
+const BLOCK_ENTRY_BYTES = 200;
+const CHUNK_REF_BYTES = 100;
+
+/**
+ * Decoded block maps, least recently used first out, bounded by their estimated size: browsing a
+ * VM restore point reads its maps again and again, but a few maps of large disks would otherwise
+ * fill the API's memory. A map larger than the whole budget is kept alone: a restore reads its
+ * disk's map for every few blocks, and the map is in memory for each of them anyway.
+ */
+export class BlockMapCache {
+  private readonly maps = new Map<string, { map: BlockMap; bytes: number }>();
+  private total = 0;
+
+  constructor(private readonly maxBytes: number) {}
+
+  get(key: string): BlockMap | undefined {
+    const hit = this.maps.get(key);
+    if (!hit) {
+      return undefined;
+    }
+    // Most recently used last.
+    this.maps.delete(key);
+    this.maps.set(key, hit);
+    return hit.map;
+  }
+
+  set(key: string, map: BlockMap, bytes = blockMapBytes(map)): void {
+    this.delete(key);
+    for (const [oldest] of this.maps) {
+      if (this.total + bytes <= this.maxBytes) {
+        break;
+      }
+      this.delete(oldest);
+    }
+    this.maps.set(key, { map, bytes });
+    this.total += bytes;
+  }
+
+  /** Estimated bytes held. */
+  get bytes(): number {
+    return this.total;
+  }
+
+  get size(): number {
+    return this.maps.size;
+  }
+
+  clear(): void {
+    this.maps.clear();
+    this.total = 0;
+  }
+
+  private delete(key: string): void {
+    const hit = this.maps.get(key);
+    if (hit) {
+      this.maps.delete(key);
+      this.total -= hit.bytes;
+    }
+  }
+}
+
+const mapCache = new BlockMapCache(config.pve.blockMapCacheBytes);
 
 /** A decoded block map, cached by its stored chunk ids (maps never change). */
 export async function readBlockMap(
@@ -142,9 +217,6 @@ export async function readBlockMap(
     return hit;
   }
   const map = decodeBlockMap(await readObject(store, mapChunks));
-  if (mapCache.size > 32) {
-    mapCache.delete(mapCache.keys().next().value as string);
-  }
   mapCache.set(key, map);
   return map;
 }
