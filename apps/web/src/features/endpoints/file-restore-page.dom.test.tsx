@@ -27,6 +27,7 @@ vi.mock("@/lib/session", async (importOriginal) => {
       user: { id: "u-1" },
       role: session.role,
     }),
+    useHasRole: (allowed: readonly string[]) => actual.canAccess(session.role, allowed),
   };
 });
 const navigate = vi.fn();
@@ -299,6 +300,65 @@ describe("FileRestorePage", () => {
     const mount = page.byText("[data-slot='restore-point-contents'] button", "/mnt/data");
     await page.click(mount);
     expect(fetchContainerFiles).toHaveBeenCalledWith("p-1", "/mnt/data", null);
+  });
+
+  it("lets a restore operator browse and download a container's files, without the guest's page", async () => {
+    session.role = "tenant_restore";
+    fetchOverview.mockResolvedValue(
+      overview([guest(), guest({ id: "g-vm", vmid: 100, kind: "vm", name: "web" })]),
+    );
+    fetchGuest.mockResolvedValue({
+      guest: guest(),
+      cluster: null,
+      runs: [],
+      snapshots: [
+        {
+          id: "p-1",
+          sequence: 1,
+          kind: "ct",
+          archiveName: "ct/300/2026-10-14T22:00:00Z",
+          origin: "pve",
+          backupAt: "2026-10-14T22:00:00.000Z",
+          byteSize: 2_000_000,
+          added: 1000,
+          contents: ["/"],
+          browsable: true,
+          disks: [],
+          verify: null,
+        },
+      ],
+    });
+    fetchContainerFiles.mockResolvedValue({
+      snapshotId: "p-1",
+      path: "/",
+      entries: [{ name: "opt", path: "/opt", type: "dir", size: null, mtime: null }],
+      nextCursor: null,
+    });
+    await open(null, "g-ct");
+    expect(fetchOverview).toHaveBeenCalled();
+    expect(page.byText("[data-slot='container-list'] button", "paperless")).toBeTruthy();
+    expect(page.byText("[data-slot='vm-list'] button", "web")).toBeTruthy();
+    const point = document.querySelector("[data-slot='snapshot-list'] li button");
+    if (!point) throw new Error("no restore point");
+    await page.click(point);
+    expect(fetchContainerFiles).toHaveBeenCalledWith("p-1", "/", null);
+    expect(document.querySelector("[data-slot='selection-bar']")?.textContent).toContain(
+      "Download as ZIP",
+    );
+    expect(page.text()).toContain(
+      "Files of a container are downloaded as a ZIP. Putting the whole container back is up to an administrator.",
+    );
+    expect(page.text()).not.toContain("Open the container");
+    expect(document.querySelector("a[href^='/virtualization']")).toBeNull();
+  });
+
+  it("does not send a restore operator to the inventory when nothing is backed up", async () => {
+    session.role = "tenant_restore";
+    fetchEndpoints.mockResolvedValue([]);
+    await open();
+    expect(page.text()).toContain("Nothing backed up yet");
+    expect(page.text()).toContain("you can restore its files here");
+    expect(page.text()).not.toContain("Open inventory");
   });
 
   it("asks nothing of Proxmox VE for a role that may not open it", async () => {

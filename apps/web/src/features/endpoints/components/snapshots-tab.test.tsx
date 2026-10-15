@@ -16,12 +16,18 @@ import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
 import { SnapshotsTab } from "./snapshots-tab.js";
 
-vi.mock("@/lib/session", () => ({
-  useSession: () => ({
-    status: "authenticated",
-    activeTenant: { id: "tenant-7", name: "Contoso" },
-  }),
-}));
+const session = vi.hoisted(() => ({ role: "tenant_admin" as string | null }));
+vi.mock("@/lib/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/session")>();
+  return {
+    useSession: () => ({
+      status: "authenticated",
+      activeTenant: { id: "tenant-7", name: "Contoso" },
+      role: session.role,
+    }),
+    useHasRole: (allowed: readonly string[]) => actual.canAccess(session.role, allowed),
+  };
+});
 vi.mock("radix-ui", async (importOriginal) => {
   const actual = await importOriginal<typeof import("radix-ui")>();
   const InPlacePortal = ({ children }: { children?: unknown }) => children;
@@ -132,6 +138,7 @@ describe("SnapshotsTab", () => {
   let page: Mounted;
 
   beforeEach(() => {
+    session.role = "tenant_admin";
     fetchSnapshots.mockReset();
     fetchBrowse.mockReset();
     createTask.mockReset();
@@ -160,9 +167,15 @@ describe("SnapshotsTab", () => {
   });
   afterEach(() => page?.unmount());
 
-  async function open(over: Partial<EndpointDetail> = {}, onShowOverview = () => {}) {
+  /** `onShowOverview` null: a restore operator, who may not open the machine's page. */
+  async function open(
+    over: Partial<EndpointDetail> = {},
+    onShowOverview: (() => void) | null = () => {},
+  ) {
     page = mount();
-    await page.render(<SnapshotsTab detail={detail(over)} onShowOverview={onShowOverview} />);
+    await page.render(
+      <SnapshotsTab detail={detail(over)} onShowOverview={onShowOverview ?? undefined} />,
+    );
     await page.settle();
   }
 
@@ -625,5 +638,48 @@ describe("SnapshotsTab", () => {
     expect(document.querySelector("[data-slot='restore-point-contents-hint']")?.textContent).toBe(
       "Missing a folder? Only the folders of a backup job are backed up, and this machine is in none at the moment.",
     );
+  });
+  describe("for a restore operator", () => {
+    beforeEach(() => {
+      session.role = "tenant_restore";
+    });
+
+    it("downloads and restores files, and is not sent to the machine's page", async () => {
+      createTask.mockResolvedValue({ alreadyQueued: false, task: {} });
+      await open({}, null);
+      await pickNewest();
+      await page.click(box("Select notes.txt"));
+      await page.click(downloadButton());
+      await page.settle();
+      expect(createDownload).toHaveBeenCalledWith(ENDPOINT_ID, FULL_ID, ["/data/notes.txt"]);
+      expect(startBrowserDownload).toHaveBeenCalledTimes(1);
+
+      // The selection stays after a download: the same file is restored onto the machine.
+      expect(page.text()).toContain("1 item selected");
+      await page.click(page.byText("button", "Restore to the machine"));
+      await page.click(page.byText("button", "Request restore"));
+      await page.settle();
+      expect(createTask).toHaveBeenCalledWith(ENDPOINT_ID, {
+        kind: "restore",
+        snapshotId: FULL_ID,
+        paths: ["/data/notes.txt"],
+      });
+      const requested = document.querySelector('[data-restore="requested"]');
+      expect(requested?.textContent).toContain("restores the files into a new folder");
+      expect(page.maybeByText("button", "Show overview")).toBeNull();
+    });
+
+    it("says why a folder may be missing, without the way to edit the job", async () => {
+      fetchSnapshots.mockResolvedValue([
+        snapshot(FULL_ID, "2026-09-29T22:00:00.000Z", { paths: ["/etc", "/home"] }),
+      ]);
+      await open({ os: "linux", job: { id: "job-1", name: "Servers" } }, null);
+      await pickNewest();
+      const hint = document.querySelector("[data-slot='restore-point-contents-hint']");
+      expect(hint?.textContent).toBe(
+        "Missing a folder? Only the folders of the machine's backup job are backed up.",
+      );
+      expect(hint?.querySelector("a")).toBeNull();
+    });
   });
 });

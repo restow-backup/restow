@@ -279,11 +279,15 @@ from every container restore point (*Browse files*).
   (`pve-guests/<guest id>/`) itself, with the guest's repository password from
   the secret store; the password never reaches the browser. The ZIP is
   streamed from `restic dump` without being held in memory or on disk.
-- **Who and what is recorded.** Tenant admins, and provider members from
-  technician on, as for a machine's files. Every folder page read and every
-  download started is in the audit log (`pve.snapshot.browsed`,
-  `pve.snapshot.downloaded`). A prepared download can be started once, within
-  ten minutes, by the admin who prepared it.
+- **Who and what is recorded.** Tenant admins, restore operators
+  (`tenant_restore`) and provider members from technician on, as for a
+  machine's files. A restore operator reads the overview and a guest with its
+  restore points (`GET /api/v1/pve`, `GET /api/v1/pve/guests/:id`), browses and
+  downloads; everything else (jobs, backing up, verify and boot tests,
+  restoring a guest as a whole, nodes and tokens) stays with the admins. Every
+  folder page read and every download started is in the audit log
+  (`pve.snapshot.browsed`, `pve.snapshot.downloaded`). A prepared download can
+  be started once, within ten minutes, by the person who prepared it.
 - **Beside the server's own work.** A read never runs beside retention (restic
   forget and prune) or the weekly check of the same repository; it waits two
   seconds and then answers "busy, try again". A running backup does not block

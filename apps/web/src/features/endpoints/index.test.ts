@@ -13,14 +13,18 @@ import {
 } from "./paths";
 
 describe("servers and endpoints section", () => {
-  it("sits right after Mail & SaaS, with Inventory and File restore for administrators", () => {
+  it("sits right after Mail & SaaS, with Inventory for administrators and File restore also for restore operators", () => {
     expect(NAV_GROUPS.indexOf("endpoints")).toBe(NAV_GROUPS.indexOf("mail") + 1);
     expect(navItems.map((item) => item.path)).toEqual(["/inventory", "/file-restore"]);
     for (const item of navItems) {
       expect(item).toMatchObject({ group: "endpoints" });
       expect(item).not.toHaveProperty("stage");
-      expect(item.roles).toEqual(["provider_admin", "tenant_admin"]);
     }
+    const roles = Object.fromEntries(navItems.map((item) => [item.id, item.roles]));
+    expect(roles.inventory).toEqual(["provider_admin", "tenant_admin"]);
+    expect(roles["file-restore"]).toEqual(["provider_admin", "tenant_admin", "tenant_restore"]);
+    // A plain user restores only their own accounts, in the restore explorer.
+    expect(roles["file-restore"]).not.toContain("tenant_user");
   });
 
   it("has the inventory, one page per machine below it and file restore", () => {

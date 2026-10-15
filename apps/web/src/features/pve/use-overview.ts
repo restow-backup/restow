@@ -9,12 +9,13 @@ import { PVE_ROLES } from "./paths.js";
 /**
  * The tenant's Proxmox VE overview (clusters, guests, jobs) for pages outside VMs & containers:
  * the job list of Servers & clients, the machine picker's hint, the recommended jobs. Asks
- * nothing for a role that may not open the Proxmox VE pages. Refreshes often while a guest
+ * nothing for a role that may not open the Proxmox VE pages (or, with `roles`, the page that
+ * asks: File restore also lets restore operators read it). Refreshes often while a guest
  * waits or backs up.
  */
-export function usePveOverview() {
+export function usePveOverview(roles: readonly string[] = PVE_ROLES) {
   const { role } = useSession();
-  const allowed = canAccess(role, PVE_ROLES);
+  const allowed = canAccess(role, roles);
   const { tenantId, enabled } = useTenantScope();
   const query = useQuery({
     queryKey: pveKeys.overview(tenantId),

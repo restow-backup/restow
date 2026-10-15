@@ -8,6 +8,7 @@ import "./i18n.js";
 import {
   ENDPOINT_DETAIL_PATTERN,
   FILE_RESTORE_PATH,
+  FILE_RESTORE_ROLES,
   INVENTORY_PATH,
   parseDetailSearch,
   parseFileRestoreSearch,
@@ -26,10 +27,10 @@ import {
  * readiness (filter chips All, Servers, Clients), the wizard that enrolls one,
  * one page per machine with runs, snapshots, the file browser, restore and
  * settings, and File restore, which opens the file browser of any machine
- * directly. Everything is for administrators.
+ * directly. Everything is for administrators; File restore also for restore operators.
  */
 
-export { ENDPOINT_ROLES };
+export { ENDPOINT_ROLES, FILE_RESTORE_ROLES };
 
 export const inventoryRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
@@ -69,7 +70,7 @@ export const navItems: NavItem[] = [
     path: FILE_RESTORE_PATH,
     labelKey: "endpoints:nav.fileRestore",
     icon: FolderSearch,
-    roles: [...ENDPOINT_ROLES],
+    roles: [...FILE_RESTORE_ROLES],
     group: "endpoints",
     order: 30,
   },

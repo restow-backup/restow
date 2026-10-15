@@ -11,6 +11,7 @@ import { startBrowserDownload } from "@/features/restore/files/browser-download"
 import { RestorePointBrowser } from "@/features/restore/files/restore-point-browser";
 import { RestorePointContents } from "@/features/restore/files/restore-point-contents";
 import { ApiError } from "@/lib/api";
+import { useHasRole } from "@/lib/session";
 
 import {
   containerDownloadUrl,
@@ -21,7 +22,7 @@ import {
   type PveRestorePoint,
   pveKeys,
 } from "./api.js";
-import { guestTo } from "./paths.js";
+import { guestTo, PVE_ROLES } from "./paths.js";
 
 /** A container restore point as the timeline and the file browser show it. */
 export interface ContainerPoint extends RestorePointView {
@@ -130,6 +131,8 @@ export function ContainerRestorePoints({
   const format = useEndpointFormat();
   const { t } = format;
   const { tenantId, enabled } = useTenantScope();
+  // A restore operator downloads files; the guest's page (restoring it as a whole) is the admins'.
+  const opensGuest = useHasRole(PVE_ROLES);
   const guest = useQuery({
     queryKey: pveKeys.guest(tenantId, guestId),
     queryFn: () => fetchGuest(guestId),
@@ -173,7 +176,7 @@ export function ContainerRestorePoints({
     startDownload: startBrowserDownload,
     limits: { downloadPaths: LIMITS.downloadPaths, restorePaths: LIMITS.restorePaths },
     canRestore: false,
-    note: (
+    note: opensGuest ? (
       <>
         {t(`${texts}.downloadOnly`)}{" "}
         <Link
@@ -183,6 +186,8 @@ export function ContainerRestorePoints({
           {t(`${texts}.openGuest`)}
         </Link>
       </>
+    ) : (
+      t(`${texts}.downloadOnlyRestorer`)
     ),
     timelineLabel: t("containerFiles.timelineLabel", { name }),
     suspicion: { target: { kind: "pve_guest", objectId: guestId }, objectName: name },

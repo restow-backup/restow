@@ -182,7 +182,7 @@
     "roleHints": {
       "none": "Choose what this person may see and do in this tenant.",
       "tenant_admin": "Manages sources, protection, members and restores for everyone in the tenant.",
-      "tenant_restore": "Browses, restores and exports every account of the tenant, but changes no sources, jobs or members.",
+      "tenant_restore": "Browses, restores and exports every account of the tenant and the files of its servers, clients and Proxmox VE guests, but changes no sources, jobs, settings or members and deletes nothing.",
       "tenant_user": "Restores only their own mailbox and OneDrive."
     },
     "invitations": {

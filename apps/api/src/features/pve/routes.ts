@@ -53,6 +53,12 @@ import {
  * (docs/PVE.md). Every change is audited, and so is every read of a
  * container's backed-up files (file restore, #62; features/pve/files.ts).
  *
+ * Restore operators (`tenant_restore`, middleware/rbac.ts) use the file
+ * restore: they read the overview and a guest with its restore points, browse
+ * a restore point's files and download them. Everything else (jobs, backing
+ * up, verify and boot tests, putting a guest back as a whole, nodes and
+ * tokens) stays with the admins.
+ *
  *   GET    /                                 clusters with nodes, guests, jobs
  *   POST   /tokens                           a one-time enrollment token with the node command
  *                                             (optionally bound to an existing PVE API token)
@@ -71,19 +77,21 @@ import {
 export const pveRoutes = new Hono<TenantEnv>();
 
 const admin = requireTenant("tenant_admin");
+/** The file restore: restore operators and the administrators above them. */
+const restorer = requireTenant("tenant_restore");
 
 /**
  * Starting a prepared download is a plain browser navigation, which cannot
  * carry the `X-Restow-Tenant` header; the tenant id may also arrive as the
  * `tenant` query parameter (as for the machines' downloads). Otherwise
- * identical to requireTenant("tenant_admin"). The download itself is bound to
- * the admin who prepared it, so the address alone opens nothing.
+ * identical to requireTenant("tenant_restore"). The download itself is bound to
+ * the person who prepared it, so the address alone opens nothing.
  */
-const adminForDownload: MiddlewareHandler<TenantEnv> = async (c, next) => {
+const restorerForDownload: MiddlewareHandler<TenantEnv> = async (c, next) => {
   const state = await authenticate(c.req.raw.headers);
   assertProviderRoute(c, state);
   const selector = c.req.header(TENANT_HEADER) ?? c.req.query("tenant");
-  const { tenant, role } = await resolveTenantAccess(state, selector, "tenant_admin");
+  const { tenant, role } = await resolveTenantAccess(state, selector, "tenant_restore");
   c.set("auth", state.auth);
   c.set("user", state.user);
   c.set("isProviderAdmin", state.isProviderAdmin);
@@ -100,7 +108,7 @@ function actorOf(c: Context<TenantEnv>): PveActor {
   return { label: user.email, userId: user.id, ip: clientIp(c) };
 }
 
-pveRoutes.get("/", admin, async (c) => c.json(await overview(db, c.get("tenantId"))));
+pveRoutes.get("/", restorer, async (c) => c.json(await overview(db, c.get("tenantId"))));
 
 pveRoutes.post("/tokens", admin, async (c) => {
   const input = await parseJsonBody(c.req, createTokenSchema);
@@ -121,7 +129,7 @@ pveRoutes.post("/nodes/:id/revoke", admin, async (c) => {
   return c.body(null, 204);
 });
 
-pveRoutes.get("/guests/:id", admin, async (c) => {
+pveRoutes.get("/guests/:id", restorer, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   return c.json(await guestDetail(db, c.get("tenantId"), id));
 });
@@ -156,7 +164,7 @@ pveRoutes.post("/snapshots/:id/boot-test", admin, async (c) => {
   return c.json(await requestBootTest(db, c.get("tenantId"), id, actorOf(c)), 202);
 });
 
-pveRoutes.get("/snapshots/:id/files", admin, async (c) => {
+pveRoutes.get("/snapshots/:id/files", restorer, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   const query = parseOrProblem(filesQuerySchema, c.req.query());
   return c.json(
@@ -187,7 +195,7 @@ async function readDownloadBody(c: Context<TenantEnv>): Promise<unknown> {
   }
 }
 
-pveRoutes.post("/snapshots/:id/downloads", admin, async (c) => {
+pveRoutes.post("/snapshots/:id/downloads", restorer, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   const input = parseOrProblem(createFilesDownloadSchema, await readDownloadBody(c));
   const prepared = await prepareContainerDownload(
@@ -202,7 +210,7 @@ pveRoutes.post("/snapshots/:id/downloads", admin, async (c) => {
   return c.json(prepared, 201);
 });
 
-pveRoutes.get("/snapshots/:id/downloads/:downloadId", adminForDownload, async (c) => {
+pveRoutes.get("/snapshots/:id/downloads/:downloadId", restorerForDownload, async (c) => {
   // Hono answers a HEAD request with the GET handler; a probe must not use up the download.
   if (c.req.method === "HEAD") {
     return c.body(null, 405, { allow: "GET" });
