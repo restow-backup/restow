@@ -114,6 +114,7 @@ import { startPveMaintenance } from "./pve/maintenance.js";
 import { pgBossQueueOptions, QUEUE_NAMES, queuePriority } from "./queues.js";
 import { startJobReconciler } from "./reconcile.js";
 import { raiseJobFinished } from "./reporting.js";
+import { startSuspicionScan } from "./suspicion/scan.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -430,6 +431,10 @@ async function main(): Promise<void> {
   // Proxmox VE guests (docs/PVE.md): job planning, retention, verify and restore checks,
   // one pass every five minutes in one worker at a time.
   startPveMaintenance({ db, providerDb, runtime, startsPaused: () => jobPause.paused() });
+
+  // Ransomware detection (docs/RANSOMWARE.md): every new restore point of every kind is judged
+  // against its object's baseline and the signatures, one pass every two minutes.
+  startSuspicionScan({ db, providerDb, runtime });
 
   // 0.3.5: fold the per-snapshot manifest mirror of 0.3.4 into versions, in the background
   // (manifest-conversion.ts); ends by itself once nothing is left.

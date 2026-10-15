@@ -1,0 +1,325 @@
+/**
+ * The ransomware judgement pass against Postgres (docs/RANSOMWARE.md): new restore points of
+ * machines, file shares and mailboxes are judged once against the object's own history (runs
+ * from before the detection count), a suspicious one raises `backup.suspicious` once per
+ * episode with its findings, the ones after it in the same episode stay quiet, a clean one ends
+ * the episode, an older agent's run is judged by what it has, and nothing is judged while the
+ * installation switched the detection off.
+ *
+ * Every time is relative to the moment the test runs. Runs when RESTOW_TEST_DATABASE_URL points
+ * at a Postgres server as a superuser; skipped otherwise.
+ */
+import { randomBytes, randomUUID } from "node:crypto";
+import { defaultEndpointConfig, noopLogger } from "@restow/core";
+import { createDb, type Database, deriveAuthLogin, type RoleLogin } from "@restow/db";
+import { runMigrations } from "@restow/db/migrate";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { dropTestDatabase } from "../testing/database.js";
+import { type SuspicionDeps, suspicionPass } from "./scan.js";
+
+const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
+const TEST_DB = "restow_worker_suspicion_test";
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+
+describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
+  let owner: Database;
+  let deps: SuspicionDeps;
+  let tenantId: string;
+  let endpointId: string;
+  let shareId: string;
+  let mailboxId: string;
+  const roleNames: string[] = [];
+  const now = new Date();
+  const ago = (ms: number) => new Date(now.getTime() - ms);
+
+  const q = <T extends Record<string, unknown>>(text: string, values: unknown[] = []) =>
+    owner.$client.query<T>(text, values).then((r) => r.rows);
+
+  /** A finished backup run of the machine: `changed` new and changed files. */
+  async function endpointRun(at: Date, changed: number, extra: Record<string, unknown> = {}) {
+    const stats = {
+      filesNew: Math.round(changed / 2),
+      filesChanged: changed - Math.round(changed / 2),
+      filesUnmodified: 50_000,
+      dataAdded: changed * 100_000,
+      totalFilesProcessed: 50_000 + changed,
+      totalBytesProcessed: 10 * 1024 ** 3,
+      ...extra,
+    };
+    const [row] = await q<{ id: string }>(
+      `INSERT INTO endpoint_runs (tenant_id, endpoint_id, kind, status, started_at, finished_at, snapshot_id, stats)
+       VALUES ($1, $2, 'backup', 'succeeded', $3, $3, $4, $5) RETURNING id`,
+      [tenantId, endpointId, at, randomBytes(32).toString("hex"), JSON.stringify(stats)],
+    );
+    return row?.id as string;
+  }
+
+  const judgement = async (runId: string) =>
+    (
+      await q<{
+        verdict: string;
+        findings: { code: string }[];
+        signals: Record<string, string>;
+        alerted_at: Date | null;
+        restore_point_id: string;
+        object_kind: string;
+      }>("SELECT * FROM restore_point_suspicions WHERE run_id = $1", [runId])
+    )[0];
+
+  const alerts = async () =>
+    q<{ details: Record<string, unknown>; message: string }>(
+      "SELECT details, message FROM notifications WHERE event = 'backup.suspicious' ORDER BY created_at",
+    );
+
+  const notes = {
+    v: 1,
+    added: 1200,
+    modified: 0,
+    removed: 0,
+    renamed: 0,
+    extensions: [{ value: "txt", count: 40 }],
+    names: [{ value: "HOW_TO_DECRYPT_FILES.txt", count: 40 }],
+    entropy: [],
+  };
+
+  beforeAll(async () => {
+    const admin = createDb(adminUrl as string);
+    await admin.$client.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`);
+    await admin.$client.query(`CREATE DATABASE ${TEST_DB}`);
+    await admin.$client.end();
+    const url = new URL(adminUrl as string);
+    url.pathname = `/${TEST_DB}`;
+    const suffix = randomBytes(4).toString("hex");
+    const tenantLogin: RoleLogin = {
+      name: `restow_ws_app_${suffix}`,
+      password: randomBytes(12).toString("hex"),
+    };
+    const installationLogin: RoleLogin = {
+      name: `restow_ws_inst_${suffix}`,
+      password: randomBytes(12).toString("hex"),
+    };
+    roleNames.push(
+      tenantLogin.name,
+      installationLogin.name,
+      deriveAuthLogin(tenantLogin, installationLogin).name,
+    );
+    await runMigrations(url.toString(), {
+      roles: { tenant: tenantLogin, installation: installationLogin },
+    });
+    owner = createDb(url.toString());
+    const asRole = (login: RoleLogin) => {
+      const copy = new URL(url);
+      copy.username = login.name;
+      copy.password = login.password;
+      return createDb(copy.toString());
+    };
+    deps = {
+      db: asRole(tenantLogin),
+      providerDb: asRole(installationLogin),
+      runtime: {
+        logger: noopLogger,
+        now: () => now,
+        shutdownSignal: new AbortController().signal,
+      },
+    };
+    const [provider] = await q<{ id: string }>(
+      "INSERT INTO providers (name) VALUES ('p') RETURNING id",
+    );
+    const [tenant] = await q<{ id: string }>(
+      "INSERT INTO tenants (provider_id, name, slug) VALUES ($1, 'Contoso', 'contoso') RETURNING id",
+      [provider?.id],
+    );
+    tenantId = tenant?.id as string;
+    endpointId = randomUUID();
+    await q(
+      `INSERT INTO endpoints (id, tenant_id, hostname, display_name, os, arch, profile, status, secret_hash, config)
+       VALUES ($1, $2, 'fs01', 'Fileserver', 'linux', 'amd64', 'server', 'active', 'x', $3)`,
+      [
+        endpointId,
+        tenantId,
+        JSON.stringify(defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" })),
+      ],
+    );
+    await q(
+      `INSERT INTO report_rules (tenant_id, name, trigger, events, throttle_minutes, email_recipients)
+       VALUES ($1, 'Ransomware', 'event', ARRAY['backup.suspicious'], 60, ARRAY['it@contoso.example'])`,
+      [tenantId],
+    );
+    await q(
+      `INSERT INTO tenant_notification_recipients (tenant_id, email, events)
+       VALUES ($1, 'it@contoso.example', ARRAY['backup.suspicious'])`,
+      [tenantId],
+    );
+  }, 60_000);
+
+  afterAll(async () => {
+    await Promise.all([
+      deps?.db.$client.end(),
+      deps?.providerDb.$client.end(),
+      owner?.$client.end(),
+    ]);
+    await dropTestDatabase(adminUrl as string, TEST_DB);
+    const admin = createDb(adminUrl as string);
+    try {
+      for (const role of roleNames) {
+        await admin.$client.query(`DROP ROLE IF EXISTS ${role}`);
+      }
+    } finally {
+      await admin.$client.end();
+    }
+  });
+
+  it("judges nothing while the installation switched the detection off", async () => {
+    await q(`INSERT INTO settings (ransomware_detection) VALUES ('{"enabled": false}')`);
+    const run = await endpointRun(ago(70 * HOUR), 300);
+    expect(await suspicionPass(deps)).toEqual({ judged: 0, suspicious: 0, alerts: 0 });
+    expect(await judgement(run)).toBeUndefined();
+    await q(`UPDATE settings SET ransomware_detection = '{}'`);
+  });
+
+  it("judges a machine's restore points against its history, one alert per episode", async () => {
+    // Ten ordinary days before the window: the baseline, never judged themselves.
+    for (let day = 13; day >= 4; day--) {
+      await endpointRun(ago(day * DAY), 280 + (day % 4) * 10);
+    }
+    const ordinary = await endpointRun(ago(60 * HOUR), 300);
+    const attack = await endpointRun(ago(48 * HOUR), 45_000, { activity: notes });
+    const still = await endpointRun(ago(36 * HOUR), 30_000);
+    const clean = await endpointRun(ago(24 * HOUR), 310);
+    const again = await endpointRun(ago(12 * HOUR), 40_000);
+
+    const summary = await suspicionPass(deps);
+    // The run of the first test is judged now as well: six.
+    expect(summary).toEqual({ judged: 6, suspicious: 3, alerts: 2 });
+
+    expect(await judgement(ordinary)).toMatchObject({
+      verdict: "none",
+      object_kind: "endpoint",
+      signals: { changeRate: "clear", names: "unavailable", entropy: "unavailable" },
+    });
+    const first = await judgement(attack);
+    expect(first?.verdict).toBe("suspicious");
+    expect(first?.findings.map((f) => f.code)).toEqual([
+      "change_rate_items",
+      "change_rate_bytes",
+      "ransom_notes",
+    ]);
+    expect(first?.alerted_at).not.toBeNull();
+    // The same episode: marked, not announced again.
+    expect(await judgement(still)).toMatchObject({ verdict: "suspicious", alerted_at: null });
+    // The suspicious ones stay out of the baseline: an ordinary day is still ordinary.
+    expect((await judgement(clean))?.verdict).toBe("none");
+    // A clean restore point ended the episode: the next finding is news.
+    expect((await judgement(again))?.alerted_at).not.toBeNull();
+
+    const raised = await alerts();
+    expect(raised).toHaveLength(2);
+    expect(raised[0]?.details).toMatchObject({
+      endpointId,
+      objectKind: "endpoint",
+      objectName: "Fileserver",
+      runId: attack,
+      restorePointId: first?.restore_point_id,
+    });
+    expect(raised[0]?.message).toContain("40 files named like a ransom note");
+    const queued = await q<{ subject_key: string; recipient: string }>(
+      "SELECT subject_key, recipient FROM report_deliveries WHERE event = 'backup.suspicious'",
+    );
+    expect(queued[0]).toEqual({
+      subject_key: `endpoint:${endpointId}`,
+      recipient: "it@contoso.example",
+    });
+
+    // Judged once: a second pass finds nothing new.
+    expect(await suspicionPass(deps)).toEqual({ judged: 0, suspicious: 0, alerts: 0 });
+  });
+
+  it("does not judge runs older than the window or runs that made no restore point", async () => {
+    const old = await endpointRun(ago(5 * DAY), 90_000);
+    const [failed] = await q<{ id: string }>(
+      `INSERT INTO endpoint_runs (tenant_id, endpoint_id, kind, status, started_at, finished_at)
+       VALUES ($1, $2, 'backup', 'failed', $3, $3) RETURNING id`,
+      [tenantId, endpointId, ago(HOUR)],
+    );
+    await suspicionPass(deps);
+    expect(await judgement(old)).toBeUndefined();
+    expect(await judgement(failed?.id as string)).toBeUndefined();
+  });
+
+  it("judges file shares and mailboxes by their own numbers", async () => {
+    const [share] = await q<{ id: string }>(
+      `INSERT INTO file_shares (tenant_id, name, protocol, server, share_name)
+       VALUES ($1, 'Projects', 'smb', 'files.example.test', 'projects') RETURNING id`,
+      [tenantId],
+    );
+    shareId = share?.id as string;
+    const shareRun = async (at: Date, stats: Record<string, unknown>) => {
+      const snapshot = randomUUID();
+      const [row] = await q<{ id: string }>(
+        `INSERT INTO file_share_runs (tenant_id, file_share_id, lock_share_id, kind, status, started_at, finished_at, snapshot_id, stats)
+         VALUES ($1, $2, $2, 'backup', 'succeeded', $3, $3, $4, $5) RETURNING id`,
+        [tenantId, shareId, at, snapshot, JSON.stringify(stats)],
+      );
+      return { run: row?.id as string, snapshot };
+    };
+    const renamed = await shareRun(ago(2 * HOUR), {
+      files: 20_000,
+      filesNew: 5000,
+      filesChanged: 0,
+      dataAdded: 1024,
+      activity: {
+        v: 1,
+        added: 5000,
+        removed: 5000,
+        renamed: 5000,
+        extensions: [{ value: "akira", count: 5000 }],
+        names: [],
+        entropy: [],
+      },
+    });
+
+    const [source] = await q<{ id: string }>(
+      "INSERT INTO sources (tenant_id, kind, name, status) VALUES ($1, 'imap', 'IMAP', 'active') RETURNING id",
+      [tenantId],
+    );
+    const [mailbox] = await q<{ id: string }>(
+      `INSERT INTO protected_objects (tenant_id, source_id, kind, external_id, display_name, status)
+       VALUES ($1, $2, 'imap', 'anna@contoso.example', 'Anna Berg', 'active') RETURNING id`,
+      [tenantId, source?.id],
+    );
+    mailboxId = mailbox?.id as string;
+    const snapshotId = randomUUID();
+    const [job] = await q<{ id: string }>(
+      `INSERT INTO jobs (tenant_id, queue, status, protected_object_id, payload, completed_at)
+       VALUES ($1, 'backup', 'completed', $2, $3, $4) RETURNING id`,
+      [
+        tenantId,
+        mailboxId,
+        JSON.stringify({
+          result: { snapshotId, objectsWritten: 12, objectsTotal: 900, bytes: 4096 },
+        }),
+        ago(HOUR),
+      ],
+    );
+
+    await suspicionPass(deps);
+    const share_ = await judgement(renamed.run);
+    expect(share_).toMatchObject({
+      verdict: "suspicious",
+      object_kind: "file_share",
+      restore_point_id: renamed.snapshot,
+    });
+    expect(share_?.findings.map((f) => f.code)).toEqual(["mass_renames", "known_extensions"]);
+    const mail = await judgement(job?.id as string);
+    expect(mail).toMatchObject({
+      verdict: "none",
+      object_kind: "m365",
+      restore_point_id: snapshotId,
+      // A mailbox without history yet: the amount is still being learned.
+      signals: { changeRate: "learning", names: "unavailable" },
+    });
+    const raised = await alerts();
+    expect(raised.at(-1)?.details).toMatchObject({ fileShareId: shareId, objectName: "Projects" });
+  });
+});
