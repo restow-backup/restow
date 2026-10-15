@@ -1024,5 +1024,68 @@
       "description": "Only the folders of the machine's backup job are backed up, and these were not among them: {folders}. Add them to the job to back them up from the next run on."
     },
     "add": "{count, plural, one {Add this folder} other {Add these # folders}}"
+  },
+  "allTenants": {
+    "description": "Every tenant's jobs at a glance: which exist, what runs now, how the newest backups ended and when the next run is planned. Open a tenant to see its jobs here; switch to it to change them.",
+    "list": "Tenants and their jobs",
+    "loadError": "The jobs of the tenants could not be loaded",
+    "unavailable": "Figures unavailable",
+    "noJobs": "No jobs",
+    "kinds": {
+      "mail": "{count, plural, one {# mail job} other {# mail jobs}}",
+      "endpoint": "{count, plural, one {# machine job} other {# machine jobs}}",
+      "pve": "{count, plural, one {# Proxmox VE job} other {# Proxmox VE jobs}}"
+    },
+    "paused": "{count} paused",
+    "outcome": {
+      "failed": "Last backup failed",
+      "warning": "Last backup with warnings",
+      "succeeded": "Last backup succeeded",
+      "none": "No backup yet"
+    },
+    "lastRun": "Last run",
+    "nextRun": "Next run",
+    "nothingPlanned": "Nothing planned",
+    "filter": {
+      "label": "Show",
+      "all": "All tenants",
+      "running": "With running jobs",
+      "failures": "With failures",
+      "noJobs": "Without any job"
+    },
+    "sort": {
+      "label": "Sort by",
+      "name": "Name",
+      "attention": "Needs attention first",
+      "nextRun": "Next run"
+    },
+    "shown": "{shown} of {total} tenants",
+    "empty": {
+      "none": "No tenant yet.",
+      "filtered": "No tenant matches this filter."
+    },
+    "jobs": {
+      "label": "Jobs of {name}",
+      "loading": "Loading the jobs of {name}",
+      "error": "The jobs of this tenant could not be loaded",
+      "empty": "This tenant has no jobs yet.",
+      "readOnly": "Read only. Switch to the tenant to change a job.",
+      "kind": {
+        "mail": "Mail & SaaS",
+        "endpoint": "Servers & clients",
+        "pve": "VMs & containers"
+      },
+      "columns": {
+        "job": "Job",
+        "scope": "Scope",
+        "schedule": "Schedule",
+        "lastRun": "Last run",
+        "nextRun": "Next run",
+        "state": "State"
+      },
+      "scopeAll": "All ({count})",
+      "scopeSelected": "{count} selected",
+      "never": "Never"
+    }
   }
 }

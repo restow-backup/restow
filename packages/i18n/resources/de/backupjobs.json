@@ -1024,5 +1024,68 @@
       "description": "Gesichert werden nur die Ordner aus dem Backup-Job des Rechners, und diese waren nicht dabei: {folders}. Fügen Sie sie dem Job hinzu, damit sie ab dem nächsten Lauf gesichert werden."
     },
     "add": "{count, plural, one {Diesen Ordner hinzufügen} other {Diese # Ordner hinzufügen}}"
+  },
+  "allTenants": {
+    "description": "Die Jobs aller Mandanten auf einen Blick: welche es gibt, was gerade läuft, wie die neuesten Sicherungen ausgingen und wann der nächste Lauf geplant ist. Öffnen Sie einen Mandanten, um seine Jobs hier zu sehen; wechseln Sie zu ihm, um sie zu ändern.",
+    "list": "Mandanten und ihre Jobs",
+    "loadError": "Die Jobs der Mandanten konnten nicht geladen werden",
+    "unavailable": "Zahlen nicht verfügbar",
+    "noJobs": "Keine Jobs",
+    "kinds": {
+      "mail": "{count, plural, one {# Mail-Job} other {# Mail-Jobs}}",
+      "endpoint": "{count, plural, one {# Rechner-Job} other {# Rechner-Jobs}}",
+      "pve": "{count, plural, one {# Proxmox-VE-Job} other {# Proxmox-VE-Jobs}}"
+    },
+    "paused": "{count} pausiert",
+    "outcome": {
+      "failed": "Letzte Sicherung fehlgeschlagen",
+      "warning": "Letzte Sicherung mit Warnungen",
+      "succeeded": "Letzte Sicherung erfolgreich",
+      "none": "Noch keine Sicherung"
+    },
+    "lastRun": "Letzter Lauf",
+    "nextRun": "Nächster Lauf",
+    "nothingPlanned": "Nichts geplant",
+    "filter": {
+      "label": "Anzeigen",
+      "all": "Alle Mandanten",
+      "running": "Mit laufenden Jobs",
+      "failures": "Mit Fehlern",
+      "noJobs": "Ohne Jobs"
+    },
+    "sort": {
+      "label": "Sortieren nach",
+      "name": "Name",
+      "attention": "Handlungsbedarf zuerst",
+      "nextRun": "Nächster Lauf"
+    },
+    "shown": "{shown} von {total} Mandanten",
+    "empty": {
+      "none": "Noch kein Mandant.",
+      "filtered": "Kein Mandant passt zu diesem Filter."
+    },
+    "jobs": {
+      "label": "Jobs von {name}",
+      "loading": "Die Jobs von {name} werden geladen",
+      "error": "Die Jobs dieses Mandanten konnten nicht geladen werden",
+      "empty": "Dieser Mandant hat noch keine Jobs.",
+      "readOnly": "Nur lesend. Wechseln Sie zum Mandanten, um einen Job zu ändern.",
+      "kind": {
+        "mail": "Mail & SaaS",
+        "endpoint": "Server & Clients",
+        "pve": "VMs & Container"
+      },
+      "columns": {
+        "job": "Job",
+        "scope": "Umfang",
+        "schedule": "Zeitplan",
+        "lastRun": "Letzter Lauf",
+        "nextRun": "Nächster Lauf",
+        "state": "Zustand"
+      },
+      "scopeAll": "Alle ({count})",
+      "scopeSelected": "{count} ausgewählt",
+      "never": "Nie"
+    }
   }
 }
