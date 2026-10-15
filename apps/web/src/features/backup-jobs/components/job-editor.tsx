@@ -460,7 +460,11 @@ function EditorForm({
   const candidates = useJobCandidates("endpoint", "", kind === "endpoint");
   const scopeMachines: BrowsableMachine[] = draft.selected
     .filter(
-      (member) => member.kind !== "mailbox" && member.kind !== "onedrive" && member.kind !== "imap",
+      (member) =>
+        member.kind !== "mailbox" &&
+        member.kind !== "onedrive" &&
+        member.kind !== "imap" &&
+        member.kind !== "site",
     )
     .map((member) => ({ id: member.id, name: member.name }));
   const machines: BrowsableMachine[] =

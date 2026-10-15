@@ -6,6 +6,7 @@ import {
   Download,
   FolderInput,
   type LucideIcon,
+  Replace,
   SkipForward,
   UserRound,
 } from "lucide-react";
@@ -103,6 +104,7 @@ const ACCOUNT_HINT_KEYS: Record<ObjectKind, string> = {
   mailbox: "dialog.target.accountHint.mailbox",
   onedrive: "dialog.target.accountHint.onedrive",
   imap: "dialog.target.accountHint.imap",
+  site: "dialog.target.accountHint.site",
 };
 
 function RestoreForm({
@@ -131,7 +133,8 @@ function RestoreForm({
     canRestoreElsewhere:
       request.onlyTarget === undefined &&
       (isProviderAdmin || restoresForTenant(activeTenant?.role)),
-    reasonRequired: !object.own,
+    // A SharePoint site belongs to no person: restoring it acts on behalf of no one.
+    reasonRequired: !object.own && object.kind !== "site",
     originalAvailable: request.onlyTarget === undefined && object.status !== "orphaned",
     downloadOnly: demoMode,
   };
@@ -259,8 +262,16 @@ function RestoreForm({
       description:
         object.kind === "onedrive"
           ? t("dialog.mode.renameDescriptionFiles")
-          : t("dialog.mode.renameDescriptionMail", { folder: restoreFolderName }),
+          : object.kind === "site"
+            ? t("dialog.mode.renameDescriptionSite")
+            : t("dialog.mode.renameDescriptionMail", { folder: restoreFolderName }),
       icon: Copy,
+    },
+    {
+      value: "replace",
+      label: t("dialog.mode.replace"),
+      description: t("dialog.mode.replaceDescriptionSite"),
+      icon: Replace,
     },
     {
       value: "skip",

@@ -36,6 +36,7 @@ const DEFAULT_RULES: ProtectionRules = {
   groupName: null,
   exclude: [],
   includeSharedMailboxes: true,
+  sites: "all",
 };
 
 interface RulesSheetProps {
@@ -72,6 +73,7 @@ function RulesForm({ source, onDone }: { source: DirectorySource; onDone: () => 
   );
   const [includeShared, setIncludeShared] = React.useState(saved.includeSharedMailboxes);
   const [excludeText, setExcludeText] = React.useState(formatExclusionText(saved.exclude));
+  const [allSites, setAllSites] = React.useState((saved.sites ?? "all") === "all");
   const [attempted, setAttempted] = React.useState(false);
 
   const draft: ProtectionRules = {
@@ -80,6 +82,7 @@ function RulesForm({ source, onDone }: { source: DirectorySource; onDone: () => 
     groupName: mode === "group" ? (group?.name ?? null) : null,
     exclude: parseExclusionText(excludeText),
     includeSharedMailboxes: includeShared,
+    sites: allSites ? "all" : "selected",
   };
   const complete = rulesComplete(draft);
   const changed = !sameRules(draft, saved) || draft.groupName !== saved.groupName;
@@ -194,6 +197,21 @@ function RulesForm({ source, onDone }: { source: DirectorySource; onDone: () => 
             </div>
           </>
         )}
+
+        <div className="flex items-start justify-between gap-4 border-t border-border pt-6">
+          <div className="space-y-1">
+            <Label htmlFor="rules-sites">{t("rules.sites.label")}</Label>
+            <p id={messageId("rules-sites")} className="text-xs text-muted-foreground">
+              {allSites ? t("rules.sites.allHint") : t("rules.sites.selectedHint")}
+            </p>
+          </div>
+          <Switch
+            id="rules-sites"
+            checked={allSites}
+            onCheckedChange={setAllSites}
+            aria-describedby={messageId("rules-sites")}
+          />
+        </div>
 
         <Alert variant="info">
           <Info />

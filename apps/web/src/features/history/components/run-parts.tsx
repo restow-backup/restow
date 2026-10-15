@@ -1,5 +1,6 @@
 import {
   Cloud,
+  Globe,
   Inbox,
   Laptop,
   type LucideIcon,
@@ -47,6 +48,7 @@ export function RunStateBadge({
 const SUBJECT_ICON: Readonly<Record<SubjectKind, LucideIcon>> = {
   mailbox: Mail,
   onedrive: Cloud,
+  site: Globe,
   imap: Inbox,
   server: Server,
   client: Laptop,

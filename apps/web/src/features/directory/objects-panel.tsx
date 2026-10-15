@@ -11,6 +11,7 @@ import {
   CircleMinus,
   Cloud,
   FolderSearch,
+  Globe,
   Inbox,
   ListChecks,
   ListPlus,
@@ -104,6 +105,7 @@ type BulkAction = (typeof BULK_ACTIONS)[number];
 const KIND_ICON: Record<ObjectKind, typeof Mail> = {
   mailbox: Mail,
   onedrive: Cloud,
+  site: Globe,
   imap: Inbox,
 };
 
@@ -1067,7 +1069,7 @@ function ObjectFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>{t("objects.filters.allKinds")}</SelectItem>
-            {(["mailbox", "onedrive", "imap"] as const).map((kind) => (
+            {(["mailbox", "onedrive", "site", "imap"] as const).map((kind) => (
               <SelectItem key={kind} value={kind}>
                 {t(`kind.${kind}`)}
               </SelectItem>

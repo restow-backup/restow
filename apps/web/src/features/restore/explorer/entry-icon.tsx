@@ -3,6 +3,7 @@ import {
   Contact,
   FileText,
   Folder,
+  Globe,
   HardDrive,
   Inbox,
   Mail,
@@ -42,6 +43,7 @@ export function EntryIcon({ kind, className }: { kind: EntryKind; className?: st
 const OBJECT_ICONS = {
   mailbox: Inbox,
   onedrive: HardDrive,
+  site: Globe,
   imap: Server,
 } as const;
 

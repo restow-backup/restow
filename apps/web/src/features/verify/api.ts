@@ -9,7 +9,7 @@ import { apiFetch } from "@/lib/api";
 
 export type Readiness = "green" | "yellow" | "red";
 export type ObjectState = Readiness | "unverified" | "no_backup";
-export type ObjectKind = "mailbox" | "onedrive" | "imap";
+export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 export type CheckKind = "verify" | "health_check";
 export type ReportOrigin = "verify" | "scrub" | "unknown";

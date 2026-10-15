@@ -31,7 +31,7 @@ export interface ExportProgress {
 
 export interface ExportObject {
   id: string;
-  kind: "mailbox" | "onedrive" | "imap";
+  kind: "mailbox" | "onedrive" | "imap" | "site";
   externalId: string;
   displayName: string | null;
 }

@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { Cloud, Inbox, Laptop, type LucideIcon, Mail, Network, Server } from "lucide-react";
+import { Cloud, Globe, Inbox, Laptop, type LucideIcon, Mail, Network, Server } from "lucide-react";
 
 import type { StatusTone } from "@/components/kit";
 import { describeCadence } from "@/features/schedules/presenters";
@@ -32,6 +32,7 @@ import { cadenceOfJobSchedule } from "./form.js";
 export const MEMBER_KIND_ICON: Readonly<Record<MemberKind, LucideIcon>> = {
   mailbox: Mail,
   onedrive: Cloud,
+  site: Globe,
   imap: Inbox,
   server: Server,
   client: Laptop,
@@ -41,7 +42,7 @@ export const MEMBER_KIND_ICON: Readonly<Record<MemberKind, LucideIcon>> = {
 
 /** The kinds of object or machine a job of this kind holds, in the order a summary lists them. */
 export const MEMBER_KINDS_OF: Readonly<Record<JobKind, readonly MemberKind[]>> = {
-  mail: ["mailbox", "onedrive", "imap"],
+  mail: ["mailbox", "onedrive", "site", "imap"],
   endpoint: ["server", "client"],
   share: ["smb", "nfs"],
   copy: [],

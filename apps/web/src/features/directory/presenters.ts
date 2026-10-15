@@ -363,6 +363,7 @@ export function sameRules(a: ProtectionRules, b: ProtectionRules): boolean {
     a.mode === b.mode &&
     (a.mode === "all" || a.groupId === b.groupId) &&
     a.includeSharedMailboxes === b.includeSharedMailboxes &&
+    (a.sites ?? "all") === (b.sites ?? "all") &&
     list(a) === list(b)
   );
 }
