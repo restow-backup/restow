@@ -6,7 +6,8 @@ import { objectPathSchema } from "../snapshots/schemas.js";
 /**
  * "replace" is refused for every target that writes into an account
  * (service.ts, createRestore: urn:restow:problem:restore-replace-not-allowed):
- * a restore never replaces what is there (docs/ARCHITECTURE.md, Restore).
+ * a restore never replaces what is there (docs/ARCHITECTURE.md, Restore),
+ * except into a SharePoint site, where "overwrite" is an explicit choice.
  * Replacing OneDrive files (the existing file becoming an earlier version) is
  * planned for a later release. The value stays in the schema (and the
  * `restore_mode` database enum) so a request or a stored job from before that
@@ -33,7 +34,10 @@ export const restoreTargetSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("original") }),
   z.object({
     type: z.literal("other"),
-    /** Target mailbox address / drive id or UPN (optionally `:/<folder>`) / IMAP login. */
+    /**
+     * Target mailbox address / drive id or UPN (optionally `:/<folder>`) / IMAP
+     * login / for a SharePoint site the drive id of a library (optionally `:/<folder>`).
+     */
     accountId: z.string().trim().min(1).max(512),
   }),
   z.object({ type: z.literal("download") }),
@@ -56,8 +60,12 @@ export type RestoreTargetInput = z.infer<typeof restoreTargetSchema>;
 export function isReplaceModeAllowedFor(
   mode: RestoreModeInput,
   targetType: RestoreTargetInput["type"],
+  objectKind?: string,
 ): boolean {
-  return mode !== "replace" || targetType === "download";
+  // SharePoint sites are the exception: "overwrite" puts the backed-up file over
+  // the one in the library (SharePoint keeps that one as an earlier version) and
+  // the backed-up field values over an existing list item, both on request only.
+  return mode !== "replace" || targetType === "download" || objectKind === "site";
 }
 
 /**

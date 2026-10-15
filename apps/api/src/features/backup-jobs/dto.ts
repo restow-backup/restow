@@ -74,7 +74,7 @@ export interface JobRetentionDto {
 export interface JobScopeDto {
   /** Objects or machines the job covers right now. */
   count: number;
-  /** By kind: mailbox, onedrive, imap (mail) or server, client (machines). */
+  /** By kind: mailbox, onedrive, imap, site (mail) or server, client (machines). */
   byKind: Record<string, number>;
   /** Members that do something differently from the job. */
   overrides: number;
@@ -162,7 +162,15 @@ export interface BackupJobListDto {
   unscheduled: { mail: number; endpoint: number; share: number; copy: number };
 }
 
-export type MemberKind = "mailbox" | "onedrive" | "imap" | "server" | "client" | "smb" | "nfs";
+export type MemberKind =
+  | "mailbox"
+  | "onedrive"
+  | "imap"
+  | "site"
+  | "server"
+  | "client"
+  | "smb"
+  | "nfs";
 export type MemberRestoreState = "green" | "yellow" | "red" | "unverified" | "no_backup";
 
 export interface BackupJobMemberDto {
@@ -317,7 +325,7 @@ const iso = (value: Date | string | null): string | null =>
 export { iso };
 
 /** Object kinds of mail jobs and machine profiles, as member kinds. */
-export function memberKindOfObject(kind: "mailbox" | "onedrive" | "imap"): MemberKind {
+export function memberKindOfObject(kind: "mailbox" | "onedrive" | "imap" | "site"): MemberKind {
   return kind;
 }
 

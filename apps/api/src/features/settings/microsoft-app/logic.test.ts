@@ -265,6 +265,7 @@ describe("toMicrosoftAppView", () => {
       "Directory.Read.All",
       "Organization.Read.All",
       "Mail.Send",
+      "Sites.ReadWrite.All",
       "openid",
       "profile",
     ]);

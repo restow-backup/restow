@@ -66,6 +66,7 @@ import {
   decideOverride,
   fullSyncPending,
   isNotSelected,
+  modeForKind,
   rulesFromInput,
 } from "./logic.js";
 import {
@@ -119,6 +120,7 @@ export interface ObjectCounts {
   mailbox: number;
   onedrive: number;
   imap: number;
+  site: number;
 }
 
 export interface PendingSyncDto {
@@ -324,6 +326,7 @@ const EMPTY_COUNTS: ObjectCounts = {
   mailbox: 0,
   onedrive: 0,
   imap: 0,
+  site: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -680,7 +683,9 @@ function notSelectedSql(): SQL {
   return sql`coalesce((
     ${sources.kind} = 'm365'
     and ${protectedObjects.status} = 'excluded'
-    and (${sources.config}->'scope'->>'mode') = 'selected'
+    and (case when ${protectedObjects.kind} = 'site'
+      then (${sources.config}->'protection'->>'sites')
+      else (${sources.config}->'scope'->>'mode') end) = 'selected'
     and coalesce(${sources.config}->'protection'->'overrides'->>${protectedObjects.externalId}, '') <> 'exclude'
   ), false)`;
 }
@@ -908,6 +913,7 @@ async function toObjectDtos(
     string,
     {
       mode: ProtectionRulesDto["mode"];
+      sites: ProtectionRulesDto["sites"];
       overrides: Record<string, ProtectionOverride>;
       shared: Set<string>;
       imapAuthMode: ImapAuthMode;
@@ -920,6 +926,7 @@ async function toObjectDtos(
       const raw = row.sourceConfig as { imapAuthMode?: ImapAuthMode } | null | undefined;
       entry = {
         mode: rules.mode,
+        sites: rules.sites,
         overrides: { ...overrides },
         shared: new Set(readDirectoryState(row.sourceConfig).sharedOrBlockedIds),
         imapAuthMode: raw?.imapAuthMode ?? "shared",
@@ -952,7 +959,12 @@ async function toObjectDtos(
           ? config.shared.has(row.entraObjectId)
           : false,
       override,
-      notSelected: isNotSelected(row.sourceKind, config.mode, row.object.status, override),
+      notSelected: isNotSelected(
+        row.sourceKind,
+        modeForKind(row.object.kind, config),
+        row.object.status,
+        override,
+      ),
       lastBackupAt: iso(fact.lastBackupAt),
       snapshotCount: fact.snapshotCount,
       legalHold: fact.legalHold,

@@ -703,7 +703,7 @@ export async function listTree(
         path: query.path,
         includeDeleted: query.includeDeleted,
         foldersOnly: query.foldersOnly,
-        hideNativeVersions: loaded.object.kind === "onedrive",
+        hideNativeVersions: loaded.object.kind === "onedrive" || loaded.object.kind === "site",
         sort: query.sort,
       },
       { limit: query.limit, offset: query.offset },

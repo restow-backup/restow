@@ -164,7 +164,7 @@ export type ProtectionResultDto = z.infer<typeof protectionResultSchema>;
 export interface UserObjectRow {
   id: string;
   userId: string | null;
-  kind: "mailbox" | "onedrive" | "imap";
+  kind: "mailbox" | "onedrive" | "imap" | "site";
   status: "active" | "excluded" | "orphaned";
   externalId: string;
   displayName: string | null;

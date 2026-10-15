@@ -137,6 +137,7 @@ export function tenantRow(
     lastBackupAt: newest([
       summary.lastSuccess.mail,
       summary.lastSuccess.onedrive,
+      summary.lastSuccess.sharepoint,
       summary.lastSuccess.imap,
       machines?.lastSuccessAt ?? null,
       guests?.lastSuccessAt ?? null,

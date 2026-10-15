@@ -87,6 +87,13 @@ describe("isReplaceModeAllowedFor", () => {
     expect(isReplaceModeAllowedFor("replace", "other")).toBe(false);
   });
 
+  it("lets 'replace' (overwrite) into a SharePoint site, an explicit choice there", () => {
+    expect(isReplaceModeAllowedFor("replace", "original", "site")).toBe(true);
+    expect(isReplaceModeAllowedFor("replace", "other", "site")).toBe(true);
+    expect(isReplaceModeAllowedFor("replace", "original", "onedrive")).toBe(false);
+    expect(isReplaceModeAllowedFor("replace", "original", "mailbox")).toBe(false);
+  });
+
   it("lets 'replace' through for a download target, since mode has no effect there", () => {
     expect(isReplaceModeAllowedFor("replace", "download")).toBe(true);
   });

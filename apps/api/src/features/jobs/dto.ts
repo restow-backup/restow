@@ -20,7 +20,7 @@ import type { JOB_QUEUES, JOB_STATUSES } from "./schemas.js";
 
 export type JobQueueName = (typeof JOB_QUEUES)[number];
 export type JobStatusName = (typeof JOB_STATUSES)[number];
-export type ProtectedObjectKindName = "mailbox" | "onedrive" | "imap";
+export type ProtectedObjectKindName = "mailbox" | "onedrive" | "imap" | "site";
 
 // ---------------------------------------------------------------------------
 // DTOs

@@ -738,7 +738,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
     it("reports last backups per type next to the protected kinds", async () => {
       const { body } = await dashboard(f.contoso, "tenant_user");
       const lastBackup = ok(body.widgets.lastBackup);
-      expect(lastBackup.protectedKinds).toEqual({ mailbox: 1, onedrive: 1, imap: 1 });
+      expect(lastBackup.protectedKinds).toEqual({ mailbox: 1, onedrive: 1, imap: 1, site: 0 });
       expect(lastBackup.lastSuccess.mail).toBe(ago(HOUR).toISOString());
       // Yesterday's OneDrive run left items behind and the IMAP run failed: neither is a success.
       expect(lastBackup.lastSuccess.imap).toBeNull();
