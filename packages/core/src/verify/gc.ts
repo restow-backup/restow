@@ -56,7 +56,7 @@ import type {
   TenantKeyring,
 } from "../engine/types.js";
 import { PackReader, PackWriter } from "../pack.js";
-import type { StorageBackend } from "../storage/backend.js";
+import { lockedErrorOf, type StorageBackend } from "../storage/backend.js";
 import type { CatalogChunk, CatalogPack, PackCatalog } from "./catalog.js";
 import { describeError, isAbortError, throwIfAborted } from "./errors.js";
 
@@ -272,20 +272,37 @@ export function buildReplacement(
   };
 }
 
+/**
+ * Delete a pack file on every target. Returns the latest retention end of the
+ * targets that refused because the file is still locked (immutable backups,
+ * docs/STORAGE.md), or null when none did; the caller keeps such a file for a
+ * later run. Any other failure leaves an orphan for the next sweep.
+ */
 async function deleteEverywhere(
   storage: StorageTargets,
   key: string,
   logger: Logger,
-): Promise<void> {
+): Promise<{ lockedUntil: Date | null } | null> {
   const targets: readonly StorageBackend[] = [storage.primary, ...storage.copies];
+  let deferred = null as { lockedUntil: Date | null } | null;
   for (const target of targets) {
     try {
       await target.delete(key);
     } catch (error) {
+      const locked = lockedErrorOf(error);
+      if (locked) {
+        const until = locked.retainUntil;
+        const previous: Date | null = deferred?.lockedUntil ?? null;
+        deferred = {
+          lockedUntil: previous && until && previous > until ? previous : (until ?? previous),
+        };
+        continue;
+      }
       // Left behind as an orphan; the next sweep removes it.
       logger.warn("could not delete pack file", { key, error: describeError(error) });
     }
   }
+  return deferred;
 }
 
 /** Read a freshly written pack back from every target and compare its SHA-256. */
@@ -427,8 +444,14 @@ export type SupersededRelease = {
   /** Files deleted because their grace period is over. */
   released: number;
   releasedBytes: number;
-  /** Files still inside their grace period; a later run deletes them. */
+  /**
+   * Files still inside their grace period, or still locked on a target with
+   * immutable backups (also counted in {@link deferredByLock}); a later run
+   * deletes them.
+   */
   pending: SupersededPack[];
+  /** Files whose deletion a target refused because they are still locked. */
+  deferredByLock: number;
 };
 
 /**
@@ -443,7 +466,12 @@ export async function releaseSupersededPacks(
   superseded: readonly SupersededPack[],
   graceMs: number = DEFAULT_SUPERSEDED_GRACE_MS,
 ): Promise<SupersededRelease> {
-  const result: SupersededRelease = { released: 0, releasedBytes: 0, pending: [] };
+  const result: SupersededRelease = {
+    released: 0,
+    releasedBytes: 0,
+    pending: [],
+    deferredByLock: 0,
+  };
   if (superseded.length === 0) {
     return result;
   }
@@ -461,15 +489,21 @@ export async function releaseSupersededPacks(
       result.pending.push(pack);
       continue;
     }
-    await deleteEverywhere(env.storage, pack.path, env.logger);
+    if (await deleteEverywhere(env.storage, pack.path, env.logger)) {
+      // Still locked somewhere: kept, and tried again by a later run.
+      result.pending.push(pack);
+      result.deferredByLock++;
+      continue;
+    }
     result.released++;
     result.releasedBytes += pack.size;
   }
-  if (result.released > 0) {
+  if (result.released > 0 || result.deferredByLock > 0) {
     env.logger.info("superseded pack files removed", {
       released: result.released,
       bytes: result.releasedBytes,
       pending: result.pending.length,
+      deferredByLock: result.deferredByLock,
     });
   }
   return result;
@@ -480,6 +514,8 @@ export type OrphanSweep = {
   bytes: number;
   /** Unrecorded files kept because they are recent, carry no timestamp, or wait out a grace period. */
   kept: number;
+  /** Unrecorded files kept because the target still locks them (also counted in `kept`). */
+  deferredByLock: number;
 };
 
 /**
@@ -495,7 +531,7 @@ export async function sweepOrphanPacks(
   retained: ReadonlySet<string> = new Set(),
 ): Promise<OrphanSweep> {
   const known = new Set((await env.catalog.listPacks()).map((pack) => pack.path));
-  const sweep: OrphanSweep = { removed: 0, bytes: 0, kept: 0 };
+  const sweep: OrphanSweep = { removed: 0, bytes: 0, kept: 0, deferredByLock: 0 };
   const now = env.now().getTime();
   const targets: readonly StorageBackend[] = [env.storage.primary, ...env.storage.copies];
   for (const target of targets) {
@@ -514,12 +550,21 @@ export async function sweepOrphanPacks(
         sweep.kept++;
         continue;
       }
-      await target.delete(key);
+      try {
+        await target.delete(key);
+      } catch (error) {
+        if (!lockedErrorOf(error)) {
+          throw error;
+        }
+        sweep.kept++;
+        sweep.deferredByLock++;
+        continue;
+      }
       sweep.removed++;
       sweep.bytes += head.size;
     }
   }
-  if (sweep.removed > 0) {
+  if (sweep.removed > 0 || sweep.deferredByLock > 0) {
     env.logger.info("orphaned pack files removed", { ...sweep });
   }
   return sweep;
