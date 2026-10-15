@@ -436,7 +436,7 @@ export const fileShareDownloads = pgTable(
 
 /**
  * Search and version history (8.5): one row per version of a file, valid from restore point
- * `first_seq` up to (not including) `end_seq`; null = still present. Migration 0033 adds a
+ * `first_seq` up to (not including) `end_seq`; null = still present. Migration 0035 adds a
  * trigram index on lower(name) where pg_trgm is available.
  */
 export const fileShareCatalog = pgTable(

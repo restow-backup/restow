@@ -1589,7 +1589,7 @@ describe.skipIf(!adminUrl)(
 );
 
 describe.skipIf(!adminUrl)(
-  "upgrading to file shares (0033 tables, 0034 job kinds, 0035 job members and copy jobs)",
+  "upgrading 0.3.6 to file shares (0035 tables, 0036 job kinds, 0037 job members and copy jobs)",
   () => {
     const base = adminUrl as string;
     const database = `restow_db_migrate_file_shares_${suffix}`;
@@ -1610,7 +1610,7 @@ describe.skipIf(!adminUrl)(
     let folder = "";
 
     beforeAll(async () => {
-      folder = migrationsFolderUpTo("0032_pve_enrollment_pve_token");
+      folder = migrationsFolderUpTo("0034_restart_requests");
       const admin = new pg.Pool({ connectionString: base });
       try {
         await admin.query(

@@ -201,7 +201,7 @@ export const backupJobs = pgTable(
       .where(sql`${t.scopeMode} = 'all'`),
     // A copy job has both shares, every other job neither. `kind::text`: the migration that adds
     // this check runs in the transaction that may have just added the enum value 'copy', and a new
-    // enum value cannot be used as such before that transaction commits (0034, 0035).
+    // enum value cannot be used as such before that transaction commits (0036, 0037).
     check(
       "backup_jobs_copy_shares_ck",
       sql`CASE WHEN ${t.kind}::text = 'copy' THEN ${t.sourceFileShareId} IS NOT NULL AND ${t.targetFileShareId} IS NOT NULL ELSE ${t.sourceFileShareId} IS NULL AND ${t.targetFileShareId} IS NULL END`,

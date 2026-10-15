@@ -324,7 +324,7 @@ through a proxy).
 | Generalised restic stack | `packages/core/src/endpoints/{restic-cli,loopback,restic-authz,restic-rest,repository-key}.ts` | `RepositoryAccess.endpointId` becomes `repositoryKey` (cache folder); a third principal `reader`; password document format per repository kind. |
 | Worker | `apps/worker/src/file-shares/` (`dispatch.ts`, `monitor.ts`, `maintenance.ts`, `catalog.ts`, `purge.ts`, `mounter-client.ts`, `register.ts`) | Section 8. |
 | Scheduler | `apps/scheduler/src/file-shares.ts` | Section 8.1. |
-| Database | `packages/db/src/schema/file-shares.ts`, migrations 0033-0035, `packages/db/sql/rls.sql` | Section 7. |
+| Database | `packages/db/src/schema/file-shares.ts`, migrations 0035-0037, `packages/db/sql/rls.sql` | Section 7. |
 | Web | `apps/web/src/features/file-shares/`, generalised restore components from `apps/web/src/features/endpoints/` and `features/restore/explorer/` | Section 12. |
 | i18n | `packages/i18n/resources/{en,de}/fileshares.json`, entries in `failures.json`, `backupjobs.json`, `dashboard.json`, `stats.json`, `installation.json` | |
 | Smoke | `scripts/smoke/checks/12-file-shares.mjs`, a Samba container pinned in `scripts/smoke/images.json` | Section 16.4. |
@@ -1112,16 +1112,16 @@ s.sequence)`.
 
 ### 7.3 Migrations
 
-The latest migration is `0032_pve_enrollment_pve_token.sql` [V]. Generated with drizzle-kit, then
+The latest migration of 0.3.6 is `0034_restart_requests.sql` [V]; file shares add 0035-0037. Generated with drizzle-kit, then
 reviewed by hand:
 
 | File | Content |
 | --- | --- |
-| `0033_file_shares.sql` | All new tables, indexes and foreign keys; `settings.file_share_settings`; `run_samples.file_share_run_id` and `warning_acknowledgements.file_share_id` with their new checks; a `DO` block that runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` and creates the trigram index, catching `insufficient_privilege` and `undefined_file` (an external Postgres without the extension then searches with the `text_pattern_ops` index and `ILIKE`, slower but correct). |
-| `0034_backup_job_kinds_share_copy.sql` | `ALTER TYPE "public"."backup_job_kind" ADD VALUE 'share';` and `... ADD VALUE 'copy';` and nothing else: two new values in one migration are fine, but no statement may use them in the transaction that adds them. |
-| `0035_backup_job_file_shares.sql` | `backup_job_members.file_share_id`, its foreign key, the partial unique index and the replaced check constraint; `backup_jobs.source_file_share_id`, `target_file_share_id`, their foreign keys and the copy checks (which name `'copy'`, hence a migration after 0034). |
+| `0035_file_shares.sql` | All new tables, indexes and foreign keys; `settings.file_share_settings`; `run_samples.file_share_run_id` and `warning_acknowledgements.file_share_id` with their new checks; a `DO` block that runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` and creates the trigram index, catching `insufficient_privilege` and `undefined_file` (an external Postgres without the extension then searches with the `text_pattern_ops` index and `ILIKE`, slower but correct). |
+| `0036_backup_job_kinds_share_copy.sql` | `ALTER TYPE "public"."backup_job_kind" ADD VALUE 'share';` and `... ADD VALUE 'copy';` and nothing else: two new values in one migration are fine, but no statement may use them in the transaction that adds them. |
+| `0037_backup_job_file_shares.sql` | `backup_job_members.file_share_id`, its foreign key, the partial unique index and the replaced check constraint; `backup_jobs.source_file_share_id`, `target_file_share_id`, their foreign keys and the copy checks (which name `'copy'`, hence a migration after 0036). |
 
-RLS policies for the new tables go into `packages/db/sql/rls.sql` in 0033's phase (it is applied
+RLS policies for the new tables go into `packages/db/sql/rls.sql` in 0035's phase (it is applied
 on every start, `Dockerfile` entrypoint [V]).
 
 ### 7.4 Installation settings (`settings.file_share_settings`)
@@ -1746,7 +1746,7 @@ readiness.
   date", no verified point, rules re-checked at dispatch).
 - `apps/scheduler/src/file-shares.pg.test.ts`: planning of share and copy jobs, member schedules,
   maintenance due rules.
-- Migrations: 0033-0035 apply on a database at 0032 with existing jobs, members, samples and
+- Migrations: 0035-0037 apply on a database at 0034 (0.3.6) with existing jobs, members, samples and
   acknowledgements; the replaced checks accept the old rows; deleting a share cascades to its
   copy jobs.
 
@@ -1839,7 +1839,7 @@ run, `restore.copy` (`jobId`, `sourceShareId`, `mode`, `mirrorConfirmed`, `lastC
 `force`), which the runner checks again (4.10 rules 2-6).
 
 **Phase B: database, core, scheduler, worker.**
-Schema and migrations 0033-0035, RLS (7); core modules (validation, queues, protection, readiness,
+Schema and migrations 0035-0037, RLS (7); core modules (validation, queues, protection, readiness,
 failures, sidecar reader, catalog); generalised `RepositoryAccess` and repository key document;
 scheduler planning of share and copy jobs (8.1); worker dispatcher with budget and copy rules,
 monitor, finish, retention, check, restore check, catalog, purge (8.2-8.6); parametrised
@@ -1849,14 +1849,14 @@ Exit: the pg suites of 16.2 green; a scheduled backup runs end to end without UI
 *Phase B as built (2026-10-10).* Done, in the places section 2.4 names:
 
 - **Database.** `packages/db/src/schema/file-shares.ts` with the tables of 7.1; migrations
-  `0033_file_shares` (tables, `settings.file_share_settings`, `run_samples.file_share_run_id`,
+  `0035_file_shares` (tables, `settings.file_share_settings`, `run_samples.file_share_run_id`,
   `warning_acknowledgements.file_share_id` with their `num_nonnulls` checks, the `pg_trgm` block),
-  `0034_backup_job_kinds_share_copy` (the two enum values only) and
-  `0035_backup_job_file_shares` (member column, copy job columns and checks); RLS for the nine
+  `0036_backup_job_kinds_share_copy` (the two enum values only) and
+  `0037_backup_job_file_shares` (member column, copy job columns and checks); RLS for the nine
   tables in `sql/rls.sql`; secret kinds `file_share_password`, `file_share_repository`;
   `recordRunSample` takes a `fileShareRunId`. Tests: `packages/db/src/file-shares.pg.test.ts`
   (isolation of every table, the run singletons, the name rule, the cascade) and an upgrade case
-  in `migrate.pg.test.ts` (0033-0035 on a 0032 database with jobs, members, samples and
+  in `migrate.pg.test.ts` (0035-0037 on a 0034 database with jobs, members, samples and
   acknowledgements; the new checks; a deleted share takes its copy jobs along).
 - **Core** (`packages/core/src/file-shares/`): `model.ts` (repository prefix and cache key, the
   snapshot paths, the settings of 7.4 with their bounds and the mounter's caps, the exclude list
@@ -1907,9 +1907,9 @@ Exit: the pg suites of 16.2 green; a scheduled backup runs end to end without UI
 
 Deviations from the design above, decided while building:
 
-1. **0035 compares `kind::text = 'copy'`.** Drizzle's migrator applies every pending migration in
+1. **0037 compares `kind::text = 'copy'`.** Drizzle's migrator applies every pending migration in
    one transaction, and a value `ALTER TYPE ... ADD VALUE` added cannot be used as an enum value
-   before that transaction commits. On an installation at 0032, 0034 and 0035 run together, so
+   before that transaction commits. On an installation at 0034 (0.3.6), 0036 and 0037 run together, so
    the checks compare the text. The copy checks are one `CASE` (a copy job has both shares, any
    other job neither) and `source <> target`.
 2. **`file_share_catalog` has an `id` and `created_at`** (the schema's convention, checked by
