@@ -39,7 +39,7 @@ import {
   users,
   verifyReports,
 } from "@restow/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { registerApiExtension, resetExtensionsForTesting } from "../../extensions.js";
@@ -61,6 +61,13 @@ const DAY = 24 * HOUR;
 const NOW = new Date(`${new Date().toISOString().slice(0, 10)}T12:00:00.000Z`);
 const ago = (ms: number) => new Date(NOW.getTime() - ms);
 const dayKey = (date: Date) => date.toISOString().slice(0, 10);
+
+/** Free space the fake statfs reports per repository path; any other path has none. */
+const FREE_SPACE: Record<string, { freeBytes: number; totalBytes: number }> = {
+  "/mnt/fabrikam": { freeBytes: 4e12, totalBytes: 8e12 },
+  "/mnt/initech": { freeBytes: 1e12, totalBytes: 2e12 },
+  "/data/chunks": { freeBytes: 9e12, totalBytes: 9e12 },
+};
 
 /** A valid installation default (a local path); nothing is read or written there. */
 const STORAGE_ENV = { STORAGE_TARGET: "local", STORAGE_LOCAL_PATH: "/data/chunks" };
@@ -537,6 +544,8 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
           providerDb,
           env: STORAGE_ENV,
           now: () => NOW,
+          // No filesystem is read: the repositories of the fixture report this free space.
+          filesystemSpace: async (path) => FREE_SPACE[path] ?? null,
           access,
         }),
       );
@@ -762,12 +771,16 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
       });
 
       const growth = ok(body.widgets.storageGrowth);
+      expect(growth).toMatchObject({ days: 30, requestedDays: 30, granularity: "day" });
       expect(growth.series).toHaveLength(30);
       expect(growth.series[0]?.bytes).toBe(1000);
-      expect(growth.series.at(-1)?.bytes).toBe(1500);
+      expect(growth.series.at(-1)).toEqual({ date: dayKey(NOW), bytes: 1500 });
       expect(growth.growthBytes).toBe(500);
       expect(growth.forecast?.method).toBe("linear");
       expect(growth.forecast?.points).toHaveLength(30);
+      expect(growth.forecast?.band).toBeNull();
+      // Contoso shares the installation default with other tenants: its free space is not theirs to read.
+      expect(growth.capacity).toBeNull();
     });
 
     it("says honestly that everything is kept when there is no retention policy", async () => {
@@ -1223,6 +1236,212 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
       }
       const { body } = await dashboard(f.globex, "tenant_admin");
       expect(body.widgets.endpoints?.state).toBe("ok");
+    });
+  });
+  describe("the storage growth window", () => {
+    let initech: string;
+    const GB = 1e9;
+
+    beforeAll(async () => {
+      // Initech: its own local repository and 400 days of mail data, 1 GB a day in winter
+      // (October to March) and 3 GB a day in summer, one pack per day.
+      const [provider] = await owner.select({ id: providers.id }).from(providers).limit(1);
+      initech = one(
+        await owner
+          .insert(tenants)
+          .values({
+            providerId: provider?.id ?? "",
+            name: "Initech",
+            slug: `initech-${randomUUID().slice(0, 6)}`,
+          })
+          .returning(),
+      ).id;
+      await owner.insert(storageTargets).values({
+        tenantId: initech,
+        kind: "local",
+        role: "primary",
+        config: { basePath: "/mnt/initech" },
+        status: "ok",
+      });
+      const rows = Array.from({ length: 400 }, (_, index) => {
+        const at = ago(index * DAY);
+        const month = at.getUTCMonth();
+        return {
+          tenantId: initech,
+          path: `p/${index}`,
+          sha256: index.toString(16).padStart(64, "0"),
+          size: month >= 3 && month <= 8 ? 3 * GB : GB,
+          createdAt: at,
+        };
+      });
+      await owner.insert(packs).values(rows);
+    });
+
+    const growthOf = async (tenantId: string, query: string) => {
+      const { status, body } = await dashboard(tenantId, "tenant_user", query);
+      expect(status).toBe(200);
+      return ok(body.widgets.storageGrowth);
+    };
+
+    it("sums a year up per month in the database and dates each month with its last day", async () => {
+      const growth = await growthOf(initech, "?widgets=storageGrowth&storageDays=365");
+      expect(growth).toMatchObject({ days: 365, requestedDays: 365, granularity: "month" });
+      // The cut month a year ago, eleven whole ones and this month so far: 13 rows, not 365.
+      expect(growth.series).toHaveLength(13);
+      expect(growth.series.at(-1)?.date).toBe(dayKey(NOW));
+      const [total] = await owner
+        .select({ bytes: sql<number>`sum(${packs.size})`.mapWith(Number) })
+        .from(packs)
+        .where(eq(packs.tenantId, initech));
+      expect(growth.series.at(-1)?.bytes).toBe(total?.bytes);
+      // What was written before the window is the baseline, not growth.
+      const [before] = await owner
+        .select({ bytes: sql<number>`sum(${packs.size})`.mapWith(Number) })
+        .from(packs)
+        .where(
+          sql`${packs.tenantId} = ${initech} and ${packs.createdAt} < ${new Date(
+            Date.parse(`${dayKey(NOW)}T00:00:00.000Z`) - 364 * DAY,
+          ).toISOString()}`,
+        );
+      expect(growth.growthBytes).toBe((total?.bytes ?? 0) - (before?.bytes ?? 0));
+      // The months between are each a calendar month's last day.
+      for (const point of growth.series.slice(0, -1)) {
+        const next = new Date(`${point.date}T00:00:00.000Z`);
+        next.setUTCDate(next.getUTCDate() + 1);
+        expect(next.getUTCDate(), point.date).toBe(1);
+      }
+    });
+
+    it("shows a band from the slowest to the fastest month, and when the repository runs full", async () => {
+      const growth = await growthOf(initech, "?widgets=storageGrowth&storageDays=365");
+      const band = growth.forecast?.band;
+      expect(band?.slowestBytesPerDay).toBe(GB);
+      expect(band?.fastestBytesPerDay).toBe(3 * GB);
+      expect(growth.forecast?.horizonDays).toBe(365);
+      expect(growth.capacity).toMatchObject({
+        source: "filesystem",
+        freeBytes: 1e12,
+        totalBytes: 2e12,
+      });
+      const today = Date.parse(`${dayKey(NOW)}T00:00:00.000Z`);
+      const inDays = (days: number) => dayKey(new Date(today + days * DAY));
+      expect(growth.capacity?.runsFull).toMatchObject({
+        earliest: inDays(Math.ceil(1e12 / (3 * GB))),
+        latest: inDays(Math.ceil(1e12 / GB)),
+      });
+      expect(growth.capacity?.runsFull?.estimate).not.toBeNull();
+    });
+
+    it("sums three months up per week and draws one line for a month", async () => {
+      const quarter = await growthOf(initech, "?widgets=storageGrowth&storageDays=90");
+      expect(quarter.granularity).toBe("week");
+      expect(quarter.series.length).toBeGreaterThanOrEqual(13);
+      expect(quarter.series.length).toBeLessThanOrEqual(14);
+      expect(quarter.forecast?.band).not.toBeNull();
+      const week = await growthOf(initech, "?widgets=storageGrowth&storageDays=7&forecastDays=30");
+      expect(week).toMatchObject({ days: 7, granularity: "day" });
+      expect(week.series).toHaveLength(7);
+      // The estimate looks no further ahead than the history shown.
+      expect(week.forecast?.horizonDays).toBe(7);
+      expect(week.forecast?.band).toBeNull();
+    });
+
+    it("clamps the window to the history that exists", async () => {
+      // Contoso wrote its first data 40 days ago.
+      const growth = await growthOf(f.contoso, "?storageDays=365&forecastDays=90");
+      expect(growth).toMatchObject({ days: 41, requestedDays: 365, granularity: "week" });
+      expect(growth.series.at(-1)?.bytes).toBe(1500);
+      expect(growth.growthBytes).toBe(1500);
+      expect(growth.forecast?.horizonDays).toBe(41);
+      // Fabrikam has written nothing: a week of zeros, nothing to estimate.
+      const empty = await growthOf(f.fabrikam, "?storageDays=365");
+      expect(empty).toMatchObject({ days: 7, requestedDays: 365, forecast: null });
+      // Its own repository reports free space, but without growth there is no day it runs full.
+      expect(empty.capacity).toMatchObject({
+        freeBytes: 4e12,
+        runsFull: { estimate: null, earliest: null, latest: null },
+      });
+    });
+
+    it("names no day when machines write to the same repository", async () => {
+      await owner.insert(storageTargets).values({
+        tenantId: f.globex,
+        kind: "local",
+        role: "primary",
+        config: { basePath: "/mnt/fabrikam" },
+        status: "ok",
+      });
+      try {
+        const growth = await growthOf(f.globex, "?storageDays=30");
+        expect(growth.capacity).toMatchObject({ freeBytes: 4e12, runsFull: null });
+      } finally {
+        await owner.delete(storageTargets).where(eq(storageTargets.tenantId, f.globex));
+      }
+    });
+
+    it("reads the installation default's free space only for a tenant that has it to itself", async () => {
+      const { soleTenantOnDefault } = await import("./queries.js");
+      expect(await soleTenantOnDefault(installationDb, f.contoso)).toBe(false);
+      // Every other tenant on the default (Globex, and those other tests added) gets a bucket
+      // of its own for a moment: then Contoso has the default to itself.
+      const others = await owner
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(
+          sql`${tenants.id} <> ${f.contoso} and not exists (select 1 from ${storageTargets} where ${storageTargets.tenantId} = ${tenants.id} and ${storageTargets.role} = 'primary')`,
+        );
+      await owner.insert(storageTargets).values(
+        others.map(({ id }) => ({
+          tenantId: id,
+          kind: "s3" as const,
+          role: "primary" as const,
+          config: { bucket: `b-${id}`, region: "eu-central-1" },
+          status: "ok" as const,
+        })),
+      );
+      try {
+        expect(await soleTenantOnDefault(installationDb, f.contoso)).toBe(true);
+        const growth = await growthOf(f.contoso, "");
+        expect(growth.capacity).toMatchObject({ source: "filesystem", freeBytes: 9e12 });
+        // An S3 repository reports no capacity.
+        expect((await growthOf(f.globex, "")).capacity).toBeNull();
+      } finally {
+        await owner.delete(storageTargets).where(
+          inArray(
+            storageTargets.tenantId,
+            others.map(({ id }) => id),
+          ),
+        );
+      }
+    });
+
+    it("refuses a window it does not offer", async () => {
+      for (const query of [
+        "?storageDays=3",
+        "?storageDays=367",
+        "?storageDays=1e2",
+        "?storageDays=abc",
+        "?forecastDays=0",
+        "?forecastDays=400",
+      ]) {
+        const { status } = await dashboard(f.contoso, "tenant_user", query);
+        expect(status, query).toBe(422);
+      }
+    });
+
+    it("leaves the provider view alone", async () => {
+      setProviderView(true);
+      try {
+        const { status, body } = await dashboard(
+          f.contoso,
+          "provider_admin",
+          "?provider=only&storageDays=365",
+        );
+        expect(status).toBe(200);
+        expect(body.widgets).toEqual({});
+      } finally {
+        setProviderView(false);
+      }
     });
   });
 });

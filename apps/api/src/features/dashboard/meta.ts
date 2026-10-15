@@ -6,5 +6,8 @@
  *                                   that apply to the viewer
  *   GET /dashboard?provider=true    additionally the provider view (provider admins
  *                                   while dashboard.allTenants is on; 403 otherwise)
+ *   GET /dashboard?storageDays=365&forecastDays=90
+ *                                   the storage growth chart over another window (7 to 366
+ *                                   days, clamped to the history; growth.ts) and horizon
  */
 export const mountPath = "/dashboard";

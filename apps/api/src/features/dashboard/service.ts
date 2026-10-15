@@ -1,3 +1,4 @@
+import { type InstallationDefaultStorage, installationDefaultStorage } from "@restow/core";
 import { type Database, safeErrorMessage } from "@restow/db";
 import { featureHook } from "../../extensions.js";
 import { requireFeature } from "../../lib/features.js";
@@ -17,6 +18,12 @@ import {
   totalMailboxes,
 } from "../usage/service.js";
 import {
+  capacityPath,
+  type FilesystemSpace,
+  type FilesystemSpaceReader,
+  statfsSpace,
+} from "./capacity.js";
+import {
   type DashboardDto,
   type EndpointsWidget,
   type MailboxUsageWidget,
@@ -29,23 +36,27 @@ import {
   type WidgetResult,
 } from "./dto.js";
 import { loadEndpointsWidget } from "./endpoints.js";
+import { runsFull, STORAGE_DEFAULT_DAYS, storageBuckets, storageForecast } from "./growth.js";
 import {
   BACKUP_TREND_DAYS,
-  FORECAST_DAYS,
   HISTORY_DAYS,
   loadInstallationDefaultTest,
   loadMailFacts,
   loadStaleThresholds,
+  loadStorageCapacityFacts,
+  loadStorageHistory,
   loadTenantCap,
   loadTenantFacts,
   loadTenantTrends,
   type StaleThresholds,
+  type StorageHistory,
+  soleTenantOnDefault,
   type TenantFacts,
   type TenantTrends,
 } from "./queries.js";
 import { summarizeRetention } from "./retention.js";
 import type { DashboardQuery } from "./schemas.js";
-import { dayKeys, fillDays, linearForecast, runningTotals } from "./series.js";
+import { dayKeys, fillDays } from "./series.js";
 import { buildSetupChecklist, type SetupFacts } from "./setup.js";
 import "./hooks.js";
 import type { SettledSource } from "./hooks.js";
@@ -76,6 +87,13 @@ export interface DashboardDeps {
    * storage, else the environment) is usable; omitted, the environment alone decides.
    */
   defaultStorageConfigured?: () => Promise<boolean>;
+  /**
+   * The installation default that applies right now (saved, else the environment); omitted,
+   * the environment alone decides. The storage growth chart reads the free space of a local one.
+   */
+  installationDefault?: () => Promise<InstallationDefaultStorage | null>;
+  /** Free space of the filesystem a local repository is on (statfs); omitted, `statfsSpace`. */
+  filesystemSpace?: FilesystemSpaceReader;
   now: () => Date;
 }
 
@@ -242,6 +260,43 @@ async function loadMailboxUsage(
   return { scope: "tenant", used: tenant.used, tenant };
 }
 
+interface StorageCapacity extends FilesystemSpace {
+  /** Other data of the tenant is written to the same repository: no date is estimated. */
+  otherData: boolean;
+}
+
+/** The installation default's primary location, or null when there is no usable default. */
+async function defaultLocation(deps: DashboardDeps) {
+  if (deps.installationDefault) {
+    return (await deps.installationDefault())?.primary ?? null;
+  }
+  try {
+    return installationDefaultStorage(deps.env).primary;
+  } catch {
+    return null;
+  }
+}
+
+/** The free space of the tenant's repository (capacity.ts), or null where it is not known. */
+async function loadStorageCapacity(
+  deps: DashboardDeps,
+  tenantId: string,
+): Promise<StorageCapacity | null> {
+  const facts = await loadStorageCapacityFacts(deps.db, tenantId);
+  const path = facts.ownTarget
+    ? capacityPath(facts, null, false)
+    : capacityPath(
+        facts,
+        await defaultLocation(deps),
+        await soleTenantOnDefault(deps.providerDb, tenantId),
+      );
+  if (!path) {
+    return null;
+  }
+  const space = await (deps.filesystemSpace ?? statfsSpace)(path);
+  return space ? { ...space, otherData: facts.otherData } : null;
+}
+
 // ---------------------------------------------------------------------------
 // Widgets
 // ---------------------------------------------------------------------------
@@ -251,6 +306,9 @@ interface Sources {
   facts: Settled<TenantFacts>;
   mail: Settled<SetupFacts["mail"]>;
   trends: Settled<TenantTrends>;
+  storageHistory: Settled<StorageHistory>;
+  /** The free space of the repository, where known; a failure to read it only leaves it out. */
+  capacity: Settled<StorageCapacity | null>;
   jobs: Settled<RecentJobsWidget>;
   mailboxes: Settled<MailboxUsageWidget>;
   endpoints: Settled<EndpointsWidget>;
@@ -264,6 +322,7 @@ function buildWidgets(
   sources: Sources,
   viewer: DashboardViewer,
   now: Date,
+  forecastDays: number,
 ): TenantWidgetsDto {
   const { summary, facts, mail, trends } = sources;
   const widgets: TenantWidgetsDto = {};
@@ -400,14 +459,28 @@ function buildWidgets(
         }));
         break;
       case "storageGrowth":
-        widgets.storageGrowth = widget([trends], () => {
-          const { storageBaseline, storageWritten } = value(trends);
-          const series = runningTotals(dayKeys(now, HISTORY_DAYS), storageBaseline, storageWritten);
+        widgets.storageGrowth = widget([sources.storageHistory], () => {
+          const { window, baseline, written } = value(sources.storageHistory);
+          const buckets = storageBuckets(window, baseline, written);
+          const forecast = storageForecast(window, buckets, forecastDays);
+          const space = sources.capacity.ok ? sources.capacity.value : null;
+          const today = buckets.at(-1)?.date;
           return {
-            days: HISTORY_DAYS,
-            series,
-            growthBytes: (series.at(-1)?.bytes ?? storageBaseline) - storageBaseline,
-            forecast: linearForecast(series, FORECAST_DAYS),
+            days: window.days,
+            requestedDays: window.requestedDays,
+            granularity: window.granularity,
+            series: buckets.map(({ date, bytes }) => ({ date, bytes })),
+            growthBytes: (buckets.at(-1)?.bytes ?? baseline) - baseline,
+            forecast,
+            capacity:
+              space && today
+                ? {
+                    source: "filesystem" as const,
+                    freeBytes: space.freeBytes,
+                    totalBytes: space.totalBytes,
+                    runsFull: space.otherData ? null : runsFull(today, space.freeBytes, forecast),
+                  }
+                : null,
           };
         });
         break;
@@ -468,48 +541,65 @@ export async function loadDashboard(
   const load = <T>(source: string, needed: boolean, run: () => Promise<T>) =>
     needed ? settle(source, tenantId, run) : Promise.resolve(NOT_NEEDED as Settled<T>);
 
+  const storageDays = query.storageDays ?? STORAGE_DEFAULT_DAYS;
   const readUsage = usageReader(deps.providerDb);
-  const [summary, facts, mail, trends, jobs, mailboxes, endpoints, stale, guests, shares] =
-    await Promise.all([
-      load("summary", needs("lastBackup", "readiness", "protectedObjects", "storage"), () =>
-        loadTenantSummary(deps.db, tenantId, now),
-      ),
-      load("facts", needs("setup", "lastBackup", "storage", "retention"), async () => {
-        // The installation's own test of the default storage counts for every tenant on the default.
-        // It lives in the installation chain; if that cannot be read the storage reads as untested
-        // (as it did before that test existed) and every other fact still shows.
-        const installationTest = await settle("default-storage-test", tenantId, () =>
-          loadInstallationDefaultTest(deps.providerDb),
-        );
-        return loadTenantFacts(
-          deps.db,
-          tenantId,
-          deps.env,
-          installationTest.ok ? installationTest.value : null,
-          deps.defaultStorageConfigured ? await deps.defaultStorageConfigured() : undefined,
-        );
-      }),
-      load("mail", needs("setup"), () => loadMailFacts(deps.providerDb)),
-      load("trends", needs("backupTrend", "verificationHistory", "storageGrowth"), () =>
-        loadTenantTrends(deps.db, tenantId, now),
-      ),
-      load("jobs", needs("recentJobs"), () => loadRecentJobs(deps.db, tenantId, now)),
-      load("mailboxes", needs("mailboxUsage"), () => loadMailboxUsage(deps, viewer, readUsage)),
-      // Its own source: a failing endpoint query fails this card only.
-      // The last-backup card and the protected-objects tile count the machines as well.
-      load("endpoints", needs("endpoints", "lastBackup", "protectedObjects"), () =>
-        loadEndpointsWidget(deps.db, tenantId, now),
-      ),
-      load("stale", needs("lastBackup"), () => loadStaleThresholds(deps.db, tenantId, now)),
-      // VMs and containers of Proxmox VE, counted next to the machines.
-      load("guests", needs("lastBackup", "protectedObjects"), () =>
-        loadGuestCounts(deps.db, tenantId, now),
-      ),
-      // File shares (docs/FILESHARES.md 13), counted next to the guests.
-      load("shares", needs("lastBackup", "protectedObjects"), () =>
-        loadShareCounts(deps.db, tenantId, now),
-      ),
-    ]);
+  const [
+    summary,
+    facts,
+    mail,
+    trends,
+    storageHistory,
+    capacity,
+    jobs,
+    mailboxes,
+    endpoints,
+    stale,
+    guests,
+    shares,
+  ] = await Promise.all([
+    load("summary", needs("lastBackup", "readiness", "protectedObjects", "storage"), () =>
+      loadTenantSummary(deps.db, tenantId, now),
+    ),
+    load("facts", needs("setup", "lastBackup", "storage", "retention"), async () => {
+      // The installation's own test of the default storage counts for every tenant on the default.
+      // It lives in the installation chain; if that cannot be read the storage reads as untested
+      // (as it did before that test existed) and every other fact still shows.
+      const installationTest = await settle("default-storage-test", tenantId, () =>
+        loadInstallationDefaultTest(deps.providerDb),
+      );
+      return loadTenantFacts(
+        deps.db,
+        tenantId,
+        deps.env,
+        installationTest.ok ? installationTest.value : null,
+        deps.defaultStorageConfigured ? await deps.defaultStorageConfigured() : undefined,
+      );
+    }),
+    load("mail", needs("setup"), () => loadMailFacts(deps.providerDb)),
+    load("trends", needs("backupTrend", "verificationHistory"), () =>
+      loadTenantTrends(deps.db, tenantId, now),
+    ),
+    load("storage-growth", needs("storageGrowth"), () =>
+      loadStorageHistory(deps.db, tenantId, now, storageDays),
+    ),
+    load("storage-capacity", needs("storageGrowth"), () => loadStorageCapacity(deps, tenantId)),
+    load("jobs", needs("recentJobs"), () => loadRecentJobs(deps.db, tenantId, now)),
+    load("mailboxes", needs("mailboxUsage"), () => loadMailboxUsage(deps, viewer, readUsage)),
+    // Its own source: a failing endpoint query fails this card only.
+    // The last-backup card and the protected-objects tile count the machines as well.
+    load("endpoints", needs("endpoints", "lastBackup", "protectedObjects"), () =>
+      loadEndpointsWidget(deps.db, tenantId, now),
+    ),
+    load("stale", needs("lastBackup"), () => loadStaleThresholds(deps.db, tenantId, now)),
+    // VMs and containers of Proxmox VE, counted next to the machines.
+    load("guests", needs("lastBackup", "protectedObjects"), () =>
+      loadGuestCounts(deps.db, tenantId, now),
+    ),
+    // File shares (docs/FILESHARES.md 13), counted next to the guests.
+    load("shares", needs("lastBackup", "protectedObjects"), () =>
+      loadShareCounts(deps.db, tenantId, now),
+    ),
+  ]);
 
   let provider: DashboardDto["provider"] = null;
   if (query.provider) {
@@ -531,9 +621,23 @@ export async function loadDashboard(
     tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status },
     widgets: buildWidgets(
       wanted,
-      { summary, facts, mail, trends, jobs, mailboxes, endpoints, stale, guests, shares },
+      {
+        summary,
+        facts,
+        mail,
+        trends,
+        storageHistory,
+        capacity,
+        jobs,
+        mailboxes,
+        endpoints,
+        stale,
+        guests,
+        shares,
+      },
       viewer,
       now,
+      query.forecastDays ?? storageDays,
     ),
     provider,
   };

@@ -274,14 +274,33 @@
   },
   "storageGrowth": {
     "title": "Speicherwachstum",
-    "description": "Gespeicherte Daten der letzten {days} Tage, nach dem Tag, an dem sie geschrieben wurden.",
+    "description": "Gespeicherte Daten der letzten {days} Tage, {granularity, select, week {pro Woche} month {pro Monat} other {pro Tag}} nach dem Zeitpunkt des Schreibens.",
+    "range": "Zeitraum",
+    "ranges": {
+      "7d": "1 Woche",
+      "30d": "1 Monat",
+      "90d": "3 Monate",
+      "365d": "1 Jahr"
+    },
+    "clamped": "Der Verlauf reicht nur bis zum {date} zurück: Das Diagramm zeigt {days} statt {requested} Tage.",
     "summary": "{stored} gespeichert, {growth} im Zeitraum geschrieben.",
     "growth": "{growth} in den letzten {days} Tagen geschrieben",
     "estimate": "Schätzung: etwa {bytes} in {days} Tagen, wenn der Trend anhält (Gerade durch die letzten {basisDays} Tage).",
+    "estimateRange": "Schätzung: zwischen {low} und {high} in {days} Tagen, nach {granularity, select, month {dem langsamsten und dem schnellsten Monat} other {der langsamsten und der schnellsten Woche}} der letzten {basisDays} Tage.",
     "noEstimate": "Keine Schätzung: Es gibt noch nicht genug Verlauf.",
+    "between": "{low} bis {high}",
+    "capacity": {
+      "free": "{free} frei im Dateisystem des Repositorys ({total} insgesamt).",
+      "fullAround": "Bei diesem Wachstum ist es um den {date} voll (Schätzung).",
+      "fullBetween": "Bei diesem Wachstum ist es zwischen dem {earliest} und dem {latest} voll (Schätzung).",
+      "fullFrom": "Beim schnellsten Wachstum ist es am {date} voll, beim langsamsten nicht innerhalb von zehn Jahren (Schätzung).",
+      "notFull": "Bei diesem Wachstum ist es in den nächsten zehn Jahren nicht voll.",
+      "otherData": "Dort schreiben auch Rechner, VMs und Container oder Freigaben, daher wird kein Tag geschätzt."
+    },
     "series": {
       "stored": "Gespeichert",
-      "forecast": "Schätzung"
+      "forecast": "Schätzung",
+      "band": "Schätzung (Spanne)"
     },
     "empty": {
       "title": "Noch nichts gespeichert",

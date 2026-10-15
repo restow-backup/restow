@@ -154,16 +154,49 @@ export interface StoragePoint {
   bytes: number;
 }
 
+export interface StorageForecast {
+  method: "linear";
+  /** Days of history the estimate rests on. */
+  basisDays: number;
+  slopeBytesPerDay: number;
+  /** Days the estimate reaches ahead (absent from an older server: as many as `points`). */
+  horizonDays?: number;
+  points: StoragePoint[];
+  /**
+   * From 90 days of history on: the range between the slowest and the fastest growth of the
+   * history, drawn instead of the line (absent from an older server).
+   */
+  band?: {
+    slowestBytesPerDay: number;
+    fastestBytesPerDay: number;
+    points: { date: string; low: number; high: number }[];
+  } | null;
+}
+
+/** The free space of a local repository, and when it runs out at the estimated growth. */
+export interface StorageCapacity {
+  source: "filesystem";
+  freeBytes: number;
+  totalBytes: number;
+  /** Null when other data (machines, guests, file shares) is written there as well: no day is named. */
+  runsFull: { estimate: string | null; earliest: string | null; latest: string | null } | null;
+}
+
+export type StorageGranularity = "day" | "week" | "month";
+
 export interface StorageGrowthWidget {
+  /** Days shown: the requested days, clamped to the history that exists. */
   days: number;
+  /** Days asked for (absent from an older server: as many as shown). */
+  requestedDays?: number;
+  /** Points per day, ISO week or month (absent from an older server: per day). */
+  granularity?: StorageGranularity;
+  /** Bytes stored at the end of each bucket, dated with its last day. */
   series: StoragePoint[];
   growthBytes: number;
-  forecast: {
-    method: "linear";
-    basisDays: number;
-    slopeBytesPerDay: number;
-    points: StoragePoint[];
-  } | null;
+  forecast: StorageForecast | null;
+  /** Absent from an older server, null where the capacity is not known (S3, a shared default). */
+  capacity?: StorageCapacity | null;
 }
 
 export interface RetentionWidget {
@@ -416,8 +449,8 @@ export interface Dashboard {
 export type DashboardMode = "tenant" | "all";
 
 export const dashboardKeys = {
-  page: (tenantId: string | null, mode: DashboardMode) =>
-    ["tenant", tenantId, "dashboard", { mode }] as const,
+  page: (tenantId: string | null, mode: DashboardMode, params: Record<string, string> = {}) =>
+    ["tenant", tenantId, "dashboard", { mode, ...params }] as const,
   /** The sidebar's Start checklist: the setup widget alone. */
   setup: (tenantId: string | null) => ["tenant", tenantId, "dashboard", "setup"] as const,
 };
@@ -425,10 +458,18 @@ export const dashboardKeys = {
 /**
  * The start page of the active tenant. `all` asks for the provider view alone
  * (`provider=only`): the sum across tenants and the tenant matrix, without
- * reading the active tenant's own widgets.
+ * reading the active tenant's own widgets. `params` are the tenant page's
+ * chart windows (ranges.ts `storageRangeParams`).
  */
-export function fetchDashboard(mode: DashboardMode = "tenant"): Promise<Dashboard> {
-  return apiFetch<Dashboard>(mode === "all" ? "/dashboard?provider=only" : "/dashboard");
+export function fetchDashboard(
+  mode: DashboardMode = "tenant",
+  params: Record<string, string> = {},
+): Promise<Dashboard> {
+  if (mode === "all") {
+    return apiFetch<Dashboard>("/dashboard?provider=only");
+  }
+  const query = new URLSearchParams(params).toString();
+  return apiFetch<Dashboard>(query ? `/dashboard?${query}` : "/dashboard");
 }
 
 /** The setup checklist alone (`widgets=setup`), which is all the sidebar's Start entry needs. */

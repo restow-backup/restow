@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  dayKeys,
-  fillDays,
-  leastSquaresSlope,
-  linearForecast,
-  runningTotals,
-  utcDayKey,
-  windowStart,
-} from "./series.js";
+import { dayKeys, fillDays, leastSquaresSlope, utcDayKey, windowStart } from "./series.js";
 
 const NOW = new Date("2026-09-23T21:30:00.000Z");
 
@@ -44,69 +36,16 @@ describe("fillDays", () => {
   });
 });
 
-describe("runningTotals", () => {
-  it("adds each day's writes to what existed before the window", () => {
-    expect(
-      runningTotals(["2026-09-21", "2026-09-22", "2026-09-23"], 100, [
-        { date: "2026-09-21", bytes: 10 },
-        { date: "2026-09-23", bytes: 5 },
-      ]),
-    ).toEqual([
-      { date: "2026-09-21", bytes: 110 },
-      { date: "2026-09-22", bytes: 110 },
-      { date: "2026-09-23", bytes: 115 },
-    ]);
-  });
-});
-
-describe("linear forecast", () => {
+describe("leastSquaresSlope", () => {
   it("fits the slope by least squares", () => {
     expect(leastSquaresSlope([0, 10, 20, 30])).toBe(10);
     expect(leastSquaresSlope([5, 5, 5])).toBe(0);
     expect(leastSquaresSlope([7])).toBe(0);
   });
 
-  it("continues from the last measured value with the fitted slope", () => {
-    const series = [
-      { date: "2026-09-21", bytes: 100 },
-      { date: "2026-09-22", bytes: 200 },
-      { date: "2026-09-23", bytes: 300 },
-    ];
-    const forecast = linearForecast(series, 2);
-    expect(forecast).toEqual({
-      method: "linear",
-      basisDays: 3,
-      slopeBytesPerDay: 100,
-      points: [
-        { date: "2026-09-24", bytes: 400 },
-        { date: "2026-09-25", bytes: 500 },
-      ],
-    });
-  });
-
-  it("never projects below zero", () => {
-    const shrinking = [
-      { date: "2026-09-21", bytes: 300 },
-      { date: "2026-09-22", bytes: 150 },
-      { date: "2026-09-23", bytes: 0 },
-      { date: "2026-09-24", bytes: 10 },
-    ];
-    for (const point of linearForecast(shrinking, 5)?.points ?? []) {
-      expect(point.bytes).toBeGreaterThanOrEqual(0);
-    }
-  });
-
-  it("offers nothing to extrapolate from an empty or single-day history", () => {
-    expect(linearForecast([], 30)).toBeNull();
-    expect(linearForecast([{ date: "2026-09-23", bytes: 50 }], 30)).toBeNull();
-    expect(
-      linearForecast(
-        [
-          { date: "2026-09-22", bytes: 0 },
-          { date: "2026-09-23", bytes: 0 },
-        ],
-        30,
-      ),
-    ).toBeNull();
+  it("fits over the given positions when the steps are uneven", () => {
+    // Bytes at the end of buckets of 3, 7 and 7 days: 10 bytes a day throughout.
+    expect(leastSquaresSlope([30, 100, 170], [3, 10, 17])).toBeCloseTo(10);
+    expect(leastSquaresSlope([1, 2], [4, 4])).toBe(0);
   });
 });

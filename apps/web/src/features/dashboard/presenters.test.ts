@@ -16,12 +16,15 @@ import {
   isStale,
   jobStatusView,
   lastDays,
+  monthLabel,
   previousDays,
   readinessRank,
   readinessSegments,
   readinessTone,
   showEndpoints,
+  storageChartMax,
   storageChartRows,
+  storageHorizonDays,
   successRate,
   successRateDelta,
   tileColumns,
@@ -192,6 +195,59 @@ describe("storage", () => {
       { date: "2026-09-24", forecast: 300 },
     ]);
     expect(storageChartRows({ ...widget, forecast: null })).toHaveLength(2);
+  });
+
+  it("draws the estimate as a band alone from the last measured day on, when there is one", () => {
+    const widget: StorageGrowthWidget = {
+      days: 90,
+      granularity: "week",
+      series: [
+        { date: "2026-09-20", bytes: 100 },
+        { date: "2026-09-23", bytes: 200 },
+      ],
+      growthBytes: 100,
+      forecast: {
+        method: "linear",
+        basisDays: 90,
+        slopeBytesPerDay: 20,
+        horizonDays: 14,
+        points: [
+          { date: "2026-09-30", bytes: 340 },
+          { date: "2026-10-07", bytes: 480 },
+        ],
+        band: {
+          slowestBytesPerDay: 10,
+          fastestBytesPerDay: 30,
+          points: [
+            { date: "2026-09-30", low: 270, high: 410 },
+            { date: "2026-10-07", low: 340, high: 620 },
+          ],
+        },
+      },
+    };
+    const rows = storageChartRows(widget);
+    expect(rows).toEqual([
+      { date: "2026-09-20", stored: 100 },
+      { date: "2026-09-23", stored: 200, band: [200, 200] },
+      { date: "2026-09-30", band: [270, 410] },
+      { date: "2026-10-07", band: [340, 620] },
+    ]);
+    expect(rows.some((row) => row.forecast !== undefined)).toBe(false);
+    expect(storageChartMax(rows)).toBe(620);
+    expect(storageHorizonDays(widget)).toBe(14);
+    // An older server sends daily points and no horizon.
+    expect(
+      storageHorizonDays({
+        ...widget,
+        forecast: widget.forecast && { ...widget.forecast, horizonDays: undefined },
+      }),
+    ).toBe(2);
+  });
+
+  it("labels the months of a year with their year", () => {
+    expect(monthLabel("2026-09-30", "en")).toBe("Sep 2026");
+    expect(monthLabel("2026-09-30", "de")).toBe("Sept. 2026");
+    expect(monthLabel("nope", "en")).toBe("nope");
   });
 
   it("puts byte ticks on round numbers of the displayed unit", () => {

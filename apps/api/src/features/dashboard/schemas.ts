@@ -1,7 +1,16 @@
 import { z } from "zod";
 import { TENANT_WIDGET_IDS, type TenantWidgetId } from "./dto.js";
+import { STORAGE_DEFAULT_DAYS, STORAGE_MAX_DAYS, STORAGE_MIN_DAYS } from "./growth.js";
 
 /** Request schemas of the dashboard (same style as apps/api/src/schemas.ts). */
+
+/** A whole number of days in a query string, from `min` to a year. */
+const days = (min: number) =>
+  z
+    .string()
+    .regex(/^\d{1,3}$/, "Expected a whole number of days.")
+    .transform(Number)
+    .pipe(z.number().int().min(min).max(STORAGE_MAX_DAYS));
 
 export const dashboardQuerySchema = z
   .object({
@@ -39,11 +48,29 @@ export const dashboardQuerySchema = z
         }
         return ids as TenantWidgetId[];
       }),
+    /**
+     * Days of history the storage growth chart covers, ending today (7 to 366, 30 by default).
+     * The answer is clamped to the history that exists: `days` in the widget says what it shows.
+     */
+    storageDays: days(STORAGE_MIN_DAYS).optional(),
+    /**
+     * How far ahead the estimate looks (1 to 366 days); omitted, as far as `storageDays`. Never
+     * further than the history shown.
+     */
+    forecastDays: days(1).optional(),
   })
-  .transform((query) => ({
-    provider: query.provider !== "false",
-    /** The tenant's own widgets are answered (not with `provider=only`). */
-    tenantWidgets: query.provider !== "only",
-    widgets: query.widgets,
-  }));
-export type DashboardQuery = z.infer<typeof dashboardQuerySchema>;
+  .transform((query) => {
+    const storageDays = query.storageDays ?? STORAGE_DEFAULT_DAYS;
+    return {
+      provider: query.provider !== "false",
+      /** The tenant's own widgets are answered (not with `provider=only`). */
+      tenantWidgets: query.provider !== "only",
+      widgets: query.widgets,
+      storageDays,
+      forecastDays: query.forecastDays ?? storageDays,
+    };
+  });
+type ParsedDashboardQuery = z.infer<typeof dashboardQuerySchema>;
+/** A parsed query; callers in the API may leave the storage window to its defaults. */
+export type DashboardQuery = Omit<ParsedDashboardQuery, "storageDays" | "forecastDays"> &
+  Partial<Pick<ParsedDashboardQuery, "storageDays" | "forecastDays">>;

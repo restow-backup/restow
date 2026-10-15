@@ -27,27 +27,33 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatBytes, formatInteger, formatPercent } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 import type {
   BackupTrendWidget as BackupTrendData,
+  StorageCapacity,
   StorageGrowthWidget as StorageGrowthData,
   VerificationHistoryWidget as VerificationData,
 } from "../api.js";
 import { LinkButton } from "../components/link-button.js";
+import { RangeToggle, StorageRangeToggle } from "../components/range-toggle.js";
 import { TileWidget, type WidgetStateProps } from "../components/widget-frame.js";
 import { PATHS, to } from "../paths.js";
 import {
   byteTicks,
   dayLabel,
   lastDays,
+  monthLabel,
   previousDays,
+  storageChartMax,
   storageChartRows,
+  storageHorizonDays,
   successRate,
   successRateDelta,
   type WidgetView,
 } from "../presenters.js";
+import type { StorageRange } from "../ranges.js";
 
 /** The trend windows the page offers. */
 export const TREND_WINDOWS = [14, 30] as const;
@@ -152,25 +158,20 @@ export function TrendWindowToggle({
 }) {
   const { t } = useTranslation("dashboard");
   return (
-    <ToggleGroup
-      type="single"
-      variant="outline"
-      size="sm"
+    <RangeToggle
       value={String(days)}
-      aria-label={t("backupTrend.window")}
-      onValueChange={(value) => {
+      options={TREND_WINDOWS.map((window) => ({
+        value: String(window),
+        label: t("backupTrend.days", { days: window }),
+      }))}
+      label={t("backupTrend.window")}
+      onChange={(value) => {
         const next = TREND_WINDOWS.find((window) => String(window) === value);
         if (next) {
           onChange(next);
         }
       }}
-    >
-      {TREND_WINDOWS.map((window) => (
-        <ToggleGroupItem key={window} value={String(window)} className="px-3 tabular-nums">
-          {t("backupTrend.days", { days: window })}
-        </ToggleGroupItem>
-      ))}
-    </ToggleGroup>
+    />
   );
 }
 
@@ -409,9 +410,10 @@ export function VerificationHistoryWidget({
 // ---------------------------------------------------------------------------
 
 /**
- * Legend markers drawn like the lines they stand for: solid for the measured
- * data, dashed for the estimate, so the legend tells the two apart without
- * relying on colour. The colours are the chart's own series variables.
+ * Legend markers drawn like the marks they stand for: solid for the measured
+ * data, dashed for the estimate, a dashed outline around a light fill for the
+ * estimate's range, so the legend tells them apart without relying on colour.
+ * The colours are the chart's own series variables.
  */
 function LineSwatch({ series, dashed }: { series: "stored" | "forecast"; dashed: boolean }) {
   return (
@@ -433,16 +435,84 @@ function LineSwatch({ series, dashed }: { series: "stored" | "forecast"; dashed:
 
 export const StoredSwatch = () => <LineSwatch series="stored" dashed={false} />;
 export const EstimateSwatch = () => <LineSwatch series="forecast" dashed />;
+export const RangeSwatch = () => (
+  <span className="inline-flex" data-swatch="band">
+    <svg width="16" height="10" viewBox="0 0 16 10" aria-hidden="true">
+      <rect
+        x="1"
+        y="1"
+        width="14"
+        height="8"
+        rx="1"
+        fill="var(--color-band)"
+        fillOpacity="0.18"
+        stroke="var(--color-band)"
+        strokeWidth="1.5"
+        strokeDasharray="3 2"
+      />
+    </svg>
+  </span>
+);
+
+/** A `YYYY-MM-DD` day in full ("23 September 2026"). */
+const longDay = (date: string, language: string) => dayLabel(date, language, "long");
+
+/** What the repository's capacity says: its free space and, where it can be named, the day it runs full. */
+function capacityLines(
+  capacity: StorageCapacity,
+  banded: boolean,
+  language: string,
+  t: (key: string, values?: Record<string, unknown>) => string,
+): string[] {
+  const lines = [
+    t("storageGrowth.capacity.free", {
+      free: formatBytes(capacity.freeBytes, language),
+      total: formatBytes(capacity.totalBytes, language),
+    }),
+  ];
+  const full = capacity.runsFull;
+  if (!full) {
+    lines.push(t("storageGrowth.capacity.otherData"));
+  } else if (banded && full.earliest && full.latest) {
+    lines.push(
+      t("storageGrowth.capacity.fullBetween", {
+        earliest: longDay(full.earliest, language),
+        latest: longDay(full.latest, language),
+      }),
+    );
+  } else if (banded && full.earliest) {
+    lines.push(t("storageGrowth.capacity.fullFrom", { date: longDay(full.earliest, language) }));
+  } else if (!banded && full.estimate) {
+    lines.push(t("storageGrowth.capacity.fullAround", { date: longDay(full.estimate, language) }));
+  } else {
+    lines.push(t("storageGrowth.capacity.notFull"));
+  }
+  return lines;
+}
 
 /**
- * Stored bytes per day and, dashed and labelled as such, a straight-line
- * estimate of the next 30 days. The estimate is never presented as a fact.
+ * Stored bytes over the chosen window (a week, a month, three months or a
+ * year; the server sums long windows up per week or month) and, dashed and
+ * labelled as such, an estimate as far ahead. From three months on the
+ * estimate is the range between the slowest and the fastest growth of the
+ * history, never one line. Where the repository's free space is known it
+ * says when that runs out. The estimate is never presented as a fact, and it
+ * never wears green: green is proof (components/kit/chart-colors.ts).
  */
 export function StorageGrowthWidget({
   view,
   onRetry,
   retrying,
-}: WidgetStateProps<StorageGrowthData>) {
+  range,
+  onRangeChange,
+  updating = false,
+}: WidgetStateProps<StorageGrowthData> & {
+  /** The chosen window; without it the chart offers no choice. */
+  range?: StorageRange;
+  onRangeChange?: (range: StorageRange) => void;
+  /** Another window was chosen and its answer is on the way: the chart shows the old one meanwhile. */
+  updating?: boolean;
+}) {
   const { t } = useTranslation("dashboard");
   const language = useLanguage();
   const config = {
@@ -456,21 +526,39 @@ export function StorageGrowthWidget({
       color: "var(--chart-1)",
       icon: EstimateSwatch,
     },
+    band: {
+      label: t("storageGrowth.series.band"),
+      color: "var(--chart-1)",
+      icon: RangeSwatch,
+    },
   } satisfies ChartConfig;
   const data = view.kind === "ready" ? view.data : null;
   const rows = data ? storageChartRows(data) : [];
   const empty = data?.series.every((point) => point.bytes === 0) ?? false;
   const last = data?.series.at(-1)?.bytes ?? 0;
-  const projected = data?.forecast?.points.at(-1)?.bytes ?? null;
-  const ticks = byteTicks(
-    Math.max(0, ...rows.map((row) => Math.max(row.stored ?? 0, row.forecast ?? 0))),
-  );
+  const forecast = data?.forecast ?? null;
+  const band = forecast?.band ?? null;
+  const projected = forecast?.points.at(-1)?.bytes ?? null;
+  const bandEnd = band?.points.at(-1) ?? null;
+  const granularity = data?.granularity ?? "day";
+  const ticks = byteTicks(storageChartMax(rows));
+  const requested = data?.requestedDays ?? data?.days ?? 30;
+  const horizon = data ? storageHorizonDays(data) : 0;
 
   return (
-    <div data-widget="storageGrowth" data-state={empty ? "empty" : view.kind}>
+    <div
+      data-widget="storageGrowth"
+      data-state={empty ? "empty" : view.kind}
+      aria-busy={updating || undefined}
+    >
       <ChartCard
         title={t("storageGrowth.title")}
-        description={t("storageGrowth.description", { days: data?.days ?? 30 })}
+        description={t("storageGrowth.description", { days: data?.days ?? 30, granularity })}
+        menu={
+          range && onRangeChange ? (
+            <StorageRangeToggle value={range} onChange={onRangeChange} />
+          ) : undefined
+        }
         config={config}
         {...chartState(view)}
         onRetry={onRetry}
@@ -492,21 +580,45 @@ export function StorageGrowthWidget({
                   days: data.days,
                 })}
               </span>
-              {data.forecast && projected !== null ? (
+              {data.days < requested && data.series[0] ? (
+                <span>
+                  {t("storageGrowth.clamped", {
+                    date: longDay(firstDay(data), language),
+                    days: data.days,
+                    requested,
+                  })}
+                </span>
+              ) : null}
+              {forecast && band && bandEnd ? (
+                <span>
+                  {t("storageGrowth.estimateRange", {
+                    low: formatBytes(bandEnd.low, language),
+                    high: formatBytes(bandEnd.high, language),
+                    days: horizon,
+                    granularity,
+                    basisDays: forecast.basisDays,
+                  })}
+                </span>
+              ) : forecast && projected !== null ? (
                 <span>
                   {t("storageGrowth.estimate", {
                     bytes: formatBytes(projected, language),
-                    days: data.forecast.points.length,
-                    basisDays: data.forecast.basisDays,
+                    days: horizon,
+                    basisDays: forecast.basisDays,
                   })}
                 </span>
               ) : (
                 <span>{t("storageGrowth.noEstimate")}</span>
               )}
+              {data.capacity
+                ? capacityLines(data.capacity, band !== null, language, t).map((line) => (
+                    <span key={line}>{line}</span>
+                  ))
+                : null}
             </span>
           ) : undefined
         }
-        className="h-full"
+        className={cn("h-full", updating && "motion-safe:transition-opacity opacity-70")}
       >
         <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid {...HORIZONTAL_GRID} stroke="var(--border)" />
@@ -516,7 +628,9 @@ export function StorageGrowthWidget({
             axisLine={false}
             minTickGap={32}
             tick={AXIS_TICK}
-            tickFormatter={(date: string) => dayLabel(date, language)}
+            tickFormatter={(date: string) =>
+              granularity === "month" ? monthLabel(date, language) : dayLabel(date, language)
+            }
           />
           <YAxis
             width={72}
@@ -537,10 +651,19 @@ export function StorageGrowthWidget({
                 formatter={(value, name) => (
                   <span className="flex w-full justify-between gap-3">
                     <span className="text-muted-foreground">
-                      {name === "forecast" ? config.forecast.label : config.stored.label}
+                      {name === "band"
+                        ? config.band.label
+                        : name === "forecast"
+                          ? config.forecast.label
+                          : config.stored.label}
                     </span>
                     <span className="font-medium tabular-nums">
-                      {formatBytes(Number(value), language)}
+                      {Array.isArray(value)
+                        ? t("storageGrowth.between", {
+                            low: formatBytes(Number(value[0]), language),
+                            high: formatBytes(Number(value[1]), language),
+                          })
+                        : formatBytes(Number(value), language)}
                     </span>
                   </span>
                 )}
@@ -558,18 +681,42 @@ export function StorageGrowthWidget({
             dot={false}
             isAnimationActive={false}
           />
-          <Line
-            dataKey="forecast"
-            type="linear"
-            stroke="var(--color-forecast)"
-            strokeWidth={2}
-            strokeDasharray="6 4"
-            strokeOpacity={0.7}
-            dot={false}
-            isAnimationActive={false}
-          />
+          {band ? (
+            <Area
+              dataKey="band"
+              type="linear"
+              stroke="var(--color-band)"
+              strokeWidth={1.5}
+              strokeDasharray="6 4"
+              strokeOpacity={0.7}
+              fill="var(--color-band)"
+              fillOpacity={0.15}
+              dot={false}
+              isAnimationActive={false}
+            />
+          ) : (
+            <Line
+              dataKey="forecast"
+              type="linear"
+              stroke="var(--color-forecast)"
+              strokeWidth={2}
+              strokeDasharray="6 4"
+              strokeOpacity={0.7}
+              dot={false}
+              isAnimationActive={false}
+            />
+          )}
         </ComposedChart>
       </ChartCard>
     </div>
   );
+}
+
+/** The first day the chart covers: its window ends today and is `days` long. */
+function firstDay(data: StorageGrowthData): string {
+  const last = data.series.at(-1)?.date ?? "";
+  const end = Date.parse(`${last}T00:00:00.000Z`);
+  return Number.isNaN(end)
+    ? (data.series[0]?.date ?? "")
+    : new Date(end - (data.days - 1) * 86_400_000).toISOString().slice(0, 10);
 }

@@ -1,8 +1,6 @@
-import type { StorageForecastDto, StoragePointDto } from "./dto.js";
-
 /**
- * Pure helpers for the dashboard's day series: UTC day keys, gap filling,
- * running totals and the linear storage forecast. The queries return only the
+ * Pure helpers for the dashboard's day series: UTC day keys, gap filling and
+ * the least-squares slope (the storage chart is growth.ts). The queries return only the
  * days that had activity; these helpers turn them into a complete series the
  * charts can plot without guessing.
  */
@@ -41,67 +39,23 @@ export function fillDays<T extends { date: string }>(
 }
 
 /**
- * Bytes stored at the end of each day: what existed before the window plus
- * everything written up to and including that day.
+ * Least-squares slope of `values` over their positions `xs` (units per unit of
+ * x; the index when `xs` is omitted). 0 for fewer than two values or when every
+ * value sits at the same position.
  */
-export function runningTotals(
-  keys: readonly string[],
-  baseline: number,
-  written: readonly { date: string; bytes: number }[],
-): StoragePointDto[] {
-  const byDay = new Map(written.map((row) => [row.date, row.bytes]));
-  let total = baseline;
-  return keys.map((date) => {
-    total += byDay.get(date) ?? 0;
-    return { date, bytes: total };
-  });
-}
-
-/** Least-squares slope of `values` over their index (units per step); 0 for fewer than two values. */
-export function leastSquaresSlope(values: readonly number[]): number {
+export function leastSquaresSlope(values: readonly number[], xs?: readonly number[]): number {
   const n = values.length;
   if (n < 2) {
     return 0;
   }
-  const meanX = (n - 1) / 2;
+  const x = (index: number) => xs?.[index] ?? index;
+  const meanX = values.reduce((sum, _, index) => sum + x(index), 0) / n;
   const meanY = values.reduce((sum, value) => sum + value, 0) / n;
   let numerator = 0;
   let denominator = 0;
   values.forEach((value, index) => {
-    numerator += (index - meanX) * (value - meanY);
-    denominator += (index - meanX) ** 2;
+    numerator += (x(index) - meanX) * (value - meanY);
+    denominator += (x(index) - meanX) ** 2;
   });
   return denominator === 0 ? 0 : numerator / denominator;
-}
-
-/**
- * A straight-line projection of the stored bytes for `horizonDays` after the
- * series: the least-squares slope of the series, continued from its last
- * value (so the projection joins the measured line) and never below zero.
- * Null when there is nothing to extrapolate: fewer than two days of history,
- * or no data at all in the window.
- */
-export function linearForecast(
-  series: readonly StoragePointDto[],
-  horizonDays: number,
-): StorageForecastDto | null {
-  const last = series.at(-1);
-  if (!last || series.length < 2 || series.every((point) => point.bytes === 0)) {
-    return null;
-  }
-  const slope = leastSquaresSlope(series.map((point) => point.bytes));
-  const lastDay = Date.parse(`${last.date}T00:00:00.000Z`);
-  const points = Array.from({ length: horizonDays }, (_, index) => {
-    const step = index + 1;
-    return {
-      date: utcDayKey(new Date(lastDay + step * DAY_MS)),
-      bytes: Math.max(0, Math.round(last.bytes + slope * step)),
-    };
-  });
-  return {
-    method: "linear",
-    basisDays: series.length,
-    slopeBytesPerDay: Math.round(slope),
-    points,
-  };
 }
