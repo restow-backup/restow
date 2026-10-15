@@ -56,6 +56,73 @@ function formatGib(bytes: number, language: SupportedLanguage): string {
   return `${value} GiB`;
 }
 
+/** A whole number in the reader's format. */
+function formatCount(value: number, language: SupportedLanguage): string {
+  return new Intl.NumberFormat(language === "de" ? "de-DE" : "en-GB", {
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+/** Bytes in the largest unit that keeps a number of at least 1, one decimal. */
+function formatBytes(bytes: number, language: SupportedLanguage): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  const number = new Intl.NumberFormat(language === "de" ? "de-DE" : "en-GB", {
+    maximumFractionDigits: unit === 0 ? 0 : 1,
+  }).format(value);
+  return `${number} ${units[unit]}`;
+}
+
+/**
+ * The findings of a suspicious restore point (`backup.suspicious`, apps/worker suspicion), one
+ * sentence each in the reader's language, the numbers formatted (bytes for the change in bytes).
+ */
+export function suspicionFindingLines(
+  findings: unknown,
+  language: SupportedLanguage,
+  t: (key: string, values?: Record<string, unknown>) => string,
+): string[] {
+  if (!Array.isArray(findings)) {
+    return [];
+  }
+  const lines: string[] = [];
+  for (const entry of findings.slice(0, 7)) {
+    if (entry === null || typeof entry !== "object") continue;
+    const raw = entry as Record<string, unknown>;
+    const code = typeof raw.code === "string" ? raw.code : "";
+    const number = (value: unknown) => (typeof value === "number" ? value : 0);
+    const amount = (value: unknown) =>
+      code === "change_rate_bytes"
+        ? formatBytes(number(value), language)
+        : formatCount(number(value), language);
+    const examples = Array.isArray(raw.examples)
+      ? raw.examples
+          .filter((example): example is string => typeof example === "string")
+          .slice(0, 3)
+          .map((example) => example.slice(0, 120))
+          .join(", ")
+      : "";
+    lines.push(
+      t(code ? `suspicion:findings.${code}` : "suspicion:findings.unknown", {
+        value: amount(raw.value),
+        baseline: amount(raw.baseline),
+        threshold: amount(raw.threshold),
+        share: new Intl.NumberFormat(language === "de" ? "de-DE" : "en-GB", {
+          style: "percent",
+          maximumFractionDigits: 1,
+        }).format(number(raw.share)),
+        examples,
+      }),
+    );
+  }
+  return lines;
+}
+
 /** A labelled line list as text and as an HTML table. */
 function layout(
   heading: string,
@@ -148,6 +215,15 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     if (location) rows.push([t("reports:mail.location"), location]);
     if (free !== null) rows.push([t("reports:mail.free"), formatGib(free, input.language)]);
     if (total !== null) rows.push([t("reports:mail.total"), formatGib(total, input.language)]);
+  }
+  if (event === "backup.suspicious") {
+    // Which restore point, and why it looks like ransomware at work: one line per finding.
+    const at = formatWhen(text(details.restorePointAt), input.language);
+    if (at) rows.push([t("reports:mail.restorePoint"), `${at} UTC`]);
+    const lines = suspicionFindingLines(details.findings, input.language, (key, values) =>
+      i18n.exists(key) ? t(key, values) : t("suspicion:findings.unknown", values),
+    );
+    if (lines.length > 0) rows.push([t("reports:mail.findings"), lines.join("; ")]);
   }
   // A failed job says why and what to do, in the recipient's language; the raw message follows.
   const failure = alertFailure(details.failure);

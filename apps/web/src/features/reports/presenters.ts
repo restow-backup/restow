@@ -93,7 +93,13 @@ export const EVENT_GROUPS: Record<
     "endpoint.repository_locked",
     "file_share.repository_locked",
   ],
-  recoverability: ["verify.red", "verify.yellow", "verify.recovered", "verify.completed"],
+  recoverability: [
+    "backup.suspicious",
+    "verify.red",
+    "verify.yellow",
+    "verify.recovered",
+    "verify.completed",
+  ],
   storage: [
     "scrub.corrupt",
     "scrub.repaired",

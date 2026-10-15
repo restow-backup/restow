@@ -11,6 +11,7 @@ export const REPORT_EVENTS = [
   "backup.failed",
   "backup.overdue",
   "backup.succeeded",
+  "backup.suspicious",
   "restore.failed",
   "restore.completed",
   "archive.failed",
@@ -64,6 +65,10 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // before the catalog knew it (an alias, never renamed on the wire): every finished run that is
   // no restore counts as one there.
   "backup.succeeded": { group: "jobs", level: "info", webhookEvent: "job.completed" },
+  // What a backup saw looks like ransomware at work (docs/RANSOMWARE.md): mass changes far above
+  // the object's baseline, mass deletions or extension renames, known ransomware extensions or
+  // ransom notes, sampled files that look encrypted. Once per object and episode.
+  "backup.suspicious": { group: "recoverability", level: "error" },
   "restore.failed": { group: "jobs", level: "error", webhookEvent: "job.failed" },
   "restore.completed": { group: "jobs", level: "info", webhookEvent: "job.completed" },
   "archive.failed": { group: "jobs", level: "error", webhookEvent: "job.failed" },

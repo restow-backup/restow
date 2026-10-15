@@ -1,0 +1,104 @@
+{
+  "badge": {
+    "suspicious": "Verdächtig",
+    "falseAlarm": "Fehlalarm",
+    "hint": "{appName} hat in diesem Sicherungsstand Anzeichen von Ransomware gefunden. Öffnen Sie ihn für die Gründe."
+  },
+  "object": {
+    "suspicious": "Verdächtig",
+    "hint": "Der neueste Sicherungsstand zeigt Anzeichen von Ransomware. Prüfen Sie das System, bevor Sie wiederherstellen, und stellen Sie aus einem Sicherungsstand ohne Befund wieder her."
+  },
+  "lastClean": {
+    "title": "Der neueste Sicherungsstand ist verdächtig",
+    "description": "Sicherungsstände ab {since} zeigen Anzeichen von Ransomware. Der neueste Sicherungsstand ohne Befund ist vom {time}.",
+    "pick": "Letzten unauffälligen Sicherungsstand wählen",
+    "none": "Jeder geprüfte Sicherungsstand zeigt Anzeichen von Ransomware. Stellen Sie mit Vorsicht wieder her und prüfen Sie die Dateien, bevor Sie sie verwenden.",
+    "selected": "Dieser Sicherungsstand ist verdächtig. Der neueste ohne Befund ist vom {time}.",
+    "selectedNone": "Dieser Sicherungsstand ist verdächtig, und es gibt keinen Sicherungsstand ohne Befund mehr."
+  },
+  "details": {
+    "title": "Anzeichen von Ransomware",
+    "restorePoint": "Sicherungsstand vom {time}",
+    "findings": "Warum er verdächtig ist",
+    "signals": "Was geprüft wurde",
+    "version": "Namenssignaturen {version}",
+    "limits": "{appName} beurteilt, was die Sicherung an Änderungen gesehen hat: Mengen, Namen und einige Stichproben von Dateien. Ein Befund ist ein Grund nachzusehen, kein Beweis, und ein Sicherungsstand ohne Befund beweist nicht, dass keine Dateien verschlüsselt wurden.",
+    "close": "Schließen",
+    "open": "Gründe anzeigen",
+    "loadFailed": "Die Befunde konnten nicht geladen werden."
+  },
+  "findings": {
+    "change_rate_items": "{value} neue oder geänderte Dateien, sonst etwa {baseline} (Alarm über {threshold})",
+    "change_rate_bytes": "{value} hinzugekommen, sonst etwa {baseline} (Alarm über {threshold})",
+    "mass_deletions": "{value} Dateien gelöscht, {share} der vorherigen Dateien",
+    "mass_renames": "{value} Dateien auf eine andere Endung umbenannt, {share} der Dateien ({examples})",
+    "known_extensions": "{value} Dateien mit einer bekannten Ransomware-Endung ({examples})",
+    "ransom_notes": "{value} Dateien mit dem Namen einer Lösegeldforderung ({examples})",
+    "high_entropy": "{value} der Stichproben wirken verschlüsselt ({examples})",
+    "unknown": "Ein weiterer Befund ({value})"
+  },
+  "signals": {
+    "changeRate": "Menge der Änderungen",
+    "deletions": "Löschungen",
+    "renames": "Umbenannte Endungen",
+    "names": "Bekannte Namen",
+    "entropy": "Verschlüsselt wirkende Dateien",
+    "state": {
+      "clear": "Kein Befund",
+      "fired": "Befund",
+      "learning": "Lernt noch (zu wenige frühere Sicherungen)",
+      "unavailable": "Nicht verfügbar",
+      "off": "Ausgeschaltet"
+    }
+  },
+  "falseAlarm": {
+    "action": "Als Fehlalarm markieren",
+    "title": "Als Fehlalarm markieren?",
+    "description": "Der Sicherungsstand gilt dann als unauffällig, und seine Zahlen gehen in die Vergleichsbasis von {object} ein, sodass dieselbe Menge an Änderungen keinen Alarm mehr auslöst. Der nächste Befund wird wieder gemeldet. Das wird im Audit-Log festgehalten.",
+    "note": "Notiz (optional)",
+    "notePlaceholder": "Zum Beispiel: geplanter Umzug der Projektordner",
+    "confirm": "Als Fehlalarm markieren",
+    "cancel": "Abbrechen",
+    "done": "Als Fehlalarm markiert",
+    "failed": "Der Befund konnte nicht als Fehlalarm markiert werden",
+    "by": "Fehlalarm, markiert von {who} am {time}",
+    "revoke": "Fehlalarm zurücknehmen",
+    "revoked": "Der Befund zählt wieder",
+    "revokeFailed": "Der Fehlalarm konnte nicht zurückgenommen werden"
+  },
+  "settings": {
+    "title": "Ransomware-Erkennung",
+    "description": "Nach jeder Sicherung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives vergleicht {appName}, was sich geändert hat, mit der eigenen Vorgeschichte des Objekts und mit bekannten Ransomware-Namen. Ein verdächtiger Sicherungsstand wird markiert und je Episode einmal gemeldet (Ereignis „Verdächtige Sicherung“).",
+    "enabled": "Sicherungsstände auf Anzeichen von Ransomware prüfen",
+    "signaturesVersion": "Namenssignaturen {version}",
+    "baseline": "Vergleichsbasis",
+    "baselineRuns": "Frühere unauffällige Sicherungsstände in der Vergleichsbasis",
+    "minBaselineRuns": "Nötige Sicherungsstände, bevor die Menge der Änderungen beurteilt wird",
+    "changeRate": "Menge der Änderungen",
+    "changeRateHint": "Ein Lauf löst Alarm aus, wenn er die angegebene Zahl an Abweichungen über dem Median des Objekts liegt, mindestens das angegebene Vielfache davon ist und das Minimum erreicht.",
+    "madFactor": "Abweichungen über dem Median",
+    "minRatio": "Vielfaches des Medians",
+    "minItems": "Mindestens neue oder geänderte Dateien",
+    "minBytesGib": "Mindestens hinzugekommen (GiB)",
+    "deletions": "Massenhafte Löschungen",
+    "deletionsMinFiles": "Mindestens gelöschte Dateien",
+    "deletionsMinShare": "Mindestanteil der vorherigen Dateien (Prozent)",
+    "renames": "Umbenannte Endungen",
+    "renamesMinFiles": "Mindestens umbenannte Dateien",
+    "renamesMinShare": "Mindestanteil der Dateien (Prozent)",
+    "names": "Bekannte Namen",
+    "minExtensionFiles": "Dateien mit einer Ransomware-Endung",
+    "minNoteCopies": "Kopien einer Lösegeldforderung",
+    "entropy": "Verschlüsselt wirkende Dateien",
+    "minSamples": "Mindestens verschlüsselt wirkende Stichproben",
+    "highBits": "Entropie ab (Bit pro Byte)",
+    "minHighShare": "Mindestanteil der Stichproben (Prozent)",
+    "signalEnabled": "Prüfen",
+    "save": "Speichern",
+    "saved": "Die Schwellenwerte sind gespeichert",
+    "saveFailed": "Die Schwellenwerte konnten nicht gespeichert werden",
+    "reset": "Auf die Standardwerte zurücksetzen",
+    "loadFailed": "Die Schwellenwerte konnten nicht geladen werden.",
+    "readOnly": "Nur der Inhaber der Installation kann die Schwellenwerte ändern."
+  }
+}

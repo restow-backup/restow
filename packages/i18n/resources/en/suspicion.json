@@ -1,0 +1,104 @@
+{
+  "badge": {
+    "suspicious": "Suspicious",
+    "falseAlarm": "False alarm",
+    "hint": "{appName} found signs of ransomware in this restore point. Open it for the reasons."
+  },
+  "object": {
+    "suspicious": "Suspicious",
+    "hint": "The newest restore point shows signs of ransomware. Check the system before you restore, and restore from a restore point without findings."
+  },
+  "lastClean": {
+    "title": "The newest restore point is suspicious",
+    "description": "Restore points from {since} on show signs of ransomware. The newest restore point without findings is from {time}.",
+    "pick": "Use the last clean restore point",
+    "none": "Every restore point that was judged shows signs of ransomware. Restore with care and check the files before you use them.",
+    "selected": "This restore point is suspicious. The newest one without findings is from {time}.",
+    "selectedNone": "This restore point is suspicious, and no restore point without findings is left."
+  },
+  "details": {
+    "title": "Signs of ransomware",
+    "restorePoint": "Restore point of {time}",
+    "findings": "Why it is suspicious",
+    "signals": "What was checked",
+    "version": "Name signatures {version}",
+    "limits": "{appName} judges what the backup saw change: amounts, names and a few sampled files. A finding is a reason to look, not a proof, and a clean result does not prove that no files were encrypted.",
+    "close": "Close",
+    "open": "Show the reasons",
+    "loadFailed": "The findings could not be loaded."
+  },
+  "findings": {
+    "change_rate_items": "{value} new or changed files, usually about {baseline} (alert above {threshold})",
+    "change_rate_bytes": "{value} added, usually about {baseline} (alert above {threshold})",
+    "mass_deletions": "{value} files deleted, {share} of the files before",
+    "mass_renames": "{value} files renamed to another extension, {share} of the files ({examples})",
+    "known_extensions": "{value} files with a known ransomware extension ({examples})",
+    "ransom_notes": "{value} files named like a ransom note ({examples})",
+    "high_entropy": "{value} of the sampled files look encrypted ({examples})",
+    "unknown": "Another finding ({value})"
+  },
+  "signals": {
+    "changeRate": "Amount of change",
+    "deletions": "Deletions",
+    "renames": "Renamed extensions",
+    "names": "Known names",
+    "entropy": "Encrypted-looking files",
+    "state": {
+      "clear": "No finding",
+      "fired": "Finding",
+      "learning": "Still learning (too few earlier backups)",
+      "unavailable": "Not available",
+      "off": "Switched off"
+    }
+  },
+  "falseAlarm": {
+    "action": "Mark as false alarm",
+    "title": "Mark as a false alarm?",
+    "description": "The restore point then counts as clean, and its numbers join the baseline of {object}, so the same amount of change no longer raises an alert. The next finding is announced again. This is recorded in the audit log.",
+    "note": "Note (optional)",
+    "notePlaceholder": "For example: planned move of the project folders",
+    "confirm": "Mark as false alarm",
+    "cancel": "Cancel",
+    "done": "Marked as a false alarm",
+    "failed": "It could not be marked as a false alarm",
+    "by": "False alarm, marked by {who} on {time}",
+    "revoke": "Undo the false alarm",
+    "revoked": "The finding counts again",
+    "revokeFailed": "The false alarm could not be undone"
+  },
+  "settings": {
+    "title": "Ransomware detection",
+    "description": "After every backup of a machine, file share, Proxmox VE guest, mailbox or OneDrive, {appName} compares what changed with the object's own history and with known ransomware names. A suspicious restore point is marked and announced once per episode (event \"Suspicious backup\").",
+    "enabled": "Check restore points for signs of ransomware",
+    "signaturesVersion": "Name signatures {version}",
+    "baseline": "Baseline",
+    "baselineRuns": "Earlier clean restore points in the baseline",
+    "minBaselineRuns": "Restore points needed before the amount of change is judged",
+    "changeRate": "Amount of change",
+    "changeRateHint": "A run alerts when it lies the given number of deviations above the object's median, is at least the given multiple of it, and reaches the minimum.",
+    "madFactor": "Deviations above the median",
+    "minRatio": "Multiple of the median",
+    "minItems": "Minimum of new or changed files",
+    "minBytesGib": "Minimum added (GiB)",
+    "deletions": "Mass deletions",
+    "deletionsMinFiles": "Minimum of deleted files",
+    "deletionsMinShare": "Minimum share of the files before (percent)",
+    "renames": "Renamed extensions",
+    "renamesMinFiles": "Minimum of renamed files",
+    "renamesMinShare": "Minimum share of the files (percent)",
+    "names": "Known names",
+    "minExtensionFiles": "Files with a ransomware extension",
+    "minNoteCopies": "Copies of a ransom note",
+    "entropy": "Encrypted-looking files",
+    "minSamples": "Minimum of encrypted-looking samples",
+    "highBits": "Entropy from (bits per byte)",
+    "minHighShare": "Minimum share of the samples (percent)",
+    "signalEnabled": "Check",
+    "save": "Save",
+    "saved": "The thresholds are saved",
+    "saveFailed": "The thresholds could not be saved",
+    "reset": "Back to the defaults",
+    "loadFailed": "The thresholds could not be loaded.",
+    "readOnly": "Only the owner of the installation can change the thresholds."
+  }
+}

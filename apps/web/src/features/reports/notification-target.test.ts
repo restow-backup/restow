@@ -39,6 +39,15 @@ describe("where a notification leads", () => {
     );
   });
 
+  it("opens the restore points of a suspicious backup", () => {
+    const suspicious = (details: Record<string, unknown>) =>
+      notificationTarget({ event: "backup.suspicious", tenantId, details }, admin)?.to;
+    expect(suspicious({ endpointId: "ep-1" })).toBe("/inventory/ep-1");
+    expect(suspicious({ pveGuestId: "g-1" })).toBe("/virtualization/g-1");
+    expect(suspicious({ fileShareId: "fs-1" })).toBe("/file-shares/fs-1?tab=restore-points");
+    expect(suspicious({ protectedObjectId: "o-1" })).toBe("/restore?object=o-1");
+  });
+
   it("gives a viewer without the tenant's admin pages no target, never a Forbidden page", () => {
     expect(
       notificationTarget(
