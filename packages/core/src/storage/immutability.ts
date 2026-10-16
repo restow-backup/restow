@@ -259,6 +259,15 @@ export function renewalDue(lastRenewedAt: Date | null, now: Date): boolean {
 }
 
 /**
+ * Whether an unfinished renewal pass that started at `startedAt` may still be continued: its
+ * retain-until date is at most a renewal interval old, as if the pass had not been interrupted.
+ */
+export function renewalResumable(startedAt: Date, now: Date): boolean {
+  const age = now.getTime() - startedAt.getTime();
+  return age >= 0 && age < RENEWAL_INTERVAL_DAYS * DAY_MS;
+}
+
+/**
  * Whether the renewal is late enough that reused data may no longer be locked
  * for the whole period: the last complete pass is older than the buffer.
  */
@@ -465,20 +474,42 @@ export interface RenewalReport {
   failed: { key: string; error: string }[];
   failedTotal: number;
   until: string;
+  /**
+   * Every key up to this one (in sorted order) is settled: renewed, already locked longer or
+   * gone. An interrupted or partly failed pass continues after it. Null: none yet.
+   */
+  resumeAfter: string | null;
 }
 
+export interface RenewalOptions {
+  readonly signal?: AbortSignal;
+  /** Requests in flight at once (default {@link RENEWAL_CONCURRENCY}). */
+  readonly concurrency?: number;
+  /** Continue a pass: keys up to and including this one were settled already. */
+  readonly after?: string | null;
+  /** Told the new {@link RenewalReport.resumeAfter} every `progressEvery` keys, in order. */
+  readonly onProgress?: (resumeAfter: string) => Promise<void> | void;
+  readonly progressEvery?: number;
+}
+
+/** Retention requests a renewal pass keeps in flight by default. */
+export const RENEWAL_CONCURRENCY = 32;
+
 const MAX_REPORTED = 50;
+const PROGRESS_EVERY = 5_000;
 
 /**
  * Move the Object Lock retention of `keys` on `backend` to `until`. The
  * storage refuses to shorten one, so a key already locked longer is checked
- * and counted instead of failed.
+ * and counted instead of failed. Keys go in sorted order, so a pass that
+ * ends early continues from {@link RenewalReport.resumeAfter} instead of
+ * from the start.
  */
 export async function renewRetention(
   backend: ImmutableStorageBackend,
   keys: Iterable<string>,
   until: Date,
-  options: { readonly signal?: AbortSignal; readonly concurrency?: number } = {},
+  options: RenewalOptions = {},
 ): Promise<RenewalReport> {
   const mode = backend.lockMode;
   const inner = backend.inner;
@@ -487,6 +518,7 @@ export async function renewRetention(
   }
   const setRetention = inner.setRetention.bind(inner);
   const retention = inner.retention.bind(inner);
+  const after = options.after ?? null;
   const report: RenewalReport = {
     extended: 0,
     alreadyLonger: 0,
@@ -494,31 +526,60 @@ export async function renewRetention(
     failed: [],
     failedTotal: 0,
     until: until.toISOString(),
+    resumeAfter: after,
   };
-  const queue = [...keys];
+  const queue = [...new Set(keys)].filter((key) => after === null || key > after).sort();
+  // The resume point: every key before index `settledUpTo` is settled; a failed key stops it.
+  const settled = new Uint8Array(queue.length);
+  const SETTLED = 1;
+  const FAILED = 2;
+  let settledUpTo = 0;
+  let reported = 0;
+  let progress: Promise<void> = Promise.resolve();
+  const every = options.progressEvery ?? PROGRESS_EVERY;
+  const settle = (index: number, outcome: number) => {
+    settled[index] = outcome;
+    while (settledUpTo < queue.length && settled[settledUpTo] === SETTLED) {
+      settledUpTo++;
+    }
+    if (settledUpTo > 0) {
+      report.resumeAfter = queue[settledUpTo - 1] as string;
+    }
+    if (options.onProgress && settledUpTo - reported >= every) {
+      reported = settledUpTo;
+      const point = report.resumeAfter as string;
+      const notify = options.onProgress;
+      progress = progress.then(() => notify(point));
+    }
+  };
   let next = 0;
   const worker = async () => {
     while (next < queue.length) {
       if (options.signal?.aborted) {
         return;
       }
-      const key = queue[next++] as string;
+      const index = next++;
+      const key = queue[index] as string;
       try {
         await setRetention(key, until, mode);
         report.extended++;
+        settle(index, SETTLED);
       } catch (error) {
         const current = await retention(key).catch(() => undefined);
         if (current === null) {
           if (report.missing.length < MAX_REPORTED) {
             report.missing.push(key);
           }
+          settle(index, SETTLED);
           continue;
         }
         if (current?.retainUntil && current.retainUntil.getTime() >= until.getTime()) {
           report.alreadyLonger++;
+          settle(index, SETTLED);
           continue;
         }
         report.failedTotal++;
+        settle(index, FAILED);
         if (report.failed.length < MAX_REPORTED) {
           report.failed.push({
             key,
@@ -528,9 +589,11 @@ export async function renewRetention(
       }
     }
   };
+  const concurrency = options.concurrency ?? RENEWAL_CONCURRENCY;
   await Promise.all(
-    Array.from({ length: Math.max(1, Math.min(options.concurrency ?? 8, queue.length)) }, worker),
+    Array.from({ length: Math.max(1, Math.min(concurrency, queue.length)) }, worker),
   );
+  await progress;
   return report;
 }
 

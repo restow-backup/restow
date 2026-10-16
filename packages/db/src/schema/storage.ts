@@ -112,6 +112,11 @@ export type StorageTargetImmutability = {
 export type StorageTargetImmutabilityState = {
   /** Start of the last complete renewal pass (ISO 8601). */
   renewedAt?: string | null;
+  /**
+   * An unfinished renewal pass (interrupted, or with failed keys): the next one continues after
+   * `after` (keys in sorted order) with the same `until`, and completes as started at `startedAt`.
+   */
+  renewalProgress?: { startedAt: string; until: string; after: string } | null;
   renewal?: {
     at: string;
     extended: number;

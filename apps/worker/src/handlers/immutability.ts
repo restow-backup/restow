@@ -8,6 +8,8 @@
  *                 now + period + buffer once the last complete pass is a day
  *                 short of the buffer old. Objects whose deletion was already
  *                 refused because of the lock are left out so they run out.
+ *                 Keys go in sorted order and the pass records how far it got,
+ *                 so an interrupted one continues there the next time.
  *   verification  a sample of objects written since the setting was turned on
  *                 is checked with the storage (HeadObject retention): an object
  *                 without lock, or in a weaker mode, is a warning on the page.
@@ -26,8 +28,10 @@ import {
   listWithSizes,
   lockClassOf,
   lockUntil,
+  RENEWAL_CONCURRENCY,
   type RenewalReport,
   renewalDue,
+  renewalResumable,
   renewRetention,
   type StorageBackend,
   s3LockMode,
@@ -53,6 +57,12 @@ import type { RetentionTask } from "./retention.js";
 const SAMPLE_PACKS = 8;
 const SAMPLE_MANIFESTS = 4;
 const SAMPLE_RESTIC = 8;
+
+/** `IMMUTABILITY_RENEWAL_CONCURRENCY`: retention requests in flight per target (default 32, at most 256). */
+export function renewalConcurrency(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number.parseInt(env.IMMUTABILITY_RENEWAL_CONCURRENCY ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 256) : RENEWAL_CONCURRENCY;
+}
 
 /**
  * Record a deletion `backend` refused because the object is still locked.
@@ -151,7 +161,7 @@ async function resticKeys(
 export interface ImmutabilityTargetSummary {
   readonly targetId: string;
   readonly renewed: boolean;
-  readonly renewal: Omit<RenewalReport, "missing" | "failed"> | null;
+  readonly renewal: Omit<RenewalReport, "missing" | "failed" | "resumeAfter"> | null;
   readonly verification: { sampled: number; unlocked: number; weakerMode: number } | null;
   readonly deferredCleared: number;
 }
@@ -166,6 +176,10 @@ export async function maintainImmutableTarget(options: {
   /** Renew even when the last pass is recent (the "Verify now" button never does). */
   readonly forceRenewal?: boolean;
   readonly renew?: boolean;
+  /** Retention requests in flight (default {@link renewalConcurrency}). */
+  readonly concurrency?: number;
+  /** How many keys pass between two saves of the resume point (tests). */
+  readonly progressEvery?: number;
 }): Promise<ImmutabilityTargetSummary> {
   const { db, tenantId, backend, now } = options;
   const targetId = backend.targetId as string;
@@ -199,8 +213,24 @@ export async function maintainImmutableTarget(options: {
       ...(await backend.list(keyPrefix(tenantId))),
       ...(await resticKeys(backend, repositories, skip)),
     ];
-    const report = await renewRetention(backend, keys, lockUntil(now, backend.settings.days), {
+    // Continue an unfinished pass where it stopped, as if it had not been interrupted.
+    const resumed =
+      state.renewalProgress && renewalResumable(new Date(state.renewalProgress.startedAt), now)
+        ? state.renewalProgress
+        : null;
+    const startedAt = resumed ? resumed.startedAt : now.toISOString();
+    const until = resumed ? new Date(resumed.until) : lockUntil(now, backend.settings.days);
+    const report = await renewRetention(backend, keys, until, {
       ...(options.signal ? { signal: options.signal } : {}),
+      concurrency: options.concurrency ?? renewalConcurrency(),
+      after: resumed?.after ?? null,
+      ...(options.progressEvery ? { progressEvery: options.progressEvery } : {}),
+      onProgress: (after) =>
+        saveRenewalProgress(db, tenantId, targetId, {
+          startedAt,
+          until: until.toISOString(),
+          after,
+        }),
     });
     const complete = report.failedTotal === 0 && !options.signal?.aborted;
     state.renewal = {
@@ -212,8 +242,11 @@ export async function maintainImmutableTarget(options: {
       complete,
     };
     if (complete) {
-      state.renewedAt = now.toISOString();
+      state.renewedAt = startedAt;
+      state.renewalProgress = null;
       renewed = true;
+    } else if (report.resumeAfter !== null) {
+      state.renewalProgress = { startedAt, until: until.toISOString(), after: report.resumeAfter };
     }
     renewal = {
       extended: report.extended,
@@ -275,6 +308,23 @@ export async function maintainImmutableTarget(options: {
       .where(eq(storageTargets.id, targetId)),
   );
   return { targetId, renewed, renewal, verification, deferredCleared };
+}
+
+/** Record how far a renewal pass got, without touching the rest of the state. */
+async function saveRenewalProgress(
+  db: Database,
+  tenantId: string,
+  targetId: string,
+  progress: NonNullable<StorageTargetImmutabilityState["renewalProgress"]>,
+): Promise<void> {
+  await withTenantTx(db, tenantId, (tx) =>
+    tx
+      .update(storageTargets)
+      .set({
+        immutabilityState: sql`coalesce(${storageTargets.immutabilityState}, '{}'::jsonb) || jsonb_build_object('renewalProgress', ${JSON.stringify(progress)}::jsonb)`,
+      })
+      .where(eq(storageTargets.id, targetId)),
+  );
 }
 
 /**

@@ -238,4 +238,93 @@ describe.skipIf(!adminUrl)("immutable backups in the retention job", () => {
     expect(third.renewed).toBe(true);
     expect(third.verification).toMatchObject({ unlocked: 0 });
   }, 60_000);
+
+  it("continues an interrupted renewal pass where it stopped, as of its start", async () => {
+    const [copy] = await db
+      .insert(storageTargets)
+      .values({
+        tenantId,
+        kind: "s3",
+        role: "copy",
+        config: { bucket: "restow-copy" },
+        immutability: changeImmutability(null, { mode: "compliance", days: 30 }, clock()),
+      })
+      .returning();
+    const bucket = new LockingBucket(clock);
+    const backend = new ImmutableStorageBackend(bucket, {
+      settings: changeImmutability(null, { mode: "compliance", days: 30 }, clock()),
+      now: clock,
+      targetId: copy?.id as string,
+    });
+    const keys = Array.from(
+      { length: 30 },
+      (_, i) => `tenants/${tenantId}/packs/dd/p${String(i).padStart(2, "0")}`,
+    );
+    for (const key of keys) {
+      await backend.put(key, Buffer.from(key));
+    }
+    await db
+      .insert(packs)
+      .values(keys.map((path, i) => ({ tenantId, path, sha256: `${i}`, size: 1 })));
+
+    now += 6 * DAY;
+    const started = clock();
+    const requested: string[] = [];
+    const abort = new AbortController();
+    const setRetention = bucket.setRetention.bind(bucket);
+    let saved: string | null | undefined;
+    bucket.setRetention = async (key, until, mode) => {
+      requested.push(key);
+      if (requested.length === 11) {
+        // The resume point is saved while the pass runs, not only at its end.
+        const [row] = await db
+          .select()
+          .from(storageTargets)
+          .where(eq(storageTargets.id, copy?.id as string));
+        saved = row?.immutabilityState?.renewalProgress?.after;
+      }
+      if (requested.length >= 12) abort.abort();
+      return setRetention(key, until, mode);
+    };
+    const first = await maintainImmutableTarget({
+      db,
+      tenantId,
+      backend,
+      now: started,
+      signal: abort.signal,
+      concurrency: 3,
+      progressEvery: 4,
+    });
+    expect(saved).toEqual(expect.stringContaining("/packs/"));
+    expect(first.renewed).toBe(false);
+    const [stopped] = await db
+      .select()
+      .from(storageTargets)
+      .where(eq(storageTargets.id, copy?.id as string));
+    const progress = stopped?.immutabilityState?.renewalProgress;
+    expect(progress).toMatchObject({
+      startedAt: started.toISOString(),
+      until: lockUntil(started, 30).toISOString(),
+    });
+    expect(stopped?.immutabilityState?.renewal?.complete).toBe(false);
+    const firstPass = requested.length;
+
+    // An hour later the next run asks only for the keys after the resume point.
+    now += 60 * 60 * 1000;
+    const second = await maintainImmutableTarget({ db, tenantId, backend, now: clock() });
+    expect(second.renewed).toBe(true);
+    const secondPass = requested.slice(firstPass);
+    expect(secondPass.every((key) => key > (progress?.after as string))).toBe(true);
+    expect(new Set(requested).size).toBe(requested.length);
+    for (const key of keys) {
+      expect(bucket.objects.get(key)?.until?.getTime()).toBe(lockUntil(started, 30).getTime());
+    }
+    const [done] = await db
+      .select()
+      .from(storageTargets)
+      .where(eq(storageTargets.id, copy?.id as string));
+    // Complete as of the pass's start, so the next one is due as if it had never stopped.
+    expect(done?.immutabilityState?.renewedAt).toBe(started.toISOString());
+    expect(done?.immutabilityState?.renewalProgress).toBeNull();
+  }, 60_000);
 });
