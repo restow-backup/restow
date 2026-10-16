@@ -141,7 +141,7 @@ development setups with an object store on the compose network set
 `S3_ALLOW_INSECURE=true` in `.env`. Details: [docs/STORAGE.md](STORAGE.md), "Encrypted
 transport (HTTPS)".
 
-One of the 0.4.0 migrations (`perf_indexes`) adds six small partial indexes
+One of the 0.4.0 migrations (`0049_perf_indexes`) adds six small partial indexes
 for large installations: on `jobs` (two), `endpoint_runs`, `file_share_runs`,
 `pve_runs` and `pve_tasks`. They hold only the rows a few background queries
 read (finished backups that have a restore point, the active jobs, the

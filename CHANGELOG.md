@@ -345,8 +345,8 @@ No vulnerability was fixed. Security-relevant changes:
 
 ### Upgrade Notes
 
-New image, nine database migrations, and a new `docker-compose.yml` for file shares and the
-database move.
+New image, sixteen database migrations (0035 to 0050), and a new `docker-compose.yml` for
+file shares and the database move.
 
 1. Update as usual (the opt-in updater, or `docker compose pull && docker compose up -d`).
    The api applies the migrations as it starts. With the updater, the install dialog now
@@ -371,21 +371,25 @@ database move.
    backup window, catch-up rules and retry count of an agent policy, and do not hold their
    own schedules during an update pause.
 
-- Database migration `agent_policies` adds the installation's and each tenant's agent
-  policy (`settings.agent_policy`, `tenants.agent_policy`, both `{}`), which changes no
-  machine's configuration.
-- Database migrations 0035 to 0043: tables for file shares (0035 to 0037), the
-  notification matrix (0038; it translates the recipient flags and webhook event lists of
-  every tenant and drops the four flag columns), Proxmox VE progress (0039), recommended
-  jobs (0040), container downloads (0041), the update pause (0042) and the disk warning
-  state (0043). They change the schema and backfill only the notification recipients and
-  webhooks, a few rows per tenant, so they should take seconds on any installation. They
-  ran on a 0.3.6 schema in the Postgres test suites; they were not timed on a
-  production-size database.
-- One migration adds six partial indexes (`jobs`, `endpoint_runs`, `file_share_runs`,
-  `pve_runs`, `pve_tasks`). Each build reads its table once while writes to it wait (the
-  migrator cannot build them concurrently): seconds on most installations, about a minute
-  per ten million rows on large ones (docs/UPDATING.md).
+- Database migrations, in this order: `0035_file_shares`,
+  `0036_backup_job_kinds_share_copy`, `0037_backup_job_file_shares` (file shares),
+  `0038_notification_matrix` (it translates the recipient flags and webhook event lists of
+  every tenant and drops the four flag columns), `0039_pve_run_progress`,
+  `0040_recommended_jobs`, `0041_pve_downloads` (container downloads),
+  `0042_job_start_pause` (the update pause), `0043_disk_alerts` (the disk warning state),
+  `0044_pve_boot_tests`, `0045_ransomware_detection`, `0046_sharepoint_sites`,
+  `0047_immutable_backups`, `0048_suspicion_retention_hold` (the release of a retention
+  hold and its reminders, five columns on `restore_point_suspicions`), `0049_perf_indexes`
+  and `0050_agent_policies` (the installation's and each tenant's agent policy,
+  `settings.agent_policy` and `tenants.agent_policy`, both `{}`, which changes no machine's
+  configuration). They change the schema and backfill only the notification recipients and
+  webhooks, a few rows per tenant, so they should take seconds on any installation, except
+  `0049_perf_indexes` below. They ran on a 0.3.6 schema in the Postgres test suites; they
+  were not timed on a production-size database.
+- `0049_perf_indexes` adds six partial indexes (`jobs`, `endpoint_runs`,
+  `file_share_runs`, `pve_runs`, `pve_tasks`). Each build reads its table once while writes
+  to it wait (the migrator cannot build them concurrently): seconds on most installations,
+  about a minute per ten million rows on large ones (docs/UPDATING.md).
 - 0035 creates the `pg_trgm` extension for the file share search when the database role
   may; an external PostgreSQL without it searches more slowly, with the same results.
 - New optional environment variables: `RESTOW_POSTGRES_DATA_TYPE` and
