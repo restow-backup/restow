@@ -347,6 +347,8 @@ function OverridesForm({
           id={ids("bandwidth-field")}
           value={draft.settings.bandwidth}
           onChange={(bandwidth) => editSettings({ bandwidth })}
+          unlimited={draft.settings.bandwidthUnlimited}
+          onUnlimitedChange={(bandwidthUnlimited) => editSettings({ bandwidthUnlimited })}
           error={settingsText("bandwidth")}
           disabled={closed}
         />

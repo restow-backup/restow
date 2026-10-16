@@ -36,7 +36,11 @@ export interface JobEndpointSettings {
   /** Skip files larger than this many GiB (restic `--exclude-larger-than`); null or absent = no limit. */
   excludeLargerThanGib?: number | null;
   hooks?: { pre?: string; post?: string };
-  /** Upload limit in kbit/s, the default outside every time window; null or absent = unlimited. */
+  /**
+   * Upload limit in kbit/s, the default outside every time window. `0`: unlimited, whatever the
+   * agent policy's limit is (only an installation lock overrides it); null or absent: the policy's
+   * limit (endpoints/agent-policy.ts), unlimited when no level sets one.
+   */
   bandwidthKbps?: number | null;
   /**
    * Time windows with a limit of their own (days, local from and to, kbit/s, 0 = unlimited). Read

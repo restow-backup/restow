@@ -9,7 +9,7 @@ import { formatDateTime } from "@/lib/format";
 
 import type { BackupJob } from "../api.js";
 import { EXCLUSION_PRESETS, ownPatterns, presetIsOn } from "../exclusions.js";
-import { MASKED_HOOK } from "../form.js";
+import { MASKED_HOOK, UNLIMITED_BANDWIDTH_KBPS } from "../form.js";
 import {
   describeJobSchedule,
   repositoryLabel,
@@ -213,10 +213,14 @@ export function SettingsView({
             <Section title={t("settings.bandwidth")}>
               <Facts>
                 <Fact label={t("settings.facts.bandwidth")}>
-                  {typeof settings.bandwidthKbps === "number" ? (
+                  {settings.bandwidthKbps === UNLIMITED_BANDWIDTH_KBPS ? (
+                    t("settings.bandwidthUnlimited")
+                  ) : typeof settings.bandwidthKbps === "number" ? (
                     t("settings.bandwidthValue", { kbps: settings.bandwidthKbps })
                   ) : (
-                    <span className="text-muted-foreground">{t("settings.unlimited")}</span>
+                    <span className="text-muted-foreground">
+                      {t("settings.bandwidthFromPolicy")}
+                    </span>
                   )}
                 </Fact>
                 <Fact label={t("settings.facts.windows")}>

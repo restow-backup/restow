@@ -361,6 +361,41 @@ describe.skipIf(!testDatabaseAdminUrl)("agent policies against Postgres", () => 
     expect(await agentGet(own)).toMatchObject({ bandwidthKbps: 2000, onlyOnAcPower: false });
   });
 
+  it("a job's explicit unlimited beats the policy's limit, but not a lock", async () => {
+    const limited = await machine();
+    const unlimited = await machine();
+    const limitedJob = await inJob(limited.id);
+    const unlimitedJob = await inJob(unlimited.id);
+    const jobActor = { userId: null, label: "admin@contoso.example", ip: null };
+    for (const [jobId, bandwidthKbps] of [
+      [limitedJob, null],
+      [unlimitedJob, 0],
+    ] as const) {
+      await jobsWrite.updateBackupJob(
+        appDb,
+        fixture.tenantId,
+        jobId,
+        { settings: { paths: ["/srv"], bandwidthKbps } } as never,
+        jobActor,
+        { now: new Date() },
+        { revealHooks: true },
+      );
+    }
+    await policy.updateTenantAgentPolicy(appDb, fixture.tenantId, { bandwidthKbps: 2000 }, actor);
+    // A job without a limit of its own inherits the policy's (what stored jobs keep meaning)...
+    expect(await agentGet(limited)).toMatchObject({ bandwidthKbps: 2000 });
+    // ...one that chose "unlimited" uploads without a limit.
+    expect((await stored(unlimited.id)).config.bandwidthKbps).toBe(0);
+    expect(await agentGet(unlimited)).toMatchObject({ bandwidthKbps: null });
+    // A lock of the installation wins over the choice.
+    await policy.updateGlobalAgentPolicy(
+      { settings: { bandwidthKbps: 1000 }, locks: ["bandwidthKbps"] },
+      providerActor,
+    );
+    expect(await agentGet(unlimited)).toMatchObject({ bandwidthKbps: 1000 });
+    expect(await agentGet(limited)).toMatchObject({ bandwidthKbps: 1000 });
+  });
+
   it("while an update pauses new runs, agents are told and backup requests wait", async () => {
     const who = await machine();
     await fixture.db.insert(endpointTasks).values({

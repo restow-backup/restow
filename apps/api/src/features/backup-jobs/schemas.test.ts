@@ -45,7 +45,10 @@ describe("backup job requests", () => {
     expect(bad({ paths: ["/a\u0000b"] }).success).toBe(false);
     expect(bad({ excludes: ["x".repeat(513)] }).success).toBe(false);
     expect(bad({ excludeLargerThanGib: 0 }).success).toBe(false);
-    expect(bad({ bandwidthKbps: 0 }).success).toBe(false);
+    // 0: "unlimited" even when the agent policy sets a limit (machine jobs; the service refuses
+    // it for file shares); negative is refused.
+    expect(bad({ bandwidthKbps: 0 }).success).toBe(true);
+    expect(bad({ bandwidthKbps: -1 }).success).toBe(false);
     expect(bad({ bandwidthKbps: 10_000_001 }).success).toBe(false);
     expect(bad({ retention: { keepDaily: -1, keepWeekly: 0, keepMonthly: 0 } }).success).toBe(
       false,

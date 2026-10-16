@@ -145,6 +145,28 @@ describe("what the agent is told", () => {
     ["the job's windows win", null, true, policy(), { kbps: null, windows: true }],
     ["without its own, the policy's", null, false, policy(), { kbps: 500, windows: false }],
     [
+      "the job's explicit unlimited beats the policy's",
+      0,
+      false,
+      policy(),
+      { kbps: null, windows: false },
+    ],
+    ["explicit unlimited without a policy", 0, false, undefined, { kbps: null, windows: false }],
+    [
+      "explicit unlimited with windows keeps them",
+      0,
+      true,
+      policy(),
+      { kbps: null, windows: true },
+    ],
+    [
+      "a lock beats explicit unlimited",
+      0,
+      false,
+      policy({ bandwidthLocked: true }),
+      { kbps: 500, windows: false },
+    ],
+    [
       "a lock beats limit and windows",
       800,
       true,

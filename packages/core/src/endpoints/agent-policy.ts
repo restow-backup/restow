@@ -11,7 +11,9 @@
  *     start (a running backup is never stopped by it). `null`: always, the default.
  *   - `catchUp`: whether a backup missed while the machine was off or asleep is caught up, as soon
  *     as possible or in the next backup window, and up to which age. Default: at once, any age.
- *   - `bandwidthKbps`: the upload limit a job without its own limit uses; `null` = unlimited.
+ *   - `bandwidthKbps`: the upload limit a job without its own limit uses; `null` = unlimited. A
+ *     job that chooses "unlimited" (its limit `0`, {@link UNLIMITED_BANDWIDTH_KBPS}) does not use
+ *     it; only a lock of the installation overrides that choice.
  *   - `onlyOnAcPower`: scheduled backups only on AC power.
  *   - `retries`: automatic retries after a failed backup (0 to 10, default 5).
  *
@@ -235,8 +237,16 @@ export function agentPolicyWire(policy: EndpointPolicy, zone: string): AgentPoli
 }
 
 /**
+ * A job's (or a member's) upload limit that says "unlimited" explicitly, whatever the policy's
+ * limit is. A limit left empty (`null` or absent, what every job stored before this choice
+ * existed) inherits the policy's limit instead. The agent reads 0 as unlimited too.
+ */
+export const UNLIMITED_BANDWIDTH_KBPS = 0;
+
+/**
  * The upload limit a machine's agent gets outside the job's own windows: a locked policy limit
- * always; the job's (or the machine's) own limit when it has one; else the policy's.
+ * always; the job's (or the machine's) own limit when it has one, an explicit "unlimited"
+ * included; else the policy's. Unlimited is `null`.
  */
 export function policyBandwidthDefault(
   own: number | null,
@@ -246,8 +256,8 @@ export function policyBandwidthDefault(
   if (policy?.bandwidthLocked) {
     return { kbps: policy.bandwidthKbps, windows: false };
   }
-  if ((own !== null && own > 0) || ownWindows || !policy) {
-    return { kbps: own, windows: ownWindows };
+  if (own !== null || ownWindows || !policy) {
+    return { kbps: own === UNLIMITED_BANDWIDTH_KBPS ? null : own, windows: ownWindows };
   }
   return { kbps: policy.bandwidthKbps, windows: false };
 }

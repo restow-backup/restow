@@ -435,6 +435,8 @@
     "none": "Keine",
     "noLimit": "Kein Limit",
     "unlimited": "Unbegrenzt",
+    "bandwidthFromPolicy": "Wie in der Richtlinie der Agenten",
+    "bandwidthUnlimited": "Unbegrenzt, auch gegen ein Limit der Richtlinie",
     "largerValue": "{size} GB",
     "bandwidthValue": "{kbps} kbit/s",
     "foldersNone": "Der Job legt keine Ordner fest: Jeder Rechner sichert vorerst seine bisherigen Ordner. Wer den Job bearbeitet, legt mindestens einen Ordner fest.",
@@ -739,7 +741,7 @@
       "title": "Richtlinie der Agenten",
       "description": "Wann die Rechner dieses Jobs Sicherungen beginnen dürfen, ob verpasste Sicherungen nachgeholt werden, Netzteil und Wiederholungen. Was der Job nicht festlegt, kommt vom Mandanten und von der Installation.",
       "loadError": "Die Richtlinie des Mandanten konnte nicht geladen werden; der Job behält, was er festlegt.",
-      "bandwidthDefault": "Ohne eigenes Limit nutzt der Job: {value} ({source}).",
+      "bandwidthDefault": "Ohne eigenes Limit und ohne Unbegrenzt nutzt der Job: {value} ({source}).",
       "bandwidthLocked": "Von der Installation gesperrt: {value} gilt für jeden Job; Limit und Zeitfenster hier wirken nicht."
     }
   },
@@ -796,8 +798,11 @@
   },
   "bandwidth": {
     "label": "Upload-Limit (kbit/s)",
-    "hint": "Leer heißt unbegrenzt. 1000 kbit/s sind etwa 1 Mbit/s. Es gilt außerhalb aller Zeitfenster.",
+    "hint": "Leer: Es gilt das Limit der Richtlinie der Agenten, unbegrenzt, wenn sie keines festlegt. 1000 kbit/s sind etwa 1 Mbit/s. Es gilt außerhalb aller Zeitfenster.",
     "unlimited": "Unbegrenzt",
+    "fromPolicy": "Wie in der Richtlinie",
+    "unlimitedChoice": "Unbegrenzt",
+    "unlimitedChoiceHint": "Lädt ohne Limit hoch, auch wenn die Richtlinie der Agenten eines festlegt. Nur ein von der Installation gesperrtes Limit gilt weiterhin.",
     "windows": {
       "title": "Zeitfenster",
       "description": "Ein Zeitfenster legt für bestimmte Tage und Uhrzeiten ein anderes Limit fest. Außerhalb aller Zeitfenster gilt das Limit oben.",

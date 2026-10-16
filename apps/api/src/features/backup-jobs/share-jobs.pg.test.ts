@@ -260,6 +260,15 @@ describe.skipIf(!testDatabaseAdminUrl)("file share and copy jobs against Postgre
         settings: { hooks: { pre: "echo" } },
       });
       expect(hooks.status).toBe(422);
+      // "Unlimited" over a policy limit is a machine job's choice; a share leaves the limit empty.
+      const unlimited = await call("POST", "/backup-jobs", {
+        kind: "share",
+        name: "x",
+        schedule: daily,
+        settings: { bandwidthKbps: 0 },
+      });
+      expect(unlimited.status).toBe(422);
+      expect(unlimited.body.code).toBe("bandwidth_unlimited_not_supported");
       const foreign = await call("POST", "/backup-jobs", {
         kind: "share",
         name: "x",

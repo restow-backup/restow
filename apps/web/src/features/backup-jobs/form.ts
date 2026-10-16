@@ -197,6 +197,12 @@ export function checkEndpointSchedule(
   return problems;
 }
 
+/**
+ * A job's (or a member's) upload limit that means "unlimited" whatever the agent policy's limit is
+ * (@restow/core UNLIMITED_BANDWIDTH_KBPS); an empty limit takes the policy's.
+ */
+export const UNLIMITED_BANDWIDTH_KBPS = 0;
+
 // --- Machine settings --------------------------------------------------------------------
 
 /** The settings of a machine job, or the part of them one member does differently. */
@@ -208,8 +214,13 @@ export interface SettingsDraft {
   largerEnabled: boolean;
   /** GB; text while typed. */
   largerGib: string;
-  /** kbit/s; empty is unlimited. */
+  /** kbit/s; empty: the agent policy's limit (unlimited when it sets none). */
   bandwidth: string;
+  /**
+   * "Unlimited" chosen explicitly (stored as limit 0): no limit even when the agent policy sets
+   * one; only a lock of the installation overrides it. `bandwidth` is not used then.
+   */
+  bandwidthUnlimited: boolean;
   /** The time windows of the limit, one row each; read in the schedule's time zone. */
   bandwidthWindows: WindowDraft[];
   preHook: string;
@@ -238,7 +249,9 @@ export function settingsDraftOf(
     excludes: [...(s.excludes ?? [])],
     largerEnabled: typeof s.excludeLargerThanGib === "number",
     largerGib: typeof s.excludeLargerThanGib === "number" ? String(s.excludeLargerThanGib) : "",
-    bandwidth: typeof s.bandwidthKbps === "number" ? String(s.bandwidthKbps) : "",
+    bandwidth:
+      typeof s.bandwidthKbps === "number" && s.bandwidthKbps > 0 ? String(s.bandwidthKbps) : "",
+    bandwidthUnlimited: s.bandwidthKbps === UNLIMITED_BANDWIDTH_KBPS,
     bandwidthWindows: windowDraftsOf(s.bandwidthWindows),
     preHook: s.hooks?.pre ?? "",
     postHook: s.hooks?.post ?? "",
@@ -328,7 +341,7 @@ export function checkSettings(
     }
   }
 
-  if (parts.bandwidth && draft.bandwidth.trim() !== "") {
+  if (parts.bandwidth && !draft.bandwidthUnlimited && draft.bandwidth.trim() !== "") {
     const problem = rangeProblem(draft.bandwidth, 1, LIMITS.bandwidthMaxKbps);
     if (problem) {
       problems.bandwidth = problem;
@@ -409,7 +422,8 @@ function retentionOf(draft: SettingsDraft): JobRetention {
  * The settings object a job is saved with. The API replaces the whole object,
  * so everything the form shows is in it: folders (when there are any), the
  * patterns, the size limit (null lifts it), the hooks (none: an empty object),
- * the bandwidth (null: unlimited) and the retention when the job sets one.
+ * the bandwidth (null: the agent policy's limit; 0: unlimited whatever the policy says) and the
+ * retention when the job sets one.
  */
 export function settingsOfDraft(draft: SettingsDraft): JobEndpointSettings {
   return {
@@ -417,7 +431,11 @@ export function settingsOfDraft(draft: SettingsDraft): JobEndpointSettings {
     excludes: draft.excludes.map((pattern) => pattern.trim()),
     excludeLargerThanGib: draft.largerEnabled ? parseLargerThanGib(draft.largerGib) : null,
     hooks: hooksOf(draft),
-    bandwidthKbps: draft.bandwidth.trim() === "" ? null : wholeNumber(draft.bandwidth),
+    bandwidthKbps: draft.bandwidthUnlimited
+      ? UNLIMITED_BANDWIDTH_KBPS
+      : draft.bandwidth.trim() === ""
+        ? null
+        : wholeNumber(draft.bandwidth),
     // A job without windows stores none: leaving the key out removes the ones it had.
     ...(draft.bandwidthWindows.length > 0
       ? { bandwidthWindows: windowsOfDrafts(draft.bandwidthWindows) }

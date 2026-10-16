@@ -921,6 +921,28 @@ describe("time windows of the bandwidth limit", () => {
     expect(sent[0]?.settings).not.toHaveProperty("bandwidthWindows");
   });
 
+  it("sends an explicit unlimited as 0, and an empty limit as null (the policy's)", async () => {
+    const sent: { settings?: Record<string, unknown> }[] = [];
+    await openEndpointEditor({
+      "POST /backup-jobs": (request) => {
+        sent.push(request.body as { settings?: Record<string, unknown> });
+        return json(endpointJob({ id: "new" }), 201);
+      },
+    });
+    await typeInto(field("Name"), "Servers");
+    const limit = field("Upload limit (kbit/s)");
+    expect(limit.placeholder).toBe("As the policy says");
+    await typeInto(limit, "500");
+    await click(field("Unlimited"));
+    // The number is set aside while Unlimited is chosen.
+    expect(limit.disabled).toBe(true);
+    expect(limit.value).toBe("");
+    await click(buttonByText(editor(), "Create job"));
+    await flush(5);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.settings).toMatchObject({ bandwidthKbps: 0 });
+  });
+
   it("shows what the server refused at the windows, in the viewer's language", async () => {
     await openEndpointEditor({
       "POST /backup-jobs": () =>
