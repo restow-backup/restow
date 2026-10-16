@@ -8,6 +8,94 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.4.1] - 2026-10-16
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.1 counts the restic repositories of machines, file shares and Proxmox VE
+containers in the stored bytes, instead of the chunk store alone, and says when a running
+container backup shows no progress because its node runs an older restow-pve. One database
+migration.
+
+### Breaking Changes
+
+None. `physicalBytes` of `GET /status` and of `usage` in `GET /storage` now include the
+restic repositories (see Fixed); the fields and their types stay.
+
+### Added
+
+None.
+
+### Changed
+
+- Repositories › Usage: the chart is called "Chunk store per day", and its note says that
+  the restic repositories keep no history and are not part of the growth.
+
+### Fixed
+
+- Repositories › Usage, the Stored tile of the dashboard, the statistics and `GET /status`
+  and `GET /storage` of the API counted only the packs of the chunk store: a tenant with
+  10 GB of container backups saw "Stored 10.9 kB" and "0 B backed up". Stored now adds the
+  restic repositories of machines, file shares and Proxmox VE containers, and the usage card
+  shows how much of it is in the chunk store and how much in restic repositories. The
+  deduplication saving, the growth and the chart stay figures of the chunk store, and say
+  so; "Protected data" names the sources it does not include instead of "No completed
+  backup yet". The dashboard tile lists the repositories on a line of their own instead of
+  "0 B backed up".
+- The size of a container's restic repository was not recorded. The restic route now
+  measures it once at the first upload after the update, then counts every upload and
+  deletion, and the worker measures it again after a prune. A view never lists a
+  repository (it may live on NFS).
+- A running container backup on a node with restow-pve before 0.4.0 showed "No progress
+  reported yet" for its whole run. It now says that progress needs restow-pve 0.4.0 on that
+  node, which version the node runs, and to update the node.
+- restow-pve asked for an update only six hours after it started, so a restarted node kept
+  an old version for hours. It now asks two minutes after the start, then every six hours;
+  the update still waits until no backup or restore runs.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New image and one database migration, `0052_pve_guest_repository_bytes`
+(`pve_guests.repository_bytes` and `repository_measured_at`), which runs in seconds. No new
+required environment variables, and the `docker-compose.yml` of 0.4.0 stays.
+
+- The repository of a container counts under Stored from its next backup on, of a machine
+  or file share as before (from its next backup or retention run); until then it counts as
+  zero.
+- Nodes pick up restow-pve 0.4.1 by themselves, within two minutes of their next start or
+  within six hours, while no backup runs.
+- Rollback: the migration only adds two columns; 0.4.0 runs with them.
+
+### Known Issues
+
+- A repository's size has no history: the statistics count the current size of a restic
+  repository at every moment of a period since its machine, share or container was added,
+  so the growth of Stored there comes from the chunk store only.
+- Uploads that finish while the first measurement of a repository lists it may be left out
+  until the next prune or retention run measures it again.
+- "Protected data" still counts the chunk store's sources only; the logical size of
+  restic backups is not added up.
+- The known issues of 0.4.0 still apply.
+
+### Verification
+
+Before the tag, on the release branch (main plus the 0.4.1 fixes): lint and typecheck of
+all workspaces, the server installer tests (679), gofmt, go vet and the Go tests of the
+agents, and the full unit and Postgres suites on Postgres 16: packages/db 195, packages/i18n
+273, packages/core 2311 (6 skipped), apps/scheduler 73, apps/api 3816 (5 skipped), apps/web
+4124, apps/worker 529, ee/api 247, ee/licensing 59, ee/web 176, ee/worker 5, packages/cli
+34, the demo seed 208; 141 Postgres test files, none skipped. A container backup with the
+real restic binary checked the size the restic route counted against the repository. The
+re-measurement after a prune ran in no test with a real repository. The release smoke runs
+in the release pipeline; no Microsoft 365 tenant was used before the tag.
+
 ## [0.4.0] - 2026-10-15
 
 Beta release. Run it alongside your existing backups, not as your only one, until

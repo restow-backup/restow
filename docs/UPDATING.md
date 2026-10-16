@@ -132,6 +132,11 @@ directory, which replaces the compose file and keeps the previous one as
 file. Proxmox VE nodes show the progress of a running backup and ride out
 the update only with restow-pve 0.4.0, which installs itself on the nodes.
 
+Updating to 0.4.1 applies one migration (0052) at the api's start; it adds two
+columns and takes seconds. The `docker-compose.yml` of 0.4.0 stays. restow-pve
+0.4.1 asks for an update two minutes after it starts, then every six hours, and
+installs it once no backup or restore runs on the node.
+
 From 0.4.0 on, S3 endpoints must use `https://` (or `http://` only on `localhost`,
 `127.0.0.1`, `[::1]`). A repository or default repository that already uses `http://`
 to another host keeps working after the update, so no backup stops; its card (or
