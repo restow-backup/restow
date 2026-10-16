@@ -4,6 +4,14 @@
 // migration and their tests.
 
 import {
+  type AgentPolicySettings,
+  type EndpointPolicy,
+  endpointPolicyOf,
+  type GlobalAgentPolicy,
+  type JobAgentPolicy,
+  resolveAgentPolicy,
+} from "../endpoints/agent-policy.js";
+import {
   type ActiveAgentSchedule,
   type AgentConfig,
   type AgentSchedule,
@@ -103,6 +111,7 @@ export function buildEndpointConfig(
   current: AgentConfig,
   schedule: JobSchedule | null,
   settings: JobEndpointSettings,
+  policy?: PolicyLevels,
 ): AgentConfig {
   const { excludeLargerThanBytes: _dropped, bandwidthWindows: _windows, ...rest } = current;
   const next: AgentConfig = {
@@ -120,7 +129,30 @@ export function buildEndpointConfig(
   if (settings.bandwidthWindows && settings.bandwidthWindows.length > 0) {
     next.bandwidthWindows = normalizeBandwidthWindows(settings.bandwidthWindows);
   }
-  return next;
+  return policy ? withEndpointPolicy(next, endpointPolicyFor(policy, settings.policy)) : next;
+}
+
+/** The installation's and the tenant's level of the agent policy. */
+export interface PolicyLevels {
+  readonly global: GlobalAgentPolicy | null;
+  readonly tenant: AgentPolicySettings | null;
+}
+
+/** The effective policy a machine stores, from the levels above it and its job's level. */
+export function endpointPolicyFor(
+  levels: PolicyLevels,
+  job: JobAgentPolicy | null | undefined,
+): EndpointPolicy | undefined {
+  return endpointPolicyOf(resolveAgentPolicy(levels.global, levels.tenant, job ?? null));
+}
+
+/** The configuration with `policy` set, or without the key when the policy is the default. */
+export function withEndpointPolicy(
+  config: AgentConfig,
+  policy: EndpointPolicy | undefined,
+): AgentConfig {
+  const { policy: _old, ...rest } = config;
+  return policy ? { ...rest, policy } : rest;
 }
 
 function sortKeys(value: unknown): unknown {

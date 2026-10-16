@@ -734,6 +734,13 @@
       "weekly": "{count, plural, one {# weekly restore point} other {# weekly restore points}}",
       "monthly": "{count, plural, one {# monthly restore point} other {# monthly restore points}}",
       "confirm": "Shorten and save"
+    },
+    "policy": {
+      "title": "Agent policy",
+      "description": "When the machines of this job may start backups, whether missed backups are caught up, AC power and retries. What the job does not set comes from the tenant and the installation.",
+      "loadError": "The policy of the tenant could not be loaded; the job keeps what it sets.",
+      "bandwidthDefault": "Without a limit of its own, the job uses: {value} ({source}).",
+      "bandwidthLocked": "Locked by the installation: {value} applies to every job; the limit and windows here have no effect."
     }
   },
   "folders": {

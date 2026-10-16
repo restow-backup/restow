@@ -159,8 +159,8 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | Aufruf | Zweck |
 | --- | --- |
 | `POST /enroll` | Token gegen Zugangsdaten tauschen (siehe oben). |
-| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. `Cache-Control: no-store`. |
-| `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts?, machine?, dataFolders? }` ergibt `{ tasks }`. Alle 5 Minuten (Jitter +-60 s) und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). `machine` und `dataFolders` (Agent ab 0.4.0) siehe "Rechner und Datenordner". |
+| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. Ab 0.4.0 zusätzlich `startsPaused` (pausiert ein Update gerade neue Läufe, siehe "Update-Pause") und, wenn eine Richtlinie etwas festlegt, `policy: { backupWindow?, catchUp, maxRetries }` (siehe "Richtlinien"); Bandbreite und Netzteil der Richtlinie stecken dann schon in `bandwidthKbps` und `onlyOnAcPower`. Ein älterer Agent ignoriert beide Felder. `Cache-Control: no-store`. |
+| `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts?, machine?, dataFolders? }` ergibt `{ tasks, startsPaused }` (`startsPaused` ab 0.4.0; solange es `true` ist, enthält `tasks` keine `backup_now`-Aufgabe). Alle 5 Minuten (Jitter +-60 s) und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). `machine` und `dataFolders` (Agent ab 0.4.0) siehe "Rechner und Datenordner". |
 | `POST /runs` | `{ kind: backup/restore/verify_sample, taskId?, startedAt }` ergibt `{ runId }`. |
 | `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
 | `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity? }`. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
@@ -238,8 +238,9 @@ liest weiter `GET /config` und kennt nur `config`.
 
 - **Was der Job entscheidet:** Zeitplan (`schedule`), Ordner (`paths`), Ausschlüsse (`excludes`),
   Hooks, Bandbreite (`bandwidthKbps`), ein Größenlimit (`excludeLargerThanGib`, als
-  `excludeLargerThanBytes` in `config`) und die Aufbewahrung des Repositorys
-  (`settings.retention` des Rechners; nur der Server liest sie). Was der Job nicht entscheidet,
+  `excludeLargerThanBytes` in `config`), die Aufbewahrung des Repositorys
+  (`settings.retention` des Rechners; nur der Server liest sie) und seit 0.4.0 seine Ebene der
+  Richtlinie (`settings.policy`, siehe "Richtlinien"). Was der Job nicht entscheidet,
   bleibt am Rechner: Profil, `onlyOnAcPower`, `useVss`, Anzeigename, Speicherbudget und
   Stille-Schwellen.
 - **Je Rechner überschreibbar:** Ein Mitglied des Jobs (`backup_job_members`) trägt `overrides` mit
@@ -362,6 +363,96 @@ sichern weiter; es gibt keine Datenmigration, die sie anhält (die Migration nac
 - **In einen Job:** Anlegen mit `scope.members`, `POST .../members` oder `PUT .../members` schreiben den
   Zeitplan des Jobs über `none` (`buildEndpointConfig` übernimmt ihn immer, wenn der Rechner `none`
   hat) und erhöhen `config_version`; der Agent holt die Konfiguration mit der `update_config`-Aufgabe.
+
+### Richtlinien (seit 0.4.0)
+
+Wann und wie die Agenten sichern, legt eine **Richtlinie** auf drei Ebenen fest: die Installation
+(Anbieter, Installation › Richtlinie der Agenten, `GET`/`PUT /api/v1/settings/agent-policy`), der
+Mandant (Mandantenseite › Agents, `GET`/`PUT /api/v1/endpoints/agent-policy`) und der Backup-Job
+(Job-Editor, `settings.policy` des Jobs). Eine Ebene setzt eine Einstellung, indem sie ihren Schlüssel
+trägt; fehlt er, erbt sie von oben. Die Installation kann jede Einstellung **sperren** (`locks`): Dann
+gilt ihr Wert (oder, wenn sie keinen setzt, der Standard) für jeden Mandanten und jeden Job, ein
+Mandant bekommt für einen gesperrten Schlüssel 409 `agent-policy-locked`, ein Job ebenso, wenn er den
+Wert ändert (ein Wert, den er schon vor der Sperre hatte, darf stehen bleiben und wirkt nicht). Die
+Oberfläche zeigt bei jeder Einstellung den geltenden Wert, woher er kommt (Standard, Installation,
+Mandant, Job) und ob er gesperrt ist. Code: `packages/core/src/endpoints/agent-policy.ts`
+(`resolveAgentPolicy`), `apps/api/src/features/endpoints/agent-policy.ts`.
+
+| Einstellung | Werte | Standard (wie vor 0.4.0) |
+| --- | --- | --- |
+| `backupWindow` | `{ days, from, to }` oder `null` | `null`: immer |
+| `catchUp` | `{ enabled, mode: asap/next_window, maxAgeHours }` | an, `asap`, jedes Alter |
+| `bandwidthKbps` | kbit/s oder `null` | `null`: unbegrenzt |
+| `onlyOnAcPower` | `true`/`false` | `false` |
+| `retries` | 0 bis 10 | 5 |
+
+- **Sicherungsfenster.** Geplante Sicherungen, nachgeholte und Wiederholungen (auch die Fortsetzung
+  eines unterbrochenen Laufs) **beginnen** nur im Fenster; ein Lauf, der am Ende des Fensters noch
+  läuft, läuft weiter. "Jetzt sichern" (Oberfläche, Job, `restow-agent backup-now`) beachtet es
+  nicht. Die Regeln sind die der Bandbreitenfenster: `days` sind die Tage, an denen das Fenster
+  **beginnt** (1 = Montag ... 7 = Sonntag), ein `to`, das nicht nach `from` liegt, endet am Folgetag
+  (Montag bis Freitag 20:00 bis 06:00 reicht von Freitag bis Samstag 06:00), gleiche Zeiten sind
+  24 Stunden. Gelesen wird es in der Zeitzone des Zeitplans des Rechners (der Server schickt sie als
+  `backupWindow.timeZone` mit, sonst die des Mandanten); die Sommerzeit folgt der Wanduhr (ein Fenster
+  über die Umstellungsnacht ist eine Stunde kürzer oder länger, eines ganz in der ausgefallenen Stunde
+  öffnet an dem Tag nicht). Fällt ein täglicher Termin aus dem Fenster, beginnt die Sicherung, sobald
+  es sich öffnet; das ist pünktlich, nicht verpasst.
+- **Verpasste Sicherungen nachholen.** Verpasst ist eine Sicherung, deren Beginn (ins Fenster
+  verschoben) mehr als 15 Minuten (`schedule.MissedGrace`) vor dem Zeitpunkt lag, seit dem der Agent
+  ohne Unterbrechung läuft (Start des Agenten oder Aufwachen aus dem Ruhezustand): Der Rechner war aus
+  oder schlief. Eine Sicherung, die fällig wurde, während der Agent lief, aber nicht beginnen konnte
+  (Server nicht erreichbar, Update-Pause, Akkubetrieb, ein anderer Lauf), ist **nie** verpasst: Sie
+  beginnt, sobald sie kann, ohne Altersgrenze. `asap` holt nach, sobald der Rechner wieder an ist
+  (und im Fenster), `next_window` erst, wenn sich nach dem Aufwachen das nächste Fenster öffnet (ohne
+  Fenster wie `asap`). Mit `maxAgeHours` wird eine verpasste Sicherung, die älter ist, nicht nachgeholt;
+  wie bei `enabled: false` wartet der Agent dann auf den nächsten regulären Termin (beim Zeitplan
+  `interval` den nächsten Punkt des Rasters seit dem letzten Versuch). `on_connect` kennt keine
+  verpassten Sicherungen. Ohne Richtlinie bleibt es beim Verhalten vor 0.4.0: sofort nachholen.
+- **Bandbreite.** Das Limit der Richtlinie gilt für einen Job (oder einen Rechner ohne Job), der
+  kein eigenes setzt (kein `bandwidthKbps` über 0 und keine Zeitfenster); hat er eines, gilt seines.
+  Ist es gesperrt, gilt das Limit der Installation, und Limit und Zeitfenster des Jobs wirken nicht.
+- **Netzteil.** Geplante Sicherungen warten auf das Netzteil, wenn die Richtlinie es verlangt **oder**
+  der Rechner es selbst eingestellt hat (`onlyOnAcPower` des Rechners bleibt eine eigene Einstellung);
+  ist es gesperrt, entscheidet allein die Installation.
+- **Wiederholungen.** Nach einem fehlgeschlagenen Lauf versucht der Agent es bis zu `retries` Mal
+  erneut, nach 5, 15, 30 Minuten und dann stündlich, danach wartet er auf den nächsten regulären
+  Termin.
+- **Was der Agent bekommt.** Der Server rechnet die Wirk-Richtlinie je Rechner aus (Installation,
+  Mandant, Job seines Jobs) und schreibt sie als `config.policy` in seine Konfiguration: bei jeder
+  Änderung der Installation (alle Mandanten), eines Mandanten und eines Jobs (`syncEndpointConfigs`).
+  Ändert sie sich für einen Rechner, steigt `config_version`, er bekommt eine `update_config`-Aufgabe,
+  und das Audit sagt `endpoint.config.changed` mit `changed: ["config.policy"]` (`via.policy`:
+  `global` oder `tenant`, sonst `via.job`). Ist alles Standard und nichts gesperrt, gibt es **kein**
+  `config.policy`: Eine Installation ohne Richtlinie behält ihre Konfigurationen Byte für Byte und ihre
+  Versionen. `GET /agent/v1/config` liefert die Richtlinie als `policy: { backupWindow?: { days, from,
+  to, timeZone }, catchUp: { enabled, mode, maxAgeHours? }, maxRetries }`, Bandbreite und Netzteil
+  bereits eingerechnet in `bandwidthKbps` und `onlyOnAcPower`.
+- **Versionen.** Agenten ab 0.4.0 beachten Fenster, Nachholen und Wiederholungen
+  (`agent/internal/schedule`, `PolicyFromAPI`, `EvaluateIn`); ein ungültiger Wert landet als Warnung
+  im Log und lässt den Standard gelten. Ältere Agenten ignorieren `policy`, folgen aber Bandbreite und
+  Netzteil, die in den bekannten Feldern stehen. Ein Agent 0.4.0 an einem Server 0.3.x bekommt weder
+  `policy` noch `startsPaused` und verhält sich wie zuvor. `restow-agent status` zeigt die Richtlinie
+  ("Policy") und, warum eine fällige Sicherung wartet ("Waiting").
+- **Audit.** `settings.agent_policy.updated` (Installationskette, vorher und nachher),
+  `tenant.agent_policy.updated` (Kette des Mandanten), dazu je geändertem Rechner
+  `endpoint.config.changed`. Die Installation ändern Anbieter-Administratoren mit allen Mandanten,
+  lesen alle Anbieter-Admins; den Mandanten ändern seine Administratoren.
+- **Datenmodell.** `settings.agent_policy` (`{ settings, locks }`) und `tenants.agent_policy` (die
+  Einstellungen des Mandanten), beide `{}` als Standard (Migration `agent_policies`); der Job trägt
+  seine in `backup_jobs.settings.policy` (nicht je Mitglied überschreibbar, Bandbreite ist das eigene
+  Feld des Jobs).
+
+### Update-Pause (seit 0.4.0)
+
+Solange ein Update neue Läufe pausiert (`job_start_pause`, docs/UPDATING.md, "Runs in progress
+during an update"), sagen `GET /config` und `POST /heartbeat` `startsPaused: true`. Ein Agent ab 0.4.0
+beginnt dann keine geplante Sicherung, keine Wiederholung und kein Nachholen und fragt jede Minute neu
+(`Options.PauseRecheck`); ebenso wartet er, solange der Server nicht antwortet. Danach beginnt die
+Sicherung; das Warten zählt weder als verpasst noch als fehlgeschlagen (es gibt keinen Versuch und
+keinen Lauf). Eine `backup_now`-Aufgabe gibt der Heartbeat erst nach der Pause aus (auch an ältere
+Agenten); kreuzt eine den Beginn der Pause, wartet der Agent mit ihr. `restow-agent backup-now` meldet
+das Update und wartet (Strg-C bricht ab, ohne einen Lauf anzumelden). Ein laufender Lauf läuft weiter
+und zählt im Update-Dialog wie bisher.
 
 ### Aufgaben (`tasks`)
 
@@ -879,6 +970,8 @@ hier.
 | `endpoint-config-managed-by-job` | 409 | Der Rechner gehört zu einem Job, der Zeitplan, Ordner, Ausschlüsse, Hooks und Bandbreite (und die Aufbewahrung, wenn der Job sie setzt) entscheidet; den Job ändern oder den Rechner aus ihm nehmen. Die Antwort nennt den Job (`job.id`, `job.name`). |
 | `endpoint-assignee-unknown` | 422 | Die Person, der der Rechner zugeordnet werden soll (`PATCH /api/v1/endpoints/:id` mit `assignedUserId`), steht nicht (mehr) im Verzeichnis des Mandanten. Feld `field` ist `assignedUserId`. |
 | `endpoint-invalid-bandwidth-windows` | 422 | Die Zeitfenster der Bandbreite eines Rechners ohne Job lassen sich nicht speichern (kein Tag, keine Uhrzeit `HH:MM`, Limit außerhalb 0 bis 10000000, Fenster überschneiden sich, mehr als 24). `issues[0].path` nennt Fenster und Feld, `code` ist `bandwidth_window_days_required`, `_days_invalid`, `_time_invalid`, `_kbps_invalid`, `bandwidth_windows_too_many` oder `bandwidth_window_overlap`. Im Job antwortet dieselbe Prüfung als `invalid-backup-job` (422) mit denselben Codes. |
+| `agent-policy-invalid` | 422 | Eine Einstellung einer Richtlinie (Installation, Mandant) lässt sich so nicht speichern (Fenster ohne Tag, Zeit nicht `HH:MM`, Wiederholungen außerhalb 0 bis 10, Alter außerhalb 1 bis 720 Stunden); `issues` nennt Einstellung und Code. Im Job antwortet dieselbe Prüfung als `invalid-backup-job` (422) mit dem Pfad `settings.policy.<Einstellung>`. |
+| `agent-policy-locked` | 409 | Ein Mandant oder Job setzt eine Einstellung der Richtlinie, die die Installation gesperrt hat; `keys` nennt sie. |
 | `unsupported-os` | 422 | Betriebssystem nicht unterstützt (Windows ist geplant, nicht ausgeliefert). |
 | `enrollment-token-invalid` | 401 | Das Enrollment-Token ist unbekannt, abgelaufen, widerrufen oder verwendet. |
 | `agent-unauthorized` | 401 | Falsche oder fehlende Zugangsdaten des Agenten. |
@@ -993,6 +1086,9 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   `repository_bytes` und `repository_measured_at` (Größe im Speicher), `quota_refused_at`,
   `quota_alert_level` und `quota_alerted_at` (Speicherbudget), `maintenance_locked_count`,
   `maintenance_locked_since` und `locked_alerted_at` (gesperrte Wartung); `settings.quotaGib`.
+- Richtlinien (Migration `agent_policies`): `tenants.agent_policy` und, ohne Row Level Security als
+  Einstellung der Installation, `settings.agent_policy`; die Wirk-Richtlinie eines Rechners steht in
+  `endpoints.config.policy` (siehe "Richtlinien").
 - Jobs (Migration 0023, `docs/ARCHITECTURE.md`, "Jobs"): `backup_jobs` und `backup_job_members` sind
   Mandantentabellen. Ein Rechner ist in höchstens einem Job (`backup_job_members.endpoint_id` ist
   eindeutig); die Wirk-Konfiguration steht weiter in `endpoints.config`, nur ihr Schreiber hat gewechselt.

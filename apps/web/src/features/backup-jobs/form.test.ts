@@ -394,6 +394,35 @@ describe("changing a job", () => {
     expect(updateInputOf(machines, { ...draft, enabled: false })).toBeNull();
   });
 
+  it("sends the job's level of the agent policy with the settings, and only when it changed", () => {
+    const window = { days: [1, 2, 3, 4, 5], from: "20:00", to: "06:00" };
+    const machines = endpointJob();
+    const draft = draftOfJob(machines, [], defaults("endpoint"));
+    expect(draft.settings.policy).toEqual({});
+    const patch = updateInputOf(machines, {
+      ...draft,
+      settings: { ...draft.settings, policy: { retries: 1, backupWindow: window } },
+    });
+    expect(patch?.settings?.policy).toEqual({ retries: 1, backupWindow: window });
+    const withPolicy = endpointJob({
+      settings: { ...machines.settings, policy: { backupWindow: window, retries: 1 } },
+    });
+    const same = draftOfJob(withPolicy, [], defaults("endpoint"));
+    // The keys in another order are the same policy.
+    expect(
+      updateInputOf(withPolicy, {
+        ...same,
+        settings: { ...same.settings, policy: { retries: 1, backupWindow: window } },
+      }),
+    ).toBeNull();
+    // Nothing set any more: the key goes away.
+    const cleared = updateInputOf(withPolicy, {
+      ...same,
+      settings: { ...same.settings, policy: {} },
+    });
+    expect(cleared?.settings && "policy" in cleared.settings).toBe(false);
+  });
+
   it("knows when the scope changed: the mode, or the members that are named", () => {
     const named = [
       member({ targetId: "a" }),

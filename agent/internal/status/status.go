@@ -65,7 +65,15 @@ type Status struct {
 	// none): no backup runs until an administrator adds it to one.
 	WaitingForJob bool      `json:"waitingForJob,omitempty"`
 	NextRunAt     time.Time `json:"nextRunAt,omitzero"`
-	LastError     string    `json:"lastError,omitempty"`
+	// Waiting says why a due backup has not started (outside the backup
+	// window, server unreachable, starts paused for an update, a missed
+	// backup the policy does not catch up); empty otherwise.
+	Waiting string `json:"waiting,omitempty"`
+	// Policy describes the agent policy where it differs from the default.
+	Policy string `json:"policy,omitempty"`
+	// StartsPaused: the Restow instance pauses new runs for an update.
+	StartsPaused bool   `json:"startsPaused,omitempty"`
+	LastError    string `json:"lastError,omitempty"`
 
 	// Scheduling history.
 	LastAttemptAt       time.Time `json:"lastAttemptAt,omitzero"`

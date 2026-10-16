@@ -139,6 +139,24 @@ export type EndpointConfig = {
    * limit that applies at that moment.
    */
   bandwidthWindows?: EndpointBandwidthWindow[];
+  /**
+   * The effective agent policy of the machine (installation, tenant and job resolved; @restow/core
+   * endpoints/agent-policy.ts `EndpointPolicy`). Absent when every setting is the default, so the
+   * configuration of an installation without policies stays as it was. The agent gets it in its
+   * wire form (`GET /agent/v1/config`, field `policy`).
+   */
+  policy?: EndpointConfigPolicy;
+};
+
+/** The effective agent policy stored with a machine's configuration. */
+export type EndpointConfigPolicy = {
+  backupWindow: { days: number[]; from: string; to: string } | null;
+  catchUp: { enabled: boolean; mode: "asap" | "next_window"; maxAgeHours: number | null };
+  retries: number;
+  bandwidthKbps: number | null;
+  bandwidthLocked: boolean;
+  onlyOnAcPower: boolean;
+  onlyOnAcPowerLocked: boolean;
 };
 
 /** Retention of one endpoint's repository (`restic forget --keep-*`). */

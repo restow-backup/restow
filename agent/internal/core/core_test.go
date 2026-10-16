@@ -20,6 +20,7 @@ import (
 	"github.com/restow-backup/restow/agent/internal/paths"
 	"github.com/restow-backup/restow/agent/internal/power"
 	"github.com/restow-backup/restow/agent/internal/release"
+	"github.com/restow-backup/restow/agent/internal/schedule"
 	"github.com/restow-backup/restow/agent/internal/status"
 	"github.com/restow-backup/restow/agent/internal/testutil/fakeserver"
 )
@@ -1227,5 +1228,82 @@ func TestHelpers(t *testing.T) {
 	}
 	if got := defaultRestoreDir([]string{"/nope", dir}, time.Date(2026, 9, 30, 22, 5, 9, 0, time.UTC)); got != filepath.Join(dir, "Restow-Restore-20260930-220509") {
 		t.Errorf("defaultRestoreDir = %s", got)
+	}
+}
+
+func setPaused(h *harness, v bool) {
+	h.srv.Lock()
+	h.srv.Config.StartsPaused = v
+	h.srv.Unlock()
+}
+
+func TestScheduledBackupWaitsWhileStartsArePaused(t *testing.T) {
+	h := newHarness(t)
+	h.noHistory = true
+	h.srv.Config.Schedule = api.Schedule{Kind: api.ScheduleInterval, IntervalMinutes: 60}
+	h.srv.Config.StartsPaused = true
+	h.start()
+	time.Sleep(400 * time.Millisecond)
+	if n := len(h.srv.AllRuns()); n != 0 {
+		t.Fatalf("no backup may start while the server pauses starts, got %d runs", n)
+	}
+	st := h.status.Snapshot()
+	if !st.StartsPaused || st.Waiting != schedule.WaitingForPause || !st.LastAttemptAt.IsZero() || st.ConsecutiveFailures != 0 {
+		t.Fatalf("the wait must be visible and count as nothing: %+v", st)
+	}
+	setPaused(h, false)
+	if fin := h.waitRun(1).Finish; fin.Status != api.StatusSucceeded {
+		t.Fatalf("status %s", fin.Status)
+	}
+	if st := h.status.Snapshot(); st.StartsPaused || st.Waiting != "" {
+		t.Fatalf("pause still shown: %+v", st)
+	}
+}
+
+func TestBackupTaskWaitsWhileStartsArePaused(t *testing.T) {
+	h := newHarness(t)
+	h.srv.Config.StartsPaused = true
+	h.srv.QueueTask(task("t-paused", api.TaskBackupNow, nil))
+	h.start()
+	time.Sleep(400 * time.Millisecond)
+	if n := len(h.srv.AllRuns()); n != 0 {
+		t.Fatalf("a backup request waits for the pause, got %d runs", n)
+	}
+	setPaused(h, false)
+	run := h.waitRun(1)
+	if run.Finish.Status != api.StatusSucceeded || run.Start.TaskID != "t-paused" {
+		t.Fatalf("run %+v", run)
+	}
+}
+
+func TestBackupNowReportsThePause(t *testing.T) {
+	h := newHarness(t)
+	h.srv.Config.StartsPaused = true
+	h.build()
+	if _, err := h.agent.BackupNow(context.Background()); !errors.Is(err, ErrStartsPaused) {
+		t.Fatalf("err %v", err)
+	}
+	if n := len(h.srv.AllRuns()); n != 0 {
+		t.Fatalf("no run may be registered, got %d", n)
+	}
+}
+
+func TestPolicyWindowHoldsTheScheduledBackup(t *testing.T) {
+	h := newHarness(t)
+	h.noHistory = true
+	now := time.Now().UTC()
+	// A window that opened two hours ago and closed an hour ago, every day.
+	from := now.Add(-2 * time.Hour).Format("15:04")
+	to := now.Add(-time.Hour).Format("15:04")
+	h.srv.Config.Schedule = api.Schedule{Kind: api.ScheduleInterval, IntervalMinutes: 60, TimeZone: "UTC"}
+	h.srv.Config.Policy = &api.Policy{BackupWindow: &api.BackupWindow{Days: []int{1, 2, 3, 4, 5, 6, 7}, From: from, To: to}}
+	h.start()
+	time.Sleep(300 * time.Millisecond)
+	if n := len(h.srv.AllRuns()); n != 0 {
+		t.Fatalf("no backup may start outside the window, got %d runs", n)
+	}
+	st := h.status.Snapshot()
+	if st.Waiting != schedule.WaitingForWindow || st.NextRunAt.Before(now.Add(20*time.Hour)) || !strings.Contains(st.Policy, "backup window") {
+		t.Fatalf("status: %+v", st)
 	}
 }

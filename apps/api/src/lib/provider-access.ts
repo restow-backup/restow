@@ -236,6 +236,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // admin, changing them decides what every tenant is alerted about, so it is the owner's.
   "GET /api/v1/settings/ransomware": view(PROVIDER),
   "PUT /api/v1/settings/ransomware": own(),
+  // The installation's agent policy (docs/AGENT.md, "Richtlinien"): it reaches every tenant's
+  // machines, so changing it needs an administrator with every tenant.
+  "GET /api/v1/settings/agent-policy": view(PROVIDER),
+  "PUT /api/v1/settings/agent-policy": configure(PROVIDER),
 
   // --- Updates -------------------------------------------------------------------
   // Reading is for every provider admin; everything that changes something (the source, a
@@ -545,6 +549,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/endpoints/agent-updates": view(),
   "PUT /api/v1/endpoints/agent-updates": configure(),
   "DELETE /api/v1/endpoints/agent-updates/machines/:id": configure(),
+  "GET /api/v1/endpoints/agent-policy": view(),
+  "PUT /api/v1/endpoints/agent-policy": configure(),
   "GET /api/v1/endpoints/tokens": view(),
   "POST /api/v1/endpoints/tokens": configure(),
   "DELETE /api/v1/endpoints/tokens/:tokenId": configure(),

@@ -4,6 +4,7 @@ import {
   effectiveSettings,
   isUnscheduled,
   noSchedule,
+  type PolicyLevels,
   retentionToWrite,
   sameEndpointConfig,
 } from "@restow/core";
@@ -19,6 +20,7 @@ import {
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { policyLevelsOf } from "../endpoints/agent-policy.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "../endpoints/audit.js";
 import { hookFingerprint } from "../endpoints/dto.js";
 import { assertHooksAllowed, hookChangeNeedsRecentSignIn } from "../endpoints/service.js";
@@ -47,6 +49,8 @@ export interface SyncOptions {
    * machine); throws to refuse the whole change (the route passes the recent-sign-in check).
    */
   readonly confirmHookChange?: () => void;
+  /** The installation's and the tenant's level of the agent policy; read when omitted. */
+  readonly policyLevels?: PolicyLevels;
 }
 
 export interface SyncedEndpoint {
@@ -72,6 +76,7 @@ const CONFIG_KEYS = [
   "bandwidthKbps",
   "bandwidthWindows",
   "excludeLargerThanBytes",
+  "policy",
 ] as const;
 
 function hooksOf(config: EndpointConfig): { pre?: string; post?: string } {
@@ -145,6 +150,8 @@ export async function syncEndpointConfigs(
     .where(and(eq(endpoints.tenantId, tenantId), inArray(endpoints.id, ids)))
     .for("update");
   const byId = new Map(rows.map((row) => [row.id, row]));
+  // The agent policy above the job (installation, tenant): the job's level is in its settings.
+  const levels = options.policyLevels ?? (await policyLevelsOf(tx, tenantId));
 
   const planned: Planned[] = [];
   let unchanged = 0;
@@ -161,7 +168,8 @@ export async function syncEndpointConfigs(
     const next = buildEndpointConfig(
       endpoint.config,
       effectiveSchedule(job.schedule, overrides),
-      settings,
+      { ...settings, policy: job.settings?.policy },
+      levels,
     );
     const retention = retentionToWrite(settings.retention, endpoint.settings.retention);
     if (sameEndpointConfig(endpoint.config, next) && retention === null) {
@@ -224,6 +232,7 @@ export async function syncEndpointConfigs(
           : {}),
         ...(changed.includes("paths") ? { paths: next.paths } : {}),
         ...(changed.includes("schedule") ? { schedule: next.schedule } : {}),
+        ...(changed.includes("policy") ? { policy: next.policy ?? null } : {}),
       },
     });
     updated.push({

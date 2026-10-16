@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -11,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
 import { organization } from "./auth.js";
+import type { AgentPolicyLevel } from "./backup-jobs.js";
 import { providers } from "./providers.js";
 
 /**
@@ -97,6 +99,9 @@ export const tenants = pgTable(
     // enrols later) installs a new agent release while this is set. A machine can still be paused
     // on its own (`endpoints.settings.autoUpdatePaused`, an override that outlives a resume here).
     agentUpdatesPaused: boolean("agent_updates_paused").notNull().default(false),
+    // The tenant's level of the agent policy (docs/AGENT.md, "Richtlinien"): a key that is present
+    // overrides the installation's value, unless the installation locked it. `{}` inherits all.
+    agentPolicy: jsonb("agent_policy").$type<AgentPolicyLevel>().notNull().default({}),
     // The bell's column in the notification matrix: the events (packages/core reports/catalog.ts)
     // the tenant's bell shows. Null until an administrator chooses, which means every event but
     // the routine ones (`DEFAULT_BELL_EVENTS`), what the bell showed before it had a column.

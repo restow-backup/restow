@@ -325,6 +325,9 @@
       "updated": "Einstellungen geändert",
       "ransomware": {
         "updated": "Schwellenwerte der Ransomware-Erkennung geändert"
+      },
+      "agent_policy": {
+        "updated": "Richtlinie der Agenten für die Installation geändert"
       }
     },
     "setup": {
@@ -422,6 +425,9 @@
       "internal": {
         "marked": "Mandant als eigene Organisation markiert",
         "unmarked": "Markierung als eigene Organisation entfernt"
+      },
+      "agent_policy": {
+        "updated": "Richtlinie der Agenten des Mandanten geändert"
       }
     },
     "verify": {

@@ -1,3 +1,4 @@
+import type { AgentPolicyValues, JobPolicyKey } from "@/features/endpoints/agent-policy";
 import { apiFetch } from "@/lib/api";
 
 import type { BandwidthWindow } from "./bandwidth-windows.js";
@@ -79,6 +80,12 @@ export interface JobEndpointSettings {
    */
   bandwidthWindows?: BandwidthWindow[];
   retention?: JobRetention;
+  /**
+   * The job's level of the agent policy (docs/AGENT.md, "Richtlinien"): backup window, catching
+   * up missed backups, AC power, retries; a key left out inherits from the tenant and the
+   * installation. Machine jobs only, not per member.
+   */
+  policy?: Partial<Pick<AgentPolicyValues, JobPolicyKey>>;
   // --- File share jobs (docs/FILESHARES.md 7.5) ---
   /** "Skip temporary and system files" (default on). */
   presets?: { systemFiles?: boolean };

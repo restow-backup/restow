@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,6 +62,9 @@ type Options struct {
 	UpdateInterval     time.Duration // default 6 h
 	ProgressInterval   time.Duration // default 5 s
 	SampleTimeout      time.Duration // default 10 min
+	// PauseRecheck is how often the agent asks again while the server
+	// pauses new runs for an update (default 1 min).
+	PauseRecheck time.Duration
 	// SelfUpdate enables GET /agent/v1/update polling.
 	SelfUpdate bool
 	// Now replaces the clock (tests).
@@ -91,6 +95,9 @@ func (o *Options) defaults() {
 	}
 	if o.SampleTimeout == 0 {
 		o.SampleTimeout = 10 * time.Minute
+	}
+	if o.PauseRecheck == 0 {
+		o.PauseRecheck = time.Minute
 	}
 	if o.Now == nil {
 		o.Now = time.Now
@@ -162,16 +169,23 @@ type Agent struct {
 	cfg       *api.Config
 	sched     schedule.Config
 	reachable bool
-	busy      bool
-	queued    int
-	cancelJob context.CancelFunc
-	resticVer string
-	osVersion string
-	machine   *sysinfo.Machine
-	machineAt time.Time
-	uninstall bool
-	restart   bool
-	logSeen   map[string]time.Time
+	// paused: the server pauses new runs for an update (config or heartbeat),
+	// as last learned at pauseSeenAt.
+	paused      bool
+	pauseSeenAt time.Time
+	// awakeSince is since when the agent runs without a break (start, or
+	// waking up from sleep); a slot before it was missed (schedule package).
+	awakeSince time.Time
+	busy       bool
+	queued     int
+	cancelJob  context.CancelFunc
+	resticVer  string
+	osVersion  string
+	machine    *sysinfo.Machine
+	machineAt  time.Time
+	uninstall  bool
+	restart    bool
+	logSeen    map[string]time.Time
 
 	// Loop-owned timers (only touched by the loop goroutine).
 	nextHeartbeat     time.Time
@@ -258,6 +272,7 @@ func (a *Agent) Run(ctx context.Context) error {
 func (a *Agent) loop(ctx context.Context) error {
 	now := a.now()
 	a.lastTick = now
+	a.setAwakeSince(now)
 	a.nextUpdateCheck = now.Add(time.Minute)
 	if a.testUpdateCheckAfterStart {
 		a.nextUpdateCheck = now
@@ -283,13 +298,14 @@ func (a *Agent) loop(ctx context.Context) error {
 		if now.Round(0).Sub(a.lastTick.Round(0)) > 3*a.o.Tick {
 			a.log.Info("the system was suspended or the clock jumped; contacting the server now")
 			a.nextHeartbeat = now
+			a.setAwakeSince(now)
 		}
 		a.lastTick = now
 
 		if !now.Before(a.nextHeartbeat) {
 			a.doHeartbeat(ctx)
 		}
-		if a.currentConfig() == nil || !now.Before(a.nextConfigRefresh) {
+		if a.currentConfig() == nil || !now.Before(a.nextConfigRefresh) || a.pauseRecheckDue(now) {
 			if a.isReachable() {
 				a.refreshConfig(ctx, "periodic")
 			}
@@ -323,6 +339,43 @@ func (a *Agent) setReachable(v bool) {
 	a.mu.Lock()
 	a.reachable = v
 	a.mu.Unlock()
+}
+
+func (a *Agent) setAwakeSince(t time.Time) {
+	a.mu.Lock()
+	a.awakeSince = t
+	a.mu.Unlock()
+}
+
+func (a *Agent) isPaused() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.paused
+}
+
+// setPaused records whether the server pauses new runs for an update. While
+// it does, the loop asks again every PauseRecheck (pauseRecheckDue), so a due
+// backup starts soon after the pause ends.
+func (a *Agent) setPaused(v bool) {
+	a.mu.Lock()
+	was := a.paused
+	a.paused, a.pauseSeenAt = v, a.now()
+	a.mu.Unlock()
+	switch {
+	case v && !was:
+		a.log.Info("the Restow instance pauses new backups while it is updated; due backups wait until it is over")
+	case !v && was:
+		a.log.Info("the Restow instance starts backups again")
+	}
+	_ = a.d.Status.Update(func(s *status.Status) { s.StartsPaused = v })
+}
+
+// pauseRecheckDue: the server paused new runs and has not been asked for a
+// while.
+func (a *Agent) pauseRecheckDue(now time.Time) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.paused && now.Sub(a.pauseSeenAt) >= a.o.PauseRecheck
 }
 
 func (a *Agent) idle() bool {
@@ -447,6 +500,7 @@ func (a *Agent) doHeartbeat(ctx context.Context) {
 	a.hbFailures = 0
 	a.setReachable(true)
 	a.nextHeartbeat = now.Add(a.o.HeartbeatInterval + a.jitter())
+	a.setPaused(resp.StartsPaused)
 	_ = a.d.Status.Update(func(s *status.Status) {
 		s.Heartbeat = status.Heartbeat{At: now.UTC(), OK: true}
 		s.LastError = ""
@@ -511,15 +565,17 @@ func (a *Agent) refreshConfig(ctx context.Context, why string) bool {
 		return false
 	}
 	a.setReachable(true)
-	a.applyConfig(cfg, why)
 	a.nextConfigRefresh = a.now().Add(a.o.ConfigRefresh)
+	a.applyConfig(cfg, why)
 	return true
 }
 
 func (a *Agent) applyConfig(cfg *api.Config, why string) {
 	jit := schedule.JitterFor(a.d.State.EndpointID, schedule.MaxDailyJitter)
 	sc, warnings := schedule.FromAPI(cfg.Schedule, cfg.Profile, jit)
-	for _, w := range warnings {
+	pol, pwarn := schedule.PolicyFromAPI(cfg.Policy, sc.Location)
+	sc.Policy = pol
+	for _, w := range append(warnings, pwarn...) {
 		a.log.Warn("configuration: " + w)
 	}
 	a.mu.Lock()
@@ -528,8 +584,9 @@ func (a *Agent) applyConfig(cfg *api.Config, why string) {
 	a.mu.Unlock()
 	if changed {
 		a.log.Info("configuration loaded", "version", cfg.ConfigVersion.String(), "profile", cfg.Profile,
-			"schedule", describe(sc), "paths", len(cfg.Paths), "reason", why)
+			"schedule", describe(sc), "policy", describePolicy(sc.Policy), "paths", len(cfg.Paths), "reason", why)
 	}
+	a.setPaused(cfg.StartsPaused)
 	waiting := sc.Kind == api.ScheduleNone
 	if changed && waiting {
 		a.log.Info("this machine is in no backup job; no backups run until an administrator adds it to one in the Restow UI")
@@ -537,6 +594,7 @@ func (a *Agent) applyConfig(cfg *api.Config, why string) {
 	_ = a.d.Status.Update(func(s *status.Status) {
 		s.ConfigVersion = cfg.ConfigVersion.String()
 		s.Schedule = describe(sc)
+		s.Policy = describePolicy(sc.Policy)
 		s.Profile = cfg.Profile
 		s.WaitingForJob = waiting
 	})
@@ -558,11 +616,43 @@ func describe(sc schedule.Config) string {
 	return sc.Kind
 }
 
+// describePolicy says in one line what the policy changes against the
+// default; empty for the default.
+func describePolicy(p schedule.Policy) string {
+	var parts []string
+	if w := p.Window; w != nil {
+		days := ""
+		for d := 1; d <= 7; d++ {
+			if w.Days[d] {
+				days += []string{"", "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"}[d]
+			}
+		}
+		parts = append(parts, fmt.Sprintf("backup window %s %s-%s %s", days, clock(w.From), clock(w.To), w.Location))
+	}
+	switch {
+	case !p.CatchUp:
+		parts = append(parts, "missed backups are not caught up")
+	case p.CatchUpMode == api.CatchUpNextWindow && p.Window != nil:
+		parts = append(parts, "missed backups are caught up in the next backup window")
+	}
+	if p.CatchUp && p.CatchUpMaxAge > 0 {
+		parts = append(parts, fmt.Sprintf("catch-up only within %s", p.CatchUpMaxAge))
+	}
+	if p.MaxRetries != schedule.MaxRetries {
+		parts = append(parts, fmt.Sprintf("%d retries", p.MaxRetries))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func clock(d time.Duration) string {
+	return fmt.Sprintf("%02d:%02d", int(d/time.Hour), int((d%time.Hour)/time.Minute))
+}
+
 // ---- scheduling -----------------------------------------------------------
 
 func (a *Agent) checkSchedule(ctx context.Context) {
 	a.mu.Lock()
-	cfg, sc, reachable := a.cfg, a.sched, a.reachable
+	cfg, sc, reachable, paused, awake := a.cfg, a.sched, a.reachable, a.paused, a.awakeSince
 	a.mu.Unlock()
 	if cfg == nil {
 		return
@@ -573,11 +663,16 @@ func (a *Agent) checkSchedule(ctx context.Context) {
 		LastAttemptAt:       st.LastAttemptAt,
 		Interrupted:         st.Interrupted,
 		ConsecutiveFailures: st.ConsecutiveFailures,
+		AwakeSince:          awake,
 	}
 	now := a.now()
-	d := schedule.Evaluate(sc, hist, now, reachable)
-	if !d.Next.Equal(st.NextRunAt) {
-		_ = a.d.Status.Update(func(s *status.Status) { s.NextRunAt = d.Next })
+	d := schedule.EvaluateIn(sc, hist, now, schedule.Conditions{Reachable: reachable, Paused: paused})
+	waiting := ""
+	if !d.Due && d.Reason != "not due" && d.Reason != schedule.WaitingForJob {
+		waiting = d.Reason
+	}
+	if !d.Next.Equal(st.NextRunAt) || waiting != st.Waiting {
+		_ = a.d.Status.Update(func(s *status.Status) { s.NextRunAt, s.Waiting = d.Next, waiting })
 	}
 	if !d.Due || !a.idle() || ctx.Err() != nil {
 		return

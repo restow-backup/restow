@@ -653,7 +653,8 @@ With runs in progress it asks what happens to them:
 In every case **no new run starts** from the confirmation until the update is
 over: the scheduler plans nothing (schedules that fall due meanwhile run on its
 first pass afterwards, nothing is skipped), the worker takes no new job from its
-queues, file share runs and Proxmox VE backup tasks wait. This state is kept in
+queues, file share runs and Proxmox VE backup tasks wait, and the agents of
+servers and clients start no backup (see below). This state is kept in
 the database (`job_start_pause`), so it holds while the services restart.
 Everyone who is signed in sees a banner while the update waits; once it is
 announced, the countdown banner takes over. The pause lifts by itself when the
@@ -694,8 +695,21 @@ What happens to a run that the update stops:
   restarts fails. The run counts as interrupted (not as a failed backup) only
   when the server is still unreachable at its end; otherwise it ends as failed
   and the next scheduled run backs up again. Wait or stop cleanly to avoid this.
-  The agents' own schedules are not paused: a backup that a machine starts on
-  its own during the pause runs.
+
+**The agents of servers and clients wait for the pause** (agent 0.4.0). The
+answers to an agent's configuration request and heartbeat say whether new runs
+are paused (`startsPaused`), and the agent asks again every minute while they
+are. While paused, or while the server does not answer (the api restarting), a
+backup that falls due, a retry and a catch-up wait and start once the pause is
+over and the server answers again. Such a wait is neither a missed backup (the
+catch-up rules of an agent policy do not apply to it) nor a failed one. A run
+that is already running continues and is counted (and waited for) by the dialog
+as before. **Back up now** from the web interface stays a waiting task on the
+server and is handed to the agent with its first heartbeat after the pause,
+whatever the agent's version; `restow-agent backup-now` on the machine says that
+the instance is being updated and waits (Ctrl-C stops waiting, nothing was
+started). An agent older than 0.4.0 does not know the pause: a backup its own
+schedule starts during the pause runs, as before.
 
 An update by hand (`docker compose pull && docker compose up -d`) does none of
 the waiting: the worker gets its 60 seconds, and everything above about stopped

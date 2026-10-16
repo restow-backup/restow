@@ -351,6 +351,13 @@
       "when": 1792111069280,
       "tag": "0049_perf_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792111776756,
+      "tag": "0050_agent_policies",
+      "breakpoints": true
     }
   ]
 }

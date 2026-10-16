@@ -71,4 +71,15 @@ export const ENDPOINT_PROBLEMS = {
    * (removed meanwhile, or of another tenant).
    */
   assigneeUnknown: "urn:restow:problem:endpoint-assignee-unknown",
+  /**
+   * 422: an agent policy (installation, tenant or a job's level) cannot be saved as sent (a backup
+   * window without days, a time that is not HH:MM, retries out of range). `issues` names the
+   * setting and the problem.
+   */
+  invalidAgentPolicy: "urn:restow:problem:agent-policy-invalid",
+  /**
+   * 409: a tenant or a job sets a setting of the agent policy that the installation locked;
+   * `keys` lists them.
+   */
+  agentPolicyLocked: "urn:restow:problem:agent-policy-locked",
 } as const;

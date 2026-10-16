@@ -84,6 +84,11 @@ const VALUES = {
   fingerprint: "0123456789abcdef",
   job: "Linux servers, daily",
   sequence: 12,
+  zone: "Europe/Berlin",
+  from: "20:00",
+  to: "06:00",
+  mode: "As soon as the machine is on again",
+  kbps: 2000,
 };
 
 describe("endpoints translations", () => {

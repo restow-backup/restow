@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   type AgentConfigResponse,
   agentFacingConfig,
+  agentPolicyWire,
   bandwidthTimeZone,
   cleanDataFolderReport,
   DEFAULT_SCHEDULE_TIMEZONE,
@@ -18,6 +19,8 @@ import {
   isValidTimeZone,
   judgeAgentRestoreTest,
   parseActivityReport,
+  policyBandwidthDefault,
+  policyOnlyOnAcPower,
   RESTIC_VERSION,
   type RestoreTestTaskParams,
   redactAgentLog,
@@ -40,9 +43,10 @@ import {
   endpointSamples,
   endpoints,
   endpointTasks,
+  readJobStartPause,
   tenants,
 } from "@restow/db";
-import { and, asc, eq, gt, inArray, isNull, lt, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, ne, or, type SQL, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { loadTenantDek, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -118,21 +122,54 @@ export function configResponse(
   config: EndpointConfig,
   configVersion: number,
   effective?: { zone: string; now: Date },
+  options: { startsPaused?: boolean } = {},
 ): AgentConfigResponse {
-  const { bandwidthWindows, ...rest } = agentFacingConfig(config);
-  if (!bandwidthWindows || bandwidthWindows.length === 0 || !effective) {
-    return { ...rest, configVersion };
+  const { bandwidthWindows, policy, ...rest } = agentFacingConfig(config);
+  // The agent policy (docs/AGENT.md, "Richtlinien"): the limit of a job without its own and a lock
+  // decide the default limit and whether its windows apply, AC power is folded in, and the rest
+  // (window, catch-up, retries) goes along in its wire form. Without a policy nothing changes.
+  const bandwidth = policyBandwidthDefault(
+    config.bandwidthKbps,
+    (bandwidthWindows?.length ?? 0) > 0,
+    policy,
+  );
+  const paused = options.startsPaused === undefined ? {} : { startsPaused: options.startsPaused };
+  const policyFields = policy
+    ? {
+        onlyOnAcPower: policyOnlyOnAcPower(config.onlyOnAcPower, policy),
+        policy: agentPolicyWire(policy, effective?.zone ?? config.schedule.timeZone),
+      }
+    : {};
+  if (!bandwidth.windows || !bandwidthWindows || !effective) {
+    return {
+      ...rest,
+      bandwidthKbps: bandwidth.kbps,
+      ...policyFields,
+      ...paused,
+      configVersion,
+    };
   }
   return {
     ...rest,
     bandwidthKbps: effectiveBandwidthKbps(
-      config.bandwidthKbps,
+      bandwidth.kbps,
       bandwidthWindows,
       effective.zone,
       effective.now,
     ),
+    ...policyFields,
+    ...paused,
     configVersion,
   };
+}
+
+/** Whether an update pauses new runs (#46); unreadable counts as not paused. */
+export async function agentStartsPaused(): Promise<boolean> {
+  try {
+    return (await readJobStartPause(providerDb.$client)).paused;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -377,17 +414,19 @@ export async function agentConfig(
   agent: AgentContext,
   now: Date = new Date(),
 ): Promise<AgentConfigResponse> {
+  const startsPaused = await agentStartsPaused();
   return withTenantTx(db, agent.tenantId, async (tx) => {
     const endpoint = await loadEndpoint(tx, agent);
     const windows = endpoint.config.bandwidthWindows;
     const zone =
-      windows && windows.length > 0
+      (windows && windows.length > 0) || endpoint.config.policy?.backupWindow
         ? await bandwidthZoneOf(tx, agent.tenantId, endpoint.config)
         : null;
     return configResponse(
       endpoint.config,
       endpoint.configVersion,
       zone === null ? undefined : { zone, now },
+      { startsPaused },
     );
   });
 }
@@ -447,7 +486,11 @@ export async function heartbeat(
   agent: AgentContext,
   input: HeartbeatInput,
   now: Date = new Date(),
-): Promise<{ tasks: AgentTask[] }> {
+): Promise<{ tasks: AgentTask[]; startsPaused: boolean }> {
+  // While an update pauses new runs (#46) no backup request is handed out: it waits as a pending
+  // task and goes out with the first heartbeat after the pause (like the tasks of a PVE node).
+  // The answer says so, and an agent from 0.4.0 also holds back its scheduled backups.
+  const startsPaused = await agentStartsPaused();
   return withTenantTx(db, agent.tenantId, async (tx) => {
     const nextRunAt = input.nextRunAt ? new Date(input.nextRunAt) : null;
     const facts = agentFactsOf(input, now, agent.os);
@@ -489,6 +532,7 @@ export async function heartbeat(
       .where(
         and(
           eq(endpointTasks.endpointId, agent.endpointId),
+          startsPaused ? ne(endpointTasks.kind, "backup_now") : undefined,
           or(
             and(
               eq(endpointTasks.status, "pending"),
@@ -568,7 +612,7 @@ export async function heartbeat(
         details: { reason: "uninstalled" },
       });
     }
-    return { tasks };
+    return { tasks, startsPaused };
   });
 }
 

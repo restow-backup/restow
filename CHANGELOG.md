@@ -161,6 +161,26 @@ Unless marked otherwise, everything below is part of every edition (the Communit
 - The file browser of a restore point says which folders it contains, with a link to the
   job's folders (#59). A machine's restore points say what they contain and what they
   added, like Proxmox VE guests (#58).
+- **Agent policies** for servers and clients, on three levels: the installation
+  (Installation › Agent policy), the tenant (tenant page › Agents) and the backup job (the
+  job editor). Each level may override a setting unless the installation locks it; every
+  view says where a value comes from and whether it is locked. The settings: a **backup
+  window** (weekdays and a time range, also across midnight, in the zone of the job's
+  schedule) in which scheduled backups, catch-ups and retries may start (a running backup
+  continues, **Back up now** ignores it); **catch up missed backups** as soon as the
+  machine is on again or in the next backup window, optionally only up to a maximum age;
+  the **upload limit** of a job without its own; **only on AC power**; and the number of
+  **automatic retries** (0 to 10). Without a policy agents behave exactly as before. The
+  server writes the effective policy into each machine's configuration (a new
+  configuration version) and audits every change (`settings.agent_policy.updated`,
+  `tenant.agent_policy.updated`, `endpoint.config.changed`). Window, catch-up and retries
+  need the agent 0.4.0; the upload limit and AC power reach older agents too.
+- **Agents respect the update pause** (#46): while an update pauses new runs, the agent
+  0.4.0 starts no scheduled backup, retry or catch-up and waits for the pause to end (the
+  configuration and the heartbeat say `startsPaused`); the wait does not count as a missed
+  or failed backup. A **Back up now** request stays queued on the server until the pause
+  is over, also for older agents, and `restow-agent backup-now` on the machine waits with
+  a message. `restow-agent status` shows the policy and why a due backup waits.
 
 #### Jobs, live view and dashboard
 
@@ -347,8 +367,13 @@ database move.
    while idle), or run `restow-pve update` on the node. Older helpers keep working without
    progress, without the five-minute retry window and without the list of active runs.
 5. Servers and clients: the endpoint agent 0.4.0 updates itself unless the tenant paused
-   agent updates. Older agents keep working without data folders and machine facts.
+   agent updates. Older agents keep working without data folders, machine facts, the
+   backup window, catch-up rules and retry count of an agent policy, and do not hold their
+   own schedules during an update pause.
 
+- Database migration `agent_policies` adds the installation's and each tenant's agent
+  policy (`settings.agent_policy`, `tenants.agent_policy`, both `{}`), which changes no
+  machine's configuration.
 - Database migrations 0035 to 0043: tables for file shares (0035 to 0037), the
   notification matrix (0038; it translates the recipient flags and webhook event lists of
   every tenant and drops the four flag columns), Proxmox VE progress (0039), recommended

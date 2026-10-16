@@ -734,6 +734,13 @@
       "weekly": "{count, plural, one {# wöchentlichen Sicherungsstand} other {# wöchentliche Sicherungsstände}}",
       "monthly": "{count, plural, one {# monatlichen Sicherungsstand} other {# monatliche Sicherungsstände}}",
       "confirm": "Verkürzen und speichern"
+    },
+    "policy": {
+      "title": "Richtlinie der Agenten",
+      "description": "Wann die Rechner dieses Jobs Sicherungen beginnen dürfen, ob verpasste Sicherungen nachgeholt werden, Netzteil und Wiederholungen. Was der Job nicht festlegt, kommt vom Mandanten und von der Installation.",
+      "loadError": "Die Richtlinie des Mandanten konnte nicht geladen werden; der Job behält, was er festlegt.",
+      "bandwidthDefault": "Ohne eigenes Limit nutzt der Job: {value} ({source}).",
+      "bandwidthLocked": "Von der Installation gesperrt: {value} gilt für jeden Job; Limit und Zeitfenster hier wirken nicht."
     }
   },
   "folders": {

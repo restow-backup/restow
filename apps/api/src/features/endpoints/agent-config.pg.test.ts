@@ -241,7 +241,8 @@ describe.skipIf(!testDatabaseAdminUrl)("the configuration of an agent over a wee
     const who = await machine({ config: plain, configVersion: 2 });
     for (const iso of ["2026-10-06T06:00:00Z", "2026-10-10T10:00:00Z"]) {
       const answer = await configAt(who, iso);
-      expect(answer).toEqual({ ...plain, configVersion: 2 });
+      // Plus whether an update pauses new runs (0.4.0; never part of the stored configuration).
+      expect(answer).toEqual({ ...plain, configVersion: 2, startsPaused: false });
     }
   });
 });

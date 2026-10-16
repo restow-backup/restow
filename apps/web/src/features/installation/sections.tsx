@@ -1,5 +1,6 @@
 import {
   AppWindow,
+  CalendarClock,
   Database,
   Download,
   HardDrive,
@@ -10,6 +11,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 
+import { GlobalAgentPolicySection } from "@/features/endpoints/components/global-agent-policy-section";
 import { AboutSection } from "@/features/settings/sections/about-section";
 import { RansomwareSection } from "@/features/suspicion/components/ransomware-section";
 import { UpdatesSection } from "@/features/updates/updates-section";
@@ -30,7 +32,8 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  *
  *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
  *   40 Journal receiving (Business)    50 Default repository & network shares
- *   55 Database      57 Ransomware detection   60 Provider API (Service Provider) 70 Updates
+ *   55 Database      57 Ransomware detection   58 Agent policy
+ *   60 Provider API (Service Provider) 70 Updates
  *   80 License (extension) or Edition  90 About
  *
  * Edition (core) is the Community build's place for what the License section is in the
@@ -94,6 +97,15 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     icon: ShieldAlert,
     order: 57,
     component: RansomwareSection,
+  },
+  {
+    // The global policy for the agents of servers and clients, with its locks (docs/AGENT.md).
+    id: "agent-policy",
+    labelKey: "installation:sections.agentPolicy",
+    descriptionKey: "installation:descriptions.agentPolicy",
+    icon: CalendarClock,
+    order: 58,
+    component: GlobalAgentPolicySection,
   },
   {
     id: "updates",

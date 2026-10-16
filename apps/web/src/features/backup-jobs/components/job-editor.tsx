@@ -86,6 +86,7 @@ import { BandwidthWindowsField, windowCheckOf } from "./bandwidth-windows-field.
 import { EditorSection } from "./editor-section.js";
 import { ExclusionsField } from "./exclusions-field.js";
 import { type BrowsableMachine, FoldersField } from "./folders-field.js";
+import { BandwidthLock, JobPolicySection, PolicyBandwidthNote } from "./job-policy-section.js";
 import { MemberPicker } from "./member-picker.js";
 import { MissingDataFoldersNotice } from "./missing-data-folders.js";
 import { ProfileNote } from "./profile-note.js";
@@ -902,21 +903,37 @@ function EditorForm({
                   title={t("editor.bandwidth.title")}
                   description={t("editor.bandwidth.description")}
                 >
-                  <BandwidthField
-                    id={ids("bandwidth-field")}
-                    value={draft.settings.bandwidth}
-                    onChange={(bandwidth) => editSettings({ bandwidth })}
-                    error={settingsText("bandwidth") ?? at("bandwidth")}
-                  />
-                  <BandwidthWindowsField
-                    idPrefix={ids("windows")}
-                    rows={draft.settings.bandwidthWindows}
-                    onChange={(bandwidthWindows) => editSettings({ bandwidthWindows })}
-                    zone={draft.endpointSchedule.timeZone}
-                    check={windowCheckOf(draft.settings.bandwidthWindows, attempted)}
-                    serverError={at("bandwidthWindows")}
-                  />
+                  <BandwidthLock>
+                    {(locked) => (
+                      <>
+                        <BandwidthField
+                          id={ids("bandwidth-field")}
+                          value={draft.settings.bandwidth}
+                          onChange={(bandwidth) => editSettings({ bandwidth })}
+                          error={settingsText("bandwidth") ?? at("bandwidth")}
+                          disabled={locked}
+                        />
+                        <PolicyBandwidthNote />
+                        <BandwidthWindowsField
+                          idPrefix={ids("windows")}
+                          rows={draft.settings.bandwidthWindows}
+                          onChange={(bandwidthWindows) => editSettings({ bandwidthWindows })}
+                          zone={draft.endpointSchedule.timeZone}
+                          check={windowCheckOf(draft.settings.bandwidthWindows, attempted)}
+                          serverError={at("bandwidthWindows")}
+                          disabled={locked}
+                        />
+                      </>
+                    )}
+                  </BandwidthLock>
                 </EditorSection>
+
+                <JobPolicySection
+                  id={ids("policy")}
+                  value={draft.settings.policy}
+                  onChange={(policy) => editSettings({ policy })}
+                  zone={draft.endpointSchedule.timeZone}
+                />
 
                 <EditorSection
                   id={ids("retention")}

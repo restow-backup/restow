@@ -169,6 +169,58 @@ type Config struct {
 	// the field only when a backup job sets one.
 	ExcludeLargerThanBytes int64 `json:"excludeLargerThanBytes,omitempty"`
 	ConfigVersion          Flex  `json:"configVersion"`
+	// Policy (server 0.4.0 and later) is the effective agent policy: backup
+	// window, catching up missed backups and the number of automatic
+	// retries. Absent (an older server, or no policy set anywhere) means the
+	// behavior of earlier releases: always allowed, missed backups caught up
+	// at once, five retries. Bandwidth and AC power of the policy arrive
+	// already resolved in BandwidthKbps and OnlyOnACPower.
+	Policy *Policy `json:"policy,omitempty"`
+	// StartsPaused (server 0.4.0 and later): the Restow instance pauses new
+	// runs while it is updated. The agent then starts no backup and waits
+	// for the pause to end; the backup is not missed and not failed. Absent
+	// on an older server, which means not paused.
+	StartsPaused bool `json:"startsPaused,omitempty"`
+}
+
+// Catch-up modes of a policy.
+const (
+	CatchUpASAP       = "asap"
+	CatchUpNextWindow = "next_window"
+)
+
+// Policy is the effective agent policy of the machine (server 0.4.0).
+// Every field may be absent; an absent field keeps the default.
+type Policy struct {
+	// BackupWindow restricts when scheduled backups, catch-ups and retries
+	// may start; nil means always.
+	BackupWindow *BackupWindow `json:"backupWindow,omitempty"`
+	CatchUp      *CatchUp      `json:"catchUp,omitempty"`
+	// MaxRetries is the number of automatic retries after a failed backup.
+	MaxRetries *int `json:"maxRetries,omitempty"`
+}
+
+// BackupWindow is a weekly time range. Days are the days the window
+// begins on (1 = Monday ... 7 = Sunday); a To not after From ends on the
+// next day, equal times make 24 hours. Times are local to TimeZone (empty:
+// the zone of the schedule).
+type BackupWindow struct {
+	Days     []int  `json:"days"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+	TimeZone string `json:"timeZone,omitempty"`
+}
+
+// CatchUp says what happens to a backup that was missed while the machine
+// was off or asleep.
+type CatchUp struct {
+	Enabled bool `json:"enabled"`
+	// Mode is asap (as soon as the machine is back) or next_window (when
+	// the next backup window begins).
+	Mode string `json:"mode,omitempty"`
+	// MaxAgeHours: a missed backup older than this is not caught up; the
+	// agent waits for the next regular slot. 0 or absent: no limit.
+	MaxAgeHours int `json:"maxAgeHours,omitempty"`
 }
 
 // HeartbeatRequest is the body of POST /agent/v1/heartbeat.
@@ -200,6 +252,8 @@ type Task struct {
 // HeartbeatResponse carries the pending tasks.
 type HeartbeatResponse struct {
 	Tasks []Task `json:"tasks"`
+	// StartsPaused: see Config.StartsPaused (server 0.4.0 and later).
+	StartsPaused bool `json:"startsPaused,omitempty"`
 }
 
 // RestoreParams are the parameters of a restore task.

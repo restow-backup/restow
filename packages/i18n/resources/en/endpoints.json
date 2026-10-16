@@ -983,7 +983,9 @@
     "assigneeUnknown": "The person is not in the directory of this tenant (any more). Choose a person from the list.",
     "containerNotBrowsable": "This restore point cannot be browsed file by file.",
     "containerNoRepository": "The backups of this container are not available on the server.",
-    "vmFilesUnreadable": "The file system of this restore point could not be read on the server. Restore the whole VM under VMs & containers."
+    "vmFilesUnreadable": "The file system of this restore point could not be read on the server. Restore the whole VM under VMs & containers.",
+    "agentPolicyInvalid": "A setting of the policy cannot be saved like this. Check the values.",
+    "agentPolicyLocked": "The installation locked this setting of the policy; it cannot be changed here."
   },
   "readinessSection": {
     "overdue": "Overdue",
@@ -1113,5 +1115,93 @@
     "unreadableItem": "{name}: {reason}",
     "volumes": "Each folder at the top is a file system of the VM's disks (scsi0-p2: disk scsi0, partition 2; vg0-root: logical volume root of the volume group vg0).",
     "preview": "Preview: reading files from VM disks is new. Before you rely on a restored file, compare an important one with the original."
+  },
+  "policy": {
+    "applies": "Applies:",
+    "locked": "Locked",
+    "lockedNote": "The installation locked this setting: no tenant and no backup job can change it.",
+    "lock": "Lock for every tenant and backup job",
+    "own": {
+      "global": "Set for the installation (otherwise the default applies)",
+      "tenant": "Set for this tenant (otherwise the installation's value applies)",
+      "job": "Set for this job (otherwise the tenant's value applies)"
+    },
+    "source": {
+      "default": "Default",
+      "global": "Installation",
+      "tenant": "Tenant",
+      "job": "Backup job"
+    },
+    "backupWindow": {
+      "title": "Backup window",
+      "description": "When scheduled backups may start, including catch-ups and retries. A backup that is still running when the window ends continues. Back up now ignores the window.",
+      "always": "Always",
+      "onlyIn": "Only in a backup window",
+      "days": "Starts on",
+      "from": "From",
+      "to": "To",
+      "zone": "Times in {zone}, the time zone of the job's schedule.",
+      "zoneOfSchedule": "Times in the time zone of each machine's schedule.",
+      "rules": "An end that is not after the start is on the next day; the same time twice is the whole day. Daylight saving time follows the wall clock.",
+      "wholeDay": "{days}, all day",
+      "nextDay": "{days}, {from} to {to} the next day",
+      "sameDay": "{days}, {from} to {to}"
+    },
+    "catchUp": {
+      "title": "Catch up missed backups",
+      "description": "A backup is missed when the machine was off or asleep when it was due. A backup that waited while the machine was on (server not reachable, an update of {appName}) is never missed: it starts as soon as it can.",
+      "off": "Off: wait for the next regular backup",
+      "enabled": "Catch up missed backups",
+      "when": "When",
+      "modes": {
+        "asap": "As soon as the machine is on again",
+        "next_window": "In the next backup window"
+      },
+      "withMaxAge": "{mode}, if missed at most {count, plural, one {# hour} other {# hours}} ago",
+      "maxAge": "Only if missed at most this many hours ago",
+      "maxAgeHint": "Empty: any age. 1 to {max} hours; an older missed backup waits for the next regular one.",
+      "anyAge": "Any age"
+    },
+    "bandwidthKbps": {
+      "title": "Upload limit",
+      "description": "The limit of a backup job that sets none of its own (kbit/s).",
+      "label": "Upload limit (kbit/s)",
+      "hint": "Empty: unlimited.",
+      "unlimited": "Unlimited",
+      "value": "{kbps} kbit/s"
+    },
+    "onlyOnAcPower": {
+      "title": "Only on AC power",
+      "description": "Scheduled backups of laptops wait for the power supply. A machine that is set to this on its own keeps it.",
+      "on": "Only on AC power",
+      "off": "Also on battery"
+    },
+    "retries": {
+      "title": "Automatic retries",
+      "description": "How often a failed backup is tried again (after 5, 15 and 30 minutes, then hourly) before the next regular backup.",
+      "label": "Retries",
+      "hint": "0 to {max}.",
+      "value": "{count, plural, one {# retry} other {# retries}}"
+    },
+    "problems": {
+      "days": "Choose at least one day.",
+      "time": "Enter the times as HH:MM.",
+      "maxAge": "Enter whole hours from 1 to 720, or leave it empty.",
+      "bandwidth": "Enter a whole number of kbit/s, or leave it empty for unlimited.",
+      "retries": "Enter a whole number from 0 to 10."
+    },
+    "loadError": "The agent policy could not be loaded.",
+    "save": "Save policy",
+    "discard": "Discard changes",
+    "saved": "{count, plural, =0 {Policy saved. No machine needed a new configuration.} one {Policy saved. # machine gets its new configuration.} other {Policy saved. # machines get their new configuration.}}",
+    "tenant": {
+      "title": "Agent policy",
+      "description": "When and how the agents of this tenant's servers and clients back up. Values you do not set here come from the installation; a backup job can set its own for its machines, unless the installation locked them. Agents from 0.4.0 follow the backup window, catch-up and retries."
+    },
+    "global": {
+      "title": "Agent policy",
+      "description": "When and how the agents of servers and clients back up, in every tenant. Tenants and backup jobs can set their own values, except for what you lock here. Without any value set, agents behave as before. Agents from 0.4.0 follow the backup window, catch-up and retries.",
+      "readOnly": "Administrators of the provider with every tenant change the policy; you can read it."
+    }
   }
 }

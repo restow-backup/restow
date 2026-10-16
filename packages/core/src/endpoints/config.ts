@@ -20,6 +20,7 @@
  */
 
 import type { BandwidthWindow } from "../backup-jobs/bandwidth.js";
+import type { AgentPolicyWire, EndpointPolicy } from "./agent-policy.js";
 
 export const ENDPOINT_PROFILES = ["server", "client"] as const;
 export type EndpointProfileName = (typeof ENDPOINT_PROFILES)[number];
@@ -79,11 +80,23 @@ export interface AgentConfig {
    * never reach the agent.
    */
   bandwidthWindows?: BandwidthWindow[];
+  /**
+   * The effective agent policy (agent-policy.ts); absent when every setting is the default. The
+   * agent gets its wire form, with bandwidth and AC power already folded into `bandwidthKbps` and
+   * `onlyOnAcPower`.
+   */
+  policy?: EndpointPolicy;
 }
 
-/** `GET /agent/v1/config` answers this: the configuration plus its version. */
-export interface AgentConfigResponse extends AgentConfig {
+/**
+ * `GET /agent/v1/config` answers this: the configuration plus its version, the policy in its wire
+ * form (agent 0.4.0; an older agent ignores it) and whether the server pauses new runs for an
+ * update right now (`startsPaused`, from 0.4.0; it never changes the version).
+ */
+export interface AgentConfigResponse extends Omit<AgentConfig, "policy"> {
   configVersion: number;
+  policy?: AgentPolicyWire;
+  startsPaused?: boolean;
 }
 
 export const DEFAULT_SERVER_TIME_OF_DAY = "22:00";

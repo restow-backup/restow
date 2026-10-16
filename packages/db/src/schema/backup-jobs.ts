@@ -86,6 +86,40 @@ export type BackupJobEndpointSettings = {
   bandwidthWindows?: EndpointBandwidthWindow[];
   /** Server-side retention of the machine's repository (`restic forget --keep-*`). */
   retention?: EndpointRetention;
+  /**
+   * The job's level of the agent policy (@restow/core endpoints/agent-policy.ts): backup window,
+   * catching up missed backups, AC power, retries; a key left out inherits from the tenant and
+   * the installation. Not overridable per member.
+   */
+  policy?: BackupJobAgentPolicy;
+};
+
+/** A weekly range in which agents may start backups (days start it, 1 = Monday ... 7 = Sunday). */
+export type AgentPolicyBackupWindow = { days: number[]; from: string; to: string };
+
+/** Catching up a backup missed while the machine was off or asleep. */
+export type AgentPolicyCatchUp = {
+  enabled: boolean;
+  mode: "asap" | "next_window";
+  maxAgeHours: number | null;
+};
+
+/** One level of the agent policy: a key that is present is set at this level. */
+export type AgentPolicyLevel = {
+  backupWindow?: AgentPolicyBackupWindow | null;
+  catchUp?: AgentPolicyCatchUp;
+  bandwidthKbps?: number | null;
+  onlyOnAcPower?: boolean;
+  retries?: number;
+};
+
+/** The job's level of the agent policy (its upload limit is the job's own field). */
+export type BackupJobAgentPolicy = Omit<AgentPolicyLevel, "bandwidthKbps">;
+
+/** The installation's agent policy: its settings, and the ones no tenant or job may change. */
+export type GlobalAgentPolicyRecord = {
+  settings?: AgentPolicyLevel;
+  locks?: ("backupWindow" | "catchUp" | "bandwidthKbps" | "onlyOnAcPower" | "retries")[];
 };
 
 /** What a file share job does (docs/FILESHARES.md 7.5); every field has a documented default. */
