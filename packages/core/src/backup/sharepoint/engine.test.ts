@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JobAbortedError } from "../../engine/chunkstore.js";
+import { SnapshotWriter } from "../../engine/snapshot.js";
 import type { ProtectedObjectRef } from "../../engine/types.js";
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { Harness, TENANT } from "../onedrive/testing.js";
@@ -238,5 +239,60 @@ describe("SharePointBackupEngine", () => {
     expect(manifest.objects.map((object) => object.path)).toContain(
       "Lists/Team Tasks/Book trip (3).json",
     );
+  });
+
+  it("indexes the site once: work grows with the objects, not with lists times objects", async () => {
+    /** A second run over a site with `lists` lists: full scans of the writer and reads of the previous objects. */
+    async function measure(lists: number) {
+      const sp = new FakeSharePoint();
+      const site = sp.addSite({ id: SITE_ID, displayName: "Sales" });
+      sp.addFile(sp.addLibrary(site, "Documents", "b!docs"), "readme.txt", "hello");
+      for (let n = 0; n < lists; n++) {
+        const list = sp.addList(site, { displayName: `List ${n}` });
+        for (let i = 0; i < 5; i++) {
+          sp.addListItem(list, { Title: `Item ${i}` });
+        }
+      }
+      const ids = { snap: 1, pack: 1 };
+      await engine(sp, ids).run(harness.context({ jobId: `first-${lists}` }), siteObject, {});
+      let previousObjects = 0;
+      let previousReads = 0;
+      const load = SnapshotWriter.prototype.loadPreviousManifest;
+      const loadSpy = vi
+        .spyOn(SnapshotWriter.prototype, "loadPreviousManifest")
+        .mockImplementation(async function (this: SnapshotWriter) {
+          const manifest = await load.call(this);
+          if (!manifest) return manifest;
+          previousObjects = manifest.objects.length;
+          const objects = new Proxy(manifest.objects, {
+            get(target, key, receiver) {
+              if (typeof key === "string" && /^\d+$/.test(key)) previousReads++;
+              return Reflect.get(target, key, receiver);
+            },
+          });
+          return { ...manifest, objects };
+        });
+      const listSpy = vi.spyOn(SnapshotWriter.prototype, "listObjects");
+      try {
+        const result = await engine(sp, ids).run(
+          harness.context({ jobId: `second-${lists}` }),
+          siteObject,
+          {},
+        );
+        expect(result.failures).toEqual([]);
+        expect(result.objectsTotal).toBe(previousObjects);
+        return { writerScans: listSpy.mock.calls.length, previousObjects, previousReads };
+      } finally {
+        loadSpy.mockRestore();
+        listSpy.mockRestore();
+      }
+    }
+    const small = await measure(10);
+    const large = await measure(200);
+    // The writer is listed a fixed number of times, however many lists the site has.
+    expect(large.writerScans).toBe(small.writerScans);
+    // Every previous object is read a few times in all, not once per list.
+    expect(large.previousReads).toBeLessThanOrEqual(4 * large.previousObjects);
+    expect(large.previousObjects).toBeGreaterThan(1000);
   });
 });

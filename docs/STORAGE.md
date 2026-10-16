@@ -314,9 +314,12 @@ its restic repositories, to `now + N + 7 days`. Between two renewals every objec
 is therefore locked for at least N days beyond "now", so a restore point made now (and the
 old packs it reuses) is covered for its whole period. Objects whose deletion was already
 refused because of the lock (see below) are left out of the renewal so they can run out.
-A renewal costs one PutObjectRetention per object every 6 days. When the renewal falls
-behind by more than the buffer the repository page warns: data reused by new restore
-points may then be locked for less than N days.
+A renewal costs one PutObjectRetention per object every 6 days, 32 in flight at a time
+(`IMMUTABILITY_RENEWAL_CONCURRENCY`). It goes through the keys in sorted order and records
+how far it got on the target, so a pass that was interrupted, or in which some objects
+failed, continues there with the same retain-until date and counts as complete from its
+original start. When the renewal falls behind by more than the buffer the repository page
+warns: data reused by new restore points may then be locked for less than N days.
 
 **Deleting under a lock.** On an immutable S3 target Restow deletes an object by deleting
 every one of its versions (a delete marker alone frees nothing and only hides the object),

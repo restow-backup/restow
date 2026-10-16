@@ -163,10 +163,9 @@ func TestWalkReusesUnchangedDescriptors(t *testing.T) {
 	sys.put(filepath.Join(root, "a.txt"), XattrNTSD, []byte("new-a"))
 	sys.put(filepath.Join(root, "b.txt"), XattrNTSD, []byte("new-b"))
 	fa, _ := os.Lstat(filepath.Join(root, "a.txt"))
-	previous := map[string]PreviousEntry{
-		"a.txt": {CTime: ctimeOf(fa), Size: 1, Descriptor: &Descriptor{Raw: []byte("old-a")}},
-		"b.txt": {CTime: 1, Size: 2, Descriptor: &Descriptor{Raw: []byte("old-b")}},
-	}
+	previous := NewPrevious()
+	previous.Add("a.txt", PreviousEntry{CTime: ctimeOf(fa), Size: 1, Descriptor: &Descriptor{Raw: []byte("old-a")}})
+	previous.Add("b.txt", PreviousEntry{CTime: 1, Size: 2, Descriptor: &Descriptor{Raw: []byte("old-b")}})
 	var buf bytes.Buffer
 	sc, _ := NewSidecarWriter(&buf, SidecarHeader{Protocol: ProtocolSMB, Xattr: XattrNTSD})
 	res, err := Walk(context.Background(), WalkOptions{Root: root, Previous: previous,
@@ -191,10 +190,11 @@ func TestWalkReusesUnchangedDescriptors(t *testing.T) {
 	// The reuse map loads from a sidecar.
 	prev, err := LoadPrevious(func(fn func(SidecarRecord) error) (SidecarResult, error) {
 		return ReadSidecar(bytes.NewReader(buf.Bytes()), fn)
-	})
+	}, 0)
 	mustNoErr(t, err)
-	if prev["b.txt"].Size != 2 || prev["b.txt"].CTime == 0 || string(prev["b.txt"].Descriptor.Raw) != "new-b" {
-		t.Fatalf("previous %+v", prev["b.txt"])
+	b, ok := prev.Lookup("b.txt")
+	if !ok || b.Size != 2 || b.CTime == 0 || string(b.Descriptor.Raw) != "new-b" {
+		t.Fatalf("previous %+v", b)
 	}
 }
 

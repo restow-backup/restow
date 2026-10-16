@@ -40,6 +40,10 @@ type Config struct {
 	Rand             *rand.Rand
 	// Readers are the parallel directory readers of the walk (8).
 	Readers int
+	// ReuseMaxEntries caps the previous sidecar entries the ACL reuse holds
+	// in memory; above it all permissions are read again. 0: a third of the
+	// memory limit (GOMEMLIMIT) at about 100 bytes per entry.
+	ReuseMaxEntries int
 }
 
 // DefaultConfig is the runner container's layout (docs/FILESHARES.md 3.4).

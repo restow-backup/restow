@@ -129,6 +129,7 @@ export interface Config {
   imports: ImportConfig;
   exports: ExportConfig;
   preview: PreviewConfig;
+  pve: PveConfig;
 }
 
 /**
@@ -163,6 +164,18 @@ export interface PreviewConfig {
    */
   timeoutMs: number;
 }
+
+/** Browsing the files of a VM restore point (features/pve/vm-files.ts). */
+export interface PveConfig {
+  /**
+   * `PVE_BLOCK_MAP_CACHE_MB`: memory the decoded block maps of the VM disks being browsed or
+   * restored may take (estimated; a 2 TB disk's map takes about 200 MB). A map larger than this is
+   * kept alone.
+   */
+  blockMapCacheBytes: number;
+}
+
+export const DEFAULT_PVE_BLOCK_MAP_CACHE_MB = 256;
 
 export const DEFAULT_PREVIEW_PARSE_WORKERS = 2;
 export const DEFAULT_PREVIEW_TIMEOUT_MS = 10_000;
@@ -368,6 +381,10 @@ export function loadConfig(env: Env = process.env): Config {
         positiveInt(env, "PREVIEW_PARSE_WORKERS", DEFAULT_PREVIEW_PARSE_WORKERS),
       ),
       timeoutMs: positiveInt(env, "PREVIEW_TIMEOUT_MS", DEFAULT_PREVIEW_TIMEOUT_MS),
+    },
+    pve: {
+      blockMapCacheBytes:
+        positiveInt(env, "PVE_BLOCK_MAP_CACHE_MB", DEFAULT_PVE_BLOCK_MAP_CACHE_MB) * 1024 * 1024,
     },
   };
 }

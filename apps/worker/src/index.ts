@@ -35,6 +35,8 @@ import { pathToFileURL } from "node:url";
  *   WORKER_CANCEL_POLL_MS        how often a running job checks for cancellation (default 15000)
  *   WORKER_PROGRESS_FLUSH_ITEMS  progress rows are written every N items (default 50)
  *   WORKER_PROGRESS_FLUSH_MS     ... or at least this often (default 2000)
+ *   IMMUTABILITY_RENEWAL_CONCURRENCY
+ *                                Object Lock retention requests in flight per target (default 32)
  *   ENTRA_CLIENT_ID / ENTRA_CLIENT_SECRET / ENTRA_CLIENT_CERT_PATH / ENTRA_AUTHORITY_HOST
  *                                optional: the Microsoft 365 backup app (directory, backup,
  *                                restore); without them the registration saved under

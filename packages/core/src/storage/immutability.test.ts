@@ -329,6 +329,81 @@ describe("Object Lock on S3 (strict in-memory bucket)", () => {
     );
   });
 
+  it("renews in sorted key order, many at once, and continues an interrupted pass", async () => {
+    const backend = locked("compliance", 10);
+    const keys = Array.from(
+      { length: 40 },
+      (_, i) => `tenants/${T}/packs/ab/p${String(i).padStart(2, "0")}`,
+    );
+    for (const key of keys) {
+      await backend.put(key, Buffer.from(key));
+    }
+    time.advance(6 * DAY);
+    const until = lockUntil(time.now(), 10);
+    const renewedKeys = () =>
+      bucket.calls
+        .filter((call) => call.command === "PutObjectRetentionCommand")
+        .map((call) => call.input.Key as string);
+
+    // Stop after 15 requests: the keys before the resume point are all done.
+    const abort = new AbortController();
+    let inFlight = 0;
+    let most = 0;
+    const setRetention = raw.setRetention.bind(raw);
+    raw.setRetention = async (key, date, mode) => {
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight--;
+      if (renewedKeys().length >= 15) abort.abort();
+      return setRetention(key, date, mode);
+    };
+    const progress: string[] = [];
+    const first = await renewRetention(backend, [...keys].reverse(), until, {
+      signal: abort.signal,
+      concurrency: 4,
+      progressEvery: 5,
+      onProgress: (after) => {
+        progress.push(after);
+      },
+    });
+    expect(most).toBe(4);
+    const firstKeys = renewedKeys();
+    expect(firstKeys.slice(0, 4)).toEqual(keys.slice(0, 4));
+    expect(first.resumeAfter).toBe(keys[firstKeys.length - 1]);
+    expect(progress.length).toBeGreaterThan(0);
+    expect(progress).toEqual([...progress].sort());
+    expect(first.failedTotal).toBe(0);
+
+    // The next pass asks only for what is left.
+    bucket.calls.length = 0;
+    raw.setRetention = setRetention;
+    const second = await renewRetention(backend, keys, until, { after: first.resumeAfter });
+    expect(renewedKeys()).toEqual(keys.slice(firstKeys.length));
+    expect(second).toMatchObject({ extended: keys.length - firstKeys.length, failedTotal: 0 });
+    expect(second.resumeAfter).toBe(keys.at(-1));
+    for (const key of keys) {
+      expect((await raw.retention(key))?.retainUntil?.getTime()).toBe(until.getTime());
+    }
+  });
+
+  it("does not resume past a key whose renewal failed", async () => {
+    const backend = locked("compliance", 10);
+    const keys = ["a", "b", "c", "d"].map((name) => `tenants/${T}/packs/ab/${name}`);
+    for (const key of keys) {
+      await backend.put(key, Buffer.from(key));
+    }
+    const setRetention = raw.setRetention.bind(raw);
+    raw.setRetention = async (key, date, mode) => {
+      if (key === keys[1]) throw new Error("throttled");
+      return setRetention(key, date, mode);
+    };
+    const report = await renewRetention(backend, keys, lockUntil(time.now(), 20), {
+      concurrency: 1,
+    });
+    expect(report).toMatchObject({ extended: 3, failedTotal: 1, resumeAfter: keys[0] });
+  });
+
   it("finds objects written without lock, and a weaker mode than asked", async () => {
     const backend = locked("compliance", 30);
     await backend.put(`tenants/${T}/packs/ab/good`, Buffer.from("g"));

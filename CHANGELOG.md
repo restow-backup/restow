@@ -259,6 +259,24 @@ Unless marked otherwise, everything below is part of every edition (the Communit
   reconciler of left-behind jobs runs in one worker at a time; a heartbeat no longer
   rewrites the machine's settings when its facts did not change.
 - The file share search needs at least three characters of the name.
+- Performance with the largest workloads; memory now stays bounded whatever the size:
+  - File share catalog: the first catalog of a share (or one after a gap) streams
+    `restic ls` into the database in batches of 5,000 instead of holding every file in
+    memory and writing it in one transaction. An interrupted pass stays pending and
+    continues without duplicates.
+  - SMB file share runner: the permission reuse streams the previous sidecar into a
+    compact index (about 50 bytes per file instead of about 190), so incremental runs of
+    shares with millions of files no longer run out of memory. Above a third of the
+    runner's memory limit the run reads all permissions instead
+    (`RESTOW_SHARE_REUSE_MAX_ENTRIES` overrides the limit).
+  - SharePoint: a site run indexes the previous restore point once instead of scanning it
+    for every list and library, so sites with thousands of lists and a million items no
+    longer take quadratic time.
+  - Proxmox VE: the block maps of VM disks being browsed or restored are cached by size
+    (256 MiB by default, `PVE_BLOCK_MAP_CACHE_MB`) instead of by count.
+  - Object Lock renewal sends 32 requests at a time instead of 8
+    (`IMMUTABILITY_RENEWAL_CONCURRENCY`) and continues an interrupted pass where it
+    stopped instead of starting over.
 
 ### Fixed
 
