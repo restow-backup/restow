@@ -276,12 +276,16 @@ describe.skipIf(!adminUrl)("immutable backups in the retention job", () => {
     bucket.setRetention = async (key, until, mode) => {
       requested.push(key);
       if (requested.length === 11) {
-        // The resume point is saved while the pass runs, not only at its end.
-        const [row] = await db
-          .select()
-          .from(storageTargets)
-          .where(eq(storageTargets.id, copy?.id as string));
-        saved = row?.immutabilityState?.renewalProgress?.after;
+        // The resume point is saved while the pass runs, not only at its end (in the
+        // background: wait for it).
+        for (let attempt = 0; attempt < 100 && !saved; attempt++) {
+          const [row] = await db
+            .select()
+            .from(storageTargets)
+            .where(eq(storageTargets.id, copy?.id as string));
+          saved = row?.immutabilityState?.renewalProgress?.after;
+          if (!saved) await new Promise((resolve) => setTimeout(resolve, 50));
+        }
       }
       if (requested.length >= 12) abort.abort();
       return setRetention(key, until, mode);
