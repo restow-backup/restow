@@ -501,6 +501,8 @@ export async function heartbeat(
         osVersion: input.osVersion,
         agentState: input.state,
         nextRunAt: nextRunAt && !Number.isNaN(nextRunAt.getTime()) ? nextRunAt : null,
+        // Left out by an agent before 0.4.0: unknown, not "nothing waits".
+        agentWaiting: input.waiting ?? null,
         agentConfigVersion: input.configVersion ?? null,
         lastSeenAt: now,
         ...(agent.profile === "server" ? { staleAlertedAt: null } : {}),

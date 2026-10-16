@@ -91,6 +91,9 @@ export const enrollSchema = z.object({
   dataFolders: dataFoldersSchema,
 });
 
+/** A code of what a due backup waits for, or "" for nothing. */
+export const AGENT_WAITING_CODE = /^(?:[a-z][a-z0-9_]{0,39})?$/;
+
 export const heartbeatSchema = z.object({
   agentVersion: shortText(64),
   osVersion: z.string().trim().max(200).default(""),
@@ -112,6 +115,13 @@ export const heartbeatSchema = z.object({
     .transform((names) => names?.filter((name) => HOOK_SCRIPT_NAME.test(name)).slice(0, 50)),
   machine: machineFactsSchema,
   dataFolders: dataFoldersSchema,
+  /**
+   * What a due backup waits for (agent 0.4.0): a code such as `backup_window`, `update_pause` or
+   * `ac_power`; "" when nothing waits; absent from an older agent (unknown). A code that is not
+   * plausible counts as absent, so it never costs the agent its heartbeat; a code a later agent
+   * may add is kept and shown as "waiting".
+   */
+  waiting: z.string().regex(AGENT_WAITING_CODE).optional().catch(undefined),
 });
 
 export const startRunSchema = z.object({

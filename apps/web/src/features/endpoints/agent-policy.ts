@@ -182,11 +182,34 @@ export function firstPolicyProblem(
   return null;
 }
 
+/** Where one machine's value comes from: a level of the policy, or the machine's own setting. */
+export type MachinePolicySource = AgentPolicySource | "machine";
+
+export type MachineAgentPolicy = {
+  [K in AgentPolicyKey]: {
+    value: AgentPolicyValues[K];
+    source: MachinePolicySource;
+    locked: boolean;
+  };
+};
+
+/** `GET /api/v1/endpoints/:id/agent-policy`: what applies to one machine (read-only). */
+export interface EndpointAgentPolicyView {
+  job: { id: string; name: string } | null;
+  effective: MachineAgentPolicy;
+  /** The time windows of the job's (or the machine's) upload limit apply as well. */
+  bandwidthWindows: boolean;
+  defaults: AgentPolicyValues;
+}
+
 // --- Requests ---------------------------------------------------------------------
 
 export const agentPolicyKeys = {
   global: ["installation", "agent-policy"] as const,
   tenant: (tenantId: string | null) => ["tenant", tenantId, "endpoints", "agent-policy"] as const,
+  /** Under the machine's detail, so whatever refreshes the detail refreshes it too. */
+  endpoint: (tenantId: string | null, endpointId: string) =>
+    ["tenant", tenantId, "endpoints", "detail", endpointId, "agent-policy"] as const,
 };
 
 export function fetchGlobalAgentPolicy(): Promise<GlobalAgentPolicyView> {
@@ -202,6 +225,12 @@ export function saveGlobalAgentPolicy(input: {
     body: input,
     tenantId: null,
   });
+}
+
+export function fetchEndpointAgentPolicy(endpointId: string): Promise<EndpointAgentPolicyView> {
+  return apiFetch<EndpointAgentPolicyView>(
+    `/endpoints/${encodeURIComponent(endpointId)}/agent-policy`,
+  );
 }
 
 export function fetchTenantAgentPolicy(): Promise<TenantAgentPolicyView> {

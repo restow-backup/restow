@@ -26,6 +26,7 @@ import {
   type CatchUpPolicy,
   MAX_CATCH_UP_AGE_HOURS,
   MAX_RETRIES,
+  type MachinePolicySource,
   policyValueProblem,
   type ResolvedAgentPolicy,
   resolveOnTop,
@@ -93,7 +94,7 @@ export function usePolicyValueText() {
 /** Where a value comes from, in words. */
 export function useSourceText() {
   const { t } = useTranslation("endpoints");
-  return (source: AgentPolicySource) => t(`policy.source.${source}`);
+  return (source: AgentPolicySource | MachinePolicySource) => t(`policy.source.${source}`);
 }
 
 /**

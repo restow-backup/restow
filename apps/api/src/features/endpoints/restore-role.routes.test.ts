@@ -63,6 +63,11 @@ const pveFiles = vi.hoisted(() => ({
   openContainerDownload: vi.fn(),
 }));
 const bootTests = vi.hoisted(() => ({ requestBootTest: vi.fn() }));
+const policyService = vi.hoisted(() => ({
+  getEndpointAgentPolicy: vi.fn(),
+  getTenantAgentPolicy: vi.fn(),
+  updateTenantAgentPolicy: vi.fn(),
+}));
 
 vi.mock("../../db.js", () => ({ db: {}, providerDb: {}, authDb: {} }));
 vi.mock("../../middleware/session.js", async () => {
@@ -126,6 +131,10 @@ vi.mock("./instance-url.js", () => ({
   instanceUrl: async () => ({ url: "https://restow.test.example", configured: true }),
 }));
 vi.mock("../pve/boot-tests.js", () => bootTests);
+vi.mock("./agent-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agent-policy.js")>()),
+  ...policyService,
+}));
 
 const { endpointsRoutes } = await import("./routes.js");
 const { pveRoutes } = await import("../pve/routes.js");
@@ -161,6 +170,7 @@ beforeEach(() => {
     ) => ({ id, config: { hooks: options.revealHooks ? hooks : {} } }),
   );
   endpointService.listSnapshots.mockResolvedValue([]);
+  policyService.getEndpointAgentPolicy.mockResolvedValue({ job: null, effective: {} });
   endpointService.browseSnapshot.mockResolvedValue({ entries: [], nextCursor: null });
   endpointService.prepareDownload.mockResolvedValue({ id: ids.download, items: 1 });
   endpointService.openDownload.mockResolvedValue({
@@ -188,6 +198,15 @@ describe("a restore operator on a machine's files", () => {
     expect(detail.status).toBe(200);
     expect(await detail.json()).toMatchObject({ config: { hooks: {} } });
     expect(endpointService.getEndpoint.mock.calls[0]?.[4]).toEqual({ revealHooks: false });
+  });
+
+  it("reads the agent policy that applies to a machine, but not the tenant's to change", async () => {
+    const policy = await call("GET", machine("/agent-policy"));
+    expect(policy.status).toBe(200);
+    expect(policyService.getEndpointAgentPolicy).toHaveBeenCalledWith({}, ids.tenant, ids.endpoint);
+    expect((await call("GET", "/endpoints/agent-policy")).status).toBe(403);
+    expect((await call("PUT", "/endpoints/agent-policy", { retries: 1 })).status).toBe(403);
+    expect(policyService.updateTenantAgentPolicy).not.toHaveBeenCalled();
   });
 
   it("reads the restore points and browses one, audited as the operator", async () => {
@@ -271,6 +290,7 @@ describe("a restore operator on a machine's files", () => {
   it("is still refused to a plain user, who restores only their own accounts", async () => {
     who.membership = "member";
     expect((await call("GET", "/endpoints")).status).toBe(403);
+    expect((await call("GET", machine("/agent-policy"))).status).toBe(403);
     expect((await call("GET", machine(`/browse?snapshotId=${snapshotId}&path=/`))).status).toBe(
       403,
     );

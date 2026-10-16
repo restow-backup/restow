@@ -454,7 +454,24 @@
     "added": "Added",
     "revoked": "Revoked",
     "never": "Never",
-    "configRevoked": "Version {version}"
+    "configRevoked": "Version {version}",
+    "waiting": {
+      "backup_window": "Due, waiting for the backup window",
+      "backup_windowAt": "Due, waiting for the backup window (from {at})",
+      "update_pause": "Due, waiting: {appName} is being updated and pauses new backups",
+      "ac_power": "Due, waiting for AC power",
+      "catch_up_next_window": "A missed backup is caught up in the next backup window",
+      "catch_up_next_windowAt": "A missed backup is caught up in the next backup window (from {at})",
+      "catch_up_skipped": "A missed backup is not caught up (policy); the next regular backup follows",
+      "server_unreachable": "Due, waiting until {appName} can be reached",
+      "other": "Due, waiting ({code})"
+    }
+  },
+  "machinePolicy": {
+    "title": "Agent policy",
+    "description": "What applies to this machine and where it comes from. It is changed in the tenant's agent policy or in the backup job.",
+    "withWindows": "(and the time windows)",
+    "loadError": "The agent policy of this machine could not be loaded."
   },
   "repository": {
     "title": "Backup data",
@@ -1130,7 +1147,8 @@
       "default": "Default",
       "global": "Installation",
       "tenant": "Tenant",
-      "job": "Backup job"
+      "job": "Backup job",
+      "machine": "This machine"
     },
     "backupWindow": {
       "title": "Backup window",

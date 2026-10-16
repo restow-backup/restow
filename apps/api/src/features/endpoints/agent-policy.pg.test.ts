@@ -155,7 +155,10 @@ describe.skipIf(!testDatabaseAdminUrl)("agent policies against Postgres", () => 
     return (await response.json()) as Record<string, unknown>;
   }
 
-  async function heartbeat(who: { id: string; secret: string; configVersion: number }) {
+  async function heartbeat(
+    who: { id: string; secret: string; configVersion: number },
+    extra: Record<string, unknown> = {},
+  ) {
     const response = await app.request("/agent/v1/heartbeat", {
       method: "POST",
       headers: {
@@ -169,6 +172,7 @@ describe.skipIf(!testDatabaseAdminUrl)("agent policies against Postgres", () => 
         state: "idle",
         nextRunAt: null,
         configVersion: who.configVersion,
+        ...extra,
       }),
     });
     expect(response.status, await response.clone().text()).toBe(200);
@@ -394,6 +398,71 @@ describe.skipIf(!testDatabaseAdminUrl)("agent policies against Postgres", () => 
     );
     expect(await agentGet(unlimited)).toMatchObject({ bandwidthKbps: 1000 });
     expect(await agentGet(limited)).toMatchObject({ bandwidthKbps: 1000 });
+  });
+
+  it("keeps what a due backup waits for from the heartbeat: unknown, nothing, or a code", async () => {
+    const who = await machine();
+    const next = "2026-10-16T18:00:00.000Z";
+    await heartbeat({ ...who, configVersion: 3 }, { waiting: "backup_window", nextRunAt: next });
+    let row = await stored(who.id);
+    expect(row.agentWaiting).toBe("backup_window");
+    expect(row.nextRunAt?.toISOString()).toBe(next);
+    const settingsBefore = row.settings;
+    // Nothing waits any more.
+    await heartbeat({ ...who, configVersion: 3 }, { waiting: "" });
+    row = await stored(who.id);
+    expect(row.agentWaiting).toBe("");
+    // The settings column is not touched by it.
+    expect(row.settings).toEqual(settingsBefore);
+    // A code of a later agent is kept; an implausible one counts as not said, without a refusal.
+    await heartbeat({ ...who, configVersion: 3 }, { waiting: "network_metered" });
+    expect((await stored(who.id)).agentWaiting).toBe("network_metered");
+    await heartbeat({ ...who, configVersion: 3 }, { waiting: "Not A Code!" });
+    expect((await stored(who.id)).agentWaiting).toBeNull();
+    // An agent before 0.4.0 says nothing: unknown.
+    await heartbeat({ ...who, configVersion: 3 }, { waiting: "ac_power" });
+    await heartbeat({ ...who, configVersion: 3 });
+    expect((await stored(who.id)).agentWaiting).toBeNull();
+  });
+
+  it("shows one machine the policy that applies, with each value's source", async () => {
+    const who = await machine({ config: config({ onlyOnAcPower: true }) });
+    const alone = await machine({ config: config({ bandwidthKbps: 300 }) });
+    const jobId = await inJob(who.id, { bandwidthKbps: 0, policy: { retries: 1 } });
+    await policy.updateGlobalAgentPolicy(
+      { settings: { backupWindow: NIGHT }, locks: ["backupWindow"] },
+      providerActor,
+    );
+    await policy.updateTenantAgentPolicy(
+      appDb,
+      fixture.tenantId,
+      { bandwidthKbps: 2000, retries: 3 },
+      actor,
+    );
+    // The configuration of the machine in the job carries the job's choice (written by the job).
+    await fixture.db
+      .update(endpoints)
+      .set({ config: config({ onlyOnAcPower: true, bandwidthKbps: 0 }) })
+      .where(eq(endpoints.id, who.id));
+    const view = await policy.getEndpointAgentPolicy(appDb, fixture.tenantId, who.id);
+    expect(view.job).toEqual({ id: jobId, name: expect.any(String) });
+    expect(view.effective.backupWindow).toEqual({ value: NIGHT, source: "global", locked: true });
+    expect(view.effective.retries).toEqual({ value: 1, source: "job", locked: false });
+    expect(view.effective.bandwidthKbps).toEqual({ value: null, source: "job", locked: false });
+    expect(view.effective.onlyOnAcPower).toEqual({
+      value: true,
+      source: "machine",
+      locked: false,
+    });
+    expect(view.effective.catchUp.source).toBe("default");
+    const own = await policy.getEndpointAgentPolicy(appDb, fixture.tenantId, alone.id);
+    expect(own.job).toBeNull();
+    expect(own.effective.bandwidthKbps).toEqual({ value: 300, source: "machine", locked: false });
+    expect(own.effective.retries).toEqual({ value: 3, source: "tenant", locked: false });
+    // Another tenant's machine is not found.
+    await expect(
+      policy.getEndpointAgentPolicy(appDb, fixture.otherTenantId, who.id),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it("while an update pauses new runs, agents are told and backup requests wait", async () => {

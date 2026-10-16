@@ -454,7 +454,24 @@
     "added": "Hinzugefügt",
     "revoked": "Gesperrt",
     "never": "Nie",
-    "configRevoked": "Version {version}"
+    "configRevoked": "Version {version}",
+    "waiting": {
+      "backup_window": "Fällig, wartet auf das Sicherungsfenster",
+      "backup_windowAt": "Fällig, wartet auf das Sicherungsfenster (ab {at})",
+      "update_pause": "Fällig, wartet: {appName} wird aktualisiert und startet keine neuen Sicherungen",
+      "ac_power": "Fällig, wartet auf das Netzteil",
+      "catch_up_next_window": "Eine verpasste Sicherung wird im nächsten Sicherungsfenster nachgeholt",
+      "catch_up_next_windowAt": "Eine verpasste Sicherung wird im nächsten Sicherungsfenster nachgeholt (ab {at})",
+      "catch_up_skipped": "Eine verpasste Sicherung wird nicht nachgeholt (Richtlinie); es folgt die nächste reguläre Sicherung",
+      "server_unreachable": "Fällig, wartet, bis {appName} erreichbar ist",
+      "other": "Fällig, wartet ({code})"
+    }
+  },
+  "machinePolicy": {
+    "title": "Richtlinie der Agenten",
+    "description": "Was für diesen Rechner gilt und woher es kommt. Geändert wird es in der Richtlinie des Mandanten oder im Backup-Job.",
+    "withWindows": "(und die Zeitfenster)",
+    "loadError": "Die Richtlinie dieses Rechners konnte nicht geladen werden."
   },
   "repository": {
     "title": "Sicherungsdaten",
@@ -1130,7 +1147,8 @@
       "default": "Standard",
       "global": "Installation",
       "tenant": "Mandant",
-      "job": "Backup-Job"
+      "job": "Backup-Job",
+      "machine": "Dieser Rechner"
     },
     "backupWindow": {
       "title": "Sicherungsfenster",

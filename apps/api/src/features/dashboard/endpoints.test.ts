@@ -28,6 +28,7 @@ function machine(
     lastBackupAt: values.lastSuccessAt ?? null,
     lastSuccessAt: values.lastSuccessAt ?? null,
     nextRunAt: null,
+    waitingFor: null,
     readiness: {
       state: values.state ?? "green",
       checkedAt: null,

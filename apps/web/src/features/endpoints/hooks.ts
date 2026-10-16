@@ -9,6 +9,7 @@ import { useSession } from "@/lib/session";
 import {
   type AgentPolicySettings,
   agentPolicyKeys,
+  fetchEndpointAgentPolicy,
   fetchGlobalAgentPolicy,
   fetchTenantAgentPolicy,
   saveGlobalAgentPolicy,
@@ -379,6 +380,17 @@ export function useSaveGlobalAgentPolicy() {
       // Every tenant's view and machines may have changed.
       void queryClient.invalidateQueries({ queryKey: ["tenant"] });
     },
+  });
+}
+
+/** The agent policy as it applies to one machine, each setting with its source (read-only). */
+export function useEndpointAgentPolicy(endpointId: string) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: agentPolicyKeys.endpoint(tenantId, endpointId),
+    queryFn: () => fetchEndpointAgentPolicy(endpointId),
+    enabled,
+    retry: false,
   });
 }
 

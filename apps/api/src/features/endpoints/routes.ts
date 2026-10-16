@@ -20,7 +20,11 @@ import {
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { resticRestorePointImmutability } from "../storage/immutability.js";
-import { getTenantAgentPolicy, updateTenantAgentPolicy } from "./agent-policy.js";
+import {
+  getEndpointAgentPolicy,
+  getTenantAgentPolicy,
+  updateTenantAgentPolicy,
+} from "./agent-policy.js";
 import type { EndpointActor } from "./audit.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
@@ -89,6 +93,8 @@ import {
  *                                               every machine's configuration that changes
  *   GET    /:id                                 detail: config, runs, waiting and recent tasks, reports
  *                                               (hook texts only for who may change the configuration)
+ *   GET    /:id/agent-policy                    the agent policy as it applies to the machine, each
+ *                                               setting with its source (read-only; restore operators too)
  *   PATCH  /:id                                 name, paths, excludes, schedule, hooks, bandwidth, retention,
  *                                               the person of the directory the machine is assigned to
  *   POST   /:id/revoke                          refuse the endpoint from now on
@@ -220,6 +226,11 @@ endpointsRoutes.get("/:id", restorer, async (c) => {
   return c.json(
     await getEndpoint(db, c.get("tenantId"), id, instance.url, { revealHooks: mayConfigure(c) }),
   );
+});
+
+endpointsRoutes.get("/:id/agent-policy", restorer, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await getEndpointAgentPolicy(db, c.get("tenantId"), id));
 });
 
 endpointsRoutes.patch("/:id", admin, async (c) => {

@@ -271,6 +271,53 @@ export function policyOnlyOnAcPower(own: boolean, policy: EndpointPolicy | undef
 }
 
 // ---------------------------------------------------------------------------
+// One machine's view
+// ---------------------------------------------------------------------------
+
+/** Where a machine's value comes from: a level of the policy, or the machine's own setting. */
+export type MachinePolicySource = AgentPolicySource | "machine";
+
+export interface MachinePolicySetting<T> {
+  value: T;
+  source: MachinePolicySource;
+  locked: boolean;
+}
+
+export type MachineAgentPolicy = {
+  [K in AgentPolicyKey]: MachinePolicySetting<AgentPolicyValues[K]>;
+};
+
+/**
+ * What applies to one machine, setting by setting, as its agent is told (`configResponse`): the
+ * policy's levels, with the upload limit of the machine's job (a machine in no job: its own) where
+ * it has one, an explicit "unlimited" included, and the machine's own AC power switch, which can
+ * only add the restriction. A lock of the installation decides alone, as everywhere.
+ * `bandwidthWindows`: the job's (or the machine's) time windows of the limit apply.
+ */
+export function machineAgentPolicy(
+  resolved: ResolvedAgentPolicy,
+  own: { bandwidthKbps: number | null; bandwidthWindows: number; onlyOnAcPower: boolean },
+  inJob: boolean,
+): { effective: MachineAgentPolicy; bandwidthWindows: boolean } {
+  const effective: MachineAgentPolicy = { ...resolved };
+  let windows = false;
+  const bandwidth = resolved.bandwidthKbps;
+  if (!bandwidth.locked && (own.bandwidthKbps !== null || own.bandwidthWindows > 0)) {
+    effective.bandwidthKbps = {
+      value: own.bandwidthKbps === UNLIMITED_BANDWIDTH_KBPS ? null : own.bandwidthKbps,
+      source: inJob ? "job" : "machine",
+      locked: false,
+    };
+    windows = own.bandwidthWindows > 0;
+  }
+  const ac = resolved.onlyOnAcPower;
+  if (!ac.locked && own.onlyOnAcPower && !ac.value) {
+    effective.onlyOnAcPower = { value: true, source: "machine", locked: false };
+  }
+  return { effective, bandwidthWindows: windows };
+}
+
+// ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
 

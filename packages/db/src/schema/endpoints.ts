@@ -260,6 +260,11 @@ export const endpoints = pgTable(
     // What the agent reported in its last heartbeat.
     agentState: text("agent_state").$type<"idle" | "running">(),
     nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    // What a due backup waits for, as the agent's last heartbeat said (agent 0.4.0): a code such
+    // as `backup_window`, `update_pause`, `ac_power`; '' when nothing waits; null when unknown (an
+    // older agent does not say). A plain column, not part of `settings`: it may change with any
+    // heartbeat, which writes the row anyway.
+    agentWaiting: text("agent_waiting"),
     agentConfigVersion: integer("agent_config_version"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     // The last finished backup run, whatever its outcome; `last_success_at` only a good one.

@@ -555,6 +555,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/endpoints/tokens": configure(),
   "DELETE /api/v1/endpoints/tokens/:tokenId": configure(),
   "GET /api/v1/endpoints/:id": view(),
+  // The agent policy as it applies to one machine, read-only.
+  "GET /api/v1/endpoints/:id/agent-policy": view(),
   "PATCH /api/v1/endpoints/:id": configure(),
   "POST /api/v1/endpoints/:id/revoke": configure(),
   "POST /api/v1/endpoints/:id/uninstall": configure(),
