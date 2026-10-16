@@ -9,7 +9,13 @@
 set -eu
 out="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d)"
-trap 'umount "$work/mnt" 2>/dev/null || true; for d in $(losetup -j "$work/disk.img" -O NAME -n 2>/dev/null); do losetup -d "$d"; done; vgchange -an fixvg >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+cleanup() {
+  umount "$work/mnt" 2>/dev/null || true
+  for d in $(losetup -j "$work/disk.img" -O NAME -n 2>/dev/null); do losetup -d "$d"; done
+  vgchange -an fixvg >/dev/null 2>&1 || true
+  rm -rf "$work"
+}
+trap cleanup EXIT
 mkdir -p "$work/mnt"
 
 tree() {
