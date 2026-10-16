@@ -372,3 +372,22 @@ func TestRedirectDowngradeRefused(t *testing.T) {
 		t.Fatalf("redirect to http must be refused: %v", err)
 	}
 }
+
+func TestHeartbeatWaitingIsOptional(t *testing.T) {
+	// Left out (an agent that does not know it): the server keeps "unknown".
+	out, err := json.Marshal(api.HeartbeatRequest{State: "idle"})
+	if err != nil || strings.Contains(string(out), `"waiting"`) {
+		t.Fatalf("without a code: %s %v", out, err)
+	}
+	// Nothing waits: sent as an empty code, which is not the same as leaving it out.
+	none := ""
+	out, _ = json.Marshal(api.HeartbeatRequest{State: "idle", Waiting: &none})
+	if !strings.Contains(string(out), `"waiting":""`) {
+		t.Fatalf("nothing waits: %s", out)
+	}
+	window := "backup_window"
+	out, _ = json.Marshal(api.HeartbeatRequest{State: "idle", Waiting: &window})
+	if !strings.Contains(string(out), `"waiting":"backup_window"`) {
+		t.Fatalf("waiting: %s", out)
+	}
+}

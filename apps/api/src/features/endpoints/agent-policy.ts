@@ -11,6 +11,8 @@ import {
   endpointPolicyFor,
   type GlobalAgentPolicy,
   type JobAgentPolicy,
+  type MachineAgentPolicy,
+  machineAgentPolicy,
   type PolicyLevels,
   type ResolvedAgentPolicy,
   resolveAgentPolicy,
@@ -346,5 +348,72 @@ export async function updateTenantAgentPolicy(
       { actor, now, via: "tenant" },
     );
     return { ...tenantDto(global, level), machinesUpdated: updated };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// One machine
+// ---------------------------------------------------------------------------
+
+export interface EndpointAgentPolicyDto {
+  /** The backup job whose level applies; null for a machine in no job. */
+  job: { id: string; name: string } | null;
+  /** Every setting as it applies to this machine, with where it comes from. */
+  effective: MachineAgentPolicy;
+  /** The time windows of the job's (or the machine's) upload limit apply as well. */
+  bandwidthWindows: boolean;
+  defaults: AgentPolicyValues;
+}
+
+/**
+ * The agent policy as it applies to one machine (the machine's page, read-only for everybody who
+ * may open the machine): the installation's, the tenant's and the job's level, the job's own
+ * upload limit and the machine's AC power switch, each with its source and whether it is locked.
+ */
+export async function getEndpointAgentPolicy(
+  database: Database,
+  tenantId: string,
+  endpointId: string,
+): Promise<EndpointAgentPolicyDto> {
+  const global = await readGlobalAgentPolicy();
+  return withTenantTx(database, tenantId, async (tx) => {
+    const [endpoint] = await tx
+      .select({ config: endpoints.config })
+      .from(endpoints)
+      .where(and(eq(endpoints.id, endpointId), eq(endpoints.tenantId, tenantId)))
+      .limit(1);
+    if (!endpoint) {
+      throw new ProblemError(404, "Endpoint not found");
+    }
+    const [membership] = await tx
+      .select({ id: backupJobs.id, name: backupJobs.name, settings: backupJobs.settings })
+      .from(backupJobMembers)
+      .innerJoin(backupJobs, eq(backupJobs.id, backupJobMembers.jobId))
+      .where(
+        and(
+          eq(backupJobMembers.tenantId, tenantId),
+          eq(backupJobMembers.endpointId, endpointId),
+          eq(backupJobs.kind, "endpoint"),
+        ),
+      )
+      .limit(1);
+    const tenant = await readTenantLevel(tx, tenantId);
+    const resolved = resolveAgentPolicy(global, tenant, membership?.settings?.policy ?? null);
+    const config = endpoint.config;
+    const view = machineAgentPolicy(
+      resolved,
+      {
+        bandwidthKbps: config.bandwidthKbps ?? null,
+        bandwidthWindows: config.bandwidthWindows?.length ?? 0,
+        onlyOnAcPower: config.onlyOnAcPower === true,
+      },
+      membership !== undefined,
+    );
+    return {
+      job: membership ? { id: membership.id, name: membership.name } : null,
+      effective: view.effective,
+      bandwidthWindows: view.bandwidthWindows,
+      defaults: DEFAULT_AGENT_POLICY,
+    };
   });
 }

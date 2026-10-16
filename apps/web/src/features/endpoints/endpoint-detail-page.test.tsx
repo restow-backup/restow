@@ -53,7 +53,44 @@ vi.mock("./api.js", async (importOriginal) => {
   };
 });
 
+const fetchEndpointAgentPolicy = vi.fn();
+vi.mock("./agent-policy.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./agent-policy.js")>();
+  return {
+    ...actual,
+    fetchEndpointAgentPolicy: (...args: unknown[]) => fetchEndpointAgentPolicy(...args),
+  };
+});
+
 const ID = "11111111-1111-4111-8111-111111111111";
+
+/** What applies to the machine: a locked window, the job's retries, its own AC switch. */
+const MACHINE_POLICY = {
+  job: { id: "22222222-2222-4222-8222-222222222222", name: "Servers" },
+  effective: {
+    backupWindow: {
+      value: { days: [1, 2, 3, 4, 5], from: "20:00", to: "06:00" },
+      source: "global",
+      locked: true,
+    },
+    catchUp: {
+      value: { enabled: true, mode: "asap", maxAgeHours: null },
+      source: "default",
+      locked: false,
+    },
+    bandwidthKbps: { value: null, source: "job", locked: false },
+    onlyOnAcPower: { value: true, source: "machine", locked: false },
+    retries: { value: 2, source: "tenant", locked: false },
+  },
+  bandwidthWindows: false,
+  defaults: {
+    backupWindow: null,
+    catchUp: { enabled: true, mode: "asap", maxAgeHours: null },
+    bandwidthKbps: null,
+    onlyOnAcPower: false,
+    retries: 5,
+  },
+};
 
 /** A cause the server explains: the command before the backup failed. */
 const FAILED_CAUSE: Failure = {
@@ -245,9 +282,11 @@ describe("EndpointDetailPage", () => {
       requestRestoreTest,
       fetchSnapshots,
       onTabChange,
+      fetchEndpointAgentPolicy,
     ]) {
       fn.mockReset();
     }
+    fetchEndpointAgentPolicy.mockResolvedValue(MACHINE_POLICY);
     for (const fn of Object.values(toast)) fn.mockReset();
     fetchEndpoint.mockResolvedValue(detail());
     fetchRun.mockResolvedValue(failedRun);
@@ -332,6 +371,51 @@ describe("EndpointDetailPage", () => {
     expect(repository).toContain("42");
     expect(repository).toContain("30 daily, 12 weekly and 12 monthly");
     expect(repository).toContain("the agent can add backups but never delete them");
+  });
+
+  it("says why a due backup waits, with the next start", async () => {
+    fetchEndpoint.mockResolvedValue(detail({ waitingFor: "backup_window" }));
+    await open();
+    const waiting = document.querySelector('[data-slot="waiting-for"]')?.textContent ?? "";
+    expect(waiting).toMatch(/^Due, waiting for the backup window \(from .+\)$/);
+    await page.unmount();
+    fetchEndpoint.mockResolvedValue(detail({ waitingFor: "update_pause" }));
+    await open();
+    expect(document.querySelector('[data-slot="waiting-for"]')?.textContent).not.toContain(
+      "{appName}",
+    );
+    expect(document.querySelector('[data-slot="waiting-for"]')?.textContent).toContain(
+      "is being updated",
+    );
+    await page.unmount();
+    // A code of a later agent is still a wait; nothing at all says nothing.
+    fetchEndpoint.mockResolvedValue(detail({ waitingFor: "metered_network" }));
+    await open();
+    expect(document.querySelector('[data-slot="waiting-for"]')?.textContent).toBe(
+      "Due, waiting (metered_network)",
+    );
+    await page.unmount();
+    fetchEndpoint.mockResolvedValue(detail({ waitingFor: null }));
+    await open();
+    expect(document.querySelector('[data-slot="waiting-for"]')).toBeNull();
+  });
+
+  it("shows the agent policy that applies to the machine, with sources and locks, read-only", async () => {
+    await open();
+    expect(fetchEndpointAgentPolicy).toHaveBeenCalledWith(ID);
+    const card = document.querySelector('[data-slot="machine-policy"]') as HTMLElement;
+    const setting = (key: string) =>
+      card.querySelector(`[data-slot="machine-policy-setting"][data-key="${key}"]`)?.textContent ??
+      "";
+    expect(setting("backupWindow")).toContain("Installation");
+    expect(setting("backupWindow")).toContain("Locked");
+    expect(setting("retries")).toContain("Tenant");
+    expect(setting("bandwidthKbps")).toContain("Backup job");
+    expect(setting("onlyOnAcPower")).toContain("This machine");
+    expect(setting("catchUp")).toContain("Default");
+    expect(card.querySelectorAll('[data-slot="policy-locked"]')).toHaveLength(1);
+    // Nothing to change here.
+    expect(card.querySelector("input, button, [role='switch']")).toBeNull();
   });
 
   it("says what the machine is, why it is a server, and which data folders its job leaves out (#59)", async () => {

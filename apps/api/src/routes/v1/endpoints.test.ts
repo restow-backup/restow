@@ -18,6 +18,7 @@ const summary = (overrides: Partial<EndpointSummaryDto> = {}): EndpointSummaryDt
   lastBackupAt: "2026-09-30T02:00:00.000Z",
   lastSuccessAt: "2026-09-30T02:00:00.000Z",
   nextRunAt: null,
+  waitingFor: null,
   readiness: {
     state: "green",
     checkedAt: "2026-09-30T02:10:00.000Z",

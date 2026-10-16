@@ -69,6 +69,10 @@ type History struct {
 type Decision struct {
 	Due    bool
 	Reason string
+	// Wait is the code of what a due backup waits for (one of the Wait*
+	// constants); empty when nothing waits. The heartbeat sends it to the
+	// server, which shows it on the machine's page.
+	Wait string
 	// Next is when the agent expects to start the next run; zero if unknown
 	// (on_connect waits for the network).
 	Next time.Time
@@ -205,6 +209,20 @@ const (
 	WaitingForWindow = "due, waiting for the backup window"
 )
 
+// Codes of what a due backup waits for (Decision.Wait, the heartbeat's
+// `waiting`). The server shows them on the machine's page and keeps a code it
+// does not know as "waiting".
+const (
+	WaitBackupWindow   = "backup_window"
+	WaitServer         = "server_unreachable"
+	WaitUpdatePause    = "update_pause"
+	WaitCatchUpWindow  = "catch_up_next_window"
+	WaitCatchUpSkipped = "catch_up_skipped"
+	// WaitACPower is decided by the agent (the scheduler does not know the
+	// power source): due, but the device runs on battery power.
+	WaitACPower = "ac_power"
+)
+
 // Conditions are what the agent knows about the server when it decides.
 type Conditions struct {
 	// Reachable: the Restow instance answered the last request.
@@ -276,7 +294,7 @@ func EvaluateIn(cfg Config, h History, now time.Time, c Conditions) Decision {
 		candidates = append(candidates, p.earliestStart(nextRegular))
 	}
 	regularDue := false
-	waitReason := ""
+	waitReason, wait := "", ""
 	if !dueAt.IsZero() {
 		start := p.earliestStart(dueAt)
 		missed := cfg.Kind != api.ScheduleOnConnect && !h.AwakeSince.IsZero() && !start.IsZero() &&
@@ -286,11 +304,13 @@ func EvaluateIn(cfg Config, h History, now time.Time, c Conditions) Decision {
 			// A window that never opens: nothing starts.
 		case start.After(now):
 			candidates = append(candidates, start)
-			waitReason = WaitingForWindow
+			waitReason, wait = WaitingForWindow, WaitBackupWindow
 		case missed && !p.CatchUp:
 			waitReason = "a missed backup is not caught up (policy); waiting for the next regular slot"
+			wait = WaitCatchUpSkipped
 		case missed && p.CatchUpMaxAge > 0 && now.Sub(start) > p.CatchUpMaxAge:
 			waitReason = fmt.Sprintf("a missed backup is older than %s and not caught up (policy); waiting for the next regular slot", p.CatchUpMaxAge)
+			wait = WaitCatchUpSkipped
 		case missed && p.CatchUpMode == api.CatchUpNextWindow && p.Window != nil:
 			// The next window that opens after the machine came back.
 			at := p.Window.NextOpen(h.AwakeSince)
@@ -298,16 +318,16 @@ func EvaluateIn(cfg Config, h History, now time.Time, c Conditions) Decision {
 			case at.IsZero():
 			case at.After(now):
 				candidates = append(candidates, at)
-				waitReason = "a missed backup is caught up in the next backup window"
+				waitReason, wait = "a missed backup is caught up in the next backup window", WaitCatchUpWindow
 			case p.allows(now):
 				regularDue, reason = true, "catching up a missed backup in the backup window"
 			default:
 				candidates = append(candidates, p.Window.NextOpen(now))
-				waitReason = WaitingForWindow
+				waitReason, wait = WaitingForWindow, WaitBackupWindow
 			}
 		case !p.allows(now):
 			candidates = append(candidates, p.earliestStart(now))
-			waitReason = WaitingForWindow
+			waitReason, wait = WaitingForWindow, WaitBackupWindow
 		default:
 			regularDue = true
 			if missed {
@@ -325,7 +345,7 @@ func EvaluateIn(cfg Config, h History, now time.Time, c Conditions) Decision {
 		case !p.allows(now):
 			candidates = append(candidates, p.earliestStart(now))
 			if !regularDue {
-				waitReason = WaitingForWindow
+				waitReason, wait = WaitingForWindow, WaitBackupWindow
 			}
 		default:
 			retryDue = true
@@ -344,16 +364,16 @@ func EvaluateIn(cfg Config, h History, now time.Time, c Conditions) Decision {
 	if !regularDue && !retryDue {
 		d.Reason = "not due"
 		if waitReason != "" {
-			d.Reason = waitReason
+			d.Reason, d.Wait = waitReason, wait
 		}
 		return d
 	}
 	if !c.Reachable {
-		d.Reason = WaitingForServer
+		d.Reason, d.Wait = WaitingForServer, WaitServer
 		return d
 	}
 	if c.Paused {
-		d.Reason = WaitingForPause
+		d.Reason, d.Wait = WaitingForPause, WaitUpdatePause
 		return d
 	}
 	d.Due, d.Reason = true, reason

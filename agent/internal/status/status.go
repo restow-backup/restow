@@ -69,6 +69,9 @@ type Status struct {
 	// window, server unreachable, starts paused for an update, a missed
 	// backup the policy does not catch up); empty otherwise.
 	Waiting string `json:"waiting,omitempty"`
+	// WaitingCode is the code of Waiting (schedule.Wait*: backup_window,
+	// update_pause, ac_power, ...), sent to the server with the heartbeat.
+	WaitingCode string `json:"waitingCode,omitempty"`
 	// Policy describes the agent policy where it differs from the default.
 	Policy string `json:"policy,omitempty"`
 	// StartsPaused: the Restow instance pauses new runs for an update.

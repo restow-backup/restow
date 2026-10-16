@@ -16,6 +16,7 @@ import {
   mailJobObjectIds,
   normalizeMailSchedule,
   scheduleKey,
+  UNLIMITED_BANDWIDTH_KBPS,
   validateJobSchedule,
 } from "@restow/core";
 import {
@@ -124,6 +125,18 @@ function nextOf(schedule: JobSchedule | null, now: Date, lastRunAt: Date | null)
   return cadence ? firstRunAt(cadence, { now, lastRunAt }) : null;
 }
 
+/**
+ * An explicit "unlimited" (limit 0) outside a machine job: only machines have an agent policy whose
+ * limit it could set aside; a file share without a limit is unlimited already.
+ */
+function unlimitedRefusal(path: readonly string[]) {
+  return jobProblem(
+    path,
+    "bandwidth_unlimited_not_supported",
+    "Leave the limit empty for unlimited: only a machine job overrides the policy's limit with 0.",
+  );
+}
+
 /** A refused time window as the form shows it: the field and the code name what is wrong. */
 function windowsProblem(problem: BandwidthWindowsProblem) {
   return jobProblem(problem.path, problem.code, problem.message);
@@ -194,6 +207,9 @@ function checkedOverrides(
     if (value !== undefined && !allowed.includes(key)) {
       throw jobProblem([...path, key], "override_not_supported", overrideRefusal(kind));
     }
+  }
+  if (kind !== "endpoint" && input.bandwidthKbps === UNLIMITED_BANDWIDTH_KBPS) {
+    throw unlimitedRefusal([...path, "bandwidthKbps"]);
   }
   const result: JobMemberOverrides = { ...input };
   if (input.bandwidthWindows !== undefined) {
@@ -329,6 +345,9 @@ function checkedSettings(
     return clean;
   }
   if (kind === "share") {
+    if (settings.bandwidthKbps === UNLIMITED_BANDWIDTH_KBPS) {
+      throw unlimitedRefusal(["settings", "bandwidthKbps"]);
+    }
     const clean: BackupJobSettings = {};
     for (const [key, value] of entries) {
       if (key !== "bandwidthWindows") {

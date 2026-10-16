@@ -108,6 +108,11 @@ type EnrollRequest struct {
 	// an earlier release ignores both.
 	Machine     *MachineFacts `json:"machine,omitempty"`
 	DataFolders []string      `json:"dataFolders"`
+	// Waiting (agent 0.4.0): what a due backup waits for, a code such as
+	// backup_window, update_pause, ac_power, catch_up_next_window or
+	// catch_up_skipped; "" when nothing waits. nil leaves it out (unknown). A
+	// server of an earlier release ignores it.
+	Waiting *string `json:"waiting,omitempty"`
 }
 
 // MachineFacts say what the machine is (agent 0.4.0 and later). The server
@@ -240,6 +245,11 @@ type HeartbeatRequest struct {
 	// earlier release ignores both.
 	Machine     *MachineFacts `json:"machine,omitempty"`
 	DataFolders []string      `json:"dataFolders"`
+	// Waiting (agent 0.4.0): what a due backup waits for, a code such as
+	// backup_window, update_pause, ac_power, catch_up_next_window or
+	// catch_up_skipped; "" when nothing waits. nil leaves it out (unknown). A
+	// server of an earlier release ignores it.
+	Waiting *string `json:"waiting,omitempty"`
 }
 
 // Task is a command from the server, delivered in the heartbeat answer.

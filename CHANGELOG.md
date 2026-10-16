@@ -23,7 +23,7 @@ the web interface. It adds immutable backups (S3 Object Lock per repository, a d
 delay for directories), ransomware detection on every new restore point with a retention
 hold while a finding is unresolved, boot tests and file restore (Preview) of Proxmox VE VM
 restore points, backup and restore of SharePoint Online sites, agent policies, and file
-restore for the restore role. S3 endpoints saved from now on must use HTTPS. Sixteen
+restore for the restore role. S3 endpoints saved from now on must use HTTPS. Seventeen
 database migrations run at start; file share backup and the database move need the 0.4.0
 `docker-compose.yml` (run the 0.4.0 installer again after the update, see Upgrade Notes).
 SharePoint needs an added permission and a new admin consent per tenant.
@@ -279,12 +279,20 @@ Unless marked otherwise, everything below is part of every edition (the Communit
   schedule) in which scheduled backups, catch-ups and retries may start (a running backup
   continues, **Back up now** ignores it); **catch up missed backups** as soon as the
   machine is on again or in the next backup window, optionally only up to a maximum age;
-  the **upload limit** of a job without its own; **only on AC power**; and the number of
-  **automatic retries** (0 to 10). Without a policy agents behave exactly as before. The
-  server writes the effective policy into each machine's configuration (a new
-  configuration version) and audits every change (`settings.agent_policy.updated`,
-  `tenant.agent_policy.updated`, `endpoint.config.changed`). Window, catch-up and retries
-  need the agent 0.4.0; the upload limit and AC power reach older agents too.
+  the **upload limit** of a job without its own (a job can also choose **Unlimited**,
+  which sets a policy's limit aside unless the installation locks it; a job whose limit is
+  empty keeps inheriting); **only on AC power**; and the number of **automatic retries**
+  (0 to 10). Without a policy agents behave exactly as before. The server writes the
+  effective policy into each machine's configuration (a new configuration version) and
+  audits every change (`settings.agent_policy.updated`, `tenant.agent_policy.updated`,
+  `endpoint.config.changed`). The page of a server or client shows the policy that applies
+  to it, each setting with its source (default, installation, tenant, backup job or the
+  machine itself) and whether it is locked, read-only (restore operators see it too), and
+  why a due backup waits next to the next planned start: for the backup window, for an
+  update to finish, for AC power, or to catch up in the next window. The agent 0.4.0 sends
+  that reason with its heartbeat (`waiting`); for an older agent the page shows none.
+  Window, catch-up, retries and the waiting reason need the agent 0.4.0; the upload limit
+  and AC power reach older agents too.
 - **Agents respect the update pause** (#46): while an update pauses new runs, the agent
   0.4.0 starts no scheduled backup, retry or catch-up and waits for the pause to end (the
   configuration and the heartbeat say `startsPaused`); the wait does not count as a missed
@@ -497,7 +505,7 @@ No vulnerability was fixed. Security-relevant changes:
 
 ### Upgrade Notes
 
-New image, sixteen database migrations (0035 to 0050), and a new `docker-compose.yml` for
+New image, seventeen database migrations (0035 to 0051), and a new `docker-compose.yml` for
 file shares and the database move.
 
 1. Update as usual (the opt-in updater, or `docker compose pull && docker compose up -d`).
@@ -552,9 +560,10 @@ file shares and the database move.
   `0044_pve_boot_tests`, `0045_ransomware_detection`, `0046_sharepoint_sites`,
   `0047_immutable_backups`, `0048_suspicion_retention_hold` (the release of a retention
   hold and its reminders, five columns on `restore_point_suspicions`), `0049_perf_indexes`
-  and `0050_agent_policies` (the installation's and each tenant's agent policy,
+  `0050_agent_policies` (the installation's and each tenant's agent policy,
   `settings.agent_policy` and `tenants.agent_policy`, both `{}`, which changes no machine's
-  configuration). They change the schema and backfill only the notification recipients and
+  configuration) and `0051_agent_waiting` (`endpoints.agent_waiting`, what a due backup
+  waits for as the agent reports it; empty until an agent 0.4.0 reports). They change the schema and backfill only the notification recipients and
   webhooks, a few rows per tenant, so they should take seconds on any installation, except
   `0049_perf_indexes` below. They ran on a 0.3.6 schema in the Postgres test suites; they
   were not timed on a production-size database.

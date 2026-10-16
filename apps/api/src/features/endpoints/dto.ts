@@ -106,6 +106,12 @@ export interface EndpointSummaryDto {
   lastBackupAt: string | null;
   lastSuccessAt: string | null;
   nextRunAt: string | null;
+  /**
+   * What a due backup waits for, as the agent's last heartbeat said (agent 0.4.0): `backup_window`,
+   * `update_pause`, `ac_power`, `catch_up_next_window`, `catch_up_skipped` or a code of a later
+   * agent. null when nothing waits, and for an agent that does not say (before 0.4.0).
+   */
+  waitingFor: string | null;
   readiness: ReadinessDto;
   latestRun: RunSummaryDto | null;
   attention: EndpointAttention[];
@@ -604,6 +610,7 @@ export function toSummary(
     lastBackupAt: iso(endpoint.lastBackupAt),
     lastSuccessAt: iso(endpoint.lastSuccessAt),
     nextRunAt: iso(endpoint.nextRunAt),
+    waitingFor: endpoint.agentWaiting ? endpoint.agentWaiting : null,
     readiness: toReadiness(readiness),
     latestRun: latestRun ? toRunSummary(latestRun, rated) : null,
     attention: attentionOf(endpoint, latestRun, readiness, now, job !== null),

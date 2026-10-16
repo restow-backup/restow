@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -141,35 +142,62 @@ export function EndpointScheduleFields({
 
 // --- Bandwidth -----------------------------------------------------------------------------------
 
+/**
+ * The upload limit of a machine job (or of one member): a number, empty for the agent policy's
+ * limit, or "unlimited" chosen explicitly, which also sets a policy's limit aside (only a lock of
+ * the installation overrides it).
+ */
 export function BandwidthField({
   id,
   value,
   onChange,
+  unlimited,
+  onUnlimitedChange,
   error,
   disabled = false,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
+  unlimited: boolean;
+  onUnlimitedChange: (unlimited: boolean) => void;
   error?: string;
   disabled?: boolean;
 }) {
   const { t } = useTranslation("backupjobs");
   return (
-    <Field id={id} label={t("bandwidth.label")} hint={t("bandwidth.hint")} error={error}>
-      <Input
-        id={id}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        inputMode="numeric"
-        autoComplete="off"
-        disabled={disabled}
-        placeholder={t("bandwidth.unlimited")}
-        aria-invalid={Boolean(error) || undefined}
-        aria-describedby={messageId(id)}
-        className="w-56 tabular-nums"
-      />
-    </Field>
+    <div className="space-y-3">
+      <Field id={id} label={t("bandwidth.label")} hint={t("bandwidth.hint")} error={error}>
+        <Input
+          id={id}
+          value={unlimited ? "" : value}
+          onChange={(event) => onChange(event.target.value)}
+          inputMode="numeric"
+          autoComplete="off"
+          disabled={disabled || unlimited}
+          placeholder={t(unlimited ? "bandwidth.unlimited" : "bandwidth.fromPolicy")}
+          aria-invalid={Boolean(error) || undefined}
+          aria-describedby={messageId(id)}
+          className="w-56 tabular-nums"
+        />
+      </Field>
+      <div className="flex items-start gap-2">
+        <Checkbox
+          id={`${id}-unlimited`}
+          checked={unlimited}
+          onCheckedChange={(checked) => onUnlimitedChange(checked === true)}
+          disabled={disabled}
+          aria-describedby={`${id}-unlimited-hint`}
+          className="mt-0.5"
+        />
+        <div className="grid gap-0.5">
+          <Label htmlFor={`${id}-unlimited`}>{t("bandwidth.unlimitedChoice")}</Label>
+          <p id={`${id}-unlimited-hint`} className="text-xs text-muted-foreground">
+            {t("bandwidth.unlimitedChoiceHint")}
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 

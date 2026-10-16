@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildEndpointConfig, endpointPolicyFor } from "../backup-jobs/endpoint-config.js";
 import {
   AGENT_POLICY_KEYS,
+  type AgentPolicySettings,
   agentPolicyIssues,
   agentPolicyWire,
   cleanAgentPolicySettings,
@@ -10,6 +11,7 @@ import {
   type GlobalAgentPolicy,
   JOB_POLICY_KEYS,
   lockedKeysSet,
+  machineAgentPolicy,
   policyBandwidthDefault,
   policyOnlyOnAcPower,
   resolveAgentPolicy,
@@ -145,6 +147,28 @@ describe("what the agent is told", () => {
     ["the job's windows win", null, true, policy(), { kbps: null, windows: true }],
     ["without its own, the policy's", null, false, policy(), { kbps: 500, windows: false }],
     [
+      "the job's explicit unlimited beats the policy's",
+      0,
+      false,
+      policy(),
+      { kbps: null, windows: false },
+    ],
+    ["explicit unlimited without a policy", 0, false, undefined, { kbps: null, windows: false }],
+    [
+      "explicit unlimited with windows keeps them",
+      0,
+      true,
+      policy(),
+      { kbps: null, windows: true },
+    ],
+    [
+      "a lock beats explicit unlimited",
+      0,
+      false,
+      policy({ bandwidthLocked: true }),
+      { kbps: 500, windows: false },
+    ],
+    [
       "a lock beats limit and windows",
       800,
       true,
@@ -219,5 +243,58 @@ describe("validation", () => {
     expect(cleanAgentPolicySettings({ backupWindow: night, retries: undefined })).toEqual({
       backupWindow: { days: [1, 2, 3, 4, 5], from: "20:00", to: "06:00" },
     });
+  });
+});
+
+describe("one machine's view", () => {
+  const resolved = (global: GlobalAgentPolicy | null, tenant: AgentPolicySettings | null) =>
+    resolveAgentPolicy(global, tenant, null);
+  const own = { bandwidthKbps: null, bandwidthWindows: 0, onlyOnAcPower: false };
+
+  it("takes the policy where the machine has nothing of its own", () => {
+    const view = machineAgentPolicy(resolved(null, { bandwidthKbps: 800 }), own, true);
+    expect(view.effective.bandwidthKbps).toEqual({ value: 800, source: "tenant", locked: false });
+    expect(view.effective.onlyOnAcPower).toEqual({
+      value: false,
+      source: "default",
+      locked: false,
+    });
+    expect(view.bandwidthWindows).toBe(false);
+  });
+
+  it("names the job's limit, its explicit unlimited and its windows", () => {
+    const above = resolved(null, { bandwidthKbps: 800 });
+    expect(
+      machineAgentPolicy(above, { ...own, bandwidthKbps: 0 }, true).effective.bandwidthKbps,
+    ).toEqual({ value: null, source: "job", locked: false });
+    const windows = machineAgentPolicy(above, { ...own, bandwidthWindows: 2 }, true);
+    expect(windows.effective.bandwidthKbps).toEqual({ value: null, source: "job", locked: false });
+    expect(windows.bandwidthWindows).toBe(true);
+    // A machine in no job: its own limit.
+    expect(
+      machineAgentPolicy(above, { ...own, bandwidthKbps: 300 }, false).effective.bandwidthKbps,
+    ).toEqual({ value: 300, source: "machine", locked: false });
+  });
+
+  it("adds the machine's own AC power switch, and a lock decides alone", () => {
+    expect(
+      machineAgentPolicy(resolved(null, null), { ...own, onlyOnAcPower: true }, true).effective
+        .onlyOnAcPower,
+    ).toEqual({ value: true, source: "machine", locked: false });
+    const locked = resolved(
+      {
+        settings: { onlyOnAcPower: false, bandwidthKbps: 100 },
+        locks: ["onlyOnAcPower", "bandwidthKbps"],
+      },
+      null,
+    );
+    const view = machineAgentPolicy(
+      locked,
+      { bandwidthKbps: 0, bandwidthWindows: 1, onlyOnAcPower: true },
+      true,
+    );
+    expect(view.effective.onlyOnAcPower).toEqual({ value: false, source: "global", locked: true });
+    expect(view.effective.bandwidthKbps).toEqual({ value: 100, source: "global", locked: true });
+    expect(view.bandwidthWindows).toBe(false);
   });
 });

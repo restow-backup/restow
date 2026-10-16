@@ -95,6 +95,12 @@ export interface EndpointSummary {
   lastBackupAt: string | null;
   lastSuccessAt: string | null;
   nextRunAt: string | null;
+  /**
+   * What a due backup waits for, as the agent's last heartbeat said (agent 0.4.0): `backup_window`,
+   * `update_pause`, `ac_power`, `catch_up_next_window`, `catch_up_skipped`, or a code of a later
+   * agent. null (or absent, from an older server) when nothing waits or the agent does not say.
+   */
+  waitingFor?: string | null;
   readiness: EndpointReadiness;
   latestRun: RunSummary | null;
   attention: Attention[];

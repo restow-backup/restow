@@ -388,3 +388,42 @@ func TestEvaluatePause(t *testing.T) {
 		t.Fatalf("retry while paused: %+v", d)
 	}
 }
+
+func TestEvaluateWaitCodes(t *testing.T) {
+	l := berlin(t)
+	enrolled := at(l, 2026, 10, 1, 0, 0)
+	missed := History{EnrolledAt: enrolled, LastAttemptAt: at(l, 2026, 10, 12, 22, 0), AwakeSince: at(l, 2026, 10, 14, 8, 0)}
+	cases := []struct {
+		name   string
+		policy *api.Policy
+		h      History
+		now    time.Time
+		c      Conditions
+		wait   string
+	}{
+		{name: "due", h: missed, now: at(l, 2026, 10, 14, 8, 1), c: Conditions{Reachable: true}, wait: ""},
+		{name: "outside the window", policy: &api.Policy{BackupWindow: nightWindow()},
+			h: missed, now: at(l, 2026, 10, 14, 8, 1), c: Conditions{Reachable: true}, wait: WaitBackupWindow},
+		{name: "catch-up off", policy: &api.Policy{CatchUp: &api.CatchUp{Enabled: false}},
+			h: missed, now: at(l, 2026, 10, 14, 8, 1), c: Conditions{Reachable: true}, wait: WaitCatchUpSkipped},
+		{name: "too old to catch up", policy: &api.Policy{CatchUp: &api.CatchUp{Enabled: true, MaxAgeHours: 6}},
+			h: missed, now: at(l, 2026, 10, 14, 8, 1), c: Conditions{Reachable: true}, wait: WaitCatchUpSkipped},
+		{name: "catch-up in the next window",
+			policy: &api.Policy{BackupWindow: nightWindow(), CatchUp: &api.CatchUp{Enabled: true, Mode: api.CatchUpNextWindow}},
+			h:      History{EnrolledAt: enrolled, LastAttemptAt: at(l, 2026, 10, 12, 22, 0), AwakeSince: at(l, 2026, 10, 14, 1, 0)},
+			now:    at(l, 2026, 10, 14, 1, 1), c: Conditions{Reachable: true}, wait: WaitCatchUpWindow},
+		{name: "update pause", h: missed, now: at(l, 2026, 10, 14, 8, 1), c: Conditions{Reachable: true, Paused: true}, wait: WaitUpdatePause},
+		{name: "server away", h: missed, now: at(l, 2026, 10, 14, 8, 1), c: Conditions{}, wait: WaitServer},
+	}
+	for _, c := range cases {
+		d := EvaluateIn(dailyWith(t, "22:00", c.policy), c.h, c.now, c.c)
+		if d.Wait != c.wait {
+			t.Errorf("%s: wait %q, want %q (%+v)", c.name, d.Wait, c.wait, d)
+		}
+	}
+	// Not due at all: nothing waits.
+	idle := History{EnrolledAt: enrolled, LastAttemptAt: at(l, 2026, 10, 14, 22, 0), AwakeSince: enrolled}
+	if d := Evaluate(dailyWith(t, "22:00", nil), idle, at(l, 2026, 10, 15, 8, 0), true); d.Due || d.Wait != "" {
+		t.Errorf("not due: %+v", d)
+	}
+}

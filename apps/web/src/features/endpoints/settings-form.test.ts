@@ -137,6 +137,16 @@ describe("the settings draft", () => {
     });
   });
 
+  it("shows a job's explicit unlimited (0) as no limit and does not send it back", () => {
+    const unlimited = server();
+    unlimited.config = { ...unlimited.config, bandwidthKbps: 0 };
+    const draft = draftFromDetail(unlimited, "UTC");
+    expect(draft.bandwidthKbps).toBe("");
+    expect(buildPatch(unlimited, { ...draft, displayName: "Renamed" })).toEqual({
+      displayName: "Renamed",
+    });
+  });
+
   it("sends both hooks when one changes, because the API replaces them as a pair", () => {
     const draft = { ...draftFromDetail(server(), "UTC"), postHook: "systemctl start app" };
     expect(buildPatch(server(), draft)?.config?.hooks).toEqual({

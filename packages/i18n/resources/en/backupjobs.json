@@ -435,6 +435,8 @@
     "none": "None",
     "noLimit": "No limit",
     "unlimited": "Unlimited",
+    "bandwidthFromPolicy": "As the agent policy says",
+    "bandwidthUnlimited": "Unlimited, also over a limit of the agent policy",
     "largerValue": "{size} GB",
     "bandwidthValue": "{kbps} kbit/s",
     "foldersNone": "No folders are set: every machine keeps its own folders.",
@@ -739,7 +741,7 @@
       "title": "Agent policy",
       "description": "When the machines of this job may start backups, whether missed backups are caught up, AC power and retries. What the job does not set comes from the tenant and the installation.",
       "loadError": "The policy of the tenant could not be loaded; the job keeps what it sets.",
-      "bandwidthDefault": "Without a limit of its own, the job uses: {value} ({source}).",
+      "bandwidthDefault": "Without a limit of its own and without Unlimited, the job uses: {value} ({source}).",
       "bandwidthLocked": "Locked by the installation: {value} applies to every job; the limit and windows here have no effect."
     }
   },
@@ -796,8 +798,11 @@
   },
   "bandwidth": {
     "label": "Upload limit (kbit/s)",
-    "hint": "Empty means unlimited. 1000 kbit/s is about 1 Mbit/s. It applies outside every time window.",
+    "hint": "Empty: the limit of the agent policy applies, unlimited when it sets none. 1000 kbit/s is about 1 Mbit/s. It applies outside every time window.",
     "unlimited": "Unlimited",
+    "fromPolicy": "As the policy says",
+    "unlimitedChoice": "Unlimited",
+    "unlimitedChoiceHint": "Uploads without a limit even when the agent policy sets one. Only a limit the installation locked still applies.",
     "windows": {
       "title": "Time windows",
       "description": "A time window sets another limit for certain days and hours. Outside every window the limit above applies.",

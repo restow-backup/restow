@@ -171,6 +171,23 @@ describe("the settings of a machine job", () => {
     });
   });
 
+  it("keeps an explicit unlimited apart from an empty limit (which takes the policy's)", () => {
+    const unlimited = { ...draft, bandwidth: "", bandwidthUnlimited: true };
+    expect(settingsOfDraft(unlimited).bandwidthKbps).toBe(0);
+    // A number typed before the choice is not sent and not checked.
+    expect(settingsOfDraft({ ...unlimited, bandwidth: "abc" }).bandwidthKbps).toBe(0);
+    expect(checkSettings({ ...unlimited, bandwidth: "abc" }).bandwidth).toBeUndefined();
+    expect(settingsOfDraft({ ...draft, bandwidth: "" }).bandwidthKbps).toBeNull();
+    const back = settingsDraftOf({ ...settingsOfDraft(unlimited) });
+    expect(back.bandwidthUnlimited).toBe(true);
+    expect(back.bandwidth).toBe("");
+    expect(settingsDraftOf({ bandwidthKbps: null }).bandwidthUnlimited).toBe(false);
+    expect(settingsDraftOf({ bandwidthKbps: 500 })).toMatchObject({
+      bandwidth: "500",
+      bandwidthUnlimited: false,
+    });
+  });
+
   it("checks everything the API would refuse", () => {
     expect(checkSettings(draft)).toEqual({});
     expect(checkSettings({ ...draft, paths: [] }).paths?.code).toBe("paths.none");

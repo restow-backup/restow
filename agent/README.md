@@ -642,6 +642,12 @@ the agent does this, and the server should expect it:
   are accepted as JSON strings or numbers and echoed in the form they arrived.
 - `nextRunAt` in the heartbeat is an RFC 3339 time or `null` (for `on_connect` and when
   unknown). `configVersion` is `0` until the first configuration was fetched.
+- `waiting` in the heartbeat (agent 0.4.0) says what a due backup waits for:
+  `backup_window`, `update_pause`, `ac_power`, `catch_up_next_window` or
+  `catch_up_skipped` (a missed backup the policy does not catch up; the next regular slot
+  is `nextRunAt`); `""` when nothing waits. An agent of an earlier release leaves the
+  field out, which the server keeps as "unknown". The same reason is in `restow-agent
+  status` ("Waiting").
 - `finish.errors` is always an array. `sample[].path` is the path as stored in the
   snapshot (an absolute path on Linux and macOS); send it back unchanged in
   `verify_sample.files[].path`. Finishing an already finished run (HTTP 409) counts as

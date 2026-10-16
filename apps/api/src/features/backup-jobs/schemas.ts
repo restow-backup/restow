@@ -73,7 +73,11 @@ const endpointSettingsShape = {
   /** Skip files larger than this many GiB (shown as GB); null lifts the limit. */
   excludeLargerThanGib: z.number().positive().max(1_000_000).nullable().optional(),
   hooks: z.object({ pre: hookCommand.optional(), post: hookCommand.optional() }).optional(),
-  bandwidthKbps: z.number().int().min(1).max(10_000_000).nullable().optional(),
+  /**
+   * Upload limit in kbit/s. Machine jobs: `0` is "unlimited" even when the agent policy sets a
+   * limit; null inherits the policy's limit (unlimited without one). File shares: null = unlimited.
+   */
+  bandwidthKbps: z.number().int().min(0).max(10_000_000).nullable().optional(),
   /** Time windows with a limit of their own; checked for overlap by the service. */
   bandwidthWindows: bandwidthWindowsSchema.optional(),
   retention: retentionSchema.optional(),

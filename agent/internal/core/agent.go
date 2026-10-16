@@ -474,10 +474,19 @@ func (a *Agent) doHeartbeat(ctx context.Context) {
 		req.HookScripts = hooks.ListScripts(dir)
 	}
 	req.Machine, req.DataFolders = a.machineFacts()
-	if st := a.d.Status.Snapshot(); !st.NextRunAt.IsZero() {
+	st := a.d.Status.Snapshot()
+	if !st.NextRunAt.IsZero() {
 		t := st.NextRunAt
 		req.NextRunAt = &t
 	}
+	// What a due backup waits for; always sent ("" = nothing waits), so the
+	// server can tell it from an older agent that does not report it. A wait
+	// for the server itself is over once this heartbeat goes through.
+	waiting := st.WaitingCode
+	if waiting == schedule.WaitServer {
+		waiting = ""
+	}
+	req.Waiting = &waiting
 	hctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	resp, err := a.d.Server.Heartbeat(hctx, req)
@@ -650,6 +659,10 @@ func clock(d time.Duration) string {
 
 // ---- scheduling -----------------------------------------------------------
 
+// WaitingForACPower is the status reason of a due backup held back on battery
+// power (OnlyOnACPower).
+const WaitingForACPower = "due, waiting for AC power"
+
 func (a *Agent) checkSchedule(ctx context.Context) {
 	a.mu.Lock()
 	cfg, sc, reachable, paused, awake := a.cfg, a.sched, a.reachable, a.paused, a.awakeSince
@@ -667,25 +680,29 @@ func (a *Agent) checkSchedule(ctx context.Context) {
 	}
 	now := a.now()
 	d := schedule.EvaluateIn(sc, hist, now, schedule.Conditions{Reachable: reachable, Paused: paused})
-	waiting := ""
+	waiting, code := "", ""
 	if !d.Due && d.Reason != "not due" && d.Reason != schedule.WaitingForJob {
-		waiting = d.Reason
+		waiting, code = d.Reason, d.Wait
 	}
-	if !d.Next.Equal(st.NextRunAt) || waiting != st.Waiting {
-		_ = a.d.Status.Update(func(s *status.Status) { s.NextRunAt, s.Waiting = d.Next, waiting })
-	}
-	if !d.Due || !a.idle() || ctx.Err() != nil {
-		return
-	}
-	if cfg.OnlyOnACPower {
+	// A due backup on battery power waits for AC power when the configuration
+	// asks for it; the reason goes into the status like the scheduler's.
+	onBattery := false
+	if d.Due && cfg.OnlyOnACPower {
 		if p := a.d.Power(); !p.OnAC {
+			onBattery = true
+			waiting, code = WaitingForACPower, schedule.WaitACPower
 			a.logRateLimited("battery", 30*time.Minute, slog.LevelInfo,
 				"a backup is due but this device runs on battery power; waiting for AC power ("+p.Detail+")")
-			return
 		} else if !p.Known {
 			a.logRateLimited("power-unknown", 24*time.Hour, slog.LevelWarn,
 				"the power source cannot be determined on this system; assuming AC power ("+p.Detail+")")
 		}
+	}
+	if !d.Next.Equal(st.NextRunAt) || waiting != st.Waiting || code != st.WaitingCode {
+		_ = a.d.Status.Update(func(s *status.Status) { s.NextRunAt, s.Waiting, s.WaitingCode = d.Next, waiting, code })
+	}
+	if !d.Due || onBattery || !a.idle() || ctx.Err() != nil {
+		return
 	}
 	a.log.Info("starting a scheduled backup", "reason", d.Reason)
 	a.enqueue(job{kind: jobBackup, trigger: triggerSchedule})

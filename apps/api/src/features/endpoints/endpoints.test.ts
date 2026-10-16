@@ -542,6 +542,19 @@ describe("request schemas", () => {
     ).not.toHaveProperty("hookScripts");
   });
 
+  it("reads what a due backup waits for, and never refuses a heartbeat over it", () => {
+    const beat = { agentVersion: "0.4.0", osVersion: "", state: "idle", nextRunAt: null };
+    expect(heartbeatSchema.parse(beat).waiting).toBeUndefined();
+    expect(heartbeatSchema.parse({ ...beat, waiting: "" }).waiting).toBe("");
+    expect(heartbeatSchema.parse({ ...beat, waiting: "backup_window" }).waiting).toBe(
+      "backup_window",
+    );
+    // Implausible: as if not said.
+    for (const waiting of ["Backup Window", "x".repeat(41), 7, "../etc"]) {
+      expect(heartbeatSchema.parse({ ...beat, waiting }).waiting).toBeUndefined();
+    }
+  });
+
   it("reads the machine and its data folders an agent of 0.4.0 reports (#59)", () => {
     const beat = { agentVersion: "0.4.0", osVersion: "", state: "idle", hooks: "off" };
     const parsed = heartbeatSchema.parse({

@@ -72,7 +72,11 @@ export interface JobEndpointSettings {
   /** Skip files larger than this many GiB; null or absent = no limit. */
   excludeLargerThanGib?: number | null;
   hooks?: { pre?: string; post?: string };
-  /** Upload limit in kbit/s, the default outside every time window; null or absent = unlimited. */
+  /**
+   * Upload limit in kbit/s, the default outside every time window. Machine jobs: 0 = unlimited
+   * even when the agent policy sets a limit; null or absent = the policy's limit (unlimited when
+   * it sets none). File shares: null or absent = unlimited.
+   */
   bandwidthKbps?: number | null;
   /**
    * Time windows with a limit of their own, read in the time zone of the job's schedule; the limit

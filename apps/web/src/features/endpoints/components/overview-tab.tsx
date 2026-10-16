@@ -21,6 +21,7 @@ import {
 import { AssignmentField } from "./assign-dialog.js";
 import { EndpointDataFoldersNotice } from "./data-folders-notice.js";
 import { Fact, Facts } from "./facts.js";
+import { MachinePolicyCard } from "./machine-policy-card.js";
 import { ReportsCard } from "./reports-card.js";
 import { RunsCard } from "./runs-card.js";
 import { ConnectionBadge, OsLabel, TaskStatusBadge } from "./status.js";
@@ -157,12 +158,46 @@ export function machineLabel(
   return facts.desktop ? `${base}, ${t("facts.virtualization.desktop")}` : base;
 }
 
+/** The codes of what a due backup waits for that have words of their own (agent 0.4.0). */
+const WAITING_CODES = [
+  "backup_window",
+  "update_pause",
+  "ac_power",
+  "catch_up_next_window",
+  "catch_up_skipped",
+  "server_unreachable",
+] as const;
+
+/**
+ * Why a due backup has not started, as the agent's last heartbeat said: "Waiting for the backup
+ * window (from Tue 20:00)"; null when nothing waits or the agent does not say. A code of a later
+ * agent is still shown as waiting.
+ */
+export function waitingText(
+  detail: Pick<EndpointDetail, "waitingFor" | "nextRunAt">,
+  format: EndpointFormat,
+): string | null {
+  const code = detail.waitingFor;
+  if (!code) {
+    return null;
+  }
+  const { t } = format;
+  if (!(WAITING_CODES as readonly string[]).includes(code)) {
+    return t("facts.waiting.other", { code });
+  }
+  const at = detail.nextRunAt ? format.dateTime(detail.nextRunAt) : null;
+  return at && (code === "backup_window" || code === "catch_up_next_window")
+    ? t(`facts.waiting.${code}At`, { at })
+    : t(`facts.waiting.${code}`);
+}
+
 function FactsCard({ detail }: { detail: EndpointDetail }) {
   const format = useEndpointFormat();
   const { t } = format;
   const last = lastBackupOf(detail);
   const pending = detail.status === "active" && configPending(detail);
   const withoutBackup = isWithoutBackup(detail);
+  const waiting = detail.status === "active" ? waitingText(detail, format) : null;
   return (
     <Card data-slot="endpoint-facts">
       <CardHeader>
@@ -227,11 +262,18 @@ function FactsCard({ detail }: { detail: EndpointDetail }) {
             ) : withoutBackup && detail.config.schedule.kind === "none" ? (
               <WithoutBackupBadge />
             ) : (
-              <RelativeTime
-                value={detail.nextRunAt}
-                fallback={t("facts.nextRunUnknown")}
-                focusable={false}
-              />
+              <span className="block">
+                <RelativeTime
+                  value={detail.nextRunAt}
+                  fallback={t("facts.nextRunUnknown")}
+                  focusable={false}
+                />
+                {waiting ? (
+                  <span className="block text-xs text-muted-foreground" data-slot="waiting-for">
+                    {waiting}
+                  </span>
+                ) : null}
+              </span>
             )}
           </Fact>
           <Fact label={t("facts.config")}>
@@ -399,6 +441,7 @@ export function OverviewTab({
       </div>
       <div className="min-w-0 space-y-4">
         <FactsCard detail={detail} />
+        <MachinePolicyCard detail={detail} />
         <RepositoryCard detail={detail} />
       </div>
     </div>

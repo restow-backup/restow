@@ -129,7 +129,8 @@ export function draftFromDetail(
     intervalMinutes: numberText(config.schedule.intervalMinutes),
     preHook: config.hooks.pre ?? "",
     postHook: config.hooks.post ?? "",
-    bandwidthKbps: numberText(config.bandwidthKbps),
+    // 0 is a job's explicit "unlimited" (only a job writes it): shown as no limit.
+    bandwidthKbps: config.bandwidthKbps === 0 ? "" : numberText(config.bandwidthKbps),
     bandwidthWindows: windowDraftsOf(config.bandwidthWindows),
     onlyOnAcPower: config.onlyOnAcPower,
     keepDaily: String(settings.retention.keepDaily),
@@ -422,7 +423,7 @@ export function buildPatch(
   }
 
   const bandwidth = draft.bandwidthKbps.trim() === "" ? null : wholeNumber(draft.bandwidthKbps);
-  if (bandwidth !== config.bandwidthKbps) {
+  if (bandwidth !== (config.bandwidthKbps === 0 ? null : config.bandwidthKbps)) {
     changed.bandwidthKbps = bandwidth;
   }
 

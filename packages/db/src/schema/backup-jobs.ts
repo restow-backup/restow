@@ -80,7 +80,10 @@ export type BackupJobEndpointSettings = {
   /** Skip files larger than this many GiB (restic `--exclude-larger-than`); null or absent = no limit. */
   excludeLargerThanGib?: number | null;
   hooks?: { pre?: string; post?: string };
-  /** Upload limit in kbit/s, the default outside every window; null or absent = unlimited. */
+  /**
+   * Upload limit in kbit/s, the default outside every window. `0` (machine jobs): unlimited even
+   * when the agent policy sets a limit; null or absent: the policy's limit, else unlimited.
+   */
   bandwidthKbps?: number | null;
   /** Time windows with a limit of their own, read in the job schedule's zone; absent or empty = none. */
   bandwidthWindows?: EndpointBandwidthWindow[];
