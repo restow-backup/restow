@@ -461,10 +461,20 @@ func TestOnlyOnACPowerBlocksScheduledBackup(t *testing.T) {
 	if n := len(h.srv.AllRuns()); n != 0 {
 		t.Fatalf("no backup may start on battery, got %d runs", n)
 	}
+	if st := h.status.Snapshot(); st.Waiting != WaitingForACPower || st.WaitingCode != schedule.WaitACPower {
+		t.Fatalf("status on battery: %+v", st)
+	}
+	if !waitHeartbeat(h, func(hb api.HeartbeatRequest) bool { return hb.Waiting != nil && *hb.Waiting == schedule.WaitACPower }) {
+		t.Fatal("no heartbeat reported the wait for AC power")
+	}
 	onAC.Store(true)
 	fin := h.waitRun(1).Finish
 	if fin.Status != api.StatusSucceeded {
 		t.Fatalf("status %s", fin.Status)
+	}
+	// Nothing waits any more: the heartbeat says so with an empty code (not by leaving it out).
+	if !waitHeartbeat(h, func(hb api.HeartbeatRequest) bool { return hb.Waiting != nil && *hb.Waiting == "" }) {
+		t.Fatal("no heartbeat reported that nothing waits")
 	}
 }
 
@@ -1303,7 +1313,28 @@ func TestPolicyWindowHoldsTheScheduledBackup(t *testing.T) {
 		t.Fatalf("no backup may start outside the window, got %d runs", n)
 	}
 	st := h.status.Snapshot()
-	if st.Waiting != schedule.WaitingForWindow || st.NextRunAt.Before(now.Add(20*time.Hour)) || !strings.Contains(st.Policy, "backup window") {
+	if st.Waiting != schedule.WaitingForWindow || st.WaitingCode != schedule.WaitBackupWindow ||
+		st.NextRunAt.Before(now.Add(20*time.Hour)) || !strings.Contains(st.Policy, "backup window") {
 		t.Fatalf("status: %+v", st)
 	}
+	// The heartbeat tells the server what the backup waits for, with the next start.
+	if !waitHeartbeat(h, func(hb api.HeartbeatRequest) bool {
+		return hb.Waiting != nil && *hb.Waiting == schedule.WaitBackupWindow && hb.NextRunAt != nil && hb.NextRunAt.Equal(st.NextRunAt)
+	}) {
+		t.Fatal("no heartbeat reported the wait for the backup window")
+	}
+}
+
+// waitHeartbeat waits for a heartbeat that matches.
+func waitHeartbeat(h *harness, match func(api.HeartbeatRequest) bool) bool {
+	return fakeserver.WaitFor(5*time.Second, func() bool {
+		h.srv.Lock()
+		defer h.srv.Unlock()
+		for _, hb := range h.srv.Heartbeats {
+			if match(hb) {
+				return true
+			}
+		}
+		return false
+	})
 }
