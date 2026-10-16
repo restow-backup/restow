@@ -434,7 +434,7 @@ func (j *job) previousSidecar(ctx context.Context, parent string, previousFiles 
 	dumpErr := <-dumped
 	switch {
 	case errors.Is(err, ErrTooManyPrevious):
-		j.log.Printf("the previous restore point has more than %d entries, more than the permission reuse may hold; reading all permissions",
+		j.log.Printf("the previous restore point has more than %d entries, the most the permission reuse may hold; reading all permissions",
 			maxEntries)
 		return nil
 	case err != nil:
