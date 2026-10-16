@@ -320,6 +320,10 @@ export const pveTasks = pgTable(
   (t) => [
     index("pve_tasks_node_status_idx").on(t.nodeId, t.status),
     index("pve_tasks_guest_idx").on(t.guestId, t.createdAt),
+    // The backups that wait for their node (the sidebar, the overviews): only open tasks.
+    index("pve_tasks_open_backup_idx")
+      .on(t.guestId)
+      .where(sql`${t.kind} = 'backup' AND ${t.status} IN ('pending', 'delivered')`),
   ],
 );
 
@@ -411,6 +415,13 @@ export const pveRuns = pgTable(
     index("pve_runs_guest_started_idx").on(t.guestId, t.startedAt),
     index("pve_runs_tenant_created_idx").on(t.tenantId, t.createdAt),
     index("pve_runs_status_idx").on(t.status, t.startedAt),
+    // The ransomware judgement (apps/worker suspicion/scan.ts) reads new restore points by time;
+    // the predicate is the scan's, word for word.
+    index("pve_runs_suspicion_idx")
+      .on(t.finishedAt, t.id)
+      .where(
+        sql`${t.kind} = 'backup' AND ${t.status} = 'succeeded' AND ${t.snapshotId} IS NOT NULL AND ${t.finishedAt} IS NOT NULL`,
+      ),
   ],
 );
 

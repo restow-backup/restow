@@ -27,6 +27,7 @@ import {
   fetchVersions,
   fileShareKeys,
   type InstallationShareSettings,
+  LIMITS,
   purgeShare,
   type RestoreInput,
   reactivateShare,
@@ -196,7 +197,7 @@ export function useShareSearch(id: string, q: string) {
   return useQuery({
     queryKey: fileShareKeys.search(tenantId, id, term),
     queryFn: () => searchShare(id, term),
-    enabled: enabled && term.length >= 2,
+    enabled: enabled && term.length >= LIMITS.searchMin,
     retry: false,
     staleTime: 60_000,
   });

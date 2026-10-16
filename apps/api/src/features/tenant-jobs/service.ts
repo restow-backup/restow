@@ -8,6 +8,7 @@ import {
   tenants,
 } from "@restow/db";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { mapBounded } from "../../lib/bounded-map.js";
 import { notImportedRaw } from "../../lib/imported-objects.js";
 import { type ProviderAccess, providerMayEnterTenant } from "../../lib/provider-access.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -23,6 +24,7 @@ import {
   type TenantJobSummariesDto,
   type TenantJobSummaryDto,
 } from "./dto.js";
+import type { TenantFiguresCache } from "./figures-cache.js";
 
 /**
  * The jobs of every tenant at a glance (#63), for the provider's "All tenants" view of Jobs.
@@ -33,6 +35,8 @@ import {
  * (`db`, the role Row Level Security binds) inside that tenant's own pinned transaction, never
  * with one query across tenants. Per tenant that is a fixed number of aggregate queries (one per
  * kind of job) whatever the number of jobs, objects or runs; nobody's job list is built for it.
+ * A few tenants are read at a time ({@link TENANT_READS_AT_ONCE}), and the routes keep each
+ * tenant's figures for a short while for every viewer (figures-cache.ts).
  * The list of one tenant's jobs is read on demand, when its row is opened ({@link loadTenantJobs}).
  *
  * Proxmox VE is counted next to mail and machines: its jobs, tasks and runs are tenant data
@@ -45,7 +49,18 @@ export interface TenantJobsDeps {
   db: Database;
   /** The installation pool, for the tenant list only. */
   providerDb: Database;
+  /** Each tenant's figures, kept for a short while; without it every request reads them. */
+  figures?: TenantFiguresCache<TenantJobFigures>;
 }
+
+/** The figures of one tenant: one summary per kind of job. */
+export type TenantJobFigures = Record<TenantJobKind, TenantJobKindSummaryDto>;
+
+/**
+ * How many tenants are read at the same time: each holds a connection of the application pool
+ * (10 by default), so most of it stays free for the other requests meanwhile.
+ */
+export const TENANT_READS_AT_ONCE = 4;
 
 interface TenantRow {
   id: string;
@@ -124,12 +139,16 @@ async function mailSummary(tx: Transaction, tenantId: string): Promise<KindRow |
            OR (m.id IS NULL AND EXISTS (SELECT 1 FROM mail_jobs WHERE scope_mode = 'all')))
     ),
     newest AS (
-      SELECT DISTINCT ON (protected_object_id) status, completed_at,
-             coalesce((item_failure_summary->>'total')::int, 0) AS failed_items
-        FROM jobs
-       WHERE tenant_id = ${tenantId} AND queue = 'backup' AND status IN ('completed', 'failed')
-         AND protected_object_id IN (SELECT id FROM covered)
-       ORDER BY protected_object_id, created_at DESC
+      SELECT n.status, n.completed_at, n.failed_items
+        FROM covered c
+       CROSS JOIN LATERAL (
+         SELECT j.status, j.completed_at,
+                coalesce((j.item_failure_summary->>'total')::int, 0) AS failed_items
+           FROM jobs j
+          WHERE j.protected_object_id = c.id AND j.queue = 'backup'
+            AND j.status IN ('completed', 'failed')
+          ORDER BY j.created_at DESC LIMIT 1
+       ) n
     )
     SELECT
       (SELECT count(*)::int FROM mail_jobs) AS jobs,
@@ -168,10 +187,13 @@ async function endpointSummary(tx: Transaction, tenantId: string): Promise<KindR
          AND m.job_id IN (SELECT id FROM machine_jobs)
     ),
     newest AS (
-      SELECT DISTINCT ON (endpoint_id) status, finished_at FROM endpoint_runs
-       WHERE tenant_id = ${tenantId} AND kind = 'backup' AND status <> 'running'
-         AND endpoint_id IN (SELECT id FROM covered)
-       ORDER BY endpoint_id, started_at DESC
+      SELECT n.status, n.finished_at
+        FROM covered c
+       CROSS JOIN LATERAL (
+         SELECT r.status, r.finished_at FROM endpoint_runs r
+          WHERE r.endpoint_id = c.id AND r.kind = 'backup' AND r.status <> 'running'
+          ORDER BY r.started_at DESC LIMIT 1
+       ) n
     ),
     running AS (
       SELECT DISTINCT endpoint_id FROM endpoint_runs
@@ -211,12 +233,15 @@ async function pveSummary(tx: Transaction, tenantId: string): Promise<KindRow | 
            OR (g.job_id IS NULL AND EXISTS (SELECT 1 FROM pve WHERE scope_all)))
     ),
     newest AS (
-      SELECT DISTINCT ON (guest_id) status, finished_at,
-             coalesce((stats->>'resticUnreadable')::int, 0) AS unreadable
-        FROM pve_runs
-       WHERE tenant_id = ${tenantId} AND kind = 'backup' AND status <> 'running'
-         AND guest_id IN (SELECT id FROM covered)
-       ORDER BY guest_id, started_at DESC
+      SELECT n.status, n.finished_at, n.unreadable
+        FROM covered c
+       CROSS JOIN LATERAL (
+         SELECT r.status, r.finished_at,
+                coalesce((r.stats->>'resticUnreadable')::int, 0) AS unreadable
+           FROM pve_runs r
+          WHERE r.guest_id = c.id AND r.kind = 'backup' AND r.status <> 'running'
+          ORDER BY r.started_at DESC LIMIT 1
+       ) n
     ),
     running AS (
       SELECT DISTINCT guest_id FROM pve_runs
@@ -241,7 +266,7 @@ async function pveSummary(tx: Transaction, tenantId: string): Promise<KindRow | 
 export async function loadTenantJobFigures(
   db: Database,
   tenantId: string,
-): Promise<Record<TenantJobKind, TenantJobKindSummaryDto>> {
+): Promise<TenantJobFigures> {
   return withTenantTx(db, tenantId, async (tx) => ({
     mail: kindSummary(await mailSummary(tx, tenantId)),
     endpoint: kindSummary(await endpointSummary(tx, tenantId)),
@@ -261,6 +286,22 @@ function logFailure(tenantId: string, error: unknown): void {
   );
 }
 
+function figuresOf(deps: TenantJobsDeps, tenantId: string): Promise<TenantJobFigures> {
+  const load = () => loadTenantJobFigures(deps.db, tenantId);
+  return deps.figures ? deps.figures.get(tenantId, load) : load();
+}
+
+/** One row of the overview; a tenant whose figures cannot be read says so. */
+async function summaryOf(deps: TenantJobsDeps, row: TenantRow): Promise<TenantJobSummaryDto> {
+  const base = { tenantId: row.id, name: row.name, status: row.status, kind: row.kind };
+  try {
+    return { ...base, state: "ok", kinds: await figuresOf(deps, row.id) };
+  } catch (error) {
+    logFailure(row.id, error);
+    return { ...base, state: "error", kinds: null };
+  }
+}
+
 /**
  * GET /api/v1/tenant-jobs: every tenant the provider admin may enter, with its jobs counted. A
  * tenant whose figures cannot be read is listed with `state: "error"`; the others still show.
@@ -271,16 +312,8 @@ export async function loadTenantJobSummaries(
   now: Date = new Date(),
 ): Promise<TenantJobSummariesDto> {
   const rows = await listTenants(deps.providerDb, access);
-  const summaries: TenantJobSummaryDto[] = [];
-  for (const row of rows) {
-    const base = { tenantId: row.id, name: row.name, status: row.status, kind: row.kind };
-    try {
-      summaries.push({ ...base, state: "ok", kinds: await loadTenantJobFigures(deps.db, row.id) });
-    } catch (error) {
-      logFailure(row.id, error);
-      summaries.push({ ...base, state: "error", kinds: null });
-    }
-  }
+  deps.figures?.prune();
+  const summaries = await mapBounded(rows, TENANT_READS_AT_ONCE, (row) => summaryOf(deps, row));
   return { generatedAt: now.toISOString(), tenants: summaries };
 }
 

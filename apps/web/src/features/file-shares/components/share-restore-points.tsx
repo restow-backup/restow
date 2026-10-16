@@ -204,6 +204,8 @@ function SearchCard({
   const [versionsOf, setVersionsOf] = React.useState<string | null>(null);
   const search = useShareSearch(share.id, term);
   const versions = useShareVersions(share.id, versionsOf);
+  const hintId = React.useId();
+  const tooShort = text.trim().length < LIMITS.searchMin;
 
   return (
     <Card data-slot="share-search">
@@ -226,12 +228,22 @@ function SearchCard({
             onChange={(event) => setText(event.target.value)}
             placeholder={t("search.placeholder")}
             aria-label={t("search.placeholder")}
+            aria-describedby={hintId}
           />
-          <Button type="submit" variant="outline" disabled={text.trim().length < LIMITS.searchMin}>
+          <Button type="submit" variant="outline" disabled={tooShort}>
             <Search aria-hidden="true" />
             {t("search.run")}
           </Button>
         </form>
+        <p
+          id={hintId}
+          data-slot="search-hint"
+          className={
+            tooShort && text.trim().length > 0 ? "text-sm text-muted-foreground" : "sr-only"
+          }
+        >
+          {t("search.minLength", { count: LIMITS.searchMin })}
+        </p>
         {search.isError ? (
           <Alert variant="destructive">
             <AlertDescription>{t(shareErrorKey(search.error))}</AlertDescription>

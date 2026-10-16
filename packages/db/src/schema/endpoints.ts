@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   index,
@@ -370,6 +371,13 @@ export const endpointRuns = pgTable(
     index("endpoint_runs_tenant_status_idx").on(t.tenantId, t.status),
     // History lists a tenant's runs newest first (apps/api features/history).
     index("endpoint_runs_tenant_created_idx").on(t.tenantId, t.createdAt, t.id),
+    // The ransomware judgement (apps/worker suspicion/scan.ts) reads new restore points by time;
+    // the predicate is the scan's, word for word.
+    index("endpoint_runs_suspicion_idx")
+      .on(t.finishedAt, t.id)
+      .where(
+        sql`${t.kind} = 'backup' AND ${t.status} IN ('succeeded', 'partial') AND ${t.snapshotId} IS NOT NULL AND ${t.finishedAt} IS NOT NULL`,
+      ),
   ],
 );
 

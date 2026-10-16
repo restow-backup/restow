@@ -147,6 +147,17 @@ describe("adding and testing", () => {
   });
 });
 
+describe("search", () => {
+  it("refuses a term shorter than three characters before the catalog is read", async () => {
+    const response = await app.request(`/file-shares/${ids.share}/search?q=%20ab%20`, {
+      headers: json,
+    });
+    expect(response.status).toBe(422);
+    const problem = (await response.json()) as { issues: { path: string[] }[] };
+    expect(problem.issues[0]?.path).toEqual(["q"]);
+  });
+});
+
 describe("runs", () => {
   it("backs up now without a body (202), and answers 200 for one that waits already", async () => {
     service.backupNow.mockResolvedValueOnce({ run: { id: "r" }, alreadyQueued: false });

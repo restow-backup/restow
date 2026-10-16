@@ -486,6 +486,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // the configuration (features/endpoints/routes.ts: a hook may hold credentials).
   // --- Proxmox VE ------------------------------------------------------------------
   "GET /api/v1/pve": view(),
+  "GET /api/v1/pve/activity": view(),
   "GET /api/v1/pve/guests/:id": view(),
   "POST /api/v1/pve/tokens": configure(),
   "POST /api/v1/pve/nodes/:id/revoke": configure(),

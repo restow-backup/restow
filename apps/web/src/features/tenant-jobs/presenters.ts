@@ -138,9 +138,13 @@ export function sortRows<T extends { name: string }>(
   return indexed.map(({ row }) => row);
 }
 
-/** Refresh quickly while something runs or waits somewhere, now and then otherwise. */
-export const ACTIVE_REFRESH_MS = 5_000;
-export const IDLE_REFRESH_MS = 30_000;
+/**
+ * Refresh more often while something runs or waits somewhere, now and then otherwise. The server
+ * reads each tenant's figures at most every 30 seconds for all viewers (apps/api tenant-jobs
+ * figures-cache.ts), so asking more often than every 15 seconds would show nothing new.
+ */
+export const ACTIVE_REFRESH_MS = 15_000;
+export const IDLE_REFRESH_MS = 60_000;
 
 export function refreshIntervalOf(summaries: readonly TenantJobSummary[] | undefined): number {
   const busy = (summaries ?? []).some((summary) => {

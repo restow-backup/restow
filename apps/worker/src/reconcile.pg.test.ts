@@ -8,7 +8,7 @@ import { createDb } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { reconcileJobs } from "./reconcile.js";
+import { reconcileJobs, reconcileJobsOnce } from "./reconcile.js";
 import { dropTestDatabase, ignoreTerminatedConnection } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -172,5 +172,51 @@ describe.skipIf(!adminUrl)("reconciling jobs a stopped worker left behind", () =
       status: "failed",
       failure: { code: "job.interrupted", params: expect.objectContaining({ final: "yes" }) },
     });
+  });
+
+  it("runs the pass in one worker at a time", async () => {
+    const orphan = await running(30);
+    await liveWorker(5);
+    const options = { now: new Date(), selfStartedAt: new Date(), logger: noopLogger as never };
+    // Another worker holds the pass: this one skips it and changes nothing.
+    const other = await db.$client.connect();
+    try {
+      const lock = "SELECT pg_try_advisory_lock(x'72636e31'::int) AS locked";
+      expect((await other.query<{ locked: boolean }>(lock)).rows[0]?.locked).toBe(true);
+      expect(await reconcileJobsOnce(db, options)).toBeNull();
+      expect((await bossJob(orphan.bossId))?.state).toBe("active");
+      await other.query("SELECT pg_advisory_unlock(x'72636e31'::int)");
+    } finally {
+      other.release();
+    }
+    expect(await reconcileJobsOnce(db, options)).toEqual({ requeued: 1, settled: 0 });
+    // Released again: the next pass may run.
+    expect(await reconcileJobsOnce(db, options)).toEqual({ requeued: 0, settled: 0 });
+  });
+
+  it("finds the active rows through their partial index, not by reading every job", async () => {
+    const plan = async (query: string) => {
+      const client = await db.$client.connect();
+      try {
+        await client.query("BEGIN");
+        // The table is tiny here: make the planner show which index it can use.
+        await client.query("SET LOCAL enable_seqscan = off");
+        const { rows } = await client.query<{ "QUERY PLAN": string }>(`EXPLAIN ${query}`);
+        await client.query("ROLLBACK");
+        return rows.map((row) => row["QUERY PLAN"]).join("\n");
+      } finally {
+        client.release();
+      }
+    };
+    expect(
+      await plan(
+        "UPDATE jobs SET status = 'queued' WHERE pg_boss_job_id = 'x' AND status = 'active'",
+      ),
+    ).toContain("jobs_active_boss_idx");
+    expect(
+      await plan(
+        "SELECT id FROM jobs j WHERE j.status = 'active' AND j.pg_boss_job_id IS NOT NULL AND j.updated_at < now()",
+      ),
+    ).toContain("jobs_active_boss_idx");
   });
 });

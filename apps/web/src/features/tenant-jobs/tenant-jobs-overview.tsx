@@ -57,8 +57,9 @@ import {
  * how the newest ones ended and when the next run is planned. A row opens in place to list the
  * tenant's jobs read-only; "Switch to tenant" makes it the active one and the page continues as
  * that tenant's Jobs page. The figures come from one provider request for all tenants, renewed
- * every few seconds while something runs somewhere (the live channel is per tenant); a tenant's
- * jobs are asked for only when its row is opened.
+ * every 15 seconds while something runs somewhere and every minute otherwise (the live channel is
+ * per tenant; the server keeps each tenant's figures for half a minute); a tenant's jobs are asked
+ * for only when its row is opened.
  *
  * `area` is the menu entry the page belongs to: its kinds come first in an opened row.
  */

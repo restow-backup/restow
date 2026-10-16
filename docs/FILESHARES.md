@@ -1316,7 +1316,8 @@ both. The first backup, or one whose previous restore point is no longer in the 
 derived from paths). After retention, versions whose range no longer contains an active restore
 point are deleted. A share above `maxEntriesPerShare` gets no catalog (`last_catalog_at` stays null,
 the UI says "Search is not available for this share: too many files"); browsing restore points
-works without it.
+works without it. A search term needs at least three characters (shorter ones are refused with
+422): the trigram index finds nothing shorter, so a shorter term would read every name of the share.
 
 ### 8.6 Purge (`file-share-purge`)
 

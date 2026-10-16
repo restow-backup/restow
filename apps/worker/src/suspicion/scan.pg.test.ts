@@ -10,12 +10,13 @@
  * at a Postgres server as a superuser; skipped otherwise.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { defaultEndpointConfig, noopLogger } from "@restow/core";
+import { createLogger, defaultEndpointConfig, type LogRecord, noopLogger } from "@restow/core";
 import { createDb, type Database, deriveAuthLogin, type RoleLogin } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { dropTestDatabase } from "../testing/database.js";
-import { type SuspicionDeps, suspicionPass } from "./scan.js";
+import { candidatesQuery, type SuspicionDeps, suspicionPass } from "./scan.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 const TEST_DB = "restow_worker_suspicion_test";
@@ -476,5 +477,112 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     expect(await judgement(next)).toMatchObject({ verdict: "suspicious" });
     expect((await judgement(next))?.alerted_at).not.toBeNull();
     expect((await alerts()).length).toBe(before + 1);
+  });
+
+  /** A clock that moves only when told, for the time a pass may take. */
+  const stoppedClock = () => 0;
+
+  it("reads batch after batch while the pass has time, and the first batch of each kind always", async () => {
+    const runs = [];
+    for (let minute = 50; minute >= 40; minute--) {
+      runs.push(await endpointRun(ago(minute * 60 * 1000), 300));
+    }
+    // No time left: one batch of two, then the next kind.
+    expect(await suspicionPass(deps, { batch: 2, budgetMs: 0, clock: stoppedClock })).toEqual({
+      judged: 2,
+      suspicious: 0,
+      alerts: 0,
+      reminders: 0,
+    });
+    expect(await judgement(runs[0] as string)).toBeDefined();
+    expect(await judgement(runs[2] as string)).toBeUndefined();
+    // Time enough: the other nine in batches of two, oldest first.
+    expect(await suspicionPass(deps, { batch: 2, budgetMs: 60_000, clock: stoppedClock })).toEqual({
+      judged: 9,
+      suspicious: 0,
+      alerts: 0,
+      reminders: 0,
+    });
+    for (const run of runs) {
+      expect(await judgement(run)).toBeDefined();
+    }
+  });
+
+  it("does not read a run it could not judge again in the same pass", async () => {
+    // Two runs with the same time: the cursor goes by time and run.
+    const at = ago(30 * 60 * 1000);
+    const [broken, fine] = [await endpointRun(at, 300), await endpointRun(at, 300)].sort();
+    // The judgement of one of them cannot be stored.
+    await q(
+      `ALTER TABLE restore_point_suspicions ADD CONSTRAINT test_refuses_ck CHECK (run_id <> '${broken}') NOT VALID`,
+    );
+    let reads = 0;
+    const counting = {
+      ...deps,
+      providerDb: new Proxy(deps.providerDb, {
+        get(target, key, receiver) {
+          if (key === "execute") {
+            return (query: Parameters<typeof target.execute>[0]) => {
+              reads++;
+              return target.execute(query);
+            };
+          }
+          return Reflect.get(target, key, receiver);
+        },
+      }),
+    };
+    try {
+      // Without the cursor the stopped clock would read the broken run for ever.
+      expect(
+        await suspicionPass(counting, { batch: 1, budgetMs: 60_000, clock: stoppedClock }),
+      ).toEqual({ judged: 1, suspicious: 0, alerts: 0, reminders: 0 });
+    } finally {
+      await q("ALTER TABLE restore_point_suspicions DROP CONSTRAINT test_refuses_ck");
+    }
+    expect(await judgement(broken as string)).toBeUndefined();
+    expect(await judgement(fine as string)).toBeDefined();
+    // The retention holds due for a reminder; machines: the broken run, the fine one, the empty
+    // batch and the count of the aged-out; every other kind: an empty batch and the count.
+    expect(reads).toBe(1 + 4 + 3 * 2);
+    // The next pass tries it again.
+    await suspicionPass(deps);
+    expect(await judgement(broken as string)).toBeDefined();
+  });
+
+  it("warns when restore points leave the window unjudged", async () => {
+    const lost = await endpointRun(ago(72 * HOUR + 60 * 1000), 300);
+    const warnings: LogRecord[] = [];
+    const logger = createLogger({ sink: (record) => warnings.push(record), level: "warn" });
+    await suspicionPass({ ...deps, runtime: { ...deps.runtime, logger } });
+    expect(await judgement(lost)).toBeUndefined();
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        message: "restore points left the ransomware window unjudged",
+        kind: "endpoint",
+        count: 1,
+        windowHours: 72,
+      }),
+    ]);
+  });
+
+  it("reads the waiting runs of every kind through its partial index", async () => {
+    for (const [kind, index] of [
+      ["endpoint", "endpoint_runs_suspicion_idx"],
+      ["file_share", "file_share_runs_suspicion_idx"],
+      ["pve_guest", "pve_runs_suspicion_idx"],
+      ["m365", "jobs_suspicion_idx"],
+    ] as const) {
+      for (const after of [null, { at: now.toISOString(), runId: randomUUID() }]) {
+        const plan = await owner.transaction(async (tx) => {
+          // The tables are tiny here: make the planner show which index it can use.
+          await tx.execute(sql`SET LOCAL enable_seqscan = off`);
+          const query = candidatesQuery(kind, ago(72 * HOUR), after, 200);
+          return (await tx.execute<{ "QUERY PLAN": string }>(sql`EXPLAIN ${query}`)).rows
+            .map((row) => row["QUERY PLAN"])
+            .join("\n");
+        });
+        expect(plan, `${kind} ${after ? "after a batch" : "first batch"}`).toContain(index);
+      }
+    }
   });
 });

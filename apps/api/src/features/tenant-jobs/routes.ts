@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db, providerDb } from "../../db.js";
 import { requireProviderAdmin, type SessionEnv } from "../../middleware/session.js";
 import { parseOrProblem } from "../../schemas.js";
+import { TenantFiguresCache } from "./figures-cache.js";
 import { loadTenantJobSummaries, loadTenantJobs, type TenantJobsDeps } from "./service.js";
 
 /**
@@ -17,7 +18,9 @@ import { loadTenantJobSummaries, loadTenantJobs, type TenantJobsDeps } from "./s
  *   GET /:tenantId    one tenant's jobs, read-only: name, scope, schedule, last and next run, state
  *
  * service.ts says which pool reads what: the tenant list on the installation pool, every
- * tenant's figures on the application pool in that tenant's pinned transaction.
+ * tenant's figures on the application pool in that tenant's pinned transaction. The figures of
+ * the overview are kept for half a minute for every viewer (figures-cache.ts); one tenant's jobs
+ * are always read fresh.
  */
 
 export interface TenantJobsRoutesDeps extends TenantJobsDeps {
@@ -28,10 +31,14 @@ const tenantParamSchema = z.object({ tenantId: z.string().uuid() });
 
 export function createTenantJobsRoutes(deps: TenantJobsRoutesDeps): Hono<SessionEnv> {
   const now = deps.now ?? (() => new Date());
+  const summaryDeps: TenantJobsDeps = {
+    ...deps,
+    figures: deps.figures ?? new TenantFiguresCache(),
+  };
   const routes = new Hono<SessionEnv>();
 
   routes.get("/", requireProviderAdmin, async (c) => {
-    return c.json(await loadTenantJobSummaries(deps, c.get("providerAccess"), now()));
+    return c.json(await loadTenantJobSummaries(summaryDeps, c.get("providerAccess"), now()));
   });
 
   routes.get("/:tenantId", requireProviderAdmin, async (c) => {

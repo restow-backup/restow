@@ -691,7 +691,24 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     const activityOf = async () =>
       (await service.overview(shared.db, fixture.tenantId)).guests.find((g) => g.vmid === 200)
         ?.activity;
+    // The sidebar's slim read (activity.ts) counts what the overview shows.
+    const sidebar = async () => {
+      const { pveActivity } = await import("./activity.js");
+      const slim = await pveActivity(shared.db, fixture.tenantId);
+      const { guests } = await service.overview(shared.db, fixture.tenantId);
+      expect(slim.connected).toBe(true);
+      expect(slim.queued).toBe(guests.filter((g) => g.activity === "queued").length);
+      expect(slim.running).toEqual(
+        guests
+          .filter((g) => g.activity === "running")
+          .map((g) => ({ id: g.id, vmid: g.vmid, name: g.name, jobName: g.jobName })),
+      );
+      return slim;
+    };
     expect(await activityOf()).toBe("queued");
+    const runsNow = async () => (await sidebar()).running.map((g) => g.vmid);
+    expect((await sidebar()).queued).toBe(1);
+    expect(await runsNow()).not.toContain(200);
     await call(node, "/heartbeat", { json: { helperVersion: "0.3.0", state: "idle" } });
     const run = await json<{ runId: string }>(
       await call(node, "/runs", {
@@ -706,6 +723,8 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       201,
     );
     expect(await activityOf()).toBe("running");
+    expect((await sidebar()).queued).toBe(0);
+    expect(await runsNow()).toContain(200);
     // "Back up now" belongs to no job's round: the jobs list shows it as a row of its own (#53).
     expect(
       (await service.overview(shared.db, fixture.tenantId)).guests.find((g) => g.vmid === 200),
@@ -722,6 +741,7 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       (g) => g.vmid === 200,
     );
     expect(guest).toMatchObject({ activity: null, lastRunStatus: "failed" });
+    expect(await runsNow()).not.toContain(200);
   });
 
   it("takes a long error from the node, cut, instead of refusing it", async () => {

@@ -249,6 +249,16 @@ Unless marked otherwise, everything below is part of every edition (the Communit
 - Dependencies: major updates of the build and test tooling and of two libraries: vite 8,
   @vitejs/plugin-react 6, vitest 5, lucide-react 1.x, commander 15, archiver 8,
   @biomejs/biome 2.5.
+- Performance on large installations: the "All tenants" view of Jobs looks up each
+  object's newest backup through an index, reads four tenants at a time and keeps each
+  tenant's figures for 30 seconds for every viewer (the page refreshes every 15 seconds
+  while something runs, else every minute); the sidebar's Proxmox VE badge asks a slim
+  endpoint instead of the whole VMs and containers overview; the ransomware judgement
+  reads new restore points through partial indexes, judges batch after batch for up to a
+  minute per pass and logs restore points that leave its 72-hour window unjudged; the
+  reconciler of left-behind jobs runs in one worker at a time; a heartbeat no longer
+  rewrites the machine's settings when its facts did not change.
+- The file share search needs at least three characters of the name.
 
 ### Fixed
 
@@ -329,6 +339,10 @@ database move.
   webhooks, a few rows per tenant, so they should take seconds on any installation. They
   ran on a 0.3.6 schema in the Postgres test suites; they were not timed on a
   production-size database.
+- One migration adds six partial indexes (`jobs`, `endpoint_runs`, `file_share_runs`,
+  `pve_runs`, `pve_tasks`). Each build reads its table once while writes to it wait (the
+  migrator cannot build them concurrently): seconds on most installations, about a minute
+  per ten million rows on large ones (docs/UPDATING.md).
 - 0035 creates the `pg_trgm` extension for the file share search when the database role
   may; an external PostgreSQL without it searches more slowly, with the same results.
 - New optional environment variables: `RESTOW_POSTGRES_DATA_TYPE` and

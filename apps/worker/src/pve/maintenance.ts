@@ -814,10 +814,17 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
         if (!snap) {
           continue;
         }
+        // By guest first: pve_runs_guest_started_idx reads the guest's runs, not every run.
         const [tried] = await tx
           .select({ id: pveRuns.id })
           .from(pveRuns)
-          .where(and(eq(pveRuns.kind, "boot_test"), eq(pveRuns.snapshotId, snap.id)))
+          .where(
+            and(
+              eq(pveRuns.guestId, guest.id),
+              eq(pveRuns.kind, "boot_test"),
+              eq(pveRuns.snapshotId, snap.id),
+            ),
+          )
           .limit(1);
         const due = pveBootTestDue(
           {
