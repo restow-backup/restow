@@ -1051,6 +1051,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
       expect(contoso).toEqual({
         logicalBytes: 8000,
         physicalBytes: 1500,
+        repositoryBytes: 0,
         target: { source: "installation_default", status: "ok" },
         immutability: { objectLock: 0, deletionDelay: 0, primary: "none", warnings: 0 },
       });

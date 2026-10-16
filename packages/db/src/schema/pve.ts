@@ -277,6 +277,10 @@ export const pveGuests = pgTable(
       onDelete: "set null",
     }),
     repositoryReadyAt: timestamp("repository_ready_at", { withTimezone: true }),
+    // The bytes the container's restic repository takes: measured once, then counted with
+    // every upload and measured again after a prune; null until first measured.
+    repositoryBytes: bigint("repository_bytes", { mode: "number" }),
+    repositoryMeasuredAt: timestamp("repository_measured_at", { withTimezone: true }),
     lastBackupAt: timestamp("last_backup_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastSnapshotId: uuid("last_snapshot_id"),

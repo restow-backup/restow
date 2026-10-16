@@ -21,7 +21,8 @@ import { UsageCard } from "./usage-card";
  * wrapper, and the note is never text under the chart.
  */
 
-const usage: StorageUsage = {
+let usage: StorageUsage;
+const chunkStoreOnly: StorageUsage = {
   logicalBytes: 311_000,
   retainedLogicalBytes: 7_500_000,
   physicalBytes: 363_000,
@@ -38,6 +39,7 @@ const usage: StorageUsage = {
   })),
   generatedAt: "2026-10-01T12:00:00.000Z",
 };
+usage = chunkStoreOnly;
 
 // happy-dom has no layout: give the chart the size the page would instead of measuring 0 × 0.
 vi.mock("recharts", async (importOriginal) => {
@@ -68,6 +70,7 @@ let root: Root | null = null;
 let container: HTMLElement | null = null;
 
 afterEach(() => {
+  usage = chunkStoreOnly;
   act(() => root?.unmount());
   container?.remove();
   root = null;
@@ -146,5 +149,45 @@ describe("storage usage chart", () => {
     const plot = host.querySelector('figure [role="img"]');
     expect(plot?.className).toContain("h-56");
     expect(plot?.className).toContain("overflow-hidden");
+  });
+});
+
+describe("stored bytes with restic repositories", () => {
+  const GB = 1024 ** 3;
+  it("counts the restic repositories under Stored and says what the figures leave out", async () => {
+    usage = {
+      ...chunkStoreOnly,
+      logicalBytes: 0,
+      retainedLogicalBytes: 0,
+      physicalBytes: 10_900 + 10 * GB,
+      stored: { chunkStore: 10_900, endpoints: 0, fileShares: 0, pveGuests: 10 * GB },
+      packCount: 1,
+      snapshotCount: 0,
+      protectedObjectCount: 0,
+    };
+    const text = (await renderCard("en")).textContent ?? "";
+    expect(text).toContain("10 GB");
+    expect(text).toContain("1 pack in the chunk store, 10 GB in restic repositories");
+    expect(text).toContain("Machines, file shares and containers not included");
+    expect(text).not.toContain("No completed backup yet");
+    expect(text).not.toContain("in every repository");
+  });
+
+  it("explains an empty chunk store beside filled restic repositories (de)", async () => {
+    usage = {
+      ...chunkStoreOnly,
+      logicalBytes: 0,
+      retainedLogicalBytes: 0,
+      physicalBytes: 4 * GB,
+      stored: { chunkStore: 0, endpoints: GB, fileShares: GB, pveGuests: 2 * GB },
+      packCount: 0,
+      snapshotCount: 0,
+      protectedObjectCount: 0,
+      series: chunkStoreOnly.series.map((point) => ({ ...point, bytes: 0 })),
+    };
+    const text = (await renderCard("de")).textContent ?? "";
+    expect(text).toContain("Der Chunk-Store ist noch leer.");
+    expect(text).toContain("Ohne Rechner, Freigaben und Container");
+    expect(text).not.toContain("Noch nichts gespeichert");
   });
 });

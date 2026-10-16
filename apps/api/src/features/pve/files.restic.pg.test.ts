@@ -26,7 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { serve } from "@hono/node-server";
-import { resticBinary } from "@restow/core";
+import { measureRepositoryBytes, resticBinary } from "@restow/core";
 import {
   acquireEndpointRepositoryLock,
   auditLog,
@@ -250,6 +250,22 @@ describe.skipIf(!canRun)("file restore of a container restore point (#62)", () =
     if (work) {
       await rm(work, { recursive: true, force: true });
     }
+  });
+
+  it("counts what the backup stored in the container's repository (0.4.1)", async () => {
+    const [row] = await fixture.db
+      .select({ bytes: pveGuests.repositoryBytes, at: pveGuests.repositoryMeasuredAt })
+      .from(pveGuests)
+      .where(eq(pveGuests.id, guestId));
+    const { tenantChunkStore } = await import("./store.js");
+    const store = await tenantChunkStore(fixture.tenantId);
+    const stored = await measureRepositoryBytes(store.write.primary, `pve-guests/${guestId}/`);
+    expect(stored).toBeGreaterThan(0);
+    expect(row?.at).toBeInstanceOf(Date);
+    // Measured at the first upload, then counted with every one: what restic left there, give
+    // or take an upload that finished while the first measurement listed the repository.
+    expect(row?.bytes).toBeGreaterThan(stored * 0.5);
+    expect(row?.bytes).toBeLessThanOrEqual(stored);
   });
 
   it("names what the restore point contains, as paths in the container", async () => {

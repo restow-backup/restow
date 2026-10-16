@@ -138,7 +138,10 @@ export interface ImmutabilityOverview {
 
 export interface StorageWidget {
   logicalBytes: number;
+  /** Everything stored: the chunk store and the restic repositories. */
   physicalBytes: number;
+  /** The restic repositories of machines, file shares and containers (not in logicalBytes). */
+  repositoryBytes: number;
   target: StorageTargetHealth;
   immutability: ImmutabilityOverview;
 }

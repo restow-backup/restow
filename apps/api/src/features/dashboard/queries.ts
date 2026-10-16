@@ -36,6 +36,7 @@ import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { DEFAULT_STORAGE_AUDIT_ACTIONS } from "../settings/default-storage.js";
 import { SETTINGS_AUDIT_ACTIONS } from "../settings/service.js";
 import { toImmutabilityDto } from "../storage/immutability-dto.js";
+import { loadRepositoryBytes, totalRepositoryBytes } from "../storage/repository-bytes.js";
 import { STORAGE_AUDIT_ACTIONS } from "../storage/service.js";
 import type {
   BackupDayDto,
@@ -184,6 +185,8 @@ async function shareSetupFacts(tx: Transaction, tenantId: string): Promise<Setup
 export interface TenantFacts {
   kinds: ObjectKindCounts;
   storage: StorageTargetHealth;
+  /** The bytes of the restic repositories (machines, file shares, containers), part of "Stored". */
+  repositoryBytes: number;
   immutability: ImmutabilityOverview;
   setup: Omit<SetupFacts, "storage" | "mail">;
   retention: {
@@ -481,6 +484,7 @@ export async function loadTenantFacts(
     return {
       kinds,
       storage: await storageHealth(tx, tenantId, env, installationTest, defaultConfigured),
+      repositoryBytes: totalRepositoryBytes(await loadRepositoryBytes(tx, tenantId)),
       immutability: await immutabilityOverview(tx, tenantId, new Date()),
       setup: {
         sources: {

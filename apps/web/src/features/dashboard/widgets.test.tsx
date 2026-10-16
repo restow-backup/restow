@@ -801,6 +801,42 @@ describe("key figures", () => {
     expect(empty).toContain("Nothing stored yet");
   });
 
+  it("counts the restic repositories as stored, never as 0 B backed up", () => {
+    const GIB = 1024 ** 3;
+    const containers = render(
+      <StorageWidget
+        view={ready({
+          logicalBytes: 0,
+          physicalBytes: 10 * GIB + 10_900,
+          repositoryBytes: 10 * GIB,
+          target: { source: "tenant", status: "ok" },
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(containers);
+    expect(containers).toContain(
+      "10 GB in the restic repositories of machines, file shares and containers",
+    );
+    expect(containers).not.toContain("backed up");
+    // The saving is the chunk store's: the repositories are not set against the logical bytes.
+    const mixed = render(
+      <StorageWidget
+        view={ready({
+          logicalBytes: 4 * GIB,
+          physicalBytes: 3 * GIB,
+          repositoryBytes: 2 * GIB,
+          target: { source: "tenant", status: "ok" },
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expect(mixed).toContain("4 GB backed up");
+    expect(mixed).toContain("75% saved by deduplication");
+  });
+
   it("shows the protected mailboxes without an edition, a limit or a license link", () => {
     const installation = render(
       <MailboxUsageWidget view={ready(data.mailboxUsage)} {...state} isProviderAdmin />,

@@ -194,6 +194,7 @@
     "title": "Gespeichert",
     "logical": "{bytes} gesichert",
     "saved": "{share} durch Deduplizierung gespart",
+    "repositories": "{bytes} in den restic-Repositories von Rechnern, Freigaben und Containern",
     "link": "Repositories öffnen",
     "target": {
       "unverified": "Repository noch nicht getestet",

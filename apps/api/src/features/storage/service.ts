@@ -76,6 +76,7 @@ import {
   type HostResolver,
 } from "./endpoint-policy.js";
 import { deferredDeletionCounts } from "./immutability.js";
+import { loadRepositoryBytes } from "./repository-bytes.js";
 import {
   canManageKind,
   credentialsBoundElsewhere,
@@ -2220,7 +2221,10 @@ function toNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/** Logical vs physical bytes and the growth of the chunk store (see usage.ts). */
+/**
+ * Logical vs physical bytes and the growth of the chunk store, plus the restic repositories
+ * in the stored bytes (see usage.ts).
+ */
 export async function storageUsage(
   db: Database,
   tenantId: string,
@@ -2258,6 +2262,8 @@ export async function storageUsage(
         order by ${snapshots.protectedObjectId}, ${snapshots.sequence} desc
       ) as latest`);
 
+    const repositories = await loadRepositoryBytes(tx, tenantId);
+
     const retainedRow = (retained.rows[0] ?? {}) as Record<string, unknown>;
     const latestRow = (latest.rows[0] ?? {}) as Record<string, unknown>;
     const daily: DailyBytes[] = dailyRows.map((row) => ({
@@ -2275,6 +2281,7 @@ export async function storageUsage(
       },
       daily,
       now,
+      repositories,
     );
   });
 }

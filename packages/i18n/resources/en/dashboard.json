@@ -194,6 +194,7 @@
     "title": "Stored",
     "logical": "{bytes} backed up",
     "saved": "{share} saved by deduplication",
+    "repositories": "{bytes} in the restic repositories of machines, file shares and containers",
     "link": "Open repositories",
     "target": {
       "unverified": "Repository not tested yet",

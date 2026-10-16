@@ -11,6 +11,7 @@ import {
 import { type SQL, sql } from "drizzle-orm";
 import { notImported, notImportedRaw, snapshotNotImportedRaw } from "../../lib/imported-objects.js";
 import type { Transaction } from "../../lib/tenant-context.js";
+import { loadRepositoryBytes, totalRepositoryBytes } from "../storage/repository-bytes.js";
 import { MAX_LARGEST_OBJECTS } from "./aggregate.js";
 import type { TenantRefDto } from "./dto.js";
 import { collectEndpointFacts } from "./endpoint-facts.js";
@@ -41,7 +42,9 @@ import { collectShareFacts } from "./share-facts.js";
  *                   under `payload.runtime.throttle`)
  *   restore_jobs    restores, with the outcome of their job
  *   snapshots       logical bytes (`byte_size`)
- *   packs           physical bytes (`size`)
+ *   packs           physical bytes (`size`), with the restic repositories of
+ *                   machines, file shares and containers (`repository_bytes`,
+ *                   their current size; storage/repository-bytes.ts)
  *   verify_reports  recovery readiness
  *   item_failures   failed items and their causes
  *
@@ -141,10 +144,12 @@ async function levelsAt(tx: Transaction, tenantId: string, moment: Date): Promis
         (select coalesce(sum(${packs.size}), 0)::float8 from ${packs}
           where ${packs.tenantId} = ${tenantId} and ${packs.createdAt} < ${moment}) as physical_bytes`,
   );
+  const repositoryBytes = totalRepositoryBytes(await loadRepositoryBytes(tx, tenantId, moment));
   return {
     logicalBytes: toNumber(row?.logical_bytes),
     retainedBytes: toNumber(row?.retained_bytes),
-    physicalBytes: toNumber(row?.physical_bytes),
+    physicalBytes: toNumber(row?.physical_bytes) + repositoryBytes,
+    repositoryBytes,
   };
 }
 

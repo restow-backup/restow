@@ -315,37 +315,49 @@ export function StorageWidget({
           : null
       }
     >
-      {(data) => (
-        <KpiTile
-          label={t("storage.title")}
-          icon={HardDrive}
-          value={formatBytes(data.physicalBytes, language)}
-          hint={
-            <span className="flex flex-col gap-1.5">
-              <span>
-                {t("storage.logical", { bytes: formatBytes(data.logicalBytes, language) })}
-                {data.logicalBytes > 0
-                  ? ` · ${t("storage.saved", {
-                      share: formatPercent(
-                        dedupSaving(data.logicalBytes, data.physicalBytes),
-                        language,
-                      ),
-                    })}`
-                  : null}
+      {(data) => {
+        // The restic repositories have no logical size: the saving is the chunk store's alone.
+        const repositoryBytes = data.repositoryBytes ?? 0;
+        const chunkStoreBytes = Math.max(0, data.physicalBytes - repositoryBytes);
+        return (
+          <KpiTile
+            label={t("storage.title")}
+            icon={HardDrive}
+            value={formatBytes(data.physicalBytes, language)}
+            hint={
+              <span className="flex flex-col gap-1.5">
+                {data.logicalBytes > 0 || repositoryBytes === 0 ? (
+                  <span>
+                    {t("storage.logical", { bytes: formatBytes(data.logicalBytes, language) })}
+                    {data.logicalBytes > 0
+                      ? ` · ${t("storage.saved", {
+                          share: formatPercent(
+                            dedupSaving(data.logicalBytes, chunkStoreBytes),
+                            language,
+                          ),
+                        })}`
+                      : null}
+                  </span>
+                ) : null}
+                {repositoryBytes > 0 ? (
+                  <span>
+                    {t("storage.repositories", { bytes: formatBytes(repositoryBytes, language) })}
+                  </span>
+                ) : null}
+                <StorageTargetBadge target={data.target} />
+                <ImmutabilityLine immutability={data.immutability} />
               </span>
-              <StorageTargetBadge target={data.target} />
-              <ImmutabilityLine immutability={data.immutability} />
-            </span>
-          }
-          link={
-            canAdminister ? (
-              <LinkButton to={to(PATHS.storage)} variant="link" size="xs" className="px-0">
-                {t("storage.link")}
-              </LinkButton>
-            ) : undefined
-          }
-        />
-      )}
+            }
+            link={
+              canAdminister ? (
+                <LinkButton to={to(PATHS.storage)} variant="link" size="xs" className="px-0">
+                  {t("storage.link")}
+                </LinkButton>
+              ) : undefined
+            }
+          />
+        );
+      }}
     </TileWidget>
   );
 }

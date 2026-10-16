@@ -23,8 +23,9 @@ import { byteTicks, seriesForRange, USAGE_RANGES, type UsageRange, usageDateLabe
 import { useStorageUsage } from "../use-storage";
 
 /**
- * How much the tenant protects (logical) against what it takes in the chunk
- * store (physical), what deduplication saves, and how the store grew over
+ * How much the tenant protects (logical) against what it stores (physical: the
+ * chunk store and the restic repositories of machines, file shares and
+ * containers), what deduplication saves, and how the chunk store grew over
  * 30 or 90 days. One series, so no legend: the title names it.
  *
  * The chart's title is rendered once (the figure caption) and its note only
@@ -77,12 +78,24 @@ export function UsageCard() {
   );
 }
 
+/** The chunk store and the restic repositories of machines, file shares and containers. */
+function storedParts(usage: StorageUsage): { chunkStore: number; repositories: number } {
+  if (!usage.stored) {
+    return { chunkStore: usage.physicalBytes, repositories: 0 };
+  }
+  const { chunkStore, endpoints, fileShares, pveGuests } = usage.stored;
+  return { chunkStore, repositories: endpoints + fileShares + pveGuests };
+}
+
 function UsageBody({ usage, range }: { usage: StorageUsage; range: UsageRange }) {
   const { t, i18n } = useTranslation("storage");
   const language = i18n.resolvedLanguage ?? i18n.language;
   const growth = range === 30 ? usage.growth.days30 : usage.growth.days90;
-  const savings = dedupSavings(usage.retainedLogicalBytes, usage.physicalBytes);
+  const { chunkStore, repositories } = storedParts(usage);
+  // Deduplication, growth and the chart are figures of the chunk store alone.
+  const savings = dedupSavings(usage.retainedLogicalBytes, chunkStore);
   const empty = usage.physicalBytes === 0 && usage.logicalBytes === 0;
+  const chunkStoreEmpty = chunkStore === 0 && usage.logicalBytes === 0;
 
   return (
     <div className="space-y-6">
@@ -90,12 +103,23 @@ function UsageBody({ usage, range }: { usage: StorageUsage; range: UsageRange })
         <Stat
           label={t("usage.logical")}
           value={formatBytes(usage.logicalBytes, language)}
-          hint={t("usage.logicalHint", { count: usage.protectedObjectCount })}
+          hint={
+            repositories > 0
+              ? t("usage.logicalHintRepositories", { count: usage.protectedObjectCount })
+              : t("usage.logicalHint", { count: usage.protectedObjectCount })
+          }
         />
         <Stat
           label={t("usage.physical")}
           value={formatBytes(usage.physicalBytes, language)}
-          hint={t("usage.physicalHint", { count: usage.packCount })}
+          hint={
+            repositories > 0
+              ? t("usage.physicalHintRepositories", {
+                  count: usage.packCount,
+                  bytes: formatBytes(repositories, language),
+                })
+              : t("usage.physicalHint", { count: usage.packCount })
+          }
         />
         <Stat
           label={t("usage.savings")}
@@ -115,9 +139,9 @@ function UsageBody({ usage, range }: { usage: StorageUsage; range: UsageRange })
           }
         />
       </dl>
-      {empty ? (
+      {empty || chunkStoreEmpty ? (
         <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-          {t("usage.empty")}
+          {empty ? t("usage.empty") : t("usage.emptyChunkStore")}
         </p>
       ) : (
         <UsageChart series={seriesForRange(usage.series, range)} />

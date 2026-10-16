@@ -27,8 +27,17 @@ export interface StoredLevels {
    * up, whatever its object's status: it is what the stored bytes hold.
    */
   readonly retainedBytes: number;
-  /** Pack bytes created before the moment that still exist. */
+  /**
+   * Pack bytes created before the moment that still exist, plus the restic repositories
+   * (`repositoryBytes`).
+   */
   readonly physicalBytes: number;
+  /**
+   * The restic repositories of machines, file shares and Proxmox VE containers created before
+   * the moment, at their current size (a repository keeps no history of its size). Part of
+   * `physicalBytes`, never of the logical or retained bytes.
+   */
+  readonly repositoryBytes?: number;
 }
 
 /** Figures that describe a moment. */

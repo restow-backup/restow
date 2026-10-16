@@ -170,6 +170,35 @@ describe("buildStats", () => {
     expect(stats.kpis.protectedObjects).toEqual({ value: 2, previous: 1 });
   });
 
+  it("counts restic repositories as stored, but never in the deduplication ratio", () => {
+    const stats = build([
+      facts({
+        protectedObjectCount: 1,
+        hasBackups: true,
+        objects: [protectedObject("o-1", "2026-09-01")],
+        levels: {
+          start: levels({ physicalBytes: 600 + 5000, retainedBytes: 1200, repositoryBytes: 5000 }),
+          end: levels({ physicalBytes: 1000 + 5000, retainedBytes: 3000, repositoryBytes: 5000 }),
+        },
+      }),
+    ]);
+    expect(stats.kpis.physicalBytes).toEqual({ value: 6000, previous: 5600 });
+    expect(stats.kpis.dedupRatio).toEqual({ value: 3, previous: 2 });
+  });
+
+  it("has backups to report for a tenant whose data is only in restic repositories", () => {
+    const stats = build([
+      facts({
+        levels: {
+          start: levels({ physicalBytes: 5000, repositoryBytes: 5000 }),
+          end: levels({ physicalBytes: 7000, repositoryBytes: 7000 }),
+        },
+      }),
+    ]);
+    expect(stats.kpis.physicalBytes).toEqual({ value: 7000, previous: 5000 });
+    expect(stats.kpis.dedupRatio).toEqual({ value: null, previous: null });
+  });
+
   it("adds tenants up in the provider scope and lists each of them", () => {
     const contoso = facts({
       tenant: { id: "t-1", name: "Contoso" },

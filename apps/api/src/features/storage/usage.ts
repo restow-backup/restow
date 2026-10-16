@@ -6,8 +6,14 @@
  *                           it: the latest completed snapshot of every object
  *   retained logical bytes  every retained snapshot added up, i.e. what the
  *                           history would take without deduplication
- *   physical bytes          the sealed packs actually stored (deduplicated and
- *                           encrypted); every target holds this amount
+ *   physical bytes          everything stored: the sealed packs of the chunk
+ *                           store (deduplicated and encrypted; every target
+ *                           holds this amount) plus the restic repositories of
+ *                           machines, file shares and Proxmox VE containers
+ *                           (repository-bytes.ts), in the primary repository
+ *
+ * Deduplication savings and growth are figures of the chunk store alone: the
+ * restic repositories keep no history of their size.
  *
  * Growth comes from the pack rows: a pack is written once and never changes, so
  * its creation date is when its bytes were added. Packs that garbage collection
@@ -36,10 +42,22 @@ export interface GrowthWindow {
   readonly ratio: number | null;
 }
 
+/** What each kind of repository stores (physical bytes = their sum). */
+export interface StoredBySource {
+  /** The packs of the chunk store. */
+  readonly chunkStore: number;
+  /** The restic repositories of machines (agents). */
+  readonly endpoints: number;
+  readonly fileShares: number;
+  /** The restic repositories of Proxmox VE containers. */
+  readonly pveGuests: number;
+}
+
 export interface UsageDto {
   readonly logicalBytes: number;
   readonly retainedLogicalBytes: number;
   readonly physicalBytes: number;
+  readonly stored: StoredBySource;
   readonly packCount: number;
   readonly snapshotCount: number;
   /** Objects with at least one completed snapshot. */
@@ -117,14 +135,30 @@ export function growthOver(series: readonly UsagePoint[], days: number): GrowthW
 export interface UsageTotals {
   readonly logicalBytes: number;
   readonly retainedLogicalBytes: number;
+  /** The packs of the chunk store. */
   readonly physicalBytes: number;
   readonly packCount: number;
   readonly snapshotCount: number;
   readonly protectedObjectCount: number;
 }
 
-/** Assemble the usage response from the totals and the per-day pack bytes. */
-export function buildUsage(totals: UsageTotals, daily: readonly DailyBytes[], now: Date): UsageDto {
+/** The restic repositories beside the chunk store (repository-bytes.ts). */
+export interface RepositoryTotals {
+  readonly endpoints: number;
+  readonly fileShares: number;
+  readonly pveGuests: number;
+}
+
+/**
+ * Assemble the usage response from the totals and the per-day pack bytes. The series and
+ * the growth follow the chunk store; the stored bytes add the restic repositories.
+ */
+export function buildUsage(
+  totals: UsageTotals,
+  daily: readonly DailyBytes[],
+  now: Date,
+  repositories: RepositoryTotals = { endpoints: 0, fileShares: 0, pveGuests: 0 },
+): UsageDto {
   // One day more than shown, so the 90-day growth has a starting value before the window.
   const extended = buildGrowthSeries({
     totalBytes: totals.physicalBytes,
@@ -132,8 +166,16 @@ export function buildUsage(totals: UsageTotals, daily: readonly DailyBytes[], no
     today: now,
     days: SERIES_DAYS + 1,
   });
+  const stored: StoredBySource = {
+    chunkStore: totals.physicalBytes,
+    endpoints: repositories.endpoints,
+    fileShares: repositories.fileShares,
+    pveGuests: repositories.pveGuests,
+  };
   return {
     ...totals,
+    physicalBytes: stored.chunkStore + stored.endpoints + stored.fileShares + stored.pveGuests,
+    stored,
     growth: { days30: growthOver(extended, 30), days90: growthOver(extended, SERIES_DAYS) },
     series: extended.slice(1),
     generatedAt: now.toISOString(),

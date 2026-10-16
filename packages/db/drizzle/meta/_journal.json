@@ -365,6 +365,13 @@
       "when": 1792130899932,
       "tag": "0051_agent_waiting",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1792153420717,
+      "tag": "0052_pve_guest_repository_bytes",
+      "breakpoints": true
     }
   ]
 }

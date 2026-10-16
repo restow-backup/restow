@@ -282,7 +282,10 @@ export function aggregateTenant(
         guestFacts.list.length > 0 ||
         shareFacts.list.length > 0,
       backups:
-        facts.hasBackups || shareFacts.volume.length > 0 || shareFacts.restorePoints.length > 0,
+        facts.hasBackups ||
+        shareFacts.volume.length > 0 ||
+        shareFacts.restorePoints.length > 0 ||
+        (facts.levels.end.repositoryBytes ?? 0) > 0,
       microsoft365: facts.hasMicrosoft365,
     },
     backups,

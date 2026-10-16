@@ -1,6 +1,10 @@
 import { type Database, packs, type StorageTarget, snapshots, storageTargets } from "@restow/db";
 import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import {
+  loadRepositoryBytes,
+  totalRepositoryBytes,
+} from "../../features/storage/repository-bytes.js";
 import { snapshotNotImported } from "../../lib/imported-objects.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { type IntegrationApi, READ_ERRORS, type V1Deps } from "./api.js";
@@ -14,8 +18,10 @@ import { timestampSchema, uuidSchema } from "./schemas.js";
  *
  *   logical bytes   the protected data as the sources hold it: the newest
  *                   restorable snapshot of every object
- *   physical bytes  the packs actually stored (deduplicated, encrypted);
- *                   every target of the tenant holds this amount
+ *   physical bytes  everything stored: the packs of the chunk store
+ *                   (deduplicated, encrypted; every target of the tenant
+ *                   holds this amount) plus the restic repositories of
+ *                   machines, file shares and Proxmox VE containers
  *   growth          bytes of the packs written in the last 30 / 90 days (a
  *                   pack is immutable, so its creation date is when its bytes
  *                   were added; packs replaced by garbage collection are gone)
@@ -122,7 +128,11 @@ export async function loadStorageTotals(tx: Transaction, tenantId: string): Prom
     .select({ bytes: sql<number>`coalesce(sum(${packs.size}), 0)`.mapWith(Number) })
     .from(packs)
     .where(eq(packs.tenantId, tenantId));
-  return { logicalBytes: logical?.bytes ?? 0, physicalBytes: physical?.bytes ?? 0 };
+  const repositories = totalRepositoryBytes(await loadRepositoryBytes(tx, tenantId));
+  return {
+    logicalBytes: logical?.bytes ?? 0,
+    physicalBytes: (physical?.bytes ?? 0) + repositories,
+  };
 }
 
 export async function loadStorage(db: Database, tenantId: string, now: Date): Promise<StorageDto> {

@@ -273,10 +273,21 @@ export interface GrowthWindow {
   ratio: number | null;
 }
 
+/** What each kind of repository stores; physicalBytes is their sum. */
+export interface StoredBySource {
+  chunkStore: number;
+  endpoints: number;
+  fileShares: number;
+  pveGuests: number;
+}
+
 export interface StorageUsage {
   logicalBytes: number;
   retainedLogicalBytes: number;
+  /** Everything stored: the chunk store and the restic repositories. */
   physicalBytes: number;
+  /** The breakdown of physicalBytes (absent from an older api: the chunk store alone). */
+  stored?: StoredBySource;
   packCount: number;
   snapshotCount: number;
   protectedObjectCount: number;

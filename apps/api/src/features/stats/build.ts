@@ -147,8 +147,9 @@ export function buildStats(input: BuildInput): StatsDto {
       physicalBytes: kpi(noBackups === null, end.physicalBytes, start.physicalBytes),
       dedupRatio: kpi(
         noBackups === null,
-        ratio(end.retainedBytes, end.physicalBytes, 2),
-        ratio(start.retainedBytes, start.physicalBytes, 2),
+        // Deduplication is the chunk store's: the restic repositories have no retained bytes.
+        ratio(end.retainedBytes, end.physicalBytes - (end.repositoryBytes ?? 0), 2),
+        ratio(start.retainedBytes, start.physicalBytes - (start.repositoryBytes ?? 0), 2),
       ),
       restores: kpi(
         noBackups === null,

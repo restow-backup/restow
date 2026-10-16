@@ -34,6 +34,7 @@ import {
   deleteOnAllTargets,
   loadManifest,
   mapChunkIds,
+  measureRepositoryBytes,
   PVE_BOOT_TEST_CAPABILITY,
   protectionOnTargets,
   pveBootTestDue,
@@ -542,6 +543,14 @@ async function forgetResticSnapshots(deps: PveDeps, guest: PveGuest, ids: string
       await resticForget(session, ids);
       await resticPrune(session);
     }),
+  );
+  // The prune freed space the restic route never saw: measure the repository again.
+  const repositoryBytes = await measureRepositoryBytes(access.storage, access.prefix);
+  await withTenantTx(deps.db, guest.tenantId, (tx) =>
+    tx
+      .update(pveGuests)
+      .set({ repositoryBytes, repositoryMeasuredAt: deps.runtime.now() })
+      .where(eq(pveGuests.id, guest.id)),
   );
 }
 

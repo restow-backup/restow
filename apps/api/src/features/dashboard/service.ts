@@ -426,6 +426,7 @@ function buildWidgets(
         widgets.storage = widget([summary, facts], () => ({
           logicalBytes: value(summary).storage.logicalBytes,
           physicalBytes: value(summary).storage.physicalBytes,
+          repositoryBytes: value(facts).repositoryBytes,
           target: value(facts).storage,
           immutability: value(facts).immutability,
         }));

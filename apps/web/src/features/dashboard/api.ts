@@ -100,7 +100,10 @@ export interface ReadinessWidget {
 
 export interface StorageWidget {
   logicalBytes: number;
+  /** Everything stored: the chunk store and the restic repositories. */
   physicalBytes: number;
+  /** The restic repositories of machines, file shares and containers (absent from an older api). */
+  repositoryBytes?: number;
   target: {
     source: "tenant" | "installation_default";
     status: "ok" | "error" | "unverified" | "misconfigured";

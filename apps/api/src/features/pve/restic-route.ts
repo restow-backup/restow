@@ -1,12 +1,13 @@
-import { secretMatchesHash } from "@restow/core";
-import { pveRuns, tenants } from "@restow/db";
-import { eq } from "drizzle-orm";
+import { measureRepositoryBytes, type StorageBackend, secretMatchesHash } from "@restow/core";
+import { pveGuests, pveRuns, tenants } from "@restow/db";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import {
   buildRunResticRoute,
   processLocalLocks,
   type RunResticResolution,
 } from "../../lib/restic-run-route.js";
+import { withTenantTx } from "../../lib/tenant-context.js";
 import { authFailures } from "../endpoints/agent-auth.js";
 import { auditPve, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { PVE_RESTIC_PATH } from "./meta.js";
@@ -25,6 +26,12 @@ import { tenantChunkStore } from "./store.js";
  * Built on the run-scoped route builder shared with file shares
  * (lib/restic-run-route.ts, docs/FILESHARES.md 5.3); the lock registry stays
  * process-local, as it was.
+ *
+ * The bytes the repository takes (`pve_guests.repository_bytes`, counted in the
+ * tenant's stored bytes) are measured once, at the first upload after they were
+ * unknown, then counted with every upload and deletion; the worker measures
+ * them again after a prune. The repository may live on NFS: a view never
+ * measures.
  */
 
 /** The credential of a container backup run, checked against `pve_runs`. */
@@ -75,6 +82,60 @@ export async function resolvePveRunCredential(
   };
 }
 
+export interface GuestKey {
+  tenantId: string;
+  guestId: string;
+}
+
+/** Measurements in progress, one per guest: concurrent uploads wait for the same listing. */
+const measuring = new Map<string, Promise<number>>();
+
+function measureOnce(guest: GuestKey, storage: StorageBackend): Promise<number> {
+  const pending = measuring.get(guest.guestId);
+  if (pending) {
+    return pending;
+  }
+  const measured = (async () => {
+    const bytes = await measureRepositoryBytes(storage, guestRepositoryPrefix(guest.guestId));
+    await withTenantTx(db, guest.tenantId, (tx) =>
+      tx
+        .update(pveGuests)
+        .set({ repositoryBytes: bytes, repositoryMeasuredAt: new Date() })
+        .where(and(eq(pveGuests.id, guest.guestId), isNull(pveGuests.repositoryBytes))),
+    );
+    return bytes;
+  })().finally(() => measuring.delete(guest.guestId));
+  measuring.set(guest.guestId, measured);
+  return measured;
+}
+
+/**
+ * Count the bytes an upload added (or a deletion freed). While the size is unknown (a
+ * repository from before 0.4.1), an upload measures the repository once instead, the
+ * new file included.
+ */
+export async function addGuestUsage(
+  guest: GuestKey,
+  storage: StorageBackend,
+  action: string,
+  bytes: number,
+): Promise<void> {
+  const delta = action === "write" ? bytes : action === "delete" ? -bytes : 0;
+  if (delta === 0) {
+    return;
+  }
+  const counted = await withTenantTx(db, guest.tenantId, (tx) =>
+    tx
+      .update(pveGuests)
+      .set({ repositoryBytes: sql`greatest(0, ${pveGuests.repositoryBytes} + ${delta})` })
+      .where(and(eq(pveGuests.id, guest.guestId), isNotNull(pveGuests.repositoryBytes)))
+      .returning({ id: pveGuests.id }),
+  );
+  if (counted.length === 0 && action === "write") {
+    await measureOnce(guest, storage);
+  }
+}
+
 /** Lock files a run wrote (process-local; restic removes its own lock at the end). */
 const runLocks = processLocalLocks();
 
@@ -84,6 +145,15 @@ export const pveResticRoutes = buildRunResticRoute({
   realm: "restow-pve",
   resolve: resolvePveRunCredential,
   locks: (access) => runLocks(access.runId),
+  onAllowed: async (access, guestId, bytes, action) => {
+    // The accounting never fails the upload itself.
+    await addGuestUsage(
+      { tenantId: access.tenantId, guestId },
+      access.storage,
+      action,
+      bytes,
+    ).catch(() => undefined);
+  },
   failures: authFailures,
   audit: (access, guestId, denial) => {
     void auditPve(db, {
