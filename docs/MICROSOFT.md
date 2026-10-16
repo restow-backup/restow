@@ -123,7 +123,7 @@ Schutzumfang" anzeigen, nicht als Fehler).
 ## SharePoint Online: Sichern und Wiederherstellen
 
 Eine SharePoint-Website ist ein eigenes geschütztes Objekt (`protected_objects.kind = 'site'`,
-Migration `0047_sharepoint_sites`), keinem Nutzer zugeordnet. Code: Graph-Ressourcen in
+Migration `0046_sharepoint_sites`), keinem Nutzer zugeordnet. Code: Graph-Ressourcen in
 `packages/core/src/graph/resources/sites.ts`, Erkennung in `packages/core/src/directory/sites.ts`,
 Sicherung in `packages/core/src/backup/sharepoint`, Wiederherstellung in
 `packages/core/src/restore/sharepoint.ts`.

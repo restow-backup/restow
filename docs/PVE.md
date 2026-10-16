@@ -465,6 +465,6 @@ container" and "Files of a VM"), files of VMs on btrfs, ZFS, ReFS, LVM thin or
 RAID volumes, BitLocker or LUKS, NTFS-compressed or EFS files (see "Files of a
 VM"), log replay of XFS and NTFS for crash-consistent VM restore points, boot
 tests on nodes before the release with boot tests and boot tests with
-application checks or port checks (see "Boot test"), S3 Object Lock
-for VM data, more than one tenant per cluster, PVE on arm64. Jobs for VMs and containers are kept apart from the mail and machine
+application checks or port checks (see "Boot test"), more than one tenant
+per cluster, PVE on arm64. Jobs for VMs and containers are kept apart from the mail and machine
 jobs (`pve_jobs`) in this release.

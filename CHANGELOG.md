@@ -19,9 +19,14 @@ Restow 0.4.0 backs up SMB and NFS file shares from the server, without an agent 
 file server, and restores them with their permissions. It adds a notification matrix per
 channel and event, shows the progress of running Proxmox VE backups, lets an update wait
 for or cleanly stop the backups in progress, and moves the database to another disk from
-the web interface. Nine database migrations run at start; file share backup and the
-database move need the 0.4.0 `docker-compose.yml` (run the 0.4.0 installer again after
-the update, see Upgrade Notes).
+the web interface. It adds immutable backups (S3 Object Lock per repository, a deletion
+delay for directories), ransomware detection on every new restore point with a retention
+hold while a finding is unresolved, boot tests and file restore (Preview) of Proxmox VE VM
+restore points, backup and restore of SharePoint Online sites, agent policies, and file
+restore for the restore role. S3 endpoints saved from now on must use HTTPS. Sixteen
+database migrations run at start; file share backup and the database move need the 0.4.0
+`docker-compose.yml` (run the 0.4.0 installer again after the update, see Upgrade Notes).
+SharePoint needs an added permission and a new admin consent per tenant.
 
 ### Breaking Changes
 
@@ -110,6 +115,83 @@ Unless marked otherwise, everything below is part of every edition (the Communit
   File share runners, on the same page, sets how many runs go at a time and the memory per
   run.
 
+#### Immutable backups
+
+- **Immutability per repository**, on each repository's card (Repositories › **Change
+  immutability**), off until an administrator turns it on. What is locked: packs,
+  committed manifests and wrapped keys of the chunk store (Microsoft 365, IMAP, Proxmox VE
+  disks) and the `data/`, `snapshots/`, `keys/` and `config` objects of every restic
+  repository (machines, file shares, Proxmox VE containers). Not locked: checkpoints,
+  staging, exports, downloads, restic `locks/` and `index/` files (`restic repair index`
+  rebuilds the index from the locked packs). See docs/STORAGE.md, "Immutable backups".
+- **S3 Object Lock** (`compliance` or `governance`, 1 to 3650 days): turning it on checks
+  the bucket's Object Lock configuration and refuses a bucket without it. Every locked
+  object is written with a retain-until date of the period plus 7 days; the daily retention
+  job **renews** the lock of every object still in use once the last complete renewal is 6
+  days old, so data that new restore points reuse stays locked for at least the period.
+  A renewal that was interrupted continues where it stopped. Retention, garbage collection
+  and restic prune treat a deletion the storage refuses as "not yet": the restore point
+  stays visible and restorable, and space comes back once the lock has run out (up to the
+  period plus 7 days later). Restow never sends the governance bypass header.
+- **Deletion delay** for directories (the Docker volume, an NFS share): Restow's own code
+  refuses to delete or overwrite a locked file until the period has passed since it was
+  written. It protects against misuse of Restow (a stolen administrator account, a
+  retention policy shortened to delete restore points), not against someone with access to
+  the server or the share, and the interface says that it is not immutability.
+- **Verification**: the daily retention job and **Verify now** ask the storage for the
+  retention of a sample of recent objects; objects without a lock or in a weaker mode, a
+  renewal that is overdue or failed and deletions waiting for their lock are shown on the
+  repository card, the dashboard's storage tile and, as `immutability_warning`, in the
+  provider view. Restore points of the restore explorer and of a machine show "Immutable
+  until <date>", green only for a COMPLIANCE retention the storage itself reported.
+- **Who may change it**: raising the protection is open to whoever may configure the
+  repository; lowering it (fewer days, a weaker mode, off) is for the provider owner with a
+  sign-in from the last ten minutes and applies only to data written from then on. Every
+  change and verification is audited (`storage.target.immutability_changed`).
+- What it protects against: an attacker on the Restow server, someone holding Restow's
+  storage key, a stolen administrator account, a shortened retention policy. What not:
+  someone who controls Restow can stop new locks and the renewal (what is locked stays
+  locked until its date); a GOVERNANCE lock is lifted by any account with
+  `s3:BypassGovernanceRetention`; delete markers and newer versions can hide locked data
+  (the locked versions stay and can be brought back); the master key is not in the bucket.
+
+#### Ransomware detection
+
+- **Every new restore point is judged** for signs of ransomware from data the backup
+  already has, every two minutes, for runs of the last 72 hours: the amount of change
+  (new and changed files, bytes added) against the object's own history, mass deletions,
+  renamed extensions, known ransomware extensions and ransom notes (versioned lists,
+  matched on the server), the entropy of sampled new files, and the compression and
+  deduplication ratio of the run's new data. The signals apply per kind of object:
+  machines, file shares, Proxmox VE containers and VMs, mailboxes, OneDrives, SharePoint
+  sites and IMAP accounts (deletions, renames, names and entropy exist only for machines,
+  file shares and OneDrives). A signal without data says "not
+  available", never clean. It never reads the data a second time, never blocks a backup
+  and is no virus scanner. See docs/RANSOMWARE.md.
+- **Suspicious** badge (red) on the restore point and the object in every restore view;
+  when the newest restore point is suspicious, the restore views offer the newest one
+  without findings. A click shows each finding with its numbers and the state of every
+  signal.
+- **False alarm**: technicians and administrators mark a finding as a false alarm with a
+  note, or take it back (audited, `suspicion.false_alarm`, `suspicion.false_alarm_revoked`);
+  the restore point then counts as clean and joins the baseline.
+- **Retention hold**: while an object has a suspicious restore point nobody resolved,
+  retention, `restic forget` and prune delete no restore point of that object, so clean
+  older restore points are not pruned while encrypted ones pile up. Backups go on and
+  quotas still apply. Only an administrator ends a hold, never a later clean restore point:
+  **Mark as false alarm**, or **Release hold** (administrators, recent sign-in, audited
+  `suspicion.hold_released`). The object shows "Retention paused" until then.
+- **Notifications**: `backup.suspicious` (error, once per attack episode, says that
+  retention is paused) and `backup.suspicious_hold` (warning, when a hold is still open
+  after 14 days and every 14 days after), in the bell, the rules and the webhooks.
+- **Installation › Ransomware detection**: the thresholds of every signal, each signal's
+  switch, the retention hold's switch and its reminder days (`settings.ransomware.updated`;
+  the provider owner changes them, every provider admin reads them).
+- The activity report (deletions, renames, names, entropy) needs the endpoint agent 0.4.0
+  on machines; the compression signal needs the agent 0.4.0 on machines and restow-pve
+  0.4.0 for containers. File shares get it with the 0.4.0 runner, VMs and Microsoft 365
+  objects with the server.
+
 #### Notifications
 
 - **Notification matrix** under Integrations › Notifications (#76): the events as rows,
@@ -145,6 +227,34 @@ Unless marked otherwise, everything below is part of every edition (the Communit
   and download files and folders as one ZIP, read by the server from the container's
   repository. The guest page links each container restore point there (**Browse files**).
   Reads and downloads are in the audit log.
+- **Files of a VM in Servers & clients › File restore** (Preview): VMs with a restore
+  point are listed in their own group "Proxmox VE VMs", marked **Preview**, and the guest
+  page links them (**Browse files**). Each readable file system of the VM's disks is a
+  folder (`scsi0-p2`, `vg0-root`): partitions of GPT and MBR disks and linear LVM logical
+  volumes with ext2, ext3, ext4 (the journal replayed in memory), XFS, NTFS or FAT12/16/32.
+  Browse and download files and folders as one ZIP; files that cannot be read are named in
+  `_not-restored.txt` inside it. The server reads the disks from the tenant's chunk store
+  with its own user-space readers in a short-lived, restricted child process; nothing is
+  mounted, on the server or on the node. Not readable: btrfs, ZFS, ReFS, LVM thin, RAID,
+  BitLocker and LUKS, NTFS-compressed and EFS files; the XFS log and NTFS's `$LogFile` are
+  not replayed. Same routes, roles and audit actions as for containers (with `kind: "vm"`).
+  The volume list asks to compare an important restored file with the original before
+  relying on it. See docs/PVE.md, "Files of a VM".
+- **Boot tests** of restore points: a Proxmox VE job can boot the newest restore point of
+  each guest weekly or after every backup (off by default; a memory limit, default 8 GiB,
+  and a wait for the guest agent, default five minutes), and **Boot test now** on a restore
+  point asks for one by hand. The guest's node restores it as a new guest in the pool
+  `restow-restore`, isolates it before the start (every NIC `link_down=1` or an isolated
+  bridge, passthrough devices, serial ports, bind mounts and the hook script removed),
+  starts it, waits for the QEMU guest agent (a container: its init) and destroys it in
+  every case; leftovers are removed when the service starts. One test per node at a time,
+  never beside a backup, and only with enough memory and storage. Green when the guest
+  agent answered, yellow when the VM only started, red when the restore, the start or the
+  boot failed. Readiness rates the newest restore point by its boot test where there is
+  one. New events `boot_test.failed` and `boot_test.unproven`. Needs restow-pve 0.4.0 on
+  the node (`restow-pve config --boot-tests`, `--boot-test-storage`, `--boot-test-bridge`);
+  the guest's page says when its node cannot. Requesting one is audited
+  (`pve.boot_test.requested`). See docs/PVE.md, "Boot test".
 - A guest shows the average a follow-up backup adds (over the newest 10 restore points
   after the first backup) (#58).
 
@@ -181,6 +291,15 @@ Unless marked otherwise, everything below is part of every edition (the Communit
   or failed backup. A **Back up now** request stays queued on the server until the pause
   is over, also for older agents, and `restow-agent backup-now` on the machine waits with
   a message. `restow-agent status` shows the policy and why a due backup waits.
+- **File restore for the restore role**: restore operators (membership role "restore",
+  `tenant_restore`) now open Servers & clients › File restore. They list the machines, read
+  a machine's restore points and their immutability, browse them, download files as a ZIP
+  and restore files onto the machine; for Proxmox VE they read the overview and a guest's
+  restore points and browse and download files of container and VM restore points. Settings,
+  tokens, jobs, backing up, verify and boot tests, restoring a whole guest, revoking or
+  deleting and the repository password stay with the administrators (backing up answers
+  403), and the web app leaves out the links to pages they may not open. Every read,
+  download and restore is audited with the operator as actor.
 
 #### Jobs, live view and dashboard
 
@@ -204,6 +323,24 @@ Unless marked otherwise, everything below is part of every edition (the Communit
 - The first backup of a large mailbox shows "First backup: X of Y items" over all
   attempts, with an estimated time left (#47). A OneDrive shows "X items so far" until it
   is fully listed.
+- **SharePoint Online sites**: every directory sync finds the tenant's sites
+  (`/sites/getAllSites`; sites of Microsoft 365 groups and Teams included, personal sites
+  left to their owner's OneDrive), and each site is a protected object of its own, in the
+  mail jobs like mailboxes and OneDrives. The protection rules have a sites mode: all sites
+  (the default) or only the selected ones. A backup holds every document library (with the
+  OneDrive engine: delta per library, optional versions, checkpoints), every list with its
+  columns and each list item's field values as JSON, and the site's description; a library
+  or list Graph refuses is reported and keeps its last copy. New sites get their first
+  backup at once; a deleted site fails with `graph.site_unavailable`.
+- **Restore of SharePoint sites** in the explorer (libraries, folders, files, lists, items):
+  download as ZIP; files and folders into the original library or another library of a
+  backed-up site of the same source ("Keep both", "Overwrite" with SharePoint keeping the old
+  file as a version, "Skip existing"); list items into their original list as new items,
+  writable fields only. Restore checks sample library files like a OneDrive. Sites appear in
+  the status, count as no protected mailbox, and are seen by restore operators and
+  administrators only. Not backed up: Teams chats, attachments of list items, site design,
+  navigation and workflows; permissions are kept as information and never restored. See
+  docs/MICROSOFT.md, "SharePoint Online".
 
 #### Updates and the database
 
@@ -324,6 +461,9 @@ Unless marked otherwise, everything below is part of every edition (the Communit
 - Notification mail through the backup's app registration from a tenant that never
   consented to it reported "app not found" and asked to check IDs that were right. It now
   says that consent is missing in the sender's tenant and links the admin consent.
+- The update dialog's confirm button was enabled while the runs in progress were still
+  being read, so a quick click announced the update before the admin saw them. It now
+  stays disabled until they were read (or reading them failed).
 
 ### Security
 
@@ -341,7 +481,19 @@ No vulnerability was fixed. Security-relevant changes:
   need a provider admin's approval or the installation switch.
 - Browsing and downloading files of a Proxmox VE container are recorded in the audit log
   (`pve.snapshot.browsed`, `pve.snapshot.downloaded`); a prepared download can be started
-  once, within ten minutes, by the admin who prepared it.
+  once, within ten minutes, by the admin who prepared it. The same holds for files of a
+  VM (`kind: "vm"`), which a reader in a restricted child process reads without mounting
+  anything (threat model in docs/PVE.md).
+- **S3 endpoints need HTTPS.** A new or changed S3 endpoint over plain `http://` is refused
+  (`endpoint_insecure`), for provider admins and the installation default too, except to
+  `localhost`, `127.0.0.1` and `[::1]`. Endpoints saved before and `S3_ENDPOINT` keep
+  working; their card, Installation › Default repository and every test say in red that they
+  should move to HTTPS. `S3_ALLOW_INSECURE=true` accepts plain HTTP for test and
+  development setups only.
+- Restore operators can now browse, download and restore files of machines and of Proxmox
+  VE guests (see Servers and clients); every read, download and restore is audited.
+- Lowering a repository's immutability and releasing a retention hold need a recent
+  sign-in and are audited; lowering is for the provider owner only.
 
 ### Upgrade Notes
 
@@ -370,6 +522,26 @@ file shares and the database move.
    agent updates. Older agents keep working without data folders, machine facts, the
    backup window, catch-up rules and retry count of an agent policy, and do not hold their
    own schedules during an update pause.
+6. Plain-HTTP S3 endpoints: a repository or default repository that uses `http://` to a
+   host other than the machine itself keeps working, but its card asks in red to move it to
+   HTTPS, and changing its location needs `https://` (docs/UPDATING.md). Test setups with
+   an object store on the compose network set `S3_ALLOW_INSECURE=true` in `.env` (api and
+   worker).
+7. SharePoint Online: the backup's app registration needs the application permission
+   `Sites.ReadWrite.All` (`Sites.Read.All` is enough to back up, not to restore). Add it to
+   the app registration, then the customer's admin opens the source's consent link again
+   (docs/ENTRA-SETUP.md). Until then mail and OneDrive keep working, and the directory sync
+   warns that sites are neither found nor backed up (`sites_unavailable`).
+8. Immutable backups with S3 Object Lock need a bucket created with Object Lock (and
+   versioning); it cannot be added to an existing bucket. The access key needs
+   `s3:GetBucketObjectLockConfiguration`, `s3:PutObjectRetention`, `s3:GetObjectRetention`,
+   `s3:ListBucketVersions` and `s3:DeleteObjectVersion`, and should not have
+   `s3:BypassGovernanceRetention`, `s3:PutBucketObjectLockConfiguration` or
+   `s3:PutBucketVersioning`. Nothing is locked until an administrator turns it on.
+9. Ransomware detection is on after the update and judges backups of the last 72 hours; its
+   retention hold is on as well, so a suspicious restore point pauses retention of its
+   object until an administrator resolves it. Thresholds and both switches are under
+   Installation › Ransomware detection.
 
 - Database migrations, in this order: `0035_file_shares`,
   `0036_backup_job_kinds_share_copy`, `0037_backup_job_file_shares` (file shares),
@@ -418,11 +590,27 @@ file shares and the database move.
   alternate data streams, DFS namespaces, Kerberos or SMB1; repositories live on the
   primary repository only; tenant users have no self-service restore of shares; scheduled
   reports have no file share block yet.
-- While an update waits or runs, the endpoint agents' own schedules are not paused: a
-  backup a machine starts by itself during that time runs, and may fail if the api
+- While an update waits or runs, agents older than 0.4.0 do not hold their own schedules:
+  a backup such a machine starts by itself during that time runs, and may fail if the api
   restarts under it.
-- Files of a Proxmox VE container are downloaded as a ZIP; restoring single files into the
-  running container is not built. VMs are not browsable file by file.
+- Files of Proxmox VE containers and VMs are downloaded as a ZIP; restoring single files
+  into the running guest is not built. VM file restore is a **Preview**: btrfs, ZFS, ReFS,
+  LVM thin, RAID, BitLocker and LUKS are not readable, and the XFS and NTFS logs are not
+  replayed, so a crash-consistent restore point can lack the last writes; compare an
+  important file with the original before relying on it.
+- Immutable backups, SharePoint Online, boot tests, VM file restore
+  and agent policies were tested against simulated services only (a fake S3 with Object
+  Lock, a simulated Microsoft Graph, a simulated Proxmox VE node), not yet against a real
+  S3 service with Object Lock, a real Microsoft 365 tenant or a real Proxmox VE cluster.
+  The ransomware signals were tested with simulated attacks, not with live ransomware.
+- Immutable backups: the installation default repository cannot be made immutable (give
+  the tenant a repository of its own or an immutable copy); restic index files are not
+  locked; a tenant whose retention schedule was deleted is not renewed; space of deleted
+  data comes back only once its lock has run out; a file share whose repository is still
+  locked cannot be purged before then.
+- SharePoint: attachments of list items, site design, navigation, workflows and
+  permissions are not restored; a deleted site or library is not recreated; list items go
+  back only into their original list.
 - In "This restore point contains", Windows paths are listed but do not open.
 - Deleting a revoked machine together with its restore points is not possible yet.
 - The known issues of 0.3.6 still apply.

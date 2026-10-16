@@ -336,7 +336,7 @@ after checking each version's retention; while one is locked it deletes nothing 
   pack is unreferenced from then on and the next prune after the lock ends removes it.
 
 A deletion of a restic object or of a manifest the storage refused is recorded per
-repository (`immutability_deferred_deletions`, migration 0044), shown on the repository page
+repository (`immutability_deferred_deletions`, migration 0047), shown on the repository page
 ("deletions wait for their lock to run out") and left out of the renewal; the row goes once
 the object is gone. Retention and the scrub count their own deferrals in their job reports
 (`deferredByLock`).
