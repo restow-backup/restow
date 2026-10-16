@@ -15,7 +15,7 @@ literally (use `{appName}`).
 | One execution of a backup job, restore, export, import or check | run | Lauf | Job (for a run), Auftrag |
 | Waiting in the queue, not started yet | waiting | Wartet | Eingereiht, Wartend, Queued (as a state label) |
 | Running now | running | Läuft | Aktiv (for a run) |
-| Restoring a VM or container to a temporary guest, starting it and waiting for its guest agent, to prove it boots | boot test | Startprüfung | SureBackup, Boot-Test, Bootprüfung, Starttest |
+| Restoring a VM or container to a temporary guest, starting it and waiting for its guest agent, to prove it boots | boot test | Startprüfung | Boot-Test, Bootprüfung, Starttest |
 | Reading data back to prove a restore works | restore check | Restore-Prüfung | Wiederherstellungstest, Wiederherstellungsprüfung, Restore-Test, Verify, Verifizierung |
 | Readiness: proven by a passed restore check | ready | Bereit | Verifiziert, Wiederherstellbar (as a state label) |
 | Readiness: backed up, but no recent restore check | unverified | Nicht nachgewiesen | Ungeprüft, Unbestätigt |

@@ -378,7 +378,7 @@ reads; `boottest/current.json` names the temporary guest of a running boot test)
 
 ## Boot test
 
-The counterpart of a SureBackup: proof that a restore point boots, not only that its
+Proof that a restore point boots, not only that its
 bytes are intact. Off by default; a backup job turns it on (*Boot test*: weekly on the
 newest restore point, or after every backup) with a memory limit (default 8 GiB) and the wait
 for the guest agent (default five minutes). *Boot test now* on a restore point asks for one by

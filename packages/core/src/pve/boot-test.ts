@@ -1,6 +1,5 @@
 /**
- * Boot tests of Proxmox VE restore points (docs/PVE.md, "Boot test"), the counterpart of a
- * SureBackup: the guest's node restores a restore point to a temporary guest with its network
+ * Boot tests of Proxmox VE restore points (docs/PVE.md, "Boot test"): the guest's node restores a restore point to a temporary guest with its network
  * cut, starts it, waits for the QEMU guest agent (a container: for its init), and destroys it
  * again. Pure rules shared by the API (readiness, "Boot test now"), the worker (planning,
  * alerts) and the web app: when a test is due, which node may run one, and how a result rates
