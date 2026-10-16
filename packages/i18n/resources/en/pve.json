@@ -108,6 +108,7 @@
     "progressRate": "{rate}/s",
     "progressUploaded": "Uploaded so far: {size}",
     "progressNone": "No progress reported yet",
+    "progressOldHelper": "Progress needs restow-pve {required} on {node} (it runs {version}). Update the node.",
     "queuedSince": "Requested on {time}.",
     "runningSince": "Started on {time}.",
     "nodeLastReport": "The node last reported on {time}.",

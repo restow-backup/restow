@@ -694,6 +694,7 @@ export function PvePage() {
                       <BackupProgress
                         progress={g.progress}
                         name={g.name ?? String(g.vmid)}
+                        node={g.activityNode}
                         to={guestTo(g.id)}
                       />
                     ) : null}

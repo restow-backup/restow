@@ -102,6 +102,14 @@ export interface GuestActivityDetail {
   jobId?: string | null;
   /** The running backup's run. */
   runId?: string | null;
+  /** The node the running backup runs on, with its restow-pve version (progress needs 0.4.0). */
+  node?: RunNode | null;
+}
+
+/** The node of a running run and the restow-pve version it last reported. */
+export interface RunNode {
+  name: string;
+  helperVersion: string | null;
 }
 
 /**
@@ -307,6 +315,7 @@ function guestDto(
     activitySince: detail.since,
     activityJobId: activity ? (detail.jobId ?? null) : null,
     activityRunId: activity === "running" ? (detail.runId ?? null) : null,
+    activityNode: activity === "running" ? (detail.node ?? null) : null,
     progress: activity === "running" ? detail.progress : null,
     bitmapState: bitmapState(g),
     backups: sizes,
@@ -360,10 +369,13 @@ export async function overview(database: Database, tenantId: string, now: Date =
       started_at: Date | string;
       progress: PveRunProgress | null;
       job_id: string | null;
+      node_name: string | null;
+      helper_version: string | null;
     }>(sql`
       SELECT DISTINCT ON (r.guest_id) r.id, r.guest_id, r.started_at, r.progress,
-             t.params->>'jobId' AS job_id
+             t.params->>'jobId' AS job_id, n.name AS node_name, n.helper_version
         FROM pve_runs r LEFT JOIN pve_tasks t ON t.id = r.task_id
+        LEFT JOIN pve_nodes n ON n.id = r.node_id
        WHERE r.kind = 'backup' AND r.status = 'running' ORDER BY r.guest_id, r.started_at DESC`);
     const queued = await tx.execute<{
       guest_id: string;
@@ -390,6 +402,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
         // A run started in PVE has no task; a delivered task of a round still names its job.
         jobId: r.job_id ?? activityDetail.get(r.guest_id)?.jobId ?? null,
         runId: r.id,
+        node: r.node_name ? { name: r.node_name, helperVersion: r.helper_version } : null,
       });
     }
     // The tasks of each job's newest scheduled round (the scheduler writes them right after it
@@ -631,6 +644,23 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
       .from(pveClusters)
       .where(eq(pveClusters.id, guest.clusterId))
       .limit(1);
+    // The node of a running run, with the restow-pve version it runs (progress needs 0.4.0).
+    const runNodeIds = runs
+      .filter((r) => r.status === "running" && r.nodeId !== null)
+      .map((r) => r.nodeId as string);
+    const runNodes = new Map(
+      (runNodeIds.length > 0
+        ? await tx
+            .select({
+              id: pveNodes.id,
+              name: pveNodes.name,
+              helperVersion: pveNodes.helperVersion,
+            })
+            .from(pveNodes)
+            .where(inArray(pveNodes.id, runNodeIds))
+        : []
+      ).map((n): [string, RunNode] => [n.id, { name: n.name, helperVersion: n.helperVersion }]),
+    );
     return {
       guest: guestDto(guest, new Map(jobs.map((j) => [j.id, j])), undefined),
       bootTest: await guestBootTestFacts(tx, guest),
@@ -683,6 +713,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         finishedAt: r.finishedAt?.toISOString() ?? null,
         stats: r.stats,
         progress: r.status === "running" ? (r.progress ?? null) : null,
+        node: r.status === "running" && r.nodeId ? (runNodes.get(r.nodeId) ?? null) : null,
         error: r.errorMessage,
         logTail: r.logTail,
       })),

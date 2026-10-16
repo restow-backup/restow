@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/restow-backup/restow/agent/internal/pve"
 )
@@ -79,5 +81,37 @@ func TestCheckPVETokenNamesTheToken(t *testing.T) {
 	_, err = checkPVEToken(ctx, wrong, "root@pam!restow")
 	if err == nil || !strings.Contains(err.Error(), "does not accept the API token root@pam!restow") {
 		t.Fatalf("rejected token: %v", err)
+	}
+}
+
+func TestUpdateLoopChecksSoonAfterStart(t *testing.T) {
+	if firstUpdateCheck > 5*time.Minute || firstUpdateCheck >= updateCheckInterval {
+		t.Fatalf("first check after %s, then every %s", firstUpdateCheck, updateCheckInterval)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var checks atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		updateLoop(ctx, 10*time.Millisecond, time.Hour, func(context.Context) { checks.Add(1) })
+		close(done)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for checks.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if checks.Load() != 1 {
+		t.Fatalf("checks after start: %d", checks.Load())
+	}
+	// The next check waits for the interval, not the short first delay.
+	time.Sleep(100 * time.Millisecond)
+	if checks.Load() != 1 {
+		t.Fatalf("checked again before the interval: %d", checks.Load())
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the loop does not end with its context")
 	}
 }

@@ -108,6 +108,7 @@
     "progressRate": "{rate}/s",
     "progressUploaded": "Bisher hochgeladen: {size}",
     "progressNone": "Noch kein Fortschritt gemeldet",
+    "progressOldHelper": "Der Fortschritt braucht restow-pve {required} auf {node} (dort läuft {version}). Aktualisieren Sie den Knoten.",
     "queuedSince": "Angefordert am {time}.",
     "runningSince": "Gestartet am {time}.",
     "nodeLastReport": "Der Knoten hat sich zuletzt am {time} gemeldet.",

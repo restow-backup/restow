@@ -61,10 +61,18 @@ export interface PveGuest {
   activityJobId?: string | null;
   /** The running backup's run. */
   activityRunId?: string | null;
+  /** The node the running backup runs on and its restow-pve version; missing on servers before 0.4.1. */
+  activityNode?: PveRunNode | null;
   bitmapState: "incremental" | "full_read" | null;
   /** The first backup ever and the newest restore point; missing on servers before 0.3.5. */
   backups?: PveGuestBackupSizes;
   attention: string[];
+}
+
+/** The node of a running backup and the restow-pve version it last reported. */
+export interface PveRunNode {
+  name: string;
+  helperVersion: string | null;
 }
 
 /**
@@ -245,6 +253,8 @@ export interface PveRun {
   } | null;
   /** How far the run is while it runs; missing on servers before 0.4.0. */
   progress?: PveRunProgress | null;
+  /** The node a running run runs on and its restow-pve version; missing on servers before 0.4.1. */
+  node?: PveRunNode | null;
 }
 
 export interface PveGuestDetail {

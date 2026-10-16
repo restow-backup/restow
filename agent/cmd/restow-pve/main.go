@@ -289,6 +289,28 @@ func loadService(layout pve.Layout) (*pve.Service, error) {
 	return &pve.Service{Layout: layout, State: st, Server: srv, PVE: api}, nil
 }
 
+// Self-update: asked for shortly after the service starts (a node that missed an update, or
+// was installed from an older release, catches up without waiting six hours), then every six
+// hours. SelfUpdate applies an offer only while no backup or restore runs.
+const (
+	firstUpdateCheck    = 2 * time.Minute
+	updateCheckInterval = 6 * time.Hour
+)
+
+// updateLoop calls check once after first, then after every interval, until ctx ends.
+func updateLoop(ctx context.Context, first, interval time.Duration, check func(context.Context)) {
+	wait := first
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		check(ctx)
+		wait = interval
+	}
+}
+
 func cmdRun(layout pve.Layout, stderr io.Writer) int {
 	s, err := loadService(layout)
 	if err != nil {
@@ -302,25 +324,17 @@ func cmdRun(layout pve.Layout, stderr io.Writer) int {
 	ctx, cancel := signalContext()
 	defer cancel()
 	logger("restow-pve %s started for node %s", buildinfo.Version, s.State.NodeName)
-	go func() {
-		// Self-update: asked for every six hours, applied while idle.
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(6 * time.Hour):
-			}
-			if v, err := s.Server.UpdateOffer(ctx); err == nil && v != "" {
-				if err := pve.SelfUpdate(ctx, layout, s.Server, buildinfo.Version, v); err == nil {
-					logger("updated to %s, restarting", v)
-					cancel()
-					os.Exit(0) // systemd restarts the unit with the new binary
-				} else {
-					logger("update to %s not applied: %v", v, err)
-				}
+	go updateLoop(ctx, firstUpdateCheck, updateCheckInterval, func(ctx context.Context) {
+		if v, err := s.Server.UpdateOffer(ctx); err == nil && v != "" {
+			if err := pve.SelfUpdate(ctx, layout, s.Server, buildinfo.Version, v); err == nil {
+				logger("updated to %s, restarting", v)
+				cancel()
+				os.Exit(0) // systemd restarts the unit with the new binary
+			} else {
+				logger("update to %s not applied: %v", v, err)
 			}
 		}
-	}()
+	})
 	if err := s.Run(ctx); err != nil {
 		logger("%v", err)
 		return 1

@@ -427,6 +427,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                             className="mt-1.5"
                             progress={guest.progress}
                             name={label}
+                            node={guest.activityNode}
                             to={guestTo(guest.id)}
                           />
                         ) : null}

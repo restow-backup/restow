@@ -244,7 +244,7 @@ function RunStatus({ run, name }: { run: PveRun; name: string }) {
     <div className="space-y-1.5">
       <Badge variant={runTone(run)}>{t(runStatusKey(run))}</Badge>
       {run.status === "running" && run.kind === "backup" ? (
-        <BackupProgress progress={run.progress} name={name} />
+        <BackupProgress progress={run.progress} name={name} node={run.node} />
       ) : null}
     </div>
   );

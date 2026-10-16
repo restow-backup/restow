@@ -179,7 +179,12 @@ export function PveLastRunCell({ row }: { row: PveListRow }) {
   if (row.rowType === "manual") {
     const guest = row.guest;
     return guest.activity === "running" ? (
-      <BackupProgress progress={guest.progress} name={guestName(guest)} to={guestTo(guest.id)} />
+      <BackupProgress
+        progress={guest.progress}
+        name={guestName(guest)}
+        node={guest.activityNode}
+        to={guestTo(guest.id)}
+      />
     ) : (
       <StatusBadge tone="muted" icon={Clock} className="whitespace-nowrap">
         {t("list.pve.waiting")}

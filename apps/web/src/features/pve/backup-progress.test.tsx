@@ -7,7 +7,13 @@ import { i18n } from "@/i18n";
 
 import "./i18n";
 import type { PveRunProgress } from "./api";
-import { activityHint, BackupProgress, progressLine, progressPercent } from "./backup-progress";
+import {
+  activityHint,
+  BackupProgress,
+  helperOlderThan,
+  progressLine,
+  progressPercent,
+} from "./backup-progress";
 import { PVE_NAMESPACE } from "./i18n";
 
 /** The progress of a running guest backup (#51) and the tooltip of its activity badge. */
@@ -72,6 +78,45 @@ describe("BackupProgress", () => {
     expect(html).toContain("Uploaded so far: 1 GB");
     expect(html).not.toContain("success");
     expect(render(null)).not.toContain("aria-valuenow");
+  });
+});
+
+describe("a node whose restow-pve is too old to report progress", () => {
+  it("compares versions numerically, never calling an unknown or development build older", () => {
+    expect(helperOlderThan("0.3.7", "0.4.0")).toBe(true);
+    expect(helperOlderThan("0.3.10", "0.4.0")).toBe(true);
+    expect(helperOlderThan("0.4.0", "0.4.0")).toBe(false);
+    expect(helperOlderThan("0.10.0", "0.4.0")).toBe(false);
+    expect(helperOlderThan(null, "0.4.0")).toBe(false);
+    expect(helperOlderThan("0.4.0-dev", "0.4.0")).toBe(false);
+  });
+
+  it("says the node needs an update instead of waiting for progress", () => {
+    const old = { name: "pmx02", helperVersion: "0.3.7" };
+    expect(progressLine(t, "en", null, old)).toBe(
+      "Progress needs restow-pve 0.4.0 on pmx02 (it runs 0.3.7). Update the node.",
+    );
+    const de = i18n.getFixedT("de", PVE_NAMESPACE) as unknown as TFunction;
+    expect(progressLine(de, "de", null, old)).toBe(
+      "Der Fortschritt braucht restow-pve 0.4.0 auf pmx02 (dort läuft 0.3.7). Aktualisieren Sie den Knoten.",
+    );
+    // A current node, or one whose version is unknown, simply has not reported yet.
+    expect(progressLine(t, "en", null, { name: "pmx02", helperVersion: "0.4.1" })).toBe(
+      "No progress reported yet",
+    );
+    expect(progressLine(t, "en", null, { name: "pmx02", helperVersion: null })).toBe(
+      "No progress reported yet",
+    );
+    // Figures that came in win.
+    expect(progressLine(t, "en", progress(), old)).toBe("34% · 3.2 GB of 9.4 GB · 85 MB/s");
+
+    const html = renderToStaticMarkup(
+      <I18nextProvider i18n={i18n}>
+        <BackupProgress progress={null} name="web" node={old} />
+      </I18nextProvider>,
+    );
+    expect(html).toContain("Progress needs restow-pve 0.4.0 on pmx02 (it runs 0.3.7)");
+    expect(html).not.toContain("No progress reported yet");
   });
 });
 
