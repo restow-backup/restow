@@ -410,6 +410,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // --- Backed-up content and restore --------------------------------------------
   "GET /api/v1/snapshots": view(),
   "GET /api/v1/snapshots/objects": view(),
+  "GET /api/v1/snapshots/people": view(),
   "GET /api/v1/snapshots/objects/:id/versions": view(),
   "GET /api/v1/snapshots/search": operate(),
   "GET /api/v1/snapshots/:id/tree": operate(),

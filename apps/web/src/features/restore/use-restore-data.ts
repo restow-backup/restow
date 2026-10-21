@@ -13,6 +13,7 @@ import {
   DEFAULT_TREE_SORT,
   fetchCalendar,
   fetchEntryPreview,
+  fetchPeople,
   fetchRestoreJob,
   fetchRestoreJobs,
   fetchRestoreTargets,
@@ -20,6 +21,9 @@ import {
   fetchSnapshots,
   fetchTree,
   fetchVersions,
+  type ObjectKind,
+  type PeoplePage,
+  type PeopleSection,
   type RestoreJob,
   restoreKeys,
   searchSnapshot,
@@ -55,6 +59,41 @@ export function useSnapshotObjects(includeAll = false) {
     queryKey: restoreKeys.objects(tenantId, includeAll),
     queryFn: () => fetchSnapshotObjects(includeAll),
     enabled,
+  });
+}
+
+/**
+ * The explorer's left column, a page at a time (#49): people or sites, searched and filtered by
+ * the API, so a tenant with tens of thousands of people never loads them all at once.
+ */
+export function usePeople(
+  section: PeopleSection,
+  q: string,
+  kind: ObjectKind | null,
+  active = true,
+) {
+  const { tenantId, enabled } = useTenantScope();
+  return useInfiniteQuery({
+    queryKey: restoreKeys.people(tenantId, section, q, kind),
+    queryFn: ({ pageParam }) =>
+      fetchPeople({ section, q, kind: kind ?? undefined, after: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last: PeoplePage) => last.next ?? undefined,
+    enabled: enabled && active,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The entry (a person, or a site) the given object belongs to; null when there is none. */
+export function usePersonOf(objectId: string | null) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: restoreKeys.personOf(tenantId, objectId),
+    queryFn: async () =>
+      (await fetchPeople({ section: "people", objectId: objectId as string })).items[0] ?? null,
+    enabled: enabled && objectId !== null,
+    // Moving between a person's areas keeps their entry on screen while the next one loads.
+    placeholderData: keepPreviousData,
   });
 }
 

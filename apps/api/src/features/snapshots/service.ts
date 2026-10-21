@@ -11,7 +11,7 @@ import {
   sources,
   users,
 } from "@restow/db";
-import { and, desc, eq, isNotNull, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import { type AuditEvent, audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -25,6 +25,7 @@ import {
 import {
   canAccessObject,
   isOwnObject,
+  normalizeEmail,
   type OwnedObject,
   onBehalfOfOwner,
   type Viewer,
@@ -53,6 +54,7 @@ import type {
   CalendarQuery,
   ListObjectsQuery,
   ListSnapshotsQuery,
+  PeopleQuery,
   SearchQuery,
   TreeQuery,
   VersionsQuery,
@@ -327,73 +329,84 @@ export async function listObjects(
   viewer: Viewer,
   query: Pick<ListObjectsQuery, "include"> = { include: "withBackup" },
 ): Promise<SnapshotObjectDto[]> {
-  return withTenantTx(db, tenantId, async (tx) => {
-    const visible = visibleObjectsCondition(viewer);
-    const snapshotJoin = and(
-      eq(snapshots.protectedObjectId, protectedObjects.id),
-      completedSnapshot(),
-    ) as SQL;
-    const rows = await tx
-      .select({
-        id: protectedObjects.id,
-        kind: protectedObjects.kind,
-        externalId: protectedObjects.externalId,
-        displayName: protectedObjects.displayName,
-        status: protectedObjects.status,
-        sourceKind: sources.kind,
-        ownerEmail: users.email,
-        ownerKey: protectedObjects.userId,
-        ownerName: users.displayName,
-        snapshotCount: sql<number>`count(${snapshots.id})::int`,
-        latestSnapshotId: sql<
-          string | null
-        >`(array_agg(${snapshots.id} order by ${snapshots.sequence} desc))[1]`,
-        latestSnapshotAt: sql<Date | null>`max(${snapshots.completedAt})`.mapWith(
-          snapshots.completedAt,
-        ),
-      })
-      .from(protectedObjects)
-      .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
-      .leftJoin(users, eq(users.id, protectedObjects.userId))
-      // Always a LEFT JOIN: with `include: "all"` an object with no completed
-      // snapshot still gets a (null) row to aggregate into zeros; otherwise
-      // the same rows are dropped below, which is exactly an inner join.
-      .leftJoin(snapshots, snapshotJoin)
-      .where(
-        and(
-          eq(protectedObjects.tenantId, tenantId),
-          ...(visible ? [visible] : []),
-          ...(query.include === "all" ? [] : [isNotNull(snapshots.id)]),
-        ),
-      )
-      .groupBy(protectedObjects.id, sources.kind, users.email, users.displayName)
-      .orderBy(
-        sql`lower(coalesce(${protectedObjects.displayName}, ${protectedObjects.externalId}))`,
-      );
+  return withTenantTx(db, tenantId, (tx) => selectObjects(tx, tenantId, viewer, query.include));
+}
 
-    const verifications = await loadObjectVerifications(
-      tx,
-      tenantId,
-      rows.map((row) => row.id),
-    );
+/** The snapshot objects of {@link listObjects}, optionally only those with the given ids. */
+async function selectObjects(
+  tx: DbExecutor,
+  tenantId: string,
+  viewer: Viewer,
+  include: ListObjectsQuery["include"],
+  ids?: readonly string[],
+): Promise<SnapshotObjectDto[]> {
+  if (ids && ids.length === 0) {
+    return [];
+  }
+  const visible = visibleObjectsCondition(viewer);
+  const snapshotJoin = and(
+    eq(snapshots.protectedObjectId, protectedObjects.id),
+    completedSnapshot(),
+  ) as SQL;
+  const rows = await tx
+    .select({
+      id: protectedObjects.id,
+      kind: protectedObjects.kind,
+      externalId: protectedObjects.externalId,
+      displayName: protectedObjects.displayName,
+      status: protectedObjects.status,
+      sourceKind: sources.kind,
+      ownerEmail: users.email,
+      ownerKey: protectedObjects.userId,
+      ownerName: users.displayName,
+      snapshotCount: sql<number>`count(${snapshots.id})::int`,
+      latestSnapshotId: sql<
+        string | null
+      >`(array_agg(${snapshots.id} order by ${snapshots.sequence} desc))[1]`,
+      latestSnapshotAt: sql<Date | null>`max(${snapshots.completedAt})`.mapWith(
+        snapshots.completedAt,
+      ),
+    })
+    .from(protectedObjects)
+    .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
+    .leftJoin(users, eq(users.id, protectedObjects.userId))
+    // Always a LEFT JOIN: with `include: "all"` an object with no completed
+    // snapshot still gets a (null) row to aggregate into zeros; otherwise
+    // the same rows are dropped below, which is exactly an inner join.
+    .leftJoin(snapshots, snapshotJoin)
+    .where(
+      and(
+        eq(protectedObjects.tenantId, tenantId),
+        ...(visible ? [visible] : []),
+        ...(include === "all" ? [] : [isNotNull(snapshots.id)]),
+        ...(ids ? [inArray(protectedObjects.id, [...ids])] : []),
+      ),
+    )
+    .groupBy(protectedObjects.id, sources.kind, users.email, users.displayName)
+    .orderBy(sql`lower(coalesce(${protectedObjects.displayName}, ${protectedObjects.externalId}))`);
 
-    return rows.map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      externalId: row.externalId,
-      displayName: row.displayName,
-      status: row.status,
-      sourceKind: row.sourceKind,
-      ownerEmail: row.ownerEmail,
-      ownerKey: row.kind === "site" ? null : row.ownerKey,
-      ownerName: row.kind === "site" ? null : row.ownerName,
-      own: isOwnObject(viewer, row),
-      snapshotCount: Number(row.snapshotCount),
-      latestSnapshotId: row.latestSnapshotId,
-      latestSnapshotAt: iso(row.latestSnapshotAt),
-      readiness: verifications.get(row.id)?.verification.state ?? "no_backup",
-    }));
-  });
+  const verifications = await loadObjectVerifications(
+    tx,
+    tenantId,
+    rows.map((row) => row.id),
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    externalId: row.externalId,
+    displayName: row.displayName,
+    status: row.status,
+    sourceKind: row.sourceKind,
+    ownerEmail: row.ownerEmail,
+    ownerKey: row.kind === "site" ? null : row.ownerKey,
+    ownerName: row.kind === "site" ? null : row.ownerName,
+    own: isOwnObject(viewer, row),
+    snapshotCount: Number(row.snapshotCount),
+    latestSnapshotId: row.latestSnapshotId,
+    latestSnapshotAt: iso(row.latestSnapshotAt),
+    readiness: verifications.get(row.id)?.verification.state ?? "no_backup",
+  }));
 }
 
 /** Completed snapshots (points in time), newest first, each with its verification. */
@@ -1469,6 +1482,200 @@ export async function calendarView(
       occurrences,
       truncated,
       unexpandedSeries: unexpanded,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// People: the explorer's left column, page by page
+// ---------------------------------------------------------------------------
+
+/** One entry of the explorer's left column: a person with their objects, or one site. */
+export interface PersonEntryDto {
+  /** `user:<user id>`, `object:<id>` for an object of no known person, `site:<id>`. */
+  key: string;
+  name: string;
+  /** The person's address (the owner's), or null. */
+  address: string | null;
+  own: boolean;
+  /** Every object of the entry is orphaned (the account is gone from the directory). */
+  accountDeleted: boolean;
+  /** Mailbox first, then OneDrive, then IMAP accounts. */
+  objects: SnapshotObjectDto[];
+}
+
+export interface PeoplePageDto {
+  section: PeopleQuery["section"];
+  items: PersonEntryDto[];
+  /** Entries that match the search and filter, all pages together. */
+  total: number;
+  /** The cursor of the next page; null on the last one. */
+  next: string | null;
+}
+
+interface PeopleCursor {
+  own: boolean;
+  name: string;
+  key: string;
+}
+
+function encodeCursor(cursor: PeopleCursor): string {
+  return Buffer.from(JSON.stringify([cursor.own ? 0 : 1, cursor.name, cursor.key])).toString(
+    "base64url",
+  );
+}
+
+function decodeCursor(value: string): PeopleCursor {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (
+      Array.isArray(parsed) &&
+      (parsed[0] === 0 || parsed[0] === 1) &&
+      typeof parsed[1] === "string" &&
+      typeof parsed[2] === "string"
+    ) {
+      return { own: parsed[0] === 0, name: parsed[1], key: parsed[2] };
+    }
+  } catch {
+    // Falls through to the problem below.
+  }
+  throw new ProblemError(400, "Invalid cursor", {
+    detail: "The cursor does not come from a previous page of this list.",
+  });
+}
+
+const KIND_RANK: Readonly<Record<string, number>> = { mailbox: 0, onedrive: 1, imap: 2, site: 3 };
+
+/**
+ * The explorer's left column one page at a time, for tenants with tens of thousands of people:
+ * people grouped by the directory user their objects belong to (`protected_objects.user_id`),
+ * or sites, the viewer's own entry first, then by name and key (a keyset, stable while objects
+ * come and go). Search and the type filter run in the database over every name, address and
+ * account id. The grouping reads the tenant's objects through `protected_objects_tenant_status_idx`
+ * once per page; the objects of the page (their restore points and readiness) are loaded by id.
+ */
+export async function listPeople(
+  db: Database,
+  tenantId: string,
+  viewer: Viewer,
+  query: PeopleQuery,
+): Promise<PeoplePageDto> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const visible = visibleObjectsCondition(viewer);
+    const email = normalizeEmail(viewer.email);
+    const own =
+      email.length === 0
+        ? sql`false`
+        : sql`(lower(u.email) = ${email} OR lower(po.external_id) = ${email})`;
+    const section =
+      query.objectId !== undefined
+        ? sql`true`
+        : query.section === "sites"
+          ? sql`po.kind = 'site'`
+          : sql`po.kind <> 'site'`;
+    const withBackup =
+      query.include === "all"
+        ? sql`true`
+        : sql`EXISTS (SELECT 1 FROM snapshots sn WHERE sn.protected_object_id = po.id
+                        AND sn.status = 'active' AND sn.manifest_path IS NOT NULL)`;
+    const visibility = visible
+      ? sql`(lower(u.email) = ${email} OR lower(po.external_id) = ${email})`
+      : sql`true`;
+
+    const filters: SQL[] = [];
+    if (query.kind) {
+      filters.push(sql`bool_or(o.kind = ${query.kind})`);
+    }
+    const words = query.q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+    for (const word of words) {
+      filters.push(sql`bool_or(o.hay LIKE ${`%${escapeLike(word)}%`})`);
+    }
+    if (query.objectId) {
+      filters.push(sql`bool_or(o.id = ${query.objectId}::uuid)`);
+    }
+    const having = filters.length > 0 ? sql`HAVING ${sql.join(filters, sql` AND `)}` : sql``;
+    const cursor = query.after && !query.objectId ? decodeCursor(query.after) : null;
+    const after = cursor
+      ? sql`WHERE (g.rank, g.sort_name, g.key) > (${cursor.own ? 0 : 1}, ${cursor.name}, ${cursor.key})`
+      : sql``;
+
+    const result = await tx.execute<{
+      key: string;
+      name: string;
+      sort_name: string;
+      own: boolean;
+      ids: string[];
+      total: number;
+    }>(sql`
+      WITH o AS (
+        SELECT po.id, po.kind, po.status,
+               CASE WHEN po.kind = 'site' THEN 'site:' || po.id::text
+                    WHEN po.user_id IS NOT NULL THEN 'user:' || po.user_id::text
+                    ELSE 'object:' || po.id::text END AS key,
+               u.display_name AS owner_name,
+               coalesce(po.display_name, po.external_id) AS label,
+               ${own} AS own,
+               lower(concat_ws(' ', po.display_name, po.external_id, u.email, u.display_name, u.upn)) AS hay
+        FROM protected_objects po
+        LEFT JOIN users u ON u.id = po.user_id
+        WHERE po.tenant_id = ${tenantId}::uuid AND ${section} AND ${visibility} AND ${withBackup}
+      ),
+      g AS (
+        SELECT o.key,
+               coalesce(max(o.owner_name), min(o.label) FILTER (WHERE o.kind <> 'imap'), min(o.label)) AS name,
+               CASE WHEN bool_or(o.own) THEN 0 ELSE 1 END AS rank,
+               bool_or(o.own) AS own,
+               array_agg(o.id::text) AS ids
+        FROM o
+        GROUP BY o.key
+        ${having}
+      ),
+      ranked AS (
+        SELECT g.*, lower(g.name) AS sort_name, count(*) OVER () AS total FROM g
+      )
+      SELECT g.key, g.name, g.sort_name, g.own, g.ids, g.total::int AS total
+      FROM ranked g
+      ${after}
+      ORDER BY g.rank, g.sort_name, g.key
+      LIMIT ${query.objectId ? 1 : query.limit + 1}
+    `);
+    // `total` is counted before the cursor applies: on a later page it still counts all matches.
+    const rows = result.rows.slice(0, query.objectId ? 1 : query.limit);
+    const objects = await selectObjects(
+      tx,
+      tenantId,
+      viewer,
+      query.include,
+      rows.flatMap((row) => row.ids),
+    );
+    const byId = new Map(objects.map((object) => [object.id, object]));
+    const items = rows.map((row): PersonEntryDto => {
+      const list = row.ids
+        .map((id) => byId.get(id))
+        .filter((object): object is SnapshotObjectDto => object !== undefined)
+        .sort(
+          (a, b) =>
+            (KIND_RANK[a.kind] ?? 9) - (KIND_RANK[b.kind] ?? 9) ||
+            (a.displayName ?? a.externalId).localeCompare(b.displayName ?? b.externalId),
+        );
+      const first = list[0];
+      return {
+        key: row.key,
+        name: row.name,
+        address: first?.ownerEmail ?? null,
+        own: row.own,
+        accountDeleted: list.length > 0 && list.every((object) => object.status === "orphaned"),
+        objects: list,
+      };
+    });
+    const last = rows[rows.length - 1];
+    const more = !query.objectId && result.rows.length > query.limit;
+    return {
+      section: query.section,
+      items,
+      total: Number(result.rows[0]?.total ?? 0),
+      next:
+        more && last ? encodeCursor({ own: last.own, name: last.sort_name, key: last.key }) : null,
     };
   });
 }

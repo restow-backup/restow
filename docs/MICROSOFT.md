@@ -138,8 +138,10 @@ Schutzumfang" anzeigen, nicht als Fehler).
   jeweils mit den Sicherungsständen des passenden Objekts. Ein OneDrive for Business gehört immer
   genau einem Benutzer; nach dem Löschen des Kontos steht es verwaist unter dessen Namen, markiert
   als "Konto gelöscht". SharePoint-Websites (mit den Dateien der Teams-Kanäle) haben einen eigenen
-  Abschnitt. Lange Listen zeigen je Abschnitt 100 Einträge und den Rest auf Wunsch; die Suche
-  durchsucht alle.
+  Abschnitt. Die Liste kommt seitenweise aus der API (`GET /snapshots/people`, Keyset nach eigenem
+  Eintrag, Name und Schlüssel, je 50 Einträge, beim Blättern oder auf "Weitere anzeigen"); Suche
+  über Namen, Adressen und Konto-IDs und der Typfilter laufen in der Datenbank, so dass auch
+  Mandanten mit über 10.000 Personen nie alle auf einmal laden.
 - Freigaben/Berechtigungen werden als Information gesichert, nicht wiederhergestellt
   (v1).
 - Papierkorb: Elemente im OneDrive-Papierkorb sind über delta nicht erreichbar; ist ok,

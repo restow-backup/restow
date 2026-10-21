@@ -31,6 +31,7 @@ import { ExportDialog, type ExportDialogRequest } from "@/features/exports/expor
 import { ExportMenuItems } from "@/features/exports/export-menu-items";
 import type {
   ObjectKind,
+  PersonEntry,
   SnapshotObject,
   StoredVersion,
   TreeEntry,
@@ -59,7 +60,6 @@ import { SelectionBar } from "@/features/restore/explorer/selection-bar";
 import { isCalendarListing, monthOf } from "@/features/restore/lib/calendar";
 import {
   activeQuery,
-  preferredObject,
   withCalendarView,
   withFolder,
   withItem,
@@ -69,7 +69,7 @@ import {
   withSort,
 } from "@/features/restore/lib/explorer-search";
 import { normalizePath, parentPathOf } from "@/features/restore/lib/paths";
-import { groupPeople, personOfObject } from "@/features/restore/lib/people";
+import { firstAreaOf } from "@/features/restore/lib/people";
 import {
   deselectAll,
   EMPTY_SELECTION,
@@ -88,7 +88,8 @@ import {
 import { useExplorerSearch } from "@/features/restore/navigation";
 import { RestoreTabs } from "@/features/restore/restore-tabs";
 import {
-  useSnapshotObjects,
+  usePeople,
+  usePersonOf,
   useSnapshotSearch,
   useSnapshots,
   useTree,
@@ -142,9 +143,12 @@ function exportsMail(kind: ObjectKind): boolean {
 export function ExplorerPage() {
   usePageWidth("full");
   const { t } = useTranslation("restore");
-  // include=all: every account of the tenant, even one still without a
-  // restore point, so the account list can say so instead of hiding it.
-  const objects = useSnapshotObjects(true);
+  // The first page of people and of sites (every account, even one still without a restore
+  // point): whether there is anything to browse, and where the explorer opens. The account list
+  // shares these pages (same query keys) and loads the rest as it is scrolled.
+  const people = usePeople("people", "", null);
+  const sites = usePeople("sites", "", null);
+  const first = people.data?.pages[0]?.items[0] ?? sites.data?.pages[0]?.items[0] ?? null;
   const canProtect = useCanProtect();
   const seesAll = useSeesAllAccounts();
 
@@ -153,19 +157,22 @@ export function ExplorerPage() {
       <RestoreTabs current="browse" />
       <PageHeader title={t("explorer.title")} description={t("explorer.subtitle")} />
 
-      {objects.isPending ? (
+      {people.isPending || sites.isPending ? (
         <ExplorerSkeleton />
-      ) : objects.isError ? (
+      ) : people.isError || sites.isError ? (
         <ErrorState
           title={t("explorer.object.loadError")}
-          error={objects.error}
-          onRetry={() => void objects.refetch()}
-          retrying={objects.isFetching}
+          error={people.error ?? sites.error}
+          onRetry={() => {
+            void people.refetch();
+            void sites.refetch();
+          }}
+          retrying={people.isFetching || sites.isFetching}
         />
-      ) : objects.data.length === 0 ? (
+      ) : first === null ? (
         <NoAccountsState canProtect={canProtect} seesAll={seesAll} />
       ) : (
-        <ExplorerShell objects={objects.data} />
+        <ExplorerShell first={first} />
       )}
     </div>
   );
@@ -191,20 +198,30 @@ function ExplorerSkeleton() {
  * the open dialog and which entry was last opened reset (they belong to one
  * restore point, not to the explorer itself).
  */
-function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
+function ExplorerShell({ first }: { first: PersonEntry }) {
   const { t } = useTranslation("restore");
   const { user } = useSession();
   const canProtect = useCanProtect();
   const wide = useMediaQuery("(min-width: 1024px)");
   const [search, setSearch] = useExplorerSearch();
 
-  const object = objects.find((candidate) => candidate.id === search.object) ?? null;
+  // The entry the object of the address belongs to: the object itself and, for a person, their
+  // other objects (the second column). Without an object, or one this viewer cannot see, the
+  // explorer opens on the first entry: the viewer's own, else the first by name.
+  const owner = usePersonOf(search.object ?? null);
+  const person = owner.data && owner.data.key.startsWith("site:") ? null : (owner.data ?? null);
+  const object = owner.data?.objects.find((candidate) => candidate.id === search.object) ?? null;
+  const missing =
+    !search.object || (owner.isSuccess && !owner.isPlaceholderData && object === null);
   React.useEffect(() => {
-    const fallback = preferredObject(objects);
-    if (!object && fallback) {
-      setSearch(withObject(fallback.id), { replace: true });
+    if (missing) {
+      const area = firstAreaOf(first);
+      const fallback = area?.object ?? first.objects[0];
+      if (fallback) {
+        setSearch(withObject(fallback.id, area?.path || undefined), { replace: true });
+      }
     }
-  }, [object, objects, setSearch]);
+  }, [missing, first, setSearch]);
 
   const objectId = object?.id ?? null;
   const restorePoints = useSnapshots(objectId);
@@ -369,7 +386,6 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
 
   const accountList = (
     <AccountList
-      objects={objects}
       value={objectId}
       onChange={(id, areaPath) => setSearch(withObject(id, areaPath))}
       suspicious={suspicious}
@@ -404,10 +420,6 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
     : (restorePoints.data?.length ?? 0) > 0;
   const restorePointReady = Boolean(object && restorePoint);
 
-  const person = React.useMemo(
-    () => personOfObject(groupPeople(objects).people, objectId),
-    [objects, objectId],
-  );
   const folderTreePane = person ? (
     <div className="h-full overflow-y-auto p-2">
       <PersonAreas

@@ -19,19 +19,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { ObjectKind, SnapshotObject } from "@/features/restore/api";
 import { ObjectIcon, objectLabel } from "@/features/restore/explorer/entry-icon";
 import { type AccountTypeFilter, accountAddress } from "@/features/restore/lib/accounts";
 import {
   firstAreaOf,
-  groupPeople,
   latestBackupOf,
-  matchesPerson,
-  matchesSite,
   type Person,
-  personOfObject,
   readinessOf,
 } from "@/features/restore/lib/people";
+import { usePeople } from "@/features/restore/use-restore-data";
 import "@/features/suspicion/i18n";
 import type { ObjectState } from "@/features/verify/api";
 import { StateBadge } from "@/features/verify/components/status";
@@ -44,14 +42,10 @@ const TYPE_ICONS: Record<ObjectKind, typeof Inbox> = {
   imap: Server,
 };
 
-/**
- * Rows rendered per section before "Show more": a tenant of 10,000 people lists its first
- * hundred at once and the rest on request, and the search always looks through everyone.
- */
-export const ACCOUNT_PAGE = 100;
+/** How long the search waits after the last keystroke before it asks the API. */
+export const SEARCH_DEBOUNCE_MS = 300;
 
 interface AccountListProps {
-  objects: readonly SnapshotObject[];
   /** The object the explorer shows. */
   value: string | null;
   /** Show another object; `path` opens it at that folder (a person's first area). */
@@ -62,37 +56,52 @@ interface AccountListProps {
 
 const NONE: ReadonlySet<string> = new Set();
 
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 /**
  * The explorer's left column: one entry per person (#49), their mailbox, OneDrive and IMAP
- * account together, and SharePoint and Teams sites in a section of their own. Searchable by
- * name, address and account, with a type filter, the viewer's own entry first, and each
- * entry's protection and readiness. Display names only, never a raw id. Long lists render a
- * page at a time.
+ * account together, and SharePoint and Teams sites in a section of their own. The API groups,
+ * orders (the viewer's own entry first, then by name), searches (names, addresses and account
+ * ids) and filters, and hands out a page at a time: more load when the end of a section scrolls
+ * into view or on "Show more", so a tenant of tens of thousands of people stays quick. Each
+ * entry shows its protection and readiness; display names only, never a raw id.
  */
-export function AccountList({ objects, value, onChange, suspicious = NONE }: AccountListProps) {
+export function AccountList({ value, onChange, suspicious = NONE }: AccountListProps) {
   const { t } = useTranslation("restore");
   const [typeFilter, setTypeFilter] = React.useState<AccountTypeFilter>("all");
   const [query, setQuery] = React.useState("");
-  const [shownPeople, setShownPeople] = React.useState(ACCOUNT_PAGE);
-  const [shownSites, setShownSites] = React.useState(ACCOUNT_PAGE);
+  const search = useDebounced(query.trim(), SEARCH_DEBOUNCE_MS);
+  const kind = typeFilter === "all" ? null : typeFilter;
 
-  const grouped = React.useMemo(() => groupPeople(objects), [objects]);
-  const people = React.useMemo(
-    () => grouped.people.filter((person) => matchesPerson(person, query, typeFilter)),
-    [grouped, query, typeFilter],
+  const peopleQuery = usePeople("people", search, kind, typeFilter !== "site");
+  const sitesQuery = usePeople(
+    "sites",
+    search,
+    null,
+    typeFilter === "all" || typeFilter === "site",
   );
-  const sites = React.useMemo(
-    () => grouped.sites.filter((site) => matchesSite(site, query, typeFilter)),
-    [grouped, query, typeFilter],
-  );
-  // A new search or filter starts at the top of each section again.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: query and filter are the reset triggers.
-  React.useEffect(() => {
-    setShownPeople(ACCOUNT_PAGE);
-    setShownSites(ACCOUNT_PAGE);
-  }, [query, typeFilter]);
+  const people =
+    typeFilter === "site" ? [] : (peopleQuery.data?.pages.flatMap((page) => page.items) ?? []);
+  const sites =
+    typeFilter === "all" || typeFilter === "site"
+      ? (sitesQuery.data?.pages.flatMap((page) => page.items) ?? [])
+      : [];
+  const peopleTotal = peopleQuery.data?.pages[0]?.total ?? 0;
+  const sitesTotal = sitesQuery.data?.pages[0]?.total ?? 0;
+  const loading =
+    (typeFilter !== "site" && peopleQuery.isPending) ||
+    ((typeFilter === "all" || typeFilter === "site") && sitesQuery.isPending);
 
-  const activePerson = personOfObject(grouped.people, value);
+  const activePerson = value
+    ? (people.find((person) => person.objects.some((object) => object.id === value)) ?? null)
+    : null;
   const activeKey = activePerson ? `person:${activePerson.key}` : value ? `site:${value}` : "";
 
   // cmdk highlights its own current item independently of `value` (the
@@ -114,9 +123,6 @@ export function AccountList({ objects, value, onChange, suspicious = NONE }: Acc
       onChange(first.object.id, first.path || undefined);
     }
   };
-
-  const visiblePeople = people.slice(0, shownPeople);
-  const visibleSites = sites.slice(0, shownSites);
 
   return (
     <div className="flex h-full min-w-0 flex-col">
@@ -172,7 +178,12 @@ export function AccountList({ objects, value, onChange, suspicious = NONE }: Acc
           onValueChange={setQuery}
         />
         <CommandList className="max-h-none flex-1">
-          {people.length === 0 && sites.length === 0 ? (
+          {loading ? (
+            <div className="space-y-2 p-2" aria-busy="true">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : people.length === 0 && sites.length === 0 ? (
             <CommandEmpty>
               <EmptyState
                 icon={Users}
@@ -184,10 +195,10 @@ export function AccountList({ objects, value, onChange, suspicious = NONE }: Acc
           ) : null}
           {people.length > 0 ? (
             <CommandGroup
-              heading={grouped.sites.length > 0 ? t("explorer.accounts.people") : undefined}
+              heading={sites.length > 0 ? t("explorer.accounts.people") : undefined}
               data-slot="account-people"
             >
-              {visiblePeople.map((person) => (
+              {people.map((person) => (
                 <PersonItem
                   key={person.key}
                   person={person}
@@ -196,29 +207,36 @@ export function AccountList({ objects, value, onChange, suspicious = NONE }: Acc
                   onSelect={() => choosePerson(person)}
                 />
               ))}
-              {people.length > visiblePeople.length ? (
+              {peopleQuery.hasNextPage ? (
                 <ShowMore
-                  rest={people.length - visiblePeople.length}
-                  onClick={() => setShownPeople((count) => count + ACCOUNT_PAGE)}
+                  rest={peopleTotal - people.length}
+                  loading={peopleQuery.isFetchingNextPage}
+                  onMore={() => void peopleQuery.fetchNextPage()}
                 />
               ) : null}
             </CommandGroup>
           ) : null}
           {sites.length > 0 ? (
             <CommandGroup heading={t("explorer.accounts.sites")} data-slot="account-sites">
-              {visibleSites.map((site) => (
-                <SiteItem
-                  key={site.id}
-                  site={site}
-                  active={site.id === value}
-                  suspicious={suspicious.has(site.id)}
-                  onSelect={() => onChange(site.id)}
-                />
-              ))}
-              {sites.length > visibleSites.length ? (
+              {sites.flatMap((entry) => {
+                const site = entry.objects[0];
+                return site
+                  ? [
+                      <SiteItem
+                        key={entry.key}
+                        site={site}
+                        active={site.id === value}
+                        suspicious={suspicious.has(site.id)}
+                        onSelect={() => onChange(site.id)}
+                      />,
+                    ]
+                  : [];
+              })}
+              {sitesQuery.hasNextPage ? (
                 <ShowMore
-                  rest={sites.length - visibleSites.length}
-                  onClick={() => setShownSites((count) => count + ACCOUNT_PAGE)}
+                  rest={sitesTotal - sites.length}
+                  loading={sitesQuery.isFetchingNextPage}
+                  onMore={() => void sitesQuery.fetchNextPage()}
                 />
               ) : null}
             </CommandGroup>
@@ -229,18 +247,47 @@ export function AccountList({ objects, value, onChange, suspicious = NONE }: Acc
   );
 }
 
-function ShowMore({ rest, onClick }: { rest: number; onClick: () => void }) {
+/**
+ * The end of a section that has more: loads the next page when it scrolls into view (where the
+ * browser can tell) and on a click.
+ */
+function ShowMore({
+  rest,
+  loading,
+  onMore,
+}: {
+  rest: number;
+  loading: boolean;
+  onMore: () => void;
+}) {
   const { t } = useTranslation("restore");
+  const ref = React.useRef<HTMLDivElement>(null);
+  const more = React.useRef(onMore);
+  more.current = onMore;
+  React.useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        more.current();
+      }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <div className="px-2 py-1.5">
+    <div ref={ref} className="px-2 py-1.5">
       <Button
         variant="ghost"
         size="sm"
         className="w-full"
-        onClick={onClick}
+        onClick={onMore}
+        loading={loading}
         data-slot="account-more"
       >
-        {t("explorer.accounts.more", { count: rest })}
+        {t("explorer.accounts.more", { count: Math.max(rest, 0) })}
       </Button>
     </div>
   );

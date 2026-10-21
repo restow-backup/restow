@@ -1,8 +1,6 @@
-import type { ObjectKind, SnapshotObject } from "@/features/restore/api";
-import { objectLabel } from "@/features/restore/explorer/entry-icon";
+import type { PersonEntry, SnapshotObject } from "@/features/restore/api";
 import type { ObjectState } from "@/features/verify/api";
 
-import { type AccountTypeFilter, accountAddress } from "./accounts";
 import { normalizePath } from "./paths";
 
 /**
@@ -13,137 +11,13 @@ import { normalizePath } from "./paths";
  * `protected_objects.user_id`); an object of no one known stands on its own, under its own name.
  * A OneDrive for Business always belongs to exactly one user and stays, orphaned, after the
  * account is deleted: it is listed under that person's name, marked so. SharePoint sites (and
- * the Teams files in them) belong to no person and have a section of their own.
+ * the Teams files in them) belong to no person and have a section of their own. The grouping,
+ * the order, the search and the paging happen in the API (`GET /snapshots/people`); this module
+ * holds what the page derives from an entry.
  */
 
-export interface Person {
-  /** `user:<ownerKey>`, or `object:<id>` for an object of no known person. */
-  key: string;
-  name: string;
-  /** The person's address (the owner's primary address, an IMAP login), or null. */
-  address: string | null;
-  /** The signed-in person's own entry (self-service restore). */
-  own: boolean;
-  /** Mailbox first, then OneDrive, then IMAP accounts. */
-  objects: SnapshotObject[];
-  /** Every object of the person is orphaned: the account is gone from the directory. */
-  accountDeleted: boolean;
-}
-
-export interface People {
-  people: Person[];
-  sites: SnapshotObject[];
-}
-
-const KIND_ORDER: Readonly<Record<ObjectKind, number>> = {
-  mailbox: 0,
-  onedrive: 1,
-  imap: 2,
-  site: 3,
-};
-
-function personKey(object: SnapshotObject): string {
-  return object.ownerKey ? `user:${object.ownerKey}` : `object:${object.id}`;
-}
-
-function byLabel(a: { name: string; own: boolean }, b: { name: string; own: boolean }): number {
-  if (a.own !== b.own) {
-    return a.own ? -1 : 1;
-  }
-  return a.name.localeCompare(b.name);
-}
-
-/** Group the explorer's objects into people and sites, each sorted: own entry first, then by name. */
-export function groupPeople(objects: readonly SnapshotObject[]): People {
-  const groups = new Map<string, SnapshotObject[]>();
-  const sites: SnapshotObject[] = [];
-  for (const object of objects) {
-    if (object.kind === "site") {
-      sites.push(object);
-      continue;
-    }
-    const key = personKey(object);
-    const list = groups.get(key);
-    if (list) {
-      list.push(object);
-    } else {
-      groups.set(key, [object]);
-    }
-  }
-  const people = [...groups.entries()].map(([key, list]): Person => {
-    const sorted = [...list].sort(
-      (a, b) =>
-        KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || objectLabel(a).localeCompare(objectLabel(b)),
-    );
-    const first = sorted[0] as SnapshotObject;
-    const named = sorted.find((object) => object.ownerName) ?? first;
-    return {
-      key,
-      name: named.ownerName ?? objectLabel(sorted.find((o) => o.displayName) ?? first),
-      address: first.ownerEmail ?? accountAddress(first),
-      own: sorted.some((object) => object.own),
-      objects: sorted,
-      accountDeleted: sorted.every((object) => object.status === "orphaned"),
-    };
-  });
-  people.sort(byLabel);
-  const sortedSites = [...sites].sort((a, b) =>
-    byLabel({ name: objectLabel(a), own: a.own }, { name: objectLabel(b), own: b.own }),
-  );
-  return { people, sites: sortedSites };
-}
-
-/** The person an object belongs to, or null (a site, or an object not in the list). */
-export function personOfObject(people: readonly Person[], objectId: string | null): Person | null {
-  if (!objectId) {
-    return null;
-  }
-  return people.find((person) => person.objects.some((object) => object.id === objectId)) ?? null;
-}
-
-function normalized(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-}
-
-/** Whether a person matches the search text (name, addresses, account ids) and the type filter. */
-export function matchesPerson(person: Person, query: string, filter: AccountTypeFilter): boolean {
-  if (filter !== "all" && !person.objects.some((object) => object.kind === filter)) {
-    return false;
-  }
-  const words = normalized(query).split(/\s+/).filter(Boolean);
-  if (words.length === 0) {
-    return true;
-  }
-  const haystack = normalized(
-    [
-      person.name,
-      person.address ?? "",
-      ...person.objects.flatMap((object) => [
-        object.displayName ?? "",
-        object.externalId,
-        object.ownerEmail ?? "",
-      ]),
-    ].join(" "),
-  );
-  return words.every((word) => haystack.includes(word));
-}
-
-/** Whether a site matches the search text and the type filter. */
-export function matchesSite(
-  site: SnapshotObject,
-  query: string,
-  filter: AccountTypeFilter,
-): boolean {
-  if (filter !== "all" && filter !== "site") {
-    return false;
-  }
-  const words = normalized(query).split(/\s+/).filter(Boolean);
-  const haystack = normalized(`${objectLabel(site)} ${site.externalId}`);
-  return words.every((word) => haystack.includes(word));
-}
+/** A person (or a site) as the API lists it ({@link PersonEntry}). */
+export type Person = PersonEntry;
 
 /** A person's or a site's newest restore point, for the list. */
 export function latestBackupOf(objects: readonly SnapshotObject[]): string | null {

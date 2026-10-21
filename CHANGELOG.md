@@ -19,8 +19,10 @@ private repository.
 - Restore explorer: one entry per person. A person's mailbox, OneDrive and IMAP account are
   grouped; the second column shows Mail, Calendar, Contacts and OneDrive, each with its own
   restore points. SharePoint and Teams sites have a section of their own, an orphaned OneDrive
-  is listed under its owner's name as "Account deleted", and long lists render a page at a time.
-  The snapshot objects carry `ownerKey` and `ownerName`.
+  is listed under its owner's name as "Account deleted". The list comes a page at a time from
+  the new `GET /api/v1/snapshots/people` (keyset paging, search over names, addresses and
+  account ids, type filter, all in the database), so tenants with 10,000+ people never load
+  everyone at once. The snapshot objects carry `ownerKey` and `ownerName`.
 - Mail job editor: the first question is what the job should do, back up, archive or both
   (both is the default for a new job). While it archives, the editor names the capture
   (Exchange journaling) with the way to its setup and suggests backing up every 8 hours;
@@ -28,6 +30,7 @@ private repository.
 
 ### Changed
 
+- Database: index `protected_objects (tenant_id, user_id)` for a person's objects.
 - Restore explorer: calendar events sort by when they start (newest first, or upcoming first)
   instead of by subject, with When, Location and Organizer columns.
 - Exchange backup: an event's metadata records its location and the end of a series range.

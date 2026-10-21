@@ -101,3 +101,21 @@ export const calendarQuerySchema = z
     { message: `the window may span at most ${CALENDAR_MAX_SPAN_DAYS} days`, path: ["to"] },
   );
 export type CalendarQuery = z.infer<typeof calendarQuerySchema>;
+
+/**
+ * One page of the explorer's left column (#49): people (a person's mailbox, OneDrive and IMAP
+ * account together) or SharePoint and Teams sites, the viewer's own entry first, then by name.
+ * `after` is the `next` cursor of the previous page; `q` searches names, addresses and account
+ * ids (every word must match); `kind` keeps the entries that have an object of that kind.
+ * `objectId` answers the one entry that object belongs to instead of a page.
+ */
+export const peopleQuerySchema = z.object({
+  section: z.enum(["people", "sites"]).default("people"),
+  q: z.string().trim().max(200).default(""),
+  kind: z.enum(["mailbox", "onedrive", "imap", "site"]).optional(),
+  include: z.enum(["withBackup", "all"]).default("all"),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  after: z.string().max(2048).optional(),
+  objectId: z.string().uuid().optional(),
+});
+export type PeopleQuery = z.infer<typeof peopleQuerySchema>;

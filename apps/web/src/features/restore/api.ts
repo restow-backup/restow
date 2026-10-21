@@ -45,6 +45,55 @@ export interface SnapshotObject {
   readiness: ObjectState;
 }
 
+/**
+ * One entry of the explorer's left column (the API's `PersonEntryDto`): a person with their
+ * mailbox, OneDrive and IMAP account, or one SharePoint or Teams site.
+ */
+export interface PersonEntry {
+  /** `user:<id>`, `object:<id>` (an object of no known person) or `site:<id>`. */
+  key: string;
+  name: string;
+  address: string | null;
+  own: boolean;
+  /** Every object is orphaned: the account is gone from the directory. */
+  accountDeleted: boolean;
+  /** Mailbox first, then OneDrive, then IMAP accounts. */
+  objects: SnapshotObject[];
+}
+
+export type PeopleSection = "people" | "sites";
+
+export interface PeoplePage {
+  section: PeopleSection;
+  items: PersonEntry[];
+  total: number;
+  /** The cursor of the next page; null on the last one. */
+  next: string | null;
+}
+
+/** The page size of the explorer's left column. */
+export const PEOPLE_PAGE_SIZE = 50;
+
+/** One page of people or sites, searched and filtered by the API. */
+export function fetchPeople(params: {
+  section: PeopleSection;
+  q?: string;
+  kind?: ObjectKind;
+  after?: string | null;
+  objectId?: string;
+}): Promise<PeoplePage> {
+  return apiFetch<PeoplePage>(
+    `/snapshots/people${queryString({
+      section: params.section,
+      q: params.q || undefined,
+      kind: params.kind,
+      after: params.after ?? undefined,
+      objectId: params.objectId,
+      limit: PEOPLE_PAGE_SIZE,
+    })}`,
+  );
+}
+
 export interface Snapshot {
   id: string;
   objectId: string;
@@ -428,6 +477,10 @@ export const restoreKeys = {
   all: (tenantId: TenantKey) => ["tenant", tenantId, "restore"] as const,
   objects: (tenantId: TenantKey, includeAll: boolean) =>
     ["tenant", tenantId, "restore", "objects", includeAll] as const,
+  people: (tenantId: TenantKey, section: PeopleSection, q: string, kind: ObjectKind | null) =>
+    ["tenant", tenantId, "restore", "people", section, q, kind] as const,
+  personOf: (tenantId: TenantKey, objectId: string | null) =>
+    ["tenant", tenantId, "restore", "person-of", objectId] as const,
   snapshots: (tenantId: TenantKey, objectId: string | null) =>
     ["tenant", tenantId, "restore", "snapshots", objectId] as const,
   tree: (tenantId: TenantKey, snapshotId: string | null, path: string, sort: TreeSort) =>

@@ -250,6 +250,8 @@ export const protectedObjects = pgTable(
   (t) => [
     uniqueIndex("protected_objects_source_external_uq").on(t.sourceId, t.externalId),
     index("protected_objects_tenant_status_idx").on(t.tenantId, t.status),
+    // A person's objects (the explorer's people, #49) and the ON DELETE SET NULL of `users`.
+    index("protected_objects_tenant_user_idx").on(t.tenantId, t.userId),
   ],
 );
 

@@ -17,6 +17,7 @@ import {
   calendarQuerySchema,
   listObjectsQuerySchema,
   listSnapshotsQuerySchema,
+  peopleQuerySchema,
   searchQuerySchema,
   snapshotEntryParamSchema,
   treeQuerySchema,
@@ -26,6 +27,7 @@ import {
 import {
   calendarView,
   listObjects,
+  listPeople,
   listSnapshots,
   listTree,
   listVersions,
@@ -89,6 +91,12 @@ function readerOf(c: Context<TenantEnv>): SnapshotReader {
 snapshotsRoutes.get("/objects", tenantUser, async (c) => {
   const query = parseOrProblem(listObjectsQuerySchema, c.req.query());
   return c.json({ items: await listObjects(db, c.get("tenantId"), viewerOf(c), query) });
+});
+
+/** The explorer's left column, a page at a time: people (or sites), searchable and filtered. */
+snapshotsRoutes.get("/people", tenantUser, async (c) => {
+  const query = parseOrProblem(peopleQuerySchema, c.req.query());
+  return c.json(await listPeople(db, c.get("tenantId"), viewerOf(c), query));
 });
 
 snapshotsRoutes.get("/objects/:id/versions", tenantUser, async (c) => {
