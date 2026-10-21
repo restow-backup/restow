@@ -4,10 +4,11 @@
  * points and releases exactly their chunk references (the map-aware
  * reference count of docs/PROXMOX.md 2.4), verify reads a block sample back
  * and notices a block that does not match its map, stale runs fail and give
- * their staged references back.
+ * their staged references back. A container check another run's restic lock
+ * keeps out is postponed, then recorded as "could not check", never failed.
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -22,6 +23,7 @@ import {
   manifestKey,
   noopLogger,
   PVE_BLOCK_SIZE,
+  pveRestorePointReadiness,
   type StorageTargets,
   sealManifest,
   sealSecret,
@@ -67,10 +69,14 @@ import {
   closeStaleRuns,
   coveredBy,
   dropPveTokenSecrets,
+  PVE_CHECK_LOCK_WAITS_PER_PASS,
+  PVE_CHECK_RETRY_LOCK,
   type PveDeps,
   planJobs,
   purgeDownloads,
   pvePass,
+  VERIFY_GIVE_UP_MS,
+  VERIFY_POSTPONE_MS,
   verifyDue,
   verifySnapshot,
 } from "./maintenance.js";
@@ -706,6 +712,256 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     expect(await purgeDownloads(deps, clock)).toBe(1);
     expect(await owner.select().from(pveDownloads)).toHaveLength(1);
   }, 60_000);
+  it("postpones a container check another run's lock keeps out, and never calls it failed", async () => {
+    // A restic that logs every call and answers `check` as the mode file says.
+    const fake = join(work, "restic-locks.sh");
+    const calls = join(work, "restic-locks.calls");
+    const mode = join(work, "restic-locks.mode");
+    await writeFile(
+      fake,
+      [
+        "#!/bin/sh",
+        `echo "$*" >> '${calls}'`,
+        'if [ "$1" != "check" ]; then exit 0; fi',
+        `if [ "$(cat '${mode}')" = "ok" ]; then echo "no errors were found"; exit 0; fi`,
+        "cat >&2 <<'EOF'",
+        "repo already locked, waiting up to 2m0s for the lock",
+        "unable to create lock in backend: repository is already locked by PID 4711 on host pve1 by root (UID 0, GID 0)",
+        "lock was created at 2026-10-10 11:58:00 (2m0s ago)",
+        "storage ID 1a2b3c4d",
+        'the "unlock" command can be used to remove stale locks',
+        "EOF",
+        "exit 11",
+      ].join("\n"),
+    );
+    await chmod(fake, 0o755);
+    await writeFile(mode, "locked");
+    await writeFile(calls, "");
+    const checks = async () =>
+      (await readFile(calls, "utf8")).split("\n").filter((line) => line.startsWith("check"));
+    const before = process.env.RESTIC_BINARY;
+    process.env.RESTIC_BINARY = fake;
+    const keys = await deps.runtime.keyrings.get(tenantId);
+    const newGuest = async (vmid: number, requestedAt: Date | null) => {
+      const secretId = randomUUID();
+      await owner.insert(secrets).values({
+        id: secretId,
+        tenantId,
+        kind: "pve_ct_repository",
+        ciphertext: sealSecret(keys.current, secretId, "repository-password"),
+      });
+      const [ct] = await owner
+        .insert(pveGuests)
+        .values({
+          tenantId,
+          clusterId,
+          vmid,
+          kind: "ct",
+          node: "pve1",
+          repositorySecretId: secretId,
+        })
+        .returning();
+      const [point] = await owner
+        .insert(pveSnapshots)
+        .values({
+          tenantId,
+          clusterId,
+          guestId: ct?.id ?? "",
+          sequence: 1,
+          kind: "ct",
+          archiveName: `ct/${vmid}/2026-10-10T11:00:00Z`,
+          storageId: "restow",
+          manifestPath: "unused",
+          resticSnapshotId: "e".repeat(64),
+          backupAt: clock,
+          verifyRequestedAt: requestedAt,
+        })
+        .returning();
+      await owner
+        .update(pveGuests)
+        .set({ lastSnapshotId: point?.id ?? null, lastVerifyAt: clock })
+        .where(eq(pveGuests.id, ct?.id ?? ""));
+      return { guestId: ct?.id ?? "", pointId: point?.id ?? "" };
+    };
+    const point = async (id: string) =>
+      (await owner.select().from(pveSnapshots).where(eq(pveSnapshots.id, id)))[0];
+    const guest = async (id: string) =>
+      (await owner.select().from(pveGuests).where(eq(pveGuests.id, id)))[0];
+    try {
+      const committedAt = new Date(clock.getTime() - 60_000);
+      const ct = await newGuest(310, committedAt);
+      const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+
+      // Its next backup runs (or the node took it on): the check waits, nothing is recorded.
+      const [run] = await owner
+        .insert(pveRuns)
+        .values({
+          tenantId,
+          clusterId,
+          nodeId: node?.id ?? null,
+          guestId: ct.guestId,
+          kind: "backup",
+          startedAt: clock,
+        })
+        .returning();
+      await verifyDue(deps, clock);
+      await owner
+        .update(pveRuns)
+        .set({ status: "succeeded" })
+        .where(eq(pveRuns.id, run?.id ?? ""));
+      const [task] = await owner
+        .insert(pveTasks)
+        .values({
+          tenantId,
+          nodeId: node?.id ?? "",
+          guestId: ct.guestId,
+          kind: "backup",
+          status: "delivered",
+          expiresAt: new Date(clock.getTime() + DAY),
+        })
+        .returning();
+      await verifyDue(deps, clock);
+      expect(await checks()).toEqual([]);
+      expect((await point(ct.pointId))?.verifyRequestedAt).toEqual(committedAt);
+      await owner
+        .update(pveTasks)
+        .set({ status: "done" })
+        .where(eq(pveTasks.id, task?.id ?? ""));
+      // Asked for, but not due yet (a moment after the commit): later.
+      await owner
+        .update(pveSnapshots)
+        .set({ verifyRequestedAt: new Date(clock.getTime() + 60_000) })
+        .where(eq(pveSnapshots.id, ct.pointId));
+      await verifyDue(deps, clock);
+      expect(await checks()).toEqual([]);
+      await owner
+        .update(pveSnapshots)
+        .set({ verifyRequestedAt: committedAt })
+        .where(eq(pveSnapshots.id, ct.pointId));
+
+      // Locked: stale locks are cleared first, restic waits for the lock, then the check is
+      // postponed. Not failed, not checked, the weekly clock untouched.
+      expect(await verifyDue(deps, clock)).toBe(0);
+      expect(await checks()).toEqual([
+        `check --retry-lock=${PVE_CHECK_RETRY_LOCK} --read-data-subset=5%`,
+      ]);
+      expect(await readFile(calls, "utf8")).toMatch(/^unlock\n/);
+      let row = await point(ct.pointId);
+      expect(row?.verifyRequestedAt).toEqual(new Date(clock.getTime() + VERIFY_POSTPONE_MS));
+      expect(row?.verify?.checkedAt).toBeUndefined();
+      expect(row?.verify?.errors).toEqual([]);
+      expect(row?.verify?.notChecked).toMatchObject({
+        reason: "locked",
+        since: committedAt.toISOString(),
+        attempts: 1,
+      });
+      expect(row?.verify?.notChecked?.gaveUpAt).toBeUndefined();
+      // restic's own report of who holds the lock is kept.
+      expect(row?.verify?.notChecked?.detail).toContain("locked by PID 4711 on host pve1");
+      expect(row?.verify?.notChecked?.detail).toContain("lock was created at");
+      expect(pveRestorePointReadiness(row?.verify)).toBeNull();
+      expect((await guest(ct.guestId))?.lastVerifyAt).toEqual(clock);
+
+      // Tried again after the pause; after two hours it reads "could not check" (yellow).
+      await verifyDue(deps, new Date(clock.getTime() + 5 * 60_000));
+      expect(await checks()).toHaveLength(1);
+      const gaveUp = new Date(committedAt.getTime() + VERIFY_GIVE_UP_MS);
+      await verifyDue(deps, gaveUp);
+      expect(await checks()).toHaveLength(2);
+      row = await point(ct.pointId);
+      expect(row?.verifyRequestedAt).toBeNull();
+      expect(row?.verify).toMatchObject({ blocks: 0, mismatched: 0, errors: [] });
+      expect(row?.verify?.notChecked).toMatchObject({
+        reason: "locked",
+        attempts: 2,
+        gaveUpAt: gaveUp.toISOString(),
+      });
+      expect(pveRestorePointReadiness(row?.verify)).toBe("yellow");
+      // The weekly clock tries again after a day.
+      expect((await guest(ct.guestId))?.lastVerifyAt).toEqual(new Date(gaveUp.getTime() - 6 * DAY));
+
+      // The lock is gone: the next check runs and is green again.
+      await writeFile(mode, "ok");
+      const nextDay = new Date(gaveUp.getTime() + DAY + 60_000);
+      await verifyDue(deps, nextDay);
+      row = await point(ct.pointId);
+      const passedAt = row?.verify?.checkedAt;
+      expect(typeof passedAt).toBe("string");
+      expect(row?.verify).toMatchObject({ errors: [], mismatched: 0 });
+      expect(row?.verify?.notChecked).toBeUndefined();
+      expect(pveRestorePointReadiness(row?.verify)).toBe("green");
+      expect((await guest(ct.guestId))?.lastVerifyAt).toEqual(nextDay);
+
+      // The weekly check of a guest with a passed check: postponed, its last result stands, and
+      // the request takes it from there (one try per pass).
+      await writeFile(mode, "locked");
+      const week = new Date(nextDay.getTime() + 8 * DAY);
+      // (Every other guest was checked lately.)
+      await owner
+        .update(pveGuests)
+        .set({ lastVerifyAt: week })
+        .where(sql`${pveGuests.id} <> ${ct.guestId}`);
+      await writeFile(calls, "");
+      await verifyDue(deps, week);
+      row = await point(ct.pointId);
+      expect(row?.verify).toMatchObject({ checkedAt: passedAt, errors: [] });
+      expect(row?.verify?.notChecked).toMatchObject({ reason: "locked", attempts: 1 });
+      expect(row?.verifyRequestedAt).toEqual(new Date(week.getTime() + VERIFY_POSTPONE_MS));
+      expect(pveRestorePointReadiness(row?.verify)).toBe("green");
+      expect(await checks()).toHaveLength(1);
+      await owner
+        .update(pveSnapshots)
+        .set({ verifyRequestedAt: null })
+        .where(eq(pveSnapshots.id, ct.pointId));
+      await owner.update(pveGuests).set({ lastVerifyAt: week }).where(eq(pveGuests.id, ct.guestId));
+
+      // Many locked repositories in one pass: only the first few wait for their lock.
+      const many = [];
+      for (const vmid of [311, 312, 313, 314]) {
+        many.push(await newGuest(vmid, committedAt));
+      }
+      await writeFile(calls, "");
+      await verifyDue(deps, clock);
+      const waited = (await checks()).filter((line) => line.includes("--retry-lock"));
+      expect(await checks()).toHaveLength(4);
+      expect(waited).toHaveLength(PVE_CHECK_LOCK_WAITS_PER_PASS);
+      for (const other of many) {
+        expect((await point(other.pointId))?.verify?.notChecked?.attempts).toBe(1);
+      }
+      await owner
+        .update(pveSnapshots)
+        .set({ verifyRequestedAt: null })
+        .where(
+          inArray(
+            pveSnapshots.id,
+            many.map((other) => other.pointId),
+          ),
+        );
+
+      // A shutdown stops the check: nothing is recorded, the next worker checks it.
+      const stopping = await newGuest(315, committedAt);
+      const shutdown = new AbortController();
+      shutdown.abort();
+      await verifyDue(
+        { ...deps, runtime: { ...deps.runtime, shutdownSignal: shutdown.signal } },
+        clock,
+      );
+      const untouched = await point(stopping.pointId);
+      expect(untouched?.verify).toBeNull();
+      expect(untouched?.verifyRequestedAt).toEqual(committedAt);
+      await owner
+        .update(pveSnapshots)
+        .set({ verifyRequestedAt: null })
+        .where(eq(pveSnapshots.id, stopping.pointId));
+    } finally {
+      if (before === undefined) {
+        delete process.env.RESTIC_BINARY;
+      } else {
+        process.env.RESTIC_BINARY = before;
+      }
+    }
+  }, 60_000);
+
   it("keeps every restore point of a guest held on suspicion, and garbage collection keeps their chunks", async () => {
     const [job] = await owner.select().from(pveJobs);
     const [held] = await owner

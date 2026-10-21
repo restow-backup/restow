@@ -157,6 +157,53 @@ describe("restic REST protocol on the storage abstraction", () => {
     expect(storage.files.size).toBe(0);
   });
 
+  it("lets a stopped run release its own lock, and change nothing else", async () => {
+    const storage = new MemoryStorage();
+    const locks = lockRegistry();
+    const lock = Buffer.from("lock of the cancelled backup");
+    const other = Buffer.from("lock of someone else");
+    const pack = Buffer.from("pack");
+    await call(storage, "maintenance", "POST", "/config", { body: Buffer.from("config") });
+    await call(storage, "agent", "POST", `/locks/${sha256(lock)}`, { body: lock, locks });
+    await call(storage, "agent", "POST", `/data/${sha256(pack)}`, { body: pack, locks });
+    await call(storage, "maintenance", "POST", `/locks/${sha256(other)}`, { body: other });
+
+    // It may open the repository and find its lock ...
+    expect((await call(storage, "closing", "GET", "/config")).response.status).toBe(200);
+    expect(
+      (await call(storage, "closing", "GET", "/locks/", { headers: V2 })).response.status,
+    ).toBe(200);
+    // ... but neither read the backup's data nor add anything.
+    const read = await call(storage, "closing", "GET", `/data/${sha256(pack)}`);
+    expect(read.response.status).toBe(403);
+    expect(read.denied).toEqual([{ action: "read", reason: "not_allowed" }]);
+    const added = Buffer.from("more");
+    const write = await call(storage, "closing", "POST", `/data/${sha256(added)}`, {
+      body: added,
+      locks,
+    });
+    expect(write.response.status).toBe(403);
+    const newLock = await call(storage, "closing", "POST", `/locks/${sha256(added)}`, {
+      body: added,
+      locks,
+    });
+    expect(newLock.response.status).toBe(403);
+    // Another lock stays; its own goes.
+    const foreign = await call(storage, "closing", "DELETE", `/locks/${sha256(other)}`, { locks });
+    expect(foreign.response.status).toBe(403);
+    expect(foreign.denied).toEqual([{ action: "delete", reason: "foreign_lock" }]);
+    const released = await call(storage, "closing", "DELETE", `/locks/${sha256(lock)}`, { locks });
+    expect(released.response.status).toBe(200);
+    expect(locks.names.size).toBe(0);
+    expect([...storage.files.keys()].sort()).toEqual(
+      [
+        `${PREFIX}config`,
+        `${PREFIX}data/${sha256(pack).slice(0, 2)}/${sha256(pack)}`,
+        `${PREFIX}locks/${sha256(other)}`,
+      ].sort(),
+    );
+  });
+
   it("keeps the server's locks, and every lock the agent did not write, from the agent", async () => {
     const storage = new MemoryStorage();
     const locks = lockRegistry();

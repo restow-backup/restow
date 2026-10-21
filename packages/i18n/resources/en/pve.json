@@ -115,7 +115,9 @@
     "nodeOffline": "Node {node} is disconnected (last report: {time}). It starts the backup only once it reports again.",
     "succeededWithWarnings": "Succeeded with warnings",
     "verifyFailed": "Restore check failed",
-    "verifyFailedHint": "The restore check of the newest restore point failed."
+    "verifyFailedHint": "The restore check of the newest restore point failed.",
+    "verifyNotCheckedLocked": "Restore check could not run",
+    "verifyNotCheckedInterrupted": "Restore check could not run"
   },
   "jobs": {
     "title": "Backup jobs",
@@ -277,7 +279,11 @@
       "done": "Repository reset. The next backup begins a new chain.",
       "failed": "The repository could not be reset."
     },
-    "verifyQueuedBadge": "Check queued"
+    "verifyQueuedBadge": "Check queued",
+    "verifyNotCheckedLocked": "Could not check: repository locked",
+    "verifyNotCheckedInterrupted": "Could not check: check interrupted",
+    "verifyPostponedLocked": "Check postponed: repository locked",
+    "verifyPostponedInterrupted": "Check postponed: check interrupted"
   },
   "restore": {
     "title": "Restore as a new guest",
@@ -305,7 +311,9 @@
       "noBackupOverdue": "No backup within 24 hours after the guest was put into a backup job.",
       "bootGreen": "The newest restore point booted in its boot test: the guest agent answered.",
       "bootYellow": "The newest restore point started in its boot test, but its guest agent did not answer: no proof the system works.",
-      "bootRed": "The newest restore point did not boot in its boot test."
+      "bootRed": "The newest restore point did not boot in its boot test.",
+      "notCheckedLocked": "The restore check of the newest restore point could not run for two hours: another run held the lock of its repository. Nothing is known about the restore point yet; the check is tried again.",
+      "notCheckedInterrupted": "The restore check of the newest restore point was stopped again and again before it finished. Nothing is known about the restore point yet; the check is tried again."
     },
     "checkNow": "Check now",
     "checkNowFor": "Check {name} now",

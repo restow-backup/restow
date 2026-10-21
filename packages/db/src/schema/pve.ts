@@ -538,11 +538,39 @@ export type PveSnapshotDisk = {
   bitmapMode: string;
 };
 
+/**
+ * A restore check that could not run because another run held the repository's lock (a
+ * container: restic exit code 11), or because restic was stopped before it finished. The worker tries again on later passes and gives up after
+ * a while (`gaveUpAt`): the restore point then reads "could not check", an attention state,
+ * never "failed" and never proof.
+ */
+export type PveVerifyNotChecked = {
+  /** `locked`: another run held the repository's lock; `interrupted`: restic was stopped. */
+  reason: "locked" | "interrupted";
+  /** When the check was asked for first; the postponements count from here. */
+  since: string;
+  /** How often it was tried. */
+  attempts: number;
+  /** What restic said (who holds the lock), bounded. */
+  detail: string;
+  /** Set once the worker gave up; absent while it still tries. */
+  gaveUpAt?: string;
+};
+
 export type PveVerifyResult = {
-  checkedAt: string;
+  /**
+   * When the check ran. Absent on a record of a check that could not run (`notChecked` without
+   * an earlier result): such a restore point counts as unchecked wherever this is not known.
+   */
+  checkedAt?: string;
   blocks: number;
   mismatched: number;
   errors: string[];
+  /**
+   * The newest check could not run. While the worker still tries (no `gaveUpAt`), the fields
+   * above are the previous result, if any; once it gave up, they are empty.
+   */
+  notChecked?: PveVerifyNotChecked;
 };
 
 /**

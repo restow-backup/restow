@@ -25,7 +25,7 @@ import { guestTo } from "./paths.js";
 
 /** The translation key (namespace `pve`) of the result line of a guest. */
 export function guestResultKey(
-  row: Pick<GuestReadinessRow, "state" | "overdue" | "basis">,
+  row: Pick<GuestReadinessRow, "state" | "overdue" | "basis" | "verifyNotChecked">,
 ): string {
   if (row.state === "no_backup") {
     return row.overdue ? "readiness.result.noBackupOverdue" : "readiness.result.noBackup";
@@ -36,7 +36,12 @@ export function guestResultKey(
     if (row.state === "yellow") return "readiness.result.bootYellow";
     if (row.state === "red") return "readiness.result.bootRed";
   }
-  // The read-back rates green or red; yellow comes only from a boot test.
+  // The read-back rates green or red, or yellow when it could not run at all (servers from 0.4.3).
+  if (row.state === "yellow" && row.verifyNotChecked) {
+    return row.verifyNotChecked.reason === "locked"
+      ? "readiness.result.notCheckedLocked"
+      : "readiness.result.notCheckedInterrupted";
+  }
   return row.state === "yellow" ? "readiness.result.bootYellow" : `readiness.result.${row.state}`;
 }
 
@@ -67,9 +72,16 @@ export function GuestReadinessRowView({
   const check = useGuestCheck();
   const name = guestRowName(row);
   const errors = row.state === "red" ? (row.verifyErrors ?? []) : [];
+  // A check that could not run says why (who held the repository's lock), muted: no finding.
+  const notChecked = row.state === "yellow" ? (row.verifyNotChecked?.detail ?? "") : "";
   const result = t(guestResultKey(row));
   // A red restore check names what it found (the real restic or read error), not only the rule.
-  const resultTitle = errors.length > 0 ? `${result}\n${errors.join("\n")}` : result;
+  const resultTitle =
+    errors.length > 0
+      ? `${result}\n${errors.join("\n")}`
+      : notChecked
+        ? `${result}\n${notChecked}`
+        : result;
   const Icon = row.kind === "vm" ? Monitor : Box;
   return (
     <TableRow data-slot="guest-readiness-row">
@@ -114,6 +126,14 @@ export function GuestReadinessRowView({
             data-slot="guest-readiness-error"
           >
             {errors[0]}
+          </span>
+        ) : notChecked ? (
+          <span
+            className="line-clamp-1 text-xs text-muted-foreground"
+            title={notChecked}
+            data-slot="guest-readiness-not-checked"
+          >
+            {notChecked}
           </span>
         ) : null}
       </TableCell>

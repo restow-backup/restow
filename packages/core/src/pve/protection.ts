@@ -72,21 +72,40 @@ export function pveSelfBackupBlocked(guest: {
   return pveGuestIsRestowServer(guest) && !guest.selfBackupConfirmedAt;
 }
 
+/**
+ * How long after its commit the check of a new restore point is due (`verify_requested_at`
+ * says from when): by then the node's restic has ended and released its lock on the container's
+ * repository, so the check does not run into it.
+ */
+export const PVE_VERIFY_AFTER_COMMIT_MS = 2 * 60 * 1000;
+
 /** The result of the weekly read-back of a restore point (`pve_snapshots.verify`). */
 export interface PveVerifyFact {
-  readonly checkedAt: string;
+  readonly checkedAt?: string | null;
   readonly mismatched: number;
   readonly errors: readonly string[];
+  /** The check could not run (the repository was locked); `gaveUpAt` once the worker gave up. */
+  readonly notChecked?: { readonly gaveUpAt?: string | null } | null;
+}
+
+/** When the worker gave up on a check that could not run; null otherwise. */
+export function pveVerifyGaveUpAt(verify: PveVerifyFact | null | undefined): string | null {
+  const at = verify?.notChecked?.gaveUpAt;
+  return typeof at === "string" ? at : null;
 }
 
 /**
  * The rating of a restore point by its restore check: green when the sample read back matched,
- * red when a block did not match or could not be read; null while no check of it ran (the
- * restore point is unverified, never fine).
+ * red when a block did not match or could not be read, yellow when the check could not run at
+ * all (the repository stayed locked: nothing is known, attention, never proof); null while no
+ * check of it ran (the restore point is unverified, never fine).
  */
 export function pveRestorePointReadiness(
   verify: PveVerifyFact | null | undefined,
-): "green" | "red" | null {
+): "green" | "yellow" | "red" | null {
+  if (pveVerifyGaveUpAt(verify)) {
+    return "yellow";
+  }
   if (!verify || typeof verify.checkedAt !== "string") {
     return null;
   }

@@ -238,6 +238,11 @@ export interface GuestReadinessRow {
   checkRequested?: boolean;
   /** What the restore check of the newest restore point found, when red (servers from 0.4.2). */
   verifyErrors?: string[];
+  /**
+   * Why the restore check of the newest restore point could not run (yellow, basis verify: the
+   * repository stayed locked), as restic said it (servers from 0.4.3).
+   */
+  verifyNotChecked?: { reason: "locked" | "interrupted"; detail: string } | null;
 }
 
 /**

@@ -26,8 +26,11 @@ import { isUuid } from "./tenant-context.js";
 export interface RunResticAccess {
   tenantId: string;
   runId: string;
-  /** `agent`: append-only (backups). `reader`: read-only (restores). */
-  principal: "agent" | "reader";
+  /**
+   * `agent`: append-only (backups). `reader`: read-only (restores). `closing`: a run that was
+   * stopped or has ended; it may only open the repository and release its own lock files.
+   */
+  principal: "agent" | "reader" | "closing";
   /** Storage prefix of the repository, with a trailing slash. */
   prefix: string;
   storage: StorageBackend;

@@ -8,6 +8,25 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Fixed
+
+- Proxmox VE: right after a container backup, the new restore check often failed with
+  `restic check failed (exit code 11) the "unlock" command can be used to remove stale locks`
+  and the guest showed a red "Restore check failed", although the check never ran: another
+  run (usually the guest's own backup, whose lock a cancel or an API restart had left behind)
+  held the repository's lock. A check a lock keeps out is no longer a failed check: it is
+  tried again ten minutes later, the previous result standing, and after two hours the
+  restore point reads "Could not check: repository locked" (yellow, attention, never red or
+  green) with restic's report of who holds the lock. The worker removes stale restic locks
+  before the check and before retention, restic waits up to two minutes for a lock during the
+  check and up to 15 minutes during the container backup (restow-pve), a guest is not checked
+  while a run of it is going or its node took on a backup of it, and a new restore point is
+  checked two minutes after its commit at the earliest. A cancelled or ended run may still
+  delete its own restic lock (every other request of it is refused and audited). A failed
+  check keeps restic's explaining lines, not only its last one. No database migration.
+
 ## [0.4.2] - 2026-10-21
 
 Beta release. Run it alongside your existing backups, not as your only one, until

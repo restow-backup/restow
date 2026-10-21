@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -10,7 +10,9 @@ import {
   type ResticNode,
   type ResticSession,
   resticBinary,
+  resticCheck,
   resticDump,
+  resticErrorDetail,
   resticForget,
   resticInit,
   resticListDirectory,
@@ -369,5 +371,92 @@ describe("a restic process stopped by a signal", () => {
     ]);
     expect(result.transient).toBe(true);
     expect(result.matched).toBe(0);
+  });
+});
+
+describe("a check of a repository another run locked", () => {
+  let work: string;
+
+  beforeAll(async () => {
+    work = await mkdtemp(join(tmpdir(), "restow-restic-locked-"));
+  });
+
+  afterAll(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+
+  /** A restic that logs its arguments and answers like restic 0.19 for a locked repository. */
+  async function lockedRestic(): Promise<{ session: ResticSession; argsFile: string }> {
+    const fake = join(work, `restic-${Math.random().toString(36).slice(2)}.sh`);
+    const argsFile = `${fake}.args`;
+    await writeFile(
+      fake,
+      [
+        "#!/bin/sh",
+        `printf '%s\\n' "$@" > '${argsFile}'`,
+        "cat >&2 <<'EOF'",
+        "using parent snapshot 0123abcd",
+        "repo already locked, waiting up to 5m0s for the lock",
+        "unable to create lock in backend: repository is already locked by PID 4711 on host pve1 by root (UID 0, GID 0)",
+        "lock was created at 2026-10-21 03:00:05 (12m4s ago)",
+        "storage ID 1a2b3c4d",
+        'the "unlock" command can be used to remove stale locks',
+        "EOF",
+        "exit 11",
+      ].join("\n"),
+    );
+    await chmod(fake, 0o755);
+    return {
+      argsFile,
+      session: {
+        repositoryUrl: join(work, "repo"),
+        username: "",
+        password: "",
+        repositoryPassword: "x",
+        cacheDir: join(work, "cache"),
+        binary: fake,
+      },
+    };
+  }
+
+  it("waits for the lock with --retry-lock when asked, and only a duration passes", async () => {
+    const { session, argsFile } = await lockedRestic();
+    await expect(resticCheck(session, "5%", { retryLock: "5m" })).rejects.toMatchObject({
+      failure: "locked",
+      exitCode: 11,
+    });
+    expect((await readFile(argsFile, "utf8")).trim().split("\n")).toEqual([
+      "check",
+      "--retry-lock=5m",
+      "--read-data-subset=5%",
+    ]);
+    await expect(resticCheck(session, "5%")).rejects.toBeInstanceOf(ResticError);
+    expect((await readFile(argsFile, "utf8")).trim().split("\n")).toEqual([
+      "check",
+      "--read-data-subset=5%",
+    ]);
+    for (const bad of ["5", "--no-lock", "5m --x", "1d"]) {
+      await expect(resticCheck(session, "5%", { retryLock: bad })).rejects.toBeInstanceOf(
+        TypeError,
+      );
+    }
+  });
+
+  it("keeps restic's report of who holds the lock, bounded", async () => {
+    const { session } = await lockedRestic();
+    const error = await resticCheck(session, "5%").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ResticError);
+    // The message alone keeps the last line only.
+    expect((error as ResticError).message).not.toContain("PID 4711");
+    const detail = resticErrorDetail(error);
+    expect(detail).toContain("restic check failed (exit code 11)");
+    expect(detail).toContain("already locked by PID 4711 on host pve1");
+    expect(detail).toContain("lock was created at 2026-10-21 03:00:05");
+    expect(detail).toContain("storage ID 1a2b3c4d");
+    expect(detail).not.toContain("parent snapshot");
+    // The last line is in the message already: once only.
+    expect(detail.split("unlock").length - 1).toBe(1);
+    expect(resticErrorDetail(error, 40)).toHaveLength(40);
+    expect(resticErrorDetail(new Error("plain"))).toBe("plain");
   });
 });

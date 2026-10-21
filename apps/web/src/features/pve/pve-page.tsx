@@ -535,6 +535,20 @@ export function GuestState({ guest, node }: { guest: PveGuest; node?: PveNode | 
         {t("guests.verifyFailed")}
       </Badge>,
     );
+  } else if (verify?.state === "yellow" && verify.notChecked) {
+    // The check could not run (not "failed"): what restic said in the tooltip.
+    badges.push(
+      <Badge
+        key="v"
+        variant="warning"
+        data-slot="pve-guest-verify-not-checked"
+        title={verify.notChecked.detail || undefined}
+      >
+        {verify.notChecked.reason === "locked"
+          ? t("guests.verifyNotCheckedLocked")
+          : t("guests.verifyNotCheckedInterrupted")}
+      </Badge>,
+    );
   }
   return (
     <div className="min-w-0 space-y-1">

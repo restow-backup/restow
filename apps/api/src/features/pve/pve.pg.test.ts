@@ -38,7 +38,7 @@ import {
   pveTasks,
   secrets,
 } from "@restow/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -1309,6 +1309,62 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(guest?.lastVerify).toMatchObject({ state: "red", errors: [error], requested: false });
     const detail = await service.guestDetail(shared.db, fixture.tenantId, vm?.id ?? "");
     expect(detail.guest.lastVerify?.errors).toEqual([error]);
+  });
+
+  it("shows a check that could not run as not checked (yellow), never as failed (0.4.3)", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const detailText =
+      "restic check failed (exit code 11)\nrepository is already locked by PID 4711";
+    const at = new Date().toISOString();
+    await fixture.db
+      .update(pveSnapshots)
+      .set({
+        verifyRequestedAt: null,
+        verify: {
+          blocks: 0,
+          mismatched: 0,
+          errors: [],
+          notChecked: {
+            reason: "locked",
+            since: at,
+            attempts: 9,
+            detail: detailText,
+            gaveUpAt: at,
+          },
+        },
+      })
+      .where(eq(pveSnapshots.guestId, vm?.id ?? ""));
+    const guest = (await service.overview(shared.db, fixture.tenantId)).guests.find(
+      (g) => g.vmid === 101,
+    );
+    expect(guest?.lastVerify).toMatchObject({
+      state: "yellow",
+      errors: [],
+      checkedAt: at,
+      notChecked: { reason: "locked", detail: detailText, attempts: 9, gaveUp: true },
+    });
+    const readiness = await import("./protection.js");
+    const { withTenantTx } = await import("../../lib/tenant-context.js");
+    const rows = await withTenantTx(shared.db, fixture.tenantId, (tx) =>
+      readiness.loadGuestProtection(tx, fixture.tenantId, new Date()),
+    );
+    expect(rows.rows.find((r) => r.vmid === 101)).toMatchObject({
+      state: "yellow",
+      basis: "verify",
+      verifyErrors: [],
+      verifyNotChecked: { reason: "locked", detail: detailText },
+    });
+    // "Check all unverified" takes it again.
+    const queued = await service.requestUnverifiedVerify(shared.db, fixture.tenantId, actor());
+    expect(queued.queued).toBeGreaterThanOrEqual(1);
+    const [newest] = await fixture.db
+      .select()
+      .from(pveSnapshots)
+      .where(eq(pveSnapshots.guestId, vm?.id ?? ""))
+      .orderBy(desc(pveSnapshots.sequence))
+      .limit(1);
+    expect(newest?.verifyRequestedAt).not.toBeNull();
+    await fixture.db.update(pveSnapshots).set({ verifyRequestedAt: null });
   });
 
   it("plans a job on weekdays or monthly, like a mail job (E1)", async () => {

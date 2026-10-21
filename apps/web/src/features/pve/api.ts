@@ -98,14 +98,31 @@ export interface PveGuest {
   lastVerify?: PveVerifyFact | null;
 }
 
+/** Why a restore check could not run (servers from 0.4.3). */
+export interface PveVerifyNotChecked {
+  reason: "locked" | "interrupted";
+  /** What restic said, e.g. who holds the repository's lock. */
+  detail: string;
+  attempts: number;
+  gaveUpAt?: string;
+}
+
 /** The restore check of a guest's newest restore point, with what it found. */
 export interface PveVerifyFact {
-  state: "green" | "red" | null;
+  /** yellow: the check could not run (servers from 0.4.3). */
+  state: "green" | "yellow" | "red" | null;
   checkedAt: string | null;
   /** The stored errors (the real restic or read error), the first five. */
   errors: string[];
   /** A check of it waits for the worker's next pass. */
   requested: boolean;
+  /** The newest check could not run (`gaveUp`: no more tries); servers from 0.4.3. */
+  notChecked?: {
+    reason: "locked" | "interrupted";
+    detail: string;
+    attempts: number;
+    gaveUp: boolean;
+  } | null;
 }
 
 /** Whether "Back up now" or putting the guest into a job needs the self-backup confirmation. */
@@ -277,7 +294,19 @@ export interface PveRestorePoint {
     dataBlocks: number;
     bitmapMode: string;
   }[];
-  verify: { checkedAt: string; blocks: number; mismatched: number; errors: string[] } | null;
+  verify: {
+    /** Missing on a record of a check that could not run (`notChecked`, servers from 0.4.3). */
+    checkedAt?: string;
+    blocks: number;
+    mismatched: number;
+    errors: string[];
+    /**
+     * The newest check could not run (the repository was locked, or the check was stopped):
+     * still tried again without `gaveUpAt`, the fields above being the previous result;
+     * with it, the restore point is not checked (servers from 0.4.3).
+     */
+    notChecked?: PveVerifyNotChecked;
+  } | null;
   /** A check of this restore point waits for the worker's next pass (servers from 0.4.2). */
   verifyRequested?: boolean;
   /** The newest rated boot test of the restore point; missing on older servers. */

@@ -124,9 +124,11 @@ export function pveBootTestRating(
 
 /** The read-back check of a restore point (`pve_snapshots.verify`). */
 export interface PveVerifyRating {
-  readonly checkedAt: string;
+  readonly checkedAt?: string | null;
   readonly mismatched: number;
   readonly errors: readonly string[];
+  /** The check could not run (the repository was locked); `gaveUpAt` once the worker gave up. */
+  readonly notChecked?: { readonly gaveUpAt?: string | null } | null;
 }
 
 export interface PveRestorePointRating {
@@ -140,30 +142,36 @@ export interface PveRestorePointRating {
  * The rating of a guest's newest restore point from both checks Restow runs on it: the read-back
  * of a sample of its blocks and its boot test. Either one failing makes it red; a boot test
  * that proved the guest boots makes it green, one that saw the guest start without an answer
- * yellow; without a rated boot test, the read-back decides as before.
+ * yellow; without a rated boot test, the read-back decides as before (yellow when it could not
+ * run at all because the repository stayed locked).
  */
 export function pveRestorePointRating(
   verify: PveVerifyRating | null | undefined,
   bootTest: PveBootTestFact | null | undefined,
 ): PveRestorePointRating {
   const boot = pveBootTestRating(bootTest);
+  // A check that could not run (the repository stayed locked) is yellow: nothing is known.
+  const gaveUpAt = verify?.notChecked?.gaveUpAt;
+  const readAt = typeof gaveUpAt === "string" ? gaveUpAt : verify?.checkedAt;
   const read =
-    verify && typeof verify.checkedAt === "string"
-      ? verify.mismatched > 0 || (verify.errors?.length ?? 0) > 0
-        ? "red"
-        : "green"
-      : null;
+    typeof gaveUpAt === "string"
+      ? "yellow"
+      : verify && typeof verify.checkedAt === "string"
+        ? verify.mismatched > 0 || (verify.errors?.length ?? 0) > 0
+          ? "red"
+          : "green"
+        : null;
   if (boot === "red" && bootTest) {
     return { readiness: "red", checkedAt: bootTest.checkedAt, basis: "boot_test" };
   }
-  if (read === "red" && verify) {
-    return { readiness: "red", checkedAt: verify.checkedAt, basis: "verify" };
+  if (read === "red" && typeof readAt === "string") {
+    return { readiness: "red", checkedAt: readAt, basis: "verify" };
   }
   if (boot && bootTest) {
     return { readiness: boot, checkedAt: bootTest.checkedAt, basis: "boot_test" };
   }
-  if (read && verify) {
-    return { readiness: read, checkedAt: verify.checkedAt, basis: "verify" };
+  if (read && typeof readAt === "string") {
+    return { readiness: read, checkedAt: readAt, basis: "verify" };
   }
   return { readiness: null, checkedAt: null, basis: null };
 }

@@ -8,19 +8,21 @@ import { spawn } from "node:child_process";
  *     guest records the new chain and the audit log says so, and the backup succeeds;
  *   - the repository only on another target of the tenant (a retired primary after a "keep"
  *     switch): the backup is refused with a clear problem, nothing is created;
+ *   - a backup stopped in the UI: its credential may still release its own lock (and open the
+ *     repository for that), every write is refused and audited;
  *   - a reset by an administrator: typed name, restore points unavailable at once, the old
  *     repository on the primary removed by the next backup, which begins a new chain.
  *
  * Needs Postgres (RESTOW_TEST_DATABASE_URL, a superuser) and restic (RESTIC_BINARY, else the PATH).
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import { resticBinary } from "@restow/core";
-import { auditLog, pveGuests, pveSnapshots, storageTargets } from "@restow/db";
+import { auditLog, pveGuests, pveRuns, pveSnapshots, storageTargets } from "@restow/db";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -280,6 +282,51 @@ describe.skipIf(!canRun)("the repository of a container is checked before a back
       service.requestVerify(shared.db, fixture.tenantId, first.snapshotId, actor()),
     ).rejects.toMatchObject({ status: 404 });
   }, 180_000);
+
+  it("lets a stopped backup release its own lock, and nothing else", async () => {
+    const runId = await openRun();
+    const credential = await ok<Credential>(await call(`/runs/${runId}/restic`, {}));
+    const base = `http://127.0.0.1:${port}/agent/pve/restic/${guestId}`;
+    const auth = {
+      authorization: `Basic ${Buffer.from(`${credential.username}:${credential.password}`).toString("base64")}`,
+    };
+    const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+    const send = (method: string, path: string, body?: string) =>
+      fetch(`${base}${path}`, { method, headers: auth, body });
+    // The running backup takes its lock (as restic does) and a second one it will refresh.
+    expect((await send("POST", `/locks/${sha("lock-1")}`, "lock-1")).status).toBe(200);
+    expect((await send("POST", `/locks/${sha("lock-2")}`, "lock-2")).status).toBe(200);
+
+    // Stopped in the UI: restic fails at its next write, but its lock goes with it.
+    await fixture.db
+      .update(pveRuns)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(pveRuns.id, runId));
+    const deniedBefore = (await audits("pve.node.denied")).length;
+    expect((await send("POST", `/data/${sha("more")}`, "more")).status).toBe(403);
+    expect((await send("POST", `/locks/${sha("lock-3")}`, "lock-3")).status).toBe(403);
+    expect((await send("GET", "/config")).status).toBe(200);
+    expect((await send("GET", "/locks/")).status).toBe(200);
+    expect((await send("DELETE", `/locks/${sha("lock-1")}`)).status).toBe(200);
+    expect(await exists(join(repositoryDir(), "locks", sha("lock-1")))).toBe(false);
+    const denied = (await audits("pve.node.denied")).slice(deniedBefore);
+    expect(denied.map((entry) => entry.details)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "write", type: "data", reason: "not_allowed" }),
+        expect.objectContaining({ action: "write", type: "locks", reason: "not_allowed" }),
+      ]),
+    );
+
+    // Also once the run has ended (the node reported the end before restic let go).
+    await ok(await call(`/runs/${runId}/finish`, { status: "failed", error: "stopped" }), 204);
+    expect((await send("DELETE", `/locks/${sha("lock-2")}`)).status).toBe(200);
+    // Until the credential expires.
+    await fixture.db
+      .update(pveRuns)
+      .set({ resticExpiresAt: new Date(Date.now() - 1000) })
+      .where(eq(pveRuns.id, runId));
+    expect((await send("GET", "/config")).status).toBe(401);
+  }, 60_000);
 
   it("refuses a backup while the repository lies only on another target", async () => {
     // The repository moves to a retired primary (what "keep existing backups" left behind).

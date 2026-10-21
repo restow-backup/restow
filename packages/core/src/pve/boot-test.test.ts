@@ -119,6 +119,24 @@ describe("the rating of a restore point from its read-back and its boot test", (
     });
   });
 
+  it("is yellow when the read-back could not run (locked), unless a boot test decides", () => {
+    const locked = { mismatched: 0, errors: [], notChecked: { gaveUpAt: iso(6000) } };
+    expect(pveRestorePointRating(locked, null)).toEqual({
+      readiness: "yellow",
+      checkedAt: iso(6000),
+      basis: "verify",
+    });
+    expect(pveRestorePointRating(locked, { outcome: "green", checkedAt: iso(0) })).toMatchObject({
+      readiness: "green",
+      basis: "boot_test",
+    });
+    expect(pveRestorePointRating(locked, { outcome: "red", checkedAt: iso(0) }).readiness).toBe(
+      "red",
+    );
+    // While the worker still tries, the earlier read-back stands.
+    expect(pveRestorePointRating({ ...readGreen, notChecked: {} }, null).readiness).toBe("green");
+  });
+
   it("is yellow when the guest only started, green when its guest agent answered", () => {
     expect(
       pveRestorePointRating(readGreen, { outcome: "yellow", checkedAt: iso(0) }).readiness,

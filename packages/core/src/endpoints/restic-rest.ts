@@ -477,7 +477,9 @@ export async function handleResticRequest(
   const key = objectKey(prefix, resource);
   // A lock file of the agent: recorded when written, and the only kind it may delete.
   const agentLock =
-    principal === "agent" && resource.kind === "object" && resource.type === "locks"
+    (principal === "agent" || principal === "closing") &&
+    resource.kind === "object" &&
+    resource.type === "locks"
       ? resource.name
       : null;
   const exists = needsExistenceCheck(principal, action)
