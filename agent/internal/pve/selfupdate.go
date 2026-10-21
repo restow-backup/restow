@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/restow-backup/restow/agent/internal/release"
 	"github.com/restow-backup/restow/agent/internal/update"
@@ -123,4 +124,74 @@ func busy(l Layout) bool {
 		}
 	}
 	return false
+}
+
+// PVEDaemons are the Proxmox VE services that load the storage plugin when they start; they
+// keep the old plugin until they are reloaded or restarted. The installer restarts the same
+// ones (install/pve.sh, restart_pve_daemons).
+var PVEDaemons = []string{"pvedaemon", "pveproxy", "pvestatd", "pvescheduler"}
+
+// HelperUnit is the systemd unit of restow-pve itself.
+const HelperUnit = "restow-pve"
+
+// daemonCommandTimeout bounds one systemctl call: a reload of pveproxy waits for its workers.
+const daemonCommandTimeout = 2 * time.Minute
+
+// ReloadPVEDaemons makes the PVE daemons load the plugin a self-update installed, as the
+// installer does: every one that is active is reloaded or restarted (systemctl
+// reload-or-restart); one that is not active is left alone. A failure is logged and does not
+// undo the update (the files are in place; the daemon loads them on its next start). Returns the
+// daemons that could not be reloaded.
+func ReloadPVEDaemons(ctx context.Context, cmd CommandRunner, logf func(string, ...any)) []string {
+	var failed []string
+	for _, unit := range PVEDaemons {
+		if !unitActive(ctx, cmd, unit) {
+			logf("%s is not running; it loads the new storage plugin when it starts", unit)
+			continue
+		}
+		if err := systemctl(ctx, cmd, "reload-or-restart", unit); err != nil {
+			logf("could not restart %s, it keeps the old storage plugin until it restarts: %v", unit, err)
+			failed = append(failed, unit)
+			continue
+		}
+		logf("restarted %s, it loads the new storage plugin", unit)
+	}
+	return failed
+}
+
+// RestartHelper restarts the restow-pve service when it runs, so it runs the new binary (after
+// `restow-pve update` by hand; the service itself exits after its own update and systemd starts
+// the new binary).
+func RestartHelper(ctx context.Context, cmd CommandRunner, logf func(string, ...any)) error {
+	if !unitActive(ctx, cmd, HelperUnit) {
+		return nil
+	}
+	if err := systemctl(ctx, cmd, "try-restart", HelperUnit); err != nil {
+		logf("could not restart %s: %v", HelperUnit, err)
+		return err
+	}
+	logf("restarted %s", HelperUnit)
+	return nil
+}
+
+// InstallUpdate applies an update (SelfUpdate) and then makes the PVE daemons load the new
+// storage plugin (ReloadPVEDaemons): a self-update replaces the plugin files, but pvedaemon,
+// pveproxy, pvestatd and pvescheduler keep the old plugin loaded until they restart.
+func InstallUpdate(ctx context.Context, apply func(context.Context) error, cmd CommandRunner, logf func(string, ...any)) error {
+	if err := apply(ctx); err != nil {
+		return err
+	}
+	ReloadPVEDaemons(ctx, cmd, logf)
+	return nil
+}
+
+func unitActive(ctx context.Context, cmd CommandRunner, unit string) bool {
+	return systemctl(ctx, cmd, "is-active", "--quiet", unit) == nil
+}
+
+func systemctl(ctx context.Context, cmd CommandRunner, args ...string) error {
+	ctx, cancel := context.WithTimeout(ctx, daemonCommandTimeout)
+	defer cancel()
+	_, err := cmd.Run(ctx, "systemctl", args...)
+	return err
 }

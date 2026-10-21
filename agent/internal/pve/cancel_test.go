@@ -302,3 +302,53 @@ func TestUpdateNowInstallsOnlyWhenIdle(t *testing.T) {
 		t.Fatalf("installed %v without now", installed)
 	}
 }
+
+// The fleet phase after a server update (0.4.3 check): the server hands out no task while the
+// pause holds and says "update now" with every heartbeat. A node with runs queued from before
+// finishes them and updates as soon as it is idle, before the server hands out the next one
+// (that waits in the server's queue until the pause lifts).
+func TestUpdateNowWaitsForQueuedRunsAndInstallsBeforeTheNextFromTheServer(t *testing.T) {
+	now := map[string]any{"tasks": []any{}, "update": map[string]any{"version": "9.9.9", "now": true}}
+	f := newCancelNode(t, now)
+	s := f.service(t)
+	var installed []string
+	s.OnUpdate = func(_ context.Context, v string) { installed = append(installed, v) }
+	tick := func() {
+		t.Helper()
+		if err := s.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One run in progress, one queued behind it.
+	s.mu.Lock()
+	s.lazyLocked()
+	s.cur = &current{id: "run-a", kind: "backup"}
+	s.mu.Unlock()
+	s.enqueue([]Task{{ID: "run-b", Kind: "refresh_inventory"}})
+	tick()
+	// The first is done; the queued one is next, still not idle.
+	s.mu.Lock()
+	s.cur = nil
+	s.mu.Unlock()
+	tick()
+	if len(installed) != 0 {
+		t.Fatalf("installed %v while runs were queued", installed)
+	}
+	// The queue is empty and the server handed out nothing new: the update goes in.
+	s.dropQueued("run-b")
+	tick()
+	if len(installed) != 1 || installed[0] != "9.9.9" {
+		t.Fatalf("installed %v, want 9.9.9 once the node is idle", installed)
+	}
+	// A heartbeat that hands out a task takes precedence (outside the pause): no update with it.
+	f.mu.Lock()
+	f.beats = []map[string]any{{
+		"tasks":  []any{map[string]any{"id": "run-c", "kind": "refresh_inventory", "params": map[string]any{}}},
+		"update": map[string]any{"version": "9.9.9", "now": true},
+	}}
+	f.mu.Unlock()
+	tick()
+	if len(installed) != 1 {
+		t.Fatalf("installed %v together with a new task", installed)
+	}
+}
