@@ -317,6 +317,14 @@ runs on the node. Since 0.4.2 the server can also ask for it now:
   `/opt/restow-pve/bin/restow-pve update` (as root). Proxmox VE itself (`apt`) is
   never updated by Restow.
 
+After an update restow-pve restarts pvedaemon, pveproxy, pvestatd and
+pvescheduler (the running ones, `systemctl reload-or-restart`, as the installer
+does) so they load the new storage plugin; `restow-pve update` restarts the
+restow-pve service too. A node that a release before 0.4.3 updated restarts the
+daemons once by itself (it keeps the hash of the plugin files it restarted them
+for in `/var/lib/restow-pve/plugin-loaded`). The inventory (`GET /api/v1/pve`)
+reports per node `helperVersion`, `offeredVersion` and `outdated`.
+
 ## In the overviews
 ## In the overviews
 
