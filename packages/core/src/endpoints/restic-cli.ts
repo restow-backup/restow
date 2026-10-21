@@ -705,15 +705,61 @@ export async function resticPrune(
 export async function resticCheck(
   session: ResticSession,
   subset: string,
-  options: { signal?: AbortSignal } = {},
+  options: {
+    signal?: AbortSignal;
+    /**
+     * How long restic waits for a lock another run holds (`--retry-lock`, e.g. `5m`) before it
+     * gives up with exit code 11; without it, a lock fails the check at once.
+     */
+    retryLock?: string;
+  } = {},
 ): Promise<{ output: string }> {
   if (!/^(\d{1,3}%|\d{1,3}\/\d{1,3})$/.test(subset)) {
     throw new TypeError("subset must look like 5% or 3/20");
   }
-  const { stdout, stderr } = await runRestic(session, ["check", `--read-data-subset=${subset}`], {
+  if (options.retryLock !== undefined && !RETRY_LOCK.test(options.retryLock)) {
+    throw new TypeError("retryLock must look like 30s, 5m or 1h");
+  }
+  const args = [
+    "check",
+    ...(options.retryLock ? [`--retry-lock=${options.retryLock}`] : []),
+    `--read-data-subset=${subset}`,
+  ];
+  const { stdout, stderr } = await runRestic(session, args, {
     signal: options.signal,
   });
   return { output: `${stdout}\n${stderr}`.trim().slice(-4000) };
+}
+
+/** A `--retry-lock` duration restic understands: whole seconds, minutes or hours. */
+const RETRY_LOCK = /^\d{1,4}[smh]$/;
+
+/** stderr lines that tell who holds a lock (restic's "already locked" report). */
+const LOCK_HOLDER_LINE = /locked|lock was created|storage ID|PID \d+|unlock/i;
+
+/**
+ * What to keep of a failed restic run for the operator, bounded to `maxLength`: its message
+ * and the stderr lines that say why. For a lock, these are restic's report of the holder
+ * ("repository is already locked by PID … on host … by …", "lock was created at …",
+ * "storage ID …"), which the message (the last line only) loses; otherwise the last few lines.
+ */
+export function resticErrorDetail(error: unknown, maxLength = 1000): string {
+  if (!(error instanceof ResticError)) {
+    return (error instanceof Error ? error.message : String(error)).slice(0, maxLength);
+  }
+  const lines = error.stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const holder = lines.filter((line) => LOCK_HOLDER_LINE.test(line));
+  const relevant = (error.failure === "locked" && holder.length > 0 ? holder : lines).slice(-6);
+  const parts = [error.message];
+  for (const line of relevant) {
+    if (!parts.some((part) => part.includes(line))) {
+      parts.push(line);
+    }
+  }
+  return parts.join("\n").slice(0, maxLength);
 }
 
 /** `restic unlock`: removes stale locks only (never one a live run still refreshes). */
