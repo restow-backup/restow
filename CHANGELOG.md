@@ -8,7 +8,7 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [0.4.2] - 2026-10-22
+## [0.4.2] - 2026-10-21
 
 Beta release. Run it alongside your existing backups, not as your only one, until
 you have verified restores against your own data.
