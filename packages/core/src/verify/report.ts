@@ -62,6 +62,11 @@ export type VerifyReportDetails = {
    * now, resolved through the chunk index.
    */
   damagedPacks: string[];
+  /**
+   * Packs of the snapshot the storage check could not read lately (not proven
+   * damaged); `persistent` once they count like damage. Absent in older reports.
+   */
+  unreadablePacks?: { path: string; persistent: boolean }[];
   testRestore: TestRestoreOutcome | null;
   startedAt: string;
   durationMs: number;

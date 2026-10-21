@@ -279,6 +279,14 @@
         "title": "Die Speicherprüfung hat beschädigte Daten gefunden",
         "why": "{has_count, select, yes {{count, plural, one {# Datendatei wurde} other {# Datendateien wurden}}} other {Datendateien wurden}} bei der letzten Speicherprüfung als beschädigt erkannt, und keine intakte Kopie konnte sie wiederherstellen. Backups, die sie verwenden, sind möglicherweise unvollständig."
       },
+      "storage_unreadable_persistent": {
+        "title": "Daten im Speicher sind seit mehr als einem Tag nicht lesbar",
+        "why": "{has_count, select, yes {{count, plural, one {# Datendatei konnte} other {# Datendateien konnten}}} other {Datendateien konnten}} in mehreren Speicherprüfungen in Folge über mehr als einen Tag nicht gelesen werden. Sicherungen, die sie verwenden, lassen sich möglicherweise nicht wiederherstellen, bis der Speicher sie wieder liefert."
+      },
+      "storage_unreadable": {
+        "title": "Die Speicherprüfung konnte einige Daten nicht lesen",
+        "why": "{has_count, select, yes {{count, plural, one {# Datendatei konnte} other {# Datendateien konnten}}} other {Datendateien konnten}} bei der letzten Speicherprüfung auch nach erneutem Lesen nicht gelesen werden: die Verbindung brach ab, oder der Speicher verweigerte den Zugriff. Das beweist keinen Schaden; die nächste Speicherprüfung liest sie zuerst erneut."
+      },
       "restore_test_failed": {
         "title": "Die Test-Wiederherstellung ist fehlgeschlagen",
         "why": "{has_count, select, yes {{count, plural, one {# Stichprobenelement wurde} other {# Stichprobenelemente wurden}}} other {Stichprobenelemente wurden}} vom Testziel nicht angenommen. Die Backup-Daten selbst können intakt sein, aber eine Wiederherstellung in das Ziel funktioniert heute nicht."

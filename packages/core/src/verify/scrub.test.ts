@@ -631,6 +631,8 @@ describe("scrub garbage collection", () => {
       collectablePacks: (cutoff) => fixture.catalog.collectablePacks(cutoff),
       setDamaged: (ids, at) => fixture.catalog.setDamaged(ids, at),
       retireDamagedPack: (pack) => fixture.catalog.retireDamagedPack(pack),
+      recordUnreadable: (failures, at) => fixture.catalog.recordUnreadable(failures, at),
+      clearUnreadable: (ids) => fixture.catalog.clearUnreadable(ids),
       async replacePack(change) {
         // A backup deduplicates against a condemned chunk and commits first.
         await fixture.index.addReferences(change.dropped.slice(0, 1));

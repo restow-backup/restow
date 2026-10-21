@@ -416,6 +416,18 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("restore_from_copy", "storage"), step("run_backup_again", "jobs")],
   },
+  "verify.storage_unreadable": {
+    category: "verify",
+    transient: true,
+    retryable: true,
+    steps: () => [step("check_storage_health", "storage")],
+  },
+  "verify.storage_unreadable_persistent": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_storage_health", "storage"), step("restore_from_copy", "storage")],
+  },
   "verify.restore_test_failed": {
     category: "verify",
     transient: false,

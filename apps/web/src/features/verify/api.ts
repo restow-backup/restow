@@ -14,7 +14,8 @@ export type ObjectStatus = "active" | "excluded" | "orphaned";
 export type CheckKind = "verify" | "health_check";
 export type ReportOrigin = "verify" | "scrub" | "unknown";
 export type SampleCategory = "mail" | "file" | "event" | "contact";
-export type ScrubMode = "sample" | "full";
+/** `recheck` reads only the packs the latest check found damaged or could not read. */
+export type ScrubMode = "sample" | "full" | "recheck";
 
 export interface VerifyObject {
   id: string;
@@ -120,11 +121,24 @@ export interface TargetCheck {
   status: string;
   detail: string | null;
   repaired: boolean;
+  /** Reads of the pack from this target; more than 1 after transfer errors. Missing on older servers. */
+  attempts?: number;
+}
+
+/** The consecutive storage checks that could not read a pack. */
+export interface UnreadableRun {
+  since: string;
+  lastAt: string;
+  checks: number;
+  /** Long enough to count like damage (three checks over at least a day). */
+  persistent: boolean;
 }
 
 export interface PackCheck {
   path: string;
   targets: TargetCheck[];
+  /** Set for a pack that could not be read (not proven damaged); missing on older servers. */
+  unreadable?: UnreadableRun | null;
 }
 
 export type GcResult =
@@ -150,6 +164,10 @@ export interface ScrubRun {
   ok: number;
   repaired: PackCheck[];
   corrupt: PackCheck[];
+  /** Packs that could not be read (not proven damaged); missing on older servers. */
+  unreadable?: PackCheck[];
+  /** Packs earlier checks flagged that this one read intact again; missing on older servers. */
+  cleared?: number;
   /** Damaged packs retired because later backups wrote their content again. */
   retired: number;
   gc: GcResult | null;
@@ -157,7 +175,7 @@ export interface ScrubRun {
   durationMs: number | null;
 }
 
-export type StorageState = "ok" | "repaired" | "corrupt" | "never";
+export type StorageState = "ok" | "repaired" | "unreadable" | "corrupt" | "never";
 
 export interface StorageIntegrity {
   state: StorageState;
@@ -324,6 +342,8 @@ export interface VerifyDetails {
   items: CheckedItem[];
   itemsOmitted: number;
   damagedPacks: string[];
+  /** Packs of the backup the storage check could not read lately; missing on older servers. */
+  unreadablePacks?: { path: string; persistent: boolean }[];
   testRestore: {
     target: string;
     items: {
@@ -342,6 +362,8 @@ export interface ScrubFinding {
   origin: "scrub";
   scrubJobId: string | null;
   packs: PackCheck[];
+  /** Ends an earlier finding: every pack it named was read intact again. Missing on older servers. */
+  cleared?: boolean;
 }
 
 export type ReportDetails = VerifyDetails | ScrubFinding | { origin: "unknown" };

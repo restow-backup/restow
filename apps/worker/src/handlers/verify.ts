@@ -62,7 +62,7 @@ import {
   tenantRunner,
   type WorkerJobContext,
 } from "./framework.js";
-import { loadCorruptPackPaths } from "./scrub.js";
+import { loadPackFindings, type PackFindings } from "./scrub.js";
 import { emitWebhookEvent } from "./webhooks.js";
 
 /** Upper bound for a requested sample size; larger checks are what health checks are for. */
@@ -105,6 +105,7 @@ const RED_EVIDENCE = new Set([
   "items_unreadable",
   "items_mismatched",
   "storage_corrupt",
+  "storage_unreadable_persistent",
   "test_restore_failed",
 ]);
 
@@ -319,8 +320,8 @@ export function verifyCompletedNotification(
 export interface VerifyStore {
   /** The newest rating of the object, whichever snapshot it checked; null before the first. */
   previousReadiness(protectedObjectId: string): Promise<RecoveryReadiness | null>;
-  /** Storage keys of the packs the latest completed scrub left corrupt. */
-  damagedPacks(): Promise<ReadonlySet<string>>;
+  /** Storage keys of the packs known damaged or unreadable (scrub.ts `loadPackFindings`). */
+  packFindings(): Promise<PackFindings>;
   /**
    * Record the report, the job result and the notification for a rating
    * change, all or nothing (one transaction in Postgres).
@@ -351,7 +352,7 @@ export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
       return row?.readiness ?? null;
     },
 
-    damagedPacks: () => loadCorruptPackPaths(run, tenantId),
+    packFindings: () => loadPackFindings(run, tenantId),
 
     async record(record) {
       if (record.tenantId !== tenantId) {
@@ -440,9 +441,9 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
       const kind = verifyKindOf(payload);
       const sampleSize = normalizeSampleSize(payload.sampleSize);
       const store = storeFor(ctx);
-      const [previous, damaged] = await Promise.all([
+      const [previous, findings] = await Promise.all([
         store.previousReadiness(object.id),
-        store.damagedPacks(),
+        store.packFindings(),
       ]);
       const resolver = options.probes();
       const probe = kind === "verify" && resolver ? await resolver(ctx, object) : null;
@@ -452,7 +453,9 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
         outcome = await verifyProtectedObject(ctx, object, {
           kind,
           sampleSize,
-          damagedPacks: damaged,
+          damagedPacks: findings.damaged,
+          unreadablePacks: findings.unreadable,
+          persistentlyUnreadablePacks: findings.persistentlyUnreadable,
           probe,
         });
       } catch (error) {

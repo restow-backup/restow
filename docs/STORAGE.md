@@ -661,6 +661,61 @@ the current targets and closes the gap. This is a known, accepted limitation of
 "keep", not a bug: the packs are exactly where "keep" said they would stay, on the
 target the operator chose to leave them on.
 
+## Storage integrity (scrub)
+
+The scrub (`packages/core/src/verify/scrub.ts`, worker `apps/worker/src/handlers/scrub.ts`)
+reads every selected pack file from the primary and every copy and checks it against what
+Postgres recorded: size, SHA-256 of the whole file, a well-formed pack of this tenant, and an
+index that still holds every chunk the chunk index puts there. A sample runs weekly, every
+pack monthly; **Recovery readiness › Storage integrity** also starts a sample, a full check,
+or a re-check of only the flagged packs (`POST /verify/scrub` with `mode: "recheck"`).
+
+**Reading a pack.** A read streams through the hash into a buffer of the recorded size, so
+a pack never takes more memory than its catalog size, whatever the storage sends. A read
+that breaks off with a transfer error (Node's "aborted" for a body cut mid-download,
+ECONNRESET, EPIPE, "socket hang up", timeouts, S3 5xx, `SlowDown`, `RequestTimeout`) is
+repeated, whole, up to 3 times in all, 2 s and then 8 s apart, and only then reported
+`unreadable`. Errors that are an answer (a missing object, denied access) are not repeated.
+Separately, the S3 backend resumes every object read whose body breaks off (`get`,
+`getStream`, `getRange`, which restores and restore checks use): it asks for the rest with a
+`Range` from the first byte not yet delivered, pinned to the first response's ETag with
+`If-Match`, up to 3 requests in all (the SDK retries requests, but not a body that breaks
+after the headers). Writes are unchanged.
+
+**Damaged versus temporarily unreadable.** A pack without an intact copy on any target is
+
+- **damaged** when every target answered with damage: missing, wrong size, checksum
+  differs, not a valid pack, another tenant's, or contents that differ from the chunk index.
+  It is listed under `corrupt` in the report, marked `packs.damaged_at` (backups stop
+  deduplicating against it and write its content again), and every object using it is rated
+  red at once ("Not restorable");
+- **temporarily unreadable** when a target could not be read (a transfer or permission
+  error even after reading again). That proves nothing about the data. It is listed under
+  `unreadable`, never marked damaged, and `pack_read_failures` keeps its run of failed
+  checks: how many consecutive checks could not read it, the first and the latest, and the
+  latest error. Objects using it are rated yellow ("Attention", reason
+  `storage_unreadable`). Only once the pack could not be read in **3 consecutive checks
+  spanning at least 24 hours** (core `isPersistentlyUnreadable`) are they rated red (reason
+  `storage_unreadable_persistent`) and an error notification (`scrub.corrupt`) is raised;
+  three quick re-checks within an hour are not enough.
+
+Every scrub reads the flagged packs first: those marked damaged, those with a run of failed
+checks, and those the previous report listed, whatever the sample draws. A check that reads
+a pack (intact, or proven damaged) ends its run of failures. When every pack an object's
+storage finding named was read intact again, the scrub files a green "cleared" finding: it
+rates nothing and ends the earlier finding, so the object's own restore checks rate it again
+(`ratingReport`, `apps/api/src/features/verify/verification-state.ts`). A restore check reads
+the same split (`loadPackFindings`): a damaged pack of the checked backup is red
+(`storage_corrupt`), an unreadable one yellow, one unreadable for long enough red.
+
+Reports written before 0.4.2 listed unreadable packs under `corrupt`. The API, the worker
+and the restore check read an entry with an `unreadable` target as temporarily unreadable,
+and the next check reads it first; garbage collection leaves damaged and unreadable packs
+alone.
+
+`pack_read_failures` holds a row only for a pack that is failing at the moment (unique on
+the pack id, an index on the tenant), so it stays small however many packs a tenant has.
+
 ## RBAC and audit
 
 Starting, cancelling or retrying a migration is available to tenant admins and

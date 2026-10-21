@@ -320,5 +320,54 @@ describe("ReportPage failure explanations", () => {
     const green: ReportDetail = { ...report(true), readiness: "green", reasons: [] };
     const html = render(green);
     expect(html).toContain("No findings");
+    expect(html).toContain(">Ready<");
+  });
+});
+
+describe("ReportPage storage findings", () => {
+  function finding(details: ReportDetail["details"], readiness: ReportDetail["readiness"]) {
+    return {
+      ...report(false),
+      origin: "scrub",
+      kind: "health_check",
+      readiness,
+      reasons: [],
+      snapshotId: null,
+      counts: null,
+      details,
+    } as ReportDetail;
+  }
+  const unreadablePack = {
+    path: "tenants/t/packs/aa/one",
+    targets: [{ target: 0, status: "unreadable", detail: "aborted (3 attempts)", repaired: false }],
+    unreadable: {
+      since: "2026-10-17T02:00:00.000Z",
+      lastAt: "2026-10-17T02:00:00.000Z",
+      checks: 1,
+      persistent: false,
+    },
+  };
+
+  it("calls a pack that could not be read temporarily unreadable, not damaged", () => {
+    const html = render(
+      finding({ origin: "scrub", scrubJobId: "j-1", packs: [unreadablePack] }, "yellow"),
+    );
+    expect(html).toContain("could not read pack files holding data of this object");
+    expect(html).toContain("not proven damage");
+    expect(html).toContain("aborted (3 attempts)");
+    expect(html).not.toContain("damaged in every repository");
+  });
+
+  it("explains a cleared finding", () => {
+    const html = render(
+      finding(
+        { origin: "scrub", scrubJobId: "j-2", cleared: true, packs: [{ path: "p", targets: [] }] },
+        "green",
+      ),
+    );
+    expect(html).toContain("read every pack file an earlier finding named intact again");
+    // Not proof of anything: no green rating badge.
+    expect(html).toContain("Finding cleared");
+    expect(html).not.toContain(">Ready<");
   });
 });

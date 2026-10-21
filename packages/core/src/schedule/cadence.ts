@@ -236,7 +236,9 @@ export function upcomingRuns(
  * that names days of the month ("on the 1st") is monthly and therefore rare.
  * An unreadable cadence falls back to the cheap sample.
  */
-export function scrubModeForCadence(cadence: Pick<Cadence, "intervalMinutes" | "cron">): ScrubMode {
+export function scrubModeForCadence(
+  cadence: Pick<Cadence, "intervalMinutes" | "cron">,
+): Exclude<ScrubMode, "recheck"> {
   if (cadence.intervalMinutes !== null) {
     return cadence.intervalMinutes >= FULL_SCRUB_INTERVAL_MINUTES ? "full" : "sample";
   }

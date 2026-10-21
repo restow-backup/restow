@@ -158,6 +158,19 @@ describe("ratingReport / snapshotVerificationOf", () => {
     });
   });
 
+  it("lets a cleared (green) storage finding end the earlier one instead of rating", () => {
+    const green = check("r1", "green", 3, SNAPSHOT_N);
+    const cleared: RatedReport = { ...finding("f2", 6), readiness: "green" };
+    expect(ratingReport(green, cleared, at(3))).toBe(green);
+    // A snapshot never checked stays unverified rather than turning green from a storage check.
+    expect(ratingReport(null, cleared, null)).toBeNull();
+    const attention: RatedReport = { ...finding("f1", 5), readiness: "yellow" };
+    expect(snapshotVerificationOf(green, attention, at(3))).toMatchObject({
+      state: "yellow",
+      reportId: "f1",
+    });
+  });
+
   it("returns fresh objects, so callers may not share one unverified value by accident", () => {
     expect(unverifiedSnapshot()).not.toBe(unverifiedSnapshot());
   });

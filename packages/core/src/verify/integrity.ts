@@ -9,13 +9,22 @@
  * A target that fails while another holds an intact copy is repaired from
  * that copy (the verified bytes are written back under the same key and read
  * again to confirm). A pack without any intact copy is reported corrupt.
+ *
+ * A read that breaks off with a transfer error (a connection cut mid-download,
+ * a timeout, S3 asking to slow down) proves nothing about the pack: it is read
+ * again, whole, up to {@link PACK_READ_ATTEMPTS} times with a pause before
+ * each new attempt, and only then reported `unreadable`. Each read streams
+ * through the hash into a buffer of the recorded size, so a pack never takes
+ * more memory than its catalog size, however much the storage sends.
  */
+import { createHash } from "node:crypto";
 import { sha256 } from "../crypto.js";
 import type { ChunkRecord, StorageTargets } from "../engine/types.js";
 import { PackReader } from "../pack.js";
 import type { StorageBackend } from "../storage/backend.js";
-import type { CatalogPack } from "./catalog.js";
-import { describeError } from "./errors.js";
+import { isTransientTransferError, pauseBeforeRetry } from "../storage/transfer.js";
+import type { CatalogPack, PackUnreadableState } from "./catalog.js";
+import { describeError, isAbortError } from "./errors.js";
 import { pickRandom, type RandomSource } from "./random.js";
 
 export type PackTargetStatus =
@@ -35,6 +44,8 @@ export type PackTargetCheck = {
   detail: string | null;
   /** The target failed and was rewritten from an intact copy. */
   repaired: boolean;
+  /** How often the pack was read from this target, when more than once (transfer errors). */
+  attempts?: number;
 };
 
 export type PackCheckStatus = "ok" | "repaired" | "corrupt";
@@ -47,7 +58,12 @@ export type PackCheck = {
   targets: PackTargetCheck[];
 };
 
-export type ScrubMode = "sample" | "full";
+/**
+ * `sample` checks a share of the packs, `full` every pack and collects
+ * garbage, `recheck` only the packs an earlier check left damaged or
+ * unreadable.
+ */
+export type ScrubMode = "sample" | "full" | "recheck";
 
 /** A sample scrub checks this share of the packs, but never fewer than the minimum. */
 export const SCRUB_SAMPLE_FRACTION = 0.05;
@@ -59,10 +75,13 @@ export function sampleSizeFor(total: number): number {
 }
 
 /**
- * The packs a scrub run checks: all of them, or a random sample. Packs a
- * previous scrub found corrupt (listed in `alwaysCheck`, or marked damaged in
- * the catalog) are always re-checked, so a report never goes quiet about
- * damage just because the sample moved on.
+ * The packs a scrub run checks, the flagged ones first: packs a previous scrub
+ * found corrupt or unreadable (listed in `alwaysCheck`, marked damaged or
+ * unreadable in the catalog) are always re-checked, before anything else, so
+ * a report never goes quiet about them just because the sample moved on, and
+ * a pack that was only briefly unreachable is cleared as early as possible.
+ * A sample adds randomly drawn packs; a full run adds all the others; a
+ * recheck checks only the flagged packs.
  */
 export function selectPacks(
   packs: readonly CatalogPack[],
@@ -70,12 +89,16 @@ export function selectPacks(
   random: RandomSource,
   alwaysCheck: ReadonlySet<string> = new Set(),
 ): CatalogPack[] {
-  if (mode === "full") {
-    return [...packs];
-  }
-  const isForced = (pack: CatalogPack) => alwaysCheck.has(pack.path) || Boolean(pack.damagedAt);
+  const isForced = (pack: CatalogPack) =>
+    alwaysCheck.has(pack.path) || Boolean(pack.damagedAt) || Boolean(pack.unreadable);
   const forced = packs.filter(isForced);
+  if (mode === "recheck") {
+    return forced;
+  }
   const rest = packs.filter((pack) => !isForced(pack));
+  if (mode === "full") {
+    return [...forced, ...rest];
+  }
   const drawn = pickRandom(rest, Math.max(0, sampleSizeFor(packs.length) - forced.length), random);
   return [...forced, ...drawn];
 }
@@ -86,14 +109,17 @@ export function inspectPackBytes(
   pack: CatalogPack,
   tenantId: string,
   chunks: readonly ChunkRecord[],
+  /** Size and SHA-256 measured while the bytes streamed in (they may exceed `bytes`). */
+  measured?: { size: number; sha256: string },
 ): { status: PackTargetStatus; detail: string | null } {
-  if (bytes.length !== pack.size) {
+  const size = measured?.size ?? bytes.length;
+  if (size !== pack.size) {
     return {
       status: "size_mismatch",
-      detail: `expected ${pack.size} bytes, found ${bytes.length}`,
+      detail: `expected ${pack.size} bytes, found ${size}`,
     };
   }
-  if (sha256(bytes).toString("hex") !== pack.sha256) {
+  if ((measured?.sha256 ?? sha256(bytes).toString("hex")) !== pack.sha256) {
     return { status: "hash_mismatch", detail: "SHA-256 of the file differs from the record" };
   }
   let reader: PackReader;
@@ -121,32 +147,109 @@ export function inspectPackBytes(
 
 type TargetRead = { check: PackTargetCheck; bytes: Buffer | null };
 
+/** Reads of one pack per target: the first and two more after transfer errors. */
+export const PACK_READ_ATTEMPTS = 3;
+/** Pauses before the second and the third read. */
+export const PACK_READ_RETRY_DELAYS_MS: readonly number[] = [2_000, 8_000];
+
+export type PackReadRetry = {
+  /** Reads in all (default {@link PACK_READ_ATTEMPTS}). */
+  readonly attempts?: number;
+  /** Pause before each further read (default {@link PACK_READ_RETRY_DELAYS_MS}). */
+  readonly delaysMs?: readonly number[];
+};
+
+/**
+ * Stream one pack file from `backend`, hashing as it goes. At most
+ * `expectedSize` bytes are kept; anything beyond is hashed and counted only,
+ * so the size check can name what was found without holding it.
+ */
+export async function readPackObject(
+  backend: StorageBackend,
+  key: string,
+  expectedSize: number,
+): Promise<{ bytes: Buffer; size: number; sha256: string }> {
+  const stream = await backend.getStream(key);
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(expectedSize);
+  let size = 0;
+  try {
+    for await (const piece of stream) {
+      const chunk = Buffer.isBuffer(piece) ? piece : Buffer.from(piece as Uint8Array);
+      hash.update(chunk);
+      if (size < expectedSize) {
+        chunk.copy(buffer, size, 0, Math.min(chunk.length, expectedSize - size));
+      }
+      size += chunk.length;
+    }
+  } finally {
+    stream.destroy();
+  }
+  return {
+    bytes: size >= expectedSize ? buffer : buffer.subarray(0, size),
+    size,
+    sha256: hash.digest("hex"),
+  };
+}
+
+const retried = (attempts: number): { attempts?: number } => (attempts > 1 ? { attempts } : {});
+
 async function readTarget(
   backend: StorageBackend,
   target: number,
   pack: CatalogPack,
   tenantId: string,
   chunks: readonly ChunkRecord[],
+  options: PackCheckOptions,
 ): Promise<TargetRead> {
-  let bytes: Buffer;
-  try {
-    if ((await backend.head(pack.path)) === null) {
+  const attempts = Math.max(1, options.retry?.attempts ?? PACK_READ_ATTEMPTS);
+  const delays = options.retry?.delaysMs ?? PACK_READ_RETRY_DELAYS_MS;
+  let read: { bytes: Buffer; size: number; sha256: string } | null = null;
+  let attempt = 0;
+  while (read === null) {
+    attempt += 1;
+    try {
+      if ((await backend.head(pack.path)) === null) {
+        return {
+          check: {
+            target,
+            status: "missing",
+            detail: "the file does not exist",
+            repaired: false,
+            ...retried(attempt),
+          },
+          bytes: null,
+        };
+      }
+      read = await readPackObject(backend, pack.path, pack.size);
+    } catch (error) {
+      if (isAbortError(error) && options.signal?.aborted) {
+        throw error;
+      }
+      if (attempt < attempts && isTransientTransferError(error)) {
+        await pauseBeforeRetry(
+          delays[attempt - 1] ?? delays[delays.length - 1] ?? 0,
+          options.signal,
+        );
+        continue;
+      }
+      const reason = describeError(error);
       return {
-        check: { target, status: "missing", detail: "the file does not exist", repaired: false },
+        check: {
+          target,
+          status: "unreadable",
+          detail: attempt > 1 ? `${reason} (${attempt} attempts)` : reason,
+          repaired: false,
+          ...retried(attempt),
+        },
         bytes: null,
       };
     }
-    bytes = await backend.get(pack.path);
-  } catch (error) {
-    return {
-      check: { target, status: "unreadable", detail: describeError(error), repaired: false },
-      bytes: null,
-    };
   }
-  const { status, detail } = inspectPackBytes(bytes, pack, tenantId, chunks);
+  const { status, detail } = inspectPackBytes(read.bytes, pack, tenantId, chunks, read);
   return {
-    check: { target, status, detail, repaired: false },
-    bytes: status === "ok" ? bytes : null,
+    check: { target, status, detail, repaired: false, ...retried(attempt) },
+    bytes: status === "ok" ? read.bytes : null,
   };
 }
 
@@ -175,7 +278,9 @@ async function repairTarget(
 /**
  * Whether a corrupt pack is proven damaged, as opposed to unreachable: no
  * target failed with an I/O error. Only proven damage is marked in the
- * catalog, where it stops deduplication against the pack's chunks.
+ * catalog, where it stops deduplication against the pack's chunks; a pack
+ * that could not be read is "temporarily unreadable" (see
+ * {@link isPersistentlyUnreadable}).
  */
 export function isProvenDamage(check: PackCheck): boolean {
   return (
@@ -186,7 +291,38 @@ export function isProvenDamage(check: PackCheck): boolean {
 export type PackCheckOptions = {
   /** Rewrite failed targets from an intact copy (default true). */
   readonly repair?: boolean;
+  /** Reading again after transfer errors. */
+  readonly retry?: PackReadRetry;
+  /** Cancels a pause between two reads. */
+  readonly signal?: AbortSignal;
 };
+
+/** A corrupt pack that is not proven damaged: at least one target could not be read. */
+export function isUnreadable(check: PackCheck): boolean {
+  return check.status === "corrupt" && !isProvenDamage(check);
+}
+
+/** Consecutive checks a pack must fail to read before it counts like damage. */
+export const UNREADABLE_CHECKS_LIMIT = 3;
+/** ... and the time those checks must span at least. */
+export const UNREADABLE_MIN_SPAN_MS = 24 * 3_600_000;
+
+/**
+ * Whether a pack that could not be read counts like damage for the rating of
+ * the objects using it: unreadable in {@link UNREADABLE_CHECKS_LIMIT}
+ * consecutive checks spread over at least {@link UNREADABLE_MIN_SPAN_MS}.
+ * Before that it is a reason for attention only: one broken download, or a
+ * storage that was briefly unreachable, proves nothing about the data.
+ */
+export function isPersistentlyUnreadable(
+  state: Pick<PackUnreadableState, "since" | "lastAt" | "checks"> | null | undefined,
+): boolean {
+  return Boolean(
+    state &&
+      state.checks >= UNREADABLE_CHECKS_LIMIT &&
+      state.lastAt.getTime() - state.since.getTime() >= UNREADABLE_MIN_SPAN_MS,
+  );
+}
 
 /** Check one pack on every target and repair what can be repaired. */
 export async function checkPack(
@@ -199,7 +335,7 @@ export async function checkPack(
   const backends: readonly StorageBackend[] = [storage.primary, ...storage.copies];
   const reads: TargetRead[] = [];
   for (const [target, backend] of backends.entries()) {
-    reads.push(await readTarget(backend, target, pack, tenantId, chunks));
+    reads.push(await readTarget(backend, target, pack, tenantId, chunks, options));
   }
   const intact = reads.find((read) => read.bytes !== null)?.bytes ?? null;
   const targets: PackTargetCheck[] = [];

@@ -4,10 +4,11 @@
  *
  *   red     a restore of this object would fail or be incomplete today: no
  *           backup, unreadable manifest, sampled items that do not come back
- *           byte-exact, storage the scrub found corrupt, a failed test restore,
+ *           byte-exact, storage the scrub found corrupt (or could not read in
+ *           several checks over more than a day), a failed test restore,
  *           or a latest backup so old that recent data is not recoverable
  *   yellow  restorable, but something needs attention: the latest backup is
- *           getting old, the snapshot holds nothing that could be verified, or
+ *           getting old, the storage check could not read a pack of it yet, the snapshot holds nothing that could be verified, or
  *           a test restore landed without the target confirming it
  *   green   every sampled item came back byte-exact from a current backup
  *
@@ -24,6 +25,8 @@ export type ReadinessReasonCode =
   | "items_unreadable"
   | "items_mismatched"
   | "storage_corrupt"
+  | "storage_unreadable"
+  | "storage_unreadable_persistent"
   | "test_restore_failed"
   | "snapshot_outdated"
   | "snapshot_stale"
@@ -63,6 +66,12 @@ export type ReadinessFacts = {
   outcomes: Readonly<Record<ItemCheckStatus, number>>;
   /** Packs of the snapshot that the latest scrub reported corrupt and could not repair. */
   damagedPacks: number;
+  /**
+   * Packs of the snapshot the storage check could not read lately, not yet
+   * for long (attention), and for long enough to count like damage.
+   */
+  unreadablePacks?: number;
+  persistentlyUnreadablePacks?: number;
   /** Test-restore outcome, when one ran. */
   testRestore: { failed: number; unconfirmed: number } | null;
   now: Date;
@@ -130,6 +139,7 @@ export function assessReadiness(
   add("items_unreadable", "red", facts.outcomes.unreadable);
   add("items_mismatched", "red", facts.outcomes.mismatch);
   add("storage_corrupt", "red", facts.damagedPacks);
+  add("storage_unreadable_persistent", "red", facts.persistentlyUnreadablePacks ?? 0);
   add("test_restore_failed", "red", facts.testRestore?.failed ?? 0);
 
   const freshness = freshnessReason(facts.snapshotCompletedAt, facts.now, policy);
@@ -140,6 +150,7 @@ export function assessReadiness(
     reasons.push({ code: "nothing_to_verify", severity: "yellow" });
   }
   add("test_restore_unconfirmed", "yellow", facts.testRestore?.unconfirmed ?? 0);
+  add("storage_unreadable", "yellow", facts.unreadablePacks ?? 0);
 
   reasons.sort((a, b) => RANK[b.severity] - RANK[a.severity]);
   return { readiness: worstReadiness(reasons.map((reason) => reason.severity)), reasons };

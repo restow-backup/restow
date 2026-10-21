@@ -22,6 +22,11 @@ import type { ObjectState } from "./summary.js";
  * because verify reads the scrub's list of damaged packs). Reports without a
  * snapshot id that are not storage findings (written before reports were
  * linked, or by a check that found no backup at all) rate no snapshot.
+ *
+ * A green storage finding is a "cleared" one: the scrub read every pack an
+ * earlier finding named intact again (a pack that was only temporarily
+ * unreadable, say). It rates nothing; it ends the earlier finding, and the
+ * snapshot's own checks rate it again.
  */
 
 /** The verification of one backup (snapshot). */
@@ -64,7 +69,7 @@ export function ratingReport<T extends RatedReport>(
   latestFinding: T | null,
   objectCheckedAt: Date | null,
 ): T | null {
-  if (latestFinding) {
+  if (latestFinding && latestFinding.readiness !== "green") {
     const findingIsNewerThan = (at: Date | null) => at === null || latestFinding.checkedAt > at;
     if (findingIsNewerThan(latestCheck ? latestCheck.checkedAt : objectCheckedAt)) {
       return latestFinding;

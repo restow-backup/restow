@@ -148,13 +148,16 @@ export interface ObjectReadinessDto {
   previousCheck?: PreviousCheckDto | null;
 }
 
-export type StorageState = "ok" | "repaired" | "corrupt" | "never";
+export type ScrubModeDto = "sample" | "full" | "recheck";
+
+/** `unreadable`: packs could not be read lately (not proven damage); `corrupt`: proven damage. */
+export type StorageState = "ok" | "repaired" | "unreadable" | "corrupt" | "never";
 
 export interface StorageIntegrityDto {
   state: StorageState;
   latest: (ScrubReportDto & { jobId: string; completedAt: string | null }) | null;
   lastFullAt: string | null;
-  running: { jobId: string; status: "queued" | "active"; mode: "sample" | "full" } | null;
+  running: { jobId: string; status: "queued" | "active"; mode: ScrubModeDto } | null;
   /** A scrub that failed after the latest successful one. */
   lastFailure: { jobId: string; at: string | null; message: string | null } | null;
 }
@@ -245,7 +248,7 @@ export interface RunVerifyResultDto {
 
 export interface QueuedScrubDto {
   jobId: string;
-  mode: "sample" | "full";
+  mode: ScrubModeDto;
 }
 
 // ---------------------------------------------------------------------------
@@ -350,9 +353,11 @@ async function loadStorageIntegrity(
     ? "never"
     : report.corrupt.length > 0
       ? "corrupt"
-      : report.repaired.length > 0
-        ? "repaired"
-        : "ok";
+      : report.unreadable.length > 0
+        ? "unreadable"
+        : report.repaired.length > 0
+          ? "repaired"
+          : "ok";
   return {
     state,
     latest:
@@ -368,7 +373,10 @@ async function loadStorageIntegrity(
       ? {
           jobId: running.id,
           status: running.status as "queued" | "active",
-          mode: running.payload?.mode === "full" ? "full" : "sample",
+          mode:
+            running.payload?.mode === "full" || running.payload?.mode === "recheck"
+              ? running.payload.mode
+              : "sample",
         }
       : null,
     lastFailure:

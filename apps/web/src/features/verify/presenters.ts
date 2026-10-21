@@ -84,6 +84,7 @@ export function snapshotVerificationView(
 export const STORAGE_BADGE: Record<StorageState, StatusTone> = {
   ok: "success",
   repaired: "warning",
+  unreadable: "warning",
   corrupt: "destructive",
   never: "muted",
 };
@@ -255,6 +256,8 @@ const KNOWN_REASONS = new Set([
   "items_unreadable",
   "items_mismatched",
   "storage_corrupt",
+  "storage_unreadable",
+  "storage_unreadable_persistent",
   "test_restore_failed",
   "snapshot_outdated",
   "snapshot_stale",
@@ -272,6 +275,25 @@ export function reasonMessage(reason: Omit<Reason, "failure">): Message {
     key: `reason.${reason.code}`,
     values: { count: reason.count ?? 0, hours, days: Math.floor(hours / 24) },
   };
+}
+
+/**
+ * The one-line result of a storage finding (a scrub report) in the objects
+ * table: damage, packs that stayed unreadable, packs only temporarily
+ * unreadable, or (no reason) a finding that ended an earlier one.
+ */
+export function storageFindingKey(reasons: readonly Pick<Reason, "code">[]): string {
+  const codes = new Set(reasons.map((reason) => reason.code));
+  if (codes.has("storage_corrupt")) {
+    return "table.result.storage";
+  }
+  if (codes.has("storage_unreadable_persistent")) {
+    return "table.result.storageUnreadablePersistent";
+  }
+  if (codes.has("storage_unreadable")) {
+    return "table.result.storageUnreadable";
+  }
+  return "table.result.storageCleared";
 }
 
 /** "Primary storage" for target 0, "Copy n" for the copies. */

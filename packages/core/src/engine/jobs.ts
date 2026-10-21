@@ -101,8 +101,11 @@ export interface RetentionJobPayload extends JobPayloadBase {
 }
 
 export interface ScrubJobPayload extends JobPayloadBase {
-  /** `sample` checks a random subset of packs, `full` every pack. */
-  readonly mode: "sample" | "full";
+  /**
+   * `sample` checks a random subset of packs, `full` every pack, `recheck`
+   * only the packs an earlier check left damaged or unreadable.
+   */
+  readonly mode: "sample" | "full" | "recheck";
 }
 
 /** Moves a tenant's backups from one storage target to another (`storage_migrations` row). */

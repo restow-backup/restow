@@ -14,7 +14,9 @@ import {
 import type {
   EndpointReadinessRow,
   ObjectReadiness,
+  PackCheck,
   ReadinessOverview,
+  ScrubRun,
 } from "@/features/verify/api";
 import { i18n } from "@/i18n";
 
@@ -134,11 +136,19 @@ function overview(
   };
 }
 
+let requests: { method: string; path: string; body: unknown }[] = [];
+
 async function open(
   data: ReadinessOverview,
   session: Parameters<typeof sessionAs>[0] = {},
 ): Promise<HTMLElement> {
-  const { mock } = routedFetch({ "GET /verify/latest": () => json(data) });
+  const routed = routedFetch({
+    "GET /verify/latest": () => json(data),
+    "POST /verify/scrub": (request) =>
+      json({ jobId: "j-scrub", mode: (request.body as { mode: string }).mode }, 202),
+  });
+  requests = routed.requests;
+  const { mock } = routed;
   vi.stubGlobal("fetch", mock);
   mounted = mount(<VerifyPage />, {
     session: sessionAs({
@@ -301,5 +311,119 @@ describe("the page across all tenants", () => {
     const page = await open(mixed(), { canViewAllTenants: true, scope: "all" });
     expect(page.querySelector('[data-slot="state-chips"]')).toBeNull(); // the slot is empty without the extension
     expect(router.navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("storage integrity on the readiness page", () => {
+  const aborted = (path: string, checks: number, persistent: boolean): PackCheck => ({
+    path,
+    targets: [
+      {
+        target: 0,
+        status: "unreadable",
+        detail: "aborted (3 attempts)",
+        repaired: false,
+        attempts: 3,
+      },
+    ],
+    unreadable: {
+      since: "2026-10-17T02:00:00.000Z",
+      lastAt: "2026-10-18T02:30:00.000Z",
+      checks,
+      persistent,
+    },
+  });
+  const damaged: PackCheck = {
+    path: "tenants/t/packs/cc/damaged",
+    targets: [{ target: 0, status: "hash_mismatch", detail: null, repaired: false }],
+  };
+
+  function withScrub(run: Partial<ScrubRun>, state: ReadinessOverview["storage"]["state"]) {
+    const data = overview([mailbox("Ada")], []);
+    data.storage = {
+      state,
+      latest: {
+        jobId: "j-1",
+        completedAt: "2026-10-18T02:33:00.000Z",
+        mode: "sample",
+        packsTotal: 12_000,
+        packsChecked: 600,
+        bytesChecked: 39_000_000_000,
+        ok: 598,
+        repaired: [],
+        corrupt: [],
+        unreadable: [],
+        cleared: 0,
+        retired: 0,
+        gc: { status: "skipped", reason: "sample_run" },
+        orphans: null,
+        durationMs: 1_980_000,
+        ...run,
+      },
+      lastFullAt: null,
+      running: null,
+      lastFailure: null,
+    };
+    return data;
+  }
+
+  it("shows packs that could not be read as temporarily unreadable, never as damaged", async () => {
+    const page = await open(
+      withScrub(
+        {
+          unreadable: [
+            aborted("tenants/t/packs/aa/one", 1, false),
+            aborted("tenants/t/packs/bb/two", 1, false),
+          ],
+        },
+        "unreadable",
+      ),
+    );
+    const content = text(page);
+    expect(content).toContain("2 packs are temporarily unreadable");
+    expect(content).toContain("not proven damage");
+    expect(content).toContain("Primary storage: unreadable (aborted (3 attempts))");
+    expect(content).toContain("Not readable in 1 check");
+    expect(content).toContain("Not readable");
+    expect(content).not.toContain("packs are damaged");
+    expect(content).not.toContain("No intact copy");
+  });
+
+  it("re-checks exactly the listed packs from the button", async () => {
+    const page = await open(
+      withScrub({ unreadable: [aborted("tenants/t/packs/aa/one", 2, false)] }, "unreadable"),
+    );
+    const button = [...page.querySelectorAll("button")].find((element) =>
+      text(element).includes("Re-check this pack"),
+    );
+    await click(button);
+    await flush(4);
+    expect(requests.filter((request) => request.method === "POST")).toEqual([
+      { method: "POST", path: "/verify/scrub", body: { mode: "recheck" } },
+    ]);
+  });
+
+  it("says when packs stayed unreadable for more than a day", async () => {
+    const page = await open(
+      withScrub({ unreadable: [aborted("tenants/t/packs/aa/one", 3, true)] }, "unreadable"),
+    );
+    const content = text(page);
+    expect(content).toContain("1 pack could not be read for more than a day");
+    expect(content).toContain("Not readable in 3 consecutive checks");
+    expect(content).not.toContain("No intact copy");
+  });
+
+  it("keeps the damage text for packs that are proven damaged", async () => {
+    const page = await open(
+      withScrub(
+        { corrupt: [damaged], unreadable: [aborted("tenants/t/packs/aa/one", 1, false)] },
+        "corrupt",
+      ),
+    );
+    const content = text(page);
+    expect(content).toContain("1 pack is damaged");
+    expect(content).toContain("No intact copy exists in any repository");
+    expect(content).toContain("1 pack is temporarily unreadable");
+    expect(content).toContain("Re-check these 2 packs");
   });
 });

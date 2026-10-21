@@ -91,10 +91,43 @@ describe("parseDetails", () => {
       packs: [
         {
           path: "tenants/t/packs/ab/p1",
-          targets: [{ target: 0, status: "hash_mismatch", detail: null, repaired: false }],
+          targets: [
+            { target: 0, status: "hash_mismatch", detail: null, repaired: false, attempts: 1 },
+          ],
+          unreadable: null,
+        },
+      ],
+      cleared: false,
+    });
+  });
+
+  it("reads an unreadable pack's run of failed checks and a cleared finding", () => {
+    const run = {
+      since: "2026-10-17T02:00:00.000Z",
+      lastAt: "2026-10-17T02:00:00.000Z",
+      checks: 1,
+      persistent: false,
+    };
+    const details = parseDetails({
+      origin: "scrub",
+      scrubJobId: "job-1",
+      packs: [
+        {
+          path: "p1",
+          targets: [
+            { target: 0, status: "unreadable", detail: "aborted", repaired: false, attempts: 3 },
+          ],
+          unreadable: run,
         },
       ],
     });
+    expect(details).toMatchObject({
+      packs: [{ path: "p1", targets: [{ attempts: 3 }], unreadable: run }],
+      cleared: false,
+    });
+    expect(
+      parseDetails({ origin: "scrub", scrubJobId: "job-2", packs: [], cleared: true }),
+    ).toMatchObject({ cleared: true });
   });
 
   it("reports unknown shapes as unknown instead of failing", () => {
@@ -204,6 +237,29 @@ describe("parseScrubReport", () => {
       conflicts: 0,
       interruptedBy: null,
       skipped: 1,
+    });
+  });
+
+  it("moves packs an older report listed as corrupt but could not read to unreadable", () => {
+    const report = parseScrubReport({
+      mode: "sample",
+      corrupt: [
+        {
+          path: "aborted",
+          targets: [{ target: 0, status: "unreadable", detail: "aborted", repaired: false }],
+        },
+        {
+          path: "damaged",
+          targets: [{ target: 0, status: "hash_mismatch", detail: null, repaired: false }],
+        },
+      ],
+    });
+    expect(report?.corrupt.map((pack) => pack.path)).toEqual(["damaged"]);
+    expect(report?.unreadable.map((pack) => pack.path)).toEqual(["aborted"]);
+    expect(parseScrubReport({ mode: "recheck", cleared: ["a", "b"] })).toMatchObject({
+      mode: "recheck",
+      cleared: 2,
+      unreadable: [],
     });
   });
 

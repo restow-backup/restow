@@ -76,6 +76,12 @@ export type VerifyRunOptions = VerifyOptions & {
   readonly probe?: RestoreProbe | null;
   /** Storage keys of packs the latest scrub reported corrupt and could not repair. */
   readonly damagedPacks?: ReadonlySet<string>;
+  /**
+   * Storage keys of packs the storage check could not read lately: a reason
+   * for attention, or (the `persistent` ones) like damage.
+   */
+  readonly unreadablePacks?: ReadonlySet<string>;
+  readonly persistentlyUnreadablePacks?: ReadonlySet<string>;
 };
 
 export type VerifyOutcome = VerifyResult & {
@@ -303,9 +309,21 @@ export async function verifyProtectedObject(
     }
   }
 
-  const damagedPacks = manifest
-    ? await damagedPacksOfSnapshot(ctx.chunkIndex, manifest, options.damagedPacks, ctx.signal)
+  const flagged = new Set([
+    ...(options.damagedPacks ?? []),
+    ...(options.unreadablePacks ?? []),
+    ...(options.persistentlyUnreadablePacks ?? []),
+  ]);
+  const flaggedOfSnapshot = manifest
+    ? await damagedPacksOfSnapshot(ctx.chunkIndex, manifest, flagged, ctx.signal)
     : [];
+  const damagedPacks = flaggedOfSnapshot.filter((path) => options.damagedPacks?.has(path));
+  const unreadablePacks = flaggedOfSnapshot
+    .filter((path) => !options.damagedPacks?.has(path))
+    .map((path) => ({
+      path,
+      persistent: options.persistentlyUnreadablePacks?.has(path) ?? false,
+    }));
   // A read-back that could not complete gets no test restore: it would not change the outcome.
   const probed =
     record && options.probe && scope === "sample" && !inconclusive
@@ -329,6 +347,8 @@ export async function verifyProtectedObject(
       checked: counts.checked,
       outcomes: counts,
       damagedPacks: damagedPacks.length,
+      unreadablePacks: unreadablePacks.filter((pack) => !pack.persistent).length,
+      persistentlyUnreadablePacks: unreadablePacks.filter((pack) => pack.persistent).length,
       testRestore: testRestore
         ? {
             failed:
@@ -375,6 +395,7 @@ export async function verifyProtectedObject(
     items: listed.items,
     itemsOmitted: listed.omitted,
     damagedPacks,
+    ...(unreadablePacks.length > 0 ? { unreadablePacks } : {}),
     testRestore,
     startedAt: startedAt.toISOString(),
     durationMs: Math.max(0, now.getTime() - startedAt.getTime()),

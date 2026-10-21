@@ -29,6 +29,7 @@ import {
   sortRowsByUrgency,
   startErrorMessage,
   stateBadgeView,
+  storageFindingKey,
   targetLabel,
   targetStatusKey,
   unverifiedRunMessage,
@@ -405,6 +406,8 @@ describe("reasonMessage", () => {
       "items_unreadable",
       "items_mismatched",
       "storage_corrupt",
+      "storage_unreadable",
+      "storage_unreadable_persistent",
       "test_restore_failed",
       "snapshot_outdated",
       "snapshot_stale",
@@ -416,6 +419,29 @@ describe("reasonMessage", () => {
       expect(typeof lookup(enVerify, key)).toBe("string");
       expect(typeof lookup(deVerify, key)).toBe("string");
     }
+  });
+});
+
+describe("storageFindingKey", () => {
+  it("tells damage, lasting and temporary unreadability and a cleared finding apart", () => {
+    const keys = [
+      storageFindingKey([{ code: "storage_corrupt" }, { code: "storage_unreadable" }]),
+      storageFindingKey([{ code: "storage_unreadable_persistent" }]),
+      storageFindingKey([{ code: "storage_unreadable" }]),
+      storageFindingKey([]),
+    ];
+    expect(keys).toEqual([
+      "table.result.storage",
+      "table.result.storageUnreadablePersistent",
+      "table.result.storageUnreadable",
+      "table.result.storageCleared",
+    ]);
+    for (const key of keys) {
+      expect(typeof lookup(enVerify, key)).toBe("string");
+      expect(typeof lookup(deVerify, key)).toBe("string");
+    }
+    // Only proven damage is called damaged.
+    expect(lookup(enVerify, "table.result.storageUnreadable")).not.toMatch(/damage/i);
   });
 });
 

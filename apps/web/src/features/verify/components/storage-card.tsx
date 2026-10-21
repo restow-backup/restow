@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, HardDrive, Loader2, Wrench } from "lucide-react";
+import { AlertTriangle, HardDrive, Loader2, RefreshCw, Wrench } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,10 @@ export function StorageCard({
   const start = useStartScrub();
   const latest = storage.latest;
   const gc = latest ? gcMessage(latest.gc, format.bytes) : null;
+  const unreadable = latest?.unreadable ?? [];
+  const persistent = unreadable.filter((pack) => pack.unreadable?.persistent);
+  const temporary = unreadable.filter((pack) => !pack.unreadable?.persistent);
+  const flagged = (latest?.corrupt.length ?? 0) + unreadable.length;
 
   const run = (mode: ScrubMode) => {
     start.mutate(mode, {
@@ -122,6 +126,46 @@ export function StorageCard({
               <PackList packs={latest.corrupt} format={format} />
             </AlertDescription>
           </Alert>
+        ) : null}
+
+        {persistent.length > 0 ? (
+          <Alert variant="destructive">
+            <AlertTriangle />
+            <AlertTitle>
+              {t("storage.unreadablePersistentTitle", { count: persistent.length })}
+            </AlertTitle>
+            <AlertDescription>
+              <p>{t("storage.unreadablePersistent")}</p>
+              <PackList packs={persistent} format={format} />
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {temporary.length > 0 ? (
+          <Alert variant="warning">
+            <AlertTriangle />
+            <AlertTitle>{t("storage.unreadableTitle", { count: temporary.length })}</AlertTitle>
+            <AlertDescription>
+              <p>{t("storage.unreadable", { count: temporary.length })}</p>
+              <PackList packs={temporary} format={format} />
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {flagged > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => run("recheck")}
+              disabled={busy}
+              loading={start.isPending && start.variables === "recheck"}
+            >
+              <RefreshCw aria-hidden="true" />
+              {t("actions.scrubRecheck", { count: flagged })}
+            </Button>
+            <span className="text-xs text-muted-foreground">{t("storage.recheckHint")}</span>
+          </div>
         ) : null}
 
         {latest && latest.retired > 0 ? (

@@ -1,5 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, FileSearch, History, ListChecks, ShieldQuestion, ShieldX } from "lucide-react";
+import {
+  ArrowLeft,
+  FileSearch,
+  History,
+  ListChecks,
+  ShieldAlert,
+  ShieldQuestion,
+  ShieldX,
+} from "lucide-react";
 import type * as React from "react";
 
 import { ErrorState } from "@/components/error-state";
@@ -30,7 +38,7 @@ import type {
 import { PackList } from "@/features/verify/components/pack-list";
 import { ItemCause, ReasonFindings } from "@/features/verify/components/reason-findings";
 import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
-import { ObjectKindIcon, StateBadge } from "@/features/verify/components/status";
+import { ObjectKindIcon, ReportStateBadge } from "@/features/verify/components/status";
 import { VERIFY_ICON, verifyOverviewTo, verifyReportTo } from "@/features/verify/paths";
 import { objectAddress, objectLabel, objectName } from "@/features/verify/presenters";
 import {
@@ -254,6 +262,33 @@ function VerifyDetailsView({
         </Alert>
       ) : null}
 
+      {details.unreadablePacks && details.unreadablePacks.length > 0 ? (
+        <Alert
+          variant={
+            details.unreadablePacks.some((pack) => pack.persistent) ? "destructive" : "warning"
+          }
+        >
+          <ShieldAlert />
+          <AlertTitle>
+            {t("report.unreadablePacks.title", { count: details.unreadablePacks.length })}
+          </AlertTitle>
+          <AlertDescription>
+            {t(
+              details.unreadablePacks.some((pack) => pack.persistent)
+                ? "report.unreadablePacks.persistent"
+                : "report.unreadablePacks.description",
+            )}
+            <ul className="mt-2 space-y-1">
+              {details.unreadablePacks.map((pack) => (
+                <li key={pack.path}>
+                  <code className="break-all font-mono text-xs">{pack.path}</code>
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {details.testRestore ? (
         <Card>
           <CardHeader>
@@ -293,12 +328,25 @@ function VerifyDetailsView({
 
 function ScrubFindingView({ finding, format }: { finding: ScrubFinding; format: VerifyFormat }) {
   const { t } = format;
+  const unreadable = finding.packs.filter((pack) => pack.unreadable);
+  const damaged = finding.packs.length - unreadable.length;
+  const persistent = unreadable.some((pack) => pack.unreadable?.persistent);
+  const descriptions = finding.cleared
+    ? [t("report.scrub.cleared")]
+    : [
+        ...(damaged > 0 ? [t("report.scrub.description")] : []),
+        ...(unreadable.length > 0
+          ? [t(persistent ? "report.scrub.unreadablePersistent" : "report.scrub.unreadable")]
+          : []),
+      ];
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
         <div className="space-y-1">
           <CardTitle className="text-base">{t("report.scrub.title")}</CardTitle>
-          <CardDescription>{t("report.scrub.description")}</CardDescription>
+          {descriptions.map((text) => (
+            <CardDescription key={text}>{text}</CardDescription>
+          ))}
         </div>
         {finding.scrubJobId ? (
           <Link
@@ -357,7 +405,7 @@ function HistoryCard({
             {reports.map((report) => {
               const content = (
                 <>
-                  <StateBadge state={report.readiness} />
+                  <ReportStateBadge report={report} />
                   <span className="text-sm">{format.dateTime(report.checkedAt)}</span>
                   <span className="text-xs text-muted-foreground">{t(checkKindKey(report))}</span>
                   {report.counts ? (
@@ -551,7 +599,7 @@ export function ReportPage({ reportId }: { reportId: string }) {
         <CardHeader className="flex flex-row flex-wrap items-center gap-3 space-y-0">
           <ObjectKindIcon kind={report.object.kind} />
           <ObjectLine object={report.object} t={t} />
-          <StateBadge state={report.readiness} className="ml-auto text-sm" />
+          <ReportStateBadge report={report} className="ml-auto text-sm" />
         </CardHeader>
         <CardContent>
           <h2 className="mb-2 text-sm font-medium">{t("report.findings.title")}</h2>

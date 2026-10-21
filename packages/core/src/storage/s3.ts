@@ -11,7 +11,7 @@
  * stream that ends within its first part still becomes a single PutObject.
  */
 import { createHash } from "node:crypto";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import {
   AbortMultipartUploadCommand,
   type ChecksumAlgorithm,
@@ -37,6 +37,7 @@ import {
   type PutOptions,
   type StorageBackend,
 } from "./backend.js";
+import { isTransientTransferError, pauseBeforeRetry } from "./transfer.js";
 
 const MIB = 1024 * 1024;
 
@@ -127,7 +128,15 @@ export interface S3StorageOptions {
   clientConfig?: S3ClientConfig;
   /** Object-lock mode to use when a `retainUntil` is given. Defaults to COMPLIANCE. */
   objectLockMode?: "GOVERNANCE" | "COMPLIANCE";
+  /** Pauses before resuming a broken body read (tests shorten them); default 1 s, then 4 s. */
+  bodyRetryDelaysMs?: readonly number[];
 }
+
+/** Reads of one object body in all: the first and up to two resumptions after a broken transfer. */
+export const S3_BODY_READ_ATTEMPTS = 3;
+const BODY_RETRY_DELAYS_MS: readonly number[] = [1_000, 4_000];
+
+type OpenedBody = { body: Readable; etag: string | undefined; length: number | undefined };
 
 function isNotFound(error: unknown): boolean {
   const err = error as { name?: string; $metadata?: { httpStatusCode?: number } } | undefined;
@@ -141,8 +150,10 @@ export class S3StorageBackend implements StorageBackend {
   private readonly bucket: string;
   private readonly prefix: string;
   private readonly objectLockMode: "GOVERNANCE" | "COMPLIANCE";
+  private readonly bodyRetryDelaysMs: readonly number[];
 
   constructor(options: S3StorageOptions) {
+    this.bodyRetryDelaysMs = options.bodyRetryDelaysMs ?? BODY_RETRY_DELAYS_MS;
     this.client = options.client ?? new S3Client(options.clientConfig ?? {});
     this.bucket = options.bucket;
     this.prefix = options.prefix ? options.prefix.replace(/\/+$/, "") : "";
@@ -314,40 +325,96 @@ export class S3StorageBackend implements StorageBackend {
     return calculation === "WHEN_SUPPORTED" ? "CRC32" : undefined;
   }
 
-  async get(key: string): Promise<Buffer> {
-    const result = await this.client.send(
-      new GetObjectCommand({ Bucket: this.bucket, Key: this.keyFor(key) }),
-    );
-    if (!result.Body) {
-      throw new Error(`empty response body for ${key}`);
-    }
-    const bytes = await result.Body.transformToByteArray();
-    return Buffer.from(bytes);
-  }
-
-  async getStream(key: string): Promise<Readable> {
-    const result = await this.client.send(
-      new GetObjectCommand({ Bucket: this.bucket, Key: this.keyFor(key) }),
-    );
-    if (!result.Body) {
-      throw new Error(`empty response body for ${key}`);
-    }
-    // In Node the SDK returns a Readable; the union also covers browser stream types.
-    return result.Body as unknown as Readable;
-  }
-
-  async getRange(key: string, start: number, end: number): Promise<Readable> {
+  /** One GetObject from byte `start` on (to `end`, inclusive, when given). */
+  private async openBody(
+    key: string,
+    start: number,
+    end: number | undefined,
+    etag: string | undefined,
+  ): Promise<OpenedBody> {
+    const ranged = start > 0 || end !== undefined;
     const result = await this.client.send(
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: this.keyFor(key),
-        Range: `bytes=${start}-${end}`,
+        ...(ranged ? { Range: `bytes=${start}-${end ?? ""}` } : {}),
+        ...(etag ? { IfMatch: etag } : {}),
       }),
     );
     if (!result.Body) {
       throw new Error(`empty response body for ${key}`);
     }
-    return result.Body as unknown as Readable;
+    // In Node the SDK returns a Readable; the union also covers browser stream types.
+    return {
+      body: result.Body as unknown as Readable,
+      etag: result.ETag,
+      length: result.ContentLength,
+    };
+  }
+
+  /**
+   * The body of `key` (or of its bytes `start`..`end`) as a stream that
+   * survives a broken transfer: when the body fails with a transfer error, the
+   * rest is requested again from the first byte not yet delivered, pinned to
+   * the first response's ETag so a replaced object is never stitched
+   * together. Errors of the first request (a missing object, denied access)
+   * reject as before; anything but a transfer error fails the stream at once.
+   */
+  private async readBody(key: string, start = 0, end?: number): Promise<Readable> {
+    const first = await this.openBody(key, start, end, undefined);
+    const delays = this.bodyRetryDelaysMs;
+    const reopen = (from: number) => this.openBody(key, from, end, first.etag);
+    async function* resumable(): AsyncGenerator<Buffer> {
+      let current: Readable | null = first.body;
+      let delivered = 0;
+      let attempt = 1;
+      try {
+        for (;;) {
+          try {
+            current ??= (await reopen(start + delivered)).body;
+            for await (const piece of current) {
+              const bytes = asBuffer(piece as Buffer | Uint8Array | string);
+              delivered += bytes.length;
+              yield bytes;
+            }
+            return;
+          } catch (error) {
+            current?.destroy();
+            current = null;
+            if (first.length !== undefined && delivered >= first.length) {
+              return;
+            }
+            if (attempt >= S3_BODY_READ_ATTEMPTS || !isTransientTransferError(error)) {
+              throw error;
+            }
+            await pauseBeforeRetry(delays[attempt - 1] ?? delays[delays.length - 1] ?? 0);
+            attempt += 1;
+          }
+        }
+      } finally {
+        current?.destroy();
+      }
+    }
+    return Readable.from(resumable(), { objectMode: false });
+  }
+
+  async get(key: string): Promise<Buffer> {
+    const parts: Buffer[] = [];
+    let total = 0;
+    for await (const piece of await this.readBody(key)) {
+      const bytes = piece as Buffer;
+      parts.push(bytes);
+      total += bytes.length;
+    }
+    return Buffer.concat(parts, total);
+  }
+
+  async getStream(key: string): Promise<Readable> {
+    return this.readBody(key);
+  }
+
+  async getRange(key: string, start: number, end: number): Promise<Readable> {
+    return this.readBody(key, start, end);
   }
 
   async listWithSizes(prefix: string): Promise<{ key: string; size: number }[]> {
