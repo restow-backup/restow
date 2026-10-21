@@ -31,7 +31,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { CadenceFields } from "@/features/schedules/components/cadence-fields";
-import { ExtensionSlot } from "@/lib/extensions";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 import { activeTenantPageTo } from "@/lib/tenant-paths";
 import { cn } from "@/lib/utils";
@@ -47,6 +46,8 @@ import {
 } from "../api.js";
 import { withDataFolder } from "../folders.js";
 import {
+  archiveBackupCadence,
+  cadenceIntervalMinutes,
   checkJobDraft,
   createInputOf,
   draftOfJob,
@@ -59,7 +60,9 @@ import {
   type SelectedMember,
   type SettingsDraft,
   scopeChanged,
+  suggestsRarerBackups,
   updateInputOf,
+  withPurpose,
 } from "../form.js";
 import {
   useBackupJobs,
@@ -91,6 +94,7 @@ import { MemberPicker } from "./member-picker.js";
 import { MissingDataFoldersNotice } from "./missing-data-folders.js";
 import { ProfileNote } from "./profile-note.js";
 import { ProxmoxGuestsHint } from "./proxmox-hint.js";
+import { PurposeSection } from "./purpose-section.js";
 import {
   BandwidthField,
   EndpointScheduleFields,
@@ -288,6 +292,48 @@ function EditorLoader(props: LoaderProps) {
 }
 
 /** The draft as far as the person changed it: the names the picker fills in later are not a change. */
+/**
+ * Under the schedule of a mail job: with the archive on, the suggestion to back up less often and
+ * why (the archive already holds every mail; #48, point 1), never changed without a click; with
+ * backups alone, the gap between two runs in which mail can come and go unseen.
+ */
+function ScheduleAdvice({
+  draft,
+  onUseSuggestion,
+}: {
+  draft: JobDraft;
+  onUseSuggestion: () => void;
+}) {
+  const { t } = useTranslation("backupjobs");
+  if (suggestsRarerBackups(draft)) {
+    return (
+      <Alert data-slot="archive-frequency">
+        <Info aria-hidden="true" />
+        <AlertTitle>{t("editor.purpose.rarer.title")}</AlertTitle>
+        <AlertDescription className="space-y-2">
+          <p>{t("editor.purpose.rarer.description")}</p>
+          <Button type="button" variant="outline" size="sm" onClick={onUseSuggestion}>
+            {t("editor.purpose.rarer.apply")}
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  if (draft.purpose !== "backup" || !draft.scheduleOn) {
+    return null;
+  }
+  const minutes = cadenceIntervalMinutes(draft.cadence);
+  return (
+    <p className="text-xs text-muted-foreground" data-slot="backup-gap">
+      {minutes === null
+        ? t("editor.purpose.gap.between")
+        : minutes % 60 === 0
+          ? t("editor.purpose.gap.hours", { count: minutes / 60 })
+          : t("editor.purpose.gap.minutes", { count: minutes })}
+    </p>
+  );
+}
+
 function dirtyKey(draft: JobDraft): string {
   return JSON.stringify({ ...draft, selected: draft.selected.map((member) => member.id) });
 }
@@ -558,6 +604,17 @@ function EditorForm({
           </div>
 
           <fieldset disabled={closed} className="mx-0 block min-w-0 space-y-4 border-0 p-0">
+            {kind === "mail" ? (
+              <PurposeSection
+                idPrefix={ids("purpose")}
+                purpose={draft.purpose}
+                objectLock={defaults.repository.objectLock}
+                onChange={(purpose) => {
+                  setDraft((current) => withPurpose(current, purpose));
+                  setSaveError(null);
+                }}
+              />
+            ) : null}
             <EditorSection id={ids("general")} title={t("editor.general.title")}>
               <Field
                 id={ids("name")}
@@ -668,27 +725,43 @@ function EditorForm({
                   title={t("editor.schedule.title")}
                   description={t("editor.schedule.description.mail")}
                 >
-                  <div className="flex items-start justify-between gap-4 rounded-md border p-3">
-                    <Label htmlFor={ids("schedule-on")}>{t("editor.schedule.automatic")}</Label>
-                    <Switch
-                      id={ids("schedule-on")}
-                      checked={draft.scheduleOn}
-                      onCheckedChange={(checked) => edit({ scheduleOn: checked })}
-                    />
-                  </div>
-                  {draft.scheduleOn ? (
-                    <CadenceFields
-                      idPrefix={ids("cadence")}
-                      draft={draft.cadence}
-                      onChange={(cadence) => edit({ cadence })}
-                      attempted={attempted}
-                      saveProblem={cadenceProblemOf(serverProblem, "schedule")}
-                    />
-                  ) : (
-                    <Alert variant="warning" data-slot="schedule-off">
-                      <TriangleAlert aria-hidden="true" />
-                      <AlertDescription>{t("editor.schedule.manualOnly")}</AlertDescription>
+                  {draft.purpose === "archive" ? (
+                    // An archive alone makes no backups on a schedule; one started by hand still works.
+                    <Alert data-slot="schedule-archive-only">
+                      <Info aria-hidden="true" />
+                      <AlertDescription>{t("editor.purpose.archiveOnlySchedule")}</AlertDescription>
                     </Alert>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+                        <Label htmlFor={ids("schedule-on")}>{t("editor.schedule.automatic")}</Label>
+                        <Switch
+                          id={ids("schedule-on")}
+                          checked={draft.scheduleOn}
+                          onCheckedChange={(checked) => edit({ scheduleOn: checked })}
+                        />
+                      </div>
+                      {draft.scheduleOn ? (
+                        <CadenceFields
+                          idPrefix={ids("cadence")}
+                          draft={draft.cadence}
+                          onChange={(cadence) => edit({ cadence })}
+                          attempted={attempted}
+                          saveProblem={cadenceProblemOf(serverProblem, "schedule")}
+                        />
+                      ) : (
+                        <Alert variant="warning" data-slot="schedule-off">
+                          <TriangleAlert aria-hidden="true" />
+                          <AlertDescription>{t("editor.schedule.manualOnly")}</AlertDescription>
+                        </Alert>
+                      )}
+                      <ScheduleAdvice
+                        draft={draft}
+                        onUseSuggestion={() =>
+                          edit({ cadence: archiveBackupCadence(draft.cadence) })
+                        }
+                      />
+                    </>
                   )}
                 </EditorSection>
 
@@ -754,57 +827,6 @@ function EditorForm({
                       </SelectContent>
                     </Select>
                   </Field>
-                </EditorSection>
-
-                <EditorSection
-                  id={ids("archive")}
-                  title={t("editor.archive.title")}
-                  description={t("editor.archive.description")}
-                >
-                  <div className="flex items-start justify-between gap-4 rounded-md border p-3">
-                    <div className="space-y-0.5">
-                      <Label htmlFor={ids("archive-on")}>{t("editor.archive.switch")}</Label>
-                      <p
-                        id={messageId(ids("archive-on"))}
-                        className="text-xs text-muted-foreground"
-                      >
-                        {t("editor.archive.hint")}
-                      </p>
-                    </div>
-                    <Switch
-                      id={ids("archive-on")}
-                      checked={draft.archive}
-                      onCheckedChange={(checked) => edit({ archive: checked })}
-                      aria-describedby={messageId(ids("archive-on"))}
-                    />
-                  </div>
-                  {draft.archive ? (
-                    <>
-                      {defaults.repository.objectLock === false ? (
-                        <Alert variant="warning" data-slot="archive-object-lock">
-                          <TriangleAlert aria-hidden="true" />
-                          <AlertDescription>{t("editor.archive.noObjectLock")}</AlertDescription>
-                        </Alert>
-                      ) : defaults.repository.objectLock === null ? (
-                        <p
-                          className="text-xs text-muted-foreground"
-                          data-slot="archive-object-lock"
-                        >
-                          {t("editor.archive.objectLockUnknown")}
-                        </p>
-                      ) : null}
-                      <ExtensionSlot
-                        name="jobs.archiveSetup"
-                        props={{ archive: draft.archive }}
-                        fallback={
-                          <Alert data-slot="archive-edition">
-                            <Info aria-hidden="true" />
-                            <AlertDescription>{t("editor.archive.edition")}</AlertDescription>
-                          </Alert>
-                        }
-                      />
-                    </>
-                  ) : null}
                 </EditorSection>
               </>
             ) : (

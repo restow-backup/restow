@@ -244,10 +244,19 @@ Die Zuordnung steht in `archive_item_mailboxes` (nur hinzufügen, nie ändern, w
 
 - Ein Report, der kein Postfach des Mandanten nennt, wird trotzdem archiviert und gehört dann nur
   dem Mandanten. Nichts wird verworfen.
-- Im Editor eines Mail-Jobs schaltet "Postfächer dieses Jobs archivieren" das Archiv für den Job
-  ein. Die Erfassung hängt nicht daran: Exchange journalisiert nach seiner Journalregel, Restow
-  archiviert jeden Report. Der Schalter sagt, welche Postfächer im Archiv erwartet werden, und
-  zeigt Journal-Adresse und Empfangsstatus (Business). Ein Maschinen-Job kann nicht archivieren.
+- Der Editor eines Mail-Jobs fragt zuerst "Was soll dieser Job tun?" (ab 0.4.2): **Sichern**
+  (Ordner, Kalender, Kontakte und ganze Postfächer wiederherstellen), **Archivieren** (jede Mail
+  revisionssicher, erfasst bevor Nutzer sie ändern oder löschen können) oder **beides**
+  (Vorgabe für neue Jobs). Archivieren und beides schalten das Archiv für den Job ein (das
+  Archiv-Häkchen seit 0.3.0); "Archivieren" allein sichert nicht nach Zeitplan (der Job hat dann
+  keinen Zeitplan, ein von Hand gestarteter Lauf sichert trotzdem). Die Erfassung hängt nicht
+  daran: Exchange journalisiert nach seiner Journalregel, Restow archiviert jeden Report. Die
+  Auswahl sagt, welche Postfächer im Archiv erwartet werden, nennt den Erfassungsweg
+  (Exchange-Journaling: Kopie beim Transport, vor der Zustellung ins Postfach; einmal je Mandant
+  einzurichten, mit Verweis auf die Einrichtung) und zeigt Journal-Adresse und Empfangsstatus
+  (Business). Mit Archiv schlägt der Editor bei einem Zeitplan häufiger als alle 8 Stunden vor,
+  seltener zu sichern (nur ein Vorschlag, Abschnitt "Journaling und Postfach-Sicherung"); nur mit
+  Sicherung nennt er die Lücke zwischen zwei Läufen. Ein Maschinen-Job kann nicht archivieren.
 - Object Lock ist keine Voraussetzung. Ohne Object Lock zeigt der Editor den Hinweis, dass das
   Archiv dann nur auf Anwendungsebene unveränderbar ist (Abschnitt "Speicherung").
 - Suche, Export und Legal Hold je Postfach berücksichtigen zugeordnete Journal-Reports.
@@ -315,7 +324,8 @@ Wann was:
 - Ist das Journaling für einen Mandanten aktiv, ist neue Mail ab ihrem Eingang im Archiv
   erfasst. Eine seltenere Sicherung (zum Beispiel alle 8 Stunden oder täglich statt
   stündlich) verkleinert dann nur das Fenster, in dem Kalender, Ordner und Status verloren
-  gehen können, nicht die Erfassung der Mail. Restow stellt die Häufigkeit nicht selbst um.
+  gehen können, nicht die Erfassung der Mail. Restow stellt die Häufigkeit nicht selbst um; der
+  Job-Editor schlägt "alle 8 Stunden" vor und übernimmt es erst auf Klick.
 
 ## Speicherung
 

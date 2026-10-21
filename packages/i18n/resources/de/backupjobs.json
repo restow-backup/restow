@@ -657,11 +657,42 @@
       },
       "policy": "Aufbewahrungsrichtlinie"
     },
+    "purpose": {
+      "title": "Was soll dieser Job tun?",
+      "both": {
+        "label": "Sichern und archivieren",
+        "hint": "Ordner, Kalender, Kontakte und ganze Postfächer wiederherstellen und zusätzlich jede E-Mail revisionssicher aufbewahren (empfohlen)."
+      },
+      "backup": {
+        "label": "Sichern",
+        "hint": "Ordner, Kalender, Kontakte und ganze Postfächer so wiederherstellen, wie sie zu einem Sicherungsstand waren."
+      },
+      "archive": {
+        "label": "Archivieren",
+        "hint": "Jede E-Mail revisionssicher aufbewahren, erfasst bevor Nutzer sie ändern oder löschen können, für GoBD, Aufbewahrungsfristen und Legal Hold."
+      },
+      "capture": {
+        "title": "So gelangen E-Mails ins Archiv: Exchange-Journaling",
+        "journaling": "Exchange schickt {appName} eine Kopie jeder E-Mail, während sie transportiert wird, noch bevor sie im Postfach ankommt. So kann sie vorher niemand ändern oder löschen. Journaling wird einmal je Mandant eingerichtet: eine Journal-Adresse und eine Journalregel in Microsoft 365.",
+        "setup": "Journaling einrichten"
+      },
+      "backupOnly": {
+        "title": "Sicherungen allein halten keine E-Mails zwischen zwei Läufen fest",
+        "description": "Eine Sicherung sieht das Postfach so, wie es beim Lauf ist. Eine E-Mail, die vor dem nächsten Lauf eingeht und wieder gelöscht wird, ist in keiner Sicherung, und Sicherungen sind nicht revisionssicher. Das Archiv erfasst jede E-Mail beim Eingang."
+      },
+      "archiveOnlySchedule": "Dieser Job sichert nicht nach Zeitplan: E-Mails erfasst das Archiv beim Eingang. Kalender, Kontakte und Ordner werden nur gesichert, wenn jemand den Job startet.",
+      "rarer": {
+        "title": "Sicherungen können seltener laufen",
+        "description": "Das Archiv erfasst bereits jede E-Mail beim Eingang. Sicherungen halten dann nur fest, was das Journaling nicht sieht: Ordner, Kalender, Kontakte und den Gelesen-Status. Alle 8 Stunden genügen meist und belasten Microsoft 365 weniger. Das ist ein Vorschlag; der Zeitplan bleibt, wie Sie ihn eingestellt haben.",
+        "apply": "Alle 8 Stunden sichern"
+      },
+      "gap": {
+        "hours": "Eine E-Mail, die in {count, plural, one {der Stunde} other {den # Stunden}} zwischen zwei Sicherungen eingeht und wieder gelöscht wird, ist in keiner Sicherung.",
+        "minutes": "Eine E-Mail, die in {count, plural, one {der Minute} other {den # Minuten}} zwischen zwei Sicherungen eingeht und wieder gelöscht wird, ist in keiner Sicherung.",
+        "between": "Eine E-Mail, die zwischen zwei Sicherungen eingeht und wieder gelöscht wird, ist in keiner Sicherung."
+      }
+    },
     "archive": {
-      "title": "Archiv",
-      "description": "Revisionssicheres Archiv über Exchange-Journaling: Jede E-Mail wird erfasst, sobald Exchange sie zustellt, unabhängig vom Zeitplan der Sicherung.",
-      "switch": "Postfächer dieses Jobs archivieren",
-      "hint": "Das Archiv nimmt jede Journal-Mail auf und ordnet sie den Postfächern zu, die sie empfangen oder gesendet haben. Mails an Postfächer außerhalb eines Archiv-Jobs werden trotzdem archiviert, nur keinem Job zugeordnet.",
       "noObjectLock": "Der Speicher dieses Mandanten hat kein Object Lock. Das Archiv ist dann nur auf Anwendungsebene unveränderbar: Wer Zugriff auf den Speicher oder den Server hat, kann Daten ändern oder löschen.",
       "objectLockUnknown": "Das Archiv liegt im Standard-Repository der Installation. Ob dieses Object Lock hat, sehen Sie unter Repositories.",
       "edition": "Die Erfassung über Exchange-Journaling gehört zur Business-Edition. Ohne sie bleibt die Einstellung gespeichert, es wird aber nichts archiviert."

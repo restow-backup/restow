@@ -657,11 +657,42 @@
       },
       "policy": "Retention policy"
     },
+    "purpose": {
+      "title": "What should this job do?",
+      "both": {
+        "label": "Back up and archive",
+        "hint": "Restore folders, calendar, contacts and whole mailboxes, and keep every mail tamper-evident as well (recommended)."
+      },
+      "backup": {
+        "label": "Back up",
+        "hint": "Restore folders, calendar, contacts and whole mailboxes as they were at a restore point."
+      },
+      "archive": {
+        "label": "Archive",
+        "hint": "Keep every mail tamper-evident, captured before users can change or delete it, for the GoBD, retention periods and legal hold."
+      },
+      "capture": {
+        "title": "How mail reaches the archive: Exchange journaling",
+        "journaling": "Exchange sends a copy of every mail to {appName} while it is in transport, before it reaches the mailbox, so nobody can change or delete it first. Journaling is set up once per tenant: a journal address and a journal rule in Microsoft 365.",
+        "setup": "Set up journaling"
+      },
+      "backupOnly": {
+        "title": "Backups alone keep no mail between two runs",
+        "description": "A backup sees the mailbox as it is when it runs. Mail that arrives and is deleted before the next run is in no backup, and backups are not tamper-evident. Archiving captures every mail as it arrives."
+      },
+      "archiveOnlySchedule": "This job makes no backups on a schedule: mail is captured by the archive as it arrives. Calendar, contacts and folders are only backed up when someone starts the job.",
+      "rarer": {
+        "title": "Backups can run less often",
+        "description": "The archive already captures every mail as it arrives, so backups only keep what journaling does not see: folders, calendar, contacts and read status. Every 8 hours is usually enough and puts less load on Microsoft 365. This is a suggestion; the schedule stays as you set it.",
+        "apply": "Back up every 8 hours"
+      },
+      "gap": {
+        "hours": "Mail that arrives and is deleted within the {count, plural, one {one hour} other {# hours}} between two backups is in no backup.",
+        "minutes": "Mail that arrives and is deleted within the {count, plural, one {one minute} other {# minutes}} between two backups is in no backup.",
+        "between": "Mail that arrives and is deleted between two backups is in no backup."
+      }
+    },
     "archive": {
-      "title": "Archive",
-      "description": "Tamper-evident archive through Exchange journaling: every mail is captured as soon as Exchange delivers it, independent of the backup schedule.",
-      "switch": "Archive this job's mailboxes",
-      "hint": "The archive takes in every journal report and assigns it to the mailboxes that received or sent it. Mail for mailboxes outside an archiving job is archived all the same, only not assigned to a job.",
       "noObjectLock": "This tenant's storage has no Object Lock. The archive is then immutable at application level only: whoever can reach the storage or the server can change or delete data.",
       "objectLockUnknown": "The archive is kept in the installation's default repository. Whether it has Object Lock is shown under Repositories.",
       "edition": "Capture through Exchange journaling is part of the Business edition. Without it the setting is kept, but nothing is archived."

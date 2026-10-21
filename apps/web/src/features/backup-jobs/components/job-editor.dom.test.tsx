@@ -179,13 +179,14 @@ describe("saving a new mail job", () => {
       scope: { mode: "selected", members: [{ id: "o1" }, { id: "o2" }] },
     });
     expect(body).not.toHaveProperty("moveMembers");
-    expect(body).not.toHaveProperty("archive");
+    // A new mail job backs up and archives unless the person picks less.
+    expect(body).toMatchObject({ archive: true });
     // The editor closes and the address drops the editor.
     expect(slot("job-editor")).toBeNull();
     expect(opened?.where().search).toEqual({ type: "mail" });
   });
 
-  it("archives the mailboxes on request, warns without Object Lock and says that capture needs Business", async () => {
+  it("asks first what the job should do, backs up and archives by default and names how mail is captured", async () => {
     let body: unknown = null;
     await open("/jobs?type=mail&new=1", {
       ...MAIL_ROUTES,
@@ -194,16 +195,97 @@ describe("saving a new mail job", () => {
         return json(mailJob({ id: "new", name: "Archived" }), 201);
       },
     });
-    expect(slot("archive-object-lock")).toBeNull();
-    await typeInto(field("Name"), "Archived");
-    await click(field("Archive this job's mailboxes"));
+    // The question is the editor's first section.
+    const sections = [...editor().querySelectorAll('[data-slot="editor-section"]')];
+    expect(sections[0]?.textContent).toContain("What should this job do?");
+    expect(field("Back up and archive").getAttribute("aria-checked")).toBe("true");
+    expect(textOf(sections[0] ?? null)).toContain("before users can change or delete it");
+    // How mail reaches the archive, with the way to set it up.
+    expect(slot("archive-capture")?.textContent).toContain("Exchange journaling");
+    expect(slot("archive-capture-setup")?.getAttribute("href")).toBe("/archive");
     // The fixture's repository is an S3 bucket without Object Lock.
     expect(slot("archive-object-lock")?.textContent).toContain("no Object Lock");
     // No extension in this build: the core's own note.
     expect(slot("archive-edition")?.textContent).toContain("Business edition");
+    // Every 8 hours already: nothing to suggest.
+    expect(slot("archive-frequency")).toBeNull();
+    await typeInto(field("Name"), "Archived");
     await click(buttonByText(editor(), "Create job"));
     await flush(5);
-    expect(body).toMatchObject({ kind: "mail", name: "Archived", archive: true });
+    expect(body).toMatchObject({
+      kind: "mail",
+      name: "Archived",
+      archive: true,
+      schedule: { kind: "interval", intervalMinutes: 480 },
+    });
+  });
+
+  it("backs up only on request, and then says what falls between two runs", async () => {
+    let body: unknown = null;
+    await open("/jobs?type=mail&new=1", {
+      ...MAIL_ROUTES,
+      "POST /backup-jobs": (request) => {
+        body = request.body;
+        return json(mailJob({ id: "new", name: "Backup" }), 201);
+      },
+    });
+    await click(field("Back up"));
+    expect(slot("archive-capture")).toBeNull();
+    expect(slot("backup-only")?.textContent).toContain("in no backup");
+    expect(slot("backup-gap")?.textContent).toContain("8 hours between two backups");
+    await typeInto(field("Name"), "Backup");
+    await click(buttonByText(editor(), "Create job"));
+    await flush(5);
+    expect(body).toMatchObject({ kind: "mail", name: "Backup" });
+    expect(body).not.toHaveProperty("archive");
+  });
+
+  it("archives alone without backups on a schedule", async () => {
+    let body: unknown = null;
+    await open("/jobs?type=mail&new=1", {
+      ...MAIL_ROUTES,
+      "POST /backup-jobs": (request) => {
+        body = request.body;
+        return json(mailJob({ id: "new", name: "Archive" }), 201);
+      },
+    });
+    await click(field("Archive"));
+    expect(slot("schedule-archive-only")?.textContent).toContain("no backups on a schedule");
+    expect(slot("schedule-off")).toBeNull();
+    await typeInto(field("Name"), "Archive");
+    await click(buttonByText(editor(), "Create job"));
+    await flush(5);
+    expect(body).toMatchObject({ kind: "mail", name: "Archive", archive: true, schedule: null });
+  });
+
+  it("suggests backing up every 8 hours while the job archives, and changes the schedule only on a click", async () => {
+    let body: unknown = null;
+    await open("/jobs?type=mail&new=1", {
+      ...MAIL_ROUTES,
+      "GET /backup-jobs/defaults": () =>
+        json(
+          defaults("mail", {
+            schedule: { kind: "interval", intervalMinutes: 60, timeZone: "Europe/Berlin" },
+          }),
+        ),
+      "POST /backup-jobs": (request) => {
+        body = request.body;
+        return json(mailJob({ id: "new", name: "Hourly" }), 201);
+      },
+    });
+    expect(slot("archive-frequency")?.textContent).toContain("Backups can run less often");
+    expect(slot("archive-frequency")?.textContent).toContain("calendar, contacts");
+    // Backing up only: no suggestion, the gap instead.
+    await click(field("Back up"));
+    expect(slot("archive-frequency")).toBeNull();
+    expect(slot("backup-gap")?.textContent).toContain("one hour between two backups");
+    await click(field("Back up and archive"));
+    await click(buttonByText(slot("archive-frequency") as HTMLElement, "Back up every 8 hours"));
+    expect(slot("archive-frequency")).toBeNull();
+    await typeInto(field("Name"), "Hourly");
+    await click(buttonByText(editor(), "Create job"));
+    await flush(5);
+    expect(body).toMatchObject({ schedule: { kind: "interval", intervalMinutes: 480 } });
   });
 
   it("covers everything by default when no other job does, and offers that choice only then", async () => {
