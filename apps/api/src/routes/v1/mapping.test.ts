@@ -296,6 +296,7 @@ describe("verification report", () => {
     shares: [],
     storage: { state: "ok", latest: null, lastFullAt: null, running: null, lastFailure: null },
     schedules: { backup: null, verify: null, scrub: null },
+    pveChecks: null,
   };
 
   it("pages the objects by id while the summary covers the whole tenant", () => {

@@ -197,11 +197,13 @@ export type PveBootTestResult = {
   runId: string;
 };
 
-/** When a PVE job runs: a daily time in a zone, or every N minutes. */
+/** When a PVE job runs: a daily time in a zone, every N minutes, or a cron expression. */
 export type PveJobSchedule = {
-  kind: "daily" | "interval";
+  kind: "daily" | "interval" | "cron";
   timeOfDay?: string;
   intervalMinutes?: number;
+  /** A five-field cron expression in `timeZone` (kind `cron`: weekdays, monthly, custom). */
+  cron?: string;
   timeZone: string;
 };
 
@@ -320,6 +322,12 @@ export const pveGuests = pgTable(
     lastRestoreTestAt: timestamp("last_restore_test_at", { withTimezone: true }),
     // When the last boot test of the guest was planned or asked for (docs/PVE.md, "Boot test").
     lastBootTestAt: timestamp("last_boot_test_at", { withTimezone: true }),
+    // The guest is the VM this Restow installation runs in (docs/PVE.md, "The Restow server's own
+    // VM"): found by its SMBIOS UUID at the inventory, or set by an admin. Backing it up needs a
+    // confirmation (`selfBackupConfirmedAt`); without one it is never backed up.
+    restowServerDetected: boolean("restow_server_detected").notNull().default(false),
+    restowServerFlagged: boolean("restow_server_flagged").notNull().default(false),
+    selfBackupConfirmedAt: timestamp("self_backup_confirmed_at", { withTimezone: true }),
     reportedAt: timestamp("reported_at", { withTimezone: true }),
     ...timestamps(),
   },
@@ -391,6 +399,11 @@ export type PveRunStats = {
   /** The first of those items (nodes from 0.4 on). */
   unreadablePaths?: string[];
   consistency?: string | null;
+  /**
+   * The warning lines vzdump logged beside a backup that committed its restore point ("TASK
+   * WARNINGS"): the run succeeded with warnings.
+   */
+  warnings?: string[];
   [key: string]: unknown;
 };
 
@@ -507,6 +520,15 @@ export type PveVerifyResult = {
 };
 
 /**
+ * The installation's settings of Proxmox VE backups (`settings.pve_settings`); a missing field
+ * takes its default.
+ */
+export type PveInstallationSettings = {
+  /** Check every new restore point right after its backup (default true). */
+  verifyAfterBackup?: boolean;
+};
+
+/**
  * A restore point ("Sicherungsstand") of a guest. VM: one block map per
  * disk; container: the restic snapshot in the guest's repository. Every
  * restore point is complete on its own; retention can remove any of them.
@@ -549,6 +571,9 @@ export const pveSnapshots = pgTable(
     verify: jsonb("verify").$type<PveVerifyResult>(),
     // The newest boot test of this restore point (null: none ran).
     bootTest: jsonb("boot_test").$type<PveBootTestResult>(),
+    // A restore check of this restore point is due (an admin asked, or it was just committed and
+    // the installation checks every new restore point); the worker's PVE pass takes these first.
+    verifyRequestedAt: timestamp("verify_requested_at", { withTimezone: true }),
     prunedAt: timestamp("pruned_at", { withTimezone: true }),
     unavailableAt: timestamp("unavailable_at", { withTimezone: true }),
     ...timestamps(),
@@ -557,6 +582,10 @@ export const pveSnapshots = pgTable(
     uniqueIndex("pve_snapshots_guest_sequence_uq").on(t.guestId, t.sequence),
     uniqueIndex("pve_snapshots_cluster_archive_uq").on(t.clusterId, t.archiveName),
     index("pve_snapshots_guest_status_idx").on(t.guestId, t.status, t.backupAt),
+    // The restore checks that wait (the worker reads them oldest first).
+    index("pve_snapshots_verify_requested_idx")
+      .on(t.verifyRequestedAt)
+      .where(sql`${t.verifyRequestedAt} IS NOT NULL`),
   ],
 );
 

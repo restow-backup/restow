@@ -12,6 +12,7 @@ import {
   BackupProgress,
   helperOlderThan,
   progressLine,
+  progressParts,
   progressPercent,
 } from "./backup-progress";
 import { PVE_NAMESPACE } from "./i18n";
@@ -153,5 +154,31 @@ describe("activityHint", () => {
       ),
     ).toContain("Started on");
     expect(activityHint(t, "en", { activity: null, node: null }, node)).toBeUndefined();
+  });
+});
+
+describe("the figures under the bar (table jitter, F)", () => {
+  it("keeps percent and rate in slots of a fixed width, the amount cut, the whole line as tooltip", () => {
+    const html = renderToStaticMarkup(
+      <I18nextProvider i18n={i18n}>
+        <BackupProgress progress={progress()} name="web" />
+      </I18nextProvider>,
+    );
+    expect(html).toContain('title="34% · 3.2 GB of 9.4 GB · 85 MB/s"');
+    expect(html).toContain("w-[4.5ch]");
+    expect(html).toContain("w-[10ch]");
+    expect(html).toContain("truncate");
+    expect(html).toContain("tabular-nums");
+  });
+
+  it("splits the line into its parts, or a message while nothing came in", () => {
+    const t = i18n.getFixedT("en", PVE_NAMESPACE) as unknown as TFunction;
+    expect(progressParts(t, "en", progress())).toEqual({
+      percent: "34%",
+      amount: "3.2 GB of 9.4 GB",
+      rate: "85 MB/s",
+      message: null,
+    });
+    expect(progressParts(t, "en", null)).toMatchObject({ message: "No progress reported yet" });
   });
 });

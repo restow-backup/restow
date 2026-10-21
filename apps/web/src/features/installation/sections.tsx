@@ -1,6 +1,7 @@
 import {
   AppWindow,
   CalendarClock,
+  Container,
   Database,
   Download,
   HardDrive,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { GlobalAgentPolicySection } from "@/features/endpoints/components/global-agent-policy-section";
+import { PveSettingsSection } from "@/features/pve/settings-section";
 import { AboutSection } from "@/features/settings/sections/about-section";
 import { RansomwareSection } from "@/features/suspicion/components/ransomware-section";
 import { UpdatesSection } from "@/features/updates/updates-section";
@@ -32,7 +34,7 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  *
  *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
  *   40 Journal receiving (Business)    50 Default repository & network shares
- *   55 Database      57 Ransomware detection   58 Agent policy
+ *   55 Database      57 Ransomware detection   58 Agent policy   59 Proxmox VE
  *   60 Provider API (Service Provider) 70 Updates
  *   80 License (extension) or Edition  90 About
  *
@@ -106,6 +108,15 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     icon: CalendarClock,
     order: 58,
     component: GlobalAgentPolicySection,
+  },
+  {
+    // Proxmox VE backups (docs/PVE.md, "Restore check"): checks right after every backup.
+    id: "proxmox",
+    labelKey: "installation:sections.proxmox",
+    descriptionKey: "installation:descriptions.proxmox",
+    icon: Container,
+    order: 59,
+    component: PveSettingsSection,
   },
   {
     id: "updates",

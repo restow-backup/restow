@@ -48,6 +48,7 @@ import {
   fetchGuest,
   guestRefreshMs,
   type PveFollowUpAverage,
+  type PveGuest,
   type PveGuestDetail,
   type PveRepositoryChain,
   type PveRestorePoint,
@@ -56,12 +57,14 @@ import {
   requestBootTest,
   resetRepository,
   restoreSnapshot,
+  setRestowServer,
   verifySnapshot,
 } from "./api.js";
 import { BackupProgress } from "./backup-progress.js";
 import { BootTestBadge, BootTestFacts, bootTestVariant } from "./boot-test.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { pveTo } from "./paths.js";
+import { RestowServerNote, useSelfBackupGuard } from "./self-backup.js";
 
 /** File restore with this container chosen, as `<Link>` takes it. */
 function fileRestoreLink(guestId: string) {
@@ -186,13 +189,26 @@ function runStatusKey(run: Pick<PveRun, "kind" | "status" | "stats">): string {
 function VerifyBadge({ point }: { point: PveRestorePoint }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   if (!point.verify) {
-    return <Badge variant="muted">{t("guest.verifyPending")}</Badge>;
+    return (
+      <Badge variant="muted">
+        {point.verifyRequested ? t("guest.verifyQueuedBadge") : t("guest.verifyPending")}
+      </Badge>
+    );
   }
   if (point.verify.errors.length > 0 || point.verify.mismatched > 0) {
+    // The real error under the badge (cut to two lines; all of it in the tooltip), not only red.
+    const errors = point.verify.errors.join("\n");
     return (
-      <Badge variant="destructive" title={point.verify.errors.join("\n")}>
-        {t("guest.verifyFailed")}
-      </Badge>
+      <div className="max-w-80 space-y-1" data-slot="pve-point-verify-failed">
+        <Badge variant="destructive" title={errors || undefined}>
+          {t("guest.verifyFailed")}
+        </Badge>
+        {point.verify.errors[0] ? (
+          <p className="line-clamp-2 text-xs break-words text-destructive-text" title={errors}>
+            {point.verify.errors[0]}
+          </p>
+        ) : null}
+      </div>
     );
   }
   return <Badge variant="success">{t("guest.verifyOk", { blocks: point.verify.blocks })}</Badge>;
@@ -241,6 +257,15 @@ const SHOWN_UNREADABLE = 3;
 function RunStatus({ run, name }: { run: PveRun; name: string }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const unreadable = run.stats?.resticUnreadable ?? 0;
+  const warnings = run.warnings ?? [];
+  if (run.status === "succeeded" && run.kind === "backup" && warnings.length > 0) {
+    // Committed, and vzdump warned about something beside it: neither failed nor proof.
+    return (
+      <Badge variant="warning" title={warnings.join("\n")} data-slot="pve-run-warnings">
+        {t("guests.succeededWithWarnings")}
+      </Badge>
+    );
+  }
   if (run.status === "succeeded" && unreadable > 0) {
     return (
       <Badge variant="warning" data-slot="pve-run-gaps">
@@ -266,6 +291,9 @@ function RunNote({ run }: { run: PveRun }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   if (run.error) {
     return <span title={run.error}>{run.error}</span>;
+  }
+  if (run.warnings && run.warnings.length > 0) {
+    return <span title={run.warnings.join("\n")}>{run.warnings[0]}</span>;
   }
   const paths = run.stats?.unreadablePaths ?? [];
   if (paths.length > 0) {
@@ -344,19 +372,21 @@ export function RepositoryChainNotice({ chain }: { chain: PveRepositoryChain }) 
 
 /** "Back up now" with where the backup lands (and a warning when that is the server's disk). */
 function BackupNowDialog({
-  guestId,
+  guest,
   name,
   onClose,
 }: {
-  guestId: string;
+  guest: PveGuest;
   name: string;
   onClose: () => void;
 }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const queryClient = useQueryClient();
   const { tenantId } = useTenantScope();
+  // The Restow server's own VM asks first (self-backup.tsx); the request then carries the confirmation.
+  const selfBackup = useSelfBackupGuard();
   const mutation = useMutation({
-    mutationFn: () => backupNow(guestId),
+    mutationFn: (confirmSelfBackup: boolean) => backupNow(guest.id, false, { confirmSelfBackup }),
     onSuccess: (result) => {
       toast.success(t(result.alreadyQueued ? "guests.backupAlreadyQueued" : "guests.backupQueued"));
       void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
@@ -372,14 +402,22 @@ function BackupNowDialog({
         </DialogHeader>
         <BackupDestinationNote />
         <ServerDiskWarning />
+        <RestowServerNote guest={guest} compact />
         {mutation.isError ? (
           <p className="text-sm text-destructive-text">{(mutation.error as Error).message}</p>
         ) : null}
         <DialogFooter>
-          <Button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Button
+            type="button"
+            onClick={() =>
+              selfBackup.guard([guest], (confirmSelfBackup) => mutation.mutate(confirmSelfBackup))
+            }
+            disabled={mutation.isPending}
+          >
             {t("guest.backupConfirm.submit")}
           </Button>
         </DialogFooter>
+        {selfBackup.dialog}
       </DialogContent>
     </Dialog>
   );
@@ -483,6 +521,41 @@ export function historyRows(
   ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 }
 
+/**
+ * The Restow server's own VM (docs/PVE.md): the warning when Restow found it or an admin marked
+ * it, and the mark itself, for what the SMBIOS UUID cannot find (Restow in a container).
+ */
+function RestowServerSection({ guest }: { guest: PveGuest }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  const flag = useMutation({
+    mutationFn: (flagged: boolean) => setRestowServer(guest.id, flagged),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) }),
+    onError: (error) => toast.error((error as Error).message),
+  });
+  return (
+    <div className="space-y-2" data-slot="pve-guest-restow-server">
+      <RestowServerNote guest={guest} />
+      {guest.restowServer === "detected" ? null : (
+        <label className="flex max-w-prose items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={guest.restowServerFlagged ?? false}
+            disabled={flag.isPending}
+            onChange={(e) => flag.mutate(e.target.checked)}
+          />
+          <span>
+            {t("selfBackup.flag")}
+            <span className="block text-xs text-muted-foreground">{t("selfBackup.flagHint")}</span>
+          </span>
+        </label>
+      )}
+    </div>
+  );
+}
+
 export function PveGuestPage({ guestId }: { guestId: string }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
   const language = i18n.resolvedLanguage ?? i18n.language;
@@ -576,6 +649,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
       </PageHeader>
       {data && canManage ? <BackupDestinationNote /> : null}
       {chains[0] ? <RepositoryChainNotice chain={chains[0]} /> : null}
+      {data ? <RestowServerSection guest={data.guest} /> : null}
       <ObjectSuspicionBadge target={suspicionTarget} />
       <RetentionHoldNotice target={suspicionTarget} objectName={title} />
       <LastCleanHint
@@ -789,11 +863,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         <RestoreDialog point={restoring} detail={data} onClose={() => setRestoring(null)} />
       ) : null}
       {backingUp && data ? (
-        <BackupNowDialog
-          guestId={data.guest.id}
-          name={guestName}
-          onClose={() => setBackingUp(false)}
-        />
+        <BackupNowDialog guest={data.guest} name={guestName} onClose={() => setBackingUp(false)} />
       ) : null}
       {resetting && data ? (
         <ResetRepositoryDialog

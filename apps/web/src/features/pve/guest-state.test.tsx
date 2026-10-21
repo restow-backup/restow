@@ -82,4 +82,34 @@ describe("GuestState", () => {
       "disconnected",
     );
   });
+
+  it("shows a backup vzdump warned about as succeeded with warnings, not failed (C5)", () => {
+    const html = render(
+      guest({
+        lastRunStatus: "succeeded",
+        lastRunWarnings: ["WARN: unable to set notes"],
+      }),
+    );
+    expect(html).toContain("Succeeded with warnings");
+    expect(html).toContain('data-variant="warning"');
+    expect(html).toContain("WARN: unable to set notes");
+    expect(html).not.toContain("Last run failed");
+    expect(html).not.toContain('data-variant="success"');
+  });
+
+  it("shows what a red restore check really found (B2)", () => {
+    const error = "Fatal: repository does not exist: unable to open config file";
+    const html = render(
+      guest({ lastVerify: { state: "red", checkedAt: null, errors: [error], requested: false } }),
+    );
+    expect(html).toContain("Restore check failed");
+    expect(html).toContain('data-slot="pve-guest-verify-error"');
+    expect(html).toContain(error);
+  });
+
+  it("marks the VM the server runs in (C7)", () => {
+    const html = render(guest({ restowServer: "detected" }));
+    expect(html).toContain('data-slot="pve-guest-restow-server"');
+    expect(html).toContain("SMBIOS UUID");
+  });
 });

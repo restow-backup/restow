@@ -108,8 +108,8 @@ except enrollment. Binary formats are defined in
 | `POST /enroll/preflight` | `{token}` → `{expiresAt, pveTokenId, pveTokenSecret}`: the installer's check before it changes anything. 401 when the token is unknown, used, revoked or expired. `pveTokenId`/`pveTokenSecret` are the existing PVE API token an admin gave for this enrollment, else `null`. Does not use the token up. |
 | `POST /enroll` | `{token, clusterName, clusterFingerprint, nodeName, pveVersion, helperVersion, fleecingStorage}` → `{nodeId, nodeSecret, clusterId, storageId, createdCluster}` |
 | `POST /heartbeat` | node facts → `{tasks, storageId, usage, update}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts the answer holds no backup task. Nodes with boot tests also send `capabilities` (below). |
-| `POST /inventory` | `{guests: [...]}` of this node |
-| `POST /tasks/:id/result` | `{status: done\|failed, error, result}` |
+| `POST /inventory` | `{guests: [...]}` of this node; since 0.4.2 a VM carries `smbiosUuid` (the `uuid` of its `smbios1`), which finds the Restow server's own VM (PVE.md) |
+| `POST /tasks/:id/result` | `{status: done\|failed, error, result}`; see "Task results" |
 | `GET /listing` | restore points of the cluster for the plugin |
 | `GET /update` | `{version}` of a newer signed release or `""` |
 | `POST /runs` | open a backup run → `{runId, guestId, origin, progressIntervalSeconds}` (the last since 0.4.0) |
@@ -198,6 +198,31 @@ its node (from the last 15 minutes) no longer lists it in `activeRuns` and the r
 older than that heartbeat by ten minutes: succeeded when its restore point was
 committed, else failed. A node before 0.4.0 sends no list; its runs close after 48
 hours as before.
+
+### Task results
+
+A backup task's result carries `result.upid` and, since 0.4.2, `result.exitStatus`
+(vzdump's) and `result.warnings`. vzdump ending with `WARNINGS: n` finished the
+backup and warned about something beside it: the node reports the task `done` with
+the warning lines of the task log (at most ten). The server decides by the run:
+committed, it succeeded and keeps the warnings (`stats.warnings`, "Succeeded with
+warnings"); without a restore point it failed. A node before 0.4.2 reported such a
+task `failed` with `vzdump ended with "WARNINGS: ..."`; the server takes that the
+same way.
+
+Results are idempotent and may come late. The server answers 204 for every task of
+the node, also one closed meanwhile (the run's `finish` closes its task, the worker
+closes a run its node no longer lists, a task expires), and settles what the late
+result can still say: an open run ends as the task says; a committed run that was
+closed as failed succeeds when the task is reported `done` (the old message becomes
+a warning); warnings are added once. A committed restore point is never failed by
+a task: a task that fails or expires leaves its committed runs succeeded, and a task
+whose run is still open does not expire. 404 only for a task the node never had.
+
+The node (since 0.4.2) keeps a result the server could not take (unreachable, 5xx)
+in `/var/lib/restow-pve/pending-results.json` (at most 100) and sends the kept ones
+again before every heartbeat, oldest first; a refusal (4xx) ends the attempts. A
+task the server delivers again while its result is kept is not run a second time.
 
 ### Progress and compatibility
 

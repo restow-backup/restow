@@ -272,8 +272,20 @@ sub get_volume_attribute {
     return undef;
 }
 
+# vzdump sets the notes of a new backup when a job has a notes template (the
+# default of a backup job made in the PVE UI). The Restow storage keeps no
+# notes: a restore point is named and described in Restow. Dying here made
+# vzdump end every such backup with "TASK WARNINGS: 1", so a notes update is
+# taken as a no-op and says so in the task log. Protection stays refused: a
+# restore point is protected (held) in Restow, and an admin who asks PVE for it
+# must not believe it worked.
 sub update_volume_attribute {
-    die "restow: notes and protection of restore points are managed in Restow\n";
+    my ($class, $scfg, $storeid, $volname, $attribute, $value) = @_;
+    if (defined($attribute) && $attribute eq 'notes') {
+        print "restow: notes of restore points are kept in Restow; the notes are not stored\n";
+        return;
+    }
+    die "restow: protection of restore points is managed in Restow\n";
 }
 
 sub alloc_image {

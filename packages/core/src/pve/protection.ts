@@ -48,6 +48,30 @@ export function pveGuestBackable(guest: Pick<PveGuestMembership, "kind" | "templ
   return guest.present && !(guest.kind === "vm" && guest.template);
 }
 
+/**
+ * Whether a guest is the VM this Restow installation runs in (docs/PVE.md, "The Restow server's
+ * own VM"): found at the inventory by its SMBIOS UUID, or flagged by an admin.
+ */
+export function pveGuestIsRestowServer(guest: {
+  restowServerDetected?: boolean | null;
+  restowServerFlagged?: boolean | null;
+}): boolean {
+  return guest.restowServerDetected === true || guest.restowServerFlagged === true;
+}
+
+/**
+ * Whether the Restow server's own VM waits for a confirmation before it is backed up: a job
+ * plans no backup of it, and "Back up now" and putting it into a job are refused until an admin
+ * confirmed the self-backup risk.
+ */
+export function pveSelfBackupBlocked(guest: {
+  restowServerDetected?: boolean | null;
+  restowServerFlagged?: boolean | null;
+  selfBackupConfirmedAt?: Date | string | null;
+}): boolean {
+  return pveGuestIsRestowServer(guest) && !guest.selfBackupConfirmedAt;
+}
+
 /** The result of the weekly read-back of a restore point (`pve_snapshots.verify`). */
 export interface PveVerifyFact {
   readonly checkedAt: string;
@@ -85,6 +109,7 @@ export function pveStaleBackupHours(
             kind: schedule.kind,
             timeZone: schedule.timeZone,
             timeOfDay: schedule.timeOfDay,
+            cron: schedule.kind === "cron" ? schedule.cron : undefined,
             // pveNextRunAt plans an interval without minutes as a day.
             intervalMinutes:
               schedule.kind === "interval" ? (schedule.intervalMinutes ?? 24 * 60) : undefined,

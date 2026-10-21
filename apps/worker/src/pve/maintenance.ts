@@ -9,9 +9,12 @@ import { createHash } from "node:crypto";
  *              references are released (garbage collection takes the chunks later),
  *              their manifest deleted, a container's restic snapshot forgotten; nothing
  *              of a guest held on suspicion (suspicion/holds.ts)
- *   verify     weekly, the newest restore point of every guest: a sample of its data
- *              blocks is read back from storage and compared with the SHA-256 in its
- *              map (containers: restic check of a 5 % subset)
+ *   verify     the restore points a check was asked for, oldest request first: every new
+ *              one right after its backup (an installation setting, on by default) and
+ *              the one an admin asked for (also an older one); and weekly the newest
+ *              restore point of every guest. A sample of its data blocks is read back from
+ *              storage and compared with the SHA-256 in its map (containers: restic check
+ *              of a 5 % subset). A bounded number per pass.
  *   test       monthly restore check where a job asks for one: restore into the
  *              restore pool, check, delete (needs capacity, off by default)
  *   boot       boot tests where a job asks for them (weekly, or after every backup): the
@@ -44,6 +47,7 @@ import {
   pveGuestBackable,
   pveNextRunAt,
   pveNodeDeclares,
+  pveSelfBackupBlocked,
   resticBinary,
   resticCacheBase,
   resticCheck,
@@ -74,7 +78,7 @@ import {
   tenants,
   withEndpointRepositoryLock,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
 import {
   PgChunkIndex,
@@ -137,6 +141,10 @@ const VERIFY_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
 const RESTORE_TEST_EVERY_MS = 30 * 24 * 60 * 60 * 1000;
 const TASK_TTL_MS = 12 * 60 * 60 * 1000;
 const VERIFY_SAMPLE = 8;
+/** Asked-for restore checks per pass (after a backup round they drain over a few passes). */
+export const VERIFY_REQUESTED_PER_PASS = 20;
+/** Weekly checks per pass, so the asked-for ones never starve them. */
+export const VERIFY_PERIODIC_PER_PASS = 10;
 /** Without a job's own rules: 7 daily, 4 weekly, 6 monthly. */
 export const DEFAULT_PVE_RETENTION = { keepDaily: 7, keepWeekly: 4, keepMonthly: 6 };
 const LOCK_KEY = 0x70766530; // "pve0"
@@ -198,6 +206,10 @@ export async function planJobs(deps: PveDeps, now: Date): Promise<number> {
       const nodes = await tx.select().from(pveNodes).where(isNull(pveNodes.revokedAt));
       let n = 0;
       for (const guest of coveredBy(job, guests)) {
+        // The Restow server's own VM is backed up only once an admin confirmed it (docs/PVE.md).
+        if (pveSelfBackupBlocked(guest)) {
+          continue;
+        }
         const node = nodes.find((x) => x.clusterId === guest.clusterId && x.name === guest.node);
         if (!node) {
           continue;
@@ -629,7 +641,70 @@ export async function verifySnapshot(
   return result;
 }
 
+/** Check one restore point and keep the result; false when its repository is being read. */
+async function verifyOne(deps: PveDeps, snap: PveSnapshot, now: Date): Promise<boolean> {
+  let verify: Awaited<ReturnType<typeof verifySnapshot>>;
+  try {
+    verify = await verifySnapshot(deps, snap);
+  } catch (error) {
+    if (error instanceof EndpointRepositoryBusyError) {
+      deps.runtime.logger.info("pve verify: the container repository is being read, later", {
+        guestId: snap.guestId,
+      });
+      return false;
+    }
+    throw error;
+  }
+  await withTenantTx(deps.db, snap.tenantId, async (tx) => {
+    await tx
+      .update(pveSnapshots)
+      .set({ verify, verifyRequestedAt: null })
+      .where(eq(pveSnapshots.id, snap.id));
+    // The weekly clock of the guest counts from a check of its newest restore point.
+    await tx
+      .update(pveGuests)
+      .set({ lastVerifyAt: now })
+      .where(and(eq(pveGuests.id, snap.guestId), eq(pveGuests.lastSnapshotId, snap.id)));
+  });
+  if (verify.errors.length > 0) {
+    deps.runtime.logger.warn("pve verify found problems", {
+      snapshotId: snap.id,
+      errors: verify.errors.slice(0, 5),
+    });
+  }
+  return true;
+}
+
+/**
+ * The restore checks of one pass: first the restore points a check was asked for (exactly those,
+ * oldest request first: after a backup, or an admin's "Check now" of any restore point), then
+ * the weekly check of each guest's newest restore point. Both bounded per pass.
+ */
 export async function verifyDue(deps: PveDeps, now: Date): Promise<number> {
+  let n = 0;
+  const requested = await deps.providerDb
+    .select()
+    .from(pveSnapshots)
+    .where(isNotNull(pveSnapshots.verifyRequestedAt))
+    .orderBy(asc(pveSnapshots.verifyRequestedAt))
+    .limit(VERIFY_REQUESTED_PER_PASS);
+  const checked = new Set<string>();
+  for (const snap of requested) {
+    if (snap.status !== "active") {
+      // Pruned before its check came: nothing left to read.
+      await withTenantTx(deps.db, snap.tenantId, (tx) =>
+        tx
+          .update(pveSnapshots)
+          .set({ verifyRequestedAt: null })
+          .where(eq(pveSnapshots.id, snap.id)),
+      );
+      continue;
+    }
+    if (await verifyOne(deps, snap, now)) {
+      checked.add(snap.guestId);
+      n++;
+    }
+  }
   const due = await deps.providerDb
     .select()
     .from(pveGuests)
@@ -642,9 +717,12 @@ export async function verifyDue(deps: PveDeps, now: Date): Promise<number> {
         ),
       ),
     )
-    .limit(20);
-  let n = 0;
+    .orderBy(sql`${pveGuests.lastVerifyAt} ASC NULLS FIRST`)
+    .limit(VERIFY_PERIODIC_PER_PASS);
   for (const guest of due) {
+    if (checked.has(guest.id)) {
+      continue;
+    }
     const [snap] = await withTenantTx(deps.db, guest.tenantId, (tx) =>
       tx
         .select()
@@ -656,29 +734,13 @@ export async function verifyDue(deps: PveDeps, now: Date): Promise<number> {
     if (!snap) {
       continue;
     }
-    let verify: Awaited<ReturnType<typeof verifySnapshot>>;
-    try {
-      verify = await verifySnapshot(deps, snap);
-    } catch (error) {
-      if (error instanceof EndpointRepositoryBusyError) {
-        deps.runtime.logger.info("pve verify: the container repository is being read, later", {
-          guestId: guest.id,
-        });
-        continue;
-      }
-      throw error;
+    if (await verifyOne(deps, snap, now)) {
+      // Also when the guest's newest restore point is not `lastSnapshotId` (pruned meanwhile).
+      await withTenantTx(deps.db, guest.tenantId, (tx) =>
+        tx.update(pveGuests).set({ lastVerifyAt: now }).where(eq(pveGuests.id, guest.id)),
+      );
+      n++;
     }
-    await withTenantTx(deps.db, guest.tenantId, async (tx) => {
-      await tx.update(pveSnapshots).set({ verify }).where(eq(pveSnapshots.id, snap.id));
-      await tx.update(pveGuests).set({ lastVerifyAt: now }).where(eq(pveGuests.id, guest.id));
-    });
-    if (verify.errors.length > 0) {
-      deps.runtime.logger.warn("pve verify found problems", {
-        snapshotId: snap.id,
-        errors: verify.errors.slice(0, 5),
-      });
-    }
-    n++;
   }
   return n;
 }

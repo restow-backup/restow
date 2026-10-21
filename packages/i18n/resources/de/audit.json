@@ -328,6 +328,9 @@
       },
       "agent_policy": {
         "updated": "Richtlinie der Agenten für die Installation geändert"
+      },
+      "pve": {
+        "updated": "Einstellungen für Proxmox VE der Installation geändert"
       }
     },
     "setup": {
@@ -586,6 +589,10 @@
       "repository": {
         "reinitialized": "Repository des Containers fehlte auf dem primären Repository: neue Sicherungskette begonnen",
         "reset": "Repository des Containers zurückgesetzt: neue Sicherungskette mit der nächsten Sicherung"
+      },
+      "guest": {
+        "restow_server": "Gast als {appName}-Server markiert oder Markierung aufgehoben",
+        "self_backup_confirmed": "Sicherung des {appName}-Servers mit {appName} bestätigt"
       }
     },
     "file_share": {

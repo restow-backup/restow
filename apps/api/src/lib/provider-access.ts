@@ -236,6 +236,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // admin, changing them decides what every tenant is alerted about, so it is the owner's.
   "GET /api/v1/settings/ransomware": view(PROVIDER),
   "PUT /api/v1/settings/ransomware": own(),
+  // Proxmox VE (docs/PVE.md, "Restore check"): whether every new restore point is checked right
+  // after its backup. It reaches every tenant's guests and the worker's load: the owner's.
+  "GET /api/v1/settings/pve": view(PROVIDER),
+  "PUT /api/v1/settings/pve": own(),
   // The installation's agent policy (docs/AGENT.md, "Richtlinien"): it reaches every tenant's
   // machines, so changing it needs an administrator with every tenant.
   "GET /api/v1/settings/agent-policy": view(PROVIDER),
@@ -502,6 +506,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PUT /api/v1/pve/guests/:id/job": configure(),
   // Begins a new backup chain; the restore points before become unavailable (recent sign-in).
   "POST /api/v1/pve/guests/:id/repository/reset": configure(),
+  "PUT /api/v1/pve/guests/:id/restow-server": configure(),
+  "POST /api/v1/pve/guests/:id/verify": operate(),
+  "POST /api/v1/pve/verify-unverified": operate(),
   "POST /api/v1/pve/guests/:id/backup": operate(),
   "POST /api/v1/pve/snapshots/:id/verify": operate(),
   "POST /api/v1/pve/snapshots/:id/restore": operate(),

@@ -6,6 +6,7 @@ import { ErrorState, PageHeader, RefreshButton, RelativeTime } from "@/component
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
+import { GuestChecksCallout, PveChecksFooter } from "@/features/pve/readiness-checks";
 import type { ObjectReadiness, RunVerifyResult } from "@/features/verify/api";
 import { AllTenantsReadiness } from "@/features/verify/components/all-tenants";
 import { ObjectsTable } from "@/features/verify/components/objects-table";
@@ -149,6 +150,7 @@ function TenantReadiness({
 
   const data = overview.data;
   const checkingAll = starting?.scope === "all";
+  const scheduleScope = data?.pveChecks ? "Mail" : "";
 
   return (
     <div className="space-y-6">
@@ -190,6 +192,8 @@ function TenantReadiness({
             disabled={start.isPending}
             onVerify={verifyUnverified}
           />
+          {/* VMs and containers are checked by the worker's PVE pass, not by the run above. */}
+          <GuestChecksCallout guests={data.guests ?? []} />
           {data.summary.total > 0 ? <SummaryTiles summary={data.summary} format={format} /> : null}
           <StorageCard storage={data.storage} schedule={data.schedules.scrub} format={format} />
           <ObjectsTable
@@ -212,19 +216,22 @@ function TenantReadiness({
             ) : (
               t("footer.neverChecked")
             )}{" "}
+            {/* With VMs and containers the schedule is named for what it checks (Microsoft 365);
+                the guests' own line follows. */}
             {data.schedules.verify ? (
               data.schedules.verify.nextRunAt ? (
                 <>
-                  {t("footer.scheduleNext")}{" "}
+                  {t(`footer.scheduleNext${scheduleScope}`)}{" "}
                   <RelativeTime value={data.schedules.verify.nextRunAt} />.
                 </>
               ) : (
-                t("footer.scheduleEnabled")
+                t(`footer.scheduleEnabled${scheduleScope}`)
               )
             ) : (
-              t("footer.scheduleNone")
+              t(`footer.scheduleNone${scheduleScope}`)
             )}
           </p>
+          <PveChecksFooter checks={data.pveChecks} />
         </div>
       )}
     </div>

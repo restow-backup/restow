@@ -520,8 +520,13 @@ export async function applyRecommendedJobs(
         );
         jobId = job.id;
       }
+      let added = 0;
       for (const guestId of targetIds) {
-        await assignJob(tx, tenantId, guestId, jobId, actor);
+        // The Restow server's own VM stays out unless an admin confirmed it (docs/PVE.md).
+        const { assigned } = await assignJob(tx, tenantId, guestId, jobId, actor, {
+          skipRestowServer: true,
+        });
+        added += assigned ? 1 : 0;
       }
       items.push({
         kind: "pve",
@@ -529,7 +534,7 @@ export async function applyRecommendedJobs(
         jobId,
         name: item.name,
         created: item.jobId === null,
-        added: targetIds.length,
+        added,
       });
     }
     if (items.length > 0) {

@@ -38,6 +38,7 @@ import {
   jobSchema,
   resetRepositorySchema,
   restoreSchema,
+  restowServerSchema,
 } from "./schemas.js";
 import {
   assignJob,
@@ -46,10 +47,13 @@ import {
   deleteJob,
   guestDetail,
   overview,
+  requestGuestVerify,
+  requestUnverifiedVerify,
   requestVerify,
   restoreSnapshot,
   revokeNode,
   saveJob,
+  setRestowServerFlag,
 } from "./service.js";
 
 /**
@@ -69,10 +73,14 @@ import {
  *                                             (optionally bound to an existing PVE API token)
  *   POST   /nodes/:id/revoke                 refuse a node from now on
  *   GET    /guests/:id                       a guest with its restore points and runs
- *   POST   /guests/:id/backup                back up now (optionally a verify read)
- *   PUT    /guests/:id/job                   put the guest into a job (or none)
+ *   POST   /guests/:id/backup                back up now (optionally a verify read); the Restow
+ *                                             server's own VM only with `confirmSelfBackup`
+ *   PUT    /guests/:id/job                   put the guest into a job (or none); the same
  *   POST   /guests/:id/repository/reset      a container: begin a new backup chain ({ confirmName },
  *                                            recent sign-in); its restore points become unavailable
+ *   PUT    /guests/:id/restow-server         mark the guest as the Restow server's own VM, or not
+ *   POST   /guests/:id/verify                check the guest's newest restore point now
+ *   POST   /verify-unverified                check every guest's unchecked newest restore point
  *   POST   /snapshots/:id/restore            restore as a new guest into the restore pool
  *   POST   /snapshots/:id/verify             read a sample of the restore point back now
  *   POST   /snapshots/:id/boot-test          boot the restore point on its node now (boot test)
@@ -157,8 +165,8 @@ pveRoutes.post("/guests/:id/repository/reset", admin, async (c) => {
 
 pveRoutes.put("/guests/:id/job", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
-  const { jobId } = await parseJsonBody(c.req, assignJobSchema);
-  await assignJob(db, c.get("tenantId"), id, jobId, actorOf(c));
+  const { jobId, confirmSelfBackup } = await parseJsonBody(c.req, assignJobSchema);
+  await assignJob(db, c.get("tenantId"), id, jobId, actorOf(c), { confirmSelfBackup });
   return c.body(null, 204);
 });
 
@@ -166,6 +174,22 @@ pveRoutes.post("/snapshots/:id/restore", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   const input = await parseJsonBody(c.req, restoreSchema);
   return c.json(await restoreSnapshot(db, c.get("tenantId"), id, input, actorOf(c)), 202);
+});
+
+pveRoutes.post("/guests/:id/verify", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await requestGuestVerify(db, c.get("tenantId"), id, actorOf(c)), 202);
+});
+
+pveRoutes.post("/verify-unverified", admin, async (c) => {
+  return c.json(await requestUnverifiedVerify(db, c.get("tenantId"), actorOf(c)), 202);
+});
+
+pveRoutes.put("/guests/:id/restow-server", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  const { flagged } = await parseJsonBody(c.req, restowServerSchema);
+  await setRestowServerFlag(db, c.get("tenantId"), id, flagged, actorOf(c));
+  return c.body(null, 204);
 });
 
 pveRoutes.post("/snapshots/:id/verify", admin, async (c) => {

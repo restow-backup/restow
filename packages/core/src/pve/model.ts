@@ -245,16 +245,23 @@ export function sampleDataBlocks(
   return data.slice(0, count).sort((a, b) => a - b);
 }
 
-/** When a PVE job runs: a daily local time, or every N minutes. */
+/**
+ * When a PVE job runs: a daily local time, every N minutes, or a cron expression (weekdays,
+ * monthly, custom; the same cadences as a mail job's schedule).
+ */
 export interface PveSchedule {
-  kind: "daily" | "interval";
+  kind: "daily" | "interval" | "cron";
   timeOfDay?: string;
   intervalMinutes?: number;
+  cron?: string;
   timeZone: string;
 }
 
 /** The next run of a PVE job after `now` (an interval counts from the last run). */
 export function pveNextRunAt(schedule: PveSchedule, now: Date, lastRunAt: Date | null): Date {
+  if (schedule.kind === "cron") {
+    return nextRunAt({ cron: schedule.cron ?? "", timezone: schedule.timeZone }, { now });
+  }
   if (schedule.kind === "interval") {
     return nextRunAt(
       { intervalMinutes: schedule.intervalMinutes ?? 24 * 60, timezone: schedule.timeZone },

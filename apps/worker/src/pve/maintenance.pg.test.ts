@@ -50,7 +50,7 @@ import {
   secrets,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   loadTenantKeyring,
@@ -360,6 +360,97 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     await verifyDue(deps, clock);
     [latest] = await owner.select().from(pveSnapshots).where(eq(pveSnapshots.id, bad));
     expect(latest?.verify).toMatchObject({ blocks: 1, mismatched: 1 });
+  });
+
+  it("checks a restore point a check was asked for: a new one right away, an older one exactly (0.4.2)", async () => {
+    // The weekly check ran a moment ago: without a request nothing is due.
+    await owner.update(pveGuests).set({ lastVerifyAt: clock });
+    await owner.update(pveSnapshots).set({ verifyRequestedAt: null });
+    expect(await verifyDue(deps, clock)).toBe(0);
+    // A new restore point, marked at its commit (the installation's default), is checked on the
+    // next pass although the weekly clock is far from due.
+    const fresh = await commit(5, [blockOf(31)], new Date(clock.getTime() + 60_000));
+    await owner
+      .update(pveSnapshots)
+      .set({ verifyRequestedAt: clock })
+      .where(eq(pveSnapshots.id, fresh));
+    const later = new Date(clock.getTime() + 5 * 60 * 1000);
+    expect(await verifyDue(deps, later)).toBe(1);
+    let [row] = await owner.select().from(pveSnapshots).where(eq(pveSnapshots.id, fresh));
+    expect(row?.verify).toMatchObject({ mismatched: 0, errors: [] });
+    expect(row?.verifyRequestedAt).toBeNull();
+    const [guest] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guestId));
+    expect(guest?.lastVerifyAt).toEqual(later);
+    // An admin asks for an older restore point: that one is read, not the newest.
+    const [older] = await owner
+      .select()
+      .from(pveSnapshots)
+      .where(and(eq(pveSnapshots.guestId, guestId), eq(pveSnapshots.sequence, 3)));
+    await owner
+      .update(pveSnapshots)
+      .set({ verify: null, verifyRequestedAt: later })
+      .where(eq(pveSnapshots.id, older?.id ?? ""));
+    // The newest one's result is marked, so a second read of it would show.
+    await owner
+      .update(pveSnapshots)
+      .set({ verify: { checkedAt: "marker", blocks: 0, mismatched: 0, errors: [] } })
+      .where(eq(pveSnapshots.id, fresh));
+    expect(await verifyDue(deps, later)).toBe(1);
+    [row] = await owner
+      .select()
+      .from(pveSnapshots)
+      .where(eq(pveSnapshots.id, older?.id ?? ""));
+    expect(row?.verify).toMatchObject({ blocks: 2, mismatched: 0 });
+    expect(row?.verifyRequestedAt).toBeNull();
+    [row] = await owner.select().from(pveSnapshots).where(eq(pveSnapshots.id, fresh));
+    expect(row?.verify?.checkedAt).toBe("marker");
+    // A request of a restore point pruned meanwhile is dropped, not read.
+    await owner
+      .update(pveSnapshots)
+      .set({ status: "pruned", verifyRequestedAt: later })
+      .where(eq(pveSnapshots.id, older?.id ?? ""));
+    expect(await verifyDue(deps, later)).toBe(0);
+    [row] = await owner
+      .select()
+      .from(pveSnapshots)
+      .where(eq(pveSnapshots.id, older?.id ?? ""));
+    expect(row?.verifyRequestedAt).toBeNull();
+    await owner
+      .update(pveSnapshots)
+      .set({ status: "active" })
+      .where(eq(pveSnapshots.id, older?.id ?? ""));
+    await owner.delete(pveSnapshots).where(eq(pveSnapshots.id, fresh));
+    const [newest] = await owner
+      .select()
+      .from(pveSnapshots)
+      .where(eq(pveSnapshots.guestId, guestId))
+      .orderBy(desc(pveSnapshots.sequence))
+      .limit(1);
+    await owner
+      .update(pveGuests)
+      .set({ lastSnapshotId: newest?.id ?? null })
+      .where(eq(pveGuests.id, guestId));
+  });
+
+  it("plans no backup of the Restow server's own VM until an admin confirmed it", async () => {
+    await owner.delete(pveTasks);
+    await owner
+      .update(pveGuests)
+      .set({ restowServerDetected: true })
+      .where(eq(pveGuests.id, guestId));
+    await owner.update(pveJobs).set({ nextRunAt: new Date(clock.getTime() - 1000) });
+    expect(await planJobs(deps, clock)).toBe(0);
+    await owner
+      .update(pveGuests)
+      .set({ selfBackupConfirmedAt: clock })
+      .where(eq(pveGuests.id, guestId));
+    await owner.update(pveJobs).set({ nextRunAt: new Date(clock.getTime() - 1000) });
+    expect(await planJobs(deps, clock)).toBe(1);
+    await owner.delete(pveTasks);
+    await owner
+      .update(pveGuests)
+      .set({ restowServerDetected: false, selfBackupConfirmedAt: null })
+      .where(eq(pveGuests.id, guestId));
   });
 
   it("fails runs that never ended and releases what they staged", async () => {

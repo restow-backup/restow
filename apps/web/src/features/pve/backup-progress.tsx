@@ -76,6 +76,45 @@ export function progressLine(
 }
 
 /**
+ * The parts of the line under the bar, each in a slot of its own so the figures never move the
+ * table around them: the percentage and the throughput take a fixed width (tabular figures),
+ * the amount takes the rest and is cut, the whole line stays in the tooltip. `message` is set
+ * instead while no figure came in.
+ */
+export function progressParts(
+  t: TFunction,
+  language: string,
+  progress: PveRunProgress | null | undefined,
+  node?: PveRunNode | null,
+): { percent: string | null; amount: string | null; rate: string | null; message: string | null } {
+  if (!progress) {
+    return {
+      percent: null,
+      amount: null,
+      rate: null,
+      message: progressLine(t, language, null, node),
+    };
+  }
+  const percent = progressPercent(progress);
+  const done = formatBytes(progress.bytesDone, language);
+  return {
+    percent: percent === null ? null : t("guests.progressPercent", { percent }),
+    amount:
+      progress.bytesTotal === null || percent === null
+        ? t("guests.progressRead", { done })
+        : t("guests.progressOf", { done, total: formatBytes(progress.bytesTotal, language) }),
+    rate:
+      progress.bytesPerSecond === null
+        ? null
+        : t("guests.progressRate", { rate: formatBytes(progress.bytesPerSecond, language) }),
+    message: null,
+  };
+}
+
+/** The height a progress block takes, reserved in a table row whether a backup runs or not. */
+export const PROGRESS_SLOT_CLASS = "h-7";
+
+/**
  * The progress of a running guest backup (#51): a bar (pulsing while the total
  * is unknown) and the figures under it. With `to` the whole block links to the
  * guest's page. `node` is the node the backup runs on, which names an outdated
@@ -98,6 +137,7 @@ export function BackupProgress({
   const language = i18n.resolvedLanguage ?? i18n.language;
   const percent = progressPercent(progress);
   const line = progressLine(t, language, progress, node);
+  const parts = progressParts(t, language, progress, node);
   const uploaded =
     progress?.bytesUploaded === null || progress?.bytesUploaded === undefined
       ? undefined
@@ -110,7 +150,27 @@ export function BackupProgress({
         aria-valuetext={line}
         className={cn("h-1.5", percent === null && "animate-pulse")}
       />
-      <p className="text-xs text-muted-foreground tabular-nums">{line}</p>
+      <p
+        className="flex min-w-0 items-baseline gap-1 overflow-hidden text-xs whitespace-nowrap text-muted-foreground tabular-nums"
+        title={line}
+        data-slot="pve-backup-progress-line"
+      >
+        {parts.message !== null ? (
+          <span className="min-w-0 truncate">{parts.message}</span>
+        ) : (
+          <>
+            {parts.percent !== null ? (
+              <span className="inline-block w-[4.5ch] shrink-0 text-right">{parts.percent}</span>
+            ) : null}
+            <span className="min-w-0 truncate">{parts.amount}</span>
+            {parts.rate !== null ? (
+              <span className="ml-auto inline-block w-[10ch] shrink-0 text-right">
+                {parts.rate}
+              </span>
+            ) : null}
+          </>
+        )}
+      </p>
     </>
   );
   const classes = cn("block w-full min-w-32 max-w-64 space-y-1", className);

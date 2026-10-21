@@ -69,6 +69,10 @@ export interface GuestReadinessRowDto {
   latestSnapshotId: string | null;
   /** The guest is in an enabled PVE job; false: nothing backs it up any more. */
   inJob: boolean;
+  /** A restore check of the newest restore point waits for the worker's next PVE pass. */
+  checkRequested: boolean;
+  /** What the restore check of the newest restore point found (the real error, when red). */
+  verifyErrors: string[];
 }
 
 /** The tenant's guests in figures (zeros for a tenant without Proxmox VE). */
@@ -174,6 +178,7 @@ export async function loadGuestProtection(
       backupAt: pveSnapshots.backupAt,
       verify: pveSnapshots.verify,
       bootTest: pveSnapshots.bootTest,
+      verifyRequestedAt: pveSnapshots.verifyRequestedAt,
     })
     .from(pveSnapshots)
     .where(and(eq(pveSnapshots.tenantId, tenantId), eq(pveSnapshots.status, "active")))
@@ -316,6 +321,8 @@ export async function loadGuestProtection(
       latestBackupAt: snapshot?.backupAt.toISOString() ?? null,
       latestSnapshotId: snapshot?.id ?? null,
       inJob,
+      checkRequested: snapshot?.verifyRequestedAt != null,
+      verifyErrors: (verify?.errors ?? []).slice(0, 5).map((e) => String(e).slice(0, 1000)),
     });
     rated.push({ state, overdue, checkedAt, withoutJob: !inJob, guest: true });
   }

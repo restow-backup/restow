@@ -349,6 +349,8 @@ type InventoryGuest struct {
 	Pool       string          `json:"pool"`
 	Disks      []InventoryDisk `json:"disks"`
 	Agent      bool            `json:"agent"`
+	// SMBIOSUUID is a VM's SMBIOS UUID (restow-pve from 0.4.2), for the server to find its own VM.
+	SMBIOSUUID string `json:"smbiosUuid,omitempty"`
 }
 
 // ReportInventory replaces the inventory this node reports.

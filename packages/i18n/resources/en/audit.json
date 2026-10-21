@@ -328,6 +328,9 @@
       },
       "agent_policy": {
         "updated": "Agent policy of the installation changed"
+      },
+      "pve": {
+        "updated": "Proxmox VE settings of the installation changed"
       }
     },
     "setup": {
@@ -586,6 +589,10 @@
       "repository": {
         "reinitialized": "Container repository missing on the primary: new backup chain started",
         "reset": "Container repository reset: new backup chain on the next backup"
+      },
+      "guest": {
+        "restow_server": "Guest marked as the {appName} server, or the mark taken back",
+        "self_backup_confirmed": "Backing up the {appName} server with {appName} confirmed"
       }
     },
     "file_share": {
