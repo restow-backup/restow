@@ -146,13 +146,16 @@ func TestCancelOrderStopsTheRunningVzdumpTask(t *testing.T) {
 	s := f.service(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = s.Run(ctx) }()
+	stopped := make(chan struct{})
+	go func() { _ = s.Run(ctx); close(stopped) }()
 	select {
 	case <-f.finished:
 	case <-time.After(20 * time.Second):
 		t.Fatal("the task never ended")
 	}
+	// The loop may still write pending-results.json; it must be done before the temp dir goes.
 	cancel()
+	<-stopped
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if len(f.deleted) != 1 || !strings.Contains(f.deleted[0], "vzdump") {
