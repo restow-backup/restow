@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { defaults, endpointJob, mailJob, member } from "./fixtures.js";
 import {
+  archiveBackupCadence,
+  cadenceIntervalMinutes,
   cadenceOfJobSchedule,
   checkEndpointSchedule,
   checkJobDraft,
@@ -18,12 +20,15 @@ import {
   overrideGroupsSet,
   overridesDraftOf,
   overridesOfDraft,
+  purposeOfJob,
   retentionReduction,
   scheduleKeyOf,
   scopeChanged,
   settingsDraftOf,
   settingsOfDraft,
+  suggestsRarerBackups,
   updateInputOf,
+  withPurpose,
 } from "./form.js";
 
 describe("a stricter machine retention", () => {
@@ -715,5 +720,55 @@ describe("time windows in the settings", () => {
     expect(overridesDraftOf("endpoint", member(), job, defaults("endpoint")).on.bandwidth).toBe(
       false,
     );
+  });
+});
+
+describe("what a mail job is for", () => {
+  it("backs up and archives by default; a machine job only backs up", () => {
+    const mail = newJobDraft("mail", defaults("mail"));
+    expect(mail.purpose).toBe("both");
+    expect(createInputOf({ ...mail, name: "Mail" })).toMatchObject({ archive: true });
+    const machines = newJobDraft("endpoint", defaults("endpoint"));
+    expect(machines.purpose).toBe("backup");
+    expect(machines.archive).toBe(false);
+  });
+
+  it("reads a saved job's purpose from its archive flag and its schedule", () => {
+    const schedule = { kind: "interval" as const, intervalMinutes: 480, timeZone: "UTC" };
+    expect(purposeOfJob({ kind: "mail", archive: false, schedule })).toBe("backup");
+    expect(purposeOfJob({ kind: "mail", archive: true, schedule })).toBe("both");
+    expect(purposeOfJob({ kind: "mail", archive: true, schedule: null })).toBe("archive");
+    expect(purposeOfJob({ kind: "endpoint", archive: false, schedule })).toBe("backup");
+  });
+
+  it("archives alone without a schedule, and turns the schedule on again when it backs up", () => {
+    const draft = newJobDraft("mail", defaults("mail"));
+    const archive = withPurpose(draft, "archive");
+    expect(archive).toMatchObject({ archive: true, scheduleOn: false });
+    expect(createInputOf({ ...archive, name: "A" })).toMatchObject({
+      schedule: null,
+      archive: true,
+    });
+    const backup = withPurpose(archive, "backup");
+    expect(backup).toMatchObject({ archive: false, scheduleOn: true });
+    expect(createInputOf({ ...backup, name: "B" })).not.toHaveProperty("archive");
+    // A schedule turned off by hand stays off between backup and both.
+    const manual = withPurpose({ ...draft, scheduleOn: false }, "backup");
+    expect(manual.scheduleOn).toBe(false);
+  });
+
+  it("suggests every 8 hours only while it archives and backs up more often than that", () => {
+    const draft = newJobDraft("mail", defaults("mail"));
+    const hourly = {
+      ...draft,
+      cadence: { ...draft.cadence, presetType: "every_hours" as const, hours: "1" },
+    };
+    expect(cadenceIntervalMinutes(hourly.cadence)).toBe(60);
+    expect(suggestsRarerBackups(hourly)).toBe(true);
+    expect(suggestsRarerBackups(withPurpose(hourly, "backup"))).toBe(false);
+    expect(suggestsRarerBackups({ ...hourly, scheduleOn: false })).toBe(false);
+    const suggested = { ...hourly, cadence: archiveBackupCadence(hourly.cadence) };
+    expect(cadenceIntervalMinutes(suggested.cadence)).toBe(480);
+    expect(suggestsRarerBackups(suggested)).toBe(false);
   });
 });

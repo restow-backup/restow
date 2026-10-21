@@ -31,6 +31,7 @@ import { ExportDialog, type ExportDialogRequest } from "@/features/exports/expor
 import { ExportMenuItems } from "@/features/exports/export-menu-items";
 import type {
   ObjectKind,
+  PersonEntry,
   SnapshotObject,
   StoredVersion,
   TreeEntry,
@@ -40,6 +41,7 @@ import type {
 import { RestoreDialog, type RestoreDialogRequest } from "@/features/restore/dialog/restore-dialog";
 import { AccountList } from "@/features/restore/explorer/account-list";
 import { Breadcrumbs } from "@/features/restore/explorer/breadcrumbs";
+import { CalendarMonth, SeriesOccurrences } from "@/features/restore/explorer/calendar-view";
 import { type DetailsActions, DetailsPanel } from "@/features/restore/explorer/details-panel";
 import {
   NoAccountsState,
@@ -50,13 +52,15 @@ import {
 import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { FolderTree } from "@/features/restore/explorer/folder-tree";
 import { ItemList } from "@/features/restore/explorer/item-list";
+import { PersonAreas } from "@/features/restore/explorer/person-areas";
 import { RestorePointBar } from "@/features/restore/explorer/restore-point-bar";
 import { restorePointTime } from "@/features/restore/explorer/restore-point-label";
 import { SearchField } from "@/features/restore/explorer/search-field";
 import { SelectionBar } from "@/features/restore/explorer/selection-bar";
+import { isCalendarListing, monthOf } from "@/features/restore/lib/calendar";
 import {
   activeQuery,
-  preferredObject,
+  withCalendarView,
   withFolder,
   withItem,
   withObject,
@@ -65,6 +69,7 @@ import {
   withSort,
 } from "@/features/restore/lib/explorer-search";
 import { normalizePath, parentPathOf } from "@/features/restore/lib/paths";
+import { firstAreaOf } from "@/features/restore/lib/people";
 import {
   deselectAll,
   EMPTY_SELECTION,
@@ -83,7 +88,8 @@ import {
 import { useExplorerSearch } from "@/features/restore/navigation";
 import { RestoreTabs } from "@/features/restore/restore-tabs";
 import {
-  useSnapshotObjects,
+  usePeople,
+  usePersonOf,
   useSnapshotSearch,
   useSnapshots,
   useTree,
@@ -137,9 +143,12 @@ function exportsMail(kind: ObjectKind): boolean {
 export function ExplorerPage() {
   usePageWidth("full");
   const { t } = useTranslation("restore");
-  // include=all: every account of the tenant, even one still without a
-  // restore point, so the account list can say so instead of hiding it.
-  const objects = useSnapshotObjects(true);
+  // The first page of people and of sites (every account, even one still without a restore
+  // point): whether there is anything to browse, and where the explorer opens. The account list
+  // shares these pages (same query keys) and loads the rest as it is scrolled.
+  const people = usePeople("people", "", null);
+  const sites = usePeople("sites", "", null);
+  const first = people.data?.pages[0]?.items[0] ?? sites.data?.pages[0]?.items[0] ?? null;
   const canProtect = useCanProtect();
   const seesAll = useSeesAllAccounts();
 
@@ -148,19 +157,22 @@ export function ExplorerPage() {
       <RestoreTabs current="browse" />
       <PageHeader title={t("explorer.title")} description={t("explorer.subtitle")} />
 
-      {objects.isPending ? (
+      {people.isPending || sites.isPending ? (
         <ExplorerSkeleton />
-      ) : objects.isError ? (
+      ) : people.isError || sites.isError ? (
         <ErrorState
           title={t("explorer.object.loadError")}
-          error={objects.error}
-          onRetry={() => void objects.refetch()}
-          retrying={objects.isFetching}
+          error={people.error ?? sites.error}
+          onRetry={() => {
+            void people.refetch();
+            void sites.refetch();
+          }}
+          retrying={people.isFetching || sites.isFetching}
         />
-      ) : objects.data.length === 0 ? (
+      ) : first === null ? (
         <NoAccountsState canProtect={canProtect} seesAll={seesAll} />
       ) : (
-        <ExplorerShell objects={objects.data} />
+        <ExplorerShell first={first} />
       )}
     </div>
   );
@@ -186,20 +198,30 @@ function ExplorerSkeleton() {
  * the open dialog and which entry was last opened reset (they belong to one
  * restore point, not to the explorer itself).
  */
-function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
+function ExplorerShell({ first }: { first: PersonEntry }) {
   const { t } = useTranslation("restore");
   const { user } = useSession();
   const canProtect = useCanProtect();
   const wide = useMediaQuery("(min-width: 1024px)");
   const [search, setSearch] = useExplorerSearch();
 
-  const object = objects.find((candidate) => candidate.id === search.object) ?? null;
+  // The entry the object of the address belongs to: the object itself and, for a person, their
+  // other objects (the second column). Without an object, or one this viewer cannot see, the
+  // explorer opens on the first entry: the viewer's own, else the first by name.
+  const owner = usePersonOf(search.object ?? null);
+  const person = owner.data && owner.data.key.startsWith("site:") ? null : (owner.data ?? null);
+  const object = owner.data?.objects.find((candidate) => candidate.id === search.object) ?? null;
+  const missing =
+    !search.object || (owner.isSuccess && !owner.isPlaceholderData && object === null);
   React.useEffect(() => {
-    const fallback = preferredObject(objects);
-    if (!object && fallback) {
-      setSearch(withObject(fallback.id), { replace: true });
+    if (missing) {
+      const area = firstAreaOf(first);
+      const fallback = area?.object ?? first.objects[0];
+      if (fallback) {
+        setSearch(withObject(fallback.id, area?.path || undefined), { replace: true });
+      }
     }
-  }, [object, objects, setSearch]);
+  }, [missing, first, setSearch]);
 
   const objectId = object?.id ?? null;
   const restorePoints = useSnapshots(objectId);
@@ -231,8 +253,12 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
   const snapshotId = restorePoint?.id ?? null;
   const path = normalizePath(search.path);
   const query = activeQuery(search);
-  const sort: TreeSort = search.sort ?? "date";
-  const tree = useTree(snapshotId, path, sort);
+  const calendar = object !== null && isCalendarListing(object.kind, path);
+  // `upcoming` orders events only; anywhere else it is the default order.
+  const sort: TreeSort = search.sort === "upcoming" && !calendar ? "date" : (search.sort ?? "date");
+  const monthView = calendar && search.view === "month" && query === null;
+  const month = search.month ?? monthOf(new Date());
+  const tree = useTree(monthView ? null : snapshotId, path, sort);
   const results = useSnapshotSearch(snapshotId, query);
 
   const [selection, setSelection] = React.useState<Selection>(EMPTY_SELECTION);
@@ -360,9 +386,8 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
 
   const accountList = (
     <AccountList
-      objects={objects}
       value={objectId}
-      onChange={(id) => setSearch(withObject(id))}
+      onChange={(id, areaPath) => setSearch(withObject(id, areaPath))}
       suspicious={suspicious}
     />
   );
@@ -395,25 +420,36 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
     : (restorePoints.data?.length ?? 0) > 0;
   const restorePointReady = Boolean(object && restorePoint);
 
-  const folderTreePane =
-    object && restorePoint ? (
-      <div className="h-full overflow-y-auto p-2">
-        <FolderTree
-          snapshotId={restorePoint.id}
-          object={object}
-          currentPath={path}
-          onOpen={openFolder}
-        />
-      </div>
-    ) : object && restorePointsKnown && !restorePointsAvailable ? (
-      <p className="p-3 text-xs text-muted-foreground">{t("explorer.restorePoint.none")}</p>
-    ) : (
-      <div className="space-y-2 p-3">
-        <Skeleton className="h-6 w-3/4" />
-        <Skeleton className="h-5 w-1/2" />
-        <Skeleton className="h-5 w-2/3" />
-      </div>
-    );
+  const folderTreePane = person ? (
+    <div className="h-full overflow-y-auto p-2">
+      <PersonAreas
+        person={person}
+        objectId={objectId}
+        path={path}
+        snapshotId={restorePoint?.id ?? null}
+        restorePointsKnown={restorePointsKnown && !restorePointsAvailable}
+        onArea={(link) => setSearch(withObject(link.object.id, link.path || undefined))}
+        onOpenFolder={openFolder}
+      />
+    </div>
+  ) : object && restorePoint ? (
+    <div className="h-full overflow-y-auto p-2">
+      <FolderTree
+        snapshotId={restorePoint.id}
+        object={object}
+        currentPath={path}
+        onOpen={openFolder}
+      />
+    </div>
+  ) : object && restorePointsKnown && !restorePointsAvailable ? (
+    <p className="p-3 text-xs text-muted-foreground">{t("explorer.restorePoint.none")}</p>
+  ) : (
+    <div className="space-y-2 p-3">
+      <Skeleton className="h-6 w-3/4" />
+      <Skeleton className="h-5 w-1/2" />
+      <Skeleton className="h-5 w-2/3" />
+    </div>
+  );
 
   const itemListPane = (
     <div className="flex h-full min-h-0 flex-col">
@@ -424,6 +460,9 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
           rootLabel={objectLabel(object)}
           objectKind={object.kind}
           sort={sort}
+          calendar={calendar}
+          view={monthView ? "month" : "list"}
+          onViewChange={(view) => setSearch(withCalendarView(search, view, month))}
           resultCount={results.data?.hits.length ?? 0}
           searching={results.isFetching}
           restorePointReady={restorePointReady}
@@ -474,6 +513,15 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
               <Skeleton key={index} className="h-9 w-full" />
             ))}
           </div>
+        ) : monthView ? (
+          <CalendarMonth
+            snapshotId={restorePoint.id}
+            path={path}
+            month={month}
+            activePath={itemPath}
+            onMonthChange={(next) => setSearch(withCalendarView(search, "month", next))}
+            onOpen={openEntry}
+          />
         ) : (
           <ListContent
             query={query}
@@ -497,6 +545,10 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
               }
               onOpen={openEntry}
               onNavigate={navigateEntry}
+              calendar={calendar && query === null}
+              renderSeries={(entry) => (
+                <SeriesOccurrences snapshotId={restorePoint.id} entry={entry} onOpen={openEntry} />
+              )}
             />
           </ListContent>
         )}
@@ -619,6 +671,9 @@ function ItemListHeader({
   rootLabel,
   objectKind,
   sort,
+  calendar,
+  view,
+  onViewChange,
   resultCount,
   searching,
   restorePointReady,
@@ -636,6 +691,10 @@ function ItemListHeader({
   rootLabel: string;
   objectKind: SnapshotObject["kind"];
   sort: TreeSort;
+  /** The folder is a calendar: sort by when, offer the month view. */
+  calendar: boolean;
+  view: "list" | "month";
+  onViewChange: (view: "list" | "month") => void;
   resultCount: number;
   searching: boolean;
   /** Whether there is a browsed restore point to sort, search or restore from. */
@@ -683,18 +742,40 @@ function ItemListHeader({
                 onOpen={onOpenFolder}
               />
             </div>
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              size="sm"
-              value={sort}
-              onValueChange={(next) => next && onSortChange(next as TreeSort)}
-              aria-label={t("explorer.sort.label")}
-              disabled={!restorePointReady}
-            >
-              <ToggleGroupItem value="date">{t("explorer.sort.date")}</ToggleGroupItem>
-              <ToggleGroupItem value="name">{t("explorer.sort.name")}</ToggleGroupItem>
-            </ToggleGroup>
+            {calendar ? (
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={view}
+                onValueChange={(next) => next && onViewChange(next as "list" | "month")}
+                aria-label={t("explorer.calendar.viewLabel")}
+                disabled={!restorePointReady}
+                data-slot="calendar-view-toggle"
+              >
+                <ToggleGroupItem value="list">{t("explorer.calendar.list")}</ToggleGroupItem>
+                <ToggleGroupItem value="month">{t("explorer.calendar.month")}</ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
+            {calendar && view === "month" ? null : (
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={sort}
+                onValueChange={(next) => next && onSortChange(next as TreeSort)}
+                aria-label={t("explorer.sort.label")}
+                disabled={!restorePointReady}
+              >
+                <ToggleGroupItem value="date">
+                  {t(calendar ? "explorer.sort.newest" : "explorer.sort.date")}
+                </ToggleGroupItem>
+                {calendar ? (
+                  <ToggleGroupItem value="upcoming">{t("explorer.sort.upcoming")}</ToggleGroupItem>
+                ) : null}
+                <ToggleGroupItem value="name">{t("explorer.sort.name")}</ToggleGroupItem>
+              </ToggleGroup>
+            )}
           </>
         )}
         <WholeSnapshotMenu

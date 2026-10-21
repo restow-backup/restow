@@ -487,6 +487,12 @@ export interface JobDraft {
   name: string;
   /** Mail jobs only; a machine job cannot be paused. */
   enabled: boolean;
+  /**
+   * Mail jobs: what the job is for (back up, archive or both, docs/ARCHIVE.md "Journaling und
+   * Postfach-Sicherung"). It decides `archive` and, for an archive alone, that no backups run on
+   * a schedule; machine jobs always back up.
+   */
+  purpose: JobPurpose;
   /** Mail jobs only: archive the mailboxes through journaling. */
   archive: boolean;
   /** Mail jobs: run on a schedule; off means the job runs when someone starts it. */
@@ -513,7 +519,9 @@ export function newJobDraft(kind: JobKind, defaults: JobDefaults | undefined): J
     kind,
     name: "",
     enabled: true,
-    archive: false,
+    // A new mail job backs up and archives (maintainer decision, 0.4.2): the person picks less.
+    purpose: kind === "mail" ? "both" : "backup",
+    archive: kind === "mail",
     scheduleOn: true,
     cadence: cadenceDraftOfSchedule(
       kind === "mail" ? (defaults?.schedule ?? null) : null,
@@ -549,6 +557,7 @@ export function draftOfJob(
     kind: job.kind,
     name: job.name,
     enabled: job.enabled,
+    purpose: purposeOfJob(job),
     archive: job.archive,
     scheduleOn: job.kind === "mail" ? job.schedule !== null : true,
     cadence: cadenceDraftOfSchedule(job.kind === "mail" ? job.schedule : null, null, zone),
@@ -564,6 +573,59 @@ export function draftOfJob(
     scopeMode: job.scopeMode,
     selected: members.filter((member) => member.explicit).map(selectedOfMember),
     moves: [],
+  };
+}
+
+/** What a mail job is for: restore (backup), proof (archive), or both. */
+export type JobPurpose = "backup" | "archive" | "both";
+
+export const JOB_PURPOSES: readonly JobPurpose[] = ["both", "backup", "archive"];
+
+/** A saved job's purpose: an archiving job without a schedule only archives. */
+export function purposeOfJob(job: Pick<BackupJob, "kind" | "archive" | "schedule">): JobPurpose {
+  if (job.kind !== "mail" || !job.archive) {
+    return "backup";
+  }
+  return job.schedule === null ? "archive" : "both";
+}
+
+/**
+ * The draft for another purpose: archiving follows it, an archive alone runs no backups on a
+ * schedule, and coming back from it turns the schedule on again.
+ */
+export function withPurpose(draft: JobDraft, purpose: JobPurpose): JobDraft {
+  const scheduleOn =
+    purpose === "archive" ? false : draft.purpose === "archive" ? true : draft.scheduleOn;
+  return { ...draft, purpose, archive: purpose !== "backup", scheduleOn };
+}
+
+/**
+ * While the archive captures every mail as it arrives, backups only keep what journaling does
+ * not see (folders, calendar, contacts, status): every 8 hours is enough (#48, point 1).
+ */
+export const ARCHIVE_BACKUP_INTERVAL_MINUTES = 480;
+
+/** The minutes between two runs of a cadence that repeats at a fixed interval; null otherwise. */
+export function cadenceIntervalMinutes(cadence: CadenceDraft): number | null {
+  const check = checkCadence(cadence);
+  return check.ok ? check.cadence.intervalMinutes : null;
+}
+
+/** Whether the editor suggests backing up less often because the archive captures the mail. */
+export function suggestsRarerBackups(draft: JobDraft): boolean {
+  if (draft.kind !== "mail" || draft.purpose !== "both" || !draft.scheduleOn) {
+    return false;
+  }
+  const minutes = cadenceIntervalMinutes(draft.cadence);
+  return minutes !== null && minutes < ARCHIVE_BACKUP_INTERVAL_MINUTES;
+}
+
+/** The cadence the suggestion stands for: every 8 hours, in the draft's zone. */
+export function archiveBackupCadence(cadence: CadenceDraft): CadenceDraft {
+  return {
+    ...cadence,
+    presetType: "every_hours",
+    hours: String(ARCHIVE_BACKUP_INTERVAL_MINUTES / 60),
   };
 }
 

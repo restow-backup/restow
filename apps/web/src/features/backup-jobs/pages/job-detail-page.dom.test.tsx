@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import * as React from "react";
+import { act } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,16 +14,19 @@ import {
   type RecordedRequest,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
+import { StaticSessionProvider } from "@/lib/session";
 
 import { defaults, endpointJob, iso, mailJob, member } from "../fixtures.js";
 import "../i18n.js";
 import {
+  adminSession,
   describedText,
   focusOn,
   type Opened,
   openJobs,
   openMenu,
   primaryButtons,
+  TENANT,
 } from "../testing.js";
 
 /**
@@ -535,6 +540,39 @@ describe("the page of a machine job", () => {
       anchor.textContent?.includes("All jobs"),
     );
     expect(back?.getAttribute("href")).toContain("/jobs");
+  });
+
+  it("gives way to the jobs list when the tenant changes and the job does not exist there", async () => {
+    let switchTo: ((tenantId: string) => void) | null = null;
+    let switched = false;
+    function SwitchableSession({ children }: { children: React.ReactNode }) {
+      const [session, setSession] = React.useState(adminSession());
+      switchTo = (tenantId) => {
+        switched = true;
+        setSession(
+          adminSession({
+            activeTenant: { ...TENANT, id: tenantId, name: "Bäckerei Krüger" },
+            tenants: [TENANT, { ...TENANT, id: tenantId, name: "Bäckerei Krüger" }],
+          }),
+        );
+      };
+      return <StaticSessionProvider value={session}>{children}</StaticSessionProvider>;
+    }
+    opened = await openJobs("/jobs/definitions/job-srv?type=endpoint&tab=runs", {
+      routes: {
+        ...machineRoutes(),
+        // The job exists in the first tenant only.
+        "GET /backup-jobs/job-srv": () =>
+          switched ? problem("urn:restow:problem:not-found", 404) : json(JOB),
+      },
+      wrap: (node) => <SwitchableSession>{node}</SwitchableSession>,
+    });
+    await flush(6);
+    expect(opened.where().pathname).toBe("/jobs/definitions/job-srv");
+    await act(async () => switchTo?.("tenant-2"));
+    await flush(8);
+    expect(opened.where().pathname).toBe("/jobs");
+    expect(opened.where().search).toEqual({ type: "endpoint" });
   });
 
   it("closes Run now, Edit and the menu in the public demo, with the reason named at each button", async () => {

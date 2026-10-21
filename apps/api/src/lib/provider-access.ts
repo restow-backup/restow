@@ -414,9 +414,12 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // --- Backed-up content and restore --------------------------------------------
   "GET /api/v1/snapshots": view(),
   "GET /api/v1/snapshots/objects": view(),
+  "GET /api/v1/snapshots/people": view(),
   "GET /api/v1/snapshots/objects/:id/versions": view(),
   "GET /api/v1/snapshots/search": operate(),
   "GET /api/v1/snapshots/:id/tree": operate(),
+  // A calendar in a window: reads the stored series like the tree reads a folder.
+  "GET /api/v1/snapshots/:id/calendar": operate(),
   // Whether a restore point is immutable: the storage's own answer, nothing of the content.
   "GET /api/v1/snapshots/:id/immutability": view(),
   "GET /api/v1/snapshots/:snapshotId/entries/:entryId/preview": operate(),

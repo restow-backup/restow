@@ -11,7 +11,9 @@ import {
   cancelRestoreJob,
   createRestore,
   DEFAULT_TREE_SORT,
+  fetchCalendar,
   fetchEntryPreview,
+  fetchPeople,
   fetchRestoreJob,
   fetchRestoreJobs,
   fetchRestoreTargets,
@@ -19,6 +21,9 @@ import {
   fetchSnapshots,
   fetchTree,
   fetchVersions,
+  type ObjectKind,
+  type PeoplePage,
+  type PeopleSection,
   type RestoreJob,
   restoreKeys,
   searchSnapshot,
@@ -57,6 +62,41 @@ export function useSnapshotObjects(includeAll = false) {
   });
 }
 
+/**
+ * The explorer's left column, a page at a time (#49): people or sites, searched and filtered by
+ * the API, so a tenant with tens of thousands of people never loads them all at once.
+ */
+export function usePeople(
+  section: PeopleSection,
+  q: string,
+  kind: ObjectKind | null,
+  active = true,
+) {
+  const { tenantId, enabled } = useTenantScope();
+  return useInfiniteQuery({
+    queryKey: restoreKeys.people(tenantId, section, q, kind),
+    queryFn: ({ pageParam }) =>
+      fetchPeople({ section, q, kind: kind ?? undefined, after: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last: PeoplePage) => last.next ?? undefined,
+    enabled: enabled && active,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The entry (a person, or a site) the given object belongs to; null when there is none. */
+export function usePersonOf(objectId: string | null) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: restoreKeys.personOf(tenantId, objectId),
+    queryFn: async () =>
+      (await fetchPeople({ section: "people", objectId: objectId as string })).items[0] ?? null,
+    enabled: enabled && objectId !== null,
+    // Moving between a person's areas keeps their entry on screen while the next one loads.
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useSnapshots(objectId: string | null) {
   const { tenantId, enabled } = useTenantScope();
   return useQuery({
@@ -85,6 +125,31 @@ export function useTree(
   const pages = query.data?.pages ?? [];
   const entries: TreeEntry[] = pages.flatMap((page) => page.entries);
   return { ...query, tree: pages[0], entries, total: pages[0]?.total ?? 0 };
+}
+
+/**
+ * A calendar between two instants, every series expanded (the month view), or the occurrences
+ * of one series (`entryId`, the list's expanded series row).
+ */
+export function useCalendarView(
+  snapshotId: string | null,
+  window: { path: string; from: string; to: string; entryId?: string | null } | null,
+) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: restoreKeys.calendar(
+      tenantId,
+      snapshotId,
+      window?.path ?? "",
+      window?.from ?? "",
+      window?.to ?? "",
+      window?.entryId ?? null,
+    ),
+    queryFn: () => fetchCalendar(snapshotId as string, window as NonNullable<typeof window>),
+    enabled: enabled && snapshotId !== null && window !== null,
+    placeholderData: keepPreviousData,
+    staleTime: SNAPSHOT_DATA_STALE_MS,
+  });
 }
 
 /** The subfolders of one folder, for the folder tree. */

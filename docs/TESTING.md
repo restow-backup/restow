@@ -43,7 +43,10 @@ Postgres-Service bereit und setzt die Variable.
   Zugang zurücksetzen), `cli/admin-recovery.pg.test.ts`,
   `features/restore/restore.pg.test.ts`, `features/snapshots/explorer.pg.test.ts`,
   `features/snapshots/preview.pg.test.ts`, `features/snapshots/routes.pg.test.ts`,
-  `features/webhooks/integrations.pg.test.ts`
+  `features/snapshots/calendar.pg.test.ts` (Kalender im Explorer: Termine nach Beginn,
+  Monatsansicht mit Serien aus echtem verschlüsseltem Inhalt),
+  `features/snapshots/people.pg.test.ts` (Personen im Explorer seitenweise: stabiler Keyset,
+  Suche, Typfilter, eigener Eintrag zuerst), `features/webhooks/integrations.pg.test.ts`
 - ee (Business und Service Provider): `ee/api/src/license/license.pg.test.ts` (Schlüssel
   mit einem Wegwerf-Testschlüssel aus `ee/licensing/testing/test-signer.mjs`),
   `ee/api/src/audit-log/audit.pg.test.ts`,

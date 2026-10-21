@@ -396,22 +396,50 @@ export function isNavItemPage(item: Pick<NavItem, "path">, pathname: string): bo
   return normalizePath(item.path) === normalizePath(pathname);
 }
 
+/** Where a page gives way to after a tenant switch: a list, with the search params its entry needs. */
+export interface TenantSwitchTarget {
+  path: string;
+  search?: Readonly<Record<string, string>>;
+}
+
 /**
  * Where to go after switching the tenant. A list page stays (it now shows the
  * other tenant's entries); a detail page belongs to the previous tenant, so
  * it gives way to its list. `null` means stay.
+ *
+ * Entries that carry search params (`/jobs?type=mail`) match only while the
+ * location carries them too; a detail page whose address names another value
+ * or none (`/jobs/definitions/<id>?type=share`) still belongs below the entry's
+ * path, so it falls back to a match by path alone. The list keeps the search
+ * params the entry needs, with the location's own value where it names one, so a
+ * share job leads to the share jobs and a mail job to the mail jobs.
  */
 export function pathAfterTenantSwitch(
   pathname: string,
   items: readonly Pick<NavItem, "path" | "exact" | "matches" | "search">[],
-): string | null {
-  const item = findActiveNavItem(items, pathname);
+  search?: LocationSearch,
+): TenantSwitchTarget | null {
+  const item =
+    findActiveNavItem(items, pathname, search) ??
+    findActiveNavItem(
+      items.map((entry) => ({ ...entry, search: undefined, entry })),
+      pathname,
+    )?.entry ??
+    null;
   if (!item) {
     return null;
   }
-  const list = matchedNavPath(item, pathname);
+  const list = matchedNavPath({ ...item, search: undefined }, pathname);
   if (list === null || list === normalizePath(pathname)) {
     return null;
   }
-  return list;
+  if (!item.search) {
+    return { path: list };
+  }
+  const listSearch: Record<string, string> = {};
+  for (const [key, value] of Object.entries(item.search)) {
+    const own = search?.[key];
+    listSearch[key] = typeof own === "string" && own.length > 0 ? own : value;
+  }
+  return { path: list, search: listSearch };
 }

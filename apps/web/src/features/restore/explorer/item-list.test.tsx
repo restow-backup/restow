@@ -93,6 +93,124 @@ const manyRecipientsMail: TreeEntry = {
 
 const entries = [folder, protectedMail];
 
+function eventEntry(name: string, event: Partial<NonNullable<TreeEntry["event"]>>): TreeEntry {
+  return {
+    id: `event-${name}`,
+    kind: "event",
+    name: `${name}.0123456789abcdef.json`,
+    path: `calendar/Calendar/${name}.0123456789abcdef.json`,
+    parentPath: "calendar/Calendar",
+    size: 900,
+    mtime: "2026-01-01T00:00:00.000Z",
+    itemId: `evt-${name}`,
+    deleted: false,
+    implicit: false,
+    mail: null,
+    contentType: "application/json",
+    event: {
+      subject: name,
+      start: null,
+      end: null,
+      isAllDay: false,
+      type: "singleInstance",
+      recurring: false,
+      organizer: null,
+      location: null,
+      isCancelled: false,
+      exceptionCount: 0,
+      calendarName: "Calendar",
+      recurrenceEnd: null,
+      ...event,
+    },
+  };
+}
+
+const dentist = eventEntry("Dentist", {
+  start: "2026-09-10T08:00:00.000Z",
+  end: "2026-09-10T09:00:00.000Z",
+  location: "Praxis Dr. Weber",
+  organizer: "anna@example.com",
+});
+const holiday = eventEntry("Holiday", {
+  start: "2026-09-15T00:00:00.000Z",
+  end: "2026-09-16T00:00:00.000Z",
+  isAllDay: true,
+});
+const series = eventEntry("Weekly sync", {
+  start: "2026-01-05T10:00:00.000Z",
+  end: "2026-01-05T10:30:00.000Z",
+  type: "seriesMaster",
+  recurring: true,
+});
+
+describe("ItemList for a calendar", () => {
+  it("says when, where and who, by the event's subject, not its stored file name", () => {
+    const html = render(
+      <ItemList
+        entries={[dentist, holiday]}
+        objectKind="mailbox"
+        selection={EMPTY_SELECTION}
+        activePath={null}
+        onToggle={() => {}}
+        onToggleAll={() => {}}
+        onOpen={() => {}}
+        calendar
+      />,
+    );
+    expect(html).toContain(">When<");
+    expect(html).toContain(">Location<");
+    expect(html).toContain(">Organizer<");
+    expect(html).not.toContain(">From<");
+    expect(html).toContain(">Dentist<");
+    expect(html).not.toContain(">Dentist.0123456789abcdef");
+    expect(html).toContain("Praxis Dr. Weber");
+    expect(html).toContain("anna@example.com");
+    // The all-day event by its date, without a time; the timed one with its times.
+    expect(html).toContain("Sep 15, 2026");
+    expect(html).toContain(">All day<");
+    expect(html).toMatch(/Sep 10, 2026/);
+  });
+
+  it("marks a series and shows its occurrences under its row on request", () => {
+    const renderSeries = vi.fn((entry: TreeEntry) => (
+      <p data-testid="occurrences">{entry.event?.subject} occurrences</p>
+    ));
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ItemList
+            entries={[series, dentist]}
+            objectKind="mailbox"
+            selection={EMPTY_SELECTION}
+            activePath={null}
+            onToggle={() => {}}
+            onToggleAll={() => {}}
+            onOpen={() => {}}
+            calendar
+            renderSeries={renderSeries}
+          />
+        </I18nextProvider>,
+      );
+    });
+    expect(container.querySelectorAll('[data-slot="series-badge"]')).toHaveLength(1);
+    const toggle = container.querySelector<HTMLButtonElement>('[data-slot="series-toggle"]');
+    expect(toggle?.getAttribute("aria-label")).toBe("Show the occurrences of Weekly sync");
+    expect(container.querySelector('[data-slot="series-row"]')).toBeNull();
+    act(() => toggle?.click());
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector('[data-slot="series-row"]')?.textContent).toBe(
+      "Weekly sync occurrences",
+    );
+    act(() => toggle?.click());
+    expect(container.querySelector('[data-slot="series-row"]')).toBeNull();
+    act(() => root.unmount());
+    container.remove();
+  });
+});
+
 describe("ItemList", () => {
   it("shows Subject, From, To, Date and Size as columns for a mailbox", () => {
     const html = render(

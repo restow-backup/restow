@@ -7,6 +7,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
+import type * as React from "react";
 import { act } from "react";
 import { vi } from "vitest";
 
@@ -72,6 +73,8 @@ export interface OpenOptions {
   queryClient?: QueryClient;
   /** The public demo: every change is closed before a click. */
   demo?: boolean;
+  /** Wraps the router (a session that changes while the page is open, say). */
+  wrap?: (node: React.ReactNode) => React.ReactNode;
 }
 
 export interface Opened {
@@ -115,7 +118,8 @@ export async function openJobs(url: string, options: OpenOptions = {}): Promise<
     configured: true,
     demo: { enabled: options.demo === true, email: null, password: null },
   });
-  const mounted = mount(<RouterProvider router={router} />, {
+  const page = <RouterProvider router={router} />;
+  const mounted = mount(options.wrap ? options.wrap(page) : page, {
     session: options.session ?? adminSession(),
     queryClient,
   });

@@ -84,6 +84,23 @@ Schutzumfang" anzeigen, nicht als Fehler).
 - Kalender: `/users/{id}/calendars` und `/events` (Serientermine als Master plus
   Ausnahmen; `calendarView` nur für Ansicht, nicht für Backup). Kontakte:
   `/contactFolders` und `/contacts`. Beides als JSON mit Graph-Schema sichern.
+  `/calendars` liefert alle Kalender des Postfachs, auch die in anderen Kalendergruppen
+  ("Weitere Kalender"); `/events` jeden Termin ohne Filter auf Teilnehmer oder Teams, also auch
+  Termine nur für sich selbst. Ausnahmen einer Serie kommen aus `/events/{master}/instances` im
+  Fenster ein Jahr zurück bis zwei Jahre voraus. Nicht gesichert werden die Kalender von
+  Microsoft-365-Gruppen und Teams (Gruppenpostfächer sind keine geschützten Objekte). Ein von
+  einem anderen Postfach freigegebener Kalender gehört diesem Postfach und wird mit ihm gesichert.
+  Die Metadaten eines Termins nennen Betreff, Beginn und Ende (UTC), ganztägig, Organisator, Ort
+  und bei einer Serie das letzte Datum ihres Bereichs (Ort und Serienende ab 0.4.2).
+- Kalender im Restore-Explorer (ab 0.4.2): Ein Kalender listet seine Termine nach Beginn
+  (neueste zuerst oder anstehende zuerst), mit Wann, Ort und Organisator, nicht nach Betreff.
+  Eine Serie steht einmal in der Liste und klappt ihre Termine auf; die Monatsansicht zeigt
+  alle Kalender eines Postfachs (oder einen) Tag für Tag. Die Termine einer Serie berechnet
+  die API (`GET /snapshots/:id/calendar`, auditiert als `snapshot.calendar.read`) aus dem
+  gesicherten Muster und setzt die gesicherten Ausnahmen an ihre Stelle; die Uhrzeit folgt der
+  Zeitzone der Serie über Sommer- und Winterzeit. Ein einzeln gelöschter Termin einer Serie ist
+  im Backup nicht vermerkt (Graph v1.0 nennt keine abgesagten Vorkommen) und erscheint daher
+  noch, so wie ihn eine Wiederherstellung der Serie auch wieder anlegt.
 - Archivpostfach (In-Place Archive): über Graph nur eingeschränkt erreichbar
   (`/users/{id}/mailFolders` liefert das primäre Postfach). Dokumentieren, in v1 nicht
   versprechen.
@@ -115,6 +132,16 @@ Schutzumfang" anzeigen, nicht als Fehler).
 - Restore: Upload-Session `createUploadSession` für alles über 4 MB, Chunks 5 bis
   60 MiB, Vielfache von 320 KiB. Konflikte: `@microsoft.graph.conflictBehavior`
   rename/replace wählbar. mtime setzen über `fileSystemInfo`.
+- Restore-Explorer (ab 0.4.2): Postfach, OneDrive und ein zugeordnetes IMAP-Konto einer
+  Person stehen als ein Eintrag (über den Verzeichnisbenutzer des Objekts,
+  `protected_objects.user_id`); die zweite Spalte zeigt E-Mail, Kalender, Kontakte und OneDrive,
+  jeweils mit den Sicherungsständen des passenden Objekts. Ein OneDrive for Business gehört immer
+  genau einem Benutzer; nach dem Löschen des Kontos steht es verwaist unter dessen Namen, markiert
+  als "Konto gelöscht". SharePoint-Websites (mit den Dateien der Teams-Kanäle) haben einen eigenen
+  Abschnitt. Die Liste kommt seitenweise aus der API (`GET /snapshots/people`, Keyset nach eigenem
+  Eintrag, Name und Schlüssel, je 50 Einträge, beim Blättern oder auf "Weitere anzeigen"); Suche
+  über Namen, Adressen und Konto-IDs und der Typfilter laufen in der Datenbank, so dass auch
+  Mandanten mit über 10.000 Personen nie alle auf einmal laden.
 - Freigaben/Berechtigungen werden als Information gesichert, nicht wiederhergestellt
   (v1).
 - Papierkorb: Elemente im OneDrive-Papierkorb sind über delta nicht erreichbar; ist ok,

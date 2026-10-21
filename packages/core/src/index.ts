@@ -24,6 +24,8 @@ export * from "./backup/onedrive/index.js";
 export * from "./backup/sharepoint/index.js";
 // Backup jobs: schedules, the configuration written to machines, the migration, job retention
 export * from "./backup-jobs/index.js";
+// Calendar series: the occurrences of a backed-up series, for the restore explorer
+export * from "./calendar/index.js";
 export * from "./chunker.js";
 export * from "./chunkId.js";
 // Storage format

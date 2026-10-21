@@ -5,6 +5,7 @@ import {
   collapseVersions,
   compareEntries,
   escapeLike,
+  eventSummaryOf,
   fingerprintOf,
   implicitFolderId,
   isNativeVersionPath,
@@ -173,6 +174,7 @@ function entry(partial: Partial<TreeEntryDto> & Pick<TreeEntryDto, "kind" | "nam
     deleted: false,
     implicit: false,
     mail: null,
+    event: null,
     contentType: null,
     ...partial,
   };
@@ -232,6 +234,79 @@ describe("toTreeEntry", () => {
     expect(dto.mail).toBeNull();
     expect(dto.deleted).toBe(true);
     expect(dto.implicit).toBe(true);
+  });
+});
+
+describe("events", () => {
+  it("lists an event by its own metadata: when, where, who, in which calendar", () => {
+    const dto = toTreeEntry({
+      id: "row-e",
+      kind: "event",
+      name: "Dentist.1a2b3c4d5e6f7a8b.json",
+      path: "calendar/Calendar/Dentist.1a2b3c4d5e6f7a8b.json",
+      parentPath: "calendar/Calendar",
+      size: 900,
+      mtime: null,
+      itemId: "evt-1",
+      deleted: false,
+      metadata: {
+        subject: "Dentist",
+        eventType: "singleInstance",
+        start: "2026-09-10T08:00:00.0000000",
+        end: "2026-09-10T09:00:00.0000000",
+        isAllDay: "false",
+        isCancelled: "false",
+        organizer: "anna@example.test",
+        location: "Praxis Dr. Weber",
+        calendarName: "Calendar",
+        exceptionCount: "0",
+        recurrenceEnd: "",
+      },
+    });
+    expect(dto.mail).toBeNull();
+    expect(dto.event).toEqual({
+      subject: "Dentist",
+      start: "2026-09-10T08:00:00.000Z",
+      end: "2026-09-10T09:00:00.000Z",
+      isAllDay: false,
+      type: "singleInstance",
+      recurring: false,
+      organizer: "anna@example.test",
+      location: "Praxis Dr. Weber",
+      isCancelled: false,
+      exceptionCount: 0,
+      calendarName: "Calendar",
+      recurrenceEnd: null,
+    });
+  });
+
+  it("says what an older restore point did not record yet", () => {
+    const summary = eventSummaryOf({ eventType: "seriesMaster", start: "garbage" });
+    expect(summary).toMatchObject({
+      recurring: true,
+      start: null,
+      location: null,
+      exceptionCount: 0,
+    });
+  });
+
+  it("sorts events by when they start, newest first, not by subject", () => {
+    const event = (name: string, start: string | null) =>
+      entry({ kind: "event", name, event: { ...eventSummaryOf({}), start } });
+    const sorted = sortEntries([
+      event("Aardvark", "2025-01-01T08:00:00.000Z"),
+      event("Board meeting", "2026-10-01T08:00:00.000Z"),
+      event("No date", null),
+      entry({ kind: "folder", name: "Team" }),
+      event("Zebra", "2026-11-01T08:00:00.000Z"),
+    ]);
+    expect(sorted.map((e) => e.name)).toEqual([
+      "Team",
+      "Zebra",
+      "Board meeting",
+      "Aardvark",
+      "No date",
+    ]);
   });
 });
 

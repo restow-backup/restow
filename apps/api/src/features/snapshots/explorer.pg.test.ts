@@ -454,6 +454,16 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer queries against Postgres", () =
       expect(all.every((o) => !o.own)).toBe(true);
     });
 
+    it("names the person each object belongs to, the same for a person's mailbox and OneDrive", async () => {
+      const all = await listObjects(db, f.tenantId, f.admin, { include: "all" });
+      const mailbox = all.find((o) => o.id === f.annaMailbox);
+      const drive = all.find((o) => o.id === f.annaDrive);
+      expect(mailbox?.ownerKey).toEqual(expect.any(String));
+      expect(drive?.ownerKey).toBe(mailbox?.ownerKey);
+      expect(mailbox?.ownerName).toBe("Anna");
+      expect(all.find((o) => o.id === f.bobMailbox)?.ownerKey).not.toBe(mailbox?.ownerKey);
+    });
+
     it("lists points in time newest first and hides running snapshots", async () => {
       const points = await listSnapshots(db, f.tenantId, f.anna, {
         objectId: f.annaMailbox,

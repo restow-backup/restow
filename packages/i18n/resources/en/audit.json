@@ -338,6 +338,9 @@
       "internal_tenant_failed": "Own organisation could not be created during setup"
     },
     "snapshot": {
+      "calendar": {
+        "read": "Calendar of a backup opened"
+      },
       "mail": {
         "attachment_downloaded": "Mail attachment downloaded",
         "previewed": "Mail preview opened"

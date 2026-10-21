@@ -55,6 +55,21 @@ private repository.
 - When an update is available, the version in the sidebar becomes a highlighted, gently
   pulsing **Update to <version> available** that leads to Installation › Updates (for those
   who may install updates; no animation with reduced motion).
+- Restore explorer: a mailbox's calendar has a month view, day by day across all its calendars
+  or one, and a series in the list opens onto its occurrences, derived from the stored pattern
+  with the changed occurrences in place (new `GET /api/v1/snapshots/:id/calendar`, audited as
+  `snapshot.calendar.read`).
+- Restore explorer: one entry per person. A person's mailbox, OneDrive and IMAP account are
+  grouped; the second column shows Mail, Calendar, Contacts and OneDrive, each with its own
+  restore points. SharePoint and Teams sites have a section of their own, an orphaned OneDrive
+  is listed under its owner's name as "Account deleted". The list comes a page at a time from
+  the new `GET /api/v1/snapshots/people` (keyset paging, search over names, addresses and
+  account ids, type filter, all in the database), so tenants with 10,000+ people never load
+  everyone at once. The snapshot objects carry `ownerKey` and `ownerName`.
+- Mail job editor: the first question is what the job should do, back up, archive or both
+  (both is the default for a new job). While it archives, the editor names the capture
+  (Exchange journaling) with the way to its setup and suggests backing up every 8 hours;
+  backing up alone names the gap between two runs.
 
 ### Changed
 
@@ -75,6 +90,10 @@ private repository.
   public API's `storageIntegrity.state` has a new value, `unreadable`.
 - A run that was stopped on request is `cancelled` (machines: a new run and task status);
   it raises no failure alert and does not count as the last backup.
+- Database: index `protected_objects (tenant_id, user_id)` for a person's objects.
+- Restore explorer: calendar events sort by when they start (newest first, or upcoming first)
+  instead of by subject, with When, Location and Organizer columns.
+- Exchange backup: an event's metadata records its location and the end of a series range.
 
 ### Fixed
 
@@ -119,10 +138,12 @@ private repository.
   lines.
 - The update progress said "Downloading {image}" (and "{file}", "{services}"): those steps
   now name the version instead of a placeholder the updater never fills.
+- Switching the tenant on a job's page opens the jobs of that kind in the new tenant instead of
+  saying that the job does not exist; any detail page gives way to its list.
 
 ### Upgrade Notes
 
-New image and four database migrations, which run in seconds whatever the size of the
+New image and five database migrations, which run in seconds whatever the size of the
 installation:
 
 - `0053_pve_repository_chains`: a container's new backup chains
@@ -136,6 +157,8 @@ installation:
 - `0056_cancel_and_fleet_update`: cancel requests and `cancelled` states for tasks and runs, a
   node's paused queue, "update now" for nodes and machines, the phase `fleet` of the job-start
   pause, `settings.planned_update`.
+- `0057_explorer_people`: an index on the protected objects of a person in a tenant, for the
+  restore explorer's list of people.
 
 Optional: `RESTOW_TIME_ZONE` names the installation's time zone for planned updates (default
 `TZ`, else Europe/Berlin).

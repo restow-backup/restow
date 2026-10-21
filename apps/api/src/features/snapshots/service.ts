@@ -1,3 +1,4 @@
+import { expandSeries, type RecurringEventLike } from "@restow/core";
 import {
   chunkIdsFromDriver,
   type Database,
@@ -10,7 +11,7 @@ import {
   sources,
   users,
 } from "@restow/db";
-import { and, desc, eq, isNotNull, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import { type AuditEvent, audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -24,6 +25,7 @@ import {
 import {
   canAccessObject,
   isOwnObject,
+  normalizeEmail,
   type OwnedObject,
   onBehalfOfOwner,
   type Viewer,
@@ -31,6 +33,7 @@ import {
 } from "./access.js";
 import {
   ContentUnavailableError,
+  openManifestObjectReader,
   type ReadableManifestEntry,
   readManifestObjectBytes,
 } from "./content.js";
@@ -48,8 +51,10 @@ import {
   previewInWorker,
 } from "./preview-isolated.js";
 import type {
+  CalendarQuery,
   ListObjectsQuery,
   ListSnapshotsQuery,
+  PeopleQuery,
   SearchQuery,
   TreeQuery,
   VersionsQuery,
@@ -63,6 +68,7 @@ import {
   compareEntries,
   type EntryRow,
   escapeLike,
+  eventSummaryOf,
   fingerprintOf,
   mailSummaryOf,
   NATIVE_VERSION_MARKER,
@@ -96,6 +102,7 @@ export const SNAPSHOT_AUDIT_ACTIONS = {
   searched: "snapshot.searched",
   mailPreviewed: "snapshot.mail.previewed",
   attachmentDownloaded: "snapshot.mail.attachment_downloaded",
+  calendarRead: "snapshot.calendar.read",
 } as const;
 
 /** A viewer reading backup contents, with the client IP the audit log records. */
@@ -149,6 +156,14 @@ export interface SnapshotObjectDto {
   /** m365 or imap: which source backs this object up, for the explorer's grouping. */
   sourceKind: Source["kind"];
   ownerEmail: string | null;
+  /**
+   * The person the object belongs to (the directory user, `protected_objects.user_id`), so the
+   * explorer can show a person's mailbox, OneDrive and IMAP account as one entry (#49); null for
+   * an object of no one (a SharePoint site) or whose user is gone from the directory table.
+   */
+  ownerKey: string | null;
+  /** That person's display name from the directory; null when unknown. */
+  ownerName: string | null;
   /** True when the object belongs to the viewer (self-service restore). */
   own: boolean;
   /** Completed backups ("restore points"); 0 for an object never backed up yet. */
@@ -314,69 +329,84 @@ export async function listObjects(
   viewer: Viewer,
   query: Pick<ListObjectsQuery, "include"> = { include: "withBackup" },
 ): Promise<SnapshotObjectDto[]> {
-  return withTenantTx(db, tenantId, async (tx) => {
-    const visible = visibleObjectsCondition(viewer);
-    const snapshotJoin = and(
-      eq(snapshots.protectedObjectId, protectedObjects.id),
-      completedSnapshot(),
-    ) as SQL;
-    const rows = await tx
-      .select({
-        id: protectedObjects.id,
-        kind: protectedObjects.kind,
-        externalId: protectedObjects.externalId,
-        displayName: protectedObjects.displayName,
-        status: protectedObjects.status,
-        sourceKind: sources.kind,
-        ownerEmail: users.email,
-        snapshotCount: sql<number>`count(${snapshots.id})::int`,
-        latestSnapshotId: sql<
-          string | null
-        >`(array_agg(${snapshots.id} order by ${snapshots.sequence} desc))[1]`,
-        latestSnapshotAt: sql<Date | null>`max(${snapshots.completedAt})`.mapWith(
-          snapshots.completedAt,
-        ),
-      })
-      .from(protectedObjects)
-      .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
-      .leftJoin(users, eq(users.id, protectedObjects.userId))
-      // Always a LEFT JOIN: with `include: "all"` an object with no completed
-      // snapshot still gets a (null) row to aggregate into zeros; otherwise
-      // the same rows are dropped below, which is exactly an inner join.
-      .leftJoin(snapshots, snapshotJoin)
-      .where(
-        and(
-          eq(protectedObjects.tenantId, tenantId),
-          ...(visible ? [visible] : []),
-          ...(query.include === "all" ? [] : [isNotNull(snapshots.id)]),
-        ),
-      )
-      .groupBy(protectedObjects.id, sources.kind, users.email)
-      .orderBy(
-        sql`lower(coalesce(${protectedObjects.displayName}, ${protectedObjects.externalId}))`,
-      );
+  return withTenantTx(db, tenantId, (tx) => selectObjects(tx, tenantId, viewer, query.include));
+}
 
-    const verifications = await loadObjectVerifications(
-      tx,
-      tenantId,
-      rows.map((row) => row.id),
-    );
+/** The snapshot objects of {@link listObjects}, optionally only those with the given ids. */
+async function selectObjects(
+  tx: DbExecutor,
+  tenantId: string,
+  viewer: Viewer,
+  include: ListObjectsQuery["include"],
+  ids?: readonly string[],
+): Promise<SnapshotObjectDto[]> {
+  if (ids && ids.length === 0) {
+    return [];
+  }
+  const visible = visibleObjectsCondition(viewer);
+  const snapshotJoin = and(
+    eq(snapshots.protectedObjectId, protectedObjects.id),
+    completedSnapshot(),
+  ) as SQL;
+  const rows = await tx
+    .select({
+      id: protectedObjects.id,
+      kind: protectedObjects.kind,
+      externalId: protectedObjects.externalId,
+      displayName: protectedObjects.displayName,
+      status: protectedObjects.status,
+      sourceKind: sources.kind,
+      ownerEmail: users.email,
+      ownerKey: protectedObjects.userId,
+      ownerName: users.displayName,
+      snapshotCount: sql<number>`count(${snapshots.id})::int`,
+      latestSnapshotId: sql<
+        string | null
+      >`(array_agg(${snapshots.id} order by ${snapshots.sequence} desc))[1]`,
+      latestSnapshotAt: sql<Date | null>`max(${snapshots.completedAt})`.mapWith(
+        snapshots.completedAt,
+      ),
+    })
+    .from(protectedObjects)
+    .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
+    .leftJoin(users, eq(users.id, protectedObjects.userId))
+    // Always a LEFT JOIN: with `include: "all"` an object with no completed
+    // snapshot still gets a (null) row to aggregate into zeros; otherwise
+    // the same rows are dropped below, which is exactly an inner join.
+    .leftJoin(snapshots, snapshotJoin)
+    .where(
+      and(
+        eq(protectedObjects.tenantId, tenantId),
+        ...(visible ? [visible] : []),
+        ...(include === "all" ? [] : [isNotNull(snapshots.id)]),
+        ...(ids ? [inArray(protectedObjects.id, [...ids])] : []),
+      ),
+    )
+    .groupBy(protectedObjects.id, sources.kind, users.email, users.displayName)
+    .orderBy(sql`lower(coalesce(${protectedObjects.displayName}, ${protectedObjects.externalId}))`);
 
-    return rows.map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      externalId: row.externalId,
-      displayName: row.displayName,
-      status: row.status,
-      sourceKind: row.sourceKind,
-      ownerEmail: row.ownerEmail,
-      own: isOwnObject(viewer, row),
-      snapshotCount: Number(row.snapshotCount),
-      latestSnapshotId: row.latestSnapshotId,
-      latestSnapshotAt: iso(row.latestSnapshotAt),
-      readiness: verifications.get(row.id)?.verification.state ?? "no_backup",
-    }));
-  });
+  const verifications = await loadObjectVerifications(
+    tx,
+    tenantId,
+    rows.map((row) => row.id),
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    externalId: row.externalId,
+    displayName: row.displayName,
+    status: row.status,
+    sourceKind: row.sourceKind,
+    ownerEmail: row.ownerEmail,
+    ownerKey: row.kind === "site" ? null : row.ownerKey,
+    ownerName: row.kind === "site" ? null : row.ownerName,
+    own: isOwnObject(viewer, row),
+    snapshotCount: Number(row.snapshotCount),
+    latestSnapshotId: row.latestSnapshotId,
+    latestSnapshotAt: iso(row.latestSnapshotAt),
+    readiness: verifications.get(row.id)?.verification.state ?? "no_backup",
+  }));
 }
 
 /** Completed snapshots (points in time), newest first, each with its verification. */
@@ -430,8 +460,11 @@ interface ListingScope {
   foldersOnly: boolean;
   /** Hide OneDrive's `<file>:versions/<id>` objects (they belong to the version panel). */
   hideNativeVersions: boolean;
-  /** `date` (default): mail newest first, folders first. `name`: everything by name, folders first. */
-  sort: "date" | "name";
+  /**
+   * `date` (default): mail and events newest first, folders first. `upcoming`: events still
+   * ahead first, soonest first, then as `date`. `name`: everything by name, folders first.
+   */
+  sort: "date" | "upcoming" | "name";
 }
 
 /** The raw shape of a listing row (see {@link listingCte}). */
@@ -494,6 +527,28 @@ function mailDateExpression(metadata: SQL, mtime: SQL): SQL {
          THEN (${metadata} ->> ${key})::timestamptz END`;
   const candidates = MAIL_DATE_METADATA_KEYS.map((key) => isoDate(key));
   return sql`COALESCE(${sql.join(candidates, sql`, `)}, ${mtime})`;
+}
+
+/**
+ * When an event starts, from its metadata's `start` (packages/core backup/exchange/calendar.ts
+ * `eventMetadata`): Graph's UTC time without a zone suffix, cast only when it looks like one and
+ * Postgres can represent it (same reasoning as {@link mailDateExpression}); null otherwise.
+ */
+function eventStartExpression(metadata: SQL): SQL {
+  const start = sql`left(${metadata} ->> 'start', 19)`;
+  return sql`
+    CASE WHEN ${start} ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$'
+           AND pg_input_is_valid(${start}, 'timestamp')
+         THEN ${start}::timestamp AT TIME ZONE 'UTC' END`;
+}
+
+/** The end of an event, like {@link eventStartExpression}. */
+function eventEndExpression(metadata: SQL): SQL {
+  const end = sql`left(${metadata} ->> 'end', 19)`;
+  return sql`
+    CASE WHEN ${end} ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$'
+           AND pg_input_is_valid(${end}, 'timestamp')
+         THEN ${end}::timestamp AT TIME ZONE 'UTC' END`;
 }
 
 /** The entries of the given snapshots (see `manifestEntries`), as a FROM item. */
@@ -573,7 +628,10 @@ function listingCte(scope: ListingScope): SQL {
     direct AS (
       SELECT s.id::text AS id, s.kind, s.name, s.path, s.parent_path, s.size, s.mtime,
              s.item_id, s.deleted, s.metadata,
-             ${mailDateExpression(sql`s.metadata`, sql`s.mtime`)} AS mail_date, false AS implicit
+             CASE WHEN s.kind = 'mail' THEN ${mailDateExpression(sql`s.metadata`, sql`s.mtime`)}
+                  WHEN s.kind = 'event' THEN ${eventStartExpression(sql`s.metadata`)}
+             END AS sort_date,
+             false AS implicit
       FROM scope s
       WHERE s.parent_path = ${path}
         ${scope.foldersOnly ? sql`AND s.kind = 'folder'` : sql``}
@@ -593,7 +651,7 @@ function listingCte(scope: ListingScope): SQL {
              n.segment AS name, ${childPath} AS path, ${path} AS parent_path,
              0::bigint AS size, NULL::timestamptz AS mtime, NULL::text AS item_id,
              bool_and(n.deleted) AS deleted, NULL::jsonb AS metadata,
-             NULL::timestamptz AS mail_date, true AS implicit
+             NULL::timestamptz AS sort_date, true AS implicit
       FROM nested n
       WHERE n.segment <> ''
         AND NOT EXISTS (
@@ -633,18 +691,23 @@ function naturalSortKey(column: SQL): SQL {
 
 /**
  * Folders first, always. Within a folder: `sort: "date"` (the default) puts
- * dated mail newest first (by `mail_date`, the listing CTE's precomputed
- * {@link mailDateExpression}, not the raw `mtime`), everything else (undated
- * mail, files, events, contacts) in natural name order; `sort: "name"` puts
- * everything in natural name order, mail included. See {@link compareEntries}
- * for the equivalent in-memory order used for search hits.
+ * dated mail and events newest first (by `sort_date`, the listing CTE's
+ * precomputed {@link mailDateExpression} for mail and {@link eventStartExpression}
+ * for an event, not the raw `mtime`), everything else (undated mail, files,
+ * contacts) in natural name order; `sort: "upcoming"` puts the events that have
+ * not started yet first, soonest first, then the rest as `date` does; `sort:
+ * "name"` puts everything in natural name order, mail and events included. See
+ * {@link compareEntries} for the equivalent in-memory order used for search hits.
  */
-function listingOrder(sort: "date" | "name"): SQL {
-  const byDate = sort === "date" ? sql`true` : sql`false`;
+function listingOrder(sort: "date" | "upcoming" | "name"): SQL {
+  const byDate = sort === "name" ? sql`false` : sql`true`;
+  const upcoming = sort === "upcoming" ? sql`kind = 'event' AND sort_date >= now()` : sql`false`;
   return sql`
     ORDER BY CASE WHEN kind = 'folder' THEN 0 ELSE 1 END,
-             CASE WHEN ${byDate} AND kind = 'mail' AND mail_date IS NOT NULL THEN 0 ELSE 1 END,
-             CASE WHEN ${byDate} AND kind = 'mail' THEN mail_date END DESC,
+             CASE WHEN ${upcoming} THEN 0 ELSE 1 END,
+             CASE WHEN ${upcoming} THEN sort_date END ASC,
+             CASE WHEN ${byDate} AND kind IN ('mail', 'event') AND sort_date IS NOT NULL THEN 0 ELSE 1 END,
+             CASE WHEN ${byDate} AND kind IN ('mail', 'event') THEN sort_date END DESC,
              ${naturalSortKey(sql`name`)}, path
   `;
 }
@@ -1187,6 +1250,432 @@ export async function openAttachmentDownload(
       filename: attachment.filename ?? "attachment",
       contentType: downloadContentType(attachment),
       content: attachment.content,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Calendar view
+// ---------------------------------------------------------------------------
+
+/** One occurrence in a calendar view: a single event, or one of a series. */
+export interface CalendarOccurrenceDto {
+  /** The manifest entry it comes from (the series master for an occurrence of a series). */
+  entryId: string;
+  entryPath: string;
+  /** The entry's own name, source item id and stored size, to open it in the details. */
+  entryName: string;
+  itemId: string | null;
+  size: number;
+  calendarName: string | null;
+  /** `single`: an event of its own; `occurrence`/`exception`: one of a series, as stored. */
+  kind: "single" | "occurrence" | "exception";
+  subject: string | null;
+  start: string;
+  end: string;
+  isAllDay: boolean;
+  location: string | null;
+  organizer: string | null;
+  isCancelled: boolean;
+}
+
+export interface CalendarViewDto {
+  snapshotId: string;
+  path: string;
+  from: string;
+  to: string;
+  /** Oldest first. */
+  occurrences: CalendarOccurrenceDto[];
+  /** More occurrences fall into the window than one view lists. */
+  truncated: boolean;
+  /**
+   * Series that could not be opened (too many in the window, too large, or their content is
+   * damaged): their occurrences are missing from the view, the list view still shows them.
+   */
+  unexpandedSeries: number;
+}
+
+/** The most occurrences one calendar view lists. */
+export const CALENDAR_MAX_OCCURRENCES = 2000;
+/** The most series one calendar view opens to expand them. */
+export const CALENDAR_MAX_SERIES = 200;
+/** A stored series above this size is not opened by a view (its JSON is read whole). */
+const CALENDAR_SERIES_MAX_BYTES = 4 * 1024 * 1024;
+
+interface StoredEventPayload {
+  event?: RecurringEventLike;
+  exceptions?: RecurringEventLike[];
+}
+
+function parseStoredEvent(bytes: Buffer): StoredEventPayload | null {
+  try {
+    const parsed: unknown = JSON.parse(bytes.toString("utf8"));
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    // `{ event, exceptions }` since the calendar phase; a bare event from older engines.
+    return "event" in parsed
+      ? (parsed as StoredEventPayload)
+      : { event: parsed as RecurringEventLike, exceptions: [] };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The events of a mailbox's calendars below `path` (one calendar, or all of them below
+ * `calendar`) that take place in `[from, to)`, every series expanded into its occurrences from
+ * its pattern and its stored exceptions (packages/core calendar/recurrence.ts); with `entryId`,
+ * the occurrences of that one series or event. Single events come from the manifest's own
+ * metadata; a series is opened (its stored JSON read from the chunk store) to know its pattern,
+ * at most {@link CALENDAR_MAX_SERIES} per view. Events the source had deleted by the time of the
+ * restore point are left out. Audited like every other read of backup content.
+ */
+export async function calendarView(
+  db: Database,
+  tenantId: string,
+  reader: SnapshotReader,
+  snapshotId: string,
+  query: CalendarQuery,
+): Promise<CalendarViewDto> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const loaded = await loadSnapshotForViewer(tx, tenantId, reader, snapshotId);
+    const owned = ownedObject(loaded.object, loaded.ownerEmail);
+    const from = new Date(query.from);
+    const to = new Date(query.to);
+    const path = query.path;
+    const start = eventStartExpression(sql`m.metadata`);
+    const end = eventEndExpression(sql`m.metadata`);
+    const master = sql`coalesce(m.metadata ->> 'eventType', '') = 'seriesMaster'`;
+    const where = sql`
+      m.kind = 'event' AND m.deleted = false
+      AND ${
+        query.entryId
+          ? sql`m.id = ${query.entryId}::uuid`
+          : sql`(m.parent_path = ${path}::text
+                 OR left(m.parent_path, length(${path}::text) + 1) = ${path}::text || '/')`
+      }`;
+
+    const singles = await tx.execute<RawEntryRow & { event_start: Date | string }>(sql`
+      SELECT m.*, ${start} AS event_start
+      FROM ${snapshotEntries(tenantId, [snapshotId])} AS m
+      WHERE ${where} AND NOT ${master}
+        AND ${start} < ${to.toISOString()}::timestamptz
+        AND greatest(coalesce(${end}, ${start}), ${start} + interval '1 second')
+            > ${from.toISOString()}::timestamptz
+      ORDER BY event_start, m.path
+      LIMIT ${CALENDAR_MAX_OCCURRENCES + 1}
+    `);
+    // A series can only fall into the window once it has started and while its range lasts.
+    const masters = await tx.execute<RawEntryRow>(sql`
+      SELECT m.* FROM ${snapshotEntries(tenantId, [snapshotId], true)} AS m
+      WHERE ${where} AND ${master}
+        AND (${start} IS NULL OR ${start} < ${to.toISOString()}::timestamptz)
+        AND (coalesce(m.metadata ->> 'recurrenceEnd', '') !~ '^\\d{4}-\\d{2}-\\d{2}$'
+             OR (m.metadata ->> 'recurrenceEnd')::date >= ${from.toISOString()}::timestamptz::date)
+      ORDER BY m.path
+      LIMIT ${CALENDAR_MAX_SERIES + 1}
+    `);
+
+    const occurrences: CalendarOccurrenceDto[] = [];
+    for (const raw of singles.rows.slice(0, CALENDAR_MAX_OCCURRENCES)) {
+      const summary = eventSummaryOf(raw.metadata);
+      if (!summary.start) {
+        continue;
+      }
+      occurrences.push({
+        entryId: raw.id,
+        entryPath: raw.path,
+        entryName: raw.name,
+        itemId: raw.item_id,
+        size: Number(raw.size),
+        calendarName: summary.calendarName,
+        kind:
+          summary.type === "exception" || summary.type === "occurrence" ? summary.type : "single",
+        subject: summary.subject,
+        start: summary.start,
+        end: summary.end ?? summary.start,
+        isAllDay: summary.isAllDay,
+        location: summary.location,
+        organizer: summary.organizer,
+        isCancelled: summary.isCancelled,
+      });
+    }
+    let truncated = singles.rows.length > CALENDAR_MAX_OCCURRENCES;
+    let unexpanded = Math.max(0, masters.rows.length - CALENDAR_MAX_SERIES);
+    const opened = masters.rows.slice(0, CALENDAR_MAX_SERIES);
+    const read = opened.length > 0 ? await openManifestObjectReader(tx, tenantId) : null;
+    for (const raw of opened) {
+      const entry = { ...fromRawEntry(raw), chunkRefs: chunkRefsOf(raw) };
+      if (!read || entry.size > CALENDAR_SERIES_MAX_BYTES) {
+        unexpanded += 1;
+        continue;
+      }
+      let stored: StoredEventPayload | null = null;
+      try {
+        stored = parseStoredEvent(await read(entry));
+      } catch (error) {
+        if (!(error instanceof ContentUnavailableError)) {
+          throw error;
+        }
+      }
+      if (!stored?.event) {
+        unexpanded += 1;
+        continue;
+      }
+      const summary = eventSummaryOf(raw.metadata);
+      const expansion = expandSeries(
+        stored.event,
+        stored.exceptions ?? [],
+        { from: from.getTime(), to: to.getTime() },
+        CALENDAR_MAX_OCCURRENCES,
+      );
+      truncated ||= expansion.truncated;
+      for (const occurrence of expansion.occurrences) {
+        occurrences.push({
+          entryId: raw.id,
+          entryPath: raw.path,
+          entryName: raw.name,
+          itemId: raw.item_id,
+          size: Number(raw.size),
+          calendarName: summary.calendarName,
+          kind: occurrence.kind,
+          subject: occurrence.subject,
+          start: occurrence.start,
+          end: occurrence.end,
+          isAllDay: occurrence.isAllDay,
+          location: occurrence.location,
+          organizer: summary.organizer,
+          isCancelled: occurrence.isCancelled,
+        });
+      }
+    }
+    occurrences.sort(
+      (a, b) => Date.parse(a.start) - Date.parse(b.start) || a.entryPath.localeCompare(b.entryPath),
+    );
+    if (occurrences.length > CALENDAR_MAX_OCCURRENCES) {
+      occurrences.length = CALENDAR_MAX_OCCURRENCES;
+      truncated = true;
+    }
+
+    await auditRead(tx, tenantId, reader, {
+      action: SNAPSHOT_AUDIT_ACTIONS.calendarRead,
+      target: snapshotId,
+      targetType: "snapshot",
+      onBehalfOf: onBehalfOfOwner(reader, owned),
+      details: {
+        ...objectDetails(loaded.object),
+        snapshotSequence: loaded.snapshot.sequence,
+        path,
+        from: from.toISOString(),
+        to: to.toISOString(),
+        ...(query.entryId ? { entryId: query.entryId } : {}),
+        occurrences: occurrences.length,
+        openedSeries: opened.length,
+      },
+    });
+    return {
+      snapshotId,
+      path,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      occurrences,
+      truncated,
+      unexpandedSeries: unexpanded,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// People: the explorer's left column, page by page
+// ---------------------------------------------------------------------------
+
+/** One entry of the explorer's left column: a person with their objects, or one site. */
+export interface PersonEntryDto {
+  /** `user:<user id>`, `object:<id>` for an object of no known person, `site:<id>`. */
+  key: string;
+  name: string;
+  /** The person's address (the owner's), or null. */
+  address: string | null;
+  own: boolean;
+  /** Every object of the entry is orphaned (the account is gone from the directory). */
+  accountDeleted: boolean;
+  /** Mailbox first, then OneDrive, then IMAP accounts. */
+  objects: SnapshotObjectDto[];
+}
+
+export interface PeoplePageDto {
+  section: PeopleQuery["section"];
+  items: PersonEntryDto[];
+  /** Entries that match the search and filter, all pages together. */
+  total: number;
+  /** The cursor of the next page; null on the last one. */
+  next: string | null;
+}
+
+interface PeopleCursor {
+  own: boolean;
+  name: string;
+  key: string;
+}
+
+function encodeCursor(cursor: PeopleCursor): string {
+  return Buffer.from(JSON.stringify([cursor.own ? 0 : 1, cursor.name, cursor.key])).toString(
+    "base64url",
+  );
+}
+
+function decodeCursor(value: string): PeopleCursor {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (
+      Array.isArray(parsed) &&
+      (parsed[0] === 0 || parsed[0] === 1) &&
+      typeof parsed[1] === "string" &&
+      typeof parsed[2] === "string"
+    ) {
+      return { own: parsed[0] === 0, name: parsed[1], key: parsed[2] };
+    }
+  } catch {
+    // Falls through to the problem below.
+  }
+  throw new ProblemError(400, "Invalid cursor", {
+    detail: "The cursor does not come from a previous page of this list.",
+  });
+}
+
+const KIND_RANK: Readonly<Record<string, number>> = { mailbox: 0, onedrive: 1, imap: 2, site: 3 };
+
+/**
+ * The explorer's left column one page at a time, for tenants with tens of thousands of people:
+ * people grouped by the directory user their objects belong to (`protected_objects.user_id`),
+ * or sites, the viewer's own entry first, then by name and key (a keyset, stable while objects
+ * come and go). Search and the type filter run in the database over every name, address and
+ * account id. The grouping reads the tenant's objects through `protected_objects_tenant_status_idx`
+ * once per page; the objects of the page (their restore points and readiness) are loaded by id.
+ */
+export async function listPeople(
+  db: Database,
+  tenantId: string,
+  viewer: Viewer,
+  query: PeopleQuery,
+): Promise<PeoplePageDto> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const visible = visibleObjectsCondition(viewer);
+    const email = normalizeEmail(viewer.email);
+    const own =
+      email.length === 0
+        ? sql`false`
+        : sql`(lower(u.email) = ${email} OR lower(po.external_id) = ${email})`;
+    const section =
+      query.objectId !== undefined
+        ? sql`true`
+        : query.section === "sites"
+          ? sql`po.kind = 'site'`
+          : sql`po.kind <> 'site'`;
+    const withBackup =
+      query.include === "all"
+        ? sql`true`
+        : sql`EXISTS (SELECT 1 FROM snapshots sn WHERE sn.protected_object_id = po.id
+                        AND sn.status = 'active' AND sn.manifest_path IS NOT NULL)`;
+    const visibility = visible
+      ? sql`(lower(u.email) = ${email} OR lower(po.external_id) = ${email})`
+      : sql`true`;
+
+    const filters: SQL[] = [];
+    if (query.kind) {
+      filters.push(sql`bool_or(o.kind = ${query.kind})`);
+    }
+    const words = query.q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+    for (const word of words) {
+      filters.push(sql`bool_or(o.hay LIKE ${`%${escapeLike(word)}%`})`);
+    }
+    if (query.objectId) {
+      filters.push(sql`bool_or(o.id = ${query.objectId}::uuid)`);
+    }
+    const having = filters.length > 0 ? sql`HAVING ${sql.join(filters, sql` AND `)}` : sql``;
+    const cursor = query.after && !query.objectId ? decodeCursor(query.after) : null;
+    const after = cursor
+      ? sql`WHERE (g.rank, g.sort_name, g.key) > (${cursor.own ? 0 : 1}, ${cursor.name}, ${cursor.key})`
+      : sql``;
+
+    const result = await tx.execute<{
+      key: string;
+      name: string;
+      sort_name: string;
+      own: boolean;
+      ids: string[];
+      total: number;
+    }>(sql`
+      WITH o AS (
+        SELECT po.id, po.kind, po.status,
+               CASE WHEN po.kind = 'site' THEN 'site:' || po.id::text
+                    WHEN po.user_id IS NOT NULL THEN 'user:' || po.user_id::text
+                    ELSE 'object:' || po.id::text END AS key,
+               u.display_name AS owner_name,
+               coalesce(po.display_name, po.external_id) AS label,
+               ${own} AS own,
+               lower(concat_ws(' ', po.display_name, po.external_id, u.email, u.display_name, u.upn)) AS hay
+        FROM protected_objects po
+        LEFT JOIN users u ON u.id = po.user_id
+        WHERE po.tenant_id = ${tenantId}::uuid AND ${section} AND ${visibility} AND ${withBackup}
+      ),
+      g AS (
+        SELECT o.key,
+               coalesce(max(o.owner_name), min(o.label) FILTER (WHERE o.kind <> 'imap'), min(o.label)) AS name,
+               CASE WHEN bool_or(o.own) THEN 0 ELSE 1 END AS rank,
+               bool_or(o.own) AS own,
+               array_agg(o.id::text) AS ids
+        FROM o
+        GROUP BY o.key
+        ${having}
+      ),
+      ranked AS (
+        SELECT g.*, lower(g.name) AS sort_name, count(*) OVER () AS total FROM g
+      )
+      SELECT g.key, g.name, g.sort_name, g.own, g.ids, g.total::int AS total
+      FROM ranked g
+      ${after}
+      ORDER BY g.rank, g.sort_name, g.key
+      LIMIT ${query.objectId ? 1 : query.limit + 1}
+    `);
+    // `total` is counted before the cursor applies: on a later page it still counts all matches.
+    const rows = result.rows.slice(0, query.objectId ? 1 : query.limit);
+    const objects = await selectObjects(
+      tx,
+      tenantId,
+      viewer,
+      query.include,
+      rows.flatMap((row) => row.ids),
+    );
+    const byId = new Map(objects.map((object) => [object.id, object]));
+    const items = rows.map((row): PersonEntryDto => {
+      const list = row.ids
+        .map((id) => byId.get(id))
+        .filter((object): object is SnapshotObjectDto => object !== undefined)
+        .sort(
+          (a, b) =>
+            (KIND_RANK[a.kind] ?? 9) - (KIND_RANK[b.kind] ?? 9) ||
+            (a.displayName ?? a.externalId).localeCompare(b.displayName ?? b.externalId),
+        );
+      const first = list[0];
+      return {
+        key: row.key,
+        name: row.name,
+        address: first?.ownerEmail ?? null,
+        own: row.own,
+        accountDeleted: list.length > 0 && list.every((object) => object.status === "orphaned"),
+        objects: list,
+      };
+    });
+    const last = rows[rows.length - 1];
+    const more = !query.objectId && result.rows.length > query.limit;
+    return {
+      section: query.section,
+      items,
+      total: Number(result.rows[0]?.total ?? 0),
+      next:
+        more && last ? encodeCursor({ own: last.own, name: last.sort_name, key: last.key }) : null,
     };
   });
 }

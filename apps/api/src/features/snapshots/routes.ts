@@ -14,8 +14,10 @@ import { restorePointImmutability } from "../storage/immutability.js";
 import type { Viewer } from "./access.js";
 import {
   attachmentParamSchema,
+  calendarQuerySchema,
   listObjectsQuerySchema,
   listSnapshotsQuerySchema,
+  peopleQuerySchema,
   searchQuerySchema,
   snapshotEntryParamSchema,
   treeQuerySchema,
@@ -23,7 +25,9 @@ import {
   versionsQuerySchema,
 } from "./schemas.js";
 import {
+  calendarView,
   listObjects,
+  listPeople,
   listSnapshots,
   listTree,
   listVersions,
@@ -89,6 +93,12 @@ snapshotsRoutes.get("/objects", tenantUser, async (c) => {
   return c.json({ items: await listObjects(db, c.get("tenantId"), viewerOf(c), query) });
 });
 
+/** The explorer's left column, a page at a time: people (or sites), searchable and filtered. */
+snapshotsRoutes.get("/people", tenantUser, async (c) => {
+  const query = parseOrProblem(peopleQuerySchema, c.req.query());
+  return c.json(await listPeople(db, c.get("tenantId"), viewerOf(c), query));
+});
+
 snapshotsRoutes.get("/objects/:id/versions", tenantUser, async (c) => {
   const { id } = parseOrProblem(uuidParamSchema, c.req.param());
   const query = parseOrProblem(versionsQuerySchema, c.req.query());
@@ -115,6 +125,13 @@ snapshotsRoutes.get("/:id/tree", tenantUser, async (c) => {
   const { id } = parseOrProblem(uuidParamSchema, c.req.param());
   const query = parseOrProblem(treeQuerySchema, c.req.query());
   return c.json(await listTree(db, c.get("tenantId"), readerOf(c), id, query));
+});
+
+/** A mailbox's calendar in a window, every series expanded into its occurrences. */
+snapshotsRoutes.get("/:id/calendar", tenantUser, async (c) => {
+  const { id } = parseOrProblem(uuidParamSchema, c.req.param());
+  const query = parseOrProblem(calendarQuerySchema, c.req.query());
+  return c.json(await calendarView(db, c.get("tenantId"), readerOf(c), id, query));
 });
 
 snapshotsRoutes.get("/:snapshotId/entries/:entryId/preview", tenantUser, async (c) => {

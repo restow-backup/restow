@@ -28,6 +28,14 @@ export interface SnapshotObject {
   status: ObjectStatus;
   sourceKind: SourceKind;
   ownerEmail: string | null;
+  /**
+   * The person the object belongs to (the directory user), the same for a person's mailbox,
+   * OneDrive and IMAP account; null for a site or an object of no known person. Absent from an
+   * API older than 0.4.2.
+   */
+  ownerKey?: string | null;
+  /** That person's display name from the directory. */
+  ownerName?: string | null;
   /** The object belongs to the signed-in person (self-service restore). */
   own: boolean;
   snapshotCount: number;
@@ -35,6 +43,55 @@ export interface SnapshotObject {
   latestSnapshotAt: string | null;
   /** Whether the newest backup (if any) is proven restorable; see `@/features/verify/api`. */
   readiness: ObjectState;
+}
+
+/**
+ * One entry of the explorer's left column (the API's `PersonEntryDto`): a person with their
+ * mailbox, OneDrive and IMAP account, or one SharePoint or Teams site.
+ */
+export interface PersonEntry {
+  /** `user:<id>`, `object:<id>` (an object of no known person) or `site:<id>`. */
+  key: string;
+  name: string;
+  address: string | null;
+  own: boolean;
+  /** Every object is orphaned: the account is gone from the directory. */
+  accountDeleted: boolean;
+  /** Mailbox first, then OneDrive, then IMAP accounts. */
+  objects: SnapshotObject[];
+}
+
+export type PeopleSection = "people" | "sites";
+
+export interface PeoplePage {
+  section: PeopleSection;
+  items: PersonEntry[];
+  total: number;
+  /** The cursor of the next page; null on the last one. */
+  next: string | null;
+}
+
+/** The page size of the explorer's left column. */
+export const PEOPLE_PAGE_SIZE = 50;
+
+/** One page of people or sites, searched and filtered by the API. */
+export function fetchPeople(params: {
+  section: PeopleSection;
+  q?: string;
+  kind?: ObjectKind;
+  after?: string | null;
+  objectId?: string;
+}): Promise<PeoplePage> {
+  return apiFetch<PeoplePage>(
+    `/snapshots/people${queryString({
+      section: params.section,
+      q: params.q || undefined,
+      kind: params.kind,
+      after: params.after ?? undefined,
+      objectId: params.objectId,
+      limit: PEOPLE_PAGE_SIZE,
+    })}`,
+  );
 }
 
 export interface Snapshot {
@@ -80,6 +137,28 @@ export interface MailSummary {
   protection: MailProtectionKind | null;
 }
 
+/**
+ * An event as the list shows it, from the backup's own metadata (the API's `EventSummary`,
+ * apps/api/src/features/snapshots/tree.ts). Times are ISO-8601 UTC; an all-day event's are
+ * midnight UTC of its days. `location` and `recurrenceEnd` are null on restore points made
+ * before 0.4.2.
+ */
+export interface EventSummary {
+  subject: string | null;
+  start: string | null;
+  end: string | null;
+  isAllDay: boolean;
+  type: string | null;
+  /** A series: its occurrences come from its pattern (see {@link fetchCalendar}). */
+  recurring: boolean;
+  organizer: string | null;
+  location: string | null;
+  isCancelled: boolean;
+  exceptionCount: number;
+  calendarName: string | null;
+  recurrenceEnd: string | null;
+}
+
 export interface TreeEntry {
   id: string;
   kind: EntryKind;
@@ -93,7 +172,39 @@ export interface TreeEntry {
   /** A folder the backup did not record on its own (it exists through its contents). */
   implicit: boolean;
   mail: MailSummary | null;
+  /** Present for calendar events (absent from an API older than 0.4.2). */
+  event?: EventSummary | null;
   contentType: string | null;
+}
+
+/** One occurrence in a calendar view: a single event, or one of a series. */
+export interface CalendarOccurrence {
+  /** The entry it comes from (the series for an occurrence of a series). */
+  entryId: string;
+  entryPath: string;
+  entryName: string;
+  itemId: string | null;
+  size: number;
+  calendarName: string | null;
+  kind: "single" | "occurrence" | "exception";
+  subject: string | null;
+  start: string;
+  end: string;
+  isAllDay: boolean;
+  location: string | null;
+  organizer: string | null;
+  isCancelled: boolean;
+}
+
+export interface CalendarView {
+  snapshotId: string;
+  path: string;
+  from: string;
+  to: string;
+  occurrences: CalendarOccurrence[];
+  truncated: boolean;
+  /** Series the view could not open: their occurrences are missing, the list still has them. */
+  unexpandedSeries: number;
 }
 
 export interface BreadcrumbSegment {
@@ -366,10 +477,22 @@ export const restoreKeys = {
   all: (tenantId: TenantKey) => ["tenant", tenantId, "restore"] as const,
   objects: (tenantId: TenantKey, includeAll: boolean) =>
     ["tenant", tenantId, "restore", "objects", includeAll] as const,
+  people: (tenantId: TenantKey, section: PeopleSection, q: string, kind: ObjectKind | null) =>
+    ["tenant", tenantId, "restore", "people", section, q, kind] as const,
+  personOf: (tenantId: TenantKey, objectId: string | null) =>
+    ["tenant", tenantId, "restore", "person-of", objectId] as const,
   snapshots: (tenantId: TenantKey, objectId: string | null) =>
     ["tenant", tenantId, "restore", "snapshots", objectId] as const,
   tree: (tenantId: TenantKey, snapshotId: string | null, path: string, sort: TreeSort) =>
     ["tenant", tenantId, "restore", "tree", snapshotId, path, sort] as const,
+  calendar: (
+    tenantId: TenantKey,
+    snapshotId: string | null,
+    path: string,
+    from: string,
+    to: string,
+    entryId: string | null,
+  ) => ["tenant", tenantId, "restore", "calendar", snapshotId, path, from, to, entryId] as const,
   folders: (tenantId: TenantKey, snapshotId: string | null, path: string) =>
     ["tenant", tenantId, "restore", "folders", snapshotId, path] as const,
   preview: (tenantId: TenantKey, snapshotId: string | null, entryId: string | null) =>
@@ -434,8 +557,24 @@ export const TREE_PAGE_SIZE = 500;
 export const FOLDER_PAGE_SIZE = 2000;
 
 /** How the item list orders a folder's contents; folders always come first. */
-export type TreeSort = "date" | "name";
+/** `upcoming`: the events still ahead first, soonest first (calendar folders). */
+export type TreeSort = "date" | "upcoming" | "name";
 export const DEFAULT_TREE_SORT: TreeSort = "date";
+
+/** A mailbox's calendar (or one series, with `entryId`) between `from` and `to`. */
+export function fetchCalendar(
+  snapshotId: string,
+  window: { path: string; from: string; to: string; entryId?: string | null },
+): Promise<CalendarView> {
+  return apiFetch<CalendarView>(
+    `/snapshots/${id(snapshotId)}/calendar${queryString({
+      path: window.path,
+      from: window.from,
+      to: window.to,
+      entryId: window.entryId ?? undefined,
+    })}`,
+  );
+}
 
 export function fetchTree(
   snapshotId: string,

@@ -17,7 +17,12 @@
       "calendar": "Calendar",
       "contacts": "Contacts",
       "libraries": "Libraries",
-      "lists": "Lists"
+      "lists": "Lists",
+      "label": "What this person's backups hold",
+      "onedrive": "OneDrive",
+      "imap": "Mail (IMAP)",
+      "gone": "Removed",
+      "noBackup": "No backup yet"
     },
     "deleted": "Deleted in source",
     "deletedShort": "Deleted",
@@ -30,7 +35,7 @@
     "accounts": {
       "title": "Accounts",
       "searchLabel": "Search accounts",
-      "searchPlaceholder": "Search mailboxes, OneDrives and IMAP accounts …",
+      "searchPlaceholder": "Search people, sites and accounts …",
       "typeAll": "All accounts",
       "typeLabel": "Account type",
       "types": {
@@ -45,7 +50,11 @@
       "lastImport": "Last import",
       "protected": "Protected",
       "excluded": "Not protected",
-      "imported": "Imported"
+      "imported": "Imported",
+      "people": "People",
+      "sites": "SharePoint & Teams sites",
+      "accountDeleted": "Account deleted",
+      "more": "{count, plural, one {Show # more} other {Show # more}}"
     },
     "object": {
       "own": "Yours",
@@ -92,7 +101,9 @@
     "sort": {
       "label": "Sort by",
       "date": "Date",
-      "name": "Name"
+      "name": "Name",
+      "newest": "Newest first",
+      "upcoming": "Upcoming first"
     },
     "columns": {
       "name": "Name",
@@ -101,7 +112,10 @@
       "to": "To",
       "toMore": "+{count} more",
       "date": "Date",
-      "size": "Size"
+      "size": "Size",
+      "when": "When",
+      "location": "Location",
+      "organizer": "Organizer"
     },
     "flags": {
       "attachments": "Has attachments",
@@ -141,6 +155,28 @@
       "label": "Everything at this restore point",
       "restore": "Restore everything …",
       "download": "Download everything"
+    },
+    "calendar": {
+      "viewLabel": "Show the calendar as",
+      "list": "List",
+      "month": "Month",
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month",
+      "allDay": "All day",
+      "series": "Series",
+      "seriesHint": "A recurring appointment: the backup keeps the series with its changed occurrences. Open it to see every occurrence.",
+      "showOccurrences": "Show the occurrences of {name}",
+      "hideOccurrences": "Hide the occurrences of {name}",
+      "occurrences": "{count, plural, one {# occurrence} other {# occurrences}}, from the series pattern and its changed occurrences. A single occurrence deleted in Outlook can still appear here, as it would after restoring the series.",
+      "occurrence": "Occurrence of a series",
+      "changedOccurrence": "Changed occurrence of a series",
+      "changed": "Changed",
+      "noSubject": "(No subject)",
+      "loadError": "The calendar could not be loaded.",
+      "emptyMonth": "Nothing on this month",
+      "emptyMonthDescription": "This restore point holds no appointments in this month. Earlier or later months may have some.",
+      "truncated": "Not every appointment of this period is shown: there are more than one view lists.",
+      "unexpanded": "{count, plural, one {# series could not be opened} other {# series could not be opened}}: its occurrences are missing here; the list still shows it."
     }
   },
   "details": {

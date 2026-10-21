@@ -5,6 +5,7 @@ import {
   compactSearch,
   parseExplorerSearch,
   preferredObject,
+  withCalendarView,
   withFolder,
   withItem,
   withObject,
@@ -115,5 +116,29 @@ describe("preferredObject", () => {
     ).toBe("b");
     expect(preferredObject([{ own: false, id: "a" }])?.id).toBe("a");
     expect(preferredObject([])).toBeNull();
+  });
+});
+
+describe("the calendar's view in the address", () => {
+  it("keeps the month view and its month, and drops a month without the view", () => {
+    const parsed = parseExplorerSearch({ path: "calendar/Team", view: "month", month: "2026-09" });
+    expect(compactSearch(parsed)).toEqual({
+      path: "calendar/Team",
+      view: "month",
+      month: "2026-09",
+    });
+    expect(compactSearch(parseExplorerSearch({ month: "2026-09" }))).toEqual({});
+    expect(parseExplorerSearch({ view: "week", month: "2026-13" })).toMatchObject({
+      view: undefined,
+      month: undefined,
+    });
+    expect(parseExplorerSearch({ sort: "upcoming" }).sort).toBe("upcoming");
+  });
+
+  it("keeps the month view from one calendar to another, and leaves it outside the calendar", () => {
+    const month = withCalendarView({ object: "o", path: "calendar" }, "month", "2026-09");
+    expect(withFolder(month, "calendar/Team")).toMatchObject({ view: "month", month: "2026-09" });
+    expect(withFolder(month, "mail/Inbox")).toMatchObject({ view: undefined, month: undefined });
+    expect(withCalendarView(month, "list")).toMatchObject({ view: undefined, month: undefined });
   });
 });
