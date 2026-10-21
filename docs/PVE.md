@@ -194,6 +194,44 @@ unique per installation).
 - **Boot test** (off by default): weekly, or after every backup, the guest's
   node boots the newest restore point in isolation and destroys it again; see
   "Boot test" below.
+- **Where backups land.** The guest page, its "Back up now" dialog, the job
+  dialog and the connect dialog name the tenant's effective primary repository
+  (docs/STORAGE.md, "Where backups land"); the installation default on the
+  server's local disk is highlighted, and a warning says when backups land on
+  the server's own disk.
+
+### New backup chain
+
+`repository_ready_at` only says a container's repository was created once.
+Before a backup run gets its restic credential, the server makes sure the
+repository is really on the tenant's primary (a `HEAD` of
+`pve-guests/<guest id>/config`, once per run; `features/pve/repository.ts`):
+
+- **There:** the backup runs as always.
+- **Only on another target of the tenant** (a retired primary after "keep
+  existing backups where they are"): the backup is refused with
+  `pve-repository-elsewhere` and a message that says to move the backups with a
+  storage "move" or to reset the repository. Nothing is created. Restores of
+  the container read from whichever target holds the repository.
+- **Nowhere:** a new repository is created (a new password, `restic init`, the
+  sealed password file next to it) and a **new backup chain** begins. The
+  container's earlier restore points become `unavailable`: they can no longer
+  be restored, browsed or checked, readiness and the overviews no longer count
+  them, and retention leaves them alone. The guest records the chain
+  (`pve_guests.repository_chains`, the newest ten) and the audit log
+  `pve.repository.reinitialized` (with the run, the target and how many
+  restore points became unavailable). The guest page shows "New backup chain
+  started on <date>: the previous repository was not found at <target>", the
+  unavailable restore points as "Not available", and the chain in the guest's
+  history. The storage not answering is not "missing": the backup fails with
+  `pve-repository-unreachable` instead.
+
+**Reset repository** (guest page, danger zone, containers only): for a damaged
+repository or one that lies on a target that is gone. It needs the guest's
+name typed and a recent sign-in, and is audited (`pve.repository.reset`). Every
+restore point of the container becomes unavailable at once; the next backup
+removes what is left of the old repository on the primary and begins a new
+chain. A retired target is never touched.
 
 ## In the overviews
 

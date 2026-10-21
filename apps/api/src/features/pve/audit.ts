@@ -21,6 +21,11 @@ export const PVE_AUDIT_ACTIONS = {
   filesBrowsed: "pve.snapshot.browsed",
   filesDownloaded: "pve.snapshot.downloaded",
   denied: "pve.node.denied",
+  // A container's repository was missing on the primary when a backup began: a new chain
+  // began (docs/PVE.md, "New backup chain").
+  repositoryReinitialized: "pve.repository.reinitialized",
+  // An administrator reset a container's repository (typed confirmation, recent sign-in).
+  repositoryReset: "pve.repository.reset",
 } as const;
 
 export interface PveActor {

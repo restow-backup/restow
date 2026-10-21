@@ -291,6 +291,9 @@ export const assignJobSchema = z.object({ jobId: uuid.nullable() });
 
 export const backupNowSchema = z.object({ verifyRead: z.boolean().default(false) });
 
+/** Reset a container's repository: the guest's name typed as confirmation. */
+export const resetRepositorySchema = z.object({ confirmName: z.string().max(200) }).strict();
+
 export const restoreSchema = z.object({
   targetNode: z.string().max(64).optional(),
   targetStorage: storageId,

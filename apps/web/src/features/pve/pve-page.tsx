@@ -35,6 +35,7 @@ import {
 import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { inventoryTo } from "@/features/endpoints/paths";
+import { BackupDestinationNote } from "@/features/storage";
 import { formatBytes, formatDateTime } from "@/lib/format";
 
 import {
@@ -197,6 +198,8 @@ export function JobDialog({
           <DialogHeader>
             <DialogTitle>{job ? job.name : t("jobs.create")}</DialogTitle>
           </DialogHeader>
+          {/* The repository the job's container backups and VM disks land in. */}
+          <BackupDestinationNote />
           <div className="space-y-1">
             <Label htmlFor="pve-job-name">{t("jobs.name")}</Label>
             <Input
@@ -498,6 +501,7 @@ export function PvePage() {
       <p className="text-sm text-muted-foreground" data-slot="pve-limits">
         {t("page.limits")}
       </p>
+      <BackupDestinationNote />
       {overview.isError ? (
         <p className="text-sm text-destructive-text">{t("page.loadError")}</p>
       ) : null}

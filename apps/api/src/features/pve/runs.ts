@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   type BlockMap,
   blockCount,
@@ -20,14 +20,9 @@ import {
   PveFormatError,
   parseActivityReport,
   parseArchiveName,
-  resticBinary,
-  resticCacheBase,
-  resticInit,
   type StagedBlock,
-  sealEndpointPassword,
   sealManifest,
   sha256Hex,
-  withRepository,
   writeToAllTargets,
 } from "@restow/core";
 import {
@@ -44,13 +39,13 @@ import {
 } from "@restow/db";
 import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { db } from "../../db.js";
-import { loadTenantDek, readSecret, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { recordBootTestResult } from "./boot-tests.js";
 import type { NodeContext } from "./node-auth.js";
 import { checkArchiveName, guestForBackup } from "./node-service.js";
+import { ensureGuestRepository, guestRepositoryPrefix } from "./repository.js";
 import {
   newChunkReader,
   newChunkWriter,
@@ -68,11 +63,8 @@ import {
  */
 
 export const PVE_RUN_PROBLEM = "urn:restow:problem:pve-run";
-/** Container repositories lie under this prefix of the tenant's primary target. */
-export function guestRepositoryPrefix(guestId: string): string {
-  return `pve-guests/${guestId}/`;
-}
-export const PVE_REPOSITORY_SECRET_KIND = "pve_ct_repository";
+export { guestRepositoryPrefix, PVE_REPOSITORY_SECRET_KIND } from "./repository.js";
+
 const RESTIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 /**
  * How often a node reports the progress of a backup (#51). The open run tells
@@ -1010,54 +1002,6 @@ export async function finishFailedTaskRun(
 // Containers: restic repository and short-lived credentials
 // ---------------------------------------------------------------------------
 
-/** Create the container repository of a guest once (the node is append-only and cannot). */
-async function ensureRepository(tenantId: string, guestId: string): Promise<string> {
-  const [guest] = await withTenantTx(db, tenantId, (tx) =>
-    tx.select().from(pveGuests).where(eq(pveGuests.id, guestId)).limit(1),
-  );
-  if (!guest) {
-    throw problem(404, "Guest not found", "Unknown guest.");
-  }
-  if (guest.repositorySecretId && guest.repositoryReadyAt) {
-    const password = await readSecret(db, { id: guest.repositorySecretId, tenantId });
-    if (password) {
-      return password;
-    }
-  }
-  const password = randomBytes(32).toString("base64url");
-  const secret = await storeSecret(db, {
-    tenantId,
-    kind: PVE_REPOSITORY_SECRET_KIND,
-    plaintext: password,
-  });
-  const store = await tenantChunkStore(tenantId);
-  const prefix = guestRepositoryPrefix(guest.id);
-  await withRepository(
-    {
-      storage: store.write.primary,
-      prefix,
-      repositoryPassword: password,
-      repositoryKey: guest.id,
-      binary: resticBinary(),
-      cacheBase: resticCacheBase(),
-    },
-    (session) => resticInit(session),
-  );
-  const dek = await withTenantTx(db, tenantId, (tx) => loadTenantDek(tx, tenantId));
-  // Next to the repository, sealed with the tenant key: storage and master key restore without this database.
-  await store.write.primary.put(
-    `${prefix}restow-repository-password.json`,
-    sealEndpointPassword({ tenantId, endpointId: guest.id, password, dek }),
-  );
-  await withTenantTx(db, tenantId, (tx) =>
-    tx
-      .update(pveGuests)
-      .set({ repositorySecretId: secret.id, repositoryReadyAt: new Date() })
-      .where(eq(pveGuests.id, guest.id)),
-  );
-  return password;
-}
-
 export function resticUrl(instanceUrl: string, guestId: string): string {
   return `${instanceUrl.replace(/\/$/, "")}/agent/pve/restic/${guestId}/`;
 }
@@ -1075,7 +1019,8 @@ async function issueResticCredential(
   now: Date,
   backup = false,
 ) {
-  const password = await ensureRepository(tenantId, guestId);
+  // A backup also makes sure the repository is really on the primary (repository.ts).
+  const password = await ensureGuestRepository(tenantId, guestId, { runId, write: backup });
   const token = generateAgentSecret();
   const expiresAt = new Date(now.getTime() + RESTIC_TOKEN_TTL_MS);
   await withTenantTx(db, tenantId, (tx) =>

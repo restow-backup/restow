@@ -17,6 +17,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BackupDestinationNote } from "@/features/storage";
 import { ObjectSuspicionBadge, RetentionHoldNotice } from "@/features/suspicion";
 import { ApiError } from "@/lib/api";
 
@@ -223,6 +224,8 @@ export function EndpointDetailPage({
       />
 
       <AttentionArea detail={detail} />
+      {/* The repository this machine's backups land in. */}
+      <BackupDestinationNote />
 
       <Tabs value={tab} onValueChange={(value) => onTabChange(value as EndpointTab)}>
         <TabsList>

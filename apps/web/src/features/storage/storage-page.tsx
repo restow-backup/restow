@@ -21,6 +21,7 @@ import { DeleteTargetDialog } from "./components/delete-target-dialog";
 import { type TargetAction, TargetCard } from "./components/target-card";
 import { TargetDialog } from "./components/target-dialog";
 import { UsageCard } from "./components/usage-card";
+import { ServerDiskWarning } from "./destination";
 import { hasSecondLocation, primaryBlockedReason } from "./presenters";
 import type { EditableKind, StorageTargetDto, StorageTargetList } from "./types";
 import { useTargetList } from "./use-storage";
@@ -95,6 +96,8 @@ export function StoragePage() {
   } else {
     body = (
       <>
+        {/* Backups on a disk of the server itself go down with the server. */}
+        <ServerDiskWarning />
         <UsageCard />
         {/* The page heading already says "Repositories": the list is a region of that name, not a second heading. */}
         <section className="space-y-4" aria-label={t("targets.title")} data-slot="storage-targets">
@@ -131,6 +134,7 @@ export function StoragePage() {
           onOpenChange={close}
           kind={dialog.storageKind}
           primaryBlocked={primaryBlockedReason(list)}
+          keepBlocked={Boolean(list.switchBlockedBy)}
         />
       ) : null}
       {list && dialog?.kind === "edit" && dialog.target.kind !== "installation_default" ? (

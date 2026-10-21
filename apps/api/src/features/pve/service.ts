@@ -613,12 +613,16 @@ export function backupType(
 export async function guestDetail(database: Database, tenantId: string, id: string) {
   return withTenantTx(database, tenantId, async (tx) => {
     const guest = await loadGuest(tx, id);
-    const snapshots = await tx
+    // Active restore points, and those a new backup chain made unavailable (shown as such).
+    const listed = await tx
       .select()
       .from(pveSnapshots)
-      .where(and(eq(pveSnapshots.guestId, id), eq(pveSnapshots.status, "active")))
+      .where(
+        and(eq(pveSnapshots.guestId, id), inArray(pveSnapshots.status, ["active", "unavailable"])),
+      )
       .orderBy(desc(pveSnapshots.backupAt))
       .limit(200);
+    const snapshots = listed.filter((s) => s.status === "active");
     const runs = await tx
       .select()
       .from(pveRuns)
@@ -672,7 +676,16 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         ? { id: cluster.id, name: cluster.name, storageId: cluster.storageId }
         : null,
       diskState: guest.diskState,
-      snapshots: snapshots.map((s) => ({
+      // A container's repository: whether it exists yet and its new backup chains (docs/PVE.md,
+      // "New backup chain"), newest first.
+      repository:
+        guest.kind === "ct"
+          ? {
+              readyAt: guest.repositoryReadyAt?.toISOString() ?? null,
+              chains: guest.repositoryChains ?? [],
+            }
+          : null,
+      snapshots: listed.map((s) => ({
         id: s.id,
         sequence: s.sequence,
         kind: s.kind,
@@ -689,7 +702,9 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         contents: s.kind === "ct" ? containerBackupPaths(s.guestConfig) : null,
         // Whether its files can be browsed and downloaded: a container's restic snapshot (#62),
         // a VM's disks through the sandboxed file system reader (vm-files.ts).
-        browsable: s.kind === "ct" ? s.resticSnapshotId !== null : browsableDisks(s).length > 0,
+        browsable:
+          s.status === "active" &&
+          (s.kind === "ct" ? s.resticSnapshotId !== null : browsableDisks(s).length > 0),
         disks: s.disks.map((d) => ({
           device: d.device,
           size: d.size,
@@ -701,6 +716,9 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         verify: s.verify,
         // The newest rated boot test of the restore point (docs/PVE.md, "Boot test").
         bootTest: s.bootTest ?? null,
+        // False once a new backup chain began: it can no longer be restored or checked.
+        available: s.status === "active",
+        unavailableAt: s.unavailableAt?.toISOString() ?? null,
       })),
       runs: runs.map((r) => ({
         id: r.id,

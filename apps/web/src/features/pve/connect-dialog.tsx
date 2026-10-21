@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { BackupDestinationNote, ServerDiskWarning } from "@/features/storage";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -106,6 +107,9 @@ export function ConnectDialog() {
           <DialogTitle>{t("connect.title")}</DialogTitle>
           <DialogDescription>{t("connect.description")}</DialogDescription>
         </DialogHeader>
+        {/* Where the guests' backups will land, and whether that is the server's own disk. */}
+        <BackupDestinationNote />
+        <ServerDiskWarning />
         {started ? (
           <ol className="min-w-0 space-y-4 text-sm" data-slot="pve-commands">
             {commands.map((created, index) => (

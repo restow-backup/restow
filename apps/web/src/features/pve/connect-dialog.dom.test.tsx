@@ -24,6 +24,12 @@ vi.mock("radix-ui", async (importOriginal) => {
   return { ...actual, Dialog: { ...actual.Dialog, Portal: InPlacePortal } };
 });
 
+// Where backups land is the storage feature's (tested there); this dialog has no session.
+vi.mock("@/features/storage", () => ({
+  BackupDestinationNote: () => null,
+  ServerDiskWarning: () => null,
+}));
+
 const createToken = vi.fn();
 vi.mock("./api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./api")>();

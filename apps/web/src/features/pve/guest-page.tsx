@@ -1,12 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, History, Play, RotateCcw } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { useConfirmIdentity } from "@/components/confirm-identity-dialog";
 import { PageHeader, RefreshButton, RelativeTime } from "@/components/kit";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { fileRestoreContainerTo } from "@/features/endpoints/paths";
+import { BackupDestinationNote, ServerDiskWarning, useStorageScope } from "@/features/storage";
 import {
   judgementsById,
   LastCleanHint,
@@ -37,16 +41,20 @@ import {
   useObjectSuspicions,
 } from "@/features/suspicion";
 import { formatBytes, formatDateTime } from "@/lib/format";
+import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
 import {
+  backupNow,
   fetchGuest,
   guestRefreshMs,
   type PveFollowUpAverage,
   type PveGuestDetail,
+  type PveRepositoryChain,
   type PveRestorePoint,
   type PveRun,
   pveKeys,
   requestBootTest,
+  resetRepository,
   restoreSnapshot,
   verifySnapshot,
 } from "./api.js";
@@ -285,6 +293,196 @@ export function FollowUpNote({ followUp }: { followUp: PveFollowUpAverage }) {
   );
 }
 
+/** Where the repository of a chain was looked for, in a sentence. */
+function chainTarget(
+  chain: PveRepositoryChain,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  if (!chain.target) {
+    return t("guest.chain.unknownTarget");
+  }
+  if (chain.target.installationDefault) {
+    return t("guest.chain.installationDefault");
+  }
+  return chain.target.location
+    ? `${chain.target.name} (${chain.target.location})`
+    : chain.target.name;
+}
+
+/**
+ * The newest new backup chain of a container (docs/PVE.md, "New backup chain"): the repository
+ * was missing on the primary when a backup began, or an administrator reset it.
+ */
+export function RepositoryChainNotice({ chain }: { chain: PveRepositoryChain }) {
+  const { t, i18n } = useTranslation(PVE_NAMESPACE);
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const date = formatDateTime(chain.at, language);
+  const target = chainTarget(chain, t);
+  return (
+    <Alert
+      variant={chain.reason === "missing" ? "warning" : "info"}
+      data-slot="pve-repository-chain"
+    >
+      <History />
+      <AlertTitle>
+        {t(chain.reason === "missing" ? "guest.chain.missingTitle" : "guest.chain.resetTitle", {
+          date,
+        })}
+      </AlertTitle>
+      <AlertDescription>
+        {chain.reason === "missing"
+          ? t("guest.chain.missing", { target, count: chain.unavailablePoints })
+          : t("guest.chain.reset", {
+              target,
+              count: chain.unavailablePoints,
+              actor: chain.actor ?? t("guest.chain.someone"),
+            })}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/** "Back up now" with where the backup lands (and a warning when that is the server's disk). */
+function BackupNowDialog({
+  guestId,
+  name,
+  onClose,
+}: {
+  guestId: string;
+  name: string;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  const mutation = useMutation({
+    mutationFn: () => backupNow(guestId),
+    onSuccess: (result) => {
+      toast.success(t(result.alreadyQueued ? "guests.backupAlreadyQueued" : "guests.backupQueued"));
+      void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
+      onClose();
+    },
+  });
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent data-slot="pve-backup-now-dialog">
+        <DialogHeader>
+          <DialogTitle>{t("guest.backupConfirm.title", { name })}</DialogTitle>
+          <DialogDescription>{t("guest.backupConfirm.description")}</DialogDescription>
+        </DialogHeader>
+        <BackupDestinationNote />
+        <ServerDiskWarning />
+        {mutation.isError ? (
+          <p className="text-sm text-destructive-text">{(mutation.error as Error).message}</p>
+        ) : null}
+        <DialogFooter>
+          <Button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+            {t("guest.backupConfirm.submit")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Reset a container's repository: the guest's name typed, a recent sign-in (step-up). */
+function ResetRepositoryDialog({
+  guestId,
+  name,
+  points,
+  onClose,
+}: {
+  guestId: string;
+  name: string;
+  points: number;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  const identity = useConfirmIdentity();
+  const [typed, setTyped] = React.useState("");
+  const mutation = useMutation({
+    mutationFn: () => resetRepository(guestId, typed),
+    onSuccess: () => {
+      toast.success(t("guest.danger.done"));
+      void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
+      onClose();
+    },
+  });
+  const submit = () =>
+    mutation.mutate(undefined, {
+      onError: (error) => {
+        if (isRecentSignInRequired(error)) {
+          identity.ask(submit);
+        }
+      },
+    });
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent data-slot="pve-reset-repository-dialog">
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submit();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{t("guest.danger.dialogTitle", { name })}</DialogTitle>
+            <DialogDescription>
+              {t("guest.danger.dialogDescription", { count: points })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label htmlFor="pve-reset-confirm">{t("guest.danger.typeName", { name })}</Label>
+            <Input
+              id="pve-reset-confirm"
+              value={typed}
+              autoComplete="off"
+              onChange={(event) => setTyped(event.target.value)}
+            />
+          </div>
+          {mutation.isError && !isRecentSignInRequired(mutation.error) ? (
+            <p className="text-sm text-destructive-text">
+              {(mutation.error as Error).message || t("guest.danger.failed")}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              {t("guest.danger.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              variant="destructive"
+              disabled={typed.trim() !== name || mutation.isPending}
+              data-action="confirm-reset"
+            >
+              {t("guest.danger.confirm")}
+            </Button>
+          </DialogFooter>
+        </form>
+        {identity.dialog}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** A row of the guest's history: a run, or the beginning of a new backup chain. */
+type HistoryRow =
+  | { type: "run"; at: string; run: PveRun }
+  | { type: "chain"; at: string; chain: PveRepositoryChain };
+
+export function historyRows(
+  runs: readonly PveRun[],
+  chains: readonly PveRepositoryChain[],
+): HistoryRow[] {
+  return [
+    ...runs.map((run): HistoryRow => ({ type: "run", at: run.startedAt, run })),
+    ...chains.map((chain): HistoryRow => ({ type: "chain", at: chain.at, chain })),
+  ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+}
+
 export function PveGuestPage({ guestId }: { guestId: string }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
   const language = i18n.resolvedLanguage ?? i18n.language;
@@ -297,6 +495,10 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
     refetchInterval: (query) => guestRefreshMs(query.state.data),
   });
   const [restoring, setRestoring] = React.useState<PveRestorePoint | null>(null);
+  const [backingUp, setBackingUp] = React.useState(false);
+  const [resetting, setResetting] = React.useState(false);
+  // Backing up and resetting are for administrators (the API refuses everyone else).
+  const { canManage } = useStorageScope();
   const verify = useMutation({
     mutationFn: (id: string) => verifySnapshot(id),
     onSuccess: () => {
@@ -325,9 +527,19 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
     [suspicions.data],
   );
   const timeline = React.useMemo(
-    () => (data?.snapshots ?? []).map((point) => ({ ...point, time: point.backupAt })),
+    () =>
+      (data?.snapshots ?? [])
+        .filter((point) => point.available !== false)
+        .map((point) => ({ ...point, time: point.backupAt })),
     [data],
   );
+  const chains = data?.repository?.chains ?? [];
+  const history = React.useMemo(
+    () => historyRows(data?.runs ?? [], data?.repository?.chains ?? []),
+    [data],
+  );
+  const guestName = data ? (data.guest.name ?? String(data.guest.vmid)) : "";
+  const availablePoints = (data?.snapshots ?? []).filter((p) => p.available !== false).length;
   return (
     <div className="space-y-6">
       <Link
@@ -355,7 +567,15 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         }
       >
         <RefreshButton onRefresh={() => void detail.refetch()} fetching={detail.isFetching} />
+        {data && canManage && !(data.guest.kind === "vm" && data.guest.template) ? (
+          <Button type="button" onClick={() => setBackingUp(true)} data-action="backup-now">
+            <Play aria-hidden="true" />
+            {t("guest.backupNow")}
+          </Button>
+        ) : null}
       </PageHeader>
+      {data && canManage ? <BackupDestinationNote /> : null}
+      {chains[0] ? <RepositoryChainNotice chain={chains[0]} /> : null}
       <ObjectSuspicionBadge target={suspicionTarget} />
       <RetentionHoldNotice target={suspicionTarget} objectName={title} />
       <LastCleanHint
@@ -412,7 +632,17 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                       : formatBytes(p.added, language)}
                   </TableCell>
                   <TableCell>
-                    <VerifyBadge point={p} />
+                    {p.available === false ? (
+                      <Badge
+                        variant="muted"
+                        title={t("guest.unavailableHint")}
+                        data-slot="pve-point-unavailable"
+                      >
+                        {t("guest.unavailable")}
+                      </Badge>
+                    ) : (
+                      <VerifyBadge point={p} />
+                    )}
                   </TableCell>
                   {data?.bootTest ? (
                     <TableCell>
@@ -420,42 +650,46 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                     </TableCell>
                   ) : null}
                   <TableCell className="space-x-1 text-right">
-                    {data && (p.browsable ?? p.kind === "ct") ? (
-                      // A container's files, one by one (#62): File restore with it chosen.
-                      <Link
-                        {...fileRestoreLink(data.guest.id)}
-                        className={buttonVariants({ size: "sm", variant: "ghost" })}
-                      >
-                        {t("guest.browseFiles")}
-                      </Link>
-                    ) : null}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => verify.mutate(p.id)}
-                    >
-                      {t("guest.verifyNow")}
-                    </Button>
-                    {data?.bootTest && data.bootTest.blocker === null ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={bootTest.isPending}
-                        onClick={() => bootTest.mutate(p.id)}
-                      >
-                        {t("guest.bootTestNow")}
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setRestoring(p)}
-                    >
-                      {t("guest.restore")}
-                    </Button>
+                    {p.available === false ? null : (
+                      <>
+                        {data && (p.browsable ?? p.kind === "ct") ? (
+                          // A container's files, one by one (#62): File restore with it chosen.
+                          <Link
+                            {...fileRestoreLink(data.guest.id)}
+                            className={buttonVariants({ size: "sm", variant: "ghost" })}
+                          >
+                            {t("guest.browseFiles")}
+                          </Link>
+                        ) : null}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => verify.mutate(p.id)}
+                        >
+                          {t("guest.verifyNow")}
+                        </Button>
+                        {data?.bootTest && data.bootTest.blocker === null ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={bootTest.isPending}
+                            onClick={() => bootTest.mutate(p.id)}
+                          >
+                            {t("guest.bootTestNow")}
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setRestoring(p)}
+                        >
+                          {t("guest.restore")}
+                        </Button>
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -468,7 +702,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         <h2 id="pve-runs" className="text-lg font-semibold">
           {t("guest.runs")}
         </h2>
-        {data && data.runs.length === 0 ? (
+        {data && history.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("guest.noRuns")}</p>
         ) : (
           <Table>
@@ -481,26 +715,93 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(data?.runs ?? []).map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell>
-                    <RelativeTime value={r.startedAt} />
-                  </TableCell>
-                  <TableCell>{t(`guest.kind.${r.kind}`)}</TableCell>
-                  <TableCell>
-                    <RunStatus run={r} name={title} />
-                  </TableCell>
-                  <TableCell className="max-w-md truncate text-xs">
-                    <RunNote run={r} />
-                  </TableCell>
-                </TableRow>
-              ))}
+              {history.map((row) =>
+                row.type === "chain" ? (
+                  <TableRow key={`chain-${row.at}`} data-slot="pve-history-chain">
+                    <TableCell>
+                      <RelativeTime value={row.at} />
+                    </TableCell>
+                    <TableCell>{t("guest.chain.history")}</TableCell>
+                    <TableCell>
+                      <Badge variant={row.chain.reason === "missing" ? "warning" : "info"}>
+                        {t(
+                          row.chain.reason === "missing"
+                            ? "guest.chain.historyMissing"
+                            : "guest.chain.historyReset",
+                          {
+                            target: chainTarget(row.chain, t),
+                            actor: row.chain.actor ?? t("guest.chain.someone"),
+                          },
+                        )}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="max-w-md text-xs">
+                      {row.chain.unavailablePoints > 0
+                        ? `${row.chain.unavailablePoints} × ${t("guest.unavailable")}`
+                        : null}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  <TableRow key={row.run.id}>
+                    <TableCell>
+                      <RelativeTime value={row.run.startedAt} />
+                    </TableCell>
+                    <TableCell>{t(`guest.kind.${row.run.kind}`)}</TableCell>
+                    <TableCell>
+                      <RunStatus run={row.run} name={title} />
+                    </TableCell>
+                    <TableCell className="max-w-md truncate text-xs">
+                      <RunNote run={row.run} />
+                    </TableCell>
+                  </TableRow>
+                ),
+              )}
             </TableBody>
           </Table>
         )}
       </section>
+      {data && canManage && data.guest.kind === "ct" ? (
+        <Card className="border-destructive/30" data-slot="danger-zone">
+          <CardHeader>
+            <CardTitle className="text-base text-destructive-text">
+              {t("guest.danger.title")}
+            </CardTitle>
+            <CardDescription>{t("guest.danger.resetTitle")}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-xl text-sm text-muted-foreground">
+              {t("guest.danger.resetDescription")}
+            </p>
+            <Button
+              type="button"
+              variant="destructive"
+              className="shrink-0"
+              onClick={() => setResetting(true)}
+              data-action="reset-repository"
+            >
+              <RotateCcw aria-hidden="true" />
+              {t("guest.danger.reset")}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
       {restoring && data ? (
         <RestoreDialog point={restoring} detail={data} onClose={() => setRestoring(null)} />
+      ) : null}
+      {backingUp && data ? (
+        <BackupNowDialog
+          guestId={data.guest.id}
+          name={guestName}
+          onClose={() => setBackingUp(false)}
+        />
+      ) : null}
+      {resetting && data ? (
+        <ResetRepositoryDialog
+          guestId={data.guest.id}
+          name={guestName}
+          points={availablePoints}
+          onClose={() => setResetting(false)}
+        />
       ) : null}
     </div>
   );

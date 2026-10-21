@@ -34,10 +34,12 @@ import {
 import {
   type Database,
   endpoints,
+  fileShares,
   type Job,
   jobProgress,
   jobs as jobsTable,
   packs,
+  pveGuests,
   type StorageMigration,
   type StorageTarget,
   snapshots,
@@ -376,6 +378,73 @@ function activeEndpoints(): ProblemError {
   });
 }
 
+/** Which kinds of restic repositories the tenant has (see `tenantResticRepositories`). */
+export interface ResticRepositoryKinds {
+  containers: boolean;
+  fileShares: boolean;
+}
+
+/**
+ * A switch that copies nothing ("keep existing backups where they are", promoting a copy)
+ * while the tenant has restic repositories: they lie on the current primary only, and every
+ * container and file share would find an empty repository on the new one (the PVE field
+ * incident, docs/STORAGE.md). "Move" copies them across before it switches.
+ */
+function switchBlockedByRepositories(
+  kinds: ResticRepositoryKinds,
+  action: "keep" | "promote",
+): ProblemError {
+  const what = [
+    kinds.containers ? "containers (Proxmox VE)" : null,
+    kinds.fileShares ? "file shares" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return new ProblemError(409, "Backups would stay behind", {
+    type: `${PROBLEM_PREFIX}switch-blocked-by-repositories`,
+    detail: `This tenant has backup repositories of ${what} on the current primary. ${
+      action === "keep" ? '"Keep existing backups where they are"' : "Promoting a copy"
+    } would leave them behind, and their next backups would fail or begin from scratch. Replace the primary with "move" instead: it copies these repositories and verifies them before it switches.`,
+    extensions: { code: "switch_blocked_by_repositories", repositories: kinds },
+  });
+}
+
+/**
+ * Which restic repositories the tenant has on its primary that a switch copying nothing would
+ * leave behind: a container's (created at its first backup) and a file share's. Both are
+ * written to and read from the primary only. Machines are not here: an active one refuses
+ * every switch (`activeEndpoints`), and a revoked one is only read, from whichever target holds
+ * its repository (endpoints/repository.ts `backendHolding`). Indexed existence checks.
+ */
+async function tenantResticRepositories(
+  tx: DbExecutor,
+  tenantId: string,
+): Promise<ResticRepositoryKinds | null> {
+  const [container] = await tx
+    .select({ id: pveGuests.id })
+    .from(pveGuests)
+    .where(and(eq(pveGuests.tenantId, tenantId), isNotNull(pveGuests.repositoryReadyAt)))
+    .limit(1);
+  const [share] = await tx
+    .select({ id: fileShares.id })
+    .from(fileShares)
+    .where(and(eq(fileShares.tenantId, tenantId), isNotNull(fileShares.repositoryReadyAt)))
+    .limit(1);
+  const kinds = { containers: container !== undefined, fileShares: share !== undefined };
+  return kinds.containers || kinds.fileShares ? kinds : null;
+}
+
+async function assertNoResticRepositories(
+  db: DbExecutor,
+  tenantId: string,
+  action: "keep" | "promote",
+): Promise<void> {
+  const kinds = await withTenantTx(db, tenantId, (tx) => tenantResticRepositories(tx, tenantId));
+  if (kinds) {
+    throw switchBlockedByRepositories(kinds, action);
+  }
+}
+
 function keepBlockedByActiveJob(): ProblemError {
   return new ProblemError(409, "Storage jobs still running", {
     type: `${PROBLEM_PREFIX}keep-blocked-by-active-job`,
@@ -435,10 +504,10 @@ function previousHoldsExclusiveData(check: ExclusiveObjectsCheck): ProblemError 
 }
 
 function previousHoldsEndpointRepositories(keys: readonly string[]): ProblemError {
-  return new ProblemError(409, "Retired target still holds machine backups", {
+  return new ProblemError(409, "Retired target still holds backup repositories", {
     type: `${PROBLEM_PREFIX}previous-holds-endpoint-repositories`,
     detail:
-      "This location still holds the backups of a server or client that only it has. A storage change does not move those yet, and removing the location would make them unreachable. Keep it attached.",
+      'This location still holds backup repositories (of a server or client, a container or a file share) that only it has, and removing it would make them unreachable. Replace the primary with "move" to copy them onto it, or keep this location attached.',
     extensions: {
       code: "previous_holds_endpoint_repositories",
       repositories: keys.slice(0, 20),
@@ -514,11 +583,12 @@ async function tenantHasData(tx: DbExecutor, tenantId: string): Promise<boolean>
 
 /**
  * Whether an agent still backs up to the tenant's primary: an active endpoint.
- * The storage migration copies `tenants/<id>/...` and not `endpoints/`, and
- * the agent, retention and the checks write to whatever the primary is, so a
- * change of the primary would leave every active endpoint with an empty
- * repository. A revoked endpoint is only read, and stays readable from the
- * old target, which a change keeps attached (`previous`, or a copy).
+ * A "move" copies `endpoints/<id>/` too, but an active agent keeps writing to
+ * whatever the primary is while it runs, and a "keep" or a promotion copies
+ * nothing, so a change of the primary would leave an active endpoint with a
+ * repository missing what it wrote. A revoked endpoint is only read, and stays
+ * readable from the old target, which a change keeps attached (`previous`, or a
+ * copy).
  */
 async function hasActiveEndpoints(tx: DbExecutor, tenantId: string): Promise<boolean> {
   const [row] = await tx
@@ -811,7 +881,7 @@ export async function listTargets(
   actor: Pick<Actor, "isProviderAdmin" | "isProviderOwner">,
   deps: StorageDeps = {},
 ): Promise<StorageTargetListDto> {
-  const { rows, hasData, migrationsByTarget, deferred } = await withTenantTx(
+  const { rows, hasData, migrationsByTarget, deferred, switchBlockedBy } = await withTenantTx(
     db,
     tenantId,
     async (tx) => {
@@ -825,6 +895,7 @@ export async function listTargets(
         hasData: await tenantHasData(tx, tenantId),
         migrationsByTarget: migrationsByTargetId(migrations, eta, jobStatuses),
         deferred: await deferredDeletionCounts(tx, tenantId),
+        switchBlockedBy: await tenantResticRepositories(tx, tenantId),
       };
     },
   );
@@ -837,6 +908,7 @@ export async function listTargets(
     installationDefault: toInstallationDefaultDto(defaults, inUse, actor),
     tenantHasData: hasData,
     canManageLocal: actor.isProviderAdmin,
+    switchBlockedBy,
   };
 }
 
@@ -1038,6 +1110,8 @@ async function startReplacePrimaryTx(
   // transaction below, where the switch is decided).
   await assertNoActiveEndpoints(db, tenantId);
   if (mode === "keep") {
+    // Restic repositories are not where a "keep" switch would look for them afterwards.
+    await assertNoResticRepositories(db, tenantId, "keep");
     // "keep" switches the primary immediately, in the transaction below,
     // with no copy job to catch a bad location or stale credentials
     // afterwards ("move" has its own verify pass instead): prove the target
@@ -1058,6 +1132,12 @@ async function startReplacePrimaryTx(
     }
     if (await hasActiveEndpoints(tx, tenantId)) {
       throw activeEndpoints();
+    }
+    if (mode === "keep") {
+      const kinds = await tenantResticRepositories(tx, tenantId);
+      if (kinds) {
+        throw switchBlockedByRepositories(kinds, "keep");
+      }
     }
     if (mode === "keep" && (await hasActiveWriteJob(tx, tenantId))) {
       throw keepBlockedByActiveJob();
@@ -1658,15 +1738,32 @@ async function liveExclusiveObjectKeys(
 }
 
 /** The endpoints of the tenant that have a restic repository (active or revoked). */
-async function endpointRepositoryIds(db: Database, tenantId: string): Promise<string[]> {
-  return withTenantTx(db, tenantId, async (tx) =>
-    (
-      await tx
+/**
+ * The storage prefixes of the tenant's restic repositories: machines (also revoked ones),
+ * containers and file shares.
+ */
+async function resticRepositoryPrefixes(db: Database, tenantId: string): Promise<string[]> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const [machines, guests, shares] = await Promise.all([
+      tx
         .select({ id: endpoints.id })
         .from(endpoints)
-        .where(and(eq(endpoints.tenantId, tenantId), isNotNull(endpoints.repositorySecretId)))
-    ).map((row) => row.id),
-  );
+        .where(and(eq(endpoints.tenantId, tenantId), isNotNull(endpoints.repositorySecretId))),
+      tx
+        .select({ id: pveGuests.id })
+        .from(pveGuests)
+        .where(and(eq(pveGuests.tenantId, tenantId), isNotNull(pveGuests.repositoryReadyAt))),
+      tx
+        .select({ id: fileShares.id })
+        .from(fileShares)
+        .where(and(eq(fileShares.tenantId, tenantId), isNotNull(fileShares.repositorySecretId))),
+    ]);
+    return [
+      ...machines.map((row) => endpointPrefix(row.id)),
+      ...guests.map((row) => `pve-guests/${row.id}/`),
+      ...shares.map((row) => `file-shares/${row.id}/`),
+    ];
+  });
 }
 
 /**
@@ -1699,7 +1796,7 @@ async function previousTargetExclusiveObjects(
     liveExclusiveObjectKeys(db, tenantId),
   ]);
   const others = [primary.backend, ...copies];
-  const endpointRepositories = await endpointRepositoryIds(db, tenantId);
+  const repositoryPrefixes = await resticRepositoryPrefixes(db, tenantId);
   const prefixes: ReadonlyArray<{
     readonly prefix: string;
     readonly isLive: (key: string) => boolean;
@@ -1714,11 +1811,12 @@ async function previousTargetExclusiveObjects(
         checkSourceExclusiveObjects({ source: previousBackend, others, prefix, isLive }),
       ),
     );
-    // An endpoint repository (docs/AGENT.md) that only this location holds: its `config`
-    // object marks the repository; a revoked machine's backups stay restorable from here.
+    // A restic repository (a machine's, docs/AGENT.md; a container's; a file share's) that only
+    // this location holds: its `config` object marks the repository; a revoked machine's
+    // backups stay restorable from here.
     const endpointKeys: string[] = [];
-    for (const endpointId of endpointRepositories) {
-      const key = `${endpointPrefix(endpointId)}config`;
+    for (const prefix of repositoryPrefixes) {
+      const key = `${prefix}config`;
       if (!(await previousBackend.head(key))) {
         continue;
       }
@@ -2162,6 +2260,8 @@ export async function promoteTarget(
     throw ruleProblem(violation);
   }
   await assertNoActiveEndpoints(db, tenantId);
+  // A copy never receives the restic repositories (only the chunk store is mirrored).
+  await assertNoResticRepositories(db, tenantId, "promote");
   const completeness = await completenessOf(db, tenantId, rows, target, deps);
   if (!completeness.complete) {
     throw copyIncomplete(completeness);
@@ -2179,6 +2279,10 @@ export async function promoteTarget(
     }
     if (await hasActiveEndpoints(tx, tenantId)) {
       throw activeEndpoints();
+    }
+    const kinds = await tenantResticRepositories(tx, tenantId);
+    if (kinds) {
+      throw switchBlockedByRepositories(kinds, "promote");
     }
     const demoted = await tx
       .update(storageTargets)

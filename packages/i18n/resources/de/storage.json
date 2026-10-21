@@ -225,7 +225,7 @@
     },
     "migrationMode": "Wie vorhandene Backups umziehen",
     "migrationModeMove": "Vorhandene Backups verschieben (empfohlen)",
-    "migrationModeMoveHint": "Ein Hintergrundlauf kopiert jedes Pack, jedes Manifest und jeden Schlüssel zum neuen Repository und prüft es per Hash, dann schaltet er das primäre Repository automatisch um. Der alte Ort bleibt bis zur Entfernung schreibgeschützt bestehen.",
+    "migrationModeMoveHint": "Ein Hintergrundlauf kopiert jedes Pack, jedes Manifest und jeden Schlüssel sowie die Repositorys von Containern, Rechnern und Dateifreigaben in das neue Repository und prüft sie per Hash; danach wird das primäre Repository automatisch umgeschaltet. Der alte Ort bleibt schreibgeschützt erhalten, bis Sie ihn entfernen.",
     "migrationModeKeep": "Vorhandene Backups dort belassen, wo sie sind",
     "migrationModeKeepHint": "Das neue Repository wird sofort zum primären, ohne dass etwas kopiert wird. Der alte Ort bleibt schreibgeschützt bestehen: Wiederherstellung, Prüfung und Backup von Objekten aus der Zeit vor der Umstellung funktionieren weiterhin und lesen von dort, aber jedes neue Byte wird nur in das neue Repository geschrieben. Eine eigenständige Wiederherstellung (restow-restore) für einen Snapshot von nach dieser Umstellung benötigt beide Orte über --storage.",
     "local": {
@@ -274,7 +274,8 @@
     "testHint": {
       "s3": "Schreibt, liest und löscht ein kleines Testobjekt und prüft Object Lock. Es wird nichts gespeichert.",
       "local": "Prüft das Verzeichnis und schreibt, liest und löscht dann eine kleine Testdatei. Es wird nichts gespeichert."
-    }
+    },
+    "migrationModeKeepBlocked": "Nicht möglich: Container oder Dateifreigaben dieses Mandanten haben Repositorys auf dem aktuellen primären Repository, und diese blieben zurück. Wählen Sie „Vorhandene Backups verschieben (empfohlen)“."
   },
   "validation": {
     "type": "Ungültiger Wert.",
@@ -382,12 +383,13 @@
     "installationDefaultReadonly": "Dieser Platzhalter steht für einen abgelösten Installationsstandard und hat keine eigenen Einstellungen.",
     "queueNotReady": "Die Warteschlange für Hintergrundläufe ist noch nicht bereit. Versuchen Sie es gleich noch einmal.",
     "activeEndpoints": "Server oder Clients sichern über den Agenten in dieses Repository, und ein Wechsel des primären Repositorys verschiebt deren Backups noch nicht. Sperren oder deinstallieren Sie diese Rechner zuerst; ihre vorhandenen Backups bleiben vom alten Ort lesbar, der angebunden bleiben muss.",
-    "previousHoldsEndpointRepositories": "Dieser Ort enthält noch Backups eines Servers oder Clients, die nur er hat. Ein Wechsel des Repositorys verschiebt diese noch nicht; lassen Sie diesen Ort daher angebunden.",
+    "previousHoldsEndpointRepositories": "Dieser Ort enthält noch Repositorys (eines Servers oder Clients, eines Containers oder einer Dateifreigabe), die nur er hat. Ersetzen Sie das primäre Repository mit „Verschieben“, um sie dorthin zu kopieren, oder lassen Sie diesen Ort angebunden.",
     "immutabilityObjectLockUnavailable": "Dieser Bucket erzwingt kein Object Lock, daher lassen sich seine Backups nicht unveränderbar machen. Object Lock lässt sich nur beim Anlegen eines Buckets einschalten.",
     "immutabilityLoweringForbidden": "Nur der Inhaber des Providers kann die Unveränderbarkeit senken oder ausschalten.",
     "immutabilityModeNotAvailable": "Dieser Modus ist für diese Art von Repository nicht verfügbar.",
     "immutabilityNotWritable": "An diesen Ort wird nichts mehr geschrieben; Unveränderbarkeit gilt für das, was ab jetzt geschrieben wird.",
-    "immutabilityNotObjectLock": "Nur ein Repository mit Object Lock wird beim Speicher geprüft."
+    "immutabilityNotObjectLock": "Nur ein Repository mit Object Lock wird beim Speicher geprüft.",
+    "switchBlockedByRepositories": "Container oder Dateifreigaben dieses Mandanten haben Repositorys auf dem aktuellen primären Repository. Wenn Sie die vorhandenen Sicherungen dort lassen oder eine Kopie zum primären Repository machen, blieben diese Repositorys zurück, und ihre nächsten Sicherungen schlügen fehl oder begännen von vorn. Ersetzen Sie das primäre Repository stattdessen mit „Verschieben“: Dabei werden die Repositorys kopiert und geprüft, bevor umgeschaltet wird."
   },
   "immutability": {
     "title": "Unveränderbare Backups",
@@ -456,6 +458,23 @@
       "delayedHint": "{appName} löscht diesen Sicherungsstand nicht vor {date}. Das ist keine Unveränderbarkeit: Wer Zugriff auf den Server hat, kann ihn löschen.",
       "none": "Nicht gesperrt",
       "noneHint": "Der Speicher meldet für diesen Sicherungsstand keine Sperre: Er entstand vor dem Einschalten der Unveränderbarkeit, oder seine Sperre ist abgelaufen."
+    }
+  },
+  "destination": {
+    "lead": "Sicherungen landen in:",
+    "installationDefault": "Installationsstandard",
+    "installationDefaultLocal": "Installationsstandard (lokale Platte des Servers)",
+    "unnamed": "Primäres Repository",
+    "kind": {
+      "local": "Verzeichnis auf dem Server",
+      "s3": "S3-kompatibler Objektspeicher"
+    },
+    "misconfigured": "Das Standard-Repository der Installation ist falsch eingerichtet: Sicherungen können erst geschrieben werden, wenn der Anbieter es behebt oder ein primäres Repository hinzugefügt wird.",
+    "serverDisk": {
+      "title": "Sicherungen landen auf der eigenen Platte des Servers",
+      "descriptionDefault": "Die Sicherungen dieses Mandanten werden in den Installationsstandard geschrieben, ein Verzeichnis auf einer Platte des {appName}-Servers selbst. Fällt der Server oder seine Platte aus, sind die Sicherungen mit ihm verloren. Wählen Sie ein Repository an einem anderen Ort: eine Netzwerkfreigabe oder einen S3-kompatiblen Objektspeicher.",
+      "description": "Das primäre Repository {name} ist ein Verzeichnis auf einer Platte des {appName}-Servers selbst. Fällt der Server oder seine Platte aus, sind die Sicherungen mit ihm verloren. Wählen Sie ein Repository an einem anderen Ort: eine Netzwerkfreigabe oder einen S3-kompatiblen Objektspeicher.",
+      "choose": "Anderes Repository wählen"
     }
   }
 }

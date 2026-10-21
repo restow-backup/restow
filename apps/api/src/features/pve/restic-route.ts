@@ -11,8 +11,8 @@ import { withTenantTx } from "../../lib/tenant-context.js";
 import { authFailures } from "../endpoints/agent-auth.js";
 import { auditPve, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { PVE_RESTIC_PATH } from "./meta.js";
-import { guestRepositoryPrefix } from "./runs.js";
-import { tenantChunkStore } from "./store.js";
+import { guestRepositoryPrefix } from "./repository.js";
+import { type TenantChunkStore, tenantChunkStore } from "./store.js";
 
 /**
  * /agent/pve/restic/:guestId: the restic REST backend of one container's
@@ -45,6 +45,7 @@ export async function resolvePveRunCredential(
       id: pveRuns.id,
       tenantId: pveRuns.tenantId,
       guestId: pveRuns.guestId,
+      kind: pveRuns.kind,
       status: pveRuns.status,
       tokenHash: pveRuns.resticTokenHash,
       expiresAt: pveRuns.resticExpiresAt,
@@ -77,9 +78,43 @@ export async function resolvePveRunCredential(
       runId: run.id,
       principal: "agent",
       prefix: guestRepositoryPrefix(guestId),
-      storage: store.write.primary,
+      // A backup writes to the primary only (its credential made sure the repository is
+      // there, repository.ts); a restore reads from whichever target holds the repository,
+      // a retired primary included.
+      storage:
+        run.kind === "backup"
+          ? store.write.primary
+          : await readingBackend(run.id, store, guestRepositoryPrefix(guestId)),
     },
   };
+}
+
+/** The target a restore run reads from, found once per run (bounded). */
+const readingBackends = new Map<string, StorageBackend>();
+
+async function readingBackend(
+  runId: string,
+  store: TenantChunkStore,
+  prefix: string,
+): Promise<StorageBackend> {
+  const known = readingBackends.get(runId);
+  if (known) {
+    return known;
+  }
+  let found = store.write.primary;
+  if (!(await store.write.primary.head(`${prefix}config`).catch(() => null))) {
+    for (const other of store.read.copies) {
+      if (await other.head(`${prefix}config`).catch(() => null)) {
+        found = other;
+        break;
+      }
+    }
+  }
+  if (readingBackends.size > 1000) {
+    readingBackends.clear();
+  }
+  readingBackends.set(runId, found);
+  return found;
 }
 
 export interface GuestKey {

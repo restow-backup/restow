@@ -222,6 +222,12 @@ export interface StorageTargetList {
   installationDefault: InstallationDefaultDto;
   tenantHasData: boolean;
   canManageLocal: boolean;
+  /**
+   * Containers or file shares with repositories: "keep existing backups where they are" and
+   * promoting a copy are refused (only "move" takes the repositories along). Absent from an
+   * older server.
+   */
+  switchBlockedBy?: { containers: boolean; fileShares: boolean } | null;
 }
 
 export interface ProbeOutcome {

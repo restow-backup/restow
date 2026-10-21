@@ -225,7 +225,7 @@
     },
     "migrationMode": "How existing backups move",
     "migrationModeMove": "Move existing backups (recommended)",
-    "migrationModeMoveHint": "A background run copies every pack, manifest and key to the new repository and verifies it by hash, then switches the primary automatically. The old location stays in place, read-only, until you remove it.",
+    "migrationModeMoveHint": "A background run copies every pack, manifest and key, and the backup repositories of containers, machines and file shares, to the new repository and verifies them by hash, then switches the primary automatically. The old location stays in place, read-only, until you remove it.",
     "migrationModeKeep": "Keep existing backups where they are",
     "migrationModeKeepHint": "The new repository becomes primary right away, nothing is copied. The old location stays in place, read-only: restoring, checking and backing up objects from before the switch keep working by reading it, but every new byte is written to the new repository only. A standalone restore (restow-restore) needs both locations passed to --storage for a snapshot from after this switch.",
     "local": {
@@ -274,7 +274,8 @@
     "testHint": {
       "s3": "Writes, reads and deletes a small test object and checks Object Lock. Nothing is saved.",
       "local": "Checks the directory, then writes, reads and deletes a small test file. Nothing is saved."
-    }
+    },
+    "migrationModeKeepBlocked": "Not available: containers or file shares of this tenant have backup repositories on the current primary, and they would stay behind. Choose \"Move existing backups\"."
   },
   "validation": {
     "type": "Invalid value.",
@@ -382,12 +383,13 @@
     "installationDefaultReadonly": "This placeholder stands for a retired installation default and has no settings of its own.",
     "queueNotReady": "The background run queue is not ready yet. Try again in a moment.",
     "activeEndpoints": "Servers or clients back up to this storage through the agent, and a change of the primary does not move their backups yet. Revoke or uninstall those machines first; their existing backups stay readable from the old location, which has to stay attached.",
-    "previousHoldsEndpointRepositories": "This location still holds the backups of a server or client that only it has. A storage change does not move those yet, so keep this location attached.",
+    "previousHoldsEndpointRepositories": "This location still holds backup repositories (of a server or client, a container or a file share) that only it has. Replace the primary with \"move\" to copy them onto it, or keep this location attached.",
     "immutabilityObjectLockUnavailable": "This bucket does not enforce Object Lock, so its backups cannot be made immutable. Object Lock can only be enabled when a bucket is created.",
     "immutabilityLoweringForbidden": "Only the provider owner can lower or switch off immutability.",
     "immutabilityModeNotAvailable": "This mode is not available for this kind of repository.",
     "immutabilityNotWritable": "Nothing is written to this location any more; immutability applies to what is written from now on.",
-    "immutabilityNotObjectLock": "Only a repository with Object Lock is checked with the storage."
+    "immutabilityNotObjectLock": "Only a repository with Object Lock is checked with the storage.",
+    "switchBlockedByRepositories": "Containers or file shares of this tenant have backup repositories on the current primary. Keeping existing backups where they are, or promoting a copy, would leave those repositories behind, and their next backups would fail or begin from scratch. Replace the primary with \"move\" instead: it copies the repositories and verifies them before it switches."
   },
   "immutability": {
     "title": "Immutable backups",
@@ -456,6 +458,23 @@
       "delayedHint": "{appName} will not delete this restore point before {date}. This is not immutability: someone with access to the server can.",
       "none": "Not locked",
       "noneHint": "The storage reports no lock for this restore point: it was made before immutability was turned on, or its lock has run out."
+    }
+  },
+  "destination": {
+    "lead": "Backups land in:",
+    "installationDefault": "Installation default",
+    "installationDefaultLocal": "Installation default (local disk of the server)",
+    "unnamed": "Primary repository",
+    "kind": {
+      "local": "Directory on the server",
+      "s3": "S3-compatible object storage"
+    },
+    "misconfigured": "The installation default repository is misconfigured: backups cannot be written until the provider fixes it or a primary repository is added.",
+    "serverDisk": {
+      "title": "Backups land on the server's own disk",
+      "descriptionDefault": "This tenant's backups are written to the installation default, a directory on a disk of the {appName} server itself. If the server or its disk fails, the backups are lost with it. Choose a repository elsewhere: a network share or S3-compatible object storage.",
+      "description": "The primary repository {name} is a directory on a disk of the {appName} server itself. If the server or its disk fails, the backups are lost with it. Choose a repository elsewhere: a network share or S3-compatible object storage.",
+      "choose": "Choose another repository"
     }
   }
 }

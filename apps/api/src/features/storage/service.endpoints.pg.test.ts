@@ -17,9 +17,12 @@ import {
   createDb,
   type Database,
   endpoints,
+  fileShares,
   jobs,
   packs,
   providers,
+  pveClusters,
+  pveGuests,
   secrets,
   storageMigrations,
   storageTargets,
@@ -73,6 +76,8 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
     await db.delete(storageMigrations).where(eq(storageMigrations.tenantId, tenantId));
     await db.delete(storageTargets).where(eq(storageTargets.tenantId, tenantId));
     await db.delete(endpoints).where(eq(endpoints.tenantId, tenantId));
+    await db.delete(pveClusters).where(eq(pveClusters.tenantId, tenantId));
+    await db.delete(fileShares).where(eq(fileShares.tenantId, tenantId));
     await db.delete(secrets).where(eq(secrets.tenantId, tenantId));
     await db.delete(packs).where(eq(packs.tenantId, tenantId));
   });
@@ -254,5 +259,65 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
       .from(storageTargets)
       .where(eq(storageTargets.tenantId, tenantId));
     expect(rows.map((row) => row.role)).toEqual(["primary"]);
+  });
+
+  /** A container whose restic repository exists (its first backup ran). */
+  async function containerWithRepository(): Promise<void> {
+    const [cluster] = await db
+      .insert(pveClusters)
+      .values({ tenantId, name: "lab", fingerprint: randomUUID(), storageId: "restow" })
+      .returning();
+    await db.insert(pveGuests).values({
+      tenantId,
+      clusterId: cluster?.id as string,
+      vmid: 300,
+      kind: "ct",
+      name: "paperless",
+      repositoryReadyAt: new Date(),
+    });
+  }
+
+  it("refuses to keep existing backups where they are while containers or file shares have repositories", async () => {
+    const old = await primaryAt(join(root, "old-with-containers"));
+    await containerWithRepository();
+
+    const error = await refusal(replace("keep", "nas-keep"));
+    expect(error.status).toBe(409);
+    expect(error.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
+    expect(error.extensions?.repositories).toEqual({ containers: true, fileShares: false });
+    expect(error.detail).toContain('"move"');
+    // Nothing switched.
+    const rows = await db
+      .select()
+      .from(storageTargets)
+      .where(eq(storageTargets.tenantId, tenantId));
+    expect(rows.map((row) => [row.id, row.role])).toEqual([[old, "primary"]]);
+
+    // A file share's repository blocks it the same way, also without any container.
+    await db.delete(pveClusters).where(eq(pveClusters.tenantId, tenantId));
+    await db.insert(fileShares).values({
+      tenantId,
+      name: "Projects",
+      protocol: "nfs",
+      server: "1.1.1.1",
+      exportPath: "/srv/projects",
+      nfsVersion: "4.1",
+      repositoryReadyAt: new Date(),
+    });
+    const shares = await refusal(replace("keep", "nas-keep-shares"));
+    expect(shares.extensions?.repositories).toEqual({ containers: false, fileShares: true });
+
+    // "move" copies the repositories, so it is allowed.
+    const moved = await replace("move", "nas-move");
+    expect(moved.role).toBe("copy");
+    expect(moved.migration?.mode).toBe("move");
+  });
+
+  it("refuses to promote a copy while containers have repositories (a copy never has them)", async () => {
+    await primaryAt(join(root, "primary-containers"));
+    const copy = await primaryAt(join(root, "copy-containers"), "copy");
+    await containerWithRepository();
+    const error = await refusal(promoteTarget(db, tenantId, copy, actor));
+    expect(error.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
   });
 });

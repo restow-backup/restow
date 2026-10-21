@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { FolderPicker } from "@/features/file-shares/components/folder-picker";
 import "@/features/file-shares/i18n";
+import { BackupDestinationNote } from "@/features/storage";
 
 import type { BackupJob, JobDefaults, JobMember } from "../api.js";
 import type { FormProblem } from "../form.js";
@@ -94,6 +95,7 @@ export function ShareJobEditor({
             {job ? t("editor.editTitle", { name: job.name }) : t("editor.createTitle.share")}
           </SheetTitle>
           <SheetDescription>{t("editor.description.share")}</SheetDescription>
+          <BackupDestinationNote />
         </SheetHeader>
         {open ? (
           <Loader

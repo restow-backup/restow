@@ -32,7 +32,7 @@ import { resticGate } from "../endpoints/restic-gate.js";
 import { resticProblem } from "../endpoints/restic-problem.js";
 import { browseCursorFor, decodeBrowseCursor } from "../endpoints/service.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
-import { guestRepositoryPrefix } from "./runs.js";
+import { guestRepositoryPrefix } from "./repository.js";
 import type { CreateFilesDownloadInput, FilesQuery } from "./schemas.js";
 import { browsableDisks, browseVmFiles, openVmDownload, prepareVmDownload } from "./vm-files.js";
 

@@ -33,6 +33,7 @@ export type PveTaskStatus = "pending" | "delivered" | "done" | "failed";
 export type PveRunKind = "backup" | "restore" | "restore_test" | "verify" | "boot_test";
 export type PveTaskKind = "backup" | "restore" | "refresh_inventory" | "boot_test";
 export type PveRunStatus = "running" | "succeeded" | "failed";
+export type PveSnapshotStatus = "active" | "pruned" | "unavailable";
 export type PveBackupMode = "snapshot" | "suspend" | "stop";
 
 /** A one-time enrollment token of a node: 24 hours, single use, bound to a tenant. */
@@ -246,6 +247,31 @@ export type PveDiskState = Record<
   { size: number; lastSnapshotId: string | null; bitmapMode: string; readBytes: number; at: string }
 >;
 
+/**
+ * A container's repository began a new backup chain (docs/PVE.md, "New backup chain"): the
+ * server found the repository missing on the tenant's primary target when a backup began
+ * (`missing`), or an administrator reset it (`reset`). The restore points of the chain before
+ * became unavailable. `target` is where the repository was looked for (null: not known); its
+ * `location` is null for the installation default, whose paths stay with the provider.
+ */
+export type PveRepositoryChain = {
+  at: string;
+  reason: "missing" | "reset";
+  target: {
+    name: string;
+    kind: string | null;
+    location: string | null;
+    installationDefault: boolean;
+  } | null;
+  /** How many restore points became unavailable with it. */
+  unavailablePoints: number;
+  /** Who reset it (`reset` only). */
+  actor: string | null;
+};
+
+/** How many chain changes a guest keeps (newest first). */
+export const PVE_REPOSITORY_CHAINS_KEPT = 10;
+
 /** A VM or container of a cluster. */
 export const pveGuests = pgTable(
   "pve_guests",
@@ -281,6 +307,12 @@ export const pveGuests = pgTable(
     // every upload and measured again after a prune; null until first measured.
     repositoryBytes: bigint("repository_bytes", { mode: "number" }),
     repositoryMeasuredAt: timestamp("repository_measured_at", { withTimezone: true }),
+    // The new backup chains of the container's repository, newest first (at most
+    // PVE_REPOSITORY_CHAINS_KEPT): shown on the guest page and in its history.
+    repositoryChains: jsonb("repository_chains")
+      .$type<PveRepositoryChain[]>()
+      .notNull()
+      .default([]),
     lastBackupAt: timestamp("last_backup_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastSnapshotId: uuid("last_snapshot_id"),
@@ -499,7 +531,10 @@ export const pveSnapshots = pgTable(
     archiveName: text("archive_name").notNull(),
     storageId: text("storage_id").notNull(),
     origin: text("origin").$type<"restow" | "pve">().notNull().default("restow"),
-    status: text("status").$type<"active" | "pruned">().notNull().default("active"),
+    // `unavailable`: a container restore point whose repository is gone (a new backup chain
+    // began, docs/PVE.md); it cannot be restored or checked, and neither readiness nor
+    // retention counts it.
+    status: text("status").$type<PveSnapshotStatus>().notNull().default("active"),
     manifestPath: text("manifest_path").notNull(),
     guestConfig: text("guest_config").notNull().default(""),
     firewallConfig: text("firewall_config"),
@@ -515,6 +550,7 @@ export const pveSnapshots = pgTable(
     // The newest boot test of this restore point (null: none ran).
     bootTest: jsonb("boot_test").$type<PveBootTestResult>(),
     prunedAt: timestamp("pruned_at", { withTimezone: true }),
+    unavailableAt: timestamp("unavailable_at", { withTimezone: true }),
     ...timestamps(),
   },
   (t) => [

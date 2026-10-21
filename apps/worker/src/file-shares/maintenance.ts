@@ -63,7 +63,8 @@ import {
   LOCKED_ALERT_MIN_MS,
 } from "../endpoints/maintenance.js";
 import { ratingOf } from "../endpoints/verify.js";
-import { withTenantTx } from "../handlers/framework.js";
+import { tenantRunner, withTenantTx } from "../handlers/framework.js";
+import { hasActiveMigration } from "../handlers/storage-migration.js";
 import { emitWebhookEvent } from "../handlers/webhooks.js";
 import { raiseEvents } from "../reporting.js";
 import {
@@ -248,6 +249,10 @@ export async function shareRetention(
 ): Promise<void> {
   const { share, access } = await openShareRepository(deps, payload.tenantId, payload.fileShareId);
   if (share.retiredAt) {
+    return;
+  }
+  // A "move" storage migration copies the repository file by file: retention waits for it.
+  if (await hasActiveMigration(tenantRunner(deps.db, share.tenantId), share.tenantId)) {
     return;
   }
   await withShareMaintenanceLock(deps, share.id, "exclusive", () => retain(deps, share, access));
