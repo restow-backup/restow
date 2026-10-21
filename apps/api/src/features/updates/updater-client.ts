@@ -65,7 +65,11 @@ export interface UpdaterClient {
   /** False when the client is switched off (demo, `RESTOW_UPDATER_URL` empty). */
   readonly enabled: boolean;
   /** The updater's state, or null when none answers. `fresh` skips the short cache. */
-  state(options?: { fresh?: boolean; refresh?: boolean }): Promise<StateView | null>;
+  state(options?: {
+    fresh?: boolean;
+    refresh?: boolean;
+    patient?: boolean;
+  }): Promise<StateView | null>;
   schedule(request: ScheduleRequest): Promise<StateView>;
   cancel(): Promise<StateView>;
   acknowledge(): Promise<StateView>;
@@ -99,6 +103,21 @@ export const DATABASE_CHECK_TIMEOUT_MS = 180_000;
 
 /** How long the api waits for `POST /v1/mounter/enable` (the updater waits up to a minute). */
 export const ENABLE_MOUNTER_TIMEOUT_MS = 90_000;
+
+/**
+ * How long the api waits for `POST /v1/schedule`: the updater checks deeply before it accepts an
+ * update (Docker, the Compose configuration, the disk space, the running version; several of
+ * those run a short-lived helper container) and, with no lead time, starts the run. That takes
+ * seconds; a short timeout made the api report "no updater" for an update that was accepted.
+ */
+export const SCHEDULE_TIMEOUT_MS = 60_000;
+
+/**
+ * How long the api waits for the other actions (cancel, acknowledge, restart, deleting a dump)
+ * and for a state read the api must not misread as "no updater" (after a schedule timed out):
+ * the updater answers with its state, which it may have to check again first.
+ */
+export const ACTION_TIMEOUT_MS = 30_000;
 
 /** The shared secret, re-read now and then so a restarted updater's new secret is picked up. */
 export class SecretReader {
@@ -224,9 +243,16 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
     return parsed.data;
   }
 
-  async function loadState(refresh: boolean): Promise<StateView | null> {
+  async function loadState(refresh: boolean, patient: boolean): Promise<StateView | null> {
     try {
-      const view = toState(await request("GET", refresh ? "/v1/state?refresh=1" : "/v1/state"));
+      const view = toState(
+        await request(
+          "GET",
+          refresh ? "/v1/state?refresh=1" : "/v1/state",
+          undefined,
+          patient ? ACTION_TIMEOUT_MS : timeoutMs,
+        ),
+      );
       cachedState = { at: now(), value: view, failure: null };
       return view;
     } catch (error) {
@@ -262,19 +288,25 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
           return cachedState.value;
         }
       }
-      inFlight ??= loadState(callOptions.refresh === true).finally(() => {
+      if (callOptions.patient) {
+        // Not shared with the quick reads: a timed-out quick read must not answer for it.
+        return loadState(callOptions.refresh === true, true);
+      }
+      inFlight ??= loadState(callOptions.refresh === true, false).finally(() => {
         inFlight = null;
       });
       return inFlight;
     },
     async schedule(scheduleRequest) {
-      return remember(toState(await request("POST", "/v1/schedule", scheduleRequest)));
+      return remember(
+        toState(await request("POST", "/v1/schedule", scheduleRequest, SCHEDULE_TIMEOUT_MS)),
+      );
     },
     async cancel() {
-      return remember(toState(await request("POST", "/v1/cancel", {})));
+      return remember(toState(await request("POST", "/v1/cancel", {}, ACTION_TIMEOUT_MS)));
     },
     async acknowledge() {
-      return remember(toState(await request("POST", "/v1/acknowledge", {})));
+      return remember(toState(await request("POST", "/v1/acknowledge", {}, ACTION_TIMEOUT_MS)));
     },
     async enableMounter() {
       return remember(
@@ -282,7 +314,9 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
       );
     },
     async restart(service) {
-      return remember(toState(await request("POST", "/v1/restart", { service })));
+      return remember(
+        toState(await request("POST", "/v1/restart", { service }, ACTION_TIMEOUT_MS)),
+      );
     },
     async checkDatabaseLocation(moveRequest) {
       const parsed = moveCheckSchema.safeParse(
@@ -362,7 +396,16 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
       return response;
     },
     async deleteDump(file) {
-      return remember(toState(await request("DELETE", `/v1/dumps/${encodeURIComponent(file)}`)));
+      return remember(
+        toState(
+          await request(
+            "DELETE",
+            `/v1/dumps/${encodeURIComponent(file)}`,
+            undefined,
+            ACTION_TIMEOUT_MS,
+          ),
+        ),
+      );
     },
   };
 }
