@@ -8,6 +8,38 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Changed
+
+- **VMs & containers** is tidied up into three tabs with counts: Guests (the default), Backup
+  jobs and Nodes. The note that the Proxmox VE host itself is not backed up is one line on the
+  Nodes tab and can be hidden. The Nodes tab shows each node's heartbeat, its restow-pve
+  version with "Update to …" when a newer release is offered, its Proxmox VE version, how many
+  guests it has, its queue and its problems; queue control and revoking are in the row menu.
+- The guests table has a search over ID and name, filters by node, kind (VM or container),
+  backup job (also "No backup job") and state, a "Problems only" button (failed, warnings or
+  gaps, restore check failed or postponed, waiting for a disconnected or paused node, not
+  backed up), sortable columns (ID, name, node, last backup, backup size, state), pages of
+  25 to 250 guests and the count of what the filters leave. Tab, search, filters, order,
+  page and the open guest live in the address, so a link opens the same view.
+- A guest's row shows one state badge, chosen by priority, with a small progress bar while
+  its backup runs or "+N" for further problems. Clicking the row (or its name) opens a detail
+  panel with every state, the complete error and warnings of the last run in a scrollable,
+  copyable block, the restore check with what it found, the backup sizes, the backup job, the
+  newest runs and the actions (back up now, stop, withdraw, check now, open the guest page).
+- The Backup column says how large a guest's first (full) backup was and what the last
+  follow-up added, for example "First: 32 GB on Oct 3 · Last: +210 MB"; the detail panel
+  shows the new data of each of the last 30 backups as small bars (#58).
+
+### Fixed
+
+- VMs & containers no longer jumps while backups run: the guest and job tables keep fixed
+  column widths and one row height (loading rows included), long texts are cut to one line
+  instead of wrapping, the progress has a reserved slot, and "Back up now", "Stop",
+  "Withdraw" and "Stopping…" share one button size. Error texts no longer appear in red under
+  a guest's row, and warnings no longer only in a tooltip.
+
 ## [0.4.2] - 2026-10-21
 
 Beta release. Run it alongside your existing backups, not as your only one, until
