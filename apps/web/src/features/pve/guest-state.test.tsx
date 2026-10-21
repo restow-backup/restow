@@ -49,22 +49,22 @@ const render = (g: PveGuest, node?: PveNode | null) =>
 describe("GuestState", () => {
   it("says that a backup was handed to the node, then that it runs", () => {
     expect(render(guest({ activity: "queued" }))).toContain("Waiting for the node");
-    expect(render(guest({ activity: "running" }))).toContain("Backup running");
-    expect(render(guest())).not.toContain('data-slot="pve-guest-activity"');
+    expect(render(guest({ activity: "running" }))).toContain("Backing up");
+    expect(render(guest())).not.toContain('data-status="running"');
   });
 
-  it("says that a container's last backup succeeded, and why one failed", () => {
-    expect(render(guest({ lastRunStatus: "succeeded" }))).toContain("Last backup succeeded");
+  it("says that a container's last backup succeeded, and that one failed, without the error text", () => {
+    expect(render(guest({ lastRunStatus: "succeeded" }))).toContain("Backed up");
     const failed = render(guest({ lastRunStatus: "failed", lastRunError: "restic backup failed" }));
     expect(failed).toContain("Last run failed");
-    expect(failed).toContain("restic backup failed");
+    // The error is the detail panel's, in full (guest-layout.dom.test.tsx).
+    expect(failed).not.toContain("restic backup failed");
   });
 
-  it("leaves a VM's success to its bitmap badge", () => {
+  it("names how a VM's disks were read", () => {
     const html = render(
       guest({ kind: "vm", lastRunStatus: "succeeded", bitmapState: "incremental" }),
     );
-    expect(html).not.toContain("Last backup succeeded");
     expect(html).toContain("Incremental");
   });
 
@@ -76,10 +76,10 @@ describe("GuestState", () => {
       lastSeenAt: "2026-10-15T09:00:00Z",
     } as PveNode;
     const html = render(guest({ activity: "queued", activitySince: "2026-10-15T10:00:00Z" }), node);
-    expect(html).toContain("Node pmx02 is disconnected");
+    expect(html).toContain('data-status="waiting_offline"');
     expect(html).toContain('data-variant="warning"');
-    expect(render(guest({ activity: "queued" }), { ...node, online: true })).not.toContain(
-      "disconnected",
+    expect(render(guest({ activity: "queued" }), { ...node, online: true })).toContain(
+      'data-status="waiting"',
     );
   });
 
@@ -92,24 +92,21 @@ describe("GuestState", () => {
     );
     expect(html).toContain("Succeeded with warnings");
     expect(html).toContain('data-variant="warning"');
-    expect(html).toContain("WARN: unable to set notes");
     expect(html).not.toContain("Last run failed");
     expect(html).not.toContain('data-variant="success"');
   });
 
-  it("shows what a red restore check really found (B2)", () => {
+  it("shows a red restore check (B2)", () => {
     const error = "Fatal: repository does not exist: unable to open config file";
     const html = render(
       guest({ lastVerify: { state: "red", checkedAt: null, errors: [error], requested: false } }),
     );
     expect(html).toContain("Restore check failed");
-    expect(html).toContain('data-slot="pve-guest-verify-error"');
-    expect(html).toContain(error);
+    expect(html).toContain('data-variant="destructive"');
   });
 
   it("marks the VM the server runs in (C7)", () => {
     const html = render(guest({ restowServer: "detected" }));
-    expect(html).toContain('data-slot="pve-guest-restow-server"');
-    expect(html).toContain("SMBIOS UUID");
+    expect(html).toContain('data-status="restow_server"');
   });
 });

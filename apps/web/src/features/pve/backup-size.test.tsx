@@ -7,6 +7,7 @@ import { i18n } from "@/i18n";
 import "./i18n";
 import type { PveGuest, PveGuestBackupSizes } from "./api";
 import { BackupSizeCell } from "./backup-size";
+import { BackupSizeLine } from "./guest-cells";
 import { FollowUpNote } from "./guest-page";
 import { guestProtection } from "./inventory-section";
 import { GuestState } from "./pve-page";
@@ -97,8 +98,8 @@ describe("an incomplete container backup", () => {
   it("is not shown as succeeded, neither in the state nor in the inventory", () => {
     const g = guest(sizes(42));
     const state = html(<GuestState guest={g} />);
-    expect(state).toContain("Last backup incomplete");
-    expect(state).not.toContain("Last backup succeeded");
+    expect(state).toContain("Incomplete backup");
+    expect(state).not.toContain('data-status="succeeded"');
     expect(guestProtection(g)).toBe("incomplete");
     expect(guestProtection(guest(sizes()))).toBe("protected");
   });
@@ -109,5 +110,21 @@ describe("the guest page", () => {
     expect(html(<FollowUpNote followUp={{ added: 2.5 * MiB, points: 1 }} />)).toContain(
       "A follow-up backup adds +2.5 MB on average (last 1 backup).",
     );
+  });
+});
+
+describe("the Backup column of the guests table (#58)", () => {
+  it("says on one line how large the first backup was and what the last one added", () => {
+    const line = html(<BackupSizeLine guest={guest(sizes())} />);
+    expect(line).toContain("First: 3.1 GB on Oct 12");
+    expect(line).toContain("Last: +2.5 MB");
+  });
+
+  it("leaves out the follow-up while the first backup is the only one", () => {
+    const first = sizes().first;
+    const line = html(<BackupSizeLine guest={guest({ first, last: first })} />);
+    expect(line).toContain("First:");
+    expect(line).not.toContain("Last:");
+    expect(html(<BackupSizeLine guest={guest(undefined)} />)).toContain("No backup yet");
   });
 });

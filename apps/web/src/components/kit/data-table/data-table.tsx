@@ -179,8 +179,19 @@ export interface DataTableProps<TData, TValue = unknown> {
    * `rowActionsColumn`), and the context menu of a selected row offers them too.
    */
   selectable?: boolean;
+  /**
+   * A table whose layout never moves (`table-layout: fixed`): every column is exactly its `size`
+   * wide, every cell holds one line cut with an ellipsis, and every row (skeleton rows too) has
+   * the same height. For tables that refresh while they are looked at (states, progress,
+   * actions that change their label): nothing jumps when the data polls in. Give every column a
+   * `size`; a cell whose content is not plain text titles itself or opens a detail view.
+   */
+  fixedLayout?: boolean;
   className?: string;
 }
+
+/** Height of a row of a `fixedLayout` table: a small button (h-8) and the cell padding. */
+export const FIXED_ROW_CLASS = "h-12";
 
 const NO_ROWS: never[] = [];
 /** A placeholder row has no hover tint, neither on the row nor on its pinned cell (see `TableRow`). */
@@ -231,6 +242,7 @@ export function DataTable<TData, TValue = unknown>({
   onRowClick,
   minWidth,
   selectable = false,
+  fixedLayout = false,
   className,
 }: DataTableProps<TData, TValue>) {
   const { t } = useTranslation(UI_NAMESPACE);
@@ -539,7 +551,14 @@ export function DataTable<TData, TValue = unknown>({
         </p>
         <Table
           aria-busy={state === "loading" || fetching || undefined}
-          style={minWidth === undefined ? undefined : { minWidth }}
+          className={fixedLayout ? "table-fixed" : undefined}
+          style={
+            minWidth !== undefined
+              ? { minWidth }
+              : fixedLayout
+                ? { minWidth: visibleColumns.reduce((sum, column) => sum + column.getSize(), 0) }
+                : undefined
+          }
           scrollLabel={label}
           containerClassName="@container scroll-pt-10"
         >
@@ -549,7 +568,7 @@ export function DataTable<TData, TValue = unknown>({
             {table.getHeaderGroups().map((group) => (
               <TableRow key={group.id} className="hover:bg-transparent">
                 {group.headers.map((header) => (
-                  <HeaderCell key={header.id} header={header} />
+                  <HeaderCell key={header.id} header={header} fixed={fixedLayout} />
                 ))}
               </TableRow>
             ))}
@@ -571,6 +590,7 @@ export function DataTable<TData, TValue = unknown>({
                     className={cn(
                       "data-[selected=true]:[--row-mix:100%] data-[state=open]:[--row-mix:50%]",
                       onRowClick && "cursor-pointer",
+                      fixedLayout && FIXED_ROW_CLASS,
                     )}
                     onClick={
                       onRowClick
@@ -589,15 +609,19 @@ export function DataTable<TData, TValue = unknown>({
                     }
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <BodyCell key={cell.id} cell={cell} />
+                      <BodyCell key={cell.id} cell={cell} fixed={fixedLayout} />
                     ))}
                   </TableRow>
                 </RowContextMenu>
               ))
             ) : state === "loading" ? (
               Array.from({ length: skeletonRows }, (_, index) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: static placeholders
-                <TableRow key={index} aria-hidden="true" className={PLACEHOLDER_ROW}>
+                <TableRow
+                  // biome-ignore lint/suspicious/noArrayIndexKey: static placeholders
+                  key={index}
+                  aria-hidden="true"
+                  className={cn(PLACEHOLDER_ROW, fixedLayout && FIXED_ROW_CLASS)}
+                >
                   {visibleColumns.map((column) => {
                     const meta = column.columnDef.meta;
                     const pin = columnPin(column);
@@ -605,7 +629,13 @@ export function DataTable<TData, TValue = unknown>({
                       <TableCell
                         key={column.id}
                         pin={pin}
-                        style={pin ? undefined : widthStyle(declaredWidths(column))}
+                        style={
+                          pin
+                            ? undefined
+                            : fixedLayout
+                              ? { width: column.getSize() }
+                              : widthStyle(declaredWidths(column))
+                        }
                         className={cn(meta?.className, meta?.cellClassName)}
                       >
                         {column.id === "actions" || column.id === SELECT_COLUMN_ID ? null : (
@@ -801,7 +831,13 @@ function SelectionActionButton({ action }: { action: RowAction }) {
   );
 }
 
-function HeaderCell<TData>({ header }: { header: Header<TData, unknown> }) {
+function HeaderCell<TData>({
+  header,
+  fixed = false,
+}: {
+  header: Header<TData, unknown>;
+  fixed?: boolean;
+}) {
   const { t } = useTranslation(UI_NAMESPACE);
   const column = header.column;
   const meta = column.columnDef.meta;
@@ -818,8 +854,11 @@ function HeaderCell<TData>({ header }: { header: Header<TData, unknown> }) {
     <TableHead
       aria-sort={ariaSortFor(canSort, sorted)}
       pin={pin}
-      style={pin ? undefined : widthStyle(declaredWidths(column))}
+      style={
+        pin ? undefined : fixed ? { width: column.getSize() } : widthStyle(declaredWidths(column))
+      }
       className={cn(
+        fixed && "truncate",
         "sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_var(--color-border)]",
         // The pinned header is the corner: sticky in both directions and above
         // the other header cells, which scroll under it sideways.
@@ -856,12 +895,12 @@ function HeaderCell<TData>({ header }: { header: Header<TData, unknown> }) {
  * with room for focus rings, because the cell itself casts the pinned edge's
  * shadow) and says what it is in a tooltip.
  */
-function BodyCell<TData>({ cell }: { cell: Cell<TData, unknown> }) {
+function BodyCell<TData>({ cell, fixed = false }: { cell: Cell<TData, unknown>; fixed?: boolean }) {
   const column = cell.column;
   const meta = column.columnDef.meta;
   const pin = columnPin(column);
   const widths = declaredWidths(column);
-  const truncates = pin !== undefined || widths.max !== undefined;
+  const truncates = fixed || pin !== undefined || widths.max !== undefined;
   const content = flexRender(column.columnDef.cell, cell.getContext());
   const title = truncates
     ? truncatedTitle(
@@ -874,7 +913,7 @@ function BodyCell<TData>({ cell }: { cell: Cell<TData, unknown> }) {
   return (
     <TableCell
       pin={pin}
-      style={pin ? undefined : widthStyle(widths)}
+      style={pin ? undefined : fixed ? { width: column.getSize() } : widthStyle(widths)}
       className={cn(
         meta?.numeric && "text-right whitespace-nowrap tabular-nums",
         meta?.className,

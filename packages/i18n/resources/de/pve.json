@@ -50,8 +50,12 @@
     "hostFiles": {
       "title": "Der Proxmox-Host selbst wird hier nicht gesichert",
       "body": "restow-pve sichert die VMs und Container eines Knotens, nicht den Knoten selbst. Für die Dateien des Hosts, etwa /etc/pve und die Netzwerk- und Speicherkonfiguration, installieren Sie den {appName}-Agent auf dem Host und nehmen ihn in einen Job für Server auf.",
-      "install": "Host als Server hinzufügen"
-    }
+      "install": "Host als Server hinzufügen",
+      "short": "Sichern Sie die Dateien des Hosts mit dem {appName}-Agent auf dem Host.",
+      "dismiss": "Hinweis ausblenden"
+    },
+    "guests": "Gäste",
+    "noProblems": "Keine"
   },
   "problems": {
     "pve.plugin_not_loaded": "Speicher-Plugin nicht installiert",
@@ -116,8 +120,58 @@
     "succeededWithWarnings": "Erfolgreich mit Warnungen",
     "verifyFailed": "Restore-Prüfung fehlgeschlagen",
     "verifyFailedHint": "Die Restore-Prüfung des neuesten Sicherungsstands ist fehlgeschlagen.",
-    "verifyNotCheckedLocked": "Restore-Prüfung konnte nicht laufen",
-    "verifyNotCheckedInterrupted": "Restore-Prüfung konnte nicht laufen"
+    "status": {
+      "cancelling": "Wird gestoppt…",
+      "running": "Sicherung läuft",
+      "waiting_offline": "Wartet, Knoten nicht bereit",
+      "waiting": "Wartet auf den Knoten",
+      "failed": "Letzter Lauf fehlgeschlagen",
+      "verify_failed": "Restore-Prüfung fehlgeschlagen",
+      "verify_not_checked": "Nicht prüfbar",
+      "verify_postponed": "Restore-Prüfung verschoben",
+      "incomplete": "Sicherung unvollständig",
+      "warnings": "Erfolgreich mit Warnungen",
+      "restow_server": "{appName}-Server",
+      "no_job": "Kein Backup-Job",
+      "never": "Noch nicht gesichert",
+      "cancelled": "Abgebrochen",
+      "template": "Vorlage",
+      "absent": "Nicht mehr gemeldet",
+      "verified": "Restore-Prüfung bestanden",
+      "succeeded": "Gesichert",
+      "unknown": "Noch kein Zustand"
+    },
+    "action": {
+      "stop": "Stoppen",
+      "withdraw": "Zurückziehen",
+      "cancelling": "Wird gestoppt…"
+    },
+    "filter": {
+      "search": "ID oder Namen suchen",
+      "allNodes": "Alle Knoten",
+      "allKinds": "VMs und Container",
+      "vms": "Nur VMs",
+      "cts": "Nur Container",
+      "allJobs": "Alle Backup-Jobs",
+      "allStates": "Alle Zustände",
+      "problemsOnly": "Nur Probleme ({count})",
+      "count": "{count, plural, one {# Gast} other {# Gäste}}",
+      "countFiltered": "{count, plural, one {# Gast} other {# Gäste}} von {total}",
+      "state": {
+        "problems": "Probleme",
+        "failed": "Fehlgeschlagen",
+        "warnings": "Warnungen oder Lücken",
+        "verify": "Restore-Prüfung fehlgeschlagen, verschoben oder nicht möglich",
+        "waiting": "Wartend",
+        "running": "Läuft",
+        "no_backup": "Nicht gesichert",
+        "ok": "Gesichert"
+      }
+    },
+    "backupLine": {
+      "first": "Erste: {size} am {date}",
+      "last": "Letzte: +{size}"
+    }
   },
   "jobs": {
     "title": "Backup-Jobs",
@@ -157,7 +211,11 @@
     "guestInJob": "In {job}",
     "guestMoves": "Wechselt aus {job}",
     "schedule": "Zeitplan",
-    "manualOnly": "Nur von Hand"
+    "manualOnly": "Nur von Hand",
+    "guestCount": "Gäste",
+    "round": "Aktuelle Runde",
+    "roundIdle": "Läuft nicht",
+    "roundProgress": "{done} von {total} fertig{failed, plural, =0 {} other {, # fehlgeschlagen}}"
   },
   "guest": {
     "back": "Zurück zu VMs & Container",
@@ -434,7 +492,8 @@
     "resumed": "Warteschlange von {node} fortgesetzt",
     "pausedBadge": "Warteschlange angehalten",
     "pausedBy": "Angehalten von {name}",
-    "waiting": "{count, plural, one {# wartet} other {# warten}}"
+    "waiting": "{count, plural, one {# wartet} other {# warten}}",
+    "empty": "Leer"
   },
   "update": {
     "now": "Auf {version} aktualisieren",
@@ -442,5 +501,43 @@
     "pending": "Wird auf {version} aktualisiert…",
     "requested": "{node} aktualisiert sich, sobald er frei ist",
     "requestedNote": "Der Knoten installiert das signierte Release bei seiner nächsten Meldung, sobald dort keine Sicherung und keine Wiederherstellung läuft. Proxmox VE selbst wird nicht aktualisiert."
+  },
+  "tabs": {
+    "guests": "Gäste",
+    "jobs": "Backup-Jobs",
+    "nodes": "Knoten",
+    "problems": "{count, plural, one {# Gast braucht Aufmerksamkeit} other {# Gäste brauchen Aufmerksamkeit}}",
+    "nodeProblems": "{count, plural, one {# Knoten braucht Aufmerksamkeit} other {# Knoten brauchen Aufmerksamkeit}}"
+  },
+  "sheet": {
+    "title": "Gast",
+    "loading": "Wird geladen…",
+    "notFound": "Dieser Gast wird nicht mehr aufgeführt.",
+    "close": "Schließen",
+    "openFor": "Details zu {name}",
+    "state": "Zustand",
+    "openPage": "Seite des Gasts öffnen",
+    "lastError": "Fehler des letzten Laufs",
+    "warnings": "Warnungen des letzten Laufs",
+    "copyError": "Fehler kopieren",
+    "copyWarnings": "Warnungen kopieren",
+    "copyCheck": "Prüfergebnis kopieren",
+    "restoreCheck": "Restore-Prüfung",
+    "result": "Ergebnis",
+    "checkedAt": "Geprüft",
+    "next": "Als Nächstes",
+    "notChecked": "Warum die Prüfung nicht laufen konnte",
+    "copyNotChecked": "Grund kopieren",
+    "gaveUpAt": "Letzter Versuch",
+    "verifyPostponed": "Die Restore-Prüfung des neuesten Sicherungsstands konnte noch nicht laufen; sie wird erneut versucht.",
+    "backup": "Sicherung",
+    "contains": "Neuester Sicherungsstand",
+    "first": "Erste Sicherung",
+    "followUp": "Folgesicherungen",
+    "gaps": "Lücken",
+    "runs": "Letzte Läufe",
+    "addedChart": "Neue Daten je Sicherung",
+    "addedBar": "{date}: +{size}",
+    "addedFirst": "{date}: {size} (erste Sicherung)"
   }
 }
