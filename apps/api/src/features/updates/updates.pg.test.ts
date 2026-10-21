@@ -1609,6 +1609,90 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       }
     });
 
+    it("updates nodes and agents behind the server on an administrator's word, without an update", async () => {
+      // 0.4.3: the server was updated by hand (or the announcement's answer was lost), so no
+      // pause led into the phase `fleet`; its nodes stayed on the old release.
+      const agentDir = await mkdtemp(join(tmpdir(), "restow-fleet-"));
+      const previous = { dir: process.env.RESTOW_AGENT_DIR, version: process.env.RESTOW_VERSION };
+      process.env.RESTOW_AGENT_DIR = agentDir;
+      process.env.RESTOW_VERSION = "0.2.0";
+      running = "0.2.0";
+      try {
+        const [cluster] = await owner
+          .insert(pveClusters)
+          .values({
+            tenantId: contoso,
+            name: "lab",
+            fingerprint: "8".repeat(64),
+            storageId: "restow",
+          })
+          .returning();
+        const [node] = await owner
+          .insert(pveNodes)
+          .values({
+            tenantId: contoso,
+            clusterId: cluster?.id ?? "",
+            name: "pve1",
+            helperVersion: "0.1.0",
+            secretHash: "x",
+            lastSeenAt: now,
+          })
+          .returning();
+        const { service } = build();
+        const before = await service.view();
+        expect(before.fleet?.counts.pve_node).toMatchObject({ pending: 1 });
+        expect(before.jobPause).toBeNull();
+
+        const view = await service.updateFleetNow(actor);
+        expect(view.jobPause).toMatchObject({ phase: "fleet", requestedBy: actor.email });
+        expect((await pauseRow())?.deadlineAt.getTime()).toBe(now.getTime() + 15 * 60 * 1000);
+        expect(await readJobStartPause(providerDb.$client)).toMatchObject({
+          paused: true,
+          phase: "fleet",
+        });
+        const [started] = await auditRows("update.fleet_started");
+        expect(started).toMatchObject({ actor: actor.email, target: "0.2.0" });
+        expect(started?.details).toMatchObject({ agentVersion: "0.2.0", pending: 1, manual: true });
+        // Once only.
+        await expect(service.updateFleetNow(actor)).rejects.toMatchObject({
+          status: 409,
+          type: "urn:restow:problem:update-busy",
+        });
+        // The usual step lifts it once the node reports the release.
+        await owner
+          .update(pveNodes)
+          .set({ helperVersion: "0.2.0" })
+          .where(eq(pveNodes.id, node?.id ?? ""));
+        await service.advancePause();
+        expect(await pauseRow()).toBeNull();
+        const resumed = await auditRows("update.jobs_resumed");
+        expect(resumed.at(-1)?.details).toMatchObject({ reason: "fleet_done", phase: "fleet" });
+        // Nothing behind any more: nothing to start.
+        await expect(service.updateFleetNow(actor)).rejects.toMatchObject({
+          status: 409,
+          type: "urn:restow:problem:update-fleet-current",
+        });
+        // Not while an update is announced.
+        await owner
+          .update(pveNodes)
+          .set({ helperVersion: "0.1.0" })
+          .where(eq(pveNodes.id, node?.id ?? ""));
+        updater.view = idleState({ phase: "scheduled" });
+        await expect(service.updateFleetNow(actor)).rejects.toMatchObject({
+          type: "urn:restow:problem:update-busy",
+        });
+        expect(await pauseRow()).toBeNull();
+        await owner.delete(pveClusters);
+      } finally {
+        running = "0.1.0";
+        process.env.RESTOW_AGENT_DIR = previous.dir;
+        process.env.RESTOW_VERSION = previous.version;
+        if (previous.dir === undefined) Reflect.deleteProperty(process.env, "RESTOW_AGENT_DIR");
+        if (previous.version === undefined) Reflect.deleteProperty(process.env, "RESTOW_VERSION");
+        await rm(agentDir, { recursive: true, force: true });
+      }
+    });
+
     it("reads planned times in the zone chosen for the installation, before the environment's", async () => {
       const built = build({ RESTOW_TIME_ZONE: "UTC" });
       expect((await built.service.view()).timeZone).toBe("UTC");

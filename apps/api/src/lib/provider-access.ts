@@ -260,6 +260,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/updates/maintenance/start-now": own(),
   // What runs and waits right now, for the install dialog (#46).
   "GET /api/v1/updates/jobs": view(PROVIDER),
+  // Nodes and agents behind the server install its release now (0.4.3): like "update now" on a
+  // node's page, but for every tenant's nodes and agents, so an administrator with every tenant.
+  "POST /api/v1/updates/fleet/update-now": configure(PROVIDER),
   "POST /api/v1/updates/edition/switch": own(),
   "PUT /api/v1/updates/edition/license-key": own(),
   "DELETE /api/v1/updates/edition/license-key": own(),

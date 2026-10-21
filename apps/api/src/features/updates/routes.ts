@@ -32,6 +32,7 @@ import type { Actor, UpdateService } from "./service.js";
  *   POST   /maintenance/dismiss     clear a finished run from the tab
  *   POST   /maintenance/start-now   an update that waits for running jobs: announce it now
  *   GET    /jobs                    what runs and waits right now (the install dialog, #46)
+ *   POST   /fleet/update-now        nodes and agents behind the server update now (0.4.3)
  *   POST   /edition/switch          Community only: switch to the full build of this version
  *   PUT    /edition/license-key     Community only: keep a license key for the full build
  *   DELETE /edition/license-key     ... and remove it again
@@ -98,6 +99,10 @@ export function buildUpdatesRoutes(
   routes.post("/maintenance/start-now", async (c) => c.json(await service.startNow(actorOf(c))));
 
   routes.get("/jobs", async (c) => c.json(await service.activity()));
+
+  // Nodes and agents install the release the server already runs (the code they install is
+  // the server's own, signed): no recent sign-in, like "update now" on a node's page.
+  routes.post("/fleet/update-now", async (c) => c.json(await service.updateFleetNow(actorOf(c))));
 
   // The build switch decides what code runs, like an update: a recent sign-in as well.
   routes.post("/edition/switch", async (c) => {

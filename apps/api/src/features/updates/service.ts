@@ -38,6 +38,7 @@ import {
   type FleetStatus,
   fleetStatus,
   serverRunsPauseVersion,
+  startFleetPhase,
 } from "./fleet.js";
 import {
   claimDrainedUpdate,
@@ -138,6 +139,8 @@ export const UPDATE_PROBLEMS = {
   sourceNotAllowed: "urn:restow:problem:update-source-not-allowed",
   notVerifiable: "urn:restow:problem:update-not-verifiable",
   updaterError: "urn:restow:problem:updater-error",
+  /** "Update nodes and agents now" with none reachable behind the server (0.4.3). */
+  fleetCurrent: "urn:restow:problem:update-fleet-current",
   setupIncomplete: "urn:restow:problem:setup-incomplete",
   /** The build switch is refused: not a Community installation, or not the published images. */
   switchRefused: "urn:restow:problem:build-switch-refused",
@@ -1319,6 +1322,69 @@ export class UpdateService {
       }
       await this.liftPause(pause, "update_over");
     }
+  }
+
+  /**
+   * "Update nodes and agents now" (0.4.3): the server runs a release its Proxmox VE nodes and
+   * endpoint agents do not, but no update led into the phase `fleet` (an update by hand, or an
+   * announcement whose answer was lost). Starts that phase as after an update: new starts pause
+   * (at most 15 minutes) and every reachable node and agent that is behind installs the release
+   * once idle; advancePause lifts the pause as usual. Not while an update waits, is announced or
+   * runs.
+   */
+  async updateFleetNow(actor: Actor): Promise<UpdatesView> {
+    if (this.demo) {
+      throw new ProblemError(403, "Demo installation is read-only", {
+        type: "urn:restow:problem:demo-read-only",
+        detail: "The demo installation cannot be changed.",
+      });
+    }
+    const { db } = this.deps;
+    const now = this.now();
+    const busy = () =>
+      new ProblemError(409, "An update is already announced", {
+        type: UPDATE_PROBLEMS.busy,
+        detail: "An update is announced or running, or nodes and agents are updating already.",
+      });
+    if (activePause(await loadJobPause(db), now)) {
+      throw busy();
+    }
+    const state = await this.updaterState(true);
+    if (state && (state.phase === "scheduled" || state.phase === "running")) {
+      throw busy();
+    }
+    const fleet = await fleetStatus(db, await this.fleetTarget(), now);
+    if (fleet.counts.all.pending === 0) {
+      throw new ProblemError(409, "No node or agent to update", {
+        type: UPDATE_PROBLEMS.fleetCurrent,
+        detail:
+          "No reachable node or agent runs an older release than the server offers. Unreachable ones are updated by hand.",
+      });
+    }
+    const row = await startFleetPhase(db, {
+      version: this.deps.state.runningVersion() ?? fleet.targetVersion,
+      requestedBy: { userId: actor.id, label: actor.email, ip: actor.ip },
+      now,
+    });
+    if (!row) {
+      throw busy();
+    }
+    await audit(db, {
+      tenantId: null,
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: UPDATE_AUDIT_ACTIONS.fleetStarted,
+      target: row.version,
+      targetType: "update",
+      ip: actor.ip,
+      details: {
+        agentVersion: fleet.targetVersion,
+        deadlineAt: row.deadlineAt.toISOString(),
+        manual: true,
+        ...fleet.counts.all,
+      },
+    });
+    return this.view();
   }
 
   /** The release nodes and agents update to: the agent release this server announces. */
