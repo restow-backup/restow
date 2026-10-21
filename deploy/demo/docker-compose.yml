@@ -40,7 +40,11 @@
 # Image names come from .env (RESTOW_DEMO_*_IMAGE; the defaults below match
 # build-images.sh). `pull_policy: never` makes a missing local image a clear
 # error instead of a pull attempt from a public registry; reset.sh checks for
-# all of them before it touches anything.
+# all of them before it touches anything. In follow mode (RESTOW_DEMO_FOLLOW in
+# .env, README "Following the releases") reset.sh itself pulls the four images
+# of one release from ghcr.io first, checks they are one release, and points
+# the RESTOW_DEMO_*_IMAGE variables at them for the run; compose still never
+# pulls on its own.
 #
 #   deploy/demo/build-images.sh                     # elsewhere: build, save, checksum
 #   docker load -i restow-demo-images-*.tar.gz      # on the host, after sha256sum -c

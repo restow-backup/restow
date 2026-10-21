@@ -565,6 +565,12 @@ jobs:
         # root, no Docker, no network; the VM tests are manual (docs/CI.md).
         run: bash deploy/install/test.sh
 
+      - name: Demo reset script tests (deploy/demo/test.sh)
+        # The default mode and the follow mode of deploy/demo/reset.sh against a stub
+        # docker: what is pulled, that a failed pull or a mix of releases stops the
+        # reset before anything is torn down, and what compose finally runs.
+        run: bash deploy/demo/test.sh
+
   actionlint:
     name: Workflows (actionlint)
     runs-on: ubuntu-24.04

@@ -240,6 +240,22 @@ COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md licenses/ /usr/share/doc/restow/
 # sidecar mounts too; a volume takes this directory's owner when it is first
 # mounted. The machines' own folders are tmpfs mounts of the compose file.
 RUN install -d -o 1000 -g 1000 /var/demo/agents
+# The release workflow publishes this target as ghcr.io/restow-backup/restow-demo-seed
+# with the tags of the product images; deploy/demo/reset.sh in follow mode reads the
+# version label to make sure the demo never runs the seed of one release against the
+# application of another (deploy/demo/README.md, "Following the releases").
+ARG RESTOW_VERSION=
+ARG RESTOW_REVISION=
+ARG RESTOW_CREATED=
+LABEL org.opencontainers.image.title="Restow demo seed" \
+      org.opencontainers.image.description="Seed and agent simulator of the Restow public demo (deploy/demo): synthetic mail, tenants and simulated machines; not part of an installation" \
+      org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-Restow-Enterprise" \
+      org.opencontainers.image.vendor="IT Systeme Flores UG (haftungsbeschraenkt)" \
+      org.opencontainers.image.source="https://github.com/restow-backup/restow" \
+      org.opencontainers.image.documentation="https://github.com/restow-backup/restow/blob/main/deploy/demo/README.md" \
+      org.opencontainers.image.version="${RESTOW_VERSION}" \
+      org.opencontainers.image.revision="${RESTOW_REVISION}" \
+      org.opencontainers.image.created="${RESTOW_CREATED}"
 
 ########################################
 # runtime-base — lean image shared by both builds' runtime targets

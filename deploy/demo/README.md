@@ -95,9 +95,12 @@ This is the part that must not be gotten wrong.
   variant does not even need that (`RESTOW_DEMO_APP_DOMAIN=:80`, no
   certificate, no egress required for TLS at all).
 - Nothing is ever built on the host that runs the demo. Every image comes
-  prebuilt from `deploy/demo/build-images.sh` (see "Images"); the compose
-  file has no `build:` section, and `reset.sh` only starts what is already
-  loaded.
+  prebuilt, either from `deploy/demo/build-images.sh` (see "Images") or, in
+  follow mode, as the published images of a release (see "Following the
+  releases"); the compose file has no `build:` section, and `reset.sh` only
+  starts what is already loaded or what it has just pulled and checked.
+  Pulls are made by the host's Docker daemon before the project starts; the
+  containers on `internal` still have no route out.
 - The demo guard (`apps/api middleware/demo-guard.ts`) is the single place
   that decides what a request may change; see its own doc comment and
   `apps/api/src/lib/demo.ts` for the exact allowlist and denylist.
@@ -218,6 +221,106 @@ docker load -i restow-demo-images-<version>-<commit>-linux-amd64.tar.gz
 `reset.sh` checks that every image the compose project needs is present
 before it stops anything, so an incomplete image transfer never takes a
 running demo offline.
+
+## Following the releases
+
+Instead of loading a tarball by hand, the demo can follow the published
+releases: every release publishes, next to the product images, the demo's own
+two images under the same tags (`.github/workflows/release.yml`):
+
+| Image | Built from | Used by |
+| --- | --- | --- |
+| `ghcr.io/restow-backup/restow:<version>` | repository `Dockerfile`, target `runtime` | `api`, `worker`, `scheduler` |
+| `ghcr.io/restow-backup/restow-web:<version>` | repository `Dockerfile`, target `web` | `web` |
+| `ghcr.io/restow-backup/restow-demo-seed:<version>` | repository `Dockerfile`, target `demo-seed` | `seed`, `agent-sim` |
+| `ghcr.io/restow-backup/restow-demo-dovecot:<version>` | `deploy/demo/dovecot` | `dovecot` |
+
+All four are multi-arch (linux/amd64, linux/arm64), signed with cosign like
+the product images, and carry the release version in the OCI label
+`org.opencontainers.image.version`. They get the tags every release gets
+(`docs/CI.md`): `:<version>` always, `:beta` for a 0.x release, `:latest` (and
+`:MAJOR.MINOR`, `:MAJOR`) for a stable release from 1.0.0 on, only the exact
+version for a pre-release.
+
+Follow mode is one setting in `deploy/demo/.env`:
+
+- `RESTOW_DEMO_FOLLOW` — empty (the default) runs the loaded images as
+  described in "Images", exactly as before. A channel (`beta`, the newest 0.x
+  release, which is every release so far; `latest`, the newest stable release
+  from 1.0.0 on) makes the demo follow that channel; an exact version (`0.4.3`)
+  pins it to that release. Once 1.0.0 is out, switch `beta` to `latest`:
+  `beta` stays on the last 0.x release from then on.
+- `RESTOW_DEMO_FOLLOW_REGISTRY` — where the images come from, default
+  `ghcr.io/restow-backup`; only for a mirror with the same names and tags.
+
+In follow mode, every reset, before it touches the running project:
+
+1. pulls `restow-demo-seed:<RESTOW_DEMO_FOLLOW>` and reads the release version
+   from its label. The moving tag is pulled for the demo's own seed image
+   only: the application images are then pulled by that exact version, so
+   a production stack on the same host that runs `restow:beta` or
+   `restow:latest` never finds its tag moved by the demo, and the
+   production names `restow:local`/`restow-web:local` are neither pulled nor
+   re-tagged (security review finding M2);
+2. pulls `restow:<version>`, `restow-web:<version>`,
+   `restow-demo-seed:<version>` and `restow-demo-dovecot:<version>`;
+3. checks that all four say they are that release, and refuses a mix (the
+   seed of one release against the api of another), an image without a
+   version label, and a pinned version whose image says otherwise;
+4. runs the project from exactly those four references (they replace
+   `RESTOW_DEMO_*_IMAGE` from `.env` for the run) and logs
+   `reset complete; the demo now runs Restow <version> (following <channel>)`.
+
+A failed pull (the registry down, a release without demo images, a typo in
+the channel) or a mix of releases stops the reset before anything is torn
+down, with a line in `/var/log/restow-demo-reset.log` that says which image
+and that nothing was stopped; the demo keeps running what it ran and is not
+reset that night. The next run tries again.
+
+With the nightly timer (see "Reset") the demo then takes up a new release by
+itself, at the first reset after the release is published: no copy, no
+`docker load`, no login on the host. What follow mode does not update is the
+checkout of this directory itself (the compose file, `reset.sh`,
+`.env.example`): a release that changes `deploy/demo` says so in its
+changelog, and then needs one `git pull` of the checkout (and any new
+setting in `.env`) as below.
+
+### Switching an existing demo host over (once)
+
+The first release that publishes the demo images is the first one after
+Restow 0.4.2; until then there is nothing to follow. The packages
+`restow-demo-seed` and `restow-demo-dovecot` must be public (`docs/CI.md`,
+"Package visibility"). On the demo host, as root:
+
+```sh
+# 1. The demo images of the channel are there and public (no login on the host):
+docker pull ghcr.io/restow-backup/restow-demo-seed:beta
+
+# 2. A checkout with follow mode in reset.sh (this change or later):
+cd /opt/restow-demo
+git pull
+
+# 3. Follow the channel (the file is gitignored; edit it instead if the line exists):
+grep -q '^RESTOW_DEMO_FOLLOW=' deploy/demo/.env \
+  || printf 'RESTOW_DEMO_FOLLOW=beta\n' >> deploy/demo/.env
+
+# 4. One reset by hand, then check which release runs:
+systemctl start restow-demo-reset.service
+tail -n 5 /var/log/restow-demo-reset.log
+#   ... reset complete; the demo now runs Restow <version> (following beta)
+```
+
+Nothing else changes: the timer and the service unit stay as installed (see
+"Reset"), and from then on the nightly reset keeps the demo on the newest
+release of the channel. The images loaded from the last tarball
+(`restow-demo-*:local`) are no longer used and can be removed with
+`docker image rm restow-demo-app:local restow-demo-web:local
+restow-demo-seed:local restow-demo-dovecot:local`. Images of earlier releases
+stay on the host until removed by hand; `reset.sh` never removes an image,
+since a production stack on the same host may run the same `restow:<version>`.
+
+Back to loaded images: empty `RESTOW_DEMO_FOLLOW` again (and load a tarball,
+see "Images"). To hold the demo on one release, set it to that version.
 
 ## Running it
 
@@ -357,7 +460,7 @@ problem.
 ## Environment variables
 
 See `deploy/demo/.env.example` for the full, commented list (compose files,
-database roles, secrets, the demo account, visitor-IP handling, the
+the images and following the releases, database roles, secrets, the demo account, visitor-IP handling, the
 synthetic mailboxes, co-hosting). It carries empty placeholders only,
 exactly like the repository root's `.env.example`; real values live only in
 `deploy/demo/.env`, which is gitignored. Never commit it.
@@ -382,8 +485,10 @@ write, so a visitor cannot install or remove a key either.
 
 `deploy/demo/reset.sh` is idempotent:
 
-1. checks, before touching anything, that every image the project needs is
-   loaded (it never builds; see "Images") and that `web` is not about to be
+1. in follow mode, pulls the four images of the followed release and checks
+   that they are one release (see "Following the releases"); then checks,
+   before touching anything, that every image the project needs is loaded
+   (it never builds; see "Images") and that `web` is not about to be
    published on a wildcard address;
 2. `docker compose down --volumes` (the database, the mail volume, the
    chunk store and Caddy's TLS state all go);
@@ -404,7 +509,12 @@ It reads which compose files to use from `RESTOW_DEMO_COMPOSE_FILES` in
 it"), and logs to `/var/log/restow-demo-reset.log` (override with
 `RESTOW_DEMO_RESET_LOG`). `RESTOW_DEMO_ENV_FILE` points the variables of the
 compose file itself at another file for a test run (the services still read
-`env_file: .env` next to the compose file).
+`env_file: .env` next to the compose file). `RESTOW_DEMO_FOLLOW` and
+`RESTOW_DEMO_FOLLOW_REGISTRY` (see "Following the releases") come from the
+environment of the run if set there, otherwise from that file; the script reads
+them as plain `NAME=value` lines and never sources the file.
+`deploy/demo/test.sh` tests both modes against a stub `docker` (CI runs it with
+the other shell script tests).
 
 Install the nightly schedule with systemd:
 
