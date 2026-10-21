@@ -92,7 +92,60 @@ describe("Preflight", () => {
     expect((await h.preflight.get()).ready).toBe(true);
     h.ops.freeBytesValue = 1;
     h.clock.advance(PREFLIGHT_TTL_MS);
+    // Expired: answered at once with the last result while a new check runs behind it.
+    expect((await h.preflight.get()).ready).toBe(true);
+    await h.preflight.settled();
     expect((await h.preflight.get()).ready).toBe(false);
+  });
+
+  it("answers an expired result at once and checks again in the background, once", async () => {
+    const first = await h.preflight.get();
+    h.clock.advance(PREFLIGHT_TTL_MS);
+    let release: () => void = () => undefined;
+    let checks = 0;
+    const ping = h.ops.ping.bind(h.ops);
+    h.ops.ping = async () => {
+      checks += 1;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return ping();
+    };
+    h.ops.freeBytesValue = 1;
+    // A slow check (helper containers) does not hold up the readers.
+    expect(await h.preflight.get()).toBe(first);
+    expect(await h.preflight.get()).toBe(first);
+    expect(checks).toBe(1);
+    release();
+    await h.preflight.settled();
+    const next = await h.preflight.get();
+    expect(next).not.toBe(first);
+    expect(next.ready).toBe(false);
+    expect(checks).toBe(1);
+  });
+
+  it("drops a background check that an invalidate overtook", async () => {
+    await h.preflight.get();
+    h.clock.advance(PREFLIGHT_TTL_MS);
+    let release: () => void = () => undefined;
+    const ping = h.ops.ping.bind(h.ops);
+    h.ops.ping = async () => {
+      h.ops.ping = ping; // only the background check waits
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return ping();
+    };
+    await h.preflight.get(); // starts the background check, which now waits
+    h.preflight.invalidate();
+    h.ops.freeBytesValue = 1;
+    const fresh = await h.preflight.get(); // waits for its own check
+    expect(fresh.ready).toBe(false);
+    h.ops.freeBytesValue = 50 * 1024 ** 3;
+    release();
+    await h.preflight.settled();
+    // The background check began before the invalidate: its (now ready) result is not kept.
+    expect(await h.preflight.get()).toBe(fresh);
   });
 
   it("blocks while the updater's own image follows the variables the updater rewrites", async () => {

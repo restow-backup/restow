@@ -119,6 +119,14 @@ export const SCHEDULE_TIMEOUT_MS = 60_000;
  */
 export const ACTION_TIMEOUT_MS = 30_000;
 
+/**
+ * How long a plain state read that timed out still answers with the updater's last state (it
+ * answered that recently, so it runs and is only slow, for example while it checks again)
+ * instead of "no updater". Reads that must not be misread (`fresh`, `refresh`, `patient`)
+ * never get it; a refused connection never either.
+ */
+export const STATE_TIMEOUT_GRACE_MS = 30_000;
+
 /** The shared secret, re-read now and then so a restarted updater's new secret is picked up. */
 export class SecretReader {
   private cached: { value: string; at: number } | null = null;
@@ -182,6 +190,16 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
   let cachedState: { at: number; value: StateView | null; failure: UpdaterFailure | null } | null =
     null;
   let inFlight: Promise<StateView | null> | null = null;
+  /** The newest state the updater answered with, and when (for STATE_TIMEOUT_GRACE_MS). */
+  let lastGood: { at: number; value: StateView } | null = null;
+
+  /** The last state while the newest plain read timed out within the grace; else null. */
+  function graceState(): StateView | null {
+    if (cachedState?.failure !== "timeout" || !lastGood) {
+      return null;
+    }
+    return now() - lastGood.at < STATE_TIMEOUT_GRACE_MS ? lastGood.value : null;
+  }
 
   async function request(
     method: string,
@@ -254,6 +272,7 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
         ),
       );
       cachedState = { at: now(), value: view, failure: null };
+      lastGood = { at: now(), value: view };
       return view;
     } catch (error) {
       if (error instanceof UpdaterUnavailableError) {
@@ -269,6 +288,7 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
 
   function remember(view: StateView): StateView {
     cachedState = { at: now(), value: view, failure: null };
+    lastGood = { at: now(), value: view };
     return view;
   }
 
@@ -279,13 +299,15 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
         return null;
       }
       const age = cachedState ? now() - cachedState.at : Number.POSITIVE_INFINITY;
+      const plain = !callOptions.fresh && !callOptions.refresh && !callOptions.patient;
       if (!callOptions.fresh && !callOptions.refresh && cachedState) {
-        const ttl = cachedState.value ? stateTtl : downTtl;
+        // A slow updater within the grace is asked again as soon as a good answer would be.
+        const ttl = cachedState.value || graceState() ? stateTtl : downTtl;
         if (age < ttl) {
           if (cachedState.failure === "incompatible") {
             throw new UpdaterUnavailableError("incompatible");
           }
-          return cachedState.value;
+          return cachedState.value ?? (plain ? graceState() : null);
         }
       }
       if (callOptions.patient) {
@@ -295,7 +317,8 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
       inFlight ??= loadState(callOptions.refresh === true, false).finally(() => {
         inFlight = null;
       });
-      return inFlight;
+      const view = await inFlight;
+      return view ?? (plain ? graceState() : null);
     },
     async schedule(scheduleRequest) {
       return remember(

@@ -6,6 +6,7 @@ import {
   createUpdaterClient,
   disabledUpdaterClient,
   SCHEDULE_TIMEOUT_MS,
+  STATE_TIMEOUT_GRACE_MS,
   secretMatches,
   UpdaterRejectedError,
   UpdaterUnavailableError,
@@ -128,6 +129,54 @@ describe("the updater client", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     await subject.state({ fresh: true });
     expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps the last state for a short grace when a plain read times out", async () => {
+    let now = 0;
+    let slow = false;
+    const fetcher = vi.fn(async () => {
+      if (slow) {
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      }
+      return reply(state({ phase: "scheduled" }));
+    });
+    const subject = client(fetcher as unknown as typeof fetch, { clock: () => now });
+    const good = await subject.state();
+    expect(good?.phase).toBe("scheduled");
+    slow = true;
+    now = 5_000;
+    // The updater answered five seconds ago and is only slow: not "no updater".
+    expect(await subject.state()).toEqual(good);
+    // Asked again soon (not after the longer "no updater" pause), still within the grace.
+    now = 7_500;
+    expect(await subject.state()).toEqual(good);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    // Reads that must not be misread get no stale state.
+    expect(await subject.state({ fresh: true })).toBeNull();
+    expect(await subject.state({ refresh: true })).toBeNull();
+    // After the grace a timeout reads as "no updater" again.
+    now = STATE_TIMEOUT_GRACE_MS + 1;
+    expect(await subject.state()).toBeNull();
+    // The updater answers again: the fresh state, as before.
+    slow = false;
+    now += 10_000;
+    expect((await subject.state())?.phase).toBe("scheduled");
+  });
+
+  it("gives no grace when the updater refuses connections", async () => {
+    let now = 0;
+    let down = false;
+    const fetcher = vi.fn(async () => {
+      if (down) {
+        throw new TypeError("fetch failed");
+      }
+      return reply(state());
+    });
+    const subject = client(fetcher as unknown as typeof fetch, { clock: () => now });
+    expect(await subject.state()).not.toBeNull();
+    down = true;
+    now = 3_000;
+    expect(await subject.state()).toBeNull();
   });
 
   it("asks for a fresh preflight on request", async () => {

@@ -76,6 +76,13 @@ private repository.
   and reuses the measured database and image sizes of the last ten minutes (the run's first
   step measures again). The Updates tab reads the state again after a failed announcement
   and says it is checking whether the update was accepted instead of "not running".
+- Updates: the Updates tab could say "The updater is not running" for a few seconds every now
+  and then. When the updater's check of the last 30 seconds had expired, it checked again
+  before it answered (several short-lived helper containers), which could take longer than
+  the 5 seconds the api waits for the state, and the api then remembered "no updater" for
+  8 seconds. The updater now answers at once with its last check and checks again in the
+  background (an update still checks anew before it starts), and a plain state read that
+  times out keeps the updater's last state for up to 30 seconds after its last answer.
 - Proxmox VE: after a self-update (automatic, "update now" or `restow-pve update`) the PVE
   daemons kept the old storage plugin loaded until they restarted. restow-pve now restarts
   pvedaemon, pveproxy, pvestatd and pvescheduler like the installer does (`systemctl

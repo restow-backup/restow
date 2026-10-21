@@ -174,6 +174,10 @@ describe("GET /v1/state", () => {
     );
     h.clock.advance(31_000);
     h.ops.pingError = null;
+    // Expired: the last result answers at once while the updater checks again behind it.
+    const expired = await call("GET", "/v1/state", { headers: auth });
+    expect((expired.json as unknown as StateView).capabilities.ready).toBe(false);
+    await h.preflight.settled();
     const later = await call("GET", "/v1/state", { headers: auth });
     expect((later.json as unknown as StateView).capabilities.ready).toBe(true);
   });

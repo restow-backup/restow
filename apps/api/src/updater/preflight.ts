@@ -10,7 +10,12 @@ import { describeShortfall } from "./space.js";
 /**
  * Can an update start right now? The answer is what the api shows in the Updates
  * tab (`capabilities`) and what `POST /v1/schedule` and the run's first step check.
- * The result is cached for 30 seconds; `refresh` recomputes.
+ * The result is cached for 30 seconds; `refresh` recomputes. An expired result is still
+ * answered at once while a new check runs in the background (stale-while-revalidate): a
+ * check starts helper containers and can take longer than the api waits for `GET /v1/state`,
+ * which then read as "the updater is not running". What starts an update (`POST /v1/schedule`,
+ * the run's first step) always checks anew, and `invalidate` (a run started or ended) makes
+ * the next read wait for a new check.
  *
  * One check reads the Compose configuration and is therefore made only when it
  * matters (the first check after the updater started, `refresh`, and a run's
@@ -78,6 +83,10 @@ export interface CheckOptions {
 
 export class Preflight {
   private cached: { at: number; value: Capabilities } | null = null;
+  /** The background check of an expired result, while it runs. */
+  private revalidating: Promise<void> | null = null;
+  /** Bumped by `invalidate` and `retain`: a background check started before is not kept. */
+  private generation = 0;
   /** Whether the updater's own image follows RESTOW_IMAGE / RESTOW_WEB_IMAGE; null until known. */
   private updaterImage: { follows: boolean } | null = null;
   /** Whether the compose file defines the `mounter` service; null until known. */
@@ -88,6 +97,7 @@ export class Preflight {
   /** Forget the cached result (a run started or finished, so the picture changed). */
   invalidate(): void {
     this.cached = null;
+    this.generation += 1;
   }
 
   async get(
@@ -95,12 +105,44 @@ export class Preflight {
     options: Pick<CheckOptions, "refreshSpace"> = {},
   ): Promise<Capabilities> {
     const now = this.options.clock.now().getTime();
-    if (!refresh && this.cached && now - this.cached.at < PREFLIGHT_TTL_MS) {
+    if (!refresh && this.cached) {
+      if (now - this.cached.at >= PREFLIGHT_TTL_MS) {
+        this.revalidate();
+      }
       return this.cached.value;
     }
+    const generation = this.generation;
     const value = await this.check({ deep: refresh, ...options });
-    this.cached = { at: this.options.clock.now().getTime(), value };
+    if (generation === this.generation || !this.cached) {
+      this.cached = { at: this.options.clock.now().getTime(), value };
+    }
     return value;
+  }
+
+  /** The background check of an expired result (one at a time); its result is the new cache. */
+  private revalidate(): void {
+    if (this.revalidating) {
+      return;
+    }
+    const generation = this.generation;
+    this.revalidating = this.check()
+      .then((value) => {
+        // An invalidate or retain in between knows better: keep what it left.
+        if (generation === this.generation) {
+          this.cached = { at: this.options.clock.now().getTime(), value };
+        }
+      })
+      .catch(() => {
+        // The stale result stays; the next read past the expiry tries again.
+      })
+      .finally(() => {
+        this.revalidating = null;
+      });
+  }
+
+  /** Wait for a background check (tests). */
+  async settled(): Promise<void> {
+    await this.revalidating;
   }
 
   /**
@@ -109,6 +151,7 @@ export class Preflight {
    */
   retain(value: Capabilities): void {
     this.cached = { at: this.options.clock.now().getTime(), value };
+    this.generation += 1;
   }
 
   /** Compute the capabilities now. */
