@@ -19,8 +19,9 @@ import {
   switchToFullBuild,
   type UpdateSettingsInput,
   type UpdatesView,
+  updateFleetNow,
 } from "./api";
-import { isMaintenanceActive } from "./presenters";
+import { isMaintenanceActive, isUpdaterTimeout } from "./presenters";
 
 /**
  * TanStack Query wiring of the Updates tab. The keys are not tenant scoped:
@@ -86,20 +87,53 @@ export function useCheckNow() {
   return useMutation({ mutationFn: checkForUpdates, onSuccess: write });
 }
 
+/** How long after an unanswered request the tab reads the state once more (0.4.3). */
+export const TIMEOUT_RECHECK_MS = 5_000;
+
+/**
+ * After a refused or unanswered request that hands an update over, the tab and the shell's
+ * maintenance state read again: the update may have been accepted all the same (an updater that
+ * did not answer in time, 0.4.3), and then it must show without waiting for the next poll.
+ */
+function useViewRefresher() {
+  const queryClient = useQueryClient();
+  return (error: unknown) => {
+    const refresh = () => {
+      void queryClient.invalidateQueries({ queryKey: updatesKeys.view });
+      void queryClient.invalidateQueries({ queryKey: updatesKeys.maintenance });
+    };
+    refresh();
+    if (isUpdaterTimeout(error)) {
+      setTimeout(refresh, TIMEOUT_RECHECK_MS);
+    }
+  };
+}
+
 export function useScheduleUpdate() {
   const write = useViewWriter();
+  const refresh = useViewRefresher();
   return useMutation({
     mutationFn: (input: ScheduleUpdateInput) => scheduleUpdate(input),
     onSuccess: write,
+    onError: refresh,
   });
 }
 
 export function useSwitchToFullBuild() {
   const write = useViewWriter();
+  const refresh = useViewRefresher();
   return useMutation({
     mutationFn: (input: { leadSeconds: number }) => switchToFullBuild(input),
     onSuccess: write,
+    onError: refresh,
   });
+}
+
+/** Nodes and agents behind the server install its release now (0.4.3). */
+export function useUpdateFleetNow() {
+  const write = useViewWriter();
+  const refresh = useViewRefresher();
+  return useMutation({ mutationFn: updateFleetNow, onSuccess: write, onError: refresh });
 }
 
 export function useStorePendingLicenseKey() {
@@ -129,7 +163,8 @@ export function useJobActivity(enabled: boolean) {
 /** An update that waits for runs in progress: announce it now. */
 export function useStartUpdateNow() {
   const write = useViewWriter();
-  return useMutation({ mutationFn: startUpdateNow, onSuccess: write });
+  const refresh = useViewRefresher();
+  return useMutation({ mutationFn: startUpdateNow, onSuccess: write, onError: refresh });
 }
 
 export function useCancelMaintenance() {

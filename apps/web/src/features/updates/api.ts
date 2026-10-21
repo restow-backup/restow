@@ -570,6 +570,8 @@ export const INVALID_UPDATE_SOURCE_PROBLEM = "urn:restow:problem:invalid-update-
 export const BUILD_SWITCH_REFUSED_PROBLEM = "urn:restow:problem:build-switch-refused";
 export const RESTART_NOT_REQUESTED_PROBLEM = "urn:restow:problem:restart-not-requested";
 export const RESTART_UNSUPPORTED_PROBLEM = "urn:restow:problem:restart-unsupported";
+/** "Update nodes and agents now" with none reachable behind the server (0.4.3). */
+export const UPDATE_FLEET_CURRENT_PROBLEM = "urn:restow:problem:update-fleet-current";
 export { RECENT_SIGN_IN_PROBLEM } from "@/lib/recent-sign-in";
 
 // --- Restart required (apps/api/src/features/updates/restarts.ts) -----------------------------
@@ -682,6 +684,17 @@ export function fetchJobActivity(): Promise<JobActivityView> {
 /** An update that waits for running jobs: announce it now. */
 export function startUpdateNow(): Promise<UpdatesView> {
   return apiFetch<UpdatesView>("/updates/maintenance/start-now", {
+    method: "POST",
+    tenantId: null,
+  });
+}
+
+/**
+ * Nodes and agents behind the server install its release now (0.4.3): the fleet step of an
+ * update, started on its own (for example after an update by hand).
+ */
+export function updateFleetNow(): Promise<UpdatesView> {
+  return apiFetch<UpdatesView>("/updates/fleet/update-now", {
     method: "POST",
     tenantId: null,
   });

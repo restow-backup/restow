@@ -54,6 +54,7 @@ export function UpdatesSection() {
       receivedAt={query.dataUpdatedAt}
       refreshFailed={query.isError}
       canManage={providerMay(session, "owner")}
+      canAdminister={providerMay(session, "administrator", { everyTenant: true })}
       restarts={restarts.data}
     />
   );
@@ -64,6 +65,7 @@ export function UpdatesContent({
   view,
   receivedAt,
   canManage,
+  canAdminister = canManage,
   refreshFailed = false,
   restarts,
 }: {
@@ -71,6 +73,11 @@ export function UpdatesContent({
   receivedAt: number;
   /** The viewer is the owner of the provider team, the role that may change updates. */
   canManage: boolean;
+  /**
+   * The viewer is an administrator with every tenant (or the owner): may tell nodes and agents
+   * to update now (0.4.3).
+   */
+  canAdminister?: boolean;
   /** The last refresh failed; the view shown is the last one that arrived. */
   refreshFailed?: boolean;
   /** Services that need a restart; the card shows only while there are any. */
@@ -108,7 +115,7 @@ export function UpdatesContent({
       <VersionCard view={view} canChange={canChange} />
       <PlannedCard view={view} canChange={canChange} />
       <UpdaterCard view={view} canChange={canChange} receivedAt={receivedAt} />
-      <FleetCard view={view} />
+      <FleetCard view={view} canUpdate={canAdminister && !view.demo} />
       <RunCard view={view} canChange={canChange} />
       <ReleasesCard view={view} />
       <SourceCard view={view} canChange={canChange} />

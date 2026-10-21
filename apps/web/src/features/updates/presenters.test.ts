@@ -27,6 +27,7 @@ import {
   formatReleaseDate,
   isMaintenanceActive,
   isUpdaterOutdated,
+  isUpdaterTimeout,
   leadTimeLabel,
   maintenanceMessageKey,
   manualUpdateCommands,
@@ -61,6 +62,20 @@ function problemError(type: string, status = 409, extra: Record<string, unknown>
 }
 
 describe("updatesErrorKey", () => {
+  it("tells an updater that did not answer in time from one that does not run (0.4.3)", () => {
+    const late = problemError("urn:restow:problem:updater-unavailable", 409, { reason: "timeout" });
+    expect(isUpdaterTimeout(late)).toBe(true);
+    expect(updatesErrorKey(late)).toBe("updates:errors.updaterTimeout");
+    const down = problemError("urn:restow:problem:updater-unavailable", 409, {
+      reason: "unreachable",
+    });
+    expect(isUpdaterTimeout(down)).toBe(false);
+    expect(updatesErrorKey(down)).toBe("updates:errors.updaterUnavailable");
+    expect(updatesErrorKey(problemError("urn:restow:problem:update-fleet-current"))).toBe(
+      "updates:errors.fleetCurrent",
+    );
+  });
+
   it("maps each problem type of the updates endpoints to its own message", () => {
     expect(updatesErrorKey(problemError("urn:restow:problem:updater-unavailable", 503))).toBe(
       "updates:errors.updaterUnavailable",
