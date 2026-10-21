@@ -28,6 +28,10 @@ const ALLOWED: Record<string, { classes: readonly string[]; reason: string }> = 
     classes: ["max-w-xl"],
     reason: "running text next to a destructive button",
   },
+  "apps/web/src/features/pve/guest-page.tsx": {
+    classes: ["max-w-xl"],
+    reason: "the danger zone's running text next to its destructive button",
+  },
   "apps/web/src/features/storage/components/target-dialog.tsx": {
     classes: ["sm:max-w-xl", "sm:max-w-2xl"],
     reason:
