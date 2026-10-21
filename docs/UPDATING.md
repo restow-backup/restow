@@ -137,6 +137,15 @@ columns and takes seconds. The `docker-compose.yml` of 0.4.0 stays. restow-pve
 0.4.1 asks for an update two minutes after it starts, then every six hours, and
 installs it once no backup or restore runs on the node.
 
+Updating to 0.4.2 applies six migrations (0053 to 0058) at the api's start; they
+add a table, columns and indexes and take seconds. The `docker-compose.yml` of
+0.4.0 stays. After the server update, new runs wait while Proxmox VE nodes and
+agents install 0.4.2 (up to 15 minutes); stopping a running backup needs
+restow-pve 0.4.2 on the node and agent 0.4.2 on the machine. "Keep existing
+backups where they are" is refused while containers or file shares have restic
+repositories; use "move". An existing installation has no time zone of its own
+until an owner chooses one (see "The installation's time zone" below).
+
 From 0.4.0 on, S3 endpoints must use `https://` (or `http://` only on `localhost`,
 `127.0.0.1`, `[::1]`). A repository or default repository that already uses `http://`
 to another host keeps working after the update, so no backup stops; its card (or

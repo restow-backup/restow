@@ -209,7 +209,7 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
   // other objects (the second column). Without an object, or one this viewer cannot see, the
   // explorer opens on the first entry: the viewer's own, else the first by name.
   const owner = usePersonOf(search.object ?? null);
-  const person = owner.data && owner.data.key.startsWith("site:") ? null : (owner.data ?? null);
+  const person = owner.data?.key.startsWith("site:") ? null : (owner.data ?? null);
   const object = owner.data?.objects.find((candidate) => candidate.id === search.object) ?? null;
   const missing =
     !search.object || (owner.isSuccess && !owner.isPlaceholderData && object === null);

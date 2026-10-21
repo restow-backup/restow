@@ -8,7 +8,30 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [Unreleased]
+## [0.4.2] - 2026-10-22
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.2 stops a running backup from the web app (Proxmox VE, servers and clients,
+file shares) and lets Proxmox VE nodes and agents follow a server update before new runs
+start. A container whose repository went missing after a storage change begins a new
+backup chain instead of failing, and a storage "move" now copies the restic repositories
+of containers, machines and file shares. Every new Proxmox VE restore point is checked
+within minutes of its backup. The storage check tells a pack it could not read for the
+moment (a transfer or permission error) from a damaged one. The restore explorer lists one
+entry per person and shows a mailbox's calendar by month; the mail job editor asks first
+whether a job backs up, archives or both. The installation has a time zone of its own, and
+`restow-agent update` installs the offered agent release at once. Six database migrations.
+
+### Breaking Changes
+
+None. The public API's `storageIntegrity.state` has the new value `unreadable` (integration
+API contract 1.5.0, additive); clients that handle its values exhaustively should accept
+it. "Keep existing backups where they are" is refused while containers or file shares have
+restic repositories (see Fixed and Upgrade Notes).
 
 ### Added
 
@@ -150,6 +173,10 @@ private repository.
 - Switching the tenant on a job's page opens the jobs of that kind in the new tenant instead of
   saying that the job does not exist; any detail page gives way to its list.
 
+### Security
+
+None.
+
 ### Upgrade Notes
 
 New image and six database migrations, which run in seconds whatever the size of the
@@ -173,9 +200,49 @@ installation:
   until an owner chooses one under Installation › Server & operation › Server
   (docs/UPDATING.md, "The installation's time zone").
 
+No new required environment variables, and the `docker-compose.yml` of 0.4.0 stays.
+
+- Proxmox VE nodes should run restow-pve 0.4.2: it reports the Restow server's own VM, keeps
+  its heartbeat going while a backup runs (for Stop and the progress) and no longer reports
+  backups with "TASK WARNINGS" as failed. The fleet update after the server update installs
+  it on every reachable node; the Updates tab names the command for the others.
 - Stopping a running backup needs restow-pve 0.4.2 on the node and agent 0.4.2 on the machine;
   an older node ends a cancelled backup at its next upload (the server refuses it), an older
   agent finishes it. Both update themselves with this release.
+- "Keep existing backups where they are" (and promoting a copy) is refused while containers
+  or file shares have restic repositories; change the primary repository with "move", which
+  now takes them along.
+- Storage check reports from before 0.4.2 are read again: packs they listed as unreadable
+  count as temporarily unreadable, not damaged, and the next check reads them first. An
+  object rated "Not restorable" only because of such a pack is rated "Attention" until that
+  check.
+- Integration API contract 1.5.0 (additive): `storageIntegrity.state` can be `unreadable`.
+- Rollback: the migrations only add a table, columns, indexes and enum values and widen a
+  check; 0.4.1 starts with them, but runs and tasks in the state `cancelled` are unknown to
+  it.
+
+### Known Issues
+
+- A file share whose repository went missing after a storage change is not yet healed the
+  way a container's is (a new backup chain); this comes in 0.4.3.
+- The fix for the maintenance and update banner covering the top of window-sized pages was
+  not verified visually in a browser.
+- The new parts were tested against a simulated Proxmox VE API, S3 store and Microsoft
+  Graph API only, never against a real Proxmox VE cluster, S3 provider or Microsoft 365
+  tenant.
+- The restore explorer's list of people groups the tenant's protected objects in the
+  database for every page it serves; that is fine up to about 10,000 people per tenant and
+  slower beyond.
+- The known issues of 0.4.1 still apply.
+
+### Verification
+
+Before the tag, on the release branch (main plus the 0.4.2 workstreams): lint and typecheck
+of all workspaces, the i18n tests, the server installer tests, the v1 OpenAPI test, gofmt, go
+vet and the Go tests of the agents, the Perl tests of the Proxmox VE plugin, and the unit and
+Postgres suites of every changed package on Postgres 16. The release smoke runs in the
+release pipeline; no real Proxmox VE cluster, S3 provider or Microsoft 365 tenant was used
+before the tag.
 
 ## [0.4.1] - 2026-10-16
 
