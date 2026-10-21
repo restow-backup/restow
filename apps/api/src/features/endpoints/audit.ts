@@ -14,6 +14,8 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   configChanged: "endpoint.config.changed",
   assigned: "endpoint.assigned",
   backupRequested: "endpoint.backup.requested",
+  backupCancelled: "endpoint.backup.cancelled",
+  updateRequested: "endpoint.update_requested",
   restoreRequested: "endpoint.restore.requested",
   restoreFinished: "endpoint.restore.finished",
   restoreTestRequested: "endpoint.restore_test.requested",

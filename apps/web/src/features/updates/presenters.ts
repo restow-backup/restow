@@ -283,6 +283,15 @@ export function leadTimeLabel(seconds: number): { key: string; params: { minutes
   }
 }
 
+/**
+ * How a countdown before a chosen time reads (0.4.2): the same lead times, worded as a span
+ * ("5 minutes before", "No countdown") instead of "In 5 minutes".
+ */
+export function countdownLabel(seconds: number): { key: string; params: { minutes?: number } } {
+  const lead = leadTimeLabel(seconds);
+  return { key: lead.key.replace(/^lead\./, "countdown."), params: lead.params };
+}
+
 /** The lead times the api offers, falling back to the protocol's presets. */
 export function offeredLeadTimes(view: Pick<UpdatesView, "leadTimes">): number[] {
   const offered = view.leadTimes.filter((value) => Number.isInteger(value) && value >= 0);

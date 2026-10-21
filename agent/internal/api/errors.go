@@ -41,6 +41,12 @@ func IsAuthError(err error) bool {
 	return errors.As(err, &ae) && (ae.Status == 401 || ae.Status == 403)
 }
 
+// IsConflict reports HTTP 409 (for a run: its task was finished or cancelled meanwhile).
+func IsConflict(err error) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.Status == 409
+}
+
 // IsNotFound reports HTTP 404.
 func IsNotFound(err error) bool {
 	var ae *APIError

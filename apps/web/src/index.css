@@ -138,6 +138,8 @@
   --sidebar-width: 16rem;
   --sidebar-width-collapsed: 3.5rem;
   --topbar-height: 3.5rem;
+  /* The sticky shell header: the top bar, plus the maintenance banner while one shows (measured). */
+  --shell-header-height: var(--topbar-height);
 }
 
 /*
@@ -325,6 +327,18 @@
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-wordmark: var(--font-sans);
   --font-wordmark-tag: var(--font-mono);
+  /* A gentle ring that breathes around "Update available" (0.4.2); used with motion-safe: only. */
+  --animate-update-pulse: update-pulse 2.6s ease-in-out infinite;
+
+  @keyframes update-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in oklch, var(--info) 35%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 4px color-mix(in oklch, var(--info) 0%, transparent);
+    }
+  }
 }
 
 /* Expose the tokens as Tailwind color/radius utilities (bg-background, text-success-text, ...). */
@@ -398,6 +412,8 @@
 
   html {
     -webkit-text-size-adjust: 100%;
+    /* Anchors and focused elements scroll below the sticky header (banner included). */
+    scroll-padding-top: calc(var(--shell-header-height) + 0.5rem);
   }
 
   body {

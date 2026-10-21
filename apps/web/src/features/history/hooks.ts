@@ -9,6 +9,8 @@ import {
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import * as React from "react";
 
+import { cancelEndpointBackup } from "@/features/endpoints/api";
+import { cancelRun as cancelShareRun } from "@/features/file-shares/api";
 import { cancelJob, retryJob } from "@/features/jobs/api";
 import { useSession } from "@/lib/session";
 
@@ -124,13 +126,30 @@ export function useRunDrawer() {
   return { runId: run, open, close, replaceWith };
 }
 
+/**
+ * Cancel a run where it runs (0.4.2): a mail run through the jobs, a machine's backup through
+ * the agent's heartbeat, a share's run through its runner. A bare id is a mail run.
+ */
+export function cancelRunOf(
+  run: string | Pick<Run, "id" | "source" | "subject">,
+): Promise<unknown> {
+  if (typeof run === "string" || run.source === "mail" || !run.subject) {
+    return cancelJob(typeof run === "string" ? run : run.id);
+  }
+  return run.source === "endpoint"
+    ? cancelEndpointBackup(run.subject.id)
+    : cancelShareRun(run.subject.id, run.id);
+}
+
 export function useCancelRun() {
   const queryClient = useQueryClient();
   const { tenantId } = useHistoryScope();
   return useMutation({
-    mutationFn: (runId: string) => cancelJob(runId),
-    onSettled: (_data, _error, runId) => {
+    mutationFn: (run: string | Pick<Run, "id" | "source" | "subject">) => cancelRunOf(run),
+    onSettled: (_data, _error, run) => {
+      const runId = typeof run === "string" ? run : run.id;
       void queryClient.invalidateQueries({ queryKey: historyKeys.detail(tenantId, runId) });
+      void queryClient.invalidateQueries({ queryKey: historyKeys.all(tenantId) });
     },
   });
 }

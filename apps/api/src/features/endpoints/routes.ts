@@ -26,6 +26,7 @@ import {
   updateTenantAgentPolicy,
 } from "./agent-policy.js";
 import type { EndpointActor } from "./audit.js";
+import { cancelEndpointBackup, requestEndpointUpdate } from "./cancel.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import {
@@ -100,6 +101,8 @@ import {
  *   POST   /:id/revoke                          refuse the endpoint from now on
  *   POST   /:id/uninstall                       have the agent remove itself, then revoke
  *   POST   /:id/tasks                           back up now, or restore into a new folder on the endpoint
+ *   POST   /:id/cancel                          stop the running backup, withdraw a queued one
+ *   POST   /:id/update                          the agent installs its update when idle
  *   POST   /:id/restore-test                    read the samples back and compare their hashes now
  *   POST   /:id/repository-password             the restic password, for a restore without Restow (audited)
  *   GET    /:id/runs?limit=                     recent runs
@@ -266,6 +269,16 @@ endpointsRoutes.post("/:id/tasks", restorer, async (c) => {
   }
   const result = await createTask(db, c.get("tenantId"), id, input, actorOf(c));
   return c.json(result, result.alreadyQueued ? 200 : 202);
+});
+
+endpointsRoutes.post("/:id/cancel", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await cancelEndpointBackup(db, c.get("tenantId"), id, actorOf(c)), 202);
+});
+
+endpointsRoutes.post("/:id/update", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await requestEndpointUpdate(db, c.get("tenantId"), id, actorOf(c)), 202);
 });
 
 endpointsRoutes.post("/:id/restore-test", admin, async (c) => {

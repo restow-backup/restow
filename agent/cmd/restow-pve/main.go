@@ -324,15 +324,21 @@ func cmdRun(layout pve.Layout, stderr io.Writer) int {
 	ctx, cancel := signalContext()
 	defer cancel()
 	logger("restow-pve %s started for node %s", buildinfo.Version, s.State.NodeName)
+	install := func(ctx context.Context, v string) {
+		if err := pve.SelfUpdate(ctx, layout, s.Server, buildinfo.Version, v); err == nil {
+			logger("updated to %s, restarting", v)
+			cancel()
+			os.Exit(0) // systemd restarts the unit with the new binary
+		} else {
+			logger("update to %s not applied: %v", v, err)
+		}
+	}
+	// "Update now" from the server (the node's page, or right after the server was updated):
+	// installed with the heartbeat that says so, once the node is idle.
+	s.OnUpdate = install
 	go updateLoop(ctx, firstUpdateCheck, updateCheckInterval, func(ctx context.Context) {
 		if v, err := s.Server.UpdateOffer(ctx); err == nil && v != "" {
-			if err := pve.SelfUpdate(ctx, layout, s.Server, buildinfo.Version, v); err == nil {
-				logger("updated to %s, restarting", v)
-				cancel()
-				os.Exit(0) // systemd restarts the unit with the new binary
-			} else {
-				logger("update to %s not applied: %v", v, err)
-			}
+			install(ctx, v)
 		}
 	})
 	if err := s.Run(ctx); err != nil {

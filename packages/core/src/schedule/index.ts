@@ -13,6 +13,7 @@ export {
   isValidTimeZone,
   nextCronOccurrence,
   parseCron,
+  zonedTimeToUtc,
 } from "./cron.js";
 export * from "./defaults.js";
 export * from "./presets.js";

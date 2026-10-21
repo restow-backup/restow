@@ -5,6 +5,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ConfirmDialog, DisabledReason } from "@/components/kit";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { useJobsAccess } from "@/features/backup-jobs/components/access-note";
@@ -24,7 +25,7 @@ import { useRunTitle } from "./run-parts";
 
 /**
  * What can be done with a run, in the order of the drawer's footer: cancel it (a mail run that is
- * queued or running; an agent owns its own runs), edit its job, open it in History, run it
+ * queued or running, a machine's running backup, a share's run), edit its job, open it in History, run it
  * again. The controls follow the jobs' access rules: closed in the public demo and for a role
  * that may only look, with the reason in a tooltip, not an error after the click.
  */
@@ -168,7 +169,12 @@ export function RunActions({ run, where, className }: RunActionsProps) {
 
   return (
     <div className={className} data-slot="run-actions">
-      {run.cancellable ? (
+      {run.cancelling ? (
+        <Badge variant="warning" data-slot="run-cancelling">
+          {t("actions.cancelling")}
+        </Badge>
+      ) : null}
+      {run.cancellable && !run.cancelling ? (
         <>
           <DisabledReason reason={access.closed ? access.reason : null}>
             <Button
@@ -190,7 +196,13 @@ export function RunActions({ run, where, className }: RunActionsProps) {
             cancelLabel={t("actions.cancelKeep")}
             destructive
             onConfirm={() =>
-              cancel.mutateAsync(run.id).then(() => toast.success(t("actions.cancelled")))
+              cancel
+                .mutateAsync(run)
+                .then(() =>
+                  toast.success(
+                    run.source === "mail" ? t("actions.cancelled") : t("actions.cancelRequested"),
+                  ),
+                )
             }
           />
         </>

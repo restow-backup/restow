@@ -64,7 +64,8 @@
     "failed": "Fehlgeschlagen",
     "interrupted": "Unterbrochen",
     "incomplete": "Nicht abgeschlossen, wird wiederholt",
-    "incompleteFinal": "Nicht abgeschlossen"
+    "incompleteFinal": "Nicht abgeschlossen",
+    "cancelled": "Abgebrochen"
   },
   "attention": {
     "none": "Nichts zu tun",
@@ -438,7 +439,8 @@
     "outcome": {
       "partial": "einige Dateien ließen sich nicht lesen",
       "failed": "fehlgeschlagen",
-      "interrupted": "unterbrochen, setzt sich automatisch fort"
+      "interrupted": "unterbrochen, setzt sich automatisch fort",
+      "cancelled": "abgebrochen"
     },
     "nextRun": "Nächste Sicherung",
     "nextRunUnknown": "Noch nicht gemeldet",
@@ -512,7 +514,8 @@
       "pending": "Wartet auf Abholung",
       "delivered": "An den Rechner übergeben",
       "done": "Erledigt",
-      "failed": "Fehlgeschlagen"
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Zurückgezogen"
     },
     "retryFrom": "Wiederholt einen nicht abgeschlossenen Test; wird ab {time} abgeholt",
     "recentTitle": "Letzte Anfragen",
@@ -1037,7 +1040,8 @@
     "truncated": "Weitere Fehler sind hier nicht aufgeführt",
     "unknown": "Fehlercode {code}",
     "detail": "Technische Meldung des Agents",
-    "agent_stopped": "Der Agent hat sich während des Laufs nicht mehr gemeldet"
+    "agent_stopped": "Der Agent hat sich während des Laufs nicht mehr gemeldet",
+    "cancelled": "In der Oberfläche abgebrochen"
   },
   "agentUpdates": {
     "title": "Automatische Agent-Updates",
@@ -1221,5 +1225,30 @@
       "description": "Wann und wie die Agenten der Server und Clients sichern, in jedem Mandanten. Mandanten und Backup-Jobs können eigene Werte setzen, außer was Sie hier sperren. Ohne festgelegte Werte verhalten sich die Agenten wie bisher. Agenten ab 0.4.0 beachten Sicherungsfenster, Nachholen und Wiederholungen.",
       "readOnly": "Administratoren des Anbieters mit allen Mandanten ändern die Richtlinie; Sie können sie lesen."
     }
+  },
+  "cancel": {
+    "stop": "Sicherung stoppen",
+    "withdraw": "Sicherung zurückziehen",
+    "stopTitle": "Sicherung von {name} stoppen?",
+    "stopBody": "Der Agent beendet restic bei seiner nächsten Meldung sauber (innerhalb etwa einer Minute). Von diesem Lauf wird nichts gespeichert, das Repository bleibt, wie es war. Der Lauf endet als abgebrochen, nicht als fehlgeschlagen; die nächste geplante Sicherung läuft wie gewohnt.",
+    "stopConfirm": "Sicherung stoppen",
+    "withdrawTitle": "Sicherung von {name} zurückziehen?",
+    "withdrawBody": "Die angeforderte Sicherung hat noch nicht begonnen. Sie wird zurückgezogen, und der Rechner startet sie nicht.",
+    "withdrawConfirm": "Zurückziehen",
+    "keep": "Behalten",
+    "stopping": "Die Sicherung wird gestoppt",
+    "stoppingNote": "Der Agent stoppt sie bei seiner nächsten Meldung, meist innerhalb einer Minute.",
+    "withdrawn": "Sicherung zurückgezogen",
+    "cancelling": "Wird abgebrochen…",
+    "cancellingBy": "Wird abgebrochen… (angefordert von {name})",
+    "requestedBy": "Stopp angefordert von {name}",
+    "cancelledBy": "Abgebrochen von {name}"
+  },
+  "agentUpdate": {
+    "now": "Auf {version} aktualisieren",
+    "pending": "Wird auf {version} aktualisiert…",
+    "requested": "Der Agent aktualisiert sich, sobald er frei ist",
+    "requestedNote": "Er installiert das signierte Release bei seiner nächsten Meldung, sobald auf dem Rechner keine Sicherung und keine Wiederherstellung läuft, und startet dann neu.",
+    "paused": "Agent-Updates sind für diesen Rechner oder seinen Mandanten pausiert."
   }
 }

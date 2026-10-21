@@ -715,7 +715,9 @@ describe.skipIf(!testDatabaseAdminUrl)("history against Postgres", () => {
       bytesTransferred: 120_000,
       bytesTotal: 2_000_000,
     });
-    expect(run.cancellable).toBe(false);
+    // The agent stops a running backup with its next heartbeat (0.4.2).
+    expect(run.cancellable).toBe(true);
+    expect(run.cancelling).toBe(false);
   });
 
   it("answers 404 for a run that does not exist or belongs to another tenant, 422 for no id", async () => {

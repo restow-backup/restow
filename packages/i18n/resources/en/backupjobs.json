@@ -233,7 +233,8 @@
       "partial": "With warnings",
       "failed": "Failed",
       "running": "Running",
-      "queued": "Waiting"
+      "queued": "Waiting",
+      "cancelled": "Cancelled"
     },
     "queued": {
       "waiting": "Waits for the machine (next check-in in about {count} min)",

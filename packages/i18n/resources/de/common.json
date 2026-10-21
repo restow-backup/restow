@@ -208,7 +208,8 @@
     "skipToContent": "Zum Inhalt springen",
     "version": "Version {version}",
     "versionUntagged": "Build ohne Release-Version",
-    "updateAvailable": "Update verfügbar: {version}"
+    "updateAvailable": "Update verfügbar: {version}",
+    "updateTo": "Update auf {version} verfügbar"
   },
   "search": {
     "button": "Suchen …",

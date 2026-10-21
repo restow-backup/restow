@@ -16,6 +16,9 @@
  * dropped after, the roles with it). Without it the suite is skipped.
  */
 import { randomBytes } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   auditLog,
   createDb,
@@ -24,6 +27,8 @@ import {
   jobs,
   notifications,
   providers,
+  pveClusters,
+  pveNodes,
   readJobStartPause,
   reportDeliveries,
   reportRules,
@@ -1198,6 +1203,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         runningVersion: "0.1.0",
         switchTo: null,
         jobPause: null,
+        planned: null,
       });
       await service.schedule({ version: "0.2.0", leadSeconds: 300 }, actor);
       const view = await service.maintenance();
@@ -1219,6 +1225,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
           "message",
           "outcome",
           "phase",
+          "planned",
           "progress",
           "runId",
           "runningVersion",
@@ -1409,6 +1416,175 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       expect(await pauseRow()).toBeNull();
       const resumed = await auditRows("update.jobs_resumed");
       expect(resumed.at(-1)?.details).toMatchObject({ reason: "expired" });
+    });
+
+    it("keeps new starts paused while nodes and agents follow the server, at most 15 minutes", async () => {
+      const agentDir = await mkdtemp(join(tmpdir(), "restow-fleet-"));
+      const previous = { dir: process.env.RESTOW_AGENT_DIR, version: process.env.RESTOW_VERSION };
+      process.env.RESTOW_AGENT_DIR = agentDir;
+      process.env.RESTOW_VERSION = "0.2.0";
+      try {
+        const [cluster] = await owner
+          .insert(pveClusters)
+          .values({
+            tenantId: contoso,
+            name: "lab",
+            fingerprint: "9".repeat(64),
+            storageId: "restow",
+          })
+          .returning();
+        const [node] = await owner
+          .insert(pveNodes)
+          .values({
+            tenantId: contoso,
+            clusterId: cluster?.id ?? "",
+            name: "pve1",
+            helperVersion: "0.1.0",
+            secretHash: "x",
+            lastSeenAt: now,
+          })
+          .returning();
+        const { service } = await withCheck();
+        await service.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+        // The updater is done and the new server runs: its node is still behind.
+        updater.view = idleState();
+        running = "0.2.0";
+        const updated = build().service;
+        now = new Date(now.getTime() + 60_000);
+        await updated.advancePause();
+        expect(await pauseRow()).toMatchObject({ phase: "fleet" });
+        expect((await pauseRow())?.deadlineAt.getTime()).toBe(now.getTime() + 15 * 60 * 1000);
+        expect(await readJobStartPause(providerDb.$client)).toMatchObject({
+          paused: true,
+          phase: "fleet",
+        });
+        const [started] = await auditRows("update.fleet_started");
+        expect(started?.details).toMatchObject({ agentVersion: "0.2.0", pending: 1 });
+        const view = await updated.view();
+        expect(view.fleet?.counts.pve_node).toMatchObject({ pending: 1, total: 1 });
+        expect(view.fleet?.members[0]).toMatchObject({ name: "pve1", state: "pending" });
+        // Still behind: the pause holds; the node reports the release: it lifts.
+        await updated.advancePause();
+        expect(await pauseRow()).not.toBeNull();
+        await owner
+          .update(pveNodes)
+          .set({ helperVersion: "0.2.0" })
+          .where(eq(pveNodes.id, node?.id ?? ""));
+        await updated.advancePause();
+        expect(await pauseRow()).toBeNull();
+        const resumed = await auditRows("update.jobs_resumed");
+        expect(resumed.at(-1)?.details).toMatchObject({ reason: "fleet_done", phase: "fleet" });
+
+        // A node that never updates: the pause lifts at the deadline.
+        await owner
+          .update(pveNodes)
+          .set({ helperVersion: "0.1.0" })
+          .where(eq(pveNodes.id, node?.id ?? ""));
+        running = "0.1.0";
+        updater.view = idleState();
+        const again = (await withCheck()).service;
+        await again.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+        updater.view = idleState();
+        running = "0.2.0";
+        const later = build().service;
+        now = new Date(now.getTime() + 60_000);
+        await later.advancePause();
+        expect(await pauseRow()).toMatchObject({ phase: "fleet" });
+        now = new Date(now.getTime() + 15 * 60 * 1000 + 1000);
+        // Still calling (reachable), still behind.
+        await owner
+          .update(pveNodes)
+          .set({ lastSeenAt: now })
+          .where(eq(pveNodes.id, node?.id ?? ""));
+        await later.advancePause();
+        expect(await pauseRow()).toBeNull();
+        const lifted = await auditRows("update.jobs_resumed");
+        expect(lifted.at(-1)?.details).toMatchObject({ reason: "fleet_deadline" });
+        await owner.delete(pveClusters);
+      } finally {
+        running = "0.1.0";
+        process.env.RESTOW_AGENT_DIR = previous.dir;
+        process.env.RESTOW_VERSION = previous.version;
+        if (previous.dir === undefined) Reflect.deleteProperty(process.env, "RESTOW_AGENT_DIR");
+        if (previous.version === undefined) Reflect.deleteProperty(process.env, "RESTOW_VERSION");
+        await rm(agentDir, { recursive: true, force: true });
+      }
+    });
+
+    it("plans an update for a chosen time and confirms it then, not before", async () => {
+      const built = build({ RESTOW_TIME_ZONE: "UTC" });
+      await built.service.saveSettings({ enabled: true }, actor);
+      const service = built.service;
+      const at = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+      const wall = {
+        date: at.toISOString().slice(0, 10),
+        time: at.toISOString().slice(11, 16),
+      };
+      // A time already past, or skipped, is refused.
+      await expect(
+        service.schedule(
+          { version: "0.2.0", leadSeconds: 300, at: { date: "2020-01-01", time: "10:00" } },
+          actor,
+        ),
+      ).rejects.toMatchObject({ status: 422, type: "urn:restow:problem:update-invalid-time" });
+      const view = await service.schedule(
+        { version: "0.2.0", leadSeconds: 300, jobs: "wait", at: wall },
+        actor,
+      );
+      expect(updater.scheduled).toHaveLength(0);
+      expect(view.timeZone).toBe("UTC");
+      expect(view.planned).toMatchObject({
+        version: "0.2.0",
+        leadSeconds: 300,
+        jobs: "wait",
+        at: wall,
+        requestedBy: actor.email,
+      });
+      expect(Date.parse(view.planned?.startsAt ?? "")).toBe(
+        Date.parse(`${wall.date}T${wall.time}:00Z`),
+      );
+      expect((await service.maintenance()).planned).toMatchObject({ version: "0.2.0" });
+      // Nothing pauses meanwhile, and nothing else is announced.
+      expect(await readJobStartPause(providerDb.$client)).toMatchObject({ paused: false });
+      await expect(
+        service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({ status: 409 });
+      const [planned] = await auditRows("update.planned");
+      expect(planned?.details).toMatchObject({ version: "0.2.0", timeZone: "UTC" });
+
+      await service.advancePause();
+      expect(updater.scheduled).toHaveLength(0);
+      // Its lead time before the chosen moment, it is confirmed as chosen.
+      now = new Date(Date.parse(view.planned?.startsAt ?? "") - 300 * 1000 + 2000);
+      await service.advancePause();
+      expect(updater.scheduled).toHaveLength(1);
+      expect(updater.scheduled[0]).toMatchObject({
+        leadSeconds: 300,
+        release: { version: "0.2.0" },
+        requestedBy: { label: actor.email },
+      });
+      expect((await service.view()).planned).toBeNull();
+
+      // A second plan is cancelled before its time: nothing reaches the updater.
+      await service.cancel(actor);
+      updater.view = idleState();
+      const again = await service.schedule(
+        {
+          version: "0.2.0",
+          leadSeconds: 0,
+          at: {
+            date: new Date(now.getTime() + 86_400_000).toISOString().slice(0, 10),
+            time: "12:00",
+          },
+        },
+        actor,
+      );
+      expect(again.planned).not.toBeNull();
+      const cancelled = await service.cancel(actor);
+      expect(cancelled.planned).toBeNull();
+      const entries = await auditRows("update.cancelled");
+      expect(entries.at(-1)?.details).toMatchObject({ planned: true });
+      expect(updater.scheduled).toHaveLength(1);
     });
 
     it("resumes job starts and tells the administrators when the updater refuses at the end", async () => {

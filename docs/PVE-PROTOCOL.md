@@ -107,7 +107,7 @@ except enrollment. Binary formats are defined in
 | --- | --- |
 | `POST /enroll/preflight` | `{token}` → `{expiresAt, pveTokenId, pveTokenSecret}`: the installer's check before it changes anything. 401 when the token is unknown, used, revoked or expired. `pveTokenId`/`pveTokenSecret` are the existing PVE API token an admin gave for this enrollment, else `null`. Does not use the token up. |
 | `POST /enroll` | `{token, clusterName, clusterFingerprint, nodeName, pveVersion, helperVersion, fleecingStorage}` → `{nodeId, nodeSecret, clusterId, storageId, createdCluster}` |
-| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts the answer holds no backup task. Nodes with boot tests also send `capabilities` (below). |
+| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update, cancel, queuePaused}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts, or the node's queue is paused (`queuePaused`, 0.4.2), the answer holds no backup task. Nodes with boot tests also send `capabilities` (below). Since 0.4.2: `update` is `{version, now}` (`now`: install it once idle, "Update now" or the fleet phase of an update), and `cancel` is `{tasks: [taskId], runs: [{id, vmid, taskId}]}`, what was stopped in the web app (see "Cancel orders"). |
 | `POST /inventory` | `{guests: [...]}` of this node; since 0.4.2 a VM carries `smbiosUuid` (the `uuid` of its `smbios1`), which finds the Restow server's own VM (PVE.md) |
 | `POST /tasks/:id/result` | `{status: done\|failed, error, result}`; see "Task results" |
 | `GET /listing` | restore points of the cluster for the plugin |
@@ -235,3 +235,25 @@ with a short timeout, failures are ignored, and the first 404 or 409 stops
 them for the run. A VM reports the bytes read of its disks (the changed
 blocks only when the bitmap is reused) and the bytes uploaded; a container
 forwards restic's `status` lines (`bytes_done`, `total_bytes`).
+
+## Cancel orders (0.4.2)
+
+A backup stopped in the web app reaches the node with its heartbeat; restow-pve 0.4.2
+heartbeats every 15 seconds while a task runs or waits (every minute otherwise).
+
+- `cancel.tasks`: delivered backup tasks with a cancel request. A task still in the
+  node's queue is dropped and reported as `failed` (`/tasks/:id/result`); the server
+  records it as `cancelled`. The running one: its vzdump task is stopped
+  (`DELETE /nodes/{node}/tasks/{upid}` of the local PVE API).
+- `cancel.runs`: running backup runs with a cancel request. With `taskId` it is the
+  node's running task (as above). Without (a backup started in PVE): the node sends
+  SIGTERM to the provider process of that VMID (`/run/restow-pve/providers/<vmid>.pid`,
+  checked against `/proc/<pid>/cmdline`), else it stops an active vzdump task whose id
+  is the VMID. Each order is acted on once.
+- The server refuses `POST /runs` for a task with a cancel request and every call of a
+  cancelled run (`incremental`, `blocks`, `commit`, `restic`, the restic repository
+  route) with 409, so an older node ends the backup at its next call.
+- `finish` with `failed` (and `/tasks/:id/result` with `failed`) after a cancel request
+  ends the run and the task as `cancelled`; a run that committed its restore point
+  before still ends `succeeded`.
+

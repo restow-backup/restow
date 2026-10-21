@@ -336,6 +336,52 @@ export async function closeRunsNodesDropped(deps: PveDeps, now: Date): Promise<n
   return closed;
 }
 
+/** A stop requested for a run of a node that has been silent this long ends it: nobody will. */
+const CANCEL_SILENT_NODE_MS = 15 * 60 * 1000;
+
+/**
+ * Backup runs stopped in the UI whose node has not called since the stop was asked for and is
+ * silent for {@link CANCEL_SILENT_NODE_MS} (powered off, unreachable, or the helper is gone):
+ * they end `cancelled` now instead of showing "Cancelling" until the 48 hours are over. A node
+ * that comes back with the backup still going gets the cancel order with its next heartbeat; the
+ * server refuses the run's uploads in any case.
+ */
+export async function closeCancelledRunsOfSilentNodes(deps: PveDeps, now: Date): Promise<number> {
+  const silentSince = new Date(now.getTime() - CANCEL_SILENT_NODE_MS);
+  const stuck = await deps.providerDb
+    .select({ id: pveRuns.id, tenantId: pveRuns.tenantId, snapshotId: pveRuns.snapshotId })
+    .from(pveRuns)
+    .leftJoin(pveNodes, eq(pveNodes.id, pveRuns.nodeId))
+    .where(
+      and(
+        eq(pveRuns.status, "running"),
+        isNotNull(pveRuns.cancelRequestedAt),
+        lt(pveRuns.cancelRequestedAt, silentSince),
+        or(
+          isNull(pveNodes.id),
+          isNull(pveNodes.lastSeenAt),
+          lt(pveNodes.lastSeenAt, silentSince),
+          sql`${pveNodes.lastSeenAt} < ${pveRuns.cancelRequestedAt}`,
+        ),
+      ),
+    )
+    .limit(1000);
+  let closed = 0;
+  for (const run of stuck) {
+    if (
+      await closeRun(
+        deps,
+        run,
+        now,
+        "The backup was cancelled; its node did not answer, so the server ended the run.",
+      )
+    ) {
+      closed++;
+    }
+  }
+  return closed;
+}
+
 /**
  * Close a run that is still `running`: succeeded when its restore point was committed,
  * else failed with `message`; what it staged is released. False when it ended meanwhile.
@@ -350,7 +396,12 @@ async function closeRun(
     const [updated] = await tx
       .update(pveRuns)
       .set({
-        status: run.snapshotId ? "succeeded" : "failed",
+        // A run stopped in the UI ends cancelled, not failed.
+        status: run.snapshotId
+          ? "succeeded"
+          : sql<
+              "failed" | "cancelled"
+            >`CASE WHEN ${pveRuns.cancelRequestedAt} IS NOT NULL THEN 'cancelled' ELSE 'failed' END`,
         finishedAt: now,
         errorMessage: run.snapshotId ? null : message,
       })
@@ -1087,7 +1138,10 @@ export async function pvePass(deps: PveDeps): Promise<PvePassSummary> {
   const paused = deps.startsPaused?.() === true;
   return {
     tasks: paused ? 0 : await planJobs(deps, now),
-    staleRuns: (await closeStaleRuns(deps, now)) + (await closeRunsNodesDropped(deps, now)),
+    staleRuns:
+      (await closeStaleRuns(deps, now)) +
+      (await closeRunsNodesDropped(deps, now)) +
+      (await closeCancelledRunsOfSilentNodes(deps, now)),
     pruned: paused ? 0 : await applyRetention(deps, now),
     verified: paused ? 0 : await verifyDue(deps, now),
     restoreTests: paused ? 0 : await planRestoreTests(deps, now),

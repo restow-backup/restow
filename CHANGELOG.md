@@ -35,6 +35,26 @@ private repository.
   inventory) or marked by an admin on the guest's page. It is marked in the lists and the job
   editor, no job backs it up, and "Back up now" and putting it into a job need a confirmation
   that names the self-backup risk (docs/PVE.md, "The Restow server's own VM").
+- Stop a backup from the web app, without SSH on the node. Proxmox VE: **Stop** in the VMs &
+  containers table, on the guest's page and in the run drawer withdraws a queued backup at once
+  and stops a running one: restow-pve now keeps its heartbeat going while a backup runs, gets
+  the cancel order with it and stops the vzdump task through the PVE API (a backup started in
+  PVE: its provider). The run ends **cancelled**, not failed, and shows "Cancelled by <user>".
+  Per node: **Pause queue** (no new backup starts until resumed) and **Cancel all queued**,
+  also for the whole tenant. Servers and clients: **Stop backup** on the machine's page and in
+  the run drawer; the agent stops restic cleanly with its next heartbeat (every minute while
+  it backs up). Runs of file shares can now be cancelled from the run drawer as well (Microsoft
+  365 and IMAP runs already could). Every stop asks first and is audited.
+- Nodes and agents follow a server update: after the server runs the new release, new runs
+  stay paused while Proxmox VE nodes and agents install it (they are idle then), until every
+  reachable one reports it or 15 minutes have passed. The Updates tab shows their progress and,
+  for the ones not reached, the command for an update by hand. **Update to <version>** on a
+  node and on a machine asks for the update at any time.
+- Updates can be planned for a chosen date and time (in the installation's time zone) besides
+  the lead times from now; nothing pauses before, and everyone sees a notice from a day before.
+- When an update is available, the version in the sidebar becomes a highlighted, gently
+  pulsing **Update to <version> available** that leads to Installation › Updates (for those
+  who may install updates; no animation with reduced motion).
 
 ### Changed
 
@@ -53,6 +73,8 @@ private repository.
   could not be read in 3 consecutive checks over at least 24 hours. When the packs read
   intact again, the storage finding ends and the object's restore checks rate it again. The
   public API's `storageIntegrity.state` has a new value, `unreadable`.
+- A run that was stopped on request is `cancelled` (machines: a new run and task status);
+  it raises no failure alert and does not count as the last backup.
 
 ### Fixed
 
@@ -92,13 +114,35 @@ private repository.
   apart), hashing as it streams into a buffer of the pack's recorded size. Reads from S3
   (restores and restore checks included) resume a body that breaks off from the first
   missing byte, pinned to the object's ETag.
+- The maintenance and update banner covered the top of pages that size themselves to the
+  window: the layout now accounts for the banner's height, also when it wraps to several
+  lines.
+- The update progress said "Downloading {image}" (and "{file}", "{services}"): those steps
+  now name the version instead of a placeholder the updater never fills.
 
 ### Upgrade Notes
 
-One database migration, `0053_pack_read_failures`: a new, empty table, which runs in
-seconds whatever the number of packs. Packs an earlier storage check reported unreadable
-count as temporarily unreadable after the update and are read again first by the next
-check; no full check is needed. Rollback: the older release ignores the table.
+New image and four database migrations, which run in seconds whatever the size of the
+installation:
+
+- `0053_pve_repository_chains`: a container's new backup chains
+  (`pve_guests.repository_chains`) and `pve_snapshots.unavailable_at`.
+- `0054_pve_runs_042`: the Restow server's own VM (`pve_guests.restow_server_detected`,
+  `restow_server_flagged`, `self_backup_confirmed_at`), `pve_snapshots.verify_requested_at`
+  and the installation's Proxmox VE settings (`settings.pve_settings`).
+- `0055_pack_read_failures`: a new, empty table. Packs an earlier storage check reported
+  unreadable count as temporarily unreadable after the update and are read again first by
+  the next check; no full check is needed.
+- `0056_cancel_and_fleet_update`: cancel requests and `cancelled` states for tasks and runs, a
+  node's paused queue, "update now" for nodes and machines, the phase `fleet` of the job-start
+  pause, `settings.planned_update`.
+
+Optional: `RESTOW_TIME_ZONE` names the installation's time zone for planned updates (default
+`TZ`, else Europe/Berlin).
+
+- Stopping a running backup needs restow-pve 0.4.2 on the node and agent 0.4.2 on the machine;
+  an older node ends a cancelled backup at its next upload (the server refuses it), an older
+  agent finishes it. Both update themselves with this release.
 
 ## [0.4.1] - 2026-10-16
 

@@ -39,6 +39,8 @@ function run(overrides: Partial<RunDto> = {}): RunDto {
     errorMessage: null,
     failure: null,
     cancellable: true,
+    cancelling: false,
+    cancelledBy: null,
     ...overrides,
   };
 }

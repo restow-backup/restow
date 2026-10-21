@@ -45,7 +45,8 @@ export interface EndpointReadiness {
 }
 
 export type RunKind = "backup" | "restore" | "verify_sample";
-export type RunStatus = "running" | "succeeded" | "partial" | "failed";
+/** `cancelled` (0.4.2): stopped on request in the UI; neither a failure nor a backup. */
+export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "cancelled";
 
 export interface RunProgress {
   filesDone: number;
@@ -77,6 +78,9 @@ export interface RunSummary {
   dataAdded: number | null;
   totalBytesProcessed: number | null;
   progress: RunProgress | null;
+  /** A stop was asked for (0.4.2): "Cancelling" while running; who asked. Missing on older servers. */
+  cancelRequestedAt?: string | null;
+  cancelledBy?: string | null;
 }
 
 export interface EndpointSummary {
@@ -150,7 +154,7 @@ export interface RunDetail extends RunSummary {
 }
 
 export type TaskKind = "backup_now" | "restore" | "verify_sample" | "update_config" | "uninstall";
-export type TaskStatus = "pending" | "delivered" | "done" | "failed";
+export type TaskStatus = "pending" | "delivered" | "done" | "failed" | "cancelled";
 
 export interface EndpointTask {
   id: string;
@@ -163,6 +167,9 @@ export interface EndpointTask {
   errorMessage: string | null;
   /** A restore-test request that ended without a rating (expired, revoked, could not complete). */
   checkIncomplete: boolean;
+  /** Withdrawn, or asked to stop while the agent has it (0.4.2). */
+  cancelRequestedAt?: string | null;
+  cancelledBy?: string | null;
 }
 
 export type ReportKind = "restore_test" | "repository_check" | "retention";
@@ -324,6 +331,10 @@ export interface EndpointDetail extends EndpointSummary {
   autoUpdatePaused: boolean;
   /** The machine is paused on its own (an override that outlives the tenant's setting). */
   autoUpdateOwnPause: boolean;
+  /** The agent release the machine would update to; null when up to date (0.4.2, else missing). */
+  updateVersion?: string | null;
+  /** "Update now" was asked for and the agent has not reported the release yet. */
+  updateRequestedAt?: string | null;
 }
 
 /**
@@ -612,6 +623,18 @@ export function uninstallEndpoint(endpointId: string): Promise<TaskResult> {
 
 export function createTask(endpointId: string, input: CreateTaskInput): Promise<TaskResult> {
   return apiFetch<TaskResult>(`${BASE}/${id(endpointId)}/tasks`, { method: "POST", body: input });
+}
+
+/** Stop the machine's running backup and withdraw a queued "back up now" (0.4.2). */
+export function cancelEndpointBackup(
+  endpointId: string,
+): Promise<{ withdrawn: number; stopping: number }> {
+  return apiFetch(`${BASE}/${id(endpointId)}/cancel`, { method: "POST", body: {} });
+}
+
+/** The agent looks for its update with its next heartbeat and installs it when idle. */
+export function requestEndpointUpdate(endpointId: string): Promise<{ updateRequestedAt: string }> {
+  return apiFetch(`${BASE}/${id(endpointId)}/update`, { method: "POST", body: {} });
 }
 
 export function requestRestoreTest(endpointId: string): Promise<{ queued: boolean }> {

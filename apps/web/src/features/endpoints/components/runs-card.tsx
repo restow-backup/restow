@@ -109,6 +109,21 @@ export function RunsCard({
                           checkIncomplete={run.checkIncomplete}
                           willRetry={willRetry}
                         />
+                        {run.status === "running" && run.cancelRequestedAt ? (
+                          <span className="text-xs text-warning-text" data-slot="run-cancelling">
+                            {run.cancelledBy
+                              ? t("cancel.cancellingBy", { name: run.cancelledBy })
+                              : t("cancel.cancelling")}
+                          </span>
+                        ) : null}
+                        {run.status === "cancelled" && run.cancelledBy ? (
+                          <span
+                            className="text-xs text-muted-foreground"
+                            data-slot="run-cancelled-by"
+                          >
+                            {t("cancel.cancelledBy", { name: run.cancelledBy })}
+                          </span>
+                        ) : null}
                         {run.status === "running" ? (
                           <div className="w-40 max-w-full">
                             <RunProgressView progress={run.progress} format={format} compact />

@@ -275,7 +275,9 @@
       "title": "This machine is in no backup job",
       "description": "Only machines in a backup job are backed up. Add it to a job on the machine's page.",
       "open": "Open machine"
-    }
+    },
+    "cancelRequested": "Stop requested; the run ends in a moment",
+    "cancelling": "Cancelling…"
   },
   "detail": {
     "back": "Back to History",

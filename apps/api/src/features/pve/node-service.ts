@@ -7,6 +7,8 @@ import {
   pveNodeDeclares,
 } from "@restow/core";
 import {
+  type JobStartPauseState,
+  NOT_PAUSED,
   type PveGuest,
   type PveInventoryDisk,
   pveClusters,
@@ -23,7 +25,7 @@ import {
 import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { readSecret } from "../../lib/secrets.js";
-import { withTenantTx } from "../../lib/tenant-context.js";
+import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { FailureTracker } from "../endpoints/agent-auth.js";
 import {
@@ -34,8 +36,9 @@ import {
 } from "../endpoints/distribution.js";
 import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { recordBootTestResult } from "./boot-tests.js";
+import { cancelOrders, taskCancelledOrFailed } from "./cancel.js";
 import type { NodeContext } from "./node-auth.js";
-import { finishFailedTaskRun, settleLateBackupResult } from "./runs.js";
+import { endedStatus, finishFailedTaskRun, settleLateBackupResult } from "./runs.js";
 import { normalizeSmbiosUuid, ownSmbiosUuid } from "./self-guest.js";
 
 /**
@@ -271,11 +274,11 @@ export interface HeartbeatInput {
 }
 
 /** Whether an update pauses new job starts (#46); unreadable counts as not paused. */
-async function backupsPaused(): Promise<boolean> {
+async function startPause(): Promise<JobStartPauseState> {
   try {
-    return (await readJobStartPause(providerDb.$client)).paused;
+    return await readJobStartPause(providerDb.$client);
   } catch {
-    return false;
+    return NOT_PAUSED;
   }
 }
 
@@ -287,9 +290,10 @@ export async function nodeHeartbeat(
 ) {
   // While an update pauses new job starts (#46) the node gets no backup task; it gets
   // them on the first heartbeat after the pause.
-  const paused = await backupsPaused();
-  const tasks = await withTenantTx(db, node.tenantId, async (tx) => {
-    await tx
+  const pause = await startPause();
+  const paused = pause.paused;
+  const result = await withTenantTx(db, node.tenantId, async (tx) => {
+    const [nodeRow] = await tx
       .update(pveNodes)
       .set({
         helperVersion: input.helperVersion,
@@ -308,12 +312,16 @@ export async function nodeHeartbeat(
         },
         lastSeenAt: now,
       })
-      .where(eq(pveNodes.id, node.nodeId));
-    // Tasks nobody picked up in time fail.
+      .where(eq(pveNodes.id, node.nodeId))
+      .returning({
+        queuePausedAt: pveNodes.queuePausedAt,
+        updateRequestedAt: pveNodes.updateRequestedAt,
+      });
+    // Tasks nobody picked up in time fail (one with a cancel request ends cancelled).
     const expired = await tx
       .update(pveTasks)
       .set({
-        status: "failed",
+        status: taskCancelledOrFailed(),
         finishedAt: now,
         errorMessage: "The node did not run the task in time.",
       })
@@ -353,54 +361,16 @@ export async function nodeHeartbeat(
         await finishFailedTaskRun(tx, task, BOOT_TEST_UNSUPPORTED, now);
       }
     }
-    // A node that was busy did not take new work; the state tells.
-    if (input.state === "running") {
-      return [];
-    }
-    // Never a boot test beside a backup on the node: it waits for the next heartbeat.
-    const holdBootTests = (input.activeRuns?.length ?? 0) > 0;
-    const due = await tx
-      .select()
-      .from(pveTasks)
-      .where(
-        and(
-          eq(pveTasks.nodeId, node.nodeId),
-          paused ? ne(pveTasks.kind, "backup") : undefined,
-          holdBootTests ? ne(pveTasks.kind, "boot_test") : undefined,
-          or(
-            eq(pveTasks.status, "pending"),
-            and(
-              eq(pveTasks.status, "delivered"),
-              lt(pveTasks.deliveredAt, new Date(now.getTime() - REDELIVER_AFTER_MS)),
-              // Not while a run of it is still open: a long backup would start a second time.
-              sql`NOT EXISTS (SELECT 1 FROM pve_runs r WHERE r.task_id = "pve_tasks"."id" AND r.status = 'running')`,
-            ),
-          ),
-        ),
-      )
-      .orderBy(asc(pveTasks.createdAt))
-      .limit(MAX_TASKS);
-    // One boot test per heartbeat: the node runs them one after another anyway.
-    const firstBootTest = due.findIndex((t) => t.kind === "boot_test");
-    if (firstBootTest >= 0) {
-      due.splice(
-        0,
-        due.length,
-        ...due.filter((t, i) => t.kind !== "boot_test" || i === firstBootTest),
-      );
-    }
-    if (due.length > 0) {
-      await tx
-        .update(pveTasks)
-        .set({ status: "delivered", deliveredAt: now })
-        .where(
-          inArray(
-            pveTasks.id,
-            due.map((t) => t.id),
-          ),
-        );
-    }
-    return due.map((t) => ({ id: t.id, kind: t.kind, params: t.params }));
+    // What the node is to stop: delivered tasks and running backups with a cancel request.
+    const cancel = await cancelOrders(tx, node.nodeId);
+    // A node that was busy did not take new work; the state tells. A paused queue hands out
+    // no backup (the admin resumes it on the node's page).
+    const queuePaused = nodeRow?.queuePausedAt != null;
+    const tasks =
+      input.state === "running"
+        ? []
+        : await deliverDueTasks(tx, node, input, paused || queuePaused, now);
+    return { tasks, cancel, queuePaused, nodeRow };
   });
   const usage = await withTenantTx(db, node.tenantId, async (tx) => {
     const [row] = await tx
@@ -409,12 +379,87 @@ export async function nodeHeartbeat(
       .where(and(eq(pveSnapshots.clusterId, node.clusterId), eq(pveSnapshots.status, "active")));
     return Number(row?.bytes ?? 0);
   });
+  const offer = await updateOffer(input.helperVersion);
+  // "Update now": asked on the node's page, or the fleet phase after a server update
+  // (features/updates/fleet.ts). The node installs it once it is idle.
+  const updateNow =
+    offer !== null && (result.nodeRow?.updateRequestedAt != null || pause.phase === "fleet");
+  if (!offer && result.nodeRow?.updateRequestedAt) {
+    await clearUpdateRequest(node);
+  }
   return {
-    tasks,
+    tasks: result.tasks,
+    // restow-pve from 0.4.2 stops these (older nodes ignore the field; the server refuses their
+    // uploads, so their backup ends at its next call).
+    cancel: result.cancel,
+    queuePaused: result.queuePaused,
     storageId: node.storageId,
     usage: { usedBytes: usage, budgetBytes: 0 },
-    update: await updateOffer(input.helperVersion),
+    update: offer ? { ...offer, now: updateNow } : null,
   };
+}
+
+/** The tasks the idle node gets now, marked delivered. */
+async function deliverDueTasks(
+  tx: Transaction,
+  node: NodeContext,
+  input: HeartbeatInput,
+  holdBackups: boolean,
+  now: Date,
+) {
+  // Never a boot test beside a backup on the node: it waits for the next heartbeat.
+  const holdBootTests = (input.activeRuns?.length ?? 0) > 0;
+  const due = await tx
+    .select()
+    .from(pveTasks)
+    .where(
+      and(
+        eq(pveTasks.nodeId, node.nodeId),
+        holdBackups ? ne(pveTasks.kind, "backup") : undefined,
+        // A delivered task with a cancel request is not handed out again.
+        isNull(pveTasks.cancelRequestedAt),
+        holdBootTests ? ne(pveTasks.kind, "boot_test") : undefined,
+        or(
+          eq(pveTasks.status, "pending"),
+          and(
+            eq(pveTasks.status, "delivered"),
+            lt(pveTasks.deliveredAt, new Date(now.getTime() - REDELIVER_AFTER_MS)),
+            // Not while a run of it is still open: a long backup would start a second time.
+            sql`NOT EXISTS (SELECT 1 FROM pve_runs r WHERE r.task_id = "pve_tasks"."id" AND r.status = 'running')`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(pveTasks.createdAt))
+    .limit(MAX_TASKS);
+  // One boot test per heartbeat: the node runs them one after another anyway.
+  const firstBootTest = due.findIndex((t) => t.kind === "boot_test");
+  if (firstBootTest >= 0) {
+    due.splice(
+      0,
+      due.length,
+      ...due.filter((t, i) => t.kind !== "boot_test" || i === firstBootTest),
+    );
+  }
+  if (due.length > 0) {
+    await tx
+      .update(pveTasks)
+      .set({ status: "delivered", deliveredAt: now })
+      .where(
+        inArray(
+          pveTasks.id,
+          due.map((t) => t.id),
+        ),
+      );
+  }
+  return due.map((t) => ({ id: t.id, kind: t.kind, params: t.params }));
+}
+
+/** The node runs the offered version (or none is offered): its "update now" is done. */
+async function clearUpdateRequest(node: NodeContext): Promise<void> {
+  await withTenantTx(db, node.tenantId, (tx) =>
+    tx.update(pveNodes).set({ updateRequestedAt: null }).where(eq(pveNodes.id, node.nodeId)),
+  );
 }
 
 /** A newer signed release that carries restow-pve, or null. */
@@ -552,7 +597,8 @@ export async function taskResult(
     const [task] = await tx
       .update(pveTasks)
       .set({
-        status,
+        // A task that failed after a cancel request was stopped as asked.
+        status: status === "failed" ? taskCancelledOrFailed() : status,
         finishedAt: now,
         result: input.result ?? null,
         errorMessage: status === "failed" ? (input.error ?? "").slice(0, 2000) || "failed" : null,
@@ -588,17 +634,25 @@ export async function taskResult(
           ),
         );
       for (const run of open) {
-        const succeeded = run.snapshotId !== null;
+        const ended = endedStatus(run, run.snapshotId !== null ? "succeeded" : "failed");
         await tx
           .update(pveRuns)
           .set({
-            status: succeeded ? "succeeded" : "failed",
+            status: ended,
             finishedAt: now,
-            errorMessage: succeeded ? null : "The backup ended without reporting a restore point.",
-            ...(succeeded && warnings.length > 0 ? { stats: { ...run.stats, warnings } } : {}),
+            errorMessage:
+              ended === "failed" ? "The backup ended without reporting a restore point." : null,
+            ...(ended === "succeeded" && warnings.length > 0
+              ? { stats: { ...run.stats, warnings } }
+              : {}),
           })
           .where(eq(pveRuns.id, run.id));
-        await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, run.guestId));
+        if (ended !== "cancelled") {
+          await tx
+            .update(pveGuests)
+            .set({ lastBackupAt: now })
+            .where(eq(pveGuests.id, run.guestId));
+        }
       }
       // Runs that ended before the task (the usual way): their warnings arrive with it.
       await settleLateBackupResult(tx, task, { status, warnings }, now);

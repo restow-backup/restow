@@ -9,6 +9,7 @@ import {
   type Run,
   type SelfUpdateView,
 } from "../../updater/protocol.js";
+import type { FleetStatus } from "./fleet.js";
 
 /**
  * Request and response documents of the Updates feature
@@ -69,6 +70,18 @@ export const scheduleUpdateInputSchema = z
      * Omitted: `interrupt`, as before.
      */
     jobs: z.enum(JOB_PAUSE_MODES).optional(),
+    /**
+     * An exact moment instead of "lead time from now" (0.4.2): the date and the time in the
+     * installation's time zone (`timeZone` of the view) at which the update starts; the lead
+     * time counts down before it. Omitted: confirmed now.
+     */
+    at: z
+      .object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        time: z.string().regex(/^\d{2}:\d{2}$/),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type ScheduleUpdateInput = z.infer<typeof scheduleUpdateInputSchema>;
@@ -225,7 +238,23 @@ export type MaintenanceView = MaintenanceStatus & {
   runningVersion: string | null;
   /** New job starts are paused for an update (#46); null when they are not. */
   jobPause: MaintenanceJobPause | null;
+  /** An update planned for a chosen time (0.4.2), not handed to the updater yet; else null. */
+  planned?: { version: string; startsAt: string } | null;
 };
+
+/** An update planned for a chosen time, as administrators see it (0.4.2). */
+export interface PlannedUpdateView {
+  version: string;
+  /** When the update starts; the countdown begins `leadSeconds` before. */
+  startsAt: string;
+  leadSeconds: number;
+  jobs: JobPauseMode;
+  /** The date and time as chosen, in `timeZone`. */
+  at: { date: string; time: string };
+  timeZone: string;
+  requestedBy: string;
+  plannedAt: string;
+}
 
 /** The pause of new job starts as every signed-in user sees it. */
 export interface MaintenanceJobPause {
@@ -262,7 +291,10 @@ export interface JobPauseView {
   version: string;
   leadSeconds: number;
   since: string;
-  /** `draining` ends here at the latest: the update is then announced anyway. */
+  /**
+   * `draining` ends here at the latest: the update is then announced anyway; `fleet` ends here at
+   * the latest: the pause lifts although some nodes or agents did not update.
+   */
   deadlineAt: string;
   announcedAt: string | null;
   /** The pause lifts itself here in any case. */
@@ -324,4 +356,14 @@ export interface UpdatesView {
   edition: EditionView;
   /** New job starts paused for an update (#46): waiting for running jobs, or announced. */
   jobPause: JobPauseView | null;
+  /**
+   * The Proxmox VE nodes and endpoint agents against the release they update to (0.4.2): during
+   * the pause's `fleet` phase, and after it for the ones that did not update. null in the demo
+   * or when it cannot be read.
+   */
+  fleet: FleetStatus | null;
+  /** An update planned for a chosen time (0.4.2); null when none is. */
+  planned: PlannedUpdateView | null;
+  /** The installation's time zone: chosen times are read in it. */
+  timeZone: string;
 }

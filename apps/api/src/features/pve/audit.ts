@@ -11,6 +11,13 @@ export const PVE_AUDIT_ACTIONS = {
   nodeEnrolled: "pve.node.enrolled",
   nodeRevoked: "pve.node.revoked",
   backupRequested: "pve.backup.requested",
+  // Stopping backups (0.4.2): a guest's running or queued backup, every queued one of a node or
+  // the tenant, a node's paused queue, and "update now" for a node.
+  backupCancelled: "pve.backup.cancelled",
+  queueCancelled: "pve.queue.cancelled",
+  queuePaused: "pve.queue.paused",
+  queueResumed: "pve.queue.resumed",
+  updateRequested: "pve.node.update_requested",
   restoreRequested: "pve.restore.requested",
   verifyRequested: "pve.verify.requested",
   bootTestRequested: "pve.boot_test.requested",
@@ -49,7 +56,13 @@ export async function auditPve(
     actor: PveActor;
     action: string;
     target: string;
-    targetType: "pve_node" | "pve_guest" | "pve_snapshot" | "pve_job" | "pve_enrollment_token";
+    targetType:
+      | "pve_node"
+      | "pve_guest"
+      | "pve_snapshot"
+      | "pve_job"
+      | "pve_enrollment_token"
+      | "tenant";
     details?: Record<string, unknown>;
   },
 ): Promise<void> {

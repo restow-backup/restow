@@ -17,6 +17,7 @@ import { AuthLayout } from "@/components/layout/auth-layout";
 import { ChooseTenantPage } from "@/components/layout/choose-tenant";
 import { RouteErrorPage } from "@/components/layout/route-error";
 import { useShellEntry } from "@/components/layout/shell-entry";
+import { useShellHeaderHeight } from "@/components/layout/shell-header-height";
 import { ShellSkeleton } from "@/components/layout/shell-skeleton";
 import { MAIN_CONTENT_ID, SkipLink } from "@/components/layout/skip-link";
 import { StandaloneErrorPage } from "@/components/layout/standalone-error";
@@ -122,6 +123,8 @@ export function ShellFrame({ children }: { children: React.ReactNode }) {
   const entry = useShellEntry();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   useFocusPageHeading(pathname);
+  const headerRef = React.useRef<HTMLDivElement>(null);
+  useShellHeaderHeight(headerRef);
 
   return (
     // The maintenance state (an announced or running update) is for everyone signed in.
@@ -139,8 +142,11 @@ export function ShellFrame({ children }: { children: React.ReactNode }) {
               land on the top bar instead of the page.
             */}
               <div data-slot="sidebar-inset" className="flex min-w-0 flex-1 flex-col bg-background">
-                {/* The maintenance banner stays above the top bar while the page scrolls. */}
-                <div className="sticky top-0 z-20">
+                {/*
+                  The maintenance banner stays above the top bar while the page scrolls; its
+                  height (one line or several) is published for what lies below.
+                */}
+                <div ref={headerRef} className="sticky top-0 z-20" data-slot="shell-header">
                   <MaintenanceBanner />
                   <TopBar />
                 </div>

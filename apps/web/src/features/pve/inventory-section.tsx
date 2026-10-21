@@ -35,6 +35,7 @@ import {
 } from "./api.js";
 import { activityHint, BackupProgress } from "./backup-progress.js";
 import { BackupSizeCell } from "./backup-size.js";
+import { CancelBackupButton } from "./cancel-controls.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo, PVE_ROLES, pveTo } from "./paths.js";
 import { JobDialog } from "./pve-page.js";
@@ -439,7 +440,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                             </span>
                           ) : null}
                         </span>
-                        {guest.activity === "queued" ? (
+                        {guest.activity === "queued" && !guest.cancelling ? (
                           <Badge
                             className="mt-1"
                             variant={group.node && !group.node.online ? "warning" : "muted"}
@@ -467,7 +468,16 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                         ) : null}
                       </TableCell>
                       <TableCell className="text-right">
-                        {canBackUp ? (
+                        {guest.activity ? (
+                          <CancelBackupButton
+                            guestId={guest.id}
+                            name={label}
+                            activity={guest.activity}
+                            cancelling={guest.cancelling}
+                            cancelledBy={guest.cancelledBy}
+                            variant="ghost"
+                          />
+                        ) : canBackUp ? (
                           <Button
                             type="button"
                             size="sm"

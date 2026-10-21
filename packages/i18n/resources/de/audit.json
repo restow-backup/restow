@@ -492,7 +492,10 @@
       "dump": {
         "downloaded": "Datenbanksicherung heruntergeladen",
         "deleted": "Datenbanksicherung gelöscht"
-      }
+      },
+      "fleet_started": "Knoten und Agenten zur Aktualisierung aufgefordert",
+      "planned": "Update zu gewählter Zeit geplant",
+      "plan_failed": "Geplantes Update konnte nicht beginnen"
     },
     "endpoint": {
       "token": {
@@ -506,7 +509,8 @@
       },
       "assigned": "Rechner einer Person zugeordnet",
       "backup": {
-        "requested": "Sicherung angefordert"
+        "requested": "Sicherung angefordert",
+        "cancelled": "Sicherung des Rechners abgebrochen"
       },
       "restore": {
         "requested": "Wiederherstellung auf dem Rechner angefordert",
@@ -531,7 +535,8 @@
         "password": {
           "revealed": "Repository-Passwort angezeigt"
         }
-      }
+      },
+      "update_requested": "Aktualisierung des Agenten angefordert"
     },
     "backup_job": {
       "created": "Backup-Job angelegt",
@@ -563,10 +568,12 @@
       "node": {
         "enrolled": "Knoten eingerichtet",
         "revoked": "Knoten widerrufen",
-        "denied": "Unzulässiger Zugriff eines Knotens abgewiesen"
+        "denied": "Unzulässiger Zugriff eines Knotens abgewiesen",
+        "update_requested": "Aktualisierung des Knotens angefordert"
       },
       "backup": {
-        "requested": "Sicherung des Gasts angefordert"
+        "requested": "Sicherung des Gasts angefordert",
+        "cancelled": "Sicherung des Gasts abgebrochen"
       },
       "restore": {
         "requested": "Wiederherstellung als neuer Gast angefordert"
@@ -593,6 +600,11 @@
       "guest": {
         "restow_server": "Gast als {appName}-Server markiert oder Markierung aufgehoben",
         "self_backup_confirmed": "Sicherung des {appName}-Servers mit {appName} bestätigt"
+      },
+      "queue": {
+        "cancelled": "Wartende Sicherungen von Gästen zurückgezogen",
+        "paused": "Warteschlange des Knotens angehalten",
+        "resumed": "Warteschlange des Knotens fortgesetzt"
       }
     },
     "file_share": {

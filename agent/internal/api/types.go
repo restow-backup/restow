@@ -264,6 +264,17 @@ type HeartbeatResponse struct {
 	Tasks []Task `json:"tasks"`
 	// StartsPaused: see Config.StartsPaused (server 0.4.0 and later).
 	StartsPaused bool `json:"startsPaused,omitempty"`
+	// Cancel lists what was stopped in the Restow UI (server 0.4.2 and later; nil before).
+	Cancel *CancelOrders `json:"cancel,omitempty"`
+	// UpdateNow asks the agent to look for its update at once and install it when idle
+	// ("Update now" on the machine's page, or the server was just updated; server 0.4.2).
+	UpdateNow bool `json:"updateNow,omitempty"`
+}
+
+// CancelOrders are the runs the agent is to stop and the tasks it is not to start.
+type CancelOrders struct {
+	Tasks []Flex `json:"tasks"`
+	Runs  []Flex `json:"runs"`
 }
 
 // RestoreParams are the parameters of a restore task.

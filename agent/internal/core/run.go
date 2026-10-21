@@ -45,6 +45,8 @@ type runOutcome struct {
 	// Interrupted marks a run cut short by a shutdown or a lost connection.
 	// A backup that was interrupted is resumed instead of counted as failed.
 	Interrupted bool
+	// Cancelled marks a run stopped on request in the Restow UI: neither a failure nor resumed.
+	Cancelled bool
 	// Summary is a one-line description for the local status.
 	Summary string
 	// RestoreTest is what a restore test (verify_sample) observed.
@@ -79,6 +81,9 @@ func (a *Agent) beginRun(ctx context.Context, kind string, j job, cfg *api.Confi
 	}
 	rc := &runContext{ctx: ctx, a: a, kind: kind, trigger: j.trigger, runID: runID, taskID: j.taskID(),
 		started: started, rl: rl, runner: &runner, cfg: cfg}
+	a.mu.Lock()
+	a.currentRun = runID.String()
+	a.mu.Unlock()
 	_ = a.d.Status.Update(func(s *status.Status) {
 		s.Current = &status.RunInfo{Kind: kind, RunID: runID.String(), TaskID: j.taskID().String(), StartedAt: started}
 		s.Service = "running"
@@ -155,6 +160,8 @@ func (a *Agent) endRun(rc *runContext, out runOutcome) {
 		switch {
 		case out.Interrupted:
 			s.Interrupted = true
+		case out.Cancelled:
+			// Asked for: the failure count and the last success stay as they were.
 		case out.Status == api.StatusFailed:
 			s.ConsecutiveFailures++
 		default:
@@ -179,6 +186,11 @@ func (a *Agent) probeServer(ctx context.Context) bool {
 
 // startFailed handles a run that could not even be registered.
 func (a *Agent) startFailed(j job, kind string, err error) {
+	if api.IsConflict(err) && j.trigger == triggerTask {
+		// The task was finished or withdrawn meanwhile (cancelled in the Restow UI): nothing to retry.
+		a.log.Info("the server no longer wants this task; it is dropped", "kind", kind, "task", j.taskID().String())
+		return
+	}
 	a.noteServerError("starting a "+kind+" run", err)
 	if j.trigger == triggerTask && j.attempts < 5 && !api.IsAuthError(err) {
 		j.attempts++
@@ -198,6 +210,32 @@ var maxRunTime = 72 * time.Hour
 func (rc *runContext) resticContext() (ctx context.Context, cancel context.CancelFunc, timedOut func() bool) {
 	ctx, cancel = context.WithTimeout(rc.ctx, maxRunTime)
 	return ctx, cancel, func() bool { return rc.ctx.Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) }
+}
+
+// ErrCancelledByServer is the cause of a job context ended by a cancel order of the server
+// (the run was stopped in the Restow UI).
+var ErrCancelledByServer = errors.New("cancelled in Restow")
+
+// stoppedOutcome fills the outcome for a run whose context ended: cancelled in Restow (the
+// server records it as cancelled; it does not count as a failure and is not resumed), or
+// interrupted by a shutdown (resumed when the agent starts again).
+func (rc *runContext) stoppedOutcome(out *runOutcome) {
+	if errors.Is(context.Cause(rc.ctx), ErrCancelledByServer) {
+		out.Cancelled = true
+		out.fail("cancelled", "The %s was cancelled in Restow. Nothing was saved; the next scheduled run starts as usual.", runNoun(rc.kind))
+		return
+	}
+	interruptedOutcome(out)
+}
+
+func runNoun(kind string) string {
+	switch kind {
+	case api.RunRestore:
+		return "restore"
+	case api.RunVerifySample:
+		return "restore test"
+	}
+	return "backup"
 }
 
 // interruptedOutcome fills the outcome for a run stopped by a shutdown.

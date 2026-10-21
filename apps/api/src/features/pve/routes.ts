@@ -25,6 +25,12 @@ import { MAX_DOWNLOAD_BODY_BYTES } from "../endpoints/schemas.js";
 import { pveActivity } from "./activity.js";
 import type { PveActor } from "./audit.js";
 import { requestBootTest } from "./boot-tests.js";
+import {
+  cancelGuestBackup,
+  cancelQueuedBackups,
+  requestNodeUpdate,
+  setNodeQueuePaused,
+} from "./cancel.js";
 import { browseContainerFiles, openContainerDownload, prepareContainerDownload } from "./files.js";
 import { resetGuestRepository } from "./repository.js";
 import {
@@ -72,9 +78,14 @@ import {
  *   POST   /tokens                           a one-time enrollment token with the node command
  *                                             (optionally bound to an existing PVE API token)
  *   POST   /nodes/:id/revoke                 refuse a node from now on
+ *   POST   /nodes/:id/queue/pause|resume     hand the node no backup until resumed
+ *   POST   /nodes/:id/queue/cancel           withdraw every queued backup of the node
+ *   POST   /nodes/:id/update                 the node installs the offered release when idle
+ *   POST   /queue/cancel                     withdraw every queued backup of the tenant
  *   GET    /guests/:id                       a guest with its restore points and runs
  *   POST   /guests/:id/backup                back up now (optionally a verify read); the Restow
  *                                             server's own VM only with `confirmSelfBackup`
+ *   POST   /guests/:id/cancel                stop its running backup, withdraw its queued ones
  *   PUT    /guests/:id/job                   put the guest into a job (or none); the same
  *   POST   /guests/:id/repository/reset      a container: begin a new backup chain ({ confirmName },
  *                                            recent sign-in); its restore points become unavailable
@@ -143,6 +154,35 @@ pveRoutes.post("/nodes/:id/revoke", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   await revokeNode(db, c.get("tenantId"), id, actorOf(c));
   return c.body(null, 204);
+});
+
+pveRoutes.post("/nodes/:id/queue/pause", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await setNodeQueuePaused(db, c.get("tenantId"), id, true, actorOf(c)));
+});
+
+pveRoutes.post("/nodes/:id/queue/resume", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await setNodeQueuePaused(db, c.get("tenantId"), id, false, actorOf(c)));
+});
+
+pveRoutes.post("/nodes/:id/queue/cancel", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await cancelQueuedBackups(db, c.get("tenantId"), id, actorOf(c)));
+});
+
+pveRoutes.post("/nodes/:id/update", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await requestNodeUpdate(db, c.get("tenantId"), id, actorOf(c)), 202);
+});
+
+pveRoutes.post("/queue/cancel", admin, async (c) =>
+  c.json(await cancelQueuedBackups(db, c.get("tenantId"), null, actorOf(c))),
+);
+
+pveRoutes.post("/guests/:id/cancel", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await cancelGuestBackup(db, c.get("tenantId"), id, actorOf(c)), 202);
 });
 
 pveRoutes.get("/guests/:id", restorer, async (c) => {

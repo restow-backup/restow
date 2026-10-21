@@ -71,7 +71,7 @@ describe("page width class tables", () => {
   });
 
   it("gives full a fixed height below the top bar instead of the document padding", () => {
-    expect(PAGE_WIDTH_MAIN_CLASS.full).toContain("h-[calc(100dvh-var(--topbar-height))]");
+    expect(PAGE_WIDTH_MAIN_CLASS.full).toContain("h-[calc(100dvh-var(--shell-header-height))]");
     expect(PAGE_WIDTH_MAIN_CLASS.full).not.toContain("py-6");
     // wide and readable scroll with the document at the shell's usual padding.
     expect(PAGE_WIDTH_MAIN_CLASS.wide).toBe(PAGE_WIDTH_MAIN_CLASS.readable);
@@ -183,7 +183,7 @@ describe("PageMain (DOM)", () => {
       root.render(<Harness showFullPage={true} />);
     });
     expect(mainElement().className).toBe(`outline-none ${PAGE_WIDTH_MAIN_CLASS.full}`);
-    expect(mainElement().className).toContain("h-[calc(100dvh-var(--topbar-height))]");
+    expect(mainElement().className).toContain("h-[calc(100dvh-var(--shell-header-height))]");
 
     // Simulates navigating away: the page that called usePageWidth("full")
     // unmounts, same as TanStack Router swapping the routed component out.

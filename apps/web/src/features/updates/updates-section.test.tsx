@@ -1487,7 +1487,7 @@ describe("an announced or running update", () => {
           ],
           message: {
             code: "step.fetch.pulling",
-            params: { image: "ghcr.io/restow-backup/restow:0.2.0" },
+            params: { version: "0.2.0" },
           },
         }),
       }),
@@ -1496,7 +1496,7 @@ describe("an announced or running update", () => {
     expect(text(root)).toContain("cannot be cancelled any more");
     const run = slot("run", root) as HTMLElement;
     expect(run.dataset.status).toBe("running");
-    expect(text(run)).toContain("Downloading ghcr.io/restow-backup/restow:0.2.0");
+    expect(text(run)).toContain("Downloading the image of version 0.2.0");
     expect(text(run)).toContain("Preparing the update");
     expect(run.querySelector('[data-step="fetch"]')?.getAttribute("data-status")).toBe("running");
     expect(run.querySelector('[data-step="backup"]')?.getAttribute("data-status")).toBe("pending");

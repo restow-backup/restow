@@ -25,9 +25,11 @@ export type JobPauseMode = (typeof JOB_PAUSE_MODES)[number];
 
 /**
  * `draining`: the api waits for running jobs before it hands the update to the updater;
- * `announced`: the updater has the update (lead time, then the run). Both pause new starts.
+ * `announced`: the updater has the update (lead time, then the run); `fleet` (0.4.2): the
+ * server is updated and the Proxmox VE nodes and endpoint agents update themselves (until all
+ * reachable ones report the new version, at most `deadline_at`). All pause new starts.
  */
-export const JOB_PAUSE_PHASES = ["draining", "announced"] as const;
+export const JOB_PAUSE_PHASES = ["draining", "announced", "fleet"] as const;
 export type JobPausePhase = (typeof JOB_PAUSE_PHASES)[number];
 
 /** Who confirmed the update (the requester the updater records once it gets the request). */
@@ -59,7 +61,10 @@ export const jobStartPause = pgTable(
     leadSeconds: integer("lead_seconds").notNull(),
     request: jsonb("request").$type<Record<string, unknown>>().notNull(),
     requestedBy: jsonb("requested_by").$type<JobPauseRequester>().notNull(),
-    /** `draining` ends here at the latest: the update is then announced anyway. */
+    /**
+     * `draining` ends here at the latest: the update is then announced anyway; `fleet` ends here
+     * at the latest: the pause lifts although some nodes or agents did not update.
+     */
     deadlineAt: timestamp("deadline_at", { withTimezone: true }).notNull(),
     /** When the update was handed to the updater. */
     announcedAt: timestamp("announced_at", { withTimezone: true }),
@@ -70,7 +75,7 @@ export const jobStartPause = pgTable(
   (t) => [
     uniqueIndex("job_start_pause_singleton_uq").on(t.singleton),
     check("job_start_pause_mode", sql`${t.mode} IN ('wait', 'drain', 'interrupt')`),
-    check("job_start_pause_phase", sql`${t.phase} IN ('draining', 'announced')`),
+    check("job_start_pause_phase", sql`${t.phase} IN ('draining', 'announced', 'fleet')`),
   ],
 );
 

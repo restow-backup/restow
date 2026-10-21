@@ -123,7 +123,7 @@ function SettingsAnchors() {
       className="hidden lg:block"
       data-slot="settings-anchors"
     >
-      <ul className="sticky top-20 space-y-0.5">
+      <ul className="sticky top-[calc(var(--shell-header-height)+1.5rem)] space-y-0.5">
         {SETTINGS_ANCHORS.map((anchor) => (
           <li key={anchor.id}>
             <a
@@ -150,7 +150,7 @@ function SettingsAnchors() {
 /** A card with an anchor for {@link SettingsAnchors}. */
 function Anchored({ id, children }: { id: string; children: React.ReactNode }) {
   return (
-    <div id={anchorId(id)} className="min-w-0 scroll-mt-20">
+    <div id={anchorId(id)} className="min-w-0 scroll-mt-4">
       {children}
     </div>
   );
@@ -170,7 +170,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <Card id={anchorId(id)} className={cn("min-w-0 scroll-mt-20", className)}>
+    <Card id={anchorId(id)} className={cn("min-w-0 scroll-mt-4", className)}>
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
         {description ? <CardDescription>{description}</CardDescription> : null}

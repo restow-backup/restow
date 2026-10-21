@@ -142,8 +142,15 @@ export interface RunDto {
   throttle: JobThrottleDto | null;
   errorMessage: string | null;
   failure: FailureDto | null;
-  /** A queued or running mail run can be cancelled; a run on a machine cannot (the agent owns it). */
+  /**
+   * The run can be stopped now: a queued or running mail run, a running backup of a machine (the
+   * agent stops it with its next heartbeat, 0.4.2) and a queued or running run of a file share.
+   */
   cancellable: boolean;
+  /** A stop was asked for and the run has not ended yet ("Cancelling"). */
+  cancelling: boolean;
+  /** Who asked to stop it (a machine's or a share's run), for "Cancelled by ...". */
+  cancelledBy: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -513,6 +520,8 @@ export function mailRun(input: MailRunInput): RunDto {
     errorMessage: dto.errorMessage,
     failure: dto.failure,
     cancellable: dto.cancellable && !finished,
+    cancelling: false,
+    cancelledBy: null,
   };
 }
 
@@ -613,7 +622,9 @@ export function endpointRun(input: EndpointRunInput): RunDto {
     throttle: null,
     errorMessage: interruptedOnly ? null : (run.errors[0]?.message ?? null),
     failure: failureDto(run.failure),
-    cancellable: false,
+    cancellable: running && run.kind === "backup" && run.cancelRequestedAt === null,
+    cancelling: running && run.cancelRequestedAt !== null,
+    cancelledBy: run.cancelledBy ?? null,
   };
 }
 
@@ -717,8 +728,10 @@ export function shareRun(input: ShareRunInput): RunDto {
     throttle: null,
     errorMessage: run.status === "failed" ? run.errorMessage : null,
     failure: run.status === "failed" ? failureDto(run.failure) : null,
-    // Cancelling is on the share's page (it reaches the runner through its progress report).
-    cancellable: false,
+    // The runner learns it through its progress report (features/file-shares cancelRun).
+    cancellable: (state === "queued" || running) && run.cancelRequestedAt === null,
+    cancelling: (state === "queued" || running) && run.cancelRequestedAt !== null,
+    cancelledBy: null,
   };
 }
 

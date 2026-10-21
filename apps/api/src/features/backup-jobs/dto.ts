@@ -198,7 +198,7 @@ export interface BackupJobMemberDto {
     /** When the newest backup finished; a queued backup does not change it. */
     at: string | null;
     /** `queued` while a requested backup waits for the machine and none is running. */
-    outcome: "succeeded" | "partial" | "failed" | "running" | "queued" | null;
+    outcome: "succeeded" | "partial" | "failed" | "running" | "queued" | "cancelled" | null;
   };
   /**
    * Machines: the backup requested by hand that the machine has not started yet. `pending` is not

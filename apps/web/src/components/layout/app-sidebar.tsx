@@ -35,6 +35,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { BrandName, RestowMark } from "@/components/wordmark";
 import { CommunityEditionBadge } from "@/features/installation/edition-link";
 import { StartEntry } from "@/features/start";
+import { updatesTabLink } from "@/features/updates/settings-link";
 import { ExtensionSlot } from "@/lib/extensions";
 import {
   groupNavItems,
@@ -43,6 +44,7 @@ import {
   type NavBadge,
   navGroupLabelKey,
 } from "@/lib/navigation";
+import { providerMay } from "@/lib/provider-role";
 import { isTenantOnlyNavItem } from "@/lib/scope";
 import { canAccess, type RunningVersion, sessionScope, useSession } from "@/lib/session";
 import { useNavItems } from "@/lib/use-nav-items";
@@ -260,6 +262,8 @@ export function AppSidebar() {
   const { t } = useTranslation();
   const session = useSession();
   const { role, version } = session;
+  // Who may install an update sees the version as the way to it (VersionUpdateButton).
+  const mayUpdate = providerMay(session, "owner");
   const { isMobile, setOpenMobile, state } = useSidebar();
   // The icon-only rail shows every entry; a closed section would hide them.
   const iconRail = state === "collapsed" && !isMobile;
@@ -468,9 +472,15 @@ export function AppSidebar() {
               props={{}}
               fallback={<CommunityEditionBadge />}
             />
-            <VersionLabel version={version} />
+            {mayUpdate && version?.updateAvailable && version.latest ? null : (
+              <VersionLabel version={version} />
+            )}
           </div>
-          <UpdateNotice version={version} />
+          {mayUpdate ? (
+            <VersionUpdateButton version={version} />
+          ) : (
+            <UpdateNotice version={version} />
+          )}
         </div>
       </SidebarFooter>
 
@@ -490,6 +500,33 @@ function VersionLabel({ version }: { version: RunningVersion | null }) {
         ? t("shell.version", { version: version.running })
         : t("shell.versionUntagged")}
     </span>
+  );
+}
+
+/**
+ * The version, turned into the way to the update (0.4.2): for the people who may install it,
+ * a newer release makes the version label a highlighted button "Update to X available" that
+ * leads to Installation, Updates. Accent colour (info), never green; it breathes gently unless
+ * the person asked for reduced motion. Without an update nothing renders here (the plain
+ * version label stays).
+ */
+export function VersionUpdateButton({ version }: { version: RunningVersion | null }) {
+  const { t } = useTranslation();
+  if (!version?.updateAvailable || !version.latest) {
+    return null;
+  }
+  const link = updatesTabLink();
+  return (
+    <Link
+      to={link.to}
+      search={link.search}
+      data-slot="version-update"
+      title={version.running ? t("shell.version", { version: version.running }) : undefined}
+      className="inline-flex items-center gap-1.5 self-start rounded-md border border-info/40 bg-info/10 px-2 py-1 text-xs font-medium text-info-text transition-colors hover:bg-info/20 focus-visible:outline-2 focus-visible:outline-ring motion-safe:animate-update-pulse"
+    >
+      <ArrowUpCircle aria-hidden="true" className="size-3.5" />
+      {t("shell.updateTo", { version: version.latest })}
+    </Link>
   );
 }
 

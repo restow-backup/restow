@@ -510,6 +510,13 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/pve/guests/:id/verify": operate(),
   "POST /api/v1/pve/verify-unverified": operate(),
   "POST /api/v1/pve/guests/:id/backup": operate(),
+  // Stopping backups (0.4.2): whoever may start one may stop it and hold or clear the queue.
+  "POST /api/v1/pve/guests/:id/cancel": operate(),
+  "POST /api/v1/pve/nodes/:id/queue/pause": operate(),
+  "POST /api/v1/pve/nodes/:id/queue/resume": operate(),
+  "POST /api/v1/pve/nodes/:id/queue/cancel": operate(),
+  "POST /api/v1/pve/queue/cancel": operate(),
+  "POST /api/v1/pve/nodes/:id/update": configure(),
   "POST /api/v1/pve/snapshots/:id/verify": operate(),
   "POST /api/v1/pve/snapshots/:id/restore": operate(),
   // A boot test restores to a temporary guest on the node, starts it and destroys it again.
@@ -572,6 +579,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/endpoints/:id/revoke": configure(),
   "POST /api/v1/endpoints/:id/uninstall": configure(),
   "POST /api/v1/endpoints/:id/tasks": operate(),
+  "POST /api/v1/endpoints/:id/cancel": operate(),
+  "POST /api/v1/endpoints/:id/update": configure(),
   "POST /api/v1/endpoints/:id/restore-test": operate(),
   "POST /api/v1/endpoints/:id/repository-password": configure(),
   "GET /api/v1/endpoints/:id/runs": view(),

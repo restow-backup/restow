@@ -353,6 +353,39 @@ describe("the banner", () => {
     expect(modal()).toBeNull();
   });
 
+  it("says that runs wait while nodes and agents follow the server (0.4.2)", async () => {
+    startFakeTime();
+    const { deps } = sources(() =>
+      maintenanceFixture({
+        serverTime: new Date().toISOString(),
+        jobPause: { phase: "fleet", version: "0.4.2", deadlineAt: iso(900) },
+      }),
+    );
+    shell(deps);
+    await tick(10);
+    expect(banner()?.dataset.variant).toBe("fleet");
+    expect(banner()?.textContent).toContain("was updated to version 0.4.2");
+    expect(banner()?.textContent).toContain("nodes and agents update now");
+    expect(modal()).toBeNull();
+  });
+
+  it("announces an update planned for a chosen time from a day before it, not earlier", async () => {
+    startFakeTime();
+    let planned = { version: "0.4.2", startsAt: iso(3 * 24 * 3600) };
+    const { deps } = sources(() =>
+      maintenanceFixture({ serverTime: new Date().toISOString(), planned }),
+    );
+    shell(deps);
+    await tick(10);
+    expect(banner()).toBeNull();
+    await mounted?.unmount();
+    planned = { version: "0.4.2", startsAt: iso(3 * 3600) };
+    shell(deps);
+    await tick(10);
+    expect(banner()?.dataset.variant).toBe("planned");
+    expect(banner()?.textContent).toContain("will be updated to version 0.4.2");
+  });
+
   it("shows nothing when nothing is announced", async () => {
     startFakeTime();
     const { deps } = sources(() => maintenanceFixture({ serverTime: new Date().toISOString() }));
@@ -556,12 +589,18 @@ describe("the modal", () => {
     expect(statuses).toHaveLength(7);
   });
 
+  it("never shows a placeholder the updater does not fill (0.4.2: 'Downloading {image}')", () => {
+    // The updater names the image only in the run's details; the message has the version alone.
+    showModal(running({ message: { code: "step.fetch.pulling", params: { version: "0.2.0" } } }));
+    const shown = text(modal()?.querySelector('[data-slot="maintenance-message"]') as HTMLElement);
+    expect(shown).toBe("Downloading the image of version 0.2.0");
+    expect(shown).not.toContain("{");
+  });
+
   it("shows the updater's message when it is translated and nothing when it is not", () => {
-    showModal(
-      running({ message: { code: "step.backup.dumping", params: { file: "restow-0.1.0.dump" } } }),
-    );
+    showModal(running({ message: { code: "step.backup.dumping", params: {} } }));
     expect(text(modal()?.querySelector('[data-slot="maintenance-message"]') as HTMLElement)).toBe(
-      "Writing the database backup restow-0.1.0.dump",
+      "Writing the database backup",
     );
   });
 

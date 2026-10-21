@@ -323,6 +323,7 @@ export function memberOutcomeTone(outcome: JobMember["lastBackup"]["outcome"]): 
     case "partial":
       return "warning";
     case "queued":
+    case "cancelled":
       return "muted";
     default:
       return null;

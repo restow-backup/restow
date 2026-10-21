@@ -235,7 +235,7 @@ export type MemberKind =
   | "smb"
   | "nfs";
 export type MemberRestoreState = "green" | "yellow" | "red" | "unverified" | "no_backup";
-export type MemberOutcome = "succeeded" | "partial" | "failed" | "running" | "queued";
+export type MemberOutcome = "succeeded" | "partial" | "failed" | "running" | "queued" | "cancelled";
 
 export interface JobMember {
   /** The id of the protected object (mail) or the machine. */

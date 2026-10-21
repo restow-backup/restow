@@ -49,11 +49,13 @@ export const endpointRunKindEnum = pgEnum("endpoint_run_kind", [
 ]);
 
 /** `partial` = a snapshot exists but some files could not be read. */
+/** `cancelled` (0.4.2): stopped on request in the UI; neither a failure nor a backup. */
 export const endpointRunStatusEnum = pgEnum("endpoint_run_status", [
   "running",
   "succeeded",
   "partial",
   "failed",
+  "cancelled",
 ]);
 
 export const endpointTaskKindEnum = pgEnum("endpoint_task_kind", [
@@ -64,12 +66,16 @@ export const endpointTaskKindEnum = pgEnum("endpoint_task_kind", [
   "uninstall",
 ]);
 
-/** `pending` -> `delivered` (the agent got it in a heartbeat) -> `done` or `failed`. */
+/**
+ * `pending` -> `delivered` (the agent got it in a heartbeat) -> `done` or `failed`; `cancelled`
+ * (0.4.2) when an admin withdrew it.
+ */
 export const endpointTaskStatusEnum = pgEnum("endpoint_task_status", [
   "pending",
   "delivered",
   "done",
   "failed",
+  "cancelled",
 ]);
 
 /** What a server-side report records. */
@@ -297,6 +303,9 @@ export const endpoints = pgTable(
     // adds a second key over (tenant_id, assigned_user_id), so the person is always one of the
     // machine's own tenant (drizzle/0025_endpoint_assigned_user.sql).
     assignedUserId: uuid("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
+    // "Update now" (0.4.2): the heartbeat tells the agent to look for its update at once (it
+    // installs it when idle); cleared once the agent reports the offered version.
+    updateRequestedAt: timestamp("update_requested_at", { withTimezone: true }),
     ...timestamps(),
   },
   (t) => [
@@ -387,10 +396,18 @@ export const endpointRuns = pgTable(
     taskId: uuid("task_id"),
     // Set when the failure went out as an alert.
     alertedAt: timestamp("alerted_at", { withTimezone: true }),
+    // Stop requested in the UI (0.4.2): the agent stops restic with its next heartbeat; the
+    // label of who asked.
+    cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+    cancelledBy: text("cancelled_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("endpoint_runs_endpoint_started_idx").on(t.endpointId, t.startedAt),
+    // The runs an agent is told to stop with its heartbeat.
+    index("endpoint_runs_cancelling_idx")
+      .on(t.endpointId)
+      .where(sql`${t.status} = 'running' AND ${t.cancelRequestedAt} IS NOT NULL`),
     index("endpoint_runs_tenant_status_idx").on(t.tenantId, t.status),
     // History lists a tenant's runs newest first (apps/api features/history).
     index("endpoint_runs_tenant_created_idx").on(t.tenantId, t.createdAt, t.id),
@@ -436,6 +453,9 @@ export const endpointTasks = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     // Why a task failed or expired; never a secret.
     errorMessage: text("error_message"),
+    // A cancel request for a task the agent already has (0.4.2); the label of who asked.
+    cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+    cancelledBy: text("cancelled_by"),
   },
   (t) => [
     index("endpoint_tasks_endpoint_status_idx").on(t.endpointId, t.status),

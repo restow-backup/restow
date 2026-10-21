@@ -301,6 +301,9 @@ export function runStatusView(status: RunStatus, kind?: RunKind): RunStatusView 
       };
     case "partial":
       return { tone: "warning", key: "runStatus.partial", live: false };
+    case "cancelled":
+      // Asked for in the UI: neither a failure nor a backup.
+      return { tone: "muted", key: "runStatus.cancelled", live: false };
     default:
       return { tone: "destructive", key: "runStatus.failed", live: false };
   }
@@ -622,7 +625,8 @@ export function taskStatusView(
   switch (outcome.state) {
     case "done":
       return {
-        tone: task.kind === "restore" ? "success" : "neutral",
+        // A withdrawn request (`cancelled`) is neutral whatever it asked for.
+        tone: task.kind === "restore" && task.status === "done" ? "success" : "neutral",
         key: `tasks.status.${task.status}`,
         mark: null,
       };

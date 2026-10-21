@@ -29,10 +29,19 @@ import { tenants } from "./tenants.js";
  */
 
 export type PveGuestKind = "vm" | "ct";
-export type PveTaskStatus = "pending" | "delivered" | "done" | "failed";
+/**
+ * `cancelled`: withdrawn in the UI before the node ran it, or stopped while it ran (the node
+ * reported its end after a cancel request). A delivered task with `cancel_requested_at` is still
+ * open until the node answers.
+ */
+export type PveTaskStatus = "pending" | "delivered" | "done" | "failed" | "cancelled";
 export type PveRunKind = "backup" | "restore" | "restore_test" | "verify" | "boot_test";
 export type PveTaskKind = "backup" | "restore" | "refresh_inventory" | "boot_test";
-export type PveRunStatus = "running" | "succeeded" | "failed";
+/**
+ * A running run with `cancel_requested_at` is "cancelling" in the UI: the node stops it with its
+ * next heartbeat, and the run then ends `cancelled` (not `failed`).
+ */
+export type PveRunStatus = "running" | "succeeded" | "failed" | "cancelled";
 export type PveSnapshotStatus = "active" | "pruned" | "unavailable";
 export type PveBackupMode = "snapshot" | "suspend" | "stop";
 
@@ -130,6 +139,13 @@ export const pveNodes = pgTable(
     facts: jsonb("facts").$type<PveNodeFacts>().notNull().default({}),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // The node's queue is paused (0.4.2): its heartbeat hands out no backup task until an
+    // admin resumes it; tasks wait (and expire as usual). `queue_paused_by` is the admin's label.
+    queuePausedAt: timestamp("queue_paused_at", { withTimezone: true }),
+    queuePausedBy: text("queue_paused_by"),
+    // "Update now" (0.4.2): the heartbeat tells the node to install the offered release as soon as
+    // it is idle; cleared once the node reports that version.
+    updateRequestedAt: timestamp("update_requested_at", { withTimezone: true }),
     ...timestamps(),
   },
   (t) => [
@@ -360,6 +376,9 @@ export const pveTasks = pgTable(
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
+    // A cancel request for a task the node already has (0.4.2); the label of who asked.
+    cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+    cancelledBy: text("cancelled_by"),
   },
   (t) => [
     index("pve_tasks_node_status_idx").on(t.nodeId, t.status),
@@ -458,12 +477,19 @@ export const pveRuns = pgTable(
     resticExpiresAt: timestamp("restic_expires_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    // Stop requested in the UI (0.4.2): the run shows "Cancelling" until the node stopped it.
+    cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+    cancelledBy: text("cancelled_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("pve_runs_guest_started_idx").on(t.guestId, t.startedAt),
     index("pve_runs_tenant_created_idx").on(t.tenantId, t.createdAt),
     index("pve_runs_status_idx").on(t.status, t.startedAt),
+    // The runs a node is told to stop with its heartbeat.
+    index("pve_runs_cancelling_idx")
+      .on(t.nodeId)
+      .where(sql`${t.status} = 'running' AND ${t.cancelRequestedAt} IS NOT NULL`),
     // The ransomware judgement (apps/worker suspicion/scan.ts) reads new restore points by time;
     // the predicate is the scan's, word for word.
     index("pve_runs_suspicion_idx")

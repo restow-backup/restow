@@ -31,7 +31,12 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { storeSecret } from "../../lib/secrets.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
-import { isSafeOrigin } from "../endpoints/distribution.js";
+import {
+  announcedAgentVersion,
+  compareAgentVersions,
+  isAgentVersion,
+  isSafeOrigin,
+} from "../endpoints/distribution.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
 import { guestBootTestFacts } from "./boot-tests.js";
 import { containerBackupPaths } from "./files.js";
@@ -72,7 +77,17 @@ function refuseSelfBackup(guest: PveGuest): void {
 export const RESTORE_POOL = "restow-restore";
 const TASK_TTL_MS = 12 * 60 * 60 * 1000;
 
-function nodeDto(n: PveNode, now: Date) {
+function nodeDto(
+  n: PveNode,
+  now: Date,
+  facts: { queued?: number; offeredVersion?: string | null } = {},
+) {
+  const offered = facts.offeredVersion ?? null;
+  const behind =
+    offered !== null &&
+    isAgentVersion(n.helperVersion ?? "") &&
+    !(n.helperVersion ?? "").includes("-dev") &&
+    compareAgentVersions(offered, n.helperVersion ?? "") > 0;
   return {
     id: n.id,
     name: n.name,
@@ -87,7 +102,18 @@ function nodeDto(n: PveNode, now: Date) {
     state: n.facts.state ?? null,
     // What the node runs beyond backups and restores (an older node announces nothing).
     capabilities: n.facts.capabilities ?? [],
+    // The queue (0.4.2): paused by whom, and how many backups wait for the node.
+    queuePausedAt: n.queuePausedAt?.toISOString() ?? null,
+    queuePausedBy: n.queuePausedBy ?? null,
+    queuedBackups: facts.queued ?? 0,
+    // The release the node would update to (null: up to date or unknown), and "update now".
+    updateVersion: behind ? offered : null,
+    updateRequestedAt: n.updateRequestedAt?.toISOString() ?? null,
   };
+}
+
+function isoOrNull(value: Date | string | null | undefined): string | null {
+  return value === null || value === undefined ? null : new Date(value).toISOString();
 }
 
 /** What the inventory says about the bitmap of a guest's disks after its last backup. */
@@ -124,6 +150,9 @@ export interface GuestActivityDetail {
   runId?: string | null;
   /** The node the running backup runs on, with its restow-pve version (progress needs 0.4.0). */
   node?: RunNode | null;
+  /** When a stop was asked for in the UI (0.4.2), and by whom. */
+  cancelRequestedAt?: string | null;
+  cancelledBy?: string | null;
 }
 
 /** The node of a running run and the restow-pve version it last reported. */
@@ -309,7 +338,9 @@ export interface GuestBackupSizes {
 function guestDto(
   g: PveGuest,
   jobs: Map<string, PveJob>,
-  lastRun: { status: string; error: string | null; warnings?: string[] } | undefined,
+  lastRun:
+    | { status: string; error: string | null; warnings?: string[]; cancelledBy?: string | null }
+    | undefined,
   activity: GuestActivity = null,
   sizes: GuestBackupSizes = { first: null, last: null },
   detail: GuestActivityDetail = { since: null, progress: null },
@@ -371,7 +402,11 @@ function guestDto(
     restowServerFlagged: g.restowServerFlagged,
     selfBackupConfirmedAt: g.selfBackupConfirmedAt?.toISOString() ?? null,
     lastVerify: verify,
+    lastRunCancelledBy: lastRun?.cancelledBy ?? null,
     activity,
+    // Stop requested (0.4.2): "Cancelling" until the node stopped it, and who asked.
+    cancelling: activity !== null && (detail.cancelRequestedAt ?? null) !== null,
+    cancelledBy: activity !== null ? (detail.cancelledBy ?? null) : null,
     activitySince: detail.since,
     activityJobId: activity ? (detail.jobId ?? null) : null,
     activityRunId: activity === "running" ? (detail.runId ?? null) : null,
@@ -416,8 +451,10 @@ export async function overview(database: Database, tenantId: string, now: Date =
       status: string;
       error_message: string | null;
       warnings: unknown;
+      cancelled_by: string | null;
     }>(sql`
-      SELECT DISTINCT ON (guest_id) guest_id, status, error_message, stats->'warnings' AS warnings
+      SELECT DISTINCT ON (guest_id) guest_id, status, error_message,
+        stats->'warnings' AS warnings, cancelled_by
         FROM pve_runs WHERE kind = 'backup' AND status <> 'running'
        ORDER BY guest_id, started_at DESC`);
     const runByGuest = new Map(
@@ -429,6 +466,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
           warnings: Array.isArray(r.warnings)
             ? r.warnings.filter((w): w is string => typeof w === "string")
             : [],
+          cancelledBy: r.cancelled_by,
         },
       ]),
     );
@@ -441,9 +479,12 @@ export async function overview(database: Database, tenantId: string, now: Date =
       job_id: string | null;
       node_name: string | null;
       helper_version: string | null;
+      cancel_requested_at: Date | string | null;
+      cancelled_by: string | null;
     }>(sql`
       SELECT DISTINCT ON (r.guest_id) r.id, r.guest_id, r.started_at, r.progress,
-             t.params->>'jobId' AS job_id, n.name AS node_name, n.helper_version
+             t.params->>'jobId' AS job_id, n.name AS node_name, n.helper_version,
+             r.cancel_requested_at, r.cancelled_by
         FROM pve_runs r LEFT JOIN pve_tasks t ON t.id = r.task_id
         LEFT JOIN pve_nodes n ON n.id = r.node_id
        WHERE r.kind = 'backup' AND r.status = 'running' ORDER BY r.guest_id, r.started_at DESC`);
@@ -451,17 +492,35 @@ export async function overview(database: Database, tenantId: string, now: Date =
       guest_id: string;
       since: Date | string;
       job_id: string | null;
+      cancel_requested_at: Date | string | null;
+      cancelled_by: string | null;
     }>(sql`
-      SELECT guest_id, min(created_at) AS since, max(params->>'jobId') AS job_id FROM pve_tasks
+      SELECT guest_id, min(created_at) AS since, max(params->>'jobId') AS job_id,
+             CASE WHEN bool_and(cancel_requested_at IS NOT NULL) THEN max(cancel_requested_at) END
+               AS cancel_requested_at,
+             max(cancelled_by) AS cancelled_by FROM pve_tasks
        WHERE kind = 'backup' AND status IN ('pending', 'delivered') AND guest_id IS NOT NULL
        GROUP BY guest_id`);
+    // How many backups wait for each node (its queue, 0.4.2).
+    const queuedByNode = await tx.execute<{ node_id: string; n: string }>(sql`
+      SELECT node_id, count(*) AS n FROM pve_tasks
+       WHERE kind = 'backup' AND status IN ('pending', 'delivered') AND cancel_requested_at IS NULL
+       GROUP BY node_id`);
+    const queuedCounts = new Map(queuedByNode.rows.map((r) => [r.node_id, Number(r.n)]));
+    const offeredVersion = await announcedAgentVersion().catch(() => null);
     const activity = new Map<string, GuestActivity>(
       queued.rows.map((r) => [r.guest_id, "queued" as const]),
     );
     const activityDetail = new Map<string, GuestActivityDetail>(
       queued.rows.map((r) => [
         r.guest_id,
-        { since: new Date(r.since).toISOString(), progress: null, jobId: r.job_id ?? null },
+        {
+          since: new Date(r.since).toISOString(),
+          progress: null,
+          jobId: r.job_id ?? null,
+          cancelRequestedAt: isoOrNull(r.cancel_requested_at),
+          cancelledBy: r.cancelled_by ?? null,
+        },
       ]),
     );
     for (const r of running.rows) {
@@ -473,6 +532,8 @@ export async function overview(database: Database, tenantId: string, now: Date =
         jobId: r.job_id ?? activityDetail.get(r.guest_id)?.jobId ?? null,
         runId: r.id,
         node: r.node_name ? { name: r.node_name, helperVersion: r.helper_version } : null,
+        cancelRequestedAt: isoOrNull(r.cancel_requested_at),
+        cancelledBy: r.cancelled_by ?? null,
       });
     }
     // The tasks of each job's newest scheduled round (the scheduler writes them right after it
@@ -555,7 +616,9 @@ export async function overview(database: Database, tenantId: string, now: Date =
         id: c.id,
         name: c.name,
         storageId: c.storageId,
-        nodes: nodes.filter((n) => n.clusterId === c.id).map((n) => nodeDto(n, now)),
+        nodes: nodes
+          .filter((n) => n.clusterId === c.id)
+          .map((n) => nodeDto(n, now, { queued: queuedCounts.get(n.id) ?? 0, offeredVersion })),
       })),
       guests: guests.map((g) =>
         guestDto(
@@ -820,6 +883,8 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         stats: r.stats,
         progress: r.status === "running" ? (r.progress ?? null) : null,
         node: r.status === "running" && r.nodeId ? (runNodes.get(r.nodeId) ?? null) : null,
+        cancelRequestedAt: r.cancelRequestedAt?.toISOString() ?? null,
+        cancelledBy: r.cancelledBy ?? null,
         error: r.errorMessage,
         warnings: Array.isArray(r.stats.warnings) ? r.stats.warnings : [],
         logTail: r.logTail,
@@ -829,6 +894,8 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         kind: t.kind,
         status: t.status,
         createdAt: t.createdAt.toISOString(),
+        cancelRequestedAt: t.cancelRequestedAt?.toISOString() ?? null,
+        cancelledBy: t.cancelledBy ?? null,
       })),
     };
   });
