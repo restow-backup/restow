@@ -88,6 +88,9 @@ export interface RunSummaryDto {
   dataAdded: number | null;
   totalBytesProcessed: number | null;
   progress: EndpointRun["progress"];
+  /** A stop was asked for in the UI (0.4.2): "Cancelling" while running, and who asked. */
+  cancelRequestedAt: string | null;
+  cancelledBy: string | null;
 }
 
 export interface EndpointSummaryDto {
@@ -157,6 +160,9 @@ export interface TaskDto {
    * is `false`.
    */
   checkIncomplete: boolean;
+  /** Withdrawn in the UI (0.4.2), or asked to stop while the agent has it. */
+  cancelRequestedAt: string | null;
+  cancelledBy: string | null;
 }
 
 export interface ReportDto {
@@ -262,6 +268,10 @@ export interface EndpointDetailDto extends EndpointSummaryDto {
   autoUpdatePaused: boolean;
   /** The machine is paused on its own (an override that outlives the tenant's setting). */
   autoUpdateOwnPause: boolean;
+  /** The agent release the machine would update to (null: up to date or unknown, 0.4.2). */
+  updateVersion: string | null;
+  /** "Update now" was asked for and the agent has not reported the new version yet. */
+  updateRequestedAt: string | null;
 }
 
 /** One configured hook as everybody may see it: whether it is set, and a fingerprint of its text. */
@@ -484,6 +494,8 @@ export function toRunSummary(run: EndpointRun, rated: RatedTests): RunSummaryDto
     dataAdded: run.stats?.dataAdded ?? null,
     totalBytesProcessed: run.stats?.totalBytesProcessed ?? null,
     progress: run.status === "running" ? run.progress : null,
+    cancelRequestedAt: iso(run.cancelRequestedAt),
+    cancelledBy: run.cancelledBy ?? null,
   };
 }
 
@@ -508,6 +520,8 @@ export function toTask(task: EndpointTask, rated: RatedTests): TaskDto {
     finishedAt: iso(task.finishedAt),
     errorMessage: task.errorMessage,
     checkIncomplete: isIncompleteTestTask(task, rated),
+    cancelRequestedAt: iso(task.cancelRequestedAt),
+    cancelledBy: task.cancelledBy ?? null,
   };
 }
 

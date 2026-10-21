@@ -50,6 +50,13 @@ type Server struct {
 	Runs        map[string]*Run
 	AuthFailed  int
 
+	// Cancel and UpdateNow go out with every heartbeat answer (server 0.4.2).
+	Cancel    *api.CancelOrders
+	UpdateNow bool
+	// RefuseTasks answers 409 to a run started for one of these task ids (withdrawn tasks).
+	RefuseTasks   map[string]bool
+	RunStartTries int
+
 	pendingTasks []api.Task
 	nextRun      int
 }
@@ -276,12 +283,14 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	tasks := s.pendingTasks
 	s.pendingTasks = nil
 	paused := s.Config.StartsPaused
+	cancel, updateNow := s.Cancel, s.UpdateNow
 	s.mu.Unlock()
 	if tasks == nil {
 		tasks = []api.Task{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(api.HeartbeatResponse{Tasks: tasks, StartsPaused: paused})
+	_ = json.NewEncoder(w).Encode(api.HeartbeatResponse{Tasks: tasks, StartsPaused: paused, Cancel: cancel,
+		UpdateNow: updateNow})
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +300,12 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
+	s.RunStartTries++
+	if s.RefuseTasks[req.TaskID.String()] {
+		s.mu.Unlock()
+		problem(w, http.StatusConflict, "Task already finished", "This backup was cancelled in Restow.")
+		return
+	}
 	s.nextRun++
 	id := fmt.Sprintf("run-%d", s.nextRun)
 	s.Runs[id] = &Run{ID: id, Start: req}

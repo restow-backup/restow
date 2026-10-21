@@ -62,6 +62,7 @@ import { PgPackCatalog } from "../handlers/scrub.js";
 import { dropTestDatabase } from "../testing/database.js";
 import {
   applyRetention,
+  closeCancelledRunsOfSilentNodes,
   closeRunsNodesDropped,
   closeStaleRuns,
   coveredBy,
@@ -448,6 +449,43 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     // Closed once.
     expect(await closeRunsNodesDropped(deps, clock)).toBe(0);
     await owner.delete(pveRuns).where(inArray(pveRuns.id, [listed, justOpened, dropped]));
+  });
+
+  it("ends a cancelled backup cancelled when its node stays silent, and only then (0.4.2)", async () => {
+    const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    const nodeId = node?.id ?? "";
+    const minutesAgo = (minutes: number) => new Date(clock.getTime() - minutes * 60_000);
+    const [run] = await owner
+      .insert(pveRuns)
+      .values({
+        tenantId,
+        clusterId,
+        guestId,
+        nodeId,
+        kind: "backup",
+        startedAt: minutesAgo(40),
+        cancelRequestedAt: minutesAgo(20),
+        cancelledBy: "admin@contoso.example",
+      })
+      .returning();
+    const id = run?.id ?? "";
+    // The node called after the stop was asked for: it is on it.
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: minutesAgo(1) })
+      .where(eq(pveNodes.id, nodeId));
+    expect(await closeCancelledRunsOfSilentNodes(deps, clock)).toBe(0);
+    // Silent since before the request, for longer than 15 minutes: nobody will end it.
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: minutesAgo(25) })
+      .where(eq(pveNodes.id, nodeId));
+    expect(await closeCancelledRunsOfSilentNodes(deps, clock)).toBe(1);
+    const [after] = await owner.select().from(pveRuns).where(eq(pveRuns.id, id));
+    expect(after).toMatchObject({ status: "cancelled", cancelledBy: "admin@contoso.example" });
+    expect(await closeCancelledRunsOfSilentNodes(deps, clock)).toBe(0);
+    await owner.update(pveNodes).set({ lastSeenAt: clock }).where(eq(pveNodes.id, nodeId));
+    await owner.delete(pveRuns).where(eq(pveRuns.id, id));
   });
 
   it("deletes an existing PVE API token once its enrollment token is used, revoked or expired", async () => {

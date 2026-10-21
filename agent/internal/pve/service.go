@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/buildinfo"
@@ -43,15 +44,132 @@ type Service struct {
 	// InventoryEvery is how often the inventory is reported (default 5 min).
 	InventoryEvery time.Duration
 
+	// BusyInterval is the time between heartbeats while a task runs or waits (default 15 s), so
+	// a backup cancelled in Restow stops within seconds.
+	BusyInterval time.Duration
+	// OnUpdate installs an offered release when the server says "update now" and the node is
+	// idle (`restow-pve run` sets it: verify, install, restart); nil means never.
+	OnUpdate func(ctx context.Context, version string)
+
 	// Cmd runs qm and pct (boot tests); nil means the real commands.
 	Cmd CommandRunner
 	// BootTests runs the boot tests; nil means one built from the fields above.
 	BootTests *BootTester
 
-	running      string
+	// The tasks: the heartbeat queues them, one worker runs them one after another, and the
+	// heartbeat goes on meanwhile (cancel orders, cancel.go).
+	mu        sync.Mutex
+	cur       *current
+	queue     []Task
+	cancelled map[string]bool
+	stopped   map[string]bool
+	wake      chan struct{}
+
+	// Owned by the heartbeat loop.
 	lastInvent   time.Time
 	pveVersion   string
 	lastProblems []string
+}
+
+// lazyLocked creates the task state; s.mu is held.
+func (s *Service) lazyLocked() {
+	if s.wake == nil {
+		s.wake = make(chan struct{}, 1)
+		s.cancelled = map[string]bool{}
+		s.stopped = map[string]bool{}
+	}
+}
+
+// Busy reports whether a task runs or waits on this node.
+func (s *Service) Busy() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cur != nil || len(s.queue) > 0
+}
+
+// enqueue adds the tasks of a heartbeat that are not queued or running already.
+func (s *Service) enqueue(tasks []Task) {
+	if len(tasks) == 0 {
+		return
+	}
+	s.mu.Lock()
+	s.lazyLocked()
+	for _, t := range tasks {
+		known := s.cur != nil && s.cur.id == t.ID
+		for _, q := range s.queue {
+			known = known || q.ID == t.ID
+		}
+		if !known {
+			s.queue = append(s.queue, t)
+		}
+	}
+	wake := s.wake
+	s.mu.Unlock()
+	select {
+	case wake <- struct{}{}:
+	default:
+	}
+}
+
+// dropQueued removes a task that waits in the queue; false when it does not wait there.
+func (s *Service) dropQueued(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, q := range s.queue {
+		if q.ID == id {
+			s.queue = append(s.queue[:i], s.queue[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) isCancelled(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cancelled[id]
+}
+
+// startedVzdump records the vzdump task of the running task. True when the task was cancelled
+// meanwhile: the caller stops the vzdump task at once.
+func (s *Service) startedVzdump(id, upid string, vmid int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lazyLocked()
+	if s.cur != nil && s.cur.id == id {
+		s.cur.upid, s.cur.vmid = upid, vmid
+	}
+	if s.cancelled[id] && !s.stopped[upid] {
+		s.stopped[upid] = true
+		return true
+	}
+	return false
+}
+
+// work runs the queued tasks one after another until ctx ends.
+func (s *Service) work(ctx context.Context) {
+	for {
+		s.mu.Lock()
+		s.lazyLocked()
+		var next *Task
+		if len(s.queue) > 0 {
+			t := s.queue[0]
+			s.queue = s.queue[1:]
+			next = &t
+			s.cur = &current{id: t.ID, kind: t.Kind}
+		}
+		wake := s.wake
+		s.mu.Unlock()
+		if next != nil {
+			s.runTask(ctx, *next)
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-wake:
+		}
+	}
 }
 
 // Capabilities are the task kinds beyond the original set this node announces.
@@ -92,10 +210,19 @@ func (s *Service) Run(ctx context.Context) error {
 	if s.InventoryEvery == 0 {
 		s.InventoryEvery = 5 * time.Minute
 	}
+	if s.BusyInterval == 0 {
+		s.BusyInterval = 15 * time.Second
+	}
 	// A boot test the last run of the service could not finish leaves a temporary guest.
 	if !s.State.BootTestsDisabled {
 		s.bootTester().Cleanup(ctx)
 	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.work(ctx)
+	}()
+	defer func() { <-done }()
 	for {
 		if err := s.Tick(ctx); err != nil {
 			s.Logf("heartbeat: %v", err)
@@ -103,10 +230,14 @@ func (s *Service) Run(ctx context.Context) error {
 				s.Logf("the Restow server refuses this node's credentials (revoked?)")
 			}
 		}
+		wait := s.Interval
+		if s.Busy() && s.BusyInterval < wait {
+			wait = s.BusyInterval
+		}
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-time.After(s.Interval):
+		case <-time.After(wait):
 		}
 	}
 }
@@ -190,7 +321,7 @@ func (s *Service) Tick(ctx context.Context) error {
 	problems := s.Problems(ctx)
 	s.lastProblems = problems
 	state := "idle"
-	if s.running != "" {
+	if s.Busy() {
 		state = "running"
 	}
 	hb, err := s.Server.Heartbeat(ctx, HeartbeatRequest{
@@ -224,8 +355,12 @@ func (s *Service) Tick(ctx context.Context) error {
 		}
 	}
 	_ = writeJSONAtomic(s.Layout.ServiceStatus(), status, 0o644)
-	for _, t := range hb.Tasks {
-		s.runTask(ctx, t)
+	s.applyCancel(ctx, hb.Cancel)
+	s.enqueue(hb.Tasks)
+	// "Update now": installed only while nothing runs here (no task, no backup PVE started).
+	if hb.Update != nil && hb.Update.Now && s.OnUpdate != nil && !s.Busy() && !busy(s.Layout) {
+		s.Logf("the Restow server asks this node to update to %s now", hb.Update.Version)
+		s.OnUpdate(ctx, hb.Update.Version)
 	}
 	return nil
 }
@@ -340,12 +475,19 @@ type restoreParams struct {
 }
 
 func (s *Service) runTask(ctx context.Context, t Task) {
-	s.running = t.ID
-	defer func() { s.running = "" }()
+	defer func() {
+		s.mu.Lock()
+		s.cur = nil
+		delete(s.cancelled, t.ID)
+		s.mu.Unlock()
+	}()
 	result, err := s.task(ctx, t)
 	status, msg := "done", ""
 	if err != nil {
 		status, msg = "failed", err.Error()
+		if s.isCancelled(t.ID) && !errors.Is(err, ErrCancelled) {
+			msg = ErrCancelled.Error() + ": " + msg
+		}
 		s.Logf("task %s (%s) failed: %v", t.ID, t.Kind, err)
 	}
 	if rerr := s.Server.TaskResult(ctx, t.ID, status, msg, result); rerr != nil {
@@ -372,11 +514,20 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 			_ = os.MkdirAll(filepath.Dir(s.Layout.forceNewFile(p.VMID)), 0o700)
 			_ = os.WriteFile(s.Layout.forceNewFile(p.VMID), nil, 0o600)
 		}
+		if s.isCancelled(t.ID) {
+			return nil, ErrCancelled
+		}
 		upid, err := s.PVE.StartBackup(ctx, s.State.NodeName, p.VMID, s.State.StorageID, mode, fleecing)
 		if err != nil {
 			return nil, err
 		}
 		s.Logf("backup of %d started: %s", p.VMID, upid)
+		if s.startedVzdump(t.ID, upid, p.VMID) {
+			// Cancelled while vzdump was being started.
+			if err := s.PVE.StopTask(ctx, s.State.NodeName, upid); err != nil {
+				s.Logf("stopping %s: %v", upid, err)
+			}
+		}
 		exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
 		if err != nil {
 			return nil, err

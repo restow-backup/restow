@@ -117,7 +117,7 @@ func (a *Agent) doVerify(rc *runContext, p api.VerifySampleParams) runOutcome {
 
 	files, problems := inspectRestoredFiles(tmp, p.Files, rc.ctx.Done())
 	if rc.ctx.Err() != nil {
-		interruptedOutcome(&out)
+		rc.stoppedOutcome(&out)
 		return out
 	}
 	out.RestoreTest = &api.RestoreTest{Files: reportFiles(files)}

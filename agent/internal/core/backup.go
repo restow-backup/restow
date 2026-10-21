@@ -164,7 +164,7 @@ func (a *Agent) doBackup(rc *runContext) runOutcome {
 			rl.Infof("Pre-backup hook finished in %s.", res.Duration.Round(time.Millisecond))
 		case rc.ctx.Err() != nil:
 			proceed = false
-			interruptedOutcome(&out)
+			rc.stoppedOutcome(&out)
 		default:
 			proceed = false
 			rl.Errorf("%v", err)
@@ -256,7 +256,7 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 		var re *restic.Error
 		switch {
 		case rc.ctx.Err() != nil:
-			interruptedOutcome(&out)
+			rc.stoppedOutcome(&out)
 			rl.Warnf("The backup was interrupted; it resumes when the agent starts again.")
 		case timedOut():
 			out.Errors = append(out.Errors, api.RunError{Code: "timeout",

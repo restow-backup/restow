@@ -68,6 +68,7 @@ import {
  */
 
 export const PVE_RUN_PROBLEM = "urn:restow:problem:pve-run";
+const RUN_CANCELLED_DETAIL = "This backup was cancelled in Restow.";
 /** Container repositories lie under this prefix of the tenant's primary target. */
 export function guestRepositoryPrefix(guestId: string): string {
   return `pve-guests/${guestId}/`;
@@ -107,6 +108,11 @@ function requireOpenBackup(run: PveRun): void {
   }
   if (run.status !== "running") {
     throw problem(409, "Run closed", "This run has ended; open a new one.");
+  }
+  // A run stopped in the UI takes nothing more: the node's provider fails at its next call and
+  // vzdump ends, also on a node that does not know cancel orders yet (features/pve/cancel.ts).
+  if (run.cancelRequestedAt) {
+    throw problem(409, "Run cancelled", RUN_CANCELLED_DETAIL);
   }
 }
 
@@ -154,6 +160,9 @@ export async function openRun(
       )
       .orderBy(desc(pveTasks.deliveredAt))
       .limit(1);
+    if (task?.cancelRequestedAt) {
+      throw problem(409, "Backup cancelled", RUN_CANCELLED_DETAIL);
+    }
     const startedAt = Number.isNaN(Date.parse(input.startedAt)) ? now : new Date(input.startedAt);
     const [run] = await tx
       .insert(pveRuns)
@@ -890,6 +899,21 @@ export async function reportProgress(
 // End of a run
 // ---------------------------------------------------------------------------
 
+/** How a run ends: a failure after a cancel request is the cancellation it asked for. */
+export function endedStatus(
+  run: Pick<PveRun, "cancelRequestedAt">,
+  status: "succeeded" | "failed",
+): "succeeded" | "failed" | "cancelled" {
+  return status === "failed" && run.cancelRequestedAt ? "cancelled" : status;
+}
+
+/** The end status of a run closed by SQL: `cancelled` when a stop was requested, else `failed`. */
+export function cancelledOrFailed(): SQL<"failed" | "cancelled"> {
+  return sql<
+    "failed" | "cancelled"
+  >`CASE WHEN ${pveRuns.cancelRequestedAt} IS NOT NULL THEN 'cancelled' ELSE 'failed' END`;
+}
+
 export async function finishRun(
   node: NodeContext,
   runId: string,
@@ -900,7 +924,10 @@ export async function finishRun(
   if (run.status !== "running") {
     return;
   }
-  const status = input.status === "succeeded" && run.snapshotId ? "succeeded" : "failed";
+  const status = endedStatus(
+    run,
+    input.status === "succeeded" && run.snapshotId ? "succeeded" : "failed",
+  );
   const message =
     status === "failed"
       ? (input.error ?? "").slice(0, 2000) ||
@@ -919,12 +946,14 @@ export async function finishRun(
         stats: { ...run.stats, ...(input.stats ?? {}) },
       })
       .where(eq(pveRuns.id, run.id));
-    await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, run.guestId));
+    if (status !== "cancelled") {
+      await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, run.guestId));
+    }
     if (run.taskId) {
       await tx
         .update(pveTasks)
         .set({
-          status: status === "succeeded" ? "done" : "failed",
+          status: status === "succeeded" ? "done" : status,
           finishedAt: now,
           errorMessage: message,
         })
@@ -961,14 +990,27 @@ export async function finishFailedTaskRun(
     await recordBootTestResult(tx, task, { status: "failed", error: message }, now);
     return;
   }
-  // Every run the task left open fails with it (a redelivered task can have opened several).
+  // Every run the task left open fails with it (a redelivered task can have opened several);
+  // one stopped in the UI ends cancelled.
+  const cancelled = task.status === "cancelled";
   const closed = await tx
     .update(pveRuns)
-    .set({ status: "failed", finishedAt: now, errorMessage: message })
+    .set({
+      status: cancelled ? "cancelled" : cancelledOrFailed(),
+      finishedAt: now,
+      errorMessage: message,
+      ...(cancelled
+        ? { cancelRequestedAt: sql`coalesce(${pveRuns.cancelRequestedAt}, ${now})` }
+        : {}),
+      ...(cancelled && task.cancelledBy
+        ? { cancelledBy: sql`coalesce(${pveRuns.cancelledBy}, ${task.cancelledBy})` }
+        : {}),
+    })
     .where(and(eq(pveRuns.taskId, task.id), eq(pveRuns.status, "running")))
-    .returning({ id: pveRuns.id, guestId: pveRuns.guestId });
+    .returning({ id: pveRuns.id, guestId: pveRuns.guestId, status: pveRuns.status });
   if (closed.length > 0) {
-    for (const guestId of new Set(closed.map((r) => r.guestId))) {
+    const ended = closed.filter((r) => r.status !== "cancelled");
+    for (const guestId of new Set(ended.map((r) => r.guestId))) {
       await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, guestId));
     }
     return;
@@ -995,13 +1037,18 @@ export async function finishFailedTaskRun(
         guestId: guest.id,
         kind: "backup",
         origin: "restow",
-        status: "failed",
+        status: cancelled ? "cancelled" : "failed",
         taskId: task.id,
         errorMessage: message,
         startedAt: task.createdAt,
         finishedAt: now,
+        ...(cancelled
+          ? { cancelRequestedAt: task.cancelRequestedAt ?? now, cancelledBy: task.cancelledBy }
+          : {}),
       });
-      await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, guest.id));
+      if (!cancelled) {
+        await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, guest.id));
+      }
     }
   }
 }

@@ -65,6 +65,9 @@ type Options struct {
 	// PauseRecheck is how often the agent asks again while the server
 	// pauses new runs for an update (default 1 min).
 	PauseRecheck time.Duration
+	// BusyHeartbeat is the time between heartbeats while a job runs (default
+	// 1 min), so a run stopped in the Restow UI ends soon.
+	BusyHeartbeat time.Duration
 	// SelfUpdate enables GET /agent/v1/update polling.
 	SelfUpdate bool
 	// Now replaces the clock (tests).
@@ -98,6 +101,9 @@ func (o *Options) defaults() {
 	}
 	if o.PauseRecheck == 0 {
 		o.PauseRecheck = time.Minute
+	}
+	if o.BusyHeartbeat == 0 {
+		o.BusyHeartbeat = time.Minute
 	}
 	if o.Now == nil {
 		o.Now = time.Now
@@ -178,16 +184,20 @@ type Agent struct {
 	awakeSince time.Time
 	busy       bool
 	queued     int
-	cancelJob  context.CancelFunc
-	resticVer  string
-	osVersion  string
-	machine    *sysinfo.Machine
-	machineAt  time.Time
-	uninstall  bool
-	restart    bool
-	logSeen    map[string]time.Time
+	cancelJob  context.CancelCauseFunc
+	// The task and the run of the job that runs now, for cancel orders ("" when none).
+	currentTask string
+	currentRun  string
+	resticVer   string
+	osVersion   string
+	machine     *sysinfo.Machine
+	machineAt   time.Time
+	uninstall   bool
+	restart     bool
+	logSeen     map[string]time.Time
 
 	// Loop-owned timers (only touched by the loop goroutine).
+	lastHeartbeat     time.Time
 	nextHeartbeat     time.Time
 	hbFailures        int
 	nextConfigRefresh time.Time
@@ -302,6 +312,12 @@ func (a *Agent) loop(ctx context.Context) error {
 		}
 		a.lastTick = now
 
+		// While a job runs the server is asked more often: a stop in the UI reaches it soon.
+		if !a.idle() && a.hbFailures == 0 {
+			if soon := a.lastHeartbeat.Add(a.o.BusyHeartbeat); soon.Before(a.nextHeartbeat) {
+				a.nextHeartbeat = soon
+			}
+		}
 		if !now.Before(a.nextHeartbeat) {
 			a.doHeartbeat(ctx)
 		}
@@ -508,8 +524,15 @@ func (a *Agent) doHeartbeat(ctx context.Context) {
 	}
 	a.hbFailures = 0
 	a.setReachable(true)
+	a.lastHeartbeat = now
 	a.nextHeartbeat = now.Add(a.o.HeartbeatInterval + a.jitter())
 	a.setPaused(resp.StartsPaused)
+	a.applyCancel(resp.Cancel)
+	if resp.UpdateNow && a.o.SelfUpdate && a.nextUpdateCheck.After(now) {
+		// Looked for at once; installed when idle (maybeUpdate).
+		a.log.Info("the Restow instance asks this agent to update now")
+		a.nextUpdateCheck = now
+	}
 	_ = a.d.Status.Update(func(s *status.Status) {
 		s.Heartbeat = status.Heartbeat{At: now.UTC(), OK: true}
 		s.LastError = ""
@@ -748,6 +771,32 @@ func (a *Agent) dispatchTasks(ctx context.Context, tasks []api.Task) {
 	}
 }
 
+// applyCancel stops the running job when the server lists its run or its task (it was stopped
+// in the Restow UI): restic gets SIGINT and ends cleanly, the run is reported as failed with
+// the code `cancelled`, which the server records as cancelled. A queued job of a withdrawn task
+// is refused by the server when it starts (409) and dropped then.
+func (a *Agent) applyCancel(orders *api.CancelOrders) {
+	if orders == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cancelJob == nil {
+		return
+	}
+	match := false
+	for _, id := range orders.Runs {
+		match = match || (a.currentRun != "" && id.String() == a.currentRun)
+	}
+	for _, id := range orders.Tasks {
+		match = match || (a.currentTask != "" && id.String() == a.currentTask)
+	}
+	if match {
+		a.log.Info("the running job was cancelled in Restow; stopping it", "run", a.currentRun, "task", a.currentTask)
+		a.cancelJob(ErrCancelledByServer)
+	}
+}
+
 func (a *Agent) enqueue(j job) bool {
 	a.mu.Lock()
 	a.queued++
@@ -769,16 +818,18 @@ func (a *Agent) worker(ctx context.Context) {
 		a.mu.Lock()
 		a.queued--
 		a.busy = true
-		jctx, cancel := context.WithCancel(ctx)
+		jctx, cancel := context.WithCancelCause(ctx)
 		a.cancelJob = cancel
+		a.currentTask = j.taskID().String()
 		a.mu.Unlock()
 
 		a.execute(jctx, j)
 
-		cancel()
+		cancel(nil)
 		a.mu.Lock()
 		a.busy = false
 		a.cancelJob = nil
+		a.currentTask, a.currentRun = "", ""
 		a.mu.Unlock()
 		a.signalWake()
 	}
@@ -835,7 +886,7 @@ func (a *Agent) performUninstall(ctx context.Context) error {
 	a.mu.Unlock()
 	if cancel != nil {
 		a.log.Info("stopping the running job before uninstalling")
-		cancel()
+		cancel(nil)
 	}
 	deadline := time.Now().Add(2 * time.Minute)
 	for !a.idle() && time.Now().Before(deadline) {

@@ -16,6 +16,9 @@
  * dropped after, the roles with it). Without it the suite is skipped.
  */
 import { randomBytes } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   auditLog,
   createDb,
@@ -24,6 +27,8 @@ import {
   jobs,
   notifications,
   providers,
+  pveClusters,
+  pveNodes,
   readJobStartPause,
   reportDeliveries,
   reportRules,
@@ -1409,6 +1414,99 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       expect(await pauseRow()).toBeNull();
       const resumed = await auditRows("update.jobs_resumed");
       expect(resumed.at(-1)?.details).toMatchObject({ reason: "expired" });
+    });
+
+    it("keeps new starts paused while nodes and agents follow the server, at most 15 minutes", async () => {
+      const agentDir = await mkdtemp(join(tmpdir(), "restow-fleet-"));
+      const previous = { dir: process.env.RESTOW_AGENT_DIR, version: process.env.RESTOW_VERSION };
+      process.env.RESTOW_AGENT_DIR = agentDir;
+      process.env.RESTOW_VERSION = "0.2.0";
+      try {
+        const [cluster] = await owner
+          .insert(pveClusters)
+          .values({
+            tenantId: contoso,
+            name: "lab",
+            fingerprint: "9".repeat(64),
+            storageId: "restow",
+          })
+          .returning();
+        const [node] = await owner
+          .insert(pveNodes)
+          .values({
+            tenantId: contoso,
+            clusterId: cluster?.id ?? "",
+            name: "pve1",
+            helperVersion: "0.1.0",
+            secretHash: "x",
+            lastSeenAt: now,
+          })
+          .returning();
+        const { service } = await withCheck();
+        await service.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+        // The updater is done and the new server runs: its node is still behind.
+        updater.view = idleState();
+        running = "0.2.0";
+        const updated = build().service;
+        now = new Date(now.getTime() + 60_000);
+        await updated.advancePause();
+        expect(await pauseRow()).toMatchObject({ phase: "fleet" });
+        expect((await pauseRow())?.deadlineAt.getTime()).toBe(now.getTime() + 15 * 60 * 1000);
+        expect(await readJobStartPause(providerDb.$client)).toMatchObject({
+          paused: true,
+          phase: "fleet",
+        });
+        const [started] = await auditRows("update.fleet_started");
+        expect(started?.details).toMatchObject({ agentVersion: "0.2.0", pending: 1 });
+        const view = await updated.view();
+        expect(view.fleet?.counts.pve_node).toMatchObject({ pending: 1, total: 1 });
+        expect(view.fleet?.members[0]).toMatchObject({ name: "pve1", state: "pending" });
+        // Still behind: the pause holds; the node reports the release: it lifts.
+        await updated.advancePause();
+        expect(await pauseRow()).not.toBeNull();
+        await owner
+          .update(pveNodes)
+          .set({ helperVersion: "0.2.0" })
+          .where(eq(pveNodes.id, node?.id ?? ""));
+        await updated.advancePause();
+        expect(await pauseRow()).toBeNull();
+        const resumed = await auditRows("update.jobs_resumed");
+        expect(resumed.at(-1)?.details).toMatchObject({ reason: "fleet_done", phase: "fleet" });
+
+        // A node that never updates: the pause lifts at the deadline.
+        await owner
+          .update(pveNodes)
+          .set({ helperVersion: "0.1.0" })
+          .where(eq(pveNodes.id, node?.id ?? ""));
+        running = "0.1.0";
+        updater.view = idleState();
+        const again = (await withCheck()).service;
+        await again.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+        updater.view = idleState();
+        running = "0.2.0";
+        const later = build().service;
+        now = new Date(now.getTime() + 60_000);
+        await later.advancePause();
+        expect(await pauseRow()).toMatchObject({ phase: "fleet" });
+        now = new Date(now.getTime() + 15 * 60 * 1000 + 1000);
+        // Still calling (reachable), still behind.
+        await owner
+          .update(pveNodes)
+          .set({ lastSeenAt: now })
+          .where(eq(pveNodes.id, node?.id ?? ""));
+        await later.advancePause();
+        expect(await pauseRow()).toBeNull();
+        const lifted = await auditRows("update.jobs_resumed");
+        expect(lifted.at(-1)?.details).toMatchObject({ reason: "fleet_deadline" });
+        await owner.delete(pveClusters);
+      } finally {
+        running = "0.1.0";
+        process.env.RESTOW_AGENT_DIR = previous.dir;
+        process.env.RESTOW_VERSION = previous.version;
+        if (previous.dir === undefined) Reflect.deleteProperty(process.env, "RESTOW_AGENT_DIR");
+        if (previous.version === undefined) Reflect.deleteProperty(process.env, "RESTOW_VERSION");
+        await rm(agentDir, { recursive: true, force: true });
+      }
     });
 
     it("resumes job starts and tells the administrators when the updater refuses at the end", async () => {

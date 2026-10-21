@@ -489,7 +489,8 @@
       "dump": {
         "downloaded": "Datenbanksicherung heruntergeladen",
         "deleted": "Datenbanksicherung gelöscht"
-      }
+      },
+      "fleet_started": "Knoten und Agenten zur Aktualisierung aufgefordert"
     },
     "endpoint": {
       "token": {
@@ -503,7 +504,8 @@
       },
       "assigned": "Rechner einer Person zugeordnet",
       "backup": {
-        "requested": "Sicherung angefordert"
+        "requested": "Sicherung angefordert",
+        "cancelled": "Sicherung des Rechners abgebrochen"
       },
       "restore": {
         "requested": "Wiederherstellung auf dem Rechner angefordert",
@@ -528,7 +530,8 @@
         "password": {
           "revealed": "Repository-Passwort angezeigt"
         }
-      }
+      },
+      "update_requested": "Aktualisierung des Agenten angefordert"
     },
     "backup_job": {
       "created": "Backup-Job angelegt",
@@ -560,10 +563,12 @@
       "node": {
         "enrolled": "Knoten eingerichtet",
         "revoked": "Knoten widerrufen",
-        "denied": "Unzulässiger Zugriff eines Knotens abgewiesen"
+        "denied": "Unzulässiger Zugriff eines Knotens abgewiesen",
+        "update_requested": "Aktualisierung des Knotens angefordert"
       },
       "backup": {
-        "requested": "Sicherung des Gasts angefordert"
+        "requested": "Sicherung des Gasts angefordert",
+        "cancelled": "Sicherung des Gasts abgebrochen"
       },
       "restore": {
         "requested": "Wiederherstellung als neuer Gast angefordert"
@@ -582,6 +587,11 @@
         "pruned": "Sicherungsstand des Gasts entfernt (Aufbewahrung)",
         "browsed": "Dateien eines Sicherungsstands des Containers durchsucht",
         "downloaded": "Dateien eines Sicherungsstands des Containers heruntergeladen"
+      },
+      "queue": {
+        "cancelled": "Wartende Sicherungen von Gästen zurückgezogen",
+        "paused": "Warteschlange des Knotens angehalten",
+        "resumed": "Warteschlange des Knotens fortgesetzt"
       }
     },
     "file_share": {

@@ -169,7 +169,7 @@ export interface EndpointFact {
   /** The newest backup run an agent reported. */
   latest: {
     id: string;
-    status: "running" | "succeeded" | "partial" | "failed";
+    status: "running" | "succeeded" | "partial" | "failed" | "cancelled";
     finishedAt: Date | null;
   } | null;
   /** When the agent last contacted the server. */

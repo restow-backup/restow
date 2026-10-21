@@ -489,7 +489,8 @@
       "dump": {
         "downloaded": "Database backup downloaded",
         "deleted": "Database backup deleted"
-      }
+      },
+      "fleet_started": "Nodes and agents asked to update"
     },
     "endpoint": {
       "token": {
@@ -503,7 +504,8 @@
       },
       "assigned": "Machine assigned to a person",
       "backup": {
-        "requested": "Backup requested"
+        "requested": "Backup requested",
+        "cancelled": "Backup of the machine cancelled"
       },
       "restore": {
         "requested": "Restore on the machine requested",
@@ -528,7 +530,8 @@
         "password": {
           "revealed": "Repository password shown"
         }
-      }
+      },
+      "update_requested": "Agent update requested"
     },
     "backup_job": {
       "created": "Backup job created",
@@ -560,10 +563,12 @@
       "node": {
         "enrolled": "Node enrolled",
         "revoked": "Node revoked",
-        "denied": "Forbidden access of a node refused"
+        "denied": "Forbidden access of a node refused",
+        "update_requested": "Update of the node requested"
       },
       "backup": {
-        "requested": "Guest backup requested"
+        "requested": "Guest backup requested",
+        "cancelled": "Guest backup cancelled"
       },
       "restore": {
         "requested": "Restore as a new guest requested"
@@ -582,6 +587,11 @@
         "pruned": "Restore point of the guest removed (retention)",
         "browsed": "Files of a container restore point browsed",
         "downloaded": "Files of a container restore point downloaded"
+      },
+      "queue": {
+        "cancelled": "Queued guest backups withdrawn",
+        "paused": "Queue of the node paused",
+        "resumed": "Queue of the node resumed"
       }
     },
     "file_share": {

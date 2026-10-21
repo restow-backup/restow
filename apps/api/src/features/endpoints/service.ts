@@ -53,7 +53,12 @@ import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./aud
 import { bandwidthWindowsProblem } from "./bandwidth.js";
 import { installCommands } from "./commands.js";
 import { dataFoldersOf, machineOf } from "./data-folders.js";
-import { isSafeOrigin } from "./distribution.js";
+import {
+  compareAgentVersions,
+  isAgentVersion,
+  isSafeOrigin,
+  latestAgentRelease,
+} from "./distribution.js";
 import {
   type BrowseDto,
   type CreatedTokenDto,
@@ -427,8 +432,20 @@ export async function getEndpoint(
       // Paused for this machine: the tenant's setting, or the machine's own pause.
       autoUpdatePaused: tenantRow?.paused === true || pausedOnItsOwn(endpoint.settings),
       autoUpdateOwnPause: pausedOnItsOwn(endpoint.settings),
+      updateVersion: await updateVersionOf(endpoint),
+      updateRequestedAt: endpoint.updateRequestedAt?.toISOString() ?? null,
     };
   });
+}
+
+/** The newer agent release this instance offers the machine, or null. */
+async function updateVersionOf(endpoint: Endpoint): Promise<string | null> {
+  const current = endpoint.agentVersion ?? "";
+  if (endpoint.status !== "active" || !isAgentVersion(current) || current.includes("-dev")) {
+    return null;
+  }
+  const release = await latestAgentRelease(endpoint.os, endpoint.arch).catch(() => null);
+  return release && compareAgentVersions(release.version, current) > 0 ? release.version : null;
 }
 
 export async function listRuns(

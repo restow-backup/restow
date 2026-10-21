@@ -320,7 +320,14 @@ type HeartbeatResponse struct {
 	} `json:"usage"`
 	Update *struct {
 		Version string `json:"version"`
+		// Now: install it as soon as this node is idle ("Update now" on the node's page, or the
+		// server was just updated; servers from 0.4.2).
+		Now bool `json:"now"`
 	} `json:"update"`
+	// Cancel lists what was stopped in the Restow UI (servers from 0.4.2; nil from older ones).
+	Cancel *CancelOrders `json:"cancel"`
+	// QueuePaused: the admin paused this node's queue; no backup task comes until it is resumed.
+	QueuePaused bool `json:"queuePaused"`
 }
 
 // Heartbeat reports the node and fetches its tasks.

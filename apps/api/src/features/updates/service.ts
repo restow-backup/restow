@@ -29,7 +29,15 @@ import {
   SOURCE_ALLOWLIST_VARIABLE,
   sourceTargetOf,
 } from "../../updater/source-policy.js";
+import { announcedAgentVersion } from "../endpoints/distribution.js";
 import { type FetchLike, fetchReleases, releasesForChannel } from "./feed.js";
+import {
+  enterFleetPhase,
+  type FleetCounts,
+  type FleetStatus,
+  fleetStatus,
+  serverRunsPauseVersion,
+} from "./fleet.js";
 import {
   claimDrainedUpdate,
   insertJobPause,
@@ -94,6 +102,8 @@ export const UPDATE_AUDIT_ACTIONS = {
   jobsPaused: "update.jobs_paused",
   /** The pause of new job starts lifted (the update finished, was cancelled, failed or expired). */
   jobsResumed: "update.jobs_resumed",
+  /** The server is updated; its Proxmox VE nodes and endpoint agents are told to update (0.4.2). */
+  fleetStarted: "update.fleet_started",
   /** A license key was stored for the full build, or removed again (never its text). */
   pendingLicenseKeyStored: "license.pending_key.stored",
   pendingLicenseKeyRemoved: "license.pending_key.removed",
@@ -530,6 +540,7 @@ export class UpdateService {
       run: runToShow(updaterState),
       edition: await this.editionView(running),
       jobPause: jobPauseViewOf(pause, now, draining ? await this.activity() : null),
+      fleet: await this.fleet(),
     };
   }
 
@@ -1188,6 +1199,17 @@ export class UpdateService {
       }
       return;
     }
+    if (pause.phase === "fleet") {
+      // Nodes and agents follow the server (fleet.ts): lift once all reachable ones report the
+      // release, or at the deadline.
+      const fleet = await fleetStatus(db, await this.fleetTarget(), now);
+      if (fleet.counts.all.pending === 0) {
+        await this.liftPause(pause, "fleet_done", null, fleet.counts.all);
+      } else if (now.getTime() >= pause.deadlineAt.getTime()) {
+        await this.liftPause(pause, "fleet_deadline", null, fleet.counts.all);
+      }
+      return;
+    }
     // The updater gets the request right after the row says `announced`: give it that moment.
     const announcedAt = (pause.announcedAt ?? pause.createdAt).getTime();
     if (now.getTime() - announcedAt < ANNOUNCE_GRACE_MS) {
@@ -1195,14 +1217,60 @@ export class UpdateService {
     }
     const state = await this.updaterState(true);
     if (state && state.phase !== "scheduled" && state.phase !== "running") {
+      // The server runs the new release: its nodes and agents update next, while new starts
+      // stay paused (at most 15 minutes). A failed or cancelled update lifts the pause.
+      if (serverRunsPauseVersion(pause, this.deps.state.runningVersion())) {
+        const fleet = await fleetStatus(db, await this.fleetTarget(), now);
+        if (fleet.counts.all.pending > 0) {
+          const moved = await enterFleetPhase(db, pause, now);
+          if (moved) {
+            await audit(db, {
+              tenantId: null,
+              actor: "system",
+              actorUserId: null,
+              action: UPDATE_AUDIT_ACTIONS.fleetStarted,
+              target: pause.version,
+              targetType: "update",
+              ip: null,
+              details: {
+                agentVersion: fleet.targetVersion,
+                deadlineAt: moved.deadlineAt.toISOString(),
+                ...fleet.counts.all,
+              },
+            });
+          }
+          return;
+        }
+      }
       await this.liftPause(pause, "update_over");
+    }
+  }
+
+  /** The release nodes and agents update to: the agent release this server announces. */
+  private async fleetTarget(): Promise<string> {
+    return announcedAgentVersion();
+  }
+
+  /** Nodes and agents against the release they update to (the Updates tab, 0.4.2). */
+  async fleet(): Promise<FleetStatus | null> {
+    if (this.demo) {
+      return null;
+    }
+    try {
+      return await fleetStatus(this.deps.db, await this.fleetTarget(), this.now());
+    } catch (error) {
+      this.deps.log?.("warn", "reading the nodes and agents failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
     }
   }
 
   private async liftPause(
     pause: JobStartPause,
-    reason: "expired" | "update_over" | "cancelled",
+    reason: "expired" | "update_over" | "cancelled" | "fleet_done" | "fleet_deadline",
     actor: Actor | null = null,
+    fleet: FleetCounts | null = null,
   ): Promise<void> {
     if (!(await removeJobPause(this.deps.db, pause.id))) {
       return;
@@ -1215,7 +1283,7 @@ export class UpdateService {
       target: pause.version,
       targetType: "update",
       ip: actor?.ip ?? null,
-      details: { reason, phase: pause.phase, mode: pause.mode },
+      details: { reason, phase: pause.phase, mode: pause.mode, ...(fleet ? { fleet } : {}) },
     });
   }
 

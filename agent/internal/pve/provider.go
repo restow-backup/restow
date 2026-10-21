@@ -144,6 +144,10 @@ func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest)
 			_ = os.Remove(p.taskLog)
 		}
 	}
+	if verb == "backup-vm" || verb == "backup-container" {
+		// The service stops a backup that was cancelled in Restow through this process (cancel.go).
+		defer markProvider(p.Layout, req.VMID)()
+	}
 	switch verb {
 	case "activate-storage":
 		return map[string]any{}, nil

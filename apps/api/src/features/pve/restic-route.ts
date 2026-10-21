@@ -46,6 +46,7 @@ export async function resolvePveRunCredential(
       tenantId: pveRuns.tenantId,
       guestId: pveRuns.guestId,
       status: pveRuns.status,
+      cancelRequestedAt: pveRuns.cancelRequestedAt,
       tokenHash: pveRuns.resticTokenHash,
       expiresAt: pveRuns.resticExpiresAt,
       tenantStatus: tenants.status,
@@ -63,6 +64,8 @@ export async function resolvePveRunCredential(
   }
   if (
     run.status !== "running" ||
+    // A backup stopped in the UI: restic fails at its next request (a node without cancel orders).
+    run.cancelRequestedAt !== null ||
     !run.expiresAt ||
     run.expiresAt.getTime() < now ||
     run.tenantStatus !== "active"

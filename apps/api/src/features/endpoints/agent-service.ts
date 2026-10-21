@@ -43,6 +43,8 @@ import {
   endpointSamples,
   endpoints,
   endpointTasks,
+  type JobStartPauseState,
+  NOT_PAUSED,
   readJobStartPause,
   tenants,
 } from "@restow/db";
@@ -54,7 +56,13 @@ import { emitWebhookEvent } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
 import { type AgentContext, FailureTracker } from "./agent-auth.js";
 import { agentActor, auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "./audit.js";
-import { compareAgentVersions, isAgentVersion, latestAgentRelease } from "./distribution.js";
+import { type AgentCancelOrders, agentCancelOrders } from "./cancel.js";
+import {
+  announcedAgentVersion,
+  compareAgentVersions,
+  isAgentVersion,
+  latestAgentRelease,
+} from "./distribution.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import {
   forgetTenantStorage,
@@ -165,10 +173,14 @@ export function configResponse(
 
 /** Whether an update pauses new runs (#46); unreadable counts as not paused. */
 export async function agentStartsPaused(): Promise<boolean> {
+  return (await agentStartPause()).paused;
+}
+
+async function agentStartPause(): Promise<JobStartPauseState> {
   try {
-    return (await readJobStartPause(providerDb.$client)).paused;
+    return await readJobStartPause(providerDb.$client);
   } catch {
-    return false;
+    return NOT_PAUSED;
   }
 }
 
@@ -486,12 +498,18 @@ export async function heartbeat(
   agent: AgentContext,
   input: HeartbeatInput,
   now: Date = new Date(),
-): Promise<{ tasks: AgentTask[]; startsPaused: boolean }> {
+): Promise<{
+  tasks: AgentTask[];
+  startsPaused: boolean;
+  cancel: AgentCancelOrders;
+  updateNow: boolean;
+}> {
   // While an update pauses new runs (#46) no backup request is handed out: it waits as a pending
   // task and goes out with the first heartbeat after the pause (like the tasks of a PVE node).
   // The answer says so, and an agent from 0.4.0 also holds back its scheduled backups.
-  const startsPaused = await agentStartsPaused();
-  return withTenantTx(db, agent.tenantId, async (tx) => {
+  const pause = await agentStartPause();
+  const startsPaused = pause.paused;
+  const answer = await withTenantTx(db, agent.tenantId, async (tx) => {
     const nextRunAt = input.nextRunAt ? new Date(input.nextRunAt) : null;
     const facts = agentFactsOf(input, now, agent.os);
     const [endpoint] = await tx
@@ -544,6 +562,8 @@ export async function heartbeat(
             and(
               eq(endpointTasks.status, "delivered"),
               lt(endpointTasks.deliveredAt, redeliverBefore),
+              // A delivered task with a cancel request is not handed out again.
+              isNull(endpointTasks.cancelRequestedAt),
               sql`NOT EXISTS (SELECT 1 FROM ${endpointRuns} r WHERE r.task_id = ${endpointTasks.id})`,
             ),
           ),
@@ -614,8 +634,44 @@ export async function heartbeat(
         details: { reason: "uninstalled" },
       });
     }
-    return { tasks, startsPaused };
+    // What the agent is to stop (agents from 0.4.2; an older one ignores the field).
+    const cancel = await agentCancelOrders(tx, agent.endpointId);
+    return { tasks, startsPaused, cancel, updateRequestedAt: endpoint.updateRequestedAt };
   });
+  const { updateRequestedAt, ...rest } = answer;
+  return { ...rest, updateNow: await agentUpdateNow(agent, input, updateRequestedAt, pause) };
+}
+
+/**
+ * "Update now" (0.4.2): an admin asked for it on the machine's page, or the server was just
+ * updated and its nodes and agents follow (features/updates/fleet.ts). The agent then looks for
+ * its update at once (`GET /agent/v1/update`, which still honours a paused tenant or machine)
+ * and installs it when idle. A request is cleared once the agent runs the announced version.
+ */
+async function agentUpdateNow(
+  agent: AgentContext,
+  input: HeartbeatInput,
+  requestedAt: Date | null,
+  pause: JobStartPauseState,
+): Promise<boolean> {
+  if (requestedAt === null && pause.phase !== "fleet") {
+    return false;
+  }
+  const announced = await announcedAgentVersion();
+  const current = input.agentVersion;
+  const behind =
+    isAgentVersion(current) &&
+    !current.includes("-dev") &&
+    compareAgentVersions(announced, current) > 0;
+  if (!behind && requestedAt !== null) {
+    await withTenantTx(db, agent.tenantId, (tx) =>
+      tx
+        .update(endpoints)
+        .set({ updateRequestedAt: null })
+        .where(eq(endpoints.id, agent.endpointId)),
+    );
+  }
+  return behind;
 }
 
 // ---------------------------------------------------------------------------
@@ -643,7 +699,7 @@ export async function startRun(
   input: StartRunInput,
   now: Date = new Date(),
 ): Promise<{ runId: string }> {
-  return withTenantTx(db, agent.tenantId, async (tx) => {
+  const started = await withTenantTx(db, agent.tenantId, async (tx) => {
     if (input.taskId) {
       const [task] = await tx
         .select()
@@ -662,6 +718,14 @@ export async function startRun(
       }
       if (task.status !== "pending" && task.status !== "delivered") {
         throw new ProblemError(409, "Task already finished");
+      }
+      // Withdrawn in the UI after the agent got it: it ends here, no run starts.
+      if (task.cancelRequestedAt) {
+        await tx
+          .update(endpointTasks)
+          .set({ status: "cancelled", finishedAt: now })
+          .where(eq(endpointTasks.id, task.id));
+        return null;
       }
       if (task.status === "pending") {
         await tx
@@ -688,6 +752,12 @@ export async function startRun(
     await startRunSamples(tx, agent, run.id, now);
     return { runId: run.id };
   });
+  if (!started) {
+    throw new ProblemError(409, "Task already finished", {
+      detail: "This backup was cancelled in Restow.",
+    });
+  }
+  return started;
 }
 
 export async function reportProgress(
@@ -808,11 +878,14 @@ export async function finishRun(
     }
     const finishedAt = agentTime(input.finishedAt, now);
     const errors = boundedErrors(input.errors);
-    const failure = failureRecordOf(input.status, errors, now);
+    // A run that failed after a stop was asked for in the UI was stopped as asked.
+    const cancelled = input.status === "failed" && run.cancelRequestedAt !== null;
+    const status: EndpointRun["status"] = cancelled ? "cancelled" : input.status;
+    const failure = cancelled ? null : failureRecordOf(input.status, errors, now);
     await tx
       .update(endpointRuns)
       .set({
-        status: input.status,
+        status,
         finishedAt: finishedAt.getTime() < run.startedAt.getTime() ? now : finishedAt,
         snapshotId: input.snapshotId ?? null,
         stats: statsWithActivity(input.stats, input.activity),
@@ -842,8 +915,9 @@ export async function finishRun(
       throw new ProblemError(404, "Endpoint not found");
     }
 
-    // An agent that was restarted mid-run picks the work up again: that is not an outcome.
-    const interrupted = input.status === "failed" && isInterruptedOnly(errors);
+    // An agent that was restarted mid-run picks the work up again: that is not an outcome, and
+    // neither is a run stopped on request.
+    const interrupted = cancelled || (input.status === "failed" && isInterruptedOnly(errors));
 
     if (run.kind === "backup") {
       const good = input.status !== "failed" && input.snapshotId !== undefined;
@@ -904,7 +978,7 @@ export async function finishRun(
       await tx
         .update(endpointTasks)
         .set({
-          status: input.status === "failed" ? "failed" : "done",
+          status: cancelled ? "cancelled" : input.status === "failed" ? "failed" : "done",
           finishedAt: now,
           errorMessage:
             input.status === "failed" ? (errors[0]?.message ?? "failed").slice(0, 500) : null,
@@ -940,7 +1014,7 @@ export async function finishRun(
         },
       });
     }
-    return { runId, status: input.status };
+    return { runId, status };
   });
 }
 

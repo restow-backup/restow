@@ -233,7 +233,8 @@
       "partial": "Mit Warnungen",
       "failed": "Fehlgeschlagen",
       "running": "Läuft",
-      "queued": "Wartet"
+      "queued": "Wartet",
+      "cancelled": "Abgebrochen"
     },
     "queued": {
       "waiting": "Wartet auf den Rechner (nächster Kontakt in etwa {count} Min.)",

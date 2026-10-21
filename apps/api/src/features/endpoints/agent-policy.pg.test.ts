@@ -481,7 +481,7 @@ describe.skipIf(!testDatabaseAdminUrl)("agent policies against Postgres", () => 
         now() + interval '1 hour', now() + interval '3 hours')`);
     expect(await agentGet(who)).toMatchObject({ startsPaused: true, configVersion: 3 });
     const held = await heartbeat({ ...who, configVersion: 3 });
-    expect(held).toEqual({ tasks: [], startsPaused: true });
+    expect(held).toMatchObject({ tasks: [], startsPaused: true, updateNow: false });
     await fixture.db.execute(sql`DELETE FROM job_start_pause`);
     const after = await heartbeat({ ...who, configVersion: 3 });
     expect(after.startsPaused).toBe(false);
