@@ -177,12 +177,59 @@ func RestartHelper(ctx context.Context, cmd CommandRunner, logf func(string, ...
 // InstallUpdate applies an update (SelfUpdate) and then makes the PVE daemons load the new
 // storage plugin (ReloadPVEDaemons): a self-update replaces the plugin files, but pvedaemon,
 // pveproxy, pvestatd and pvescheduler keep the old plugin loaded until they restart.
-func InstallUpdate(ctx context.Context, apply func(context.Context) error, cmd CommandRunner, logf func(string, ...any)) error {
+func InstallUpdate(ctx context.Context, l Layout, apply func(context.Context) error, cmd CommandRunner, logf func(string, ...any)) error {
 	if err := apply(ctx); err != nil {
 		return err
 	}
-	ReloadPVEDaemons(ctx, cmd, logf)
+	if failed := ReloadPVEDaemons(ctx, cmd, logf); len(failed) == 0 {
+		recordPluginLoaded(l)
+	}
 	return nil
+}
+
+// EnsurePluginLoaded restarts the PVE daemons once for plugin files they were not restarted
+// for yet: a node that an older restow-pve updated (before 0.4.3 a self-update left the daemons
+// on the old plugin) catches up by itself. The plugin files the daemons were last restarted for
+// are remembered by their hash (DataDir/plugin-loaded); nothing happens while they match, nor
+// while a backup or restore runs here (the next call tries again).
+func EnsurePluginLoaded(ctx context.Context, l Layout, cmd CommandRunner, logf func(string, ...any)) {
+	current, err := pluginFingerprint(l)
+	if err != nil {
+		return
+	}
+	if seen, err := os.ReadFile(pluginMarker(l)); err == nil && strings.TrimSpace(string(seen)) == current {
+		return
+	}
+	if busy(l) {
+		return
+	}
+	logf("the PVE daemons may still run an older storage plugin; restarting them once")
+	if failed := ReloadPVEDaemons(ctx, cmd, logf); len(failed) == 0 {
+		recordPluginLoaded(l)
+	}
+}
+
+func pluginMarker(l Layout) string { return filepath.Join(l.DataDir, "plugin-loaded") }
+
+// pluginFingerprint hashes the installed plugin files (names and contents).
+func pluginFingerprint(l Layout) (string, error) {
+	h := sha256.New()
+	for _, f := range PluginFiles {
+		data, err := os.ReadFile(PluginPath(l, f))
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(h, "%s %d\n", f, len(data))
+		h.Write(data)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func recordPluginLoaded(l Layout) {
+	if fp, err := pluginFingerprint(l); err == nil {
+		_ = os.MkdirAll(l.DataDir, 0o755)
+		_ = writeFileAtomic(pluginMarker(l), []byte(fp+"\n"), 0o644)
+	}
 }
 
 func unitActive(ctx context.Context, cmd CommandRunner, unit string) bool {

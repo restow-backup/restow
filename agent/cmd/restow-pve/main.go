@@ -329,7 +329,7 @@ func cmdRun(layout pve.Layout, stderr io.Writer) int {
 			return pve.SelfUpdate(ctx, layout, s.Server, buildinfo.Version, v)
 		}
 		// The PVE daemons are restarted as by the installer, so they load the new plugin.
-		if err := pve.InstallUpdate(ctx, apply, pve.ExecRunner{}, logger); err == nil {
+		if err := pve.InstallUpdate(ctx, layout, apply, pve.ExecRunner{}, logger); err == nil {
 			logger("updated to %s, restarting", v)
 			cancel()
 			os.Exit(0) // systemd restarts the unit with the new binary
@@ -343,6 +343,10 @@ func cmdRun(layout pve.Layout, stderr io.Writer) int {
 	go updateLoop(ctx, firstUpdateCheck, updateCheckInterval, func(ctx context.Context) {
 		if v, err := s.Server.UpdateOffer(ctx); err == nil && v != "" {
 			install(ctx, v)
+		}
+		// A node an older restow-pve updated still has the PVE daemons on the old plugin.
+		if !s.Busy() {
+			pve.EnsurePluginLoaded(ctx, layout, pve.ExecRunner{}, logger)
 		}
 	})
 	if err := s.Run(ctx); err != nil {
@@ -574,7 +578,7 @@ func cmdUpdate(layout pve.Layout, stdout, stderr io.Writer) int {
 	apply := func(ctx context.Context) error {
 		return pve.SelfUpdate(ctx, layout, s.Server, buildinfo.Version, v)
 	}
-	if err := pve.InstallUpdate(ctx, apply, pve.ExecRunner{}, logf); err != nil {
+	if err := pve.InstallUpdate(ctx, layout, apply, pve.ExecRunner{}, logf); err != nil {
 		fmt.Fprintln(stderr, "restow-pve:", err)
 		return 1
 	}

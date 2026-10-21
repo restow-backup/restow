@@ -59,7 +59,8 @@ func TestInstallUpdateRestartsThePVEDaemonsLikeTheInstaller(t *testing.T) {
 	}}
 	logs, logf := collectLogs()
 	applied := false
-	err := InstallUpdate(context.Background(), func(context.Context) error {
+	l := pluginLayout(t)
+	err := InstallUpdate(context.Background(), l, func(context.Context) error {
 		applied = true
 		return nil
 	}, stub, logf)
@@ -78,13 +79,19 @@ func TestInstallUpdateRestartsThePVEDaemonsLikeTheInstaller(t *testing.T) {
 	if !strings.Contains(strings.Join(*logs, "\n"), "restarted pvedaemon, it loads the new storage plugin") {
 		t.Fatalf("logs = %v", *logs)
 	}
+	// Remembered: the check after the next start leaves the daemons alone.
+	stub.calls = nil
+	EnsurePluginLoaded(context.Background(), l, stub, logf)
+	if got := stub.changes(); len(got) != 0 {
+		t.Fatalf("restarted again: %v", got)
+	}
 }
 
 func TestInstallUpdateTouchesNothingWhenTheUpdateFails(t *testing.T) {
 	stub := &systemdStub{active: map[string]bool{"pvedaemon": true}}
 	_, logf := collectLogs()
 	refused := errors.New("a backup or restore is running; the update waits")
-	err := InstallUpdate(context.Background(), func(context.Context) error { return refused }, stub, logf)
+	err := InstallUpdate(context.Background(), pluginLayout(t), func(context.Context) error { return refused }, stub, logf)
 	if !errors.Is(err, refused) {
 		t.Fatalf("err = %v", err)
 	}
@@ -153,5 +160,90 @@ func TestPVEDaemonsMatchTheInstaller(t *testing.T) {
 	want := "for unit in " + strings.Join(PVEDaemons, " ") + "; do"
 	if !strings.Contains(string(data), want) {
 		t.Fatalf("install/pve.sh does not restart %v (looked for %q)", PVEDaemons, want)
+	}
+}
+
+// pluginLayout is a node layout in a temporary folder with the plugin files installed.
+func pluginLayout(t *testing.T) Layout {
+	t.Helper()
+	root := t.TempDir()
+	l := Layout{
+		DataDir:     filepath.Join(root, "data"),
+		RunDir:      filepath.Join(root, "run"),
+		PluginDir:   filepath.Join(root, "plugin"),
+		ProviderDir: filepath.Join(root, "provider"),
+	}
+	for _, f := range PluginFiles {
+		writePlugin(t, l, f, "package "+f+"; 1;\n")
+	}
+	return l
+}
+
+func writePlugin(t *testing.T, l Layout, file, content string) {
+	t.Helper()
+	path := PluginPath(l, file)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A node an older restow-pve updated (before 0.4.3) has the PVE daemons on the old plugin: the
+// new release restarts them once by itself, and again only for other plugin files.
+func TestEnsurePluginLoadedRestartsTheDaemonsOncePerPlugin(t *testing.T) {
+	l := pluginLayout(t)
+	stub := &systemdStub{active: map[string]bool{"pvedaemon": true, "pveproxy": true}}
+	logs, logf := collectLogs()
+	ctx := context.Background()
+
+	EnsurePluginLoaded(ctx, l, stub, logf)
+	want := []string{"systemctl reload-or-restart pvedaemon", "systemctl reload-or-restart pveproxy"}
+	if got := stub.changes(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("first check: %v, want %v", got, want)
+	}
+	if !strings.Contains(strings.Join(*logs, "\n"), "restarting them once") {
+		t.Fatalf("logs = %v", *logs)
+	}
+	stub.calls = nil
+	EnsurePluginLoaded(ctx, l, stub, logf)
+	if got := stub.changes(); len(got) != 0 {
+		t.Fatalf("second check restarted: %v", got)
+	}
+
+	// Other plugin files (an update by an older restow-pve): once more.
+	writePlugin(t, l, "RestowPlugin.pm", "package RestowPlugin; our $VERSION = 2; 1;\n")
+	EnsurePluginLoaded(ctx, l, stub, logf)
+	if got := stub.changes(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("after a plugin change: %v, want %v", got, want)
+	}
+}
+
+func TestEnsurePluginLoadedWaitsWhileBusyAndRetriesAfterAFailure(t *testing.T) {
+	l := pluginLayout(t)
+	ctx := context.Background()
+	_, logf := collectLogs()
+	// A backup runs here: nothing is restarted, nothing remembered.
+	if err := os.MkdirAll(filepath.Join(l.RunDir, "jobs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	job := filepath.Join(l.RunDir, "jobs", "101.json")
+	if err := os.WriteFile(job, []byte(`{"runId":"r"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stub := &systemdStub{active: map[string]bool{"pvedaemon": true}}
+	EnsurePluginLoaded(ctx, l, stub, logf)
+	if got := stub.changes(); len(got) != 0 {
+		t.Fatalf("restarted while busy: %v", got)
+	}
+	_ = os.Remove(job)
+
+	// A restart that fails is tried again by the next check.
+	broken := &systemdStub{active: map[string]bool{"pvedaemon": true}, fail: map[string]bool{"pvedaemon": true}}
+	EnsurePluginLoaded(ctx, l, broken, logf)
+	EnsurePluginLoaded(ctx, l, broken, logf)
+	if got := broken.changes(); len(got) != 2 {
+		t.Fatalf("calls = %v, want two attempts", got)
 	}
 }
