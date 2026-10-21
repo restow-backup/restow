@@ -68,6 +68,12 @@ export interface PreflightOptions {
 export interface CheckOptions {
   /** Also read the Compose configuration again (see the comment at the top). */
   deep?: boolean;
+  /**
+   * Measure the database and the running images again for the space estimate (space.ts);
+   * default: as `deep`. Accepting an update reuses the measurements of the last ten minutes:
+   * the run's first step measures again before anything changes.
+   */
+  refreshSpace?: boolean;
 }
 
 export class Preflight {
@@ -84,14 +90,25 @@ export class Preflight {
     this.cached = null;
   }
 
-  async get(refresh = false): Promise<Capabilities> {
+  async get(
+    refresh = false,
+    options: Pick<CheckOptions, "refreshSpace"> = {},
+  ): Promise<Capabilities> {
     const now = this.options.clock.now().getTime();
     if (!refresh && this.cached && now - this.cached.at < PREFLIGHT_TTL_MS) {
       return this.cached.value;
     }
-    const value = await this.check({ deep: refresh });
+    const value = await this.check({ deep: refresh, ...options });
     this.cached = { at: this.options.clock.now().getTime(), value };
     return value;
+  }
+
+  /**
+   * Keep a result just computed as the cached one (after an update was accepted: the answer
+   * reuses the check made for it instead of checking everything again).
+   */
+  retain(value: Capabilities): void {
+    this.cached = { at: this.options.clock.now().getTime(), value };
   }
 
   /** Compute the capabilities now. */
@@ -143,7 +160,9 @@ export class Preflight {
     let updateSpace: UpdateSpace | null = null;
     if (this.options.space) {
       // The dump, the new images and the migrations must fit (space.ts), not just a fixed minimum.
-      updateSpace = await this.options.space.estimate(options.deep === true).catch(() => null);
+      updateSpace = await this.options.space
+        .estimate(options.refreshSpace ?? options.deep === true)
+        .catch(() => null);
     }
     if (updateSpace) {
       if (!updateSpace.enough) {

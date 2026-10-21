@@ -1,6 +1,12 @@
 import * as fs from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PREFLIGHT_TTL_MS, UPDATER_IMAGE_PROBE, updaterImageFollowsProbe } from "./preflight.js";
+import type { UpdateSpace } from "./database-protocol.js";
+import {
+  PREFLIGHT_TTL_MS,
+  Preflight,
+  UPDATER_IMAGE_PROBE,
+  updaterImageFollowsProbe,
+} from "./preflight.js";
 import { createHarness, type Harness, scheduleRequest, settle } from "./testing.js";
 
 let h: Harness;
@@ -168,5 +174,55 @@ describe("Preflight", () => {
     const capabilities = await h.preflight.check();
     expect(capabilities.dumps).toHaveLength(1);
     expect(capabilities.dumps[0]?.file).toMatch(/^restow-\d{8}-\d{6}-0\.1\.0-to-0\.2\.0\.dump$/);
+  });
+
+  it("measures the space again on a deep check, unless told to reuse the measurements", async () => {
+    const refreshes: boolean[] = [];
+    const space: UpdateSpace = {
+      dumpBytes: 0,
+      dumpBasis: "none",
+      imageBytes: 0,
+      migrationBytes: 0,
+      marginBytes: 0,
+      stateFreeBytes: 1,
+      stateRequiredBytes: 0,
+      databaseFreeBytes: null,
+      databaseRequiredBytes: 0,
+      sameFilesystem: null,
+      enough: true,
+    };
+    const preflight = new Preflight({
+      ops: h.ops,
+      envFile: h.envFile,
+      dumps: h.dumps,
+      clock: h.clock,
+      redactor: h.redactor,
+      projectDir: h.projectDir,
+      stateDir: h.stateDir,
+      minFreeMb: 1024,
+      imageRepository: "ghcr.io/restow-backup/restow",
+      webImageRepository: "ghcr.io/restow-backup/restow-web",
+      space: {
+        estimate: async (refresh: boolean) => {
+          refreshes.push(refresh);
+          return space;
+        },
+      },
+    });
+    await preflight.get(true);
+    await preflight.get(true, { refreshSpace: false });
+    await preflight.check();
+    expect(refreshes).toEqual([true, false, false]);
+  });
+
+  it("keeps a result it is handed, until it is invalidated", async () => {
+    const first = await h.preflight.get(true);
+    h.ops.composeFile = null;
+    h.preflight.retain(first);
+    expect(await h.preflight.get()).toBe(first);
+    h.preflight.invalidate();
+    expect((await h.preflight.get()).blockers.map((blocker) => blocker.code)).toEqual([
+      "compose_missing",
+    ]);
   });
 });
