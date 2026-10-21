@@ -83,6 +83,13 @@ export interface CancelBackupButtonProps {
   cancelledBy?: string | null;
   size?: "sm" | "default";
   variant?: "outline" | "ghost";
+  /**
+   * The button of a table row (VMs & containers): the short label ("Stop", "Withdraw"), and
+   * while the stop is pending a disabled button with a spinner instead of the badge, all with
+   * `className` (a fixed width), so the row keeps its size whatever the guest does.
+   */
+  compact?: boolean;
+  className?: string;
 }
 
 /** Stop the guest's running backup, or withdraw its queued one, after a question. */
@@ -94,6 +101,8 @@ export function CancelBackupButton({
   cancelledBy,
   size = "sm",
   variant = "outline",
+  compact = false,
+  className,
 }: CancelBackupButtonProps) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const { t: tc } = useTranslation();
@@ -109,21 +118,43 @@ export function CancelBackupButton({
     onError: refresh,
   });
   if (cancelling) {
-    return <CancellingBadge by={cancelledBy} />;
+    return compact ? (
+      <Button
+        type="button"
+        size={size}
+        variant={variant}
+        loading
+        className={className}
+        title={cancelledBy ? t("cancel.requestedBy", { name: cancelledBy }) : undefined}
+        data-slot="pve-cancelling"
+      >
+        <span className="min-w-0 truncate">{t("guests.action.cancelling")}</span>
+      </Button>
+    ) : (
+      <CancellingBadge by={cancelledBy} />
+    );
   }
   const running = activity === "running";
+  const label = compact
+    ? running
+      ? t("guests.action.stop")
+      : t("guests.action.withdraw")
+    : running
+      ? t("cancel.stop")
+      : t("cancel.withdraw");
   return (
     <>
       <Button
         type="button"
         size={size}
         variant={variant}
+        className={className}
         onClick={() => setOpen(true)}
         aria-label={running ? t("cancel.stopOf", { name }) : t("cancel.withdrawOf", { name })}
         data-slot="pve-cancel-backup"
       >
         <Ban aria-hidden="true" />
-        {running ? t("cancel.stop") : t("cancel.withdraw")}
+        <span className="min-w-0 truncate">{label}</span>
       </Button>
       <ConfirmDialog
         open={open}
@@ -150,18 +181,7 @@ export function CancelQueuedButton({
   count: number;
 }) {
   const { t } = useTranslation(PVE_NAMESPACE);
-  const { t: tc } = useTranslation();
-  const refresh = useRefresh();
-  const done = useCancelToast();
   const [open, setOpen] = React.useState(false);
-  const cancel = useMutation({
-    mutationFn: () => cancelQueuedBackups(node?.id ?? null),
-    onSuccess: (result) => {
-      done(result);
-      refresh();
-    },
-    onError: refresh,
-  });
   if (count <= 0) {
     return null;
   }
@@ -177,34 +197,62 @@ export function CancelQueuedButton({
         <Ban aria-hidden="true" />
         {t("cancel.allQueued", { count })}
       </Button>
-      <ConfirmDialog
-        open={open}
-        onOpenChange={setOpen}
-        title={
-          node
-            ? t("cancel.allQueuedNodeTitle", { count, node: node.name })
-            : t("cancel.allQueuedTitle", { count })
-        }
-        description={t("cancel.allQueuedBody")}
-        confirmLabel={t("cancel.withdrawConfirm")}
-        cancelLabel={t("cancel.keep")}
-        destructive
-        pending={cancel.isPending}
-        error={cancel.error ? tc(errorMessageKey(cancel.error)) : undefined}
-        onConfirm={() => cancel.mutateAsync().then(() => setOpen(false))}
-      />
+      <CancelQueuedDialog node={node} count={count} open={open} onOpenChange={setOpen} />
     </>
   );
 }
 
-/** Pause or resume a node's queue: while paused, no backup starts on the node. */
-export function NodeQueueButton({ node }: { node: PveNode }) {
+/** The question of "Cancel all queued", for a button or a menu entry that opens it. */
+export function CancelQueuedDialog({
+  node,
+  count,
+  open,
+  onOpenChange: setOpen,
+}: {
+  node: Pick<PveNode, "id" | "name"> | null;
+  count: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const { t: tc } = useTranslation();
   const refresh = useRefresh();
-  const [open, setOpen] = React.useState(false);
+  const done = useCancelToast();
+  const cancel = useMutation({
+    mutationFn: () => cancelQueuedBackups(node?.id ?? null),
+    onSuccess: (result) => {
+      done(result);
+      refresh();
+    },
+    onError: refresh,
+  });
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={setOpen}
+      title={
+        node
+          ? t("cancel.allQueuedNodeTitle", { count, node: node.name })
+          : t("cancel.allQueuedTitle", { count })
+      }
+      description={t("cancel.allQueuedBody")}
+      confirmLabel={t("cancel.withdrawConfirm")}
+      cancelLabel={t("cancel.keep")}
+      destructive
+      pending={cancel.isPending}
+      error={cancel.error ? tc(errorMessageKey(cancel.error)) : undefined}
+      onConfirm={() => cancel.mutateAsync().then(() => setOpen(false))}
+    />
+  );
+}
+
+/** Pause or resume a node's queue (the mutation, with its toast). */
+export function useNodeQueueChange(node: Pick<PveNode, "id" | "name" | "queuePausedAt">) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const { t: tc } = useTranslation();
+  const refresh = useRefresh();
   const paused = Boolean(node.queuePausedAt);
-  const change = useMutation({
+  return useMutation({
     mutationFn: () => setNodeQueuePaused(node.id, !paused),
     onSuccess: () => {
       toast.success(
@@ -217,6 +265,39 @@ export function NodeQueueButton({ node }: { node: PveNode }) {
       refresh();
     },
   });
+}
+
+/** The question before a node's queue is paused, for a button or a menu entry that opens it. */
+export function PauseQueueDialog({
+  node,
+  open,
+  onOpenChange,
+}: {
+  node: PveNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const change = useNodeQueueChange(node);
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t("queue.pauseTitle", { node: node.name })}
+      description={t("queue.pauseBody")}
+      confirmLabel={t("queue.pause")}
+      pending={change.isPending}
+      onConfirm={() => change.mutateAsync().then(() => onOpenChange(false))}
+    />
+  );
+}
+
+/** Pause or resume a node's queue: while paused, no backup starts on the node. */
+export function NodeQueueButton({ node }: { node: PveNode }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const [open, setOpen] = React.useState(false);
+  const paused = Boolean(node.queuePausedAt);
+  const change = useNodeQueueChange(node);
   if (node.queuePausedAt === undefined) {
     // A server before 0.4.2 has no queue control.
     return null;
@@ -248,15 +329,7 @@ export function NodeQueueButton({ node }: { node: PveNode }) {
         <Pause aria-hidden="true" />
         {t("queue.pause")}
       </Button>
-      <ConfirmDialog
-        open={open}
-        onOpenChange={setOpen}
-        title={t("queue.pauseTitle", { node: node.name })}
-        description={t("queue.pauseBody")}
-        confirmLabel={t("queue.pause")}
-        pending={change.isPending}
-        onConfirm={() => change.mutateAsync().then(() => setOpen(false))}
-      />
+      <PauseQueueDialog node={node} open={open} onOpenChange={setOpen} />
     </>
   );
 }

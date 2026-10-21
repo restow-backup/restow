@@ -1,4 +1,4 @@
-import { createRoute, useParams } from "@tanstack/react-router";
+import { createRoute, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { Container } from "lucide-react";
 
 import { RequireRole } from "@/components/require-role";
@@ -6,6 +6,7 @@ import type { NavItem } from "@/lib/navigation";
 import { appLayoutRoute } from "@/routes/tree";
 
 import { PveGuestPage } from "./guest-page.js";
+import { type PveSearch, parsePveSearch } from "./guests-search.js";
 import "./i18n.js";
 import { PVE_GUEST_PATTERN, PVE_PATH, PVE_ROLES } from "./paths.js";
 import { PvePage } from "./pve-page.js";
@@ -20,10 +21,21 @@ import { PvePage } from "./pve-page.js";
 
 export { PVE_ROLES };
 
+/** The page behind the role gate; tab, filters, order, page and open guest come from the address. */
 function PveRoute() {
+  const raw = useSearch({ strict: false }) as Record<string, unknown>;
+  const navigate = useNavigate();
+  const search = parsePveSearch(raw);
+  const change = (next: PveSearch) => {
+    void navigate({
+      to: PVE_PATH as never,
+      search: parsePveSearch({ ...next }) as never,
+      replace: true,
+    });
+  };
   return (
     <RequireRole roles={PVE_ROLES}>
-      <PvePage />
+      <PvePage search={search} onSearchChange={change} />
     </RequireRole>
   );
 }
@@ -43,6 +55,7 @@ function PveGuestRoute() {
 export const pveRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: PVE_PATH,
+  validateSearch: (search: Record<string, unknown>) => parsePveSearch(search),
   component: PveRoute,
 });
 

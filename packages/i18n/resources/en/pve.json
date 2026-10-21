@@ -50,8 +50,12 @@
     "hostFiles": {
       "title": "The Proxmox host itself is not backed up here",
       "body": "restow-pve backs up the VMs and containers of a node, not the node. For the host's own files, such as /etc/pve and the network and storage configuration, install the {appName} agent on the host and put it into a server job.",
-      "install": "Add the host as a server"
-    }
+      "install": "Add the host as a server",
+      "short": "Back up the host's own files with the {appName} agent on the host.",
+      "dismiss": "Hide this note"
+    },
+    "guests": "Guests",
+    "noProblems": "None"
   },
   "problems": {
     "pve.plugin_not_loaded": "Storage plugin not installed",
@@ -115,7 +119,58 @@
     "nodeOffline": "Node {node} is disconnected (last report: {time}). It starts the backup only once it reports again.",
     "succeededWithWarnings": "Succeeded with warnings",
     "verifyFailed": "Restore check failed",
-    "verifyFailedHint": "The restore check of the newest restore point failed."
+    "verifyFailedHint": "The restore check of the newest restore point failed.",
+    "status": {
+      "cancelling": "Stopping…",
+      "running": "Backing up",
+      "waiting_offline": "Waiting, node not ready",
+      "waiting": "Waiting for the node",
+      "failed": "Last run failed",
+      "verify_failed": "Restore check failed",
+      "verify_postponed": "Restore check postponed",
+      "incomplete": "Incomplete backup",
+      "warnings": "Succeeded with warnings",
+      "restow_server": "{appName} server",
+      "no_job": "No backup job",
+      "never": "Not backed up yet",
+      "cancelled": "Cancelled",
+      "template": "Template",
+      "absent": "No longer reported",
+      "verified": "Restore check passed",
+      "succeeded": "Backed up",
+      "unknown": "No state yet"
+    },
+    "action": {
+      "stop": "Stop",
+      "withdraw": "Withdraw",
+      "cancelling": "Stopping…"
+    },
+    "filter": {
+      "search": "Search ID or name",
+      "allNodes": "All nodes",
+      "allKinds": "VMs and containers",
+      "vms": "VMs only",
+      "cts": "Containers only",
+      "allJobs": "All backup jobs",
+      "allStates": "All states",
+      "problemsOnly": "Problems only ({count})",
+      "count": "{count, plural, one {# guest} other {# guests}}",
+      "countFiltered": "{count, plural, one {# guest} other {# guests}} of {total}",
+      "state": {
+        "problems": "Problems",
+        "failed": "Failed",
+        "warnings": "Warnings or gaps",
+        "verify": "Restore check failed or postponed",
+        "waiting": "Waiting",
+        "running": "Running",
+        "no_backup": "Not backed up",
+        "ok": "Backed up"
+      }
+    },
+    "backupLine": {
+      "first": "First: {size} on {date}",
+      "last": "Last: +{size}"
+    }
   },
   "jobs": {
     "title": "Backup jobs",
@@ -155,7 +210,11 @@
     "guestInJob": "In {job}",
     "guestMoves": "Moves from {job}",
     "schedule": "Schedule",
-    "manualOnly": "By hand only"
+    "manualOnly": "By hand only",
+    "guestCount": "Guests",
+    "round": "Current round",
+    "roundIdle": "Not running",
+    "roundProgress": "{done} of {total} done{failed, plural, =0 {} other {, # failed}}"
   },
   "guest": {
     "back": "Back to VMs & containers",
@@ -426,7 +485,8 @@
     "resumed": "Queue of {node} resumed",
     "pausedBadge": "Queue paused",
     "pausedBy": "Paused by {name}",
-    "waiting": "{count} waiting"
+    "waiting": "{count} waiting",
+    "empty": "Empty"
   },
   "update": {
     "now": "Update to {version}",
@@ -434,5 +494,40 @@
     "pending": "Updating to {version}…",
     "requested": "{node} updates as soon as it is idle",
     "requestedNote": "The node installs the signed release with its next contact once no backup or restore runs there. Proxmox VE itself is not updated."
+  },
+  "tabs": {
+    "guests": "Guests",
+    "jobs": "Backup jobs",
+    "nodes": "Nodes",
+    "problems": "{count, plural, one {# guest needs attention} other {# guests need attention}}",
+    "nodeProblems": "{count, plural, one {# node needs attention} other {# nodes need attention}}"
+  },
+  "sheet": {
+    "title": "Guest",
+    "loading": "Loading…",
+    "notFound": "This guest is no longer listed.",
+    "close": "Close",
+    "openFor": "Details of {name}",
+    "state": "State",
+    "openPage": "Open guest page",
+    "lastError": "Error of the last run",
+    "warnings": "Warnings of the last run",
+    "copyError": "Copy error",
+    "copyWarnings": "Copy warnings",
+    "copyCheck": "Copy check result",
+    "restoreCheck": "Restore check",
+    "result": "Result",
+    "checkedAt": "Checked",
+    "next": "Next",
+    "verifyPostponed": "The restore check of the newest restore point could not run yet; it is tried again.",
+    "backup": "Backup",
+    "contains": "Newest restore point",
+    "first": "First backup",
+    "followUp": "Follow-up backups",
+    "gaps": "Gaps",
+    "runs": "Recent runs",
+    "addedChart": "New data per backup",
+    "addedBar": "{date}: +{size}",
+    "addedFirst": "{date}: {size} (first backup)"
   }
 }
