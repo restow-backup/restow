@@ -9,8 +9,10 @@
 #   systemctl enable --now restow-demo-reset.timer
 #
 # The reset never builds: load the images from deploy/demo/build-images.sh
-# first (deploy/demo/README.md, "Images"); a missing image makes the reset
-# stop before it tears anything down.
+# first (deploy/demo/README.md, "Images"), or set RESTOW_DEMO_FOLLOW in
+# deploy/demo/.env and every run pulls the newest release of that channel
+# itself ("Following the releases"); a missing image, a failed pull or a mix
+# of releases makes the reset stop before it tears anything down.
 #
 # Run it once by hand to check it works before relying on the timer:
 #   systemctl start restow-demo-reset.service

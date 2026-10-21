@@ -10,7 +10,7 @@ key, stays on the maintainer's machine: the release waits until it is used there
 
 | Workflow | Runs on | What it does |
 | --- | --- | --- |
-| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename) and the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the four targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64; passes with a notice on a commit that has no `agent/`), shellcheck for every `*.sh` and the tests of the server install script (`deploy/install/test.sh`, see "Server install script"), actionlint for the workflows. The job **CI passed** is the one to require in branch protection. |
+| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename) and the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the four targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64; passes with a notice on a commit that has no `agent/`), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows. The job **CI passed** is the one to require in branch protection. |
 | `release.yml` | a tag `v*` | see "Releasing" |
 | `smoke.yml` | nightly on `main`, and on demand | builds the images of both builds from the checkout and runs every smoke check, once per build; nothing is published |
 | `contributor-checks.yml` | pull requests | CLA and DCO sign-off; the DCO job skips Dependabot's pull requests (its commits carry no sign-off; the CLA job allowlists it for the same reason) |
@@ -219,13 +219,19 @@ image).
      `restow-restore`) and `ghcr.io/<owner>/restow-web` (Caddy edge and web interface)
      of the full build, `ghcr.io/<owner>/restow-community` and
      `ghcr.io/<owner>/restow-web-community` of the Community build ("Two build
-     targets"), pushed **by digest and untagged**.
+     targets"), and the two images of the public demo, `ghcr.io/<owner>/restow-demo-seed`
+     (target `demo-seed`) and `ghcr.io/<owner>/restow-demo-dovecot`
+     (`deploy/demo/dovecot`), which the demo host pulls in follow mode
+     (`deploy/demo/README.md`, "Following the releases"); all pushed **by digest and
+     untagged**. The demo images are no part of an installation and not smoke-tested;
+     the demo's reset checks that all four images it runs carry the same release version.
    - **release-smoke** (amd64 and arm64, full and Community): the smoke checks against
      exactly those digests, `--variant community` for the Community images. It gates
      the release: nothing below runs unless all four runs pass.
    - **publish**: checks the agent signature on the draft once more, then the tags (one
-     multi-arch manifest per image), the cosign signatures of all four images, an SBOM
-     per image and architecture, and publishes the draft release.
+     multi-arch manifest per image, the demo images with the same tags), the cosign
+     signatures of all six images, an SBOM per image and architecture, and publishes the
+     draft release.
 4. Docker tags (`scripts/ci/release-lib.mjs`): `0.x.y` gets
    `:<version>` and `:beta`; from 1.0.0 a stable release gets `:<version>`, `:MAJOR.MINOR`,
    `:MAJOR` and `:latest`; a pre-release (`-rc.N`) gets only `:<version>`. A 0.x release is
@@ -235,7 +241,8 @@ image).
    section completed from the full build's smoke report and a line with the verdicts of
    the Community runs; then the four images, their four digest lines
    `restow:`, `restow-web:`, `restow-community:`, `restow-web-community:`, which the
-   update check and the opt-in updater read, and the cosign commands), and these files:
+   update check and the opt-in updater read, the cosign commands, and a line naming the two
+   demo images), and these files:
    `smoke-report.md` (amd64) and `smoke-report-arm64.md`, `smoke-report-community.md`
    and `smoke-report-community-arm64.md`, `SHA256SUMS` (every file the publish job attaches;
    `agent-SHA256SUMS` and its signature are on the draft already and not listed) with
@@ -244,7 +251,8 @@ image).
    license notices `restow-agent-THIRD_PARTY_NOTICES.txt`,
    `agent-SHA256SUMS` with the maintainer's signature `agent-SHA256SUMS.sig`, the SBOMs
    (`<image>-<version>-linux-<arch>.spdx.json` for `restow`, `restow-web`,
-   `restow-community` and `restow-web-community`, SPDX, also attached to the images as
+   `restow-community`, `restow-web-community`, `restow-demo-seed` and
+   `restow-demo-dovecot`, SPDX, also attached to the images as
    cosign attestations), `docker-compose.yml` and `env.example` of the release stack
    (`deploy/release/`), and the server install script `install.sh`
    (`deploy/install/install.sh`) with `install.sh.sha256`.
@@ -295,7 +303,8 @@ any other).
   optional: see "Repository variables" below.
 
 - **Package visibility.** After the first release run, open the packages `restow`,
-  `restow-web`, `restow-community` and `restow-web-community` (your profile or
+  `restow-web`, `restow-community` and `restow-web-community` (and, after the first
+  release that publishes them, `restow-demo-seed` and `restow-demo-dovecot`) (your profile or
   organisation > Packages) and set the visibility to **public**, so operators can pull
   without a login. New packages start private.
   Link them to the repository so the workflow's `GITHUB_TOKEN` keeps write access.

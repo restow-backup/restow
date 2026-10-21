@@ -10,17 +10,19 @@ name: Release
 #                    until the maintainer signed agent-SHA256SUMS offline with
 #                    scripts/release/sign-agent.sh; checks the signature
 #                    against agent/release-signing.pub)
-#          -> build (all four images, amd64 and arm64, each on a native runner,
+#          -> build (all six images, amd64 and arm64, each on a native runner,
 #                    with the signed agent, pushed by digest and NOT tagged):
 #                    the full build (restow, restow-web: the core plus the
 #                    Business and Service Provider modules) and the Community
 #                    build (restow-community, restow-web-community: the
-#                    Apache-2.0 core without ee/), docs/CI.md "Two build targets"
+#                    Apache-2.0 core without ee/), docs/CI.md "Two build targets";
+#                    and the two images of the public demo (restow-demo-seed,
+#                    restow-demo-dovecot: deploy/demo, which follows the releases)
 #          -> release-smoke (the smoke checks against those digests, for both
 #                    builds on both architectures; it gates the release)
 #          -> publish (only when CI and the smoke passed: checks the agent
-#                    signature once more, tags, cosign signatures, SBOMs, and
-#                    publishes the draft release)
+#                    signature once more, tags all six images, cosign signatures,
+#                    SBOMs, and publishes the draft release)
 #
 # Nothing is tagged in the registry and no release is public until the smoke
 # has passed: a failed run leaves only untagged digests and a draft behind.
@@ -30,8 +32,9 @@ name: Release
 # pinned to a full commit SHA with its version in a comment.
 #
 # Repository settings this workflow relies on (docs/CI.md): the package
-# visibility of ghcr.io/<owner>/restow, restow-web, restow-community and
-# restow-web-community is set to public after the first push, the arm64 hosted runner (ubuntu-24.04-arm) is available, and
+# visibility of ghcr.io/<owner>/restow, restow-web, restow-community,
+# restow-web-community, restow-demo-seed and restow-demo-dovecot is set to public after
+# the first push, the arm64 hosted runner (ubuntu-24.04-arm) is available, and
 # the environment agent-release-signing exists with the maintainer as required
 # reviewer (without it the signature job fails until the signature is there,
 # and scripts/release/sign-agent.sh re-runs it). The optional repository variable
@@ -66,6 +69,8 @@ jobs:
       web_image: ${{ steps.names.outputs.web_image }}
       community_image: ${{ steps.names.outputs.community_image }}
       community_web_image: ${{ steps.names.outputs.community_web_image }}
+      demo_seed_image: ${{ steps.names.outputs.demo_seed_image }}
+      demo_dovecot_image: ${{ steps.names.outputs.demo_dovecot_image }}
       previous_version: ${{ steps.previous.outputs.version }}
       created: ${{ steps.names.outputs.created }}
     steps:
@@ -189,7 +194,8 @@ jobs:
         id: names
         # The full build keeps the names existing installations, the updater's defaults
         # and the documentation use; the Community build carries the suffix -community
-        # (docs/CI.md, "Two build targets").
+        # (docs/CI.md, "Two build targets"). The public demo's own two images carry the
+        # prefix -demo (deploy/demo/README.md, "Following the releases").
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
           {
@@ -197,6 +203,8 @@ jobs:
             echo "web_image=$image-web"
             echo "community_image=$image-community"
             echo "community_web_image=$image-web-community"
+            echo "demo_seed_image=$image-demo-seed"
+            echo "demo_dovecot_image=$image-demo-dovecot"
             echo "created=$(git log -1 --format=%cI "$GITHUB_SHA")"
           } >> "$GITHUB_OUTPUT"
 
@@ -433,22 +441,69 @@ jobs:
           cache-from: type=gha,scope=release-${{ matrix.arch }}
           cache-to: type=gha,scope=release-${{ matrix.arch }},mode=max
 
+      # The public demo's own images (deploy/demo/README.md, "Following the releases"):
+      # the seed (Dockerfile target demo-seed: the full build's workspace plus the
+      # signed release's restic) and its Dovecot. The demo host pulls them with the
+      # application images of the same release; they are no part of an installation.
+      # Their cache goes to a scope of its own, so it never replaces the application
+      # images' cache (the seed still reads that one for the shared stages).
+      - name: Build and push the demo seed image by digest
+        id: demo_seed
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: demo-seed
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            RESTOW_VERSION=${{ needs.verify.outputs.version }}
+            RESTOW_REVISION=${{ github.sha }}
+            RESTOW_CREATED=${{ needs.verify.outputs.created }}
+          outputs: type=image,name=${{ needs.verify.outputs.demo_seed_image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: |
+            type=gha,scope=release-${{ matrix.arch }}
+            type=gha,scope=release-demo-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-demo-${{ matrix.arch }},mode=max
+
+      - name: Build and push the demo Dovecot image by digest
+        id: demo_dovecot
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: deploy/demo/dovecot
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            RESTOW_VERSION=${{ needs.verify.outputs.version }}
+            RESTOW_REVISION=${{ github.sha }}
+            RESTOW_CREATED=${{ needs.verify.outputs.created }}
+          outputs: type=image,name=${{ needs.verify.outputs.demo_dovecot_image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=release-demo-dovecot-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-demo-dovecot-${{ matrix.arch }},mode=max
+
       - name: Record the digests
         env:
           APP_DIGEST: ${{ steps.app.outputs.digest }}
           WEB_DIGEST: ${{ steps.web.outputs.digest }}
           COMMUNITY_APP_DIGEST: ${{ steps.community_app.outputs.digest }}
           COMMUNITY_WEB_DIGEST: ${{ steps.community_web.outputs.digest }}
+          DEMO_SEED_DIGEST: ${{ steps.demo_seed.outputs.digest }}
+          DEMO_DOVECOT_DIGEST: ${{ steps.demo_dovecot.outputs.digest }}
         run: |
           mkdir -p digests
           printf '%s' "$APP_DIGEST" > "digests/app-${{ matrix.arch }}"
           printf '%s' "$WEB_DIGEST" > "digests/web-${{ matrix.arch }}"
           printf '%s' "$COMMUNITY_APP_DIGEST" > "digests/community-app-${{ matrix.arch }}"
           printf '%s' "$COMMUNITY_WEB_DIGEST" > "digests/community-web-${{ matrix.arch }}"
+          printf '%s' "$DEMO_SEED_DIGEST" > "digests/demo-seed-${{ matrix.arch }}"
+          printf '%s' "$DEMO_DOVECOT_DIGEST" > "digests/demo-dovecot-${{ matrix.arch }}"
           echo "app            ${{ matrix.arch }}: $APP_DIGEST"
           echo "web            ${{ matrix.arch }}: $WEB_DIGEST"
           echo "community app  ${{ matrix.arch }}: $COMMUNITY_APP_DIGEST"
           echo "community web  ${{ matrix.arch }}: $COMMUNITY_WEB_DIGEST"
+          echo "demo seed      ${{ matrix.arch }}: $DEMO_SEED_DIGEST"
+          echo "demo dovecot   ${{ matrix.arch }}: $DEMO_DOVECOT_DIGEST"
 
       - name: Upload the digests
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -584,6 +639,8 @@ jobs:
       WEB_IMAGE: ${{ needs.verify.outputs.web_image }}
       COMMUNITY_IMAGE: ${{ needs.verify.outputs.community_image }}
       COMMUNITY_WEB_IMAGE: ${{ needs.verify.outputs.community_web_image }}
+      DEMO_SEED_IMAGE: ${{ needs.verify.outputs.demo_seed_image }}
+      DEMO_DOVECOT_IMAGE: ${{ needs.verify.outputs.demo_dovecot_image }}
       VERSION: ${{ needs.verify.outputs.version }}
       TAGS: ${{ needs.verify.outputs.tags }}
     steps:
@@ -642,6 +699,8 @@ jobs:
           web $WEB_IMAGE web
           community_app $COMMUNITY_IMAGE community-app
           community_web $COMMUNITY_WEB_IMAGE community-web
+          demo_seed $DEMO_SEED_IMAGE demo-seed
+          demo_dovecot $DEMO_DOVECOT_IMAGE demo-dovecot
           EOF
 
       - name: Install cosign
@@ -649,18 +708,22 @@ jobs:
         with:
           cosign-release: v3.1.3
 
-      - name: Sign all four images (keyless, GitHub OIDC)
+      - name: Sign all six images (keyless, GitHub OIDC)
         env:
           APP_INDEX: ${{ steps.tag.outputs.app_index }}
           WEB_INDEX: ${{ steps.tag.outputs.web_index }}
           COMMUNITY_APP_INDEX: ${{ steps.tag.outputs.community_app_index }}
           COMMUNITY_WEB_INDEX: ${{ steps.tag.outputs.community_web_index }}
+          DEMO_SEED_INDEX: ${{ steps.tag.outputs.demo_seed_index }}
+          DEMO_DOVECOT_INDEX: ${{ steps.tag.outputs.demo_dovecot_index }}
         run: |
           set -euo pipefail
           cosign sign --yes "$IMAGE@$APP_INDEX"
           cosign sign --yes "$WEB_IMAGE@$WEB_INDEX"
           cosign sign --yes "$COMMUNITY_IMAGE@$COMMUNITY_APP_INDEX"
           cosign sign --yes "$COMMUNITY_WEB_IMAGE@$COMMUNITY_WEB_INDEX"
+          cosign sign --yes "$DEMO_SEED_IMAGE@$DEMO_SEED_INDEX"
+          cosign sign --yes "$DEMO_DOVECOT_IMAGE@$DEMO_DOVECOT_INDEX"
 
       - name: Install syft
         uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
@@ -675,6 +738,10 @@ jobs:
           COMMUNITY_APP_ARM64: ${{ steps.tag.outputs.community_app_arm64 }}
           COMMUNITY_WEB_AMD64: ${{ steps.tag.outputs.community_web_amd64 }}
           COMMUNITY_WEB_ARM64: ${{ steps.tag.outputs.community_web_arm64 }}
+          DEMO_SEED_AMD64: ${{ steps.tag.outputs.demo_seed_amd64 }}
+          DEMO_SEED_ARM64: ${{ steps.tag.outputs.demo_seed_arm64 }}
+          DEMO_DOVECOT_AMD64: ${{ steps.tag.outputs.demo_dovecot_amd64 }}
+          DEMO_DOVECOT_ARM64: ${{ steps.tag.outputs.demo_dovecot_arm64 }}
         run: |
           set -euo pipefail
           mkdir -p assets
@@ -691,6 +758,10 @@ jobs:
           restow-community-$VERSION-linux-arm64 $COMMUNITY_APP_ARM64
           restow-web-community-$VERSION-linux-amd64 $COMMUNITY_WEB_AMD64
           restow-web-community-$VERSION-linux-arm64 $COMMUNITY_WEB_ARM64
+          restow-demo-seed-$VERSION-linux-amd64 $DEMO_SEED_AMD64
+          restow-demo-seed-$VERSION-linux-arm64 $DEMO_SEED_ARM64
+          restow-demo-dovecot-$VERSION-linux-amd64 $DEMO_DOVECOT_AMD64
+          restow-demo-dovecot-$VERSION-linux-arm64 $DEMO_DOVECOT_ARM64
           EOF
 
       - name: The agent binaries (taken from the image that was smoke-tested)
@@ -766,6 +837,8 @@ jobs:
               echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
             done
             echo "\`\`\`"
+            echo
+            echo "The public demo's own images, \`$DEMO_SEED_IMAGE:$VERSION\` and \`$DEMO_DOVECOT_IMAGE:$VERSION\` (deploy/demo), carry the same tags, signatures and SBOMs; they are no part of an installation."
             echo
             echo "docker-compose.yml and env.example are the release stack (deploy/release/); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
           } >> notes.md

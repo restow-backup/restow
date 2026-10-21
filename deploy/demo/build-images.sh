@@ -33,7 +33,8 @@
 # Other settings (environment):
 #   RESTOW_DEMO_PLATFORM     target platform (default linux/amd64)
 #   RESTOW_DEMO_IMAGES_DIR   where the tarball goes (default deploy/demo/images, gitignored)
-#   RESTOW_VERSION           release tag baked into the app image (default: empty, a local build)
+#   RESTOW_VERSION           release tag baked into the app image and the version label of
+#                            the seed and Dovecot images (default: empty, a local build)
 #
 # Usage: deploy/demo/build-images.sh [--skip-app-images]
 set -eu
@@ -112,8 +113,8 @@ else
   build "$APP_IMAGE" --target runtime --build-arg "RESTOW_VERSION=${RESTOW_VERSION:-}" "$REPO_ROOT"
   build "$WEB_IMAGE" --target web "$REPO_ROOT"
 fi
-build "$SEED_IMAGE" --target demo-seed "$REPO_ROOT"
-build "$DOVECOT_IMAGE" "${SCRIPT_DIR}/dovecot"
+build "$SEED_IMAGE" --target demo-seed --build-arg "RESTOW_VERSION=${RESTOW_VERSION:-}" "$REPO_ROOT"
+build "$DOVECOT_IMAGE" --build-arg "RESTOW_VERSION=${RESTOW_VERSION:-}" "${SCRIPT_DIR}/dovecot"
 
 # A wrong platform would only surface on the host, as "exec format error" in
 # the middle of a reset; catch it here instead.
