@@ -9,6 +9,7 @@ export {
   type DataTablePaginationMode,
   type DataTableProps,
   type DataTableSorting,
+  FIXED_ROW_CLASS,
 } from "./data-table.js";
 export { DataTableLoadMore, DataTablePagination, DEFAULT_PAGE_SIZES } from "./pagination.js";
 export {
