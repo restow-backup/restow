@@ -20,7 +20,7 @@ Known Issues.
 [Live demo](https://demo.restowbackup.com) · [Changelog](CHANGELOG.md) ·
 [Updating](docs/UPDATING.md)
 
-![Overview across all tenants](docs/images/screenshots/overview.png)
+![Overview of a tenant](docs/images/screenshots/overview.png)
 
 ## What it does
 
@@ -134,6 +134,8 @@ From the public demo, which runs the Service Provider edition with synthetic dat
 | Overview, Statistics tab: backups, restores, storage growth and checks over 30 days. | Audit log (Business and Service Provider): who did what, when, for whom; the chain is verifiable. |
 | ![Alerts](docs/images/screenshots/alerts-and-reports.png) | ![Team](docs/images/screenshots/team.png) |
 | Alerts: who is told what, and when, by e-mail, bell or webhook, and scheduled reports. | Members: several administrators with roles in every edition and, with Service Provider, limited to chosen tenants. |
+| ![Mail archive](docs/images/screenshots/mail-archive.png) | ![Machine](docs/images/screenshots/machine.png) |
+| Archive: search and read archived mail, verify the hash chain, download the original message. | Servers & clients: a machine backed up by the agent, its runs and the restore checks on the machine. |
 
 ## How Restow is built
 
