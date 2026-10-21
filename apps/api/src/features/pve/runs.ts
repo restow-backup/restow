@@ -16,6 +16,7 @@ import {
   manifestKey,
   mapChunkIds,
   mapStats,
+  PVE_VERIFY_AFTER_COMMIT_MS,
   type PveDiskObject,
   PveFormatError,
   parseActivityReport,
@@ -755,7 +756,8 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
         chunkRefs: unique.length,
         baseSnapshotId,
         backupAt: parsed.time,
-        verifyRequestedAt: checkNow ? now : null,
+        // Due a moment after the commit, once the node's restic has let go of the repository.
+        verifyRequestedAt: checkNow ? new Date(now.getTime() + PVE_VERIFY_AFTER_COMMIT_MS) : null,
       });
       await tx
         .update(pveRuns)

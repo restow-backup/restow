@@ -17,9 +17,16 @@ import "./i18n.js";
  * guests are checked, apart from the Microsoft 365 schedule in the footer (D3).
  */
 
-/** The guests whose newest restore point is unverified and waits for no check. */
+/**
+ * The guests whose newest restore point is unverified and waits for no check: never checked,
+ * or its check could not run (the repository stayed locked; servers from 0.4.3).
+ */
 export function uncheckedGuests(rows: readonly GuestReadinessRow[]): GuestReadinessRow[] {
-  return rows.filter((row) => row.state === "unverified" && !row.checkRequested);
+  return rows.filter(
+    (row) =>
+      (row.state === "unverified" || (row.state === "yellow" && Boolean(row.verifyNotChecked))) &&
+      !row.checkRequested,
+  );
 }
 
 export function GuestChecksCallout({ guests }: { guests: readonly GuestReadinessRow[] }) {

@@ -14,7 +14,10 @@ import { createHash } from "node:crypto";
  *              the one an admin asked for (also an older one); and weekly the newest
  *              restore point of every guest. A sample of its data blocks is read back from
  *              storage and compared with the SHA-256 in its map (containers: restic check
- *              of a 5 % subset). A bounded number per pass.
+ *              of a 5 % subset). A bounded number per pass. Never while the guest has a run
+ *              going or a backup its node took on; a check another run's restic lock keeps
+ *              out is tried again later, and after two hours reads "could not check"
+ *              (attention), never "failed".
  *   test       monthly restore check where a job asks for one: restore into the
  *              restore pool, check, delete (needs capacity, off by default)
  *   boot       boot tests where a job asks for them (weekly, or after every backup): the
@@ -48,11 +51,14 @@ import {
   pveNextRunAt,
   pveNodeDeclares,
   pveSelfBackupBlocked,
+  ResticError,
   resticBinary,
   resticCacheBase,
   resticCheck,
+  resticErrorDetail,
   resticForget,
   resticPrune,
+  resticUnlock,
   type StorageTargets,
   sampleDataBlocks,
   type TenantKeyring,
@@ -64,6 +70,8 @@ import {
   type PveGuest,
   type PveJob,
   type PveSnapshot,
+  type PveVerifyNotChecked,
+  type PveVerifyResult,
   pveDownloads,
   pveEnrollmentTokens,
   pveGuestRepositoryLockKey,
@@ -78,7 +86,21 @@ import {
   tenants,
   withEndpointRepositoryLock,
 } from "@restow/db";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  not,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
 import {
   PgChunkIndex,
@@ -615,6 +637,8 @@ async function forgetResticSnapshots(deps: PveDeps, guest: PveGuest, ids: string
   }
   await withGuestRepository(deps, guest.id, () =>
     withRepository(access, async (session) => {
+      // Stale locks only (a run that ended without releasing its lock), as for machines.
+      await resticUnlock(session).catch(() => undefined);
       await resticForget(session, ids);
       await resticPrune(session);
     }),
@@ -638,6 +662,7 @@ export async function verifySnapshot(
   deps: PveDeps,
   snap: PveSnapshot,
   random: () => number = Math.random,
+  options: { retryLock?: string } = {},
 ) {
   const result = {
     checkedAt: deps.runtime.now().toISOString(),
@@ -656,14 +681,28 @@ export async function verifySnapshot(
     }
     try {
       await withGuestRepository(deps, snap.guestId, () =>
-        withRepository(access, (session) => resticCheck(session, "5%")),
+        withRepository(access, async (session) => {
+          // Stale locks only (a run that ended without releasing its lock, a restarted API):
+          // restic never removes one a live run still refreshes.
+          await resticUnlock(session).catch(() => undefined);
+          await resticCheck(session, "5%", {
+            signal: deps.runtime.shutdownSignal,
+            retryLock: options.retryLock,
+          });
+        }),
       );
     } catch (error) {
-      // Someone reads the repository (file restore): checked on a later pass, not failed.
-      if (error instanceof EndpointRepositoryBusyError) {
+      // Someone reads the repository (file restore), another run holds its lock, or the check
+      // was stopped: it did not run, so nothing is known yet (verifyOne tries again later).
+      if (
+        error instanceof EndpointRepositoryBusyError ||
+        checkNotRun(error) !== null ||
+        deps.runtime.shutdownSignal.aborted
+      ) {
         throw error;
       }
-      result.errors.push(error instanceof Error ? error.message.slice(0, 500) : String(error));
+      // What restic said, with the lines that explain it (bounded).
+      result.errors.push(resticErrorDetail(error, 1000));
     }
     return result;
   }
@@ -692,19 +731,136 @@ export async function verifySnapshot(
   return result;
 }
 
-/** Check one restore point and keep the result; false when its repository is being read. */
-async function verifyOne(deps: PveDeps, snap: PveSnapshot, now: Date): Promise<boolean> {
+/**
+ * Why a container check did not run at all: another run holds the repository's restic lock
+ * (exit code 11, after `--retry-lock`), or restic was stopped before it finished. Neither says
+ * anything about the restore point. Null for a real finding (or no restic error).
+ */
+function checkNotRun(error: unknown): PveVerifyNotChecked["reason"] | null {
+  if (!(error instanceof ResticError)) {
+    return null;
+  }
+  if (error.failure === "locked") {
+    return "locked";
+  }
+  return error.failure === "killed" || error.failure === "interrupted" ? "interrupted" : null;
+}
+
+/** How long restic waits for another run's lock on a container repository before it gives up. */
+export const PVE_CHECK_RETRY_LOCK = "2m";
+/**
+ * Lock waits per pass: once this many checks of a pass found their repository locked, the rest
+ * of the pass does not wait for a lock (the pass stays bounded when many locks were left).
+ */
+export const PVE_CHECK_LOCK_WAITS_PER_PASS = 2;
+/** A check that could not run waits this long before it is tried again. */
+export const VERIFY_POSTPONE_MS = 10 * 60 * 1000;
+/** After this long without a check that could run, the restore point reads "could not check". */
+export const VERIFY_GIVE_UP_MS = 2 * 60 * 60 * 1000;
+/** The weekly check of a guest whose check could not run is tried again after a day. */
+const VERIFY_AFTER_GIVE_UP_MS = 24 * 60 * 60 * 1000;
+/** A run older than this is closed as stale anyway (bounds the index range of the busy test). */
+const BUSY_RUN_MS = STALE_RUN_MS;
+
+type VerifyOutcome = "checked" | "later" | "postponed" | "not_checked";
+
+/**
+ * A check that could not run: kept asked for and tried again after `VERIFY_POSTPONE_MS` (at
+ * the back of the queue), the previous result standing meanwhile; after `VERIFY_GIVE_UP_MS`
+ * since it was first asked for, recorded as not checked (attention, never "failed", never
+ * proof), and the guest's weekly clock tries again after a day.
+ */
+async function postponeVerify(
+  deps: PveDeps,
+  snap: PveSnapshot,
+  now: Date,
+  reason: PveVerifyNotChecked["reason"],
+  detail: string,
+): Promise<"postponed" | "not_checked"> {
+  const { notChecked: earlier, ...previous } = snap.verify ?? {
+    blocks: 0,
+    mismatched: 0,
+    errors: [],
+  };
+  const pending = earlier && !earlier.gaveUpAt ? earlier : null;
+  const since = pending?.since ?? (snap.verifyRequestedAt ?? now).toISOString();
+  const notChecked: PveVerifyNotChecked = {
+    reason,
+    since,
+    attempts: (pending?.attempts ?? 0) + 1,
+    detail: detail.slice(0, 1000),
+  };
+  if (now.getTime() - Date.parse(since) < VERIFY_GIVE_UP_MS) {
+    // The previous result (if any) stands until a check could run.
+    const verify: PveVerifyResult = { ...previous, notChecked };
+    await withTenantTx(deps.db, snap.tenantId, (tx) =>
+      tx
+        .update(pveSnapshots)
+        .set({ verify, verifyRequestedAt: new Date(now.getTime() + VERIFY_POSTPONE_MS) })
+        .where(eq(pveSnapshots.id, snap.id)),
+    );
+    deps.runtime.logger.info("pve verify: the check could not run, it is tried again later", {
+      snapshotId: snap.id,
+      guestId: snap.guestId,
+      reason,
+      attempts: notChecked.attempts,
+      detail: notChecked.detail,
+    });
+    return "postponed";
+  }
+  const verify: PveVerifyResult = {
+    blocks: 0,
+    mismatched: 0,
+    errors: [],
+    notChecked: { ...notChecked, gaveUpAt: now.toISOString() },
+  };
+  await withTenantTx(deps.db, snap.tenantId, async (tx) => {
+    await tx
+      .update(pveSnapshots)
+      .set({ verify, verifyRequestedAt: null })
+      .where(eq(pveSnapshots.id, snap.id));
+    // The weekly clock tries the guest's newest restore point again after a day.
+    await tx
+      .update(pveGuests)
+      .set({ lastVerifyAt: new Date(now.getTime() - VERIFY_EVERY_MS + VERIFY_AFTER_GIVE_UP_MS) })
+      .where(and(eq(pveGuests.id, snap.guestId), eq(pveGuests.lastSnapshotId, snap.id)));
+  });
+  deps.runtime.logger.warn("pve verify: the check could not run, the restore point is unchecked", {
+    snapshotId: snap.id,
+    guestId: snap.guestId,
+    reason,
+    attempts: notChecked.attempts,
+    detail: notChecked.detail,
+  });
+  return "not_checked";
+}
+
+/** Check one restore point and keep the result (see `VerifyOutcome`). */
+async function verifyOne(
+  deps: PveDeps,
+  snap: PveSnapshot,
+  now: Date,
+  options: { retryLock?: string } = {},
+): Promise<VerifyOutcome> {
   let verify: Awaited<ReturnType<typeof verifySnapshot>>;
   try {
-    verify = await verifySnapshot(deps, snap);
+    verify = await verifySnapshot(deps, snap, Math.random, options);
   } catch (error) {
     if (error instanceof EndpointRepositoryBusyError) {
       deps.runtime.logger.info("pve verify: the container repository is being read, later", {
         guestId: snap.guestId,
       });
-      return false;
+      return "later";
     }
-    throw error;
+    if (deps.runtime.shutdownSignal.aborted) {
+      // Stopped for a shutdown: the next worker checks it.
+      return "later";
+    }
+    const reason = checkNotRun(error);
+    if (reason === null) {
+      throw error;
+    }
+    return postponeVerify(deps, snap, now, reason, resticErrorDetail(error, 1000));
   }
   await withTenantTx(deps.db, snap.tenantId, async (tx) => {
     await tx
@@ -723,23 +879,56 @@ async function verifyOne(deps: PveDeps, snap: PveSnapshot, now: Date): Promise<b
       errors: verify.errors.slice(0, 5),
     });
   }
-  return true;
+  return "checked";
+}
+
+/**
+ * Whether the guest `guestId` (a column) is busy: a run of it is going (a backup, a restore,
+ * a boot test: its restic holds or will take the repository's lock), or its node took on a
+ * backup of it that has not started its run yet. Indexed (pve_runs_guest_started_idx,
+ * pve_tasks_open_backup_idx), one probe per candidate row.
+ */
+function guestBusy(guestId: SQL, now: Date): SQL {
+  const runsSince = new Date(now.getTime() - BUSY_RUN_MS);
+  return sql`(EXISTS (SELECT 1 FROM ${pveRuns} r
+      WHERE r.guest_id = ${guestId} AND r.started_at > ${runsSince} AND r.status = 'running')
+    OR EXISTS (SELECT 1 FROM ${pveTasks} t
+      WHERE t.guest_id = ${guestId} AND t.kind = 'backup' AND t.status = 'delivered'
+        AND (t.expires_at IS NULL OR t.expires_at > ${now})))`;
 }
 
 /**
  * The restore checks of one pass: first the restore points a check was asked for (exactly those,
  * oldest request first: after a backup, or an admin's "Check now" of any restore point), then
- * the weekly check of each guest's newest restore point. Both bounded per pass.
+ * the weekly check of each guest's newest restore point. Both bounded per pass. A guest that is
+ * busy (`guestBusy`) is left for a later pass; a check asked for after a backup is due a moment
+ * after the commit (`PVE_VERIFY_AFTER_COMMIT_MS`), when the node's restic has let go.
  */
 export async function verifyDue(deps: PveDeps, now: Date): Promise<number> {
   let n = 0;
+  let lockWaits = 0;
+  const lockWait = () =>
+    lockWaits < PVE_CHECK_LOCK_WAITS_PER_PASS ? { retryLock: PVE_CHECK_RETRY_LOCK } : {};
+  const count = (outcome: VerifyOutcome) => {
+    if (outcome === "checked") {
+      n++;
+    } else if (outcome === "postponed" || outcome === "not_checked") {
+      lockWaits++;
+    }
+  };
   const requested = await deps.providerDb
     .select()
     .from(pveSnapshots)
-    .where(isNotNull(pveSnapshots.verifyRequestedAt))
+    .where(
+      and(
+        isNotNull(pveSnapshots.verifyRequestedAt),
+        lte(pveSnapshots.verifyRequestedAt, now),
+        not(guestBusy(sql`${pveSnapshots.guestId}`, now)),
+      ),
+    )
     .orderBy(asc(pveSnapshots.verifyRequestedAt))
     .limit(VERIFY_REQUESTED_PER_PASS);
-  const checked = new Set<string>();
+  const tried = new Set<string>();
   for (const snap of requested) {
     if (snap.status !== "active") {
       // Pruned before its check came: nothing left to read.
@@ -751,10 +940,8 @@ export async function verifyDue(deps: PveDeps, now: Date): Promise<number> {
       );
       continue;
     }
-    if (await verifyOne(deps, snap, now)) {
-      checked.add(snap.guestId);
-      n++;
-    }
+    tried.add(snap.guestId);
+    count(await verifyOne(deps, snap, now, lockWait()));
   }
   const due = await deps.providerDb
     .select()
@@ -766,12 +953,16 @@ export async function verifyDue(deps: PveDeps, now: Date): Promise<number> {
           isNull(pveGuests.lastVerifyAt),
           lt(pveGuests.lastVerifyAt, new Date(now.getTime() - VERIFY_EVERY_MS)),
         ),
+        // A check of its newest restore point waits already (asked for, or postponed).
+        sql`NOT EXISTS (SELECT 1 FROM ${pveSnapshots} s
+          WHERE s.id = ${pveGuests.lastSnapshotId} AND s.verify_requested_at IS NOT NULL)`,
+        not(guestBusy(sql`${pveGuests.id}`, now)),
       ),
     )
     .orderBy(sql`${pveGuests.lastVerifyAt} ASC NULLS FIRST`)
     .limit(VERIFY_PERIODIC_PER_PASS);
   for (const guest of due) {
-    if (checked.has(guest.id)) {
+    if (tried.has(guest.id)) {
       continue;
     }
     const [snap] = await withTenantTx(deps.db, guest.tenantId, (tx) =>
@@ -782,15 +973,16 @@ export async function verifyDue(deps: PveDeps, now: Date): Promise<number> {
         .orderBy(desc(pveSnapshots.sequence))
         .limit(1),
     );
-    if (!snap) {
+    if (!snap || snap.verifyRequestedAt !== null) {
       continue;
     }
-    if (await verifyOne(deps, snap, now)) {
+    const outcome = await verifyOne(deps, snap, now, lockWait());
+    count(outcome);
+    if (outcome === "checked") {
       // Also when the guest's newest restore point is not `lastSnapshotId` (pruned meanwhile).
       await withTenantTx(deps.db, guest.tenantId, (tx) =>
         tx.update(pveGuests).set({ lastVerifyAt: now }).where(eq(pveGuests.id, guest.id)),
       );
-      n++;
     }
   }
   return n;

@@ -56,6 +56,19 @@ describe("the rating of a restore point", () => {
       "red",
     );
   });
+
+  it("is yellow, never red or green, once a check could not run for a locked repository", () => {
+    const at = NOW.toISOString();
+    const notChecked = { since: at, gaveUpAt: at };
+    expect(pveRestorePointReadiness({ mismatched: 0, errors: [], notChecked })).toBe("yellow");
+    // Still trying: the previous result stands (here none: unverified).
+    expect(
+      pveRestorePointReadiness({ mismatched: 0, errors: [], notChecked: { gaveUpAt: null } }),
+    ).toBeNull();
+    expect(
+      pveRestorePointReadiness({ checkedAt: at, mismatched: 0, errors: [], notChecked: {} }),
+    ).toBe("green");
+  });
 });
 
 describe("when a guest is overdue", () => {

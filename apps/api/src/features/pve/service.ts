@@ -263,24 +263,46 @@ type SnapshotSizeRow = {
 
 /** The restore check of a guest's newest restore point, as the guest row shows it. */
 export interface GuestVerifyFact {
-  /** green: the sample read back matched; red: it did not, or could not be read; null: unchecked. */
-  state: "green" | "red" | null;
+  /**
+   * green: the sample read back matched; red: it did not, or could not be read; yellow: the
+   * check could not run at all (the repository stayed locked); null: unchecked.
+   */
+  state: "green" | "yellow" | "red" | null;
   checkedAt: string | null;
   /** What the check found, as stored (the real restic or read error); the first five. */
   errors: string[];
   /** A check of it waits for the worker's next PVE pass. */
   requested: boolean;
+  /**
+   * The newest check could not run (`gaveUp`: the worker stopped trying; otherwise it tries
+   * again), with what restic said; null when it ran.
+   */
+  notChecked: {
+    reason: "locked" | "interrupted";
+    detail: string;
+    attempts: number;
+    gaveUp: boolean;
+  } | null;
 }
 
 export function verifyFact(
   verify: PveVerifyResult | null | undefined,
   requestedAt: Date | string | null | undefined,
 ): GuestVerifyFact {
+  const notChecked = verify?.notChecked;
   return {
     state: pveRestorePointReadiness(verify ?? null),
-    checkedAt: verify?.checkedAt ?? null,
+    checkedAt: verify?.notChecked?.gaveUpAt ?? verify?.checkedAt ?? null,
     errors: (verify?.errors ?? []).slice(0, 5).map((e) => String(e).slice(0, 1000)),
     requested: Boolean(requestedAt),
+    notChecked: notChecked
+      ? {
+          reason: notChecked.reason,
+          detail: String(notChecked.detail ?? "").slice(0, 1000),
+          attempts: Number(notChecked.attempts) || 0,
+          gaveUp: typeof notChecked.gaveUpAt === "string",
+        }
+      : null,
   };
 }
 
@@ -1143,7 +1165,8 @@ export async function requestGuestVerify(
 
 /**
  * Check the newest restore point of every guest no check has read back yet and none waits for
- * (Recovery readiness, "Check all unverified"). One statement for the tenant, however many
+ * (Recovery readiness, "Check all unverified"), also one whose check could not run (its
+ * repository stayed locked). One statement for the tenant, however many
  * guests it has; one audit entry with the count.
  */
 export async function requestUnverifiedVerify(
@@ -1158,7 +1181,8 @@ export async function requestUnverifiedVerify(
         FROM (SELECT DISTINCT ON (guest_id) id, verify, verify_requested_at FROM pve_snapshots
                WHERE tenant_id = ${tenantId} AND status = 'active'
                ORDER BY guest_id, sequence DESC) newest
-       WHERE s.id = newest.id AND newest.verify IS NULL AND newest.verify_requested_at IS NULL
+       WHERE s.id = newest.id AND newest.verify_requested_at IS NULL
+         AND (newest.verify IS NULL OR newest.verify->'notChecked' ? 'gaveUpAt')
       RETURNING s.id`);
     const queued = marked.rows.length;
     if (queued > 0) {

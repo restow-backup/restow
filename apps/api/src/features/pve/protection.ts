@@ -73,6 +73,11 @@ export interface GuestReadinessRowDto {
   checkRequested: boolean;
   /** What the restore check of the newest restore point found (the real error, when red). */
   verifyErrors: string[];
+  /**
+   * Why the restore check of the newest restore point could not run, when the worker gave up
+   * (yellow, `basis` verify): what restic said, e.g. who holds the repository's lock; else null.
+   */
+  verifyNotChecked: { reason: "locked" | "interrupted"; detail: string } | null;
 }
 
 /** The tenant's guests in figures (zeros for a tenant without Proxmox VE). */
@@ -323,6 +328,12 @@ export async function loadGuestProtection(
       inJob,
       checkRequested: snapshot?.verifyRequestedAt != null,
       verifyErrors: (verify?.errors ?? []).slice(0, 5).map((e) => String(e).slice(0, 1000)),
+      verifyNotChecked: verify?.notChecked?.gaveUpAt
+        ? {
+            reason: verify.notChecked.reason,
+            detail: String(verify.notChecked.detail ?? "").slice(0, 1000),
+          }
+        : null,
     });
     rated.push({ state, overdue, checkedAt, withoutJob: !inJob, guest: true });
   }

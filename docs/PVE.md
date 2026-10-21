@@ -193,9 +193,10 @@ unique per installation).
   point back and compares them with the SHA-256 in the map (containers: `restic
   check` of 5 %). It checks
   - every new restore point right after its backup: the commit marks it
-    (`pve_snapshots.verify_requested_at`) and the worker's next PVE pass (every
-    five minutes) reads it, at most 20 asked-for checks per pass, oldest request
-    first. The installation setting "Check every new restore point right after
+    (`pve_snapshots.verify_requested_at`, due two minutes after the commit, when
+    the node's restic has let go of the repository) and the worker's next PVE
+    pass (every five minutes) reads it, at most 20 asked-for checks per pass,
+    oldest request first. The installation setting "Check every new restore point right after
     the backup" (Installation → Proxmox VE, owner; `GET/PUT
     /api/v1/settings/pve`, `verifyAfterBackup`) is on by default; switched off,
     a new restore point waits for the weekly check. There is no per-tenant
@@ -207,9 +208,29 @@ unique per installation).
     "Check all unverified" the newest of every guest no check has read and none
     waits for.
 
+  A guest is not checked while a run of it is going (a backup, a restore, a
+  boot test) or while its node has taken on a backup of it that has not started
+  yet; the check waits for a later pass. A container check first removes stale
+  restic locks (`restic unlock`: only locks no live run refreshes, i.e. older
+  than 30 minutes or of a process that is gone), as retention does before
+  `forget`/`prune`, and then waits up to two minutes for a lock another run
+  holds (`--retry-lock`; only the first two locked repositories of a pass wait,
+  so a pass stays bounded). A check another run's lock still keeps out, or one
+  that was stopped before it finished, did not run: nothing is recorded as
+  checked or failed, the previous result stands, and it is tried again ten
+  minutes later ("Check postponed: repository locked" on the guest page). After
+  two hours since it was asked for, the restore point reads **Could not check:
+  repository locked**: yellow (attention) in Recovery readiness, never red and
+  never green, with restic's report of who holds the lock (PID, host, user,
+  when it was created); the weekly clock tries the guest again after a day, the
+  next backup's check and "Check now" or "Check all unverified" sooner. The
+  postponement lives in `pve_snapshots.verify` (`notChecked`: reason, since,
+  attempts, restic's words, `gaveUpAt` once the worker gave up).
+
   A red check shows what it found (the restic or read error stored in
-  `pve_snapshots.verify`) under the badge in the guest list, in Recovery
-  readiness and on the guest page, the whole text in the tooltip. The footer
+  `pve_snapshots.verify`, with the lines of restic's output that explain it)
+  under the badge in the guest list, in Recovery readiness and on the guest
+  page, the whole text in the tooltip. The footer
   of Recovery readiness names the Microsoft 365 schedule as such and says how
   the guests are checked in a line of its own.
 
@@ -287,6 +308,13 @@ with the operate permission). Every stop asks first and is audited
   of it runs, it stops a vzdump task that backs up this guest alone.
 - **Older nodes.** The server refuses every upload of a cancelled run (blocks,
   commit, restic), so a node before 0.4.2 ends the backup at its next call.
+  The restic credential of a cancelled or ended run still opens the repository
+  (config, keys, lock files) and deletes the lock files that run wrote, so
+  restic releases its lock on the way out; every other request is refused and
+  audited (`pve.node.denied`). Which lock files a run wrote is kept in the API
+  process only: after an API restart (an update) a run's lock cannot be told
+  apart from another's and stays until it is stale (30 minutes), when the next
+  check or retention removes it with `restic unlock`.
 - **The end.** The run ends `cancelled`, not `failed`: no failure alert, no
   "Last backup failed", the guest's last backup stays as it was, and the restore
   points are untouched (nothing of the stopped run is committed). A cancelled

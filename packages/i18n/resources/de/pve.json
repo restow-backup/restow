@@ -115,7 +115,9 @@
     "nodeOffline": "Knoten {node} ist getrennt (letzte Meldung: {time}). Er startet die Sicherung erst, wenn er sich wieder meldet.",
     "succeededWithWarnings": "Erfolgreich mit Warnungen",
     "verifyFailed": "Restore-Prüfung fehlgeschlagen",
-    "verifyFailedHint": "Die Restore-Prüfung des neuesten Sicherungsstands ist fehlgeschlagen."
+    "verifyFailedHint": "Die Restore-Prüfung des neuesten Sicherungsstands ist fehlgeschlagen.",
+    "verifyNotCheckedLocked": "Restore-Prüfung konnte nicht laufen",
+    "verifyNotCheckedInterrupted": "Restore-Prüfung konnte nicht laufen"
   },
   "jobs": {
     "title": "Backup-Jobs",
@@ -277,7 +279,11 @@
       "done": "Repository zurückgesetzt. Die nächste Sicherung beginnt eine neue Kette.",
       "failed": "Das Repository konnte nicht zurückgesetzt werden."
     },
-    "verifyQueuedBadge": "Prüfung eingereiht"
+    "verifyQueuedBadge": "Prüfung eingereiht",
+    "verifyNotCheckedLocked": "Nicht prüfbar: Repository gesperrt",
+    "verifyNotCheckedInterrupted": "Nicht prüfbar: Prüfung unterbrochen",
+    "verifyPostponedLocked": "Prüfung verschoben: Repository gesperrt",
+    "verifyPostponedInterrupted": "Prüfung verschoben: Prüfung unterbrochen"
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",
@@ -305,7 +311,9 @@
       "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden, nachdem der Gast in einen Backup-Job kam.",
       "bootGreen": "Der neueste Sicherungsstand ist in seiner Startprüfung gestartet: Der Guest Agent hat geantwortet.",
       "bootYellow": "Der neueste Sicherungsstand ist in seiner Startprüfung gestartet, aber sein Guest Agent hat nicht geantwortet: Es ist nicht nachgewiesen, dass das System funktioniert.",
-      "bootRed": "Der neueste Sicherungsstand ist in seiner Startprüfung nicht gestartet."
+      "bootRed": "Der neueste Sicherungsstand ist in seiner Startprüfung nicht gestartet.",
+      "notCheckedLocked": "Die Restore-Prüfung des neuesten Sicherungsstands konnte zwei Stunden lang nicht laufen: Ein anderer Vorgang hielt die Sperre seines Repositorys. Über den Sicherungsstand ist noch nichts bekannt; die Prüfung wird erneut versucht.",
+      "notCheckedInterrupted": "Die Restore-Prüfung des neuesten Sicherungsstands wurde wiederholt abgebrochen, bevor sie fertig war. Über den Sicherungsstand ist noch nichts bekannt; die Prüfung wird erneut versucht."
     },
     "checkNow": "Jetzt prüfen",
     "checkNowFor": "{name} jetzt prüfen",

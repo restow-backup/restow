@@ -190,13 +190,48 @@ function runStatusKey(run: Pick<PveRun, "kind" | "status" | "stats">): string {
   return `guest.${run.status}`;
 }
 
-function VerifyBadge({ point }: { point: PveRestorePoint }) {
+export function VerifyBadge({ point }: { point: PveRestorePoint }) {
   const { t } = useTranslation(PVE_NAMESPACE);
-  if (!point.verify) {
+  const notChecked = point.verify?.notChecked;
+  if (notChecked?.gaveUpAt) {
+    // The check never ran: attention, neither failed nor passed; restic's words underneath.
     return (
-      <Badge variant="muted">
-        {point.verifyRequested ? t("guest.verifyQueuedBadge") : t("guest.verifyPending")}
-      </Badge>
+      <div className="max-w-80 space-y-1" data-slot="pve-point-verify-not-checked">
+        <Badge variant="warning" title={notChecked.detail || undefined}>
+          {notChecked.reason === "locked"
+            ? t("guest.verifyNotCheckedLocked")
+            : t("guest.verifyNotCheckedInterrupted")}
+        </Badge>
+        {notChecked.detail ? (
+          <p
+            className="line-clamp-2 text-xs break-words text-muted-foreground"
+            title={notChecked.detail}
+          >
+            {notChecked.detail}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+  // Still tried again: the earlier result (if any) stands, with a note why the new check waits.
+  const postponed = notChecked ? (
+    <Badge
+      variant="muted"
+      title={notChecked.detail || undefined}
+      data-slot="pve-point-verify-postponed"
+    >
+      {notChecked.reason === "locked"
+        ? t("guest.verifyPostponedLocked")
+        : t("guest.verifyPostponedInterrupted")}
+    </Badge>
+  ) : null;
+  if (!point.verify || typeof point.verify.checkedAt !== "string") {
+    return (
+      postponed ?? (
+        <Badge variant="muted">
+          {point.verifyRequested ? t("guest.verifyQueuedBadge") : t("guest.verifyPending")}
+        </Badge>
+      )
     );
   }
   if (point.verify.errors.length > 0 || point.verify.mismatched > 0) {
@@ -215,7 +250,17 @@ function VerifyBadge({ point }: { point: PveRestorePoint }) {
       </div>
     );
   }
-  return <Badge variant="success">{t("guest.verifyOk", { blocks: point.verify.blocks })}</Badge>;
+  const passed = (
+    <Badge variant="success">{t("guest.verifyOk", { blocks: point.verify.blocks })}</Badge>
+  );
+  return postponed ? (
+    <div className="flex flex-wrap gap-1">
+      {passed}
+      {postponed}
+    </div>
+  ) : (
+    passed
+  );
 }
 
 /**
