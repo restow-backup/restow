@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerApiExtension, resetExtensionsForTesting } from "../extensions.js";
 import type { SessionEnv, SessionVariables } from "../middleware/session.js";
-import { me } from "./me.js";
+import { activeTenantHint, me } from "./me.js";
 import type { VersionInfo } from "./v1/version.js";
 
 /**
@@ -227,5 +227,28 @@ describe("GET /api/v1/me", () => {
       "t-fabrikam",
     ]);
     expect(body.activeTenantId).toBeNull();
+  });
+});
+
+describe("activeTenantHint", () => {
+  const rows = [
+    { id: "t-own", kind: "internal", status: "active", organizationId: "org-own" },
+    { id: "t-paused", kind: "customer", status: "suspended", organizationId: "org-paused" },
+    { id: "t-customer", kind: "customer", status: "active", organizationId: "org-customer" },
+  ] as const;
+
+  it("follows the session's active organization", () => {
+    expect(activeTenantHint(rows, "org-own", true)).toBe("t-own");
+    expect(activeTenantHint(rows, "org-paused", false)).toBe("t-paused");
+  });
+
+  it("gives no hint without an active organization outside the demo", () => {
+    expect(activeTenantHint(rows, null, false)).toBeNull();
+    expect(activeTenantHint(rows, "org-gone", false)).toBeNull();
+  });
+
+  it("points the demo at the first active customer, not the empty own organisation", () => {
+    expect(activeTenantHint(rows, null, true)).toBe("t-customer");
+    expect(activeTenantHint(rows.slice(0, 2), null, true)).toBeNull();
   });
 });

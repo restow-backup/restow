@@ -41,7 +41,12 @@ and "Resource limits".
 - The demo's own organisation, "Example Managed IT Ltd" (the fictional service
   provider that runs the demo): the setup wizard's request names it and the api
   creates it as the first tenant, kind `internal`, listed first and marked as
-  the own organisation. It owns no data of its own in the demo.
+  the own organisation. It owns no data of its own in the demo, so a visitor
+  does not start there: in demo mode `GET /api/v1/me` names the first active
+  customer tenant as the active one while the session has none
+  (apps/api `routes/me.ts`, `activeTenantHint`), and the overview opens on
+  Birchwood Consulting Ltd with its weeks of history. A tenant the visitor picks
+  in the switcher is remembered as usual and wins from then on.
 - Two fictional customer tenants ("Example Trading Ltd", "Birchwood Consulting Ltd")
   each own one or two IMAP sources pointing at the demo's own Dovecot
   container, seeded with a few hundred synthetic invoices, orders,
@@ -616,7 +621,9 @@ How it works (`seed/src/endpoint-files.ts`, `endpoint-agent.ts`,
 - **The agent, played by the seed.** For each machine the seed creates an
   enrollment token through the admin API, enrolls with `POST /agent/v1/enroll`
   reporting `os` (`linux` or `darwin`), architecture and OS version (that is what
-  makes the UI show Linux and macOS), puts the machine into a backup job, sends
+  makes the UI show Linux and macOS) and, as agent version, the release the demo
+  runs (the seed package's own version, `endpoint-agent.ts` `AGENT_VERSION`),
+  puts the machine into a backup job, sends
   heartbeats, fetches the
   configuration, and runs the same restic the product ships (pinned, in the seed
   image) with the agent's own command line (`--host <hostname> --tag
