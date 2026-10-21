@@ -1,8 +1,15 @@
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { formatBytes, hashUnchanged, RunLog, sampleCandidates, shortId } from "./endpoint-agent.js";
+import {
+  AGENT_VERSION,
+  formatBytes,
+  hashUnchanged,
+  RunLog,
+  sampleCandidates,
+  shortId,
+} from "./endpoint-agent.js";
 import { mulberry32 } from "./prng.js";
 import type { ResticNode } from "./restic.js";
 
@@ -119,5 +126,14 @@ describe("hashUnchanged", () => {
     expect(await hashUnchanged(node(path, 6, "file", mtime))).toBeNull();
     expect(await hashUnchanged(node(path, 5, "file", new Date("2026-08-01T10:05:00Z")))).toBeNull();
     expect(await hashUnchanged(node(`${path}.gone`, 5, "file", mtime))).toBeNull();
+  });
+});
+
+describe("AGENT_VERSION", () => {
+  it("is the release the demo runs, not a pinned number", () => {
+    const root = JSON.parse(
+      readFileSync(new URL("../../../../package.json", import.meta.url), "utf8"),
+    ) as { version: string };
+    expect(AGENT_VERSION).toBe(root.version);
   });
 });

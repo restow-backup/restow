@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  createReadStream,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { AgentApi, AgentConfig, AgentTask, SampleFile } from "./agent-api.js";
 import type { DemoMachine } from "./endpoint-files.js";
@@ -18,8 +26,23 @@ import { rewriteRepositoryUrl } from "./restic-proxy.js";
  * run log, the statistics and the errors, the way the Go agent does.
  */
 
-/** The version the simulated agents report: the agent's own (agent/dist/VERSION). */
-export const AGENT_VERSION = "0.2.1";
+/**
+ * The version the simulated agents report: the release the demo runs. The agent
+ * ships with every release under the release's version (agent/dist/VERSION), and
+ * the release bumps this package's version with it, so the seed reads its own
+ * package.json (next to `src/` and `dist/` alike) instead of a pinned number.
+ */
+export const AGENT_VERSION = seedVersion();
+
+function seedVersion(): string {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { version?: unknown };
+  if (typeof manifest.version !== "string" || manifest.version.length === 0) {
+    throw new Error("deploy/demo/seed/package.json has no version");
+  }
+  return manifest.version;
+}
 const SNAPSHOT_TAG = "restow-agent";
 /** Files per restore test. The agent takes up to 20; the demo keeps its nightly reset short. */
 export const SAMPLE_FILES = 6;
