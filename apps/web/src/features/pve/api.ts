@@ -28,6 +28,10 @@ export interface PveNode {
   updateVersion?: string | null;
   /** "Update now" was asked for and the node has not reported the release yet. */
   updateRequestedAt?: string | null;
+  /** The restow-pve release the server offers (0.4.3); missing on older servers. */
+  offeredVersion?: string | null;
+  /** The node runs an older restow-pve than the server offers (0.4.3). */
+  outdated?: boolean;
 }
 
 export interface PveCluster {

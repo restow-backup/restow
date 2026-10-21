@@ -359,10 +359,25 @@ describe.skipIf(!canRun)("stopping Proxmox VE backups against Postgres", () => {
 
   it("tells the node to update now, on request and while the fleet phase of an update holds", async () => {
     expect((await beat()).update).toEqual({ version: "9.0.0", now: false });
+    // The inventory says which release the node runs and that it is behind (0.4.3).
+    const nodeView = async () =>
+      (await service.overview(shared.db, fixture.tenantId)).clusters[0]?.nodes[0];
+    expect(await nodeView()).toMatchObject({
+      helperVersion: "0.4.1",
+      offeredVersion: "9.0.0",
+      outdated: true,
+      updateVersion: "9.0.0",
+    });
     await cancel.requestNodeUpdate(shared.db, fixture.tenantId, node.nodeId, actor());
     expect((await beat()).update).toEqual({ version: "9.0.0", now: true });
     // The node reports the new release: the request is done.
     expect((await beat({ helperVersion: "9.0.0" })).update).toBeNull();
+    expect(await nodeView()).toMatchObject({
+      helperVersion: "9.0.0",
+      offeredVersion: "9.0.0",
+      outdated: false,
+      updateVersion: null,
+    });
     const [row] = await fixture.db.select().from(pveNodes).where(eq(pveNodes.id, node.nodeId));
     expect(row?.updateRequestedAt).toBeNull();
     // The server was updated and its nodes follow: every behind node is told, no backup goes out.
