@@ -54,7 +54,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
-import type { UpdaterClient } from "./updater-client.js";
+import { type UpdaterClient, UpdaterUnavailableError } from "./updater-client.js";
 
 const DATABASE = "restow_api_updates_test";
 const TOKEN = "glpat-super-secret-token-0123456789";
@@ -148,6 +148,11 @@ class ScriptedUpdater implements UpdaterClient {
   acknowledged = 0;
   enabledMounter = 0;
   readonly restarted: string[] = [];
+  /**
+   * A schedule whose answer is lost (0.4.3): `after` takes the update and times out, `before`
+   * times out without taking it, `silent` takes it and then answers nothing at all.
+   */
+  scheduleTimeout: "after" | "before" | "silent" | null = null;
 
   async state() {
     return this.view;
@@ -164,7 +169,21 @@ class ScriptedUpdater implements UpdaterClient {
   }
 
   async schedule(request: ScheduleRequest) {
+    if (this.scheduleTimeout === "before") {
+      throw new UpdaterUnavailableError("timeout");
+    }
     this.scheduled.push(request);
+    if (this.scheduleTimeout !== null) {
+      this.accept(request);
+      if (this.scheduleTimeout === "silent") {
+        this.view = null;
+      }
+      throw new UpdaterUnavailableError("timeout");
+    }
+    return this.accept(request);
+  }
+
+  private accept(request: ScheduleRequest): StateView {
     const startsAt = new Date(Date.parse("2026-10-01T09:00:00.000Z") + request.leadSeconds * 1000);
     this.view = idleState({
       phase: "scheduled",
@@ -1378,6 +1397,78 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         status: 409,
         type: "urn:restow:problem:update-not-waiting",
       });
+    });
+
+    it("keeps an update whose answer timed out when the updater shows it, with its pause", async () => {
+      // 0.4.2 in the field: the updater took 5-12 s, the api gave up after 5 s, lifted the pause
+      // and reported "no updater"; the update ran anyway, without its pause and fleet phase.
+      const { service } = await withCheck();
+      updater.scheduleTimeout = "after";
+      const view = await service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor);
+      expect(view.maintenance).toMatchObject({ phase: "scheduled", targetVersion: "0.2.0" });
+      expect(await pauseRow()).toMatchObject({ phase: "announced", version: "0.2.0" });
+      const [entry] = await auditRows("update.scheduled");
+      expect(entry?.details).toMatchObject({ version: "0.2.0", runId: "r-1" });
+    });
+
+    it("lifts the pause when the updater, asked again, has no such update", async () => {
+      const { service } = await withCheck();
+      updater.scheduleTimeout = "before";
+      await expect(
+        service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:updater-unavailable",
+        extensions: { reason: "timeout" },
+      });
+      expect(await pauseRow()).toBeNull();
+      expect(await auditRows("update.scheduled")).toHaveLength(0);
+    });
+
+    it("keeps the pause while it is not known whether the updater took the update", async () => {
+      const { service } = await withCheck();
+      updater.scheduleTimeout = "silent";
+      await expect(
+        service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:updater-unavailable",
+        extensions: { reason: "timeout" },
+      });
+      expect(await pauseRow()).toMatchObject({ phase: "announced" });
+      // Once the updater answers idle again, the pause lifts as usual.
+      updater.view = idleState();
+      now = new Date(now.getTime() + 60_000);
+      await service.advancePause();
+      expect(await pauseRow()).toBeNull();
+    });
+
+    it("announces a waiting update whose answer timed out without reporting a failure", async () => {
+      const { service } = await withCheck();
+      await mailJob("active");
+      await service.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+      updater.scheduleTimeout = "after";
+      const view = await service.startNow(actor);
+      expect(view.jobPause).toMatchObject({ phase: "announced" });
+      expect(
+        await owner.select().from(notifications).where(eq(notifications.event, "update.failed")),
+      ).toHaveLength(0);
+      const [entry] = await auditRows("update.scheduled");
+      expect(entry?.details).toMatchObject({ after: "admin" });
+      expect(await auditRows("update.jobs_resumed")).toHaveLength(0);
+
+      // Not known at all: no failure either, and the pause stays.
+      await owner.delete(jobStartPause);
+      updater.view = idleState();
+      updater.scheduleTimeout = "silent";
+      await service.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+      await expect(service.startNow(actor)).rejects.toMatchObject({
+        type: "urn:restow:problem:updater-unavailable",
+      });
+      expect(await pauseRow()).toMatchObject({ phase: "announced" });
+      expect(
+        await owner.select().from(notifications).where(eq(notifications.event, "update.failed")),
+      ).toHaveLength(0);
     });
 
     it("cancels a waiting update without the updater, and lifts the pause", async () => {

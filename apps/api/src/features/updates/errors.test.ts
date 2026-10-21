@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
+import type { ScheduleRequest, StateView } from "../../updater/protocol.js";
 import {
+  isRunFor,
   mapUpdaterError,
   nextCheckAt,
   privateNetworksAllowedFor,
@@ -20,6 +22,45 @@ describe("what the updater's answers turn into", () => {
       extensions: { reason: "unreachable" },
     });
     expect(problem.detail).toContain("--profile updater");
+  });
+
+  it("says that a timed-out updater may still be checking, not that none runs", () => {
+    const problem = mapUpdaterError(new UpdaterUnavailableError("timeout"));
+    expect(problem).toMatchObject({ status: 409, extensions: { reason: "timeout" } });
+    expect(problem.detail).toContain("did not answer in time");
+  });
+
+  it("recognises the run of a request whose answer was lost, and only that one", () => {
+    const request = {
+      release: { version: "0.2.0", tag: "v0.2.0", url: null, prerelease: false, digests: {} },
+      mode: "image",
+      switchTo: null,
+      source: null,
+      leadSeconds: 0,
+      requestedBy: { userId: "u1", label: "owner@provider.test", ip: null },
+    } as ScheduleRequest;
+    const state = (phase: StateView["phase"], over: Record<string, unknown> = {}) =>
+      ({
+        phase,
+        run: {
+          targetVersion: "0.2.0",
+          switchTo: null,
+          requestedBy: { userId: "u1", label: "owner@provider.test", ip: "192.0.2.1" },
+          ...over,
+        },
+      }) as unknown as StateView;
+    expect(isRunFor(state("scheduled"), request)).toBe(true);
+    expect(isRunFor(state("running", { targetVersion: "v0.2.0" }), request)).toBe(true);
+    expect(isRunFor(state("idle"), request)).toBe(false);
+    expect(isRunFor(state("failed"), request)).toBe(false);
+    expect(isRunFor(state("scheduled", { targetVersion: "0.3.0" }), request)).toBe(false);
+    expect(isRunFor(state("scheduled", { switchTo: "full" }), request)).toBe(false);
+    expect(
+      isRunFor(
+        state("scheduled", { requestedBy: { userId: "u2", label: "x@y.test", ip: null } }),
+        request,
+      ),
+    ).toBe(false);
   });
 
   it("keeps the meaning of each refusal", () => {
