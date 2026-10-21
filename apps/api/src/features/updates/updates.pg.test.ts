@@ -150,9 +150,10 @@ class ScriptedUpdater implements UpdaterClient {
   readonly restarted: string[] = [];
   /**
    * A schedule whose answer is lost (0.4.3): `after` takes the update and times out, `before`
-   * times out without taking it, `silent` takes it and then answers nothing at all.
+   * times out without taking it, `silent` takes it and then answers nothing at all, `gone`
+   * breaks the connection and answers nothing any more.
    */
-  scheduleTimeout: "after" | "before" | "silent" | null = null;
+  scheduleTimeout: "after" | "before" | "silent" | "gone" | null = null;
 
   async state() {
     return this.view;
@@ -171,6 +172,10 @@ class ScriptedUpdater implements UpdaterClient {
   async schedule(request: ScheduleRequest) {
     if (this.scheduleTimeout === "before") {
       throw new UpdaterUnavailableError("timeout");
+    }
+    if (this.scheduleTimeout === "gone") {
+      this.view = null;
+      throw new UpdaterUnavailableError("unreachable");
     }
     this.scheduled.push(request);
     if (this.scheduleTimeout !== null) {
@@ -1440,6 +1445,19 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       updater.view = idleState();
       now = new Date(now.getTime() + 60_000);
       await service.advancePause();
+      expect(await pauseRow()).toBeNull();
+    });
+
+    it("lifts the pause when the connection broke and the updater is gone", async () => {
+      const { service } = await withCheck();
+      updater.scheduleTimeout = "gone";
+      await expect(
+        service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:updater-unavailable",
+        extensions: { reason: "unreachable" },
+      });
       expect(await pauseRow()).toBeNull();
     });
 

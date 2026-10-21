@@ -1647,9 +1647,9 @@ export class UpdateService {
   /**
    * Hand an update to the updater. `accepted`: the updater has it (also when its answer was lost
    * and its state, read again, shows the run for this request); `refused`: it certainly does not
-   * (a refusal, no updater configured, or its state shows no such run); `unknown`: the request
-   * may have been taken (it timed out or the connection broke) and the updater does not answer
-   * now either.
+   * (a refusal, no updater configured, its state shows no such run, or the connection broke and
+   * it does not answer any more); `unknown`: the request timed out, so it may have been taken,
+   * and the updater does not answer now either.
    */
   private async handOver(request: ScheduleRequest): Promise<ScheduleOutcome> {
     try {
@@ -1669,11 +1669,16 @@ export class UpdateService {
         state = null;
       }
       if (!state) {
-        this.deps.log?.("warn", "the updater did not answer the update request in time", {
+        this.deps.log?.("warn", "the updater did not answer the update request", {
           version: request.release.version,
           reason: error.reason,
         });
-        return { kind: "unknown", problem };
+        // A request that timed out reached the updater and may have been taken. A broken
+        // connection almost always means it did not arrive: the updater went away (keeping the
+        // pause would hold every new run until it expires).
+        return error.reason === "timeout"
+          ? { kind: "unknown", problem }
+          : { kind: "refused", problem };
       }
       if (isRunFor(state, request)) {
         this.deps.log?.("info", "the updater took the update although its answer was lost", {
