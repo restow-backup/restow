@@ -490,7 +490,9 @@
         "downloaded": "Database backup downloaded",
         "deleted": "Database backup deleted"
       },
-      "fleet_started": "Nodes and agents asked to update"
+      "fleet_started": "Nodes and agents asked to update",
+      "planned": "Update planned for a chosen time",
+      "plan_failed": "Planned update could not start"
     },
     "endpoint": {
       "token": {

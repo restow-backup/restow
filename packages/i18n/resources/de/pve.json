@@ -313,5 +313,49 @@
       "paused": "Pausiert",
       "suspended": "Angehalten"
     }
+  },
+  "cancel": {
+    "stop": "Sicherung stoppen",
+    "withdraw": "Zurückziehen",
+    "stopOf": "Sicherung von {name} stoppen",
+    "withdrawOf": "Wartende Sicherung von {name} zurückziehen",
+    "stopTitle": "Sicherung von {name} stoppen?",
+    "stopBody": "Der Knoten stoppt die laufende Sicherung innerhalb von Sekunden (vzdump wird über die Proxmox-VE-API beendet). Von diesem Lauf wird nichts gespeichert; die vorhandenen Sicherungsstände bleiben unverändert. Der Lauf endet als abgebrochen, nicht als fehlgeschlagen.",
+    "stopConfirm": "Sicherung stoppen",
+    "withdrawTitle": "Wartende Sicherung von {name} zurückziehen?",
+    "withdrawBody": "Die Sicherung hat noch nicht begonnen. Sie wird aus der Warteschlange genommen, und der Knoten startet sie nicht. Die nächste geplante Sicherung läuft wie gewohnt.",
+    "withdrawConfirm": "Zurückziehen",
+    "keep": "Behalten",
+    "stopping": "Die Sicherung wird gestoppt",
+    "stoppingNote": "Der Knoten stoppt sie bei seiner nächsten Meldung, meist innerhalb von 15 Sekunden.",
+    "nothingQueued": "Es wartete nichts mehr.",
+    "cancelling": "Wird abgebrochen…",
+    "requestedBy": "Stopp angefordert von {name}",
+    "cancelled": "Abgebrochen",
+    "cancelledBy": "Abgebrochen von {name}",
+    "allQueuedBody": "Sicherungen, die noch nicht begonnen haben, werden aus der Warteschlange genommen. Laufende Sicherungen laufen weiter; diese stoppen Sie einzeln. Die nächste geplante Runde startet wie gewohnt.",
+    "withdrawn": "{count, plural, one {Wartende Sicherung zurückgezogen} other {# wartende Sicherungen zurückgezogen}}",
+    "allQueued": "{count, plural, one {Wartende Sicherung zurückziehen} other {Alle # wartenden zurückziehen}}",
+    "allQueuedTitle": "{count, plural, one {Wartende Sicherung zurückziehen?} other {Alle # wartenden Sicherungen zurückziehen?}}",
+    "allQueuedNodeTitle": "{count, plural, one {Die auf {node} wartende Sicherung zurückziehen?} other {Alle # auf {node} wartenden Sicherungen zurückziehen?}}"
+  },
+  "queue": {
+    "title": "Warteschlange",
+    "pause": "Warteschlange anhalten",
+    "resume": "Warteschlange fortsetzen",
+    "pauseTitle": "Warteschlange von {node} anhalten?",
+    "pauseBody": "Auf diesem Knoten startet keine neue Sicherung, bis Sie die Warteschlange fortsetzen. Eine laufende Sicherung läuft weiter; geplante Sicherungen warten (und verfallen nach 12 Stunden).",
+    "paused": "Warteschlange von {node} angehalten",
+    "resumed": "Warteschlange von {node} fortgesetzt",
+    "pausedBadge": "Warteschlange angehalten",
+    "pausedBy": "Angehalten von {name}",
+    "waiting": "{count, plural, one {# wartet} other {# warten}}"
+  },
+  "update": {
+    "now": "Auf {version} aktualisieren",
+    "available": "restow-pve {version} ist für diesen Knoten verfügbar.",
+    "pending": "Wird auf {version} aktualisiert…",
+    "requested": "{node} aktualisiert sich, sobald er frei ist",
+    "requestedNote": "Der Knoten installiert das signierte Release bei seiner nächsten Meldung, sobald dort keine Sicherung und keine Wiederherstellung läuft. Proxmox VE selbst wird nicht aktualisiert."
   }
 }

@@ -447,7 +447,17 @@
         }
       },
       "pause": "Ab jetzt startet kein neuer Lauf, bis das Update vorbei ist. Zeitpläne, die in dieser Zeit fällig werden, laufen danach."
-    }
+    },
+    "when": {
+      "title": "Wann",
+      "now": "Ab jetzt",
+      "at": "Zu Datum und Uhrzeit",
+      "date": "Datum",
+      "time": "Uhrzeit",
+      "zone": "Zeitzone der Installation: {zone}",
+      "countdown": "Countdown davor"
+    },
+    "confirmPlanned": "Update planen"
   },
   "dumps": {
     "title": "Datenbanksicherungen",
@@ -545,7 +555,9 @@
       "scheduledSwitch": "Wartung in {time}: {product} wechselt auf den vollen Build ({version}). Speichern Sie Ihre Arbeit.",
       "startingSwitch": "Die Wartung beginnt: {product} wechselt auf den vollen Build ({version}).",
       "runningSwitch": "Wartung läuft: {product} wechselt auf den vollen Build ({version}).",
-      "waiting": "Ein Update auf Version {version} wird vorbereitet. Bis es vorbei ist, startet kein neuer Lauf; was gerade läuft, wird zuerst fertig, spätestens am {time}."
+      "waiting": "Ein Update auf Version {version} wird vorbereitet. Bis es vorbei ist, startet kein neuer Lauf; was gerade läuft, wird zuerst fertig, spätestens am {time}.",
+      "planned": "{product} wird am {time} auf Version {version} aktualisiert.",
+      "fleet": "{product} wurde auf Version {version} aktualisiert. Proxmox-VE-Knoten und Agenten aktualisieren sich jetzt; neue Läufe starten, sobald sie fertig sind, spätestens am {time}."
     },
     "announce": {
       "start": "Wartung angekündigt: {product} wird in {time} auf Version {version} aktualisiert.",
@@ -624,28 +636,28 @@
           "verifying_compose": "Compose-Einrichtung wird geprüft"
         },
         "fetch": {
-          "pulling": "{image} wird heruntergeladen",
-          "pulling_web": "Web-Image {image} wird heruntergeladen",
-          "web_not_published": "Das Release hat kein Web-Image; das aktuelle ({image}) bleibt",
+          "pulling": "Das Image von Version {version} wird heruntergeladen",
+          "pulling_web": "Das Web-Image von Version {version} wird heruntergeladen",
+          "web_not_published": "Das Release hat kein Web-Image; das aktuelle bleibt",
           "verifying_signatures": "Signatur des Releases wird geprüft",
           "verifying_digests": "Heruntergeladene Images werden geprüft",
           "requesting_token": "Zugriffstoken wird angefordert",
           "downloading": "Version {version} wird aus dem Repository heruntergeladen",
           "extracting": "Version {version} wird entpackt",
-          "building": "{image} wird gebaut",
-          "building_web": "Web-Image {image} wird gebaut"
+          "building": "Das Image von Version {version} wird gebaut",
+          "building_web": "Das Web-Image von Version {version} wird gebaut"
         },
         "backup": {
           "baseline": "Stand vor der Sicherung wird gelesen",
-          "dumping": "Datenbanksicherung {file} wird geschrieben",
-          "verifying": "Datenbanksicherung {file} wird geprüft"
+          "dumping": "Die Datenbanksicherung wird geschrieben",
+          "verifying": "Die Datenbanksicherung wird geprüft"
         },
         "stop": {
-          "stopping": "{services} werden angehalten"
+          "stopping": "Die Dienste werden angehalten"
         },
         "start": {
           "writing_env": "Neue Image-Referenzen werden in die .env geschrieben",
-          "starting_api": "Neue Version ({image}) wird gestartet und die Datenbank migriert"
+          "starting_api": "Version {version} wird gestartet und die Datenbank migriert"
         },
         "health": {
           "waiting_for_api": "Warten auf die Antwort von Version {version}",
@@ -667,7 +679,7 @@
       },
       "recovery": {
         "stopping_application": "Anwendung wird zum Schutz der Daten angehalten",
-        "dump_kept": "Die Datenbanksicherung {file} blieb erhalten"
+        "dump_kept": "Die Datenbanksicherung blieb erhalten"
       }
     }
   },
@@ -783,5 +795,48 @@
       "text": "Neustart erforderlich: {services}.",
       "link": "Anleitung anzeigen"
     }
+  },
+  "countdown": {
+    "now": "Kein Countdown",
+    "minute1": "1 Minute vorher",
+    "minutes5": "5 Minuten vorher",
+    "minutes15": "15 Minuten vorher",
+    "minutes30": "30 Minuten vorher",
+    "hour1": "1 Stunde vorher",
+    "custom": "{minutes, plural, one {# Minute vorher} other {# Minuten vorher}}"
+  },
+  "planned": {
+    "title": "Update auf Version {version} geplant",
+    "body": "Es beginnt am {date} um {time} ({zone}), für Sie {local}. Geplant von {by}. Bis dahin wird nichts angehalten.",
+    "countdown": "Countdown für alle Angemeldeten: {lead}.",
+    "cancel": "Geplantes Update absagen",
+    "cancelTitle": "Geplantes Update auf {version} absagen?",
+    "cancelBody": "Das Update beginnt nicht zur geplanten Zeit. Sie können es jederzeit erneut planen oder ankündigen."
+  },
+  "fleet": {
+    "title": "Knoten und Agenten ({version})",
+    "following": "Der Server ist aktualisiert. Proxmox-VE-Knoten und Agenten installieren das Release, während neue Läufe angehalten sind, bis alle erreichbaren fertig sind, spätestens am {time}.",
+    "behind": "Diese Knoten und Agenten laufen mit einem älteren Release. Sie aktualisieren sich, sobald sie frei sind; Knoten und Rechner lassen sich auch auf ihrer eigenen Seite aktualisieren.",
+    "progressLabel": "Knoten und Agenten auf dem Release",
+    "counts": "{updated} von {total} aktualisiert · {pending} in Arbeit · {unreachable} nicht erreichbar · {paused} mit pausierten Updates",
+    "name": "Knoten oder Rechner",
+    "tenant": "Mandant",
+    "version": "Installierte Version",
+    "state": "Status",
+    "lastSeen": "Letzte Meldung",
+    "never": "Nie",
+    "kind": {
+      "pve_node": "Knoten",
+      "agent": "Rechner-Agent"
+    },
+    "states": {
+      "updated": "Aktualisiert",
+      "pending": "Wird aktualisiert",
+      "unreachable": "Nicht erreichbar",
+      "paused": "Updates pausiert"
+    },
+    "truncated": "Mehr als 200 werden nicht einzeln aufgeführt; die Zahlen umfassen alle.",
+    "manual": "Nicht erreicht: Aktualisieren Sie diese von Hand, sobald sie wieder online sind (als root).",
+    "copy": "Befehl kopieren"
   }
 }

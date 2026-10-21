@@ -651,8 +651,9 @@ With runs in progress it asks what happens to them:
 - **Stop them cleanly** (the default). Runs of Microsoft 365 and mail save a
   checkpoint and stop within a minute; they go back to the queue and continue
   after the update. Runs on the agents (servers, clients, Proxmox VE) and of file
-  shares cannot be stopped from the server, so the update waits for them, 30
-  minutes at the latest.
+  shares are not stopped by the update, so it waits for them, 30 minutes at the
+  latest. (Since 0.4.2 an administrator can stop them one by one in the web app;
+  see docs/PVE.md and docs/AGENT.md, "Stopping a backup".)
 - **Do not wait.** The update is announced right away, as before 0.4.0.
 
 In every case **no new run starts** from the confirmation until the update is
@@ -720,6 +721,48 @@ An update by hand (`docker compose pull && docker compose up -d`) does none of
 the waiting: the worker gets its 60 seconds, and everything above about stopped
 runs applies.
 
+### Nodes and agents
+
+Since 0.4.2 the Proxmox VE nodes (restow-pve) and the agents of servers and
+clients follow the server. Once the updated server runs, the pause of new runs
+does not lift at once: it moves to the phase `fleet` (audit
+`update.fleet_started`) and every node and agent behind the new release is told
+with its next heartbeat to update now. They install the signed release only
+while idle; during the pause they are. The pause lifts as soon as every
+reachable node and agent reports the new version (`update.jobs_resumed` with
+`reason: fleet_done`), and after 15 minutes in any case (`fleet_deadline`).
+Reachable means: called within the last seven minutes. An agent whose tenant (or
+the machine itself) paused agent updates is not waited for.
+
+The Updates tab shows the progress (updated, updating, not reachable, updates
+paused) and lists the ones still to come with their tenant and last contact.
+For the ones that were not reached it shows the command for an update by hand:
+
+```
+/opt/restow-pve/bin/restow-pve update                        # Proxmox VE node, as root
+sudo systemctl restart restow-agent                          # Linux agent (checks a minute after it starts)
+sudo launchctl kickstart -k system/com.restowbackup.agent    # macOS agent
+```
+
+A node's page and a machine's page also have **Update to <version>** whenever a
+newer release is offered, outside an update as well.
+
+### At a chosen time
+
+The install dialog offers **From now** (with a lead time, as before) or **At a
+date and time**: a date and a time in the installation's time zone
+(`RESTOW_TIME_ZONE`, else `TZ`, else Europe/Berlin; the dialog names it) and a
+countdown before it. The server keeps the plan (`settings.planned_update`, audit
+`update.planned`) and confirms it the countdown before the chosen time exactly as
+if it had been confirmed then: the same checks, the chosen handling of runs in
+progress, the same countdown for everyone. Nothing pauses before. Everyone who
+is signed in sees a notice from a day before. Up to 30 days ahead; a time the
+clock skips (the switch to daylight saving time) is refused. **Cancel** on the
+Updates tab drops the plan (`update.cancelled` with `planned: true`). If the
+server was down at the planned time and comes back more than an hour later, the
+plan is dropped instead of started (`update.plan_failed`).
+
+### Disk space
 ### Disk space
 
 An update writes a full database dump into the updater's volume, pulls two new

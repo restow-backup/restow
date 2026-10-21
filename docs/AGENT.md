@@ -160,7 +160,7 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | --- | --- |
 | `POST /enroll` | Token gegen Zugangsdaten tauschen (siehe oben). |
 | `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. Ab 0.4.0 zusätzlich `startsPaused` (pausiert ein Update gerade neue Läufe, siehe "Update-Pause") und, wenn eine Richtlinie etwas festlegt, `policy: { backupWindow?, catchUp, maxRetries }` (siehe "Richtlinien"); Bandbreite und Netzteil der Richtlinie stecken dann schon in `bandwidthKbps` und `onlyOnAcPower`. Ein älterer Agent ignoriert beide Felder. `Cache-Control: no-store`. |
-| `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts?, machine?, dataFolders?, waiting? }` ergibt `{ tasks, startsPaused }` (`startsPaused` ab 0.4.0; solange es `true` ist, enthält `tasks` keine `backup_now`-Aufgabe). Alle 5 Minuten (Jitter +-60 s) und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). `machine` und `dataFolders` (Agent ab 0.4.0) siehe "Rechner und Datenordner". `waiting` (Agent ab 0.4.0, immer gesendet): worauf eine fällige Sicherung wartet, `""` wenn nichts wartet (siehe "Richtlinien"); fehlt es, gilt es als unbekannt. |
+| `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts?, machine?, dataFolders?, waiting? }` ergibt `{ tasks, startsPaused, cancel, updateNow }` (`startsPaused` ab 0.4.0; solange es `true` ist, enthält `tasks` keine `backup_now`-Aufgabe; `cancel` und `updateNow` ab 0.4.2, siehe "Sicherung stoppen" und "Selbstaktualisierung"). Alle 5 Minuten (Jitter +-60 s), während ein Lauf läuft jede Minute (Agent ab 0.4.2), und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). `machine` und `dataFolders` (Agent ab 0.4.0) siehe "Rechner und Datenordner". `waiting` (Agent ab 0.4.0, immer gesendet): worauf eine fällige Sicherung wartet, `""` wenn nichts wartet (siehe "Richtlinien"); fehlt es, gilt es als unbekannt. |
 | `POST /runs` | `{ kind: backup/restore/verify_sample, taskId?, startedAt }` ergibt `{ runId }`. |
 | `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
 | `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity? }`. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
@@ -480,7 +480,7 @@ der Agent das im Heartbeat (`waiting: "update_pause"`), und die Seite des Rechne
 
 `backup_now`, `restore`, `verify_sample`, `update_config`, `uninstall`. Eine Aufgabe ist
 `pending`, dann `delivered` (der Agent hat sie mit dem Heartbeat erhalten), dann `done` oder
-`failed`.
+`failed`; seit 0.4.2 auch `cancelled` (in der Oberfläche zurückgezogen, siehe "Sicherung stoppen").
 
 - `backup_now`, `restore`, `verify_sample` enden mit dem Lauf, der sie über `taskId` aufgreift.
   Eine zugestellte Aufgabe, für die 30 Minuten lang kein Lauf begann, wird erneut zugestellt.
@@ -511,6 +511,38 @@ der Agent das im Heartbeat (`waiting: "update_pause"`), und die Seite des Rechne
   Ein Urteil sendet er nicht; der Server bewertet (siehe "Restore-Test"). Ein erneut angebotener
   Test trägt `retry` (1 bis 6) und `notBefore`.
 
+### Sicherung stoppen (seit 0.4.2)
+
+Auf der Seite eines Rechners und im Lauf-Detail (History) stoppt **Sicherung stoppen** die
+laufende Sicherung und zieht ein wartendes "Jetzt sichern" zurück (`POST
+/api/v1/endpoints/:id/cancel`; wer sichern darf, darf auch stoppen; mit Rückfrage; Audit
+`endpoint.backup.cancelled`). Wer gestoppt hat, steht am Lauf und an der Aufgabe.
+
+- Eine noch nicht zugestellte Aufgabe (`pending`) endet sofort als `cancelled`.
+- Eine zugestellte Aufgabe und ein laufender Lauf bekommen eine Abbruch-Anforderung; die Seite
+  zeigt "Wird abgebrochen…". Der Agent (ab 0.4.2) erhält sie mit dem nächsten Heartbeat (`cancel:
+  { tasks, runs }`, während eines Laufs jede Minute) und beendet den Lauf: restic bekommt SIGINT
+  und hört sauber auf (kein Snapshot, keine Sperre bleibt zurück), ein Post-Hook läuft wie sonst.
+  Der Agent meldet den Lauf mit dem Fehlercode `cancelled`; der Server speichert ihn als
+  `cancelled`, nicht als `failed`: kein Alarm, kein Webhook `job.failed`, `last_backup_at` und der
+  Zähler fehlgeschlagener Sicherungen bleiben, und der Agent setzt den Lauf nicht fort (der nächste
+  geplante Lauf startet normal).
+- Startet der Agent eine zurückgezogene Aufgabe, lehnt der Server den Lauf mit 409 ab und setzt
+  die Aufgabe auf `cancelled`; der Agent (ab 0.4.2) versucht es dann nicht erneut.
+- Ein älterer Agent kennt die Anforderung nicht: Seine laufende Sicherung läuft zu Ende.
+
+### Selbstaktualisierung auf Anforderung (seit 0.4.2)
+
+Der Agent sucht sein Update eine Minute nach dem Start und dann alle sechs Stunden selbst und
+installiert es nur, wenn kein Lauf läuft. Zusätzlich sagt der Heartbeat `updateNow: true`, wenn
+ein Administrator auf der Seite des Rechners **Auf <Version> aktualisieren** gewählt hat (`POST
+/api/v1/endpoints/:id/update`, Audit `endpoint.update_requested`) oder der Server gerade
+aktualisiert wurde und seine Agenten nachziehen (docs/UPDATING.md, "Nodes and agents"). Der
+Agent fragt dann sofort `GET /update` und installiert, sobald er frei ist. Pausierte
+Agent-Updates (Mandant oder Rechner) gelten weiter. Von Hand: den Dienst neu starten (`sudo
+systemctl restart restow-agent`, auf macOS `sudo launchctl kickstart -k
+system/com.restowbackup.agent`); der Agent sucht eine Minute danach.
+
 ### Stichproben (`sample`)
 
 Nach jeder erfolgreichen Sicherung wählt der Agent aus bis zu 80 zufälligen regulären Dateien
@@ -527,7 +559,7 @@ Restore-Test.
 
 `errors[].code` ist ein Code des Agenten; der Server speichert ihn unverändert (ein neuerer Agent
 darf weitere senden), die Oberfläche formuliert die bekannten (`endpoints:runErrors.<code>`):
-`interrupted`, `no_paths`, `pre_hook_failed`, `post_hook_failed`, `hooks_not_allowed`, `timeout`,
+`interrupted`, `cancelled` (seit 0.4.2, siehe "Sicherung stoppen"), `no_paths`, `pre_hook_failed`, `post_hook_failed`, `hooks_not_allowed`, `timeout`,
 `target_not_empty`, `invalid_task`, `hash_mismatch`, `missing`, `not_regular`, `read_error` und
 `restic_exit_<N>`. `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
 Hooks des Servers nicht zu; die Sicherung lief ohne ihn und ist `partial`. `missing` heißt nur noch:

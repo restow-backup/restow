@@ -54,6 +54,15 @@ import {
 } from "./api.js";
 import { activityHint, BackupProgress } from "./backup-progress.js";
 import { BackupSizeCell } from "./backup-size.js";
+import {
+  CancelBackupButton,
+  CancelledBadge,
+  CancellingBadge,
+  CancelQueuedButton,
+  NodeQueueButton,
+  NodeUpdateButton,
+  QueuePausedBadge,
+} from "./cancel-controls.js";
 import { ConnectDialog } from "./connect-dialog.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo } from "./paths.js";
@@ -379,7 +388,9 @@ export function GuestState({ guest, node }: { guest: PveGuest; node?: PveNode | 
       </Badge>,
     );
   }
-  if (guest.activity === "running") {
+  if (guest.activity && guest.cancelling) {
+    badges.push(<CancellingBadge key="c" by={guest.cancelledBy} />);
+  } else if (guest.activity === "running") {
     badges.push(
       <Badge key="run" variant="info" data-slot="pve-guest-activity" title={hint}>
         {t("guests.running")}
@@ -404,6 +415,8 @@ export function GuestState({ guest, node }: { guest: PveGuest; node?: PveNode | 
         {t("guests.lastFailed")}
       </Badge>,
     );
+  } else if (guest.lastRunStatus === "cancelled" && !guest.activity) {
+    badges.push(<CancelledBadge key="x" by={guest.lastRunCancelledBy} />);
   } else if ((guest.backups?.last?.unreadable ?? 0) > 0) {
     // Succeeded, but the restore point misses what restic could not read.
     badges.push(
@@ -488,11 +501,14 @@ export function PvePage() {
     .map((guest) => guest.id);
   const nodeOf = (g: PveGuest): PveNode | null =>
     data?.clusters.find((c) => c.id === g.clusterId)?.nodes.find((n) => n.name === g.node) ?? null;
+  // Every backup that waits for a node, for "Cancel all queued" of the tenant.
+  const queuedTotal = nodes.reduce((sum, n) => sum + (n.queuedBackups ?? 0), 0);
 
   return (
     <div className="space-y-6">
       <PageHeader title={t("page.title")} description={t("page.subtitle")}>
         <RefreshButton onRefresh={() => void overview.refetch()} fetching={overview.isFetching} />
+        <CancelQueuedButton node={null} count={queuedTotal} />
         <ConnectDialog />
       </PageHeader>
       <p className="text-sm text-muted-foreground" data-slot="pve-limits">
@@ -520,6 +536,7 @@ export function PvePage() {
                 <TableHead>{t("nodes.fleecing")}</TableHead>
                 <TableHead>{t("nodes.lastSeen")}</TableHead>
                 <TableHead>{t("nodes.problems")}</TableHead>
+                <TableHead>{t("queue.title")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -534,7 +551,12 @@ export function PvePage() {
                     </Badge>
                   </TableCell>
                   <TableCell>{n.pveVersion ?? ""}</TableCell>
-                  <TableCell>{n.helperVersion ?? ""}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="tabular-nums">{n.helperVersion ?? ""}</span>
+                      <NodeUpdateButton node={n} />
+                    </div>
+                  </TableCell>
                   <TableCell>{n.fleecingStorage ?? ""}</TableCell>
                   <TableCell>
                     <RelativeTime value={n.lastSeenAt} fallback={t("nodes.never")} />
@@ -546,6 +568,18 @@ export function PvePage() {
                           {problemLabel(t, p)}
                         </Badge>
                       ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center gap-2" data-slot="pve-node-queue">
+                      <QueuePausedBadge node={n} />
+                      {(n.queuedBackups ?? 0) > 0 ? (
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {t("queue.waiting", { count: n.queuedBackups ?? 0 })}
+                        </span>
+                      ) : null}
+                      <NodeQueueButton node={n} />
+                      <CancelQueuedButton node={n} count={n.queuedBackups ?? 0} />
                     </div>
                   </TableCell>
                   <TableCell>
@@ -700,15 +734,25 @@ export function PvePage() {
                     ) : null}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={backup.isPending || (g.kind === "vm" && g.template)}
-                      onClick={() => backup.mutate(g.id)}
-                    >
-                      {t("guests.backupNow")}
-                    </Button>
+                    {g.activity ? (
+                      <CancelBackupButton
+                        guestId={g.id}
+                        name={g.name ?? String(g.vmid)}
+                        activity={g.activity}
+                        cancelling={g.cancelling}
+                        cancelledBy={g.cancelledBy}
+                      />
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={backup.isPending || (g.kind === "vm" && g.template)}
+                        onClick={() => backup.mutate(g.id)}
+                      >
+                        {t("guests.backupNow")}
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

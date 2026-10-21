@@ -18,6 +18,7 @@ import {
 import {
   type CreateTaskInput,
   type CreateTokenInput,
+  cancelEndpointBackup,
   createDownload,
   createTask,
   createToken,
@@ -31,6 +32,7 @@ import {
   fetchRuns,
   fetchSnapshots,
   fetchTokens,
+  requestEndpointUpdate,
   requestRestoreTest,
   resumeMachineUpdates,
   revealRepositoryPassword,
@@ -283,6 +285,24 @@ export function useAssignEndpoint() {
     mutationFn: ({ endpointId, userId }: { endpointId: string; userId: string | null }) =>
       updateEndpoint(endpointId, { assignedUserId: userId }),
     onSettled: (_result, _error, { endpointId }) => refresh(endpointId),
+  });
+}
+
+/** Stop the machine's backup (running or queued); refreshes the machine afterwards. */
+export function useCancelEndpointBackup(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: () => cancelEndpointBackup(endpointId),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+/** "Update now" for the machine's agent. */
+export function useRequestEndpointUpdate(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: () => requestEndpointUpdate(endpointId),
+    onSettled: () => refresh(endpointId),
   });
 }
 

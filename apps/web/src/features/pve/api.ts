@@ -19,6 +19,15 @@ export interface PveNode {
   restoresAllowed: boolean | null;
   /** What the node runs beyond backups and restores ("boot_test"); missing on older servers. */
   capabilities?: string[];
+  /** The node's queue is paused (0.4.2): since when and by whom; missing on older servers. */
+  queuePausedAt?: string | null;
+  queuePausedBy?: string | null;
+  /** Backups that wait for the node. */
+  queuedBackups?: number;
+  /** The restow-pve release the node would update to; null when it is up to date. */
+  updateVersion?: string | null;
+  /** "Update now" was asked for and the node has not reported the release yet. */
+  updateRequestedAt?: string | null;
 }
 
 export interface PveCluster {
@@ -48,6 +57,11 @@ export interface PveGuest {
   lastSuccessAt: string | null;
   lastRunStatus: string | null;
   lastRunError: string | null;
+  /** Who stopped the last backup when it ended cancelled (0.4.2). */
+  lastRunCancelledBy?: string | null;
+  /** A stop was asked for and the node has not ended the backup yet ("Cancelling", 0.4.2). */
+  cancelling?: boolean;
+  cancelledBy?: string | null;
   /** What is happening now: the backup was handed to the node, or runs; null otherwise (and on older servers). */
   activity?: "queued" | "running" | null;
   /** Since when the guest waits for its node or its backup runs; missing on servers before 0.4.0. */
@@ -238,7 +252,7 @@ export interface PveRun {
   id: string;
   kind: "backup" | "restore" | "restore_test" | "verify" | "boot_test";
   origin: "restow" | "pve";
-  status: "running" | "succeeded" | "failed";
+  status: "running" | "succeeded" | "failed" | "cancelled";
   archiveName: string | null;
   startedAt: string;
   finishedAt: string | null;
@@ -255,6 +269,20 @@ export interface PveRun {
   progress?: PveRunProgress | null;
   /** The node a running run runs on and its restow-pve version; missing on servers before 0.4.1. */
   node?: PveRunNode | null;
+  /** When a stop was asked for (0.4.2) and by whom: "Cancelling" while running, then "Cancelled by". */
+  cancelRequestedAt?: string | null;
+  cancelledBy?: string | null;
+}
+
+/** A task that waits for the guest's node (backup, restore, boot test). */
+export interface PveOpenTask {
+  id: string;
+  kind: string;
+  status: "pending" | "delivered";
+  createdAt: string;
+  /** A stop was asked for while the node has it (0.4.2). */
+  cancelRequestedAt?: string | null;
+  cancelledBy?: string | null;
 }
 
 export interface PveGuestDetail {
@@ -262,6 +290,8 @@ export interface PveGuestDetail {
   cluster: { id: string; name: string; storageId: string } | null;
   snapshots: PveRestorePoint[];
   runs: PveRun[];
+  /** The guest's open tasks; missing on old servers. */
+  tasks?: PveOpenTask[];
   /** What a follow-up backup added on average; missing on servers before 0.3.7. */
   followUp?: PveFollowUpAverage | null;
   /** Whether the guest's node can boot-test, the job's schedule, the last test; missing on older servers. */
@@ -337,6 +367,35 @@ export const createToken = (pveToken?: ExistingPveToken) =>
   });
 export const revokeNode = (id: string) =>
   apiFetch<void>(`/pve/nodes/${encodeURIComponent(id)}/revoke`, {
+    method: "POST",
+    body: {},
+  });
+/** What a cancel did: backups withdrawn from the queue, backups asked to stop. */
+export interface PveCancelResult {
+  withdrawn: number;
+  stopping: number;
+}
+/** Stop the guest's running backup and withdraw its queued ones (0.4.2). */
+export const cancelGuestBackup = (id: string) =>
+  apiFetch<PveCancelResult>(`/pve/guests/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+    body: {},
+  });
+/** Withdraw every queued backup of a node, or of the tenant without a node. */
+export const cancelQueuedBackups = (nodeId: string | null) =>
+  apiFetch<PveCancelResult>(
+    nodeId ? `/pve/nodes/${encodeURIComponent(nodeId)}/queue/cancel` : "/pve/queue/cancel",
+    { method: "POST", body: {} },
+  );
+/** Pause or resume a node's queue: no backup starts there while it is paused. */
+export const setNodeQueuePaused = (nodeId: string, paused: boolean) =>
+  apiFetch<{ queuePausedAt: string | null; queuePausedBy: string | null }>(
+    `/pve/nodes/${encodeURIComponent(nodeId)}/queue/${paused ? "pause" : "resume"}`,
+    { method: "POST", body: {} },
+  );
+/** The node installs the offered restow-pve release as soon as it is idle. */
+export const requestNodeUpdate = (nodeId: string) =>
+  apiFetch<{ updateRequestedAt: string }>(`/pve/nodes/${encodeURIComponent(nodeId)}/update`, {
     method: "POST",
     body: {},
   });

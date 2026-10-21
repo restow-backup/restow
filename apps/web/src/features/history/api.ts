@@ -101,7 +101,12 @@ export interface Run {
   throttle: JobThrottle | null;
   errorMessage: string | null;
   failure: Failure | null;
+  /** The run can be stopped now (mail, a machine's backup, a share's run; 0.4.2 for the latter two). */
   cancellable: boolean;
+  /** A stop was asked for and the run has not ended yet; missing on older servers. */
+  cancelling?: boolean;
+  /** Who stopped it (machines), for "Cancelled by ...". */
+  cancelledBy?: string | null;
 }
 
 export type RestoreCheckState =

@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
+  ArrowUpCircle,
+  Ban,
   Camera,
   LayoutDashboard,
   Play,
@@ -11,14 +13,21 @@ import {
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { DisabledReason, ErrorState, PageHeader, RefreshButton } from "@/components/kit";
+import {
+  ConfirmDialog,
+  DisabledReason,
+  ErrorState,
+  PageHeader,
+  RefreshButton,
+} from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ObjectSuspicionBadge, RetentionHoldNotice } from "@/features/suspicion";
-import { ApiError } from "@/lib/api";
+import { ApiError, errorMessageKey } from "@/lib/api";
 
 import type { EndpointDetail } from "./api.js";
 import { AttentionArea } from "./components/attention-area.js";
@@ -34,7 +43,13 @@ import {
   ProfileBadge,
   ReadinessBadge,
 } from "./components/status.js";
-import { useCreateTask, useEndpoint, useRestoreTest } from "./hooks.js";
+import {
+  useCancelEndpointBackup,
+  useCreateTask,
+  useEndpoint,
+  useRequestEndpointUpdate,
+  useRestoreTest,
+} from "./hooks.js";
 import { ENDPOINT_TABS, type EndpointTab, inventoryTo } from "./paths.js";
 import { endpointErrorKey, endpointHostLine, endpointName, isWithoutBackup } from "./presenters.js";
 
@@ -43,6 +58,134 @@ const TAB_ICON: Record<EndpointTab, typeof Camera> = {
   snapshots: Camera,
   settings: Settings,
 };
+
+/**
+ * What can be stopped (0.4.2): the running backup, else a "back up now" that waits for the
+ * machine. `cancelling` while the agent has not stopped it yet.
+ */
+export function stoppableBackup(
+  detail: Pick<EndpointDetail, "runs" | "tasks">,
+): { activity: "running" | "queued"; cancelling: boolean; by: string | null } | null {
+  const run = detail.runs.find((r) => r.kind === "backup" && r.status === "running");
+  if (run) {
+    return {
+      activity: "running",
+      cancelling: Boolean(run.cancelRequestedAt),
+      by: run.cancelledBy ?? null,
+    };
+  }
+  const queued = detail.tasks.filter(
+    (task) =>
+      task.kind === "backup_now" && (task.status === "pending" || task.status === "delivered"),
+  );
+  if (queued.length === 0) {
+    return null;
+  }
+  return {
+    activity: "queued",
+    cancelling: queued.every((task) => Boolean(task.cancelRequestedAt)),
+    by: queued[0]?.cancelledBy ?? null,
+  };
+}
+
+/** Stop the machine's running backup, or withdraw its queued one, after a question. */
+function StopBackupButton({ detail }: { detail: EndpointDetail }) {
+  const { t } = useTranslation("endpoints");
+  const { t: tc } = useTranslation();
+  const cancel = useCancelEndpointBackup(detail.id);
+  const [open, setOpen] = React.useState(false);
+  const stoppable = stoppableBackup(detail);
+  if (!stoppable) {
+    return null;
+  }
+  if (stoppable.cancelling) {
+    return (
+      <Badge
+        variant="warning"
+        data-slot="endpoint-cancelling"
+        title={stoppable.by ? t("cancel.requestedBy", { name: stoppable.by }) : undefined}
+      >
+        {t("cancel.cancelling")}
+      </Badge>
+    );
+  }
+  const running = stoppable.activity === "running";
+  const name = endpointName(detail);
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        data-slot="endpoint-cancel-backup"
+      >
+        <Ban aria-hidden="true" />
+        {running ? t("cancel.stop") : t("cancel.withdraw")}
+      </Button>
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        title={running ? t("cancel.stopTitle", { name }) : t("cancel.withdrawTitle", { name })}
+        description={running ? t("cancel.stopBody") : t("cancel.withdrawBody")}
+        confirmLabel={running ? t("cancel.stopConfirm") : t("cancel.withdrawConfirm")}
+        cancelLabel={t("cancel.keep")}
+        destructive
+        pending={cancel.isPending}
+        error={cancel.error ? tc(errorMessageKey(cancel.error)) : undefined}
+        onConfirm={() =>
+          cancel.mutateAsync().then((result) => {
+            setOpen(false);
+            if (result.stopping > 0) {
+              toast.success(t("cancel.stopping"), { description: t("cancel.stoppingNote") });
+            } else {
+              toast.success(t("cancel.withdrawn"));
+            }
+          })
+        }
+      />
+    </>
+  );
+}
+
+/** "Update to X": the agent installs the release with its next heartbeat once it is idle. */
+function UpdateNowButton({ detail }: { detail: EndpointDetail }) {
+  const { t } = useTranslation("endpoints");
+  const { t: tc } = useTranslation();
+  const update = useRequestEndpointUpdate(detail.id);
+  if (!detail.updateVersion || detail.status === "revoked") {
+    return null;
+  }
+  if (detail.updateRequestedAt) {
+    return (
+      <Badge variant="info" data-slot="endpoint-updating" title={t("agentUpdate.requestedNote")}>
+        {t("agentUpdate.pending", { version: detail.updateVersion })}
+      </Badge>
+    );
+  }
+  return (
+    <DisabledReason reason={detail.autoUpdatePaused ? t("agentUpdate.paused") : null}>
+      <Button
+        variant="outline"
+        size="sm"
+        loading={update.isPending}
+        disabled={detail.autoUpdatePaused}
+        onClick={() =>
+          update.mutate(undefined, {
+            onSuccess: () =>
+              toast.success(t("agentUpdate.requested"), {
+                description: t("agentUpdate.requestedNote"),
+              }),
+            onError: (error) => toast.error(tc(errorMessageKey(error))),
+          })
+        }
+        data-slot="endpoint-update-now"
+      >
+        {update.isPending ? null : <ArrowUpCircle aria-hidden="true" />}
+        {t("agentUpdate.now", { version: detail.updateVersion })}
+      </Button>
+    </DisabledReason>
+  );
+}
 
 /** Back up now and the restore test: the two things an admin starts from here. */
 function ActionButtons({ detail }: { detail: EndpointDetail }) {
@@ -89,6 +232,8 @@ function ActionButtons({ detail }: { detail: EndpointDetail }) {
 
   return (
     <>
+      <UpdateNowButton detail={detail} />
+      <StopBackupButton detail={detail} />
       <DisabledReason
         reason={revoked ? t("actions.revoked") : noBackup ? t("actions.test.needsBackup") : null}
       >

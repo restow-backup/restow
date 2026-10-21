@@ -8,6 +8,56 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- Stop a backup from the web app, without SSH on the node. Proxmox VE: **Stop** in the VMs &
+  containers table, on the guest's page and in the run drawer withdraws a queued backup at once
+  and stops a running one: restow-pve now keeps its heartbeat going while a backup runs, gets
+  the cancel order with it and stops the vzdump task through the PVE API (a backup started in
+  PVE: its provider). The run ends **cancelled**, not failed, and shows "Cancelled by <user>".
+  Per node: **Pause queue** (no new backup starts until resumed) and **Cancel all queued**,
+  also for the whole tenant. Servers and clients: **Stop backup** on the machine's page and in
+  the run drawer; the agent stops restic cleanly with its next heartbeat (every minute while
+  it backs up). Runs of file shares can now be cancelled from the run drawer as well (Microsoft
+  365 and IMAP runs already could). Every stop asks first and is audited.
+- Nodes and agents follow a server update: after the server runs the new release, new runs
+  stay paused while Proxmox VE nodes and agents install it (they are idle then), until every
+  reachable one reports it or 15 minutes have passed. The Updates tab shows their progress and,
+  for the ones not reached, the command for an update by hand. **Update to <version>** on a
+  node and on a machine asks for the update at any time.
+- Updates can be planned for a chosen date and time (in the installation's time zone) besides
+  the lead times from now; nothing pauses before, and everyone sees a notice from a day before.
+- When an update is available, the version in the sidebar becomes a highlighted, gently
+  pulsing **Update to <version> available** that leads to Installation › Updates (for those
+  who may install updates; no animation with reduced motion).
+
+### Changed
+
+- A run that was stopped on request is `cancelled` (machines: a new run and task status);
+  it raises no failure alert and does not count as the last backup.
+
+### Fixed
+
+- The maintenance and update banner covered the top of pages that size themselves to the
+  window: the layout now accounts for the banner's height, also when it wraps to several
+  lines.
+- The update progress said "Downloading {image}" (and "{file}", "{services}"): those steps
+  now name the version instead of a placeholder the updater never fills.
+
+### Upgrade Notes
+
+New image and one database migration, `0053_cancel_and_fleet_update` (cancel requests and
+`cancelled` states for tasks and runs, a node's paused queue, "update now" for nodes and
+machines, the phase `fleet` of the job-start pause, `settings.planned_update`), which runs in
+seconds. Optional: `RESTOW_TIME_ZONE` names the installation's time zone for planned updates
+(default `TZ`, else Europe/Berlin).
+
+- Stopping a running backup needs restow-pve 0.4.2 on the node and agent 0.4.2 on the machine;
+  an older node ends a cancelled backup at its next upload (the server refuses it), an older
+  agent finishes it. Both update themselves with this release.
+
 ## [0.4.1] - 2026-10-16
 
 Beta release. Run it alongside your existing backups, not as your only one, until

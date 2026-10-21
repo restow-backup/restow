@@ -26,6 +26,7 @@ import {
 } from "../api";
 import { useJobActivity, useScheduleUpdate } from "../hooks";
 import {
+  countdownLabel,
   formatReleaseDate,
   isUnverifiableRelease,
   leadTimeLabel,
@@ -36,6 +37,32 @@ import { ChoiceOption } from "./choice-option";
 
 /** Five minutes ahead is the default: long enough to save work, short enough not to forget it. */
 export const DEFAULT_LEAD_SECONDS = 300;
+
+/**
+ * The date and time a plan starts from: tomorrow at 22:00 in the installation's zone (the
+ * evening is when an update hurts least). Read with the browser's Intl; without a zone, empty.
+ */
+export function defaultPlannedAt(
+  timeZone: string | null,
+  now: Date = new Date(),
+): { date: string; time: string } {
+  if (!timeZone) {
+    return { date: "", time: "" };
+  }
+  try {
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    // en-CA formats a date as YYYY-MM-DD, which a date input takes.
+    const date = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(tomorrow);
+    return { date, time: "22:00" };
+  } catch {
+    return { date: "", time: "22:00" };
+  }
+}
 
 /**
  * Runs in progress are stopped cleanly by default (#46): quick, and nothing is lost; runs on
@@ -73,6 +100,11 @@ export function InstallDialog({
 
   const [version, setVersion] = React.useState(newest);
   const [lead, setLead] = React.useState(defaultLead);
+  // When (0.4.2): from now with a lead time, or at a chosen date and time in the installation's
+  // time zone (the server keeps the plan and confirms it then; older servers: from now only).
+  const timeZone = view.timeZone ?? null;
+  const [when, setWhen] = React.useState<"now" | "at">("now");
+  const [at, setAt] = React.useState(() => defaultPlannedAt(timeZone));
   const [jobMode, setJobMode] = React.useState<JobPauseMode>(DEFAULT_JOB_MODE);
   const activity = useJobActivity(open);
   // Without counts (they could not be read) the choice is offered all the same.
@@ -90,6 +122,8 @@ export function InstallDialog({
       setVersion(newest);
       setLead(defaultLead);
       setJobMode(DEFAULT_JOB_MODE);
+      setWhen("now");
+      setAt(defaultPlannedAt(timeZone));
     }
   }
   const { reset } = schedule;
@@ -103,7 +137,15 @@ export function InstallDialog({
   const selectedVersion = selected?.version ?? "";
   const unverifiable = isUnverifiableRelease(view, selected);
 
-  const announce = (input: { version: string; leadSeconds: number; jobs: JobPauseMode }) => {
+  const planned = when === "at" && timeZone !== null;
+  const atComplete = /^\d{4}-\d{2}-\d{2}$/.test(at.date) && /^\d{2}:\d{2}$/.test(at.time);
+
+  const announce = (input: {
+    version: string;
+    leadSeconds: number;
+    jobs: JobPauseMode;
+    at?: { date: string; time: string };
+  }) => {
     schedule.mutate(input, {
       onSuccess: () => onOpenChange(false),
       onError: (error) => {
@@ -118,6 +160,14 @@ export function InstallDialog({
 
   const confirm = () => {
     if (schedule.isPending || !runsSettled || selectedVersion === "" || unverifiable) {
+      return;
+    }
+    if (planned) {
+      if (!atComplete) {
+        return;
+      }
+      // Planned: what runs then is unknown now, so the chosen handling of runs goes along.
+      announce({ version: selectedVersion, leadSeconds: lead, jobs: jobMode, at });
       return;
     }
     // With nothing in progress the update need not wait; new runs still pause until it is over.
@@ -187,11 +237,70 @@ export function InstallDialog({
             </div>
           </fieldset>
 
+          {timeZone ? (
+            <fieldset className="space-y-2" data-slot="install-when">
+              <legend className="mb-2 text-sm leading-none font-medium">
+                {t("install.when.title")}
+              </legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <ChoiceOption
+                  name="update-when"
+                  value="now"
+                  checked={when === "now"}
+                  onSelect={() => setWhen("now")}
+                >
+                  <span className="block font-medium">{t("install.when.now")}</span>
+                </ChoiceOption>
+                <ChoiceOption
+                  name="update-when"
+                  value="at"
+                  checked={when === "at"}
+                  onSelect={() => setWhen("at")}
+                >
+                  <span className="block font-medium">{t("install.when.at")}</span>
+                </ChoiceOption>
+              </div>
+              {planned ? (
+                <div className="flex flex-wrap items-end gap-3" data-slot="install-at">
+                  <label className="grid gap-1 text-sm">
+                    <span className="font-medium">{t("install.when.date")}</span>
+                    <input
+                      type="date"
+                      required
+                      className="h-9 rounded-md border bg-background px-2 text-sm"
+                      value={at.date}
+                      onChange={(event) =>
+                        setAt((current) => ({ ...current, date: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm">
+                    <span className="font-medium">{t("install.when.time")}</span>
+                    <input
+                      type="time"
+                      required
+                      className="h-9 rounded-md border bg-background px-2 text-sm"
+                      value={at.time}
+                      onChange={(event) =>
+                        setAt((current) => ({ ...current, time: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <p className="pb-2 text-xs text-muted-foreground" data-slot="install-zone">
+                    {t("install.when.zone", { zone: timeZone })}
+                  </p>
+                </div>
+              ) : null}
+            </fieldset>
+          ) : null}
+
           <fieldset className="space-y-2">
-            <legend className="mb-2 text-sm leading-none font-medium">{t("install.lead")}</legend>
+            <legend className="mb-2 text-sm leading-none font-medium">
+              {planned ? t("install.when.countdown") : t("install.lead")}
+            </legend>
             <div className="grid gap-2 sm:grid-cols-2">
               {leadTimes.map((seconds) => {
-                const label = leadTimeLabel(seconds);
+                const label = planned ? countdownLabel(seconds) : leadTimeLabel(seconds);
                 return (
                   <ChoiceOption
                     key={seconds}
@@ -211,7 +320,7 @@ export function InstallDialog({
             activity={activity.data}
             loading={activity.isPending}
             failed={activity.isError && !activity.data}
-            choose={runsInProgress}
+            choose={runsInProgress || planned}
             mode={jobMode}
             onModeChange={setJobMode}
           />
@@ -262,13 +371,15 @@ export function InstallDialog({
             type="button"
             onClick={confirm}
             loading={schedule.isPending}
-            disabled={unverifiable || !runsSettled}
+            disabled={unverifiable || !runsSettled || (planned && !atComplete)}
           >
-            {waits
-              ? t("install.confirmAfterRuns")
-              : lead === 0
-                ? t("install.confirmNow")
-                : t("install.confirm")}
+            {planned
+              ? t("install.confirmPlanned")
+              : waits
+                ? t("install.confirmAfterRuns")
+                : lead === 0
+                  ? t("install.confirmNow")
+                  : t("install.confirm")}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

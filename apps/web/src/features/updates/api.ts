@@ -236,6 +236,8 @@ export type MaintenanceView = PublicStatus & {
   runningVersion: string | null;
   /** New job starts are paused for an update (#46); absent from servers before 0.4.0. */
   jobPause?: MaintenanceJobPause | null;
+  /** An update planned for a chosen time, not announced yet (0.4.2; else absent). */
+  planned?: { version: string; startsAt: string } | null;
 };
 
 // --- Jobs at an update (#46) ------------------------------------------------------------------
@@ -244,7 +246,8 @@ export type MaintenanceView = PublicStatus & {
 export const JOB_PAUSE_MODES = ["wait", "drain", "interrupt"] as const;
 export type JobPauseMode = (typeof JOB_PAUSE_MODES)[number];
 
-export const JOB_PAUSE_PHASES = ["draining", "announced"] as const;
+/** `fleet` (0.4.2): the server is updated, its nodes and agents update themselves. */
+export const JOB_PAUSE_PHASES = ["draining", "announced", "fleet"] as const;
 export type JobPausePhase = (typeof JOB_PAUSE_PHASES)[number];
 
 /** The pause of new job starts as every signed-in user sees it. */
@@ -471,6 +474,58 @@ export interface UpdatesView {
   edition?: EditionView;
   /** New job starts paused for an update (#46); absent from servers before 0.4.0. */
   jobPause?: JobPauseView | null;
+  /** Proxmox VE nodes and endpoint agents against the release they update to (0.4.2). */
+  fleet?: FleetStatus | null;
+  /** An update planned for a chosen time (0.4.2). */
+  planned?: PlannedUpdateView | null;
+  /** The installation's time zone; chosen times are read in it (0.4.2). */
+  timeZone?: string;
+}
+
+/** An update planned for a chosen time (0.4.2). */
+export interface PlannedUpdateView {
+  version: string;
+  startsAt: string;
+  leadSeconds: number;
+  jobs: JobPauseMode;
+  at: { date: string; time: string };
+  timeZone: string;
+  requestedBy: string;
+  plannedAt: string;
+}
+
+export type FleetMemberKind = "pve_node" | "agent";
+export type FleetMemberState = "updated" | "pending" | "unreachable" | "paused";
+
+export interface FleetMember {
+  kind: FleetMemberKind;
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  name: string;
+  os: string | null;
+  version: string | null;
+  state: FleetMemberState;
+  lastSeenAt: string | null;
+}
+
+export interface FleetCounts {
+  updated: number;
+  pending: number;
+  unreachable: number;
+  paused: number;
+  total: number;
+}
+
+/** Where the nodes and agents stand against the release the server announces (0.4.2). */
+export interface FleetStatus {
+  targetVersion: string;
+  counts: Record<FleetMemberKind | "all", FleetCounts>;
+  /** The ones still to update (pending first), at most 200. */
+  members: FleetMember[];
+  truncated: boolean;
+  /** What to run by hand where a node or machine was not reached. */
+  commands: { pve_node: string; linux: string; darwin: string };
 }
 
 export interface UpdateSettingsInput {
@@ -487,6 +542,8 @@ export interface ScheduleUpdateInput {
   leadSeconds: number;
   /** What happens to running jobs; omitted, the update does not wait. */
   jobs?: JobPauseMode;
+  /** A chosen moment in the installation's time zone (0.4.2); omitted, confirmed now. */
+  at?: { date: string; time: string };
 }
 
 /** Problem types of the updates endpoints (RFC 7807 `type`). */

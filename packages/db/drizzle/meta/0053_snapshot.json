@@ -1,5 +1,5 @@
 {
-  "id": "d0549388-ca82-4681-9e31-0302f84b6486",
+  "id": "e9071c55-3ddb-4504-9e11-7bb17e1f9f2c",
   "prevId": "e4f5316b-2dc8-4efd-bd16-0ed5c1820810",
   "version": "7",
   "dialect": "postgresql",
@@ -13649,6 +13649,12 @@
         "update_audit_cursor": {
           "name": "update_audit_cursor",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planned_update": {
+          "name": "planned_update",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

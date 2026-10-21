@@ -195,6 +195,60 @@ unique per installation).
   node boots the newest restore point in isolation and destroys it again; see
   "Boot test" below.
 
+## Stopping a backup
+
+Since 0.4.2 a backup can be stopped from the web app, without SSH on the node.
+Whoever may start a backup may stop one (tenant administrators; provider members
+with the operate permission). Every stop asks first and is audited
+(`pve.backup.cancelled`, `pve.queue.cancelled`, `pve.queue.paused`,
+`pve.queue.resumed`); who asked is kept with the task and the run.
+
+- **Stop** (VMs & containers table, the guest's page, the run drawer). A backup
+  that waits for its node (`pending`) is withdrawn at once: the node never sees
+  it, and History shows a run "Cancelled by <user>". One the node already got
+  (`delivered`) or that runs gets a cancel request; the page shows
+  "Cancelling…" until the node has stopped it.
+- **How the node stops it.** restow-pve (0.4.2) keeps its heartbeat going while
+  a task runs (every 15 seconds) and gets the cancel orders with it
+  (`cancel.tasks`, `cancel.runs`). A backup Restow asked for: the node stops its
+  vzdump task through the PVE API (`DELETE /nodes/{node}/tasks/{upid}`); vzdump
+  ends the guest, removes its snapshot and the fleecing image. A backup started
+  in PVE (a PVE backup job of several guests): the node ends the provider of that
+  guest with SIGTERM, so vzdump goes on with the other guests; when no provider
+  of it runs, it stops a vzdump task that backs up this guest alone.
+- **Older nodes.** The server refuses every upload of a cancelled run (blocks,
+  commit, restic), so a node before 0.4.2 ends the backup at its next call.
+- **The end.** The run ends `cancelled`, not `failed`: no failure alert, no
+  "Last backup failed", the guest's last backup stays as it was, and the restore
+  points are untouched (nothing of the stopped run is committed). A cancelled
+  run whose node stays silent for 15 minutes is closed by the worker.
+- **Pause queue** (per node, nodes table): no new backup is handed to the node
+  until the queue is resumed; a running backup goes on. Scheduled backups wait
+  (and expire after 12 hours as usual). "Paused by <user>" shows on the node.
+- **Cancel all queued** per node (nodes table) or for the whole tenant (page
+  header): withdraws every backup that has not started yet.
+
+API: `POST /api/v1/pve/guests/:id/cancel`, `POST /api/v1/pve/nodes/:id/queue/pause`,
+`.../queue/resume`, `.../queue/cancel`, `POST /api/v1/pve/queue/cancel`.
+
+## Updates of the node
+
+restow-pve looks for a newer signed release by itself (two minutes after it
+starts, then every six hours) and installs it only while no backup or restore
+runs on the node. Since 0.4.2 the server can also ask for it now:
+
+- **Update now** on the node (nodes table, next to the version, when a newer
+  release is offered): the heartbeat says `update.now`, and the node installs the
+  release as soon as it is idle, then restarts. Audit `pve.node.update_requested`.
+- **With the server update.** After the server runs a new release, every node
+  behind it gets `update.now` while new job starts stay paused (see
+  [UPDATING.md](UPDATING.md), "Nodes and agents"). During that pause the nodes
+  are idle, so they update at once.
+- **By hand**, for a node that was not reachable:
+  `/opt/restow-pve/bin/restow-pve update` (as root). Proxmox VE itself (`apt`) is
+  never updated by Restow.
+
+## In the overviews
 ## In the overviews
 
 Guests count everywhere the mailboxes and the machines do, by one rule

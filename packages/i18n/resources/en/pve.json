@@ -313,5 +313,49 @@
       "paused": "Paused",
       "suspended": "Suspended"
     }
+  },
+  "cancel": {
+    "stop": "Stop backup",
+    "withdraw": "Withdraw",
+    "stopOf": "Stop the backup of {name}",
+    "withdrawOf": "Withdraw the queued backup of {name}",
+    "stopTitle": "Stop the backup of {name}?",
+    "stopBody": "The node stops the running backup within seconds (vzdump is ended through the Proxmox VE API). Nothing is saved from this run; the existing restore points stay as they are. The run ends as cancelled, not as failed.",
+    "stopConfirm": "Stop backup",
+    "withdrawTitle": "Withdraw the queued backup of {name}?",
+    "withdrawBody": "The backup has not started yet. It is taken out of the queue and the node will not start it. The next scheduled backup runs as usual.",
+    "withdrawConfirm": "Withdraw",
+    "keep": "Keep it",
+    "stopping": "The backup is being stopped",
+    "stoppingNote": "The node stops it with its next contact, usually within 15 seconds.",
+    "nothingQueued": "Nothing was waiting any more.",
+    "cancelling": "Cancelling…",
+    "requestedBy": "Stop requested by {name}",
+    "cancelled": "Cancelled",
+    "cancelledBy": "Cancelled by {name}",
+    "allQueuedBody": "Backups that have not started are taken out of the queue. Running backups go on; stop them one by one. The next scheduled round starts as usual.",
+    "withdrawn": "{count, plural, one {Queued backup withdrawn} other {# queued backups withdrawn}}",
+    "allQueued": "{count, plural, one {Cancel queued backup} other {Cancel all # queued}}",
+    "allQueuedTitle": "{count, plural, one {Withdraw the queued backup?} other {Withdraw all # queued backups?}}",
+    "allQueuedNodeTitle": "{count, plural, one {Withdraw the backup queued on {node}?} other {Withdraw all # backups queued on {node}?}}"
+  },
+  "queue": {
+    "title": "Queue",
+    "pause": "Pause queue",
+    "resume": "Resume queue",
+    "pauseTitle": "Pause the queue of {node}?",
+    "pauseBody": "No new backup starts on this node until you resume the queue. A backup that runs now goes on; scheduled backups wait (and expire after 12 hours).",
+    "paused": "Queue of {node} paused",
+    "resumed": "Queue of {node} resumed",
+    "pausedBadge": "Queue paused",
+    "pausedBy": "Paused by {name}",
+    "waiting": "{count} waiting"
+  },
+  "update": {
+    "now": "Update to {version}",
+    "available": "restow-pve {version} is available for this node.",
+    "pending": "Updating to {version}…",
+    "requested": "{node} updates as soon as it is idle",
+    "requestedNote": "The node installs the signed release with its next contact once no backup or restore runs there. Proxmox VE itself is not updated."
   }
 }

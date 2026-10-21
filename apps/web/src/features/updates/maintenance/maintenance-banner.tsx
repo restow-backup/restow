@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Hourglass, Loader2, TriangleAlert, Wrench } from "lucide-react";
+import { CalendarClock, Hourglass, Loader2, TriangleAlert, Wrench } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -34,12 +34,93 @@ export function MaintenanceBanner() {
       return <RunningBanner />;
     case "attention":
       return <AttentionBanner />;
-    default:
+    default: {
       // An update waits for the runs in progress before it is announced (#46).
-      return snapshot?.view.jobPause?.phase === "draining" ? (
-        <WaitingBanner isProviderAdmin={isProviderAdmin} />
+      const phase = snapshot?.view.jobPause?.phase;
+      if (phase === "draining") {
+        return <WaitingBanner isProviderAdmin={isProviderAdmin} />;
+      }
+      // The server is updated; its nodes and agents follow before runs start again (0.4.2).
+      if (phase === "fleet") {
+        return <FleetBanner isProviderAdmin={isProviderAdmin} />;
+      }
+      const planned = snapshot?.view.planned;
+      return planned && plannedSoon(planned.startsAt, Date.now()) ? (
+        <PlannedBanner version={planned.version} startsAt={planned.startsAt} />
       ) : null;
+    }
   }
+}
+
+/** A planned update is announced to everyone from a day before its time. */
+export const PLANNED_NOTICE_MS = 24 * 60 * 60 * 1000;
+
+export function plannedSoon(startsAt: string, nowMs: number): boolean {
+  const at = Date.parse(startsAt);
+  return Number.isFinite(at) && at > nowMs && at - nowMs <= PLANNED_NOTICE_MS;
+}
+
+/** An update planned for a chosen time within the next day (0.4.2): when, for everyone. */
+function PlannedBanner({ version, startsAt }: { version: string; startsAt: string }) {
+  const { t, i18n } = useTranslation("updates");
+  const { t: tc } = useTranslation();
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  return (
+    <div data-slot="maintenance-banner" data-variant="planned">
+      <div className={cn(BAR_CLASS, "flex-wrap border-info/30 bg-info/10")}>
+        <CalendarClock
+          className="mt-0.5 size-4 shrink-0 text-info-text sm:mt-0"
+          aria-hidden="true"
+        />
+        <p className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+          {t("maintenance.banner.planned", {
+            product: tc("app.name"),
+            version,
+            time: formatDateTime(startsAt, language) ?? "",
+          })}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Right after an update, while the Proxmox VE nodes and endpoint agents update themselves
+ * (0.4.2): new runs start again once they are done, at the latest at the deadline.
+ */
+function FleetBanner({ isProviderAdmin }: { isProviderAdmin: boolean }) {
+  const { t, i18n } = useTranslation("updates");
+  const { t: tc } = useTranslation();
+  const { snapshot } = useMaintenanceState();
+  const pause = snapshot?.view.jobPause;
+  const link = updatesTabLink();
+  if (!pause) {
+    return null;
+  }
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  return (
+    <div data-slot="maintenance-banner" data-variant="fleet">
+      <div className={cn(BAR_CLASS, "flex-wrap border-info/30 bg-info/10")}>
+        <Hourglass className="mt-0.5 size-4 shrink-0 text-info-text sm:mt-0" aria-hidden="true" />
+        <p className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+          {t("maintenance.banner.fleet", {
+            product: tc("app.name"),
+            version: pause.version,
+            time: formatDateTime(pause.deadlineAt, language) ?? "",
+          })}
+        </p>
+        {isProviderAdmin ? (
+          <Link
+            to={link.to}
+            search={link.search}
+            className="font-medium underline underline-offset-2"
+          >
+            {t("maintenance.openSettings")}
+          </Link>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 /**

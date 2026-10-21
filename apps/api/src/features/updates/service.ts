@@ -1,5 +1,5 @@
 import { refuseHostBeforeConnect } from "@restow/core";
-import type { Database, JobStartPause, StoredUpdateCheck } from "@restow/db";
+import type { Database, JobStartPause, PlannedUpdate, StoredUpdateCheck } from "@restow/db";
 import { notifications, settings } from "@restow/db";
 import { eq, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
@@ -47,12 +47,22 @@ import {
   storedRequestOf,
 } from "./job-pause.js";
 import { raiseUpdateAvailable } from "./notify.js";
+import {
+  handoverAt,
+  installationTimeZone,
+  loadPlan,
+  PLAN_LATE_LIMIT_MS,
+  plannedStartsAt,
+  storePlan,
+  takePlan,
+} from "./plan.js";
 import type {
   CheckError,
   EditionView,
   JobActivityView,
   MaintenanceView,
   PendingLicenseKeyInput,
+  PlannedUpdateView,
   ScheduleUpdateInput,
   SourceView,
   SwitchBuildInput,
@@ -104,6 +114,10 @@ export const UPDATE_AUDIT_ACTIONS = {
   jobsResumed: "update.jobs_resumed",
   /** The server is updated; its Proxmox VE nodes and endpoint agents are told to update (0.4.2). */
   fleetStarted: "update.fleet_started",
+  /** An update planned for a chosen time (0.4.2); cancelled with `update.cancelled`. */
+  planned: "update.planned",
+  /** A planned update could not be confirmed at its time (the reason is in the details). */
+  planFailed: "update.plan_failed",
   /** A license key was stored for the full build, or removed again (never its text). */
   pendingLicenseKeyStored: "license.pending_key.stored",
   pendingLicenseKeyRemoved: "license.pending_key.removed",
@@ -129,6 +143,8 @@ export const UPDATE_PROBLEMS = {
   switchRefused: "urn:restow:problem:build-switch-refused",
   /** "Start now" while no update waits for running jobs. */
   notWaiting: "urn:restow:problem:update-not-waiting",
+  /** The chosen time is not a valid moment: past, too far ahead, or skipped by a clock change. */
+  invalidTime: "urn:restow:problem:update-invalid-time",
   /** The license key belongs on the license page of the full build. */
   licenseKeyNotPending: "urn:restow:problem:license-key-not-pending",
 } as const;
@@ -439,12 +455,29 @@ export class UpdateService {
   async maintenance(): Promise<MaintenanceView> {
     const state = await this.updaterState();
     this.deps.state.setMaintenance(maintenanceSummaryOf(state));
-    return maintenanceViewOf(
+    const view = maintenanceViewOf(
       state,
       this.deps.state.runningVersion(),
       this.now(),
       await this.jobPause(),
     );
+    const plan = await this.plan();
+    return { ...view, planned: plan ? { version: plan.version, startsAt: plan.startsAt } : null };
+  }
+
+  /** The update planned for a chosen time, or null (also when it cannot be read). */
+  private async plan(): Promise<PlannedUpdate | null> {
+    if (this.demo) {
+      return null;
+    }
+    try {
+      return await loadPlan(this.deps.db);
+    } catch (error) {
+      this.deps.log?.("warn", "reading the planned update failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   /** The pause of new job starts, or null (also when it cannot be read). */
@@ -536,11 +569,16 @@ export class UpdateService {
         draining,
       ),
       leadTimes: LEAD_TIME_PRESETS,
-      maintenance: maintenanceViewOf(updaterState, running, now, pause),
+      maintenance: {
+        ...maintenanceViewOf(updaterState, running, now, pause),
+        planned: plannedSummaryOf(await this.plan()),
+      },
       run: runToShow(updaterState),
       edition: await this.editionView(running),
       jobPause: jobPauseViewOf(pause, now, draining ? await this.activity() : null),
       fleet: await this.fleet(),
+      planned: plannedViewOf(await this.plan()),
+      timeZone: installationTimeZone(this.env),
     };
   }
 
@@ -898,6 +936,18 @@ export class UpdateService {
   // -------------------------------------------------------------------------
 
   async schedule(input: ScheduleUpdateInput, actor: Actor): Promise<UpdatesView> {
+    return this.scheduleAs(input, actor, false);
+  }
+
+  /**
+   * Announce (or plan) an update. `fromPlan`: the plan's own confirmation at its time, which
+   * must not be refused for the plan it carries out.
+   */
+  private async scheduleAs(
+    input: ScheduleUpdateInput,
+    actor: Actor,
+    fromPlan: boolean,
+  ): Promise<UpdatesView> {
     if (this.demo) {
       throw new ProblemError(403, "Demo installation is read-only", {
         type: "urn:restow:problem:demo-read-only",
@@ -944,6 +994,15 @@ export class UpdateService {
         type: UPDATE_PROBLEMS.busy,
         detail: "An update waits for running jobs. Cancel it or start it now.",
       });
+    }
+    if (!fromPlan && (await loadPlan(db))) {
+      throw new ProblemError(409, "An update is already planned", {
+        type: UPDATE_PROBLEMS.busy,
+        detail: "An update is planned for a chosen time. Cancel it first.",
+      });
+    }
+    if (input.at && !fromPlan) {
+      return this.storeUpdatePlan(input, input.at, release.version, actor);
     }
 
     const mode = snapshot.source.isDefault || snapshot.source.isAlpha ? "image" : "source";
@@ -1181,6 +1240,7 @@ export class UpdateService {
       return;
     }
     const { db } = this.deps;
+    await this.advancePlan();
     const pause = await loadJobPause(db);
     if (!pause) {
       return;
@@ -1266,6 +1326,121 @@ export class UpdateService {
     }
   }
 
+  /** Keep an update for its chosen time (0.4.2): checked now, confirmed at its time. */
+  private async storeUpdatePlan(
+    input: ScheduleUpdateInput,
+    at: { date: string; time: string },
+    version: string,
+    actor: Actor,
+  ): Promise<UpdatesView> {
+    const timeZone = installationTimeZone(this.env);
+    const now = this.now();
+    const when = plannedStartsAt(at, timeZone, input.leadSeconds, now);
+    if (!when.ok) {
+      throw new ProblemError(422, "Choose another time", {
+        type: UPDATE_PROBLEMS.invalidTime,
+        detail:
+          when.reason === "past"
+            ? "That time is already past (or too close to count down to it)."
+            : when.reason === "too_far"
+              ? "An update can be planned up to 30 days ahead."
+              : when.reason === "nonexistent"
+                ? "That time does not exist in the installation's time zone (the clock skips it)."
+                : "Not a valid date and time.",
+        extensions: { reason: when.reason, timeZone },
+      });
+    }
+    const plan: PlannedUpdate = {
+      version,
+      startsAt: when.startsAt.toISOString(),
+      leadSeconds: input.leadSeconds,
+      jobs: input.jobs ?? "interrupt",
+      at,
+      timeZone,
+      requestedBy: { userId: actor.id, label: actor.email, ip: actor.ip },
+      plannedAt: now.toISOString(),
+    };
+    await storePlan(this.deps.db, plan);
+    await audit(this.deps.db, {
+      tenantId: null,
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: UPDATE_AUDIT_ACTIONS.planned,
+      target: version,
+      targetType: "update",
+      ip: actor.ip,
+      details: {
+        version,
+        startsAt: plan.startsAt,
+        at,
+        timeZone,
+        leadSeconds: plan.leadSeconds,
+        jobs: plan.jobs,
+      },
+    });
+    return this.view();
+  }
+
+  /**
+   * A planned update whose time has come is confirmed as its administrator chose it, with the
+   * same checks as from the dialog. One api process wins; a plan far past its time (the api
+   * was down) is dropped. Either failure is audited.
+   */
+  private async advancePlan(): Promise<void> {
+    const { db } = this.deps;
+    const plan = await loadPlan(db);
+    if (!plan) {
+      return;
+    }
+    const now = this.now().getTime();
+    const due = handoverAt(plan);
+    if (now < due) {
+      return;
+    }
+    if (!(await takePlan(db, plan.plannedAt))) {
+      return;
+    }
+    const requester: Actor = {
+      id: plan.requestedBy.userId,
+      email: plan.requestedBy.label,
+      ip: plan.requestedBy.ip,
+    };
+    const failed = async (reason: string) =>
+      audit(db, {
+        tenantId: null,
+        actor: "system",
+        actorUserId: null,
+        action: UPDATE_AUDIT_ACTIONS.planFailed,
+        target: plan.version,
+        targetType: "update",
+        ip: null,
+        details: { version: plan.version, startsAt: plan.startsAt, reason },
+      });
+    if (now - due > PLAN_LATE_LIMIT_MS) {
+      await failed("too_late");
+      return;
+    }
+    // What is left of the lead time, rounded down to an offered one (0 at the latest).
+    const left = Math.max(0, Math.floor((Date.parse(plan.startsAt) - now) / 1000));
+    // The loop runs every few seconds: on time, the chosen lead time applies as it is.
+    const lead =
+      left >= plan.leadSeconds - 30
+        ? plan.leadSeconds
+        : ([...LEAD_TIME_PRESETS].reverse().find((preset) => preset <= left) ?? 0);
+    try {
+      await this.scheduleAs(
+        { version: plan.version, leadSeconds: lead, jobs: plan.jobs },
+        requester,
+        true,
+      );
+    } catch (error) {
+      await failed(error instanceof Error ? error.message : String(error));
+      this.deps.log?.("warn", "the planned update could not be confirmed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async liftPause(
     pause: JobStartPause,
     reason: "expired" | "update_over" | "cancelled" | "fleet_done" | "fleet_deadline",
@@ -1288,6 +1463,23 @@ export class UpdateService {
   }
 
   async cancel(actor: Actor): Promise<UpdatesView> {
+    const plan = await this.plan();
+    if (plan) {
+      // Planned only: nothing was handed over or paused yet.
+      if (await takePlan(this.deps.db, plan.plannedAt)) {
+        await audit(this.deps.db, {
+          tenantId: null,
+          actor: actor.email,
+          actorUserId: actor.id,
+          action: UPDATE_AUDIT_ACTIONS.cancelled,
+          target: plan.version,
+          targetType: "update",
+          ip: actor.ip,
+          details: { runId: null, version: plan.version, planned: true, startsAt: plan.startsAt },
+        });
+      }
+      return this.view();
+    }
     const pause = activePause(await this.jobPause(), this.now());
     if (pause?.phase === "draining") {
       // Not handed to the updater yet: cancelling lifts the pause, nothing else.
@@ -1623,4 +1815,25 @@ export function mapUpdaterError(error: unknown): ProblemError {
     type: UPDATE_PROBLEMS.updaterError,
     detail: "The updater answered with an unexpected error.",
   });
+}
+
+function plannedViewOf(plan: PlannedUpdate | null): PlannedUpdateView | null {
+  return plan
+    ? {
+        version: plan.version,
+        startsAt: plan.startsAt,
+        leadSeconds: plan.leadSeconds,
+        jobs: plan.jobs,
+        at: plan.at,
+        timeZone: plan.timeZone,
+        requestedBy: plan.requestedBy.label,
+        plannedAt: plan.plannedAt,
+      }
+    : null;
+}
+
+function plannedSummaryOf(
+  plan: PlannedUpdate | null,
+): { version: string; startsAt: string } | null {
+  return plan ? { version: plan.version, startsAt: plan.startsAt } : null;
 }

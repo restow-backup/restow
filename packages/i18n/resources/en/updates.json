@@ -447,7 +447,17 @@
         }
       },
       "pause": "From now until the update is over, no new run starts. Schedules that fall due meanwhile run afterwards."
-    }
+    },
+    "when": {
+      "title": "When",
+      "now": "From now",
+      "at": "At a date and time",
+      "date": "Date",
+      "time": "Time",
+      "zone": "Time zone of the installation: {zone}",
+      "countdown": "Countdown before it"
+    },
+    "confirmPlanned": "Plan update"
   },
   "dumps": {
     "title": "Database backups",
@@ -545,7 +555,9 @@
       "scheduledSwitch": "Maintenance in {time}: {product} will switch to the full build ({version}). Save your work.",
       "startingSwitch": "Maintenance is starting: {product} is switching to the full build ({version}).",
       "runningSwitch": "Maintenance in progress: {product} is switching to the full build ({version}).",
-      "waiting": "An update to version {version} is being prepared. Until it is over, no new run starts; what is running finishes first, at the latest on {time}."
+      "waiting": "An update to version {version} is being prepared. Until it is over, no new run starts; what is running finishes first, at the latest on {time}.",
+      "planned": "{product} will be updated to version {version} on {time}.",
+      "fleet": "{product} was updated to version {version}. Proxmox VE nodes and agents update now; new runs start once they are done, at the latest on {time}."
     },
     "announce": {
       "start": "Maintenance announced: {product} will be updated to version {version} in {time}.",
@@ -624,28 +636,28 @@
           "verifying_compose": "Verifying the Compose setup"
         },
         "fetch": {
-          "pulling": "Downloading {image}",
-          "pulling_web": "Downloading the web image {image}",
-          "web_not_published": "The release has no web image; the current one ({image}) stays",
+          "pulling": "Downloading the image of version {version}",
+          "pulling_web": "Downloading the web image of version {version}",
+          "web_not_published": "The release has no web image; the current one stays",
           "verifying_signatures": "Verifying the signature of the release",
           "verifying_digests": "Verifying the downloaded images",
           "requesting_token": "Asking for the access token",
           "downloading": "Downloading version {version} from the repository",
           "extracting": "Unpacking version {version}",
-          "building": "Building {image}",
-          "building_web": "Building the web image {image}"
+          "building": "Building the image of version {version}",
+          "building_web": "Building the web image of version {version}"
         },
         "backup": {
           "baseline": "Reading the state before the backup",
-          "dumping": "Writing the database backup {file}",
-          "verifying": "Verifying the database backup {file}"
+          "dumping": "Writing the database backup",
+          "verifying": "Verifying the database backup"
         },
         "stop": {
-          "stopping": "Stopping {services}"
+          "stopping": "Stopping the services"
         },
         "start": {
           "writing_env": "Writing the new image references to .env",
-          "starting_api": "Starting the new version ({image}) and migrating the database"
+          "starting_api": "Starting version {version} and migrating the database"
         },
         "health": {
           "waiting_for_api": "Waiting for version {version} to answer",
@@ -667,7 +679,7 @@
       },
       "recovery": {
         "stopping_application": "Stopping the application to protect the data",
-        "dump_kept": "The database backup {file} was kept"
+        "dump_kept": "The database backup was kept"
       }
     }
   },
@@ -783,5 +795,48 @@
       "text": "Restart required: {services}.",
       "link": "Show how"
     }
+  },
+  "countdown": {
+    "now": "No countdown",
+    "minute1": "1 minute before",
+    "minutes5": "5 minutes before",
+    "minutes15": "15 minutes before",
+    "minutes30": "30 minutes before",
+    "hour1": "1 hour before",
+    "custom": "{minutes, plural, one {# minute before} other {# minutes before}}"
+  },
+  "planned": {
+    "title": "Update to version {version} planned",
+    "body": "It starts on {date} at {time} ({zone}), that is {local} for you. Planned by {by}. Nothing is paused until then.",
+    "countdown": "Countdown for everyone signed in: {lead}.",
+    "cancel": "Cancel planned update",
+    "cancelTitle": "Cancel the planned update to {version}?",
+    "cancelBody": "The update does not start at the planned time. You can plan or announce it again at any time."
+  },
+  "fleet": {
+    "title": "Nodes and agents ({version})",
+    "following": "The server is updated. Proxmox VE nodes and agents install the release while new runs are paused, until all reachable ones are done or at the latest on {time}.",
+    "behind": "These nodes and agents run an older release. They update themselves when idle; nodes and machines can also be updated on their own pages.",
+    "progressLabel": "Nodes and agents on the release",
+    "counts": "{updated} of {total} updated · {pending} updating · {unreachable} not reachable · {paused} with updates paused",
+    "name": "Name",
+    "tenant": "Tenant",
+    "version": "Version",
+    "state": "State",
+    "lastSeen": "Last contact",
+    "never": "Never",
+    "kind": {
+      "pve_node": "Node",
+      "agent": "Agent"
+    },
+    "states": {
+      "updated": "Updated",
+      "pending": "Updating",
+      "unreachable": "Not reachable",
+      "paused": "Updates paused"
+    },
+    "truncated": "More than 200 are listed by name; the counts cover all of them.",
+    "manual": "Not reached: update them by hand once they are online again (as root).",
+    "copy": "Copy command"
   }
 }

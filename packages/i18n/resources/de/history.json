@@ -275,7 +275,9 @@
       "title": "Dieser Rechner ist in keinem Backup-Job",
       "description": "Gesichert werden nur Rechner in einem Backup-Job. Fügen Sie ihn auf der Seite des Rechners einem Job hinzu.",
       "open": "Rechner öffnen"
-    }
+    },
+    "cancelRequested": "Stopp angefordert; der Lauf endet in Kürze",
+    "cancelling": "Wird abgebrochen…"
   },
   "detail": {
     "back": "Zurück zum Verlauf",

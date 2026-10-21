@@ -1203,6 +1203,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         runningVersion: "0.1.0",
         switchTo: null,
         jobPause: null,
+        planned: null,
       });
       await service.schedule({ version: "0.2.0", leadSeconds: 300 }, actor);
       const view = await service.maintenance();
@@ -1224,6 +1225,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
           "message",
           "outcome",
           "phase",
+          "planned",
           "progress",
           "runId",
           "runningVersion",
@@ -1507,6 +1509,82 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         if (previous.version === undefined) Reflect.deleteProperty(process.env, "RESTOW_VERSION");
         await rm(agentDir, { recursive: true, force: true });
       }
+    });
+
+    it("plans an update for a chosen time and confirms it then, not before", async () => {
+      const built = build({ RESTOW_TIME_ZONE: "UTC" });
+      await built.service.saveSettings({ enabled: true }, actor);
+      const service = built.service;
+      const at = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+      const wall = {
+        date: at.toISOString().slice(0, 10),
+        time: at.toISOString().slice(11, 16),
+      };
+      // A time already past, or skipped, is refused.
+      await expect(
+        service.schedule(
+          { version: "0.2.0", leadSeconds: 300, at: { date: "2020-01-01", time: "10:00" } },
+          actor,
+        ),
+      ).rejects.toMatchObject({ status: 422, type: "urn:restow:problem:update-invalid-time" });
+      const view = await service.schedule(
+        { version: "0.2.0", leadSeconds: 300, jobs: "wait", at: wall },
+        actor,
+      );
+      expect(updater.scheduled).toHaveLength(0);
+      expect(view.timeZone).toBe("UTC");
+      expect(view.planned).toMatchObject({
+        version: "0.2.0",
+        leadSeconds: 300,
+        jobs: "wait",
+        at: wall,
+        requestedBy: actor.email,
+      });
+      expect(Date.parse(view.planned?.startsAt ?? "")).toBe(
+        Date.parse(`${wall.date}T${wall.time}:00Z`),
+      );
+      expect((await service.maintenance()).planned).toMatchObject({ version: "0.2.0" });
+      // Nothing pauses meanwhile, and nothing else is announced.
+      expect(await readJobStartPause(providerDb.$client)).toMatchObject({ paused: false });
+      await expect(
+        service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({ status: 409 });
+      const [planned] = await auditRows("update.planned");
+      expect(planned?.details).toMatchObject({ version: "0.2.0", timeZone: "UTC" });
+
+      await service.advancePause();
+      expect(updater.scheduled).toHaveLength(0);
+      // Its lead time before the chosen moment, it is confirmed as chosen.
+      now = new Date(Date.parse(view.planned?.startsAt ?? "") - 300 * 1000 + 2000);
+      await service.advancePause();
+      expect(updater.scheduled).toHaveLength(1);
+      expect(updater.scheduled[0]).toMatchObject({
+        leadSeconds: 300,
+        release: { version: "0.2.0" },
+        requestedBy: { label: actor.email },
+      });
+      expect((await service.view()).planned).toBeNull();
+
+      // A second plan is cancelled before its time: nothing reaches the updater.
+      await service.cancel(actor);
+      updater.view = idleState();
+      const again = await service.schedule(
+        {
+          version: "0.2.0",
+          leadSeconds: 0,
+          at: {
+            date: new Date(now.getTime() + 86_400_000).toISOString().slice(0, 10),
+            time: "12:00",
+          },
+        },
+        actor,
+      );
+      expect(again.planned).not.toBeNull();
+      const cancelled = await service.cancel(actor);
+      expect(cancelled.planned).toBeNull();
+      const entries = await auditRows("update.cancelled");
+      expect(entries.at(-1)?.details).toMatchObject({ planned: true });
+      expect(updater.scheduled).toHaveLength(1);
     });
 
     it("resumes job starts and tells the administrators when the updater refuses at the end", async () => {

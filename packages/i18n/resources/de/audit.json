@@ -490,7 +490,9 @@
         "downloaded": "Datenbanksicherung heruntergeladen",
         "deleted": "Datenbanksicherung gelöscht"
       },
-      "fleet_started": "Knoten und Agenten zur Aktualisierung aufgefordert"
+      "fleet_started": "Knoten und Agenten zur Aktualisierung aufgefordert",
+      "planned": "Update zu gewählter Zeit geplant",
+      "plan_failed": "Geplantes Update konnte nicht beginnen"
     },
     "endpoint": {
       "token": {

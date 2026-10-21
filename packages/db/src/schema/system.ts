@@ -112,6 +112,22 @@ export type StoredUpdateRelease = {
  * reason. `source` and `channel` record what was checked, so a change of
  * either invalidates the cache.
  */
+/**
+ * An update planned for an exact time (0.4.2, docs/UPDATING.md "At a chosen time"): the api
+ * keeps it here and hands it to the updater `leadSeconds` before `startsAt` (as if confirmed
+ * then), so nothing pauses before. `at` is the wall-clock time as chosen, in `timeZone`.
+ */
+export type PlannedUpdate = {
+  version: string;
+  startsAt: string;
+  leadSeconds: number;
+  jobs: "wait" | "drain" | "interrupt";
+  at: { date: string; time: string };
+  timeZone: string;
+  requestedBy: { userId: string | null; label: string; ip: string | null };
+  plannedAt: string;
+};
+
 export type StoredUpdateCheck = {
   source: string;
   channel: "stable" | "beta";
@@ -225,6 +241,8 @@ export const settings = pgTable(
     updateNotifiedVersion: text("update_notified_version"),
     // The last updater journal entry written to the audit log (ids sort chronologically).
     updateAuditCursor: text("update_audit_cursor"),
+    // An update planned for an exact time, until it is handed to the updater (or cancelled).
+    plannedUpdate: jsonb("planned_update").$type<PlannedUpdate>(),
     // File share backup (docs/FILESHARES.md 7.4); `{}` takes every default.
     fileShareSettings: jsonb("file_share_settings")
       .$type<FileShareInstallationSettings>()

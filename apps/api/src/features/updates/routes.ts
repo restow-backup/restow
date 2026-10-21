@@ -27,8 +27,8 @@ import type { Actor, UpdateService } from "./service.js";
  *   GET    /                        settings, check, releases, updater, maintenance, last run
  *   PATCH  /settings                switch the check, source, channel, access token (write-only)
  *   POST   /check                   check now
- *   POST   /maintenance             announce an update: { version, leadSeconds }
- *   DELETE /maintenance             cancel an announced update (until it starts)
+ *   POST   /maintenance             announce an update: { version, leadSeconds, jobs?, at? } (at: plan it)
+ *   DELETE /maintenance             cancel an announced or planned update (until it starts)
  *   POST   /maintenance/dismiss     clear a finished run from the tab
  *   POST   /maintenance/start-now   an update that waits for running jobs: announce it now
  *   GET    /jobs                    what runs and waits right now (the install dialog, #46)

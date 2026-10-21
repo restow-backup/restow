@@ -53,7 +53,9 @@ export const PAGE_WIDTH_MAIN_CLASS: Record<PageWidth, string> = {
   // page scrolls, `dvh` tracks that shrinking/growing viewport, so a `full`
   // page's panes fill the space the toolbar frees up instead of leaving a
   // gap below them once it retracts.
-  full: "flex h-[calc(100dvh-var(--topbar-height))] flex-col overflow-hidden p-2",
+  // The sticky header is the top bar, plus the maintenance banner while one shows
+  // (`--shell-header-height`, measured by the shell; the top bar's height by default).
+  full: "flex h-[calc(100dvh-var(--shell-header-height))] flex-col overflow-hidden p-2",
 };
 
 /** Tailwind classes for the content wrapper inside `<main>`, keyed by page width. */

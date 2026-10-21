@@ -64,7 +64,7 @@ export function SectionNav(props: SectionNavProps) {
 function ColumnNav({ items, activeId, label }: SectionNavProps) {
   return (
     <nav aria-label={label} className="hidden lg:block">
-      <ul className="sticky top-20 space-y-0.5">
+      <ul className="sticky top-[calc(var(--shell-header-height)+1.5rem)] space-y-0.5">
         {items.map((item) => {
           const Icon = item.icon;
           const active = item.id === activeId;

@@ -9,6 +9,7 @@ import { providerMay } from "@/lib/provider-role";
 import { useSession } from "@/lib/session";
 
 import type { RestartsView, UpdatesView } from "./api";
+import { FleetCard, PlannedCard } from "./components/fleet-card";
 import { ReleasesCard } from "./components/releases-card";
 import { RestartCard } from "./components/restart-card";
 import { RunCard } from "./components/run-card";
@@ -105,7 +106,9 @@ export function UpdatesContent({
 
       {restarts ? <RestartCard restarts={restarts} canChange={canChange} /> : null}
       <VersionCard view={view} canChange={canChange} />
+      <PlannedCard view={view} canChange={canChange} />
       <UpdaterCard view={view} canChange={canChange} receivedAt={receivedAt} />
+      <FleetCard view={view} />
       <RunCard view={view} canChange={canChange} />
       <ReleasesCard view={view} />
       <SourceCard view={view} canChange={canChange} />

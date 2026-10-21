@@ -52,6 +52,7 @@ import {
 } from "./api.js";
 import { BackupProgress } from "./backup-progress.js";
 import { BootTestBadge, BootTestFacts, bootTestVariant } from "./boot-test.js";
+import { CancelBackupButton, CancelledBadge, CancellingBadge } from "./cancel-controls.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { pveTo } from "./paths.js";
 
@@ -164,6 +165,9 @@ function runTone(
   if (run.status === "failed") {
     return "destructive";
   }
+  if (run.status === "cancelled") {
+    return "muted";
+  }
   return run.kind === "backup" ? "outline" : "success";
 }
 
@@ -240,9 +244,16 @@ function RunStatus({ run, name }: { run: PveRun; name: string }) {
       </Badge>
     );
   }
+  if (run.status === "cancelled") {
+    return <CancelledBadge by={run.cancelledBy} />;
+  }
   return (
     <div className="space-y-1.5">
-      <Badge variant={runTone(run)}>{t(runStatusKey(run))}</Badge>
+      {run.status === "running" && run.cancelRequestedAt ? (
+        <CancellingBadge by={run.cancelledBy} />
+      ) : (
+        <Badge variant={runTone(run)}>{t(runStatusKey(run))}</Badge>
+      )}
       {run.status === "running" && run.kind === "backup" ? (
         <BackupProgress progress={run.progress} name={name} node={run.node} />
       ) : null}
@@ -314,6 +325,22 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
   });
   const data = detail.data;
   const title = data ? `${data.guest.name ?? data.guest.vmid} (${data.guest.vmid})` : "";
+  // What can be stopped (0.4.2): the running backup, else a backup that waits for the node.
+  const runningBackup = data?.runs.find((r) => r.kind === "backup" && r.status === "running");
+  const queuedBackups = (data?.tasks ?? []).filter((task) => task.kind === "backup");
+  const stoppable = runningBackup
+    ? {
+        activity: "running" as const,
+        cancelling: Boolean(runningBackup.cancelRequestedAt),
+        by: runningBackup.cancelledBy ?? null,
+      }
+    : queuedBackups.length > 0
+      ? {
+          activity: "queued" as const,
+          cancelling: queuedBackups.every((task) => task.cancelRequestedAt),
+          by: queuedBackups[0]?.cancelledBy ?? null,
+        }
+      : null;
   // Signs of ransomware in the guest's restore points (docs/RANSOMWARE.md).
   const suspicionTarget = React.useMemo(
     () => ({ kind: "pve_guest" as const, objectId: guestId }),
@@ -355,6 +382,15 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         }
       >
         <RefreshButton onRefresh={() => void detail.refetch()} fetching={detail.isFetching} />
+        {data && stoppable ? (
+          <CancelBackupButton
+            guestId={data.guest.id}
+            name={title}
+            activity={stoppable.activity}
+            cancelling={stoppable.cancelling}
+            cancelledBy={stoppable.by}
+          />
+        ) : null}
       </PageHeader>
       <ObjectSuspicionBadge target={suspicionTarget} />
       <RetentionHoldNotice target={suspicionTarget} objectName={title} />

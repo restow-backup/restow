@@ -64,7 +64,8 @@
     "failed": "Failed",
     "interrupted": "Interrupted",
     "incomplete": "Not completed, will be retried",
-    "incompleteFinal": "Not completed"
+    "incompleteFinal": "Not completed",
+    "cancelled": "Cancelled"
   },
   "attention": {
     "none": "Nothing to do",
@@ -438,7 +439,8 @@
     "outcome": {
       "partial": "some files could not be read",
       "failed": "failed",
-      "interrupted": "interrupted, continues automatically"
+      "interrupted": "interrupted, continues automatically",
+      "cancelled": "cancelled"
     },
     "nextRun": "Next backup",
     "nextRunUnknown": "Not reported yet",
@@ -512,7 +514,8 @@
       "pending": "Waiting to be picked up",
       "delivered": "Handed to the machine",
       "done": "Done",
-      "failed": "Failed"
+      "failed": "Failed",
+      "cancelled": "Withdrawn"
     },
     "retryFrom": "Repeats a test that could not complete; picked up from {time}",
     "recentTitle": "Recent requests",
@@ -1037,7 +1040,8 @@
     "truncated": "Further errors are not listed here",
     "unknown": "Error code {code}",
     "detail": "Technical message from the agent",
-    "agent_stopped": "The agent stopped reporting while the run was in progress"
+    "agent_stopped": "The agent stopped reporting while the run was in progress",
+    "cancelled": "Cancelled in the web app"
   },
   "agentUpdates": {
     "title": "Automatic agent updates",
@@ -1221,5 +1225,30 @@
       "description": "When and how the agents of servers and clients back up, in every tenant. Tenants and backup jobs can set their own values, except for what you lock here. Without any value set, agents behave as before. Agents from 0.4.0 follow the backup window, catch-up and retries.",
       "readOnly": "Administrators of the provider with every tenant change the policy; you can read it."
     }
+  },
+  "cancel": {
+    "stop": "Stop backup",
+    "withdraw": "Withdraw backup",
+    "stopTitle": "Stop the backup of {name}?",
+    "stopBody": "The agent stops restic cleanly with its next contact (within about a minute). Nothing from this run is saved and the repository stays as it was. The run ends as cancelled, not as failed; the next scheduled backup runs as usual.",
+    "stopConfirm": "Stop backup",
+    "withdrawTitle": "Withdraw the backup of {name}?",
+    "withdrawBody": "The requested backup has not started yet. It is withdrawn and the machine will not start it.",
+    "withdrawConfirm": "Withdraw",
+    "keep": "Keep it",
+    "stopping": "The backup is being stopped",
+    "stoppingNote": "The agent stops it with its next contact, usually within a minute.",
+    "withdrawn": "Backup withdrawn",
+    "cancelling": "Cancelling…",
+    "cancellingBy": "Cancelling… (requested by {name})",
+    "requestedBy": "Stop requested by {name}",
+    "cancelledBy": "Cancelled by {name}"
+  },
+  "agentUpdate": {
+    "now": "Update to {version}",
+    "pending": "Updating to {version}…",
+    "requested": "The agent updates as soon as it is idle",
+    "requestedNote": "It installs the signed release with its next contact once no backup or restore runs on the machine, then restarts.",
+    "paused": "Agent updates are paused for this machine or its tenant."
   }
 }
