@@ -263,8 +263,10 @@ describe("pathAfterTenantSwitch", () => {
   });
 
   it("leaves a detail page of the previous tenant for its list", () => {
-    expect(pathAfterTenantSwitch("/jobs/123", entries)).toBe("/jobs");
-    expect(pathAfterTenantSwitch("/sources/abc/permissions", entries)).toBe("/sources");
+    expect(pathAfterTenantSwitch("/jobs/123", entries)).toEqual({ path: "/jobs" });
+    expect(pathAfterTenantSwitch("/sources/abc/permissions", entries)).toEqual({
+      path: "/sources",
+    });
   });
 });
 
@@ -330,8 +332,28 @@ describe("entries with search params, extra paths and availability", () => {
   });
 
   it("leaves a page below an extra path for that path after a tenant switch", () => {
-    expect(pathAfterTenantSwitch("/imports/42", entries)).toBe("/imports");
+    expect(pathAfterTenantSwitch("/imports/42", entries)).toEqual({ path: "/imports" });
     expect(pathAfterTenantSwitch("/schedules", entries)).toBeNull();
+  });
+
+  it("leaves a job's page for the jobs of its kind, with the search the menu entry needs", () => {
+    // The job's page carries `?type=` (and a tab): the mail jobs of the new tenant.
+    expect(
+      pathAfterTenantSwitch("/jobs/definitions/abc", entries, { type: "mail", tab: "runs" }),
+    ).toEqual({ path: "/jobs", search: { type: "mail" } });
+    expect(pathAfterTenantSwitch("/jobs/definitions/abc", entries, { type: "endpoint" })).toEqual({
+      path: "/jobs",
+      search: { type: "endpoint" },
+    });
+    // A kind without a menu entry of its own (a share job) keeps its kind.
+    expect(pathAfterTenantSwitch("/jobs/definitions/abc", entries, { type: "share" })).toEqual({
+      path: "/jobs",
+      search: { type: "share" },
+    });
+    // No kind in the address: still the jobs, never the page that no longer exists.
+    expect(pathAfterTenantSwitch("/jobs/definitions/abc", entries)?.path).toBe("/jobs");
+    // The list itself stays.
+    expect(pathAfterTenantSwitch("/jobs", entries, { type: "mail" })).toBeNull();
   });
 
   it("hides an entry the installation does not offer, and keeps one it does", () => {

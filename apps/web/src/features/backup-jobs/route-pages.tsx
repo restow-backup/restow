@@ -82,6 +82,13 @@ export function JobDetailRoute() {
         onDeleted={(kind) => {
           void navigate({ to: JOBS_PATH as never, search: { type: kind } as never });
         }}
+        onTenantChanged={(kind) => {
+          void navigate({
+            to: JOBS_PATH as never,
+            search: { type: kind } as never,
+            replace: true,
+          });
+        }}
       />
     </RequireRole>
   );

@@ -34,6 +34,7 @@ import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   ALL_TENANTS_NAV_ID,
+  type LocationSearch,
   type PlacedNavItem,
   pathAfterTenantSwitch,
   visibleNavItems,
@@ -61,6 +62,9 @@ export function useSwitchTenant(): (tenant: Pick<SessionTenant, "id" | "name">) 
   const navigate = useNavigate();
   const items = useNavItems();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const search = useRouterState({
+    select: (state) => state.location.search as LocationSearch,
+  });
 
   return React.useCallback(
     (tenant) => {
@@ -70,14 +74,19 @@ export function useSwitchTenant(): (tenant: Pick<SessionTenant, "id" | "name">) 
       setActiveTenant(tenant.id);
       toast.success(t("tenant.switched", { name: tenant.name }));
       // Out of "All tenants" the page stays: a page that needs a tenant continues with the one
-      // chosen. On a tenant's page the page follows: the same section of the new tenant.
-      const next =
-        tenantPageAfterSwitch(pathname, tenant.id) ?? pathAfterTenantSwitch(pathname, items);
+      // chosen. On a tenant's page the page follows: the same section of the new tenant. A
+      // detail page (a job, a machine, a guest, a share) gives way to its list in the new
+      // tenant, with the search its menu entry needs (`/jobs?type=mail`).
+      const page = tenantPageAfterSwitch(pathname, tenant.id);
+      const next = page ? { path: page } : pathAfterTenantSwitch(pathname, items, search);
       if (next) {
-        void navigate({ to: next as LinkProps["to"] });
+        void navigate({
+          to: next.path as LinkProps["to"],
+          ...(next.search ? { search: { ...next.search } as never } : {}),
+        });
       }
     },
-    [activeTenant?.id, items, navigate, pathname, scope, setActiveTenant, t],
+    [activeTenant?.id, items, navigate, pathname, scope, search, setActiveTenant, t],
   );
 }
 
@@ -95,21 +104,29 @@ export function useSwitchToAllTenants(): () => void {
   const navigate = useNavigate();
   const items = useNavItems();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const search = useRouterState({
+    select: (state) => state.location.search as LocationSearch,
+  });
 
   return React.useCallback(() => {
     if (!setScopeAll || scope === "all") {
       return;
     }
     toast.success(t("tenant.all.switched"));
-    const next = parseTenantPagePath(pathname) ? "/" : pathAfterTenantSwitch(pathname, items);
+    const next = parseTenantPagePath(pathname)
+      ? { path: "/" }
+      : pathAfterTenantSwitch(pathname, items, search);
     if (!next) {
       setScopeAll();
       return;
     }
     // The page gives way first: a tenant's page that is still open would take "All tenants" away
     // again (it makes its own tenant the active one).
-    void navigate({ to: next as LinkProps["to"] }).then(setScopeAll);
-  }, [items, navigate, pathname, scope, setScopeAll, t]);
+    void navigate({
+      to: next.path as LinkProps["to"],
+      ...(next.search ? { search: { ...next.search } as never } : {}),
+    }).then(setScopeAll);
+  }, [items, navigate, pathname, scope, search, setScopeAll, t]);
 }
 
 /** The tenant's mark: the own organisation a shield, every other tenant a building. */

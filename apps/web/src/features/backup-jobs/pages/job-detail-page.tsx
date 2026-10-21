@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError } from "@/lib/api";
+import { useSession } from "@/lib/session";
 
 import type { JobKind, JobMember } from "../api.js";
 import { closedProps, JobsAccessNote, useJobsAccess } from "../components/access-note.js";
@@ -64,6 +65,11 @@ export interface JobDetailPageProps {
   onKindKnown: (kind: JobKind) => void;
   /** The job was deleted: leave its page. */
   onDeleted: (kind: JobKind) => void;
+  /**
+   * The tenant changed while the page was open and the job does not exist in the new one:
+   * leave for the list of jobs of that kind there.
+   */
+  onTenantChanged?: (kind: JobKind) => void;
 }
 
 /**
@@ -80,6 +86,7 @@ export function JobDetailPage({
   onTabChange,
   onKindKnown,
   onDeleted,
+  onTenantChanged,
 }: JobDetailPageProps) {
   const { t } = useTranslation("backupjobs");
   const access = useJobsAccess();
@@ -106,6 +113,17 @@ export function JobDetailPage({
   }, [kind, type, onKindKnown]);
 
   const backKind: JobKind = kind ?? type ?? "mail";
+
+  // A job belongs to one tenant: after a switch to another tenant the address names a job that
+  // does not exist there. That is no error to show; the page gives way to the jobs list.
+  const tenantId = useSession().activeTenant?.id ?? null;
+  const openedIn = React.useRef(tenantId);
+  const missing = query.isError && query.error instanceof ApiError && query.error.status === 404;
+  React.useEffect(() => {
+    if (missing && openedIn.current !== tenantId) {
+      onTenantChanged?.(backKind);
+    }
+  }, [missing, tenantId, backKind, onTenantChanged]);
   const back = (
     <Link
       {...linkProps(jobsListTo(backKind))}
@@ -129,7 +147,6 @@ export function JobDetailPage({
     );
   }
   if (query.isError) {
-    const missing = query.error instanceof ApiError && query.error.status === 404;
     return (
       <div className="space-y-6">
         <PageHeader title={t("detail.title")} icon={ListChecks} actions={back} />

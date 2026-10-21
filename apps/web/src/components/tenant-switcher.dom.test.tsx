@@ -116,6 +116,8 @@ interface Scenario {
   canViewAllTenants?: boolean;
   /** The session works on "All tenants". */
   scope?: "tenant" | "all";
+  /** Further menu entries next to {@link NAV}. */
+  nav?: NavItem[];
 }
 
 const setActiveTenant = vi.fn();
@@ -207,10 +209,18 @@ async function render(scenario: Scenario = {}, path = "/history") {
     createRoute({ getParentRoute: () => rootRoute, path: p, component: () => null });
   const router = createRouter({
     routeTree: rootRoute.addChildren(
-      ["/", "/history", "/protected-objects", "/tenants", "/tenants/mueller/overview"].map(page),
+      [
+        "/",
+        "/history",
+        "/protected-objects",
+        "/tenants",
+        "/tenants/mueller/overview",
+        "/jobs",
+        "/jobs/definitions/$jobId",
+      ].map(page),
     ),
     history: createMemoryHistory({ initialEntries: [path] }),
-    context: { navItems: NAV },
+    context: { navItems: [...NAV, ...(scenario.nav ?? [])] },
   });
   await router.load();
   host = document.createElement("div");
@@ -271,6 +281,56 @@ async function key(target: Element | null, name: string) {
     await tick();
   });
 }
+
+describe("a detail page", () => {
+  const JOBS: NavItem[] = [
+    {
+      id: "mail-jobs",
+      path: "/jobs",
+      search: { type: "mail" },
+      labelKey: "nav.items.jobs",
+      icon: History,
+      group: "mail",
+    },
+    {
+      id: "endpoint-jobs",
+      path: "/jobs",
+      search: { type: "endpoint" },
+      labelKey: "nav.items.jobs",
+      icon: History,
+      group: "endpoints",
+    },
+  ];
+
+  it("gives a job's page way to the jobs of its kind in the new tenant", async () => {
+    const router = await render(
+      { active: MUELLER, nav: JOBS },
+      "/jobs/definitions/job-1?type=mail&tab=runs",
+    );
+    await open();
+    const krueger = options().find((option) => option.textContent?.includes("Bäckerei Krüger"));
+    await act(async () => {
+      krueger?.click();
+      await tick();
+      await tick();
+    });
+    expect(setActiveTenant).toHaveBeenCalledWith("krueger");
+    expect(router.state.location.pathname).toBe("/jobs");
+    expect(router.state.location.search).toEqual({ type: "mail" });
+  });
+
+  it("keeps a list page as it is", async () => {
+    const router = await render({ active: MUELLER, nav: JOBS }, "/jobs?type=endpoint");
+    await open();
+    const krueger = options().find((option) => option.textContent?.includes("Bäckerei Krüger"));
+    await act(async () => {
+      krueger?.click();
+      await tick();
+    });
+    expect(router.state.location.pathname).toBe("/jobs");
+    expect(router.state.location.search).toEqual({ type: "endpoint" });
+  });
+});
 
 describe("the trigger", () => {
   it("is a button that announces the dropdown, naming the active tenant", async () => {
