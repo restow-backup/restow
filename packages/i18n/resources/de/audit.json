@@ -335,6 +335,9 @@
       "internal_tenant_failed": "Eigene Organisation konnte bei der Einrichtung nicht angelegt werden"
     },
     "snapshot": {
+      "calendar": {
+        "read": "Kalender einer Sicherung geöffnet"
+      },
       "mail": {
         "attachment_downloaded": "Mail-Anhang heruntergeladen",
         "previewed": "Mail-Vorschau geöffnet"
