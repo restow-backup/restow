@@ -253,16 +253,25 @@ func readResticBackupOutput(r io.Reader, res *ctResult, reporter *ProgressReport
 	return others.Bytes()
 }
 
+// containerRetryLock is how long a container backup waits for the lock of the
+// server's check or retention of the repository.
+const containerRetryLock = "15m"
+
 // containerBackupArgs is the restic command line of a container backup. Each
 // source is the root of one file system (the root fs and every mount point);
 // its lost+found is left out: on ext4 it belongs to the host's root, which an
 // unprivileged container's ID map does not include, so the mapped root cannot
 // read it (vzdump's own archives leave it out for the same reason).
+//
+// --retry-lock (restic 0.16+, pinned 0.19.1 in tools.env) waits for an
+// exclusive lock the server holds while it checks or prunes the container's
+// repository, instead of failing the backup at once (as for machines and file
+// shares).
 func containerBackupArgs(dir string, sources, excludes []string, vmid int, runID, cacheDir string, bwlimitKiB uint64) []string {
 	// No --no-scan: restic's scan gives the total its progress needs (#51).
 	args := []string{"backup", "--json", "--host", fmt.Sprintf("pve-ct-%d", vmid),
 		"--tag", fmt.Sprintf("vmid=%d", vmid), "--tag", "run=" + runID,
-		"--cache-dir", cacheDir}
+		"--cache-dir", cacheDir, "--retry-lock", containerRetryLock}
 	for _, ex := range excludes {
 		if e := ExcludeToRestic(dir, ex); e != "" {
 			args = append(args, "--exclude", e)

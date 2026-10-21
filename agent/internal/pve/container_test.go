@@ -61,6 +61,27 @@ func TestContainerBackupLeavesOutLostAndFoundOfEveryFileSystem(t *testing.T) {
 	}
 }
 
+func TestContainerBackupWaitsForTheServersLock(t *testing.T) {
+	p, req, _, _ := fakeContainerBackup(t, ctSummary, "", 0)
+	if _, err := p.backupContainer(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := os.ReadFile(filepath.Join(filepath.Dir(req.Info.Directory), "args"))
+	fields := strings.Fields(string(args))
+	at := -1
+	for i, f := range fields {
+		if f == "--retry-lock" {
+			at = i
+		}
+		if f == "--" {
+			break
+		}
+	}
+	if at < 0 || at+1 >= len(fields) || fields[at+1] != "15m" {
+		t.Fatalf("restic arguments %q lack --retry-lock 15m before the sources", args)
+	}
+}
+
 func TestContainerBackupKeepsAnIncompleteSnapshotAndSaysWhatIsMissing(t *testing.T) {
 	stderr := `{"message_type":"error","error":{"message":"openfile for readdirnames failed: open secret: permission denied"},"during":"archival","item":"secret"}
 {"message_type":"exit_error","code":3,"message":"Warning: at least one source file could not be read"}`
