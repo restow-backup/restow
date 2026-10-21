@@ -21,6 +21,7 @@ Commands:
   run          Run the agent (this is what the service executes)
   status       Show the local state of the agent (no root needed)
   backup-now   Run a backup right now and wait for it
+  update       Install a newer release the Restow instance offers, now (not while a backup runs)
   service      Control the system service: install | start | stop | restart | status
   hooks        Show or set whether hooks from the Restow server run here: status | off | scripts | any
   uninstall    Remove the agent, its service and its local secrets from this machine
@@ -60,6 +61,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdStatus(rest, stdout, stderr)
 	case "backup-now":
 		return cmdBackupNow(rest, stdout, stderr)
+	case "update":
+		return cmdUpdate(rest, stdout, stderr)
 	case "service":
 		return cmdService(rest, stdout, stderr)
 	case "hooks":

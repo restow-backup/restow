@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/table";
 import { formatDateTime } from "@/lib/format";
 
-import type { FleetMember, FleetMemberState, UpdatesView } from "../api";
+import type { FleetMember, FleetMemberState, FleetStatus, UpdatesView } from "../api";
 import { useCancelMaintenance } from "../hooks";
 import { countdownLabel, updatesErrorKey } from "../presenters";
 import { CommandBlock } from "./command-block";
@@ -85,16 +85,55 @@ const STATE_TONE: Record<FleetMemberState, StatusTone> = {
   paused: "muted",
 };
 
+/** `0.4.2-rc.1` -> [0, 4, 2]; null for what is no release version. */
+function releaseOf(version: string | null | undefined): number[] | null {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version?.trim() ?? "");
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+/** Whether `version` is a release before `since` (an unknown version counts as older). */
+export function olderThan(version: string | null, since: string): boolean {
+  const have = releaseOf(version);
+  const want = releaseOf(since);
+  if (!want) {
+    return false;
+  }
+  if (!have) {
+    return true;
+  }
+  for (let index = 0; index < 3; index++) {
+    const difference = (have[index] ?? 0) - (want[index] ?? 0);
+    if (difference !== 0) {
+      return difference < 0;
+    }
+  }
+  return false;
+}
+
+export interface ManualCommand {
+  command: string;
+  /** An agent before 0.4.2, which has no `update` command: its service is restarted instead. */
+  legacy: boolean;
+}
+
 /** What to run by hand on a member that was not reached. */
-function manualCommand(view: UpdatesView, member: FleetMember): string | null {
-  const commands = view.fleet?.commands;
-  if (!commands) {
+export function manualCommand(
+  commands: FleetStatus["commands"],
+  member: Pick<FleetMember, "kind" | "os" | "version">,
+): ManualCommand | null {
+  if (member.kind === "pve_node") {
+    return { command: commands.pve_node, legacy: false };
+  }
+  if (member.os !== "darwin" && member.os !== "linux") {
     return null;
   }
-  if (member.kind === "pve_node") {
-    return commands.pve_node;
-  }
-  return member.os === "darwin" ? commands.darwin : member.os === "linux" ? commands.linux : null;
+  const legacy =
+    commands.legacy !== undefined &&
+    commands.agentUpdateSince !== undefined &&
+    olderThan(member.version, commands.agentUpdateSince);
+  return legacy && commands.legacy
+    ? { command: commands.legacy[member.os], legacy: true }
+    : { command: commands[member.os], legacy: false };
 }
 
 /**
@@ -119,7 +158,11 @@ export function FleetCard({ view }: { view: UpdatesView }) {
   }
   const percent = all.total > 0 ? Math.round((all.updated / all.total) * 100) : 100;
   const unreachable = fleet.members.filter((member) => member.state === "unreachable");
-  const kinds = new Set(unreachable.map((member) => manualCommand(view, member)));
+  const manual = unreachable.flatMap((member) => manualCommand(fleet.commands, member) ?? []);
+  const current = [
+    ...new Set(manual.filter((entry) => !entry.legacy).map((entry) => entry.command)),
+  ];
+  const legacy = [...new Set(manual.filter((entry) => entry.legacy).map((entry) => entry.command))];
   return (
     <Card data-slot="update-fleet" data-following={following ? "true" : undefined}>
       <CardHeader>
@@ -184,13 +227,21 @@ export function FleetCard({ view }: { view: UpdatesView }) {
         {unreachable.length > 0 ? (
           <div className="space-y-2" data-slot="fleet-manual">
             <p className="text-sm">{t("fleet.manual")}</p>
-            {[...kinds].flatMap((command) =>
-              command ? (
-                <CommandBlock key={command} command={command} copyLabel={t("fleet.copy")} />
-              ) : (
-                []
-              ),
-            )}
+            {current.map((command) => (
+              <CommandBlock key={command} command={command} copyLabel={t("fleet.copy")} />
+            ))}
+            {legacy.length > 0 ? (
+              <>
+                <p className="text-sm text-muted-foreground" data-slot="fleet-manual-legacy">
+                  {t("fleet.manualLegacy", {
+                    version: fleet.commands.agentUpdateSince ?? "0.4.2",
+                  })}
+                </p>
+                {legacy.map((command) => (
+                  <CommandBlock key={command} command={command} copyLabel={t("fleet.copy")} />
+                ))}
+              </>
+            ) : null}
           </div>
         ) : null}
       </CardContent>

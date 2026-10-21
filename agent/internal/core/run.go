@@ -10,6 +10,7 @@ import (
 	"github.com/restow-backup/restow/agent/internal/activity"
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/buildinfo"
+	"github.com/restow-backup/restow/agent/internal/lock"
 	"github.com/restow-backup/restow/agent/internal/restic"
 	"github.com/restow-backup/restow/agent/internal/runlog"
 	"github.com/restow-backup/restow/agent/internal/status"
@@ -247,21 +248,8 @@ func interruptedOutcome(out *runOutcome) {
 func (a *Agent) tryUpdate(ctx context.Context) error {
 	uctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	info, err := a.d.Server.CheckUpdate(uctx)
-	if err != nil {
-		if api.IsNotFound(err) {
-			return nil // instance without update support
-		}
-		return err
-	}
-	if info == nil {
-		return nil
-	}
-	res, err := update.Apply(uctx, update.Options{CurrentVersion: buildinfo.Version, Info: *info, Client: a.d.Server,
-		BinDir: a.d.BinDir, Key: a.d.UpdateKey})
+	res, err := a.installOffered(uctx)
 	switch {
-	case errors.Is(err, update.ErrNotNewer):
-		return nil
 	case errors.Is(err, update.ErrDevBuild):
 		a.o.SelfUpdate = false
 		a.log.Info("development build: self-update is disabled")
@@ -272,6 +260,8 @@ func (a *Agent) tryUpdate(ctx context.Context) error {
 		return nil
 	case err != nil:
 		return err
+	case res == nil:
+		return nil
 	}
 	a.log.Info("agent updated from a signed release; restarting to run the new version", "from", buildinfo.Version, "to", res.Version,
 		"restic_changed", res.ResticChanged)
@@ -279,6 +269,48 @@ func (a *Agent) tryUpdate(ctx context.Context) error {
 	a.restart = true
 	a.mu.Unlock()
 	return nil
+}
+
+// installOffered asks the server for a newer release and installs it: the signed SHA256SUMS
+// are checked against the compiled-in key, every file against its signed hash (package
+// update). It returns nil (and no error) when the server offers nothing newer, or has no
+// update support.
+func (a *Agent) installOffered(ctx context.Context) (*update.Result, error) {
+	info, err := a.d.Server.CheckUpdate(ctx)
+	if err != nil {
+		if api.IsNotFound(err) {
+			return nil, nil // instance without update support
+		}
+		return nil, err
+	}
+	if info == nil {
+		return nil, nil
+	}
+	res, err := update.Apply(ctx, update.Options{CurrentVersion: buildinfo.Version, Info: *info, Client: a.d.Server,
+		BinDir: a.d.BinDir, Key: a.d.UpdateKey})
+	if errors.Is(err, update.ErrNotNewer) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// UpdateNow installs the release the server offers right now (`restow-agent update`), through
+// the same signed download as the automatic self-update. It holds the run lock while it
+// installs, so no backup, restore or restore test starts meanwhile, and fails with ErrBusy
+// while one runs (the service updates itself once it is idle). A nil result means the server
+// offers nothing newer. The caller restarts the service to run the new version.
+func (a *Agent) UpdateNow(ctx context.Context) (*update.Result, error) {
+	lk, err := lock.TryAcquire(a.d.Layout.LockFile())
+	if err != nil {
+		return nil, err
+	}
+	defer lk.Release()
+	uctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	return a.installOffered(uctx)
 }
 
 // recoverInterrupted deals with a run that was in progress when the agent

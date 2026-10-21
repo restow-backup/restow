@@ -1463,6 +1463,13 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         const view = await updated.view();
         expect(view.fleet?.counts.pve_node).toMatchObject({ pending: 1, total: 1 });
         expect(view.fleet?.members[0]).toMatchObject({ name: "pve1", state: "pending" });
+        // By hand: restow-pve update, restow-agent update, a restart for agents before 0.4.2.
+        expect(view.fleet?.commands).toMatchObject({
+          pve_node: "/opt/restow-pve/bin/restow-pve update",
+          linux: "sudo '/opt/restow-agent/bin/restow-agent' update",
+          legacy: { linux: "sudo systemctl restart restow-agent" },
+          agentUpdateSince: "0.4.2",
+        });
         // Still behind: the pause holds; the node reports the release: it lifts.
         await updated.advancePause();
         expect(await pauseRow()).not.toBeNull();

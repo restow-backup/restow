@@ -29,6 +29,11 @@ private repository.
   node and on a machine asks for the update at any time.
 - Updates can be planned for a chosen date and time (in the installation's time zone) besides
   the lead times from now; nothing pauses before, and everyone sees a notice from a day before.
+- `restow-agent update` on a machine, like `restow-pve update` on a node: it installs the
+  release the server offers right away, through the same signed download as the automatic
+  self-update, restarts the service and says what it did; while a backup runs it refuses and the
+  agent updates itself once idle. The Updates tab names it for agents that were not reached
+  (and the service restart for agents before 0.4.2).
 - The installation has a time zone of its own: chosen in the setup wizard (the browser's zone
   preselected) and changed by an owner under Installation › Server & operation › Server, with
   a searchable list of zones. Planned updates are read in it and a new tenant starts with it.

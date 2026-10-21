@@ -740,9 +740,15 @@ For the ones that were not reached it shows the command for an update by hand:
 
 ```
 /opt/restow-pve/bin/restow-pve update                        # Proxmox VE node, as root
-sudo systemctl restart restow-agent                          # Linux agent (checks a minute after it starts)
-sudo launchctl kickstart -k system/com.restowbackup.agent    # macOS agent
+sudo restow-agent update                                     # agent 0.4.2 or later (Linux, macOS)
+sudo systemctl restart restow-agent                          # Linux agent before 0.4.2 (checks a minute after it starts)
+sudo launchctl kickstart -k system/com.restowbackup.agent    # macOS agent before 0.4.2
 ```
+
+`restow-agent update` installs the offered release at once through the same signed
+download as the automatic self-update and restarts the service; while a backup runs on the
+machine it refuses ("a backup is running; the update waits") and the agent updates itself
+once it is idle. The Updates tab names the command that fits each agent's version.
 
 A node's page and a machine's page also have **Update to <version>** whenever a
 newer release is offered, outside an update as well.

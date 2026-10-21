@@ -837,6 +837,7 @@
     },
     "truncated": "More than 200 are listed by name; the counts cover all of them.",
     "manual": "Not reached: update them by hand once they are online again (as root).",
+    "manualLegacy": "Agents older than {version} have no update command: restart their service instead, and they install the update a minute later.",
     "copy": "Copy command"
   }
 }

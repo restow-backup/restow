@@ -133,6 +133,7 @@ restow-agent enroll        Enroll this machine (RESTOW_TOKEN and RESTOW_URL from
 restow-agent run           The service main loop (what systemd / launchd execute)
 restow-agent status        Local state, no root needed (--json for scripts)
 restow-agent backup-now    Run one backup in the foreground (exit 0 ok, 3 partial, 1 failed)
+restow-agent update        Install the release the server offers now, then restart the service
 restow-agent service ...   install | start | stop | restart | status
 restow-agent hooks ...     status | off | scripts | any: whether hooks from the server run here
 restow-agent uninstall     Remove the agent (--yes, --keep-logs)

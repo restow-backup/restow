@@ -837,6 +837,7 @@
     },
     "truncated": "Mehr als 200 werden nicht einzeln aufgeführt; die Zahlen umfassen alle.",
     "manual": "Nicht erreicht: Aktualisieren Sie diese von Hand, sobald sie wieder online sind (als root).",
+    "manualLegacy": "Agenten vor {version} kennen den Befehl update noch nicht: Starten Sie stattdessen ihren Dienst neu, dann installieren sie das Update eine Minute später.",
     "copy": "Befehl kopieren"
   }
 }
