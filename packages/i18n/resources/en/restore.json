@@ -17,7 +17,12 @@
       "calendar": "Calendar",
       "contacts": "Contacts",
       "libraries": "Libraries",
-      "lists": "Lists"
+      "lists": "Lists",
+      "label": "What this person's backups hold",
+      "onedrive": "OneDrive",
+      "imap": "Mail (IMAP)",
+      "gone": "Removed",
+      "noBackup": "No backup yet"
     },
     "deleted": "Deleted in source",
     "deletedShort": "Deleted",
@@ -30,7 +35,7 @@
     "accounts": {
       "title": "Accounts",
       "searchLabel": "Search accounts",
-      "searchPlaceholder": "Search mailboxes, OneDrives and IMAP accounts …",
+      "searchPlaceholder": "Search people, sites and accounts …",
       "typeAll": "All accounts",
       "typeLabel": "Account type",
       "types": {
@@ -45,7 +50,11 @@
       "lastImport": "Last import",
       "protected": "Protected",
       "excluded": "Not protected",
-      "imported": "Imported"
+      "imported": "Imported",
+      "people": "People",
+      "sites": "SharePoint & Teams sites",
+      "accountDeleted": "Account deleted",
+      "more": "{count, plural, one {Show # more} other {Show # more}}"
     },
     "object": {
       "own": "Yours",

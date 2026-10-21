@@ -51,6 +51,7 @@ import {
 import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { FolderTree } from "@/features/restore/explorer/folder-tree";
 import { ItemList } from "@/features/restore/explorer/item-list";
+import { PersonAreas } from "@/features/restore/explorer/person-areas";
 import { RestorePointBar } from "@/features/restore/explorer/restore-point-bar";
 import { restorePointTime } from "@/features/restore/explorer/restore-point-label";
 import { SearchField } from "@/features/restore/explorer/search-field";
@@ -68,6 +69,7 @@ import {
   withSort,
 } from "@/features/restore/lib/explorer-search";
 import { normalizePath, parentPathOf } from "@/features/restore/lib/paths";
+import { groupPeople, personOfObject } from "@/features/restore/lib/people";
 import {
   deselectAll,
   EMPTY_SELECTION,
@@ -369,7 +371,7 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
     <AccountList
       objects={objects}
       value={objectId}
-      onChange={(id) => setSearch(withObject(id))}
+      onChange={(id, areaPath) => setSearch(withObject(id, areaPath))}
       suspicious={suspicious}
     />
   );
@@ -402,25 +404,40 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
     : (restorePoints.data?.length ?? 0) > 0;
   const restorePointReady = Boolean(object && restorePoint);
 
-  const folderTreePane =
-    object && restorePoint ? (
-      <div className="h-full overflow-y-auto p-2">
-        <FolderTree
-          snapshotId={restorePoint.id}
-          object={object}
-          currentPath={path}
-          onOpen={openFolder}
-        />
-      </div>
-    ) : object && restorePointsKnown && !restorePointsAvailable ? (
-      <p className="p-3 text-xs text-muted-foreground">{t("explorer.restorePoint.none")}</p>
-    ) : (
-      <div className="space-y-2 p-3">
-        <Skeleton className="h-6 w-3/4" />
-        <Skeleton className="h-5 w-1/2" />
-        <Skeleton className="h-5 w-2/3" />
-      </div>
-    );
+  const person = React.useMemo(
+    () => personOfObject(groupPeople(objects).people, objectId),
+    [objects, objectId],
+  );
+  const folderTreePane = person ? (
+    <div className="h-full overflow-y-auto p-2">
+      <PersonAreas
+        person={person}
+        objectId={objectId}
+        path={path}
+        snapshotId={restorePoint?.id ?? null}
+        restorePointsKnown={restorePointsKnown && !restorePointsAvailable}
+        onArea={(link) => setSearch(withObject(link.object.id, link.path || undefined))}
+        onOpenFolder={openFolder}
+      />
+    </div>
+  ) : object && restorePoint ? (
+    <div className="h-full overflow-y-auto p-2">
+      <FolderTree
+        snapshotId={restorePoint.id}
+        object={object}
+        currentPath={path}
+        onOpen={openFolder}
+      />
+    </div>
+  ) : object && restorePointsKnown && !restorePointsAvailable ? (
+    <p className="p-3 text-xs text-muted-foreground">{t("explorer.restorePoint.none")}</p>
+  ) : (
+    <div className="space-y-2 p-3">
+      <Skeleton className="h-6 w-3/4" />
+      <Skeleton className="h-5 w-1/2" />
+      <Skeleton className="h-5 w-2/3" />
+    </div>
+  );
 
   const itemListPane = (
     <div className="flex h-full min-h-0 flex-col">

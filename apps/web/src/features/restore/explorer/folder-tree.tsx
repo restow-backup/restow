@@ -32,11 +32,17 @@ export function FolderTree({
   object,
   currentPath,
   onOpen,
+  rootPath = ROOT_PATH,
+  hideRoot = false,
 }: {
   snapshotId: string;
   object: Pick<SnapshotObject, "kind" | "displayName" | "externalId">;
   currentPath: string;
   onOpen: (path: string) => void;
+  /** The folder the tree starts at (an area of a mailbox, `mail`); the object's root by default. */
+  rootPath?: string;
+  /** Leave out the row of the root itself (the area above already stands for it). */
+  hideRoot?: boolean;
 }) {
   const { t } = useTranslation("restore");
   // Explicit choices of the user; everything else follows the current path.
@@ -53,6 +59,13 @@ export function FolderTree({
   };
   const rootActive = currentPath === ROOT_PATH;
 
+  if (hideRoot) {
+    return (
+      <nav aria-label={t("explorer.tree.label")} className="text-sm">
+        <FolderLevel path={rootPath} depth={1} context={context} />
+      </nav>
+    );
+  }
   return (
     <nav aria-label={t("explorer.tree.label")} className="text-sm">
       <button
@@ -68,7 +81,7 @@ export function FolderTree({
         <ObjectIcon kind={object.kind} />
         <span className="truncate">{objectLabel(object)}</span>
       </button>
-      <FolderLevel path={ROOT_PATH} depth={1} context={context} />
+      <FolderLevel path={rootPath} depth={1} context={context} />
     </nav>
   );
 }

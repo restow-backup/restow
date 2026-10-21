@@ -154,6 +154,14 @@ export interface SnapshotObjectDto {
   /** m365 or imap: which source backs this object up, for the explorer's grouping. */
   sourceKind: Source["kind"];
   ownerEmail: string | null;
+  /**
+   * The person the object belongs to (the directory user, `protected_objects.user_id`), so the
+   * explorer can show a person's mailbox, OneDrive and IMAP account as one entry (#49); null for
+   * an object of no one (a SharePoint site) or whose user is gone from the directory table.
+   */
+  ownerKey: string | null;
+  /** That person's display name from the directory; null when unknown. */
+  ownerName: string | null;
   /** True when the object belongs to the viewer (self-service restore). */
   own: boolean;
   /** Completed backups ("restore points"); 0 for an object never backed up yet. */
@@ -334,6 +342,8 @@ export async function listObjects(
         status: protectedObjects.status,
         sourceKind: sources.kind,
         ownerEmail: users.email,
+        ownerKey: protectedObjects.userId,
+        ownerName: users.displayName,
         snapshotCount: sql<number>`count(${snapshots.id})::int`,
         latestSnapshotId: sql<
           string | null
@@ -356,7 +366,7 @@ export async function listObjects(
           ...(query.include === "all" ? [] : [isNotNull(snapshots.id)]),
         ),
       )
-      .groupBy(protectedObjects.id, sources.kind, users.email)
+      .groupBy(protectedObjects.id, sources.kind, users.email, users.displayName)
       .orderBy(
         sql`lower(coalesce(${protectedObjects.displayName}, ${protectedObjects.externalId}))`,
       );
@@ -375,6 +385,8 @@ export async function listObjects(
       status: row.status,
       sourceKind: row.sourceKind,
       ownerEmail: row.ownerEmail,
+      ownerKey: row.kind === "site" ? null : row.ownerKey,
+      ownerName: row.kind === "site" ? null : row.ownerName,
       own: isOwnObject(viewer, row),
       snapshotCount: Number(row.snapshotCount),
       latestSnapshotId: row.latestSnapshotId,

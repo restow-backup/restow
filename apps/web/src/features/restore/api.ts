@@ -28,6 +28,14 @@ export interface SnapshotObject {
   status: ObjectStatus;
   sourceKind: SourceKind;
   ownerEmail: string | null;
+  /**
+   * The person the object belongs to (the directory user), the same for a person's mailbox,
+   * OneDrive and IMAP account; null for a site or an object of no known person. Absent from an
+   * API older than 0.4.2.
+   */
+  ownerKey?: string | null;
+  /** That person's display name from the directory. */
+  ownerName?: string | null;
   /** The object belongs to the signed-in person (self-service restore). */
   own: boolean;
   snapshotCount: number;

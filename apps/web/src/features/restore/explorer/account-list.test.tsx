@@ -4,7 +4,7 @@ import { render } from "@/components/kit/test-utils";
 import { i18n } from "@/i18n";
 
 import type { SnapshotObject } from "../api.js";
-import { AccountList } from "./account-list.js";
+import { ACCOUNT_PAGE, AccountList } from "./account-list.js";
 
 beforeAll(async () => {
   await i18n.changeLanguage("en");
@@ -58,6 +58,99 @@ const objects: SnapshotObject[] = [
     readiness: "yellow",
   },
 ];
+
+const USER_CARLA = "c0ffee00-0000-4000-8000-00000000000c";
+
+function object(
+  over: Partial<SnapshotObject> & Pick<SnapshotObject, "id" | "kind">,
+): SnapshotObject {
+  return {
+    externalId: over.id,
+    displayName: null,
+    status: "active",
+    sourceKind: "m365",
+    ownerEmail: null,
+    own: false,
+    snapshotCount: 1,
+    latestSnapshotId: "s",
+    latestSnapshotAt: "2026-09-20T10:00:00.000Z",
+    readiness: "green",
+    ...over,
+  };
+}
+
+describe("AccountList by person", () => {
+  const carlaMailbox = object({
+    id: "a1111111-1111-4111-8111-111111111111",
+    kind: "mailbox",
+    displayName: "Carla Weber",
+    ownerEmail: "carla@example.com",
+    ownerKey: USER_CARLA,
+    ownerName: "Carla Weber",
+  });
+  const carlaDrive = object({
+    id: "a2222222-2222-4222-8222-222222222222",
+    kind: "onedrive",
+    displayName: "Carla Weber",
+    ownerEmail: "carla@example.com",
+    ownerKey: USER_CARLA,
+    ownerName: "Carla Weber",
+    readiness: "yellow",
+  });
+  const goneDrive = object({
+    id: "a3333333-3333-4333-8333-333333333333",
+    kind: "onedrive",
+    displayName: "Dieter Former",
+    ownerEmail: "dieter@example.com",
+    ownerKey: "d1e7e700-0000-4000-8000-00000000000d",
+    ownerName: "Dieter Former",
+    status: "orphaned",
+  });
+  const site = object({
+    id: "a4444444-4444-4444-8444-444444444444",
+    kind: "site",
+    displayName: "Projekt Nordlicht",
+    externalId: "contoso.sharepoint.com,1,2",
+  });
+
+  it("shows a person's mailbox and OneDrive as one entry, sites in their own section", () => {
+    const html = render(
+      <AccountList
+        objects={[carlaDrive, site, goneDrive, carlaMailbox]}
+        value={null}
+        onChange={() => {}}
+      />,
+    );
+    expect(html.match(/data-slot="account-person"/g)).toHaveLength(2);
+    expect(html.match(/>Carla Weber</g)).toHaveLength(1);
+    expect(html).toContain("Mailbox, OneDrive · carla@example.com");
+    // The least proven of the person's restore points: the OneDrive's.
+    expect(html).toContain("Attention");
+    expect(html).toContain("SharePoint &amp; Teams sites");
+    expect(html.match(/data-slot="account-site"/g)).toHaveLength(1);
+    expect(html).toContain("Projekt Nordlicht");
+  });
+
+  it("lists an orphaned OneDrive under the person's name, marked as a deleted account", () => {
+    const html = render(<AccountList objects={[goneDrive]} value={null} onChange={() => {}} />);
+    expect(html).toContain("Dieter Former");
+    expect(html).toContain("Account deleted");
+  });
+
+  it("renders a long list a page at a time", () => {
+    const many = Array.from({ length: ACCOUNT_PAGE + 5 }, (_, index) =>
+      object({
+        id: `b0000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        kind: "mailbox",
+        displayName: `Person ${String(index).padStart(4, "0")}`,
+        ownerKey: `u-${index}`,
+      }),
+    );
+    const html = render(<AccountList objects={many} value={null} onChange={() => {}} />);
+    expect(html.match(/data-slot="account-person"/g)).toHaveLength(ACCOUNT_PAGE);
+    expect(html).toContain("Show 5 more");
+  });
+});
 
 describe("AccountList", () => {
   it("shows display names, never a raw id", () => {

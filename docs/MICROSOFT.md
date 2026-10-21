@@ -132,6 +132,14 @@ Schutzumfang" anzeigen, nicht als Fehler).
 - Restore: Upload-Session `createUploadSession` für alles über 4 MB, Chunks 5 bis
   60 MiB, Vielfache von 320 KiB. Konflikte: `@microsoft.graph.conflictBehavior`
   rename/replace wählbar. mtime setzen über `fileSystemInfo`.
+- Restore-Explorer (ab 0.4.2): Postfach, OneDrive und ein zugeordnetes IMAP-Konto einer
+  Person stehen als ein Eintrag (über den Verzeichnisbenutzer des Objekts,
+  `protected_objects.user_id`); die zweite Spalte zeigt E-Mail, Kalender, Kontakte und OneDrive,
+  jeweils mit den Sicherungsständen des passenden Objekts. Ein OneDrive for Business gehört immer
+  genau einem Benutzer; nach dem Löschen des Kontos steht es verwaist unter dessen Namen, markiert
+  als "Konto gelöscht". SharePoint-Websites (mit den Dateien der Teams-Kanäle) haben einen eigenen
+  Abschnitt. Lange Listen zeigen je Abschnitt 100 Einträge und den Rest auf Wunsch; die Suche
+  durchsucht alle.
 - Freigaben/Berechtigungen werden als Information gesichert, nicht wiederhergestellt
   (v1).
 - Papierkorb: Elemente im OneDrive-Papierkorb sind über delta nicht erreichbar; ist ok,

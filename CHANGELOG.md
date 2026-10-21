@@ -8,6 +8,35 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- Restore explorer: a mailbox's calendar has a month view, day by day across all its calendars
+  or one, and a series in the list opens onto its occurrences, derived from the stored pattern
+  with the changed occurrences in place (new `GET /api/v1/snapshots/:id/calendar`, audited as
+  `snapshot.calendar.read`).
+- Restore explorer: one entry per person. A person's mailbox, OneDrive and IMAP account are
+  grouped; the second column shows Mail, Calendar, Contacts and OneDrive, each with its own
+  restore points. SharePoint and Teams sites have a section of their own, an orphaned OneDrive
+  is listed under its owner's name as "Account deleted", and long lists render a page at a time.
+  The snapshot objects carry `ownerKey` and `ownerName`.
+- Mail job editor: the first question is what the job should do, back up, archive or both
+  (both is the default for a new job). While it archives, the editor names the capture
+  (Exchange journaling) with the way to its setup and suggests backing up every 8 hours;
+  backing up alone names the gap between two runs.
+
+### Changed
+
+- Restore explorer: calendar events sort by when they start (newest first, or upcoming first)
+  instead of by subject, with When, Location and Organizer columns.
+- Exchange backup: an event's metadata records its location and the end of a series range.
+
+### Fixed
+
+- Switching the tenant on a job's page opens the jobs of that kind in the new tenant instead of
+  saying that the job does not exist; any detail page gives way to its list.
+
 ## [0.4.1] - 2026-10-16
 
 Beta release. Run it alongside your existing backups, not as your only one, until
