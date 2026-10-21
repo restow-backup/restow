@@ -17,6 +17,8 @@ const REASON_CODES: Readonly<Record<ReadinessReasonCode, FailureCode>> = {
   items_unreadable: "verify.pack_unreadable",
   items_mismatched: "verify.hash_mismatch",
   storage_corrupt: "verify.storage_corrupt",
+  storage_unreadable: "verify.storage_unreadable",
+  storage_unreadable_persistent: "verify.storage_unreadable_persistent",
   test_restore_failed: "verify.restore_test_failed",
   snapshot_outdated: "verify.snapshot_outdated",
   snapshot_stale: "verify.snapshot_stale",

@@ -60,6 +60,7 @@ import {
   loadKeepCutover,
   loadPreviousScrub,
   mirrorCopies,
+  packFindingsOfReport,
   SCRUB_EVENTS,
   scrubHandler,
   scrubModeOf,
@@ -75,6 +76,7 @@ describe("scrub helpers", () => {
   it("runs a sample scrub unless full is asked for", () => {
     expect(scrubModeOf({ mode: "full" })).toBe("full");
     expect(scrubModeOf({ mode: "sample" })).toBe("sample");
+    expect(scrubModeOf({ mode: "recheck" })).toBe("recheck");
     expect(scrubModeOf({ mode: "bogus" as never })).toBe("sample");
   });
 
@@ -93,6 +95,52 @@ describe("scrub helpers", () => {
         corrupt: [{ path: "a" }, { path: "" }, { nope: 1 }, null, { path: "b" }],
       }),
     ).toEqual(["a", "b"]);
+  });
+
+  it("re-checks unreadable packs too, and tells them from damage in reports of any age", () => {
+    const unreadable = { status: "unreadable", detail: "aborted", target: 0, repaired: false };
+    const damaged = { status: "hash_mismatch", detail: null, target: 0, repaired: false };
+    const report = {
+      corrupt: [
+        { path: "old-unreadable", targets: [unreadable] },
+        { path: "damaged", targets: [damaged] },
+      ],
+      unreadable: [{ path: "new-unreadable", targets: [unreadable] }],
+    };
+    expect(corruptPackPathsOf(report)).toEqual(["old-unreadable", "damaged", "new-unreadable"]);
+    expect(packFindingsOfReport(report)).toEqual({
+      damaged: ["damaged"],
+      unreadable: ["old-unreadable", "new-unreadable"],
+    });
+    expect(packFindingsOfReport(null)).toEqual({ damaged: [], unreadable: [] });
+  });
+
+  it("raises nothing for a pack that is only temporarily unreadable, an error once it stayed so", () => {
+    const run = (persistent: boolean) => ({
+      since: "2026-10-17T02:00:00.000Z",
+      lastAt: "2026-10-18T03:00:00.000Z",
+      checks: 3,
+      persistent,
+    });
+    const base = { mode: "sample" as const, corrupt: [], repaired: [] };
+    expect(
+      scrubNotifications(
+        randomUUID(),
+        "job",
+        { ...base, unreadable: [{ ...packCheck("p/1", "corrupt"), unreadable: run(false) }] },
+        1,
+      ),
+    ).toEqual([]);
+    const raised = scrubNotifications(
+      randomUUID(),
+      "job",
+      { ...base, unreadable: [{ ...packCheck("p/1", "corrupt"), unreadable: run(true) }] },
+      1,
+    );
+    expect(raised.map((notification) => notification.event)).toEqual([SCRUB_EVENTS.corrupt]);
+    expect(raised[0]?.details).toMatchObject({ corrupt: 0, unreadable: 1, packs: ["p/1"] });
+    expect(raised[0]?.message).toMatch(/could not be read in several consecutive storage checks/);
+    expect(raised[0]?.message).not.toMatch(/damaged/);
   });
 
   it("reads the superseded packs an earlier report left pending, dropping malformed entries", () => {

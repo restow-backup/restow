@@ -5,7 +5,8 @@
  *
  * The run itself is core's `runScrub` (packages/core/src/verify/scrub.ts) over
  * {@link PgPackCatalog}. Around it this handler
- *   - re-checks every pack the previous scrub left corrupt, whatever the mode
+ *   - re-checks every pack the previous scrub left corrupt or could not read,
+ *     whatever the mode, before any other (a `recheck` reads only those)
  *   - lets garbage collection yield to running backups (a backup references
  *     its chunks only when it commits) and to running restores and verifies
  *     (they look chunk locations up as they go and must find every pack
@@ -24,9 +25,16 @@
  *     loses its list with its report; those files are then ordinary orphans
  *     that a later full run's orphan sweep removes by file age, and only the
  *     yielding above protects readers of them.
- *   - files a red readiness report for every protected object whose active
- *     snapshots use a pack that is corrupt beyond repair, so the damage shows
- *     up per object immediately instead of at the next weekly verify
+ *   - files a readiness report (a "storage finding") for every protected
+ *     object whose active snapshots use a pack that is corrupt beyond repair
+ *     (red) or that no target could be read from (yellow, "temporarily
+ *     unreadable"; red once it stayed unreadable in three consecutive checks
+ *     over at least a day), so it shows up per object immediately instead of
+ *     at the next weekly verify; and a green "cleared" finding for every
+ *     object whose latest finding named only packs this run read intact
+ *     again, which ends that finding (verification-state.ts in the API)
+ *   - keeps the run of failed checks of every unreadable pack in
+ *     `pack_read_failures` (core `runScrub` through {@link PgPackCatalog})
  *   - excludes packs a "keep" storage replacement left on its retired,
  *     read-only `previous` target from both the integrity check and the copy
  *     mirror (docs/STORAGE.md, {@link LegacyExcludingPackCatalog}): the
@@ -52,23 +60,29 @@ import {
   type CatalogChunk,
   type CatalogPack,
   type GcBlocker,
+  isPersistentlyUnreadable,
   type JobQueue,
   mirrorTenantStorage,
   type PackCatalog,
   type PackCheck,
+  type PackReadFailure,
   type PackReplacement,
   runScrub,
   type ScrubJobPayload,
   type ScrubReport,
   type SupersededPack,
+  scrubClearedFindingDetails,
   scrubFindingDetails,
+  scrubFindingReadiness,
   type TenantMirrorReport,
+  type UnreadablePackCheck,
 } from "@restow/core";
 import {
   chunks,
   jobs,
   type NewNotification,
   objectsReferencingChunks,
+  packReadFailures,
   packs,
   storageMigrations,
   storageTargets,
@@ -93,7 +107,7 @@ const BATCH = 1000;
 export const GC_GRACE_HOURS = 72;
 
 export function scrubModeOf(payload: Pick<ScrubJobPayload, "mode">): ScrubJobPayload["mode"] {
-  return payload.mode === "full" ? "full" : "sample";
+  return payload.mode === "full" || payload.mode === "recheck" ? payload.mode : "sample";
 }
 
 /** The collection cutoff: chunks unreferenced since before this may go. */
@@ -171,13 +185,84 @@ export class PgPackCatalog implements PackCatalog {
   }
 
   async listPacks(): Promise<CatalogPack[]> {
-    return this.run((tx) =>
+    const rows = await this.run((tx) =>
       tx
-        .select(this.packColumns)
+        .select({
+          ...this.packColumns,
+          failedSince: packReadFailures.firstFailedAt,
+          failedLast: packReadFailures.lastFailedAt,
+          failedChecks: packReadFailures.failedChecks,
+          failedDetail: packReadFailures.detail,
+        })
         .from(packs)
+        .leftJoin(
+          packReadFailures,
+          and(eq(packReadFailures.packId, packs.id), eq(packReadFailures.tenantId, this.tenantId)),
+        )
         .where(eq(packs.tenantId, this.tenantId))
         .orderBy(asc(packs.createdAt), asc(packs.id)),
     );
+    return rows.map(({ failedSince, failedLast, failedChecks, failedDetail, ...pack }) => ({
+      ...pack,
+      unreadable:
+        failedSince && failedLast
+          ? {
+              since: failedSince,
+              lastAt: failedLast,
+              checks: failedChecks ?? 1,
+              detail: failedDetail ?? null,
+            }
+          : null,
+    }));
+  }
+
+  async recordUnreadable(failures: readonly PackReadFailure[], at: Date): Promise<void> {
+    if (failures.length === 0) {
+      return;
+    }
+    await this.run(async (tx) => {
+      for (const batch of batches(failures)) {
+        await tx
+          .insert(packReadFailures)
+          .values(
+            batch.map((failure) => ({
+              packId: failure.packId,
+              tenantId: this.tenantId,
+              firstFailedAt: at,
+              lastFailedAt: at,
+              failedChecks: 1,
+              detail: failure.detail,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: packReadFailures.packId,
+            set: {
+              lastFailedAt: sql`excluded.last_failed_at`,
+              failedChecks: sql`${packReadFailures.failedChecks} + 1`,
+              detail: sql`excluded.detail`,
+              updatedAt: sql`now()`,
+            },
+          });
+      }
+    });
+  }
+
+  async clearUnreadable(packIds: readonly string[]): Promise<void> {
+    if (packIds.length === 0) {
+      return;
+    }
+    await this.run(async (tx) => {
+      for (const batch of batches(packIds)) {
+        await tx
+          .delete(packReadFailures)
+          .where(
+            and(
+              eq(packReadFailures.tenantId, this.tenantId),
+              inArray(packReadFailures.packId, batch),
+            ),
+          );
+      }
+    });
   }
 
   async chunksOf(packId: string): Promise<CatalogChunk[]> {
@@ -348,26 +433,83 @@ export class LegacyExcludingPackCatalog implements PackCatalog {
   retireDamagedPack(pack: CatalogPack): Promise<boolean> {
     return this.inner.retireDamagedPack(pack);
   }
+
+  recordUnreadable(failures: readonly PackReadFailure[], at: Date): Promise<void> {
+    return this.inner.recordUnreadable(failures, at);
+  }
+
+  clearUnreadable(packIds: readonly string[]): Promise<void> {
+    return this.inner.clearUnreadable(packIds);
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Reading earlier results
 // ---------------------------------------------------------------------------
 
-/** Pack paths a stored scrub report lists as corrupt; tolerant of older or partial shapes. */
-export function corruptPackPathsOf(result: unknown): string[] {
+type StoredPackEntry = { path: string; targets: unknown };
+
+function packEntriesOf(result: unknown, field: "corrupt" | "unreadable"): StoredPackEntry[] {
   if (!result || typeof result !== "object") {
     return [];
   }
-  const corrupt = (result as { corrupt?: unknown }).corrupt;
-  if (!Array.isArray(corrupt)) {
+  const list = (result as Record<string, unknown>)[field];
+  if (!Array.isArray(list)) {
     return [];
   }
-  return corrupt
+  return list
     .map((entry) =>
-      entry && typeof entry === "object" ? (entry as { path?: unknown }).path : null,
+      entry && typeof entry === "object"
+        ? {
+            path: (entry as { path?: unknown }).path,
+            targets: (entry as { targets?: unknown }).targets,
+          }
+        : null,
     )
-    .filter((path): path is string => typeof path === "string" && path.length > 0);
+    .filter(
+      (entry): entry is StoredPackEntry =>
+        entry !== null && typeof entry.path === "string" && entry.path.length > 0,
+    );
+}
+
+/** Whether a stored pack entry has a target that could not be read (not proven damage). */
+function hasUnreadableTarget(entry: StoredPackEntry): boolean {
+  return (
+    Array.isArray(entry.targets) &&
+    entry.targets.some(
+      (target) =>
+        target &&
+        typeof target === "object" &&
+        (target as { status?: unknown }).status === "unreadable",
+    )
+  );
+}
+
+/**
+ * Pack paths a stored scrub report lists as corrupt or unreadable, the ones
+ * every later scrub re-checks; tolerant of older or partial shapes.
+ */
+export function corruptPackPathsOf(result: unknown): string[] {
+  return [
+    ...packEntriesOf(result, "corrupt").map((entry) => entry.path),
+    ...packEntriesOf(result, "unreadable").map((entry) => entry.path),
+  ];
+}
+
+/**
+ * The packs of a stored scrub report split into proven damage and packs that
+ * could not be read. Reports before 0.4.2 listed both under `corrupt`; an
+ * entry with an unreadable target is not proven damage.
+ */
+export function packFindingsOfReport(result: unknown): { damaged: string[]; unreadable: string[] } {
+  const corrupt = packEntriesOf(result, "corrupt");
+  return {
+    damaged: corrupt.filter((entry) => !hasUnreadableTarget(entry)).map((entry) => entry.path),
+    unreadable: [
+      ...corrupt.filter(hasUnreadableTarget).map((entry) => entry.path),
+      ...packEntriesOf(result, "unreadable").map((entry) => entry.path),
+    ],
+  };
 }
 
 /**
@@ -410,8 +552,10 @@ export function supersededPacksOf(result: unknown): SupersededPack[] {
 
 /** What the next scrub carries over from the latest completed one. */
 export interface PreviousScrub {
-  /** Packs it left corrupt; every scrub re-checks them. */
+  /** Packs it left corrupt or unreadable; every scrub re-checks them first. */
   readonly corrupt: Set<string>;
+  /** The same packs, split into proven damage and packs it could not read. */
+  readonly findings: { damaged: string[]; unreadable: string[] };
   /** Swapped-out pack files still inside their grace period. */
   readonly superseded: SupersededPack[];
 }
@@ -443,29 +587,65 @@ export async function loadPreviousScrub(
   const result = row?.payload?.result;
   return {
     corrupt: new Set(corruptPackPathsOf(result)),
+    findings: packFindingsOfReport(result),
     superseded: supersededPacksOf(result),
   };
 }
 
+/** What a restore check needs to know about the tenant's packs (storage keys). */
+export interface PackFindings {
+  /** Proven damaged: marked in the catalog, or reported damaged by the latest scrub. */
+  readonly damaged: Set<string>;
+  /** Could not be read lately, not yet for long: a reason for attention. */
+  readonly unreadable: Set<string>;
+  /** Unreadable in enough consecutive checks over long enough to count like damage. */
+  readonly persistentlyUnreadable: Set<string>;
+}
+
 /**
- * Packs known to be corrupt: the ones the latest completed scrub reported
- * (see {@link loadPreviousScrub}) and the ones marked damaged in the catalog.
- * The mark outlives a report that only sampled other packs.
+ * The packs known to be damaged or unreadable: the damage marks of the
+ * catalog, the runs of failed checks in `pack_read_failures`, and the latest
+ * completed scrub's report (see {@link loadPreviousScrub}), which also
+ * covers reports written before the runs were kept (they count as
+ * unreadable, not yet for long). The mark outlives a report that only
+ * sampled other packs. Three small queries: the damaged and failing packs
+ * are few, and both lookups use an index.
  */
-export async function loadCorruptPackPaths(
+export async function loadPackFindings(
   run: TenantTxRunner,
   tenantId: string,
-): Promise<Set<string>> {
-  const [previous, marked] = await Promise.all([
-    loadPreviousScrub(run, tenantId),
-    run((tx) =>
-      tx
-        .select({ path: packs.path })
-        .from(packs)
-        .where(and(eq(packs.tenantId, tenantId), isNotNull(packs.damagedAt))),
+): Promise<PackFindings> {
+  const previous = await loadPreviousScrub(run, tenantId);
+  const marked = await run((tx) =>
+    tx
+      .select({ path: packs.path })
+      .from(packs)
+      .where(and(eq(packs.tenantId, tenantId), isNotNull(packs.damagedAt))),
+  );
+  const failing = await run((tx) =>
+    tx
+      .select({
+        path: packs.path,
+        since: packReadFailures.firstFailedAt,
+        lastAt: packReadFailures.lastFailedAt,
+        checks: packReadFailures.failedChecks,
+      })
+      .from(packReadFailures)
+      .innerJoin(packs, eq(packs.id, packReadFailures.packId))
+      .where(eq(packReadFailures.tenantId, tenantId)),
+  );
+  const damaged = new Set([...previous.findings.damaged, ...marked.map((row) => row.path)]);
+  const persistentlyUnreadable = new Set(
+    failing
+      .filter((row) => !damaged.has(row.path) && isPersistentlyUnreadable(row))
+      .map((row) => row.path),
+  );
+  const unreadable = new Set(
+    [...failing.map((row) => row.path), ...previous.findings.unreadable].filter(
+      (path) => !damaged.has(path) && !persistentlyUnreadable.has(path),
     ),
-  ]);
-  return new Set([...previous.corrupt, ...marked.map((row) => row.path)]);
+  );
+  return { damaged, unreadable, persistentlyUnreadable };
 }
 
 /**
@@ -547,13 +727,13 @@ export async function gcBlockerFor(
  * packs. Runs only for packs that are corrupt beyond repair, which is rare,
  * so a scan of the manifest mirror is acceptable here.
  */
-async function objectsUsingPacks(
+async function objectsUsingPacks<T extends PackCheck>(
   tx: TenantTx,
   tenantId: string,
-  damaged: readonly PackCheck[],
-): Promise<Map<string, PackCheck[]>> {
-  const affected = new Map<string, PackCheck[]>();
-  for (const pack of damaged) {
+  flagged: readonly T[],
+): Promise<Map<string, T[]>> {
+  const affected = new Map<string, T[]>();
+  for (const pack of flagged) {
     const rows = await tx
       .select({ storedId: chunks.storedId })
       .from(chunks)
@@ -571,6 +751,59 @@ async function objectsUsingPacks(
   return affected;
 }
 
+const isUnreadableCheck = (pack: PackCheck): pack is UnreadablePackCheck => "unreadable" in pack;
+
+/**
+ * Objects whose latest storage finding is still in force and names only
+ * packs this run read intact again (`cleared`), except the objects this run
+ * files a new finding for. Runs only when something was cleared; looks only
+ * at findings that name one of those packs.
+ */
+async function objectsWithClearedFindings(
+  tx: TenantTx,
+  tenantId: string,
+  cleared: readonly string[],
+  except: ReadonlySet<string>,
+): Promise<Map<string, string[]>> {
+  if (cleared.length === 0) {
+    return new Map();
+  }
+  const clearedPaths = new Set(cleared);
+  const result = await tx.execute<{ object_id: string; packs: unknown }>(sql`
+    SELECT latest.protected_object_id AS object_id, latest.packs
+    FROM (
+      SELECT DISTINCT ON (r.protected_object_id)
+        r.protected_object_id, r.recovery_readiness, r.details->'packs' AS packs
+      FROM ${verifyReports} AS r
+      WHERE r.tenant_id = ${tenantId}::uuid AND r.details->>'origin' = 'scrub'
+      ORDER BY r.protected_object_id, r.checked_at DESC, r.created_at DESC
+    ) AS latest
+    WHERE latest.recovery_readiness <> 'green'
+      AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements(
+          CASE WHEN jsonb_typeof(latest.packs) = 'array' THEN latest.packs ELSE '[]'::jsonb END
+        ) AS p
+        WHERE p->>'path' IN (${sql.join(
+          cleared.map((path) => sql`${path}`),
+          sql`, `,
+        )})
+      )
+  `);
+  const found = new Map<string, string[]>();
+  for (const row of result.rows) {
+    if (except.has(row.object_id) || !Array.isArray(row.packs)) {
+      continue;
+    }
+    const paths = row.packs
+      .map((pack) => (pack && typeof pack === "object" ? (pack as { path?: unknown }).path : null))
+      .filter((path): path is string => typeof path === "string");
+    if (paths.length > 0 && paths.every((path) => clearedPaths.has(path))) {
+      found.set(row.object_id, paths);
+    }
+  }
+  return found;
+}
+
 /** In-app notification events this handler raises (the UI translates them). */
 export const SCRUB_EVENTS = {
   corrupt: "scrub.corrupt",
@@ -580,22 +813,34 @@ export const SCRUB_EVENTS = {
 export function scrubNotifications(
   tenantId: string,
   jobId: string,
-  report: Pick<ScrubReport, "corrupt" | "repaired" | "mode">,
+  report: Pick<ScrubReport, "corrupt" | "repaired" | "mode"> &
+    Partial<Pick<ScrubReport, "unreadable">>,
   affectedObjects: number,
 ): NewNotification[] {
   const result: NewNotification[] = [];
-  if (report.corrupt.length > 0) {
+  // A pack that is only temporarily unreadable raises nothing: the next check reads it first.
+  const persistent = (report.unreadable ?? []).filter((pack) => pack.unreadable.persistent);
+  if (report.corrupt.length > 0 || persistent.length > 0) {
+    const parts = [
+      report.corrupt.length > 0
+        ? `${report.corrupt.length} pack files are damaged on every storage target and could not be repaired.`
+        : null,
+      persistent.length > 0
+        ? `${persistent.length} pack files could not be read in several consecutive storage checks over more than a day.`
+        : null,
+    ].filter((part): part is string => part !== null);
     result.push({
       tenantId,
       level: "error",
       event: SCRUB_EVENTS.corrupt,
-      message: `${report.corrupt.length} pack files are damaged on every storage target and could not be repaired; ${affectedObjects} protected objects are affected. A full backup of those objects writes the damaged content again from the source, as far as the source still holds it.`,
+      message: `${parts.join(" ")} ${affectedObjects} protected objects are affected. A full backup of those objects writes the affected content again from the source, as far as the source still holds it.`,
       details: {
         jobId,
         mode: report.mode,
         corrupt: report.corrupt.length,
+        unreadable: persistent.length,
         affectedObjects,
-        packs: report.corrupt.slice(0, 20).map((pack) => pack.path),
+        packs: [...report.corrupt, ...persistent].slice(0, 20).map((pack) => pack.path),
       },
     });
   }
@@ -623,25 +868,59 @@ async function persistReport(
   copies: CopyMirrorSummary | null,
 ): Promise<number> {
   return run(async (tx) => {
+    const flagged: PackCheck[] = [...report.corrupt, ...report.unreadable];
     const affected =
-      report.corrupt.length > 0
-        ? await objectsUsingPacks(tx, ctx.tenantId, report.corrupt)
+      flagged.length > 0
+        ? await objectsUsingPacks(tx, ctx.tenantId, flagged)
         : new Map<string, PackCheck[]>();
     const checkedAt = ctx.now();
     for (const batch of batches([...affected.entries()])) {
       await tx.insert(verifyReports).values(
-        batch.map(([protectedObjectId, damaged]) => ({
+        batch.map(([protectedObjectId, used]) => {
+          const details = scrubFindingDetails(
+            ctx.jobId,
+            used.filter((pack) => !isUnreadableCheck(pack)),
+            used.filter(isUnreadableCheck),
+          );
+          return {
+            tenantId: ctx.tenantId,
+            protectedObjectId,
+            jobId: ctx.jobId,
+            kind: "health_check" as const,
+            recoveryReadiness: scrubFindingReadiness(details),
+            details,
+            checkedAt,
+          };
+        }),
+      );
+    }
+    // Findings that named only packs read intact now end with a green "cleared" finding.
+    const ended = await objectsWithClearedFindings(
+      tx,
+      ctx.tenantId,
+      report.cleared,
+      new Set(affected.keys()),
+    );
+    for (const batch of batches([...ended.entries()])) {
+      await tx.insert(verifyReports).values(
+        batch.map(([protectedObjectId, paths]) => ({
           tenantId: ctx.tenantId,
           protectedObjectId,
           jobId: ctx.jobId,
           kind: "health_check" as const,
-          recoveryReadiness: "red" as const,
-          details: scrubFindingDetails(ctx.jobId, damaged),
+          recoveryReadiness: "green" as const,
+          details: scrubClearedFindingDetails(ctx.jobId, paths),
           checkedAt,
         })),
       );
     }
-    const raised = scrubNotifications(ctx.tenantId, ctx.jobId, report, affected.size);
+    const persistentlyUnreadable = new Set(
+      report.unreadable.filter((pack) => pack.unreadable.persistent).map((pack) => pack.path),
+    );
+    const notified = [...affected.values()].filter((used) =>
+      used.some((pack) => !isUnreadableCheck(pack) || persistentlyUnreadable.has(pack.path)),
+    ).length;
+    const raised = scrubNotifications(ctx.tenantId, ctx.jobId, report, notified);
     await raiseEvents(tx, raised);
     await tx.execute(sql`
       UPDATE ${storageTargets}
@@ -746,7 +1025,9 @@ export const scrubHandler: JobHandler<"scrub"> = {
       { tenantId: ctx.tenantId, storage: ctx.storage, logger: ctx.logger },
       { tenant: true },
     );
-    const copies = await mirrorCopies(ctx, catalog, mode);
+    // A recheck reads a handful of packs again; bringing every copy up to date waits for the next
+    // scheduled check.
+    const copies = mode === "recheck" ? null : await mirrorCopies(ctx, catalog, mode);
     const previous = await loadPreviousScrub(run, ctx.tenantId);
     // A storage migration reads the primary's packs to copy them elsewhere
     // and, once verified, retires it to `previous`; garbage collection must
@@ -791,6 +1072,7 @@ export const scrubHandler: JobHandler<"scrub"> = {
         packsChecked: report.packsChecked,
         repaired: report.repaired.length,
         corrupt: report.corrupt.length,
+        unreadable: report.unreadable.length,
         retired: report.retired.length,
         affectedObjects,
         abandonedSnapshots,

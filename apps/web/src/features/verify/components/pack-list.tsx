@@ -5,7 +5,11 @@ import type { VerifyFormat } from "@/features/verify/use-verify";
 /** How many packs are listed by path; the count is always complete. */
 const LISTED_PACKS = 5;
 
-/** Damaged or repaired pack files with what each storage target reported. */
+/**
+ * Damaged, unreadable or repaired pack files with what each storage target
+ * reported, the error text included; for an unreadable pack also how many
+ * consecutive checks could not read it and since when.
+ */
 export function PackList({
   packs,
   format,
@@ -29,14 +33,28 @@ export function PackList({
                 const values = {
                   target: t(label.key, label.values),
                   status: t(targetStatusKey(target.status)),
+                  detail: target.detail ?? "",
                 };
                 return t(
-                  target.repaired ? "storage.targetRepaired" : "storage.targetFailed",
+                  target.repaired
+                    ? "storage.targetRepaired"
+                    : target.status === "unreadable" && target.detail
+                      ? "storage.targetFailedDetail"
+                      : "storage.targetFailed",
                   values,
                 );
               })
               .join(" · ")}
           </span>
+          {pack.unreadable ? (
+            <span className="block text-muted-foreground">
+              {t("storage.unreadableRun", {
+                count: pack.unreadable.checks,
+                first: format.dateTime(pack.unreadable.since) ?? pack.unreadable.since,
+                last: format.dateTime(pack.unreadable.lastAt) ?? pack.unreadable.lastAt,
+              })}
+            </span>
+          ) : null}
         </li>
       ))}
       {packs.length > limit ? (

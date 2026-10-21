@@ -35,6 +35,7 @@
     "viewReportFor": "Open the latest report for {name}",
     "scrubSample": "Check a sample",
     "scrubFull": "Check all packs",
+    "scrubRecheck": "Re-check {count, plural, one {this pack} other {these # packs}}",
     "openJob": "Open run",
     "openScrubJob": "Open storage check run",
     "back": "Back to recovery readiness",
@@ -89,6 +90,9 @@
     "result": {
       "verified": "{verified} of {checked} items restored byte-exact",
       "storage": "Damaged storage found by the storage check",
+      "storageCleared": "The storage check read the affected data intact again",
+      "storageUnreadablePersistent": "Storage data unreadable in several consecutive checks",
+      "storageUnreadable": "Storage data temporarily unreadable, checked again next time",
       "unverified": "A backup exists but was never checked.",
       "noBackup": "Nothing to verify until the first backup completes.",
       "noBackupNextRun": "Nothing to verify yet; the next backup is due {time}.",
@@ -128,6 +132,8 @@
     "items_unreadable": "{count, plural, one {# item is} other {# items are}} damaged in the storage: the data does not open or decrypt.",
     "items_mismatched": "{count, plural, one {# item} other {# items}} came back different from what was backed up.",
     "storage_corrupt": "{count, plural, one {# storage pack holding this data is} other {# storage packs holding this data are}} damaged.",
+    "storage_unreadable_persistent": "{count, plural, one {# storage pack holding this data} other {# storage packs holding this data}} could not be read in several consecutive storage checks over more than a day.",
+    "storage_unreadable": "{count, plural, one {# storage pack holding this data} other {# storage packs holding this data}} could not be read in the latest storage check (a connection or permission error, not proven damage). {count, plural, one {It is} other {They are}} read again first in the next check.",
     "test_restore_failed": "{count, plural, one {# item} other {# items}} could not be restored into the test target.",
     "snapshot_outdated": "The latest backup is {days, plural, one {# day} other {# days}} old; newer data could not be restored.",
     "snapshot_stale": "The latest backup is {hours, plural, one {# hour} other {# hours}} old.",
@@ -141,12 +147,14 @@
     "state": {
       "ok": "Intact",
       "repaired": "Repaired",
+      "unreadable": "Not readable",
       "corrupt": "Damaged",
       "never": "Not checked yet"
     },
     "mode": {
       "sample": "sample",
-      "full": "all packs"
+      "full": "all packs",
+      "recheck": "re-check"
     },
     "running": {
       "queued": "Storage check queued ({mode})",
@@ -166,6 +174,13 @@
     "retired": "{count, plural, one {# damaged pack is} other {# damaged packs are}} no longer needed: later backups wrote their content again. {count, plural, one {It was} other {They were}} removed from the index and {count, plural, one {its file is} other {their files are}} deleted by a storage check one day later at the earliest.",
     "repairedTitle": "{count, plural, one {# pack was repaired} other {# packs were repaired}}",
     "repaired": "A repository held a damaged or missing copy; it was rewritten from an intact copy and read back to confirm.",
+    "targetFailedDetail": "{target}: {status} ({detail})",
+    "recheckHint": "Reads only the packs listed here again, from every repository.",
+    "unreadableRun": "Not readable in {count, plural, one {# check} other {# consecutive checks}}; first {first}, last {last}",
+    "unreadablePersistent": "These packs could not be read in 3 or more consecutive checks over at least 24 hours. Every object whose data sits in them counts as not restorable until a check reads them again. Check the storage's availability and access rights.",
+    "unreadablePersistentTitle": "{count, plural, one {# pack could not be read for more than a day} other {# packs could not be read for more than a day}}",
+    "unreadable": "The check could not read {count, plural, one {this pack} other {these packs}}, even after reading again: a connection or permission error, not proven damage. Every later check reads {count, plural, one {it} other {them}} again first. Objects using {count, plural, one {it} other {them}} need attention; they count as not restorable only once a pack could not be read in 3 consecutive checks over at least 24 hours.",
+    "unreadableTitle": "{count, plural, one {# pack is temporarily unreadable} other {# packs are temporarily unreadable}}",
     "target": {
       "primary": "Primary storage",
       "copy": "Copy {index}"
@@ -284,7 +299,11 @@
     },
     "scrub": {
       "title": "Storage check finding",
-      "description": "The storage check found pack files holding data of this object damaged in every repository and could not repair them from a copy."
+      "description": "The storage check found pack files holding data of this object damaged in every repository and could not repair them from a copy.",
+      "cleared": "The storage check read every pack file an earlier finding named intact again. That finding no longer rates this object.",
+      "clearedBadge": "Finding cleared",
+      "unreadablePersistent": "The storage check could not read pack files holding data of this object in several consecutive checks over more than a day. Until a check reads them again, the object counts as not restorable.",
+      "unreadable": "The storage check could not read pack files holding data of this object (a connection or permission error, not proven damage). They are read again first in the next check; until then the object needs attention."
     },
     "unknown": {
       "title": "Details not readable",
@@ -306,6 +325,11 @@
       "ratedTitle": "A newer backup has its own rating",
       "rated": "Restore point #{sequence} from {when} was checked after this report; its own report rates it.",
       "open": "Open its report"
+    },
+    "unreadablePacks": {
+      "title": "{count, plural, one {# pack of this backup could not be read} other {# packs of this backup could not be read}}",
+      "description": "The latest storage check could not read these pack files (a connection or permission error, not proven damage). The next check reads them again first.",
+      "persistent": "These pack files could not be read in several consecutive storage checks over more than a day. Items stored in them may not be restorable."
     }
   },
   "toast": {
@@ -319,7 +343,8 @@
     "excluded": "This object is excluded from protection.",
     "scrubStarted": {
       "sample": "Storage check started (sample)",
-      "full": "Storage check of all packs started"
+      "full": "Storage check of all packs started",
+      "recheck": "Re-check of the listed packs started"
     },
     "scrubFailed": "The storage check could not be started",
     "unverifiedQueued": "{count, plural, one {# restore check started for an unverified backup} other {# restore checks started for unverified backups}}",

@@ -36,6 +36,7 @@ import {
   reasonMessage,
   rowRating,
   sortRowsByUrgency,
+  storageFindingKey,
 } from "@/features/verify/presenters";
 import type { ReadinessState } from "@/features/verify/search";
 import type { VerifyFormat } from "@/features/verify/use-verify";
@@ -123,7 +124,7 @@ function ResultCell({
   }
   const primary =
     report.origin === "scrub"
-      ? t("table.result.storage")
+      ? t(storageFindingKey(report.reasons))
       : report.counts
         ? t("table.result.verified", {
             verified: format.integer(report.counts.verified),

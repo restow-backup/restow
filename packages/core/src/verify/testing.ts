@@ -33,6 +33,20 @@ export class MemoryStorage implements StorageBackend {
 
   constructor(private readonly clock: () => Date = () => new Date()) {}
 
+  /** Streamed reads of a key still to break off mid-transfer (see {@link abortReads}). */
+  private readonly aborting = new Map<string, number>();
+  /** Streamed reads of each key so far. */
+  readonly streamReads = new Map<string, number>();
+
+  /**
+   * Make the next `times` streamed reads of `key` deliver the first half of
+   * the file and then fail like a connection cut mid-download (Node's
+   * "aborted", code ECONNRESET).
+   */
+  abortReads(key: string, times: number): void {
+    this.aborting.set(key, times);
+  }
+
   /** Make every read of a key under `prefix` throw `error()` (the storage does not answer). */
   failReads(prefix: string, error: () => unknown): void {
     this.failing.push({ prefix, error });
@@ -56,7 +70,19 @@ export class MemoryStorage implements StorageBackend {
   }
 
   async getStream(key: string): Promise<Readable> {
-    return Readable.from([await this.get(key)]);
+    this.streamReads.set(key, (this.streamReads.get(key) ?? 0) + 1);
+    const bytes = await this.get(key);
+    const aborts = this.aborting.get(key) ?? 0;
+    if (aborts > 0) {
+      this.aborting.set(key, aborts - 1);
+      return Readable.from(
+        (async function* () {
+          yield bytes.subarray(0, Math.floor(bytes.length / 2));
+          throw Object.assign(new Error("aborted"), { code: "ECONNRESET" });
+        })(),
+      );
+    }
+    return Readable.from([bytes]);
   }
 
   async head(key: string): Promise<HeadResult | null> {

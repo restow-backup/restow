@@ -372,6 +372,13 @@
       "when": 1792153420717,
       "tag": "0052_pve_guest_repository_bytes",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1792595134947,
+      "tag": "0053_pack_read_failures",
+      "breakpoints": true
     }
   ]
 }

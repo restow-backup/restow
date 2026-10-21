@@ -197,8 +197,10 @@ export const verifyLatestSchema = component(
     storageIntegrity: z
       .object({
         state: z
-          .enum(["ok", "repaired", "corrupt", "never"])
-          .describe("Result of the latest storage scrub; `never` until one ran."),
+          .enum(["ok", "repaired", "unreadable", "corrupt", "never"])
+          .describe(
+            "Result of the latest storage scrub; `never` until one ran. `unreadable`: packs could not be read (a transfer or permission error, not proven damage) and are read again first by the next scrub; `corrupt`: packs are proven damaged.",
+          ),
         lastCheckedAt: timestampSchema.nullable(),
         lastFullCheckAt: timestampSchema.nullable(),
       })

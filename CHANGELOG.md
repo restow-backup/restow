@@ -8,6 +8,39 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Changed
+
+- Storage integrity: a pack the storage check could not read (a download cut off
+  mid-transfer, a reset connection, a timeout, S3 asking to slow down, or denied access) is
+  no longer shown or rated as damaged. Recovery readiness › Storage integrity lists it as
+  "temporarily unreadable" with the error, how many consecutive checks could not read it,
+  and when first and last; every later check reads it first, and "Re-check these packs"
+  reads only the flagged packs again. Objects using it are rated "Attention"; they become
+  "Not restorable" only when a pack is proven damaged (missing, wrong size or checksum) or
+  could not be read in 3 consecutive checks over at least 24 hours. When the packs read
+  intact again, the storage finding ends and the object's restore checks rate it again. The
+  public API's `storageIntegrity.state` has a new value, `unreadable`.
+
+### Fixed
+
+- The storage check read each pack once: a download that broke off mid-transfer (Node's
+  "aborted", which the S3 client does not retry) made a ~65 MB pack "unreadable", the page
+  said "2 packs are damaged … No intact copy exists in any repository", and the mailbox was
+  rated "Not restorable" although a restore check read 20 of 20 items back byte-exact. The
+  check now reads a pack again after a transfer error, whole, up to 3 times (2 s and 8 s
+  apart), hashing as it streams into a buffer of the pack's recorded size. Reads from S3
+  (restores and restore checks included) resume a body that breaks off from the first
+  missing byte, pinned to the object's ETag.
+
+### Upgrade Notes
+
+One database migration, `0053_pack_read_failures`: a new, empty table, which runs in
+seconds whatever the number of packs. Packs an earlier storage check reported unreadable
+count as temporarily unreadable after the update and are read again first by the next
+check; no full check is needed. Rollback: the older release ignores the table.
+
 ## [0.4.1] - 2026-10-16
 
 Beta release. Run it alongside your existing backups, not as your only one, until

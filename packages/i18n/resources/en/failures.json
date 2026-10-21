@@ -279,6 +279,14 @@
         "title": "The storage integrity check found damaged data",
         "why": "{has_count, select, yes {{count, plural, one {# data file was} other {# data files were}}} other {Data files were}} found damaged by the last storage check, and no intact copy could restore them. Backups that use them may be incomplete."
       },
+      "storage_unreadable_persistent": {
+        "title": "Data in the storage has been unreadable for more than a day",
+        "why": "{has_count, select, yes {{count, plural, one {# data file} other {# data files}}} other {Data files}} could not be read in several consecutive storage checks over more than a day. Backups that use them may not be restorable until the storage serves them again."
+      },
+      "storage_unreadable": {
+        "title": "The storage check could not read some data",
+        "why": "{has_count, select, yes {{count, plural, one {# data file} other {# data files}}} other {Data files}} could not be read in the latest storage check, even after reading again: the connection broke off, or the storage refused access. This proves no damage; the next storage check reads them again first."
+      },
       "restore_test_failed": {
         "title": "The test restore failed",
         "why": "{has_count, select, yes {{count, plural, one {# sample item was} other {# sample items were}}} other {Sample items were}} not accepted by the test target. The backup data itself may be intact, but a restore into the target does not work today."

@@ -87,6 +87,8 @@ export const FAILURE_CODES = [
   "verify.chunk_missing",
   "verify.pack_unreadable",
   "verify.storage_corrupt",
+  "verify.storage_unreadable",
+  "verify.storage_unreadable_persistent",
   "verify.restore_test_failed",
   "verify.manifest_unreadable",
   "verify.no_snapshot",

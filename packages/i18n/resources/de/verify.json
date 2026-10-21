@@ -35,6 +35,7 @@
     "viewReportFor": "Letzten Bericht für {name} öffnen",
     "scrubSample": "Stichprobe prüfen",
     "scrubFull": "Alle Packs prüfen",
+    "scrubRecheck": "{count, plural, one {Dieses Pack} other {Diese # Packs}} erneut prüfen",
     "openJob": "Lauf öffnen",
     "openScrubJob": "Lauf der Speicherprüfung öffnen",
     "back": "Zurück zur Wiederherstellbarkeit",
@@ -89,6 +90,9 @@
     "result": {
       "verified": "{verified} von {checked} Elementen bytegenau wiederhergestellt",
       "storage": "Beschädigter Speicher, gefunden von der Speicherprüfung",
+      "storageCleared": "Die Speicherprüfung hat die betroffenen Daten wieder intakt gelesen",
+      "storageUnreadablePersistent": "Speicherdaten in mehreren Prüfungen in Folge nicht lesbar",
+      "storageUnreadable": "Speicherdaten vorübergehend nicht lesbar, werden erneut geprüft",
       "unverified": "Eine Sicherung ist vorhanden, wurde aber nie geprüft.",
       "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
       "noBackupNextRun": "Noch nichts zu prüfen; die nächste Sicherung ist fällig {time}.",
@@ -128,6 +132,8 @@
     "items_unreadable": "{count, plural, one {# Element ist} other {# Elemente sind}} im Speicher beschädigt: Die Daten lassen sich nicht öffnen oder entschlüsseln.",
     "items_mismatched": "{count, plural, one {# Element kam} other {# Elemente kamen}} anders zurück, als es gesichert wurde.",
     "storage_corrupt": "{count, plural, one {# Speicher-Pack mit diesen Daten ist} other {# Speicher-Packs mit diesen Daten sind}} beschädigt.",
+    "storage_unreadable_persistent": "{count, plural, one {# Speicher-Pack mit diesen Daten konnte} other {# Speicher-Packs mit diesen Daten konnten}} in mehreren Speicherprüfungen in Folge über mehr als einen Tag nicht gelesen werden.",
+    "storage_unreadable": "{count, plural, one {# Speicher-Pack mit diesen Daten konnte} other {# Speicher-Packs mit diesen Daten konnten}} bei der letzten Speicherprüfung nicht gelesen werden (ein Verbindungs- oder Berechtigungsfehler, kein nachgewiesener Schaden). Die nächste Prüfung liest {count, plural, one {es} other {sie}} zuerst erneut.",
     "test_restore_failed": "{count, plural, one {# Element konnte} other {# Elemente konnten}} nicht in das Prüfziel wiederhergestellt werden.",
     "snapshot_outdated": "Die letzte Sicherung ist {days, plural, one {# Tag} other {# Tage}} alt; neuere Daten ließen sich nicht wiederherstellen.",
     "snapshot_stale": "Die letzte Sicherung ist {hours, plural, one {# Stunde} other {# Stunden}} alt.",
@@ -141,12 +147,14 @@
     "state": {
       "ok": "Intakt",
       "repaired": "Repariert",
+      "unreadable": "Nicht lesbar",
       "corrupt": "Beschädigt",
       "never": "Noch nicht geprüft"
     },
     "mode": {
       "sample": "Stichprobe",
-      "full": "alle Packs"
+      "full": "alle Packs",
+      "recheck": "erneute Prüfung"
     },
     "running": {
       "queued": "Speicherprüfung eingeplant ({mode})",
@@ -166,6 +174,13 @@
     "retired": "{count, plural, one {# beschädigtes Pack wird} other {# beschädigte Packs werden}} nicht mehr gebraucht: spätere Sicherungen haben die Inhalte neu geschrieben. {count, plural, one {Es wurde} other {Sie wurden}} aus dem Index entfernt, {count, plural, one {seine Datei wird} other {ihre Dateien werden}} frühestens einen Tag später von einer Speicherprüfung gelöscht.",
     "repairedTitle": "{count, plural, one {# Pack wurde repariert} other {# Packs wurden repariert}}",
     "repaired": "Ein Repository hatte eine beschädigte oder fehlende Kopie; sie wurde aus einer intakten Kopie neu geschrieben und zur Bestätigung zurückgelesen.",
+    "targetFailedDetail": "{target}: {status} ({detail})",
+    "recheckHint": "Liest nur die hier aufgeführten Packs erneut, aus jedem Repository.",
+    "unreadableRun": "In {count, plural, one {# Prüfung} other {# Prüfungen in Folge}} nicht lesbar; zuerst {first}, zuletzt {last}",
+    "unreadablePersistent": "Diese Packs waren in 3 oder mehr Prüfungen in Folge über mindestens 24 Stunden nicht lesbar. Jedes Objekt, dessen Daten darin liegen, gilt als nicht wiederherstellbar, bis eine Prüfung sie wieder liest. Prüfen Sie die Erreichbarkeit des Speichers und die Zugriffsrechte.",
+    "unreadablePersistentTitle": "{count, plural, one {# Pack war über mehr als einen Tag nicht lesbar} other {# Packs waren über mehr als einen Tag nicht lesbar}}",
+    "unreadable": "Die Prüfung konnte {count, plural, one {dieses Pack} other {diese Packs}} auch nach erneutem Lesen nicht lesen: ein Verbindungs- oder Berechtigungsfehler, kein nachgewiesener Schaden. Jede weitere Prüfung liest {count, plural, one {es} other {sie}} zuerst erneut. Objekte, die {count, plural, one {es} other {sie}} verwenden, brauchen Aufmerksamkeit; als nicht wiederherstellbar gelten sie erst, wenn ein Pack in 3 Prüfungen in Folge über mindestens 24 Stunden nicht lesbar war.",
+    "unreadableTitle": "{count, plural, one {# Pack ist vorübergehend nicht lesbar} other {# Packs sind vorübergehend nicht lesbar}}",
     "target": {
       "primary": "Primärspeicher",
       "copy": "Kopie {index}"
@@ -284,7 +299,11 @@
     },
     "scrub": {
       "title": "Befund der Speicherprüfung",
-      "description": "Die Speicherprüfung hat Pack-Dateien mit Daten dieses Objekts in jedem Repository beschädigt vorgefunden und konnte sie aus keiner Kopie reparieren."
+      "description": "Die Speicherprüfung hat Pack-Dateien mit Daten dieses Objekts in jedem Repository beschädigt vorgefunden und konnte sie aus keiner Kopie reparieren.",
+      "cleared": "Die Speicherprüfung hat jede Pack-Datei, die ein früherer Befund nannte, wieder intakt gelesen. Dieser Befund bewertet das Objekt nicht mehr.",
+      "clearedBadge": "Befund aufgehoben",
+      "unreadablePersistent": "Die Speicherprüfung konnte Pack-Dateien mit Daten dieses Objekts in mehreren Prüfungen in Folge über mehr als einen Tag nicht lesen. Bis eine Prüfung sie wieder liest, gilt das Objekt als nicht wiederherstellbar.",
+      "unreadable": "Die Speicherprüfung konnte Pack-Dateien mit Daten dieses Objekts nicht lesen (ein Verbindungs- oder Berechtigungsfehler, kein nachgewiesener Schaden). Die nächste Prüfung liest sie zuerst erneut; bis dahin braucht das Objekt Aufmerksamkeit."
     },
     "unknown": {
       "title": "Details nicht lesbar",
@@ -306,6 +325,11 @@
       "ratedTitle": "Eine neuere Sicherung hat eine eigene Bewertung",
       "rated": "Sicherungsstand #{sequence} vom {when} wurde nach diesem Bericht geprüft; sein eigener Bericht bewertet ihn.",
       "open": "Ihren Bericht öffnen"
+    },
+    "unreadablePacks": {
+      "title": "{count, plural, one {# Pack dieser Sicherung war nicht lesbar} other {# Packs dieser Sicherung waren nicht lesbar}}",
+      "description": "Die letzte Speicherprüfung konnte diese Pack-Dateien nicht lesen (ein Verbindungs- oder Berechtigungsfehler, kein nachgewiesener Schaden). Die nächste Prüfung liest sie zuerst erneut.",
+      "persistent": "Diese Pack-Dateien waren in mehreren Speicherprüfungen in Folge über mehr als einen Tag nicht lesbar. Darin gespeicherte Elemente lassen sich möglicherweise nicht wiederherstellen."
     }
   },
   "toast": {
@@ -319,7 +343,8 @@
     "excluded": "Dieses Objekt ist vom Schutz ausgenommen.",
     "scrubStarted": {
       "sample": "Speicherprüfung gestartet (Stichprobe)",
-      "full": "Speicherprüfung aller Packs gestartet"
+      "full": "Speicherprüfung aller Packs gestartet",
+      "recheck": "Erneute Prüfung der aufgeführten Packs gestartet"
     },
     "scrubFailed": "Die Speicherprüfung konnte nicht gestartet werden",
     "unverifiedQueued": "{count, plural, one {# Restore-Prüfung für eine ungeprüfte Sicherung gestartet} other {# Restore-Prüfungen für ungeprüfte Sicherungen gestartet}}",

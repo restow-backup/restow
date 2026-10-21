@@ -433,7 +433,11 @@ function memoryStore(damaged: ReadonlySet<string> = new Set()) {
     previousReadiness: async (objectId) =>
       reports.filter((report) => report.protectedObjectId === objectId).at(-1)?.recoveryReadiness ??
       null,
-    damagedPacks: async () => damaged,
+    packFindings: async () => ({
+      damaged: new Set(damaged),
+      unreadable: new Set<string>(),
+      persistentlyUnreadable: new Set<string>(),
+    }),
     record: async (entry) => {
       const id = randomUUID();
       reports.push({ ...verifyReportRow(entry), id });
@@ -860,7 +864,11 @@ describe.skipIf(!adminUrl)("verify handler against Postgres", () => {
     const store = pgVerifyStore(db, tenantId);
     expect(await store.previousReadiness(object.id)).toBe("red");
     expect(await store.previousReadiness(randomUUID())).toBeNull();
-    expect(await store.damagedPacks()).toEqual(new Set());
+    expect(await store.packFindings()).toEqual({
+      damaged: new Set(),
+      unreadable: new Set(),
+      persistentlyUnreadable: new Set(),
+    });
   });
 
   it("refuses to record a run of another tenant", async () => {

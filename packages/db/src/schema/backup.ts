@@ -1,5 +1,6 @@
 import {
   bigint,
+  index,
   integer,
   pgEnum,
   pgTable,
@@ -71,6 +72,40 @@ export const packs = pgTable(
     ...timestamps(),
   },
   (t) => [uniqueIndex("packs_tenant_path_uq").on(t.tenantId, t.path)],
+);
+
+/**
+ * A pack the storage check (scrub) could not read: a transfer or permission
+ * error even after reading again, which proves no damage (that is
+ * `packs.damaged_at`). One row per pack while its run of failed checks lasts:
+ * `failedChecks` consecutive checks between `firstFailedAt` and
+ * `lastFailedAt`, `detail` the latest error. A check that reads the pack
+ * (intact or damaged) deletes the row. Unreadable in three consecutive checks
+ * over at least 24 hours, the pack rates the objects using it like damage
+ * (core verify/integrity.ts `isPersistentlyUnreadable`); before that it is a
+ * reason for attention. Only failing packs have a row, so the table stays
+ * small however many packs a tenant holds.
+ */
+export const packReadFailures = pgTable(
+  "pack_read_failures",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    packId: uuid("pack_id")
+      .notNull()
+      .references(() => packs.id, { onDelete: "cascade" }),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    firstFailedAt: timestamp("first_failed_at", { withTimezone: true }).notNull(),
+    lastFailedAt: timestamp("last_failed_at", { withTimezone: true }).notNull(),
+    failedChecks: integer("failed_checks").notNull().default(1),
+    detail: text("detail"),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("pack_read_failures_pack_uq").on(t.packId),
+    index("pack_read_failures_tenant_idx").on(t.tenantId),
+  ],
 );
 
 /**

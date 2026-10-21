@@ -196,6 +196,10 @@ const verifyDetailsSchemaAt = (at: string) =>
     items: listOf(itemSchemaAt(at)),
     itemsOmitted: count,
     damagedPacks: listOf(z.string()),
+    /** Packs of the snapshot the storage check could not read lately; older reports have none. */
+    unreadablePacks: listOf(
+      z.object({ path: z.string().min(1), persistent: z.boolean().catch(false) }),
+    ),
     testRestore: testRestoreSchemaAt(at),
     startedAt: nullableString,
     durationMs: nullableNumber,
@@ -211,11 +215,27 @@ const targetCheckSchema = z.object({
   status: z.string().min(1),
   detail: nullableString,
   repaired: z.boolean().catch(false),
+  /** Reads of the pack from this target; 1 unless a transfer error made the check read again. */
+  attempts: z.number().int().positive().catch(1).default(1),
 });
+
+/** The run of consecutive checks that could not read a pack. */
+const unreadableRunSchema = z
+  .object({
+    since: z.string(),
+    lastAt: z.string(),
+    checks: z.number().int().positive(),
+    persistent: z.boolean().catch(false),
+  })
+  .nullable()
+  .catch(null)
+  .default(null);
 
 const packCheckSchema = z.object({
   path: z.string().min(1),
   targets: listOf(targetCheckSchema),
+  /** Set for a pack no target could be read from (not proven damaged). */
+  unreadable: unreadableRunSchema,
 });
 export type PackCheckDto = z.infer<typeof packCheckSchema>;
 
@@ -223,6 +243,8 @@ const scrubFindingSchema = z.object({
   origin: z.literal("scrub"),
   scrubJobId: nullableString,
   packs: listOf(packCheckSchema),
+  /** A finding that ends an earlier one: the packs it named were read intact again. */
+  cleared: z.boolean().catch(false).default(false),
 });
 export type ScrubFindingDto = z.infer<typeof scrubFindingSchema>;
 
@@ -286,13 +308,21 @@ const gcSchema = z
   .catch(null);
 
 const scrubReportSchema = z.object({
-  mode: z.enum(["sample", "full"]).catch("sample"),
+  mode: z.enum(["sample", "full", "recheck"]).catch("sample"),
   packsTotal: count,
   packsChecked: count,
   bytesChecked: count,
   ok: count,
   repaired: listOf(packCheckSchema),
   corrupt: listOf(packCheckSchema),
+  /** Packs no target could be read from (not proven damaged); older reports listed them as corrupt. */
+  unreadable: listOf(packCheckSchema),
+  /** Packs an earlier check left damaged or unreadable that this run read intact again. */
+  cleared: z
+    .array(z.unknown())
+    .catch([])
+    .default([])
+    .transform((paths) => paths.length),
   /** Damaged packs later backups made redundant (their content was written again); older reports have none. */
   retired: z
     .array(z.unknown())
@@ -304,8 +334,29 @@ const scrubReportSchema = z.object({
 });
 export type ScrubReportDto = z.infer<typeof scrubReportSchema>;
 
-/** A stored scrub report, or null when the job left none (older worker, failed run). */
+/** A pack check with a target that could not be read: not proven damage. */
+const hasUnreadableTarget = (pack: PackCheckDto): boolean =>
+  pack.targets.some((target) => target.status === "unreadable");
+
+/**
+ * A stored scrub report, or null when the job left none (older worker, failed
+ * run). Reports before 0.4.2 listed packs that could not be read under
+ * `corrupt`; they move to `unreadable` here, so a broken download is never
+ * shown as damage.
+ */
 export function parseScrubReport(value: unknown): ScrubReportDto | null {
   const parsed = scrubReportSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) {
+    return null;
+  }
+  const report = parsed.data;
+  const legacy = report.corrupt.filter(hasUnreadableTarget);
+  if (legacy.length === 0) {
+    return report;
+  }
+  return {
+    ...report,
+    corrupt: report.corrupt.filter((pack) => !hasUnreadableTarget(pack)),
+    unreadable: [...legacy, ...report.unreadable],
+  };
 }

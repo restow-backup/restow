@@ -57,6 +57,29 @@ export function StateBadge({
   );
 }
 
+/**
+ * The rating of one report. A green storage finding is not proof of anything:
+ * it only ends an earlier finding (the packs read intact again), so it shows
+ * as a neutral "finding cleared" instead of green.
+ */
+export function ReportStateBadge({
+  report,
+  className,
+}: {
+  report: { readiness: ObjectState; origin: string };
+  className?: string;
+}) {
+  const { t } = useTranslation("verify");
+  if (report.origin === "scrub" && report.readiness === "green") {
+    return (
+      <StatusBadge tone="muted" className={cn("whitespace-nowrap", className)}>
+        {t("report.scrub.clearedBadge")}
+      </StatusBadge>
+    );
+  }
+  return <StateBadge state={report.readiness} className={className} />;
+}
+
 export function StorageBadge({ state }: { state: StorageState }) {
   const { t } = useTranslation("verify");
   return <StatusBadge tone={STORAGE_BADGE[state]}>{t(`storage.state.${state}`)}</StatusBadge>;

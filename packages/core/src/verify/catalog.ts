@@ -6,11 +6,32 @@
 import type { MemoryChunkIndex } from "../engine/memory.js";
 import type { ChunkRecord, PackRecord } from "../engine/types.js";
 
+/**
+ * A pack the storage check could not read (a transfer or permission error,
+ * not proven damage) in one or more consecutive checks. Any check that reads
+ * it intact, or proves it damaged, ends the run of failures.
+ */
+export type PackUnreadableState = {
+  /** The first check of the current run of failures. */
+  readonly since: Date;
+  /** The latest failed check. */
+  readonly lastAt: Date;
+  /** Consecutive checks that failed to read the pack. */
+  readonly checks: number;
+  /** The error of the latest failed check. */
+  readonly detail: string | null;
+};
+
 export type CatalogPack = PackRecord & {
   readonly createdAt: Date;
   /** When a scrub found the pack damaged on every target; null (or absent) while it is intact. */
   readonly damagedAt?: Date | null;
+  /** Set while the latest checks could not read the pack; null (or absent) otherwise. */
+  readonly unreadable?: PackUnreadableState | null;
 };
+
+/** One failed read of a pack in a check, for {@link PackCatalog.recordUnreadable}. */
+export type PackReadFailure = { readonly packId: string; readonly detail: string | null };
 
 export type CatalogChunk = ChunkRecord & {
   readonly refcount: number;
@@ -57,6 +78,13 @@ export interface PackCatalog {
    * false when the pack is not damaged or still holds a chunk row.
    */
   retireDamagedPack(pack: CatalogPack): Promise<boolean>;
+  /**
+   * Count one more consecutive failed check for each pack (starting a run of
+   * failures at `at` for a pack that had none) and keep the latest error.
+   */
+  recordUnreadable(failures: readonly PackReadFailure[], at: Date): Promise<void>;
+  /** End the run of failed checks of these packs: they were read, intact or damaged. */
+  clearUnreadable(packIds: readonly string[]): Promise<void>;
 }
 
 const EPOCH = new Date(0);
@@ -65,6 +93,7 @@ const EPOCH = new Date(0);
 export class MemoryPackCatalog implements PackCatalog {
   private readonly chunkTimes = new Map<string, Date>();
   private readonly packTimes = new Map<string, Date>();
+  readonly unreadable = new Map<string, PackUnreadableState>();
 
   constructor(private readonly index: MemoryChunkIndex) {}
 
@@ -82,6 +111,7 @@ export class MemoryPackCatalog implements PackCatalog {
       ...pack,
       createdAt: this.packTimes.get(pack.id) ?? EPOCH,
       damagedAt: this.index.damaged.get(pack.id) ?? null,
+      unreadable: this.unreadable.get(pack.id) ?? null,
     }));
   }
 
@@ -129,6 +159,7 @@ export class MemoryPackCatalog implements PackCatalog {
       return false;
     }
     this.index.packs.delete(change.oldPack.id);
+    this.unreadable.delete(change.oldPack.id);
     if (change.newPack) {
       this.index.packs.set(change.newPack.id, change.newPack);
     }
@@ -168,6 +199,28 @@ export class MemoryPackCatalog implements PackCatalog {
     }
     this.index.packs.delete(pack.id);
     this.index.damaged.delete(pack.id);
+    this.unreadable.delete(pack.id);
     return true;
+  }
+
+  async recordUnreadable(failures: readonly PackReadFailure[], at: Date): Promise<void> {
+    for (const { packId, detail } of failures) {
+      if (!this.index.packs.has(packId)) {
+        continue;
+      }
+      const previous = this.unreadable.get(packId);
+      this.unreadable.set(packId, {
+        since: previous?.since ?? at,
+        lastAt: at,
+        checks: (previous?.checks ?? 0) + 1,
+        detail,
+      });
+    }
+  }
+
+  async clearUnreadable(packIds: readonly string[]): Promise<void> {
+    for (const id of packIds) {
+      this.unreadable.delete(id);
+    }
   }
 }

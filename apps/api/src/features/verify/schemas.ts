@@ -24,8 +24,12 @@ export const runVerifySchema = z.object({
 export type RunVerifyInput = z.infer<typeof runVerifySchema>;
 
 export const runScrubSchema = z.object({
-  /** `sample` checks a share of the packs, `full` every pack and collects garbage. */
-  mode: z.enum(["sample", "full"]).default("sample"),
+  /**
+   * `sample` checks a share of the packs, `full` every pack and collects
+   * garbage, `recheck` only the packs the latest check found damaged or could
+   * not read.
+   */
+  mode: z.enum(["sample", "full", "recheck"]).default("sample"),
 });
 export type RunScrubInput = z.infer<typeof runScrubSchema>;
 
