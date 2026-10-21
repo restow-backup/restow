@@ -1,10 +1,10 @@
-import { DEFAULT_SCHEDULE_TIMEZONE, isValidTimeZone, zonedTimeToUtc } from "@restow/core";
+import { zonedTimeToUtc } from "@restow/core";
 import { type Database, type PlannedUpdate, settings } from "@restow/db";
 import { and, isNotNull, sql } from "drizzle-orm";
 
 /**
  * An update at a chosen time (0.4.2, docs/UPDATING.md "At a chosen time"). The administrator
- * picks a date and a time in the installation's time zone instead of a lead time from now. The
+ * picks a date and a time in the installation's time zone (lib/installation-time-zone.ts) instead of a lead time from now. The
  * api keeps the plan in `settings.planned_update` and, `leadSeconds` before the chosen time,
  * confirms it the way the install dialog would have (same checks, same pause of new job starts,
  * same countdown for everybody), so nothing pauses or waits before. The updater is not involved
@@ -17,20 +17,6 @@ export const PLAN_MAX_AHEAD_MS = 30 * 24 * 60 * 60 * 1000;
 export const PLAN_LATE_LIMIT_MS = 60 * 60 * 1000;
 /** The plan must lie at least this far ahead of its own lead time. */
 export const PLAN_MIN_AHEAD_MS = 60 * 1000;
-
-/**
- * The installation's time zone: `RESTOW_TIME_ZONE`, else the process zone `TZ`, else the default
- * the schedules use (Europe/Berlin).
- */
-export function installationTimeZone(env: Record<string, string | undefined>): string {
-  for (const candidate of [env.RESTOW_TIME_ZONE, env.TZ]) {
-    const zone = candidate?.trim();
-    if (zone && isValidTimeZone(zone)) {
-      return zone;
-    }
-  }
-  return DEFAULT_SCHEDULE_TIMEZONE;
-}
 
 export type PlanTimeResult =
   | { ok: true; startsAt: Date }

@@ -525,7 +525,18 @@ export interface FleetStatus {
   members: FleetMember[];
   truncated: boolean;
   /** What to run by hand where a node or machine was not reached. */
-  commands: { pve_node: string; linux: string; darwin: string };
+  /**
+   * What to run by hand: `restow-pve update` on a node, `restow-agent update` on a machine whose
+   * agent runs 0.4.2 or later (`agentUpdateSince`), and for an older agent a restart of its
+   * service (`legacy`), after which it looks for the update itself.
+   */
+  commands: {
+    pve_node: string;
+    linux: string;
+    darwin: string;
+    legacy?: { linux: string; darwin: string };
+    agentUpdateSince?: string;
+  };
 }
 
 export interface UpdateSettingsInput {

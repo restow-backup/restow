@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  browserTimeZone,
   buildSubmission,
   defaultSetupValues,
+  initialSetupValues,
   ORGANISATION_NAME_MAX_LENGTH,
   publicUrlReason,
   SETUP_LANGUAGES,
@@ -163,6 +165,21 @@ describe("publicUrlReason", () => {
     expect(publicUrlReason("http://restow.example.com")).toBe("httpsRequired");
     expect(publicUrlReason("http://localhost:5173")).toBeNull();
     expect(publicUrlReason("https://restow.example.com")).toBeNull();
+  });
+});
+
+describe("the time zone", () => {
+  it("starts with the browser's", () => {
+    expect(initialSetupValues().timeZone).toBe(browserTimeZone());
+    expect(browserTimeZone()).not.toBe("");
+  });
+
+  it("is validated on the operation step and sent when there is one", () => {
+    expect(STEP_FIELDS.mode).toContain("timeZone");
+    expect(buildSubmission(valid({ timeZone: "America/New_York" }), "v1", "en").timeZone).toBe(
+      "America/New_York",
+    );
+    expect(buildSubmission(valid({ timeZone: "" }), "v1", "en")).not.toHaveProperty("timeZone");
   });
 });
 

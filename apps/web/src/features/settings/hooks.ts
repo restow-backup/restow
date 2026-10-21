@@ -11,6 +11,7 @@ import {
   type InstallationSettings,
   type MailTestRequest,
   patchSettings,
+  putTimeZone,
   type SettingsPatch,
   sendTestMail,
 } from "./api";
@@ -59,6 +60,20 @@ export function useUpdateSettings() {
   return useMutation({
     mutationFn: (patch: SettingsPatch) => patchSettings(patch),
     onSuccess: write,
+  });
+}
+
+/** The installation's time zone; the Updates tab reads it too, so its view is fetched again. */
+export function useSetTimeZone() {
+  const write = useSettingsWriter();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (timeZone: string | null) => putTimeZone(timeZone),
+    onSuccess: (settings) => {
+      write(settings);
+      // features/updates/hooks.ts `updatesKeys.view`
+      void queryClient.invalidateQueries({ queryKey: ["updates", "view"] });
+    },
   });
 }
 

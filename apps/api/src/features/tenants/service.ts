@@ -23,6 +23,7 @@ import { authDb } from "../../db.js";
 import { AUDIT_ACTIONS, audit } from "../../lib/audit.js";
 import { authCall } from "../../lib/auth-errors.js";
 import { featureEnabled, requireFeature } from "../../lib/features.js";
+import { loadInstallationTimeZone } from "../../lib/installation-time-zone.js";
 import { createTenantKey } from "../../lib/secrets.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import {
@@ -474,6 +475,11 @@ export async function createTenant(
     throw customerNumberTakenProblem(customerNumber);
   }
 
+  // A tenant created without a time zone of its own starts with the installation's (0.4.2).
+  const timeZone =
+    input.customer?.timeZone ?? (await loadInstallationTimeZone(providerDb)).timeZone;
+  const customer = { ...input.customer, timeZone };
+
   const org = await authCall(() =>
     auth.api.createOrganization({
       body: {
@@ -505,7 +511,7 @@ export async function createTenant(
             kind,
             // A new tenant has no schedules or machines of an older release to turn into jobs.
             backupJobsMigratedAt: new Date(),
-            ...input.customer,
+            ...customer,
           })
           .returning();
       } catch (error) {
@@ -559,7 +565,7 @@ export async function createTenant(
         recipients: newRecipients,
         previous: [],
         language: input.customer?.language ?? null,
-        timeZone: input.customer?.timeZone ?? null,
+        timeZone,
         createdBy: actor.id,
         scheduledAllowed,
         now: new Date(),

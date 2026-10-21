@@ -1463,6 +1463,13 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         const view = await updated.view();
         expect(view.fleet?.counts.pve_node).toMatchObject({ pending: 1, total: 1 });
         expect(view.fleet?.members[0]).toMatchObject({ name: "pve1", state: "pending" });
+        // By hand: restow-pve update, restow-agent update, a restart for agents before 0.4.2.
+        expect(view.fleet?.commands).toMatchObject({
+          pve_node: "/opt/restow-pve/bin/restow-pve update",
+          linux: "sudo '/opt/restow-agent/bin/restow-agent' update",
+          legacy: { linux: "sudo systemctl restart restow-agent" },
+          agentUpdateSince: "0.4.2",
+        });
         // Still behind: the pause holds; the node reports the release: it lifts.
         await updated.advancePause();
         expect(await pauseRow()).not.toBeNull();
@@ -1509,6 +1516,29 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         if (previous.version === undefined) Reflect.deleteProperty(process.env, "RESTOW_VERSION");
         await rm(agentDir, { recursive: true, force: true });
       }
+    });
+
+    it("reads planned times in the zone chosen for the installation, before the environment's", async () => {
+      const built = build({ RESTOW_TIME_ZONE: "UTC" });
+      expect((await built.service.view()).timeZone).toBe("UTC");
+      await owner.update(settings).set({ timeZone: "Asia/Tokyo" });
+      expect((await built.service.view()).timeZone).toBe("Asia/Tokyo");
+      await built.service.saveSettings({ enabled: true }, actor);
+      const at = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+      // 3 hours from now in Tokyo (UTC+9, no daylight saving time).
+      const tokyo = new Date(at.getTime() + 9 * 60 * 60 * 1000);
+      const view = await built.service.schedule(
+        {
+          version: "0.2.0",
+          leadSeconds: 300,
+          at: { date: tokyo.toISOString().slice(0, 10), time: tokyo.toISOString().slice(11, 16) },
+        },
+        actor,
+      );
+      expect(view.planned).toMatchObject({ timeZone: "Asia/Tokyo" });
+      expect(Date.parse(view.planned?.startsAt ?? "")).toBe(
+        Math.floor(at.getTime() / 60_000) * 60_000,
+      );
     });
 
     it("plans an update for a chosen time and confirms it then, not before", async () => {

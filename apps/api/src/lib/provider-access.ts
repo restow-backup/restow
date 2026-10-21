@@ -214,6 +214,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/usage": view(PROVIDER),
   "GET /api/v1/settings": view(PROVIDER),
   "PATCH /api/v1/settings": own(),
+  "PUT /api/v1/settings/time-zone": own(),
   // Asked by the owner before a change of mode or public URL that switches passkeys off.
   "GET /api/v1/settings/passkey-impact": own(),
   "POST /api/v1/settings/mail/test": configure(PROVIDER),

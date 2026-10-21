@@ -407,6 +407,13 @@
       "when": 1792603677741,
       "tag": "0057_explorer_people",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1792606622870,
+      "tag": "0058_installation_time_zone",
+      "breakpoints": true
     }
   ]
 }

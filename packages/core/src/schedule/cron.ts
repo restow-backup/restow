@@ -151,6 +151,28 @@ export function isValidTimeZone(timeZone: string): boolean {
   }
 }
 
+/** The shape of an IANA zone name (`Europe/Berlin`, `America/Argentina/Buenos_Aires`, `UTC`). */
+const IANA_NAME = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+){0,2}$/;
+
+/**
+ * The canonical spelling of an IANA zone name (`europe/berlin` becomes `Europe/Berlin`), or null
+ * when `value` is not one this runtime knows. Offsets such as `+01:00`, which newer runtimes also
+ * accept as a zone, are refused: a fixed offset does not follow daylight saving time.
+ */
+export function canonicalTimeZone(value: string): string | null {
+  const name = value.trim();
+  if (name.length === 0 || name.length > 64 || !IANA_NAME.test(name)) {
+    return null;
+  }
+  try {
+    // Equivalent names resolve to the runtime's own spelling (`Asia/Kolkata` may read
+    // `Asia/Calcutta`); both name the same zone.
+    return new Intl.DateTimeFormat("en-US", { timeZone: name }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
 /** The wall-clock parts of an instant in a time zone. */
 export function localParts(instant: Date, timeZone: string): LocalParts {
   const parts: Partial<LocalParts> = {};

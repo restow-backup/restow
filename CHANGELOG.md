@@ -52,6 +52,15 @@ private repository.
   node and on a machine asks for the update at any time.
 - Updates can be planned for a chosen date and time (in the installation's time zone) besides
   the lead times from now; nothing pauses before, and everyone sees a notice from a day before.
+- `restow-agent update` on a machine, like `restow-pve update` on a node: it installs the
+  release the server offers right away, through the same signed download as the automatic
+  self-update, restarts the service and says what it did; while a backup runs it refuses and the
+  agent updates itself once idle. The Updates tab names it for agents that were not reached
+  (and the service restart for agents before 0.4.2).
+- The installation has a time zone of its own: chosen in the setup wizard (the browser's zone
+  preselected) and changed by an owner under Installation › Server & operation › Server, with
+  a searchable list of zones. Planned updates are read in it and a new tenant starts with it.
+  Without a choice, `RESTOW_TIME_ZONE`, then `TZ`, then Europe/Berlin apply as before.
 - When an update is available, the version in the sidebar becomes a highlighted, gently
   pulsing **Update to <version> available** that leads to Installation › Updates (for those
   who may install updates; no animation with reduced motion).
@@ -143,7 +152,7 @@ private repository.
 
 ### Upgrade Notes
 
-New image and five database migrations, which run in seconds whatever the size of the
+New image and six database migrations, which run in seconds whatever the size of the
 installation:
 
 - `0053_pve_repository_chains`: a container's new backup chains
@@ -159,9 +168,10 @@ installation:
   pause, `settings.planned_update`.
 - `0057_explorer_people`: an index on the protected objects of a person in a tenant, for the
   restore explorer's list of people.
-
-Optional: `RESTOW_TIME_ZONE` names the installation's time zone for planned updates (default
-`TZ`, else Europe/Berlin).
+- `0058_installation_time_zone`: `settings.time_zone`. An existing installation has no time
+  zone of its own after the update: `RESTOW_TIME_ZONE`, else `TZ`, else Europe/Berlin applies
+  until an owner chooses one under Installation › Server & operation › Server
+  (docs/UPDATING.md, "The installation's time zone").
 
 - Stopping a running backup needs restow-pve 0.4.2 on the node and agent 0.4.2 on the machine;
   an older node ends a cancelled backup at its next upload (the server refuses it), an older

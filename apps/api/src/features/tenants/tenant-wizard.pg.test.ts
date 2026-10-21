@@ -19,6 +19,7 @@ import {
   type Database,
   organization,
   providers,
+  settings,
   tenantContacts,
   tenantKeys,
   tenantNotificationRecipients,
@@ -135,6 +136,42 @@ describe.skipIf(!testDatabaseAdminUrl)("the tenant wizard against Postgres", () 
     const [row] = await owner.select({ value: count() }).from(tenants);
     return row?.value ?? 0;
   }
+
+  it("starts a tenant without a time zone of its own with the installation's", async () => {
+    await owner.insert(settings).values({ singleton: true, operatingMode: "local" });
+    try {
+      await owner.update(settings).set({ timeZone: "America/New_York" });
+      const zoned = await service.createTenant(
+        db,
+        providerDb,
+        createTenantSchema.parse({ name: "Zoned", slug: slug("zoned") }),
+        actor,
+      );
+      const [row] = await owner
+        .select({ timeZone: tenants.timeZone })
+        .from(tenants)
+        .where(eq(tenants.id, zoned.id));
+      expect(row?.timeZone).toBe("America/New_York");
+      // A zone given with the tenant wins.
+      const own = await service.createTenant(
+        db,
+        providerDb,
+        createTenantSchema.parse({
+          name: "Own zone",
+          slug: slug("own-zone"),
+          customer: { timeZone: "Asia/Tokyo" },
+        }),
+        actor,
+      );
+      const [ownRow] = await owner
+        .select({ timeZone: tenants.timeZone })
+        .from(tenants)
+        .where(eq(tenants.id, own.id));
+      expect(ownRow?.timeZone).toBe("Asia/Tokyo");
+    } finally {
+      await owner.delete(settings);
+    }
+  });
 
   it("creates the tenant with its customer data, contacts and notification recipients in one flow", async () => {
     // Parsed through the real request schema, like the route handler does:

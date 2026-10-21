@@ -348,6 +348,11 @@ export interface SetupSubmission {
    * organisation (its mails and reports) and of the test message.
    */
   language?: "de" | "en";
+  /**
+   * The installation's time zone (IANA name). Absent: the server environment decides
+   * (`RESTOW_TIME_ZONE`, `TZ`, Europe/Berlin).
+   */
+  timeZone?: string;
   firstAdmin: { name: string; email: string; password: string };
   /** Absent when the operator skips the mail step: it is set up later in the settings. */
   mail?: { transport: "smtp"; smtp: SmtpSetup } | { transport: "graph"; graph: GraphMailSetup };

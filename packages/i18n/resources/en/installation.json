@@ -23,7 +23,7 @@
     "proxmox": "Proxmox VE"
   },
   "descriptions": {
-    "server": "How browsers reach this server and whether passkeys are offered. Applies to {scope, select, organisation {your organisation} other {all tenants}}.",
+    "server": "How browsers reach this server, whether passkeys are offered and the installation's time zone. Applies to {scope, select, organisation {your organisation} other {all tenants}}.",
     "mail": "The transport for reports, alerts and invitations. Used for {scope, select, organisation {your organisation} other {all tenants}}.",
     "microsoftApp": "The app registration this installation uses to reach Microsoft 365.",
     "journal": "The SMTP receiver for Exchange journal reports. One receiver serves {scope, select, organisation {your organisation} other {all tenants}}.",
@@ -66,6 +66,20 @@
       "none": "The notice has not been accepted yet.",
       "show": "Show the notice",
       "hide": "Hide the notice"
+    },
+    "timeZone": {
+      "title": "Time zone",
+      "description": "Updates planned for a date and time are read in this zone{scope, select, organisation {, and your organisation's schedules start in it} other {, and a new tenant starts with it (each tenant can change its own)}}.",
+      "label": "Time zone of the installation",
+      "source": {
+        "settings": "Chosen here. Without this choice the server would use {zone}.",
+        "environment": "From RESTOW_TIME_ZONE in the server environment. Save to choose a zone here instead.",
+        "process": "From the process time zone (TZ) of the server. Save to choose a zone here instead.",
+        "default": "The default, because the server environment names none. Save to choose a zone here instead."
+      },
+      "useEnvironment": "Use the server's ({zone})",
+      "save": "Save time zone",
+      "saved": "Time zone saved: {zone}"
     }
   },
   "microsoftApp": {

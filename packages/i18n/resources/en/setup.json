@@ -117,6 +117,10 @@
       },
       "rpId": "Passkey domain",
       "origin": "Origin"
+    },
+    "timeZone": {
+      "label": "Time zone",
+      "hint": "The time zone of this browser is preselected. Updates planned for a date and time are read in it, and your organisation starts with it. You can change it later under Installation › Server & operation › Server."
     }
   },
   "admin": {
@@ -203,6 +207,7 @@
     "language": "Language",
     "mode": "Operating mode",
     "publicUrl": "Public URL",
+    "timeZone": "Time zone",
     "organisation": "Your organisation",
     "admin": "First admin account",
     "mail": "Mail transport",

@@ -3,6 +3,7 @@ import type { Database, JobStartPause, PlannedUpdate, StoredUpdateCheck } from "
 import { notifications, settings } from "@restow/db";
 import { eq, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
+import { loadInstallationTimeZone } from "../../lib/installation-time-zone.js";
 import {
   hasPendingLicenseKey,
   removePendingLicenseKey,
@@ -49,7 +50,6 @@ import {
 import { raiseUpdateAvailable } from "./notify.js";
 import {
   handoverAt,
-  installationTimeZone,
   loadPlan,
   PLAN_LATE_LIMIT_MS,
   plannedStartsAt,
@@ -578,7 +578,7 @@ export class UpdateService {
       jobPause: jobPauseViewOf(pause, now, draining ? await this.activity() : null),
       fleet: await this.fleet(),
       planned: plannedViewOf(await this.plan()),
-      timeZone: installationTimeZone(this.env),
+      timeZone: (await loadInstallationTimeZone(this.deps.db, this.env)).timeZone,
     };
   }
 
@@ -1333,7 +1333,7 @@ export class UpdateService {
     version: string,
     actor: Actor,
   ): Promise<UpdatesView> {
-    const timeZone = installationTimeZone(this.env);
+    const { timeZone } = await loadInstallationTimeZone(this.deps.db, this.env);
     const now = this.now();
     const when = plannedStartsAt(at, timeZone, input.leadSeconds, now);
     if (!when.ok) {

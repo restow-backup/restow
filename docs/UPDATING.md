@@ -740,9 +740,15 @@ For the ones that were not reached it shows the command for an update by hand:
 
 ```
 /opt/restow-pve/bin/restow-pve update                        # Proxmox VE node, as root
-sudo systemctl restart restow-agent                          # Linux agent (checks a minute after it starts)
-sudo launchctl kickstart -k system/com.restowbackup.agent    # macOS agent
+sudo restow-agent update                                     # agent 0.4.2 or later (Linux, macOS)
+sudo systemctl restart restow-agent                          # Linux agent before 0.4.2 (checks a minute after it starts)
+sudo launchctl kickstart -k system/com.restowbackup.agent    # macOS agent before 0.4.2
 ```
+
+`restow-agent update` installs the offered release at once through the same signed
+download as the automatic self-update and restarts the service; while a backup runs on the
+machine it refuses ("a backup is running; the update waits") and the agent updates itself
+once it is idle. The Updates tab names the command that fits each agent's version.
 
 A node's page and a machine's page also have **Update to <version>** whenever a
 newer release is offered, outside an update as well.
@@ -750,9 +756,8 @@ newer release is offered, outside an update as well.
 ### At a chosen time
 
 The install dialog offers **From now** (with a lead time, as before) or **At a
-date and time**: a date and a time in the installation's time zone
-(`RESTOW_TIME_ZONE`, else `TZ`, else Europe/Berlin; the dialog names it) and a
-countdown before it. The server keeps the plan (`settings.planned_update`, audit
+date and time**: a date and a time in the installation's time zone (see below;
+the dialog names it) and a countdown before it. The server keeps the plan (`settings.planned_update`, audit
 `update.planned`) and confirms it the countdown before the chosen time exactly as
 if it had been confirmed then: the same checks, the chosen handling of runs in
 progress, the same countdown for everyone. Nothing pauses before. Everyone who
@@ -761,6 +766,26 @@ clock skips (the switch to daylight saving time) is refused. **Cancel** on the
 Updates tab drops the plan (`update.cancelled` with `planned: true`). If the
 server was down at the planned time and comes back more than an hour later, the
 plan is dropped instead of started (`update.plan_failed`).
+
+### The installation's time zone
+
+Planned updates are read in the installation's time zone, the Updates tab shows
+their times in it, and a new tenant starts with it (each tenant keeps a zone of
+its own for its schedules, changed in its customer data). It is chosen in the
+setup wizard, with the browser's zone preselected, and changed by an owner under
+**Installation › Server & operation › Server › Time zone** (`PUT
+/api/v1/settings/time-zone`, audit `settings.time_zone.changed`; IANA names
+only, such as `Europe/Berlin`, no fixed offsets). The first that is set applies:
+
+1. the zone chosen in the web interface (`settings.time_zone`),
+2. `RESTOW_TIME_ZONE` in the server environment,
+3. the process zone `TZ`,
+4. Europe/Berlin.
+
+An installation set up before 0.4.2 has no zone of its own, so the environment
+applies as before until an owner saves one; **Use the server's** takes the
+choice back. A plan keeps the zone it was made in: changing the zone afterwards
+does not move a planned update.
 
 ### Disk space
 ### Disk space

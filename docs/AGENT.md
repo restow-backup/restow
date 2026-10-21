@@ -539,9 +539,20 @@ ein Administrator auf der Seite des Rechners **Auf <Version> aktualisieren** gew
 /api/v1/endpoints/:id/update`, Audit `endpoint.update_requested`) oder der Server gerade
 aktualisiert wurde und seine Agenten nachziehen (docs/UPDATING.md, "Nodes and agents"). Der
 Agent fragt dann sofort `GET /update` und installiert, sobald er frei ist. Pausierte
-Agent-Updates (Mandant oder Rechner) gelten weiter. Von Hand: den Dienst neu starten (`sudo
-systemctl restart restow-agent`, auf macOS `sudo launchctl kickstart -k
-system/com.restowbackup.agent`); der Agent sucht eine Minute danach.
+Agent-Updates (Mandant oder Rechner) gelten weiter.
+
+Von Hand (seit 0.4.2, wie `restow-pve update` auf einem Knoten): `sudo restow-agent update`
+fragt den Server nach der angebotenen Version (`GET /agent/v1/update`) und installiert sie sofort
+auf demselben Weg wie die Selbstaktualisierung: die signierte `SHA256SUMS` wird mit dem
+eingebauten Schlüssel geprüft, jede Datei mit ihrem signierten Hash, erst dann wird ersetzt.
+Danach startet der Befehl den Dienst neu, damit die neue Version läuft, und nennt das Ergebnis
+(aktualisiert von/auf, oder "No newer release is offered"). Während des Updates hält er die
+Lauf-Sperre, sodass keine Sicherung startet. Läuft gerade eine Sicherung, eine Wiederherstellung
+oder ein Restore-Test, lehnt er ab ("A backup is running; the update waits", Exit-Code 1): Der
+Dienst installiert das Update dann selbst, sobald er frei ist. Ein Agent vor 0.4.2 kennt den
+Befehl nicht; dort den Dienst neu starten (`sudo systemctl restart restow-agent`, auf macOS `sudo
+launchctl kickstart -k system/com.restowbackup.agent`), der Agent sucht eine Minute danach. Der
+Reiter Updates nennt für nicht erreichte Rechner den passenden Befehl.
 
 ### Stichproben (`sample`)
 

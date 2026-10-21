@@ -1,3 +1,4 @@
+import { canonicalTimeZone } from "@restow/core";
 import { z } from "zod";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/password-policy.js";
 import { ProblemError } from "./problem.js";
@@ -73,6 +74,24 @@ export const acceptDisclaimerSchema = z.object({
 });
 export type AcceptDisclaimerRequest = z.infer<typeof acceptDisclaimerSchema>;
 
+/**
+ * An IANA time zone name, reduced to its canonical spelling (`europe/berlin` is
+ * `Europe/Berlin`); offsets and unknown names are refused with `timeZone`.
+ */
+export const ianaTimeZoneSchema = z
+  .string()
+  .trim()
+  .min(1, "timeZone")
+  .max(64, "timeZone")
+  .transform((value, ctx) => {
+    const zone = canonicalTimeZone(value);
+    if (!zone) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "timeZone" });
+      return z.NEVER;
+    }
+    return zone;
+  });
+
 /** The languages the setup wizard offers; the language of the operator's own organisation. */
 export const setupLanguageSchema = z.enum(["de", "en"]);
 
@@ -102,6 +121,12 @@ export const setupRequestSchema = z
      * Absent: the tenant defers to the installation default, as before.
      */
     language: setupLanguageSchema.optional(),
+    /**
+     * The installation's time zone (0.4.2; the wizard preselects the browser's): planned updates
+     * are read in it and the own organisation and every new tenant start with it. Absent: the
+     * environment applies (`RESTOW_TIME_ZONE`, `TZ`, Europe/Berlin), as before.
+     */
+    timeZone: ianaTimeZoneSchema.optional(),
     firstAdmin: firstAdminSchema,
     /**
      * The notification mail transport. Optional: the wizard lets the operator set

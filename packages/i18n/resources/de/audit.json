@@ -331,6 +331,9 @@
       },
       "pve": {
         "updated": "Einstellungen für Proxmox VE der Installation geändert"
+      },
+      "time_zone": {
+        "changed": "Zeitzone der Installation geändert"
       }
     },
     "setup": {

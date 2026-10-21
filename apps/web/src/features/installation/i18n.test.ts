@@ -222,6 +222,7 @@ describe("installation translations", () => {
       to: "/mnt/volume-1/restow-db/restow-postgres-20261002-100000",
       entries: 1840,
       location: "restow_pgdata",
+      zone: "Europe/Berlin",
     };
     for (const language of ["en", "de"]) {
       await i18n.changeLanguage(language);

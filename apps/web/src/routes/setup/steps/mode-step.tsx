@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
 import { Input } from "@/components/ui/input";
+import { TimezonePicker } from "@/features/schedules/components/timezone-picker";
 import type { OperatingMode } from "@/lib/api";
 import { validationKey } from "@/lib/form";
 import { isLocalhostOrigin, previewPasskeyReady } from "@/lib/passkey-ready";
@@ -23,6 +24,7 @@ export function ModeStep({ form }: ModeStepProps) {
   const mode = useWatch({ control: form.control, name: "operatingMode" });
   const publicUrl = useWatch({ control: form.control, name: "publicUrl" });
   const urlError = form.formState.errors.publicUrl;
+  const timeZone = useWatch({ control: form.control, name: "timeZone" });
 
   const observedOrigin = typeof window === "undefined" ? null : window.location.origin;
   const preview = previewPasskeyReady({
@@ -82,6 +84,15 @@ export function ModeStep({ form }: ModeStepProps) {
       ) : null}
 
       <PasskeyReadiness readiness={preview} />
+
+      <Field id="setup-time-zone" label={t("mode.timeZone.label")} hint={t("mode.timeZone.hint")}>
+        <TimezonePicker
+          id="setup-time-zone"
+          value={timeZone}
+          onChange={(zone) => form.setValue("timeZone", zone, { shouldDirty: true })}
+          describedBy={messageId("setup-time-zone")}
+        />
+      </Field>
     </div>
   );
 }

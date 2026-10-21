@@ -1,6 +1,7 @@
 import type { Database, JobStartPause } from "@restow/db";
 import { jobStartPause } from "@restow/db";
 import { and, eq, sql } from "drizzle-orm";
+import { INSTALLED_AGENT } from "../endpoints/commands.js";
 
 /**
  * Nodes and agents follow the server (0.4.2, docs/UPDATING.md "Nodes and agents"): once the
@@ -23,13 +24,20 @@ export const FLEET_REACHABLE_MS = 7 * 60 * 1000;
 export const FLEET_LIST_LIMIT = 200;
 
 /**
- * What one runs by hand on a node or a machine that was not reached. restow-pve installs the
- * offered release at once; an agent looks for its update a minute after it (re)starts.
+ * What one runs by hand on a node or a machine that was not reached. restow-pve and an agent from
+ * 0.4.2 on (`restow-agent update`) install the offered release at once (an agent not while a
+ * backup runs). An older agent has no `update` command: restarting its service makes it look for
+ * the update a minute later (`legacy`, for agents before `agentUpdateSince`).
  */
 export const MANUAL_UPDATE_COMMANDS = {
   pve_node: "/opt/restow-pve/bin/restow-pve update",
-  linux: "sudo systemctl restart restow-agent",
-  darwin: "sudo launchctl kickstart -k system/com.restowbackup.agent",
+  linux: `sudo '${INSTALLED_AGENT.linux}' update`,
+  darwin: `sudo '${INSTALLED_AGENT.darwin}' update`,
+  legacy: {
+    linux: "sudo systemctl restart restow-agent",
+    darwin: "sudo launchctl kickstart -k system/com.restowbackup.agent",
+  },
+  agentUpdateSince: "0.4.2",
 } as const;
 
 export type FleetMemberKind = "pve_node" | "agent";

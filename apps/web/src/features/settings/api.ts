@@ -80,6 +80,21 @@ export interface InstallationSettings {
   };
   disclaimer: DisclaimerRecord;
   updatedAt: string | null;
+  timeZone: InstallationTimeZone;
+}
+
+/** Where the installation's time zone comes from (docs/UPDATING.md, "The installation's time zone"). */
+export type TimeZoneSource = "settings" | "environment" | "process" | "default";
+
+/**
+ * The installation's time zone: the one that applies, its source, the one chosen in the web
+ * interface (null when none is) and what would apply without that choice.
+ */
+export interface InstallationTimeZone {
+  timeZone: string;
+  source: TimeZoneSource;
+  stored: string | null;
+  environment: { timeZone: string; source: TimeZoneSource };
 }
 
 export type MailInput =
@@ -204,6 +219,15 @@ export function patchSettings(patch: SettingsPatch): Promise<InstallationSetting
   return apiFetch<InstallationSettings>("/settings", {
     method: "PATCH",
     body: patch,
+    tenantId: null,
+  });
+}
+
+/** Choose the installation's time zone, or take the choice back (`null`). Owners only. */
+export function putTimeZone(timeZone: string | null): Promise<InstallationSettings> {
+  return apiFetch<InstallationSettings>("/settings/time-zone", {
+    method: "PUT",
+    body: { timeZone },
     tenantId: null,
   });
 }

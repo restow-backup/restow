@@ -33,7 +33,7 @@ import { holdPasswordForEnrolment } from "@/lib/password-handoff";
 import { PasskeyReadiness } from "@/routes/setup/passkey-readiness";
 import {
   buildSubmission,
-  defaultSetupValues,
+  initialSetupValues,
   SETUP_LANGUAGES,
   type SetupFormValues,
   type SetupLanguage,
@@ -109,7 +109,7 @@ export function SetupPage() {
 
   const form = useForm<SetupFormValues>({
     resolver: zodResolver(setupFormSchema),
-    defaultValues: defaultSetupValues,
+    defaultValues: initialSetupValues(),
     mode: "onTouched",
   });
 
