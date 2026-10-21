@@ -110,6 +110,21 @@ describe("the append-only authorization matrix", () => {
         action === "head" || action === "read" || action === "list",
       );
     });
+    // A stopped or ended run: it opens the repository and releases its own lock, nothing more.
+    const closing =
+      (action === "head" || action === "read" || action === "list"
+        ? resource.kind === "config" ||
+          ("type" in resource && (resource.type === "keys" || resource.type === "locks"))
+        : false) ||
+      (action === "delete" &&
+        resource.kind === "object" &&
+        resource.type === "locks" &&
+        ownLock === true);
+    it(`closing: ${label} is ${closing ? "allowed" : "refused"}`, () => {
+      expect(authorizeResticAction("closing", action, resource, exists, ownLock).allowed).toBe(
+        closing,
+      );
+    });
     it(`maintenance: ${label} is allowed`, () => {
       expect(authorizeResticAction("maintenance", action, resource, exists, ownLock).allowed).toBe(
         true,
@@ -135,6 +150,23 @@ describe("the append-only authorization matrix", () => {
       allowed: false,
       reason: "foreign_lock",
     });
+  });
+
+  it("says why a closing run is refused", () => {
+    expect(authorizeResticAction("closing", "write", object("locks"), false)).toEqual({
+      allowed: false,
+      reason: "not_allowed",
+    });
+    expect(authorizeResticAction("closing", "read", object("data"), true)).toEqual({
+      allowed: false,
+      reason: "not_allowed",
+    });
+    expect(authorizeResticAction("closing", "delete", object("locks"), true, false)).toEqual({
+      allowed: false,
+      reason: "foreign_lock",
+    });
+    expect(needsLockOwnership("closing", "delete", object("locks"))).toBe(true);
+    expect(needsExistenceCheck("closing", "write")).toBe(false);
   });
 
   it("only asks who wrote a lock when an agent wants to delete it", () => {

@@ -12,7 +12,7 @@
  *
  * with the types `data`, `keys`, `locks`, `snapshots` and `index`.
  *
- * Three principals exist:
+ * Four principals exist:
  *
  *   agent        append-only. It reads everything and adds objects that do not
  *                exist yet, nothing more: an existing object is never
@@ -30,6 +30,11 @@
  *                (a file share restore runs restic with --no-lock). It reads
  *                the source repository of a restore into another share and
  *                can change nothing in it.
+ *   closing      a run that was stopped or has ended (a container backup cancelled
+ *                in the UI, docs/PVE.md): it may still read the config, the keys
+ *                and the lock files, and delete the lock files it wrote itself,
+ *                so restic can release its lock on the way out. Nothing else:
+ *                no write, no read of data, snapshots or indexes.
  *   maintenance  full access. Used by the server itself (retention, check,
  *                downloads, restore tests, `init`) over a loopback listener
  *                that only lives as long as one operation; the credential is
@@ -39,7 +44,16 @@
 export const RESTIC_TYPES = ["data", "keys", "locks", "snapshots", "index"] as const;
 export type ResticType = (typeof RESTIC_TYPES)[number];
 
-export type ResticPrincipal = "agent" | "reader" | "maintenance";
+export type ResticPrincipal = "agent" | "reader" | "closing" | "maintenance";
+
+/** What a closing run may still read: enough to open the repository and find its lock. */
+function closingMayRead(resource: ResticResource): boolean {
+  return (
+    resource.kind === "config" ||
+    ((resource.kind === "list" || resource.kind === "object") &&
+      (resource.type === "keys" || resource.type === "locks"))
+  );
+}
 
 /** What a request addresses, parsed from its path. */
 export type ResticResource =
@@ -141,6 +155,17 @@ export function authorizeResticAction(
       ? { allowed: true }
       : { allowed: false, reason: "not_allowed" };
   }
+  if (principal === "closing") {
+    if (action === "head" || action === "read" || action === "list") {
+      return closingMayRead(resource)
+        ? { allowed: true }
+        : { allowed: false, reason: "not_allowed" };
+    }
+    if (action === "delete" && resource.kind === "object" && resource.type === "locks") {
+      return ownLock ? { allowed: true } : { allowed: false, reason: "foreign_lock" };
+    }
+    return { allowed: false, reason: "not_allowed" };
+  }
   switch (action) {
     case "head":
     case "read":
@@ -166,14 +191,14 @@ export function needsExistenceCheck(principal: ResticPrincipal, action: ResticAc
   return principal === "agent" && action === "write";
 }
 
-/** Only an append-only principal's deletion of a lock depends on who wrote the lock. */
+/** Only a run's deletion of a lock (append-only or closing) depends on who wrote the lock. */
 export function needsLockOwnership(
   principal: ResticPrincipal,
   action: ResticAction,
   resource: ResticResource,
 ): boolean {
   return (
-    principal === "agent" &&
+    (principal === "agent" || principal === "closing") &&
     action === "delete" &&
     resource.kind === "object" &&
     resource.type === "locks"

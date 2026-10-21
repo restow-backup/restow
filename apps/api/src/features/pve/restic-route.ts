@@ -20,7 +20,10 @@ import { type TenantChunkStore, tenantChunkStore } from "./store.js";
  * token that expires with it), handed to the container backup through files
  * only the container's mapped root can read; a node holds no long-lived
  * restic credential. The principal is append-only, as for the endpoint
- * agent: it reads and adds, it never deletes or overwrites a backup.
+ * agent: it reads and adds, it never deletes or overwrites a backup. Once the
+ * run was stopped or has ended, the credential (until it expires) only opens
+ * the repository and releases the run's own lock files (the `closing`
+ * principal); every other request is refused and audited.
  * Retention, check and restore tests run on the server.
  *
  * Built on the run-scoped route builder shared with file shares
@@ -63,23 +66,20 @@ export async function resolvePveRunCredential(
   if (!run || !ok || run.guestId !== guestId) {
     return { ok: false, reason: "invalid" };
   }
-  if (
-    run.status !== "running" ||
-    // A backup stopped in the UI: restic fails at its next request (a node without cancel orders).
-    run.cancelRequestedAt !== null ||
-    !run.expiresAt ||
-    run.expiresAt.getTime() < now ||
-    run.tenantStatus !== "active"
-  ) {
+  if (!run.expiresAt || run.expiresAt.getTime() < now || run.tenantStatus !== "active") {
     return { ok: false, reason: "expired" };
   }
+  // A backup stopped in the UI, or a run that has ended: restic fails at its next write (a node
+  // without cancel orders), but may still release the lock it holds on the way out. Otherwise
+  // the lock stays until it is stale and blocks the check and the retention of the repository.
+  const closing = run.status !== "running" || run.cancelRequestedAt !== null;
   const store = await tenantChunkStore(run.tenantId);
   return {
     ok: true,
     access: {
       tenantId: run.tenantId,
       runId: run.id,
-      principal: "agent",
+      principal: closing ? "closing" : "agent",
       prefix: guestRepositoryPrefix(guestId),
       // A backup writes to the primary only (its credential made sure the repository is
       // there, repository.ts); a restore reads from whichever target holds the repository,
