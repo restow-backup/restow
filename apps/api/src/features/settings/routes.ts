@@ -8,6 +8,7 @@ import { refuseApiKeys, requireProviderAdmin, type SessionEnv } from "../../midd
 import { acceptDisclaimerSchema, parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { getGlobalAgentPolicy, updateGlobalAgentPolicy } from "../endpoints/agent-policy.js";
 import { globalAgentPolicySchema } from "../endpoints/schemas.js";
+import { getPveSettings, pveSettingsSchema, updatePveSettings } from "../pve/settings.js";
 import { ransomwareSettingsSchema } from "../suspicion/schemas.js";
 import { getRansomwareSettings, updateRansomwareSettings } from "../suspicion/service.js";
 import {
@@ -68,6 +69,9 @@ import {
  *                                  ranges, the version of the name signatures
  *   PUT    /ransomware            replace the stored thresholds (what is left out takes its
  *                                  default; `{}` is every default)
+ *   GET    /pve                   the installation's Proxmox VE settings (check every new restore
+ *                                  point right after its backup) and their defaults
+ *   PUT    /pve                   change them (what is left out stays)
  *   GET    /agent-policy          the installation's agent policy, its locks, the defaults
  *   PUT    /agent-policy          replace it; every machine whose effective policy changes gets
  *                                  a new configuration version (all tenants)
@@ -186,6 +190,16 @@ settingsRoutes.get("/ransomware", async (c) => {
 settingsRoutes.put("/ransomware", async (c) => {
   const input = await parseJsonBody(c.req, ransomwareSettingsSchema);
   return c.json(await updateRansomwareSettings(providerDb, input, actorOf(c)));
+});
+
+// Proxmox VE (docs/PVE.md, "Restore check"): every provider admin reads, the owner changes.
+settingsRoutes.get("/pve", async (c) => {
+  return c.json(await getPveSettings(providerDb));
+});
+
+settingsRoutes.put("/pve", async (c) => {
+  const input = await parseJsonBody(c.req, pveSettingsSchema);
+  return c.json(await updatePveSettings(providerDb, input, actorOf(c)));
 });
 
 // Agent policies (docs/AGENT.md, "Richtlinien"): every provider admin reads the installation's

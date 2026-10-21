@@ -112,7 +112,10 @@
     "queuedSince": "Requested on {time}.",
     "runningSince": "Started on {time}.",
     "nodeLastReport": "The node last reported on {time}.",
-    "nodeOffline": "Node {node} is disconnected (last report: {time}). It starts the backup only once it reports again."
+    "nodeOffline": "Node {node} is disconnected (last report: {time}). It starts the backup only once it reports again.",
+    "succeededWithWarnings": "Succeeded with warnings",
+    "verifyFailed": "Restore check failed",
+    "verifyFailedHint": "The restore check of the newest restore point failed."
   },
   "jobs": {
     "title": "Backup jobs",
@@ -150,7 +153,9 @@
     "guests": "VMs and containers in this job",
     "noGuests": "No VM or container reported yet.",
     "guestInJob": "In {job}",
-    "guestMoves": "Moves from {job}"
+    "guestMoves": "Moves from {job}",
+    "schedule": "Schedule",
+    "manualOnly": "By hand only"
   },
   "guest": {
     "back": "Back to VMs & containers",
@@ -238,7 +243,8 @@
       "restores_off": "No boot test possible: restores are switched off on the guest's node.",
       "privileged": "No boot test possible: Proxmox VE cannot restore privileged containers from a backup interface.",
       "template": "No boot test for VM templates."
-    }
+    },
+    "verifyQueuedBadge": "Check queued"
   },
   "restore": {
     "title": "Restore as a new guest",
@@ -267,7 +273,19 @@
       "bootGreen": "The newest restore point booted in its boot test: the guest agent answered.",
       "bootYellow": "The newest restore point started in its boot test, but its guest agent did not answer: no proof the system works.",
       "bootRed": "The newest restore point did not boot in its boot test."
-    }
+    },
+    "checkNow": "Check now",
+    "checkNowFor": "Check {name} now",
+    "checkWaiting": "Check queued",
+    "checkQueued": "Restore check queued: it runs within a few minutes.",
+    "checkAll": "Check all unverified",
+    "checkAllQueued": "{count, plural, =0 {Nothing to queue: every restore point is checked or waits for its check.} one {# restore check queued.} other {# restore checks queued.}}",
+    "uncheckedTitle": "{count, plural, one {# VM or container is not proven restorable yet} other {# VMs and containers are not proven restorable yet}}",
+    "uncheckedBody": "No restore check has read their newest restore point back yet.",
+    "waitingTitle": "{count, plural, one {# restore check of a VM or container waits} other {# restore checks of VMs and containers wait}}",
+    "waiting": "{count, plural, one {# restore check waits} other {# restore checks wait}} for the next pass (every five minutes).",
+    "scheduleAfterBackup": "VMs and containers: every new restore point is checked within minutes of its backup, and the newest restore point of every guest at least every {days} days.",
+    "schedulePeriodic": "VMs and containers: the newest restore point of every guest is checked every {days} days (checking right after each backup is switched off for this installation)."
   },
   "inventory": {
     "title": "Proxmox VE",
@@ -313,5 +331,31 @@
       "paused": "Paused",
       "suspended": "Suspended"
     }
+  },
+  "selfBackup": {
+    "badge": "{appName} server",
+    "title": "This guest runs {appName} itself",
+    "short": "Runs {appName} itself: not backed up until you confirm.",
+    "confirmedShort": "Runs {appName} itself: backing it up was confirmed.",
+    "confirmedLong": "An administrator confirmed backing it up with {appName} anyway.",
+    "reason": {
+      "detected": "{appName} found it: its SMBIOS UUID is the one of the machine {appName} runs on.",
+      "flagged": "An administrator marked it as the {appName} server."
+    },
+    "risk": "Backing up the VM that runs {appName} with {appName} itself can deadlock: the backup freezes or snapshots the server that receives the backup, and restoring it needs the very server that is being restored.",
+    "recommendation": "Back this VM up with Proxmox VE's own backup (vzdump) to another storage, and keep {appName}'s database dumps (docs/DATABASE.md). Confirm only if you accept the risk.",
+    "confirmTitle": "Back up the {appName} server ({name}) with {appName}?",
+    "confirm": "Back it up anyway",
+    "confirmInJob": "I understand the risk and want this VM backed up by this job anyway.",
+    "flag": "This is the {appName} server",
+    "flagHint": "Mark the guest {appName} runs in when {appName} cannot find it itself (for example {appName} in a container). It is then not backed up until an administrator confirms it."
+  },
+  "settings": {
+    "title": "Proxmox VE",
+    "description": "How the restore points of VMs and containers are checked.",
+    "verifyAfterBackup": "Check every new restore point right after the backup",
+    "verifyAfterBackupHint": "A new restore point is read back within a few minutes of its backup (a sample of its blocks, a container: a restic check of a subset), a bounded number per pass. The weekly check of every guest stays either way. Off: new restore points wait for the weekly check.",
+    "saved": "Proxmox VE settings saved.",
+    "loadError": "The Proxmox VE settings could not be loaded."
   }
 }

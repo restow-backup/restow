@@ -2,8 +2,11 @@ import {
   enrollmentTokenExpiry,
   generateEnrollmentToken,
   pveGuestBackable,
+  pveGuestIsRestowServer,
   pveJobOfGuest,
   pveNextRunAt,
+  pveRestorePointReadiness,
+  pveSelfBackupBlocked,
 } from "@restow/core";
 import {
   type Database,
@@ -14,6 +17,7 @@ import {
   type PveNode,
   type PveRunProgress,
   type PveRunStats,
+  type PveVerifyResult,
   pveClusters,
   pveEnrollmentTokens,
   pveGuests,
@@ -46,7 +50,23 @@ export const PVE_PROBLEMS = {
   privilegedRestore: "urn:restow:problem:pve-privileged-ct-restore",
   template: "urn:restow:problem:pve-template-unsupported",
   restoresOff: "urn:restow:problem:pve-restores-off",
+  restowServer: "urn:restow:problem:pve-restow-server",
 } as const;
+
+/** Why backing up the Restow server's own VM needs a confirmation (docs/PVE.md). */
+const SELF_BACKUP_DETAIL =
+  "This guest is the VM the Restow server runs in. Backing it up with Restow itself can deadlock: the backup freezes or snapshots the server that receives it, and a restore needs the server that is being restored. Back this VM up with Proxmox VE's own vzdump to another storage, and keep Restow's database dumps; confirm only if you accept the risk.";
+
+function refuseSelfBackup(guest: PveGuest): void {
+  throw new ProblemError(409, "This guest is the Restow server", {
+    type: PVE_PROBLEMS.restowServer,
+    detail: SELF_BACKUP_DETAIL,
+    extensions: {
+      guestId: guest.id,
+      reason: guest.restowServerDetected ? "detected" : "flagged",
+    },
+  });
+}
 
 /** The pool restores go into; the API token may create (and delete) guests only there. */
 export const RESTORE_POOL = "restow-restore";
@@ -209,7 +229,31 @@ type SnapshotSizeRow = {
   backup_at: Date | string;
   byte_size: number | string;
   stats: PveRunStats | null;
+  verify?: PveVerifyResult | null;
 };
+
+/** The restore check of a guest's newest restore point, as the guest row shows it. */
+export interface GuestVerifyFact {
+  /** green: the sample read back matched; red: it did not, or could not be read; null: unchecked. */
+  state: "green" | "red" | null;
+  checkedAt: string | null;
+  /** What the check found, as stored (the real restic or read error); the first five. */
+  errors: string[];
+  /** A check of it waits for the worker's next PVE pass. */
+  requested: boolean;
+}
+
+export function verifyFact(
+  verify: PveVerifyResult | null | undefined,
+  requestedAt: Date | string | null | undefined,
+): GuestVerifyFact {
+  return {
+    state: pveRestorePointReadiness(verify ?? null),
+    checkedAt: verify?.checkedAt ?? null,
+    errors: (verify?.errors ?? []).slice(0, 5).map((e) => String(e).slice(0, 1000)),
+    requested: Boolean(requestedAt),
+  };
+}
 
 function backupSize(row: SnapshotSizeRow): BackupSize {
   return {
@@ -265,10 +309,11 @@ export interface GuestBackupSizes {
 function guestDto(
   g: PveGuest,
   jobs: Map<string, PveJob>,
-  lastRun: { status: string; error: string | null } | undefined,
+  lastRun: { status: string; error: string | null; warnings?: string[] } | undefined,
   activity: GuestActivity = null,
   sizes: GuestBackupSizes = { first: null, last: null },
   detail: GuestActivityDetail = { since: null, progress: null },
+  verify: GuestVerifyFact | null = null,
 ) {
   const attention: string[] = [];
   if (g.template && g.kind === "vm") {
@@ -287,6 +332,9 @@ function guestDto(
   }
   if (!g.present) {
     attention.push("absent");
+  }
+  if (pveSelfBackupBlocked(g)) {
+    attention.push("restow_server");
   }
   return {
     id: g.id,
@@ -311,6 +359,18 @@ function guestDto(
     lastSnapshotId: g.lastSnapshotId,
     lastRunStatus: lastRun?.status ?? null,
     lastRunError: lastRun?.error ?? null,
+    // vzdump's warnings beside a backup that committed its restore point ("succeeded with warnings").
+    lastRunWarnings: lastRun?.status === "succeeded" ? (lastRun.warnings ?? []) : [],
+    // The Restow server's own VM (docs/PVE.md): how it was found, and whether an admin confirmed
+    // backing it up anyway.
+    restowServer: pveGuestIsRestowServer(g)
+      ? g.restowServerDetected
+        ? ("detected" as const)
+        : ("flagged" as const)
+      : null,
+    restowServerFlagged: g.restowServerFlagged,
+    selfBackupConfirmedAt: g.selfBackupConfirmedAt?.toISOString() ?? null,
+    lastVerify: verify,
     activity,
     activitySince: detail.since,
     activityJobId: activity ? (detail.jobId ?? null) : null,
@@ -355,12 +415,22 @@ export async function overview(database: Database, tenantId: string, now: Date =
       guest_id: string;
       status: string;
       error_message: string | null;
+      warnings: unknown;
     }>(sql`
-      SELECT DISTINCT ON (guest_id) guest_id, status, error_message
+      SELECT DISTINCT ON (guest_id) guest_id, status, error_message, stats->'warnings' AS warnings
         FROM pve_runs WHERE kind = 'backup' AND status <> 'running'
        ORDER BY guest_id, started_at DESC`);
     const runByGuest = new Map(
-      lastRuns.rows.map((r) => [r.guest_id, { status: r.status, error: r.error_message }]),
+      lastRuns.rows.map((r) => [
+        r.guest_id,
+        {
+          status: r.status,
+          error: r.error_message,
+          warnings: Array.isArray(r.warnings)
+            ? r.warnings.filter((w): w is string => typeof w === "string")
+            : [],
+        },
+      ]),
     );
     // A run Restow asked for names its task; a scheduled task names its job (#53).
     const running = await tx.execute<{
@@ -423,9 +493,13 @@ export async function overview(database: Database, tenantId: string, now: Date =
     const firsts = await tx.execute<SnapshotSizeRow>(sql`
       SELECT DISTINCT ON (guest_id) guest_id, kind, backup_at, byte_size, stats
         FROM pve_snapshots ORDER BY guest_id, sequence ASC`);
-    const lasts = await tx.execute<SnapshotSizeRow>(sql`
-      SELECT DISTINCT ON (guest_id) guest_id, kind, backup_at, byte_size, stats
+    const lasts = await tx.execute<SnapshotSizeRow & { verify_requested_at: Date | null }>(sql`
+      SELECT DISTINCT ON (guest_id) guest_id, kind, backup_at, byte_size, stats, verify,
+             verify_requested_at
         FROM pve_snapshots WHERE status = 'active' ORDER BY guest_id, sequence DESC`);
+    const verifies = new Map(
+      lasts.rows.map((row) => [row.guest_id, verifyFact(row.verify, row.verify_requested_at)]),
+    );
     // The newest kept follow-up points per guest (after the first backup ever), for the
     // average a follow-up backup adds.
     const followUps = await tx.execute<{
@@ -491,6 +565,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
           activity.get(g.id) ?? null,
           sizes.get(g.id),
           activityDetail.get(g.id),
+          verifies.get(g.id) ?? null,
         ),
       ),
       jobs: jobs.map((j) =>
@@ -661,8 +736,20 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         : []
       ).map((n): [string, RunNode] => [n.id, { name: n.name, helperVersion: n.helperVersion }]),
     );
+    const newest = snapshots.reduce<(typeof snapshots)[number] | null>(
+      (best, s) => (best === null || s.sequence > best.sequence ? s : best),
+      null,
+    );
     return {
-      guest: guestDto(guest, new Map(jobs.map((j) => [j.id, j])), undefined),
+      guest: guestDto(
+        guest,
+        new Map(jobs.map((j) => [j.id, j])),
+        undefined,
+        null,
+        undefined,
+        undefined,
+        newest ? verifyFact(newest.verify, newest.verifyRequestedAt) : null,
+      ),
       bootTest: await guestBootTestFacts(tx, guest),
       followUp: followUpAverage(
         snapshots.map((s) => ({ sequence: s.sequence, added: addedBytes(s.kind, s.stats) })),
@@ -699,6 +786,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
           bitmapMode: d.bitmapMode,
         })),
         verify: s.verify,
+        verifyRequested: s.verifyRequestedAt !== null,
         // The newest rated boot test of the restore point (docs/PVE.md, "Boot test").
         bootTest: s.bootTest ?? null,
       })),
@@ -715,6 +803,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         progress: r.status === "running" ? (r.progress ?? null) : null,
         node: r.status === "running" && r.nodeId ? (runNodes.get(r.nodeId) ?? null) : null,
         error: r.errorMessage,
+        warnings: Array.isArray(r.stats.warnings) ? r.stats.warnings : [],
         logTail: r.logTail,
       })),
       tasks: tasks.map((t) => ({
@@ -752,12 +841,18 @@ export async function backupNow(
   database: Database,
   tenantId: string,
   guestId: string,
-  input: { verifyRead: boolean },
+  input: { verifyRead: boolean; confirmSelfBackup?: boolean },
   actor: PveActor | null,
   now: Date = new Date(),
 ) {
   return withTenantTx(database, tenantId, async (tx) => {
     const guest = await loadGuest(tx, guestId);
+    if (pveSelfBackupBlocked(guest)) {
+      if (!input.confirmSelfBackup || !actor) {
+        refuseSelfBackup(guest);
+      }
+      await confirmSelfBackup(tx, tenantId, guest, actor as PveActor, now);
+    }
     if (guest.kind === "vm" && guest.template) {
       throw new ProblemError(409, "Templates cannot be backed up", {
         type: PVE_PROBLEMS.template,
@@ -903,23 +998,27 @@ export async function restoreSnapshot(
   });
 }
 
-/** Ask the worker to verify a restore point now (read back a sample of its blocks). */
+/**
+ * Ask the worker to check a restore point now (read back a sample of its blocks; a container:
+ * restic check of a subset). The worker's next PVE pass checks exactly this restore point,
+ * also an older one (docs/PVE.md, "Restore check"); its last result goes until the new one is in.
+ */
 export async function requestVerify(
   database: Database,
   tenantId: string,
   snapshotId: string,
   actor: PveActor,
+  now: Date = new Date(),
 ) {
   await withTenantTx(database, tenantId, async (tx) => {
     const [snap] = await tx
       .update(pveSnapshots)
-      .set({ verify: null })
+      .set({ verify: null, verifyRequestedAt: now })
       .where(and(eq(pveSnapshots.id, snapshotId), eq(pveSnapshots.status, "active")))
       .returning();
     if (!snap) {
       throw new ProblemError(404, "Restore point not found");
     }
-    await tx.update(pveGuests).set({ lastVerifyAt: null }).where(eq(pveGuests.id, snap.guestId));
     await auditPve(tx, {
       tenantId,
       actor,
@@ -927,6 +1026,67 @@ export async function requestVerify(
       target: snapshotId,
       targetType: "pve_snapshot",
     });
+  });
+}
+
+/** Check a guest's newest restore point now (Recovery readiness, "Check now"). */
+export async function requestGuestVerify(
+  database: Database,
+  tenantId: string,
+  guestId: string,
+  actor: PveActor,
+  now: Date = new Date(),
+): Promise<{ snapshotId: string }> {
+  const snapshotId = await withTenantTx(database, tenantId, async (tx) => {
+    await loadGuest(tx, guestId);
+    const [snap] = await tx
+      .select({ id: pveSnapshots.id })
+      .from(pveSnapshots)
+      .where(and(eq(pveSnapshots.guestId, guestId), eq(pveSnapshots.status, "active")))
+      .orderBy(desc(pveSnapshots.sequence))
+      .limit(1);
+    if (!snap) {
+      throw new ProblemError(409, "No restore point", {
+        detail: "The guest has no restore point to check yet.",
+      });
+    }
+    return snap.id;
+  });
+  await requestVerify(database, tenantId, snapshotId, actor, now);
+  return { snapshotId };
+}
+
+/**
+ * Check the newest restore point of every guest no check has read back yet and none waits for
+ * (Recovery readiness, "Check all unverified"). One statement for the tenant, however many
+ * guests it has; one audit entry with the count.
+ */
+export async function requestUnverifiedVerify(
+  database: Database,
+  tenantId: string,
+  actor: PveActor,
+  now: Date = new Date(),
+): Promise<{ queued: number }> {
+  return withTenantTx(database, tenantId, async (tx) => {
+    const marked = await tx.execute<{ id: string }>(sql`
+      UPDATE pve_snapshots s SET verify_requested_at = ${now}
+        FROM (SELECT DISTINCT ON (guest_id) id, verify, verify_requested_at FROM pve_snapshots
+               WHERE tenant_id = ${tenantId} AND status = 'active'
+               ORDER BY guest_id, sequence DESC) newest
+       WHERE s.id = newest.id AND newest.verify IS NULL AND newest.verify_requested_at IS NULL
+      RETURNING s.id`);
+    const queued = marked.rows.length;
+    if (queued > 0) {
+      await auditPve(tx, {
+        tenantId,
+        actor,
+        action: PVE_AUDIT_ACTIONS.verifyRequested,
+        target: tenantId,
+        targetType: "pve_snapshot",
+        details: { scope: "unverified", restorePoints: queued },
+      });
+    }
+    return { queued };
   });
 }
 
@@ -1078,9 +1238,21 @@ export async function assignJob(
   guestId: string,
   jobId: string | null,
   actor: PveActor,
-) {
-  await withTenantTx(database, tenantId, async (tx) => {
-    await loadGuest(tx, guestId);
+  options: { confirmSelfBackup?: boolean; skipRestowServer?: boolean } = {},
+  now: Date = new Date(),
+): Promise<{ assigned: boolean }> {
+  return withTenantTx(database, tenantId, async (tx) => {
+    const guest = await loadGuest(tx, guestId);
+    if (jobId && pveSelfBackupBlocked(guest)) {
+      // The recommended job leaves the Restow server's own VM out instead of failing (#52).
+      if (options.skipRestowServer) {
+        return { assigned: false };
+      }
+      if (!options.confirmSelfBackup) {
+        refuseSelfBackup(guest);
+      }
+      await confirmSelfBackup(tx, tenantId, guest, actor, now);
+    }
     if (jobId) {
       const [job] = await tx
         .select({ id: pveJobs.id })
@@ -1099,6 +1271,63 @@ export async function assignJob(
       target: guestId,
       targetType: "pve_guest",
       details: { jobId },
+    });
+    return { assigned: true };
+  });
+}
+
+type Tx = Parameters<Parameters<typeof withTenantTx>[2]>[0];
+
+/** An admin confirmed backing up the Restow server's own VM (audited). */
+async function confirmSelfBackup(
+  tx: Tx,
+  tenantId: string,
+  guest: PveGuest,
+  actor: PveActor,
+  now: Date,
+): Promise<void> {
+  await tx.update(pveGuests).set({ selfBackupConfirmedAt: now }).where(eq(pveGuests.id, guest.id));
+  await auditPve(tx, {
+    tenantId,
+    actor,
+    action: PVE_AUDIT_ACTIONS.selfBackupConfirmed,
+    target: guest.id,
+    targetType: "pve_guest",
+    details: {
+      vmid: guest.vmid,
+      reason: guest.restowServerDetected ? "detected" : "flagged",
+    },
+  });
+}
+
+/**
+ * Mark a guest as the Restow server's own VM, or take the mark back (docs/PVE.md). For what
+ * the SMBIOS UUID cannot find: Restow in a container, or a VM whose UUID the server cannot read.
+ * Taking the mark back also takes back a confirmation to back it up.
+ */
+export async function setRestowServerFlag(
+  database: DbExecutor,
+  tenantId: string,
+  guestId: string,
+  flagged: boolean,
+  actor: PveActor,
+): Promise<void> {
+  await withTenantTx(database, tenantId, async (tx) => {
+    const guest = await loadGuest(tx, guestId);
+    await tx
+      .update(pveGuests)
+      .set({
+        restowServerFlagged: flagged,
+        ...(flagged || guest.restowServerDetected ? {} : { selfBackupConfirmedAt: null }),
+      })
+      .where(eq(pveGuests.id, guestId));
+    await auditPve(tx, {
+      tenantId,
+      actor,
+      action: PVE_AUDIT_ACTIONS.restowServerFlagged,
+      target: guestId,
+      targetType: "pve_guest",
+      details: { vmid: guest.vmid, flagged, detected: guest.restowServerDetected },
     });
   });
 }

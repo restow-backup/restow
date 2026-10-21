@@ -328,6 +328,9 @@
       },
       "agent_policy": {
         "updated": "Richtlinie der Agenten für die Installation geändert"
+      },
+      "pve": {
+        "updated": "Einstellungen für Proxmox VE der Installation geändert"
       }
     },
     "setup": {
@@ -582,6 +585,10 @@
         "pruned": "Sicherungsstand des Gasts entfernt (Aufbewahrung)",
         "browsed": "Dateien eines Sicherungsstands des Containers durchsucht",
         "downloaded": "Dateien eines Sicherungsstands des Containers heruntergeladen"
+      },
+      "guest": {
+        "restow_server": "Gast als {appName}-Server markiert oder Markierung aufgehoben",
+        "self_backup_confirmed": "Sicherung des {appName}-Servers mit {appName} bestätigt"
       }
     },
     "file_share": {

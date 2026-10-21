@@ -8,6 +8,44 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- Proxmox VE: every new restore point is checked within minutes of its backup, a bounded
+  number per pass, besides the weekly check of every guest. Installation › Proxmox VE has the
+  setting "Check every new restore point right after the backup" (on by default;
+  `GET/PUT /api/v1/settings/pve`). One database migration.
+- Proxmox VE in Recovery readiness: "Check now" per guest and "Check all unverified"
+  (`POST /api/v1/pve/guests/:id/verify`, `POST /api/v1/pve/verify-unverified`); the footer
+  names the Microsoft 365 schedule as such and says how VMs and containers are checked.
+- Proxmox VE backup jobs take the cadences of a mail job: every few hours, daily, on chosen
+  weekdays, monthly or a cron expression (not more often than hourly).
+- The Restow server's own VM: found by its SMBIOS UUID (restow-pve 0.4.2 reports it with the
+  inventory) or marked by an admin on the guest's page. It is marked in the lists and the job
+  editor, no job backs it up, and "Back up now" and putting it into a job need a confirmation
+  that names the self-backup risk (docs/PVE.md, "The Restow server's own VM").
+
+### Changed
+
+- A red restore check of a guest shows the error it found (for example restic's) in the guest
+  list, Recovery readiness and on the guest page, instead of only "blocks did not match or
+  could not be read".
+- /virtualization: the State column keeps its width and height while a backup reports
+  progress; long messages are cut, with the whole text in the tooltip.
+
+### Fixed
+
+- Proxmox VE backups ended with "TASK WARNINGS: 1" and restow-pve reported them as failed
+  although the restore point was committed: restow-pve asks vzdump for no notes any more, the
+  storage plugin takes a notes update as a no-op, and a backup vzdump ends with warnings after
+  its restore point was committed counts as "Succeeded with warnings".
+- restow-pve's late task result was refused with "404 Task not found" once the server had
+  closed the task (by the run's own end, the worker, or its expiry during an outage): the
+  server takes it and settles the run (a committed restore point always counts as succeeded),
+  a task whose run is still open no longer expires, and restow-pve keeps a result the server
+  could not take and sends it again with the next heartbeat instead of losing it.
+
 ## [0.4.1] - 2026-10-16
 
 Beta release. Run it alongside your existing backups, not as your only one, until

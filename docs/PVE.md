@@ -170,8 +170,10 @@ unique per installation).
 
 ## Jobs, backups, retention
 
-- **Backup jobs** for VMs and containers live on the same page: a daily time,
-  all guests (that are in no other job) or the selected ones, the mode
+- **Backup jobs** for VMs and containers live on the same page: the same
+  cadences as a mail job (every few hours, daily, on chosen weekdays, monthly
+  or a cron expression, in a time zone; not more often than hourly), all guests
+  (that are in no other job) or the selected ones, the mode
   (`snapshot`, else `suspend` or `stop`), retention (default 7 daily, 4 weekly,
   6 monthly restore points) and the optional monthly restore check. The worker
   turns a due job into one backup task per guest for the node that hosts it;
@@ -187,10 +189,39 @@ unique per installation).
 - **Retention** runs on the server only. PVE's "remove" and prune are refused
   by the plugin. Pruning a restore point releases exactly the chunk references
   it holds; the storage check's garbage collection reclaims the chunks later.
-- **Restore check.** Weekly, the server reads a sample of the data blocks of
-  every guest's newest restore point back and compares them with the SHA-256 in
-  the map (containers: `restic check` of 5 %). A job can also restore one guest
-  a month into `restow-restore`, check it and delete it again.
+- **Restore check.** The server reads a sample of the data blocks of a restore
+  point back and compares them with the SHA-256 in the map (containers: `restic
+  check` of 5 %). It checks
+  - every new restore point right after its backup: the commit marks it
+    (`pve_snapshots.verify_requested_at`) and the worker's next PVE pass (every
+    five minutes) reads it, at most 20 asked-for checks per pass, oldest request
+    first. The installation setting "Check every new restore point right after
+    the backup" (Installation → Proxmox VE, owner; `GET/PUT
+    /api/v1/settings/pve`, `verifyAfterBackup`) is on by default; switched off,
+    a new restore point waits for the weekly check. There is no per-tenant
+    override in this release;
+  - every guest's newest restore point at least weekly (at most 10 per pass);
+  - a restore point an admin asks for: "Check now" on a restore point of the
+    guest page checks exactly that one, also an older one; in Recovery
+    readiness "Check now" of a guest checks its newest restore point, and
+    "Check all unverified" the newest of every guest no check has read and none
+    waits for.
+
+  A red check shows what it found (the restic or read error stored in
+  `pve_snapshots.verify`) under the badge in the guest list, in Recovery
+  readiness and on the guest page, the whole text in the tooltip. The footer
+  of Recovery readiness names the Microsoft 365 schedule as such and says how
+  the guests are checked in a line of its own.
+
+  A job can also restore one guest a month into `restow-restore`, check it and
+  delete it again.
+- **Warnings of vzdump.** restow-pve asks vzdump for no notes (from 0.4.2), and
+  the storage plugin takes a notes update (a PVE backup job with a notes
+  template) as a no-op that it logs, instead of an error: such backups used to
+  end with "TASK WARNINGS: 1". A backup vzdump ends with warnings while its
+  restore point was committed succeeded: the run keeps the warning lines and
+  the guest shows "Succeeded with warnings" (amber, not failed, not green).
+  Protection of a restore point is still refused in PVE (Restow holds them).
 - **Boot test** (off by default): weekly, or after every backup, the guest's
   node boots the newest restore point in isolation and destroys it again; see
   "Boot test" below.
@@ -354,6 +385,30 @@ the first; it needs KVM on the Restow server and is not part of this release.
 **Without Restow:** `restow-restore` (packages/cli) writes a VM restore point's
 disks as sparse raw images (`disks/<device>.raw`) from the storage target and
 the master key alone. Container restore points are plain restic repositories.
+
+## The Restow server's own VM
+
+Backing up the VM that runs Restow with Restow itself can deadlock: the backup
+freezes or snapshots the server that receives the backup, and restoring it needs
+the very server being restored. Back that VM up with PVE's own vzdump to another
+storage, and keep Restow's database dumps (docs/DATABASE.md).
+
+- **Found by its SMBIOS UUID.** A VM's configuration carries `smbios1: uuid=...`,
+  which the guest sees as `/sys/class/dmi/id/product_uuid`; the API (root in its
+  container) reads its own, restow-pve (from 0.4.2) reports every VM's with the
+  inventory, and a match marks the guest (`pve_guests.restow_server_detected`).
+  `RESTOW_HOST_SMBIOS_UUID` in the api's environment overrides the file, for a
+  host that hides `/sys`. Placeholder UUIDs (all zeros) never match.
+- **Marked by hand.** Restow in a container (LXC), on another host, or behind a
+  node before 0.4.2 is not found: an admin ticks "This is the Restow server" on
+  the guest's page (`PUT /api/v1/pve/guests/:id/restow-server`, audited
+  `pve.guest.restow_server`).
+- **What it changes.** The guest shows "Restow server" in the lists and the job
+  editor. A job plans no backup of it, the recommended job leaves it out, and
+  "Back up now" and putting it into a job are refused (409
+  `urn:restow:problem:pve-restow-server`) until an admin confirms the risk in the
+  dialog (`confirmSelfBackup`; audited `pve.guest.self_backup_confirmed`). Taking
+  the mark back takes the confirmation back.
 
 ## On the node
 

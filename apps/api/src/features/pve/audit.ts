@@ -15,6 +15,10 @@ export const PVE_AUDIT_ACTIONS = {
   verifyRequested: "pve.verify.requested",
   bootTestRequested: "pve.boot_test.requested",
   jobChanged: "pve.job.changed",
+  // The Restow server's own VM (docs/PVE.md): an admin marked it (or took the mark back), and
+  // confirmed backing it up anyway.
+  restowServerFlagged: "pve.guest.restow_server",
+  selfBackupConfirmed: "pve.guest.self_backup_confirmed",
   snapshotCommitted: "pve.snapshot.committed",
   snapshotPruned: "pve.snapshot.pruned",
   // File restore of containers (#62): every folder page read and every ZIP started.

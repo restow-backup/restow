@@ -286,8 +286,8 @@ describe("PveInventorySection", () => {
     choose(slot("pve-inventory-add-to-job") as HTMLSelectElement, "j-1");
     await settle();
     expect(assignJob.mock.calls).toEqual([
-      ["g-101", "j-1"],
-      ["g-102", "j-1"],
+      ["g-101", "j-1", { confirmSelfBackup: false }],
+      ["g-102", "j-1", { confirmSelfBackup: false }],
     ]);
     expect(slot("pve-inventory-selection")).toBeNull();
   });
@@ -304,10 +304,37 @@ describe("PveInventorySection", () => {
     );
     act(() => backUp?.click());
     await settle();
-    expect(backupNow.mock.calls).toEqual([["g-101"]]);
+    expect(backupNow.mock.calls).toEqual([["g-101", false, { confirmSelfBackup: false }]]);
 
     choose(rows[1]?.querySelector('[data-slot="pve-inventory-job"]') as HTMLSelectElement, "j-1");
     await settle();
-    expect(assignJob.mock.calls).toEqual([["g-101", "j-1"]]);
+    expect(assignJob.mock.calls).toEqual([["g-101", "j-1", { confirmSelfBackup: false }]]);
+  });
+
+  it("asks before it backs up the VM that runs the server itself (C7)", async () => {
+    fetchOverview.mockResolvedValue(
+      overview([guest(100, { name: "restow", restowServer: "detected", jobId: null })]),
+    );
+    await mount();
+    await openNode();
+    expect(document.querySelector('[data-slot="pve-restow-server"]')?.textContent).toContain(
+      "not backed up until you confirm",
+    );
+    const row = document.querySelector<HTMLElement>('[data-slot="pve-inventory-guest"]');
+    const backUp = [...(row?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "Back up now",
+    );
+    act(() => backUp?.click());
+    await settle();
+    // Nothing is sent before the admin confirmed in the dialog.
+    expect(backupNow).not.toHaveBeenCalled();
+    const dialog = document.querySelector('[role="alertdialog"], [role="dialog"]');
+    expect(dialog?.textContent).toContain("can deadlock");
+    const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "Back it up anyway",
+    );
+    await act(async () => confirm?.click());
+    await settle();
+    expect(backupNow.mock.calls).toEqual([["g-100", false, { confirmSelfBackup: true }]]);
   });
 });

@@ -77,6 +77,8 @@ export interface CadenceFieldsProps {
   /** When the thing last ran, so an interval can be shown counting from it. */
   lastRunAt?: string | null;
   disabled?: boolean;
+  /** The presets offered (default: all); a Proxmox VE job runs at most hourly, so no minutes. */
+  presets?: readonly PresetType[];
 }
 
 /**
@@ -94,6 +96,7 @@ export function CadenceFields({
   saveProblem = null,
   lastRunAt = null,
   disabled = false,
+  presets = PRESET_TYPES,
 }: CadenceFieldsProps) {
   const { t, i18n } = useTranslation("schedules");
   const language = i18n.resolvedLanguage ?? i18n.language;
@@ -164,7 +167,7 @@ export function CadenceFields({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {PRESET_TYPES.map((type) => (
+            {presets.map((type) => (
               <SelectItem key={type} value={type}>
                 {t(`presets.${type}`)}
               </SelectItem>

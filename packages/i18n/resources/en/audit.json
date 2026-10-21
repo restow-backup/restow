@@ -328,6 +328,9 @@
       },
       "agent_policy": {
         "updated": "Agent policy of the installation changed"
+      },
+      "pve": {
+        "updated": "Proxmox VE settings of the installation changed"
       }
     },
     "setup": {
@@ -582,6 +585,10 @@
         "pruned": "Restore point of the guest removed (retention)",
         "browsed": "Files of a container restore point browsed",
         "downloaded": "Files of a container restore point downloaded"
+      },
+      "guest": {
+        "restow_server": "Guest marked as the {appName} server, or the mark taken back",
+        "self_backup_confirmed": "Backing up the {appName} server with {appName} confirmed"
       }
     },
     "file_share": {

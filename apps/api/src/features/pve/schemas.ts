@@ -68,6 +68,8 @@ export const heartbeatSchema = z.object({
   capabilities: z.array(z.string().max(64)).max(32).optional(),
 });
 
+const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const inventorySchema = z.object({
   guests: z
     .array(
@@ -91,6 +93,12 @@ export const inventorySchema = z.object({
           .nullish()
           .transform((v) => v ?? []),
         agent: z.boolean().default(false),
+        // A VM's SMBIOS UUID (restow-pve from 0.4.2): finds the Restow server's own VM.
+        smbiosUuid: z
+          .string()
+          .max(64)
+          .nullish()
+          .transform((v) => (v && UUID_TEXT.test(v) ? v.toLowerCase() : null)),
       }),
     )
     .max(10_000)
@@ -232,16 +240,19 @@ export const blocksQuerySchema = z.object({
 export const idParamSchema = z.object({ id: uuid });
 
 const schedule = z.object({
-  kind: z.enum(["daily", "interval"]),
+  kind: z.enum(["daily", "interval", "cron"]),
+  // Weekdays, monthly or a custom expression (the mail jobs' cadences); planned by pveNextRunAt.
+  cron: z.string().trim().min(9).max(120).optional(),
   timeOfDay: z
     .string()
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
     .optional(),
+  // Every few hours (a backup more often than hourly is not planned), up to a month as for mail.
   intervalMinutes: z
     .number()
     .int()
     .min(60)
-    .max(7 * 24 * 60)
+    .max(31 * 24 * 60)
     .optional(),
   timeZone: z.string().min(1).max(64),
 });
@@ -287,9 +298,19 @@ export const jobSchema = z.object({
     .default({}),
 });
 
-export const assignJobSchema = z.object({ jobId: uuid.nullable() });
+export const assignJobSchema = z.object({
+  jobId: uuid.nullable(),
+  /** Put the Restow server's own VM into the job anyway (docs/PVE.md). */
+  confirmSelfBackup: z.boolean().optional(),
+});
 
-export const backupNowSchema = z.object({ verifyRead: z.boolean().default(false) });
+export const restowServerSchema = z.object({ flagged: z.boolean() });
+
+export const backupNowSchema = z.object({
+  verifyRead: z.boolean().default(false),
+  /** Back up the Restow server's own VM anyway (docs/PVE.md). */
+  confirmSelfBackup: z.boolean().optional(),
+});
 
 export const restoreSchema = z.object({
   targetNode: z.string().max(64).optional(),

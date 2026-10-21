@@ -141,6 +141,20 @@ eval { $plugin->free_image('restow', {}, 'backup/vm/101/2026-10-03T22:00:00Z') }
 like($@, qr/retention is managed in Restow/, 'deleting a restore point is refused');
 eval { $plugin->prune_backups({}, 'restow', {}, 101, 'qemu', 0, sub { }) };
 like($@, qr/retention is managed in Restow/, 'pruning is refused');
+# vzdump's notes (a job's notes template) are taken as a no-op, never an error
+# that ends the backup with "TASK WARNINGS"; protection stays refused.
+{
+    my $out = '';
+    open(my $fh, '>', \$out) or die $!;
+    my $old = select($fh);
+    my $ok = eval { $plugin->update_volume_attribute({}, 'restow', 'backup/vm/101/2026-10-03T22:00:00Z', 'notes', 'web (Restow)'); 1 };
+    select($old);
+    close($fh);
+    ok($ok, 'a notes update does not die') or diag($@);
+    like($out, qr/notes of restore points are kept in Restow/, 'the notes update is logged as information');
+    eval { $plugin->update_volume_attribute({}, 'restow', 'backup/vm/101/2026-10-03T22:00:00Z', 'protected', 1) };
+    like($@, qr/protection of restore points is managed in Restow/, 'protection is refused');
+}
 calls();
 
 # --- errors ------------------------------------------------------------------

@@ -35,7 +35,8 @@ import {
 import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { recordBootTestResult } from "./boot-tests.js";
 import type { NodeContext } from "./node-auth.js";
-import { finishFailedTaskRun } from "./runs.js";
+import { finishFailedTaskRun, settleLateBackupResult } from "./runs.js";
+import { normalizeSmbiosUuid, ownSmbiosUuid } from "./self-guest.js";
 
 /**
  * The server side of restow-pve's service calls (docs/PVE-PROTOCOL.md):
@@ -321,6 +322,9 @@ export async function nodeHeartbeat(
           eq(pveTasks.nodeId, node.nodeId),
           inArray(pveTasks.status, ["pending", "delivered"]),
           lt(pveTasks.expiresAt, now),
+          // A task the node is working on did run in time: its run ends it (or the worker
+          // closes a run its node no longer lists), never the expiry.
+          sql`NOT EXISTS (SELECT 1 FROM pve_runs r WHERE r.task_id = "pve_tasks"."id" AND r.status = 'running')`,
         ),
       )
       .returning();
@@ -440,6 +444,8 @@ export interface InventoryGuestInput {
   pool: string;
   disks: PveInventoryDisk[];
   agent: boolean;
+  /** A VM's SMBIOS UUID (restow-pve from 0.4.2), lower case; null from older nodes and for CTs. */
+  smbiosUuid?: string | null;
 }
 
 /**
@@ -452,9 +458,13 @@ export async function reportInventory(
   guests: InventoryGuestInput[],
   now: Date = new Date(),
 ): Promise<{ guests: number }> {
+  // The VM this installation runs in carries the server's SMBIOS UUID (self-guest.ts).
+  const own = await ownSmbiosUuid();
   await withTenantTx(db, node.tenantId, async (tx) => {
     for (const g of guests) {
       const values = {
+        restowServerDetected:
+          own !== null && g.kind === "vm" && normalizeSmbiosUuid(g.smbiosUuid) === own,
         kind: g.kind,
         name: g.name || null,
         node: g.node || node.name,
@@ -488,7 +498,37 @@ export async function reportInventory(
   return { guests: guests.length };
 }
 
-/** Record how a task ended. Only the node it was given to may report it. */
+/** The warning lines a node reports with a task (vzdump "TASK WARNINGS"), cut and bounded. */
+export function taskWarnings(input: {
+  status: "done" | "failed";
+  error?: string;
+  result?: Record<string, unknown>;
+}): string[] {
+  const raw = input.result?.warnings;
+  const lines = Array.isArray(raw)
+    ? raw.filter((line): line is string => typeof line === "string" && line.trim() !== "")
+    : [];
+  // restow-pve before 0.4.2 failed a task vzdump ended with "WARNINGS: n".
+  if (
+    lines.length === 0 &&
+    input.status === "failed" &&
+    /^vzdump ended with "WARNINGS/i.test(input.error ?? "")
+  ) {
+    lines.push(input.error ?? "");
+  }
+  return lines.slice(-10).map((line) => line.trim().slice(0, 500));
+}
+
+/**
+ * Record how a task ended. Only the node it was given to may report it.
+ *
+ * A late report is settled, not refused (docs/PVE-PROTOCOL.md, "Task results"): the node keeps a
+ * result the server could not take and sends it again, and by then the task may be closed (its
+ * run reported its end, the worker closed the run, the task expired). The report then only
+ * completes what it can still say: the warnings of a backup whose restore point was committed,
+ * a committed run another path wrongly closed as failed. It never undoes a committed restore
+ * point. 404 only for a task this node never had.
+ */
 export async function taskResult(
   node: NodeContext,
   taskId: string,
@@ -496,33 +536,41 @@ export async function taskResult(
   now: Date = new Date(),
 ): Promise<void> {
   await withTenantTx(db, node.tenantId, async (tx) => {
+    const [owned] = await tx
+      .select()
+      .from(pveTasks)
+      .where(and(eq(pveTasks.id, taskId), eq(pveTasks.nodeId, node.nodeId)))
+      .limit(1);
+    if (!owned) {
+      throw new ProblemError(404, "Task not found", {
+        detail: "No task with this id for this node.",
+      });
+    }
+    const warnings = owned.kind === "backup" ? taskWarnings(input) : [];
+    // vzdump warned beside a backup it finished: the task is done; its run decides.
+    const status = warnings.length > 0 && input.status === "failed" ? "done" : input.status;
     const [task] = await tx
       .update(pveTasks)
       .set({
-        status: input.status,
+        status,
         finishedAt: now,
         result: input.result ?? null,
-        errorMessage:
-          input.status === "failed" ? (input.error ?? "").slice(0, 2000) || "failed" : null,
+        errorMessage: status === "failed" ? (input.error ?? "").slice(0, 2000) || "failed" : null,
       })
-      .where(
-        and(
-          eq(pveTasks.id, taskId),
-          eq(pveTasks.nodeId, node.nodeId),
-          inArray(pveTasks.status, ["pending", "delivered"]),
-        ),
-      )
+      .where(and(eq(pveTasks.id, taskId), inArray(pveTasks.status, ["pending", "delivered"])))
       .returning();
     if (!task) {
-      throw new ProblemError(404, "Task not found", {
-        detail: "No open task with this id for this node.",
-      });
+      // Closed meanwhile: settle what the late report can still say, then take it.
+      if (owned.kind === "backup") {
+        await settleLateBackupResult(tx, owned, { status, warnings }, now);
+      }
+      return;
     }
     if (task.kind === "boot_test") {
       await recordBootTestResult(tx, task, input, now);
       return;
     }
-    if (input.status === "failed") {
+    if (status === "failed") {
       await finishFailedTaskRun(tx, task, task.errorMessage ?? "failed", now);
       return;
     }
@@ -547,10 +595,13 @@ export async function taskResult(
             status: succeeded ? "succeeded" : "failed",
             finishedAt: now,
             errorMessage: succeeded ? null : "The backup ended without reporting a restore point.",
+            ...(succeeded && warnings.length > 0 ? { stats: { ...run.stats, warnings } } : {}),
           })
           .where(eq(pveRuns.id, run.id));
         await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, run.guestId));
       }
+      // Runs that ended before the task (the usual way): their warnings arrive with it.
+      await settleLateBackupResult(tx, task, { status, warnings }, now);
       return;
     }
     // A restore task's run ends here: the node reports the new VMID.

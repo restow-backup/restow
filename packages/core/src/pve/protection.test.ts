@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { pveNextRunAt } from "./model.js";
 import {
   pveGuestBackable,
+  pveGuestIsRestowServer,
   pveJobOfGuest,
   pveRestorePointReadiness,
+  pveSelfBackupBlocked,
   pveStaleBackupHours,
 } from "./protection.js";
 
@@ -75,5 +78,41 @@ describe("when a guest is overdue", () => {
     expect(
       pveStaleBackupHours([{ kind: "interval", intervalMinutes: 60, timeZone: "UTC" }], NOW),
     ).toBe(24);
+  });
+});
+
+describe("a PVE job's cron schedule (0.4.2)", () => {
+  it("plans weekdays and months like a mail job", () => {
+    // Monday to Friday at 02:30 in Berlin; NOW is a Wednesday.
+    const next = pveNextRunAt(
+      { kind: "cron", cron: "30 2 * * 1-5", timeZone: "Europe/Berlin" },
+      NOW,
+      null,
+    );
+    expect(next.toISOString()).toBe("2026-10-08T00:30:00.000Z");
+    const monthly = pveNextRunAt({ kind: "cron", cron: "0 5 1 * *", timeZone: "UTC" }, NOW, null);
+    expect(monthly.toISOString()).toBe("2026-11-01T05:00:00.000Z");
+    expect(() =>
+      pveNextRunAt({ kind: "cron", cron: "nonsense", timeZone: "UTC" }, NOW, null),
+    ).toThrow();
+  });
+
+  it("counts a weekly cron schedule as a week between backups for the overdue rule", () => {
+    expect(pveStaleBackupHours([{ kind: "cron", cron: "0 3 * * 0", timeZone: "UTC" }], NOW)).toBe(
+      14 * 24,
+    );
+  });
+});
+
+describe("the Restow server's own VM", () => {
+  it("is found or flagged, and blocked until confirmed", () => {
+    expect(pveGuestIsRestowServer({})).toBe(false);
+    expect(pveGuestIsRestowServer({ restowServerDetected: true })).toBe(true);
+    expect(pveGuestIsRestowServer({ restowServerFlagged: true })).toBe(true);
+    expect(pveSelfBackupBlocked({ restowServerDetected: true })).toBe(true);
+    expect(
+      pveSelfBackupBlocked({ restowServerFlagged: true, selfBackupConfirmedAt: new Date() }),
+    ).toBe(false);
+    expect(pveSelfBackupBlocked({ selfBackupConfirmedAt: null })).toBe(false);
   });
 });

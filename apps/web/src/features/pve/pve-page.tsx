@@ -35,6 +35,8 @@ import {
 import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { inventoryTo } from "@/features/endpoints/paths";
+import { CadenceFields } from "@/features/schedules/components/cadence-fields";
+import { describeCadence } from "@/features/schedules/presenters";
 import { formatBytes, formatDateTime } from "@/lib/format";
 
 import {
@@ -51,12 +53,20 @@ import {
   pveKeys,
   revokeNode,
   saveJob,
+  selfBackupBlocked,
 } from "./api.js";
-import { activityHint, BackupProgress } from "./backup-progress.js";
+import { activityHint, BackupProgress, PROGRESS_SLOT_CLASS } from "./backup-progress.js";
 import { BackupSizeCell } from "./backup-size.js";
 import { ConnectDialog } from "./connect-dialog.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo } from "./paths.js";
+import {
+  cadenceOfPveSchedule,
+  PVE_PRESET_TYPES,
+  pveCadenceDraft,
+  pveScheduleOfDraft,
+} from "./schedule.js";
+import { RestowServerNote, useSelfBackupGuard } from "./self-backup.js";
 
 /** The memory limit a job's boot tests start with (MiB), as the server's default. */
 const DEFAULT_BOOT_TEST_MEMORY_MIB = 8192;
@@ -111,7 +121,10 @@ export function JobDialog({
   const { tenantId } = useTenantScope();
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin";
   const [name, setName] = React.useState(job?.name ?? "");
-  const [time, setTime] = React.useState(job?.schedule?.timeOfDay ?? "22:00");
+  const [cadence, setCadence] = React.useState(() => pveCadenceDraft(job?.schedule ?? null, zone));
+  const [attempted, setAttempted] = React.useState(false);
+  // The Restow server's own VM goes into the job only with this confirmation (docs/PVE.md).
+  const [selfConfirmed, setSelfConfirmed] = React.useState(false);
   const [scopeAll, setScopeAll] = React.useState(job?.scopeAll ?? false);
   const [keep, setKeep] = React.useState(
     job?.settings.retention ?? { keepDaily: 7, keepWeekly: 4, keepMonthly: 6 },
@@ -134,6 +147,9 @@ export function JobDialog({
   const [chosen, setChosen] = React.useState<ReadonlySet<string>>(
     () => new Set([...own, ...preselect]),
   );
+  const chosenSelf = offered.filter(
+    (guest) => chosen.has(guest.id) && guest.jobId !== job?.id && selfBackupBlocked(guest),
+  );
   const mutation = useMutation({
     mutationFn: async (input: JobInput) => {
       const saved = await saveJob(job?.id ?? null, input);
@@ -141,7 +157,9 @@ export function JobDialog({
         for (const guest of offered) {
           const wanted = chosen.has(guest.id);
           if (wanted && guest.jobId !== saved.id) {
-            await assignJob(guest.id, saved.id);
+            await assignJob(guest.id, saved.id, {
+              confirmSelfBackup: selfBackupBlocked(guest) && selfConfirmed,
+            });
           } else if (!wanted && guest.jobId === saved.id) {
             await assignJob(guest.id, null);
           }
@@ -156,13 +174,18 @@ export function JobDialog({
       onClose();
     },
   });
+  const schedule = pveScheduleOfDraft(cadence);
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
+    setAttempted(true);
+    if (!schedule || (chosenSelf.length > 0 && !selfConfirmed)) {
+      return;
+    }
     mutation.mutate({
       name,
       scopeAll,
       enabled: true,
-      schedule: { kind: "daily", timeOfDay: time, timeZone: job?.schedule?.timeZone ?? zone },
+      schedule,
       settings: {
         ...job?.settings,
         retention: keep,
@@ -206,14 +229,15 @@ export function JobDialog({
               required
             />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="pve-job-time">{t("jobs.time")}</Label>
-            <Input
-              id="pve-job-time"
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              required
+          <div className="space-y-1" data-slot="pve-job-cadence">
+            <p className="text-sm font-medium">{t("jobs.schedule")}</p>
+            <CadenceFields
+              idPrefix="pve-job-cadence"
+              draft={cadence}
+              onChange={setCadence}
+              attempted={attempted}
+              lastRunAt={job?.lastRunAt ?? null}
+              presets={PVE_PRESET_TYPES}
             />
           </div>
           <label className="flex items-center gap-2 text-sm">
@@ -301,6 +325,7 @@ export function JobDialog({
                           />
                           <span className="min-w-0">
                             <span className="block truncate">{guestLabel(guest)}</span>
+                            <RestowServerNote guest={guest} compact />
                             {elsewhere ? (
                               <span className="block text-xs text-muted-foreground">
                                 {chosen.has(guest.id)
@@ -317,8 +342,32 @@ export function JobDialog({
               )}
             </fieldset>
           ) : null}
+          {chosenSelf.length > 0 ? (
+            <div className="space-y-2" data-slot="pve-job-self-backup">
+              {chosenSelf.map((guest) => (
+                <RestowServerNote key={guest.id} guest={guest} />
+              ))}
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={selfConfirmed}
+                  onChange={(e) => setSelfConfirmed(e.target.checked)}
+                />
+                {t("selfBackup.confirmInJob")}
+              </label>
+            </div>
+          ) : null}
           <DialogFooter>
-            <Button type="submit" disabled={mutation.isPending || name.trim() === ""}>
+            <Button
+              type="submit"
+              disabled={
+                mutation.isPending ||
+                name.trim() === "" ||
+                (attempted && schedule === null) ||
+                (chosenSelf.length > 0 && !selfConfirmed)
+              }
+            >
               {t("jobs.save")}
             </Button>
           </DialogFooter>
@@ -398,10 +447,30 @@ export function GuestState({ guest, node }: { guest: PveGuest; node?: PveNode | 
       </Badge>,
     );
   }
+  if (guest.restowServer) {
+    badges.push(
+      <Badge
+        key="self"
+        variant="warning"
+        data-slot="pve-guest-restow-server"
+        title={t(`selfBackup.reason.${guest.restowServer}`)}
+      >
+        {t("selfBackup.badge")}
+      </Badge>,
+    );
+  }
+  const warnings = guest.lastRunWarnings ?? [];
   if (guest.lastRunStatus === "failed") {
     badges.push(
       <Badge key="f" variant="destructive" title={guest.lastRunError ?? undefined}>
         {t("guests.lastFailed")}
+      </Badge>,
+    );
+  } else if (guest.lastRunStatus === "succeeded" && warnings.length > 0) {
+    // The restore point was committed; vzdump warned about something beside it.
+    badges.push(
+      <Badge key="w" variant="warning" data-slot="pve-guest-warnings" title={warnings.join("\n")}>
+        {t("guests.succeededWithWarnings")}
       </Badge>,
     );
   } else if ((guest.backups?.last?.unreadable ?? 0) > 0) {
@@ -437,16 +506,40 @@ export function GuestState({ guest, node }: { guest: PveGuest; node?: PveNode | 
       </Badge>,
     );
   }
+  const verify = guest.lastVerify ?? null;
+  const verifyErrors = verify?.state === "red" ? verify.errors : [];
+  if (verify?.state === "red") {
+    badges.push(
+      <Badge
+        key="v"
+        variant="destructive"
+        data-slot="pve-guest-verify-failed"
+        title={verifyErrors.join("\n") || t("guests.verifyFailedHint")}
+      >
+        {t("guests.verifyFailed")}
+      </Badge>,
+    );
+  }
   return (
-    <div className="space-y-1">
+    <div className="min-w-0 space-y-1">
       <div className="flex flex-wrap gap-1">{badges}</div>
       {guest.lastRunStatus === "failed" && guest.lastRunError ? (
-        // The reason in plain sight, not only in the badge's tooltip.
+        // The reason in plain sight (two lines, the whole text in the tooltip).
         <p
-          className="max-w-prose text-xs break-words text-destructive-text"
+          className="line-clamp-2 text-xs break-words text-destructive-text"
+          title={guest.lastRunError}
           data-slot="pve-guest-error"
         >
           {guest.lastRunError}
+        </p>
+      ) : verifyErrors.length > 0 ? (
+        // What the restore check really found (the restic or read error), not only "red".
+        <p
+          className="line-clamp-2 text-xs break-words text-destructive-text"
+          title={verifyErrors.join("\n")}
+          data-slot="pve-guest-verify-error"
+        >
+          {verifyErrors[0]}
         </p>
       ) : null}
     </div>
@@ -455,6 +548,7 @@ export function GuestState({ guest, node }: { guest: PveGuest; node?: PveNode | 
 
 export function PvePage() {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
+  const { t: tSchedules } = useTranslation("schedules");
   const language = i18n.resolvedLanguage ?? i18n.language;
   const overview = useOverview();
   const queryClient = useQueryClient();
@@ -463,8 +557,10 @@ export function PvePage() {
   const [editing, setEditing] = React.useState<PveJob | "new" | null>(null);
   const [revoking, setRevoking] = React.useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = React.useState<PveJob | null>(null);
+  const selfBackup = useSelfBackupGuard();
   const backup = useMutation({
-    mutationFn: (id: string) => backupNow(id),
+    mutationFn: ({ id, confirmSelfBackup }: { id: string; confirmSelfBackup?: boolean }) =>
+      backupNow(id, false, { confirmSelfBackup }),
     onSuccess: (result) => {
       if (result.alreadyQueued) {
         toast.info(t("guests.backupAlreadyQueued"));
@@ -475,8 +571,15 @@ export function PvePage() {
     },
   });
   const assign = useMutation({
-    mutationFn: ({ guestId, jobId }: { guestId: string; jobId: string | null }) =>
-      assignJob(guestId, jobId),
+    mutationFn: ({
+      guestId,
+      jobId,
+      confirmSelfBackup,
+    }: {
+      guestId: string;
+      jobId: string | null;
+      confirmSelfBackup?: boolean;
+    }) => assignJob(guestId, jobId, { confirmSelfBackup }),
     onSuccess: refresh,
   });
   const data = overview.data;
@@ -584,7 +687,7 @@ export function PvePage() {
               <TableRow>
                 <TableHead>{t("jobs.name")}</TableHead>
                 <TableHead>{t("jobs.scope")}</TableHead>
-                <TableHead>{t("jobs.time")}</TableHead>
+                <TableHead>{t("jobs.schedule")}</TableHead>
                 <TableHead>{t("jobs.nextRun")}</TableHead>
                 <TableHead />
               </TableRow>
@@ -596,7 +699,11 @@ export function PvePage() {
                   <TableCell>
                     {job.scopeAll ? t("jobs.scopeAll") : t("jobs.scopeSelected")}
                   </TableCell>
-                  <TableCell>{job.schedule?.timeOfDay ?? ""}</TableCell>
+                  <TableCell>
+                    {job.schedule
+                      ? describeCadence(cadenceOfPveSchedule(job.schedule), tSchedules, language)
+                      : t("jobs.manualOnly")}
+                  </TableCell>
                   <TableCell>{formatDateTime(job.nextRunAt, language) ?? ""}</TableCell>
                   <TableCell className="space-x-1 text-right">
                     <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(job)}>
@@ -645,7 +752,7 @@ export function PvePage() {
                 <TableHead>{t("guests.backup")}</TableHead>
                 <TableHead>{t("guests.job")}</TableHead>
                 <TableHead>{t("guests.lastBackup")}</TableHead>
-                <TableHead>{t("guests.state")}</TableHead>
+                <TableHead className="w-72 min-w-72">{t("guests.state")}</TableHead>
                 <TableHead>{t("guests.actions")}</TableHead>
               </TableRow>
             </TableHeader>
@@ -657,6 +764,7 @@ export function PvePage() {
                     <Link {...guestTo(g.id)} className="underline-offset-4 hover:underline">
                       {g.name ?? String(g.vmid)}
                     </Link>
+                    <RestowServerNote guest={g} compact />
                   </TableCell>
                   <TableCell>{t(`guests.${g.kind}`)}</TableCell>
                   <TableCell>{g.node ?? ""}</TableCell>
@@ -673,9 +781,16 @@ export function PvePage() {
                       className="h-8 rounded-md border bg-background px-2 text-sm"
                       aria-label={t("guests.job")}
                       value={g.jobId ?? ""}
-                      onChange={(e) =>
-                        assign.mutate({ guestId: g.id, jobId: e.target.value || null })
-                      }
+                      onChange={(e) => {
+                        const jobId = e.target.value || null;
+                        if (jobId === null) {
+                          assign.mutate({ guestId: g.id, jobId });
+                          return;
+                        }
+                        selfBackup.guard([g], (confirmSelfBackup) =>
+                          assign.mutate({ guestId: g.id, jobId, confirmSelfBackup }),
+                        );
+                      }}
                     >
                       <option value="">{t("guests.noJob")}</option>
                       {(data?.jobs ?? []).map((job) => (
@@ -688,16 +803,20 @@ export function PvePage() {
                   <TableCell>
                     <RelativeTime value={g.lastBackupAt} fallback={t("guests.never")} />
                   </TableCell>
-                  <TableCell className="space-y-1.5">
+                  {/* A fixed width and a reserved progress slot: the row keeps its size while
+                      the figures change, and long messages are cut (full text in the tooltip). */}
+                  <TableCell className="w-72 max-w-72 min-w-72 space-y-1.5 align-top">
                     <GuestState guest={g} node={nodeOf(g)} />
-                    {g.activity === "running" ? (
-                      <BackupProgress
-                        progress={g.progress}
-                        name={g.name ?? String(g.vmid)}
-                        node={g.activityNode}
-                        to={guestTo(g.id)}
-                      />
-                    ) : null}
+                    <div className={PROGRESS_SLOT_CLASS} data-slot="pve-guest-progress-slot">
+                      {g.activity === "running" ? (
+                        <BackupProgress
+                          progress={g.progress}
+                          name={g.name ?? String(g.vmid)}
+                          node={g.activityNode}
+                          to={guestTo(g.id)}
+                        />
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Button
@@ -705,7 +824,11 @@ export function PvePage() {
                       size="sm"
                       variant="outline"
                       disabled={backup.isPending || (g.kind === "vm" && g.template)}
-                      onClick={() => backup.mutate(g.id)}
+                      onClick={() =>
+                        selfBackup.guard([g], (confirmSelfBackup) =>
+                          backup.mutate({ id: g.id, confirmSelfBackup }),
+                        )
+                      }
                     >
                       {t("guests.backupNow")}
                     </Button>
@@ -717,6 +840,7 @@ export function PvePage() {
         )}
       </section>
 
+      {selfBackup.dialog}
       {editing ? (
         <JobDialog
           job={editing === "new" ? null : editing}

@@ -19,7 +19,8 @@
     "about": "About",
     "database": "Database",
     "ransomware": "Ransomware detection",
-    "agentPolicy": "Agent policy"
+    "agentPolicy": "Agent policy",
+    "proxmox": "Proxmox VE"
   },
   "descriptions": {
     "server": "How browsers reach this server and whether passkeys are offered. Applies to {scope, select, organisation {your organisation} other {all tenants}}.",
@@ -35,7 +36,8 @@
     "about": "Version, source code and licenses of this installation.",
     "database": "Where the database keeps its data, the free space of its disk and the repository's, and moving it to another disk.",
     "ransomware": "How restore points are checked for signs of ransomware, and the thresholds of each signal, for {scope, select, organisation {your organisation} other {all tenants}}.",
-    "agentPolicy": "Backup window, missed backups, bandwidth, AC power and retries of servers and clients, and what tenants may change."
+    "agentPolicy": "Backup window, missed backups, bandwidth, AC power and retries of servers and clients, and what tenants may change.",
+    "proxmox": "How the restore points of VMs and containers are checked, for {scope, select, organisation {your organisation} other {all tenants}}."
   },
   "access": {
     "owner": "You can look at these settings. Changing them needs the Owner role in the provider team.",

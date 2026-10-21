@@ -50,7 +50,7 @@ describe("the paths of the installation page", () => {
 });
 
 describe("the sections of the core", () => {
-  it("are Server, Notification mail, Microsoft multi-tenant app, Default repository & network shares, Database, Ransomware detection, Agent policy, Updates, About, in that order", () => {
+  it("are Server, Notification mail, Microsoft multi-tenant app, Default repository & network shares, Database, Ransomware detection, Agent policy, Proxmox VE, Updates, About, in that order", () => {
     expect(CORE_INSTALLATION_SECTIONS.map((section) => section.id)).toEqual([
       "server",
       "mail",
@@ -59,6 +59,7 @@ describe("the sections of the core", () => {
       "database",
       "ransomware",
       "agent-policy",
+      "proxmox",
       "updates",
       "about",
     ]);
@@ -105,6 +106,7 @@ describe("installationSections", () => {
       "database",
       "ransomware",
       "agent-policy",
+      "proxmox",
       "updates",
       "license",
       "about",

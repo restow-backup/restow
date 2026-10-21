@@ -38,6 +38,7 @@ import { BackupSizeCell } from "./backup-size.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo, PVE_ROLES, pveTo } from "./paths.js";
 import { JobDialog } from "./pve-page.js";
+import { RestowServerNote, useSelfBackupGuard } from "./self-backup.js";
 
 /** Where a guest stands with its backups, worst first. */
 export type GuestProtection =
@@ -127,9 +128,17 @@ function useInventoryActions() {
   const { tenantId } = useTenantScope();
   const refresh = () => void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
   const assign = useMutation({
-    mutationFn: async ({ guestIds, jobId }: { guestIds: string[]; jobId: string | null }) => {
+    mutationFn: async ({
+      guestIds,
+      jobId,
+      confirmSelfBackup = false,
+    }: {
+      guestIds: string[];
+      jobId: string | null;
+      confirmSelfBackup?: boolean;
+    }) => {
       for (const guestId of guestIds) {
-        await assignJob(guestId, jobId);
+        await assignJob(guestId, jobId, { confirmSelfBackup });
       }
       return guestIds.length;
     },
@@ -142,10 +151,16 @@ function useInventoryActions() {
     onError: refresh,
   });
   const backup = useMutation({
-    mutationFn: async (guestIds: string[]) => {
+    mutationFn: async ({
+      guestIds,
+      confirmSelfBackup = false,
+    }: {
+      guestIds: string[];
+      confirmSelfBackup?: boolean;
+    }) => {
       let queued = 0;
       for (const guestId of guestIds) {
-        const result = await backupNow(guestId);
+        const result = await backupNow(guestId, false, { confirmSelfBackup });
         if (!result.alreadyQueued) {
           queued += 1;
         }
@@ -172,6 +187,22 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
   const [creating, setCreating] = React.useState(false);
   const { assign, backup } = useInventoryActions();
+  const selfBackup = useSelfBackupGuard();
+  const guestsOf = (ids: readonly string[]) =>
+    group.guests.filter((guest) => ids.includes(guest.id));
+  const backUp = (ids: string[]) =>
+    selfBackup.guard(guestsOf(ids), (confirmSelfBackup) =>
+      backup.mutate({ guestIds: ids, confirmSelfBackup }),
+    );
+  const assignTo = (ids: string[], jobId: string | null, onDone?: () => void) => {
+    const run = (confirmSelfBackup: boolean) =>
+      assign.mutate({ guestIds: ids, jobId, confirmSelfBackup }, { onSuccess: onDone });
+    if (jobId === null) {
+      run(false);
+    } else {
+      selfBackup.guard(guestsOf(ids), run);
+    }
+  };
   const counts = { protected: 0, failed: 0, incomplete: 0, noJob: 0, never: 0, excluded: 0 };
   for (const guest of group.guests) {
     counts[guestProtection(guest)] += 1;
@@ -196,10 +227,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
     if (value === NEW_JOB) {
       setCreating(true);
     } else if (value) {
-      assign.mutate(
-        { guestIds: chosen, jobId: value },
-        { onSuccess: () => setSelected(new Set()) },
-      );
+      assignTo(chosen, value, () => setSelected(new Set()));
     }
   };
   const contentId = `pve-node-${group.key}`;
@@ -271,7 +299,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                   size="sm"
                   variant="outline"
                   disabled={busy}
-                  onClick={() => backup.mutate(chosen)}
+                  onClick={() => backUp(chosen)}
                 >
                   {t("guests.backupNow")}
                 </Button>
@@ -356,6 +384,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                         <span className="ml-2 text-muted-foreground">
                           {t(`guests.${guest.kind}`)}
                         </span>
+                        <RestowServerNote guest={guest} compact />
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {guest.status ? t(`inventory.status.${guest.status}`, guest.status) : "–"}
@@ -373,10 +402,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                                 setSelected(new Set([guest.id]));
                                 setCreating(true);
                               } else {
-                                assign.mutate({
-                                  guestIds: [guest.id],
-                                  jobId: event.target.value || null,
-                                });
+                                assignTo([guest.id], event.target.value || null);
                               }
                             }}
                           >
@@ -448,7 +474,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                             variant="ghost"
                             disabled={busy}
                             aria-label={t("inventory.actions.backupNowOf", { name: label })}
-                            onClick={() => backup.mutate([guest.id])}
+                            onClick={() => backUp([guest.id])}
                           >
                             {t("guests.backupNow")}
                           </Button>
@@ -462,17 +488,13 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
           </>
         )}
       </CollapsibleContent>
+      {selfBackup.dialog}
       {creating ? (
         <JobDialog
           job={null}
           onClose={() => setCreating(false)}
           onSaved={(job) =>
-            chosen.length > 0
-              ? assign.mutate(
-                  { guestIds: chosen, jobId: job.id },
-                  { onSuccess: () => setSelected(new Set()) },
-                )
-              : undefined
+            chosen.length > 0 ? assignTo(chosen, job.id, () => setSelected(new Set())) : undefined
           }
         />
       ) : null}

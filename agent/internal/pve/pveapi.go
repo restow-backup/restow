@@ -224,13 +224,14 @@ func (p *PVEAPI) NextID(ctx context.Context) (int, error) {
 }
 
 // StartBackup starts vzdump for one guest onto the Restow storage and returns the task UPID.
+// It asks for no notes: the Restow storage keeps none (restore points are named and described
+// in Restow), and a notes template made vzdump end every backup with "TASK WARNINGS: 1".
 func (p *PVEAPI) StartBackup(ctx context.Context, node string, vmid int, storage, mode, fleecing string) (string, error) {
 	form := url.Values{
-		"vmid":           {fmt.Sprint(vmid)},
-		"storage":        {storage},
-		"mode":           {mode},
-		"remove":         {"0"},
-		"notes-template": {"{{guestname}} (Restow)"},
+		"vmid":    {fmt.Sprint(vmid)},
+		"storage": {storage},
+		"mode":    {mode},
+		"remove":  {"0"},
 	}
 	if fleecing != "" {
 		form.Set("fleecing", "enabled=1,storage="+fleecing)

@@ -1,14 +1,18 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Box, Monitor } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { RelativeTime, StatusBadge } from "@/components/kit";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { toast } from "@/components/ui/sonner";
 import { PIN_FIRST, TableCell, TableRow } from "@/components/ui/table";
-import type { GuestReadinessRow } from "@/features/verify/api";
+import { useTenantScope } from "@/features/endpoints/hooks";
+import { type GuestReadinessRow, verifyKeys } from "@/features/verify/api";
 import { StateBadge } from "@/features/verify/components/status";
 import { guestRowName } from "@/features/verify/presenters";
 
+import { pveKeys, verifyGuest } from "./api.js";
 import "./i18n.js";
 import { guestTo } from "./paths.js";
 
@@ -36,10 +40,36 @@ export function guestResultKey(
   return row.state === "yellow" ? "readiness.result.bootYellow" : `readiness.result.${row.state}`;
 }
 
-export function GuestReadinessRowView({ row }: { row: GuestReadinessRow }) {
+/** "Check now" of a guest's newest restore point (D2): queued for the worker's next pass. */
+function useGuestCheck() {
   const { t } = useTranslation("pve");
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  return useMutation({
+    mutationFn: (guestId: string) => verifyGuest(guestId),
+    onSuccess: () => {
+      toast.success(t("readiness.checkQueued"));
+      void queryClient.invalidateQueries({ queryKey: verifyKeys.all(tenantId) });
+      void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
+    },
+    onError: (error) => toast.error((error as Error).message),
+  });
+}
+
+export function GuestReadinessRowView({
+  row,
+  canCheck = true,
+}: {
+  row: GuestReadinessRow;
+  canCheck?: boolean;
+}) {
+  const { t } = useTranslation("pve");
+  const check = useGuestCheck();
   const name = guestRowName(row);
+  const errors = row.state === "red" ? (row.verifyErrors ?? []) : [];
   const result = t(guestResultKey(row));
+  // A red restore check names what it found (the real restic or read error), not only the rule.
+  const resultTitle = errors.length > 0 ? `${result}\n${errors.join("\n")}` : result;
   const Icon = row.kind === "vm" ? Monitor : Box;
   return (
     <TableRow data-slot="guest-readiness-row">
@@ -74,9 +104,18 @@ export function GuestReadinessRowView({ row }: { row: GuestReadinessRow }) {
         />
       </TableCell>
       <TableCell className="max-w-64">
-        <span className="line-clamp-2 text-muted-foreground" title={result}>
+        <span className="line-clamp-2 text-muted-foreground" title={resultTitle}>
           {result}
         </span>
+        {errors[0] ? (
+          <span
+            className="line-clamp-1 text-xs text-destructive-text"
+            title={errors.join("\n")}
+            data-slot="guest-readiness-error"
+          >
+            {errors[0]}
+          </span>
+        ) : null}
       </TableCell>
       <TableCell className="whitespace-nowrap">
         <RelativeTime
@@ -87,6 +126,20 @@ export function GuestReadinessRowView({ row }: { row: GuestReadinessRow }) {
       </TableCell>
       <TableCell className="pr-6">
         <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+          {canCheck && row.latestSnapshotId ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={row.checkRequested === true || check.isPending}
+              loading={check.isPending}
+              aria-label={t("readiness.checkNowFor", { name })}
+              onClick={() => check.mutate(row.id)}
+              data-slot="guest-readiness-check"
+            >
+              {row.checkRequested ? t("readiness.checkWaiting") : t("readiness.checkNow")}
+            </Button>
+          ) : null}
           <Link
             {...guestTo(row.id)}
             className={buttonVariants({ variant: "ghost", size: "sm" })}

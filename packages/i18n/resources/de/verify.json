@@ -209,7 +209,10 @@
     "neverChecked": "Es lief noch keine Restore-Prüfung.",
     "scheduleNext": "Nächste geplante Restore-Prüfung:",
     "scheduleEnabled": "Restore-Prüfungen sind eingeplant.",
-    "scheduleNone": "Es ist keine Restore-Prüfung eingeplant; Prüfungen laufen nur, wenn sie hier oder nach einer Sicherung gestartet werden."
+    "scheduleNone": "Es ist keine Restore-Prüfung eingeplant; Prüfungen laufen nur, wenn sie hier oder nach einer Sicherung gestartet werden.",
+    "scheduleNextMail": "Nächste geplante Restore-Prüfung der Microsoft-365-Objekte:",
+    "scheduleEnabledMail": "Restore-Prüfungen der Microsoft-365-Objekte sind geplant.",
+    "scheduleNoneMail": "Keine Restore-Prüfung der Microsoft-365-Objekte ist geplant; sie werden nur geprüft, wenn sie hier oder nach einer Sicherung gestartet werden."
   },
   "report": {
     "subtitle": "{kind} am {when}",

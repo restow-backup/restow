@@ -774,14 +774,17 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     const [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, run.runId));
     expect(row?.status).toBe("failed");
     expect(row?.errorMessage?.startsWith("restic backup failed")).toBe(true);
-    // The task closed with the run, so a late result for it is not taken twice.
+    // The task closed with the run; a late result for it is taken (the node stops sending it)
+    // and changes nothing: there is no restore point to settle.
     expect(
       (
         await call(node, `/tasks/${queued.taskId}/result`, {
           json: { status: "failed", error: long },
         })
       ).status,
-    ).toBe(404);
+    ).toBe(204);
+    const [after] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, run.runId));
+    expect(after?.status).toBe("failed");
   });
 
   it("keeps the progress of a running backup, from the node or a container's run credential", async () => {
@@ -987,5 +990,398 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       .where(eq(pveTasks.guestId, ct?.id ?? ""));
     const after = await service.overview(shared.db, fixture.tenantId);
     expect(after.jobs.find((j) => j.id === job.id)?.round).toBeNull();
+  });
+  // --- 0.4.2: late task results, vzdump warnings, the Restow server's own VM, restore checks ---
+
+  /** An incremental VM backup of 101 that changed nothing: a quick restore point. */
+  async function quickCommit(time: string): Promise<{ runId: string; snapshotId: string }> {
+    const run = await openRun(time);
+    await json(
+      await call(node, `/runs/${run.runId}/incremental`, {
+        json: { devices: [{ device: "drive-scsi0", size: data1.length }] },
+      }),
+    );
+    const committed = await json<{ snapshotId: string }>(
+      await call(node, `/runs/${run.runId}/commit`, {
+        json: {
+          commitId: randomUUID(),
+          devices: [
+            {
+              device: "drive-scsi0",
+              size: data1.length,
+              bitmapMode: "reuse",
+              readBytes: 0,
+              uploadedBytes: 0,
+              changedBlocks: 0,
+              zeroBlocks: 0,
+              hashSkipped: 0,
+            },
+          ],
+          guestConfig: "scsi0: x\n",
+          firewallConfig: null,
+        },
+      }),
+    );
+    return { runId: run.runId, snapshotId: committed.snapshotId };
+  }
+
+  async function queuedBackup(): Promise<string> {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    await fixture.db.delete(pveTasks).where(eq(pveTasks.guestId, vm?.id ?? ""));
+    const queued = await service.backupNow(
+      shared.db,
+      fixture.tenantId,
+      vm?.id ?? "",
+      { verifyRead: false },
+      actor(),
+    );
+    await call(node, "/heartbeat", { json: { helperVersion: "0.4.2", state: "idle" } });
+    return queued.taskId;
+  }
+
+  it("marks a new restore point for a check right after its backup, unless switched off", async () => {
+    const [snap] = await fixture.db
+      .select()
+      .from(pveSnapshots)
+      .where(eq(pveSnapshots.id, first.snapshotId));
+    expect(snap?.verifyRequestedAt).not.toBeNull();
+    const settings = await import("./settings.js");
+    expect(settings.resolvePveSettings({})).toEqual({ verifyAfterBackup: true });
+    await fixture.db.execute(
+      sql`INSERT INTO settings (pve_settings) VALUES ('{"verifyAfterBackup": false}'::jsonb)`,
+    );
+    try {
+      expect(await settings.verifyAfterBackup(shared.providerDb)).toBe(false);
+      await queuedBackup();
+      const off = await quickCommit("2026-10-12T22:00:00Z");
+      const [row] = await fixture.db
+        .select()
+        .from(pveSnapshots)
+        .where(eq(pveSnapshots.id, off.snapshotId));
+      expect(row?.verifyRequestedAt).toBeNull();
+      await json(
+        await call(node, `/runs/${off.runId}/finish`, { json: { status: "succeeded" } }),
+        204,
+      );
+    } finally {
+      await fixture.db.execute(sql`DELETE FROM settings`);
+    }
+  });
+
+  it("a backup vzdump ended with warnings succeeded with them, also when the result comes late (C5, C6)", async () => {
+    // restow-pve 0.4.2: the run reported its end, then the task comes with vzdump's warnings.
+    const taskId = await queuedBackup();
+    const done = await quickCommit("2026-10-13T22:00:00Z");
+    await json(
+      await call(node, `/runs/${done.runId}/finish`, { json: { status: "succeeded" } }),
+      204,
+    );
+    const warning = "WARN: unable to set notes - restow: notes are not stored";
+    await json(
+      await call(node, `/tasks/${taskId}/result`, {
+        json: { status: "done", result: { exitStatus: "WARNINGS: 1", warnings: [warning] } },
+      }),
+      204,
+    );
+    let [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, done.runId));
+    expect(row?.status).toBe("succeeded");
+    expect(row?.stats.warnings).toEqual([warning]);
+    // Sent again (the node kept it): nothing doubles.
+    await json(
+      await call(node, `/tasks/${taskId}/result`, {
+        json: { status: "done", result: { warnings: [warning] } },
+      }),
+      204,
+    );
+    [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, done.runId));
+    expect(row?.stats.warnings).toEqual([warning]);
+    const guest = (await service.overview(shared.db, fixture.tenantId)).guests.find(
+      (g) => g.vmid === 101,
+    );
+    expect(guest).toMatchObject({ lastRunStatus: "succeeded", lastRunWarnings: [warning] });
+
+    // restow-pve 0.4.1 reported the same backup as failed, before the run's end arrived.
+    const oldTask = await queuedBackup();
+    const old = await quickCommit("2026-10-14T22:00:00Z");
+    await json(
+      await call(node, `/tasks/${oldTask}/result`, {
+        json: { status: "failed", error: 'vzdump ended with "WARNINGS: 1": TASK WARNINGS: 1' },
+      }),
+      204,
+    );
+    [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, old.runId));
+    expect(row?.status).toBe("succeeded");
+    expect(row?.stats.warnings?.[0]).toContain("WARNINGS");
+    const [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, oldTask));
+    expect(task?.status).toBe("done");
+  });
+
+  it("a late result settles a committed run the server closed meanwhile, and never fails it (C6)", async () => {
+    const taskId = await queuedBackup();
+    const run = await quickCommit("2026-10-15T22:00:00Z");
+    // The task's time ran out while its run was still open (an outage): the heartbeat leaves it.
+    await fixture.db
+      .update(pveTasks)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(pveTasks.id, taskId));
+    await call(node, "/heartbeat", { json: { helperVersion: "0.4.2", state: "idle" } });
+    let [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, taskId));
+    expect(task?.status).toBe("delivered");
+    // An older server failed task and run; the restore point was committed all along.
+    await fixture.db
+      .update(pveTasks)
+      .set({ status: "failed", errorMessage: "The node did not run the task in time." })
+      .where(eq(pveTasks.id, taskId));
+    await fixture.db
+      .update(pveRuns)
+      .set({ status: "failed", errorMessage: "The node did not run the task in time." })
+      .where(eq(pveRuns.id, run.runId));
+    // The node's result arrives after the outage: taken, and the run succeeded.
+    await json(
+      await call(node, `/tasks/${taskId}/result`, {
+        json: { status: "done", result: { exitStatus: "OK" } },
+      }),
+      204,
+    );
+    const [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, run.runId));
+    expect(row).toMatchObject({ status: "succeeded", errorMessage: null });
+    expect(row?.stats.warnings).toEqual(["The node did not run the task in time."]);
+    [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, taskId));
+    expect(task).toMatchObject({ status: "done", errorMessage: null });
+    // A failure the server closes a task with keeps a committed run's success.
+    const { finishFailedTaskRun } = await import("./runs.js");
+    const next = await queuedBackup();
+    const kept = await quickCommit("2026-10-16T22:00:00Z");
+    const [open] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, next));
+    const { withTenantTx } = await import("../../lib/tenant-context.js");
+    await withTenantTx(shared.db, fixture.tenantId, (tx) =>
+      finishFailedTaskRun(tx, open as never, "boom", new Date()),
+    );
+    const [keptRow] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, kept.runId));
+    expect(keptRow).toMatchObject({ status: "succeeded", errorMessage: null });
+    expect(keptRow?.stats.warnings).toEqual(["boom"]);
+    // A task this node never had stays unknown.
+    expect(
+      (await call(node, `/tasks/${randomUUID()}/result`, { json: { status: "done" } })).status,
+    ).toBe(404);
+  });
+
+  it("finds the Restow server's own VM by its SMBIOS UUID and backs it up only when confirmed (C7)", async () => {
+    const { resetOwnSmbiosUuid } = await import("./self-guest.js");
+    const uuid = "7b0e3c5a-1d2f-4e6a-9b8c-0d1e2f3a4b5c";
+    process.env.RESTOW_HOST_SMBIOS_UUID = uuid.toUpperCase();
+    resetOwnSmbiosUuid();
+    try {
+      await json(
+        await call(node, "/inventory", {
+          json: {
+            guests: [
+              {
+                vmid: 101,
+                kind: "vm",
+                name: "web",
+                node: "pve1",
+                disks: [{ device: "drive-scsi0", size: data1.length }],
+              },
+              { vmid: 102, kind: "vm", name: "restow", node: "pve1", smbiosUuid: uuid },
+              { vmid: 200, kind: "ct", name: "db", node: "pve1", privileged: true },
+            ],
+          },
+        }),
+      );
+    } finally {
+      delete process.env.RESTOW_HOST_SMBIOS_UUID;
+      resetOwnSmbiosUuid();
+    }
+    const [self] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 102));
+    expect(self).toMatchObject({ restowServerDetected: true, selfBackupConfirmedAt: null });
+    const [web] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    expect(web?.restowServerDetected).toBe(false);
+    const dto = (await service.overview(shared.db, fixture.tenantId)).guests.find(
+      (g) => g.vmid === 102,
+    );
+    expect(dto).toMatchObject({ restowServer: "detected" });
+    expect(dto?.attention).toContain("restow_server");
+    await expect(
+      service.backupNow(
+        shared.db,
+        fixture.tenantId,
+        self?.id ?? "",
+        { verifyRead: false },
+        actor(),
+      ),
+    ).rejects.toMatchObject({ status: 409, type: service.PVE_PROBLEMS.restowServer });
+    const [job] = await fixture.db.select().from(pveJobs).limit(1);
+    await expect(
+      service.assignJob(shared.db, fixture.tenantId, self?.id ?? "", job?.id ?? "", actor()),
+    ).rejects.toMatchObject({ status: 409 });
+    // The recommended job leaves it out.
+    expect(
+      await service.assignJob(shared.db, fixture.tenantId, self?.id ?? "", job?.id ?? "", actor(), {
+        skipRestowServer: true,
+      }),
+    ).toEqual({ assigned: false });
+    const queued = await service.backupNow(
+      shared.db,
+      fixture.tenantId,
+      self?.id ?? "",
+      { verifyRead: false, confirmSelfBackup: true },
+      actor(),
+    );
+    expect(queued.alreadyQueued).toBe(false);
+    const confirmations = await fixture.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "pve.guest.self_backup_confirmed"));
+    expect(confirmations).toHaveLength(1);
+    await fixture.db.delete(pveTasks).where(eq(pveTasks.guestId, self?.id ?? ""));
+    // An admin flags a guest the UUID cannot find (Restow in a container), and takes it back.
+    const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
+    await service.setRestowServerFlag(shared.db, fixture.tenantId, ct?.id ?? "", true, actor());
+    await expect(
+      service.backupNow(shared.db, fixture.tenantId, ct?.id ?? "", { verifyRead: false }, actor()),
+    ).rejects.toMatchObject({ status: 409 });
+    await service.setRestowServerFlag(shared.db, fixture.tenantId, ct?.id ?? "", false, actor());
+    const [unflagged] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
+    expect(unflagged).toMatchObject({ restowServerFlagged: false, selfBackupConfirmedAt: null });
+    await fixture.db.delete(pveGuests).where(eq(pveGuests.vmid, 102));
+  });
+
+  it("checks a guest's newest restore point now, or every unchecked one, and an older one exactly (D2)", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    await fixture.db.update(pveSnapshots).set({
+      verifyRequestedAt: null,
+      verify: { checkedAt: new Date().toISOString(), blocks: 1, mismatched: 0, errors: [] },
+    });
+    const { snapshotId } = await service.requestGuestVerify(
+      shared.db,
+      fixture.tenantId,
+      vm?.id ?? "",
+      actor(),
+    );
+    const points = await fixture.db
+      .select()
+      .from(pveSnapshots)
+      .where(and(eq(pveSnapshots.guestId, vm?.id ?? ""), eq(pveSnapshots.status, "active")));
+    const newest = points.reduce((a, b) => (a.sequence > b.sequence ? a : b));
+    expect(snapshotId).toBe(newest.id);
+    const readiness = await import("./protection.js");
+    const { withTenantTx } = await import("../../lib/tenant-context.js");
+    const rows = await withTenantTx(shared.db, fixture.tenantId, (tx) =>
+      readiness.loadGuestProtection(tx, fixture.tenantId, new Date()),
+    );
+    expect(rows.rows.find((r) => r.vmid === 101)?.checkRequested).toBe(true);
+    // An older restore point: exactly that one waits, its last result is cleared.
+    const oldest = points.reduce((a, b) => (a.sequence < b.sequence ? a : b));
+    await service.requestVerify(shared.db, fixture.tenantId, oldest.id, actor());
+    const [old] = await fixture.db
+      .select()
+      .from(pveSnapshots)
+      .where(eq(pveSnapshots.id, oldest.id));
+    expect(old).toMatchObject({ verify: null });
+    expect(old?.verifyRequestedAt).not.toBeNull();
+    // "Check all unverified": the newest point of each guest without a result and no request.
+    await fixture.db.update(pveSnapshots).set({ verifyRequestedAt: null, verify: null });
+    const withPoints = await fixture.db.execute<{ n: number }>(
+      sql`SELECT count(DISTINCT guest_id)::int AS n FROM pve_snapshots WHERE status = 'active'`,
+    );
+    expect(await service.requestUnverifiedVerify(shared.db, fixture.tenantId, actor())).toEqual({
+      queued: withPoints.rows[0]?.n,
+    });
+    expect(await service.requestUnverifiedVerify(shared.db, fixture.tenantId, actor())).toEqual({
+      queued: 0,
+    });
+  });
+
+  it("shows the real error of a red restore check in the guest row (B2)", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const error = "drive-scsi0: Fatal: repository does not exist: unable to open config file";
+    await fixture.db
+      .update(pveSnapshots)
+      .set({
+        verifyRequestedAt: null,
+        verify: { checkedAt: new Date().toISOString(), blocks: 0, mismatched: 0, errors: [error] },
+      })
+      .where(eq(pveSnapshots.guestId, vm?.id ?? ""));
+    const guest = (await service.overview(shared.db, fixture.tenantId)).guests.find(
+      (g) => g.vmid === 101,
+    );
+    expect(guest?.lastVerify).toMatchObject({ state: "red", errors: [error], requested: false });
+    const detail = await service.guestDetail(shared.db, fixture.tenantId, vm?.id ?? "");
+    expect(detail.guest.lastVerify?.errors).toEqual([error]);
+  });
+
+  it("plans a job on weekdays or monthly, like a mail job (E1)", async () => {
+    const now = new Date("2026-10-21T12:00:00Z"); // a Wednesday
+    const job = await service.saveJob(
+      shared.db,
+      fixture.tenantId,
+      null,
+      {
+        name: "Workdays",
+        scopeAll: false,
+        schedule: { kind: "cron", cron: "30 2 * * 1-5", timeZone: "UTC" },
+        enabled: true,
+        settings: {},
+      },
+      actor(),
+      now,
+    );
+    expect(job.nextRunAt).toBe("2026-10-22T02:30:00.000Z");
+    await expect(
+      service.saveJob(
+        shared.db,
+        fixture.tenantId,
+        job.id,
+        {
+          name: "Workdays",
+          scopeAll: false,
+          schedule: { kind: "cron", cron: "not a cron", timeZone: "UTC" },
+          enabled: true,
+          settings: {},
+        },
+        actor(),
+        now,
+      ),
+    ).rejects.toMatchObject({ status: 422 });
+    const { jobSchema } = await import("./schemas.js");
+    expect(
+      jobSchema.safeParse({
+        name: "x",
+        schedule: { kind: "interval", intervalMinutes: 30, timeZone: "UTC" },
+      }).success,
+    ).toBe(false);
+    expect(
+      jobSchema.safeParse({
+        name: "x",
+        schedule: { kind: "interval", intervalMinutes: 14 * 24 * 60, timeZone: "UTC" },
+      }).success,
+    ).toBe(true);
+    await service.deleteJob(shared.db, fixture.tenantId, job.id, actor());
+  });
+
+  it("keeps the installation's Proxmox VE settings and audits a change (D1)", async () => {
+    const settings = await import("./settings.js");
+    await fixture.db.execute(sql`INSERT INTO settings DEFAULT VALUES`);
+    try {
+      expect((await settings.getPveSettings(shared.providerDb)).settings).toEqual({
+        verifyAfterBackup: true,
+      });
+      const saved = await settings.updatePveSettings(
+        shared.providerDb,
+        { verifyAfterBackup: false },
+        { id: fixture.adminId, email: "admin@contoso.example", ip: null },
+      );
+      expect(saved.settings.verifyAfterBackup).toBe(false);
+      expect(await settings.verifyAfterBackup(shared.providerDb)).toBe(false);
+      const entries = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, "settings.pve.updated"));
+      expect(entries).toHaveLength(1);
+      expect(settings.pveSettingsSchema.safeParse({ other: 1 }).success).toBe(false);
+    } finally {
+      await fixture.db.execute(sql`DELETE FROM settings`);
+    }
   });
 });

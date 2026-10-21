@@ -209,7 +209,10 @@
     "neverChecked": "No restore check has run yet.",
     "scheduleNext": "Next scheduled restore check:",
     "scheduleEnabled": "Restore checks are scheduled.",
-    "scheduleNone": "No restore check is scheduled; checks run only when started here or after a backup."
+    "scheduleNone": "No restore check is scheduled; checks run only when started here or after a backup.",
+    "scheduleNextMail": "Next scheduled restore check of the Microsoft 365 objects:",
+    "scheduleEnabledMail": "Restore checks of the Microsoft 365 objects are scheduled.",
+    "scheduleNoneMail": "No restore check of the Microsoft 365 objects is scheduled; they are checked only when started here or after a backup."
   },
   "report": {
     "subtitle": "{kind} on {when}",

@@ -127,6 +127,7 @@ describe("who opens the installation page", () => {
       "Database",
       "Ransomware detection",
       "Agent policy",
+      "Proxmox VE",
       "Updates",
       "Edition",
       "About",

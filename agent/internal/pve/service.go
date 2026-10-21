@@ -187,6 +187,9 @@ func VersionAtLeast(v string, major, minor int) bool {
 
 // Tick runs one heartbeat round.
 func (s *Service) Tick(ctx context.Context) error {
+	// Results the server did not take before (it was unreachable) go first: a task the
+	// server would otherwise hand out again is settled before the heartbeat.
+	s.flushResults(ctx)
 	problems := s.Problems(ctx)
 	s.lastProblems = problems
 	state := "idle"
@@ -306,12 +309,32 @@ func (s *Service) ReportInventory(ctx context.Context) (int, error) {
 				g.Privileged = fmt.Sprint(conf["unprivileged"]) != "1"
 			} else {
 				g.Agent = strings.HasPrefix(fmt.Sprint(conf["agent"]), "1") || strings.Contains(fmt.Sprint(conf["agent"]), "enabled=1")
+				g.SMBIOSUUID = SMBIOSUUID(conf)
 			}
 		}
 		guests = append(guests, g)
 	}
 	return len(guests), s.Server.ReportInventory(ctx, guests)
 }
+
+// SMBIOSUUID is the SMBIOS UUID of a VM (`smbios1: uuid=...`), lower case, or "". The guest
+// reads it as /sys/class/dmi/id/product_uuid, so the Restow server can tell whether a VM is
+// the one it runs in (docs/PVE.md, "The Restow server's own VM").
+func SMBIOSUUID(conf map[string]any) string {
+	raw, ok := conf["smbios1"].(string)
+	if !ok {
+		return ""
+	}
+	for _, part := range strings.Split(raw, ",") {
+		k, v, found := strings.Cut(strings.TrimSpace(part), "=")
+		if found && k == "uuid" && uuidRE.MatchString(v) {
+			return strings.ToLower(v)
+		}
+	}
+	return ""
+}
+
+var uuidRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 func splitTags(s string) []string {
 	var out []string
@@ -340,6 +363,13 @@ type restoreParams struct {
 }
 
 func (s *Service) runTask(ctx context.Context, t Task) {
+	// A task whose result is still waiting to be sent ran already: the server delivered it
+	// again because the result never reached it. It is not run a second time.
+	if s.pendingResult(t.ID) {
+		s.Logf("task %s ran already; its result is sent again", t.ID)
+		s.flushResults(ctx)
+		return
+	}
 	s.running = t.ID
 	defer func() { s.running = "" }()
 	result, err := s.task(ctx, t)
@@ -347,10 +377,38 @@ func (s *Service) runTask(ctx context.Context, t Task) {
 	if err != nil {
 		status, msg = "failed", err.Error()
 		s.Logf("task %s (%s) failed: %v", t.ID, t.Kind, err)
+	} else if w, ok := result["warnings"].([]string); ok && len(w) > 0 {
+		s.Logf("task %s (%s) done with warnings: %s", t.ID, t.Kind, strings.Join(w, " | "))
 	}
-	if rerr := s.Server.TaskResult(ctx, t.ID, status, msg, result); rerr != nil {
-		s.Logf("task %s: report result: %v", t.ID, rerr)
+	s.reportResult(ctx, PendingResult{TaskID: t.ID, Status: status, Error: msg, Result: result})
+}
+
+// VzdumpWarnings says whether a vzdump exit status is "WARNINGS: n": the backup ran to its
+// end, and vzdump logged warnings beside it (notes, a hook script, the log file).
+func VzdumpWarnings(exit string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(exit)), "WARNINGS")
+}
+
+// WarningLines picks the warning lines of a task log tail (at most max, the last ones).
+func WarningLines(tail string, max int) []string {
+	var out []string
+	for _, line := range strings.Split(tail, "\n") {
+		line = strings.TrimSpace(line)
+		upper := strings.ToUpper(line)
+		if line == "" || strings.HasPrefix(upper, "TASK WARNINGS") {
+			continue
+		}
+		if strings.Contains(upper, "WARN") {
+			if len(line) > 500 {
+				line = line[:500]
+			}
+			out = append(out, line)
+		}
 	}
+	if len(out) > max {
+		out = out[len(out)-max:]
+	}
+	return out
 }
 
 func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
@@ -381,11 +439,19 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if exit != "OK" {
-			tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 20)
-			return map[string]any{"upid": upid}, fmt.Errorf("vzdump ended with %q: %s", exit, lastLines(tail, 8))
+		result := map[string]any{"upid": upid, "exitStatus": exit}
+		if exit == "OK" {
+			return result, nil
 		}
-		return map[string]any{"upid": upid}, nil
+		tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 200)
+		if VzdumpWarnings(exit) {
+			// vzdump finished the backup and warned about something beside it: the task is done;
+			// the server decides by the run's restore point whether the backup succeeded, and
+			// shows the warnings with it (docs/PVE-PROTOCOL.md, "Task results").
+			result["warnings"] = WarningLines(tail, 10)
+			return result, nil
+		}
+		return result, fmt.Errorf("vzdump ended with %q: %s", exit, lastLines(tail, 8))
 	case "restore":
 		if !s.State.RestoresAllowed() {
 			return nil, errors.New("restores are switched off on this node")

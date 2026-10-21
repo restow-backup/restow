@@ -67,6 +67,38 @@ export interface PveGuest {
   /** The first backup ever and the newest restore point; missing on servers before 0.3.5. */
   backups?: PveGuestBackupSizes;
   attention: string[];
+  /**
+   * vzdump's warnings beside the newest backup, which committed its restore point ("Succeeded
+   * with warnings"); missing on servers before 0.4.2.
+   */
+  lastRunWarnings?: string[];
+  /**
+   * The guest is the VM this Restow installation runs in: found by its SMBIOS UUID, or marked by
+   * an admin; null otherwise. Missing on servers before 0.4.2.
+   */
+  restowServer?: "detected" | "flagged" | null;
+  restowServerFlagged?: boolean;
+  /** An admin confirmed backing up the Restow server's own VM anyway. */
+  selfBackupConfirmedAt?: string | null;
+  /** The restore check of the newest restore point; missing on servers before 0.4.2. */
+  lastVerify?: PveVerifyFact | null;
+}
+
+/** The restore check of a guest's newest restore point, with what it found. */
+export interface PveVerifyFact {
+  state: "green" | "red" | null;
+  checkedAt: string | null;
+  /** The stored errors (the real restic or read error), the first five. */
+  errors: string[];
+  /** A check of it waits for the worker's next pass. */
+  requested: boolean;
+}
+
+/** Whether "Back up now" or putting the guest into a job needs the self-backup confirmation. */
+export function selfBackupBlocked(
+  guest: Pick<PveGuest, "restowServer" | "selfBackupConfirmedAt">,
+): boolean {
+  return Boolean(guest.restowServer) && !guest.selfBackupConfirmedAt;
 }
 
 /** The node of a running backup and the restow-pve version it last reported. */
@@ -114,9 +146,11 @@ export interface PveGuestBackupSizes {
 }
 
 export interface PveJobSchedule {
-  kind: "daily" | "interval";
+  kind: "daily" | "interval" | "cron";
   timeOfDay?: string;
   intervalMinutes?: number;
+  /** Weekdays, monthly or custom (servers from 0.4.2). */
+  cron?: string;
   timeZone: string;
 }
 
@@ -230,6 +264,8 @@ export interface PveRestorePoint {
     bitmapMode: string;
   }[];
   verify: { checkedAt: string; blocks: number; mismatched: number; errors: string[] } | null;
+  /** A check of this restore point waits for the worker's next pass (servers from 0.4.2). */
+  verifyRequested?: boolean;
   /** The newest rated boot test of the restore point; missing on older servers. */
   bootTest?: PveBootTest | null;
 }
@@ -243,6 +279,8 @@ export interface PveRun {
   startedAt: string;
   finishedAt: string | null;
   error: string | null;
+  /** vzdump's warnings beside a backup that committed its restore point (servers from 0.4.2). */
+  warnings?: string[];
   stats?: {
     resticUnreadable?: number;
     /** The first items restic could not read (nodes from 0.4.0 on). */
@@ -340,19 +378,56 @@ export const revokeNode = (id: string) =>
     method: "POST",
     body: {},
   });
-export const backupNow = (id: string, verifyRead = false) =>
+export const backupNow = (
+  id: string,
+  verifyRead = false,
+  options: { confirmSelfBackup?: boolean } = {},
+) =>
   apiFetch<{ taskId: string; alreadyQueued?: boolean }>(
     `/pve/guests/${encodeURIComponent(id)}/backup`,
     {
       method: "POST",
-      body: { verifyRead },
+      body: { verifyRead, ...(options.confirmSelfBackup ? { confirmSelfBackup: true } : {}) },
     },
   );
-export const assignJob = (guestId: string, jobId: string | null) =>
+export const assignJob = (
+  guestId: string,
+  jobId: string | null,
+  options: { confirmSelfBackup?: boolean } = {},
+) =>
   apiFetch<void>(`/pve/guests/${encodeURIComponent(guestId)}/job`, {
     method: "PUT",
-    body: { jobId },
+    body: { jobId, ...(options.confirmSelfBackup ? { confirmSelfBackup: true } : {}) },
   });
+/** Mark a guest as the Restow server's own VM, or take the mark back (docs/PVE.md). */
+export const setRestowServer = (guestId: string, flagged: boolean) =>
+  apiFetch<void>(`/pve/guests/${encodeURIComponent(guestId)}/restow-server`, {
+    method: "PUT",
+    body: { flagged },
+  });
+/** Check a guest's newest restore point now (Recovery readiness). */
+export const verifyGuest = (guestId: string) =>
+  apiFetch<{ snapshotId: string }>(`/pve/guests/${encodeURIComponent(guestId)}/verify`, {
+    method: "POST",
+    body: {},
+  });
+/** Check the newest restore point of every guest no check has read yet. */
+export const verifyUnverifiedGuests = () =>
+  apiFetch<{ queued: number }>("/pve/verify-unverified", { method: "POST", body: {} });
+
+/** The installation's Proxmox VE settings (GET/PUT /settings/pve). */
+export interface PveInstallationSettings {
+  verifyAfterBackup: boolean;
+}
+export const fetchPveSettings = () =>
+  apiFetch<{ settings: PveInstallationSettings; defaults: PveInstallationSettings }>(
+    "/settings/pve",
+  );
+export const savePveSettings = (input: Partial<PveInstallationSettings>) =>
+  apiFetch<{ settings: PveInstallationSettings; defaults: PveInstallationSettings }>(
+    "/settings/pve",
+    { method: "PUT", body: input },
+  );
 export const restoreSnapshot = (
   id: string,
   input: { targetStorage: string; targetNode?: string; targetVmid?: number; start: boolean },

@@ -42,8 +42,8 @@ import {
   pveSnapshots,
   pveTasks,
 } from "@restow/db";
-import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
-import { db } from "../../db.js";
+import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
+import { db, providerDb } from "../../db.js";
 import { loadTenantDek, readSecret, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -51,6 +51,7 @@ import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { recordBootTestResult } from "./boot-tests.js";
 import type { NodeContext } from "./node-auth.js";
 import { checkArchiveName, guestForBackup } from "./node-service.js";
+import { verifyAfterBackup } from "./settings.js";
 import {
   newChunkReader,
   newChunkWriter,
@@ -727,6 +728,9 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
           }
         : {}),
     };
+    // The new restore point is checked on the worker's next PVE pass (docs/PVE.md, "Restore
+    // check"), unless the installation switched that off; the weekly check stays either way.
+    const checkNow = await verifyAfterBackup(providerDb);
     await withTenantTx(db, node.tenantId, async (tx) => {
       await tx.insert(pveSnapshots).values({
         id: snapshotId,
@@ -750,6 +754,7 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
         chunkRefs: unique.length,
         baseSnapshotId,
         backupAt: parsed.time,
+        verifyRequestedAt: checkNow ? now : null,
       });
       await tx
         .update(pveRuns)
@@ -961,12 +966,31 @@ export async function finishFailedTaskRun(
     await recordBootTestResult(tx, task, { status: "failed", error: message }, now);
     return;
   }
-  // Every run the task left open fails with it (a redelivered task can have opened several).
+  // A run that committed its restore point succeeded, whatever the task says afterwards: the
+  // restore point is there. The task's message becomes its warning.
+  const kept = await tx
+    .update(pveRuns)
+    .set({
+      status: "succeeded",
+      finishedAt: now,
+      errorMessage: null,
+      stats: sql`${pveRuns.stats} || jsonb_build_object('warnings', jsonb_build_array(${message.slice(0, 500)}::text))`,
+    })
+    .where(
+      and(
+        eq(pveRuns.taskId, task.id),
+        eq(pveRuns.status, "running"),
+        isNotNull(pveRuns.snapshotId),
+      ),
+    )
+    .returning({ id: pveRuns.id, guestId: pveRuns.guestId });
+  // Every other run the task left open fails with it (a redelivered task can have opened several).
   const closed = await tx
     .update(pveRuns)
     .set({ status: "failed", finishedAt: now, errorMessage: message })
     .where(and(eq(pveRuns.taskId, task.id), eq(pveRuns.status, "running")))
     .returning({ id: pveRuns.id, guestId: pveRuns.guestId });
+  closed.push(...kept);
   if (closed.length > 0) {
     for (const guestId of new Set(closed.map((r) => r.guestId))) {
       await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, guestId));
@@ -1004,6 +1028,96 @@ export async function finishFailedTaskRun(
       await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, guest.id));
     }
   }
+}
+
+/**
+ * A backup task's result that arrived after the task was closed, or after its runs ended
+ * (docs/PVE-PROTOCOL.md, "Task results"). Idempotent; it never takes a committed restore point's
+ * success away:
+ *
+ *   - a run still open ends as the task says: succeeded with its restore point, else failed;
+ *   - a committed run that was closed as failed (the task expired, or vzdump's end was reported
+ *     as a failure) succeeded when the node now reports the task done; the old message becomes
+ *     a warning;
+ *   - the warnings vzdump logged are kept with the task's committed runs;
+ *   - a task closed as failed that the node reports done is done.
+ */
+export async function settleLateBackupResult(
+  tx: Transaction,
+  task: PveTask,
+  input: { status: "done" | "failed"; warnings: string[] },
+  now: Date,
+): Promise<void> {
+  const runs = await tx
+    .select()
+    .from(pveRuns)
+    .where(and(eq(pveRuns.taskId, task.id), eq(pveRuns.kind, "backup")));
+  for (const run of runs) {
+    const committed = run.snapshotId !== null;
+    const before = Array.isArray(run.stats.warnings) ? run.stats.warnings : [];
+    if (run.status === "running") {
+      await tx
+        .update(pveRuns)
+        .set({
+          status: committed ? "succeeded" : "failed",
+          finishedAt: now,
+          errorMessage: committed ? null : "The backup ended without reporting a restore point.",
+          ...(committed && input.warnings.length > 0
+            ? { stats: { ...run.stats, warnings: mergeWarnings(before, input.warnings) } }
+            : {}),
+        })
+        .where(and(eq(pveRuns.id, run.id), eq(pveRuns.status, "running")));
+      await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, run.guestId));
+      continue;
+    }
+    if (!committed) {
+      continue;
+    }
+    if (run.status === "failed" && input.status === "done") {
+      await tx
+        .update(pveRuns)
+        .set({
+          status: "succeeded",
+          errorMessage: null,
+          stats: {
+            ...run.stats,
+            warnings: mergeWarnings(before, [
+              ...(run.errorMessage ? [run.errorMessage] : []),
+              ...input.warnings,
+            ]),
+          },
+        })
+        .where(eq(pveRuns.id, run.id));
+      continue;
+    }
+    if (run.status === "succeeded" && input.warnings.length > 0) {
+      const merged = mergeWarnings(before, input.warnings);
+      if (merged.length !== before.length) {
+        await tx
+          .update(pveRuns)
+          .set({ stats: { ...run.stats, warnings: merged } })
+          .where(eq(pveRuns.id, run.id));
+      }
+    }
+  }
+  if (task.status === "failed" && input.status === "done") {
+    await tx
+      .update(pveTasks)
+      .set({ status: "done", errorMessage: null })
+      .where(and(eq(pveTasks.id, task.id), eq(pveTasks.status, "failed")));
+  }
+}
+
+/** Warnings without repeats, the newest ten. */
+function mergeWarnings(before: readonly string[], added: readonly string[]): string[] {
+  const out = [...before];
+  for (const line of added) {
+    const text = line.trim().slice(0, 500);
+    if (text && !out.includes(text)) {
+      out.push(text);
+    }
+  }
+  return out.slice(-10);
 }
 
 // ---------------------------------------------------------------------------

@@ -42,18 +42,21 @@ import {
   fetchGuest,
   guestRefreshMs,
   type PveFollowUpAverage,
+  type PveGuest,
   type PveGuestDetail,
   type PveRestorePoint,
   type PveRun,
   pveKeys,
   requestBootTest,
   restoreSnapshot,
+  setRestowServer,
   verifySnapshot,
 } from "./api.js";
 import { BackupProgress } from "./backup-progress.js";
 import { BootTestBadge, BootTestFacts, bootTestVariant } from "./boot-test.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { pveTo } from "./paths.js";
+import { RestowServerNote } from "./self-backup.js";
 
 /** File restore with this container chosen, as `<Link>` takes it. */
 function fileRestoreLink(guestId: string) {
@@ -178,13 +181,26 @@ function runStatusKey(run: Pick<PveRun, "kind" | "status" | "stats">): string {
 function VerifyBadge({ point }: { point: PveRestorePoint }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   if (!point.verify) {
-    return <Badge variant="muted">{t("guest.verifyPending")}</Badge>;
+    return (
+      <Badge variant="muted">
+        {point.verifyRequested ? t("guest.verifyQueuedBadge") : t("guest.verifyPending")}
+      </Badge>
+    );
   }
   if (point.verify.errors.length > 0 || point.verify.mismatched > 0) {
+    // The real error under the badge (cut to two lines; all of it in the tooltip), not only red.
+    const errors = point.verify.errors.join("\n");
     return (
-      <Badge variant="destructive" title={point.verify.errors.join("\n")}>
-        {t("guest.verifyFailed")}
-      </Badge>
+      <div className="max-w-80 space-y-1" data-slot="pve-point-verify-failed">
+        <Badge variant="destructive" title={errors || undefined}>
+          {t("guest.verifyFailed")}
+        </Badge>
+        {point.verify.errors[0] ? (
+          <p className="line-clamp-2 text-xs break-words text-destructive-text" title={errors}>
+            {point.verify.errors[0]}
+          </p>
+        ) : null}
+      </div>
     );
   }
   return <Badge variant="success">{t("guest.verifyOk", { blocks: point.verify.blocks })}</Badge>;
@@ -233,6 +249,15 @@ const SHOWN_UNREADABLE = 3;
 function RunStatus({ run, name }: { run: PveRun; name: string }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const unreadable = run.stats?.resticUnreadable ?? 0;
+  const warnings = run.warnings ?? [];
+  if (run.status === "succeeded" && run.kind === "backup" && warnings.length > 0) {
+    // Committed, and vzdump warned about something beside it: neither failed nor proof.
+    return (
+      <Badge variant="warning" title={warnings.join("\n")} data-slot="pve-run-warnings">
+        {t("guests.succeededWithWarnings")}
+      </Badge>
+    );
+  }
   if (run.status === "succeeded" && unreadable > 0) {
     return (
       <Badge variant="warning" data-slot="pve-run-gaps">
@@ -259,6 +284,9 @@ function RunNote({ run }: { run: PveRun }) {
   if (run.error) {
     return <span title={run.error}>{run.error}</span>;
   }
+  if (run.warnings && run.warnings.length > 0) {
+    return <span title={run.warnings.join("\n")}>{run.warnings[0]}</span>;
+  }
   const paths = run.stats?.unreadablePaths ?? [];
   if (paths.length > 0) {
     const more =
@@ -282,6 +310,41 @@ export function FollowUpNote({ followUp }: { followUp: PveFollowUpAverage }) {
     <p className="text-sm text-muted-foreground tabular-nums" data-slot="pve-follow-up">
       {t("guest.followUp", { size: formatBytes(followUp.added, language), count: followUp.points })}
     </p>
+  );
+}
+
+/**
+ * The Restow server's own VM (docs/PVE.md): the warning when Restow found it or an admin marked
+ * it, and the mark itself, for what the SMBIOS UUID cannot find (Restow in a container).
+ */
+function RestowServerSection({ guest }: { guest: PveGuest }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  const flag = useMutation({
+    mutationFn: (flagged: boolean) => setRestowServer(guest.id, flagged),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) }),
+    onError: (error) => toast.error((error as Error).message),
+  });
+  return (
+    <div className="space-y-2" data-slot="pve-guest-restow-server">
+      <RestowServerNote guest={guest} />
+      {guest.restowServer === "detected" ? null : (
+        <label className="flex max-w-prose items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={guest.restowServerFlagged ?? false}
+            disabled={flag.isPending}
+            onChange={(e) => flag.mutate(e.target.checked)}
+          />
+          <span>
+            {t("selfBackup.flag")}
+            <span className="block text-xs text-muted-foreground">{t("selfBackup.flagHint")}</span>
+          </span>
+        </label>
+      )}
+    </div>
   );
 }
 
@@ -356,6 +419,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
       >
         <RefreshButton onRefresh={() => void detail.refetch()} fetching={detail.isFetching} />
       </PageHeader>
+      {data ? <RestowServerSection guest={data.guest} /> : null}
       <ObjectSuspicionBadge target={suspicionTarget} />
       <RetentionHoldNotice target={suspicionTarget} objectName={title} />
       <LastCleanHint

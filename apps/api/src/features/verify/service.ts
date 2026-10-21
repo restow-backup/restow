@@ -11,6 +11,7 @@ import {
 } from "@restow/db";
 import { and, asc, desc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import { config } from "../../config.js";
+import { providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { assertDemoJobNotInFlight } from "../../lib/demo-limits.js";
 import { isImportedObject, notImported } from "../../lib/imported-objects.js";
@@ -21,6 +22,7 @@ import { loadShareProtection, type ShareReadinessRowDto } from "../file-shares/p
 import { decodeCursor, encodeCursor, type Page } from "../jobs/pagination.js";
 import { sendJob } from "../jobs/queue.js";
 import { type GuestReadinessRowDto, loadGuestProtection } from "../pve/protection.js";
+import { PVE_VERIFY_EVERY_DAYS, verifyAfterBackup } from "../pve/settings.js";
 import {
   type CountSummaryDto,
   parseCountSummary,
@@ -176,6 +178,19 @@ export interface ReadinessOverviewDto {
   shares: ShareReadinessRowDto[];
   storage: StorageIntegrityDto;
   schedules: { backup: ScheduleDto | null; verify: ScheduleDto | null; scrub: ScheduleDto | null };
+  /**
+   * How the VMs and containers are checked (docs/PVE.md, "Restore check"), apart from the
+   * Microsoft 365 schedule in `schedules.verify`: every new restore point right after its backup
+   * (an installation setting), and every guest's newest one weekly. Null without guests.
+   */
+  pveChecks: PveChecksDto | null;
+}
+
+export interface PveChecksDto {
+  afterBackup: boolean;
+  periodicDays: number;
+  /** Restore checks that wait for the worker's next PVE pass (every five minutes). */
+  waiting: number;
 }
 
 export interface ReportSummaryDto {
@@ -573,6 +588,14 @@ export async function readinessOverview(
       shares: shareOverview.rows,
       storage,
       schedules: scheduled,
+      pveChecks:
+        guestOverview.rows.length > 0
+          ? {
+              afterBackup: await verifyAfterBackup(providerDb),
+              periodicDays: PVE_VERIFY_EVERY_DAYS,
+              waiting: guestOverview.rows.filter((row) => row.checkRequested).length,
+            }
+          : null,
     };
   });
 }

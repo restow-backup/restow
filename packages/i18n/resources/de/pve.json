@@ -112,7 +112,10 @@
     "queuedSince": "Angefordert am {time}.",
     "runningSince": "Gestartet am {time}.",
     "nodeLastReport": "Der Knoten hat sich zuletzt am {time} gemeldet.",
-    "nodeOffline": "Knoten {node} ist getrennt (letzte Meldung: {time}). Er startet die Sicherung erst, wenn er sich wieder meldet."
+    "nodeOffline": "Knoten {node} ist getrennt (letzte Meldung: {time}). Er startet die Sicherung erst, wenn er sich wieder meldet.",
+    "succeededWithWarnings": "Erfolgreich mit Warnungen",
+    "verifyFailed": "Restore-Prüfung fehlgeschlagen",
+    "verifyFailedHint": "Die Restore-Prüfung des neuesten Sicherungsstands ist fehlgeschlagen."
   },
   "jobs": {
     "title": "Backup-Jobs",
@@ -150,7 +153,9 @@
     "guests": "VMs und Container in diesem Job",
     "noGuests": "Noch keine VM und kein Container gemeldet.",
     "guestInJob": "In {job}",
-    "guestMoves": "Wechselt aus {job}"
+    "guestMoves": "Wechselt aus {job}",
+    "schedule": "Zeitplan",
+    "manualOnly": "Nur von Hand"
   },
   "guest": {
     "back": "Zurück zu VMs & Container",
@@ -238,7 +243,8 @@
       "restores_off": "Keine Startprüfung möglich: Wiederherstellungen sind auf dem Knoten des Gasts ausgeschaltet.",
       "privileged": "Keine Startprüfung möglich: Proxmox VE kann privilegierte Container nicht über eine Backup-Schnittstelle wiederherstellen.",
       "template": "Keine Startprüfung für VM-Vorlagen."
-    }
+    },
+    "verifyQueuedBadge": "Prüfung eingereiht"
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",
@@ -267,7 +273,19 @@
       "bootGreen": "Der neueste Sicherungsstand ist in seiner Startprüfung gestartet: Der Guest Agent hat geantwortet.",
       "bootYellow": "Der neueste Sicherungsstand ist in seiner Startprüfung gestartet, aber sein Guest Agent hat nicht geantwortet: Es ist nicht nachgewiesen, dass das System funktioniert.",
       "bootRed": "Der neueste Sicherungsstand ist in seiner Startprüfung nicht gestartet."
-    }
+    },
+    "checkNow": "Jetzt prüfen",
+    "checkNowFor": "{name} jetzt prüfen",
+    "checkWaiting": "Prüfung eingereiht",
+    "checkQueued": "Restore-Prüfung eingereiht: Sie läuft in wenigen Minuten.",
+    "checkAll": "Alle ungeprüften prüfen",
+    "checkAllQueued": "{count, plural, =0 {Nichts einzureihen: Jeder Sicherungsstand ist geprüft oder wartet auf seine Prüfung.} one {# Restore-Prüfung eingereiht.} other {# Restore-Prüfungen eingereiht.}}",
+    "uncheckedTitle": "{count, plural, one {Bei # VM oder Container ist die Wiederherstellbarkeit noch nicht nachgewiesen} other {Bei # VMs und Containern ist die Wiederherstellbarkeit noch nicht nachgewiesen}}",
+    "uncheckedBody": "Noch keine Restore-Prüfung hat ihren neuesten Sicherungsstand zurückgelesen.",
+    "waitingTitle": "{count, plural, one {# Restore-Prüfung einer VM oder eines Containers wartet} other {# Restore-Prüfungen von VMs und Containern warten}}",
+    "waiting": "{count, plural, one {# Restore-Prüfung wartet} other {# Restore-Prüfungen warten}} auf den nächsten Durchlauf (alle fünf Minuten).",
+    "scheduleAfterBackup": "VMs und Container: Jeder neue Sicherungsstand wird wenige Minuten nach seiner Sicherung geprüft, der neueste Sicherungsstand jedes Gastes mindestens alle {days} Tage.",
+    "schedulePeriodic": "VMs und Container: Der neueste Sicherungsstand jedes Gastes wird alle {days} Tage geprüft (die Prüfung direkt nach jeder Sicherung ist für diese Installation ausgeschaltet)."
   },
   "inventory": {
     "title": "Proxmox VE",
@@ -313,5 +331,31 @@
       "paused": "Pausiert",
       "suspended": "Angehalten"
     }
+  },
+  "selfBackup": {
+    "badge": "{appName}-Server",
+    "title": "Auf diesem Gast läuft {appName} selbst",
+    "short": "Auf ihm läuft {appName} selbst: Er wird erst nach Ihrer Bestätigung gesichert.",
+    "confirmedShort": "Auf ihm läuft {appName} selbst: Die Sicherung wurde bestätigt.",
+    "confirmedLong": "Ein Administrator hat bestätigt, dass er trotzdem mit {appName} gesichert wird.",
+    "reason": {
+      "detected": "{appName} hat ihn erkannt: Seine SMBIOS-UUID ist die des Rechners, auf dem {appName} läuft.",
+      "flagged": "Ein Administrator hat ihn als {appName}-Server markiert."
+    },
+    "risk": "Die VM, auf der {appName} läuft, mit {appName} selbst zu sichern, kann sich gegenseitig blockieren: Die Sicherung hält den Server an oder friert ihn ein, der die Sicherung empfängt, und für die Wiederherstellung braucht es genau den Server, der wiederhergestellt werden soll.",
+    "recommendation": "Sichern Sie diese VM mit der Sicherung von Proxmox VE selbst (vzdump) auf einen anderen Speicher, und behalten Sie die Datenbank-Dumps von {appName} (docs/DATABASE.md). Bestätigen Sie nur, wenn Sie das Risiko in Kauf nehmen.",
+    "confirmTitle": "Den {appName}-Server ({name}) mit {appName} sichern?",
+    "confirm": "Trotzdem sichern",
+    "confirmInJob": "Ich kenne das Risiko und möchte, dass dieser Job die VM trotzdem sichert.",
+    "flag": "Dies ist der {appName}-Server",
+    "flagHint": "Markieren Sie den Gast, in dem {appName} läuft, wenn {appName} ihn nicht selbst erkennt (zum Beispiel {appName} in einem Container). Er wird dann erst gesichert, wenn ein Administrator das bestätigt."
+  },
+  "settings": {
+    "title": "Proxmox VE",
+    "description": "Wie die Sicherungsstände von VMs und Containern geprüft werden.",
+    "verifyAfterBackup": "Jeden neuen Sicherungsstand direkt nach der Sicherung prüfen",
+    "verifyAfterBackupHint": "Ein neuer Sicherungsstand wird wenige Minuten nach seiner Sicherung zurückgelesen (eine Stichprobe seiner Blöcke, bei einem Container eine restic-Prüfung eines Teils), eine begrenzte Anzahl je Durchlauf. Die wöchentliche Prüfung jedes Gastes bleibt in jedem Fall. Aus: Neue Sicherungsstände warten auf die wöchentliche Prüfung.",
+    "saved": "Einstellungen für Proxmox VE gespeichert.",
+    "loadError": "Die Einstellungen für Proxmox VE konnten nicht geladen werden."
   }
 }
