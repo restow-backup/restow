@@ -44,12 +44,56 @@ demo.restowbackup.com {
 	# restart, an image update) would answer with Caddy's bare default error
 	# page instead — Server header included — for exactly as long as the demo
 	# reverse_proxy above is down.
+	#
+	# The nightly reset (deploy/demo/reset.sh) stops the demo's web container
+	# until the seed has finished, which takes a while. Visitors then get a short
+	# page saying so, in English and German, that reloads itself every minute,
+	# instead of a bare "502 Bad Gateway".
 	handle_errors {
 		header {
 			-Via
 			-Server
 		}
-		respond "{err.status_code} {err.status_text}" {err.status_code}
+		@demo_down expression `{err.status_code} in [502, 503, 504]`
+		handle @demo_down {
+			header Content-Type "text/html; charset=utf-8"
+			header Cache-Control "no-store"
+			header Retry-After "60"
+			respond `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="60">
+<meta name="robots" content="noindex">
+<title>Restow demo is being reset</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f6f7f9;color:#1f2933}
+main{max-width:32rem;margin:1rem;padding:2rem;background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+h1{font-size:1.25rem;margin:0 0 .75rem}
+p{line-height:1.5;margin:.5rem 0}
+.de{margin-top:1.5rem;padding-top:1rem;border-top:1px solid #e4e7eb}
+small{color:#616e7c}
+@media (prefers-color-scheme:dark){body{background:#12161b;color:#e4e7eb}main{background:#1c2128;box-shadow:none}.de{border-color:#323a45}small{color:#9aa5b1}}
+</style>
+</head>
+<body>
+<main>
+<h1>The demo is being reset</h1>
+<p>The Restow demo is rebuilt from scratch every night at 03:00 (Europe/Berlin). This takes a few minutes. This page reloads by itself as soon as the demo is back.</p>
+<div class="de" lang="de">
+<h1>Die Demo wird gerade zurückgesetzt</h1>
+<p>Die Restow-Demo wird jede Nacht um 03:00 Uhr (Europe/Berlin) neu aufgebaut. Das dauert ein paar Minuten. Diese Seite lädt sich selbst neu, sobald die Demo wieder da ist.</p>
+</div>
+<p><small>restowbackup.com</small></p>
+</main>
+</body>
+</html>
+` 503
+		}
+		handle {
+			respond "{err.status_code} {err.status_text}" {err.status_code}
+		}
 	}
 
 	reverse_proxy host.docker.internal:8081 {
