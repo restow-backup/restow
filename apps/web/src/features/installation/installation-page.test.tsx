@@ -269,6 +269,68 @@ describe("Server", () => {
     expect(slot("notice-state")?.textContent).toBe("The notice has not been accepted yet.");
   });
 
+  it("shows where the time zone comes from and saves the zone shown as the installation's", async () => {
+    const chosen = {
+      ...SETTINGS,
+      timeZone: {
+        timeZone: "Europe/Berlin",
+        source: "settings",
+        stored: "Europe/Berlin",
+        environment: { timeZone: "Europe/Berlin", source: "default" },
+      },
+    };
+    const { mock, requests } = routes({ "PUT /settings/time-zone": () => json(chosen) });
+    vi.stubGlobal("fetch", mock);
+    await open("/installation/server");
+    const card = slot("time-zone");
+    expect(text(card)).toContain("Time zone of the installation");
+    expect(text(card)).toContain("Europe/Berlin");
+    expect(text(card)).toContain("The default, because the server environment names none.");
+    // Nothing chosen yet: no way back to the environment's, which already applies.
+    expect(buttonByText(card ?? document.body, "Use the server's (Europe/Berlin)")).toBeNull();
+    await click(buttonByText(card ?? document.body, "Save time zone"));
+    await flush(4);
+    expect(requests.filter((request) => request.method === "PUT")).toEqual([
+      { method: "PUT", path: "/settings/time-zone", body: { timeZone: "Europe/Berlin" } },
+    ]);
+  });
+
+  it("takes a chosen time zone back, so the server's applies again", async () => {
+    const chosen = {
+      ...SETTINGS,
+      timeZone: {
+        timeZone: "America/New_York",
+        source: "settings",
+        stored: "America/New_York",
+        environment: { timeZone: "Europe/Vienna", source: "environment" },
+      },
+    };
+    const { mock, requests } = routes({
+      "GET /settings": () => json(chosen),
+      "PUT /settings/time-zone": () => json(SETTINGS),
+    });
+    vi.stubGlobal("fetch", mock);
+    await open("/installation/server");
+    const card = slot("time-zone");
+    expect(text(card)).toContain(
+      "Chosen here. Without this choice the server would use Europe/Vienna.",
+    );
+    await click(buttonByText(card ?? document.body, "Use the server's (Europe/Vienna)"));
+    await flush(4);
+    expect(requests.filter((request) => request.method === "PUT")).toEqual([
+      { method: "PUT", path: "/settings/time-zone", body: { timeZone: null } },
+    ]);
+  });
+
+  it("shows the time zone read-only to a role below owner", async () => {
+    const { mock, requests } = routes();
+    vi.stubGlobal("fetch", mock);
+    await open("/installation/server", { session: providerSession("administrator") });
+    const save = buttonByText(slot("time-zone") ?? document.body, "Save time zone");
+    expect(save?.closest("fieldset")?.getAttribute("data-read-only")).toBe("true");
+    expect(requests.filter((request) => request.method === "PUT")).toEqual([]);
+  });
+
   it("has no danger zone", async () => {
     vi.stubGlobal("fetch", routes().mock);
     await open("/installation/server");

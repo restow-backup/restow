@@ -328,6 +328,9 @@
       },
       "agent_policy": {
         "updated": "Richtlinie der Agenten für die Installation geändert"
+      },
+      "time_zone": {
+        "changed": "Zeitzone der Installation geändert"
       }
     },
     "setup": {

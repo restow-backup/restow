@@ -29,6 +29,7 @@ import {
   mailNotNeededSchema,
   mailTestSchema,
   saveDefaultStorageSchema,
+  timeZoneSettingSchema,
   updateSettingsSchema,
 } from "./schemas.js";
 import {
@@ -38,6 +39,7 @@ import {
   type RequestContext,
   removeMailConfiguration,
   sendTestMail,
+  setInstallationTimeZone,
   setMailNotNeeded,
   updateSettings,
 } from "./service.js";
@@ -52,6 +54,9 @@ import {
  *   DELETE /mail                  remove the mail transport and its stored password
  *   PUT    /mail/not-needed       mark the notification mail as not needed for the Start
  *                                  checklist, or take the mark back ({ notNeeded: boolean })
+ *   PUT    /time-zone             the installation's time zone ({ timeZone: IANA name | null };
+ *                                  null takes the choice back: RESTOW_TIME_ZONE, TZ, Europe/Berlin);
+ *                                  owner only, audited; GET / carries it as `timeZone`
  *   GET    /passkey-ready         re-check the passkey gate plus a server-side HTTPS probe
  *   GET    /passkey-impact        how many accounts (and whether the requester's own) could no
  *                                  longer sign in once passkeys stop working: asked before
@@ -125,6 +130,12 @@ settingsRoutes.delete("/mail", async (c) => {
 settingsRoutes.put("/mail/not-needed", async (c) => {
   const input = await parseJsonBody(c.req, mailNotNeededSchema);
   return c.json(await setMailNotNeeded(providerDb, input.notNeeded, actorOf(c)));
+});
+
+// The installation's time zone (0.4.2): planned updates are read in it, new tenants start with it.
+settingsRoutes.put("/time-zone", async (c) => {
+  const input = await parseJsonBody(c.req, timeZoneSettingSchema);
+  return c.json(await setInstallationTimeZone(providerDb, input, actorOf(c), requestContext(c)));
 });
 
 settingsRoutes.get("/passkey-ready", async (c) => {

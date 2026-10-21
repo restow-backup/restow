@@ -22,7 +22,7 @@
     "agentPolicy": "Richtlinie der Agenten"
   },
   "descriptions": {
-    "server": "Wie Browser diesen Server erreichen und ob Passkeys angeboten werden. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
+    "server": "Wie Browser diesen Server erreichen, ob Passkeys angeboten werden und die Zeitzone der Installation. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "mail": "Der Transport für Berichte, Warnungen und Einladungen. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "microsoftApp": "Die App-Registrierung, über die diese Installation Microsoft 365 erreicht.",
     "journal": "Der SMTP-Empfänger für Exchange-Journalberichte. Ein Empfänger bedient {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
@@ -64,6 +64,20 @@
       "none": "Der Hinweis wurde noch nicht akzeptiert.",
       "show": "Hinweis anzeigen",
       "hide": "Hinweis ausblenden"
+    },
+    "timeZone": {
+      "title": "Zeitzone",
+      "description": "Für ein Datum und eine Uhrzeit geplante Updates gelten in dieser Zeitzone{scope, select, organisation {, und die Zeitpläne Ihrer Organisation beginnen in ihr} other {, und ein neuer Mandant beginnt mit ihr (jeder Mandant kann seine eigene ändern)}}.",
+      "label": "Zeitzone der Installation",
+      "source": {
+        "settings": "Hier gewählt. Ohne diese Wahl würde der Server {zone} verwenden.",
+        "environment": "Aus RESTOW_TIME_ZONE in der Server-Umgebung. Speichern Sie, um die Zeitzone stattdessen hier zu wählen.",
+        "process": "Aus der Prozess-Zeitzone (TZ) des Servers. Speichern Sie, um die Zeitzone stattdessen hier zu wählen.",
+        "default": "Die Voreinstellung, weil die Server-Umgebung keine nennt. Speichern Sie, um die Zeitzone stattdessen hier zu wählen."
+      },
+      "useEnvironment": "Die des Servers verwenden ({zone})",
+      "save": "Zeitzone speichern",
+      "saved": "Zeitzone gespeichert: {zone}"
     }
   },
   "microsoftApp": {

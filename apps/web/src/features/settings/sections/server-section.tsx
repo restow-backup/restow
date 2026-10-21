@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { DisclaimerNotice } from "@/features/disclaimer/disclaimer-notice";
 import { AccessNote, ReadOnlyGroup, useInstallationAccess } from "@/features/installation/access";
+import { useWordingScope } from "@/features/installation/scope";
+import { TimezonePicker } from "@/features/schedules/components/timezone-picker";
 import type { OperatingMode } from "@/lib/api";
 import { zodResolver } from "@/lib/form";
 import { formatDateTime } from "@/lib/format";
@@ -32,15 +34,16 @@ import {
   publicUrlOrigin,
   toGeneralPatch,
 } from "../forms";
-import { useUpdateSettings } from "../hooks";
+import { useSetTimeZone, useUpdateSettings } from "../hooks";
 import { settingsErrorKey } from "../presenters";
 
 const FORM_ID = "settings-general-form";
 
 /**
  * Installation, Server: operating mode and public URL (changed by the owner,
- * read-only for everyone else), passkey readiness, what the server runs with
- * and the operator notice that was accepted at setup.
+ * read-only for everyone else), passkey readiness, the installation's time
+ * zone (owner), what the server runs with and the operator notice that was
+ * accepted at setup.
  */
 export function ServerSection({ settings }: { settings: InstallationSettings }) {
   const access = useInstallationAccess();
@@ -51,6 +54,9 @@ export function ServerSection({ settings }: { settings: InstallationSettings }) 
         <OperatingModeCard settings={settings} />
       </ReadOnlyGroup>
       <ReadinessCard fallback={settings.passkeyReady} />
+      <ReadOnlyGroup closed={access.change !== null}>
+        <TimeZoneCard settings={settings} />
+      </ReadOnlyGroup>
       <ServerFactsCard settings={settings} />
       <OperatorNoticeCard settings={settings} />
     </div>
@@ -237,6 +243,90 @@ function OperatingModeCard({ settings }: { settings: InstallationSettings }) {
         onCancel={() => setPendingChange(null)}
         onConfirm={() => pendingChange && void save(pendingChange.patch)}
       />
+    </Card>
+  );
+}
+
+/**
+ * The installation's time zone (0.4.2): planned updates are read in it and new tenants start with
+ * it. Chosen in the setup wizard; an installation set up before that runs on `RESTOW_TIME_ZONE`,
+ * `TZ` or Europe/Berlin until a zone is chosen here, and "Use the server's" takes the choice back.
+ */
+function TimeZoneCard({ settings }: { settings: InstallationSettings }) {
+  const { t: ti } = useTranslation("installation");
+  const { t: tc } = useTranslation();
+  const save = useSetTimeZone();
+  const scope = useWordingScope();
+  const current = settings.timeZone;
+  const [zone, setZone] = React.useState(current.timeZone);
+  const [error, setError] = React.useState<unknown>(null);
+
+  // Follow a change saved elsewhere.
+  React.useEffect(() => {
+    setZone(current.timeZone);
+  }, [current.timeZone]);
+
+  // Without a choice of its own, saving the zone shown keeps it even when the environment changes.
+  const dirty = zone !== current.timeZone;
+  const submit = async (next: string | null) => {
+    setError(null);
+    try {
+      const result = await save.mutateAsync(next);
+      setZone(result.timeZone.timeZone);
+      toast.success(ti("server.timeZone.saved", { zone: result.timeZone.timeZone }));
+    } catch (failure) {
+      setError(failure);
+    }
+  };
+
+  return (
+    <Card data-slot="time-zone">
+      <CardHeader>
+        <CardTitle>{ti("server.timeZone.title")}</CardTitle>
+        <CardDescription>{ti("server.timeZone.description", { scope })}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Field
+          id="settings-time-zone"
+          label={ti("server.timeZone.label")}
+          hint={ti(`server.timeZone.source.${current.source}`, {
+            zone: current.environment.timeZone,
+          })}
+        >
+          <TimezonePicker
+            id="settings-time-zone"
+            value={zone}
+            onChange={setZone}
+            disabled={save.isPending}
+            describedBy={messageId("settings-time-zone")}
+          />
+        </Field>
+        {error ? (
+          <Alert variant="destructive">
+            <TriangleAlert />
+            <AlertDescription>{tc(settingsErrorKey(error))}</AlertDescription>
+          </Alert>
+        ) : null}
+        <div className="flex flex-wrap justify-end gap-2">
+          {current.stored !== null ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={save.isPending}
+              onClick={() => void submit(null)}
+            >
+              {ti("server.timeZone.useEnvironment", { zone: current.environment.timeZone })}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            disabled={save.isPending || (!dirty && current.stored !== null)}
+            onClick={() => void submit(zone)}
+          >
+            {ti("server.timeZone.save")}
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }

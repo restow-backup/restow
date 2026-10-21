@@ -326,15 +326,6 @@ export function emptyAdmin(): TenantWizardAdminValues {
   return { email: "", role: null };
 }
 
-/** The IANA time zone the browser runs in, when it can be read; "" otherwise. */
-function browserTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
-  } catch {
-    return "";
-  }
-}
-
 export function emptyTenantWizardForm(language: "de" | "en"): TenantWizardValues {
   return {
     name: "",
@@ -347,7 +338,8 @@ export function emptyTenantWizardForm(language: "de" | "en"): TenantWizardValues
     city: "",
     countryCode: "",
     language,
-    timeZone: browserTimeZone(),
+    // Left to the server: a new tenant starts with the installation's time zone.
+    timeZone: "",
     contacts: [emptyContact(true)],
     notificationRecipients: [],
     admins: [],

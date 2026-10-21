@@ -466,7 +466,9 @@ step 2.
    docker compose logs api | grep 'SETUP TOKEN'
    ```
 
-   Then it shows the operator notice, chooses the operating mode, asks for the
+   Then it shows the operator notice, chooses the operating mode and the
+   installation's time zone (the browser's is preselected; planned updates are
+   read in it and new tenants start with it), asks for the
    name of your organisation (it becomes your own organisation, the place for
    your own backups), creates the first administrator (passkey first) and sets
    up notification mail, which you can skip and set up later under Installation,

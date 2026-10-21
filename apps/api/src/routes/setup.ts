@@ -552,6 +552,8 @@ setup.post("/", async (c) => {
     // Null while the operator skips the mail step: nothing sends mail until Settings has a transport.
     mailTransport: input.mail?.transport ?? null,
     mailConfig: input.mail ? toMailConfig(input.mail) : null,
+    // The zone the wizard chose (the browser's, preselected); without one the environment applies.
+    timeZone: input.timeZone ?? null,
     setupCompletedAt: new Date(),
   };
 
@@ -593,6 +595,7 @@ setup.post("/", async (c) => {
           passkeyReady: values.passkeyReady,
           mailTransport: values.mailTransport,
           mailConfig: values.mailConfig,
+          timeZone: values.timeZone,
           setupCompletedAt: values.setupCompletedAt,
         },
       });
@@ -611,6 +614,7 @@ setup.post("/", async (c) => {
         operatingMode: input.operatingMode,
         publicUrl,
         mailTransport: input.mail?.transport ?? null,
+        timeZone: input.timeZone ?? null,
         passkeyReady: passkeyReady.ready,
         adminCreated: claimed.created,
       },

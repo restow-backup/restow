@@ -1511,6 +1511,29 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       }
     });
 
+    it("reads planned times in the zone chosen for the installation, before the environment's", async () => {
+      const built = build({ RESTOW_TIME_ZONE: "UTC" });
+      expect((await built.service.view()).timeZone).toBe("UTC");
+      await owner.update(settings).set({ timeZone: "Asia/Tokyo" });
+      expect((await built.service.view()).timeZone).toBe("Asia/Tokyo");
+      await built.service.saveSettings({ enabled: true }, actor);
+      const at = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+      // 3 hours from now in Tokyo (UTC+9, no daylight saving time).
+      const tokyo = new Date(at.getTime() + 9 * 60 * 60 * 1000);
+      const view = await built.service.schedule(
+        {
+          version: "0.2.0",
+          leadSeconds: 300,
+          at: { date: tokyo.toISOString().slice(0, 10), time: tokyo.toISOString().slice(11, 16) },
+        },
+        actor,
+      );
+      expect(view.planned).toMatchObject({ timeZone: "Asia/Tokyo" });
+      expect(Date.parse(view.planned?.startsAt ?? "")).toBe(
+        Math.floor(at.getTime() / 60_000) * 60_000,
+      );
+    });
+
     it("plans an update for a chosen time and confirms it then, not before", async () => {
       const built = build({ RESTOW_TIME_ZONE: "UTC" });
       await built.service.saveSettings({ enabled: true }, actor);

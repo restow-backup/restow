@@ -241,6 +241,10 @@ export const settings = pgTable(
     updateNotifiedVersion: text("update_notified_version"),
     // The last updater journal entry written to the audit log (ids sort chronologically).
     updateAuditCursor: text("update_audit_cursor"),
+    // The installation's IANA time zone (0.4.2, docs/UPDATING.md "The installation's time zone"),
+    // chosen in the setup wizard or under Installation > Server. Null defers to `RESTOW_TIME_ZONE`,
+    // then `TZ`, then Europe/Berlin (@restow/core `resolveInstallationTimeZone`).
+    timeZone: text("time_zone"),
     // An update planned for an exact time, until it is handed to the updater (or cancelled).
     plannedUpdate: jsonb("planned_update").$type<PlannedUpdate>(),
     // File share backup (docs/FILESHARES.md 7.4); `{}` takes every default.

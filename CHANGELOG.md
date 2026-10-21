@@ -29,6 +29,10 @@ private repository.
   node and on a machine asks for the update at any time.
 - Updates can be planned for a chosen date and time (in the installation's time zone) besides
   the lead times from now; nothing pauses before, and everyone sees a notice from a day before.
+- The installation has a time zone of its own: chosen in the setup wizard (the browser's zone
+  preselected) and changed by an owner under Installation › Server & operation › Server, with
+  a searchable list of zones. Planned updates are read in it and a new tenant starts with it.
+  Without a choice, `RESTOW_TIME_ZONE`, then `TZ`, then Europe/Berlin apply as before.
 - When an update is available, the version in the sidebar becomes a highlighted, gently
   pulsing **Update to <version> available** that leads to Installation › Updates (for those
   who may install updates; no animation with reduced motion).
@@ -48,11 +52,13 @@ private repository.
 
 ### Upgrade Notes
 
-New image and one database migration, `0053_cancel_and_fleet_update` (cancel requests and
+New image and two database migrations, `0053_cancel_and_fleet_update` (cancel requests and
 `cancelled` states for tasks and runs, a node's paused queue, "update now" for nodes and
-machines, the phase `fleet` of the job-start pause, `settings.planned_update`), which runs in
-seconds. Optional: `RESTOW_TIME_ZONE` names the installation's time zone for planned updates
-(default `TZ`, else Europe/Berlin).
+machines, the phase `fleet` of the job-start pause, `settings.planned_update`) and
+`0054_installation_time_zone` (`settings.time_zone`), which run in seconds. An existing
+installation has no time zone of its own after the update: `RESTOW_TIME_ZONE`, else `TZ`, else
+Europe/Berlin applies until an owner chooses one under Installation › Server & operation ›
+Server (docs/UPDATING.md, "The installation's time zone").
 
 - Stopping a running backup needs restow-pve 0.4.2 on the node and agent 0.4.2 on the machine;
   an older node ends a cancelled backup at its next upload (the server refuses it), an older

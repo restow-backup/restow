@@ -379,6 +379,13 @@
       "when": 1792597211683,
       "tag": "0053_cancel_and_fleet_update",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792603571474,
+      "tag": "0054_installation_time_zone",
+      "breakpoints": true
     }
   ]
 }

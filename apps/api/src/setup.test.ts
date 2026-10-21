@@ -83,6 +83,21 @@ describe("setupRequestSchema", () => {
     }
   });
 
+  it("accepts the installation's time zone as an IANA name, and nothing else", () => {
+    expect(setupRequestSchema.parse({ ...validSmtp, timeZone: "Europe/Vienna" }).timeZone).toBe(
+      "Europe/Vienna",
+    );
+    expect(setupRequestSchema.parse({ ...validSmtp, timeZone: "utc" }).timeZone).toBe("UTC");
+    // Without one the server environment decides, as before.
+    expect(setupRequestSchema.parse(validSmtp).timeZone).toBeUndefined();
+    for (const timeZone of ["Mars/Base", "+01:00", "", 3]) {
+      expect(
+        setupRequestSchema.safeParse({ ...validSmtp, timeZone }).success,
+        String(timeZone),
+      ).toBe(false);
+    }
+  });
+
   it("accepts a setup without a mail transport, the wizard's skipped mail step", () => {
     const { mail: _omitted, ...withoutMail } = validSmtp;
     const parsed = setupRequestSchema.parse(withoutMail);

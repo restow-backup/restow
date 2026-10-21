@@ -725,6 +725,8 @@ describe("setup wizard, finishing", () => {
     expect(body.language).toBe("en");
     expect(body.mail).toMatchObject({ transport: "smtp", smtp: { host: "mail.example.com" } });
     expect(body.sendTest).toBe(true);
+    // The browser's time zone, preselected on the operation step, becomes the installation's.
+    expect(body.timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
 
   it("announces in the review that the authenticator app comes next", async () => {

@@ -50,6 +50,11 @@ export const setupFormSchema = z
   .object({
     operatingMode: z.enum(["local", "public"]),
     publicUrl: z.string().trim(),
+    /**
+     * The installation's time zone (IANA name; the browser's is preselected): planned updates are
+     * read in it and the own organisation and every new tenant start with it. The server checks it.
+     */
+    timeZone: z.string().trim(),
     /** The organisation that runs this installation; becomes the operator's own organisation. */
     organisationName: z
       .string()
@@ -143,7 +148,7 @@ export const STEP_FIELDS: Record<
   Exclude<StepKey, "language" | "token" | "disclaimer" | "review">,
   readonly FieldPath[]
 > = {
-  mode: ["operatingMode", "publicUrl"],
+  mode: ["operatingMode", "publicUrl", "timeZone"],
   admin: ["organisationName", "admin.name", "admin.email", "admin.password", "admin.confirm"],
   mail: [
     "mail.transport",
@@ -161,6 +166,7 @@ export const STEP_FIELDS: Record<
 type FieldPath =
   | "operatingMode"
   | "publicUrl"
+  | "timeZone"
   | "organisationName"
   | "admin.name"
   | "admin.email"
@@ -180,6 +186,7 @@ type FieldPath =
 export const defaultSetupValues: SetupFormValues = {
   operatingMode: "local",
   publicUrl: "",
+  timeZone: "",
   organisationName: "",
   admin: { name: "", email: "", password: "", confirm: "" },
   mail: {
@@ -197,6 +204,23 @@ export const defaultSetupValues: SetupFormValues = {
   },
   sendTest: true,
 };
+
+/** The zone the server uses when none is chosen, offered when the browser's cannot be read. */
+const FALLBACK_TIME_ZONE = "Europe/Berlin";
+
+/** The IANA time zone the browser runs in, else Europe/Berlin. */
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || FALLBACK_TIME_ZONE;
+  } catch {
+    return FALLBACK_TIME_ZONE;
+  }
+}
+
+/** The wizard's starting values: the defaults with the browser's time zone preselected. */
+export function initialSetupValues(): SetupFormValues {
+  return { ...defaultSetupValues, timeZone: browserTimeZone() };
+}
 
 function isEmail(value: string): boolean {
   return z.string().email().safeParse(value).success;
@@ -278,6 +302,10 @@ export function buildSubmission(
                 : {}),
             },
           };
+  }
+  const timeZone = values.timeZone.trim();
+  if (timeZone) {
+    base.timeZone = timeZone;
   }
   if (values.operatingMode === "public" && publicUrl) {
     base.publicUrl = publicUrl.replace(/\/+$/, "");

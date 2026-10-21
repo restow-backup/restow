@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ianaTimeZoneSchema } from "../../schemas.js";
 import { localConfigSchema, s3ConfigSchema, s3CredentialsSchema } from "../storage/schemas.js";
 
 /**
@@ -261,6 +262,15 @@ export type MailTestInput = z.infer<typeof mailTestSchema>;
 /** Body of `PUT /settings/mail/not-needed`: mark the notification mail as not needed, or take the mark back. */
 export const mailNotNeededSchema = z.object({ notNeeded: z.boolean() }).strict();
 export type MailNotNeededInput = z.infer<typeof mailNotNeededSchema>;
+
+// --- Time zone -------------------------------------------------------------------
+
+/**
+ * Body of `PUT /settings/time-zone`: the installation's time zone, or null to take the choice
+ * back (then `RESTOW_TIME_ZONE`, `TZ` or Europe/Berlin applies again).
+ */
+export const timeZoneSettingSchema = z.object({ timeZone: ianaTimeZoneSchema.nullable() }).strict();
+export type TimeZoneSettingInput = z.infer<typeof timeZoneSettingSchema>;
 
 // --- Default storage ------------------------------------------------------------
 

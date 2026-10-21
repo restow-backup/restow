@@ -49,6 +49,12 @@ export const SETTINGS: InstallationSettings = {
     currentVersion: "2026-10-01",
   },
   updatedAt: "2026-09-20T08:00:00.000Z",
+  timeZone: {
+    timeZone: "Europe/Berlin",
+    source: "default",
+    stored: null,
+    environment: { timeZone: "Europe/Berlin", source: "default" },
+  },
 };
 
 export const DEFAULT_STORAGE: DefaultStorageView = {

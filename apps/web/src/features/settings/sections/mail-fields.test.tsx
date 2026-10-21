@@ -36,6 +36,12 @@ function settings(
     capabilities: { graphMail },
     disclaimer: { acceptedVersion: null, acceptedAt: null, currentVersion: "1" },
     updatedAt: null,
+    timeZone: {
+      timeZone: "Europe/Berlin",
+      source: "default",
+      stored: null,
+      environment: { timeZone: "Europe/Berlin", source: "default" },
+    },
   };
 }
 

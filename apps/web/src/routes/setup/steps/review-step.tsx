@@ -32,6 +32,9 @@ export function ReviewStep({ values, language }: ReviewStepProps) {
         {values.operatingMode === "public" ? (
           <ReviewRow label={t("review.publicUrl")} value={values.publicUrl} mono />
         ) : null}
+        {values.timeZone ? (
+          <ReviewRow label={t("review.timeZone")} value={values.timeZone} />
+        ) : null}
         <ReviewRow label={t("review.organisation")} value={values.organisationName} />
         <ReviewRow
           label={t("review.admin")}

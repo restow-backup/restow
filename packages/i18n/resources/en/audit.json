@@ -328,6 +328,9 @@
       },
       "agent_policy": {
         "updated": "Agent policy of the installation changed"
+      },
+      "time_zone": {
+        "changed": "Time zone of the installation changed"
       }
     },
     "setup": {

@@ -117,6 +117,10 @@
       },
       "rpId": "Passkey-Domain",
       "origin": "Origin"
+    },
+    "timeZone": {
+      "label": "Zeitzone",
+      "hint": "Die Zeitzone dieses Browsers ist vorausgewählt. Für ein Datum und eine Uhrzeit geplante Updates gelten in ihr, und Ihre Organisation beginnt mit ihr. Sie lässt sich später unter Installation › Server & Betrieb › Server ändern."
     }
   },
   "admin": {
@@ -203,6 +207,7 @@
     "language": "Sprache",
     "mode": "Betriebsmodus",
     "publicUrl": "Öffentliche URL",
+    "timeZone": "Zeitzone",
     "organisation": "Ihre Organisation",
     "admin": "Erstes Admin-Konto",
     "mail": "Mail-Transport",

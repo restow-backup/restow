@@ -1,4 +1,10 @@
-import { type AppCredentials, parseSourceAppSecret } from "@restow/core";
+import {
+  type AppCredentials,
+  environmentTimeZone,
+  type InstallationTimeZone,
+  parseSourceAppSecret,
+  resolveInstallationTimeZone,
+} from "@restow/core";
 import { type Settings, settings } from "@restow/db";
 import type { SupportedLanguage } from "@restow/i18n";
 import { eq } from "drizzle-orm";
@@ -44,7 +50,12 @@ import {
   transportSpec,
 } from "./mail.js";
 import { probePublicUrl, type ReachabilityProbe } from "./reachability.js";
-import type { MailInput, MailTestInput, UpdateSettingsInput } from "./schemas.js";
+import type {
+  MailInput,
+  MailTestInput,
+  TimeZoneSettingInput,
+  UpdateSettingsInput,
+} from "./schemas.js";
 
 /**
  * Installation settings (docs/ARCHITECTURE.md, setup and operating modes): the
@@ -60,6 +71,7 @@ export const SETTINGS_AUDIT_ACTIONS = {
   mailTested: "settings.mail.tested",
   mailRemoved: "settings.mail.removed",
   mailNotNeeded: "settings.mail.not_needed",
+  timeZoneChanged: "settings.time_zone.changed",
 } as const;
 
 /** The installation-level secret kinds of the mail transports. */
@@ -172,13 +184,39 @@ async function applySecrets(
   }
 }
 
+/**
+ * The installation's time zone (0.4.2): the one that applies, where it comes from, the one chosen
+ * here (null when none is) and what would apply without that choice (`RESTOW_TIME_ZONE`, `TZ` or
+ * Europe/Berlin), so the page can say what taking the choice back means.
+ */
+export interface TimeZoneView extends InstallationTimeZone {
+  stored: string | null;
+  environment: InstallationTimeZone;
+}
+
+export function timeZoneViewOf(
+  stored: string | null,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): TimeZoneView {
+  return {
+    ...resolveInstallationTimeZone(stored, env),
+    stored,
+    environment: environmentTimeZone(env),
+  };
+}
+
+export type SettingsWithTimeZone = SettingsView & { timeZone: TimeZoneView };
+
 // --- Read -------------------------------------------------------------------------------
 
-export async function getSettings(db: DbExecutor, context: RequestContext): Promise<SettingsView> {
+export async function getSettings(
+  db: DbExecutor,
+  context: RequestContext,
+): Promise<SettingsWithTimeZone> {
   const row = await loadRow(db);
   const refs = await findMailSecrets(db);
   const state = { operatingMode: row?.operatingMode ?? null, publicUrl: row?.publicUrl ?? null };
-  return toSettingsView({
+  const view = toSettingsView({
     ...state,
     mail: readStoredMailConfig(row?.mailTransport ?? null, row?.mailConfig),
     ...storedFlags(refs),
@@ -190,6 +228,47 @@ export async function getSettings(db: DbExecutor, context: RequestContext): Prom
     disclaimerAcceptedAt: row?.disclaimerAcceptedAt ?? null,
     currentDisclaimerVersion: DISCLAIMER_VERSION,
   });
+  return { ...view, timeZone: timeZoneViewOf(row?.timeZone ?? null) };
+}
+
+/**
+ * Choose the installation's time zone, or take the choice back (`null`). Owners only
+ * (lib/provider-access.ts); audited with the zone before and after. A planned update keeps the
+ * zone it was planned in (its moment is fixed); new plans and new tenants use the new one.
+ */
+export async function setInstallationTimeZone(
+  db: DbExecutor,
+  input: TimeZoneSettingInput,
+  actor: Actor,
+  context: RequestContext,
+): Promise<SettingsWithTimeZone> {
+  await db.transaction(async (tx) => {
+    const row = await loadRow(tx, { forUpdate: true });
+    if (!row?.operatingMode) {
+      throw setupIncomplete();
+    }
+    const previous = row.timeZone ?? null;
+    if (previous === input.timeZone) {
+      return;
+    }
+    await tx.update(settings).set({ timeZone: input.timeZone }).where(eq(settings.id, row.id));
+    const effective = resolveInstallationTimeZone(input.timeZone, process.env);
+    await audit(tx, {
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: SETTINGS_AUDIT_ACTIONS.timeZoneChanged,
+      target: row.id,
+      targetType: "settings",
+      ip: actor.ip,
+      details: {
+        from: previous,
+        to: input.timeZone,
+        effective: effective.timeZone,
+        source: effective.source,
+      },
+    });
+  });
+  return getSettings(db, context);
 }
 
 // --- Update -------------------------------------------------------------------------------
@@ -204,7 +283,7 @@ export async function updateSettings(
   patch: UpdateSettingsInput,
   actor: Actor,
   context: RequestContext,
-): Promise<SettingsView> {
+): Promise<SettingsWithTimeZone> {
   const environment = await mailEnvironment();
   await db.transaction(async (tx) => {
     const row = await loadRow(tx, { forUpdate: true });
@@ -441,7 +520,7 @@ export async function removeMailConfiguration(
   db: DbExecutor,
   actor: Actor,
   context: RequestContext,
-): Promise<SettingsView> {
+): Promise<SettingsWithTimeZone> {
   await db.transaction(async (tx) => {
     const row = await loadRow(tx, { forUpdate: true });
     if (!row) {

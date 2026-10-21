@@ -10,11 +10,13 @@ export * from "./cadence.js";
 export {
   type CronSpec,
   CronSyntaxError,
+  canonicalTimeZone,
   isValidTimeZone,
   nextCronOccurrence,
   parseCron,
   zonedTimeToUtc,
 } from "./cron.js";
 export * from "./defaults.js";
+export * from "./installation-zone.js";
 export * from "./presets.js";
 export * from "./recommended.js";
