@@ -238,6 +238,39 @@
       "restores_off": "No boot test possible: restores are switched off on the guest's node.",
       "privileged": "No boot test possible: Proxmox VE cannot restore privileged containers from a backup interface.",
       "template": "No boot test for VM templates."
+    },
+    "chain": {
+      "missingTitle": "New backup chain started on {date}",
+      "missing": "The previous repository was not found at {target}. A new repository was created; {count, plural, =0 {no restore point was affected} one {# earlier restore point is no longer available} other {# earlier restore points are no longer available}}.",
+      "resetTitle": "Repository reset on {date}",
+      "reset": "{actor} reset the repository. The next backup begins a new chain at {target}; {count, plural, =0 {no restore point was affected} one {# earlier restore point is no longer available} other {# earlier restore points are no longer available}}.",
+      "history": "New backup chain",
+      "historyMissing": "Repository not found at {target}: a new chain began",
+      "historyReset": "Repository reset by {actor}",
+      "someone": "An administrator",
+      "unknownTarget": "the primary repository",
+      "installationDefault": "the installation default"
+    },
+    "unavailable": "Not available",
+    "unavailableHint": "This restore point belongs to an earlier backup chain whose repository is gone. It can no longer be restored or checked.",
+    "backupNow": "Back up now",
+    "backupConfirm": {
+      "title": "Back up {name} now?",
+      "description": "The node starts the backup at its next check-in, usually within a minute.",
+      "submit": "Back up now"
+    },
+    "danger": {
+      "title": "Danger zone",
+      "resetTitle": "Reset repository",
+      "resetDescription": "Begin a new backup chain in a new repository. All restore points of this container become unavailable at once: they can no longer be restored or checked. Use this when the repository is damaged or lies on a repository that is gone.",
+      "reset": "Reset repository",
+      "dialogTitle": "Reset the repository of {name}?",
+      "dialogDescription": "The next backup creates a new repository and begins a new chain. {count, plural, =0 {This container has no restore point yet.} one {# restore point becomes unavailable and cannot be restored any more.} other {# restore points become unavailable and cannot be restored any more.}} What is left of the old repository on the primary is removed by the next backup.",
+      "typeName": "Type {name} to confirm",
+      "cancel": "Cancel",
+      "confirm": "Reset repository",
+      "done": "Repository reset. The next backup begins a new chain.",
+      "failed": "The repository could not be reset."
     }
   },
   "restore": {

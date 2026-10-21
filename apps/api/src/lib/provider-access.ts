@@ -466,6 +466,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // --- Storage ---------------------------------------------------------------------
   "GET /api/v1/storage": view(),
   "GET /api/v1/storage/usage": view(),
+  // Where backups land now (shown wherever a backup is started or configured).
+  "GET /api/v1/storage/destination": view(),
   "GET /api/v1/storage/targets": view(),
   "GET /api/v1/storage/targets/:id": view(),
   "POST /api/v1/storage/targets": configure(),
@@ -498,6 +500,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PATCH /api/v1/pve/jobs/:id": configure(),
   "DELETE /api/v1/pve/jobs/:id": configure(),
   "PUT /api/v1/pve/guests/:id/job": configure(),
+  // Begins a new backup chain; the restore points before become unavailable (recent sign-in).
+  "POST /api/v1/pve/guests/:id/repository/reset": configure(),
   "POST /api/v1/pve/guests/:id/backup": operate(),
   "POST /api/v1/pve/snapshots/:id/verify": operate(),
   "POST /api/v1/pve/snapshots/:id/restore": operate(),

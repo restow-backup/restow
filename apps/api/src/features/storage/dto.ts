@@ -206,6 +206,12 @@ export interface StorageTargetListDto {
   tenantHasData: boolean;
   /** The viewer may configure local (mounted filesystem) targets. */
   canManageLocal: boolean;
+  /**
+   * The restic repositories (containers, file shares) that refuse a switch copying nothing:
+   * "keep existing backups where they are" and promoting a copy (docs/STORAGE.md). Null when
+   * there are none.
+   */
+  switchBlockedBy: { containers: boolean; fileShares: boolean } | null;
 }
 
 export function recordsOf(row: Pick<StorageTarget, "config">): TargetConfigRecords {

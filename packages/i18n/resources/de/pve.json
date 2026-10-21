@@ -238,6 +238,39 @@
       "restores_off": "Keine Startprüfung möglich: Wiederherstellungen sind auf dem Knoten des Gasts ausgeschaltet.",
       "privileged": "Keine Startprüfung möglich: Proxmox VE kann privilegierte Container nicht über eine Backup-Schnittstelle wiederherstellen.",
       "template": "Keine Startprüfung für VM-Vorlagen."
+    },
+    "chain": {
+      "missingTitle": "Neue Sicherungskette am {date} begonnen",
+      "missing": "Das bisherige Repository wurde in {target} nicht gefunden. Ein neues Repository wurde angelegt; {count, plural, =0 {kein Sicherungsstand ist betroffen} one {# früherer Sicherungsstand ist nicht mehr verfügbar} other {# frühere Sicherungsstände sind nicht mehr verfügbar}}.",
+      "resetTitle": "Repository am {date} zurückgesetzt",
+      "reset": "{actor} hat das Repository zurückgesetzt. Die nächste Sicherung beginnt eine neue Kette in {target}; {count, plural, =0 {kein Sicherungsstand ist betroffen} one {# früherer Sicherungsstand ist nicht mehr verfügbar} other {# frühere Sicherungsstände sind nicht mehr verfügbar}}.",
+      "history": "Neue Sicherungskette",
+      "historyMissing": "Repository in {target} nicht gefunden: eine neue Kette begann",
+      "historyReset": "Repository zurückgesetzt von {actor}",
+      "someone": "Ein Administrator",
+      "unknownTarget": "dem primären Repository",
+      "installationDefault": "dem Installationsstandard"
+    },
+    "unavailable": "Nicht verfügbar",
+    "unavailableHint": "Dieser Sicherungsstand gehört zu einer früheren Sicherungskette, deren Repository nicht mehr vorhanden ist. Er kann weder wiederhergestellt noch geprüft werden.",
+    "backupNow": "Jetzt sichern",
+    "backupConfirm": {
+      "title": "{name} jetzt sichern?",
+      "description": "Der Knoten startet die Sicherung bei seiner nächsten Meldung, meist innerhalb einer Minute.",
+      "submit": "Jetzt sichern"
+    },
+    "danger": {
+      "title": "Gefahrenbereich",
+      "resetTitle": "Repository zurücksetzen",
+      "resetDescription": "Eine neue Sicherungskette in einem neuen Repository beginnen. Alle Sicherungsstände dieses Containers sind sofort nicht mehr verfügbar: Sie können weder wiederhergestellt noch geprüft werden. Nutzen Sie dies, wenn das Repository beschädigt ist oder in einem Repository liegt, das es nicht mehr gibt.",
+      "reset": "Repository zurücksetzen",
+      "dialogTitle": "Repository von {name} zurücksetzen?",
+      "dialogDescription": "Die nächste Sicherung legt ein neues Repository an und beginnt eine neue Kette. {count, plural, =0 {Dieser Container hat noch keinen Sicherungsstand.} one {# Sicherungsstand ist danach nicht mehr verfügbar und kann nicht mehr wiederhergestellt werden.} other {# Sicherungsstände sind danach nicht mehr verfügbar und können nicht mehr wiederhergestellt werden.}} Was vom alten Repository auf dem primären Repository übrig ist, entfernt die nächste Sicherung.",
+      "typeName": "Geben Sie zur Bestätigung {name} ein",
+      "cancel": "Abbrechen",
+      "confirm": "Repository zurücksetzen",
+      "done": "Repository zurückgesetzt. Die nächste Sicherung beginnt eine neue Kette.",
+      "failed": "Das Repository konnte nicht zurückgesetzt werden."
     }
   },
   "restore": {

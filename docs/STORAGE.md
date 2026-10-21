@@ -442,10 +442,21 @@ data already on it), the add-target dialog offers a role choice:
   - **Move existing backups** (recommended): the new target is added as a copy
     immediately (so every backup from this point on already reaches it), and a
     background job copies everything that existed before — every pack, backup
-    manifest, and wrapped tenant key — onto it, verifies the copy against the source
-    by SHA-256, and only then switches the primary over atomically. The old location
-    is kept, attached read-only, until removed by hand.
-  - **Keep existing backups where they are**: nothing is copied. The new target
+    manifest (mail and VM/container restore points alike), wrapped tenant key, and the
+    restic repositories of the tenant's containers (`pve-guests/<id>/`), machines
+    (`endpoints/<id>/`) and file shares (`file-shares/<id>/`) — onto it, verifies the
+    copy against the source by SHA-256, and only then switches the primary over
+    atomically. The old location is kept, attached read-only, until removed by hand.
+  - **Keep existing backups where they are**: refused (`409`,
+    `storage-switch-blocked-by-repositories`, and offered disabled in the dialog) while
+    the tenant has containers or file shares with a restic repository: those
+    repositories are written to and read from the primary only, so after such a switch
+    every container and share would find an empty repository on the new primary (the
+    0.4.1 field incident: every container with an existing repository then failed with
+    `repository does not exist`). Choose "move" for such a tenant; promoting a copy is
+    refused for the same reason (a copy never receives the restic repositories).
+    Revoked machines do not block it: their repositories are only read, from whichever
+    target holds them. Otherwise nothing is copied. The new target
     becomes the primary immediately, in the same request, once a quick write/read/
     delete probe has confirmed it is actually reachable (the same check
     `POST /storage/targets/:id/test` runs); the old one retires to `previous` in the
@@ -497,7 +508,9 @@ the target's card in the Repositories section can show it directly:
 
 1. **queued** — accepted, waiting for a worker.
 2. **copying** — every pack, manifest and wrapped key the current primary holds (or,
-   without a primary row, the installation default) is compared against what the
+   without a primary row, the installation default), and every file of the tenant's
+   restic repositories (see "restic repositories in a move" below), is compared
+   against what the
    destination already has (by size) and copied if missing or different. A tenant
    that chose "keep" for an earlier replacement may still have packs that live only
    on that retired target: this pass reads from it too (read-only, never written to),
@@ -574,6 +587,47 @@ and the migration fails with that cause instead of retrying every remaining obje
 the same doomed rate. A manifest that retention prunes while a pass is running (its
 snapshot expired mid-migration) is the opposite case and never counts against the
 migration at all: it is simply left out, since there is nothing left to move.
+
+### restic repositories in a move
+
+Containers (`pve-guests/<guest id>/`), machines (`endpoints/<endpoint id>/`, revoked ones
+included) and file shares (`file-shares/<share id>/`) keep one restic repository each on
+the primary. The chunk store's copies never receive them, so a switch without them would
+leave every one of them with an empty repository. A `move` therefore copies them too
+(`apps/worker/src/handlers/storage-migration-restic.ts`):
+
+- Each repository is copied from the one target that holds its `config`: the current
+  primary first, then a `previous` target an earlier "keep" left behind. Files of two
+  repositories under one prefix (a new chain on the primary, the old one on a retired
+  target) are never mixed.
+- restic names its data, index, snapshot and key files by the SHA-256 of their content:
+  those are copied and verified against that hash, like packs against theirs, so damage
+  on the source fails the migration (`source_corrupt`) instead of spreading. `config` and
+  the sealed password file are compared with the source. `locks/` is skipped.
+- Reconciliation also waits while a container backup or a file share run of the tenant is
+  running (they write to the old primary), and retention of containers and file shares
+  waits for a running migration, so no restic file is pruned away under it. A restic file
+  that is gone from the source when it is copied (restic's own maintenance) is skipped.
+- Up to 32 repositories of a kind are listed one prefix at a time; more are listed under
+  the kind's prefix once and sorted out by id (a directory target walks its tree for
+  every listing).
+
+A container backup that starts in the API's minute-long storage cache window right
+around the switch could still write to the old primary; the next backup's repository
+check (docs/PVE.md, "New backup chain") then finds the repository on the new primary.
+
+### Where backups land
+
+`GET /api/v1/storage/destination` names the effective primary of the tenant: its own
+primary target (name, kind, path or bucket) or the installation default (its path only
+for provider admins). The guest page and "Back up now" of a VM or container, the PVE job
+dialog, a machine's and a file share's page and the job editors show it as one line;
+the installation default on the server's local disk is highlighted. When the effective
+primary is a directory on a disk of the server itself — not a network file system
+(NFS, SMB, ...), as `/proc/self/mountinfo` tells for the path; without it, the
+installation default counts as the server's disk — the Repositories section and the
+dialogs that add PVE nodes, machines and file shares warn: "Backups land on the
+server's own disk", with a link to choose another repository.
 
 ### Retrying a failed move
 
@@ -682,20 +736,21 @@ not papered over:
   intentionally being let go, remove its snapshots through retention so nothing
   references the damaged pack any more; either way, retry the migration once the
   block is gone.
-- **Endpoint backup repositories are not moved by a storage change.** The repositories of
-  servers and clients backed up by the Restow agent (`docs/AGENT.md`) live in the
-  primary target under `endpoints/<endpoint id>/`, and a replacement copies only
-  `tenants/<tenant id>/...`. While any machine of the tenant is active, Restow
-  therefore refuses every change of the primary: replacing it (move or keep) and
-  promoting a copy answer `409` with `storage-active-endpoints`, because the agent,
-  retention and the checks would find an empty repository on the new primary. A
+- **Active machines still block a storage change.** The repositories of servers and
+  clients backed up by the Restow agent (`docs/AGENT.md`) live in the primary target
+  under `endpoints/<endpoint id>/`. A `move` copies them (see "restic repositories in a
+  move"), but an active agent keeps writing to the old primary while it runs. While any
+  machine of the tenant is active, Restow therefore refuses every change of the primary:
+  replacing it (move or keep) and promoting a copy answer `409` with
+  `storage-active-endpoints`. A
   repository also counts as data of the primary, so its location cannot be changed and
   it cannot be removed while it holds repositories. To change the primary of such a
   tenant, revoke or uninstall the machines first, switch, and enrol them again (new
   repositories on the new primary). The repositories of the revoked machines stay on
   the old target, which becomes `previous` (or a copy) and remains a read-only fallback,
   so their backups can still be browsed and downloaded; that target cannot be removed
-  while it alone holds such a repository (`storage-previous-holds-endpoint-repositories`).
+  while it alone holds such a repository, or a container's or file share's
+  (`storage-previous-holds-endpoint-repositories`); a `move` copies them across.
 - **Immutable backups have limits of their own** (see "Immutable backups" for the whole
   picture). The installation default cannot be made immutable; give the tenant a repository
   of its own or an immutable copy. A directory gets only a deletion delay that Restow keeps,

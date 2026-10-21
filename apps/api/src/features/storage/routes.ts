@@ -4,6 +4,7 @@ import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { backupDestination } from "./destination.js";
 import { setImmutability, verifyImmutabilityNow } from "./immutability.js";
 import {
   createStorageTargetSchema,
@@ -38,6 +39,8 @@ import {
  * one additionally requires a provider admin (enforced in the service).
  *
  *   GET    /usage                            logical vs physical bytes, 30/90-day growth, daily series
+ *   GET    /destination                      where backups land now (the effective primary), and
+ *                                            whether that is a disk of the server itself
  *   GET    /targets                          targets, installation default, whether the tenant holds data
  *   POST   /targets                          create (local | s3), primary or copy
  *   POST   /targets/probe                    test settings from the form (nothing saved)
@@ -95,6 +98,10 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
 
   routes.get("/usage", deps.requireAdmin, async (c) => {
     return c.json(await storageUsage(deps.db, c.get("tenantId")));
+  });
+
+  routes.get("/destination", deps.requireAdmin, async (c) => {
+    return c.json(await backupDestination(deps.db, c.get("tenantId"), actorOf(c)));
   });
 
   routes.get("/targets", deps.requireAdmin, async (c) => {

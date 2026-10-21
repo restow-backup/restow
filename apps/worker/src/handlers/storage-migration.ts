@@ -9,8 +9,10 @@
  * exists as a live `copy` (new backups replicate to it from the moment it was
  * added), so this job only has to backfill what existed before that:
  *
- *   1. `copying` — every pack, manifest and wrapped key the primary holds,
- *      written to the destination and checked by size (cheap; a full hash
+ *   1. `copying` — every pack, manifest and wrapped key the primary holds, and
+ *      every file of the tenant's restic repositories (containers, machines,
+ *      file shares; storage-migration-restic.ts), written to the destination
+ *      and checked by size (cheap; a full hash
  *      compare happens once for everything in the next phase). Resumable: the
  *      job checkpoints the last key done in `jobs.cursor`, so a crash or a
  *      pg-boss retry continues instead of starting over. Throttled on
@@ -84,16 +86,20 @@ import {
   type StorageTargets,
 } from "@restow/core";
 import {
+  fileShareRuns,
   type Job,
   jobs,
   packs,
+  pveGuests,
+  pveRuns,
+  pveSnapshots,
   type StorageMigration,
   type StorageTarget,
   snapshots,
   storageMigrations,
   storageTargets,
 } from "@restow/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
 import { processDefaultStorage } from "../default-storage.js";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
@@ -106,6 +112,12 @@ import {
   tenantRunner,
   type WorkerJobContext,
 } from "./framework.js";
+import {
+  isResticRepositoryKey,
+  resticKeysOn,
+  resticMirrorItems,
+  tenantRepositoryPrefixes,
+} from "./storage-migration-restic.js";
 
 /**
  * Duplicated verbatim from `STORAGE_AUDIT_ACTIONS` in
@@ -250,10 +262,14 @@ export async function hasActiveMigration(run: TenantTxRunner, tenantId: string):
   );
 }
 
-/** Whether a backup or archive sync of the tenant is currently running. */
+/**
+ * Whether a backup of the tenant is currently running: a backup or archive sync job, a
+ * container backup (its node writes to the restic repository on the old primary) or a file
+ * share run.
+ */
 async function hasActiveBackupJob(run: TenantTxRunner, tenantId: string): Promise<boolean> {
-  const [row] = await run((tx) =>
-    tx
+  return run(async (tx) => {
+    const [row] = await tx
       .select({ id: jobs.id })
       .from(jobs)
       .where(
@@ -263,9 +279,38 @@ async function hasActiveBackupJob(run: TenantTxRunner, tenantId: string): Promis
           eq(jobs.status, "active"),
         ),
       )
-      .limit(1),
-  );
-  return row !== undefined;
+      .limit(1);
+    if (row) {
+      return true;
+    }
+    const [container] = await tx
+      .select({ id: pveRuns.id })
+      .from(pveRuns)
+      .innerJoin(pveGuests, eq(pveGuests.id, pveRuns.guestId))
+      .where(
+        and(
+          eq(pveRuns.tenantId, tenantId),
+          eq(pveRuns.status, "running"),
+          eq(pveRuns.kind, "backup"),
+          eq(pveGuests.kind, "ct"),
+        ),
+      )
+      .limit(1);
+    if (container) {
+      return true;
+    }
+    const [share] = await tx
+      .select({ id: fileShareRuns.id })
+      .from(fileShareRuns)
+      .where(
+        and(
+          eq(fileShareRuns.tenantId, tenantId),
+          inArray(fileShareRuns.status, ["starting", "running"]),
+        ),
+      )
+      .limit(1);
+    return share !== undefined;
+  });
 }
 
 async function loadMigration(
@@ -301,12 +346,22 @@ async function setMigration(
   );
 }
 
-/** The tenant's current `snapshots.id`s, to tell a pruned manifest apart from a missing one. */
+/**
+ * The tenant's current `snapshots.id`s and the restore points of its VMs and containers
+ * (`pve_snapshots`, whose manifests lie beside the mail manifests) not pruned, to tell a pruned
+ * manifest apart from a missing one.
+ */
 async function liveSnapshotIds(run: TenantTxRunner, tenantId: string): Promise<Set<string>> {
-  const rows = await run((tx) =>
-    tx.select({ id: snapshots.id }).from(snapshots).where(eq(snapshots.tenantId, tenantId)),
+  const [mail, guests] = await run(async (tx) =>
+    Promise.all([
+      tx.select({ id: snapshots.id }).from(snapshots).where(eq(snapshots.tenantId, tenantId)),
+      tx
+        .select({ id: pveSnapshots.id })
+        .from(pveSnapshots)
+        .where(and(eq(pveSnapshots.tenantId, tenantId), ne(pveSnapshots.status, "pruned"))),
+    ]),
   );
-  return new Set(rows.map((row) => row.id));
+  return new Set([...mail.map((row) => row.id), ...guests.map((row) => row.id)]);
 }
 
 /**
@@ -322,13 +377,23 @@ function isPrunedManifest(key: string, live: ReadonlySet<string>): boolean {
   return parsed !== null && !parsed.partial && !live.has(parsed.snapshotId);
 }
 
-/** The full, deterministically ordered item list for one migration (metadata first, then packs, both by key). */
+/** Where the item list reads from: the merged source, and its targets one by one (primary first). */
+interface MigrationSources {
+  readonly source: StorageBackend;
+  /** The source primary, then each retired `previous` target (restic repositories, one holder each). */
+  readonly targets: readonly StorageBackend[];
+}
+
+/**
+ * The full, deterministically ordered item list for one migration: metadata, packs and the
+ * files of the tenant's restic repositories (storage-migration-restic.ts), all by key.
+ */
 async function buildItemList(
   run: TenantTxRunner,
   tenantId: string,
-  source: StorageBackend,
+  sources: MigrationSources,
 ): Promise<MirrorItem[]> {
-  const [packRows, live, metadata] = await Promise.all([
+  const [packRows, live, metadata, restic] = await Promise.all([
     run((tx) =>
       tx
         .select({ path: packs.path, size: packs.size, sha256: packs.sha256 })
@@ -336,7 +401,10 @@ async function buildItemList(
         .where(eq(packs.tenantId, tenantId)),
     ),
     liveSnapshotIds(run, tenantId),
-    metadataMirrorItems(tenantId, source),
+    metadataMirrorItems(tenantId, sources.source),
+    tenantRepositoryPrefixes(run, tenantId).then((prefixes) =>
+      resticMirrorItems(prefixes, sources.targets),
+    ),
   ]);
   // Retention may already have pruned a manifest this listing still shows
   // (its DB row is gone, but the delete of the file itself is not the same
@@ -344,6 +412,7 @@ async function buildItemList(
   const items = [
     ...metadata.filter((item) => !isPrunedManifest(item.key, live)),
     ...packMirrorItems(packRows),
+    ...restic,
   ];
   return items.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 }
@@ -381,6 +450,7 @@ function remainingItems(
  * listing rather than relying on the checkpoint to remember it.
  */
 async function resumablePending(
+  run: TenantTxRunner,
   tenantId: string,
   destination: StorageBackend,
   items: readonly MirrorItem[],
@@ -391,7 +461,13 @@ async function resumablePending(
   if (!floor) {
     return tail;
   }
-  const onDestination = await destinationObjectKeys(tenantId, destination);
+  // The restic repositories' files too: they sort before `tenants/`, so a new one is always
+  // at or below a checkpoint taken among the packs.
+  const [chunkStore, restic] = await Promise.all([
+    destinationObjectKeys(tenantId, destination),
+    tenantRepositoryPrefixes(run, tenantId).then((prefixes) => resticKeysOn(destination, prefixes)),
+  ]);
+  const onDestination = new Set([...chunkStore, ...restic]);
   const gaps = items.filter((item) => item.key <= floor && !onDestination.has(item.key));
   if (gaps.length === 0) {
     return tail;
@@ -463,7 +539,7 @@ async function runPass(options: {
   const { ctx, run, migration, items, phase, source, destination, verify, passesInThisRun } =
     options;
   const resumeCursor = options.cursor?.phase === phase ? options.cursor : null;
-  const pending = await resumablePending(ctx.tenantId, destination, items, resumeCursor);
+  const pending = await resumablePending(run, ctx.tenantId, destination, items, resumeCursor);
   const alreadyDone = items.length - pending.length;
   let done = alreadyDone;
   let bytesWritten = 0;
@@ -523,6 +599,16 @@ async function runPass(options: {
     ) {
       consecutiveFailures = 0;
       ctx.progress.advance(1, outcome.bytesWritten);
+    } else if (outcome.outcome === "source_missing" && isResticRepositoryKey(item.key)) {
+      // A restic file the repository's own maintenance removed since the listing (a lock, an
+      // index rewritten by a prune): nothing to copy. Retention of containers and file shares
+      // waits for a running migration, so this stays rare.
+      ctx.logger.info("storage migration: a restic file is gone from the source, skipping it", {
+        key: item.key,
+        phase,
+      });
+      consecutiveFailures = 0;
+      ctx.progress.advance(1, 0);
     } else if (outcome.outcome === "source_missing" && parseManifestKey(item.key) !== null) {
       // liveAtSourceMissing is loaded once, lazily, and reused for the rest
       // of this pass: retention prunes in its own sweep, not continuously,
@@ -874,10 +960,11 @@ async function reconcileBeforeSwitch(
   run: TenantTxRunner,
   ctx: WorkerJobContext,
   migration: StorageMigration,
-  source: StorageBackend,
+  sources: MigrationSources,
   destination: StorageBackend,
   verifiedItems: readonly MirrorItem[],
 ): Promise<{ items: MirrorItem[]; bytesWritten: number }> {
+  const source = sources.source;
   const seenKeys = new Set(verifiedItems.map((item) => item.key));
   let items = [...verifiedItems];
   let bytesWritten = 0;
@@ -886,7 +973,7 @@ async function reconcileBeforeSwitch(
     if (ctx.signal.aborted) {
       await handleAbort(run, ctx, migration);
     }
-    const fresh = await buildItemList(run, ctx.tenantId, source);
+    const fresh = await buildItemList(run, ctx.tenantId, sources);
     const newItems = fresh.filter((item) => !seenKeys.has(item.key));
     items = fresh;
     if (newItems.length === 0) {
@@ -1015,7 +1102,8 @@ export const storageMigrationHandler: JobHandler<"storage_migration"> = {
       });
     }
 
-    const items = await buildItemList(run, ctx.tenantId, source);
+    const sources: MigrationSources = { source, targets: [primarySource, ...resolved.previous] };
+    const items = await buildItemList(run, ctx.tenantId, sources);
     const loadedCursor = await ctx.cursor.load();
     const cursor = isMigrationCursor(loadedCursor) ? loadedCursor : null;
 
@@ -1069,7 +1157,14 @@ export const storageMigrationHandler: JobHandler<"storage_migration"> = {
       return rejectMigration(run, ctx, migration, problemSummary(verifyResult, "Verifying"));
     }
 
-    const reconciled = await reconcileBeforeSwitch(run, ctx, migration, source, destination, items);
+    const reconciled = await reconcileBeforeSwitch(
+      run,
+      ctx,
+      migration,
+      sources,
+      destination,
+      items,
+    );
 
     // Every worker process's tenant storage cache must have had time to
     // notice the destination as a copy before it is safe to retire the old

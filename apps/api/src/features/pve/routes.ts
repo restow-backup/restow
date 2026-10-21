@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db } from "../../db.js";
+import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import {
   assertProviderRoute,
@@ -25,6 +26,7 @@ import { pveActivity } from "./activity.js";
 import type { PveActor } from "./audit.js";
 import { requestBootTest } from "./boot-tests.js";
 import { browseContainerFiles, openContainerDownload, prepareContainerDownload } from "./files.js";
+import { resetGuestRepository } from "./repository.js";
 import {
   assignJobSchema,
   backupNowSchema,
@@ -34,6 +36,7 @@ import {
   filesQuerySchema,
   idParamSchema,
   jobSchema,
+  resetRepositorySchema,
   restoreSchema,
 } from "./schemas.js";
 import {
@@ -68,6 +71,8 @@ import {
  *   GET    /guests/:id                       a guest with its restore points and runs
  *   POST   /guests/:id/backup                back up now (optionally a verify read)
  *   PUT    /guests/:id/job                   put the guest into a job (or none)
+ *   POST   /guests/:id/repository/reset      a container: begin a new backup chain ({ confirmName },
+ *                                            recent sign-in); its restore points become unavailable
  *   POST   /snapshots/:id/restore            restore as a new guest into the restore pool
  *   POST   /snapshots/:id/verify             read a sample of the restore point back now
  *   POST   /snapshots/:id/boot-test          boot the restore point on its node now (boot test)
@@ -141,6 +146,13 @@ pveRoutes.post("/guests/:id/backup", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   const input = await parseJsonBody(c.req, backupNowSchema);
   return c.json(await backupNow(db, c.get("tenantId"), id, input, actorOf(c)), 202);
+});
+
+pveRoutes.post("/guests/:id/repository/reset", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  const { confirmName } = await parseJsonBody(c.req, resetRepositorySchema);
+  assertRecentSignIn(c.get("auth").session);
+  return c.json(await resetGuestRepository(db, c.get("tenantId"), id, confirmName, actorOf(c)));
 });
 
 pveRoutes.put("/guests/:id/job", admin, async (c) => {

@@ -582,6 +582,10 @@
         "pruned": "Sicherungsstand des Gasts entfernt (Aufbewahrung)",
         "browsed": "Dateien eines Sicherungsstands des Containers durchsucht",
         "downloaded": "Dateien eines Sicherungsstands des Containers heruntergeladen"
+      },
+      "repository": {
+        "reinitialized": "Repository des Containers fehlte auf dem primären Repository: neue Sicherungskette begonnen",
+        "reset": "Repository des Containers zurückgesetzt: neue Sicherungskette mit der nächsten Sicherung"
       }
     },
     "file_share": {

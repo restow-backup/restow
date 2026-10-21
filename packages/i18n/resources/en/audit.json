@@ -582,6 +582,10 @@
         "pruned": "Restore point of the guest removed (retention)",
         "browsed": "Files of a container restore point browsed",
         "downloaded": "Files of a container restore point downloaded"
+      },
+      "repository": {
+        "reinitialized": "Container repository missing on the primary: new backup chain started",
+        "reset": "Container repository reset: new backup chain on the next backup"
       }
     },
     "file_share": {

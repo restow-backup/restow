@@ -298,6 +298,7 @@ const PROBLEM_KEYS: Record<string, string> = {
   "previous-holds-exclusive-data": "storage:errors.previousHoldsExclusiveData",
   "previous-holds-endpoint-repositories": "storage:errors.previousHoldsEndpointRepositories",
   "active-endpoints": "storage:errors.activeEndpoints",
+  "switch-blocked-by-repositories": "storage:errors.switchBlockedByRepositories",
   "installation-default-readonly": "storage:errors.installationDefaultReadonly",
   "queue-not-ready": "storage:errors.queueNotReady",
   "immutability-object-lock-unavailable": "storage:errors.immutabilityObjectLockUnavailable",

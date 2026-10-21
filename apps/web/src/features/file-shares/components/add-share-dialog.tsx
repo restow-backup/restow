@@ -21,6 +21,7 @@ import { Switch } from "@/components/ui/switch";
 import { addJobMembers, backupJobKeys } from "@/features/backup-jobs/api";
 import { useBackupJobs } from "@/features/backup-jobs/hooks";
 import { FailureExplanation } from "@/features/failures";
+import { ServerDiskWarning } from "@/features/storage";
 import { useSession } from "@/lib/session";
 
 import {
@@ -82,6 +83,7 @@ export function AddShareDialog({ open, onOpenChange, onAdded }: AddShareDialogPr
           <DialogTitle>{t("add.title")}</DialogTitle>
           <DialogDescription>{t("add.description")}</DialogDescription>
         </DialogHeader>
+        <ServerDiskWarning />
         {open ? <AddShareWizard onClose={() => onOpenChange(false)} onAdded={onAdded} /> : null}
       </DialogContent>
     </Dialog>

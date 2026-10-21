@@ -1233,8 +1233,12 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
 - LVM/ZFS/btrfs-Snapshots als Konsistenzquelle.
 - Löschen eines Endpunkts samt Repository (heute: Widerruf, Daten bleiben bis zur Aufbewahrung
   bzw. für immer, wenn kein Backup mehr kommt).
-- Die Speicherziel-Migration (docs/STORAGE.md) kopiert nur `tenants/<tid>/...`, nicht `endpoints/`.
-  **Bekannte Grenze, umgesetzt als Ablehnung, nicht als Migration:** Solange ein Endpunkt des Mandanten
+- Die Speicherziel-Migration mit "verschieben" (docs/STORAGE.md, "restic repositories in a move")
+  kopiert seit 0.4.2 auch `endpoints/<id>/` (ebenso `pve-guests/` und `file-shares/`), jede Datei
+  geprüft per SHA-256; so lassen sich die Repositories widerrufener Rechner auf das neue Primärziel
+  holen, und das alte Ziel lässt sich danach entfernen. Die Seite eines Rechners nennt, in welchem
+  Repository seine Sicherungen landen, und das Anmelden eines Rechners warnt, wenn das die eigene
+  Platte des Servers ist. **Bekannte Grenze, umgesetzt als Ablehnung:** Solange ein Endpunkt des Mandanten
   aktiv ist (der Agent schreibt, Retention und Prüfung laufen), verweigert der Server jeden Wechsel des
   Primärziels (Ersetzen mit "verschieben" oder "behalten" und das Hochstufen einer Kopie) mit 409
   `storage-active-endpoints` und einer klaren Meldung. Ein Endpunkt-Repository zählt außerdem als Daten

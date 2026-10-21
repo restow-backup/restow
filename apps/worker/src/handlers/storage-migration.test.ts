@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ChunkReader,
+  defaultEndpointConfig,
   generateDek,
   type JobContext,
   Keyring,
@@ -34,11 +35,17 @@ import {
   auditLog,
   createDb,
   type Database,
+  endpoints,
+  fileShares,
   jobs,
   packs,
   protectedObjects,
   providers,
+  pveClusters,
+  pveGuests,
+  pveSnapshots,
   type StorageTarget,
+  secrets,
   snapshots,
   sources,
   storageMigrations,
@@ -1302,5 +1309,197 @@ describe.skipIf(!adminUrl)("storageMigrationHandler against Postgres", () => {
     });
     await db.update(storageMigrations).set({ jobId }).where(eq(storageMigrations.id, migration.id));
     expect(await hasActiveMigration(tenantRunner(db, tenantId), tenantId)).toBe(true);
+  });
+
+  /** A restic file named by the SHA-256 of its content, as restic stores it. */
+  async function resticFile(
+    backend: LocalStorageBackend,
+    prefix: string,
+    kind: "data" | "index" | "snapshots" | "keys",
+    content: string,
+  ): Promise<string> {
+    const hash = sha256(Buffer.from(content)).toString("hex");
+    const key =
+      kind === "data" ? `${prefix}data/${hash.slice(0, 2)}/${hash}` : `${prefix}${kind}/${hash}`;
+    await backend.put(key, Buffer.from(content));
+    return key;
+  }
+
+  /** A restic repository with a config, a key, data, an index, a snapshot and a lock. */
+  async function resticRepository(
+    backend: LocalStorageBackend,
+    prefix: string,
+    tag: string,
+  ): Promise<string[]> {
+    await backend.put(`${prefix}config`, Buffer.from(`config ${tag}`));
+    await backend.put(`${prefix}restow-repository-password.json`, Buffer.from(`sealed ${tag}`));
+    await backend.put(`${prefix}locks/${"0".repeat(64)}`, Buffer.from("lock"));
+    return [
+      `${prefix}config`,
+      `${prefix}restow-repository-password.json`,
+      await resticFile(backend, prefix, "keys", `key ${tag}`),
+      await resticFile(backend, prefix, "data", `data ${tag}`),
+      await resticFile(backend, prefix, "index", `index ${tag}`),
+      await resticFile(backend, prefix, "snapshots", `snapshot ${tag}`),
+    ];
+  }
+
+  /** The tenant's containers (one with a VM restore point), a machine and a file share. */
+  async function seedRepositories(tenantId: string) {
+    const [cluster] = await db
+      .insert(pveClusters)
+      .values({ tenantId, name: "lab", fingerprint: randomUUID(), storageId: "restow" })
+      .returning();
+    const clusterId = cluster?.id as string;
+    const [container, retiredOnly, vm] = await db
+      .insert(pveGuests)
+      .values([
+        { tenantId, clusterId, vmid: 300, kind: "ct", repositoryReadyAt: new Date() },
+        { tenantId, clusterId, vmid: 301, kind: "ct", repositoryReadyAt: new Date() },
+        { tenantId, clusterId, vmid: 100, kind: "vm" },
+      ])
+      .returning();
+    const [machineSecret, shareSecret] = await db
+      .insert(secrets)
+      .values([
+        { tenantId, kind: "endpoint_repository", ciphertext: "sealed" },
+        { tenantId, kind: "file_share_repository", ciphertext: "sealed" },
+      ])
+      .returning();
+    const [machine] = await db
+      .insert(endpoints)
+      .values({
+        tenantId,
+        hostname: "fs01",
+        os: "linux",
+        arch: "amd64",
+        profile: "server",
+        status: "revoked",
+        secretHash: "hash",
+        repositorySecretId: machineSecret?.id as string,
+        config: defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
+      })
+      .returning();
+    const [share] = await db
+      .insert(fileShares)
+      .values({
+        tenantId,
+        name: "Projects",
+        protocol: "nfs",
+        server: "192.0.2.10",
+        exportPath: "/srv/projects",
+        nfsVersion: "4.1",
+        repositorySecretId: shareSecret?.id as string,
+        repositoryReadyAt: new Date(),
+      })
+      .returning();
+    // A VM restore point: its manifest lies beside the mail manifests.
+    const vmPoint = randomUUID();
+    await db.insert(pveSnapshots).values({
+      id: vmPoint,
+      tenantId,
+      clusterId,
+      guestId: vm?.id as string,
+      sequence: 1,
+      kind: "vm",
+      archiveName: "vm/100/2026-10-20T22:00:00Z",
+      storageId: "restow",
+      manifestPath: manifestKey(tenantId, vmPoint),
+      backupAt: new Date(),
+    });
+    return {
+      container: `pve-guests/${container?.id}/`,
+      retiredOnly: `pve-guests/${retiredOnly?.id}/`,
+      machine: `endpoints/${machine?.id}/`,
+      share: `file-shares/${share?.id}/`,
+      vmManifest: manifestKey(tenantId, vmPoint),
+    };
+  }
+
+  it("copies the restic repositories of containers, machines and file shares, verified by hash", async () => {
+    const tenantId = await createTenant();
+    const sourceDir = join(root, `source-${tenantId}`);
+    const retiredDir = join(root, `retired-${tenantId}`);
+    const destDir = join(root, `dest-${tenantId}`);
+    const sourceBackend = new LocalStorageBackend(sourceDir);
+    const retiredBackend = new LocalStorageBackend(retiredDir);
+    const source = await addTarget(tenantId, "primary", sourceDir);
+    // A retired primary an earlier "keep" left behind: one container's repository lives only there,
+    // and another repository at the first container's prefix that must not be mixed in.
+    await db.insert(storageTargets).values({
+      tenantId,
+      kind: "local",
+      role: "previous",
+      config: { basePath: retiredDir },
+    });
+    const destination = await addTarget(tenantId, "copy", destDir);
+    await seedSource(tenantId, sourceBackend);
+    const repos = await seedRepositories(tenantId);
+    await sourceBackend.put(repos.vmManifest, Buffer.from("sealed vm manifest"));
+    const expected = [
+      ...(await resticRepository(sourceBackend, repos.container, "container")),
+      ...(await resticRepository(sourceBackend, repos.machine, "machine")),
+      ...(await resticRepository(sourceBackend, repos.share, "share")),
+      ...(await resticRepository(retiredBackend, repos.retiredOnly, "retired")),
+    ];
+    const foreign = await resticFile(retiredBackend, repos.container, "snapshots", "old chain");
+    await retiredBackend.put(`${repos.container}config`, Buffer.from("config old chain"));
+    const migration = await addMigration(tenantId, source.id, destination.id);
+
+    const ctx = await contextFor(tenantId, migration.id);
+    const outcome = await storageMigrationHandler.run(ctx, payloadFor(tenantId, migration.id));
+    expect(outcome?.summary).toMatchObject({ status: "completed" });
+
+    const destBackend = new LocalStorageBackend(destDir);
+    for (const key of expected) {
+      const from = key.startsWith(repos.retiredOnly) ? retiredBackend : sourceBackend;
+      expect(await destBackend.get(key), key).toEqual(await from.get(key));
+    }
+    // The repository on the primary wins its prefix; the retired one's files stay out of it.
+    expect((await destBackend.get(`${repos.container}config`)).toString()).toBe("config container");
+    expect(await destBackend.head(foreign)).toBeNull();
+    // Locks are transient: not copied.
+    expect(await destBackend.list(`${repos.container}locks/`)).toEqual([]);
+    // The VM restore point's manifest is copied too (it is no mail snapshot).
+    expect((await destBackend.get(repos.vmManifest)).toString()).toBe("sealed vm manifest");
+    const [switched] = await db
+      .select()
+      .from(storageTargets)
+      .where(eq(storageTargets.id, destination.id));
+    expect(switched?.role).toBe("primary");
+  });
+
+  it("fails the migration, without switching, when a restic file does not match its name", async () => {
+    const tenantId = await createTenant();
+    const sourceDir = join(root, `source-${tenantId}`);
+    const destDir = join(root, `dest-${tenantId}`);
+    const sourceBackend = new LocalStorageBackend(sourceDir);
+    const source = await addTarget(tenantId, "primary", sourceDir);
+    const destination = await addTarget(tenantId, "copy", destDir);
+    const repos = await seedRepositories(tenantId);
+    await resticRepository(sourceBackend, repos.container, "container");
+    // A data file whose bytes no longer hash to its name (damaged on the source).
+    const hash = sha256(Buffer.from("original")).toString("hex");
+    await sourceBackend.put(
+      `${repos.container}data/${hash.slice(0, 2)}/${hash}`,
+      Buffer.from("damaged"),
+    );
+    const migration = await addMigration(tenantId, source.id, destination.id);
+
+    const ctx = await contextFor(tenantId, migration.id);
+    await expect(
+      storageMigrationHandler.run(ctx, payloadFor(tenantId, migration.id)),
+    ).rejects.toThrow();
+    const [failed] = await db
+      .select()
+      .from(storageMigrations)
+      .where(eq(storageMigrations.id, migration.id));
+    expect(failed?.status).toBe("failed");
+    expect(failed?.errorMessage).toContain(hash);
+    const rows = await db
+      .select()
+      .from(storageTargets)
+      .where(eq(storageTargets.tenantId, tenantId));
+    expect(rows.find((r) => r.id === source.id)?.role).toBe("primary");
   });
 });

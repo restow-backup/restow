@@ -31,6 +31,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { CadenceFields } from "@/features/schedules/components/cadence-fields";
+import { BackupDestinationNote } from "@/features/storage";
 import { ExtensionSlot } from "@/lib/extensions";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 import { activeTenantPageTo } from "@/lib/tenant-paths";
@@ -166,6 +167,8 @@ export function JobEditor({
           <SheetHeader className="border-b border-border p-6 pr-12">
             <SheetTitle className="text-lg">{title}</SheetTitle>
             <SheetDescription>{t(`editor.description.${kind}`)}</SheetDescription>
+            {/* Where this job's backups land (mail and machines alike: the tenant's primary). */}
+            <BackupDestinationNote />
           </SheetHeader>
           {open ? (
             <EditorLoader

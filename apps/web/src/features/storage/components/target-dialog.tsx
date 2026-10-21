@@ -53,6 +53,11 @@ interface TargetDialogProps {
   target?: StorageTargetDto;
   /** Why "primary" cannot be chosen when adding, if it cannot. */
   primaryBlocked: "primaryExists" | "tenantHasData" | null;
+  /**
+   * "Keep existing backups where they are" is refused: containers or file shares have
+   * repositories that would stay behind (docs/STORAGE.md).
+   */
+  keepBlocked?: boolean;
 }
 
 /**
@@ -77,6 +82,7 @@ export function TargetDialog({
   kind,
   target,
   primaryBlocked,
+  keepBlocked = false,
 }: TargetDialogProps) {
   const { t } = useTranslation("storage");
   return (
@@ -91,6 +97,7 @@ export function TargetDialog({
           kind={kind}
           target={target}
           primaryBlocked={primaryBlocked}
+          keepBlocked={keepBlocked}
           onDone={() => onOpenChange(false)}
         />
       </DialogContent>
@@ -116,11 +123,13 @@ function TargetForm({
   kind,
   target,
   primaryBlocked,
+  keepBlocked,
   onDone,
 }: {
   kind: EditableKind;
   target?: StorageTargetDto;
   primaryBlocked: "primaryExists" | "tenantHasData" | null;
+  keepBlocked: boolean;
   onDone: () => void;
 }) {
   const { t } = useTranslation("storage");
@@ -230,6 +239,7 @@ function TargetForm({
             migrationMode={values.migrationMode}
             onMigrationModeChange={(mode) => form.setValue("migrationMode", mode)}
             primaryBlocked={primaryBlocked}
+            keepBlocked={keepBlocked}
           />
         )}
 
@@ -298,12 +308,15 @@ export function RoleField({
   migrationMode,
   onMigrationModeChange,
   primaryBlocked,
+  keepBlocked = false,
 }: {
   value: AssignableRole;
   onChange: (role: AssignableRole) => void;
   migrationMode: MigrationMode;
   onMigrationModeChange: (mode: MigrationMode) => void;
   primaryBlocked: "primaryExists" | "tenantHasData" | null;
+  /** Containers or file shares have repositories: only "move" takes them along. */
+  keepBlocked?: boolean;
 }) {
   const { t } = useTranslation("storage");
   const replacing = primaryBlocked !== null && value === "primary";
@@ -351,6 +364,7 @@ export function RoleField({
               value="keep"
               id="migration-mode-keep"
               className="mt-0.5"
+              disabled={keepBlocked}
               aria-describedby="migration-mode-keep-hint"
             />
             <Label htmlFor="migration-mode-keep" className="flex-1 cursor-pointer font-normal">
@@ -358,7 +372,7 @@ export function RoleField({
                 {t("form.migrationModeKeep")}
               </span>
               <span id="migration-mode-keep-hint" className="block text-xs text-muted-foreground">
-                {t("form.migrationModeKeepHint")}
+                {t(keepBlocked ? "form.migrationModeKeepBlocked" : "form.migrationModeKeepHint")}
               </span>
             </Label>
           </div>

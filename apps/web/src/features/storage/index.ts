@@ -5,6 +5,14 @@ import { REPOSITORIES_NAV_ID, REPOSITORIES_PATH } from "@/lib/tenant-nav";
 
 import "./i18n";
 
+export {
+  type BackupDestination,
+  BackupDestinationNote,
+  ServerDiskWarning,
+  useBackupDestination,
+} from "./destination";
+export { useStorageScope } from "./use-storage";
+
 /**
  * Repositories: where the tenant's chunk store lives (installation default,
  * primary and copy repositories), whether each one works and can enforce

@@ -83,6 +83,7 @@ import {
   type WorkerRuntime,
   withTenantTx,
 } from "../handlers/framework.js";
+import { hasActiveMigration } from "../handlers/storage-migration.js";
 import { raiseEvents } from "../reporting.js";
 import {
   DEFAULT_RETENTION_HOLD_MODE,
@@ -431,7 +432,18 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
   const guests = await deps.providerDb.select().from(pveGuests);
   const mode = guests.length > 0 ? await retentionHoldMode(deps.providerDb) : null;
   let pruned = 0;
+  // A "move" storage migration copies the containers' repositories file by file: retention
+  // waits for it, so no restic file it listed is pruned away under it (per tenant, once a run).
+  const migrating = new Map<string, boolean>();
   for (const guest of guests) {
+    let busy = migrating.get(guest.tenantId);
+    if (busy === undefined) {
+      busy = await hasActiveMigration(tenantRunner(deps.db, guest.tenantId), guest.tenantId);
+      migrating.set(guest.tenantId, busy);
+    }
+    if (busy) {
+      continue;
+    }
     const result = await withTenantTx(deps.db, guest.tenantId, async (tx) => {
       const holds = await loadRetentionHolds(tx, {
         tenantId: guest.tenantId,

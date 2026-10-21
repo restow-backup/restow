@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useJobDefaults } from "@/features/backup-jobs/hooks";
 import { linkProps, newJobTo } from "@/features/backup-jobs/paths";
+import { ServerDiskWarning } from "@/features/storage";
 import { activeTenantPageTo } from "@/lib/tenant-paths";
 import { cn } from "@/lib/utils";
 
@@ -518,6 +519,7 @@ export function EnrollDialogView(props: EnrollViewProps) {
             {created ? t("enroll.description.command") : t(`enroll.description.choose.${profile}`)}
           </DialogDescription>
         </DialogHeader>
+        {created ? null : <ServerDiskWarning />}
         {created ? <CommandStep {...props} created={created} /> : <ChooseStep {...props} />}
       </DialogContent>
     </Dialog>

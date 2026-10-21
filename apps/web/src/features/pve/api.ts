@@ -232,6 +232,12 @@ export interface PveRestorePoint {
   verify: { checkedAt: string; blocks: number; mismatched: number; errors: string[] } | null;
   /** The newest rated boot test of the restore point; missing on older servers. */
   bootTest?: PveBootTest | null;
+  /**
+   * False for a container restore point of an earlier backup chain: its repository is gone,
+   * so it can be neither restored nor checked (0.4.2 on; missing means available).
+   */
+  available?: boolean;
+  unavailableAt?: string | null;
 }
 
 export interface PveRun {
@@ -257,11 +263,31 @@ export interface PveRun {
   node?: PveRunNode | null;
 }
 
+/**
+ * A new backup chain of a container's repository (docs/PVE.md, "New backup chain"): the
+ * repository was missing on the primary when a backup began, or an administrator reset it.
+ */
+export interface PveRepositoryChain {
+  at: string;
+  reason: "missing" | "reset";
+  /** Where the repository was looked for; `location` is null for the installation default. */
+  target: {
+    name: string;
+    kind: string | null;
+    location: string | null;
+    installationDefault: boolean;
+  } | null;
+  unavailablePoints: number;
+  actor: string | null;
+}
+
 export interface PveGuestDetail {
   guest: PveGuest;
   cluster: { id: string; name: string; storageId: string } | null;
   snapshots: PveRestorePoint[];
   runs: PveRun[];
+  /** A container's repository and its new backup chains (newest first); null for a VM, missing before 0.4.2. */
+  repository?: { readyAt: string | null; chains: PveRepositoryChain[] } | null;
   /** What a follow-up backup added on average; missing on servers before 0.3.7. */
   followUp?: PveFollowUpAverage | null;
   /** Whether the guest's node can boot-test, the job's schedule, the last test; missing on older servers. */
@@ -361,6 +387,12 @@ export const restoreSnapshot = (
     method: "POST",
     body: input,
   });
+/** Reset a container's repository (typed name, recent sign-in): a new chain begins. */
+export const resetRepository = (id: string, confirmName: string) =>
+  apiFetch<{ unavailablePoints: number }>(
+    `/pve/guests/${encodeURIComponent(id)}/repository/reset`,
+    { method: "POST", body: { confirmName } },
+  );
 export const verifySnapshot = (id: string) =>
   apiFetch<void>(`/pve/snapshots/${encodeURIComponent(id)}/verify`, {
     method: "POST",

@@ -8,6 +8,43 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- Proxmox VE: "Reset repository" for a container (guest page, danger zone): the guest's name
+  typed, a recent sign-in, audited (`pve.repository.reset`). Its restore points become
+  unavailable at once and the next backup begins a new chain
+  (`POST /api/v1/pve/guests/:id/repository/reset`).
+- Where backups land: `GET /api/v1/storage/destination` names the tenant's effective primary
+  repository. The guest page and its new "Back up now" dialog, the PVE job and connect dialogs,
+  a machine's and a file share's page and the job editors show it; the installation default on
+  the server's local disk is highlighted. The Repositories section and the dialogs that add PVE
+  nodes, machines and file shares warn "Backups land on the server's own disk" when the primary
+  is a directory on a disk of the server itself (not a network share).
+
+### Fixed
+
+- Proxmox VE: after the primary repository changed with "keep existing backups where they
+  are", every container with an existing repository failed with `repository does not exist`
+  (exit 10): the server trusted `repository_ready_at` and never checked the repository was on
+  the new primary. Before a backup gets its restic credential the server now checks it (once
+  per run). Missing everywhere, a new repository and a new backup chain begin, visible on the
+  guest page ("New backup chain started on …: the previous repository was not found at …") and
+  in its history, audited as `pve.repository.reinitialized`; the earlier restore points become
+  unavailable (no restore, no check, not counted for readiness, skipped by retention). Still on
+  a retired target, the backup is refused with a clear message instead. Restores read the
+  repository from whichever target holds it. One database migration.
+- Storage: "Keep existing backups where they are" and promoting a copy are refused
+  (`storage-switch-blocked-by-repositories`; the dialog offers "keep" disabled) while
+  containers or file shares have restic repositories, which only "move" takes along.
+- Storage: a "move" now copies the restic repositories of containers, machines and file shares
+  (from the target that holds each one), verified by size and by SHA-256 like packs, waits for
+  running container backups and file share runs before it switches, and retention of
+  containers and file shares waits for it. It also copies the manifests of VM and container
+  restore points, which it treated as pruned before. A retired location is no longer removable
+  while it alone holds a container's or file share's repository.
+
 ## [0.4.1] - 2026-10-16
 
 Beta release. Run it alongside your existing backups, not as your only one, until
