@@ -29,7 +29,9 @@
     "switchRefused": "Diese Installation kann hier nicht den Build wechseln. Wechseln Sie von Hand mit den zwei Zeilen für die .env-Datei.",
     "restartNotRequested": "Dieser Dienst muss nicht mehr neu gestartet werden. Die Seite zeigt den aktuellen Stand.",
     "restartUnsupported": "Der laufende Updater kann noch keine Dienste neu starten. Erstellen Sie ihn neu, oder führen Sie den Befehl auf dem Server aus.",
-    "notWaiting": "Es wartet kein Update mehr. Die Seite zeigt den aktuellen Stand."
+    "notWaiting": "Es wartet kein Update mehr. Die Seite zeigt den aktuellen Stand.",
+    "updaterTimeout": "Es wird geprüft, ob das Update angenommen wurde … Der Updater hat nicht rechtzeitig geantwortet; diese Seite zeigt seinen Stand, sobald er antwortet.",
+    "fleetCurrent": "Kein erreichbarer Knoten oder Agent läuft mit einem älteren Release. Aktualisieren Sie nicht erreichbare von Hand, sobald sie wieder online sind."
   },
   "form": {
     "unsaved": "Es gibt ungespeicherte Änderungen.",
@@ -833,11 +835,16 @@
       "updated": "Aktualisiert",
       "pending": "Wird aktualisiert",
       "unreachable": "Nicht erreichbar",
-      "paused": "Updates pausiert"
+      "paused": "Updates pausiert",
+      "behind": "Update verfügbar"
     },
     "truncated": "Mehr als 200 werden nicht einzeln aufgeführt; die Zahlen umfassen alle.",
     "manual": "Nicht erreicht: Aktualisieren Sie diese von Hand, sobald sie wieder online sind (als root).",
     "manualLegacy": "Agenten vor {version} kennen den Befehl update noch nicht: Starten Sie stattdessen ihren Dienst neu, dann installieren sie das Update eine Minute später.",
-    "copy": "Befehl kopieren"
+    "copy": "Befehl kopieren",
+    "updateNow": "Knoten und Agenten jetzt aktualisieren",
+    "updateNowTitle": "Knoten und Agenten jetzt aktualisieren?",
+    "updateNowBody": "Neue Läufe werden wie nach einem Update höchstens 15 Minuten angehalten. Erreichbare Proxmox-VE-Knoten und Agenten mit einem älteren Release installieren {version}, sobald sie frei sind; die Pause endet, sobald alle fertig sind. Nicht erreichbare und Agenten mit pausierten Updates bleiben unverändert.",
+    "updateNowHint": "Kein Update hat diesen Schritt ausgelöst (zum Beispiel, weil der Server von Hand aktualisiert wurde)."
   }
 }

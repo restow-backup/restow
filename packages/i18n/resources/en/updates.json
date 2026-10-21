@@ -29,7 +29,9 @@
     "switchRefused": "This installation cannot switch builds here. Switch by hand with the two lines for the .env file.",
     "restartNotRequested": "This service no longer needs a restart. The page shows the current state.",
     "restartUnsupported": "The running updater cannot restart services yet. Recreate it, or run the command on the server.",
-    "notWaiting": "No update is waiting any more. The page shows the current state."
+    "notWaiting": "No update is waiting any more. The page shows the current state.",
+    "updaterTimeout": "Checking whether the update was accepted… The updater did not answer in time; this page shows its state as soon as it answers.",
+    "fleetCurrent": "No reachable node or agent runs an older release. Update unreachable ones by hand once they are online again."
   },
   "form": {
     "unsaved": "You have unsaved changes.",
@@ -833,11 +835,16 @@
       "updated": "Updated",
       "pending": "Updating",
       "unreachable": "Not reachable",
-      "paused": "Updates paused"
+      "paused": "Updates paused",
+      "behind": "Update available"
     },
     "truncated": "More than 200 are listed by name; the counts cover all of them.",
     "manual": "Not reached: update them by hand once they are online again (as root).",
     "manualLegacy": "Agents older than {version} have no update command: restart their service instead, and they install the update a minute later.",
-    "copy": "Copy command"
+    "copy": "Copy command",
+    "updateNow": "Update nodes and agents now",
+    "updateNowTitle": "Update nodes and agents now?",
+    "updateNowBody": "New runs pause for at most 15 minutes, as after an update. Reachable Proxmox VE nodes and agents that run an older release install {version} as soon as they are idle; the pause ends once all of them are done. Unreachable ones and agents with paused updates are not changed.",
+    "updateNowHint": "No update led into this step (for example, the server was updated by hand)."
   }
 }

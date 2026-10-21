@@ -25,6 +25,7 @@ import {
   type SelfUpdateReason,
   type StepStatus,
   UPDATE_BUSY_PROBLEM,
+  UPDATE_FLEET_CURRENT_PROBLEM,
   UPDATE_NOT_VERIFIABLE_PROBLEM,
   UPDATE_NOT_WAITING_PROBLEM,
   UPDATE_RUNNING_UNKNOWN_PROBLEM,
@@ -66,10 +67,26 @@ const PROBLEM_KEYS: Record<string, string> = {
   [BUILD_SWITCH_REFUSED_PROBLEM]: "updates:errors.switchRefused",
   [RESTART_NOT_REQUESTED_PROBLEM]: "updates:errors.restartNotRequested",
   [RESTART_UNSUPPORTED_PROBLEM]: "updates:errors.restartUnsupported",
+  [UPDATE_FLEET_CURRENT_PROBLEM]: "updates:errors.fleetCurrent",
 };
+
+/**
+ * The updater runs but did not answer in time (0.4.3): it may well have taken the request, so
+ * the page reads its state again instead of saying that no updater runs.
+ */
+export function isUpdaterTimeout(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.problem?.type === UPDATER_UNAVAILABLE_PROBLEM &&
+    error.problem.reason === "timeout"
+  );
+}
 
 /** The i18n key (with namespace) that explains a failed updates request. */
 export function updatesErrorKey(error: unknown): string {
+  if (isUpdaterTimeout(error)) {
+    return "updates:errors.updaterTimeout";
+  }
   if (error instanceof ApiError && error.problem) {
     const key = PROBLEM_KEYS[error.problem.type];
     if (key) {

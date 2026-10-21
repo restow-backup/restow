@@ -10,6 +10,19 @@ private repository.
 
 ## [Unreleased]
 
+### Added
+
+- Updates tab: **Update nodes and agents now** on the card of nodes and agents. When the
+  server runs a newer release than its Proxmox VE nodes and agents but no update led into the
+  step where they follow it (an update by hand, or one whose announcement went unanswered),
+  an administrator with every tenant starts that step: new runs pause for at most 15 minutes,
+  reachable nodes and agents install the release when idle, and the pause ends once they are
+  done (`POST /api/v1/updates/fleet/update-now`, audited as `update.fleet_started` with
+  `manual: true`). Outside an update, nodes and agents that are behind show as "Update
+  available".
+- Proxmox VE inventory (`GET /api/v1/pve`): every node carries `offeredVersion` (the
+  restow-pve release the server offers) and `outdated` next to its `helperVersion`.
+
 ### Fixed
 
 - Proxmox VE: right after a container backup, the new restore check often failed with
@@ -26,6 +39,27 @@ private repository.
   checked two minutes after its commit at the earliest. A cancelled or ended run may still
   delete its own restic lock (every other request of it is refused and audited). A failed
   check keeps restic's explaining lines, not only its last one. No database migration.
+- Updates: announcing an update could report "The updater is not running" although the
+  updater accepted it a few seconds later. The api waited 5 seconds for an answer while the
+  updater checks Docker, the Compose configuration, the disk space and the running version
+  first (5 to 12 seconds on real installations). The update then ran without the pause of new
+  runs, without the `update.scheduled` audit entry and without the step in which Proxmox VE
+  nodes and agents follow the server, so they stayed on the old release. The api now waits up
+  to a minute for the announcement (30 seconds for cancelling, dismissing, restarts and
+  deleting a dump); when the answer is still lost it reads the updater's state again and
+  treats the update as accepted when the updater shows it. The pause is lifted only on a
+  clear refusal or an idle updater, and "Start now" after waiting for runs no longer sends a
+  false failure notification. The updater answers faster: it checks once per announcement
+  and reuses the measured database and image sizes of the last ten minutes (the run's first
+  step measures again). The Updates tab reads the state again after a failed announcement
+  and says it is checking whether the update was accepted instead of "not running".
+- Proxmox VE: after a self-update (automatic, "update now" or `restow-pve update`) the PVE
+  daemons kept the old storage plugin loaded until they restarted. restow-pve now restarts
+  pvedaemon, pveproxy, pvestatd and pvescheduler like the installer does (`systemctl
+  reload-or-restart` on the running ones; a failure is logged and does not undo the update).
+  `restow-pve update` also restarts the running restow-pve service, so the node reports the
+  new release with its next heartbeat. A node that an older restow-pve updated restarts the
+  daemons once by itself (it remembers the plugin files it restarted them for).
 
 ## [0.4.2] - 2026-10-21
 

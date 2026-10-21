@@ -349,7 +349,10 @@ export class UpdateEngine {
     }
     this.assertFree();
 
-    const capabilities = await this.deps.preflight.get(true);
+    // Deep (the Compose configuration is read again), but with the database and image sizes
+    // of the last ten minutes: the run's first step measures again before anything changes.
+    // The api waits for this answer; a fresh measurement took seconds of helper containers.
+    const capabilities = await this.deps.preflight.get(true, { refreshSpace: false });
     if (!capabilities.ready) {
       throw new EngineError(
         "blocked",
@@ -416,13 +419,15 @@ export class UpdateEngine {
       params: { version: target, startsAt: run.startsAt },
     });
     await store.save();
-    this.deps.preflight.invalidate();
 
     if (request.leadSeconds === 0) {
       await this.begin();
     } else {
       this.armTimer(startsAt.getTime());
     }
+    // Scheduling changes nothing the preflight looks at: the answer reuses the check just made
+    // (computed once per request) instead of checking everything again before it answers.
+    this.deps.preflight.retain(capabilities);
   }
 
   async cancel(): Promise<void> {

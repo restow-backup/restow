@@ -54,7 +54,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
-import type { UpdaterClient } from "./updater-client.js";
+import { type UpdaterClient, UpdaterUnavailableError } from "./updater-client.js";
 
 const DATABASE = "restow_api_updates_test";
 const TOKEN = "glpat-super-secret-token-0123456789";
@@ -148,6 +148,12 @@ class ScriptedUpdater implements UpdaterClient {
   acknowledged = 0;
   enabledMounter = 0;
   readonly restarted: string[] = [];
+  /**
+   * A schedule whose answer is lost (0.4.3): `after` takes the update and times out, `before`
+   * times out without taking it, `silent` takes it and then answers nothing at all, `gone`
+   * breaks the connection and answers nothing any more.
+   */
+  scheduleTimeout: "after" | "before" | "silent" | "gone" | null = null;
 
   async state() {
     return this.view;
@@ -164,7 +170,25 @@ class ScriptedUpdater implements UpdaterClient {
   }
 
   async schedule(request: ScheduleRequest) {
+    if (this.scheduleTimeout === "before") {
+      throw new UpdaterUnavailableError("timeout");
+    }
+    if (this.scheduleTimeout === "gone") {
+      this.view = null;
+      throw new UpdaterUnavailableError("unreachable");
+    }
     this.scheduled.push(request);
+    if (this.scheduleTimeout !== null) {
+      this.accept(request);
+      if (this.scheduleTimeout === "silent") {
+        this.view = null;
+      }
+      throw new UpdaterUnavailableError("timeout");
+    }
+    return this.accept(request);
+  }
+
+  private accept(request: ScheduleRequest): StateView {
     const startsAt = new Date(Date.parse("2026-10-01T09:00:00.000Z") + request.leadSeconds * 1000);
     this.view = idleState({
       phase: "scheduled",
@@ -1380,6 +1404,91 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       });
     });
 
+    it("keeps an update whose answer timed out when the updater shows it, with its pause", async () => {
+      // 0.4.2 in the field: the updater took 5-12 s, the api gave up after 5 s, lifted the pause
+      // and reported "no updater"; the update ran anyway, without its pause and fleet phase.
+      const { service } = await withCheck();
+      updater.scheduleTimeout = "after";
+      const view = await service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor);
+      expect(view.maintenance).toMatchObject({ phase: "scheduled", targetVersion: "0.2.0" });
+      expect(await pauseRow()).toMatchObject({ phase: "announced", version: "0.2.0" });
+      const [entry] = await auditRows("update.scheduled");
+      expect(entry?.details).toMatchObject({ version: "0.2.0", runId: "r-1" });
+    });
+
+    it("lifts the pause when the updater, asked again, has no such update", async () => {
+      const { service } = await withCheck();
+      updater.scheduleTimeout = "before";
+      await expect(
+        service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:updater-unavailable",
+        extensions: { reason: "timeout" },
+      });
+      expect(await pauseRow()).toBeNull();
+      expect(await auditRows("update.scheduled")).toHaveLength(0);
+    });
+
+    it("keeps the pause while it is not known whether the updater took the update", async () => {
+      const { service } = await withCheck();
+      updater.scheduleTimeout = "silent";
+      await expect(
+        service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:updater-unavailable",
+        extensions: { reason: "timeout" },
+      });
+      expect(await pauseRow()).toMatchObject({ phase: "announced" });
+      // Once the updater answers idle again, the pause lifts as usual.
+      updater.view = idleState();
+      now = new Date(now.getTime() + 60_000);
+      await service.advancePause();
+      expect(await pauseRow()).toBeNull();
+    });
+
+    it("lifts the pause when the connection broke and the updater is gone", async () => {
+      const { service } = await withCheck();
+      updater.scheduleTimeout = "gone";
+      await expect(
+        service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:updater-unavailable",
+        extensions: { reason: "unreachable" },
+      });
+      expect(await pauseRow()).toBeNull();
+    });
+
+    it("announces a waiting update whose answer timed out without reporting a failure", async () => {
+      const { service } = await withCheck();
+      await mailJob("active");
+      await service.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+      updater.scheduleTimeout = "after";
+      const view = await service.startNow(actor);
+      expect(view.jobPause).toMatchObject({ phase: "announced" });
+      expect(
+        await owner.select().from(notifications).where(eq(notifications.event, "update.failed")),
+      ).toHaveLength(0);
+      const [entry] = await auditRows("update.scheduled");
+      expect(entry?.details).toMatchObject({ after: "admin" });
+      expect(await auditRows("update.jobs_resumed")).toHaveLength(0);
+
+      // Not known at all: no failure either, and the pause stays.
+      await owner.delete(jobStartPause);
+      updater.view = idleState();
+      updater.scheduleTimeout = "silent";
+      await service.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+      await expect(service.startNow(actor)).rejects.toMatchObject({
+        type: "urn:restow:problem:updater-unavailable",
+      });
+      expect(await pauseRow()).toMatchObject({ phase: "announced" });
+      expect(
+        await owner.select().from(notifications).where(eq(notifications.event, "update.failed")),
+      ).toHaveLength(0);
+    });
+
     it("cancels a waiting update without the updater, and lifts the pause", async () => {
       const { service } = await withCheck();
       await mailJob("active");
@@ -1507,6 +1616,90 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         expect(await pauseRow()).toBeNull();
         const lifted = await auditRows("update.jobs_resumed");
         expect(lifted.at(-1)?.details).toMatchObject({ reason: "fleet_deadline" });
+        await owner.delete(pveClusters);
+      } finally {
+        running = "0.1.0";
+        process.env.RESTOW_AGENT_DIR = previous.dir;
+        process.env.RESTOW_VERSION = previous.version;
+        if (previous.dir === undefined) Reflect.deleteProperty(process.env, "RESTOW_AGENT_DIR");
+        if (previous.version === undefined) Reflect.deleteProperty(process.env, "RESTOW_VERSION");
+        await rm(agentDir, { recursive: true, force: true });
+      }
+    });
+
+    it("updates nodes and agents behind the server on an administrator's word, without an update", async () => {
+      // 0.4.3: the server was updated by hand (or the announcement's answer was lost), so no
+      // pause led into the phase `fleet`; its nodes stayed on the old release.
+      const agentDir = await mkdtemp(join(tmpdir(), "restow-fleet-"));
+      const previous = { dir: process.env.RESTOW_AGENT_DIR, version: process.env.RESTOW_VERSION };
+      process.env.RESTOW_AGENT_DIR = agentDir;
+      process.env.RESTOW_VERSION = "0.2.0";
+      running = "0.2.0";
+      try {
+        const [cluster] = await owner
+          .insert(pveClusters)
+          .values({
+            tenantId: contoso,
+            name: "lab",
+            fingerprint: "8".repeat(64),
+            storageId: "restow",
+          })
+          .returning();
+        const [node] = await owner
+          .insert(pveNodes)
+          .values({
+            tenantId: contoso,
+            clusterId: cluster?.id ?? "",
+            name: "pve1",
+            helperVersion: "0.1.0",
+            secretHash: "x",
+            lastSeenAt: now,
+          })
+          .returning();
+        const { service } = build();
+        const before = await service.view();
+        expect(before.fleet?.counts.pve_node).toMatchObject({ pending: 1 });
+        expect(before.jobPause).toBeNull();
+
+        const view = await service.updateFleetNow(actor);
+        expect(view.jobPause).toMatchObject({ phase: "fleet", requestedBy: actor.email });
+        expect((await pauseRow())?.deadlineAt.getTime()).toBe(now.getTime() + 15 * 60 * 1000);
+        expect(await readJobStartPause(providerDb.$client)).toMatchObject({
+          paused: true,
+          phase: "fleet",
+        });
+        const [started] = await auditRows("update.fleet_started");
+        expect(started).toMatchObject({ actor: actor.email, target: "0.2.0" });
+        expect(started?.details).toMatchObject({ agentVersion: "0.2.0", pending: 1, manual: true });
+        // Once only.
+        await expect(service.updateFleetNow(actor)).rejects.toMatchObject({
+          status: 409,
+          type: "urn:restow:problem:update-busy",
+        });
+        // The usual step lifts it once the node reports the release.
+        await owner
+          .update(pveNodes)
+          .set({ helperVersion: "0.2.0" })
+          .where(eq(pveNodes.id, node?.id ?? ""));
+        await service.advancePause();
+        expect(await pauseRow()).toBeNull();
+        const resumed = await auditRows("update.jobs_resumed");
+        expect(resumed.at(-1)?.details).toMatchObject({ reason: "fleet_done", phase: "fleet" });
+        // Nothing behind any more: nothing to start.
+        await expect(service.updateFleetNow(actor)).rejects.toMatchObject({
+          status: 409,
+          type: "urn:restow:problem:update-fleet-current",
+        });
+        // Not while an update is announced.
+        await owner
+          .update(pveNodes)
+          .set({ helperVersion: "0.1.0" })
+          .where(eq(pveNodes.id, node?.id ?? ""));
+        updater.view = idleState({ phase: "scheduled" });
+        await expect(service.updateFleetNow(actor)).rejects.toMatchObject({
+          type: "urn:restow:problem:update-busy",
+        });
+        expect(await pauseRow()).toBeNull();
         await owner.delete(pveClusters);
       } finally {
         running = "0.1.0";

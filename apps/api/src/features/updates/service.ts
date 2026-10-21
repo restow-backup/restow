@@ -38,6 +38,7 @@ import {
   type FleetStatus,
   fleetStatus,
   serverRunsPauseVersion,
+  startFleetPhase,
 } from "./fleet.js";
 import {
   claimDrainedUpdate,
@@ -138,6 +139,8 @@ export const UPDATE_PROBLEMS = {
   sourceNotAllowed: "urn:restow:problem:update-source-not-allowed",
   notVerifiable: "urn:restow:problem:update-not-verifiable",
   updaterError: "urn:restow:problem:updater-error",
+  /** "Update nodes and agents now" with none reachable behind the server (0.4.3). */
+  fleetCurrent: "urn:restow:problem:update-fleet-current",
   setupIncomplete: "urn:restow:problem:setup-incomplete",
   /** The build switch is refused: not a Community installation, or not the published images. */
   switchRefused: "urn:restow:problem:build-switch-refused",
@@ -760,12 +763,11 @@ export class UpdateService {
       leadSeconds: input.leadSeconds,
       requestedBy: { userId: actor.id, label: actor.email, ip: actor.ip },
     };
-    let after: StateView;
-    try {
-      after = await this.deps.updater.schedule(request);
-    } catch (error) {
-      throw mapUpdaterError(error);
+    const outcome = await this.handOver(request);
+    if (outcome.kind !== "accepted") {
+      throw outcome.problem;
     }
+    const after = outcome.after;
     cache.setMaintenance(maintenanceSummaryOf(after));
     await audit(db, {
       tenantId: null,
@@ -1101,13 +1103,17 @@ export class UpdateService {
       requestedBy: request.requestedBy,
       now: this.now(),
     });
-    let after: StateView;
-    try {
-      after = await this.deps.updater.schedule(request);
-    } catch (error) {
-      await removeJobPause(db, pause.id);
-      throw mapUpdaterError(error);
+    const outcome = await this.handOver(request);
+    if (outcome.kind !== "accepted") {
+      // Only a clear "no" lifts the pause. When the outcome is unknown it stays: the update may
+      // run, and its nodes and agents follow only while the pause holds (advancePause lifts it
+      // once the updater answers idle, and it expires in any case).
+      if (outcome.kind === "refused") {
+        await removeJobPause(db, pause.id);
+      }
+      throw outcome.problem;
     }
+    const after = outcome.after;
     cache.setMaintenance(maintenanceSummaryOf(after));
     await audit(db, {
       tenantId: null,
@@ -1180,7 +1186,19 @@ export class UpdateService {
       if (!state.capabilities.ready) {
         throw blocked(state.capabilities.blockers);
       }
-      after = await this.deps.updater.schedule(request);
+      const outcome = await this.handOver(request);
+      if (outcome.kind === "unknown") {
+        // Not known whether the updater took it: no failure is reported and the pause stays
+        // (advancePause lifts it once the updater answers idle; it expires in any case).
+        this.deps.log?.("warn", "whether the updater took the update is not known yet", {
+          version: claimed.version,
+        });
+        return outcome.problem;
+      }
+      if (outcome.kind === "refused") {
+        throw outcome.problem;
+      }
+      after = outcome.after;
     } catch (error) {
       const problem = mapUpdaterError(error);
       await removeJobPause(db, claimed.id);
@@ -1304,6 +1322,69 @@ export class UpdateService {
       }
       await this.liftPause(pause, "update_over");
     }
+  }
+
+  /**
+   * "Update nodes and agents now" (0.4.3): the server runs a release its Proxmox VE nodes and
+   * endpoint agents do not, but no update led into the phase `fleet` (an update by hand, or an
+   * announcement whose answer was lost). Starts that phase as after an update: new starts pause
+   * (at most 15 minutes) and every reachable node and agent that is behind installs the release
+   * once idle; advancePause lifts the pause as usual. Not while an update waits, is announced or
+   * runs.
+   */
+  async updateFleetNow(actor: Actor): Promise<UpdatesView> {
+    if (this.demo) {
+      throw new ProblemError(403, "Demo installation is read-only", {
+        type: "urn:restow:problem:demo-read-only",
+        detail: "The demo installation cannot be changed.",
+      });
+    }
+    const { db } = this.deps;
+    const now = this.now();
+    const busy = () =>
+      new ProblemError(409, "An update is already announced", {
+        type: UPDATE_PROBLEMS.busy,
+        detail: "An update is announced or running, or nodes and agents are updating already.",
+      });
+    if (activePause(await loadJobPause(db), now)) {
+      throw busy();
+    }
+    const state = await this.updaterState(true);
+    if (state && (state.phase === "scheduled" || state.phase === "running")) {
+      throw busy();
+    }
+    const fleet = await fleetStatus(db, await this.fleetTarget(), now);
+    if (fleet.counts.all.pending === 0) {
+      throw new ProblemError(409, "No node or agent to update", {
+        type: UPDATE_PROBLEMS.fleetCurrent,
+        detail:
+          "No reachable node or agent runs an older release than the server offers. Unreachable ones are updated by hand.",
+      });
+    }
+    const row = await startFleetPhase(db, {
+      version: this.deps.state.runningVersion() ?? fleet.targetVersion,
+      requestedBy: { userId: actor.id, label: actor.email, ip: actor.ip },
+      now,
+    });
+    if (!row) {
+      throw busy();
+    }
+    await audit(db, {
+      tenantId: null,
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: UPDATE_AUDIT_ACTIONS.fleetStarted,
+      target: row.version,
+      targetType: "update",
+      ip: actor.ip,
+      details: {
+        agentVersion: fleet.targetVersion,
+        deadlineAt: row.deadlineAt.toISOString(),
+        manual: true,
+        ...fleet.counts.all,
+      },
+    });
+    return this.view();
   }
 
   /** The release nodes and agents update to: the agent release this server announces. */
@@ -1552,7 +1633,8 @@ export class UpdateService {
     }
     let state: StateView | null;
     try {
-      state = await this.deps.updater.state({ fresh: true });
+      // Patient: an updater that checks before it answers is slow, not missing.
+      state = await this.deps.updater.state({ fresh: true, patient: true });
     } catch (error) {
       throw mapUpdaterError(error);
     }
@@ -1560,6 +1642,62 @@ export class UpdateService {
       throw unavailable("unreachable");
     }
     return state;
+  }
+
+  /**
+   * Hand an update to the updater. `accepted`: the updater has it (also when its answer was lost
+   * and its state, read again, shows the run for this request); `refused`: it certainly does not
+   * (a refusal, no updater configured, its state shows no such run, or the connection broke and
+   * it does not answer any more); `unknown`: the request timed out, so it may have been taken,
+   * and the updater does not answer now either.
+   */
+  private async handOver(request: ScheduleRequest): Promise<ScheduleOutcome> {
+    try {
+      return { kind: "accepted", after: await this.deps.updater.schedule(request), late: false };
+    } catch (error) {
+      const problem = mapUpdaterError(error);
+      if (
+        !(error instanceof UpdaterUnavailableError) ||
+        (error.reason !== "timeout" && error.reason !== "unreachable")
+      ) {
+        return { kind: "refused", problem };
+      }
+      let state: StateView | null;
+      try {
+        state = await this.deps.updater.state({ fresh: true, patient: true });
+      } catch {
+        state = null;
+      }
+      if (!state) {
+        this.deps.log?.("warn", "the updater did not answer the update request", {
+          version: request.release.version,
+          reason: error.reason,
+        });
+        // A request that timed out reached the updater and may have been taken. A broken
+        // connection almost always means it did not arrive: the updater went away (keeping the
+        // pause would hold every new run until it expires).
+        return error.reason === "timeout"
+          ? { kind: "unknown", problem }
+          : { kind: "refused", problem };
+      }
+      if (isRunFor(state, request)) {
+        this.deps.log?.("info", "the updater took the update although its answer was lost", {
+          version: request.release.version,
+          reason: error.reason,
+        });
+        return { kind: "accepted", after: state, late: true };
+      }
+      if (state.phase === "scheduled" || state.phase === "running") {
+        return {
+          kind: "refused",
+          problem: new ProblemError(409, "An update is already announced", {
+            type: UPDATE_PROBLEMS.busy,
+            detail: "An update is already announced or running.",
+          }),
+        };
+      }
+      return { kind: "refused", problem };
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1740,6 +1878,15 @@ function invalidSource(problem: string): ProblemError {
 }
 
 function unavailable(reason: string): ProblemError {
+  if (reason === "timeout") {
+    // The updater runs but did not answer in time: whether it took the request is read again.
+    return new ProblemError(409, "The updater did not answer in time", {
+      type: UPDATE_PROBLEMS.updaterUnavailable,
+      detail:
+        "The updater did not answer in time. It may still be checking; reload the Updates page to see whether it took the request.",
+      extensions: { reason },
+    });
+  }
   return new ProblemError(409, "The updater is not available", {
     type: UPDATE_PROBLEMS.updaterUnavailable,
     detail:
@@ -1761,6 +1908,26 @@ function blocked(blockers: Blocker[]): ProblemError {
     detail: "The updater reports problems that block an update.",
     extensions: { blockers },
   });
+}
+
+type ScheduleOutcome =
+  | { kind: "accepted"; after: StateView; late: boolean }
+  | { kind: "refused"; problem: ProblemError }
+  | { kind: "unknown"; problem: ProblemError };
+
+/** Whether the updater's state shows a scheduled or running run for this request. */
+export function isRunFor(state: StateView, request: ScheduleRequest): boolean {
+  const run = state.run;
+  if (!run || (state.phase !== "scheduled" && state.phase !== "running")) {
+    return false;
+  }
+  const norm = (value: string) => value.trim().replace(/^v/, "");
+  return (
+    norm(run.targetVersion) === norm(request.release.version) &&
+    (run.switchTo ?? null) === (request.switchTo ?? null) &&
+    run.requestedBy.userId === request.requestedBy.userId &&
+    run.requestedBy.label === request.requestedBy.label
+  );
 }
 
 /** Translate what the updater or the client raised into a problem response. */

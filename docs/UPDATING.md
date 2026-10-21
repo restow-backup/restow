@@ -762,6 +762,29 @@ once it is idle. The Updates tab names the command that fits each agent's versio
 A node's page and a machine's page also have **Update to <version>** whenever a
 newer release is offered, outside an update as well.
 
+**Update nodes and agents now** (0.4.3). When the server already runs the new
+release but no update led into this step (it was updated by hand, or the
+announcement's answer was lost), nodes and agents that are behind show as
+"Update available" on the Updates tab, and an administrator with every tenant
+can start the step from the same card: the pause of new runs and everything
+above apply as after an update (at most 15 minutes; audit
+`update.fleet_started` with `manual: true`). It is not offered while an update
+waits for runs, is announced or runs.
+
+Proxmox VE nodes load the storage plugin into pvedaemon, pveproxy, pvestatd and
+pvescheduler. Since 0.4.3 restow-pve restarts those four after every update it
+installs (as the installer does), and `restow-pve update` restarts the
+restow-pve service as well. Nodes on restow-pve 0.4.1 do not act on "update
+now" at all; they update with their own check (two minutes after the service
+starts, then every six hours) or by hand. A node that a release before 0.4.3
+updated restarts the PVE daemons once by itself after the new release starts;
+to do it at once:
+
+```
+/opt/restow-pve/bin/restow-pve update
+systemctl restart restow-pve pvedaemon pvestatd pveproxy pvescheduler
+```
+
 ### At a chosen time
 
 The install dialog offers **From now** (with a lead time, as before) or **At a
@@ -840,6 +863,15 @@ The updater never guesses. It ends a failed run in exactly one of three states:
   migrated database. It stops api, worker and scheduler, keeps the database
   dump and tells you what to do. The web edge keeps showing the maintenance
   page.
+
+**"Checking whether the update was accepted…"** The updater checks Docker,
+the Compose configuration, the disk space and the running version before it
+accepts an update; the api waits up to a minute for that. If no answer arrives
+in time, the api asks the updater for its state again: when it shows the update,
+it counts as announced (pause of new runs, `update.scheduled`) and the tab shows
+the countdown. When the updater does not answer at all, the pause of new runs
+stays until the updater answers again (and ends on its own in any case); the
+tab reads again and shows what the updater reports.
 
 If the updater itself is restarted or killed in the middle of a run, the run
 is recorded as *interrupted* (unchanged when it had not stopped anything yet,

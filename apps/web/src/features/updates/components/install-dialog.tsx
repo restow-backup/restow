@@ -28,7 +28,9 @@ import { useJobActivity, useScheduleUpdate } from "../hooks";
 import {
   countdownLabel,
   formatReleaseDate,
+  isMaintenanceActive,
   isUnverifiableRelease,
+  isUpdaterTimeout,
   leadTimeLabel,
   offeredLeadTimes,
   updatesErrorKey,
@@ -132,6 +134,16 @@ export function InstallDialog({
       reset();
     }
   }, [open, reset]);
+
+  // The updater did not answer in time (0.4.3): the tab reads its state again, and once that
+  // shows the update announced or running, it was accepted after all and the question is over.
+  const acceptedLate =
+    open && isUpdaterTimeout(schedule.error) && isMaintenanceActive(view.maintenance.phase);
+  React.useEffect(() => {
+    if (acceptedLate) {
+      onOpenChange(false);
+    }
+  }, [acceptedLate, onOpenChange]);
 
   const selected = view.releases.find((release) => release.version === version) ?? view.releases[0];
   const selectedVersion = selected?.version ?? "";
@@ -356,8 +368,11 @@ export function InstallDialog({
             </ul>
           </div>
           {schedule.isError ? (
-            <Alert variant="destructive">
-              <TriangleAlert />
+            <Alert
+              variant={isUpdaterTimeout(schedule.error) ? "info" : "destructive"}
+              data-slot="install-error"
+            >
+              {isUpdaterTimeout(schedule.error) ? <Info /> : <TriangleAlert />}
               <AlertDescription>{t(updatesErrorKey(schedule.error))}</AlertDescription>
             </Alert>
           ) : null}

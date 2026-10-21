@@ -48,6 +48,7 @@ const service = {
   removeLicenseKey: vi.fn(),
   startNow: vi.fn(),
   activity: vi.fn(),
+  updateFleetNow: vi.fn(),
 };
 
 function app() {
@@ -103,6 +104,7 @@ const TAB: [string, string, unknown?][] = [
   ["POST", "/api/v1/updates/maintenance/dismiss", {}],
   ["POST", "/api/v1/updates/maintenance/start-now", {}],
   ["GET", "/api/v1/updates/jobs"],
+  ["POST", "/api/v1/updates/fleet/update-now", {}],
   ["POST", "/api/v1/updates/edition/switch", { leadSeconds: 300 }],
   ["PUT", "/api/v1/updates/edition/license-key", { key: "restow-license-v1.a.b" }],
   ["DELETE", "/api/v1/updates/edition/license-key"],
@@ -166,7 +168,13 @@ describe("who may use the Updates tab", () => {
       const allowed: Record<string, string[]> = {
         read_only: ["GET /api/v1/updates", "GET /api/v1/updates/jobs"],
         technician: ["GET /api/v1/updates", "GET /api/v1/updates/jobs"],
-        administrator: ["GET /api/v1/updates", "GET /api/v1/updates/jobs"],
+        // Nodes and agents install the release the server runs: an administrator's, like
+        // "update now" on a node's page (0.4.3).
+        administrator: [
+          "GET /api/v1/updates",
+          "GET /api/v1/updates/jobs",
+          "POST /api/v1/updates/fleet/update-now",
+        ],
       };
       for (const [role, keys] of Object.entries(allowed)) {
         mocks.providerRows = [{ role, allTenants: true }];
@@ -241,6 +249,7 @@ describe("what needs a recent sign-in", () => {
       ["DELETE", "/api/v1/updates/maintenance", undefined],
       ["POST", "/api/v1/updates/maintenance/dismiss", {}],
       ["POST", "/api/v1/updates/maintenance/start-now", {}],
+      ["POST", "/api/v1/updates/fleet/update-now", {}],
       ["GET", "/api/v1/updates", undefined],
     ] as const) {
       expect((await call(method, path, { body })).status, `${method} ${path}`).toBe(200);

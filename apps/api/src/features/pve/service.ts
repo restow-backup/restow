@@ -77,11 +77,42 @@ function refuseSelfBackup(guest: PveGuest): void {
 export const RESTORE_POOL = "restow-restore";
 const TASK_TTL_MS = 12 * 60 * 60 * 1000;
 
+/** A node in the inventory (`GET /api/v1/pve`, `clusters[].nodes[]`). */
+export interface PveNodeView {
+  id: string;
+  name: string;
+  /** The restow-pve release the node last reported; null before its first heartbeat. */
+  helperVersion: string | null;
+  pveVersion: string | null;
+  fleecingStorage: string | null;
+  lastSeenAt: string | null;
+  online: boolean;
+  problems: string[];
+  pluginLoaded: boolean | null;
+  restoresAllowed: boolean | null;
+  state: string | null;
+  capabilities: string[];
+  queuePausedAt: string | null;
+  queuePausedBy: string | null;
+  queuedBackups: number;
+  /** The release the node would update to; null when it is up to date or that is unknown. */
+  updateVersion: string | null;
+  /** "Update now" was asked for and the node has not reported the release yet. */
+  updateRequestedAt: string | null;
+  /** The restow-pve release this server offers (0.4.3); null when unknown. */
+  offeredVersion: string | null;
+  /**
+   * The node runs an older restow-pve than {@link offeredVersion} (0.4.3). A node without a
+   * release version (a development build) is never outdated.
+   */
+  outdated: boolean;
+}
+
 function nodeDto(
   n: PveNode,
   now: Date,
   facts: { queued?: number; offeredVersion?: string | null } = {},
-) {
+): PveNodeView {
   const offered = facts.offeredVersion ?? null;
   const behind =
     offered !== null &&
@@ -108,6 +139,11 @@ function nodeDto(
     queuedBackups: facts.queued ?? 0,
     // The release the node would update to (null: up to date or unknown), and "update now".
     updateVersion: behind ? offered : null,
+    // 0.4.3: the restow-pve release this server offers (the one `helperVersion` is compared
+    // with; null when unknown) and whether the node runs an older one. A node that reports no
+    // release version (a development build) is never outdated.
+    offeredVersion: offered,
+    outdated: behind,
     updateRequestedAt: n.updateRequestedAt?.toISOString() ?? null,
   };
 }

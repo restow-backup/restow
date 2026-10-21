@@ -268,6 +268,19 @@ describe("POST /v1/schedule", () => {
     });
   });
 
+  it("checks once per request and answers with that check", async () => {
+    // The api waits for this answer: checking again for the reply doubled the time (0.4.3).
+    await h.preflight.get();
+    const before = h.ops.callsTo("ping").length;
+    const { response, json } = await call("POST", "/v1/schedule", {
+      headers: auth,
+      body: scheduleRequest("0.2.0", { leadSeconds: 300 }),
+    });
+    expect(response.status).toBe(202);
+    expect(stateViewSchema.parse(json).capabilities.ready).toBe(true);
+    expect(h.ops.callsTo("ping").length - before).toBe(1);
+  });
+
   it("starts at once with lead time 0", async () => {
     const { response, json } = await call("POST", "/v1/schedule", {
       headers: auth,

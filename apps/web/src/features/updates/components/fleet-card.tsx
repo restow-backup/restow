@@ -20,8 +20,8 @@ import {
 import { formatDateTime } from "@/lib/format";
 
 import type { FleetMember, FleetMemberState, FleetStatus, UpdatesView } from "../api";
-import { useCancelMaintenance } from "../hooks";
-import { countdownLabel, updatesErrorKey } from "../presenters";
+import { useCancelMaintenance, useUpdateFleetNow } from "../hooks";
+import { countdownLabel, isMaintenanceActive, updatesErrorKey } from "../presenters";
 import { CommandBlock } from "./command-block";
 
 /**
@@ -142,9 +142,22 @@ export function manualCommand(
  * card shows how far they are, the ones still to come, and for the unreachable ones the command
  * for an update by hand. Outside an update it lists what is behind, if anything.
  */
-export function FleetCard({ view }: { view: UpdatesView }) {
+export function FleetCard({
+  view,
+  canUpdate = false,
+}: {
+  view: UpdatesView;
+  /**
+   * The viewer may start "Update nodes and agents now" (0.4.3): an administrator with every
+   * tenant, outside the demo.
+   */
+  canUpdate?: boolean;
+}) {
   const { t, i18n } = useTranslation("updates");
+  const { t: tc } = useTranslation();
   const language = i18n.resolvedLanguage ?? i18n.language;
+  const updateNow = useUpdateFleetNow();
+  const [confirming, setConfirming] = React.useState(false);
   const fleet = view.fleet;
   const pause = view.jobPause;
   const following = pause?.phase === "fleet";
@@ -163,6 +176,15 @@ export function FleetCard({ view }: { view: UpdatesView }) {
     ...new Set(manual.filter((entry) => !entry.legacy).map((entry) => entry.command)),
   ];
   const legacy = [...new Set(manual.filter((entry) => entry.legacy).map((entry) => entry.command))];
+  // Outside an update nothing tells the reachable ones to update now (an update by hand, or one
+  // whose fleet step did not happen): an administrator starts that step here (0.4.3). Not while
+  // an update waits, is announced or runs.
+  const offerUpdateNow =
+    canUpdate &&
+    !following &&
+    !pause &&
+    all.pending > 0 &&
+    !isMaintenanceActive(view.maintenance.phase);
   return (
     <Card data-slot="update-fleet" data-following={following ? "true" : undefined}>
       <CardHeader>
@@ -210,7 +232,10 @@ export function FleetCard({ view }: { view: UpdatesView }) {
                   <TableCell className="font-mono text-xs">{member.version ?? "–"}</TableCell>
                   <TableCell>
                     <StatusBadge tone={STATE_TONE[member.state]}>
-                      {t(`fleet.states.${member.state}`)}
+                      {/* Outside the fleet step a reachable one that is behind is not updating yet. */}
+                      {t(
+                        `fleet.states.${member.state === "pending" && !following ? "behind" : member.state}`,
+                      )}
                     </StatusBadge>
                   </TableCell>
                   <TableCell>
@@ -220,6 +245,28 @@ export function FleetCard({ view }: { view: UpdatesView }) {
               ))}
             </TableBody>
           </Table>
+        ) : null}
+        {offerUpdateNow ? (
+          <div
+            className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+            data-slot="fleet-update-now"
+          >
+            <p className="text-sm text-muted-foreground">{t("fleet.updateNowHint")}</p>
+            <Button className="shrink-0" onClick={() => setConfirming(true)}>
+              {t("fleet.updateNow")}
+            </Button>
+            <ConfirmDialog
+              open={confirming}
+              onOpenChange={setConfirming}
+              title={t("fleet.updateNowTitle")}
+              description={t("fleet.updateNowBody", { version: fleet.targetVersion })}
+              confirmLabel={t("fleet.updateNow")}
+              cancelLabel={tc("actions.cancel")}
+              pending={updateNow.isPending}
+              error={updateNow.error ? t(updatesErrorKey(updateNow.error)) : undefined}
+              onConfirm={() => updateNow.mutateAsync().then(() => setConfirming(false))}
+            />
+          </div>
         ) : null}
         {fleet.truncated ? (
           <p className="text-xs text-muted-foreground">{t("fleet.truncated")}</p>

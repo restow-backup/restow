@@ -325,7 +325,11 @@ func cmdRun(layout pve.Layout, stderr io.Writer) int {
 	defer cancel()
 	logger("restow-pve %s started for node %s", buildinfo.Version, s.State.NodeName)
 	install := func(ctx context.Context, v string) {
-		if err := pve.SelfUpdate(ctx, layout, s.Server, buildinfo.Version, v); err == nil {
+		apply := func(ctx context.Context) error {
+			return pve.SelfUpdate(ctx, layout, s.Server, buildinfo.Version, v)
+		}
+		// The PVE daemons are restarted as by the installer, so they load the new plugin.
+		if err := pve.InstallUpdate(ctx, layout, apply, pve.ExecRunner{}, logger); err == nil {
 			logger("updated to %s, restarting", v)
 			cancel()
 			os.Exit(0) // systemd restarts the unit with the new binary
@@ -339,6 +343,10 @@ func cmdRun(layout pve.Layout, stderr io.Writer) int {
 	go updateLoop(ctx, firstUpdateCheck, updateCheckInterval, func(ctx context.Context) {
 		if v, err := s.Server.UpdateOffer(ctx); err == nil && v != "" {
 			install(ctx, v)
+		}
+		// A node an older restow-pve updated still has the PVE daemons on the old plugin.
+		if !s.Busy() {
+			pve.EnsurePluginLoaded(ctx, layout, pve.ExecRunner{}, logger)
 		}
 	})
 	if err := s.Run(ctx); err != nil {
@@ -566,11 +574,21 @@ func cmdUpdate(layout pve.Layout, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "No newer release offered.")
 		return 0
 	}
-	if err := pve.SelfUpdate(ctx, layout, s.Server, buildinfo.Version, v); err != nil {
+	logf := func(f string, a ...any) { fmt.Fprintf(stdout, f+"\n", a...) }
+	apply := func(ctx context.Context) error {
+		return pve.SelfUpdate(ctx, layout, s.Server, buildinfo.Version, v)
+	}
+	if err := pve.InstallUpdate(ctx, layout, apply, pve.ExecRunner{}, logf); err != nil {
 		fmt.Fprintln(stderr, "restow-pve:", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Updated to %s. Restart: systemctl restart restow-pve pvedaemon pvestatd pveproxy pvescheduler\n", v)
+	// The running service still runs the old binary: restarted here, so the node reports the
+	// new release with its next heartbeat.
+	if err := pve.RestartHelper(ctx, pve.ExecRunner{}, logf); err != nil {
+		fmt.Fprintf(stdout, "Updated to %s. Restart the service: systemctl restart restow-pve\n", v)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Updated to %s.\n", v)
 	return 0
 }
 

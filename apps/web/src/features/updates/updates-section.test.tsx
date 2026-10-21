@@ -1341,6 +1341,55 @@ describe("installing an update", () => {
     expect(text(dialog() as HTMLElement)).toContain(cause);
   });
 
+  it("reads again instead of saying no updater runs when the updater did not answer in time", async () => {
+    // 0.4.2 in the field: the updater took the update but answered late, and the tab said it was
+    // not running. Now the tab reads the state again and closes once the update shows (0.4.3).
+    const view = twoReleases();
+    const busy = updatesFixture({
+      ...view,
+      updater: { ...view.updater, state: "busy" },
+      maintenance: maintenanceFixture({ phase: "scheduled", runId: "r-3", startsAt: iso(300) }),
+    });
+    let accepted = false;
+    const { mock, requests } = routedFetch({
+      "GET /updates": () => json(accepted ? busy : view),
+      "GET /updates/jobs": () => json(activityFixture()),
+      "POST /updates/maintenance": () => {
+        accepted = true;
+        return problem("urn:restow:problem:updater-unavailable", 409, { reason: "timeout" });
+      },
+      "GET /maintenance": () => json(maintenanceFixture()),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<UpdatesSection />);
+    await click(buttonByText(await openInstallDialog(), "Announce update"));
+    await waitFor(() => dialog() === null, { what: "the dialog to close" });
+    expect(slot("updater-busy")?.dataset.phase).toBe("scheduled");
+    const reads = requests.filter((r) => r.method === "GET" && r.path === "/updates");
+    expect(reads.length).toBeGreaterThanOrEqual(2);
+    expect(text()).not.toContain("The updater is not running");
+  });
+
+  it("says it is checking whether the update was accepted while the updater stays silent", async () => {
+    const view = twoReleases();
+    const { mock } = routedFetch({
+      "GET /updates": () => json(view),
+      "GET /updates/jobs": () => json(activityFixture()),
+      "POST /updates/maintenance": () =>
+        problem("urn:restow:problem:updater-unavailable", 409, { reason: "timeout" }),
+      "GET /maintenance": () => json(maintenanceFixture()),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<UpdatesSection />);
+    await click(buttonByText(await openInstallDialog(), "Announce update"));
+    const expected = "Checking whether the update was accepted";
+    await waitFor(() => text(dialog() ?? document.createElement("div")).includes(expected), {
+      what: expected,
+    });
+    expect(text(dialog() as HTMLElement)).not.toContain("The updater is not running");
+    expect(slot("install-error")?.dataset.variant).toBe("info");
+  });
+
   it("asks to confirm it is you before an update is announced from an older session", async () => {
     const view = twoReleases();
     const { mock, requests } = routedFetch({
@@ -1393,6 +1442,98 @@ describe("installing an update", () => {
     }
     // Seven mounts of the whole section: well under a second, but more than five on a busy machine.
   }, 20_000);
+});
+
+describe("nodes and agents behind the server (0.4.3)", () => {
+  const behind = (over: Partial<UpdatesView> = {}) =>
+    updatesFixture({
+      fleet: {
+        targetVersion: "0.4.3",
+        counts: {
+          pve_node: { updated: 0, pending: 1, unreachable: 0, paused: 0, total: 1 },
+          agent: { updated: 1, pending: 0, unreachable: 0, paused: 0, total: 1 },
+          all: { updated: 1, pending: 1, unreachable: 0, paused: 0, total: 2 },
+        },
+        members: [
+          {
+            kind: "pve_node",
+            id: "n1",
+            tenantId: "t1",
+            tenantName: "Contoso",
+            name: "pve1",
+            os: null,
+            version: "0.4.1",
+            state: "pending",
+            lastSeenAt: iso(-60),
+          },
+        ],
+        truncated: false,
+        commands: {
+          pve_node: "/opt/restow-pve/bin/restow-pve update",
+          linux: "sudo '/opt/restow-agent/bin/restow-agent' update",
+          darwin: "sudo '/usr/local/restow-agent/bin/restow-agent' update",
+        },
+      },
+      ...over,
+    });
+
+  it("lists an outdated node as such and lets an administrator update them now", async () => {
+    const view = behind();
+    const following = behind({
+      jobPause: {
+        mode: "interrupt",
+        phase: "fleet",
+        version: "0.4.3",
+        leadSeconds: 0,
+        since: iso(0),
+        deadlineAt: iso(900),
+        announcedAt: null,
+        expiresAt: iso(960),
+        requestedBy: "admin@provider.test",
+        activity: null,
+      },
+    });
+    const { mock, requests } = routedFetch({
+      "GET /updates": () => json(view),
+      "POST /updates/fleet/update-now": () => json(following),
+      "GET /maintenance": () => json(maintenanceFixture()),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<UpdatesSection />, {
+      session: sessionAs({ providerRole: "administrator" }),
+    });
+    const card = await waitForElement(() => slot("update-fleet"), { what: "the fleet card" });
+    expect(text(card)).toContain("pve1");
+    expect(text(card)).toContain("0.4.1");
+    expect(text(card)).toContain("Update available");
+    await click(buttonByText(card, "Update nodes and agents now"));
+    const confirm = dialog() as HTMLElement;
+    expect(text(confirm)).toContain("install 0.4.3");
+    await click(buttonByText(confirm, "Update nodes and agents now"));
+    await waitFor(
+      () =>
+        requests.find(
+          (request) => request.method === "POST" && request.path === "/updates/fleet/update-now",
+        ),
+      { what: "POST /updates/fleet/update-now" },
+    );
+    await waitFor(() => slot("update-fleet")?.dataset.following === "true", {
+      what: "the fleet step",
+    });
+    expect(slot("fleet-update-now")).toBeNull();
+    expect(text(slot("update-fleet") as HTMLElement)).toContain("Updating");
+  });
+
+  it("does not offer it to a technician or while an update is announced", async () => {
+    show(behind(), { canManage: false });
+    expect(slot("update-fleet")).not.toBeNull();
+    expect(slot("fleet-update-now")).toBeNull();
+    await mounted?.unmount();
+    mounted = null;
+    document.body.innerHTML = "";
+    show(behind({ maintenance: maintenanceFixture({ phase: "scheduled", startsAt: iso(300) }) }));
+    expect(slot("fleet-update-now")).toBeNull();
+  });
 });
 
 describe("an announced or running update", () => {

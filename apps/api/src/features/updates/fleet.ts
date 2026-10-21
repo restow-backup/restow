@@ -1,6 +1,6 @@
-import type { Database, JobStartPause } from "@restow/db";
+import type { Database, JobPauseRequester, JobStartPause } from "@restow/db";
 import { jobStartPause } from "@restow/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, lte, sql } from "drizzle-orm";
 import { INSTALLED_AGENT } from "../endpoints/commands.js";
 
 /**
@@ -214,17 +214,53 @@ export async function enterFleetPhase(
   pause: Pick<JobStartPause, "id">,
   now: Date,
 ): Promise<JobStartPause | null> {
-  const deadlineAt = new Date(now.getTime() + FLEET_WINDOW_MS);
   const [row] = await db
     .update(jobStartPause)
-    .set({
-      phase: "fleet",
-      deadlineAt,
-      // A minute of slack after the deadline: the pause is lifted by the step that sees it.
-      expiresAt: new Date(deadlineAt.getTime() + 60_000),
-      updatedAt: now,
-    })
+    .set({ phase: "fleet", ...fleetWindow(now), updatedAt: now })
     .where(and(eq(jobStartPause.id, pause.id), eq(jobStartPause.phase, "announced")))
     .returning();
   return row ?? null;
+}
+
+/** The deadline of the phase `fleet` from `now`, and when its row lifts itself. */
+function fleetWindow(now: Date): { deadlineAt: Date; expiresAt: Date } {
+  const deadlineAt = new Date(now.getTime() + FLEET_WINDOW_MS);
+  // A minute of slack after the deadline: the pause is lifted by the step that sees it.
+  return { deadlineAt, expiresAt: new Date(deadlineAt.getTime() + 60_000) };
+}
+
+/**
+ * Start the phase `fleet` without an update before it (0.4.3, "Update nodes and agents now"):
+ * the server already runs the release, but no pause led into the phase (an update by hand, or
+ * one whose announcement was lost). New starts pause as after an update, at most
+ * {@link FLEET_WINDOW_MS}, and the same step lifts the pause (service.ts, advancePause). Only
+ * when no pause holds: an expired row is replaced, a live one is left alone. Returns the row, or
+ * null when a pause holds already.
+ */
+export async function startFleetPhase(
+  db: Database,
+  input: { version: string; requestedBy: JobPauseRequester; now: Date },
+): Promise<JobStartPause | null> {
+  const { now } = input;
+  return db.transaction(async (tx) => {
+    await tx.delete(jobStartPause).where(lte(jobStartPause.expiresAt, now));
+    const [row] = await tx
+      .insert(jobStartPause)
+      .values({
+        mode: "interrupt",
+        phase: "fleet",
+        version: input.version,
+        leadSeconds: 0,
+        // No update request: the phase starts on its own (nothing is handed to the updater).
+        request: { fleetOnly: true },
+        requestedBy: input.requestedBy,
+        ...fleetWindow(now),
+        announcedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .returning();
+    return row ?? null;
+  });
 }

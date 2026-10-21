@@ -23,6 +23,7 @@ import type { FleetStatus } from "./fleet.js";
  *   POST   /api/v1/updates/maintenance/dismiss   clear a finished run from the tab
  *   POST   /api/v1/updates/maintenance/start-now  stop waiting for running jobs, announce now
  *   GET    /api/v1/updates/jobs                  what runs and waits right now (the install dialog)
+ *   POST   /api/v1/updates/fleet/update-now      nodes and agents behind the server update now
  *   GET    /api/v1/maintenance                   the maintenance state, for every signed-in user
  *
  * The access token is write-only: it is accepted by the PATCH and never appears in

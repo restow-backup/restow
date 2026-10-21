@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { StateView } from "../../updater/protocol.js";
 import {
+  ACTION_TIMEOUT_MS,
   bearerOf,
   createUpdaterClient,
   disabledUpdaterClient,
+  SCHEDULE_TIMEOUT_MS,
   secretMatches,
   UpdaterRejectedError,
   UpdaterUnavailableError,
@@ -171,6 +173,62 @@ describe("the updater client", () => {
     expect(url).toBe("http://updater:8090/v1/schedule");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual(request);
+  });
+
+  it("waits a minute for the schedule and longer than for a state read for the other actions", async () => {
+    // The updater checks deeply before it accepts an update (5-12 s on a real installation):
+    // the 5 s of a state read made the api report "no updater" for an accepted update.
+    const timeouts: number[] = [];
+    const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      timeouts.push(ms);
+      return new AbortController().signal;
+    });
+    try {
+      const fetcher = vi.fn(async () => reply(state(), 202));
+      const subject = client(fetcher as unknown as typeof fetch);
+      await subject.schedule({
+        release: { version: "0.2.0", tag: "v0.2.0", url: null, prerelease: false, digests: {} },
+        mode: "image",
+        switchTo: null,
+        source: null,
+        leadSeconds: 0,
+        requestedBy: { userId: "u1", label: "admin@example.com", ip: null },
+      });
+      await subject.cancel();
+      await subject.acknowledge();
+      await subject.restart("worker");
+      await subject.deleteDump("restow-0.2.0.dump");
+      await subject.state({ fresh: true });
+      await subject.state({ fresh: true, patient: true });
+      expect(timeouts).toEqual([
+        SCHEDULE_TIMEOUT_MS,
+        ACTION_TIMEOUT_MS,
+        ACTION_TIMEOUT_MS,
+        ACTION_TIMEOUT_MS,
+        ACTION_TIMEOUT_MS,
+        5000,
+        ACTION_TIMEOUT_MS,
+      ]);
+      expect(SCHEDULE_TIMEOUT_MS).toBeGreaterThanOrEqual(60_000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("reports a schedule that did not answer in time as a timeout", async () => {
+    const fetcher = vi.fn(async () => {
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    });
+    await expect(
+      client(fetcher as unknown as typeof fetch).schedule({
+        release: { version: "0.2.0", tag: "v0.2.0", url: null, prerelease: false, digests: {} },
+        mode: "image",
+        switchTo: null,
+        source: null,
+        leadSeconds: 0,
+        requestedBy: { userId: "u1", label: "admin@example.com", ip: null },
+      }),
+    ).rejects.toMatchObject({ reason: "timeout" });
   });
 
   it("asks the updater to start the mounter and reads the outcome", async () => {
