@@ -1,6 +1,7 @@
 import { type TenantKind, type TenantStatus, tenants } from "@restow/db";
 import { inArray } from "drizzle-orm";
 import { Hono } from "hono";
+import { config } from "../config.js";
 import { providerDb } from "../db.js";
 import { sessionFieldContributions } from "../extensions.js";
 import { internalFirstByName } from "../features/tenants/order.js";
@@ -138,6 +139,31 @@ function roleIn(
   return tenantRoleFromMembership(membership?.role);
 }
 
+/**
+ * The tenant the session works on: the one of its active organization. A
+ * session without one gets no hint, and the browser falls back to the first
+ * tenant of the list, the operator's own organisation. The public demo
+ * (deploy/demo/README.md) is the one exception: its own organisation holds no
+ * data by design, so a visitor who just signed in would land on an empty
+ * overview; there the hint is the first active customer tenant instead.
+ */
+export function activeTenantHint(
+  rows: readonly Pick<TenantRow, "id" | "kind" | "status" | "organizationId">[],
+  activeOrganizationId: string | null,
+  demo: boolean,
+): string | null {
+  const active = rows.find(
+    (row) => row.organizationId !== null && row.organizationId === activeOrganizationId,
+  );
+  if (active) {
+    return active.id;
+  }
+  if (!demo) {
+    return null;
+  }
+  return rows.find((row) => row.kind === "customer" && row.status === "active")?.id ?? null;
+}
+
 /** Every registered session field, loaded side by side. */
 async function extensionFields(
   userId: string,
@@ -173,9 +199,7 @@ me.get("/", requireSession, async (c) => {
       role: roleIn(row, isProviderAdmin, memberships),
       status: row.status,
     })),
-    activeTenantId:
-      rows.find((row) => row.organizationId !== null && row.organizationId === activeOrganizationId)
-        ?.id ?? null,
+    activeTenantId: activeTenantHint(rows, activeOrganizationId, config.demo.enabled),
     features: await enabledFeatures(providerDb),
     extensions: await extensionFields(user.id, isProviderAdmin),
     version: versionSource.current(),

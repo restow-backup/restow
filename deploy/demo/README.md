@@ -41,7 +41,12 @@ and "Resource limits".
 - The demo's own organisation, "Example Managed IT Ltd" (the fictional service
   provider that runs the demo): the setup wizard's request names it and the api
   creates it as the first tenant, kind `internal`, listed first and marked as
-  the own organisation. It owns no data of its own in the demo.
+  the own organisation. It owns no data of its own in the demo, so a visitor
+  does not start there: in demo mode `GET /api/v1/me` names the first active
+  customer tenant as the active one while the session has none
+  (apps/api `routes/me.ts`, `activeTenantHint`), and the overview opens on
+  Birchwood Consulting Ltd with its weeks of history. A tenant the visitor picks
+  in the switcher is remembered as usual and wins from then on.
 - Two fictional customer tenants ("Example Trading Ltd", "Birchwood Consulting Ltd")
   each own one or two IMAP sources pointing at the demo's own Dovecot
   container, seeded with a few hundred synthetic invoices, orders,
