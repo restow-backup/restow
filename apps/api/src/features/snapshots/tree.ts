@@ -203,6 +203,67 @@ export function mailSummaryOf(metadata: Record<string, unknown> | null | undefin
   };
 }
 
+// ---------------------------------------------------------------------------
+// Calendar metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * An event as the explorer lists it, from the manifest's own metadata
+ * (packages/core backup/exchange/calendar.ts `eventMetadata`), without opening
+ * the stored event. Graph reports times in UTC without a zone suffix; they are
+ * given here as ISO-8601 UTC. `location` and `recurrenceEnd` exist from 0.4.2
+ * on; older restore points say null.
+ */
+export interface EventSummary {
+  subject: string | null;
+  start: string | null;
+  end: string | null;
+  isAllDay: boolean;
+  /** Graph's `type`: singleInstance, seriesMaster, exception or occurrence. */
+  type: string | null;
+  /** A series master: the occurrences are derived from its pattern (calendar view). */
+  recurring: boolean;
+  organizer: string | null;
+  location: string | null;
+  isCancelled: boolean;
+  /** Changed occurrences stored with a series master. */
+  exceptionCount: number;
+  calendarName: string | null;
+  /** The last day of a series (YYYY-MM-DD); null without an end or not recorded. */
+  recurrenceEnd: string | null;
+}
+
+/** Graph's zone-less UTC `2026-10-21T09:00:00.0000000` as ISO-8601 UTC; null when it is none. */
+export function graphTimeIso(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const zoned = /(?:Z|[+-]\d\d:\d\d)$/.test(value) ? value : `${value}Z`;
+  const millis = Date.parse(zoned);
+  return Number.isNaN(millis) ? null : new Date(millis).toISOString();
+}
+
+export function eventSummaryOf(metadata: Record<string, unknown> | null | undefined): EventSummary {
+  const source = metadata ?? {};
+  const type = pickString(source, ["eventType"]);
+  const recurrenceEnd = pickString(source, ["recurrenceEnd"]);
+  return {
+    subject: pickString(source, ["subject"]),
+    start: graphTimeIso(pickString(source, ["start"])),
+    end: graphTimeIso(pickString(source, ["end"])),
+    isAllDay: pickBoolean(source, ["isAllDay"]) ?? false,
+    type,
+    recurring: type === "seriesMaster",
+    organizer: pickString(source, ["organizer"]),
+    location: pickString(source, ["location"]),
+    isCancelled: pickBoolean(source, ["isCancelled"]) ?? false,
+    exceptionCount: pickCount(source, ["exceptionCount"]) ?? 0,
+    calendarName: pickString(source, ["calendarName"]),
+    recurrenceEnd:
+      recurrenceEnd && /^\d{4}-\d{2}-\d{2}$/.test(recurrenceEnd) ? recurrenceEnd : null,
+  };
+}
+
 /**
  * "Name <a@x>, Name2 <b@x>" -> the individual entries, trimmed; "" -> [].
  *
@@ -279,6 +340,8 @@ export interface TreeEntryDto {
   implicit: boolean;
   /** Present for mail items only. */
   mail: MailSummary | null;
+  /** Present for calendar events only. */
+  event: EventSummary | null;
   /** Content type hint the UI may show; never secrets. */
   contentType: string | null;
 }
@@ -315,27 +378,33 @@ export function toTreeEntry(row: EntryRow): TreeEntryDto {
     deleted: row.deleted,
     implicit: row.implicit === true,
     mail: row.kind === "mail" ? mailSummaryOf(metadata) : null,
+    event: row.kind === "event" ? eventSummaryOf(metadata) : null,
     contentType: metadata ? pickString(metadata, ["contentType", "mimeType"]) : null,
   };
 }
 
 /**
- * A mail entry's own recorded date (`mail.date`, already coalesced by
- * {@link mailSummaryOf}), falling back to its `mtime` when the metadata carries
- * no date of its own; null for anything that is not mail. Mirrors the SQL
- * listing order's `mailDateExpression` (service.ts) so the tree's default sort
- * and this in-memory order (used for search hits) agree: `mtime` alone is the
- * wrong signal for Exchange mail, whose `mtime` is `lastModifiedDateTime`, not
- * the receive time (a read-flag or category change bumps it independently).
+ * The date an entry sorts by: a mail entry's own recorded date (`mail.date`,
+ * already coalesced by {@link mailSummaryOf}), falling back to its `mtime`
+ * when the metadata carries no date of its own; an event's start; null for
+ * anything else. Mirrors the SQL listing order's `mailDateExpression` and
+ * `eventStartExpression` (service.ts) so the tree's default sort and this
+ * in-memory order (used for search hits) agree: `mtime` alone is the wrong
+ * signal for Exchange mail, whose `mtime` is `lastModifiedDateTime`, not the
+ * receive time (a read-flag or category change bumps it independently), and
+ * for an event, whose subject said nothing about when it takes place.
  */
-function mailDateOf(entry: TreeEntryDto): string | null {
-  return entry.kind === "mail" ? (entry.mail?.date ?? entry.mtime) : null;
+function sortDateOf(entry: TreeEntryDto): string | null {
+  if (entry.kind === "mail") {
+    return entry.mail?.date ?? entry.mtime;
+  }
+  return entry.kind === "event" ? (entry.event?.start ?? null) : null;
 }
 
 /**
  * The explorer order, identical to the ORDER BY of the tree query: folders
- * first, then dated mail newest first (by {@link mailDateOf}), then everything
- * else by name (case-insensitive, natural numbers).
+ * first, then dated mail and events newest first (by {@link sortDateOf}), then
+ * everything else by name (case-insensitive, natural numbers).
  */
 export function compareEntries(a: TreeEntryDto, b: TreeEntryDto): number {
   const folderRank = (entry: TreeEntryDto) => (entry.kind === "folder" ? 0 : 1);
@@ -343,8 +412,8 @@ export function compareEntries(a: TreeEntryDto, b: TreeEntryDto): number {
   if (byFolder !== 0) {
     return byFolder;
   }
-  const dateA = mailDateOf(a);
-  const dateB = mailDateOf(b);
+  const dateA = sortDateOf(a);
+  const dateB = sortDateOf(b);
   if ((dateA !== null) !== (dateB !== null)) {
     return dateA !== null ? -1 : 1;
   }

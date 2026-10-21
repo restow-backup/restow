@@ -21,7 +21,7 @@ const EXCHANGE_ITEM = /^(.+)\.[0-9a-f]{16}\.(?:eml|json)$/;
 /** The readable name of an entry: the mail subject, the item name without its digest, or the file name. */
 export function displayName(entry: NamedEntry): string {
   const subject = entry.subject?.trim();
-  if (entry.kind === "mail" && subject) {
+  if ((entry.kind === "mail" || entry.kind === "event") && subject) {
     return subject;
   }
   const name = baseNameOf(entry.path);
@@ -63,11 +63,20 @@ export function areaOf(
   return (MAILBOX_AREAS as readonly string[]).includes(name) ? (name as MailboxArea) : null;
 }
 
-/** The time that describes an entry best: when a mail arrived, else when it last changed. */
-export function entryDate(entry: Pick<TreeEntry, "mail" | "mtime">): string | null {
-  return entry.mail?.date ?? entry.mtime;
+/**
+ * The time that describes an entry best: when a mail arrived, when an event starts, else when it
+ * last changed.
+ */
+export function entryDate(entry: Pick<TreeEntry, "mail" | "mtime" | "event">): string | null {
+  return entry.mail?.date ?? entry.event?.start ?? entry.mtime;
 }
 
-export function toNamedEntry(entry: Pick<TreeEntry, "kind" | "path" | "mail">): NamedEntry {
-  return { kind: entry.kind, path: entry.path, subject: entry.mail?.subject ?? null };
+export function toNamedEntry(
+  entry: Pick<TreeEntry, "kind" | "path" | "mail" | "event">,
+): NamedEntry {
+  return {
+    kind: entry.kind,
+    path: entry.path,
+    subject: entry.mail?.subject ?? entry.event?.subject ?? null,
+  };
 }

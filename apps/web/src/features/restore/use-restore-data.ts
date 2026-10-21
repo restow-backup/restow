@@ -11,6 +11,7 @@ import {
   cancelRestoreJob,
   createRestore,
   DEFAULT_TREE_SORT,
+  fetchCalendar,
   fetchEntryPreview,
   fetchRestoreJob,
   fetchRestoreJobs,
@@ -85,6 +86,31 @@ export function useTree(
   const pages = query.data?.pages ?? [];
   const entries: TreeEntry[] = pages.flatMap((page) => page.entries);
   return { ...query, tree: pages[0], entries, total: pages[0]?.total ?? 0 };
+}
+
+/**
+ * A calendar between two instants, every series expanded (the month view), or the occurrences
+ * of one series (`entryId`, the list's expanded series row).
+ */
+export function useCalendarView(
+  snapshotId: string | null,
+  window: { path: string; from: string; to: string; entryId?: string | null } | null,
+) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: restoreKeys.calendar(
+      tenantId,
+      snapshotId,
+      window?.path ?? "",
+      window?.from ?? "",
+      window?.to ?? "",
+      window?.entryId ?? null,
+    ),
+    queryFn: () => fetchCalendar(snapshotId as string, window as NonNullable<typeof window>),
+    enabled: enabled && snapshotId !== null && window !== null,
+    placeholderData: keepPreviousData,
+    staleTime: SNAPSHOT_DATA_STALE_MS,
+  });
 }
 
 /** The subfolders of one folder, for the folder tree. */

@@ -47,8 +47,12 @@ export const treeQuerySchema = z.object({
   includeDeleted: booleanFlag(true),
   /** Only folders (the explorer's folder tree). */
   foldersOnly: booleanFlag(false),
-  /** Mail sorts by date (default) or name; folders are always first, files always by name. */
-  sort: z.enum(["date", "name"]).default("date"),
+  /**
+   * Mail and events sort by date (default, newest first) or name; `upcoming` puts the events
+   * still ahead first, soonest first, then the rest newest first. Folders are always first,
+   * files always by name.
+   */
+  sort: z.enum(["date", "upcoming", "name"]).default("date"),
   limit: z.coerce.number().int().min(1).max(2000).default(500),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -73,3 +77,27 @@ export const searchQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
+
+/** At most this many days between `from` and `to` of one calendar view (ten years). */
+export const CALENDAR_MAX_SPAN_DAYS = 3660;
+
+/**
+ * The events of a calendar (or of all calendars below a path) that take place in a window, every
+ * series expanded into its occurrences; with `entryId`, the occurrences of that one series.
+ */
+export const calendarQuerySchema = z
+  .object({
+    path: objectPathSchema.default("calendar"),
+    from: z.string().datetime({ offset: true }),
+    to: z.string().datetime({ offset: true }),
+    entryId: z.string().uuid().optional(),
+  })
+  .refine((query) => Date.parse(query.to) > Date.parse(query.from), {
+    message: "to must be after from",
+    path: ["to"],
+  })
+  .refine(
+    (query) => Date.parse(query.to) - Date.parse(query.from) <= CALENDAR_MAX_SPAN_DAYS * 86_400_000,
+    { message: `the window may span at most ${CALENDAR_MAX_SPAN_DAYS} days`, path: ["to"] },
+  );
+export type CalendarQuery = z.infer<typeof calendarQuerySchema>;

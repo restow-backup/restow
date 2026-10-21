@@ -22,7 +22,14 @@ export const explorerSearchSchema = z.object({
   /** Search text within the snapshot. */
   q: z.string().max(200).optional().catch(undefined),
   /** Item list order; absent means the default (date, newest first). */
-  sort: z.enum(["date", "name"]).optional().catch(undefined),
+  sort: z.enum(["date", "upcoming", "name"]).optional().catch(undefined),
+  /** A calendar's view: absent is the list, `month` the month (`month`, YYYY-MM). */
+  view: z.enum(["month"]).optional().catch(undefined),
+  month: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+    .optional()
+    .catch(undefined),
   /** The tab: absent is browsing, `recent` the list of recent restores. */
   tab: z.enum(["recent"]).optional().catch(undefined),
 });
@@ -44,12 +51,14 @@ export function compactSearch(search: ExplorerSearch): ExplorerSearch {
   if (item) compact.item = item;
   if (search.q?.trim()) compact.q = search.q;
   if (search.sort && search.sort !== "date") compact.sort = search.sort;
+  if (search.view) compact.view = search.view;
+  if (search.view && search.month) compact.month = search.month;
   return compact;
 }
 
 /** Another mailbox or drive: everything below the object starts over. */
-export function withObject(objectId: string): ExplorerSearch {
-  return { object: objectId };
+export function withObject(objectId: string, path?: string): ExplorerSearch {
+  return path ? { object: objectId, path: normalizePath(path) } : { object: objectId };
 }
 
 /**
@@ -60,9 +69,38 @@ export function withSnapshot(search: ExplorerSearch, snapshotId: string): Explor
   return { ...search, snapshot: snapshotId };
 }
 
-/** Open a folder: its contents replace the list, the details panel closes. */
+/**
+ * Open a folder: its contents replace the list, the details panel closes. The month view stays
+ * while the folder is a calendar too.
+ */
 export function withFolder(search: ExplorerSearch, path: string): ExplorerSearch {
-  return { ...search, path: normalizePath(path), item: undefined, q: undefined };
+  const next = normalizePath(path);
+  const calendar = isCalendarPath(next);
+  return {
+    ...search,
+    path: next,
+    item: undefined,
+    q: undefined,
+    view: calendar ? search.view : undefined,
+    month: calendar ? search.month : undefined,
+  };
+}
+
+/** The calendar area of a mailbox restore point (`calendar` and the calendars below it). */
+export function isCalendarPath(path: string | undefined): boolean {
+  const normalized = normalizePath(path);
+  return normalized === "calendar" || normalized.startsWith("calendar/");
+}
+
+/** The list or the month view of a calendar, and which month. */
+export function withCalendarView(
+  search: ExplorerSearch,
+  view: "list" | "month",
+  month?: string,
+): ExplorerSearch {
+  return view === "list"
+    ? { ...search, view: undefined, month: undefined }
+    : { ...search, view: "month", month, item: undefined };
 }
 
 /** Show an item's details (and its version history). */

@@ -79,11 +79,17 @@ function calendarFolderObject(planned: PlannedCalendar) {
   });
 }
 
+/**
+ * What the restore explorer lists an event by without opening it: subject, start and end (UTC),
+ * all day or not, where, who organised it, and for a series master the last day of its range
+ * (empty without an end), so a month view only opens the series that can fall into it.
+ */
 export function eventMetadata(
   event: Event,
   location: Record<string, string>,
   exceptionCount: number,
 ): Record<string, string> {
+  const range = event.recurrence?.range;
   return {
     ...location,
     subject: event.subject ?? "",
@@ -98,6 +104,8 @@ export function eventMetadata(
     lastModifiedDateTime: event.lastModifiedDateTime ?? "",
     hasAttachments: String(event.hasAttachments === true),
     exceptionCount: String(exceptionCount),
+    location: event.location?.displayName ?? "",
+    recurrenceEnd: range?.type === "endDate" ? (range.endDate ?? "") : "",
   };
 }
 

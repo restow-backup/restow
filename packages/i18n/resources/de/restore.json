@@ -92,7 +92,9 @@
     "sort": {
       "label": "Sortieren nach",
       "date": "Datum",
-      "name": "Name"
+      "name": "Name",
+      "newest": "Neueste zuerst",
+      "upcoming": "Anstehende zuerst"
     },
     "columns": {
       "name": "Name",
@@ -101,7 +103,10 @@
       "to": "An",
       "toMore": "+{count} weitere",
       "date": "Datum",
-      "size": "Größe"
+      "size": "Größe",
+      "when": "Wann",
+      "location": "Ort",
+      "organizer": "Organisator"
     },
     "flags": {
       "attachments": "Mit Anhängen",
@@ -141,6 +146,28 @@
       "label": "Alles an diesem Sicherungsstand",
       "restore": "Alles wiederherstellen …",
       "download": "Alles herunterladen"
+    },
+    "calendar": {
+      "viewLabel": "Kalender anzeigen als",
+      "list": "Liste",
+      "month": "Monat",
+      "previousMonth": "Vorheriger Monat",
+      "nextMonth": "Nächster Monat",
+      "allDay": "Ganztägig",
+      "series": "Serie",
+      "seriesHint": "Ein Serientermin: Die Sicherung hält die Serie mit ihren geänderten Terminen fest. Öffnen Sie sie, um jeden Termin der Serie zu sehen.",
+      "showOccurrences": "Termine der Serie {name} anzeigen",
+      "hideOccurrences": "Termine der Serie {name} ausblenden",
+      "occurrences": "{count, plural, one {# Termin} other {# Termine}}, aus dem Muster der Serie und ihren geänderten Terminen. Ein einzeln in Outlook gelöschter Termin kann hier noch erscheinen, so wie nach einer Wiederherstellung der Serie.",
+      "occurrence": "Termin einer Serie",
+      "changedOccurrence": "Geänderter Termin einer Serie",
+      "changed": "Geändert",
+      "noSubject": "(Kein Betreff)",
+      "loadError": "Der Kalender konnte nicht geladen werden.",
+      "emptyMonth": "Keine Termine in diesem Monat",
+      "emptyMonthDescription": "Dieser Sicherungsstand enthält in diesem Monat keine Termine. Frühere oder spätere Monate können welche haben.",
+      "truncated": "Nicht alle Termine dieses Zeitraums werden gezeigt: Es sind mehr, als eine Ansicht auflistet.",
+      "unexpanded": "{count, plural, one {# Serie konnte nicht geöffnet werden} other {# Serien konnten nicht geöffnet werden}}: Ihre Termine fehlen hier, die Liste zeigt sie weiterhin."
     }
   },
   "details": {

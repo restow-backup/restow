@@ -40,6 +40,7 @@ import type {
 import { RestoreDialog, type RestoreDialogRequest } from "@/features/restore/dialog/restore-dialog";
 import { AccountList } from "@/features/restore/explorer/account-list";
 import { Breadcrumbs } from "@/features/restore/explorer/breadcrumbs";
+import { CalendarMonth, SeriesOccurrences } from "@/features/restore/explorer/calendar-view";
 import { type DetailsActions, DetailsPanel } from "@/features/restore/explorer/details-panel";
 import {
   NoAccountsState,
@@ -54,9 +55,11 @@ import { RestorePointBar } from "@/features/restore/explorer/restore-point-bar";
 import { restorePointTime } from "@/features/restore/explorer/restore-point-label";
 import { SearchField } from "@/features/restore/explorer/search-field";
 import { SelectionBar } from "@/features/restore/explorer/selection-bar";
+import { isCalendarListing, monthOf } from "@/features/restore/lib/calendar";
 import {
   activeQuery,
   preferredObject,
+  withCalendarView,
   withFolder,
   withItem,
   withObject,
@@ -231,8 +234,12 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
   const snapshotId = restorePoint?.id ?? null;
   const path = normalizePath(search.path);
   const query = activeQuery(search);
-  const sort: TreeSort = search.sort ?? "date";
-  const tree = useTree(snapshotId, path, sort);
+  const calendar = object !== null && isCalendarListing(object.kind, path);
+  // `upcoming` orders events only; anywhere else it is the default order.
+  const sort: TreeSort = search.sort === "upcoming" && !calendar ? "date" : (search.sort ?? "date");
+  const monthView = calendar && search.view === "month" && query === null;
+  const month = search.month ?? monthOf(new Date());
+  const tree = useTree(monthView ? null : snapshotId, path, sort);
   const results = useSnapshotSearch(snapshotId, query);
 
   const [selection, setSelection] = React.useState<Selection>(EMPTY_SELECTION);
@@ -424,6 +431,9 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
           rootLabel={objectLabel(object)}
           objectKind={object.kind}
           sort={sort}
+          calendar={calendar}
+          view={monthView ? "month" : "list"}
+          onViewChange={(view) => setSearch(withCalendarView(search, view, month))}
           resultCount={results.data?.hits.length ?? 0}
           searching={results.isFetching}
           restorePointReady={restorePointReady}
@@ -474,6 +484,15 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
               <Skeleton key={index} className="h-9 w-full" />
             ))}
           </div>
+        ) : monthView ? (
+          <CalendarMonth
+            snapshotId={restorePoint.id}
+            path={path}
+            month={month}
+            activePath={itemPath}
+            onMonthChange={(next) => setSearch(withCalendarView(search, "month", next))}
+            onOpen={openEntry}
+          />
         ) : (
           <ListContent
             query={query}
@@ -497,6 +516,10 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
               }
               onOpen={openEntry}
               onNavigate={navigateEntry}
+              calendar={calendar && query === null}
+              renderSeries={(entry) => (
+                <SeriesOccurrences snapshotId={restorePoint.id} entry={entry} onOpen={openEntry} />
+              )}
             />
           </ListContent>
         )}
@@ -619,6 +642,9 @@ function ItemListHeader({
   rootLabel,
   objectKind,
   sort,
+  calendar,
+  view,
+  onViewChange,
   resultCount,
   searching,
   restorePointReady,
@@ -636,6 +662,10 @@ function ItemListHeader({
   rootLabel: string;
   objectKind: SnapshotObject["kind"];
   sort: TreeSort;
+  /** The folder is a calendar: sort by when, offer the month view. */
+  calendar: boolean;
+  view: "list" | "month";
+  onViewChange: (view: "list" | "month") => void;
   resultCount: number;
   searching: boolean;
   /** Whether there is a browsed restore point to sort, search or restore from. */
@@ -683,18 +713,40 @@ function ItemListHeader({
                 onOpen={onOpenFolder}
               />
             </div>
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              size="sm"
-              value={sort}
-              onValueChange={(next) => next && onSortChange(next as TreeSort)}
-              aria-label={t("explorer.sort.label")}
-              disabled={!restorePointReady}
-            >
-              <ToggleGroupItem value="date">{t("explorer.sort.date")}</ToggleGroupItem>
-              <ToggleGroupItem value="name">{t("explorer.sort.name")}</ToggleGroupItem>
-            </ToggleGroup>
+            {calendar ? (
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={view}
+                onValueChange={(next) => next && onViewChange(next as "list" | "month")}
+                aria-label={t("explorer.calendar.viewLabel")}
+                disabled={!restorePointReady}
+                data-slot="calendar-view-toggle"
+              >
+                <ToggleGroupItem value="list">{t("explorer.calendar.list")}</ToggleGroupItem>
+                <ToggleGroupItem value="month">{t("explorer.calendar.month")}</ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
+            {calendar && view === "month" ? null : (
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={sort}
+                onValueChange={(next) => next && onSortChange(next as TreeSort)}
+                aria-label={t("explorer.sort.label")}
+                disabled={!restorePointReady}
+              >
+                <ToggleGroupItem value="date">
+                  {t(calendar ? "explorer.sort.newest" : "explorer.sort.date")}
+                </ToggleGroupItem>
+                {calendar ? (
+                  <ToggleGroupItem value="upcoming">{t("explorer.sort.upcoming")}</ToggleGroupItem>
+                ) : null}
+                <ToggleGroupItem value="name">{t("explorer.sort.name")}</ToggleGroupItem>
+              </ToggleGroup>
+            )}
           </>
         )}
         <WholeSnapshotMenu

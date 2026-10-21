@@ -183,3 +183,22 @@ export async function readManifestObjectBytes(
     throw new ContentUnavailableError(error);
   }
 }
+
+/**
+ * A reader of several manifest objects over one opened chunk reader (the keyring and storage
+ * resolved once): the calendar view opens the series masters of a month this way. Reads one
+ * object at a time, for the reason {@link readManifestObjectBytes} gives.
+ */
+export async function openManifestObjectReader(
+  db: DbExecutor,
+  tenantId: string,
+): Promise<(entry: ReadableManifestEntry) => Promise<Buffer>> {
+  const reader = await openContentReader(db, tenantId);
+  return async (entry) => {
+    try {
+      return await reader.readObjectToBuffer(toManifestObject(entry));
+    } catch (error) {
+      throw new ContentUnavailableError(error);
+    }
+  };
+}

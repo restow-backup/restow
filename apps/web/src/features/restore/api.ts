@@ -80,6 +80,28 @@ export interface MailSummary {
   protection: MailProtectionKind | null;
 }
 
+/**
+ * An event as the list shows it, from the backup's own metadata (the API's `EventSummary`,
+ * apps/api/src/features/snapshots/tree.ts). Times are ISO-8601 UTC; an all-day event's are
+ * midnight UTC of its days. `location` and `recurrenceEnd` are null on restore points made
+ * before 0.4.2.
+ */
+export interface EventSummary {
+  subject: string | null;
+  start: string | null;
+  end: string | null;
+  isAllDay: boolean;
+  type: string | null;
+  /** A series: its occurrences come from its pattern (see {@link fetchCalendar}). */
+  recurring: boolean;
+  organizer: string | null;
+  location: string | null;
+  isCancelled: boolean;
+  exceptionCount: number;
+  calendarName: string | null;
+  recurrenceEnd: string | null;
+}
+
 export interface TreeEntry {
   id: string;
   kind: EntryKind;
@@ -93,7 +115,39 @@ export interface TreeEntry {
   /** A folder the backup did not record on its own (it exists through its contents). */
   implicit: boolean;
   mail: MailSummary | null;
+  /** Present for calendar events (absent from an API older than 0.4.2). */
+  event?: EventSummary | null;
   contentType: string | null;
+}
+
+/** One occurrence in a calendar view: a single event, or one of a series. */
+export interface CalendarOccurrence {
+  /** The entry it comes from (the series for an occurrence of a series). */
+  entryId: string;
+  entryPath: string;
+  entryName: string;
+  itemId: string | null;
+  size: number;
+  calendarName: string | null;
+  kind: "single" | "occurrence" | "exception";
+  subject: string | null;
+  start: string;
+  end: string;
+  isAllDay: boolean;
+  location: string | null;
+  organizer: string | null;
+  isCancelled: boolean;
+}
+
+export interface CalendarView {
+  snapshotId: string;
+  path: string;
+  from: string;
+  to: string;
+  occurrences: CalendarOccurrence[];
+  truncated: boolean;
+  /** Series the view could not open: their occurrences are missing, the list still has them. */
+  unexpandedSeries: number;
 }
 
 export interface BreadcrumbSegment {
@@ -370,6 +424,14 @@ export const restoreKeys = {
     ["tenant", tenantId, "restore", "snapshots", objectId] as const,
   tree: (tenantId: TenantKey, snapshotId: string | null, path: string, sort: TreeSort) =>
     ["tenant", tenantId, "restore", "tree", snapshotId, path, sort] as const,
+  calendar: (
+    tenantId: TenantKey,
+    snapshotId: string | null,
+    path: string,
+    from: string,
+    to: string,
+    entryId: string | null,
+  ) => ["tenant", tenantId, "restore", "calendar", snapshotId, path, from, to, entryId] as const,
   folders: (tenantId: TenantKey, snapshotId: string | null, path: string) =>
     ["tenant", tenantId, "restore", "folders", snapshotId, path] as const,
   preview: (tenantId: TenantKey, snapshotId: string | null, entryId: string | null) =>
@@ -434,8 +496,24 @@ export const TREE_PAGE_SIZE = 500;
 export const FOLDER_PAGE_SIZE = 2000;
 
 /** How the item list orders a folder's contents; folders always come first. */
-export type TreeSort = "date" | "name";
+/** `upcoming`: the events still ahead first, soonest first (calendar folders). */
+export type TreeSort = "date" | "upcoming" | "name";
 export const DEFAULT_TREE_SORT: TreeSort = "date";
+
+/** A mailbox's calendar (or one series, with `entryId`) between `from` and `to`. */
+export function fetchCalendar(
+  snapshotId: string,
+  window: { path: string; from: string; to: string; entryId?: string | null },
+): Promise<CalendarView> {
+  return apiFetch<CalendarView>(
+    `/snapshots/${id(snapshotId)}/calendar${queryString({
+      path: window.path,
+      from: window.from,
+      to: window.to,
+      entryId: window.entryId ?? undefined,
+    })}`,
+  );
+}
 
 export function fetchTree(
   snapshotId: string,

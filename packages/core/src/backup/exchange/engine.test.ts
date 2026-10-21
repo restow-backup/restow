@@ -434,6 +434,9 @@ describe("ExchangeBackupEngine", () => {
       [META.folderPath]: "Calendar",
       eventType: "seriesMaster",
       exceptionCount: "1",
+      start: "2026-01-05T10:00:00.0000000",
+      recurrenceEnd: "2026-12-28",
+      location: "",
     });
     const stored = JSON.parse((await readBytes(ctx, master)).toString("utf8")) as {
       event: { id: string };

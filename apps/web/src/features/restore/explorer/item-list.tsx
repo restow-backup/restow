@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { Flag, Lock, Paperclip } from "lucide-react";
+import { ChevronRight, Flag, Lock, Paperclip, Repeat } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -18,6 +18,7 @@ import type { MailSummary, ObjectKind, TreeEntry } from "@/features/restore/api"
 import { TriStateCheckbox } from "@/features/restore/components/tri-state-checkbox";
 import { EntryIcon } from "@/features/restore/explorer/entry-icon";
 import { useEntryLabel, useLocationLabel } from "@/features/restore/explorer/use-entry-label";
+import { eventWhen } from "@/features/restore/lib/calendar";
 import { entryDate, toNamedEntry } from "@/features/restore/lib/entries";
 import { type ListDirection, moveActivePath } from "@/features/restore/lib/list-nav";
 import { parentPathOf } from "@/features/restore/lib/paths";
@@ -83,6 +84,13 @@ interface ItemListProps {
    * passed over. Falls back to `onOpen` when the caller does not care.
    */
   onNavigate?: (entry: TreeEntry) => void;
+  /**
+   * A calendar's events: the columns say when, where and who organised it instead of date,
+   * sender and recipients, and a series opens onto its occurrences ({@link renderSeries}).
+   */
+  calendar?: boolean;
+  /** The occurrences of a series, shown under its row while it is expanded. */
+  renderSeries?: (entry: TreeEntry) => React.ReactNode;
 }
 
 /**
@@ -101,6 +109,8 @@ export function ItemList({
   onToggleAll,
   onOpen,
   onNavigate = onOpen,
+  calendar = false,
+  renderSeries,
 }: ItemListProps) {
   const { t, i18n } = useTranslation("restore");
   const language = i18n.resolvedLanguage ?? i18n.language;
@@ -113,6 +123,26 @@ export function ItemList({
       ? "explorer.columns.name"
       : "explorer.columns.subject";
   const activeRowRef = React.useRef<HTMLTableRowElement>(null);
+  const [expanded, setExpanded] = React.useState<ReadonlySet<string>>(new Set());
+  const toggleSeries = (path: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (!next.delete(path)) {
+        next.add(path);
+      }
+      return next;
+    });
+  const columns = calendar
+    ? {
+        date: t("explorer.columns.when"),
+        from: t("explorer.columns.location"),
+        to: t("explorer.columns.organizer"),
+      }
+    : {
+        date: t("explorer.columns.date"),
+        from: t("explorer.columns.from"),
+        to: t("explorer.columns.to"),
+      };
 
   // Up/Down move the reading pane through the *items* of this folder, never
   // into a folder (that would silently change what the list itself shows,
@@ -240,15 +270,11 @@ export function ItemList({
                 and overlapped the From column. The cell still truncates (see
                 below) as a safety net for locales even longer than this,
                 with the full value in a tooltip. */}
-            <TableHead className="hidden w-48 @lg:table-cell">
-              {t("explorer.columns.date")}
+            <TableHead className={cn(calendar ? "w-64" : "w-48", "hidden @lg:table-cell")}>
+              {columns.date}
             </TableHead>
-            <TableHead className="hidden w-44 @xl:table-cell">
-              {t("explorer.columns.from")}
-            </TableHead>
-            <TableHead className="hidden w-44 @3xl:table-cell">
-              {t("explorer.columns.to")}
-            </TableHead>
+            <TableHead className="hidden w-44 @xl:table-cell">{columns.from}</TableHead>
+            <TableHead className="hidden w-44 @3xl:table-cell">{columns.to}</TableHead>
             <TableHead className="w-20 text-right">{t("explorer.columns.size")}</TableHead>
           </TableRow>
         </TableHeader>
@@ -258,77 +284,108 @@ export function ItemList({
             const selected = isSelected(selection, entry.path);
             const cover = coveringFolder(selection, entry.path);
             const date = entryDate(entry);
+            const when =
+              entry.kind === "event" && entry.event ? eventWhen(entry.event, language) : null;
+            const dateText = when ?? formatDateTime(date, language);
             const active = activePath === entry.path;
+            const series = calendar && entry.event?.recurring === true && renderSeries;
+            const open = series ? expanded.has(entry.path) : false;
             return (
-              <TableRow
-                key={entry.path}
-                ref={active ? activeRowRef : undefined}
-                id={`restore-item-${encodeURIComponent(entry.path)}`}
-                aria-selected={active}
-                data-state={selected || cover ? "selected" : undefined}
-                className={cn("cursor-pointer", active && "bg-accent/70 hover:bg-accent/70")}
-                onClick={(event) => {
-                  focusGrid(event);
-                  onOpen(entry);
-                }}
-              >
-                <TableCell className="w-10" onClick={(event) => event.stopPropagation()}>
-                  {cover ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="inline-flex">
-                          <Checkbox
-                            checked
-                            disabled
-                            aria-label={t("explorer.selection.covered", { name })}
-                          />
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>{t("explorer.selection.covered", { name })}</TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <Checkbox
-                      checked={selected}
-                      onCheckedChange={() => onToggle(entry)}
-                      aria-label={t("explorer.actions.select", { name })}
-                      // Taken out of the tab order: this is a composite grid
-                      // with a single tab stop on the `<table>` (see the
-                      // comment above); Space on the grid toggles the active
-                      // row's selection instead.
-                      tabIndex={-1}
-                    />
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <EntryIcon kind={entry.kind} />
-                    <div className="min-w-0 flex-1">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          focusGrid(event);
-                          onOpen(entry);
-                        }}
-                        // Same reason as the checkbox above: Enter on the
-                        // grid opens the active row instead.
+              <React.Fragment key={entry.path}>
+                <TableRow
+                  ref={active ? activeRowRef : undefined}
+                  id={`restore-item-${encodeURIComponent(entry.path)}`}
+                  aria-selected={active}
+                  data-state={selected || cover ? "selected" : undefined}
+                  className={cn("cursor-pointer", active && "bg-accent/70 hover:bg-accent/70")}
+                  onClick={(event) => {
+                    focusGrid(event);
+                    onOpen(entry);
+                  }}
+                >
+                  <TableCell className="w-10" onClick={(event) => event.stopPropagation()}>
+                    {cover ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex">
+                            <Checkbox
+                              checked
+                              disabled
+                              aria-label={t("explorer.selection.covered", { name })}
+                            />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("explorer.selection.covered", { name })}</TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <Checkbox
+                        checked={selected}
+                        onCheckedChange={() => onToggle(entry)}
+                        aria-label={t("explorer.actions.select", { name })}
+                        // Taken out of the tab order: this is a composite grid
+                        // with a single tab stop on the `<table>` (see the
+                        // comment above); Space on the grid toggles the active
+                        // row's selection instead.
                         tabIndex={-1}
-                        className={cn(
-                          "block max-w-full truncate rounded-sm text-left",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                          entry.kind === "folder" ? "font-medium" : undefined,
-                          entry.kind === "mail" && entry.mail?.isRead === false && "font-semibold",
-                          entry.deleted && "text-muted-foreground",
-                        )}
-                      >
-                        {name}
-                      </button>
-                      {showLocation ? (
-                        <p className="truncate text-xs text-muted-foreground">
-                          {location(parentPathOf(entry.path))}
-                        </p>
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex min-w-0 items-center gap-2">
+                      {series ? (
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-expanded={open}
+                          aria-label={t(
+                            open
+                              ? "explorer.calendar.hideOccurrences"
+                              : "explorer.calendar.showOccurrences",
+                            { name },
+                          )}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleSeries(entry.path);
+                          }}
+                          className="-ml-1 rounded p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          data-slot="series-toggle"
+                        >
+                          <ChevronRight
+                            className={cn("size-3.5 transition-transform", open && "rotate-90")}
+                            aria-hidden="true"
+                          />
+                        </button>
                       ) : null}
-                      {/* A narrow pane (a laptop-width window splits the
+                      <EntryIcon kind={entry.kind} />
+                      <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            focusGrid(event);
+                            onOpen(entry);
+                          }}
+                          // Same reason as the checkbox above: Enter on the
+                          // grid opens the active row instead.
+                          tabIndex={-1}
+                          className={cn(
+                            "block max-w-full truncate rounded-sm text-left",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            entry.kind === "folder" ? "font-medium" : undefined,
+                            entry.kind === "mail" &&
+                              entry.mail?.isRead === false &&
+                              "font-semibold",
+                            entry.deleted && "text-muted-foreground",
+                          )}
+                        >
+                          {name}
+                        </button>
+                        {showLocation ? (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {location(parentPathOf(entry.path))}
+                          </p>
+                        ) : null}
+                        {/* A narrow pane (a laptop-width window splits the
                           explorer into four panes) hides the Date and From
                           columns below their `@lg`/`@xl` container-query
                           breakpoints — see the header comment above. Without
@@ -339,85 +396,123 @@ export function ItemList({
                           and the whole line hides once the real From column
                           also reappears at `@xl`, so nothing is ever shown
                           twice. */}
-                      {entry.kind !== "folder" ? (
-                        <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground @xl:hidden">
-                          {entry.kind === "mail" && entry.mail?.from ? (
-                            <span className="min-w-0 truncate">{entry.mail.from}</span>
-                          ) : null}
-                          {date ? (
-                            <>
-                              {entry.kind === "mail" && entry.mail?.from ? (
-                                <span className="shrink-0 @lg:hidden" aria-hidden="true">
-                                  ·
-                                </span>
-                              ) : null}
-                              <span className="shrink-0 tabular-nums @lg:hidden">
-                                {formatDateTime(date, language)}
-                              </span>
-                            </>
-                          ) : null}
-                        </p>
+                        {entry.kind !== "folder" ? (
+                          <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground @xl:hidden">
+                            {entry.kind === "mail" && entry.mail?.from ? (
+                              <span className="min-w-0 truncate">{entry.mail.from}</span>
+                            ) : null}
+                            {entry.kind === "event" && entry.event?.location ? (
+                              <span className="min-w-0 truncate">{entry.event.location}</span>
+                            ) : null}
+                            {dateText ? (
+                              <>
+                                {(entry.kind === "mail" && entry.mail?.from) ||
+                                (entry.kind === "event" && entry.event?.location) ? (
+                                  <span className="shrink-0 @lg:hidden" aria-hidden="true">
+                                    ·
+                                  </span>
+                                ) : null}
+                                <span className="shrink-0 tabular-nums @lg:hidden">{dateText}</span>
+                              </>
+                            ) : null}
+                          </p>
+                        ) : null}
+                      </div>
+                      {entry.mail?.protection ? (
+                        <Lock
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                          aria-label={t("explorer.flags.protected")}
+                          role="img"
+                        />
+                      ) : null}
+                      {entry.mail?.flagged ? (
+                        <Flag
+                          className="size-3.5 shrink-0 text-destructive"
+                          aria-label={t("explorer.flags.flagged")}
+                          role="img"
+                        />
+                      ) : null}
+                      {entry.mail?.hasAttachments ? (
+                        <Paperclip
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                          aria-label={t("explorer.flags.attachments")}
+                          role="img"
+                        />
+                      ) : null}
+                      {entry.event?.recurring ? (
+                        <Badge
+                          variant="muted"
+                          className="shrink-0"
+                          title={t("explorer.calendar.seriesHint")}
+                          data-slot="series-badge"
+                        >
+                          <Repeat aria-hidden="true" />
+                          {t("explorer.calendar.series")}
+                        </Badge>
+                      ) : null}
+                      {entry.event?.isAllDay ? (
+                        <Badge variant="muted" className="shrink-0">
+                          {t("explorer.calendar.allDay")}
+                        </Badge>
+                      ) : null}
+                      {entry.deleted ? (
+                        <Badge variant="muted" className="shrink-0" title={t("explorer.deleted")}>
+                          {t("explorer.deletedShort")}
+                        </Badge>
                       ) : null}
                     </div>
-                    {entry.mail?.protection ? (
-                      <Lock
-                        className="size-3.5 shrink-0 text-muted-foreground"
-                        aria-label={t("explorer.flags.protected")}
-                        role="img"
-                      />
-                    ) : null}
-                    {entry.mail?.flagged ? (
-                      <Flag
-                        className="size-3.5 shrink-0 text-destructive"
-                        aria-label={t("explorer.flags.flagged")}
-                        role="img"
-                      />
-                    ) : null}
-                    {entry.mail?.hasAttachments ? (
-                      <Paperclip
-                        className="size-3.5 shrink-0 text-muted-foreground"
-                        aria-label={t("explorer.flags.attachments")}
-                        role="img"
-                      />
-                    ) : null}
-                    {entry.deleted ? (
-                      <Badge variant="muted" className="shrink-0" title={t("explorer.deleted")}>
-                        {t("explorer.deletedShort")}
-                      </Badge>
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell
-                  className="hidden w-48 truncate text-muted-foreground tabular-nums @lg:table-cell"
-                  // A native title, not a Tooltip: this cell renders once per
-                  // row (there can be hundreds), and the browser's own
-                  // tooltip is enough to recover the full value on the rare
-                  // locale where the date truncates despite the column's
-                  // width — no need for a Radix tooltip root per row.
-                  title={date ? (formatDateTime(date, language) ?? undefined) : undefined}
-                >
-                  {formatDateTime(date, language) ?? "–"}
-                </TableCell>
-                <TableCell className="hidden w-44 truncate text-muted-foreground @xl:table-cell">
-                  {entry.kind === "mail" ? (entry.mail?.from ?? "–") : "–"}
-                </TableCell>
-                <TableCell className="hidden w-44 text-muted-foreground @3xl:table-cell">
-                  {(() => {
-                    const to = entry.kind === "mail" ? toCellParts(entry.mail, t) : null;
-                    return to ? (
-                      <div className="flex min-w-0 items-center gap-1">
-                        <span className="min-w-0 flex-1 truncate">{to.addresses}</span>
-                        {to.more ? <span className="shrink-0">{to.more}</span> : null}
-                      </div>
-                    ) : (
-                      "–"
-                    );
-                  })()}
-                </TableCell>
-                <TableCell className="w-20 whitespace-nowrap text-right text-muted-foreground tabular-nums">
-                  {entry.kind === "folder" ? "–" : formatBytes(entry.size, language)}
-                </TableCell>
-              </TableRow>
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      calendar ? "w-64" : "w-48",
+                      "hidden truncate text-muted-foreground tabular-nums @lg:table-cell",
+                    )}
+                    // A native title, not a Tooltip: this cell renders once per
+                    // row (there can be hundreds), and the browser's own
+                    // tooltip is enough to recover the full value on the rare
+                    // locale where the date truncates despite the column's
+                    // width — no need for a Radix tooltip root per row.
+                    title={dateText ?? undefined}
+                  >
+                    {dateText ?? "–"}
+                  </TableCell>
+                  <TableCell className="hidden w-44 truncate text-muted-foreground @xl:table-cell">
+                    {entry.kind === "mail"
+                      ? (entry.mail?.from ?? "–")
+                      : entry.kind === "event"
+                        ? (entry.event?.location ?? "–")
+                        : "–"}
+                  </TableCell>
+                  <TableCell className="hidden w-44 text-muted-foreground @3xl:table-cell">
+                    {(() => {
+                      if (entry.kind === "event") {
+                        return (
+                          <span className="block truncate">{entry.event?.organizer ?? "–"}</span>
+                        );
+                      }
+                      const to = entry.kind === "mail" ? toCellParts(entry.mail, t) : null;
+                      return to ? (
+                        <div className="flex min-w-0 items-center gap-1">
+                          <span className="min-w-0 flex-1 truncate">{to.addresses}</span>
+                          {to.more ? <span className="shrink-0">{to.more}</span> : null}
+                        </div>
+                      ) : (
+                        "–"
+                      );
+                    })()}
+                  </TableCell>
+                  <TableCell className="w-20 whitespace-nowrap text-right text-muted-foreground tabular-nums">
+                    {entry.kind === "folder" ? "–" : formatBytes(entry.size, language)}
+                  </TableCell>
+                </TableRow>
+                {series && open ? (
+                  <TableRow className="hover:bg-transparent" data-slot="series-row">
+                    <TableCell colSpan={6} className="bg-muted/30 p-0">
+                      {renderSeries(entry)}
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </React.Fragment>
             );
           })}
         </TableBody>

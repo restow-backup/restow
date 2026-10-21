@@ -14,6 +14,7 @@ import { restorePointImmutability } from "../storage/immutability.js";
 import type { Viewer } from "./access.js";
 import {
   attachmentParamSchema,
+  calendarQuerySchema,
   listObjectsQuerySchema,
   listSnapshotsQuerySchema,
   searchQuerySchema,
@@ -23,6 +24,7 @@ import {
   versionsQuerySchema,
 } from "./schemas.js";
 import {
+  calendarView,
   listObjects,
   listSnapshots,
   listTree,
@@ -115,6 +117,13 @@ snapshotsRoutes.get("/:id/tree", tenantUser, async (c) => {
   const { id } = parseOrProblem(uuidParamSchema, c.req.param());
   const query = parseOrProblem(treeQuerySchema, c.req.query());
   return c.json(await listTree(db, c.get("tenantId"), readerOf(c), id, query));
+});
+
+/** A mailbox's calendar in a window, every series expanded into its occurrences. */
+snapshotsRoutes.get("/:id/calendar", tenantUser, async (c) => {
+  const { id } = parseOrProblem(uuidParamSchema, c.req.param());
+  const query = parseOrProblem(calendarQuerySchema, c.req.query());
+  return c.json(await calendarView(db, c.get("tenantId"), readerOf(c), id, query));
 });
 
 snapshotsRoutes.get("/:snapshotId/entries/:entryId/preview", tenantUser, async (c) => {
