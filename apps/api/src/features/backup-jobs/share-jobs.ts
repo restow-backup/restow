@@ -183,6 +183,7 @@ export function shareJobDto(
     name: job.name,
     enabled: job.enabled,
     archive: false,
+    archiveCapture: {},
     origin: job.origin,
     scopeMode: job.scopeMode,
     schedule: job.schedule,
@@ -280,6 +281,7 @@ export function copyJobDto(
     name: job.name,
     enabled: job.enabled,
     archive: false,
+    archiveCapture: {},
     origin: job.origin,
     scopeMode: "selected",
     schedule: job.schedule,
@@ -344,6 +346,7 @@ export function shareMembers(
     items.push({
       targetId: member.fileShareId,
       kind: fact.share.protocol,
+      captureKind: null,
       name: fact.share.name,
       detail: locationOf(fact.share),
       status: retired ? "retired" : "active",
@@ -401,6 +404,7 @@ export async function shareCandidates(
       return {
         targetId: row.id,
         kind: row.protocol,
+        captureKind: null,
         name: row.name,
         detail: locationOf(row),
         status: "active",

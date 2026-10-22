@@ -15,6 +15,9 @@ import {
   type BackupJobMember,
   type BackupJobSettings,
   backupJobs,
+  type CaptureKind,
+  captureKindSql,
+  effectiveArchiveCapture,
   endpointRuns,
   endpoints,
   fileShares,
@@ -262,6 +265,7 @@ function mailJobDto(
     name: job.name,
     enabled: job.enabled,
     archive: job.archive,
+    archiveCapture: job.kind === "mail" ? effectiveArchiveCapture(job.archiveCapture) : {},
     origin: job.origin,
     scopeMode: job.scopeMode,
     schedule: job.schedule,
@@ -352,6 +356,7 @@ function endpointJobDto(
     name: job.name,
     enabled: job.enabled,
     archive: job.archive,
+    archiveCapture: job.kind === "mail" ? effectiveArchiveCapture(job.archiveCapture) : {},
     origin: job.origin,
     scopeMode: job.scopeMode,
     schedule: job.schedule,
@@ -592,6 +597,7 @@ function mailMembers(
     items.push({
       targetId: id,
       kind: object.kind,
+      captureKind: object.captureKind,
       name: objectName(object),
       detail: object.externalId,
       status: object.status,
@@ -650,6 +656,7 @@ function endpointMembers(
     items.push({
       targetId: member.endpointId,
       kind: fact.profile,
+      captureKind: null,
       name: endpointName(fact),
       detail: fact.os,
       status: fact.status,
@@ -837,6 +844,7 @@ export async function listCandidates(
         items: objects.slice(0, query.limit).map<JobCandidateDto>((object) => ({
           targetId: object.id,
           kind: object.kind,
+          captureKind: object.captureKind,
           name: objectName(object),
           detail: object.externalId,
           status: object.status,
@@ -864,6 +872,7 @@ export async function listCandidates(
       items: rows.slice(0, query.limit).map<JobCandidateDto>((row) => ({
         targetId: row.id,
         kind: row.profile,
+        captureKind: null,
         name: row.displayName?.trim() || row.hostname,
         detail: row.os,
         status: row.status,
@@ -940,6 +949,13 @@ export async function getDefaults(
         ? ({ kind: "interval", intervalMinutes: entry.intervalMinutes, timeZone } as const)
         : ({ kind: "cron", cron: entry?.cron ?? "0 2 * * *", timeZone } as const);
     if (kind === "mail") {
+      // The capture kinds of every active mail object (what a job of scope "all" archives).
+      const kinds = await tx.execute<{ kind: CaptureKind }>(sql`
+        select distinct ${captureKindSql("po", "s")} as kind
+          from protected_objects po
+          join sources s on s.id = po.source_id
+         where po.tenant_id = ${tenantId}::uuid and po.status = 'active'
+      `);
       return {
         kind,
         timeZone,
@@ -948,6 +964,10 @@ export async function getDefaults(
         settings: {},
         basis: null,
         repository: repositoryDto(primary),
+        mailSourceKinds: kinds.rows
+          .map((row) => row.kind)
+          .filter((value): value is CaptureKind => value !== null)
+          .sort(),
         retentionPolicies: policies.map((policy) => ({ ...policy })),
         endpointRetention: { ...DEFAULT_ENDPOINT_RETENTION },
       };
@@ -972,6 +992,7 @@ export async function getDefaults(
             : { targetFolder: "", mode: "overwrite", restorePermissions: false },
         basis: null,
         repository: repositoryDto(primary),
+        mailSourceKinds: [],
         retentionPolicies: [],
         endpointRetention: { ...DEFAULT_SHARE_RETENTION },
       };
@@ -1002,6 +1023,7 @@ export async function getDefaults(
       },
       basis: machine.basis,
       repository: repositoryDto(primary),
+      mailSourceKinds: [],
       retentionPolicies: [],
       endpointRetention: { ...DEFAULT_ENDPOINT_RETENTION },
     };

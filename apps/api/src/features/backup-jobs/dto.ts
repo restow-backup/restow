@@ -112,8 +112,14 @@ export interface BackupJobDto {
   kind: JobKindName;
   name: string;
   enabled: boolean;
-  /** Mail jobs: the job's mailboxes are expected in the journal archive (#32). Machine jobs: false. */
+  /** Mail jobs: the job's mailboxes are expected in the archive (#32). Machine jobs: false. */
   archive: boolean;
+  /**
+   * Mail jobs: the archive's capture ways per kind of mail object, the defaults filled in
+   * (docs/ARCHIVE.md "Erfassungswege"); what the job's objects are captured by while
+   * `archive` is on. Machine, share and copy jobs: `{}`.
+   */
+  archiveCapture: ArchiveCaptureSettingsDto;
   origin: JobOrigin;
   scopeMode: JobScopeMode;
   /** Null: no schedule, the job runs when someone starts it. */
@@ -173,10 +179,22 @@ export type MemberKind =
   | "nfs";
 export type MemberRestoreState = "green" | "yellow" | "red" | "unverified" | "no_backup";
 
+/** Which archive capture ways fit a mail object (packages/db archive-capture.ts). */
+export type CaptureKindDto = "m365" | "google" | "imap" | "imap_microsoft";
+
+/** A mail job's capture ways per kind of mail object (backup_jobs.archive_capture). */
+export interface ArchiveCaptureSettingsDto {
+  m365?: { graph: boolean; journal: boolean };
+  imap?: { sync: boolean; forward: boolean };
+  google?: { sync: boolean; forward: boolean };
+}
+
 export interface BackupJobMemberDto {
   /** The id of the protected object (mail) or the machine. */
   targetId: string;
   kind: MemberKind;
+  /** Mail objects: which archive capture ways fit it; null for OneDrive, sites and machines. */
+  captureKind: CaptureKindDto | null;
   /** The mailbox's display name or address, or the machine's name. */
   name: string;
   /** The address or the operating system. */
@@ -223,6 +241,8 @@ export interface BackupJobMembersDto {
 export interface JobCandidateDto {
   targetId: string;
   kind: MemberKind;
+  /** Mail objects: which archive capture ways fit it; null otherwise. */
+  captureKind: CaptureKindDto | null;
   name: string;
   detail: string | null;
   status: string;
@@ -271,6 +291,11 @@ export interface JobDefaultsDto {
   basis: { os: string[]; profiles: ("server" | "client")[]; mixed: boolean } | null;
   /** The tenant's primary storage target: the only one jobs write to. */
   repository: RepositoryDto;
+  /**
+   * Mail jobs: the capture kinds of the tenant's active mail objects (what a job of scope
+   * "all" archives, so the editor offers the matching capture ways). Empty for other kinds.
+   */
+  mailSourceKinds: CaptureKindDto[];
   retentionPolicies: { id: string; name: string; isDefault: boolean; cutoffDays: number | null }[];
   /** Machine jobs: what a machine keeps its repository with unless the job says otherwise. */
   endpointRetention: { keepDaily: number; keepWeekly: number; keepMonthly: number };

@@ -3,6 +3,8 @@ import {
   type BackupJob,
   type BackupJobMember,
   backupJobMembers,
+  type CaptureKind,
+  captureKindOf,
   endpointRuns,
   endpoints,
   endpointTasks,
@@ -33,6 +35,11 @@ export interface ObjectInfo {
   sourceStatus: "pending" | "active" | "error" | "disabled";
   /** The scheduler may plan it: active, on a source that works (or fails and is retried), not imported. */
   eligible: boolean;
+  /**
+   * Which archive capture ways fit it (packages/db archive-capture.ts): `m365`, `google`,
+   * `imap`, `imap_microsoft`; null for OneDrive, sites and imported mailboxes.
+   */
+  captureKind: CaptureKind | null;
 }
 
 /** The scheduler's rule for a source it works against (apps/scheduler planning.ts `sourceUsable`). */
@@ -58,6 +65,8 @@ export async function loadObjectInfos(
       sourceId: protectedObjects.sourceId,
       sourceKind: sources.kind,
       sourceStatus: sources.status,
+      sourceHost: sources.host,
+      sourceConfig: sources.config,
     })
     .from(protectedObjects)
     .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
@@ -68,9 +77,15 @@ export async function loadObjectInfos(
       ),
     )
     .orderBy(asc(protectedObjects.displayName), asc(protectedObjects.externalId));
-  return rows.map((row) => ({
+  return rows.map(({ sourceHost, sourceConfig, ...row }) => ({
     ...row,
     eligible: row.status === "active" && sourceUsable(row.sourceKind, row.sourceStatus),
+    captureKind: captureKindOf({
+      objectKind: row.kind,
+      sourceKind: row.sourceKind,
+      host: sourceHost,
+      config: sourceConfig,
+    }),
   }));
 }
 

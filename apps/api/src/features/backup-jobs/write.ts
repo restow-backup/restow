@@ -20,17 +20,21 @@ import {
   validateJobSchedule,
 } from "@restow/core";
 import {
+  type ArchiveCaptureSettings,
   type BackupJob,
   type BackupJobMember,
   type BackupJobSettings,
   backupJobMembers,
   backupJobs,
+  type CaptureKind,
+  captureKindSql,
   type Database,
   endpoints,
   endpointTasks,
   type FileShare,
   fileShareRuns,
   fileShares,
+  kindsWithoutWay,
   retentionPolicies,
 } from "@restow/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -1007,6 +1011,7 @@ function definitionOf(job: BackupJob): Record<string, unknown> {
     scopeMode: job.scopeMode,
     enabled: job.enabled,
     archive: job.archive,
+    ...(job.kind === "mail" ? { archiveCapture: job.archiveCapture ?? {} } : {}),
     schedule: job.schedule,
     verifySchedule: job.verifySchedule,
     retentionPolicyId: job.retentionPolicyId,
@@ -1074,7 +1079,7 @@ export async function createBackupJob(
       "A file share job covers the shares you choose.",
     );
   }
-  if ((kind === "share" || kind === "copy") && input.archive) {
+  if ((kind === "share" || kind === "copy") && (input.archive || input.archiveCapture)) {
     throw jobProblem(["archive"], "archive_not_supported", archiveMessage());
   }
   if (kind === "endpoint" && input.scope.mode === "all") {
@@ -1087,7 +1092,7 @@ export async function createBackupJob(
   if (kind === "endpoint" && input.enabled === false) {
     throw jobProblem(["enabled"], "pause_not_supported", pauseMessage());
   }
-  if (kind === "endpoint" && input.archive) {
+  if (kind === "endpoint" && (input.archive || input.archiveCapture)) {
     throw jobProblem(["archive"], "archive_not_supported", archiveMessage());
   }
   return withTenantTx(db, tenantId, async (tx) => {
@@ -1105,6 +1110,15 @@ export async function createBackupJob(
       members.map((m) => m.targetId),
       (i) => ["scope", "members", String(i), "id"],
     );
+    if (kind === "mail" && input.archive) {
+      await assertCaptureWays(
+        tx,
+        tenantId,
+        input.scope.mode,
+        members.map((member) => member.targetId),
+        input.archiveCapture ?? {},
+      );
+    }
     const moved = await releaseTargets(
       tx,
       tenantId,
@@ -1129,6 +1143,7 @@ export async function createBackupJob(
           settings,
           enabled: input.enabled,
           archive: input.archive,
+          archiveCapture: kind === "mail" ? (input.archiveCapture ?? {}) : {},
           origin: "user",
           recommended: context.recommended ?? null,
           nextRunAt: kind === "endpoint" ? null : nextOf(schedule, now, null),
@@ -1163,9 +1178,47 @@ export async function createBackupJob(
   });
 }
 
-/** Why a machine job cannot archive: the archive is mail captured by journaling. */
+/** Why a machine or file share job cannot archive: the archive holds mail. */
 function archiveMessage(): string {
-  return "Archiving is for mail jobs: Exchange journals every mail of their mailboxes to the archive. A machine job keeps snapshots only.";
+  return "Archiving is for mail jobs: the mail of their mailboxes is captured into the archive (journaling, Microsoft Graph, IMAP or a forwarded copy). Machine and file share jobs keep snapshots only.";
+}
+
+/**
+ * A mail job that archives needs at least one capture way for every kind of mail object it
+ * covers (packages/db archive-capture.ts): its members, or for scope "all" every active mail
+ * object of the tenant. A kind it does not cover may have none.
+ */
+async function assertCaptureWays(
+  tx: Transaction,
+  tenantId: string,
+  scopeMode: "all" | "selected",
+  memberIds: readonly string[],
+  settings: ArchiveCaptureSettings,
+): Promise<void> {
+  let kinds: CaptureKind[];
+  if (scopeMode === "all") {
+    const rows = await tx.execute<{ kind: CaptureKind | null }>(sql`
+      select distinct ${captureKindSql("po", "s")} as kind
+        from protected_objects po
+        join sources s on s.id = po.source_id
+       where po.tenant_id = ${tenantId}::uuid and po.status = 'active'
+    `);
+    kinds = rows.rows.flatMap((row) => (row.kind ? [row.kind] : []));
+  } else {
+    kinds = (await loadObjectInfos(tx, tenantId, memberIds)).flatMap((object) =>
+      object.captureKind ? [object.captureKind] : [],
+    );
+  }
+  const missing = kindsWithoutWay(settings, kinds);
+  if (missing.length > 0) {
+    const key = missing[0] === "m365" ? "m365" : missing[0] === "google" ? "google" : "imap";
+    throw jobProblem(
+      ["archiveCapture", key],
+      "archive_capture_no_way",
+      "Every kind of mailbox the job archives needs at least one capture way.",
+      { kinds: missing },
+    );
+  }
 }
 
 function pauseMessage(): string {
@@ -1248,6 +1301,7 @@ function describeChanges(before: BackupJob, after: BackupJob): Record<string, un
   compare("name", before.name, after.name);
   compare("enabled", before.enabled, after.enabled);
   compare("archive", before.archive, after.archive);
+  compare("archiveCapture", before.archiveCapture ?? {}, after.archiveCapture ?? {});
   if (!sameSchedule(before.schedule, after.schedule)) {
     changes.schedule = { from: before.schedule, to: after.schedule };
   }
@@ -1315,8 +1369,20 @@ export async function updateBackupJob(
     if (kind === "endpoint" && patch.enabled === false) {
       throw jobProblem(["enabled"], "pause_not_supported", pauseMessage());
     }
-    if (kind !== "mail" && patch.archive) {
+    if (kind !== "mail" && (patch.archive || patch.archiveCapture)) {
       throw jobProblem(["archive"], "archive_not_supported", archiveMessage());
+    }
+    const archiveCapture =
+      kind === "mail" ? (patch.archiveCapture ?? before.archiveCapture ?? {}) : {};
+    if (
+      kind === "mail" &&
+      (patch.archive ?? before.archive) &&
+      (patch.archive !== undefined || patch.archiveCapture !== undefined)
+    ) {
+      const memberIds = (await loadAllMembers(tx, tenantId)).flatMap((member) =>
+        member.jobId === id && member.protectedObjectId ? [member.protectedObjectId] : [],
+      );
+      await assertCaptureWays(tx, tenantId, before.scopeMode, memberIds, archiveCapture);
     }
     let settings =
       patch.settings !== undefined
@@ -1376,6 +1442,7 @@ export async function updateBackupJob(
         settings,
         enabled,
         archive: patch.archive ?? before.archive,
+        archiveCapture,
         sourceFileShareId,
         targetFileShareId,
         // A new or resumed cadence starts from its last run; an untouched one keeps its timer.

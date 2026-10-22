@@ -457,6 +457,99 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     expect(plain.archive).toBe(false);
   });
 
+  it("keeps the archive's capture ways per kind of mail object and refuses a kind without one", async () => {
+    // A Google Workspace account over IMAP, in no job yet.
+    const [google] = await owner
+      .insert(sources)
+      .values({
+        tenantId: contoso,
+        kind: "imap",
+        name: "Contoso Workspace",
+        host: "imap.gmail.com",
+        status: "active",
+      })
+      .returning();
+    const [account] = await owner
+      .insert(protectedObjects)
+      .values({
+        tenantId: contoso,
+        sourceId: google?.id ?? "",
+        kind: "imap",
+        externalId: "gina@contoso.example",
+        displayName: "gina",
+      })
+      .returning();
+    const body = (archiveCapture: unknown) => ({
+      kind: "mail",
+      name: "Workspace archive",
+      archive: true,
+      archiveCapture,
+      scope: { mode: "selected", members: [{ id: account?.id }] },
+    });
+    const refused = await problem(
+      await call("POST", "", { body: body({ google: { sync: false, forward: false } }) }),
+      422,
+    );
+    expect(refused).toMatchObject({ code: "archive_capture_no_way", field: "archiveCapture" });
+    // A kind the job has no objects of may have none.
+    const job = await json<BackupJobDto>(
+      await call("POST", "", {
+        body: body({
+          google: { sync: false, forward: true },
+          m365: { graph: false, journal: false },
+        }),
+      }),
+      201,
+    );
+    expect(job.archiveCapture).toEqual({
+      google: { sync: false, forward: true },
+      m365: { graph: false, journal: false },
+      imap: { sync: true, forward: false },
+    });
+    const members = await json<BackupJobMembersDto>(await call("GET", `/${job.id}/members`), 200);
+    expect(members.items[0]).toMatchObject({ kind: "imap", captureKind: "google" });
+    const candidates = await json<JobCandidatesDto>(
+      await call("GET", "/candidates?kind=mail"),
+      200,
+    );
+    expect(candidates.items.find((item) => item.name === "anna")?.captureKind).toBe("m365");
+    const defaults = await json<JobDefaultsDto>(await call("GET", "/defaults?kind=mail"), 200);
+    expect(defaults.mailSourceKinds).toEqual(["google", "m365"]);
+
+    // Switching the only way off is refused, the change of ways is audited.
+    await problem(
+      await call("PATCH", `/${job.id}`, {
+        body: { archiveCapture: { google: { sync: false, forward: false } } },
+      }),
+      422,
+    );
+    await json<BackupJobDto>(
+      await call("PATCH", `/${job.id}`, {
+        body: { archiveCapture: { google: { sync: true, forward: false } } },
+      }),
+      200,
+    );
+    const [entry] = await audits("backup_job.updated", job.id);
+    expect(entry?.details).toMatchObject({
+      changes: { archiveCapture: { to: { google: { sync: true, forward: false } } } },
+    });
+    // A machine job has no capture ways.
+    await problem(
+      await call("POST", "", {
+        body: {
+          kind: "endpoint",
+          name: "No ways",
+          archiveCapture: {},
+          scope: { mode: "selected", members: [] },
+        },
+      }),
+      422,
+    );
+    await call("DELETE", `/${job.id}`);
+    // Leave the tenant's objects as the following tests know them.
+    await owner.delete(sources).where(eq(sources.id, google?.id ?? ""));
+  });
+
   it("keeps a job's timers when it is saved with the same schedule written in another way", async () => {
     // The editor sends the whole schedule on every save, the keys in its own order, a cron
     // expression with its own spacing. The stored document is the database's (jsonb keeps keys

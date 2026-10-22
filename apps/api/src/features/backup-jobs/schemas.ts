@@ -158,6 +158,19 @@ export const memberInputSchema = z.object({
 
 const jobName = z.string().trim().min(1).max(120);
 
+/**
+ * A mail job's archive capture ways per kind of mail object (docs/ARCHIVE.md
+ * "Erfassungswege"; packages/db `ArchiveCaptureSettings`). A kind left out takes the
+ * defaults (Graph for Microsoft 365, IMAP sync for IMAP and Google).
+ */
+export const archiveCaptureSchema = z
+  .object({
+    m365: z.object({ graph: z.boolean(), journal: z.boolean() }).strict().optional(),
+    imap: z.object({ sync: z.boolean(), forward: z.boolean() }).strict().optional(),
+    google: z.object({ sync: z.boolean(), forward: z.boolean() }).strict().optional(),
+  })
+  .strict();
+
 export const createBackupJobSchema = z.object({
   kind: jobKindSchema,
   name: jobName,
@@ -177,8 +190,10 @@ export const createBackupJobSchema = z.object({
   retentionPolicyId: uuid.nullable().optional(),
   settings: jobSettingsSchema.default({}),
   enabled: z.boolean().default(true),
-  /** Mail jobs: the job's mailboxes are archived through journaling (#32). Machine jobs: always false. */
+  /** Mail jobs: the job's mail objects are archived (#32). Machine jobs: always false. */
   archive: z.boolean().default(false),
+  /** Mail jobs: how the archive captures each kind of mail object; absent = the defaults. */
+  archiveCapture: archiveCaptureSchema.optional(),
   /** Take objects and machines that belong to another job instead of refusing them. */
   moveMembers: z.boolean().default(false),
   /** Copy jobs: the share whose newest verified restore point is copied. */
@@ -200,6 +215,7 @@ export const updateBackupJobSchema = z
     settings: jobSettingsSchema.optional(),
     enabled: z.boolean().optional(),
     archive: z.boolean().optional(),
+    archiveCapture: archiveCaptureSchema.optional(),
     sourceFileShareId: uuid.optional(),
     targetFileShareId: uuid.optional(),
     confirmMirror: z.boolean().optional(),
