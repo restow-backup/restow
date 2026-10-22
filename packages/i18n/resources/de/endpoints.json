@@ -104,6 +104,11 @@
       "label": "Ohne Backup",
       "hint": "Der Rechner ist in keinem Backup-Job und wird nicht gesichert.",
       "message": "Der Rechner ist in keinem Backup-Job und wird deshalb nicht gesichert. Legen Sie einen Job an oder fügen Sie ihn einem bestehenden Job hinzu."
+    },
+    "revoke_suggested": {
+      "label": "Sperren?",
+      "hint": "Lange kein Kontakt: Wenn der Rechner nicht mehr existiert, sperren Sie ihn.",
+      "message": "{days, plural, one {Der Rechner hat sich seit mehr als # Tag nicht gemeldet. Wenn es ihn nicht mehr gibt, sperren Sie ihn und entfernen Sie ihn aus {appName}.} other {Der Rechner hat sich seit mehr als # Tagen nicht gemeldet. Wenn es ihn nicht mehr gibt, sperren Sie ihn und entfernen Sie ihn aus {appName}.}}"
     }
   },
   "list": {
@@ -871,7 +876,9 @@
       "hours": "Stunden ohne Kontakt",
       "hoursHint": "Alarm, wenn sich der Server länger als diesen Wert nicht gemeldet hat. Standard: {count}.",
       "days": "Tage ohne erfolgreiche Sicherung",
-      "daysHint": "Alarm, wenn der Client länger als diesen Wert keine erfolgreiche Sicherung hatte. Standard: {count}."
+      "daysHint": "Alarm, wenn der Client länger als diesen Wert keine erfolgreiche Sicherung hatte. Standard: {count}.",
+      "revokeHint": "Tage ohne Kontakt bis zum Hinweis auf Sperren",
+      "revokeHintHint": "Nach so vielen Tagen ohne Kontakt schlägt der Rechner vor, ihn zu sperren, hier und in der Liste dessen, was Aufmerksamkeit braucht. Standard: {count}."
     },
     "errors": {
       "tooLong": "Zu lang, höchstens {max} Zeichen.",
@@ -948,7 +955,7 @@
   },
   "danger": {
     "title": "Sicherung dieses Rechners beenden",
-    "description": "Keine der beiden Aktionen löscht den Rechner oder seine Sicherungen. Der Rechner bleibt als gesperrt im Inventar (ausgeblendet, bis Sie gesperrte Rechner einblenden), und vorhandene Sicherungen bleiben wiederherstellbar.",
+    "description": "Deinstallieren und Sperren löschen nichts: Der Rechner bleibt als gesperrt im Inventar (ausgeblendet, bis Sie gesperrte Rechner einblenden), und seine Sicherungen bleiben wiederherstellbar. Erst das Entfernen eines gesperrten Rechners löscht seine Sicherungen, sofort oder wenn sie ablaufen.",
     "uninstall": {
       "title": "Agent deinstallieren",
       "description": "Der Rechner entfernt den Agent bei seinem nächsten Kontakt selbst und wird dabei gesperrt. Nutzen Sie das, wenn der Rechner nicht mehr gesichert werden soll.",
@@ -963,7 +970,9 @@
       "toast": {
         "queued": "Deinstallation angefordert",
         "already": "Für diesen Rechner wartet bereits eine Deinstallation."
-      }
+      },
+      "revokeNowHint": "Ist der Rechner aus oder nicht mehr da, wartet die Deinstallation ewig. Sperren Sie ihn stattdessen jetzt; den Agent entfernen Sie auf dem Rechner, falls er wieder auftaucht.",
+      "revokeNow": "Jetzt sperren"
     },
     "revoke": {
       "title": "Sperren",
@@ -976,6 +985,38 @@
         "action": "Rechner sperren"
       },
       "toast": "Der Rechner wurde gesperrt."
+    },
+    "revokeSuggested": "{days, plural, one {Dieser Rechner hat sich seit mehr als # Tag nicht gemeldet. Wenn es ihn nicht mehr gibt, sperren Sie ihn und entfernen Sie ihn danach.} other {Dieser Rechner hat sich seit mehr als # Tagen nicht gemeldet. Wenn es ihn nicht mehr gibt, sperren Sie ihn und entfernen Sie ihn danach.}}",
+    "remove": {
+      "title": "Aus {appName} entfernen",
+      "description": "Nimmt den Rechner aus jeder Liste und löscht seine Sicherungen, sofort oder wenn seine Aufbewahrung sie gehen lässt. Seine Läufe und das Audit-Log behalten ihre Einträge.",
+      "revokeFirst": "Sperren Sie den Rechner zuerst. Ein nicht gesperrter Rechner lässt sich nicht entfernen.",
+      "action": "Rechner entfernen",
+      "mode": {
+        "expire": {
+          "label": "Aus der Liste entfernen, Sicherungen bis zum Ablauf behalten",
+          "description": "Die Sicherungen bleiben gespeichert, bis die Aufbewahrung des Rechners die neueste von ihnen hätte gehen lassen, dann werden sie gelöscht. Die Dateiwiederherstellung bietet sie nicht mehr an: Wenn Sie noch eine brauchen könnten, lassen Sie sich zuerst das Repository-Passwort anzeigen und bewahren Sie es auf."
+        },
+        "delete": {
+          "label": "Rechner und seine Sicherungen löschen",
+          "description": "Jede Sicherung des Rechners wird jetzt gelöscht. Nicht möglich, solange eine Legal Hold oder ein ungeklärter verdächtiger Sicherungsstand sie hält."
+        }
+      },
+      "confirm": {
+        "title": "{name} entfernen?",
+        "description": "Der Rechner verschwindet aus jeder Liste, Übersicht und Zählung. Das lässt sich nicht rückgängig machen: Gelöschte Sicherungen lassen sich nicht wiederherstellen.",
+        "locks": "Sicherungsdateien, die der Speicher noch sperrt (unveränderliche Sicherungen), werden gelöscht, sobald ihre Sperre abläuft; die Rechner-Seite zeigt, wann.",
+        "typeHostname": "Geben Sie zur Bestätigung den Hostnamen {hostname} ein",
+        "cancel": "Abbrechen",
+        "action": {
+          "expire": "Rechner entfernen",
+          "delete": "Rechner und Sicherungen löschen"
+        }
+      },
+      "toast": {
+        "delete": "{name} wurde entfernt. Seine Sicherungen werden gelöscht.",
+        "expire": "{name} wurde entfernt. Seine Sicherungen werden am {date} gelöscht."
+      }
     }
   },
   "errors": {
@@ -1005,7 +1046,12 @@
     "containerNoRepository": "Die Sicherungen dieses Containers sind auf dem Server nicht verfügbar.",
     "vmFilesUnreadable": "Das Dateisystem dieses Sicherungsstands konnte auf dem Server nicht gelesen werden. Stellen Sie die ganze VM unter VMs & Container wieder her.",
     "agentPolicyInvalid": "Eine Einstellung der Richtlinie lässt sich so nicht speichern. Prüfen Sie die Werte.",
-    "agentPolicyLocked": "Die Installation hat diese Einstellung der Richtlinie gesperrt; sie lässt sich hier nicht ändern."
+    "agentPolicyLocked": "Die Installation hat diese Einstellung der Richtlinie gesperrt; sie lässt sich hier nicht ändern.",
+    "notRevoked": "Nur ein gesperrter Rechner lässt sich entfernen. Sperren Sie ihn zuerst.",
+    "confirmHostname": "Der Hostname stimmt nicht. Geben Sie ihn genau wie angezeigt ein.",
+    "removalLegalHold": "Eine Legal Hold umfasst jede Sicherung dieses Mandanten, daher lassen sie sich jetzt nicht löschen. Behalten Sie sie stattdessen bis zum Ablauf, oder heben Sie die Hold zuerst auf.",
+    "removalSuspicionHold": "Ein verdächtiger Sicherungsstand dieses Rechners ist nicht geklärt und hält seine Sicherungen. Klären Sie ihn zuerst, oder behalten Sie die Sicherungen bis zum Ablauf.",
+    "removalNeverExpires": "Die Aufbewahrung dieses Rechners behält jede Sicherung, sie würden also nie ablaufen. Löschen Sie sie stattdessen."
   },
   "readinessSection": {
     "overdue": "Überfällig",
@@ -1250,5 +1296,17 @@
     "requested": "Der Agent aktualisiert sich, sobald er frei ist",
     "requestedNote": "Er installiert das signierte Release bei seiner nächsten Meldung, sobald auf dem Rechner keine Sicherung und keine Wiederherstellung läuft, und startet dann neu.",
     "paused": "Agent-Updates sind für diesen Rechner oder seinen Mandanten pausiert."
+  },
+  "removals": {
+    "title": "{count, plural, one {Sicherungen von # entferntem Rechner} other {Sicherungen von # entfernten Rechnern}}",
+    "description": "Diese Rechner wurden aus {appName} entfernt. Ihre Sicherungen liegen noch im Speicher, bis sie gelöscht sind.",
+    "expires": "Gelöscht am {date}",
+    "deleting": "Wird gelöscht",
+    "deferred": "Teils bis {date} vom Speicher gesperrt, danach gelöscht",
+    "deferredUnknown": "Teils vom Speicher gesperrt, gelöscht, sobald die Sperre abläuft",
+    "held": {
+      "legal": "Gehalten von einer Legal Hold über den ganzen Mandanten",
+      "suspicion": "Gehalten von einem ungeklärten verdächtigen Sicherungsstand"
+    }
   }
 }

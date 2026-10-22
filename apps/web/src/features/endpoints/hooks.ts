@@ -28,10 +28,13 @@ import {
   fetchBrowse,
   fetchEndpoint,
   fetchEndpoints,
+  fetchRemovals,
   fetchRun,
   fetchRuns,
   fetchSnapshots,
   fetchTokens,
+  type RemovalMode,
+  removeEndpoint,
   requestEndpointUpdate,
   requestRestoreTest,
   resumeMachineUpdates,
@@ -227,6 +230,35 @@ export function useRevokeEndpoint(endpointId: string) {
   return useMutation({
     mutationFn: () => revokeEndpoint(endpointId),
     onSettled: () => refresh(endpointId),
+  });
+}
+
+/** Remove a revoked machine (#65): every list forgets it, the removals list gains it. */
+export function useRemoveEndpoint(endpointId: string) {
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  return useMutation({
+    mutationFn: (input: { mode: RemovalMode; confirmHostname: string }) =>
+      removeEndpoint(endpointId, input),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) });
+    },
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: endpointKeys.lists(tenantId) }),
+        queryClient.invalidateQueries({ queryKey: endpointKeys.removals(tenantId) }),
+      ]),
+  });
+}
+
+/** Removed machines whose backups are not deleted yet; only for who may remove machines. */
+export function useRemovals(wanted: boolean) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.removals(tenantId),
+    queryFn: fetchRemovals,
+    enabled: enabled && wanted,
+    refetchInterval: IDLE_REFRESH_MS,
   });
 }
 

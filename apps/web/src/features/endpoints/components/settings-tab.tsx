@@ -840,6 +840,22 @@ export function SettingsTab({ detail }: { detail: EndpointDetail }) {
                 />
               </Field>
             )}
+            <Field
+              id="settings-revoke-hint-days"
+              label={t("settings.alerts.revokeHint")}
+              hint={t("settings.alerts.revokeHintHint", { count: DEFAULTS.revokeHintAfterDays })}
+              error={problemText(shown, "revokeHintAfterDays")}
+            >
+              <NumberInput
+                id="settings-revoke-hint-days"
+                value={draft.revokeHintAfterDays}
+                onChange={(value) => set("revokeHintAfterDays", value)}
+                disabled={disabled}
+                describedBy={messageId("settings-revoke-hint-days")}
+                invalid={Boolean(shown.revokeHintAfterDays)}
+                className="w-40"
+              />
+            </Field>
           </Section>
 
           <Section

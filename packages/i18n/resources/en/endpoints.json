@@ -104,6 +104,11 @@
       "label": "Without backup",
       "hint": "The machine is in no backup job and is not backed up.",
       "message": "The machine is in no backup job, so it is not backed up. Create a job or add it to an existing one."
+    },
+    "revoke_suggested": {
+      "label": "Revoke?",
+      "hint": "No contact for a long time: if the machine is gone, revoke it.",
+      "message": "{days, plural, one {The machine has not been in contact for more than # day. If it is gone for good, revoke it and remove it from {appName}.} other {The machine has not been in contact for more than # days. If it is gone for good, revoke it and remove it from {appName}.}}"
     }
   },
   "list": {
@@ -871,7 +876,9 @@
       "hours": "Hours without contact",
       "hoursHint": "Alert when the server has not been in contact for longer than this. Default: {count}.",
       "days": "Days without a good backup",
-      "daysHint": "Alert when the client has had no successful backup for longer than this. Default: {count}."
+      "daysHint": "Alert when the client has had no successful backup for longer than this. Default: {count}.",
+      "revokeHint": "Days without contact before suggesting to revoke",
+      "revokeHintHint": "After this many days without contact, the machine suggests revoking it, here and in the list of what needs attention. Default: {count}."
     },
     "errors": {
       "tooLong": "Too long, at most {max} characters.",
@@ -948,7 +955,7 @@
   },
   "danger": {
     "title": "Stop backing up this machine",
-    "description": "Neither action deletes the machine or its backups. The machine stays in the inventory as revoked (hidden until you show revoked machines), and the backups that exist stay restorable.",
+    "description": "Uninstalling and revoking delete nothing: the machine stays in the inventory as revoked (hidden until you show revoked machines), and its backups stay restorable. Only removing a revoked machine deletes its backups, at once or when they expire.",
     "uninstall": {
       "title": "Uninstall the agent",
       "description": "The machine removes the agent by itself with its next contact, and is revoked when it does. Use this when you no longer want to back the machine up.",
@@ -963,7 +970,9 @@
       "toast": {
         "queued": "Uninstall requested",
         "already": "An uninstall is already waiting for this machine."
-      }
+      },
+      "revokeNowHint": "If the machine is off or gone, the uninstall waits for ever. Revoke it now instead; remove the agent on the machine later if it comes back.",
+      "revokeNow": "Revoke now"
     },
     "revoke": {
       "title": "Revoke",
@@ -976,6 +985,38 @@
         "action": "Revoke machine"
       },
       "toast": "The machine was revoked."
+    },
+    "revokeSuggested": "{days, plural, one {This machine has not been in contact for more than # day. If it is gone for good, revoke it, then remove it.} other {This machine has not been in contact for more than # days. If it is gone for good, revoke it, then remove it.}}",
+    "remove": {
+      "title": "Remove from {appName}",
+      "description": "Takes the machine out of every list and deletes its backups, at once or when its retention lets them go. Its runs and the audit log keep their entries.",
+      "revokeFirst": "Revoke the machine first. A machine that is not revoked cannot be removed.",
+      "action": "Remove machine",
+      "mode": {
+        "expire": {
+          "label": "Remove from the list, keep the backups until they expire",
+          "description": "The backups stay stored until the machine's retention would have let the newest of them go, then they are deleted. File restore no longer offers them: if you may still need one, show and keep the repository password first."
+        },
+        "delete": {
+          "label": "Delete the machine and its backups",
+          "description": "Every backup of the machine is deleted now. Not possible while a legal hold or an unresolved suspicious restore point holds them."
+        }
+      },
+      "confirm": {
+        "title": "Remove {name}?",
+        "description": "The machine disappears from every list, dashboard and count. This cannot be undone: deleted backups cannot be restored.",
+        "locks": "Backup files the storage still locks (immutable backups) are deleted once their lock runs out; the machines page shows when.",
+        "typeHostname": "Type the hostname {hostname} to confirm",
+        "cancel": "Cancel",
+        "action": {
+          "expire": "Remove machine",
+          "delete": "Delete machine and backups"
+        }
+      },
+      "toast": {
+        "delete": "{name} was removed. Its backups are being deleted.",
+        "expire": "{name} was removed. Its backups are deleted on {date}."
+      }
     }
   },
   "errors": {
@@ -1005,7 +1046,12 @@
     "containerNoRepository": "The backups of this container are not available on the server.",
     "vmFilesUnreadable": "The file system of this restore point could not be read on the server. Restore the whole VM under VMs & containers.",
     "agentPolicyInvalid": "A setting of the policy cannot be saved like this. Check the values.",
-    "agentPolicyLocked": "The installation locked this setting of the policy; it cannot be changed here."
+    "agentPolicyLocked": "The installation locked this setting of the policy; it cannot be changed here.",
+    "notRevoked": "Only a revoked machine can be removed. Revoke it first.",
+    "confirmHostname": "The hostname does not match. Type it exactly as shown.",
+    "removalLegalHold": "A legal hold covers every backup of this tenant, so they cannot be deleted now. Keep them until they expire instead, or release the hold first.",
+    "removalSuspicionHold": "A suspicious restore point of this machine is not resolved and holds its backups. Resolve it first, or keep the backups until they expire.",
+    "removalNeverExpires": "The retention of this machine keeps every backup, so they would never expire. Delete them instead."
   },
   "readinessSection": {
     "overdue": "Overdue",
@@ -1250,5 +1296,17 @@
     "requested": "The agent updates as soon as it is idle",
     "requestedNote": "It installs the signed release with its next contact once no backup or restore runs on the machine, then restarts.",
     "paused": "Agent updates are paused for this machine or its tenant."
+  },
+  "removals": {
+    "title": "{count, plural, one {Backups of # removed machine} other {Backups of # removed machines}}",
+    "description": "These machines were removed from {appName}. Their backups are still stored until they are deleted.",
+    "expires": "Deleted on {date}",
+    "deleting": "Being deleted",
+    "deferred": "Partly locked by the storage until {date}, deleted after that",
+    "deferredUnknown": "Partly locked by the storage, deleted once the lock runs out",
+    "held": {
+      "legal": "Held by a legal hold over the whole tenant",
+      "suspicion": "Held by an unresolved suspicious restore point"
+    }
   }
 }

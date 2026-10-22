@@ -157,6 +157,7 @@ const ATTENTION_ORDER: readonly Attention[] = [
   "no_job",
   "backup_overdue",
   "never_seen",
+  "revoke_suggested",
 ];
 
 const ATTENTION_TONE: Record<Attention, StatusTone> = {
@@ -167,6 +168,7 @@ const ATTENTION_TONE: Record<Attention, StatusTone> = {
   no_job: "warning",
   backup_overdue: "warning",
   never_seen: "warning",
+  revoke_suggested: "warning",
 };
 
 /**
@@ -261,7 +263,10 @@ export function isKnownAttention(value: string): value is Attention {
  */
 export function attentionMessage(
   attention: Attention,
-  settings: Pick<EffectiveSettings, "staleAfterHours" | "staleAfterDays"> | null,
+  settings: Pick<
+    EffectiveSettings,
+    "staleAfterHours" | "staleAfterDays" | "revokeHintAfterDays"
+  > | null,
 ): Message {
   switch (attention) {
     case "silent":
@@ -270,6 +275,11 @@ export function attentionMessage(
       return {
         key: "attention.backup_overdue.message",
         values: { days: settings?.staleAfterDays ?? 7 },
+      };
+    case "revoke_suggested":
+      return {
+        key: "attention.revoke_suggested.message",
+        values: { days: settings?.revokeHintAfterDays ?? 30 },
       };
     default:
       return { key: `attention.${attention}.message` };
@@ -842,6 +852,11 @@ const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   "urn:restow:problem:endpoint-assignee-unknown": "endpoints:errors.assigneeUnknown",
   "urn:restow:problem:agent-policy-invalid": "endpoints:errors.agentPolicyInvalid",
   "urn:restow:problem:agent-policy-locked": "endpoints:errors.agentPolicyLocked",
+  "urn:restow:problem:endpoint-not-revoked": "endpoints:errors.notRevoked",
+  "urn:restow:problem:endpoint-confirm-hostname": "endpoints:errors.confirmHostname",
+  "urn:restow:problem:endpoint-removal-legal-hold": "endpoints:errors.removalLegalHold",
+  "urn:restow:problem:endpoint-removal-suspicion-hold": "endpoints:errors.removalSuspicionHold",
+  "urn:restow:problem:endpoint-removal-never-expires": "endpoints:errors.removalNeverExpires",
   // The file restore of Proxmox VE containers (apps/api features/pve/files.ts, #62).
   "urn:restow:problem:pve-files-not-a-container": "endpoints:errors.containerNotBrowsable",
   "urn:restow:problem:pve-files-no-repository": "endpoints:errors.containerNoRepository",
