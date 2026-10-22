@@ -530,6 +530,9 @@ laufende Sicherung und zieht ein wartendes "Jetzt sichern" zurück (`POST
 - Startet der Agent eine zurückgezogene Aufgabe, lehnt der Server den Lauf mit 409 ab und setzt
   die Aufgabe auf `cancelled`; der Agent (ab 0.4.2) versucht es dann nicht erneut.
 - Ein älterer Agent kennt die Anforderung nicht: Seine laufende Sicherung läuft zu Ende.
+- Seit 0.4.5 auch im Inventar (Zeile, "…"-Menü, Detailbereich) und für einen ganzen Job: **Stoppen**
+  in der Jobliste (`POST /api/v1/backup-jobs/:id/cancel`) tut dasselbe für alle Rechner des Jobs in
+  einer Anfrage (Audit `backup_job.run_cancelled` am Job und `endpoint.backup.cancelled` je Rechner).
 
 ### Selbstaktualisierung auf Anforderung (seit 0.4.2)
 

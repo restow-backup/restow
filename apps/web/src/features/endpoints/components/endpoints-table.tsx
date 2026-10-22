@@ -85,7 +85,7 @@ export interface EndpointsTableProps {
 /** Width of each column in pixels: the table never measures its content (`fixedLayout`). */
 export const MACHINE_COLUMN_SIZES = {
   name: 220,
-  state: 232,
+  state: 224,
   profile: 100,
   lastBackup: 120,
   system: 140,
@@ -276,7 +276,10 @@ export function EndpointsTable({
         size: MACHINE_COLUMN_SIZES.profile,
         accessorFn: (endpoint) => endpoint.profile,
         header: t("list.columns.profile"),
-        meta: { label: t("list.columns.profile"), className: "hidden 2xl:table-cell" },
+        meta: {
+          label: t("list.columns.profile"),
+          className: "hidden min-[1900px]:table-cell",
+        },
         filterFn: matchesAnyOf,
         cell: ({ row }) => (
           <Dimmed revoked={row.original.status === "revoked"}>
@@ -293,7 +296,7 @@ export function EndpointsTable({
         accessorFn: (endpoint) => timeValue(endpoint.lastBackupAt),
         enableGlobalFilter: false,
         header: t("list.columns.lastBackup"),
-        meta: { label: t("list.columns.lastBackup") },
+        meta: { label: t("list.columns.lastBackup"), className: "hidden xl:table-cell" },
         cell: ({ row }) => (
           <Dimmed revoked={row.original.status === "revoked"}>
             <LastBackupCell endpoint={row.original} />
@@ -305,7 +308,10 @@ export function EndpointsTable({
         size: MACHINE_COLUMN_SIZES.system,
         accessorFn: (endpoint) => `${endpoint.os} ${endpoint.arch}`,
         header: t("list.columns.system"),
-        meta: { label: t("list.columns.system"), className: "hidden md:table-cell" },
+        meta: {
+          label: t("list.columns.system"),
+          className: "hidden min-[1700px]:table-cell",
+        },
         cell: ({ row }) => (
           <Dimmed revoked={row.original.status === "revoked"}>
             <OsLabel os={row.original.os} arch={row.original.arch} />
@@ -318,7 +324,7 @@ export function EndpointsTable({
         accessorFn: (endpoint) => timeValue(endpoint.lastSeenAt),
         enableGlobalFilter: false,
         header: t("list.columns.lastSeen"),
-        meta: { label: t("list.columns.lastSeen"), className: "hidden xl:table-cell" },
+        meta: { label: t("list.columns.lastSeen"), className: "hidden 2xl:table-cell" },
         cell: ({ row }) => (
           <Dimmed revoked={row.original.status === "revoked"}>
             <RelativeTime
@@ -335,7 +341,7 @@ export function EndpointsTable({
         accessorFn: jobFilterValue,
         enableGlobalFilter: false,
         header: t("list.columns.job"),
-        meta: { label: t("list.columns.job") },
+        meta: { label: t("list.columns.job"), className: "hidden xl:table-cell" },
         filterFn: matchesAnyOf,
         sortingFn: (a, b) =>
           (a.original.job?.name ?? "").localeCompare(b.original.job?.name ?? "", undefined, {
@@ -365,7 +371,10 @@ export function EndpointsTable({
         accessorFn: assigneeFilterValue,
         enableGlobalFilter: false,
         header: t("list.columns.assignedTo"),
-        meta: { label: t("list.columns.assignedTo"), className: "hidden lg:table-cell" },
+        meta: {
+          label: t("list.columns.assignedTo"),
+          className: "hidden min-[1800px]:table-cell",
+        },
         filterFn: matchesAnyOf,
         // By name; machines assigned to nobody come last.
         sortingFn: (a, b) => {
@@ -397,7 +406,10 @@ export function EndpointsTable({
         size: MACHINE_COLUMN_SIZES.agentVersion,
         accessorFn: (endpoint) => endpoint.agentVersion ?? "",
         header: t("list.columns.agentVersion"),
-        meta: { label: t("list.columns.agentVersion"), className: "hidden 2xl:table-cell" },
+        meta: {
+          label: t("list.columns.agentVersion"),
+          className: "hidden min-[1900px]:table-cell",
+        },
         cell: ({ row }) => (
           <Dimmed revoked={row.original.status === "revoked"}>
             {row.original.agentVersion ? (

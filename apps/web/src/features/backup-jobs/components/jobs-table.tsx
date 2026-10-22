@@ -1,6 +1,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Ban,
+  Container,
   DatabaseBackup,
   FolderOpen,
   History,
@@ -23,14 +24,12 @@ import {
 } from "@/components/kit";
 import { useLiveRuns } from "@/features/history/live/provider";
 import { guestTo, pveTo } from "@/features/pve/paths";
-import { cn } from "@/lib/utils";
 
 import type { BackupJob, JobKind } from "../api.js";
 import { jobDefinitionTo } from "../paths.js";
 import {
   describeJobSchedule,
   describeScope,
-  repositoryLabel,
   restoreCheckView,
   switchAction,
 } from "../presenters.js";
@@ -80,14 +79,13 @@ export interface JobsTableProps {
 /** Width of each column in pixels: the table never measures its content (`fixedLayout`). */
 export const JOB_COLUMN_SIZES = {
   name: 220,
-  type: 110,
-  state: 200,
-  scope: 190,
-  schedule: 190,
+  type: 100,
+  state: 216,
+  scope: 170,
+  schedule: 180,
   lastRun: 120,
   nextRun: 120,
-  restoreCheck: 150,
-  repository: 140,
+  restoreCheck: 170,
   actions: 188,
 } as const;
 
@@ -119,7 +117,7 @@ function JobStateCell({ row }: { row: JobsListRow }) {
   const percent = isActive(activity) ? activity.percent : null;
   return (
     <div className="flex min-w-0 items-center gap-2" data-slot="job-state">
-      <JobStateBadge state={rowState(row)} className="max-w-32 min-w-0 [&>span]:truncate" />
+      <JobStateBadge state={rowState(row)} className="max-w-36 min-w-0" />
       <span className={STATE_SLOT_CLASS} data-slot="job-state-slot">
         {isActive(activity) && activity.running > 0 ? (
           percent === null ? (
@@ -247,17 +245,30 @@ export function JobsTable({
             sensitivity: "base",
             numeric: true,
           }),
-        cell: ({ row }) => (
-          <button
-            type="button"
-            {...{ [JOB_NAME_ATTRIBUTE]: row.original.id }}
-            onClick={() => onOpenPanel(row.original)}
-            className="block max-w-full min-w-0 truncate rounded-sm text-left font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            aria-haspopup="dialog"
-          >
-            {row.original.name}
-          </button>
-        ),
+        cell: ({ row }) => {
+          // Where the Type column is off screen, an icon says which rows are Proxmox VE's.
+          const pveRow = withPve && isPveRow(row.original);
+          return (
+            <span className="flex min-w-0 items-center gap-1.5">
+              {pveRow ? (
+                <Container
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-muted-foreground 2xl:hidden"
+                />
+              ) : null}
+              {pveRow ? <span className="sr-only">{t("list.type.pve")} </span> : null}
+              <button
+                type="button"
+                {...{ [JOB_NAME_ATTRIBUTE]: row.original.id }}
+                onClick={() => onOpenPanel(row.original)}
+                className="min-w-0 truncate rounded-sm text-left font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                aria-haspopup="dialog"
+              >
+                {row.original.name}
+              </button>
+            </span>
+          );
+        },
       },
       ...(withPve
         ? [
@@ -267,7 +278,7 @@ export function JobsTable({
               accessorFn: (job: JobsListRow) => (isPveRow(job) ? 1 : 0),
               enableGlobalFilter: false,
               header: t("list.columns.type"),
-              meta: { label: t("list.columns.type") },
+              meta: { label: t("list.columns.type"), className: "hidden 2xl:table-cell" },
               cell: ({ row }: { row: { original: JobsListRow } }) => (
                 <span className="text-muted-foreground">
                   {isPveRow(row.original) ? t("list.type.pve") : t("list.type.endpoint")}
@@ -304,7 +315,7 @@ export function JobsTable({
           isPveRow(job) ? (job.rowType === "pve" ? (job.job.guestCount ?? 0) : 1) : job.scope.count,
         enableGlobalFilter: false,
         header: t("list.columns.scope"),
-        meta: { label: t("list.columns.scope"), className: "hidden md:table-cell" },
+        meta: { label: t("list.columns.scope"), className: "hidden xl:table-cell" },
         cell: ({ row }) => <ScopeText row={row.original} />,
       },
       {
@@ -314,7 +325,7 @@ export function JobsTable({
         enableGlobalFilter: false,
         accessorFn: (job) => (isPveRow(job) ? "" : (job.schedule?.kind ?? "")),
         header: t("list.columns.schedule"),
-        meta: { label: t("list.columns.schedule"), className: "hidden lg:table-cell" },
+        meta: { label: t("list.columns.schedule"), className: "hidden min-[1700px]:table-cell" },
         cell: ({ row }) => <ScheduleText row={row.original} />,
       },
       {
@@ -323,7 +334,7 @@ export function JobsTable({
         accessorFn: (job) => timeValue(lastRunAt(job)),
         enableGlobalFilter: false,
         header: t("list.columns.lastRun"),
-        meta: { label: t("list.columns.lastRun") },
+        meta: { label: t("list.columns.lastRun"), className: "hidden md:table-cell" },
         cell: ({ row }) => (
           <RelativeTime
             value={lastRunAt(row.original)}
@@ -341,7 +352,10 @@ export function JobsTable({
             : timeValue(job.nextRunAt),
         enableGlobalFilter: false,
         header: t("list.columns.nextRun"),
-        meta: { label: t("list.columns.nextRun"), className: "hidden xl:table-cell" },
+        meta: {
+          label: t("list.columns.nextRun"),
+          className: "hidden min-[1900px]:table-cell",
+        },
         cell: ({ row }) => {
           const job = row.original;
           if (!isPveRow(job)) return <NextRunCell job={job} />;
@@ -362,7 +376,10 @@ export function JobsTable({
           isPveRow(job) ? CHECK_RANK.none : CHECK_RANK[restoreCheckView(job.restoreCheck).state],
         enableGlobalFilter: false,
         header: t("list.columns.restoreCheck"),
-        meta: { label: t("list.columns.restoreCheck"), className: "hidden sm:table-cell" },
+        meta: {
+          label: t("list.columns.restoreCheck"),
+          className: "hidden min-[1400px]:table-cell",
+        },
         cell: ({ row }) =>
           isPveRow(row.original) ? (
             // Every guest's newest restore point is read back weekly; its result is on the guest.
@@ -370,29 +387,6 @@ export function JobsTable({
           ) : (
             <RestoreCheckBadge check={row.original.restoreCheck} compact />
           ),
-      },
-      {
-        id: "repository",
-        size: JOB_COLUMN_SIZES.repository,
-        accessorFn: (job) => (isPveRow(job) ? "" : repositoryLabel(job.repository, t)),
-        enableGlobalFilter: false,
-        header: t("list.columns.repository"),
-        meta: { label: t("list.columns.repository"), className: "hidden 2xl:table-cell" },
-        cell: ({ row }) => (
-          <span
-            className={cn(
-              "text-muted-foreground",
-              !isPveRow(row.original) &&
-                row.original.repository.status === "error" &&
-                "text-destructive-text",
-            )}
-          >
-            {/* A guest writes to its cluster's repository (the PVE storage). */}
-            {isPveRow(row.original)
-              ? t("list.pve.repository")
-              : repositoryLabel(row.original.repository, t)}
-          </span>
-        ),
       },
     ];
 

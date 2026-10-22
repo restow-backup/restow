@@ -8,6 +8,41 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- Start now and Stop on every row of both job lists (Servers & clients and Mail & SaaS) and in
+  the row's "…" menu: one button of a fixed size that says "Start now", "Stop" while the
+  job's backups run or wait, and "Stopping…" once asked. Stopping asks first and says what it
+  means for the kind of job. New API routes: `POST /api/v1/backup-jobs/:id/cancel` (every
+  queued or running backup of a mail, machine, share or copy job in one set-based request;
+  audited as `backup_job.run_cancelled` on the job and per machine),
+  `POST /api/v1/pve/jobs/:id/run` (a backup of every guest a Proxmox VE job covers, like its
+  schedule would, without moving the schedule; `pve.job.run_requested`) and
+  `POST /api/v1/pve/jobs/:id/cancel` (`pve.job.cancelled`). For tenant administrators and
+  provider roles that may operate, closed in the public demo.
+- Detail panels on Inventory and on the job lists, like the one of VMs & containers: a click on
+  a row, its name or its state opens it (`?machine=<id>` on Inventory, `?job=<id>` on the job
+  lists, so a link opens it). It lists every state, the full error and warning texts of the
+  newest backup or failed run in a copyable monospace block (for a machine also the end of the
+  log), what needs attention, the restore checks, the key facts, the newest runs and the
+  actions.
+
+### Changed
+
+- Inventory and the job lists keep their layout like VMs & containers: fixed column widths,
+  one row height (loading rows included), one compact state badge per row (the most urgent of
+  what applies; green only for a passed restore check), the progress of a running backup beside
+  it, one-line cells without tooltips, and action buttons of one size. Columns that do not fit
+  a screen give way from the right; the panel has everything.
+- "Run now" of a job is called "Start now".
+
+### Fixed
+
+- The job dialog of Proxmox VE: on a phone (390 px) the three restore-point fields stack, so
+  "Monatliche Sicherungsstände" no longer runs over the dialog's edge.
+
 ## [0.4.4] - 2026-10-22
 
 Beta release. Run it alongside your existing backups, not as your only one, until

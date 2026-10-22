@@ -12,6 +12,7 @@ import { fetchHistory, historyKeys, type Run } from "@/features/history/api";
 import { RunProgressCell } from "@/features/history/components/run-cells";
 import { RunStateBadge, useRunTitle } from "@/features/history/components/run-parts";
 import { useLiveOpen } from "@/features/history/live/provider";
+import { jobDetailTo } from "@/features/jobs/paths";
 import { pveTo } from "@/features/pve/paths";
 
 import type { BackupJob } from "../api.js";
@@ -162,7 +163,12 @@ function RecentRuns({ runs }: { runs: readonly Run[] }) {
       {runs.map((run) => (
         <li key={run.id} className="space-y-1">
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="min-w-0 font-medium break-words">{title(run)}</span>
+            <Link
+              to={jobDetailTo(run.id)}
+              className="min-w-0 rounded-sm font-medium break-words underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              {title(run)}
+            </Link>
             <RunStateBadge run={run} />
             <span className="text-muted-foreground">
               <RelativeTime value={run.startedAt ?? run.createdAt} />
@@ -269,7 +275,7 @@ function BackupJobBody({
       ) : null}
 
       <DetailSection title={t("sheet.restoreCheck")} slot="job-sheet-verify">
-        <RestoreCheckBadge check={job.restoreCheck} />
+        <RestoreCheckBadge check={job.restoreCheck} compact />
         {check.details.length > 0 ? (
           <ul className="list-disc space-y-0.5 pl-5 text-sm">
             {check.details.map((entry) => (

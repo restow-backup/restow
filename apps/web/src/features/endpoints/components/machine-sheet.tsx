@@ -84,6 +84,9 @@ function RunErrors({
         />
       ) : null}
       {detail.data?.logTail ? (
+        <p className="text-xs text-muted-foreground">{t("sheet.logTail")}</p>
+      ) : null}
+      {detail.data?.logTail ? (
         <LogBlock
           text={detail.data.logTail}
           label={t("sheet.copyLog")}
