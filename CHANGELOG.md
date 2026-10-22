@@ -8,7 +8,33 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [Unreleased]
+## [0.4.4] - 2026-10-22
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.4 archives mail beyond Exchange journaling (Business): Microsoft 365 mailboxes by
+Graph change notifications, IMAP and Google Workspace accounts by IMAP sync with IDLE, and the
+copies a mail provider forwards, each with a one-time takeover of the mail already there and
+one archived item per mail however many ways captured it. The job editor offers only the
+capture ways that fit each kind of mailbox, the archive page shows the capture, the hold
+confirmation, ready-made Exchange Online PowerShell commands and the forwarding addresses, and
+alerts say when capture stops. The restore explorer opens large mailboxes and OneDrives in
+milliseconds instead of seconds to minutes; four database migrations (Upgrade Notes). Mail jobs
+that archived before keep doing exactly that after the update: nothing new starts by itself.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.5.0: its archive status and report count
+forwarded copies in their totals, but do not list them as a channel of their own yet. In the
+session API, mail jobs carry `archiveCapture` and their members `captureKind`, and the archive
+search hides captures a stronger one superseded unless `includeSuperseded=true`; a job that
+archives without any capture way for a kind of its mailboxes is refused with 422
+`archive_capture_no_way`, which the defaults never cause. The IMAP and Google ways of a job
+from before the update may carry `pending: true` (no way chosen yet): the API accepts such a
+job until a way is chosen, keeps the marker only where the job had it, and never sets it.
 
 ### Added
 
@@ -139,7 +165,6 @@ private repository.
   of these mailboxes is no longer archived from then on, the archive kept so far stays.
 - docs/ARCHIVE.md describes the capture ways of 0.4.4; docs/ARCHITECTURE.md describes the
   Graph throttling as it is built (no shared token bucket per source).
-
 - Restore explorer: the restore points of an account load alongside its owner's entry
   instead of after it, one round trip less before a mailbox or OneDrive shows its folders.
 - The Proxmox VE job dialog is twice as wide and lays its settings out in two columns from
@@ -155,7 +180,6 @@ private repository.
 - The archive chain could fork when two writers of one tenant stamped their items with the same
   time: the predecessor was taken by time alone. Writers now take the last item in the order the
   chain check walks (time, then id) and stamp their item strictly later.
-
 - Restore explorer: opening a large mailbox or OneDrive no longer takes seconds to minutes
   before its folders show. Every folder listing read all entries of the restore point (every
   message of the mailbox, every file of the OneDrive, with their metadata), twice per request,
@@ -177,20 +201,79 @@ private repository.
   whole pack (up to 64 MiB) for every preview; a chunk damaged on every target is still read
   through its whole pack as before. The archive's content check reads the same way.
 
+### Security
+
+None.
+
 ### Upgrade Notes
 
-- Four database migrations (0059, 0060, 0061, 0062): a new capture value, the capture tables
-  (streams, pending notifications, Graph subscriptions, per-account archive addresses, further
-  captures) and new columns and indexes on `archive_items` and `backup_jobs`, two indexes on
-  `manifest_versions` for the restore explorer, and the capture ways of the mail jobs that
-  already archive. The indexes are built during the update; on a large archive or
-  `manifest_versions` table this takes a while (docs/UPDATING.md).
+New images and four database migrations; no new required environment variable, and the
+`docker-compose.yml` of 0.4.0 stays.
+
+- Migrations 0059 to 0062 run at the api's start: the capture tables, new columns and five
+  indexes on `archive_items` and `backup_jobs`, two indexes on `manifest_versions` for the
+  restore explorer, and the capture ways of the mail jobs that already archive (below). The indexes are built inside the migration, where writes to the table
+  wait; expect about a minute per ten million rows on SSD storage. Count
+  `archive_items` and `manifest_versions` beforehand and plan a large installation's update
+  outside the backup window (docs/UPDATING.md).
+- Capture from the mailbox needs the capability `archive.mailboxCapture`. Capabilities follow
+  the license's edition (ee/licensing), so every Business and Service Provider license
+  includes it without a new key; the Community build keeps the capture service idle.
 - Mail jobs that archive keep doing exactly what they did before the update: migration 0062
   gives each of them Exchange journaling only for Microsoft 365 mailboxes and no capture way
   yet for IMAP and Google Workspace accounts (marked as waiting for a choice), so no capture
-  and no takeover of existing mail starts by itself. The API accepts such a job without a way
-  for those accounts until one is chosen (`pending: true`, kept only where the job had it,
-  never set through the API).
+  and no takeover of existing mail starts by itself. An administrator switches Graph or IMAP
+  archiving on in the job; the job editor says at the IMAP card that no way is chosen yet, the
+  archive page names the jobs where a way could be switched on (with a notice that can be put
+  away, Business only), and the capture status lists the jobs waiting for a choice. Edits that
+  do not touch the ways (name, schedule) save as before. Jobs created after the update, and a
+  job that switches archiving on, start with the defaults: Graph for Microsoft 365 mailboxes,
+  IMAP sync for IMAP and Google Workspace accounts, each with a one-time takeover of the mail
+  already in the mailbox (marked as captured late).
+- Graph capture is notified of new mail only when the installation's public URL is `https://`
+  on port 443 and reachable from Microsoft (`/api/v1/hooks/graph/*`; a reverse proxy of your
+  own must pass it through, with at most 1 MiB per request). Otherwise every mailbox is polled
+  every `ARCHIVE_GRAPH_POLL_MINUTES` (15) and the capture status says why. No new Microsoft
+  permission is needed.
+- IMAP archiving keeps one connection per account open (IDLE) where the server offers it.
+  For providers with a tight connection limit, set the source to "Check at intervals only"
+  (`archiveIdle: "off"`).
+- New optional settings: the journal receiver's `JOURNAL_RATE_PER_IP` (now 600 per minute,
+  was a fixed 60) and `JOURNAL_RATE_PER_ADDRESS` (300), and the capture's
+  `ARCHIVE_CAPTURE_CONCURRENCY`, `ARCHIVE_CAPTURE_TENANT_CONCURRENCY`,
+  `ARCHIVE_BACKFILL_CONCURRENCY`, `ARCHIVE_GRAPH_CATCHUP_MINUTES`,
+  `ARCHIVE_GRAPH_POLL_MINUTES`, `ARCHIVE_IMAP_IDLE_MAX`, `ARCHIVE_IMAP_POLL_MINUTES` and
+  `ARCHIVE_IMAP_LOGIN_POLL_MINUTES` (`.env.example`).
+- Rollback to 0.4.3 after the migrations was not tested: take a database backup before the
+  update and restore it to go back.
+
+### Known Issues
+
+- Graph capture was tested against a simulated Graph API, IMAP archiving against a simulated
+  IMAP server and the Dovecot of the release smoke, forwarding against the receiver itself;
+  never against a real Microsoft 365 or Google Workspace tenant, Postfix, mailcow or hoster.
+- Holds in a Microsoft 365 tenant are not detected: Graph v1.0 offers no way to read them, so
+  an administrator confirms them per source. Of the Recoverable Items only the deletions
+  folder is read; mail purged before Restow fetched it can be missing. Graph cannot export
+  mail over about 150 MB; such mail is logged, not archived.
+- The receiver does not check the sender (SPF), and its limits count per api process.
+- IMAP sources with OAuth2 still cannot be created in the API or the interface, so a Google
+  Workspace account is recognised by its host or folder list only.
+- The integration API's archive status and report do not list forwarded copies as a channel
+  of their own (see Breaking Changes).
+- The known issues of 0.4.3 still apply.
+
+### Verification
+
+Before the tag, on the release branch (0.4.3 plus the 0.4.4 workstreams): lint and typecheck
+of all workspaces, the unit and Postgres suites of every package on Postgres 16 (with the
+Postgres guard), the web DOM tests on happy-dom including the layout-width and green-is-proof
+checks, the v1 OpenAPI test, drizzle-kit without drift, gofmt, go vet and the Go tests of the
+agents, the Perl tests of the Proxmox VE plugin, the server installer and demo reset tests,
+shellcheck, the CI script tests, the smoke runner's unit tests and the third-party notices.
+The release smoke, including the new check of the archive capture against Dovecot, runs in
+the release pipeline; no real Microsoft 365 tenant, Google Workspace or mail provider was used
+before the tag.
 
 ## [0.4.3] - 2026-10-22
 
