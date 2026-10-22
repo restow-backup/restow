@@ -11,6 +11,7 @@
  * the nightly audit anchor (./audit-anchor.ts, its own cron queue across all
  * chains). The entrypoint starts both next to the queue workers.
  */
+import { archiveHandler } from "./archive.js";
 import { backupHandler } from "./backup.js";
 import { directoryHandler } from "./directory.js";
 import { exportHandler } from "./export.js";
@@ -33,4 +34,6 @@ export const handlers: AnyJobHandler[] = [
   storageMigrationHandler,
   importHandler,
   exportHandler,
+  // One-time backfills of archive capture streams (the capture service itself is no queue).
+  archiveHandler,
 ];

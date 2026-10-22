@@ -1412,7 +1412,7 @@
             }
           ],
           "isUnique": false,
-          "where": "\"archive_capture_streams\".\"status\" IN ('pending', 'live', 'backfilling', 'error')",
+          "where": "\"archive_capture_streams\".\"next_due_at\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

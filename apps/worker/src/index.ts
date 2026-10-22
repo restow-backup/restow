@@ -56,6 +56,10 @@ import { pathToFileURL } from "node:url";
  *   RESTOW_WEBHOOK_ALLOW_PRIVATE "true" permits webhook targets in private networks
  *   RESTOW_PUBLIC_URL            links in chat webhook messages, when Settings name no public URL
  *   RESTOW_PRODUCT_NAME          the product name chat webhook messages use (branding)
+ *   ARCHIVE_CAPTURE_CONCURRENCY  archive capture passes at once in this process (default 16)
+ *   ARCHIVE_CAPTURE_TENANT_CONCURRENCY
+ *                                ... of them per tenant (default 4)
+ *   ARCHIVE_BACKFILL_CONCURRENCY one-time archive backfills at once in this process (default 4)
  *   LOG_LEVEL                    debug | info | warn | error (default info)
  */
 import {
@@ -85,13 +89,15 @@ import {
 } from "@restow/db";
 import { configureProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
 import PgBoss from "pg-boss";
+import { ArchiveCaptureService } from "./archive-capture/service.js";
 import { grantContinuation } from "./continuation.js";
 import { configureDefaultStorage } from "./default-storage.js";
 import { registerEndpointJobs } from "./endpoints/register.js";
 import { configureEntraApp } from "./entra-app.js";
-import { extensionHandlers, extensionRetentionTasks } from "./extensions.js";
+import { extensionFeatureGate, extensionHandlers, extensionRetentionTasks } from "./extensions.js";
 import { runnerClientFromEnv } from "./file-shares/mounter-client.js";
 import { registerFileShareJobs } from "./file-shares/register.js";
+import { configureArchiveHandler } from "./handlers/archive.js";
 import { registerAuditAnchor } from "./handlers/audit-anchor.js";
 import {
   createWorkHandler,
@@ -354,6 +360,21 @@ async function main(): Promise<void> {
   // Deliveries are claimed across tenants: the dispatcher runs on the installation pool.
   const webhookDispatcher = webhooksHandler.start({ ...runtime, db: providerDb });
 
+  // Archive capture from the mailbox (docs/ARCHIVE.md "Erfassungswege"): idle unless the
+  // gate archive.mailboxCapture is open (an extension decides, ee/ by the license).
+  const featureGate = extensionFeatureGate({ providerDb });
+  configureArchiveHandler({ providerDb, gate: featureGate });
+  const archiveCapture = new ArchiveCaptureService({
+    db,
+    providerDb,
+    keyrings,
+    storage,
+    logger: logger.child({ component: "archive-capture" }),
+    gate: featureGate,
+    shutdownSignal: shutdown.signal,
+    updateDrain: jobPause,
+  });
+
   // pg-boss owns its schema as the installation role; jobs are enqueued by the
   // API and the scheduler on the application role, which may insert into it
   // and nothing else (packages/db roles.ts `grantQueueAccess`, below).
@@ -470,6 +491,7 @@ async function main(): Promise<void> {
   });
   await heartbeat.start();
   jobPause.start();
+  archiveCapture.start();
   // Jobs a killed worker left active go back to their queue (reconcile.ts, #46).
   const stopReconciler = startJobReconciler(providerDb, {
     selfStartedAt: startedAt,
@@ -491,6 +513,7 @@ async function main(): Promise<void> {
       await heartbeat.beat();
       await boss.stop({ graceful: true, wait: true, timeout: config.shutdownTimeoutMs });
       await webhookDispatcher.stop();
+      await archiveCapture.stop();
       await heartbeat.stop();
       await Promise.all([db.$client.end(), providerDb.$client.end()]);
       logger.info("worker stopped", { signal });

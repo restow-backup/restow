@@ -81,6 +81,7 @@ export const archiveCaptureStreams = pgTable(
     state: jsonb("state").$type<ArchiveStreamState>().notNull().default({}),
     // A notification or a resync asked for a pass; cleared when a pass started after it ends.
     dirtySince: timestamp("dirty_since", { withTimezone: true }),
+    // When the service passes next; null = nothing to do (paused, or disabled and released).
     nextDueAt: timestamp("next_due_at", { withTimezone: true }),
     // The worker process working the stream right now, and until when its claim holds.
     leaseOwner: text("lease_owner"),
@@ -93,9 +94,7 @@ export const archiveCaptureStreams = pgTable(
   },
   (t) => [
     uniqueIndex("archive_capture_streams_object_way_uq").on(t.protectedObjectId, t.way),
-    index("archive_capture_streams_due_idx")
-      .on(t.nextDueAt)
-      .where(sql`${t.status} IN ('pending', 'live', 'backfilling', 'error')`),
+    index("archive_capture_streams_due_idx").on(t.nextDueAt).where(sql`${t.nextDueAt} IS NOT NULL`),
     index("archive_capture_streams_tenant_status_idx").on(t.tenantId, t.status),
   ],
 );

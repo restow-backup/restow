@@ -1,0 +1,261 @@
+/**
+ * `archive_capture_streams` as the capture service's queue (./service.ts).
+ *
+ * Claiming spans tenants and runs on the installation pool (BYPASSRLS), like the webhook
+ * dispatcher: due streams are taken with `FOR UPDATE SKIP LOCKED` and leased to one worker
+ * process (`lease_owner`, `lease_until`), so two processes never work one mailbox and a
+ * crashed one only delays it until its lease runs out. Every write after the claim names
+ * the owner: a process whose lease was taken over writes nothing.
+ *
+ * A tenant whose storage is switching targets (`storage_migrations.status = 'switching'`)
+ * is not claimed: its captures wait until the switch committed (./service.ts).
+ */
+import type {
+  ArchiveStreamState,
+  ArchiveStreamStatus,
+  Database,
+  FailureRecordJson,
+} from "@restow/db";
+import { sql } from "drizzle-orm";
+import type { CaptureStream, MailboxWay } from "./ways.js";
+
+interface StreamRow {
+  id: string;
+  tenant_id: string;
+  protected_object_id: string;
+  source_id: string;
+  way: MailboxWay;
+  status: ArchiveStreamStatus;
+  activated_at: Date | string | null;
+  backfill_completed_at: Date | string | null;
+  state: ArchiveStreamState | null;
+  dirty_since: Date | string | null;
+  consecutive_failures: number;
+  last_capture_at: Date | string | null;
+}
+
+function date(value: Date | string | null): Date | null {
+  return value === null ? null : value instanceof Date ? value : new Date(value);
+}
+
+export function streamFromRow(row: StreamRow): CaptureStream {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    protectedObjectId: row.protected_object_id,
+    sourceId: row.source_id,
+    way: row.way,
+    status: row.status,
+    activatedAt: date(row.activated_at),
+    backfillCompletedAt: date(row.backfill_completed_at),
+    state: row.state ?? {},
+    dirtySince: date(row.dirty_since),
+    consecutiveFailures: row.consecutive_failures,
+    lastCaptureAt: date(row.last_capture_at),
+  };
+}
+
+const STREAM_COLUMNS = sql.raw(
+  "s.id, s.tenant_id, s.protected_object_id, s.source_id, s.way, s.status, s.activated_at, s.backfill_completed_at, s.state, s.dirty_since, s.consecutive_failures, s.last_capture_at",
+);
+
+/** What a finished pass writes back. */
+export interface StreamOutcome {
+  readonly state: ArchiveStreamState;
+  readonly status: ArchiveStreamStatus;
+  /** Null: nothing to do until something makes it due again (a disabled stream, released). */
+  readonly nextDueAt: Date | null;
+  /** Set once, when the way activated a pending stream. */
+  readonly activatedAt?: Date;
+  readonly backfillJobId?: string;
+  /** The pass started at; `dirty_since` up to it is cleared on success. */
+  readonly passStartedAt: Date;
+  readonly captured: number;
+  readonly failure: FailureRecordJson | null;
+}
+
+export class PgStreamStore {
+  /** `db`: the installation pool. */
+  constructor(private readonly db: Database) {}
+
+  /**
+   * Claim up to `limit` due streams for `owner`, oldest due first, skipping tenants in a
+   * storage switch and (optionally) tenants that already have `busyTenants` work here.
+   */
+  async claimDue(options: {
+    readonly owner: string;
+    readonly limit: number;
+    readonly leaseMs: number;
+    readonly ways: readonly MailboxWay[];
+    readonly skipTenants?: readonly string[];
+  }): Promise<CaptureStream[]> {
+    if (options.limit <= 0 || options.ways.length === 0) {
+      return [];
+    }
+    const ways = sql`ARRAY[${sql.join(
+      options.ways.map((way) => sql`${way}`),
+      sql`, `,
+    )}]::archive_capture_way[]`;
+    const skip = (options.skipTenants ?? []).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+    const skipTenants =
+      skip.length > 0
+        ? sql`and c.tenant_id <> all(ARRAY[${sql.join(
+            skip.map((id) => sql`${id}`),
+            sql`, `,
+          )}]::uuid[])`
+        : sql``;
+    const result = await this.db.execute(sql`
+      update archive_capture_streams as s
+         set lease_owner = ${options.owner},
+             lease_until = now() + ${`${options.leaseMs} milliseconds`}::interval
+       where s.id in (
+         select c.id from archive_capture_streams c
+          where c.next_due_at <= now()
+            and c.status <> 'paused'
+            and c.way = any(${ways})
+            and (c.lease_until is null or c.lease_until < now())
+            and not exists (
+              select 1 from storage_migrations m
+               where m.tenant_id = c.tenant_id and m.status = 'switching'
+            )
+            ${skipTenants}
+          order by c.next_due_at
+          limit ${options.limit}
+          for update skip locked
+       )
+      returning ${STREAM_COLUMNS}
+    `);
+    return (result.rows as unknown as StreamRow[]).map(streamFromRow);
+  }
+
+  /** Extend the leases `owner` holds; returns the ids it no longer holds. */
+  async renew(owner: string, ids: readonly string[], leaseMs: number): Promise<Set<string>> {
+    if (ids.length === 0) {
+      return new Set();
+    }
+    const result = await this.db.execute<{ id: string }>(sql`
+      update archive_capture_streams
+         set lease_until = now() + ${`${leaseMs} milliseconds`}::interval
+       where lease_owner = ${owner}
+         and id = any(ARRAY[${sql.join(
+           ids.map((id) => sql`${id}`),
+           sql`, `,
+         )}]::uuid[])
+      returning id
+    `);
+    const held = new Set(result.rows.map((row) => row.id));
+    return new Set(ids.filter((id) => !held.has(id)));
+  }
+
+  /** Persist a mid-pass state while `owner` holds the lease. */
+  async checkpoint(owner: string, id: string, state: ArchiveStreamState): Promise<boolean> {
+    const result = await this.db.execute(sql`
+      update archive_capture_streams set state = ${JSON.stringify(state)}::jsonb, updated_at = now()
+       where id = ${id}::uuid and lease_owner = ${owner}
+    `);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  /** Write a pass's outcome and release the lease; false when the lease was lost. */
+  async complete(owner: string, id: string, outcome: StreamOutcome): Promise<boolean> {
+    const ok = outcome.failure === null;
+    const result = await this.db.execute(sql`
+      update archive_capture_streams set
+        state = ${JSON.stringify(outcome.state)}::jsonb,
+        -- A stream disabled or paused meanwhile (reconcile, an administrator) stays so.
+        status = case when status in ('disabled', 'paused') then status
+                      else ${outcome.status}::archive_stream_status end,
+        next_due_at = ${outcome.nextDueAt?.toISOString() ?? null}::timestamptz,
+        activated_at = coalesce(activated_at, ${outcome.activatedAt?.toISOString() ?? null}::timestamptz),
+        backfill_job_id = coalesce(${outcome.backfillJobId ?? null}::uuid, backfill_job_id),
+        dirty_since = case when ${ok} and dirty_since <= ${outcome.passStartedAt.toISOString()}::timestamptz
+                           then null else dirty_since end,
+        last_capture_at = case when ${outcome.captured} > 0 then now() else last_capture_at end,
+        last_success_at = case when ${ok} then now() else last_success_at end,
+        consecutive_failures = case when ${ok} then 0 else consecutive_failures + 1 end,
+        failure = ${outcome.failure ? JSON.stringify(outcome.failure) : null}::jsonb,
+        lease_owner = null,
+        lease_until = null,
+        updated_at = now()
+       where id = ${id}::uuid and lease_owner = ${owner}
+    `);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  /** Give a lease back without writing anything else (an aborted pass). */
+  async release(owner: string, id: string): Promise<void> {
+    await this.db.execute(sql`
+      update archive_capture_streams set lease_owner = null, lease_until = null
+       where id = ${id}::uuid and lease_owner = ${owner}
+    `);
+  }
+
+  /** Make streams due now (notifications, a background component, a resync). */
+  async markDue(ids: readonly string[]): Promise<void> {
+    if (ids.length === 0) {
+      return;
+    }
+    await this.db.execute(sql`
+      update archive_capture_streams
+         set next_due_at = now(), dirty_since = coalesce(dirty_since, now()), updated_at = now()
+       where id = any(ARRAY[${sql.join(
+         ids.map((id) => sql`${id}`),
+         sql`, `,
+       )}]::uuid[])
+    `);
+  }
+
+  /** The tenants whose storage is switching targets right now. */
+  async switchingTenants(): Promise<Set<string>> {
+    const result = await this.db.execute<{ tenant_id: string }>(
+      sql`select distinct tenant_id from storage_migrations where status = 'switching'`,
+    );
+    return new Set(result.rows.map((row) => row.tenant_id));
+  }
+
+  /** Refs notifications announced for a stream's mailbox, oldest first. */
+  async pendingRefs(stream: CaptureStream, limit: number): Promise<string[]> {
+    const result = await this.db.execute<{ external_ref: string }>(sql`
+      select external_ref from archive_capture_pending
+       where protected_object_id = ${stream.protectedObjectId}::uuid and way = ${stream.way}
+       order by created_at
+       limit ${limit}
+    `);
+    return result.rows.map((row) => row.external_ref);
+  }
+
+  async deletePending(stream: CaptureStream, refs: readonly string[]): Promise<void> {
+    if (refs.length === 0) {
+      return;
+    }
+    await this.db.execute(sql`
+      delete from archive_capture_pending
+       where protected_object_id = ${stream.protectedObjectId}::uuid and way = ${stream.way}
+         and external_ref = any(ARRAY[${sql.join(
+           refs.map((ref) => sql`${ref}`),
+           sql`, `,
+         )}]::text[])
+    `);
+  }
+
+  /** One stream by mailbox and way (the backfill job), unleased read. */
+  async find(protectedObjectId: string, way: MailboxWay): Promise<CaptureStream | null> {
+    const result = await this.db.execute(sql`
+      select ${STREAM_COLUMNS} from archive_capture_streams s
+       where s.protected_object_id = ${protectedObjectId}::uuid and s.way = ${way}
+    `);
+    const row = result.rows[0] as unknown as StreamRow | undefined;
+    return row ? streamFromRow(row) : null;
+  }
+
+  /** The backfill of a stream finished: it is live from now on. */
+  async backfillCompleted(id: string): Promise<void> {
+    await this.db.execute(sql`
+      update archive_capture_streams set
+        backfill_completed_at = coalesce(backfill_completed_at, now()),
+        status = case when status = 'backfilling' then 'live'::archive_stream_status else status end,
+        updated_at = now()
+       where id = ${id}::uuid
+    `);
+  }
+}

@@ -105,7 +105,7 @@ CREATE INDEX "archive_item_captures_object_external_ref_idx" ON "archive_item_ca
 CREATE UNIQUE INDEX "archive_capture_pending_object_way_ref_uq" ON "archive_capture_pending" USING btree ("protected_object_id","way","external_ref");--> statement-breakpoint
 CREATE INDEX "archive_capture_pending_tenant_idx" ON "archive_capture_pending" USING btree ("tenant_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "archive_capture_streams_object_way_uq" ON "archive_capture_streams" USING btree ("protected_object_id","way");--> statement-breakpoint
-CREATE INDEX "archive_capture_streams_due_idx" ON "archive_capture_streams" USING btree ("next_due_at") WHERE "archive_capture_streams"."status" IN ('pending', 'live', 'backfilling', 'error');--> statement-breakpoint
+CREATE INDEX "archive_capture_streams_due_idx" ON "archive_capture_streams" USING btree ("next_due_at") WHERE "archive_capture_streams"."next_due_at" IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "archive_capture_streams_tenant_status_idx" ON "archive_capture_streams" USING btree ("tenant_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "archive_forward_addresses_token_uq" ON "archive_forward_addresses" USING btree ("token");--> statement-breakpoint
 CREATE UNIQUE INDEX "archive_forward_addresses_object_active_uq" ON "archive_forward_addresses" USING btree ("protected_object_id") WHERE "archive_forward_addresses"."revoked_at" IS NULL;--> statement-breakpoint
