@@ -99,6 +99,8 @@ private repository.
   checks every 5 seconds. Forwarding to the archive: an address per IMAP account (created,
   copied, renewed after a question), its status, and instructions for Postfix and mailcow BCC
   maps, Sieve `redirect :copy` and Google Workspace routing to the tenant's journal address.
+- IMAP source page: the archive setting `archiveIdle`, IMAP IDLE (automatic) or checks at
+  intervals only, saved at once and locked without the edition that archives from the mailbox.
 - Alerts of the archive capture as `archive.failed` (bell, rules, mail): a mailbox whose capture
   has been in error for more than an hour, an IMAP account whose forwarded copies stopped for
   24 hours while its job wants them, and a journal address without reports for 24 hours, each

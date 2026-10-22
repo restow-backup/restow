@@ -180,7 +180,15 @@ export interface ImapSourceDto {
   lastProbe: ImapProbeResult | null;
   imapAuthMode: ImapAuthMode;
   masterUser: MasterUserInput | null;
+  /** How the archive capture watches the accounts (docs/IMAP.md "Archivierung"); 0.4.4. */
+  archiveIdle?: ArchiveIdle;
 }
+
+/**
+ * Whether the archive capture keeps one IMAP IDLE connection per account (`auto`, where the
+ * server offers it) or only checks at intervals (`off`).
+ */
+export type ArchiveIdle = "auto" | "off";
 
 export interface SourceDto {
   id: string;
@@ -267,6 +275,7 @@ export interface UpdateSourceInput {
   password?: string;
   imapAuthMode?: ImapAuthMode;
   masterUser?: MasterUserInput | null;
+  archiveIdle?: ArchiveIdle;
 }
 
 /** Either a typed password, or the source whose stored password may be reused (same host and username only). */

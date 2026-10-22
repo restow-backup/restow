@@ -441,6 +441,22 @@
         "unknown": "Die Verbindung ist aus einem unerwarteten Grund fehlgeschlagen."
       },
       "detail": "Serverantwort: {message}"
+    },
+    "archive": {
+      "title": "Archivierung",
+      "description": "Wie das Archiv neue Mail der Konten dieser Quelle bemerkt, wenn ein Mail-Job sie archiviert.",
+      "idle": {
+        "label": "Konten mit IMAP IDLE beobachten",
+        "options": {
+          "auto": "Automatisch (IMAP IDLE)",
+          "off": "Nur in Abständen prüfen"
+        },
+        "hints": {
+          "auto": "Wo der Server IMAP IDLE anbietet, hält {appName} je Konto eine Verbindung offen und archiviert neue Mail nach Augenblicken. Zusammen mit einer laufenden Sicherung nutzt ein Konto dann bis zu drei Verbindungen.",
+          "off": "Keine Verbindung bleibt offen; {appName} prüft die Konten alle paar Minuten auf neue Mail. Für Anbieter, die je Konto nur wenige Verbindungen erlauben."
+        }
+      },
+      "edition": "Die Archivierung aus dem Postfach gehört zur Edition Business."
     }
   },
   "delete": {
@@ -469,7 +485,8 @@
     "linkCreated": "Consent-Link erzeugt.",
     "copied": "Link in die Zwischenablage kopiert.",
     "copyFailed": "Der Link konnte nicht kopiert werden. Markieren und kopieren Sie ihn manuell.",
-    "ownAppConnected": "Quelle mit eigener App verbunden."
+    "ownAppConnected": "Quelle mit eigener App verbunden.",
+    "archiveIdleSaved": "Einstellung der Archivierung gespeichert."
   },
   "consentLanding": {
     "product": "{appName}",

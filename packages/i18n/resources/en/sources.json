@@ -441,6 +441,22 @@
         "unknown": "The connection failed for an unexpected reason."
       },
       "detail": "Server said: {message}"
+    },
+    "archive": {
+      "title": "Archiving",
+      "description": "How the archive notices new mail of this source's accounts when a mail job archives them.",
+      "idle": {
+        "label": "Watch accounts with IMAP IDLE",
+        "options": {
+          "auto": "Automatic (IMAP IDLE)",
+          "off": "Check at intervals only"
+        },
+        "hints": {
+          "auto": "Where the server offers IMAP IDLE, {appName} keeps one connection per account open and archives new mail within moments. Together with a running backup an account then uses up to three connections.",
+          "off": "No connection stays open; {appName} checks the accounts for new mail every few minutes. For providers that allow only few connections per account."
+        }
+      },
+      "edition": "Archiving from the mailbox is part of the Business edition."
     }
   },
   "delete": {
@@ -469,7 +485,8 @@
     "linkCreated": "Consent link created.",
     "copied": "Link copied to the clipboard.",
     "copyFailed": "The link could not be copied. Select it and copy it manually.",
-    "ownAppConnected": "Source connected with its own app."
+    "ownAppConnected": "Source connected with its own app.",
+    "archiveIdleSaved": "Archiving setting saved."
   },
   "consentLanding": {
     "product": "{appName}",

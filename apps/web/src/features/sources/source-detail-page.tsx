@@ -29,6 +29,7 @@ import { formatDateTime, formatRelative } from "@/lib/format";
 import { NoTenantSelected, SourcesForbidden } from "./components/access-states";
 import { ConsentResultAlert } from "./components/consent-result-alert";
 import { DeleteSourceDialog } from "./components/delete-source-dialog";
+import { ImapArchiveCard } from "./components/imap-archive-card";
 import { ImapConnectionCard } from "./components/imap-connection-card";
 import { ImapSourceDialog } from "./components/imap-source-dialog";
 import { M365ConnectionCard } from "./components/m365-connection-card";
@@ -283,13 +284,16 @@ function SourceDetail({
           />
         </div>
       ) : (
-        <ImapConnectionCard
-          source={source}
-          onEdit={() => setDialog("edit")}
-          onTest={runTest}
-          testing={testing}
-          testError={test.error}
-        />
+        <>
+          <ImapConnectionCard
+            source={source}
+            onEdit={() => setDialog("edit")}
+            onTest={runTest}
+            testing={testing}
+            testError={test.error}
+          />
+          <ImapArchiveCard source={source} />
+        </>
       )}
 
       {imported ? null : source.kind === "m365" ? (
