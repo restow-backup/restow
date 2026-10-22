@@ -16,6 +16,7 @@
     "mailbox": "Mailbox",
     "onedrive": "OneDrive",
     "site": "SharePoint site",
+    "group": "Microsoft 365 group",
     "imap": "IMAP account"
   },
   "status": {
@@ -261,7 +262,9 @@
       "drive_probe_failed": "OneDrive of {user} could not be checked ({status}); left unchanged.",
       "user_fetch_failed": "User {user} could not be read ({status}); the next sync picks it up.",
       "sites_permission": "SharePoint sites are not found or backed up: the tenant has not granted the backup app Sites.Read.All or Sites.ReadWrite.All ({status}). Mail and OneDrive are not affected. Run the admin consent for this tenant again once the app registration lists the permission.",
-      "sites_unavailable": "SharePoint sites could not be listed ({status}); the sites known so far stay as they are."
+      "sites_unavailable": "SharePoint sites could not be listed ({status}); the sites known so far stay as they are.",
+      "groups_permission": "Microsoft 365 groups are not read: the tenant has not granted the backup app Group.Read.All ({status}). Group calendars and conversations are neither found nor backed up; mail, OneDrive and SharePoint are not affected. Run the admin consent for this tenant again.",
+      "groups_unavailable": "Microsoft 365 groups could not be read ({status}); the groups known so far stay as they are."
     },
     "result": {
       "queued": "Directory sync queued.",
@@ -294,7 +297,7 @@
       "manual": "Manual list"
     },
     "counts": "{active} protected, {excluded} excluded, {orphaned} orphaned",
-    "m365Kinds": "{mailbox, plural, one {# mailbox} other {# mailboxes}}, {onedrive, plural, one {# OneDrive} other {# OneDrives}}{site, plural, =0 {} one {, # SharePoint site} other {, # SharePoint sites}}",
+    "m365Kinds": "{mailbox, plural, one {# mailbox} other {# mailboxes}}, {onedrive, plural, one {# OneDrive} other {# OneDrives}}{site, plural, =0 {} one {, # SharePoint site} other {, # SharePoint sites}}{group, plural, =0 {} one {, # Microsoft 365 group} other {, # Microsoft 365 groups}}",
     "imapKinds": "{count, plural, one {# account} other {# accounts}}",
     "consentHint": "Grant admin consent for this tenant under Sources before the first sync.",
     "disabledHint": "The source is paused. Resume it under Sources to sync again.",
@@ -324,6 +327,11 @@
       "label": "Protect all SharePoint sites",
       "allHint": "Every SharePoint site of the tenant is backed up, including the sites of Microsoft 365 groups and Teams. Exclude single sites in the list of protected objects.",
       "selectedHint": "No SharePoint site is backed up unless you include it in the list of protected objects."
+    },
+    "groups": {
+      "label": "Protect all Microsoft 365 groups",
+      "allHint": "The calendar and the conversations of every Microsoft 365 group of the tenant (Teams included) are backed up. Exclude single groups in the list of protected objects.",
+      "selectedHint": "No group calendar or conversation is backed up unless you include the group in the list of protected objects. Groups are opt-in, so a tenant with thousands of groups does not back them all up unasked."
     },
     "selectedHint": "Choose what to protect from the Objects tab: select the mailboxes or OneDrives you want and use \"Include\", there or as a bulk action. Switching scope never deletes a backup: an object that leaves the scope simply stops being backed up and keeps its existing snapshots.",
     "mode": {

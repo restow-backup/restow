@@ -106,6 +106,7 @@
         "mailbox": "{count, plural, one {# Postfach} other {# Postfächer}}",
         "onedrive": "{count, plural, one {# OneDrive} other {# OneDrives}}",
         "site": "{count, plural, one {# SharePoint-Website} other {# SharePoint-Websites}}",
+        "group": "{count, plural, one {# Microsoft-365-Gruppe} other {# Microsoft-365-Gruppen}}",
         "imap": "{count, plural, one {# IMAP-Konto} other {# IMAP-Konten}}"
       }
     },

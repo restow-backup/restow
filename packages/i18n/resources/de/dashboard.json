@@ -153,6 +153,7 @@
       "mail": "Exchange-Postfächer",
       "onedrive": "OneDrive",
       "sharepoint": "SharePoint-Websites",
+      "groups": "Gruppenkalender und Unterhaltungen",
       "imap": "IMAP-Postfächer",
       "archive": "Archiv",
       "machines": "Server und Clients",
@@ -367,6 +368,7 @@
       "mailbox": "Postfach",
       "onedrive": "OneDrive",
       "site": "SharePoint-Website",
+      "group": "Microsoft-365-Gruppe",
       "imap": "IMAP-Konto"
     },
     "status": {

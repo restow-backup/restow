@@ -693,6 +693,7 @@
     "member": "Member",
     "onedrive": "OneDrive",
     "site": "SharePoint site",
+    "group": "Microsoft 365 group",
     "protected_object": "Protected object",
     "restore_job": "Restore",
     "retention_policy": "Retention policy",
