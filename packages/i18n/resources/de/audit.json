@@ -231,6 +231,13 @@
       },
       "chain": {
         "verified": "Archiv geprüft"
+      },
+      "capture": {
+        "resync_requested": "Archiv-Erfassung eines Postfachs neu abgeglichen"
+      },
+      "hold": {
+        "confirmed": "Aufbewahrung gelöschter Mail bestätigt (Microsoft 365)",
+        "unconfirmed": "Bestätigung der Aufbewahrung gelöschter Mail zurückgenommen (Microsoft 365)"
       }
     },
     "backup": {

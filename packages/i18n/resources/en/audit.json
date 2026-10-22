@@ -231,6 +231,13 @@
       },
       "chain": {
         "verified": "Archive checked"
+      },
+      "capture": {
+        "resync_requested": "Archive capture of a mailbox resynced"
+      },
+      "hold": {
+        "confirmed": "Hold for deleted mail confirmed (Microsoft 365)",
+        "unconfirmed": "Hold confirmation for deleted mail withdrawn (Microsoft 365)"
       }
     },
     "backup": {
