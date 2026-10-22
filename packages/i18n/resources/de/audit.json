@@ -521,6 +521,13 @@
       },
       "enrolled": "Rechner eingerichtet",
       "revoked": "Rechner widerrufen",
+      "removed": "Rechner aus {appName} entfernt",
+      "removal": {
+        "held": "Löschen der Sicherungen des entfernten Rechners angehalten",
+        "deferred": "Löschen der Sicherungen des entfernten Rechners wegen Speichersperren verschoben",
+        "completed": "Sicherungen des entfernten Rechners gelöscht",
+        "failed": "Löschen der Sicherungen des entfernten Rechners fehlgeschlagen"
+      },
       "config": {
         "changed": "Konfiguration des Rechners geändert"
       },

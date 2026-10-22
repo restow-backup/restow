@@ -521,6 +521,13 @@
       },
       "enrolled": "Machine enrolled",
       "revoked": "Machine revoked",
+      "removed": "Machine removed from {appName}",
+      "removal": {
+        "held": "Deletion of the removed machine's backups held",
+        "deferred": "Deletion of the removed machine's backups deferred by storage locks",
+        "completed": "Backups of the removed machine deleted",
+        "failed": "Deleting the backups of the removed machine failed"
+      },
       "config": {
         "changed": "Machine configuration changed"
       },
