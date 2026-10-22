@@ -8,6 +8,36 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Fixed
+
+- Restore explorer: opening a large mailbox or OneDrive no longer takes seconds to minutes
+  before its folders show. Every folder listing read all entries of the restore point (every
+  message of the mailbox, every file of the OneDrive, with their metadata), twice per request,
+  and matched the folders below against them without an index; a folder whose subfolders
+  have no entry of their own (the mailbox root with `mail` and `calendar`, a OneDrive root)
+  grew with the square of the entries and could time out. The listing now reads the folder's
+  children and the folders below it from two new indexes (migration
+  `0061_explorer_parent_index`; on a large `manifest_versions` table the update takes longer,
+  docs/UPDATING.md): with 120 000 messages and 200 000 files, the mail folder list went from
+  2.5 s to 15 ms, the root of the mailbox and of the OneDrive from over a minute to 15 ms,
+  and every OneDrive folder from 1.5–2.5 s to about 10 ms. A folder of 50 000 messages lists
+  its first page in about 0.5 s (was 1.9 s). Restore points of 0.3.4 and earlier that the
+  worker has not converted yet are listed as before.
+- Restore explorer: the versions OneDrive kept of a file and the calendar's month view read
+  the same indexes instead of every entry of the restore point (130 ms and 260 ms to under
+  50 ms for the sizes above).
+- Mail preview, attachment download and calendar series: each chunk of the message is read
+  from storage with a byte-range request for exactly its bytes instead of downloading its
+  whole pack (up to 64 MiB) for every preview; a chunk damaged on every target is still read
+  through its whole pack as before. The archive's content check reads the same way.
+
+### Changed
+
+- Restore explorer: the restore points of an account load alongside its owner's entry
+  instead of after it, one round trip less before a mailbox or OneDrive shows its folders.
+
 ## [0.4.3] - 2026-10-22
 
 Beta release. Run it alongside your existing backups, not as your only one, until
