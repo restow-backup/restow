@@ -413,6 +413,8 @@ export type ProviderRole = "owner" | "administrator" | "technician" | "read_only
  * - `dashboard.allTenants` the provider view of the dashboard
  * - `reports.timed`        time-triggered report rules
  * - `providerTeam.tenantScope` limiting a member of the provider team to chosen tenants
+ * - `archive.mailboxCapture` archive capture from the mailbox (Graph, IMAP)
+ * - `archive.smtpCapture`  archive capture by SMTP (journaling, forwarded copies)
  */
 export const GATED_FEATURES = [
   "tenants.additional",
@@ -421,6 +423,8 @@ export const GATED_FEATURES = [
   "dashboard.allTenants",
   "reports.timed",
   "providerTeam.tenantScope",
+  "archive.mailboxCapture",
+  "archive.smtpCapture",
 ] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];

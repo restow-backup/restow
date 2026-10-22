@@ -14,8 +14,11 @@ import type { LicenseEdition } from "./editions.js";
 export const CAPABILITIES = [
   /** Archive legal holds (Business+): suspend retention/deletion on demand. */
   "archive.legalHold",
-  /** SMTP journal receiver for Exchange Online journaling (Business+). */
+  /** SMTP journal receiver: Exchange Online journal reports and, from 0.4.4, plain copies
+   *  a mail provider forwards to an archive address (Business+). */
   "archive.journalReceiver",
+  /** Continuous archive capture from the mailbox, by Microsoft Graph and IMAP (Business+). */
+  "archive.mailboxCapture",
   /** Enforced archive retention deletion runs (Business+). */
   "archive.retentionEnforcement",
   /** Cross-tenant provider API keys and `/provider/*` endpoints (Service Provider). */
@@ -49,6 +52,7 @@ const EDITION_RANK: Readonly<Record<LicenseEdition, number>> = {
 export const CAPABILITY_MIN_EDITION: Readonly<Record<Capability, LicenseEdition>> = {
   "archive.legalHold": "business",
   "archive.journalReceiver": "business",
+  "archive.mailboxCapture": "business",
   "archive.retentionEnforcement": "business",
   "provider.crossTenantApi": "service_provider",
   "provider.tenantManagement": "service_provider",

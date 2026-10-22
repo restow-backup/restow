@@ -150,6 +150,8 @@ export interface ArchiveJobPayload extends JobPayloadBase {
   readonly protectedObjectId?: string;
   readonly sourceId?: string;
   readonly capture: "graph_sync" | "imap_sync";
+  /** Mirrors @restow/core: the worker's one-time takeover; the scheduler never sets it. */
+  readonly mode?: "backfill";
 }
 
 export interface DirectoryJobPayload extends JobPayloadBase {
@@ -194,7 +196,9 @@ export function singletonKeyFor<Q extends ScheduledQueue>(
     case "archive": {
       const archive = payload as ArchiveJobPayload;
       const target = archive.protectedObjectId ?? archive.sourceId ?? "tenant";
-      return `archive:${payload.tenantId}:${target}`;
+      // A backfill never waits behind (or blocks) a pass of the same mailbox.
+      const suffix = archive.mode === "backfill" ? `:backfill:${archive.capture}` : "";
+      return `archive:${payload.tenantId}:${target}${suffix}`;
     }
     case "directory":
       return `directory:${(payload as DirectoryJobPayload).sourceId}`;

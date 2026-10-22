@@ -22,6 +22,12 @@ import type { DbExecutor } from "./tenant-context.js";
  *                         limiting a member of the provider team to chosen
  *                         tenants; without it every member has every tenant
  *                         (features/provider-team)
+ *   archive.mailboxCapture
+ *                         continuous archive capture from the mailbox by Graph
+ *                         and IMAP (features/archive-capture; the worker's
+ *                         capture service checks the same gate)
+ *   archive.smtpCapture   archive capture by SMTP: Exchange journaling and copies
+ *                         a mail provider forwards to an archive address
  *
  * The gates decide on installation-level state (in the full build the
  * installed license), which only the installation role may read
@@ -37,6 +43,8 @@ export const GATED_FEATURES = [
   "dashboard.allTenants",
   "reports.timed",
   "providerTeam.tenantScope",
+  "archive.mailboxCapture",
+  "archive.smtpCapture",
 ] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];

@@ -139,6 +139,14 @@ describe("licenseFeatureGate", () => {
     expect(await licenseFeatureGate.isEnabled(fakeDb("business"), "reports.timed")).toBe(true);
   });
 
+  it("opens archive capture from the mailbox and by SMTP from Business on", async () => {
+    for (const feature of ["archive.mailboxCapture", "archive.smtpCapture"] as const) {
+      expect(await licenseFeatureGate.isEnabled(fakeDb(), feature)).toBe(false);
+      expect(await licenseFeatureGate.isEnabled(fakeDb("business"), feature)).toBe(true);
+    }
+    expect(FEATURE_CAPABILITIES["archive.smtpCapture"]).toBe("archive.journalReceiver");
+  });
+
   it("names the edition a function needs while it is off", async () => {
     const problem = await licenseFeatureGate.unavailable?.(
       fakeDb("business"),

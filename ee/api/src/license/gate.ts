@@ -90,6 +90,8 @@ export const FEATURE_CAPABILITIES: Readonly<Record<GatedFeature, Capability>> = 
   "dashboard.allTenants": "provider.tenantReporting",
   "reports.timed": "reports.scheduled",
   "providerTeam.tenantScope": "provider.teamTenantScope",
+  "archive.mailboxCapture": "archive.mailboxCapture",
+  "archive.smtpCapture": "archive.journalReceiver",
 };
 
 /** The core's feature gate, decided by the installed license. */

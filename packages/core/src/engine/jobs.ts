@@ -89,6 +89,13 @@ export interface ArchiveJobPayload extends JobPayloadBase {
   /** The source whose mailboxes are synced when no single object is named. */
   readonly sourceId?: string;
   readonly capture: "graph_sync" | "imap_sync";
+  /**
+   * `backfill`: the one-time takeover of a mailbox's existing mail by a capture way
+   * (apps/worker/src/handlers/archive.ts), checkpointed, queued by the capture service.
+   * Absent (archive schedules of older releases): the capture service is asked to look at
+   * the named mailboxes now; continuous capture itself needs no job.
+   */
+  readonly mode?: "backfill";
 }
 
 export interface DirectoryJobPayload extends JobPayloadBase {
@@ -157,7 +164,9 @@ export function singletonKeyFor<Q extends JobQueue>(
     case "archive": {
       const archive = payload as ArchiveJobPayload;
       const target = archive.protectedObjectId ?? archive.sourceId ?? "tenant";
-      return `archive:${payload.tenantId}:${target}`;
+      // A backfill never waits behind (or blocks) a pass of the same mailbox.
+      const suffix = archive.mode === "backfill" ? `:backfill:${archive.capture}` : "";
+      return `archive:${payload.tenantId}:${target}${suffix}`;
     }
     case "directory":
       return `directory:${(payload as DirectoryJobPayload).sourceId}`;
