@@ -321,6 +321,49 @@ describe.skipIf(!adminUrl)("archive capture (Postgres)", () => {
     expect(objects).not.toContain(taken);
   });
 
+  it("creates no stream for a job the update to 0.4.4 left on journaling, IMAP waiting for a way", async () => {
+    // What migration 0062 gives a job that archived before: nothing new starts by itself.
+    await db
+      .update(backupJobs)
+      .set({
+        scopeMode: "all",
+        archiveCapture: {
+          m365: { graph: false, journal: true },
+          imap: { sync: false, forward: false, pending: true },
+          google: { sync: false, forward: false, pending: true },
+        },
+      })
+      .where(eq(backupJobs.id, jobId));
+    const account = await imapObject("waiting@example.net");
+    await member(account);
+    await db.insert(protectedObjects).values({
+      tenantId,
+      sourceId: m365SourceId,
+      kind: "mailbox",
+      externalId: "eva@contoso.example",
+    });
+    const free = await imapObject("free-waiting@example.net");
+    expect(await reconcileCaptureStreams(db)).toEqual({ wanted: 0, disabled: 0 });
+    expect(await streams()).toEqual([]);
+
+    // Once a way is chosen (the API drops the marker), the accounts are captured.
+    await db
+      .update(backupJobs)
+      .set({
+        archiveCapture: {
+          m365: { graph: false, journal: true },
+          imap: { sync: true, forward: false },
+        },
+      })
+      .where(eq(backupJobs.id, jobId));
+    await reconcileCaptureStreams(db);
+    const captured = await streams();
+    expect(captured.every((row) => row.way === "imap_sync")).toBe(true);
+    expect(captured.map((row) => row.protectedObjectId)).toEqual(
+      expect.arrayContaining([account, free]),
+    );
+  });
+
   it("stays idle while the gate is closed: no reconcile, no claim", async () => {
     await member(await imapObject("idle@example.net"));
     const { instance } = service({ imap_sync: fakeWay(new Map()) }, { gate: closed });

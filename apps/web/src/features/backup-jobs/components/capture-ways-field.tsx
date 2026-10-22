@@ -21,6 +21,7 @@ import {
   type CaptureSettingsKey,
   type CaptureWays,
   captureKeysOf,
+  choicePending,
   wayChosen,
   withWay,
 } from "../capture-ways.js";
@@ -31,8 +32,9 @@ import {
  * "echt" (at transport) or "zeitnah" (from the mailbox) with one line on what that means.
  * A way the installation's edition does not include (the gated features of `/me`) is shown
  * locked with the edition that has it. A kind needs at least one way (`missing` names those
- * without, as the API would). An IMAP account on a Microsoft host gets the hint that a
- * Microsoft 365 source captures it better.
+ * without, as the API would). A kind of a job from before 0.4.4 that still waits for its first
+ * way says so (nothing is captured from these accounts until a way is chosen). An IMAP account
+ * on a Microsoft host gets the hint that a Microsoft 365 source captures it better.
  */
 export function CaptureWaysField({
   idPrefix,
@@ -131,6 +133,13 @@ export function CaptureWaysField({
                 </div>
               );
             })}
+
+            {key !== "m365" && choicePending(value, key) ? (
+              <Alert data-slot={`capture-pending-${key}`}>
+                <Info aria-hidden="true" />
+                <AlertDescription>{t(`editor.capture.pending.${key}`)}</AlertDescription>
+              </Alert>
+            ) : null}
 
             {key === "imap" && kinds.includes("imap_microsoft") ? (
               <Alert data-slot="capture-imap-microsoft">

@@ -15,11 +15,16 @@ private repository.
 - Archive capture foundation for mail beyond Exchange journaling (docs/ARCHIVE.md
   "Erfassungswege"). A mail job's archive keeps its capture ways per kind of mail object
   (`archiveCapture` on create, change and read of a mail job: Microsoft 365 by Graph and/or
-  journaling, IMAP and Google Workspace by IMAP sync and/or a forwarded copy; the defaults are
-  Graph and IMAP sync). A job that archives needs at least one way for every kind of mailbox it
+  journaling, IMAP and Google Workspace by IMAP sync and/or a forwarded copy; the defaults of a
+  new job are Graph and IMAP sync, jobs that archived before keep journaling only, see Upgrade
+  Notes). A job that archives needs at least one way for every kind of mailbox it
   covers (422 `archive_capture_no_way`). Members and candidates carry `captureKind` (`m365`,
   `google`, `imap`, `imap_microsoft`), and `GET /api/v1/backup-jobs/defaults?kind=mail` names
   the tenant's `mailSourceKinds`.
+- Archive page (Business): a notice that can be put away names the mail jobs where Graph or
+  IMAP archiving could be switched on, each with a link to the job, and the capture status
+  lists the jobs whose IMAP or Google Workspace accounts wait for a capture way
+  (`GET /api/v1/archive/capture` returns them as `jobs`).
 - Worker: a capture service keeps one stream per archived mailbox and mailbox way, claimed
   across worker processes with `FOR UPDATE SKIP LOCKED` and a lease, reconciled from the mail
   jobs every two minutes without a job row per mail. Pausing a job stops its scheduled backups only;
@@ -174,11 +179,18 @@ private repository.
 
 ### Upgrade Notes
 
-- Three database migrations (0059, 0060, 0061): a new capture value, the capture tables (streams,
-  pending notifications, Graph subscriptions, per-account archive addresses, further captures)
-  and new columns and indexes on `archive_items` and `backup_jobs`, and two indexes on
-  `manifest_versions` for the restore explorer. The indexes are built during the update; on a
-  large archive or `manifest_versions` table this takes a while (docs/UPDATING.md).
+- Four database migrations (0059, 0060, 0061, 0062): a new capture value, the capture tables
+  (streams, pending notifications, Graph subscriptions, per-account archive addresses, further
+  captures) and new columns and indexes on `archive_items` and `backup_jobs`, two indexes on
+  `manifest_versions` for the restore explorer, and the capture ways of the mail jobs that
+  already archive. The indexes are built during the update; on a large archive or
+  `manifest_versions` table this takes a while (docs/UPDATING.md).
+- Mail jobs that archive keep doing exactly what they did before the update: migration 0062
+  gives each of them Exchange journaling only for Microsoft 365 mailboxes and no capture way
+  yet for IMAP and Google Workspace accounts (marked as waiting for a choice), so no capture
+  and no takeover of existing mail starts by itself. The API accepts such a job without a way
+  for those accounts until one is chosen (`pending: true`, kept only where the job had it,
+  never set through the API).
 
 ## [0.4.3] - 2026-10-22
 

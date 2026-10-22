@@ -46,6 +46,7 @@ import { activeTenantPageTo } from "@/lib/tenant-paths";
 import type { ArchiveSearchResult, ArchiveSource } from "./api.js";
 import { ArchiveDetail } from "./archive-detail.js";
 import { ArchiveProtectionNotice } from "./archive-protection.js";
+import { CaptureOfferNotice } from "./capture-offer.js";
 import { CaptureStatusSection } from "./capture-status.js";
 import { ChainCheck } from "./chain-check.js";
 import { useArchiveSearch, useTenantScope } from "./hooks.js";
@@ -270,6 +271,7 @@ export function ArchivePage() {
       </div>
 
       <ArchiveProtectionNotice />
+      <CaptureOfferNotice />
 
       <form
         data-slot="archive-search"

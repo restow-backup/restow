@@ -49,10 +49,19 @@ Google Workspace über IMAP, IMAP auf einem Microsoft-Host) und bietet je Art nu
 Erfassungswege an, die dazu passen (Tabelle im nächsten Abschnitt; API: `archiveCapture` des
 Jobs, Mitglieder mit `captureKind`). Ein Job mit Postfächern verschiedener Art zeigt die Wege
 je Art. Jeder Weg ist als **echt** oder **zeitnah** gekennzeichnet; je Art muss mindestens ein
-Weg gewählt sein (sonst 422 `archive_capture_no_way`). Vorgabe ist die Graph-Erfassung für
-Microsoft 365 und die IMAP-Archivierung für IMAP und Google Workspace; das gilt auch für Jobs,
-die vor 0.4.4 angelegt wurden. Ein Weg, den die Edition nicht enthält, ist gesperrt und nennt
-die Edition. Eine Journal-Adresse wird nur angefordert, wenn für Microsoft 365 das
+Weg gewählt sein (sonst 422 `archive_capture_no_way`). Vorgabe für neue Jobs (und für einen
+Job, der das Archivieren einschaltet) ist die Graph-Erfassung für Microsoft 365 und die
+IMAP-Archivierung für IMAP und Google Workspace. Jobs, die schon vor 0.4.4 archiviert haben,
+arbeiten nach dem Update genau wie vorher: Die Migration 0062 gibt ihnen für Microsoft 365 nur
+das Exchange-Journaling und für IMAP- und Google-Workspace-Konten noch keinen Weg (`pending`,
+"wartet auf eine Wahl"); es startet also keine Erfassung und keine Übernahme von selbst. Solange
+die Markierung steht, nimmt die API den Job ohne Weg für diese Art an (Umbenennen, Zeitplan usw.
+bleiben möglich); der Editor sagt an der Karte der IMAP-Konten "Für diese IMAP-Konten ist noch
+kein Erfassungsweg gewählt", und mit dem ersten gewählten Weg fällt die Markierung weg. Die
+Archiv-Seite nennt mit Business-Lizenz in einem Hinweis, den man ausblenden kann, die Jobs, in
+denen sich Graph oder die IMAP-Archivierung einschalten ließe, und der Erfassungsstatus listet
+die Jobs, die auf eine Wahl warten. Ein Weg, den die Edition nicht enthält, ist gesperrt und
+nennt die Edition. Eine Journal-Adresse wird nur angefordert, wenn für Microsoft 365 das
 Exchange-Journaling gewählt ist; bis 0.4.3 legte schon das Öffnen eines Jobs mit nur
 IMAP-Konten sie an. Adressen für die Weiterleitung entstehen erst auf Anforderung im Abschnitt
 "Weiterleitung" der Archiv-Seite.

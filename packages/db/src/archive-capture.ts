@@ -140,8 +140,48 @@ export function mailboxCaptureWay(
 }
 
 /**
+ * Whether a kind's ways still wait for a choice: an IMAP or Google kind of a job that archived
+ * before 0.4.4 (migration 0062 marked it `pending`), with no way chosen since.
+ */
+export function captureChoicePending(
+  settings: ArchiveCaptureSettings | null | undefined,
+  kind: CaptureKind,
+): boolean {
+  if (kind === "m365") {
+    return false;
+  }
+  const ways = kind === "google" ? settings?.google : settings?.imap;
+  return ways?.pending === true && !ways.sync && !ways.forward;
+}
+
+/**
+ * The settings to store for a job: a kind keeps its `pending` marker only while it still has no
+ * way and the job had the marker before (`before`; nothing for a new job). Nobody sets the
+ * marker through the API; choosing a way clears it.
+ */
+export function withPendingMarkers(
+  next: ArchiveCaptureSettings,
+  before: ArchiveCaptureSettings | null | undefined,
+): ArchiveCaptureSettings {
+  const result: ArchiveCaptureSettings = { ...next };
+  for (const key of ["imap", "google"] as const) {
+    const ways = next[key];
+    if (!ways) {
+      continue;
+    }
+    const { pending: _pending, ...plain } = ways;
+    const keep =
+      ways.pending === true && !ways.sync && !ways.forward && before?.[key]?.pending === true;
+    result[key] = keep ? { ...plain, pending: true } : plain;
+  }
+  return result;
+}
+
+/**
  * Whether the settings give every kind in `kinds` at least one way; returns the kinds that
- * have none (the API refuses those).
+ * have none (the API refuses those). A kind still waiting for a choice since the update to
+ * 0.4.4 ({@link captureChoicePending}) is not missing: the job stays as it was until someone
+ * chooses.
  */
 export function kindsWithoutWay(
   settings: ArchiveCaptureSettings | null | undefined,
@@ -155,7 +195,7 @@ export function kindsWithoutWay(
         ? !ways.m365.graph && !ways.m365.journal
         : !(kind === "google" ? ways.google : ways.imap).sync &&
           !(kind === "google" ? ways.google : ways.imap).forward;
-    if (none) {
+    if (none && !captureChoicePending(settings, kind)) {
       missing.push(kind);
     }
   }

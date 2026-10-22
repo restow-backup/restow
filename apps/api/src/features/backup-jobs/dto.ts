@@ -185,8 +185,9 @@ export type CaptureKindDto = "m365" | "google" | "imap" | "imap_microsoft";
 /** A mail job's capture ways per kind of mail object (backup_jobs.archive_capture). */
 export interface ArchiveCaptureSettingsDto {
   m365?: { graph: boolean; journal: boolean };
-  imap?: { sync: boolean; forward: boolean };
-  google?: { sync: boolean; forward: boolean };
+  /** `pending`: no way chosen yet since the update to 0.4.4 (migration 0062). */
+  imap?: { sync: boolean; forward: boolean; pending?: true };
+  google?: { sync: boolean; forward: boolean; pending?: true };
 }
 
 export interface BackupJobMemberDto {

@@ -40,6 +40,7 @@ import {
   STREAM_STATUSES,
   type StreamStatus,
 } from "./api.js";
+import { CaptureWaitingJobs } from "./capture-offer.js";
 import { CommandBlock } from "./command-block.js";
 import {
   useArchiveHolds,
@@ -116,6 +117,7 @@ export function CaptureStatusSection() {
         </div>
       )}
 
+      {status.data?.jobs ? <CaptureWaitingJobs jobs={status.data.jobs} /> : null}
       <CaptureMailboxes />
       <HoldsCard />
     </section>

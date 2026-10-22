@@ -407,6 +407,62 @@ describe("capture on the archive page", () => {
     expect(slot("archive-superseded-by")?.textContent).toBe("a stronger capture of this mail");
   });
 
+  describe("after the update to 0.4.4", () => {
+    const JOBS: CaptureStatus["jobs"] = [
+      { jobId: "job-all", name: "All mailboxes", graphOff: true, pending: ["imap"] },
+      { jobId: "job-m365", name: "Board", graphOff: true, pending: [] },
+    ];
+    beforeEach(() => {
+      window.localStorage.clear();
+      const fallback = apiFetch.getMockImplementation();
+      apiFetch.mockImplementation((path: string, init?: unknown) =>
+        path === "/archive/capture"
+          ? Promise.resolve({ ...STATUS, jobs: JOBS })
+          : fallback?.(path, init),
+      );
+    });
+
+    it("tells about the new ways and names the jobs that could use them, until put away", async () => {
+      await mount();
+      await settle(() => slot("archive-capture-offer") !== null);
+      const offer = slot("archive-capture-offer");
+      expect(offer?.textContent).toContain("New: capture by Microsoft Graph and IMAP available");
+      expect(offer?.textContent).toContain("All mailboxes");
+      expect(offer?.textContent).toContain("Microsoft 365 mailboxes: Graph is off");
+      expect(offer?.textContent).toContain("IMAP accounts: no way chosen yet");
+      expect(offer?.querySelector("a")?.getAttribute("href")).toBe("/jobs/definitions/job-all");
+      // The capture section lists the jobs whose accounts wait for a way.
+      const waiting = slot("capture-waiting-jobs");
+      expect(waiting?.textContent).toContain("Waiting for a capture way");
+      expect(waiting?.textContent).toContain("All mailboxes");
+      expect(waiting?.textContent).not.toContain("Board");
+
+      await click(offer?.querySelector('button[aria-label="Hide this notice"]'));
+      expect(slot("archive-capture-offer")).toBeNull();
+      expect(window.localStorage.getItem("restow.archive.captureOffer.dismissed.t-1")).toBe("1");
+    });
+
+    it("says nothing about the new ways where the edition does not have them", async () => {
+      features = ["archive.smtpCapture"];
+      await mount();
+      expect(slot("archive-capture-offer")).toBeNull();
+      // What waits for a choice is still listed with the capture state.
+      expect(slot("capture-waiting-jobs")).not.toBeNull();
+    });
+
+    it("is translated to German", async () => {
+      await i18n.changeLanguage("de");
+      await mount();
+      await settle(() => slot("archive-capture-offer") !== null);
+      expect(slot("archive-capture-offer")?.textContent).toContain(
+        "Neu: Erfassung über Microsoft Graph bzw. IMAP verfügbar",
+      );
+      expect(slot("capture-waiting-jobs")?.textContent).toContain(
+        "IMAP-Konten: noch kein Weg gewählt",
+      );
+    });
+  });
+
   it("is translated to German", async () => {
     await i18n.changeLanguage("de");
     await mount();

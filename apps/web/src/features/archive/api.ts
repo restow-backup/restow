@@ -230,10 +230,24 @@ export interface SmtpWayStatus extends CaptureCounts {
   assurance: "transport";
 }
 
+/**
+ * A mail job that archives and could capture more from the mailboxes: Graph is off for its
+ * Microsoft 365 mailboxes, or its IMAP or Google accounts wait for a way since the update to
+ * 0.4.4 (such jobs keep capturing as before until someone chooses).
+ */
+export interface CaptureJobChoice {
+  jobId: string;
+  name: string;
+  graphOff: boolean;
+  pending: ("imap" | "google")[];
+}
+
 export interface CaptureStatus {
   mailbox: MailboxWayStatus[];
   smtp: SmtpWayStatus[];
   fileImport: CaptureCounts & { assurance: "late" };
+  /** Absent from servers before 0.4.4. */
+  jobs?: CaptureJobChoice[];
 }
 
 export interface CaptureMailbox {

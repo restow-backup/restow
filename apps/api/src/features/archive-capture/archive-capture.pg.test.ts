@@ -13,6 +13,8 @@ import {
   archiveItemCaptures,
   archiveItems,
   auditLog,
+  backupJobMembers,
+  backupJobs,
   createDb,
   type Database,
   protectedObjects,
@@ -220,6 +222,109 @@ describe.skipIf(!testDatabaseAdminUrl)("archive capture routes against Postgres"
       await app.request("/archive/capture", { headers: as(contoso) })
     ).json()) as { mailbox: { available: boolean }[] };
     expect(closed.mailbox.every((way) => way.available === false)).toBe(true);
+  });
+
+  it("names the archiving jobs that could capture more: Graph off, or IMAP waiting for a way", async () => {
+    const MIGRATED = {
+      m365: { graph: false, journal: true },
+      imap: { sync: false, forward: false, pending: true as const },
+      google: { sync: false, forward: false, pending: true as const },
+    };
+    const added = await owner
+      .insert(sources)
+      .values([
+        {
+          tenantId: contoso,
+          kind: "imap",
+          name: "Hoster",
+          host: "mail.example.net",
+          status: "active",
+        },
+        {
+          tenantId: contoso,
+          kind: "imap",
+          name: "Workspace",
+          host: "imap.gmail.com",
+          status: "active",
+        },
+      ])
+      .returning();
+    const [hoster, workspace] = added.map((source) => source.id);
+    const accounts = await owner
+      .insert(protectedObjects)
+      .values([
+        {
+          tenantId: contoso,
+          sourceId: hoster as string,
+          kind: "imap",
+          externalId: "info@hoster.example",
+        },
+        {
+          tenantId: contoso,
+          sourceId: workspace as string,
+          kind: "imap",
+          externalId: "team@workspace.example",
+        },
+      ])
+      .returning();
+    const [imapAccount] = accounts.map((object) => object.id);
+    const jobs = await owner
+      .insert(backupJobs)
+      .values([
+        // From before 0.4.4: Microsoft 365 by journaling, the IMAP account waits for a way.
+        {
+          tenantId: contoso,
+          kind: "mail",
+          name: "Migrated",
+          archive: true,
+          archiveCapture: MIGRATED,
+        },
+        // Scope all: the mailboxes and the Google account in no other job.
+        {
+          tenantId: contoso,
+          kind: "mail",
+          name: "Everything",
+          scopeMode: "all",
+          archive: true,
+          archiveCapture: MIGRATED,
+        },
+        // Ways chosen after the update, Graph on: nothing to offer.
+        { tenantId: contoso, kind: "mail", name: "Chosen", archive: true, archiveCapture: {} },
+        // Not archiving: nothing to offer.
+        {
+          tenantId: contoso,
+          kind: "mail",
+          name: "Backup only",
+          archive: false,
+          archiveCapture: MIGRATED,
+        },
+      ])
+      .returning();
+    const [migrated, everything, chosen, backupOnly] = jobs.map((job) => job.id as string);
+    await owner.insert(backupJobMembers).values([
+      { tenantId: contoso, jobId: migrated as string, protectedObjectId: mailboxes[0] as string },
+      { tenantId: contoso, jobId: migrated as string, protectedObjectId: imapAccount as string },
+      { tenantId: contoso, jobId: chosen as string, protectedObjectId: mailboxes[1] as string },
+    ]);
+    try {
+      const body = (await (
+        await app.request("/archive/capture", { headers: as(contoso) })
+      ).json()) as { jobs: unknown[] };
+      expect(body.jobs).toEqual([
+        { jobId: everything, name: "Everything", graphOff: true, pending: ["google"] },
+        { jobId: migrated, name: "Migrated", graphOff: true, pending: ["imap"] },
+      ]);
+      expect(JSON.stringify(body.jobs)).not.toContain(backupOnly as string);
+      const other = (await (
+        await app.request("/archive/capture", { headers: as(fabrikam) })
+      ).json()) as { jobs: unknown[] };
+      expect(other.jobs).toEqual([]);
+    } finally {
+      await owner.delete(backupJobs).where(eq(backupJobs.tenantId, contoso));
+      for (const id of [hoster, workspace]) {
+        await owner.delete(sources).where(eq(sources.id, id as string));
+      }
+    }
   });
 
   it("shows another tenant nothing of it", async () => {

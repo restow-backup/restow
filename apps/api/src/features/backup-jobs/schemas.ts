@@ -161,13 +161,20 @@ const jobName = z.string().trim().min(1).max(120);
 /**
  * A mail job's archive capture ways per kind of mail object (docs/ARCHIVE.md
  * "Erfassungswege"; packages/db `ArchiveCaptureSettings`). A kind left out takes the
- * defaults (Graph for Microsoft 365, IMAP sync for IMAP and Google).
+ * defaults (Graph for Microsoft 365, IMAP sync for IMAP and Google). `pending` (IMAP and
+ * Google) is the marker of a job that archived before 0.4.4 and has no way for the kind yet:
+ * the editor sends it back as it got it, and it is kept only where the job already had it and
+ * still no way is chosen (packages/db `withPendingMarkers`).
  */
+const imapCaptureWaysSchema = z
+  .object({ sync: z.boolean(), forward: z.boolean(), pending: z.literal(true).optional() })
+  .strict();
+
 export const archiveCaptureSchema = z
   .object({
     m365: z.object({ graph: z.boolean(), journal: z.boolean() }).strict().optional(),
-    imap: z.object({ sync: z.boolean(), forward: z.boolean() }).strict().optional(),
-    google: z.object({ sync: z.boolean(), forward: z.boolean() }).strict().optional(),
+    imap: imapCaptureWaysSchema.optional(),
+    google: imapCaptureWaysSchema.optional(),
   })
   .strict();
 

@@ -432,6 +432,22 @@
         "retention_policies": "Aufbewahrungsrichtlinien für Exchange mit den Postfächern, die sie einschließen und ausnehmen",
         "retention_rules": "Was jede Aufbewahrungsrichtlinie aufbewahrt und wie lange"
       }
+    },
+    "offer": {
+      "title": "Neu: Erfassung über Microsoft Graph bzw. IMAP verfügbar",
+      "description": "Seit dem Update kann {appName} Mail auch direkt aus den Postfächern erfassen. Jobs, die schon vorher archiviert haben, arbeiten weiter wie bisher: Neues startet erst, wenn Sie im Job einen Weg einschalten.",
+      "graphOff": "Microsoft-365-Postfächer: Graph ist aus",
+      "pending": {
+        "imap": "IMAP-Konten: noch kein Weg gewählt",
+        "google": "Google-Workspace-Konten: noch kein Weg gewählt"
+      },
+      "open": "Job öffnen",
+      "more": "{count, plural, one {und # weiterer Job} other {und # weitere Jobs}}",
+      "dismiss": "Hinweis ausblenden"
+    },
+    "waiting": {
+      "title": "Wartet auf einen Erfassungsweg",
+      "description": "Diese Jobs haben schon vor dem Update archiviert. Ihre Konten werden erst aus dem Postfach erfasst, wenn im Job ein Weg gewählt ist."
     }
   },
   "forwarding": {

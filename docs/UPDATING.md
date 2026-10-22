@@ -157,17 +157,23 @@ check, or by hand once no backup or restore runs on the node:
 Demo hosts can let the demo follow the releases, whose demo images are now
 published with them (deploy/demo/README.md).
 
-Updating to 0.4.4 applies three migrations (0059 to 0061) at the api's start: the
+Updating to 0.4.4 applies four migrations (0059 to 0062) at the api's start: the
 tables of the archive capture, new columns and indexes on `archive_items` and
-`backup_jobs`, and two indexes on `manifest_versions` for the restore explorer.
+`backup_jobs`, two indexes on `manifest_versions` for the restore explorer, and
+the capture ways of the mail jobs that already archive.
 The indexes are built inside the migration (see below); on a large archive or
 `manifest_versions` table the start takes longer. The `docker-compose.yml` of
-0.4.0 stays and no environment variable becomes required. With a Business or
-Service Provider license, mail jobs that archive start capturing their mailboxes
-right after the update (Graph for Microsoft 365, IMAP sync for IMAP accounts, the
-defaults of a job that never chose its ways), each with a one-time takeover of
-the mail already in the mailbox; existing journal reports keep arriving whatever
-the job chose. Graph capture is notified of new mail only when the installation's
+0.4.0 stays and no environment variable becomes required. Mail jobs that
+archive keep doing exactly what they did: migration 0062 gives each of them
+Exchange journaling only for Microsoft 365 mailboxes and no capture way yet for
+IMAP and Google Workspace accounts (waiting for a choice), so no capture from the
+mailboxes and no takeover of existing mail starts by itself. With a Business or
+Service Provider license, the archive page names the jobs where Graph or IMAP
+archiving could be switched on, and the job editor says at the IMAP card that no
+way is chosen yet; switching a way on in the job starts it, with a one-time
+takeover of the mail already in the mailbox. Jobs created after the update, and a
+job that switches archiving on, start with the defaults (Graph for Microsoft 365,
+IMAP sync for IMAP and Google Workspace). Graph capture is notified of new mail only when the installation's
 public URL is `https://` on port 443 and reachable from Microsoft; otherwise every
 mailbox is polled every 15 minutes. The journal receiver's limits per sending IP
 (`JOURNAL_RATE_PER_IP`, now 600 per minute) and per address

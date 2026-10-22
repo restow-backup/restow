@@ -8,11 +8,13 @@ import pg from "pg";
 import { describe, expect, it } from "vitest";
 import {
   type CaptureKindInput,
+  captureChoicePending,
   captureKindOf,
   captureKindSql,
   effectiveArchiveCapture,
   kindsWithoutWay,
   mailboxCaptureWay,
+  withPendingMarkers,
 } from "./archive-capture.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -103,5 +105,44 @@ describe("capture ways", () => {
       ["m365", "imap", "imap_microsoft"],
     );
     expect(kindsWithoutWay(settings, [])).toEqual([]);
+  });
+
+  it("lets a kind wait for its first way after the update to 0.4.4 (pending), and no other", () => {
+    const migrated = {
+      m365: { graph: false, journal: true },
+      imap: { sync: false, forward: false, pending: true as const },
+      google: { sync: false, forward: false, pending: true as const },
+    };
+    expect(kindsWithoutWay(migrated, ["m365", "imap", "imap_microsoft", "google"])).toEqual([]);
+    expect(captureChoicePending(migrated, "imap_microsoft")).toBe(true);
+    expect(captureChoicePending(migrated, "google")).toBe(true);
+    expect(captureChoicePending(migrated, "m365")).toBe(false);
+    // Nothing is captured from the mailboxes of such a job.
+    expect(mailboxCaptureWay("imap", migrated)).toBeNull();
+    expect(mailboxCaptureWay("google", migrated)).toBeNull();
+    expect(mailboxCaptureWay("m365", migrated)).toBeNull();
+    // A way chosen ends the wait: the marker no longer covers a kind without a way.
+    const chosen = { ...migrated, imap: { sync: true, forward: false, pending: true as const } };
+    expect(captureChoicePending(chosen, "imap")).toBe(false);
+  });
+
+  it("keeps the pending marker only where the job had it and there is still no way", () => {
+    const before = { imap: { sync: false, forward: false, pending: true as const } };
+    const waiting = { imap: { sync: false, forward: false, pending: true as const } };
+    expect(withPendingMarkers(waiting, before)).toEqual(waiting);
+    // Choosing a way clears it.
+    expect(
+      withPendingMarkers({ imap: { sync: false, forward: true, pending: true } }, before),
+    ).toEqual({ imap: { sync: false, forward: true } });
+    // Nobody sets it: not on a new job, not on a kind that did not have it.
+    expect(withPendingMarkers(waiting, null)).toEqual({ imap: { sync: false, forward: false } });
+    expect(
+      withPendingMarkers({ google: { sync: false, forward: false, pending: true } }, before),
+    ).toEqual({
+      google: { sync: false, forward: false },
+    });
+    expect(withPendingMarkers({ m365: { graph: true, journal: false } }, before)).toEqual({
+      m365: { graph: true, journal: false },
+    });
   });
 });

@@ -252,8 +252,12 @@ export type CaptureKind = "m365" | "google" | "imap" | "imap_microsoft";
 /** A mail job's capture ways per kind of mail object (`imap_microsoft` uses `imap`). */
 export interface ArchiveCaptureSettings {
   m365?: { graph: boolean; journal: boolean };
-  imap?: { sync: boolean; forward: boolean };
-  google?: { sync: boolean; forward: boolean };
+  /**
+   * `pending`: the job archived before 0.4.4 and no way is chosen for the kind yet; nothing is
+   * captured from these accounts until one is (the server drops the marker then).
+   */
+  imap?: { sync: boolean; forward: boolean; pending?: true };
+  google?: { sync: boolean; forward: boolean; pending?: true };
 }
 
 export type MemberOutcome = "succeeded" | "partial" | "failed" | "running" | "queued" | "cancelled";

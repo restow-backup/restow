@@ -2014,3 +2014,163 @@ describe.skipIf(!adminUrl)(
     }, 60_000);
   },
 );
+
+describe.skipIf(!adminUrl)(
+  "upgrading to 0.4.4: archiving mail jobs keep capturing as before (0062)",
+  () => {
+    const base = adminUrl as string;
+    const database = `restow_db_migrate_capture_${suffix}`;
+    const owner: RoleLogin = {
+      name: `restow_mig_capture_${suffix}`,
+      password: randomBytes(18).toString("base64url"),
+    };
+    const ids = {
+      provider: randomUUID(),
+      tenant: randomUUID(),
+      other: randomUUID(),
+      archiving: randomUUID(),
+      archivingAll: randomUUID(),
+      backupOnly: randomUUID(),
+      chosen: randomUUID(),
+      machines: randomUUID(),
+      otherArchiving: randomUUID(),
+    };
+    const MIGRATED = {
+      m365: { graph: false, journal: true },
+      imap: { sync: false, forward: false, pending: true },
+      google: { sync: false, forward: false, pending: true },
+    };
+    let folder = "";
+
+    beforeAll(async () => {
+      folder = migrationsFolderUpTo("0061_explorer_parent_index");
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(
+          `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+        );
+        await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    afterAll(async () => {
+      if (folder) rmSync(folder, { recursive: true, force: true });
+      await dropTestDatabase(base, database);
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    const captureOf = (pool: pg.Pool, tenantId: string, jobId: string) =>
+      asTenant(pool, tenantId, async (client) => {
+        const { rows } = await client.query<{ capture: unknown }>(
+          "SELECT archive_capture AS capture FROM backup_jobs WHERE id = $1",
+          [jobId],
+        );
+        return rows[0]?.capture;
+      });
+
+    it("gives archiving jobs journaling only and IMAP waiting for a choice, and leaves the rest", async () => {
+      const url = urlFor(base, database, owner);
+      await applyReleasedSchema(url, folder, null);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        await pool.query("INSERT INTO providers (id, name) VALUES ($1, 'p')", [ids.provider]);
+        const job = (
+          client: pg.PoolClient,
+          tenantId: string,
+          id: string,
+          values: {
+            kind?: string;
+            name: string;
+            scope?: string;
+            archive: boolean;
+            capture?: object;
+          },
+        ) =>
+          client.query(
+            `INSERT INTO backup_jobs (id, tenant_id, kind, name, scope_mode, archive, archive_capture)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+            [
+              id,
+              tenantId,
+              values.kind ?? "mail",
+              values.name,
+              values.scope ?? "selected",
+              values.archive,
+              JSON.stringify(values.capture ?? {}),
+            ],
+          );
+        await asTenant(pool, ids.tenant, async (client) => {
+          await client.query(
+            "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', 'contoso')",
+            [ids.tenant, ids.provider],
+          );
+          await job(client, ids.tenant, ids.archiving, { name: "Archive", archive: true });
+          await job(client, ids.tenant, ids.archivingAll, {
+            name: "Everything",
+            scope: "all",
+            archive: true,
+          });
+          await job(client, ids.tenant, ids.backupOnly, { name: "Backup", archive: false });
+          await job(client, ids.tenant, ids.chosen, {
+            name: "Chosen",
+            archive: true,
+            capture: { m365: { graph: true, journal: false } },
+          });
+          await job(client, ids.tenant, ids.machines, {
+            kind: "endpoint",
+            name: "Machines",
+            archive: false,
+          });
+        });
+        await asTenant(pool, ids.other, async (client) => {
+          await client.query(
+            "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Fabrikam', 'fabrikam')",
+            [ids.other, ids.provider],
+          );
+          await job(client, ids.other, ids.otherArchiving, { name: "Archive", archive: true });
+        });
+
+        await runMigrations(url);
+
+        expect(await captureOf(pool, ids.tenant, ids.archiving)).toEqual(MIGRATED);
+        expect(await captureOf(pool, ids.tenant, ids.archivingAll)).toEqual(MIGRATED);
+        expect(await captureOf(pool, ids.other, ids.otherArchiving)).toEqual(MIGRATED);
+        // A job that does not archive takes the defaults once someone switches archiving on.
+        expect(await captureOf(pool, ids.tenant, ids.backupOnly)).toEqual({});
+        // Ways already chosen stay as they are.
+        expect(await captureOf(pool, ids.tenant, ids.chosen)).toEqual({
+          m365: { graph: true, journal: false },
+        });
+        expect(await captureOf(pool, ids.tenant, ids.machines)).toEqual({});
+
+        const { rows } = await pool.query<{ force: boolean }>(
+          "SELECT relforcerowsecurity AS force FROM pg_class WHERE relname = 'backup_jobs' AND relkind = 'r'",
+        );
+        expect(rows).toEqual([{ force: true }]);
+      } finally {
+        await pool.end();
+      }
+    }, 120_000);
+
+    it("changes nothing on a second run of the migration step", async () => {
+      const url = urlFor(base, database, owner);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        const before = await appliedMigrations(pool);
+        await runMigrations(url);
+        expect(await appliedMigrations(pool)).toBe(before);
+        expect(await captureOf(pool, ids.tenant, ids.archiving)).toEqual(MIGRATED);
+        expect(await captureOf(pool, ids.tenant, ids.backupOnly)).toEqual({});
+      } finally {
+        await pool.end();
+      }
+    }, 60_000);
+  },
+);

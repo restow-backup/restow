@@ -77,7 +77,7 @@ export function wayChosen(
   key: CaptureSettingsKey,
   field: CaptureWayOption["field"],
 ): boolean {
-  return Boolean((ways[key] as Record<string, boolean>)[field]);
+  return (ways[key] as Record<string, boolean | undefined>)[field] === true;
 }
 
 /** The settings with one way switched. */
@@ -96,14 +96,28 @@ export function captureKeysOf(kinds: Iterable<CaptureKind>): CaptureSettingsKey[
   return CAPTURE_SETTINGS_KEYS.filter((key) => present.has(key));
 }
 
-/** The keys of the kinds that have no way chosen: the API refuses those (archive_capture_no_way). */
+/** Whether no way of the kind is chosen. */
+function noWayChosen(ways: CaptureWays, key: CaptureSettingsKey): boolean {
+  return CAPTURE_WAY_OPTIONS[key].every((option) => !wayChosen(ways, key, option.field));
+}
+
+/**
+ * Whether a kind waits for its first way: the job archived before 0.4.4, and the update left
+ * its IMAP or Google accounts without one (`pending`, packages/db `captureChoicePending`).
+ */
+export function choicePending(ways: CaptureWays, key: CaptureSettingsKey): boolean {
+  return key !== "m365" && ways[key].pending === true && noWayChosen(ways, key);
+}
+
+/**
+ * The keys of the kinds that have no way chosen: the API refuses those (archive_capture_no_way),
+ * except a kind still waiting for its first way since the update ({@link choicePending}).
+ */
 export function keysWithoutWay(
   ways: CaptureWays,
   kinds: Iterable<CaptureKind>,
 ): CaptureSettingsKey[] {
-  return captureKeysOf(kinds).filter((key) =>
-    CAPTURE_WAY_OPTIONS[key].every((option) => !wayChosen(ways, key, option.field)),
-  );
+  return captureKeysOf(kinds).filter((key) => noWayChosen(ways, key) && !choicePending(ways, key));
 }
 
 /** Whether two settings choose the same ways (the defaults filled in). */

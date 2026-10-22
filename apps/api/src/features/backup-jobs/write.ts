@@ -36,6 +36,7 @@ import {
   fileShares,
   kindsWithoutWay,
   retentionPolicies,
+  withPendingMarkers,
 } from "@restow/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
@@ -1116,7 +1117,7 @@ export async function createBackupJob(
         tenantId,
         input.scope.mode,
         members.map((member) => member.targetId),
-        input.archiveCapture ?? {},
+        withPendingMarkers(input.archiveCapture ?? {}, null),
       );
     }
     const moved = await releaseTargets(
@@ -1143,7 +1144,9 @@ export async function createBackupJob(
           settings,
           enabled: input.enabled,
           archive: input.archive,
-          archiveCapture: kind === "mail" ? (input.archiveCapture ?? {}) : {},
+          // A new job never waits for a choice: the marker is the update's (migration 0062).
+          archiveCapture:
+            kind === "mail" ? withPendingMarkers(input.archiveCapture ?? {}, null) : {},
           origin: "user",
           recommended: context.recommended ?? null,
           nextRunAt: kind === "endpoint" ? null : nextOf(schedule, now, null),
@@ -1372,8 +1375,13 @@ export async function updateBackupJob(
     if (kind !== "mail" && (patch.archive || patch.archiveCapture)) {
       throw jobProblem(["archive"], "archive_not_supported", archiveMessage());
     }
+    // A kind waiting for its first way since the update keeps waiting until one is chosen.
     const archiveCapture =
-      kind === "mail" ? (patch.archiveCapture ?? before.archiveCapture ?? {}) : {};
+      kind === "mail"
+        ? patch.archiveCapture
+          ? withPendingMarkers(patch.archiveCapture, before.archiveCapture)
+          : (before.archiveCapture ?? {})
+        : {};
     if (
       kind === "mail" &&
       (patch.archive ?? before.archive) &&

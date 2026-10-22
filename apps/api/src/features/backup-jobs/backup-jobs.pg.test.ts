@@ -550,6 +550,103 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     await owner.delete(sources).where(eq(sources.id, google?.id ?? ""));
   });
 
+  it("lets a job from before 0.4.4 wait for an IMAP way, and drops the wait once one is chosen", async () => {
+    const [hoster] = await owner
+      .insert(sources)
+      .values({
+        tenantId: contoso,
+        kind: "imap",
+        name: "Contoso Hoster",
+        host: "mail.example.net",
+        status: "active",
+      })
+      .returning();
+    const [account] = await owner
+      .insert(protectedObjects)
+      .values({
+        tenantId: contoso,
+        sourceId: hoster?.id ?? "",
+        kind: "imap",
+        externalId: "info@contoso.example",
+        displayName: "info",
+      })
+      .returning();
+    const waiting = { sync: false, forward: false, pending: true };
+    // Nobody sets the marker: a new job without a way is refused as before.
+    const refused = await problem(
+      await call("POST", "", {
+        body: {
+          kind: "mail",
+          name: "Hoster archive",
+          archive: true,
+          archiveCapture: { imap: waiting },
+          scope: { mode: "selected", members: [{ id: account?.id }] },
+        },
+      }),
+      422,
+    );
+    expect(refused).toMatchObject({ code: "archive_capture_no_way", field: "archiveCapture" });
+    const job = await json<BackupJobDto>(
+      await call("POST", "", {
+        body: {
+          kind: "mail",
+          name: "Hoster archive",
+          archive: true,
+          scope: { mode: "selected", members: [{ id: account?.id }] },
+        },
+      }),
+      201,
+    );
+    // What the update (migration 0062) leaves on a job that archived before.
+    const migrated = {
+      m365: { graph: false, journal: true },
+      imap: waiting,
+      google: waiting,
+    };
+    await owner
+      .update(backupJobs)
+      .set({ archiveCapture: migrated as never })
+      .where(eq(backupJobs.id, job.id));
+    const loaded = await json<BackupJobDto>(await call("GET", `/${job.id}`), 200);
+    expect(loaded.archiveCapture).toEqual(migrated);
+
+    // Unrelated edits go through; so does sending the ways back as they came.
+    await json<BackupJobDto>(
+      await call("PATCH", `/${job.id}`, { body: { name: "Hoster archive (renamed)" } }),
+      200,
+    );
+    const resent = await json<BackupJobDto>(
+      await call("PATCH", `/${job.id}`, {
+        body: { archiveCapture: { ...migrated, m365: { graph: false, journal: false } } },
+      }),
+      200,
+    );
+    expect(resent.archiveCapture?.imap).toEqual(waiting);
+    // Without the marker the kind has no way: refused.
+    await problem(
+      await call("PATCH", `/${job.id}`, {
+        body: { archiveCapture: { ...migrated, imap: { sync: false, forward: false } } },
+      }),
+      422,
+    );
+    // A way chosen ends the wait for good.
+    const chosen = await json<BackupJobDto>(
+      await call("PATCH", `/${job.id}`, {
+        body: {
+          archiveCapture: { ...migrated, imap: { sync: false, forward: true, pending: true } },
+        },
+      }),
+      200,
+    );
+    expect(chosen.archiveCapture?.imap).toEqual({ sync: false, forward: true });
+    await problem(
+      await call("PATCH", `/${job.id}`, { body: { archiveCapture: { ...migrated } } }),
+      422,
+    );
+    await call("DELETE", `/${job.id}`);
+    await owner.delete(sources).where(eq(sources.id, hoster?.id ?? ""));
+  });
+
   it("keeps a job's timers when it is saved with the same schedule written in another way", async () => {
     // The editor sends the whole schedule on every save, the keys in its own order, a cron
     // expression with its own spacing. The stored document is the database's (jsonb keeps keys

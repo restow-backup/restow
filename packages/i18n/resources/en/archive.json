@@ -432,6 +432,22 @@
         "retention_policies": "Retention policies for Exchange, with the mailboxes they cover and exclude",
         "retention_rules": "What each retention policy keeps, and for how long"
       }
+    },
+    "offer": {
+      "title": "New: capture by Microsoft Graph and IMAP available",
+      "description": "Since the update, {appName} can capture mail from the mailboxes themselves as well. Jobs that archived before keep doing what they did: nothing new starts until you switch a way on in the job.",
+      "graphOff": "Microsoft 365 mailboxes: Graph is off",
+      "pending": {
+        "imap": "IMAP accounts: no way chosen yet",
+        "google": "Google Workspace accounts: no way chosen yet"
+      },
+      "open": "Open job",
+      "more": "{count, plural, one {and # more job} other {and # more jobs}}",
+      "dismiss": "Hide this notice"
+    },
+    "waiting": {
+      "title": "Waiting for a capture way",
+      "description": "These jobs archived before the update. Their accounts are not captured from the mailbox until a way is chosen in the job."
     }
   },
   "forwarding": {

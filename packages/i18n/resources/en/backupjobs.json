@@ -825,7 +825,11 @@
       "imapMicrosoft": "Some of these accounts are at Microsoft. Connect the tenant as a Microsoft 365 source instead: Graph and Exchange journaling capture its mailboxes more completely than IMAP.",
       "setupJournal": "Set up journaling",
       "setupForward": "Set up forwarding",
-      "noWay": "Choose at least one way for these mailboxes."
+      "noWay": "Choose at least one way for these mailboxes.",
+      "pending": {
+        "imap": "No capture way is chosen yet for these IMAP accounts: the job is from before the update, and they are not archived until you choose a way here.",
+        "google": "No capture way is chosen yet for these Google Workspace accounts: the job is from before the update, and they are not archived until you choose a way here."
+      }
     },
     "captureStop": {
       "archiveTitle": "Stop archiving the mail of this job?",

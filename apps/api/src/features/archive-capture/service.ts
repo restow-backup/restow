@@ -5,7 +5,14 @@
  * (apps/worker/src/archive-capture) and from the archive itself (items and capture rows
  * per way, by the (tenant, way, received_at) indexes); no counter of its own.
  */
-import type { SourceConfig } from "@restow/db";
+import {
+  type ArchiveCaptureSettings,
+  type CaptureKind,
+  captureChoicePending,
+  captureKindSql,
+  effectiveArchiveCapture,
+  type SourceConfig,
+} from "@restow/db";
 import { sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { featureEnabled, requireFeature } from "../../lib/features.js";
@@ -71,11 +78,31 @@ export interface SmtpWayStatusDto extends CaptureCounts {
   readonly assurance: "transport";
 }
 
+/**
+ * A mail job that archives and could capture more from the mailboxes: it holds Microsoft 365
+ * mailboxes with Graph capture off, or IMAP or Google accounts still waiting for a way since
+ * the update to 0.4.4 (migration 0062: such jobs keep capturing as before until someone
+ * chooses).
+ */
+export interface CaptureJobChoiceDto {
+  readonly jobId: string;
+  readonly name: string;
+  /** The job holds Microsoft 365 mailboxes and Graph capture is off for them. */
+  readonly graphOff: boolean;
+  /** The kinds of accounts the job holds that wait for a way to be chosen. */
+  readonly pending: readonly ("imap" | "google")[];
+}
+
 export interface CaptureStatusDto {
   readonly mailbox: readonly MailboxWayStatusDto[];
   readonly smtp: readonly SmtpWayStatusDto[];
   readonly fileImport: CaptureCounts & { readonly assurance: "late" };
+  /** Jobs where a mailbox way could be switched on, by name (at most {@link CHOICE_JOBS_LIMIT}). */
+  readonly jobs: readonly CaptureJobChoiceDto[];
 }
+
+/** The most jobs the status names as able to capture more. */
+export const CHOICE_JOBS_LIMIT = 100;
 
 type CountRow = {
   way: CaptureSourceName;
@@ -207,8 +234,78 @@ export async function captureStatus(
       return { way, available: smtpGate, assurance: "transport", ...base };
     });
     const { late: _late, ...fileImport } = counts("file_import");
-    return { mailbox, smtp, fileImport: { ...fileImport, assurance: "late" } };
+    const jobs = await captureJobChoices(tx, tenantId);
+    return { mailbox, smtp, fileImport: { ...fileImport, assurance: "late" }, jobs };
   });
+}
+
+/**
+ * The tenant's archiving mail jobs that could capture more (see {@link CaptureJobChoiceDto}):
+ * one statement, the capture kinds per job from its members, and for a job of scope `all` from
+ * the tenant's mail objects in no other job (as the worker's reconcile counts them).
+ */
+async function captureJobChoices(tx: DbExecutor, tenantId: string): Promise<CaptureJobChoiceDto[]> {
+  const rows = await tx.execute<{
+    id: string;
+    name: string;
+    capture: ArchiveCaptureSettings | null;
+    kinds: CaptureKind[] | null;
+  }>(sql`
+    with jobs as (
+      select id, name, scope_mode, archive_capture
+        from backup_jobs
+       where tenant_id = ${tenantId}::uuid and kind = 'mail' and archive
+    ),
+    objects as (
+      select j.id as job_id, ${captureKindSql("po", "s")} as kind
+        from jobs j
+        join backup_job_members m on m.job_id = j.id
+        join protected_objects po on po.id = m.protected_object_id
+        join sources s on s.id = po.source_id
+       where po.status = 'active'
+      union
+      select j.id, ${captureKindSql("po", "s")}
+        from jobs j
+        join protected_objects po
+          on po.tenant_id = ${tenantId}::uuid and po.kind in ('mailbox', 'imap')
+         and po.status = 'active'
+        join sources s on s.id = po.source_id
+       where j.scope_mode = 'all'
+         and not exists (
+           select 1 from backup_job_members m2
+            where m2.protected_object_id = po.id and m2.job_id <> j.id
+         )
+    )
+    select j.id::text as id, j.name, j.archive_capture as capture,
+           array_agg(distinct o.kind) filter (where o.kind is not null) as kinds
+      from jobs j
+      join objects o on o.job_id = j.id
+     group by j.id, j.name, j.archive_capture
+     order by lower(j.name), j.id
+  `);
+  const choices: CaptureJobChoiceDto[] = [];
+  for (const row of rows.rows) {
+    const kinds = new Set(row.kinds ?? []);
+    const ways = effectiveArchiveCapture(row.capture);
+    const graphOff = kinds.has("m365") && !ways.m365.graph;
+    const pending: ("imap" | "google")[] = [];
+    if (
+      (kinds.has("imap") || kinds.has("imap_microsoft")) &&
+      captureChoicePending(row.capture, "imap")
+    ) {
+      pending.push("imap");
+    }
+    if (kinds.has("google") && captureChoicePending(row.capture, "google")) {
+      pending.push("google");
+    }
+    if (graphOff || pending.length > 0) {
+      choices.push({ jobId: row.id, name: row.name, graphOff, pending });
+    }
+    if (choices.length >= CHOICE_JOBS_LIMIT) {
+      break;
+    }
+  }
+  return choices;
 }
 
 export interface CaptureMailboxDto {

@@ -12,6 +12,7 @@ import {
   json,
   problem,
   type RecordedRequest,
+  type as typeInto,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 import { StaticSessionProvider } from "@/lib/session";
@@ -741,6 +742,77 @@ describe("the page of a mail job", () => {
       await click(buttonByText(dialog(), "Switch off"));
       await flush(5);
       expect(body).toMatchObject({ archiveCapture: { m365: { graph: true, journal: false } } });
+    });
+  });
+
+  describe("a job that archived before the update to 0.4.4", () => {
+    // What migration 0062 leaves: journaling only, the IMAP accounts waiting for a way.
+    const MIGRATED = mailJob({
+      archive: true,
+      archiveCapture: {
+        m365: { graph: false, journal: true },
+        imap: { sync: false, forward: false, pending: true },
+        google: { sync: false, forward: false, pending: true },
+      },
+    });
+    const routes = (patch: (body: unknown) => void) => ({
+      ...mailRoutes(MIGRATED),
+      // The job covers all mailboxes: the tenant has Microsoft 365 mailboxes and IMAP accounts.
+      "GET /backup-jobs/defaults": () =>
+        json(defaults("mail", { mailSourceKinds: ["m365", "imap"] })),
+      [`PATCH /backup-jobs/${MIGRATED.id}`]: (request: { body: unknown }) => {
+        patch(request.body);
+        return json(MIGRATED);
+      },
+    });
+    const editor = () => slot("job-editor") as HTMLElement;
+    const way = (key: string, field: string) =>
+      slot(`capture-way-${key}-${field}`)?.querySelector<HTMLElement>(
+        '[role="checkbox"]',
+      ) as HTMLElement;
+
+    it("says at the IMAP card that no way is chosen yet, and saves other changes without one", async () => {
+      let body: unknown = null;
+      opened = await openJobs(`/jobs/definitions/${MIGRATED.id}?type=mail`, {
+        routes: routes((sent) => {
+          body = sent;
+        }),
+        session: adminSession({ features: ["archive.mailboxCapture", "archive.smtpCapture"] }),
+      });
+      await flush(6);
+      await click(buttonByText(slot("job-detail") as HTMLElement, "Edit"));
+      await flush(8);
+      expect(slot("capture-pending-imap")?.textContent).toContain(
+        "No capture way is chosen yet for these IMAP accounts",
+      );
+      expect(slot("capture-kind-imap")?.querySelector('[role="alert"]')).toBeNull();
+      const name = document.getElementById(
+        [...editor().querySelectorAll("label")].find((node) => node.textContent?.trim() === "Name")
+          ?.htmlFor ?? "",
+      ) as HTMLInputElement;
+      await typeInto(name, "Mail, before the update");
+      await click(buttonByText(editor(), "Save changes"));
+      await flush(5);
+      // A rename leaves the ways alone.
+      expect(body).toEqual({ name: "Mail, before the update" });
+    });
+
+    it("drops the notice once a way is chosen and sends it", async () => {
+      let body: unknown = null;
+      opened = await openJobs(`/jobs/definitions/${MIGRATED.id}?type=mail`, {
+        routes: routes((sent) => {
+          body = sent;
+        }),
+        session: adminSession({ features: ["archive.mailboxCapture", "archive.smtpCapture"] }),
+      });
+      await flush(6);
+      await click(buttonByText(slot("job-detail") as HTMLElement, "Edit"));
+      await flush(8);
+      await click(way("imap", "sync"));
+      expect(slot("capture-pending-imap")).toBeNull();
+      await click(buttonByText(editor(), "Save changes"));
+      await flush(5);
+      expect(body).toMatchObject({ archiveCapture: { imap: { sync: true, forward: false } } });
     });
   });
 

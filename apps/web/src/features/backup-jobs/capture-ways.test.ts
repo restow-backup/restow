@@ -4,6 +4,7 @@ import {
   captureKeysOf,
   captureKindsOfScope,
   captureReduction,
+  choicePending,
   DEFAULT_CAPTURE_WAYS,
   effectiveCaptureWays,
   forwardingChosen,
@@ -41,6 +42,25 @@ describe("capture ways of a mail job", () => {
     expect(keysWithoutWay(none, ["m365", "google"])).toEqual([]);
     expect(keysWithoutWay(none, ["imap_microsoft", "m365"])).toEqual(["imap"]);
     expect(keysWithoutWay(withWay(none, "imap", "forward", true), ["imap"])).toEqual([]);
+  });
+
+  it("lets a kind from before the update wait for its first way, until one is chosen", () => {
+    const migrated = effectiveCaptureWays({
+      m365: { graph: false, journal: true },
+      imap: { sync: false, forward: false, pending: true },
+      google: { sync: false, forward: false, pending: true },
+    });
+    expect(choicePending(migrated, "imap")).toBe(true);
+    expect(choicePending(migrated, "google")).toBe(true);
+    expect(choicePending(migrated, "m365")).toBe(false);
+    expect(keysWithoutWay(migrated, ["m365", "imap", "google"])).toEqual([]);
+    const chosen = withWay(migrated, "imap", "sync", true);
+    expect(choicePending(chosen, "imap")).toBe(false);
+    // A rename does not send the ways: they are the same as saved.
+    expect(sameCaptureWays(migrated, migrated)).toBe(true);
+    const job = mailJob({ archive: true, archiveCapture: migrated });
+    const renamed = { ...draftOfJob(job, [], undefined), name: "Renamed" };
+    expect(updateInputOf(job, renamed)).toEqual({ name: "Renamed" });
   });
 
   it("takes the kinds of the chosen objects, or of the tenant for a job that covers all", () => {

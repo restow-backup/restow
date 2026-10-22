@@ -825,7 +825,11 @@
       "imapMicrosoft": "Einige dieser Konten liegen bei Microsoft. Verbinden Sie den Mandanten besser als Microsoft-365-Quelle: Graph und Exchange-Journaling erfassen seine Postfächer vollständiger als IMAP.",
       "setupJournal": "Journaling einrichten",
       "setupForward": "Weiterleitung einrichten",
-      "noWay": "Wählen Sie für diese Postfächer mindestens einen Weg."
+      "noWay": "Wählen Sie für diese Postfächer mindestens einen Weg.",
+      "pending": {
+        "imap": "Für diese IMAP-Konten ist noch kein Erfassungsweg gewählt: Der Job stammt aus der Zeit vor dem Update, und sie werden erst archiviert, wenn Sie hier einen Weg wählen.",
+        "google": "Für diese Google-Workspace-Konten ist noch kein Erfassungsweg gewählt: Der Job stammt aus der Zeit vor dem Update, und sie werden erst archiviert, wenn Sie hier einen Weg wählen."
+      }
     },
     "captureStop": {
       "archiveTitle": "Archivierung für diesen Job beenden?",

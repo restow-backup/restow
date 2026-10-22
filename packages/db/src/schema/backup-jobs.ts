@@ -163,12 +163,24 @@ export type BackupJobCopySettings = {
  * archive-capture.ts): Microsoft 365 mailboxes by Graph and/or Exchange journaling, IMAP
  * accounts (Google Workspace among them) by IMAP sync and/or a provider's forwarded copy.
  * A kind the job has no objects of may be absent; a kind it has needs at least one way
- * while the job archives (the API checks it). Ignored while `archive` is false.
+ * while the job archives (the API checks it), unless it carries `pending`: a job that archived
+ * before 0.4.4 had no IMAP capture, and the update (migration 0062) left its IMAP and Google
+ * accounts without a way until an administrator chooses one. Only that migration sets the
+ * marker; the API keeps it while the kind still has no way and drops it once one is chosen.
+ * Ignored while `archive` is false.
  */
 export type ArchiveCaptureSettings = {
   m365?: { graph: boolean; journal: boolean };
-  imap?: { sync: boolean; forward: boolean };
-  google?: { sync: boolean; forward: boolean };
+  imap?: ImapCaptureWays;
+  google?: ImapCaptureWays;
+};
+
+/** The ways of IMAP accounts (and Google Workspace) in {@link ArchiveCaptureSettings}. */
+export type ImapCaptureWays = {
+  sync: boolean;
+  forward: boolean;
+  /** No way chosen yet since the update to 0.4.4 (see {@link ArchiveCaptureSettings}). */
+  pending?: true;
 };
 
 /**
