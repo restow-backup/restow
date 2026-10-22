@@ -18,6 +18,7 @@ import {
   RESTART_SERVICES,
   RESTART_UNSUPPORTED_PROBLEM,
   type Recovery,
+  type ReleaseView,
   type RestartRequestView,
   type RestartService,
   type RunOutcome,
@@ -26,6 +27,7 @@ import {
   type StepStatus,
   UPDATE_BUSY_PROBLEM,
   UPDATE_FLEET_CURRENT_PROBLEM,
+  UPDATE_NOT_COVERED_PROBLEM,
   UPDATE_NOT_VERIFIABLE_PROBLEM,
   UPDATE_NOT_WAITING_PROBLEM,
   UPDATE_RUNNING_UNKNOWN_PROBLEM,
@@ -63,6 +65,7 @@ const PROBLEM_KEYS: Record<string, string> = {
   [UPDATE_SOURCE_NOT_ALLOWED_PROBLEM]: "updates:errors.sourceNotAllowed",
   [RECENT_SIGN_IN_PROBLEM]: "updates:errors.recentSignIn",
   [UPDATE_NOT_VERIFIABLE_PROBLEM]: "updates:errors.notVerifiable",
+  [UPDATE_NOT_COVERED_PROBLEM]: "updates:errors.notCovered",
   [INVALID_UPDATE_SOURCE_PROBLEM]: "updates:errors.invalidSource",
   [BUILD_SWITCH_REFUSED_PROBLEM]: "updates:errors.switchRefused",
   [RESTART_NOT_REQUESTED_PROBLEM]: "updates:errors.restartNotRequested",
@@ -168,6 +171,55 @@ export function formatReleaseDate(
     return null;
   }
   return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(date);
+}
+
+/** A day `YYYY-MM-DD` (the end of an update period) in the language of the interface. */
+export function formatCoverageDate(
+  value: string | null | undefined,
+  language: string,
+): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeZone: "UTC" }).format(date);
+}
+
+/**
+ * The offered releases that can be installed: those the installed licence key covers
+ * (docs/LICENSING.md, "Updates"). Servers before 0.4.5 restrict nothing.
+ */
+export function installableReleases(view: Pick<UpdatesView, "releases">): ReleaseView[] {
+  return view.releases.filter((release) => release.covered !== false);
+}
+
+export interface CoverageNotice {
+  /** The newest offered release, which lies outside the update period. */
+  version: string;
+  /** The last day of the update period, or null for a key without one (`series` decides). */
+  until: string | null;
+  series: string | null;
+  /** The newest release the key covers, if one is offered. */
+  latestCovered: string | null;
+}
+
+/** The calm notice of the Updates page: the newest release lies outside the update period. */
+export function coverageNotice(
+  view: Pick<UpdatesView, "releases" | "coverage">,
+): CoverageNotice | null {
+  const newest = view.releases[0];
+  if (!newest || newest.covered !== false) {
+    return null;
+  }
+  return {
+    version: newest.version,
+    until: view.coverage?.coveredUntil ?? null,
+    series: view.coverage?.series ?? null,
+    latestCovered: view.coverage?.latestCovered ?? installableReleases(view)[0]?.version ?? null,
+  };
 }
 
 /** The release page, only when it is a plain https or http link. */

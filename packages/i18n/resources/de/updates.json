@@ -31,7 +31,8 @@
     "restartUnsupported": "Der laufende Updater kann noch keine Dienste neu starten. Erstellen Sie ihn neu, oder führen Sie den Befehl auf dem Server aus.",
     "notWaiting": "Es wartet kein Update mehr. Die Seite zeigt den aktuellen Stand.",
     "updaterTimeout": "Es wird geprüft, ob das Update angenommen wurde … Der Updater hat nicht rechtzeitig geantwortet; diese Seite zeigt seinen Stand, sobald er antwortet.",
-    "fleetCurrent": "Kein erreichbarer Knoten oder Agent läuft mit einem älteren Release. Aktualisieren Sie nicht erreichbare von Hand, sobald sie wieder online sind."
+    "fleetCurrent": "Kein erreichbarer Knoten oder Agent läuft mit einem älteren Release. Aktualisieren Sie nicht erreichbare von Hand, sobald sie wieder online sind.",
+    "notCovered": "Diese Version liegt außerhalb des Update-Zeitraums Ihres Lizenzschlüssels. Ihre installierte Version arbeitet unverändert weiter."
   },
   "form": {
     "unsaved": "Es gibt ungespeicherte Änderungen.",
@@ -205,7 +206,8 @@
     "showNotes": "Release-Notes anzeigen",
     "hideNotes": "Release-Notes ausblenden",
     "noNotes": "Zu diesem Release gibt es keine Notes.",
-    "truncated": "Die Notes sind hier abgeschnitten. Den vollständigen Text finden Sie auf der Release-Seite."
+    "truncated": "Die Notes sind hier abgeschnitten. Den vollständigen Text finden Sie auf der Release-Seite.",
+    "outsidePeriod": "Außerhalb des Update-Zeitraums"
   },
   "source": {
     "title": "Update-Quelle und Kanal",
@@ -846,5 +848,11 @@
     "updateNowTitle": "Knoten und Agenten jetzt aktualisieren?",
     "updateNowBody": "Neue Läufe werden wie nach einem Update höchstens 15 Minuten angehalten. Erreichbare Proxmox-VE-Knoten und Agenten mit einem älteren Release installieren {version}, sobald sie frei sind; die Pause endet, sobald alle fertig sind. Nicht erreichbare und Agenten mit pausierten Updates bleiben unverändert.",
     "updateNowHint": "Kein Update hat diesen Schritt ausgelöst (zum Beispiel, weil der Server von Hand aktualisiert wurde)."
+  },
+  "coverage": {
+    "title": "Außerhalb Ihres Update-Zeitraums",
+    "outsidePeriod": "Version {version} liegt außerhalb Ihres Update-Zeitraums bis {date}. Sie können auf Ihrer Version bleiben, sie arbeitet mit allen Modulen unverändert weiter, oder den Update-Zeitraum verlängern.",
+    "outsideSeries": "Version {version} gehört nicht zu den Versionen {series}.x, die Ihr Lizenzschlüssel umfasst. Sie können auf Ihrer Version bleiben, sie arbeitet mit allen Modulen unverändert weiter, oder einen Lizenzschlüssel für die neue Version anfordern.",
+    "latestCovered": "Die neueste Version in Ihrem Update-Zeitraum ist {version}; sie lässt sich wie gewohnt installieren."
   }
 }

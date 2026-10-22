@@ -28,6 +28,7 @@ import { useJobActivity, useScheduleUpdate } from "../hooks";
 import {
   countdownLabel,
   formatReleaseDate,
+  installableReleases,
   isMaintenanceActive,
   isUnverifiableRelease,
   isUpdaterTimeout,
@@ -95,7 +96,9 @@ export function InstallDialog({
   const identity = useConfirmIdentity();
   const language = i18n.resolvedLanguage ?? i18n.language;
   const leadTimes = offeredLeadTimes(view);
-  const newest = view.releases[0]?.version ?? "";
+  // Only the releases the installed licence key covers can be chosen (0.4.5).
+  const offered = installableReleases(view);
+  const newest = offered[0]?.version ?? "";
   const defaultLead = leadTimes.includes(DEFAULT_LEAD_SECONDS)
     ? DEFAULT_LEAD_SECONDS
     : (leadTimes[0] ?? 0);
@@ -145,7 +148,7 @@ export function InstallDialog({
     }
   }, [acceptedLate, onOpenChange]);
 
-  const selected = view.releases.find((release) => release.version === version) ?? view.releases[0];
+  const selected = offered.find((release) => release.version === version) ?? offered[0];
   const selectedVersion = selected?.version ?? "";
   const unverifiable = isUnverifiableRelease(view, selected);
 
@@ -221,7 +224,7 @@ export function InstallDialog({
               {t("install.version")}
             </legend>
             <div className="grid gap-2">
-              {view.releases.map((release) => {
+              {offered.map((release) => {
                 const date = formatReleaseDate(release.publishedAt, language);
                 return (
                   <ChoiceOption

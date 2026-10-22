@@ -19,12 +19,15 @@ import {
   checkErrorTone,
   checkStatusOf,
   clockOffset,
+  coverageNotice,
   DEFAULT_SOURCE_URL,
   defaultSourceUrl,
   ENABLE_UPDATER_COMMAND,
   failureKey,
   formatClock,
+  formatCoverageDate,
   formatReleaseDate,
+  installableReleases,
   isMaintenanceActive,
   isUpdaterOutdated,
   isUpdaterTimeout,
@@ -733,5 +736,42 @@ describe("the wording of a build switch", () => {
     expect(maintenanceMessageKey("step.fetch.pulling", "full")).toBe(
       "maintenance.messages.step.fetch.pulling",
     );
+  });
+});
+
+describe("update periods (0.4.5)", () => {
+  const release = (version: string, covered?: boolean | null) => ({
+    version,
+    tag: `v${version}`,
+    name: null,
+    publishedAt: null,
+    url: null,
+    prerelease: false,
+    notes: null,
+    notesTruncated: false,
+    digests: {},
+    covered,
+  });
+
+  it("offers only the releases the licence key covers; older servers restrict nothing", () => {
+    const releases = [release("0.3.0", false), release("0.2.1", true), release("0.2.0", null)];
+    expect(installableReleases({ releases }).map((r) => r.version)).toEqual(["0.2.1", "0.2.0"]);
+    expect(installableReleases({ releases: [release("0.3.0")] })).toHaveLength(1);
+  });
+
+  it("raises the notice only when the newest release lies outside the period", () => {
+    const coverage = { coveredUntil: "2027-11-30", series: "1", latestCovered: "0.2.1" };
+    expect(
+      coverageNotice({ releases: [release("0.3.0", false), release("0.2.1", true)], coverage }),
+    ).toEqual({ version: "0.3.0", until: "2027-11-30", series: "1", latestCovered: "0.2.1" });
+    expect(coverageNotice({ releases: [release("0.3.0", true)], coverage })).toBeNull();
+    expect(coverageNotice({ releases: [], coverage })).toBeNull();
+  });
+
+  it("writes the last day of the period without shifting it by the time zone", () => {
+    expect(formatCoverageDate("2027-11-30", "de")).toBe("30.11.2027");
+    expect(formatCoverageDate("2027-11-30", "en")).toBe("Nov 30, 2027");
+    expect(formatCoverageDate(null, "de")).toBeNull();
+    expect(formatCoverageDate("30.11.2027", "de")).toBeNull();
   });
 });
