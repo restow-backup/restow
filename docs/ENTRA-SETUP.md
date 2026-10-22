@@ -75,11 +75,11 @@ Anwendungsberechtigungen** exakt diese Rechte setzen. Alle sind vom Typ *Applica
 | --- | --- | --- |
 | `Mail.ReadWrite` | Mail sichern **und** restaurieren. Lesen allein reicht nicht — Restore schreibt. | ja |
 | `MailboxSettings.Read` | Zeitzone/Regionaleinstellungen (Anzeige in Nutzerzeit). | ja |
-| `Calendars.ReadWrite` | Kalender sichern und restaurieren. | ja |
+| `Calendars.ReadWrite` | Kalender sichern und restaurieren, auch die Gruppenkalender von Microsoft-365-Gruppen und Teams (`/groups/{id}/calendarView`, ab 0.4.5). | ja |
 | `Contacts.ReadWrite` | Kontakte sichern und restaurieren. | ja |
 | `Files.ReadWrite.All` | OneDrive sichern und restaurieren (Upload-Session). | ja |
 | `User.Read.All` | Verzeichnis-Sync, Postfachliste, Schutzregeln. | ja |
-| `Group.Read.All` | Schutzregel „Gruppe" auflösen. | ja |
+| `Group.Read.All` | Schutzregel „Gruppe" auflösen; ab 0.4.5 auch Microsoft-365-Gruppen erkennen (`groups/delta`) und ihre Unterhaltungen sichern (`/groups/{id}/threads`, `…/posts`). | ja |
 | `Directory.Read.All` | Verzeichnis-Sync, gelöschte Nutzer, Rollenprüfung. | ja |
 | `Organization.Read.All` | Tenant-Name, Lizenzen (Anzeige, Schätzungen). | ja |
 | `Sites.ReadWrite.All` | **Optional.** SharePoint-Websites erkennen, sichern (dafür genügt `Sites.Read.All`) und wiederherstellen. Ohne sie bleiben Mail und OneDrive unverändert. | optional |
@@ -103,6 +103,15 @@ Hinweise:
   Consent-Link erneut öffnen (Teil 4), danach „Berechtigungen prüfen". Bis dahin meldet
   die Verzeichnissynchronisierung „SharePoint-Websites werden weder gefunden noch
   gesichert", alles andere läuft unverändert weiter.
+- **Gruppenpostfächer brauchen keine neue Berechtigung.** Kalender und Unterhaltungen von
+  Microsoft-365-Gruppen und Teams (ab 0.4.5) laufen mit `Group.Read.All` und
+  `Calendars.ReadWrite`, die schon immer Pflicht sind; ein erneuter Consent ist nicht nötig.
+  Die geringste Berechtigung für Unterhaltungen wäre `Group-Conversation.Read.All`; Restow
+  fordert sie nicht zusätzlich an, weil `Group.Read.All` sie einschließt. Graph v1.0 erlaubt
+  einer App nicht, in Gruppenunterhaltungen zu schreiben, und dokumentiert das Lesen und
+  Schreiben von Gruppenereignissen teils nur delegiert; Restow weicht dafür auf die
+  Kalenderansicht bzw. die Wiederherstellung in ein Benutzerpostfach aus
+  (`docs/MICROSOFT.md`, „Gruppenpostfächer").
 - **`Mail.Send` nur wenn wirklich gewählt.** Sie erlaubt Versand als jedes Postfach im
   Kunden-Tenant. Wer SMTP für Benachrichtigungen nutzt, lässt sie weg. Wer sie nimmt,
   begrenzt sie beim Kunden mit `New-ApplicationAccessPolicy` auf das Absenderpostfach.

@@ -64,6 +64,12 @@ export interface ExchangeState {
   calendars: Record<string, string>;
   /** Contact folders by id (the default folder uses the empty string) -> object path. */
   contactFolders: Record<string, string>;
+  /**
+   * Group mailboxes only: `lastDeliveredDateTime` per conversation thread id as
+   * the last run stored it. A thread whose value did not move has no new post,
+   * so its posts are not listed again (backup/groups/conversations.ts).
+   */
+  conversationThreads: Record<string, string>;
 }
 
 export function emptyState(): ExchangeState {
@@ -75,6 +81,7 @@ export function emptyState(): ExchangeState {
     mailRetry: {},
     calendars: {},
     contactFolders: {},
+    conversationThreads: {},
   };
 }
 
@@ -150,6 +157,9 @@ export function readState(raw: Record<string, unknown> | undefined): ExchangeSta
     mailRetry: readRetry(record.mailRetry),
     calendars: isRecordOfStrings(record.calendars) ? { ...record.calendars } : {},
     contactFolders: isRecordOfStrings(record.contactFolders) ? { ...record.contactFolders } : {},
+    conversationThreads: isRecordOfStrings(record.conversationThreads)
+      ? { ...record.conversationThreads }
+      : {},
   };
 }
 
@@ -159,7 +169,7 @@ export function serializeState(state: ExchangeState): Record<string, unknown> {
 }
 
 /** The part of the run a cursor was saved in. */
-export type ExchangePhase = "mail" | "calendar" | "contacts";
+export type ExchangePhase = "mail" | "calendar" | "contacts" | "conversations";
 
 /**
  * What a run has completed so far; lives in the job cursor under `exchange`.
@@ -173,6 +183,8 @@ export interface ExchangeProgress {
   completedFolders: string[];
   calendarDone: boolean;
   contactsDone: boolean;
+  /** Group mailboxes only: the conversations phase finished. */
+  conversationsDone?: boolean;
 }
 
 export interface ExchangeCursor extends Cursor {
@@ -220,6 +232,9 @@ export function parseCursor(raw: Cursor | null): ParsedCursor {
       completedFolders: completed,
       calendarDone: progress?.calendarDone === true,
       contactsDone: progress?.contactsDone === true,
+      ...(progress?.conversationsDone !== undefined
+        ? { conversationsDone: progress.conversationsDone === true }
+        : {}),
     },
     deltaTokens: isRecordOfStrings(raw.deltaTokens) ? { ...raw.deltaTokens } : {},
   };

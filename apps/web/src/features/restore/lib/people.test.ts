@@ -61,6 +61,25 @@ describe("a person's areas", () => {
     expect(activeArea(links, "m-anna", "")).toBeNull();
   });
 
+  it("gives a Microsoft 365 group its group calendar and its conversations", () => {
+    const group = object({ id: "g-phoenix", kind: "group", displayName: "Project Phoenix" });
+    const entry: Person = {
+      key: "group:g-phoenix",
+      name: "Project Phoenix",
+      address: null,
+      own: false,
+      accountDeleted: false,
+      objects: [group],
+    };
+    const links = areasOf(entry);
+    expect(links.map((link) => [link.area, link.object.id, link.path])).toEqual([
+      ["groupCalendar", "g-phoenix", "calendar"],
+      ["conversations", "g-phoenix", "mail"],
+    ]);
+    expect(firstAreaOf(entry)?.path).toBe("calendar");
+    expect(activeArea(links, "g-phoenix", "mail/Conversations")?.area).toBe("conversations");
+  });
+
   it("rates a person by their least proven backup, and dates them by their newest", () => {
     expect(readinessOf([mailbox, { ...drive, readiness: "red" }])).toBe("red");
     expect(readinessOf([{ ...mailbox, snapshotCount: 0, readiness: "no_backup" }])).toBe(

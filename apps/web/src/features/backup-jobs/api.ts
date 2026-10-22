@@ -235,6 +235,7 @@ export type MemberKind =
   | "onedrive"
   | "imap"
   | "site"
+  | "group"
   | "server"
   | "client"
   | "smb"

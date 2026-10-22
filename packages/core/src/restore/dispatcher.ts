@@ -14,6 +14,7 @@ import type {
 import type { RestoreGraphClientFactory } from "./common.js";
 import { DownloadRestoreEngine, type DownloadRestoreEngineOptions } from "./download.js";
 import { ExchangeRestoreEngine } from "./exchange.js";
+import { GroupRestoreEngine } from "./groups.js";
 import { ImapRestoreEngine, type ImapSessionFactory } from "./imap.js";
 import { OneDriveRestoreEngine } from "./onedrive.js";
 import type { RestoreReport } from "./results.js";
@@ -47,14 +48,20 @@ export function createRestoreEngines(options: RestoreEnginesOptions): RestoreEng
     graph: options.graph,
     fragmentSize: options.driveFragmentSize,
   });
+  const group = new GroupRestoreEngine({ graph: options.graph });
   const byKind = new Map<
     ProtectedObjectKind,
-    ExchangeRestoreEngine | OneDriveRestoreEngine | ImapRestoreEngine | SharePointRestoreEngine
+    | ExchangeRestoreEngine
+    | OneDriveRestoreEngine
+    | ImapRestoreEngine
+    | SharePointRestoreEngine
+    | GroupRestoreEngine
   >([
     ["mailbox", exchange],
     ["onedrive", onedrive],
     ["imap", imap],
     ["site", sharepoint],
+    ["group", group],
   ]);
   const download = new DownloadRestoreEngine(options.download);
   return {

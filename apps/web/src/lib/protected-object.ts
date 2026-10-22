@@ -8,7 +8,7 @@
  * id for a tooltip or "technical details" at most.
  */
 
-export type ProtectedObjectKind = "mailbox" | "onedrive" | "imap" | "site";
+export type ProtectedObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 
 /**
  * The fields a view may know about an object. The owner's address arrives

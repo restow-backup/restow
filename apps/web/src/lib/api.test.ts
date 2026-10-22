@@ -151,7 +151,14 @@ describe("unwrapList", () => {
 describe("normalizeStatus", () => {
   it("fills a fully stubbed payload with honest empties", () => {
     expect(normalizeStatus({})).toEqual({
-      lastSuccess: { mail: null, onedrive: null, imap: null, sharepoint: null, archive: null },
+      lastSuccess: {
+        mail: null,
+        onedrive: null,
+        imap: null,
+        sharepoint: null,
+        groups: null,
+        archive: null,
+      },
       protectedObjects: 0,
       failedObjects: 0,
       objectsWithItemFailures: 0,

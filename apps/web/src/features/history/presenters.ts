@@ -271,7 +271,13 @@ export function subjectKindKey(kind: RunSubject["kind"]): string {
 }
 
 export function isMailSubject(kind: RunSubject["kind"]): boolean {
-  return kind === "mailbox" || kind === "onedrive" || kind === "imap" || kind === "site";
+  return (
+    kind === "mailbox" ||
+    kind === "onedrive" ||
+    kind === "imap" ||
+    kind === "site" ||
+    kind === "group"
+  );
 }
 
 /** The name of a run for lists and headings: what it did to what, in the viewer's words. */

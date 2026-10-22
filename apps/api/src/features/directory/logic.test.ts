@@ -24,6 +24,7 @@ describe("rulesFromInput", () => {
       exclude: ["A@x.y"],
       includeSharedMailboxes: true,
       sites: "all",
+      groups: "selected",
     });
   });
 
@@ -129,6 +130,19 @@ describe("request schemas", () => {
 });
 
 describe("modeForKind", () => {
+  it("decides a group mailbox's default by the groups mode, opt-in when unset", () => {
+    expect(modeForKind("group", { mode: "all", sites: "all", groups: "all" })).toBe("all");
+    expect(modeForKind("group", { mode: "all", sites: "all" })).toBe("selected");
+    expect(
+      isNotSelected(
+        "m365",
+        modeForKind("group", { mode: "all", sites: "all", groups: "selected" }),
+        "excluded",
+        null,
+      ),
+    ).toBe(true);
+  });
+
   it("decides a SharePoint site's default by the sites mode, everything else by the users' mode", () => {
     const rules = { mode: "all" as const, sites: "selected" as const };
     expect(modeForKind("site", rules)).toBe("selected");

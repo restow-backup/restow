@@ -40,6 +40,7 @@ export const FAILURE_CODES = [
   "graph.user_not_found",
   "graph.onedrive_unavailable",
   "graph.site_unavailable",
+  "graph.group_unavailable",
   "graph.throttled",
   "graph.service_unavailable",
   "graph.item_not_found",

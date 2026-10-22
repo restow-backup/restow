@@ -17,6 +17,11 @@
  *     repository refuses ({@link DirectoryConflictError}) and the run plans
  *     again from the fresh state, without asking Graph for the users again.
  *
+ * Microsoft 365 groups (their group mailboxes, kind `group`) come from a
+ * second delta stream, `groups/delta`, read when the host asks for it and
+ * planned apart like the sites (./group-mailboxes.ts); its delta link is
+ * committed with the rows as well.
+ *
  * Nothing here depends on Postgres: the worker implements the repository over
  * Drizzle, tests use {@link MemoryDirectoryRepository} and the fake Graph.
  */
@@ -39,6 +44,13 @@ import {
   usersDelta,
 } from "../graph/resources/users.js";
 import type { ProtectionConfig } from "./config.js";
+import {
+  discoverGroupMailboxes,
+  type GroupDiscovery,
+  type GroupMailboxPlan,
+  type KnownGroupMailbox,
+  planGroupMailboxes,
+} from "./group-mailboxes.js";
 import {
   type DirectoryObjectKind,
   type DirectoryPlan,
@@ -82,6 +94,10 @@ export interface DirectorySnapshot {
   readonly version: string;
   /** The source's SharePoint sites (kind `site`); planned apart from the users' objects. */
   readonly knownSites?: readonly KnownSite[];
+  /** The source's group mailboxes (kind `group`); planned apart as well. */
+  readonly knownGroups?: readonly KnownGroupMailbox[];
+  /** Delta link of the groups stream; null or absent before the first group run. */
+  readonly groupsDeltaLink?: string | null;
 }
 
 /** Everything one run writes, in one transaction. */
@@ -92,6 +108,10 @@ export interface DirectoryCommit {
   readonly fullSyncAt: string | null;
   /** SharePoint sites to write; absent when the run did not discover sites. */
   readonly sites?: SitePlan;
+  /** Group mailboxes to write; absent when the run did not read the groups. */
+  readonly groups?: GroupMailboxPlan;
+  /** The groups stream's new delta link; absent when it was not read (keep the old one). */
+  readonly groupsDeltaLink?: string;
 }
 
 /** The rules or overrides changed after the snapshot was loaded. */
@@ -129,6 +149,8 @@ export type SyncWarning =
   | (GraphFailure & { readonly kind: "group_unresolved"; readonly groupId: string })
   /** The tenant's SharePoint sites could not be listed (mostly: no `Sites.Read.All` consent). */
   | (GraphFailure & { readonly kind: "sites_unavailable" })
+  /** The tenant's Microsoft 365 groups could not be read (mostly: no `Group.Read.All` consent). */
+  | (GraphFailure & { readonly kind: "groups_unavailable" })
   | (GraphFailure & {
       readonly kind: "mailbox_probe_failed" | "drive_probe_failed" | "user_fetch_failed";
       readonly userId: string;
@@ -139,7 +161,7 @@ export type SyncWarning =
 /** An object this run made active that was not active before (new, or re-included). */
 export interface NewlyActiveObject {
   readonly externalId: string;
-  readonly kind: DirectoryObjectKind | "site";
+  readonly kind: DirectoryObjectKind | "site" | "group";
 }
 
 export interface DirectorySyncResult {
@@ -159,6 +181,8 @@ export interface DirectorySyncResult {
   readonly newlyActive: readonly NewlyActiveObject[];
   /** SharePoint sites the run listed; null when it did not discover sites or could not. */
   readonly sitesDiscovered: number | null;
+  /** Microsoft 365 groups the groups delta reported; null when not read or not readable. */
+  readonly groupsDiscovered: number | null;
 }
 
 export interface DirectorySyncOptions {
@@ -171,6 +195,11 @@ export interface DirectorySyncOptions {
    * (./sites.ts). Off unless the host asks for it.
    */
   readonly sites?: boolean;
+  /**
+   * Also read the groups delta and plan the Microsoft 365 group mailboxes as
+   * `group` objects (./group-mailboxes.ts). Off unless the host asks for it.
+   */
+  readonly groups?: boolean;
   readonly logger?: Logger;
   readonly progress?: ProgressReporter;
   readonly signal?: AbortSignal;
@@ -206,6 +235,8 @@ function newlyActiveObjects(
   plan: DirectoryPlan,
   knownSites: readonly KnownSite[] = [],
   sites: SitePlan | undefined = undefined,
+  knownGroups: readonly KnownGroupMailbox[] = [],
+  groups: GroupMailboxPlan | undefined = undefined,
 ): NewlyActiveObject[] {
   const priorStatus = new Map(known.map((object) => [object.externalId, object.status]));
   const objects = plan.objects
@@ -217,6 +248,12 @@ function newlyActiveObjects(
   for (const site of sites?.sites ?? []) {
     if (site.status === "active" && priorSite.get(site.externalId) !== "active") {
       objects.push({ externalId: site.externalId, kind: "site" });
+    }
+  }
+  const priorGroup = new Map(knownGroups.map((group) => [group.externalId, group.status]));
+  for (const group of groups?.groups ?? []) {
+    if (group.status === "active" && priorGroup.get(group.externalId) !== "active") {
+      objects.push({ externalId: group.externalId, kind: "group" });
     }
   }
   return objects;
@@ -442,7 +479,11 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
       status: warning.status,
       code: warning.code ?? undefined,
     });
-    if (warning.kind !== "group_unresolved" && warning.kind !== "sites_unavailable") {
+    if (
+      warning.kind !== "group_unresolved" &&
+      warning.kind !== "sites_unavailable" &&
+      warning.kind !== "groups_unavailable"
+    ) {
       progress?.fail(warning.user ?? warning.userId, `${warning.kind}: ${warning.message}`);
     }
   };
@@ -495,9 +536,28 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
     }
   }
 
+  let groupDiscovery: GroupDiscovery | null = null;
+  if (options.groups === true) {
+    progress?.phase("groups");
+    const discovery = await discoverGroupMailboxes(
+      options.client,
+      options.full ? null : (snapshot.groupsDeltaLink ?? null),
+      {
+        onResync: () => logger.warn("groups delta link expired, enumerating the groups again"),
+        throwIfAborted: () => throwIfAborted(signal),
+      },
+    );
+    if (discovery.ok) {
+      groupDiscovery = discovery;
+    } else {
+      warn({ kind: "groups_unavailable", ...discovery.failure });
+    }
+  }
+
   const resolveGroup = groupResolver(options.client, warn);
   let plan: DirectoryPlan | null = null;
   let sitePlan: SitePlan | undefined;
+  let groupPlan: GroupMailboxPlan | undefined;
   for (let attempt = 1; plan === null; attempt += 1) {
     throwIfAborted(signal);
     const { rules, overrides } = snapshot.protection;
@@ -526,6 +586,16 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
           })
         : undefined;
 
+    const groupCandidate =
+      options.groups === true
+        ? planGroupMailboxes({
+            discovery: groupDiscovery,
+            known: snapshot.knownGroups ?? [],
+            rules,
+            overrides,
+          })
+        : undefined;
+
     throwIfAborted(signal);
     progress?.phase("persist");
     try {
@@ -535,11 +605,14 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
           deltaLink: delta.deltaLink,
           fullSyncAt: delta.mode === "incremental" ? null : startedAt,
           ...(siteCandidate ? { sites: siteCandidate } : {}),
+          ...(groupCandidate ? { groups: groupCandidate } : {}),
+          ...(groupDiscovery ? { groupsDeltaLink: groupDiscovery.deltaLink } : {}),
         },
         snapshot.version,
       );
       plan = candidate;
       sitePlan = siteCandidate;
+      groupPlan = groupCandidate;
     } catch (error) {
       if (!(error instanceof DirectoryConflictError) || attempt >= MAX_COMMIT_ATTEMPTS) {
         throw error;
@@ -555,6 +628,7 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
     pages: delta.pages,
     ...plan.counts,
     sites: sitePlan?.discovered ?? undefined,
+    groups: groupPlan?.discovered ?? undefined,
     warnings: warnings.length,
   });
   return {
@@ -564,8 +638,16 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
     counts: plan.counts,
     warnings,
     pages: delta.pages,
-    newlyActive: newlyActiveObjects(snapshot.known, plan, snapshot.knownSites, sitePlan),
+    newlyActive: newlyActiveObjects(
+      snapshot.known,
+      plan,
+      snapshot.knownSites,
+      sitePlan,
+      snapshot.knownGroups,
+      groupPlan,
+    ),
     sitesDiscovered: sitePlan?.discovered ?? null,
+    groupsDiscovered: groupPlan?.discovered ?? null,
   };
 }
 
@@ -578,6 +660,8 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
   readonly users = new Map<string, DirectoryUserRecord>();
   readonly objects = new Map<string, KnownObject>();
   readonly sites = new Map<string, KnownSite>();
+  readonly groups = new Map<string, KnownGroupMailbox>();
+  groupsDeltaLink: string | null = null;
   readonly commits: DirectoryCommit[] = [];
   deltaLink: string | null = null;
   lastFullSyncAt: string | null = null;
@@ -602,6 +686,8 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
       protection: this.protection,
       version: this.version(),
       knownSites: [...this.sites.values()],
+      knownGroups: [...this.groups.values()],
+      groupsDeltaLink: this.groupsDeltaLink,
     };
   }
 
@@ -648,6 +734,23 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
       if (existing) {
         this.sites.set(externalId, { ...existing, status: "orphaned" });
       }
+    }
+    for (const group of commit.groups?.groups ?? []) {
+      this.groups.set(group.externalId, {
+        externalId: group.externalId,
+        status: group.status,
+        origin: "directory_sync",
+        displayName: group.displayName,
+      });
+    }
+    for (const externalId of commit.groups?.orphanExternalIds ?? []) {
+      const existing = this.groups.get(externalId);
+      if (existing) {
+        this.groups.set(externalId, { ...existing, status: "orphaned" });
+      }
+    }
+    if (commit.groupsDeltaLink !== undefined) {
+      this.groupsDeltaLink = commit.groupsDeltaLink;
     }
     this.deltaLink = commit.deltaLink;
     this.sharedOrBlockedIds = new Set(plan.sharedOrBlockedIds);

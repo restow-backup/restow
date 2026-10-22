@@ -57,10 +57,19 @@ export interface DirectoryLastRun {
    * `sites_unavailable` warning), absent in runs stored before sites existed.
    */
   readonly sitesDiscovered?: number | null;
+  /**
+   * Microsoft 365 groups (group mailboxes) the run read from `groups/delta`:
+   * all of them on a full enumeration, the changed ones otherwise; null when
+   * they could not be read (`groups_unavailable` warning), absent in runs
+   * stored before group mailboxes existed.
+   */
+  readonly groupsDiscovered?: number | null;
 }
 
 export interface DirectoryState {
   readonly deltaLink: string | null;
+  /** Delta link of the `groups/delta` stream (group mailboxes); null before the first run. */
+  readonly groupsDeltaLink: string | null;
   /** Start of the last run that enumerated the whole directory. */
   readonly lastFullSyncAt: string | null;
   /** When an admin last asked for a full enumeration. */
@@ -72,6 +81,7 @@ export interface DirectoryState {
 
 export const EMPTY_DIRECTORY_STATE: DirectoryState = {
   deltaLink: null,
+  groupsDeltaLink: null,
   lastFullSyncAt: null,
   fullSyncRequestedAt: null,
   sharedOrBlockedIds: [],
@@ -118,6 +128,7 @@ export function readProtection(config: unknown): ProtectionConfig {
     exclude: scope.exclude,
     includeSharedMailboxes: protection.includeSharedMailboxes,
     sites: protection.sites,
+    groups: protection.groups,
   });
   return { rules, overrides: normalizeOverrides(protection.overrides) };
 }
@@ -150,6 +161,7 @@ function withProtection(
     protection: {
       includeSharedMailboxes: rules.includeSharedMailboxes,
       sites: rules.sites,
+      groups: rules.groups,
       group:
         rules.groupId !== null && rules.groupName !== null
           ? { id: rules.groupId, name: rules.groupName }
@@ -217,6 +229,10 @@ function asLastRun(value: unknown): DirectoryLastRun | null {
       typeof record.sitesDiscovered === "number" || record.sitesDiscovered === null
         ? record.sitesDiscovered
         : undefined,
+    groupsDiscovered:
+      typeof record.groupsDiscovered === "number" || record.groupsDiscovered === null
+        ? record.groupsDiscovered
+        : undefined,
   };
 }
 
@@ -225,6 +241,7 @@ export function readDirectoryState(config: unknown): DirectoryState {
   const directory = asRecord(asRecord(config).directory);
   return {
     deltaLink: asString(directory.deltaLink),
+    groupsDeltaLink: asString(directory.groupsDeltaLink),
     lastFullSyncAt: asString(directory.lastFullSyncAt),
     fullSyncRequestedAt: asString(directory.fullSyncRequestedAt),
     sharedOrBlockedIds: asStringList(directory.sharedOrBlockedIds),
@@ -239,6 +256,7 @@ export function writeDirectoryState(config: unknown, state: DirectoryState): Sou
     ...current,
     directory: {
       deltaLink: state.deltaLink,
+      groupsDeltaLink: state.groupsDeltaLink,
       lastFullSyncAt: state.lastFullSyncAt,
       fullSyncRequestedAt: state.fullSyncRequestedAt,
       sharedOrBlockedIds: [...state.sharedOrBlockedIds],

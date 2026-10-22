@@ -137,6 +137,7 @@
       "mailbox": "Mailbox",
       "onedrive": "OneDrive",
       "site": "SharePoint site",
+      "group": "Microsoft 365 group",
       "imap": "IMAP mailbox"
     },
     "state": {

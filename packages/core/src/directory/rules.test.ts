@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PROTECTION_RULES,
+  evaluateGroupMailboxProtection,
   evaluateProtection,
   evaluateSiteProtection,
   isSharedOrBlocked,
@@ -51,6 +52,7 @@ describe("normalizeRules", () => {
       exclude: ["Bob@contoso.example", "svc@contoso.example"],
       includeSharedMailboxes: false,
       sites: "all",
+      groups: "selected",
     });
   });
 
@@ -80,6 +82,7 @@ describe("normalizeRules", () => {
       exclude: ["scanner@contoso.example"],
       includeSharedMailboxes: false,
       sites: "all",
+      groups: "selected",
     });
   });
 
@@ -240,5 +243,27 @@ describe("evaluateSiteProtection", () => {
   it("reads an unknown sites mode as all", () => {
     expect(normalizeRules({ sites: "bogus" }).sites).toBe("all");
     expect(normalizeRules({ sites: "selected" }).sites).toBe("selected");
+  });
+});
+
+describe("evaluateGroupMailboxProtection", () => {
+  it("follows the override first, then the groups mode", () => {
+    expect(evaluateGroupMailboxProtection({ groups: "all" }, null)).toEqual({
+      status: "active",
+      reason: "rule_all",
+    });
+    expect(evaluateGroupMailboxProtection({ groups: "selected" }, null)).toEqual({
+      status: "excluded",
+      reason: "not_selected",
+    });
+    expect(evaluateGroupMailboxProtection({ groups: "selected" }, "include").status).toBe("active");
+    expect(evaluateGroupMailboxProtection({ groups: "all" }, "exclude").status).toBe("excluded");
+  });
+
+  it("makes group mailboxes opt-in: anything but `all` reads as selected", () => {
+    expect(normalizeRules({}).groups).toBe("selected");
+    expect(normalizeRules({ groups: "bogus" }).groups).toBe("selected");
+    expect(normalizeRules({ groups: "all" }).groups).toBe("all");
+    expect(normalizeRules(null).groups).toBe("selected");
   });
 });

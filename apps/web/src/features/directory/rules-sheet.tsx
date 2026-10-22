@@ -37,6 +37,7 @@ const DEFAULT_RULES: ProtectionRules = {
   exclude: [],
   includeSharedMailboxes: true,
   sites: "all",
+  groups: "selected",
 };
 
 interface RulesSheetProps {
@@ -74,6 +75,7 @@ function RulesForm({ source, onDone }: { source: DirectorySource; onDone: () => 
   const [includeShared, setIncludeShared] = React.useState(saved.includeSharedMailboxes);
   const [excludeText, setExcludeText] = React.useState(formatExclusionText(saved.exclude));
   const [allSites, setAllSites] = React.useState((saved.sites ?? "all") === "all");
+  const [allGroups, setAllGroups] = React.useState((saved.groups ?? "selected") === "all");
   const [attempted, setAttempted] = React.useState(false);
 
   const draft: ProtectionRules = {
@@ -83,6 +85,7 @@ function RulesForm({ source, onDone }: { source: DirectorySource; onDone: () => 
     exclude: parseExclusionText(excludeText),
     includeSharedMailboxes: includeShared,
     sites: allSites ? "all" : "selected",
+    groups: allGroups ? "all" : "selected",
   };
   const complete = rulesComplete(draft);
   const changed = !sameRules(draft, saved) || draft.groupName !== saved.groupName;
@@ -210,6 +213,21 @@ function RulesForm({ source, onDone }: { source: DirectorySource; onDone: () => 
             checked={allSites}
             onCheckedChange={setAllSites}
             aria-describedby={messageId("rules-sites")}
+          />
+        </div>
+
+        <div className="flex items-start justify-between gap-4 border-t border-border pt-6">
+          <div className="space-y-1">
+            <Label htmlFor="rules-groups">{t("rules.groups.label")}</Label>
+            <p id={messageId("rules-groups")} className="text-xs text-muted-foreground">
+              {allGroups ? t("rules.groups.allHint") : t("rules.groups.selectedHint")}
+            </p>
+          </div>
+          <Switch
+            id="rules-groups"
+            checked={allGroups}
+            onCheckedChange={setAllGroups}
+            aria-describedby={messageId("rules-groups")}
           />
         </div>
 

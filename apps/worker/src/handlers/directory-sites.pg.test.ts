@@ -157,6 +157,7 @@ describe.skipIf(!adminUrl)("directory sync of SharePoint sites against Postgres"
       exclude: [],
       includeSharedMailboxes: true,
       sites: "selected",
+      groups: "selected",
     });
     await db.update(sources).set({ config }).where(eq(sources.id, sourceId));
     const run = tenantRunner(db, tenantId);

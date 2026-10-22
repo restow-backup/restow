@@ -18,6 +18,8 @@
       "contacts": "Kontakte",
       "libraries": "Bibliotheken",
       "lists": "Listen",
+      "groupCalendar": "Gruppenkalender",
+      "conversations": "Unterhaltungen",
       "label": "Was die Sicherungen dieser Person enthalten",
       "onedrive": "OneDrive",
       "imap": "E-Mail (IMAP)",
@@ -42,6 +44,7 @@
         "mailbox": "Postfächer",
         "onedrive": "OneDrives",
         "site": "SharePoint-Websites",
+        "group": "Microsoft-365-Gruppen",
         "imap": "IMAP-Konten"
       },
       "empty": "Kein passendes Konto",
@@ -52,7 +55,7 @@
       "excluded": "Nicht geschützt",
       "imported": "Importiert",
       "people": "Personen",
-      "sites": "SharePoint- und Teams-Websites",
+      "sites": "SharePoint und Teams",
       "accountDeleted": "Konto gelöscht",
       "more": "{count, plural, one {# weitere anzeigen} other {# weitere anzeigen}}"
     },
@@ -70,6 +73,7 @@
         "mailbox": "Postfach",
         "onedrive": "OneDrive",
         "site": "SharePoint-Website",
+        "group": "Microsoft-365-Gruppe",
         "imap": "IMAP-Konto"
       }
     },
@@ -276,6 +280,7 @@
         "mailbox": "Die Adresse des Zielpostfachs im selben Microsoft-365-Mandanten.",
         "onedrive": "Der Benutzer (UPN) oder die Laufwerks-ID des Ziel-OneDrive; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
         "site": "Die Bibliothek, in die wiederhergestellt wird, aus einer gesicherten Website desselben Microsoft-365-Tenants; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
+        "group": "Die Adresse des Benutzerpostfachs im selben Microsoft-365-Tenant, das die Termine des Gruppenkalenders und die Unterhaltungen (als Mails) erhält.",
         "imap": "Die Anmeldung eines IMAP-Kontos dieses Mandanten."
       }
     },
@@ -285,10 +290,15 @@
       "renameDescriptionMail": "Vorhandenes bleibt unberührt: Alles wird in den neuen Ordner „{folder}“ wiederhergestellt.",
       "renameDescriptionFiles": "Vorhandenes bleibt unberührt: Eine bereits vorhandene Datei wird unter einem neuen Namen wiederhergestellt.",
       "renameDescriptionSite": "Vorhandenes bleibt unberührt: Eine bereits vorhandene Datei wird unter einem neuen Namen wiederhergestellt, Listenelemente werden als neue Elemente hinzugefügt.",
+      "renameDescriptionGroup": "Nichts Vorhandenes wird verändert: Die Termine kommen als Kopien in den Gruppenkalender, neben das, was dort ist. Eine Gruppe hat nur diesen einen Kalender.",
       "replace": "Überschreiben",
       "replaceDescriptionSite": "Eine bereits vorhandene Datei wird überschrieben (SharePoint behält sie als frühere Version), und ein noch vorhandenes Listenelement erhält seine gesicherten Werte zurück.",
       "skip": "Vorhandene überspringen",
       "skipDescription": "Noch vorhandene Elemente bleiben, wie sie sind; nur fehlende werden wiederhergestellt."
+    },
+    "group": {
+      "title": "Nur der Gruppenkalender geht zurück in die Gruppe",
+      "description": "Microsoft erlaubt einer App nicht, in die Unterhaltungen einer Gruppe zu schreiben; sie bleiben bei einer Wiederherstellung in die Gruppe außen vor (der Bericht führt sie auf). Stellen Sie die Unterhaltungen in das Postfach eines Benutzers wieder her (Anderes Konto) oder laden Sie sie als EML oder MBOX herunter bzw. exportieren Sie sie."
     },
     "reason": {
       "impersonationTitle": "Wiederherstellung im Auftrag der Person, der die Daten gehören",

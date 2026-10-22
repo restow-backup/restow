@@ -1,4 +1,13 @@
-import { Check, Globe, HardDrive, Inbox, Server, ShieldAlert, Users } from "lucide-react";
+import {
+  Check,
+  Globe,
+  HardDrive,
+  Inbox,
+  Server,
+  ShieldAlert,
+  Users,
+  UsersRound,
+} from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -39,6 +48,7 @@ const TYPE_ICONS: Record<ObjectKind, typeof Inbox> = {
   mailbox: Inbox,
   onedrive: HardDrive,
   site: Globe,
+  group: UsersRound,
   imap: Server,
 };
 
@@ -67,7 +77,8 @@ function useDebounced<T>(value: T, delayMs: number): T {
 
 /**
  * The explorer's left column: one entry per person (#49), their mailbox, OneDrive and IMAP
- * account together, and SharePoint and Teams sites in a section of their own. The API groups,
+ * account together, and SharePoint and Teams sites with the group mailboxes (group calendar and
+ * conversations) of Microsoft 365 groups in a section of their own. The API groups,
  * orders (the viewer's own entry first, then by name), searches (names, addresses and account
  * ids) and filters, and hands out a page at a time: more load when the end of a section scrolls
  * into view or on "Show more", so a tenant of tens of thousands of people stays quick. Each
@@ -80,24 +91,18 @@ export function AccountList({ value, onChange, suspicious = NONE }: AccountListP
   const search = useDebounced(query.trim(), SEARCH_DEBOUNCE_MS);
   const kind = typeFilter === "all" ? null : typeFilter;
 
-  const peopleQuery = usePeople("people", search, kind, typeFilter !== "site");
-  const sitesQuery = usePeople(
-    "sites",
-    search,
-    null,
-    typeFilter === "all" || typeFilter === "site",
-  );
-  const people =
-    typeFilter === "site" ? [] : (peopleQuery.data?.pages.flatMap((page) => page.items) ?? []);
-  const sites =
-    typeFilter === "all" || typeFilter === "site"
-      ? (sitesQuery.data?.pages.flatMap((page) => page.items) ?? [])
-      : [];
+  // SharePoint sites and Microsoft 365 group mailboxes belong to no person: they make up the
+  // "SharePoint & Teams" section; every other kind lists people.
+  const teamsKind = typeFilter === "site" || typeFilter === "group";
+  const showPeople = !teamsKind;
+  const showSites = typeFilter === "all" || teamsKind;
+  const peopleQuery = usePeople("people", search, kind, showPeople);
+  const sitesQuery = usePeople("sites", search, teamsKind ? kind : null, showSites);
+  const people = showPeople ? (peopleQuery.data?.pages.flatMap((page) => page.items) ?? []) : [];
+  const sites = showSites ? (sitesQuery.data?.pages.flatMap((page) => page.items) ?? []) : [];
   const peopleTotal = peopleQuery.data?.pages[0]?.total ?? 0;
   const sitesTotal = sitesQuery.data?.pages[0]?.total ?? 0;
-  const loading =
-    (typeFilter !== "site" && peopleQuery.isPending) ||
-    ((typeFilter === "all" || typeFilter === "site") && sitesQuery.isPending);
+  const loading = (showPeople && peopleQuery.isPending) || (showSites && sitesQuery.isPending);
 
   const activePerson = value
     ? (people.find((person) => person.objects.some((object) => object.id === value)) ?? null)
@@ -227,7 +232,11 @@ export function AccountList({ value, onChange, suspicious = NONE }: AccountListP
                         site={site}
                         active={site.id === value}
                         suspicious={suspicious.has(site.id)}
-                        onSelect={() => onChange(site.id)}
+                        onSelect={() => {
+                          // A group opens on its first area (the group calendar), a site at its root.
+                          const area = site.kind === "group" ? firstAreaOf(entry) : null;
+                          onChange(site.id, area?.path || undefined);
+                        }}
                       />,
                     ]
                   : [];

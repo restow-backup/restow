@@ -381,6 +381,7 @@ export async function loadTenantFacts(
       onedrive: kindCount("onedrive"),
       imap: kindCount("imap"),
       site: kindCount("site"),
+      group: kindCount("group"),
     };
 
     const sourceRows = await tx
@@ -492,7 +493,7 @@ export async function loadTenantFacts(
           error: sourceCount("error"),
           pending: sourceCount("pending"),
         },
-        activeObjects: kinds.mailbox + kinds.onedrive + kinds.imap + kinds.site,
+        activeObjects: kinds.mailbox + kinds.onedrive + kinds.imap + kinds.site + kinds.group,
         enabledBackupSchedules: (scheduleRow?.n ?? 0) + (jobRow?.n ?? 0),
         completedSnapshots: snapshotRow?.backups ?? 0,
         verification: { reports: reportRow?.reports ?? 0, green: reportRow?.green ?? 0 },

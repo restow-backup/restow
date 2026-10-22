@@ -14,6 +14,7 @@ export type WarningSubjectKind =
   | "onedrive"
   | "imap"
   | "site"
+  | "group"
   | "server"
   | "client"
   | "file_share";

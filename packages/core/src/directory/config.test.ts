@@ -36,6 +36,7 @@ describe("protection in sources.config", () => {
       protection: {
         includeSharedMailboxes: false,
         sites: "all",
+        groups: "selected",
         group: { id: "grp-1", name: "Backup users" },
         overrides: {},
       },
@@ -48,7 +49,13 @@ describe("protection in sources.config", () => {
     const config = writeRules({}, rules);
     expect(config).toEqual({
       scope: { mode: "selected", exclude: ["stale@x.y"] },
-      protection: { includeSharedMailboxes: true, sites: "all", group: null, overrides: {} },
+      protection: {
+        includeSharedMailboxes: true,
+        sites: "all",
+        groups: "selected",
+        group: null,
+        overrides: {},
+      },
     });
     expect(readProtection(config).rules).toEqual(rules);
   });
@@ -96,6 +103,7 @@ describe("sync state in sources.config", () => {
     expect(readDirectoryState({ directory: 7 })).toEqual(EMPTY_DIRECTORY_STATE);
     const state = {
       deltaLink: "https://graph/users/delta?$deltatoken=A",
+      groupsDeltaLink: "https://graph/groups/delta?$deltatoken=G",
       lastFullSyncAt: "2026-09-22T00:00:00.000Z",
       fullSyncRequestedAt: null,
       sharedOrBlockedIds: ["user-shared"],

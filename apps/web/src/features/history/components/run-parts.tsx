@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   ShieldQuestion,
   ShieldX,
+  UsersRound,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -49,6 +50,7 @@ const SUBJECT_ICON: Readonly<Record<SubjectKind, LucideIcon>> = {
   mailbox: Mail,
   onedrive: Cloud,
   site: Globe,
+  group: UsersRound,
   imap: Inbox,
   server: Server,
   client: Laptop,

@@ -13,11 +13,13 @@
  * SharePoint sites never count. Like the OneDrive, a site is covered by the
  * users who work in it (the per-user model Microsoft 365 backup products
  * use); counting sites as mailboxes would bill one team site like a person.
+ * Group mailboxes of Microsoft 365 groups and teams (calendar and
+ * conversations) never count either, for the same reason.
  */
 
 /** The fields of a protected object the counting rule looks at. */
 export interface MailboxCountable {
-  kind: "mailbox" | "onedrive" | "imap" | "site";
+  kind: "mailbox" | "onedrive" | "imap" | "site" | "group";
   status: "active" | "excluded" | "orphaned";
   /** Directory user the object belongs to; null for IMAP accounts and unmatched objects. */
   userId: string | null;
@@ -37,6 +39,7 @@ export function countProtectedMailboxes(objects: Iterable<MailboxCountable>): nu
   return active.filter(
     (object) =>
       object.kind !== "site" &&
+      object.kind !== "group" &&
       (object.kind !== "onedrive" ||
         object.userId === null ||
         !ownersWithMailbox.has(object.userId)),

@@ -216,7 +216,7 @@ function quoteDisplayName(name: string): string {
 }
 
 /** 'Display Name <address>' or the bare address (or the bare name if Graph omitted the address). */
-function formatRecipient(recipient: Recipient | null | undefined): string | null {
+export function formatRecipient(recipient: Recipient | null | undefined): string | null {
   const name = recipient?.emailAddress?.name?.trim();
   const address = recipient?.emailAddress?.address?.trim();
   if (name && address) {

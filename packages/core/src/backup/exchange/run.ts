@@ -21,6 +21,7 @@ import type {
 import { classifyFailure } from "../../failures/classify.js";
 import { type GraphClient, RETRYABLE_STATUSES } from "../../graph/client.js";
 import { isGraphError, isMailboxUnavailable, isNotFound } from "../../graph/errors.js";
+import type { MailboxOwner } from "../../graph/resources/common.js";
 import type { ManifestObject } from "../../manifest.js";
 import {
   type ExchangeCursor,
@@ -115,6 +116,8 @@ export const EXCHANGE_PHASES = {
   resync: "resync",
   calendar: "calendar",
   contacts: "contacts",
+  /** Group mailboxes only: the conversations of a Microsoft 365 group. */
+  conversations: "conversations",
   commit: "commit",
 } as const;
 
@@ -295,6 +298,11 @@ export interface BackupRunOptions {
   readonly ctx: JobContext;
   readonly client: GraphClient;
   readonly userId: string;
+  /**
+   * Whose calendar the calendar phase reads; the user `userId` unless a group
+   * mailbox is backed up (backup/groups).
+   */
+  readonly owner?: MailboxOwner;
   readonly writer: SnapshotWriter;
   readonly state: ExchangeState;
   readonly progress: ExchangeProgress;
@@ -316,6 +324,7 @@ export class BackupRun {
   readonly ctx: JobContext;
   readonly client: GraphClient;
   readonly userId: string;
+  readonly owner: MailboxOwner;
   readonly writer: SnapshotWriter;
   readonly index: ObjectIndex;
   readonly state: ExchangeState;
@@ -354,6 +363,7 @@ export class BackupRun {
     this.ctx = options.ctx;
     this.client = options.client;
     this.userId = options.userId;
+    this.owner = options.owner ?? options.userId;
     this.writer = options.writer;
     this.index = new ObjectIndex(options.writer);
     this.state = options.state;
@@ -418,6 +428,9 @@ export class BackupRun {
         completedFolders: [...this.progress.completedFolders],
         calendarDone: this.progress.calendarDone,
         contactsDone: this.progress.contactsDone,
+        ...(this.progress.conversationsDone !== undefined
+          ? { conversationsDone: this.progress.conversationsDone }
+          : {}),
       },
     };
     if (this.folderId !== undefined) {

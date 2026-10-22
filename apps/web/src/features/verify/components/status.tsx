@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ShieldQuestion,
   ShieldX,
+  UsersRound,
   XCircle,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -85,7 +86,13 @@ export function StorageBadge({ state }: { state: StorageState }) {
   return <StatusBadge tone={STORAGE_BADGE[state]}>{t(`storage.state.${state}`)}</StatusBadge>;
 }
 
-const KIND_ICON = { mailbox: Mail, onedrive: Cloud, imap: Inbox, site: Globe } as const;
+const KIND_ICON = {
+  mailbox: Mail,
+  onedrive: Cloud,
+  imap: Inbox,
+  site: Globe,
+  group: UsersRound,
+} as const;
 
 export function ObjectKindIcon({ kind, className }: { kind: ObjectKind; className?: string }) {
   const { t } = useTranslation("verify");

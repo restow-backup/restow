@@ -9,6 +9,7 @@ import {
   ExchangeBackupEngine,
   entraAppEnvironmentFrom,
   FetchGraphClient,
+  GroupMailboxBackupEngine,
   generateDek,
   type HeadResult,
   ImapBackupEngine,
@@ -302,7 +303,7 @@ describe("engine registry and selection", () => {
 
   it("ships an engine for every protected-object kind", () => {
     const registry = createDefaultBackupEngines({ env: {} });
-    expect(registry.kinds().sort()).toEqual(["imap", "mailbox", "onedrive", "site"]);
+    expect(registry.kinds().sort()).toEqual(["group", "imap", "mailbox", "onedrive", "site"]);
     const ctx = workerContext(storage());
     expect(registry.get("mailbox")?.(depsFor(ctx, m365Source()))).toBeInstanceOf(
       ExchangeBackupEngine,
@@ -313,6 +314,9 @@ describe("engine registry and selection", () => {
     expect(registry.get("imap")?.(depsFor(ctx, imapSource()))).toBeInstanceOf(ImapBackupEngine);
     expect(registry.get("site")?.(depsFor(ctx, m365Source()))).toBeInstanceOf(
       SharePointBackupEngine,
+    );
+    expect(registry.get("group")?.(depsFor(ctx, m365Source()))).toBeInstanceOf(
+      GroupMailboxBackupEngine,
     );
   });
 });

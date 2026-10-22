@@ -30,6 +30,7 @@
     "mailbox": "Mailbox",
     "onedrive": "OneDrive",
     "site": "SharePoint site",
+    "group": "Microsoft 365 group",
     "imap": "IMAP account"
   },
   "scope": {
@@ -39,6 +40,7 @@
       "mailbox": "One mailbox (not yours)",
       "onedrive": "One OneDrive (not yours)",
       "site": "One SharePoint site",
+      "group": "One Microsoft 365 group",
       "imap": "One IMAP account (not yours)"
     }
   },

@@ -18,6 +18,8 @@
       "contacts": "Contacts",
       "libraries": "Libraries",
       "lists": "Lists",
+      "groupCalendar": "Group calendar",
+      "conversations": "Conversations",
       "label": "What this person's backups hold",
       "onedrive": "OneDrive",
       "imap": "Mail (IMAP)",
@@ -42,6 +44,7 @@
         "mailbox": "Mailboxes",
         "onedrive": "OneDrives",
         "site": "SharePoint sites",
+        "group": "Microsoft 365 groups",
         "imap": "IMAP accounts"
       },
       "empty": "No matching account",
@@ -52,7 +55,7 @@
       "excluded": "Not protected",
       "imported": "Imported",
       "people": "People",
-      "sites": "SharePoint & Teams sites",
+      "sites": "SharePoint & Teams",
       "accountDeleted": "Account deleted",
       "more": "{count, plural, one {Show # more} other {Show # more}}"
     },
@@ -70,6 +73,7 @@
         "mailbox": "Mailbox",
         "onedrive": "OneDrive",
         "site": "SharePoint site",
+        "group": "Microsoft 365 group",
         "imap": "IMAP account"
       }
     },
@@ -276,6 +280,7 @@
         "mailbox": "The address of the target mailbox in the same Microsoft 365 tenant.",
         "onedrive": "The user (UPN) or drive id of the target OneDrive; add :/Folder to restore into a subfolder.",
         "site": "The library to restore into, from a backed-up site of the same Microsoft 365 tenant; add :/Folder to restore into a subfolder.",
+        "group": "The address of the user mailbox in the same Microsoft 365 tenant that receives the group calendar's events and the conversations (as mail).",
         "imap": "The login of an IMAP account of this tenant."
       }
     },
@@ -285,10 +290,15 @@
       "renameDescriptionMail": "Nothing existing is touched: everything is restored into the new folder “{folder}”.",
       "renameDescriptionFiles": "Nothing existing is touched: a file that already exists is restored under a new name.",
       "renameDescriptionSite": "Nothing existing is touched: a file that already exists is restored under a new name, and list items are added as new items.",
+      "renameDescriptionGroup": "Nothing existing is touched: the events are added to the group calendar as copies, next to what is there. A group has only this one calendar.",
       "replace": "Overwrite",
       "replaceDescriptionSite": "A file that already exists is overwritten (SharePoint keeps it as an earlier version), and a list item that still exists gets its backed-up values back.",
       "skip": "Skip existing",
       "skipDescription": "Items that are still there stay as they are; only missing items are restored."
+    },
+    "group": {
+      "title": "Only the group calendar goes back into the group",
+      "description": "Microsoft does not let an app post into a group's conversations, so they are left out of a restore into the group (the report lists them). Restore the conversations into a user's mailbox (Another account), or download or export them as EML or MBOX."
     },
     "reason": {
       "impersonationTitle": "Restore on behalf of the owner",

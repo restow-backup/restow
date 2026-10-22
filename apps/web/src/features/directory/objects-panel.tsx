@@ -20,6 +20,7 @@ import {
   Search,
   ShieldOff,
   TriangleAlert,
+  UsersRound,
   X,
 } from "lucide-react";
 import * as React from "react";
@@ -106,6 +107,7 @@ const KIND_ICON: Record<ObjectKind, typeof Mail> = {
   mailbox: Mail,
   onedrive: Cloud,
   site: Globe,
+  group: UsersRound,
   imap: Inbox,
 };
 
@@ -1069,7 +1071,7 @@ function ObjectFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>{t("objects.filters.allKinds")}</SelectItem>
-            {(["mailbox", "onedrive", "site", "imap"] as const).map((kind) => (
+            {(["mailbox", "onedrive", "site", "group", "imap"] as const).map((kind) => (
               <SelectItem key={kind} value={kind}>
                 {t(`kind.${kind}`)}
               </SelectItem>

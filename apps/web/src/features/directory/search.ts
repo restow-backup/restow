@@ -46,7 +46,7 @@ export interface DirectorySearch {
   order?: "asc" | "desc";
 }
 
-const KINDS: readonly ObjectKind[] = ["mailbox", "onedrive", "imap", "site"];
+const KINDS: readonly ObjectKind[] = ["mailbox", "onedrive", "imap", "site", "group"];
 const STATUSES: readonly ObjectStatusFilter[] = ["active", "excluded", "orphaned", "not_selected"];
 const COVERAGES: readonly ObjectCoverage[] = ["scheduled", "unscheduled", "none"];
 const SORTS: readonly ObjectSort[] = ["name", "kind", "status", "createdAt", "updatedAt"];

@@ -143,6 +143,7 @@ export function tenantRow(
       summary.lastSuccess.mail,
       summary.lastSuccess.onedrive,
       summary.lastSuccess.sharepoint,
+      summary.lastSuccess.groups,
       summary.lastSuccess.imap,
       machines?.lastSuccessAt ?? null,
       guests?.lastSuccessAt ?? null,

@@ -8,6 +8,7 @@ import {
   Inbox,
   Mail,
   Server,
+  UsersRound,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -44,6 +45,7 @@ const OBJECT_ICONS = {
   mailbox: Inbox,
   onedrive: HardDrive,
   site: Globe,
+  group: UsersRound,
   imap: Server,
 } as const;
 

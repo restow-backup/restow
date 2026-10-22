@@ -59,7 +59,7 @@ export const snapshotsQuerySchema = z.object({
 export type SnapshotsQuery = z.infer<typeof snapshotsQuerySchema>;
 
 export const objectsQuerySchema = z.object({
-  kind: z.enum(["mailbox", "onedrive", "imap", "site"]).optional(),
+  kind: z.enum(["mailbox", "onedrive", "imap", "site", "group"]).optional(),
 });
 export type ObjectsQuery = z.infer<typeof objectsQuerySchema>;
 

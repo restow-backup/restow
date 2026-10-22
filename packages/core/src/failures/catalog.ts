@@ -133,6 +133,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("sync_directory", "directory"), step("exclude_object", "directory")],
   },
+  "graph.group_unavailable": {
+    category: "microsoft",
+    transient: false,
+    retryable: true,
+    steps: () => [step("sync_directory", "directory"), step("exclude_object", "directory")],
+  },
   "graph.throttled": {
     category: "microsoft",
     transient: true,

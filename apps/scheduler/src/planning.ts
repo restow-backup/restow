@@ -38,7 +38,7 @@ export interface TenantTargets {
   readonly protectedObjects: readonly {
     readonly id: string;
     readonly sourceId: string;
-    readonly kind: "mailbox" | "onedrive" | "imap" | "site";
+    readonly kind: "mailbox" | "onedrive" | "imap" | "site" | "group";
     readonly status: "active" | "excluded" | "orphaned";
   }[];
   readonly sources: readonly {

@@ -7,16 +7,28 @@
  *
  * Event attachments are not part of the event JSON and are not backed up in
  * v1; `hasAttachments` in the metadata says when an event had any.
+ *
+ * The same phase backs up the one calendar of a Microsoft 365 group mailbox
+ * (`run.owner` is the group): its events are listed with
+ * {@link listGroupCalendarEvents}, which falls back to the group's
+ * `calendarView` when Graph refuses the plain listing to the app. A group
+ * calendar the app may not read at all is one item failure (a warning with
+ * the reason), never a failed run: the group's conversations are still
+ * backed up.
  */
 import type { Event } from "@microsoft/microsoft-graph-types";
+import { isGraphError } from "../../graph/errors.js";
 import {
   type CalendarInfo,
+  groupCalendarViewWindow,
   type InstanceWindow,
+  isGroupCalendarRefusal,
   listCalendars,
   listEvents,
+  listGroupCalendarEvents,
   listSeriesExceptions,
 } from "../../graph/resources/calendar.js";
-import { collect } from "../../graph/resources/common.js";
+import { collect, isGroupOwner } from "../../graph/resources/common.js";
 import {
   folderObjectAt,
   reconcileGroupFolders,
@@ -28,6 +40,8 @@ import { assignFolderPaths, CALENDAR_ROOT, displayFolderPath, eventObjectPath } 
 import {
   type BackupRun,
   calendarGroup,
+  describeError,
+  ItemError,
   isItemLevelError,
   isVanished,
   META,
@@ -40,6 +54,12 @@ export const FOLDER_KIND_CALENDAR = "calendar";
 
 export interface CalendarPhaseOptions {
   readonly window: InstanceWindow;
+  /**
+   * Group calendars only: the range the `calendarView` fallback reads when
+   * Graph refuses the plain event listing; defaults to
+   * {@link groupCalendarViewWindow}.
+   */
+  readonly viewWindow?: InstanceWindow;
 }
 
 /** The stored payload of one event object. */
@@ -117,7 +137,7 @@ async function storeEvent(
 ): Promise<void> {
   const exceptions =
     event.type === "seriesMaster"
-      ? await listSeriesExceptions(run.client, run.userId, event, options.window)
+      ? await listSeriesExceptions(run.client, run.owner, event, options.window)
       : [];
   const payload: StoredEvent = { event, exceptions };
   await storeJsonItem(run, {
@@ -138,6 +158,39 @@ function dropCalendar(run: BackupRun, planned: PlannedCalendar): void {
   run.logger.info("calendar deleted while the backup ran", { calendarId: planned.calendar.id });
 }
 
+/**
+ * The events of a calendar: a user's from `/events`, a group's through the
+ * fallback-aware listing. A group calendar Graph refuses to the app becomes an
+ * {@link ItemError} that says so, so the run records a warning and goes on.
+ */
+async function* eventsOf(
+  run: BackupRun,
+  planned: PlannedCalendar,
+  options: CalendarPhaseOptions,
+): AsyncGenerator<Event, void, unknown> {
+  const owner = run.owner;
+  if (!isGroupOwner(owner)) {
+    yield* listEvents(run.client, owner, planned.calendar.id);
+    return;
+  }
+  const viewWindow = options.viewWindow ?? groupCalendarViewWindow(options.window, run.ctx.now());
+  try {
+    yield* listGroupCalendarEvents(run.client, owner.groupId, viewWindow, (error) =>
+      run.logger.warn("group calendar listing refused, reading the calendar view instead", {
+        reason: describeError(error),
+      }),
+    );
+  } catch (error) {
+    if (isGraphError(error) && isGroupCalendarRefusal(error)) {
+      throw new ItemError(
+        `the group calendar cannot be read with the app's permissions (${describeError(error)}); check the Calendars.ReadWrite consent and any application access policy`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
 async function syncCalendar(
   run: BackupRun,
   planned: PlannedCalendar,
@@ -145,7 +198,7 @@ async function syncCalendar(
 ): Promise<void> {
   const seen = new Set<string>();
   try {
-    for await (const event of listEvents(run.client, run.userId, planned.calendar.id)) {
+    for await (const event of eventsOf(run, planned, options)) {
       run.throwIfAborted();
       if (!event.id) {
         continue;
@@ -190,7 +243,7 @@ export async function backupCalendar(run: BackupRun, options: CalendarPhaseOptio
   run.enterPhase("calendar");
   let calendars: CalendarInfo[];
   try {
-    calendars = await collect(listCalendars(run.client, run.userId));
+    calendars = await collect(listCalendars(run.client, run.owner));
   } catch (error) {
     const wrapped = toMailboxAccessError(error, "calendars");
     if (!isItemLevelError(wrapped)) {

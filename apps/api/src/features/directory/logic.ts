@@ -1,4 +1,5 @@
 import {
+  type GroupMailboxProtectionMode,
   normalizeRules,
   type ProtectionMode,
   type ProtectionOverride,
@@ -23,6 +24,7 @@ export function rulesFromInput(input: RulesInput): ProtectionRules {
     exclude: input.exclude,
     includeSharedMailboxes: input.includeSharedMailboxes,
     sites: input.sites,
+    groups: input.groups,
   });
 }
 
@@ -89,7 +91,7 @@ export function containsPattern(text: string): string {
  */
 export function isNotSelected(
   sourceKind: SourceKind,
-  mode: ProtectionMode | SiteProtectionMode,
+  mode: ProtectionMode | SiteProtectionMode | GroupMailboxProtectionMode,
   status: ObjectStatus,
   override: ProtectionOverride | null,
 ): boolean {
@@ -100,11 +102,19 @@ export function isNotSelected(
 
 /**
  * The mode that decides an object's default: SharePoint sites follow the sites
- * mode of the rules, mailboxes and OneDrives the users' mode.
+ * mode of the rules, group mailboxes the groups mode, mailboxes and OneDrives
+ * the users' mode.
  */
 export function modeForKind(
   kind: string,
-  rules: { readonly mode: ProtectionMode; readonly sites: SiteProtectionMode },
-): ProtectionMode | SiteProtectionMode {
+  rules: {
+    readonly mode: ProtectionMode;
+    readonly sites: SiteProtectionMode;
+    readonly groups?: GroupMailboxProtectionMode;
+  },
+): ProtectionMode | SiteProtectionMode | GroupMailboxProtectionMode {
+  if (kind === "group") {
+    return rules.groups ?? "selected";
+  }
   return kind === "site" ? rules.sites : rules.mode;
 }

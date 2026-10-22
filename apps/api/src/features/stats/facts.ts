@@ -11,7 +11,7 @@ import type { ShareFacts } from "./share-facts.js";
  * the UTC day (`YYYY-MM-DD`) an event happened on.
  */
 
-export type ProtectedObjectKind = "mailbox" | "onedrive" | "imap" | "site";
+export type ProtectedObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ProtectedObjectStatus = "active" | "excluded" | "orphaned";
 export type ReadinessRating = "green" | "yellow" | "red";
 

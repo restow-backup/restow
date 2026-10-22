@@ -34,6 +34,15 @@ export type ProtectionMode = "all" | "group" | "selected";
  */
 export type SiteProtectionMode = "all" | "selected";
 
+/**
+ * Which group mailboxes (calendar and conversations of Microsoft 365 groups
+ * and teams) are protected. Opt-in by default (`selected`): a tenant with
+ * thousands of groups does not start backing all of them up the moment it
+ * upgrades; an admin switches to `all` or includes single groups. Like sites,
+ * they belong to no user, so only overrides and this mode apply.
+ */
+export type GroupMailboxProtectionMode = "all" | "selected";
+
 /** An admin's explicit decision for one protected object, beating the rules. */
 export type ProtectionOverride = "include" | "exclude";
 
@@ -57,6 +66,8 @@ export interface ProtectionRules {
   readonly includeSharedMailboxes: boolean;
   /** SharePoint sites: all of the tenant's, or only the included ones. */
   readonly sites: SiteProtectionMode;
+  /** Group mailboxes of Microsoft 365 groups and teams: all, or only the included ones. */
+  readonly groups: GroupMailboxProtectionMode;
 }
 
 /** Overrides keyed by the protected object's external id. */
@@ -70,6 +81,7 @@ export interface ProtectionRulesRecord {
   readonly exclude?: unknown;
   readonly includeSharedMailboxes?: unknown;
   readonly sites?: unknown;
+  readonly groups?: unknown;
 }
 
 /** Plain, serialisable form of {@link ProtectionRules} (API bodies, jsonb). */
@@ -80,6 +92,7 @@ export interface ProtectionRulesDto {
   exclude: string[];
   includeSharedMailboxes: boolean;
   sites: SiteProtectionMode;
+  groups: GroupMailboxProtectionMode;
 }
 
 export const DEFAULT_PROTECTION_RULES: ProtectionRules = {
@@ -89,6 +102,7 @@ export const DEFAULT_PROTECTION_RULES: ProtectionRules = {
   exclude: [],
   includeSharedMailboxes: true,
   sites: "all",
+  groups: "selected",
 };
 
 /** Lower-case and trim an identity for comparison; empty input becomes null. */
@@ -143,6 +157,7 @@ export function normalizeRules(record: ProtectionRulesRecord | null | undefined)
     includeSharedMailboxes:
       typeof record.includeSharedMailboxes === "boolean" ? record.includeSharedMailboxes : true,
     sites: record.sites === "selected" ? "selected" : "all",
+    groups: record.groups === "all" ? "all" : "selected",
   };
 }
 
@@ -169,6 +184,7 @@ export function rulesToRecord(rules: ProtectionRules): ProtectionRulesDto {
     exclude: [...rules.exclude],
     includeSharedMailboxes: rules.includeSharedMailboxes,
     sites: rules.sites,
+    groups: rules.groups,
   };
 }
 
@@ -300,6 +316,14 @@ export function evaluateSiteProtection(
   return rules.sites === "selected"
     ? { status: "excluded", reason: "not_selected" }
     : { status: "active", reason: "rule_all" };
+}
+
+/** Decide whether one group mailbox is in scope: its override, else the groups mode. */
+export function evaluateGroupMailboxProtection(
+  rules: Pick<ProtectionRules, "groups">,
+  override: ProtectionOverride | null | undefined,
+): ProtectionDecision {
+  return evaluateSiteProtection({ sites: rules.groups }, override);
 }
 
 /** Status an override puts an object in right away (orphaned objects stay orphaned). */

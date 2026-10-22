@@ -659,7 +659,9 @@ export async function createRestore(
  * Accounts a restore of `objectId` may be written into, for the dialog's
  * suggestions: other protected objects of the same kind. Mailboxes and
  * drives are limited to the same source, because Graph writes within the
- * object's own M365 tenant. An imported mailbox has no source of its own to
+ * object's own M365 tenant. A Microsoft 365 group mailbox goes into a user's
+ * mailbox of the same source (or back into the group itself, target
+ * `original`). An imported mailbox has no source of its own to
  * write within: it lists the active M365 mailboxes and IMAP accounts of the
  * tenant's other sources, and no object of an import source is ever offered.
  */
@@ -703,7 +705,7 @@ export async function listTargets(
           eq(protectedObjects.tenantId, tenantId),
           imported
             ? inArray(protectedObjects.kind, ["mailbox", "imap"])
-            : eq(protectedObjects.kind, object.kind),
+            : eq(protectedObjects.kind, object.kind === "group" ? "mailbox" : object.kind),
           eq(protectedObjects.status, "active"),
           ne(protectedObjects.id, object.id),
           ne(sources.kind, "import"),

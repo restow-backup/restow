@@ -15,6 +15,7 @@
     "mailbox": "Postfach",
     "onedrive": "OneDrive",
     "site": "SharePoint-Website",
+    "group": "Microsoft-365-Gruppe",
     "imap": "IMAP-Postfach"
   },
   "checkKind": {

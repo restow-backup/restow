@@ -468,6 +468,8 @@ export interface StatusSummary {
     imap: string | null;
     /** SharePoint sites; absent from an older server. */
     sharepoint?: string | null;
+    /** Microsoft 365 group mailboxes; absent from an older server. */
+    groups?: string | null;
     archive: string | null;
   };
   protectedObjects: number;
@@ -566,6 +568,7 @@ export function normalizeStatus(payload: unknown): StatusSummary {
       onedrive: asNullableString(lastSuccess.onedrive),
       imap: asNullableString(lastSuccess.imap),
       sharepoint: asNullableString(lastSuccess.sharepoint),
+      groups: asNullableString(lastSuccess.groups),
       archive: asNullableString(lastSuccess.archive),
     },
     protectedObjects: asNumber(raw.protectedObjects ?? objects.active),

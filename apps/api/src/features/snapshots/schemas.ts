@@ -112,7 +112,7 @@ export type CalendarQuery = z.infer<typeof calendarQuerySchema>;
 export const peopleQuerySchema = z.object({
   section: z.enum(["people", "sites"]).default("people"),
   q: z.string().trim().max(200).default(""),
-  kind: z.enum(["mailbox", "onedrive", "imap", "site"]).optional(),
+  kind: z.enum(["mailbox", "onedrive", "imap", "site", "group"]).optional(),
   include: z.enum(["withBackup", "all"]).default("all"),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   after: z.string().max(2048).optional(),

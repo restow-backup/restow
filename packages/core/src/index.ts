@@ -19,6 +19,7 @@ export * as archive from "./archive/index.js";
 export * from "./audit-chain.js";
 // Backup engines
 export * from "./backup/exchange/index.js";
+export * from "./backup/groups/index.js";
 export * from "./backup/imap/index.js";
 export * from "./backup/onedrive/index.js";
 export * from "./backup/sharepoint/index.js";
