@@ -55,6 +55,7 @@ import {
   FetchGraphClient,
   type FirstBackupProgress,
   type GraphClient,
+  GroupMailboxBackupEngine,
   type ImapAccountConfig,
   ImapBackupEngine,
   type ItemFailureDetails,
@@ -114,6 +115,7 @@ const SOURCE_KIND_OF: Record<ProtectedObjectKind, Source["kind"]> = {
   onedrive: "m365",
   imap: "imap",
   site: "m365",
+  group: "m365",
 };
 
 // ---------------------------------------------------------------------------
@@ -917,9 +919,10 @@ export interface DefaultEngineOptions {
 }
 
 /**
- * The engines this build ships: Exchange mailboxes, OneDrive, IMAP accounts and
- * SharePoint sites. Sites use the same lazily built, throttled Graph client as
- * OneDrive, so Retry-After and the per-tenant limits apply to them alike.
+ * The engines this build ships: Exchange mailboxes, OneDrive, IMAP accounts,
+ * SharePoint sites and the group mailboxes of Microsoft 365 groups. Sites and
+ * group mailboxes use the same lazily built, throttled Graph client as OneDrive,
+ * so Retry-After and the per-tenant limits apply to them alike.
  */
 export function createDefaultBackupEngines(
   options: DefaultEngineOptions = {},
@@ -938,6 +941,10 @@ export function createDefaultBackupEngines(
     [
       "site",
       (deps) => new SharePointBackupEngine<Database>({ graph: lazyGraphClient(deps, settings) }),
+    ],
+    [
+      "group",
+      (deps) => new GroupMailboxBackupEngine<Database>({ graph: lazyGraphClient(deps, settings) }),
     ],
     [
       "imap",

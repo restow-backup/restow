@@ -44,7 +44,9 @@ import {
   FULL_SYNC_INTERVAL_MS,
   fullSyncReason,
   type GraphClient,
+  type GroupMailboxPlan,
   JobAbortedError,
+  type KnownGroupMailbox,
   type KnownObject,
   type KnownSite,
   type Logger,
@@ -213,8 +215,9 @@ export class PgDirectoryRepository implements DirectoryRepository {
             ne(protectedObjects.kind, "imap"),
           ),
         );
-      // Sites belong to no user: they are planned apart (core directory/sites.ts),
-      // and must never reach the users' plan, which orphans objects without an owner.
+      // Sites and group mailboxes belong to no user: they are planned apart (core
+      // directory/sites.ts, group-mailboxes.ts), and must never reach the users' plan,
+      // which orphans objects without an owner.
       const knownSites: KnownSite[] = rows
         .filter((row) => row.kind === "site")
         .map((row) => ({
@@ -223,8 +226,16 @@ export class PgDirectoryRepository implements DirectoryRepository {
           origin: row.origin,
           displayName: row.displayName,
         }));
+      const knownGroups: KnownGroupMailbox[] = rows
+        .filter((row) => row.kind === "group")
+        .map((row) => ({
+          externalId: row.externalId,
+          status: row.status,
+          origin: row.origin,
+          displayName: row.displayName,
+        }));
       const known: KnownObject[] = rows.flatMap((row) =>
-        row.kind === "imap" || row.kind === "site"
+        row.kind === "imap" || row.kind === "site" || row.kind === "group"
           ? []
           : [
               {
@@ -248,6 +259,8 @@ export class PgDirectoryRepository implements DirectoryRepository {
         protection: readProtection(source.config),
         version: protectionVersion(source.config),
         knownSites,
+        knownGroups,
+        groupsDeltaLink: state.groupsDeltaLink,
       };
     });
   }
@@ -266,6 +279,10 @@ export class PgDirectoryRepository implements DirectoryRepository {
         await this.writeSites(tx, commit.sites);
         await this.orphanObjects(tx, commit.sites.orphanExternalIds);
       }
+      if (commit.groups) {
+        await this.writeGroups(tx, commit.groups);
+        await this.orphanObjects(tx, commit.groups.orphanExternalIds);
+      }
       const state = readDirectoryState(source.config);
       await tx
         .update(sources)
@@ -273,6 +290,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
           config: writeDirectoryState(source.config, {
             ...state,
             deltaLink: commit.deltaLink,
+            groupsDeltaLink: commit.groupsDeltaLink ?? state.groupsDeltaLink,
             sharedOrBlockedIds: commit.plan.sharedOrBlockedIds,
             lastFullSyncAt: commit.fullSyncAt ?? state.lastFullSyncAt,
           }),
@@ -388,7 +406,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
   private async writeObjects(
     tx: TenantTx,
     objects: readonly (Omit<PlannedObject, "kind"> & {
-      readonly kind: PlannedObject["kind"] | "site";
+      readonly kind: PlannedObject["kind"] | "site" | "group";
     })[],
     userIds: ReadonlyMap<string, string>,
   ): Promise<void> {
@@ -474,6 +492,23 @@ export class PgDirectoryRepository implements DirectoryRepository {
     );
   }
 
+  /** Insert or update the group mailboxes of a run; re-scoped ones only change status. */
+  private async writeGroups(tx: TenantTx, plan: GroupMailboxPlan): Promise<void> {
+    await this.writeObjects(
+      tx,
+      plan.groups.map((group) => ({
+        kind: "group" as const,
+        externalId: group.externalId,
+        ownerId: "",
+        displayName: group.displayName,
+        status: group.status,
+        reason: group.reason,
+        change: group.change,
+      })),
+      new Map(),
+    );
+  }
+
   private async orphanObjects(tx: TenantTx, externalIds: readonly string[]): Promise<void> {
     for (const batch of chunks(externalIds)) {
       await tx
@@ -545,6 +580,7 @@ function successRun(result: DirectorySyncResult, finishedAt: Date): DirectoryLas
     ...capWarnings(result.warnings),
     error: null,
     sitesDiscovered: result.sitesDiscovered,
+    groupsDiscovered: result.groupsDiscovered,
   };
 }
 
@@ -853,6 +889,9 @@ export async function runDirectoryJob(
       // SharePoint sites are listed on every run; without Sites.Read.All this
       // is a warning on the source, never a failed sync.
       sites: true,
+      // Microsoft 365 groups (group mailboxes) likewise, through their own delta stream;
+      // a refusal is a warning and the known groups stay as they are.
+      groups: true,
       logger,
       progress: recorder,
       signal: ctx.signal,
