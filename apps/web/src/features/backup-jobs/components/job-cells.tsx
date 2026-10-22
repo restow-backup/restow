@@ -68,7 +68,7 @@ export function JobStateBadge({ state, className }: { state: JobState; className
       )}
       data-state={view.key}
     >
-      {t(`state.${view.key}`)}
+      <span className="min-w-0 truncate">{t(`state.${view.key}`)}</span>
     </StatusBadge>
   );
 }
@@ -102,9 +102,12 @@ const RESTORE_ICON = {
 export function RestoreCheckBadge({
   check,
   className,
+  compact = false,
 }: {
   check: JobRestoreCheck;
   className?: string;
+  /** One badge, nothing under it (the job lists' rows, 0.4.5): the panel says the rest. */
+  compact?: boolean;
 }) {
   const { t } = useTranslation("backupjobs");
   const view = restoreCheckView(check);
@@ -115,17 +118,20 @@ export function RestoreCheckBadge({
     .map((entry) => t(`restoreCheck.detail.${entry.key}`, { count: entry.count }))
     .join(", ");
   return (
-    <span className={cn("inline-flex flex-col items-start gap-1", className)}>
+    <span className={cn("inline-flex max-w-full flex-col items-start gap-1", className)}>
       <StatusBadge
         tone={view.tone}
         icon={RESTORE_ICON[view.state]}
-        className="whitespace-nowrap"
+        className={cn("whitespace-nowrap", compact && "max-w-full min-w-0")}
         data-restore-check={view.state}
-        title={detail || undefined}
+        title={compact ? undefined : detail || undefined}
       >
-        {t("restoreCheck.summary", { passed: view.passed, total: view.total })}
+        <span className="min-w-0 truncate">
+          {t("restoreCheck.summary", { passed: view.passed, total: view.total })}
+        </span>
+        {compact && detail ? <span className="sr-only">: {detail}</span> : null}
       </StatusBadge>
-      {detail ? <span className="text-xs text-muted-foreground">{detail}</span> : null}
+      {detail && !compact ? <span className="text-xs text-muted-foreground">{detail}</span> : null}
     </span>
   );
 }

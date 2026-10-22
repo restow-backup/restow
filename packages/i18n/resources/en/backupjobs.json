@@ -35,13 +35,14 @@
     "new": "New job",
     "open": "Open",
     "edit": "Edit",
-    "runNow": "Run now",
+    "runNow": "Start now",
     "openHistory": "Open history",
     "pause": "Pause",
     "resume": "Resume",
     "delete": "Delete",
     "refresh": "Refresh jobs",
-    "openGuest": "Open VM or container"
+    "openGuest": "Open VM or container",
+    "openPve": "Open VMs & containers"
   },
   "list": {
     "title": "Jobs",
@@ -68,7 +69,8 @@
       "lastRun": "Last run",
       "nextRun": "Next run",
       "restoreCheck": "Restore check",
-      "type": "Type"
+      "type": "Type",
+      "state": "State"
     },
     "uncovered": {
       "mail": "{count, plural, one {# protected object is in no job and is not backed up on a schedule.} other {# protected objects are in no job and are not backed up on a schedule.}}",
@@ -478,6 +480,13 @@
       "revoked": "{count, plural, one {# machine is revoked.} other {# machines are revoked.}}",
       "not_in_job": "{count, plural, one {# is not in this job.} other {# are not in this job.}}",
       "retired": "{count, plural, one {# file share is retired.} other {# file shares are retired.}}"
+    },
+    "emptyScope": "The job covers nothing yet.",
+    "pve": {
+      "queued": "{count, plural, one {Backup of # guest of {name} queued} other {Backups of # guests of {name} queued}}",
+      "alreadyQueued": "{count, plural, one {# guest waits or backs up already.} other {# guests wait or back up already.}}",
+      "noNode": "{count, plural, one {# guest is on a node that is not connected.} other {# guests are on nodes that are not connected.}}",
+      "selfBackup": "The VM of the {appName} server is left out until a backup of it is confirmed on VMs & containers."
     }
   },
   "toasts": {
@@ -1295,5 +1304,61 @@
     "cancel": "Cancel",
     "done": "{count, plural, one {Recommended job set up: {names}} other {Recommended jobs set up: {names}}}",
     "doneNothing": "Nothing changed: everything has a job already."
+  },
+  "stop": {
+    "action": "Stop",
+    "stopping": "Stopping…",
+    "title": "Stop the backups of {name}?",
+    "body": {
+      "mail": "Every backup of this job that waits is withdrawn. Running backups stop at their next safe point and keep what they stored so far. The next scheduled run starts as usual.",
+      "endpoint": "Requested backups that have not started are withdrawn. Machines that back up right now stop restic cleanly with their next contact (within about a minute); nothing of a stopped run is saved and the runs end as cancelled, not as failed. The next scheduled backups run as usual.",
+      "share": "Runs of this job that wait are withdrawn; running ones are stopped by their runner. Nothing of a stopped run is saved and it ends as cancelled, not as failed.",
+      "pve": "Backups of this job's guests that wait are withdrawn; running ones are stopped on their node. Nothing of a stopped backup is kept and it ends as cancelled, not as failed. The next scheduled round runs as usual.",
+      "guest": "The backup started by hand is stopped (or withdrawn when it waits). Nothing of it is kept and it ends as cancelled, not as failed."
+    },
+    "confirm": "Stop backups",
+    "keep": "Keep running",
+    "done": "Backups of {name} stopped",
+    "withdrawn": "{count, plural, one {# waiting backup withdrawn.} other {# waiting backups withdrawn.}}",
+    "stoppingCount": "{count, plural, one {# running backup is being stopped.} other {# running backups are being stopped.}}",
+    "doneNote": {
+      "mail": "They end at their next safe point.",
+      "endpoint": "The machines stop them with their next contact, usually within a minute.",
+      "share": "Their runners stop them shortly.",
+      "pve": "The nodes stop them shortly.",
+      "guest": "The node stops it shortly."
+    },
+    "nothing": "Nothing to stop: no backup of this job waits or runs any more."
+  },
+  "sheet": {
+    "title": "Job",
+    "details": "Show details",
+    "openFor": "Show details of {name}",
+    "notFound": "This job does not exist (any more).",
+    "kind": {
+      "mail": "Mail & SaaS job",
+      "endpoint": "Machine job",
+      "share": "File share job",
+      "copy": "Copy job"
+    },
+    "state": "State",
+    "lastError": "Error of the last failed run",
+    "copyError": "Copy error",
+    "warnings": "Warnings of the last run with warnings",
+    "copyWarnings": "Copy warnings",
+    "restoreCheck": "Restore checks",
+    "checkedAt": "Last checked",
+    "facts": "Key facts",
+    "verifySchedule": "Restore checks",
+    "runs": "Last runs",
+    "noRuns": "No run yet.",
+    "openPage": "Open job page",
+    "openGuests": "Open its VMs & containers",
+    "pveFailed": "{count, plural, one {The backup of # guest failed in this round.} other {The backups of # guests failed in this round.}}",
+    "pveShowFailed": "Show the failed guests",
+    "pveRestoreCheck": "The newest restore point of every guest is read back weekly; each guest's result is on VMs & containers.",
+    "keep": "Keeps",
+    "keepValue": "{daily} daily, {weekly} weekly, {monthly} monthly restore points",
+    "progressOf": "Progress of {name}"
   }
 }

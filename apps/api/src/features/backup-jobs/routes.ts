@@ -6,6 +6,7 @@ import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { mayConfigure } from "../endpoints/routes.js";
+import { cancelBackupJob } from "./cancel.js";
 import { addDataFoldersToJob, listMachineFolders } from "./data-folders.js";
 import { applyRecommendedJobs, previewRecommendedJobs } from "./recommended.js";
 import {
@@ -276,6 +277,12 @@ export function buildBackupJobsRoutes(deps: BackupJobsRoutesDeps): Hono<TenantEn
       await runBackupJob(deps.db, c.get("tenantId"), id, input, actorOf(c), now()),
       202,
     );
+  });
+
+  // "Stop" (0.4.5): every queued or running backup of the job.
+  routes.post("/:id/cancel", admin, async (c) => {
+    const { id } = parseOrProblem(jobParamSchema, c.req.param());
+    return c.json(await cancelBackupJob(deps.db, c.get("tenantId"), id, actorOf(c), now()), 202);
   });
 
   routes.get("/:id/runs", admin, async (c) => {

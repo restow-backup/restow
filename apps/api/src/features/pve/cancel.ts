@@ -1,6 +1,6 @@
 import type { Database } from "@restow/db";
-import { pveGuests, pveNodes, pveRuns, pveTasks } from "@restow/db";
-import { and, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
+import { pveGuests, pveJobs, pveNodes, pveRuns, pveTasks } from "@restow/db";
+import { and, eq, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
@@ -75,11 +75,14 @@ export interface CancelResult {
   stopping: number;
 }
 
-type Scope = { guestId: string } | { nodeId: string } | { tenant: true };
+type Scope = { guestId: string } | { guestIds: string[] } | { nodeId: string } | { tenant: true };
 
 function scopeOfTasks(scope: Scope): SQL | undefined {
   if ("guestId" in scope) {
     return eq(pveTasks.guestId, scope.guestId);
+  }
+  if ("guestIds" in scope) {
+    return inArray(pveTasks.guestId, scope.guestIds);
   }
   if ("nodeId" in scope) {
     return eq(pveTasks.nodeId, scope.nodeId);
@@ -148,13 +151,16 @@ async function withdrawQueued(
   return { withdrawn: withdrawn.length, stopping: requested.length };
 }
 
-/** Ask the running backups of a guest to stop (and their tasks with them). */
+/** Ask the running backups of guests to stop (and their tasks with them). */
 async function stopRunning(
   tx: Transaction,
-  guestId: string,
+  guestIds: readonly string[],
   actor: PveActor,
   now: Date,
 ): Promise<number> {
+  if (guestIds.length === 0) {
+    return 0;
+  }
   // Asking again keeps the first request (and who made it).
   const runs = await tx
     .update(pveRuns)
@@ -163,7 +169,11 @@ async function stopRunning(
       cancelledBy: sql`coalesce(${pveRuns.cancelledBy}, ${actor.label})`,
     })
     .where(
-      and(eq(pveRuns.guestId, guestId), eq(pveRuns.kind, "backup"), eq(pveRuns.status, "running")),
+      and(
+        inArray(pveRuns.guestId, [...guestIds]),
+        eq(pveRuns.kind, "backup"),
+        eq(pveRuns.status, "running"),
+      ),
     )
     .returning({ id: pveRuns.id, taskId: pveRuns.taskId });
   const taskIds = runs.flatMap((r) => (r.taskId ? [r.taskId] : []));
@@ -200,7 +210,7 @@ export async function cancelGuestBackup(
       throw new ProblemError(404, "Guest not found");
     }
     const queued = await withdrawQueued(tx, tenantId, { guestId }, actor, now);
-    const running = await stopRunning(tx, guestId, actor, now);
+    const running = await stopRunning(tx, [guestId], actor, now);
     const result = { withdrawn: queued.withdrawn, stopping: queued.stopping + running };
     if (result.withdrawn + result.stopping === 0) {
       throw nothingToCancel("No backup of this guest is queued or running.");
@@ -212,6 +222,53 @@ export async function cancelGuestBackup(
       target: guestId,
       targetType: "pve_guest",
       details: { vmid: guest.vmid, node: guest.node, ...result },
+    });
+    return result;
+  });
+}
+
+/**
+ * POST /pve/jobs/:id/cancel (0.4.5): "Stop" of a job, every queued and running backup of the
+ * guests it covers (its members; for an "all" job also every guest in no job). Set-based like
+ * the rest: a handful of statements whatever the number of guests.
+ */
+export async function cancelPveJob(
+  database: Database,
+  tenantId: string,
+  jobId: string,
+  actor: PveActor,
+  now: Date = new Date(),
+): Promise<CancelResult> {
+  return withTenantTx(database, tenantId, async (tx) => {
+    const [job] = await tx.select().from(pveJobs).where(eq(pveJobs.id, jobId)).limit(1);
+    if (!job) {
+      throw new ProblemError(404, "Job not found");
+    }
+    const guests = await tx
+      .select({ id: pveGuests.id })
+      .from(pveGuests)
+      .where(
+        job.scopeAll
+          ? or(eq(pveGuests.jobId, jobId), isNull(pveGuests.jobId))
+          : eq(pveGuests.jobId, jobId),
+      );
+    const guestIds = guests.map((guest) => guest.id);
+    const queued =
+      guestIds.length > 0
+        ? await withdrawQueued(tx, tenantId, { guestIds }, actor, now)
+        : { withdrawn: 0, stopping: 0 };
+    const running = await stopRunning(tx, guestIds, actor, now);
+    const result = { withdrawn: queued.withdrawn, stopping: queued.stopping + running };
+    if (result.withdrawn + result.stopping === 0) {
+      throw nothingToCancel("No backup of this job is queued or running.");
+    }
+    await auditPve(tx, {
+      tenantId,
+      actor,
+      action: PVE_AUDIT_ACTIONS.jobCancelled,
+      target: jobId,
+      targetType: "pve_job",
+      details: { name: job.name, ...result },
     });
     return result;
   });

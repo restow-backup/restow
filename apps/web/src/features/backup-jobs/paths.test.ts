@@ -21,13 +21,21 @@ describe("the list address", () => {
       create: false,
       select: [],
       copy: noCopy,
+      open: null,
     });
     expect(parseJobsSearch({ type: "endpoint", new: 1, select: "a,b" })).toEqual({
       type: "endpoint",
       create: true,
       select: ["a", "b"],
       copy: noCopy,
+      open: null,
     });
+  });
+
+  it("reads the row whose detail panel is open (0.4.5)", () => {
+    expect(parseJobsSearch({ type: "mail", job: "job-1" }).open).toBe("job-1");
+    expect(parseJobsSearch({ type: "endpoint", job: "pve:abc-1" }).open).toBe("pve:abc-1");
+    expect(parseJobsSearch({ type: "endpoint", job: "<script>" }).open).toBeNull();
   });
 
   it("reads the kinds of file shares and what a new copy job starts with", () => {

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import {
   type Cell,
+  type Column,
   type ColumnDef,
   type ColumnFiltersState,
   flexRender,
@@ -188,6 +189,18 @@ export interface DataTableProps<TData, TValue = unknown> {
    */
   fixedLayout?: boolean;
   className?: string;
+}
+
+/**
+ * The smallest width of a `fixedLayout` table: the sizes of the columns shown on every screen.
+ * A column that only some breakpoints show (`meta.className` with `hidden`, e.g.
+ * `hidden xl:table-cell`) is left out: a fixed table grows by itself to the columns it shows,
+ * and counting a hidden one would make every narrower screen scroll sideways for nothing.
+ */
+export function fixedMinWidth<TData>(columns: readonly Column<TData, unknown>[]): number {
+  return columns
+    .filter((column) => !/(^|\s)hidden(\s|$)/.test(column.columnDef.meta?.className ?? ""))
+    .reduce((sum, column) => sum + column.getSize(), 0);
 }
 
 /** Height of a row of a `fixedLayout` table: a small button (h-8) and the cell padding. */
@@ -556,7 +569,7 @@ export function DataTable<TData, TValue = unknown>({
             minWidth !== undefined
               ? { minWidth }
               : fixedLayout
-                ? { minWidth: visibleColumns.reduce((sum, column) => sum + column.getSize(), 0) }
+                ? { minWidth: fixedMinWidth(visibleColumns) }
                 : undefined
           }
           scrollLabel={label}

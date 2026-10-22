@@ -130,7 +130,7 @@ describe("the page of a machine job", () => {
     expect(slot("job-overview")?.textContent).toContain("Daily at");
     expect(slot("job-overview")?.textContent).toContain("Daily 14, weekly 8, monthly 6");
     expect(primaryButtons(page ?? document.body).map((node) => node.textContent?.trim())).toEqual([
-      "Run now",
+      "Start now",
     ]);
     // A machine job cannot be paused: the agent decides when to back up.
     expect(buttonByText(page as HTMLElement, "Pause")).toBeNull();
@@ -200,7 +200,7 @@ describe("the page of a machine job", () => {
     const items = await openMenu(byLabel("Actions for FS-BERGISCH"));
     expect(items.map((item) => item.textContent)).toEqual([
       "Edit overrides",
-      "Run now",
+      "Start now",
       "Remove from job",
     ]);
   });
@@ -216,12 +216,12 @@ describe("the page of a machine job", () => {
     });
     await flush(6);
     const items = await openMenu(byLabel("Actions for APP-SRV2"));
-    await click(items.find((item) => item.textContent === "Run now"));
+    await click(items.find((item) => item.textContent === "Start now"));
     await flush(4);
     const run = opened.requests.filter((request) => request.path === "/backup-jobs/job-srv/run");
     bodies.push(...run.map((request) => request.body));
     expect(bodies).toEqual([{ targetIds: ["m2"] }]);
-    await click(buttonByText(slot("job-detail") as HTMLElement, "Run now"));
+    await click(buttonByText(slot("job-detail") as HTMLElement, "Start now"));
     await flush(4);
     expect(
       opened.requests
@@ -583,7 +583,7 @@ describe("the page of a machine job", () => {
     });
     await flush(6);
     const page = slot("job-detail") as HTMLElement;
-    for (const label of ["Run now", "Edit"]) {
+    for (const label of ["Start now", "Edit"]) {
       const button = buttonByText(page, label) as HTMLButtonElement;
       expect(button.disabled, label).toBe(true);
       expect(describedText(button), label).toContain("This is the public demo");
@@ -826,7 +826,7 @@ describe("the page of a mail job", () => {
     );
     expect(buttonByText(document.body, "Add")).toBeNull();
     const items = await openMenu(byLabel("Actions for Anna Berg"));
-    expect(items.map((item) => item.textContent)).toEqual(["Edit overrides", "Run now"]);
+    expect(items.map((item) => item.textContent)).toEqual(["Edit overrides", "Start now"]);
   });
 
   it("links a mail run to its page in History", async () => {

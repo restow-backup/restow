@@ -400,4 +400,58 @@ describe.skipIf(!canRun)("stopping Proxmox VE backups against Postgres", () => {
       .where(and(eq(pveTasks.guestId, vm), eq(pveTasks.status, "pending")));
     expect(open).toHaveLength(1);
   });
+
+  it("starts and stops every backup of a job at once (0.4.5), audited on the job", async () => {
+    // Nothing of the earlier cases waits any more (a delivered task the node never ended included).
+    await fixture.db.execute(
+      sql`UPDATE pve_tasks SET status = 'cancelled' WHERE status IN ('pending', 'delivered')`,
+    );
+    const job = await service.saveJob(
+      shared.db,
+      fixture.tenantId,
+      null,
+      { name: "Nightly guests", scopeAll: false, schedule: null, enabled: true, settings: {} },
+      actor(),
+    );
+    await service.assignJob(shared.db, fixture.tenantId, vm, job.id, actor());
+    await service.assignJob(shared.db, fixture.tenantId, ct, job.id, actor());
+    expect(await service.runPveJob(shared.db, fixture.tenantId, job.id, actor())).toEqual({
+      queued: 2,
+      alreadyQueued: 0,
+      noNode: 0,
+      selfBackup: 0,
+    });
+    const tasks = await fixture.db
+      .select()
+      .from(pveTasks)
+      .where(and(eq(pveTasks.status, "pending"), sql`${pveTasks.params}->>'jobId' = ${job.id}`));
+    expect(tasks.map((t) => t.guestId).sort()).toEqual([vm, ct].sort());
+    // The job list follows the round like a scheduled one.
+    const round = (await service.overview(shared.db, fixture.tenantId)).jobs.find(
+      (j) => j.id === job.id,
+    )?.round;
+    expect(round).toMatchObject({ total: 2, queued: 2 });
+    // A second click queues nothing twice.
+    expect(await service.runPveJob(shared.db, fixture.tenantId, job.id, actor())).toMatchObject({
+      queued: 0,
+      alreadyQueued: 2,
+    });
+    expect(await cancel.cancelPveJob(shared.db, fixture.tenantId, job.id, actor())).toEqual({
+      withdrawn: 2,
+      stopping: 0,
+    });
+    await expect(
+      cancel.cancelPveJob(shared.db, fixture.tenantId, job.id, actor()),
+    ).rejects.toMatchObject({ status: 409 });
+    const actions = await fixture.db
+      .select({ action: auditLog.action, target: auditLog.target })
+      .from(auditLog)
+      .where(sql`${auditLog.action} IN ('pve.job.run_requested', 'pve.job.cancelled')`);
+    expect(actions.map((a) => a.action).sort()).toEqual([
+      "pve.job.cancelled",
+      "pve.job.run_requested",
+      "pve.job.run_requested",
+    ]);
+    expect(new Set(actions.map((a) => a.target))).toEqual(new Set([job.id]));
+  });
 });

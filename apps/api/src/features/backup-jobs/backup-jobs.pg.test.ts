@@ -1371,6 +1371,67 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     expect(runs.items.map((run) => [run.source, run.type])).toEqual([["mail", "backup"]]);
   });
 
+  it("stops every waiting or running backup of a job at once (0.4.5), audited", async () => {
+    // The mail job of the case before has clara's backup queued; one more runs.
+    const [mail] = await owner.select().from(backupJobs).where(eq(backupJobs.name, "Run me"));
+    const mailId = mail?.id ?? "";
+    const [queued] = await owner
+      .select()
+      .from(jobs)
+      .where(and(eq(jobs.protectedObjectId, objects.clara ?? ""), eq(jobs.status, "queued")));
+    const [active] = await owner
+      .insert(jobs)
+      .values({
+        tenantId: contoso,
+        queue: "backup",
+        status: "active",
+        protectedObjectId: objects.ben,
+        payload: { backupJobId: mailId, protectedObjectId: objects.ben },
+      })
+      .returning();
+    // A restore operator may not stop backups.
+    await problem(await call("POST", `/${mailId}/cancel`, { role: "tenant_restore" }), 403);
+    expect(await json(await call("POST", `/${mailId}/cancel`), 202)).toEqual({
+      withdrawn: 1,
+      stopping: 1,
+    });
+    const after = await owner
+      .select({ id: jobs.id, status: jobs.status })
+      .from(jobs)
+      .where(eq(jobs.tenantId, contoso));
+    expect(after.find((row) => row.id === queued?.id)?.status).toBe("cancelled");
+    expect(after.find((row) => row.id === active?.id)?.status).toBe("cancelled");
+    const nothing = await problem(await call("POST", `/${mailId}/cancel`), 409);
+    expect(nothing.type).toBe("urn:restow:problem:backup-job-nothing-to-cancel");
+    const [entry] = await audits("backup_job.run_cancelled", mailId);
+    expect(entry?.details).toMatchObject({ kind: "mail", withdrawn: 1, stopping: 1 });
+
+    // The machine job's "back up now" requests are withdrawn, audited on each machine too.
+    const [machine] = await owner
+      .select()
+      .from(backupJobs)
+      .where(eq(backupJobs.name, "Web servers"));
+    const pending = await owner
+      .select()
+      .from(endpointTasks)
+      .where(and(eq(endpointTasks.kind, "backup_now"), eq(endpointTasks.status, "pending")));
+    expect(pending.length).toBeGreaterThan(0);
+    const stopped = await json<{ withdrawn: number; stopping: number }>(
+      await call("POST", `/${machine?.id}/cancel`),
+      202,
+    );
+    expect(stopped).toEqual({ withdrawn: pending.length, stopping: 0 });
+    const left = await owner
+      .select()
+      .from(endpointTasks)
+      .where(and(eq(endpointTasks.kind, "backup_now"), eq(endpointTasks.status, "pending")));
+    expect(left).toHaveLength(0);
+    expect(await audits("endpoint.backup.cancelled")).toHaveLength(
+      new Set(pending.map((task) => task.endpointId)).size,
+    );
+    expect(await audits("backup_job.run_cancelled", machine?.id)).toHaveLength(1);
+  });
+
   it("offers the editor its defaults and the objects and machines to pick", async () => {
     const mail = await json<JobDefaultsDto>(await call("GET", "/defaults?kind=mail"), 200);
     expect(mail).toMatchObject({

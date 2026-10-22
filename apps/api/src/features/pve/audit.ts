@@ -22,6 +22,9 @@ export const PVE_AUDIT_ACTIONS = {
   verifyRequested: "pve.verify.requested",
   bootTestRequested: "pve.boot_test.requested",
   jobChanged: "pve.job.changed",
+  // "Start now" and "Stop" of a whole job (0.4.5).
+  jobRunRequested: "pve.job.run_requested",
+  jobCancelled: "pve.job.cancelled",
   // The Restow server's own VM (docs/PVE.md): an admin marked it (or took the mark back), and
   // confirmed backing it up anyway.
   restowServerFlagged: "pve.guest.restow_server",

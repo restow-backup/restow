@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type * as React from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -45,6 +46,7 @@ vi.mock("@/features/backup-jobs/components/job-actions", () => ({
 vi.mock("../hooks.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../hooks.js")>()),
   useBackupNow: () => ({ request: () => {}, pending: false }),
+  useRefreshEndpoint: () => () => Promise.resolve([]),
 }));
 
 beforeAll(async () => {
@@ -108,52 +110,66 @@ function table(
   props: Partial<React.ComponentProps<typeof EndpointsTable>> = {},
 ) {
   return render(
-    <EndpointsTable
-      area="servers"
-      items={items}
-      loading={false}
-      fetching={false}
-      error={null}
-      onRetry={() => {}}
-      empty={<p data-testid="empty">Nothing here</p>}
-      {...props}
-    />,
+    <QueryClientProvider client={new QueryClient()}>
+      <EndpointsTable
+        area="servers"
+        items={items}
+        loading={false}
+        fetching={false}
+        error={null}
+        onRetry={() => {}}
+        empty={<p data-testid="empty">Nothing here</p>}
+        {...props}
+      />
+    </QueryClientProvider>,
   );
 }
 
 describe("EndpointsTable", () => {
-  it("lists a machine with its name, host name, system and links to its page", () => {
+  it("lists a machine with its name and system, the name leading to its page", () => {
     const html = table([
       endpoint({ displayName: "Web front", hostname: "web-01", os: "darwin", arch: "arm64" }),
     ]);
     expect(html).toContain("Web front");
-    expect(html).toContain("web-01");
     expect(html).toContain("macOS");
     expect(html).toContain("arm64");
     expect(html).toContain('href="/inventory/11111111-1111-4111-8111-111111111111"');
   });
 
+  it("makes the name the button that opens the details when the page has a panel", () => {
+    const html = table([endpoint()], { onOpen: () => {} });
+    expect(html).toContain('data-machine-name="11111111-1111-4111-8111-111111111111"');
+    expect(html).toContain('aria-haspopup="dialog"');
+    expect(html).toContain('aria-label="Show details of web-01"');
+  });
+
   it("uses the host name when the machine has no label", () => {
     const html = table([endpoint()]);
-    expect(html).toContain("web-01");
     expect(count(html, ">web-01<")).toBeGreaterThanOrEqual(1);
   });
 
-  it("shows the connection, the last backup and the readiness", () => {
-    const html = table([endpoint()]);
-    expect(html).toContain("Online");
+  it("shows one state per machine: a passed restore check of a machine in a job", () => {
+    const html = table([endpoint({ job: { id: "job-1", name: "Web servers" } })]);
+    expect(count(html, 'data-slot="machine-status"')).toBe(1);
+    expect(html).toContain('data-status="verified"');
+    expect(html).toContain("Restore check passed");
     expect(html).toContain("<time");
-    expect(html).toContain("Ready");
     expect(html).toContain("Servers");
   });
 
-  it("marks a failed or partial last backup", () => {
-    expect(
-      table([
-        endpoint({ latestRun: run({ status: "failed" }), attention: ["last_backup_failed"] }),
-      ]),
-    ).toContain("Failed");
-    expect(table([endpoint({ latestRun: run({ status: "partial" }) })])).toContain("With warnings");
+  it("marks a failed or partial last backup, and counts what else is wrong", () => {
+    const failed = table([
+      endpoint({
+        latestRun: run({ status: "failed" }),
+        attention: ["last_backup_failed", "silent"],
+      }),
+    ]);
+    expect(failed).toContain('data-status="failed"');
+    expect(failed).toContain("Backup failed");
+    expect(failed).toContain('data-slot="machine-more-states"');
+    expect(table([endpoint({ latestRun: run({ status: "partial" }) })])).toContain(
+      'data-status="partial"',
+    );
   });
 
   it("shows a run that was only interrupted as such, not as a failure", () => {
@@ -163,13 +179,41 @@ describe("EndpointsTable", () => {
         attention: [],
       }),
     ]);
-    expect(html).toContain("Interrupted");
-    expect(html).not.toContain(">Failed<");
+    expect(html).toContain('data-status="interrupted"');
+    expect(html).not.toContain('data-status="failed"');
   });
 
-  it("says when a backup is running now", () => {
-    const html = table([endpoint({ latestRun: run({ status: "running", finishedAt: null }) })]);
-    expect(html).toContain("Backup running");
+  it("says when a backup is running now, with its progress and a Stop button", () => {
+    const html = table(
+      [
+        endpoint({
+          latestRun: run({
+            status: "running",
+            finishedAt: null,
+            progress: { filesDone: 5, bytesDone: 50, totalBytes: 200, updatedAt: "x" },
+          }),
+        }),
+      ],
+      { canManageJobs: true },
+    );
+    expect(html).toContain('data-status="running"');
+    expect(html).toContain('aria-valuenow="25"');
+    expect(html).toContain('data-action="stop"');
+    expect(html).toContain("Stop backup");
+  });
+
+  it("says Stopping once a stop was asked for", () => {
+    const html = table([
+      endpoint({
+        latestRun: run({
+          status: "running",
+          finishedAt: null,
+          cancelRequestedAt: "2026-09-30T09:01:00.000Z",
+        }),
+      }),
+    ]);
+    expect(html).toContain('data-status="cancelling"');
+    expect(html).toContain('data-action="stopping"');
   });
 
   it("rates a machine that never had a backup, and one that is unverified", () => {
@@ -200,64 +244,37 @@ describe("EndpointsTable", () => {
       }),
     ]);
     expect(html).toContain("No backup yet");
-    expect(html).toContain("Unverified");
+    expect(html).toContain('data-status="unverified"');
   });
 
-  it("hints when the restore test is overdue", () => {
-    const html = table([
-      endpoint({
-        readiness: {
-          state: "yellow",
-          checkedAt: null,
-          overdue: true,
-          basis: "restore_test",
-          latestSnapshotId: "s",
-        },
-      }),
-    ]);
-    expect(html).toContain("Overdue");
-    expect(html).toContain("Attention");
-  });
-
-  it("lists what needs attention", () => {
-    const html = table([
-      endpoint({ attention: ["silent", "last_backup_failed", "backup_overdue", "never_seen"] }),
-    ]);
-    expect(html).toContain('data-attention="last_backup_failed"');
-    expect(html).toContain('data-attention="silent"');
-    expect(html).toContain("Last backup failed");
-    // Two are shown, the rest is counted.
-    expect(html).toContain("+2 more");
-  });
-
-  it("names the job of a machine, links it, and marks one in no job as without backup", () => {
+  it("names the job of a machine, links it, and says when one is in no job", () => {
     const html = table([
       endpoint({ id: "a", hostname: "in-job", job: { id: "job-1", name: "Web servers" } }),
       endpoint({ id: "b", hostname: "no-job", job: null, attention: ["no_job"] }),
-      endpoint({ id: "c", hostname: "gone", job: null, status: "revoked" }),
     ]);
     expect(html).toContain("Backup job");
     expect(html).toContain("Web servers");
     expect(html).toContain('href="/jobs/definitions/job-1"');
-    // Only the active machine in no job is without backup, and it says so once (not again under
-    // what needs attention).
-    expect(count(html, 'data-slot="without-backup"')).toBe(1);
-    expect(html).toContain("Without backup");
-    expect(html).not.toContain('data-attention="no_job"');
+    expect(html).toContain('data-status="no_job"');
   });
 
-  it("gives every machine its actions, and selection boxes to those who may manage jobs", () => {
+  it("gives every machine one action button and its menu, closed for those who may only look", () => {
     const items = [
       endpoint({ id: "a", hostname: "in-job", job: { id: "job-1", name: "Web servers" } }),
       endpoint({ id: "b", hostname: "no-job", job: null }),
     ];
     const plain = table(items);
     expect(count(plain, 'aria-label="Actions for')).toBe(2);
-    expect(plain).toContain('aria-label="Actions for no-job"');
+    expect(count(plain, 'data-slot="machine-action"')).toBe(2);
     expect(plain).not.toContain('role="checkbox"');
+    // A viewer who may not manage jobs sees the button closed, with the reason.
+    const buttons = plain.match(/<button[^>]*data-action="backup"[^>]*>/g) ?? [];
+    expect(buttons).toHaveLength(2);
+    expect(buttons.every((button) => button.includes('disabled=""'))).toBe(true);
     const html = table(items, { canManageJobs: true });
     expect(html).toContain('aria-label="Select no-job"');
     expect(html).toContain('aria-label="Select all rows on this page"');
+    expect(html).toContain('aria-label="Back up now: in-job"');
   });
 
   it("says whom a machine is assigned to, and nobody when it is not", () => {
@@ -276,7 +293,6 @@ describe("EndpointsTable", () => {
     ]);
     expect(html).toContain("Assigned to");
     expect(html).toContain("Alice Example");
-    expect(html).toContain("alice@example.com");
     expect(html).toContain("bob@example.com");
     expect(html).toContain(">Nobody<");
     // A filter by person (and nobody) beside the search.
@@ -290,7 +306,6 @@ describe("EndpointsTable", () => {
     expect(html).toContain("Show revoked machines (1)");
     expect(html).toContain("Only revoked machines");
     expect(html).not.toContain("opacity-60");
-    expect(html).not.toContain(">Online<");
   });
 
   it("does not grey out a machine that is in use", () => {
@@ -308,7 +323,6 @@ describe("EndpointsTable", () => {
     expect(agents).toContain("Agent version");
     expect(agents).toContain("0.1.0");
     expect(agents).toContain("Type");
-    expect(agents).toContain('href="/inventory/11111111-1111-4111-8111-111111111111"');
   });
 
   it("shows the empty state passed by the page", () => {
@@ -330,7 +344,7 @@ describe("EndpointsTable", () => {
       const html = table([endpoint({ attention: ["silent"] })]);
       expect(html).toContain("Letzte Sicherung");
       expect(html).toContain("Meldet sich nicht");
-      expect(html).toContain("Bereit");
+      expect(html).toContain("Zustand");
     } finally {
       await i18n.changeLanguage("en");
     }

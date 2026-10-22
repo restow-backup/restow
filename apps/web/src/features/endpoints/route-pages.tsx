@@ -24,7 +24,7 @@ export { ENDPOINT_ROLES };
 /** The inventory behind the role gate; the filter chip comes from `?kind=`. */
 export function InventoryRoute() {
   const raw = useSearch({ strict: false }) as Record<string, unknown>;
-  const { kind } = parseInventorySearch(raw);
+  const { kind, machine } = parseInventorySearch(raw);
   const navigate = useNavigate();
   const changeKind = (next: EndpointProfile | undefined) => {
     void navigate({
@@ -33,9 +33,21 @@ export function InventoryRoute() {
       replace: true,
     });
   };
+  // The open detail panel is in the address, so a link (or Back) opens it again.
+  const openMachine = (next: string | null) => {
+    void navigate({
+      to: INVENTORY_PATH as never,
+      search: { ...(kind ? { kind } : {}), ...(next ? { machine: next } : {}) } as never,
+    });
+  };
   return (
     <RequireRole roles={ENDPOINT_ROLES}>
-      <EndpointsPage area={areaOfKind(kind)} onKindChange={changeKind} />
+      <EndpointsPage
+        area={areaOfKind(kind)}
+        onKindChange={changeKind}
+        openMachine={machine ?? null}
+        onOpenMachine={openMachine}
+      />
     </RequireRole>
   );
 }

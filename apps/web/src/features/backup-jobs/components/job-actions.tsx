@@ -25,32 +25,24 @@ const SKIP_REASONS: readonly SkipReason[] = [
 ];
 
 /**
- * What a job's actions do and how they say so: running a job (or some of its
- * objects) now, switching a mail job off and on, deleting a job. Each ends in a
- * toast; pausing and deleting ask first, in a dialog the page renders from `dialogs`.
- * A machine job cannot be paused (the agent decides when to back up).
+ * "Run now" of a job (or of some of its objects) with its toast: how many were queued and why
+ * the others were not. Its own pending state, so one row's click does not close the others.
  */
-export function useJobActions(options: { onDeleted?: (job: BackupJob) => void } = {}) {
+export function useRunNow() {
   const { t } = useTranslation("backupjobs");
   const run = useRunBackupJob();
-  const toggle = useToggleBackupJob();
-  const remove = useDeleteBackupJob();
-  const [pausing, setPausing] = React.useState<BackupJob | null>(null);
-  const [deleting, setDeleting] = React.useState<BackupJob | null>(null);
-  const onDeleted = options.onDeleted;
-
+  const { mutate } = run;
   const failed = React.useCallback(
     (error: unknown) => toast.error(t("toasts.failed"), { description: t(jobErrorKey(error)) }),
     [t],
   );
-
   const runNow = React.useCallback(
     (
       job: Pick<BackupJob, "id" | "kind" | "name">,
       targetIds?: string[],
       options: { force?: boolean } = {},
     ) => {
-      run.mutate(
+      mutate(
         {
           jobId: job.id,
           ...(targetIds ? { targetIds } : {}),
@@ -87,7 +79,29 @@ export function useJobActions(options: { onDeleted?: (job: BackupJob) => void } 
         },
       );
     },
-    [run, t, failed],
+    [mutate, t, failed],
+  );
+  return { runNow, running: run.isPending };
+}
+
+/**
+ * What a job's actions do and how they say so: running a job (or some of its
+ * objects) now, switching a mail job off and on, deleting a job. Each ends in a
+ * toast; pausing and deleting ask first, in a dialog the page renders from `dialogs`.
+ * A machine job cannot be paused (the agent decides when to back up).
+ */
+export function useJobActions(options: { onDeleted?: (job: BackupJob) => void } = {}) {
+  const { t } = useTranslation("backupjobs");
+  const { runNow, running } = useRunNow();
+  const toggle = useToggleBackupJob();
+  const remove = useDeleteBackupJob();
+  const [pausing, setPausing] = React.useState<BackupJob | null>(null);
+  const [deleting, setDeleting] = React.useState<BackupJob | null>(null);
+  const onDeleted = options.onDeleted;
+
+  const failed = React.useCallback(
+    (error: unknown) => toast.error(t("toasts.failed"), { description: t(jobErrorKey(error)) }),
+    [t],
   );
 
   const resume = React.useCallback(
@@ -145,7 +159,7 @@ export function useJobActions(options: { onDeleted?: (job: BackupJob) => void } 
     resume,
     askPause: setPausing,
     askDelete: setDeleting,
-    running: run.isPending,
+    running,
     dialogs,
   };
 }

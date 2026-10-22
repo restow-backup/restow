@@ -27,6 +27,7 @@ import type { PveActor } from "./audit.js";
 import { requestBootTest } from "./boot-tests.js";
 import {
   cancelGuestBackup,
+  cancelPveJob,
   cancelQueuedBackups,
   requestNodeUpdate,
   setNodeQueuePaused,
@@ -58,6 +59,7 @@ import {
   requestVerify,
   restoreSnapshot,
   revokeNode,
+  runPveJob,
   saveJob,
   setRestowServerFlag,
 } from "./service.js";
@@ -324,6 +326,17 @@ pveRoutes.patch("/jobs/:id", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   const input = await parseJsonBody(c.req, jobSchema);
   return c.json(await saveJob(db, c.get("tenantId"), id, input, actorOf(c)));
+});
+
+// "Start now" and "Stop" of a whole job (0.4.5).
+pveRoutes.post("/jobs/:id/run", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await runPveJob(db, c.get("tenantId"), id, actorOf(c)), 202);
+});
+
+pveRoutes.post("/jobs/:id/cancel", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await cancelPveJob(db, c.get("tenantId"), id, actorOf(c)), 202);
 });
 
 pveRoutes.delete("/jobs/:id", admin, async (c) => {

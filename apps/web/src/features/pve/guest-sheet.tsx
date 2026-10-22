@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ExternalLink, ShieldCheck, X } from "lucide-react";
-import * as React from "react";
+import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { CopyButton, RelativeTime } from "@/components/kit";
+import { DetailFact, DetailSection, LogBlock as KitLogBlock, RelativeTime } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -19,7 +19,6 @@ import { toast } from "@/components/ui/sonner";
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { errorMessageKey } from "@/lib/api";
 import { formatBytes, formatDateTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 import {
   fetchGuest,
@@ -46,73 +45,13 @@ import { RestowServerNote } from "./self-backup.js";
  * copyable), the restore check, the backup sizes, the job, the newest runs and the actions.
  */
 
-/** A log text: monospace, kept as written, scrolls inside a fixed height, with a Copy button. */
-export function LogBlock({
-  text,
-  tone = "muted",
-  label,
-  name,
-  "data-slot": slot,
-}: {
-  text: string;
-  tone?: "destructive" | "warning" | "muted";
-  /** The Copy button's name ("Copy error"). */
-  label: string;
-  /** The scrolling block's name for screen readers ("Error of the last run"). */
-  name: string;
-  "data-slot"?: string;
-}) {
-  return (
-    <section
-      aria-label={name}
-      className={cn(
-        "relative rounded-md border",
-        tone === "destructive" && "border-destructive/40 bg-destructive/5",
-        tone === "warning" && "border-warning/50 bg-warning/5",
-        tone === "muted" && "bg-muted/40",
-      )}
-      data-slot={slot ?? "pve-log"}
-    >
-      <pre
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region the keyboard must reach
-        tabIndex={0}
-        className="max-h-60 overflow-auto p-3 pr-11 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-      >
-        {text}
-      </pre>
-      <CopyButton value={text} label={label} className="absolute top-1.5 right-1.5" />
-    </section>
-  );
+/** The log block of the panel: the kit's, kept under its old name for this feature's tests. */
+export function LogBlock(props: React.ComponentProps<typeof KitLogBlock>) {
+  return <KitLogBlock {...props} data-slot={props["data-slot"] ?? "pve-log"} />;
 }
 
-function Section({
-  title,
-  children,
-  slot,
-}: {
-  title: string;
-  children: React.ReactNode;
-  slot?: string;
-}) {
-  const id = React.useId();
-  return (
-    <section aria-labelledby={id} className="space-y-2" data-slot={slot}>
-      <h3 id={id} className="text-sm font-semibold">
-        {title}
-      </h3>
-      {children}
-    </section>
-  );
-}
-
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="grid grid-cols-[minmax(8rem,40%)_1fr] gap-2 text-sm">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 break-words">{children}</dd>
-    </div>
-  );
-}
+const Section = DetailSection;
+const Fact = DetailFact;
 
 /** The newest runs of the guest from its detail: what ran, how it ended, and its full text. */
 function RecentRuns({ runs, shown }: { runs: readonly PveRun[]; shown?: string | null }) {

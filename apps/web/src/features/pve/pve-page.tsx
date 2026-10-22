@@ -181,8 +181,10 @@ export function JobDialog({
     });
   };
   const number = (key: keyof typeof keep) => (
-    <div className="space-y-1">
-      <Label htmlFor={`pve-${key}`}>{t(`jobs.${key}`)}</Label>
+    <div className="min-w-0 space-y-1">
+      <Label htmlFor={`pve-${key}`} className="leading-snug break-words hyphens-auto">
+        {t(`jobs.${key}`)}
+      </Label>
       <Input
         id={`pve-${key}`}
         type="number"
@@ -235,7 +237,12 @@ export function JobDialog({
                 />
                 {t("jobs.allGuests")}
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              {/* As many side by side as fit: on a phone (and in the narrow column) they stack, so
+                  "Monatliche Sicherungsstände" never runs over the dialog's edge. */}
+              <div
+                className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2"
+                data-slot="pve-job-retention"
+              >
                 {number("keepDaily")}
                 {number("keepWeekly")}
                 {number("keepMonthly")}

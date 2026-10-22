@@ -182,7 +182,8 @@ describe("EndpointsPage", () => {
     await open("servers");
     expect(page.text()).toContain("Web front");
     expect(page.text()).toContain("db-01");
-    expect(page.text()).toContain("Online");
+    // One state per machine: the online one's restore check passed, the other is offline.
+    expect(page.text()).toContain("Restore check passed");
     expect(page.text()).toContain("Offline");
     expect(page.text()).toContain("no disk images and no bare-metal restore");
     expect(page.text()).toContain("never overwrites anything");

@@ -580,6 +580,29 @@ export const saveJob = (id: string | null, input: JobInput) =>
 export const deleteJob = (id: string) =>
   apiFetch<void>(`/pve/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/** What "Start now" of a job did (0.4.5): queued backups and the guests it left out, counted. */
+export interface PveJobRunResult {
+  queued: number;
+  /** A backup of the guest waits or runs already. */
+  alreadyQueued: number;
+  /** The guest's node has no restow-pve. */
+  noNode: number;
+  /** The Restow server's own VM, backed up only once an admin confirmed it. */
+  selfBackup: number;
+}
+/** "Start now" of a job: a backup of every guest it covers, as its schedule would (0.4.5). */
+export const runPveJob = (id: string) =>
+  apiFetch<PveJobRunResult>(`/pve/jobs/${encodeURIComponent(id)}/run`, {
+    method: "POST",
+    body: {},
+  });
+/** "Stop" of a job: its queued backups withdrawn, its running ones asked to stop (0.4.5). */
+export const cancelPveJob = (id: string) =>
+  apiFetch<PveCancelResult>(`/pve/jobs/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+    body: {},
+  });
+
 // --- File restore of containers (#62) ---------------------------------------------
 
 /** Entries one page of a container folder holds; "Load more" fetches the next page. */

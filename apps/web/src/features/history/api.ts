@@ -274,6 +274,9 @@ export const historyKeys = {
     ["tenant", tenantId, "history", "detail", runId] as const,
   /** Every run the live channel follows, keyed by id: what rows and the drawer read. */
   live: (tenantId: TenantKey) => ["tenant", tenantId, "history", "live"] as const,
+  /** The newest runs of one backup job, for its detail panel on the job lists (0.4.5). */
+  jobRuns: (tenantId: TenantKey, jobId: string) =>
+    ["tenant", tenantId, "history", "job-runs", jobId] as const,
   /** Every backup job as the live channel last described it, keyed by id (the sidebar's counts). */
   liveDefinitions: (tenantId: TenantKey) =>
     ["tenant", tenantId, "history", "live-definitions"] as const,
@@ -281,8 +284,12 @@ export const historyKeys = {
 
 // --- Requests ---------------------------------------------------------------------------------
 
-export function fetchHistory(filters: HistoryFilters, cursor: string | null): Promise<HistoryPage> {
-  const params = new URLSearchParams({ limit: String(HISTORY_PAGE_SIZE) });
+export function fetchHistory(
+  filters: HistoryFilters,
+  cursor: string | null,
+  limit: number = HISTORY_PAGE_SIZE,
+): Promise<HistoryPage> {
+  const params = new URLSearchParams({ limit: String(limit) });
   if (filters.type) {
     params.set("type", filters.type);
   }

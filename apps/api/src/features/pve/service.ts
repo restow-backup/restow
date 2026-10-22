@@ -27,7 +27,7 @@ import {
   pveSnapshots,
   pveTasks,
 } from "@restow/db";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { storeSecret } from "../../lib/secrets.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -1048,6 +1048,126 @@ export async function backupNow(
       });
     }
     return { taskId: (task as { id: string }).id, alreadyQueued: false };
+  });
+}
+
+/** What "Start now" of a Proxmox VE job did (0.4.5). */
+export interface PveJobRunResult {
+  /** Backups queued. */
+  queued: number;
+  /** Guests with a backup that waits or runs already. */
+  alreadyQueued: number;
+  /** Guests on a node without restow-pve (or with a revoked one). */
+  noNode: number;
+  /** The Restow server's own VM, backed up only once an admin confirmed it (docs/PVE.md). */
+  selfBackup: number;
+}
+
+/**
+ * POST /pve/jobs/:id/run (0.4.5): a backup of every guest the job covers, now, as the scheduler
+ * would queue it (apps/worker pve/maintenance.ts `planJobs`), without moving the job's schedule
+ * (`last_run_at` becomes now, so the job list shows the round as it goes).
+ * The guests, their nodes and their open tasks are read once each; the tasks go in with one
+ * statement, so a job of thousands of guests is one short transaction.
+ */
+export async function runPveJob(
+  database: Database,
+  tenantId: string,
+  jobId: string,
+  actor: PveActor,
+  now: Date = new Date(),
+): Promise<PveJobRunResult> {
+  return withTenantTx(database, tenantId, async (tx) => {
+    const [job] = await tx.select().from(pveJobs).where(eq(pveJobs.id, jobId)).limit(1);
+    if (!job) {
+      throw new ProblemError(404, "Job not found");
+    }
+    const guests = (
+      await tx
+        .select()
+        .from(pveGuests)
+        .where(
+          job.scopeAll
+            ? or(eq(pveGuests.jobId, jobId), isNull(pveGuests.jobId))
+            : eq(pveGuests.jobId, jobId),
+        )
+    ).filter(pveGuestBackable);
+    const result: PveJobRunResult = { queued: 0, alreadyQueued: 0, noNode: 0, selfBackup: 0 };
+    if (guests.length === 0) {
+      await auditPve(tx, {
+        tenantId,
+        actor,
+        action: PVE_AUDIT_ACTIONS.jobRunRequested,
+        target: jobId,
+        targetType: "pve_job",
+        details: { name: job.name, ...result },
+      });
+      return result;
+    }
+    const nodes = await tx.select().from(pveNodes).where(isNull(pveNodes.revokedAt));
+    const open = new Set(
+      (
+        await tx
+          .select({ guestId: pveTasks.guestId })
+          .from(pveTasks)
+          .where(
+            and(
+              inArray(
+                pveTasks.guestId,
+                guests.map((guest) => guest.id),
+              ),
+              eq(pveTasks.kind, "backup"),
+              inArray(pveTasks.status, ["pending", "delivered"]),
+            ),
+          )
+      ).map((row) => row.guestId),
+    );
+    const rows: (typeof pveTasks.$inferInsert)[] = [];
+    for (const guest of guests) {
+      if (pveSelfBackupBlocked(guest)) {
+        result.selfBackup++;
+        continue;
+      }
+      if (open.has(guest.id)) {
+        result.alreadyQueued++;
+        continue;
+      }
+      const node = nodes.find((n) => n.clusterId === guest.clusterId && n.name === guest.node);
+      if (!node) {
+        result.noNode++;
+        continue;
+      }
+      rows.push({
+        tenantId,
+        nodeId: node.id,
+        guestId: guest.id,
+        kind: "backup",
+        params: {
+          vmid: guest.vmid,
+          mode: job.settings.mode ?? "snapshot",
+          verifyRead: false,
+          jobId: job.id,
+        },
+        createdBy: actor.userId,
+        expiresAt: new Date(now.getTime() + TASK_TTL_MS),
+      });
+    }
+    if (rows.length > 0) {
+      await tx.insert(pveTasks).values(rows);
+      // The job's round starts now: the job list follows it ("2 of 5 guests done") like a
+      // scheduled one. The schedule (`next_run_at`) stays as it was.
+      await tx.update(pveJobs).set({ lastRunAt: now }).where(eq(pveJobs.id, job.id));
+    }
+    result.queued = rows.length;
+    await auditPve(tx, {
+      tenantId,
+      actor,
+      action: PVE_AUDIT_ACTIONS.jobRunRequested,
+      target: jobId,
+      targetType: "pve_job",
+      details: { name: job.name, ...result },
+    });
+    return result;
   });
 }
 

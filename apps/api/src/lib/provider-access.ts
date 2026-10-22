@@ -398,6 +398,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PATCH /api/v1/backup-jobs/:id/members/:targetId": configure(),
   "DELETE /api/v1/backup-jobs/:id/members/:targetId": configure(),
   "POST /api/v1/backup-jobs/:id/run": operate(),
+  "POST /api/v1/backup-jobs/:id/cancel": operate(),
   "GET /api/v1/backup-jobs/:id/runs": view(),
   // "All tenants" of Jobs (#63): every tenant's jobs counted, narrowed by the handler to the
   // tenants the member's team role covers; one tenant's jobs read-only, by its id.
@@ -521,6 +522,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/pve/jobs": configure(),
   "PATCH /api/v1/pve/jobs/:id": configure(),
   "DELETE /api/v1/pve/jobs/:id": configure(),
+  "POST /api/v1/pve/jobs/:id/run": operate(),
+  "POST /api/v1/pve/jobs/:id/cancel": operate(),
   "PUT /api/v1/pve/guests/:id/job": configure(),
   // Begins a new backup chain; the restore points before become unavailable (recent sign-in).
   "POST /api/v1/pve/guests/:id/repository/reset": configure(),

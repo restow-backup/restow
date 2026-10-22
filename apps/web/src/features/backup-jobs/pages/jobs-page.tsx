@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { ChevronDown, Container, ListChecks, ListPlus, Server, ShieldOff } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -24,19 +24,18 @@ import { directoryTo } from "@/features/directory/search";
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { inventoryTo } from "@/features/endpoints/paths";
 import { fileSharesTo } from "@/features/file-shares/paths";
-import { RunDrawerHost } from "@/features/history/components/run-drawer";
-import { useRunDrawer } from "@/features/history/hooks";
 import { deleteJob as deletePveJob, type PveJob, pveKeys } from "@/features/pve/api";
-import { guestTo, pveTo } from "@/features/pve/paths";
 import { JobDialog as PveJobDialog } from "@/features/pve/pve-page";
 import { pveConnected, usePveOverview } from "@/features/pve/use-overview";
 
 import type { BackupJob, JobKind } from "../api.js";
 import { closedProps, JobsAccessNote, useJobsAccess } from "../components/access-note.js";
 import { useJobActions } from "../components/job-actions.js";
+import { useJobRunControls } from "../components/job-run-controls.js";
+import { JobSheet } from "../components/job-sheet.js";
 import { JobsTable } from "../components/jobs-table.js";
 import { KindEditor } from "../components/kind-editor.js";
-import { type PveListRow, pveListRows } from "../components/pve-rows.js";
+import { type JobsListRow, pveListRows } from "../components/pve-rows.js";
 import { RecommendedJobButton } from "../components/recommended-job.js";
 import { useBackupJobs } from "../hooks.js";
 
@@ -65,6 +64,10 @@ export interface JobsPageProps {
   copy?: { source: string | null; target: string | null; folder: string | null };
   /** Open one job. */
   onOpenJob: (job: BackupJob) => void;
+  /** The row whose detail panel is open (`?job=`, 0.4.5). */
+  openRow?: string | null;
+  /** Open (a row's id) or close (null) a row's detail panel. */
+  onOpenRow?: (rowId: string | null) => void;
 }
 
 /**
@@ -81,19 +84,24 @@ export function JobsPage({
   copy,
   onCreate,
   onCreateClosed,
-  onOpenJob,
+  onOpenJob: _onOpenJob,
+  openRow = null,
+  onOpenRow,
 }: JobsPageProps) {
   const { t } = useTranslation("backupjobs");
   const access = useJobsAccess();
   const query = useBackupJobs(kind);
   const [editing, setEditing] = React.useState<BackupJob | null>(null);
   const actions = useJobActions();
-  const drawer = useRunDrawer();
+  const controls = useJobRunControls();
+  // Without an address to keep it in (a test, an embedding), the panel lives in the page's state.
+  const [ownOpen, setOwnOpen] = React.useState<string | null>(null);
+  const openId = onOpenRow ? openRow : ownOpen;
+  const setOpen = onOpenRow ?? setOwnOpen;
   const items = query.data?.items;
   const uncovered = query.data?.uncovered[kind] ?? 0;
   const unscheduled = query.data?.unscheduled?.[kind] ?? 0;
   const loading = query.isPending && query.fetchStatus !== "idle";
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { tenantId } = useTenantScope();
   // Servers & clients list the Proxmox VE jobs too, once Proxmox VE is connected (#53).
@@ -115,6 +123,12 @@ export function JobsPage({
   const [pveDeleting, setPveDeleting] = React.useState<PveJob | null>(null);
   const refreshPve = () => void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
   const empty = query.data !== undefined && query.data.items.length === 0 && pveRows.length === 0;
+  const openListRow: JobsListRow | null = openId
+    ? ((items ?? []).find((job) => job.id === openId) ??
+      pveRows.find((row) => row.id === openId) ??
+      null)
+    : null;
+  const onOpenPanel = React.useCallback((row: JobsListRow) => setOpen(row.id), [setOpen]);
 
   const onSaved = (change: "created" | "updated", job: BackupJob) =>
     toast.success(t(`toasts.${change}`, { name: job.name }));
@@ -251,28 +265,16 @@ export function JobsPage({
           ) : null
         }
         access={access}
-        onOpen={onOpenJob}
-        onOpenRun={drawer.open}
+        onOpenPanel={onOpenPanel}
         onEdit={setEditing}
-        onRun={(job) => actions.runNow(job)}
-        running={actions.running}
         onPause={actions.askPause}
         onResume={actions.resume}
         onDelete={actions.askDelete}
+        controls={controls}
         pve={
           withPve
             ? {
                 rows: pveRows,
-                onOpen: (row: PveListRow) => {
-                  if (row.rowType === "manual") {
-                    // The run of a guest is on its page.
-                    void navigate(guestTo(row.guest.id));
-                  } else if (access.closed) {
-                    void navigate(pveTo());
-                  } else {
-                    setPveEditing(row.job);
-                  }
-                },
                 onEdit: (row) => setPveEditing(row.job),
                 onDelete: (row) => setPveDeleting(row.job),
               }
@@ -319,8 +321,18 @@ export function JobsPage({
           }
         }}
       />
+      <JobSheet
+        rowId={openId}
+        row={openListRow}
+        loading={loading || (withPve && pveView.query.isPending)}
+        onClose={() => setOpen(null)}
+        access={access}
+        controls={controls}
+        onEdit={setEditing}
+        onEditPve={(row) => setPveEditing(row.job)}
+      />
+      {controls.dialog}
       {actions.dialogs}
-      <RunDrawerHost />
     </div>
   );
 }

@@ -35,11 +35,23 @@ export type EndpointProfile = "server" | "client";
 /** The inventory filter in the URL; absent shows every machine. */
 export interface InventorySearch {
   kind?: EndpointProfile;
+  /** The machine whose detail panel is open (0.4.5). */
+  machine?: string;
 }
 
-/** Read `?kind=`; anything but `server` or `client` shows every machine. */
+/** An id as the address may carry it (a UUID; anything else is ignored). */
+const MACHINE_ID = /^[0-9a-f-]{8,64}$/i;
+
+/** Read `?kind=` (anything but `server` or `client` shows every machine) and `?machine=`. */
 export function parseInventorySearch(search: Record<string, unknown>): InventorySearch {
-  return search.kind === "server" || search.kind === "client" ? { kind: search.kind } : {};
+  const result: InventorySearch = {};
+  if (search.kind === "server" || search.kind === "client") {
+    result.kind = search.kind;
+  }
+  if (typeof search.machine === "string" && MACHINE_ID.test(search.machine)) {
+    result.machine = search.machine;
+  }
+  return result;
 }
 
 /** The list view of a filter. */
