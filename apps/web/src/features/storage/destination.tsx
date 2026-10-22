@@ -26,6 +26,11 @@ export interface BackupDestination {
   /** A path or `s3://bucket/prefix (host)`; null for the installation default below provider admins. */
   location: string | null;
   onServerDisk: boolean;
+  /**
+   * A directory on the server's system disk, under the operating system, Docker and the
+   * database (0.4.5): backups that fill it stop the whole server. Absent from an older server.
+   */
+  onSystemDisk?: boolean;
   misconfigured: boolean;
 }
 
@@ -117,6 +122,15 @@ export function BackupDestinationNote({
           · {label.location}
         </span>
       ) : null}
+      {destination.onSystemDisk ? (
+        <Badge
+          variant="warning"
+          data-slot="backup-destination-system-disk"
+          title={t("destination.systemDisk.description")}
+        >
+          {t("destination.systemDisk.badge")}
+        </Badge>
+      ) : null}
     </p>
   );
 }
@@ -137,9 +151,10 @@ export function ServerDiskWarning({
   const session = useSession();
   const query = useBackupDestination();
   const destination = given ?? query.data;
-  if (!destination?.onServerDisk) {
+  if (!destination?.onServerDisk && !destination?.onSystemDisk) {
     return null;
   }
+  const systemDisk = destination.onSystemDisk === true;
   // The Repositories section of the tenant whose backups these are.
   const repositories = session.activeTenant
     ? tenantPageTo(session.activeTenant.id, "storage")
@@ -147,7 +162,9 @@ export function ServerDiskWarning({
   return (
     <Alert variant="warning" className={className} data-slot="server-disk-warning">
       <HardDrive />
-      <AlertTitle>{t("destination.serverDisk.title")}</AlertTitle>
+      <AlertTitle>
+        {t(systemDisk ? "destination.systemDisk.title" : "destination.serverDisk.title")}
+      </AlertTitle>
       <AlertDescription className="space-y-1">
         <span className="block">
           {t(
@@ -157,6 +174,11 @@ export function ServerDiskWarning({
             { name: destination.name ?? "" },
           )}
         </span>
+        {systemDisk ? (
+          <span className="block" data-slot="system-disk-warning">
+            {t("destination.systemDisk.description")}
+          </span>
+        ) : null}
         <Link to={repositories} className="font-medium underline">
           {t("destination.serverDisk.choose")}
         </Link>

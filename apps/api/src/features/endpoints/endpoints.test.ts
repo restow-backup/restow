@@ -917,6 +917,23 @@ describe("what needs attention", () => {
     expect(problemsOf(endpoint({}), null, green, now)).toEqual([]);
   });
 
+  it("suggests revoking a machine without contact for longer than its setting (default 30 days)", () => {
+    const day = 24 * 60 * 60 * 1000;
+    const quiet = endpoint({ lastSeenAt: new Date(now.getTime() - 31 * day) });
+    expect(attentionOf(quiet, null, green, now)).toEqual(["silent", "revoke_suggested"]);
+    const set = endpoint({
+      lastSeenAt: new Date(now.getTime() - 31 * day),
+      settings: { revokeHintAfterDays: 60 },
+    });
+    expect(attentionOf(set, null, green, now)).not.toContain("revoke_suggested");
+    // Never reported: counted from the enrollment.
+    const never = endpoint({ lastSeenAt: null, createdAt: new Date(now.getTime() - 40 * day) });
+    expect(attentionOf(never, null, green, now)).toContain("revoke_suggested");
+    expect(attentionOf(endpoint({ ...quiet, status: "revoked" }), null, green, now)).not.toContain(
+      "revoke_suggested",
+    );
+  });
+
   it("does not call a run the agent only lost to a restart a failed backup", () => {
     const interrupted = {
       kind: "backup",
@@ -1076,9 +1093,11 @@ describe("what needs attention", () => {
       retention: { keepDaily: 30, keepWeekly: 12, keepMonthly: 12 },
       staleAfterHours: 2,
       staleAfterDays: 7,
+      revokeHintAfterDays: 30,
       quotaGib: null,
     });
     expect(effectiveSettings({ staleAfterDays: 14 }).staleAfterDays).toBe(14);
+    expect(effectiveSettings({ revokeHintAfterDays: 90 }).revokeHintAfterDays).toBe(90);
     expect(effectiveSettings({ quotaGib: 200 }).quotaGib).toBe(200);
   });
 });

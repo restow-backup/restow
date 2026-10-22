@@ -504,7 +504,11 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
     it("is raised once per episode, in the bell and in the rules that list it", async () => {
       await rule();
       // The database's disk is low (4 of 38 GiB); the repository is fine.
-      expect(await watch().checkOnce()).toEqual({ database: "raised", repository: "ok" });
+      expect(await watch().checkOnce()).toEqual({
+        database: "raised",
+        repository: "ok",
+        system: "unknown",
+      });
       expect(await bell()).toHaveLength(1);
       expect((await bell())[0]).toMatchObject({ tenantId: null, level: "warning" });
       const deliveries = await owner.select().from(reportDeliveries);
@@ -544,11 +548,48 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
     it("watches the repository's disk without an updater", async () => {
       updater.view = null;
       repository = { path: "/data/chunks", freeBytes: 2 * GIB, totalBytes: 100 * GIB };
-      expect(await watch().checkOnce()).toEqual({ database: "unknown", repository: "raised" });
+      expect(await watch().checkOnce()).toEqual({
+        database: "unknown",
+        repository: "raised",
+        system: "unknown",
+      });
       expect((await bell())[0]?.details).toMatchObject({
         disk: "repository",
         objectName: "/data/chunks",
       });
+    });
+
+    it("watches the system disk and keeps its free space once an hour (0.4.5)", async () => {
+      updater.view = null;
+      repository = null;
+      let free = 30 * GIB;
+      const at = (minutes: number) =>
+        new Date(Date.parse("2026-10-02T10:00:00.000Z") + minutes * 60_000);
+      const systemWatch = (now: Date) =>
+        new diskWatchModule.DiskWatch({
+          db: providerDb,
+          service: build(),
+          systemDisk: async () => ({ freeBytes: free, totalBytes: 100 * GIB }),
+          now: () => now,
+        });
+      expect((await systemWatch(at(0)).checkOnce()).system).toBe("ok");
+      free = 29 * GIB;
+      await systemWatch(at(15)).checkOnce();
+      free = 28 * GIB;
+      await systemWatch(at(60)).checkOnce();
+      const [row] = await owner.select({ alerts: settings.diskAlerts }).from(settings);
+      expect(row?.alerts.system?.samples).toEqual([
+        { at: at(0).toISOString(), freeBytes: 30 * GIB },
+        { at: at(60).toISOString(), freeBytes: 28 * GIB },
+      ]);
+      expect(row?.alerts.system).toMatchObject({ freeBytes: 28 * GIB, totalBytes: 100 * GIB });
+      // Low like any watched disk: the warning names the system disk.
+      free = 2 * GIB;
+      expect((await systemWatch(at(120)).checkOnce()).system).toBe("raised");
+      const raised = (await bell()).find(
+        (entry) => (entry.details as { disk?: string }).disk === "system",
+      );
+      expect(raised?.message).toContain("on the system disk of the server");
     });
   });
 });

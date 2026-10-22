@@ -127,11 +127,12 @@ function notFound(): ProblemError {
   return new ProblemError(404, "Endpoint not found");
 }
 
+/** A machine of the tenant that is not removed (#65): a removed one is gone for every reader. */
 async function loadEndpoint(tx: Transaction, tenantId: string, id: string): Promise<Endpoint> {
   const [endpoint] = await tx
     .select()
     .from(endpoints)
-    .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.id, id)))
+    .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.id, id), isNull(endpoints.removedAt)))
     .limit(1);
   if (!endpoint) {
     throw notFound();
@@ -252,6 +253,7 @@ export async function listEndpoints(
       .where(
         and(
           eq(endpoints.tenantId, tenantId),
+          isNull(endpoints.removedAt),
           filter.profile ? eq(endpoints.profile, filter.profile) : undefined,
         ),
       )
@@ -1728,7 +1730,7 @@ async function readAgentUpdates(tx: Transaction, tenantId: string): Promise<Agen
       settings: endpoints.settings,
     })
     .from(endpoints)
-    .where(eq(endpoints.tenantId, tenantId))
+    .where(and(eq(endpoints.tenantId, tenantId), isNull(endpoints.removedAt)))
     .orderBy(endpoints.hostname);
   return {
     paused: tenant?.paused === true,

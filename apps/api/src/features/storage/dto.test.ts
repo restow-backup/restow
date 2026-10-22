@@ -235,6 +235,7 @@ describe("toInstallationDefaultDto", () => {
       hasCopy: true,
       copyLocation: "/mnt/copy",
       misconfigured: false,
+      onSystemDisk: false,
     });
     expect(toInstallationDefaultDto(defaults, true, { isProviderAdmin: false })).toMatchObject({
       location: null,

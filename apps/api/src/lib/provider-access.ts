@@ -582,6 +582,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PUT /api/v1/file-shares/:id/private-network-approval": configure(),
   "GET /api/v1/endpoints": view(),
   // The tenant's setting for automatic agent updates, and lifting a machine's own pause.
+  "GET /api/v1/endpoints/removals": view(),
   "GET /api/v1/endpoints/agent-updates": view(),
   "PUT /api/v1/endpoints/agent-updates": configure(),
   "DELETE /api/v1/endpoints/agent-updates/machines/:id": configure(),
@@ -596,6 +597,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PATCH /api/v1/endpoints/:id": configure(),
   "POST /api/v1/endpoints/:id/revoke": configure(),
   "POST /api/v1/endpoints/:id/uninstall": configure(),
+  "POST /api/v1/endpoints/:id/remove": configure(),
   "POST /api/v1/endpoints/:id/tasks": operate(),
   "POST /api/v1/endpoints/:id/cancel": operate(),
   "POST /api/v1/endpoints/:id/update": configure(),

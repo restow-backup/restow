@@ -34,7 +34,9 @@ export type Attention =
   | "restore_test_failed"
   | "repository_damaged"
   | "never_seen"
-  | "no_job";
+  | "no_job"
+  /** No contact for longer than `settings.revokeHintAfterDays`: revoking is suggested (#65). */
+  | "revoke_suggested";
 
 export interface EndpointReadiness {
   state: ReadinessState;
@@ -247,6 +249,8 @@ export interface EffectiveSettings {
   retention: Retention;
   staleAfterHours: number;
   staleAfterDays: number;
+  /** Days without contact after which revoking the machine is suggested (0.4.5; default 30). */
+  revokeHintAfterDays?: number;
   /** The machine's own storage budget in GiB; null when the installation's default applies. */
   quotaGib: number | null;
 }
@@ -496,6 +500,7 @@ export interface UpdateEndpointInput {
     retention?: Retention;
     staleAfterHours?: number;
     staleAfterDays?: number;
+    revokeHintAfterDays?: number;
     /** GiB; `null` returns to the installation's default. */
     quotaGib?: number | null;
   };
@@ -542,6 +547,7 @@ export const LIMITS = {
   keepMonthly: 240,
   staleHoursMax: 24 * 30,
   staleDaysMax: 365,
+  revokeHintDaysMax: 3650,
   /** The largest storage budget of one machine, in GiB (1 PiB). */
   quotaGibMax: 1024 * 1024,
   /** Runs the endpoint page can list (the detail carries the newest 20). */
@@ -573,6 +579,7 @@ export const endpointKeys = {
     ["tenant", tenantId, "endpoints", "tokens", state] as const,
   agentUpdates: (tenantId: TenantKey) =>
     ["tenant", tenantId, "endpoints", "agent-updates"] as const,
+  removals: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints", "removals"] as const,
 };
 
 // --- Requests ---------------------------------------------------------------------
@@ -615,6 +622,44 @@ export function updateEndpoint(
 
 export function revokeEndpoint(endpointId: string): Promise<void> {
   return apiFetch<void>(`${BASE}/${id(endpointId)}/revoke`, { method: "POST" });
+}
+
+/** How a removed machine's backups go (#65): deleted now, or kept until they expire. */
+export type RemovalMode = "delete" | "expire";
+
+/** A removed machine whose backups are not deleted yet (GET /endpoints/removals). */
+export interface EndpointRemoval {
+  id: string;
+  hostname: string;
+  displayName: string | null;
+  mode: RemovalMode;
+  /** `held`: a legal hold or a suspicion holds them; `deferred`: the storage still locks objects. */
+  state: "scheduled" | "held" | "deferred" | "done";
+  requestedAt: string;
+  requestedBy: string;
+  dueAt: string | null;
+  expiresAt: string | null;
+  heldBy: "legal_hold" | "suspicion" | null;
+  lockedUntil: string | null;
+  lockedObjects: number;
+  deletedObjects: number;
+  repositoryBytes: number | null;
+  lastError: string | null;
+}
+
+/** Remove a revoked machine from the lists; its backups go now or when they expire. */
+export function removeEndpoint(
+  endpointId: string,
+  input: { mode: RemovalMode; confirmHostname: string },
+): Promise<EndpointRemoval> {
+  return apiFetch<EndpointRemoval>(`${BASE}/${id(endpointId)}/remove`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+export async function fetchRemovals(): Promise<EndpointRemoval[]> {
+  return (await apiFetch<{ items: EndpointRemoval[] }>(`${BASE}/removals`)).items;
 }
 
 export function uninstallEndpoint(endpointId: string): Promise<TaskResult> {

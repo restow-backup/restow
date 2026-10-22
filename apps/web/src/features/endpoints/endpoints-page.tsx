@@ -11,6 +11,7 @@ import { EnrollDialog } from "./components/enroll-dialog.js";
 import { PendingTokens } from "./components/pending-tokens.js";
 
 import { ProxmoxLink } from "./components/proxmox-link.js";
+import { RemovalsCard } from "./components/removals-card.js";
 import { canManageJobs, WithoutBackupBanner } from "./components/without-backup.js";
 import { useEndpoints } from "./hooks.js";
 import { type EndpointArea, type EndpointProfile, profileOfArea } from "./paths.js";
@@ -140,6 +141,9 @@ export function EndpointsPage({
 
       {/* VMs and containers on the Proxmox VE nodes, in "All" and "Servers". */}
       {area === "clients" ? null : <PveInventorySection />}
+
+      {/* Removed machines whose backups are still stored: in no list above (#65). */}
+      <RemovalsCard canRemove={canManageJobs(role)} />
 
       <EnrollDialog
         open={enrolling !== null}

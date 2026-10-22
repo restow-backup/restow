@@ -327,6 +327,8 @@ export const updateEndpointSchema = z
           .max(24 * 30)
           .optional(),
         staleAfterDays: z.number().int().min(1).max(365).optional(),
+        // Days without contact before the machine suggests revoking it (#65).
+        revokeHintAfterDays: z.number().int().min(1).max(3650).optional(),
         // The storage budget of this endpoint in GiB; null returns to the installation's default.
         quotaGib: z.number().int().min(1).max(MAX_ENDPOINT_QUOTA_GIB).nullable().optional(),
       })
@@ -363,6 +365,14 @@ export const listTokensQuerySchema = z.object({
 });
 
 export const endpointIdParamSchema = z.object({ id: uuid });
+
+/** POST /:id/remove (#65): how the backups go, and the hostname typed to confirm. */
+export const removeEndpointSchema = z
+  .object({
+    mode: z.enum(["delete", "expire"]),
+    confirmHostname: z.string().max(300),
+  })
+  .strict();
 export const tokenIdParamSchema = z.object({ tokenId: uuid });
 export const runParamSchema = z.object({ id: uuid, runId: uuid });
 /** A restic snapshot id is the hex SHA-256 of the snapshot file. */

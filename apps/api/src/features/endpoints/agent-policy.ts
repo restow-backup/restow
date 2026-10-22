@@ -28,7 +28,7 @@ import {
   settings,
   tenants,
 } from "@restow/db";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { type DbExecutor, type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -380,7 +380,13 @@ export async function getEndpointAgentPolicy(
     const [endpoint] = await tx
       .select({ config: endpoints.config })
       .from(endpoints)
-      .where(and(eq(endpoints.id, endpointId), eq(endpoints.tenantId, tenantId)))
+      .where(
+        and(
+          eq(endpoints.id, endpointId),
+          eq(endpoints.tenantId, tenantId),
+          isNull(endpoints.removedAt),
+        ),
+      )
       .limit(1);
     if (!endpoint) {
       throw new ProblemError(404, "Endpoint not found");

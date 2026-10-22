@@ -97,6 +97,29 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer queries against Postgres", () =
       expect(inbox.entries[1]?.mail?.subject).toBe("Lunch on Friday");
       expect(inbox.total).toBe(4);
       expect(inbox.hasMore).toBe(false);
+
+      // Nor its folder row (`Big.cccc.attachments`), in the listing, the
+      // folder-only listing the tree pane reads, or search.
+      const queries: Record<string, string>[] = [
+        { path: "mail/Inbox" },
+        { path: "mail/Inbox", foldersOnly: "true" },
+      ];
+      for (const query of queries) {
+        const listed = await listTree(
+          db,
+          f.tenantId,
+          reader(f.admin),
+          f.mailbox.first,
+          tree(query),
+        );
+        expect(listed.entries.map((e) => e.name)).not.toContain("Big.cccc.attachments");
+      }
+      const found = await search(db, f.tenantId, reader(f.admin), {
+        q: "Big.cccc",
+        objectId: f.annaMailbox,
+        limit: 50,
+      });
+      expect(found.hits.map((hit) => hit.path)).toEqual(["mail/Inbox/Big.cccc.json"]);
     });
 
     it("sorts dated mail by its own recorded date, not by mtime, when the two disagree", async () => {

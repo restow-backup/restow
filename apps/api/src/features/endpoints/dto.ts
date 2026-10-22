@@ -5,6 +5,7 @@ import {
   connectionOf,
   DEFAULT_CLIENT_STALE_DAYS,
   DEFAULT_ENDPOINT_RETENTION,
+  DEFAULT_REVOKE_HINT_DAYS,
   DEFAULT_SERVER_STALE_HOURS,
   type EndpointQuotaLimits,
   endpointBudgetBytes,
@@ -13,6 +14,7 @@ import {
   type QuotaLevel,
   quotaLevelOf,
   repositoryDamagedCause,
+  revokeSuggested,
   type SnapshotFlagReason,
   silentCause,
 } from "@restow/core";
@@ -48,7 +50,8 @@ export type EndpointAttention =
   | "restore_test_failed"
   | "repository_damaged"
   | "never_seen"
-  | "no_job";
+  | "no_job"
+  | "revoke_suggested";
 
 export interface ReadinessDto {
   state: EndpointReadinessDto["state"];
@@ -179,6 +182,8 @@ export interface EffectiveSettingsDto {
   retention: EndpointRetention;
   staleAfterHours: number;
   staleAfterDays: number;
+  /** Days without contact after which revoking the machine is suggested (default 30). */
+  revokeHintAfterDays: number;
   /** The endpoint's own storage budget in GiB; null when the installation's default applies. */
   quotaGib: number | null;
 }
@@ -402,6 +407,7 @@ export function effectiveSettings(settings: EndpointSettings | null): EffectiveS
     retention: settings?.retention ?? { ...DEFAULT_ENDPOINT_RETENTION },
     staleAfterHours: settings?.staleAfterHours ?? DEFAULT_SERVER_STALE_HOURS,
     staleAfterDays: settings?.staleAfterDays ?? DEFAULT_CLIENT_STALE_DAYS,
+    revokeHintAfterDays: settings?.revokeHintAfterDays ?? DEFAULT_REVOKE_HINT_DAYS,
     quotaGib: settings?.quotaGib ?? null,
   };
 }
@@ -595,6 +601,10 @@ export function attentionOf(
   }
   if (inJob === false) {
     attention.push("no_job");
+  }
+  // Out of contact for long (#65): the machine is probably gone; revoking it is suggested.
+  if (revokeSuggested(endpoint, now)) {
+    attention.push("revoke_suggested");
   }
   return attention;
 }

@@ -918,6 +918,56 @@ bewerteten Restore-Test des Agenten, `endpoint_verify_sample`, dazu `endpoint`),
 Tickets anlegen können. Ein unvollständiger Restore-Test, auch einer, den der Monitor geschlossen
 hat, sendet kein `job.failed`.
 
+## Rechner entfernen
+
+Ein Rechner verlässt Restow in zwei Schritten (#65). Zuerst wird er gesperrt: **Agent
+deinstallieren** (der Agent entfernt sich beim nächsten Kontakt, dann ist der Rechner gesperrt)
+oder **Sperren** (sofort). Wartet eine Deinstallation auf einen ausgeschalteten Rechner, bietet die
+Oberfläche dort **Jetzt sperren** an. Ein aktiver Rechner, der sich länger als
+`settings.revokeHintAfterDays` Tage (Standard 30, unter "Alarme" des Rechners) nicht gemeldet hat,
+trägt den Grund `revoke_suggested` in `attention`: Die Rechnerseite und die Liste dessen, was
+Aufmerksamkeit braucht, schlagen vor, ihn zu sperren. (Die Integrations-API meldet diesen Grund
+noch nicht; ein solcher Rechner ist ohnehin `silent` oder `backup_overdue`.)
+
+Ein gesperrter Rechner lässt sich dann **entfernen** (`POST /api/v1/endpoints/:id/remove`,
+`{ "mode": "delete" | "expire", "confirmHostname": "<hostname>" }`, nur Mandanten-Admins, frische
+Anmeldung wie bei anderen unumkehrbaren Aktionen, auditiert als `endpoint.removed`):
+
+- `delete`: Rechner und Sicherungen löschen. Abgelehnt (409), solange eine Legal Hold über den
+  ganzen Mandanten besteht (ein Rechner ist kein geschütztes Objekt, nur eine Hold ohne Objekt
+  erfasst ihn) oder ein ungeklärter Verdacht auf dem Rechner seine Sicherungen hält
+  (docs/RANSOMWARE.md, "Retention hold"; nur, solange der Halt der Installation eingeschaltet ist).
+- `expire`: aus der Liste entfernen, die Sicherungen bis zum Ablauf behalten. Ablauf ist die neueste
+  gute Sicherung plus die längste Regel der Aufbewahrung des Rechners, als Zeit gelesen (N Tage,
+  N Wochen, N Kalendermonate; Standard also zwölf Monate). restics Regeln zählen Snapshots, nicht
+  Zeit, und würden auf einem Rechner ohne neue Sicherungen die letzten für immer behalten. Eine
+  Aufbewahrung ohne Regel behält alles und wird abgelehnt (409).
+
+Ab dann fehlt der Rechner in jeder Liste, Auswahl, Übersicht und Zählung (Inventar, auch hinter
+"Gesperrte Rechner anzeigen", Dateiwiederherstellung, Jobs, Live-Ansicht, Dashboard) und jede
+Anfrage an ihn antwortet 404. Er verlässt seinen Backup-Job. Seine Zeile bleibt als Grabstein
+(`endpoints.removed_at`, `removal`, `removal_due_at`, Migration 0064) mit Läufen, Berichten und
+Audit-Einträgen, damit Verlauf und Audit-Log ihn weiter nennen.
+
+Die Sicherungen löscht der Worker (`endpoint-removal`), sobald `removal_due_at` erreicht ist; der
+Scheduler übergibt fällige Entfernungen jede Minute (partieller Index), die API sofort nach einem
+`delete`. Der Lauf hält die Wartungssperre des Repositorys exklusiv und löscht jedes Objekt unter
+`endpoints/<id>/` auf jedem Ziel des Mandanten, das Dateien davon halten kann: Primärziel, Kopien
+und stillgelegte Primärziele eines Wechsels mit "behalten". Zustände in `endpoints.removal.state`:
+
+| Zustand | Bedeutung |
+| --- | --- |
+| `scheduled` | wartet auf `removal_due_at` (sofort bzw. Ablauf). |
+| `held` | eine Legal Hold über den Mandanten oder ein Verdacht hält die Sicherungen (`heldBy`); nichts wird gelöscht, nach einem Tag wird erneut geprüft. Auditiert als `endpoint.removal.held`. |
+| `deferred` | der Speicher sperrt noch Objekte (S3 Object Lock, Löschverzögerung eines Verzeichnisses): Sie bleiben, werden wie ein verweigertes Prune in `immutability_deferred_deletions` vermerkt, und der nächste Versuch folgt eine Stunde nach dem spätesten `lockedUntil` (ohne bekanntes Datum: nach einem Tag). Die Verlängerung der Sperren lässt das Repository eines entfernten Rechners aus, sobald seine Sicherungen gehen sollen; bis zum Ablauf eines `expire` verlängert sie weiter. Auditiert als `endpoint.removal.deferred`. |
+| `done` | nichts mehr übrig; Repository-Passwort, Stichproben und Snapshot-Markierungen sind gelöscht. Auditiert als `endpoint.removal.completed`. |
+
+`GET /api/v1/endpoints/removals` listet die entfernten Rechner, deren Sicherungen noch nicht
+gelöscht sind; die Rechnerseite zeigt sie Admins mit Datum, Halt oder Sperrfrist. Die weitere
+Prüfung (`endpoint-check`) eines entfernten Rechners entfällt. Die Dateiwiederherstellung bietet
+die Sicherungen eines entfernten Rechners nicht mehr an; wer sie bis zum Ablauf noch brauchen
+könnte, lässt sich vorher das Repository-Passwort anzeigen.
+
 ## Restore
 
 - **Auf den Endpunkt** (`POST /api/v1/endpoints/:id/tasks`, `kind: restore`): Der Agent stellt
@@ -1030,13 +1080,18 @@ hier.
 | `restic-unavailable` | 503 | Das restic-Binary fehlt auf dem Server. |
 | `endpoint-hooks-not-allowed` | 409 | Hooks wurden für einen Rechner gesetzt, der Hooks des Servers nicht zulässt (Regel `off`) oder keine Regel meldet (Agent einer Vorabversion). Leeren geht immer. |
 | `endpoint-hook-not-a-script` | 422 | Der Rechner führt nur Skripte aus `/etc/restow-agent/hooks.d` aus (Regel `scripts`), und ein Hook ist kein Skriptname. |
-| `recent-sign-in-required` | 403 | Hook setzen oder ändern bzw. Repository-Passwort anzeigen, aber die Anmeldung der Sitzung ist älter als zehn Minuten (`apps/api/src/lib/recent-sign-in.ts`, Feld `maxAgeSeconds`). Die Oberfläche fragt "Bestätigen Sie, dass Sie es sind" und wiederholt die Aktion. |
+| `recent-sign-in-required` | 403 | Hook setzen oder ändern, Repository-Passwort anzeigen bzw. Rechner entfernen, aber die Anmeldung der Sitzung ist älter als zehn Minuten (`apps/api/src/lib/recent-sign-in.ts`, Feld `maxAgeSeconds`). Die Oberfläche fragt "Bestätigen Sie, dass Sie es sind" und wiederholt die Aktion. |
 | `endpoint-no-job` | 409 | Der Rechner ist in keinem Backup-Job: "Jetzt sichern" oder ein anderer Zeitplan als `none` wird abgelehnt, gesichert wird nur in einem Job (seit 0.2.1). |
 | `endpoint-config-managed-by-job` | 409 | Der Rechner gehört zu einem Job, der Zeitplan, Ordner, Ausschlüsse, Hooks und Bandbreite (und die Aufbewahrung, wenn der Job sie setzt) entscheidet; den Job ändern oder den Rechner aus ihm nehmen. Die Antwort nennt den Job (`job.id`, `job.name`). |
 | `endpoint-assignee-unknown` | 422 | Die Person, der der Rechner zugeordnet werden soll (`PATCH /api/v1/endpoints/:id` mit `assignedUserId`), steht nicht (mehr) im Verzeichnis des Mandanten. Feld `field` ist `assignedUserId`. |
 | `endpoint-invalid-bandwidth-windows` | 422 | Die Zeitfenster der Bandbreite eines Rechners ohne Job lassen sich nicht speichern (kein Tag, keine Uhrzeit `HH:MM`, Limit außerhalb 0 bis 10000000, Fenster überschneiden sich, mehr als 24). `issues[0].path` nennt Fenster und Feld, `code` ist `bandwidth_window_days_required`, `_days_invalid`, `_time_invalid`, `_kbps_invalid`, `bandwidth_windows_too_many` oder `bandwidth_window_overlap`. Im Job antwortet dieselbe Prüfung als `invalid-backup-job` (422) mit denselben Codes. |
 | `agent-policy-invalid` | 422 | Eine Einstellung einer Richtlinie (Installation, Mandant) lässt sich so nicht speichern (Fenster ohne Tag, Zeit nicht `HH:MM`, Wiederholungen außerhalb 0 bis 10, Alter außerhalb 1 bis 720 Stunden); `issues` nennt Einstellung und Code. Im Job antwortet dieselbe Prüfung als `invalid-backup-job` (422) mit dem Pfad `settings.policy.<Einstellung>`. |
 | `agent-policy-locked` | 409 | Ein Mandant oder Job setzt eine Einstellung der Richtlinie, die die Installation gesperrt hat; `keys` nennt sie. |
+| `endpoint-not-revoked` | 409 | Nur ein gesperrter Rechner lässt sich entfernen. |
+| `endpoint-confirm-hostname` | 422 | Der zur Bestätigung getippte Hostname ist nicht der des Rechners (Feld `confirmHostname`). |
+| `endpoint-removal-legal-hold` | 409 | Sicherungen jetzt löschen, aber eine Legal Hold über den ganzen Mandanten hält sie. |
+| `endpoint-removal-suspicion-hold` | 409 | Sicherungen jetzt löschen, aber ein ungeklärter verdächtiger Sicherungsstand des Rechners hält sie. |
+| `endpoint-removal-never-expires` | 409 | Bis zum Ablauf behalten, aber die Aufbewahrung des Rechners behält alles. |
 | `unsupported-os` | 422 | Betriebssystem nicht unterstützt (Windows ist geplant, nicht ausgeliefert). |
 | `enrollment-token-invalid` | 401 | Das Enrollment-Token ist unbekannt, abgelaufen, widerrufen oder verwendet. |
 | `agent-unauthorized` | 401 | Falsche oder fehlende Zugangsdaten des Agenten. |

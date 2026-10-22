@@ -114,6 +114,7 @@ export function TargetCard({
         {target.s3?.insecureEndpoint ? (
           <ToneLine tone="destructive">{t("targets.insecureEndpoint")}</ToneLine>
         ) : null}
+        {target.onSystemDisk ? <ToneLine tone="warning">{t("targets.systemDisk")}</ToneLine> : null}
         {target.kind !== "installation_default" ? (
           target.lastProbe && target.status !== "unverified" && target.configValid ? (
             <ProbeResult probe={target.lastProbe} />

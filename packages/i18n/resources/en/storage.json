@@ -86,7 +86,8 @@
     "singleLocation": {
       "title": "Only one repository",
       "description": "All backups of this tenant are stored in one place. Add a copy repository somewhere else, such as offsite object storage, so a single failure cannot take every copy (3-2-1 rule)."
-    }
+    },
+    "systemDisk": "On the system disk of the {appName} server, under the operating system, Docker and the database. When backups fill it, {appName} stops. Use a second disk, a network share or object storage."
   },
   "default": {
     "name": "Installation default",
@@ -475,6 +476,11 @@
       "descriptionDefault": "This tenant's backups are written to the installation default, a directory on a disk of the {appName} server itself. If the server or its disk fails, the backups are lost with it. Choose a repository elsewhere: a network share or S3-compatible object storage.",
       "description": "The primary repository {name} is a directory on a disk of the {appName} server itself. If the server or its disk fails, the backups are lost with it. Choose a repository elsewhere: a network share or S3-compatible object storage.",
       "choose": "Choose another repository"
+    },
+    "systemDisk": {
+      "badge": "System disk",
+      "title": "Backups land on the server's system disk",
+      "description": "This directory is on the same disk as the operating system, Docker and the database of {appName}. When backups fill it, the database and {appName} itself stop, not only the backups. Put the repository on a second disk, a network share or object storage."
     }
   }
 }

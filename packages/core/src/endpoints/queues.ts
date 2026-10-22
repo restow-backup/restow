@@ -14,6 +14,8 @@ export const ENDPOINT_QUEUES = {
   verify: "endpoint-verify",
   /** Silent endpoints, failed runs and tasks nobody picked up: raises the alerts. */
   monitor: "endpoint-monitor",
+  /** A removed machine whose backups are due for deletion (@restow/db EndpointRemoval). */
+  removal: "endpoint-removal",
 } as const;
 
 export type EndpointQueue = (typeof ENDPOINT_QUEUES)[keyof typeof ENDPOINT_QUEUES];
@@ -65,6 +67,15 @@ export const ENDPOINT_QUEUE_SETTINGS: Readonly<Record<EndpointQueue, EndpointQue
     retryBackoff: false,
     expireInHours: 1,
     retentionDays: 3,
+  },
+  [ENDPOINT_QUEUES.removal]: {
+    name: ENDPOINT_QUEUES.removal,
+    policy: "stately",
+    retryLimit: 3,
+    retryDelay: 300,
+    retryBackoff: true,
+    expireInHours: 12,
+    retentionDays: 14,
   },
 };
 

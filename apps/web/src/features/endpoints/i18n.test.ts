@@ -52,6 +52,7 @@ const VALUES = {
   person: "Alice Example",
   url: "https://restow.example",
   time: "30 Sep 2026",
+  date: "30 Sep 2026",
   at: "30 Sep 2026, 20:00",
   vmid: 300,
   node: "pve1",

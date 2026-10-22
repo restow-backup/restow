@@ -115,6 +115,9 @@ export function DefaultTargetCard({
         <p className="text-xs text-muted-foreground">
           {t(`kindLong.${kind}`)} · {t("default.description")}
         </p>
+        {installationDefault.onSystemDisk ? (
+          <ToneLine tone="warning">{t("targets.systemDisk")}</ToneLine>
+        ) : null}
         {installationDefault.hasCopy ? (
           <p className="text-xs text-muted-foreground">
             {installationDefault.copyLocation

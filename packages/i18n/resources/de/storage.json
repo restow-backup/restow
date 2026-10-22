@@ -86,7 +86,8 @@
     "singleLocation": {
       "title": "Nur ein Repository",
       "description": "Alle Backups dieses Mandanten liegen an einem Ort. Fügen Sie ein Kopie-Repository an einem anderen Ort hinzu, etwa externen Objektspeicher, damit ein einzelner Ausfall nicht alle Kopien trifft (3-2-1-Regel)."
-    }
+    },
+    "systemDisk": "Auf der Systemplatte des {appName}-Servers, unter Betriebssystem, Docker und Datenbank. Füllen Sicherungen sie, steht {appName} still. Nutzen Sie eine zweite Platte, eine Netzwerkfreigabe oder Objektspeicher."
   },
   "default": {
     "name": "Installationsstandard",
@@ -475,6 +476,11 @@
       "descriptionDefault": "Die Sicherungen dieses Mandanten werden in den Installationsstandard geschrieben, ein Verzeichnis auf einer Platte des {appName}-Servers selbst. Fällt der Server oder seine Platte aus, sind die Sicherungen mit ihm verloren. Wählen Sie ein Repository an einem anderen Ort: eine Netzwerkfreigabe oder einen S3-kompatiblen Objektspeicher.",
       "description": "Das primäre Repository {name} ist ein Verzeichnis auf einer Platte des {appName}-Servers selbst. Fällt der Server oder seine Platte aus, sind die Sicherungen mit ihm verloren. Wählen Sie ein Repository an einem anderen Ort: eine Netzwerkfreigabe oder einen S3-kompatiblen Objektspeicher.",
       "choose": "Anderes Repository wählen"
+    },
+    "systemDisk": {
+      "badge": "Systemplatte",
+      "title": "Sicherungen landen auf der Systemplatte des Servers",
+      "description": "Dieses Verzeichnis liegt auf derselben Platte wie Betriebssystem, Docker und die Datenbank von {appName}. Füllen Sicherungen sie, stehen die Datenbank und {appName} selbst still, nicht nur die Sicherungen. Legen Sie das Repository auf eine zweite Platte, eine Netzwerkfreigabe oder einen Objektspeicher."
     }
   }
 }

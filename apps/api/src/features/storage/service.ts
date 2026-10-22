@@ -57,6 +57,7 @@ import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { parseOrProblem } from "../../schemas.js";
 import { cancelQueuedJob, sendJob } from "../jobs/queue.js";
+import { locationOnSystemDisk } from "./destination.js";
 import {
   accessKeyIdHint,
   compareTargets,
@@ -99,6 +100,7 @@ import {
   type StorageMigrationModeInput,
   type UpdateStorageTargetInput,
 } from "./schemas.js";
+import type { SystemDiskDeps } from "./system-disk.js";
 import { buildUsage, type DailyBytes, SERIES_DAYS, type UsageDto, windowStart } from "./usage.js";
 
 /** `storage_migrations.status` values a migration is still in flight under. */
@@ -183,6 +185,8 @@ export interface StorageDeps {
   /** Environment for the installation default (tests); omitted = the current default. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly now?: () => Date;
+  /** How the system disk is read (tests); the api container's own view otherwise. */
+  readonly systemDisk?: SystemDiskDeps;
 }
 
 export interface ProbeOutcomeDto {
@@ -901,11 +905,19 @@ export async function listTargets(
   );
   const defaults = await readInstallationDefault(deps);
   const inUse = !rows.some((row) => row.role === "primary");
+  // Directories on the server's system disk are flagged (system-disk.ts); a few stat calls each.
+  const items = await Promise.all(
+    rows.map(async (row) => ({
+      ...toTargetDto(row, actor, migrationsByTarget.get(row.id) ?? null, deferred.get(row.id) ?? 0),
+      onSystemDisk: await locationOnSystemDisk(locationOf(row), deps.systemDisk),
+    })),
+  );
   return {
-    items: rows.map((row) =>
-      toTargetDto(row, actor, migrationsByTarget.get(row.id) ?? null, deferred.get(row.id) ?? 0),
-    ),
-    installationDefault: toInstallationDefaultDto(defaults, inUse, actor),
+    items,
+    installationDefault: {
+      ...toInstallationDefaultDto(defaults, inUse, actor),
+      onSystemDisk: await locationOnSystemDisk(defaults?.primary ?? null, deps.systemDisk),
+    },
     tenantHasData: hasData,
     canManageLocal: actor.isProviderAdmin,
     switchBlockedBy,

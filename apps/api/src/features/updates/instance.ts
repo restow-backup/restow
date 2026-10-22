@@ -46,6 +46,8 @@ export const databaseService = new DatabaseService({
 export const diskWatch = new DiskWatch({
   db: providerDb,
   service: databaseService,
+  // `/` of the api container: the disk under Docker's data directory (storage/system-disk.ts).
+  systemDisk: () => filesystemOf("/"),
   log: (level, message, fields) =>
     (level === "error" ? console.error : level === "warn" ? console.warn : console.log)(
       JSON.stringify({ level, component: "disks", message, ...fields }),

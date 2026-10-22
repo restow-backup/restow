@@ -94,6 +94,8 @@ export interface S3TargetDto {
 }
 
 export interface StorageTargetDto {
+  /** A directory on the server's system disk (0.4.5): backups that fill it stop the server. */
+  onSystemDisk?: boolean;
   id: string;
   name: string;
   kind: StorageKind;
@@ -215,6 +217,8 @@ export interface InstallationDefaultDto {
   hasCopy: boolean;
   copyLocation: string | null;
   misconfigured: boolean;
+  /** A directory on the server's system disk (0.4.5); absent from an older server. */
+  onSystemDisk?: boolean;
 }
 
 export interface StorageTargetList {

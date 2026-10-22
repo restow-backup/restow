@@ -92,11 +92,12 @@ export function diskThreshold(totalBytes: number): number {
   );
 }
 
-export type DiskKind = "database" | "repository";
+/** `system` (0.4.5): the disk under the operating system and Docker, read as `/` in the api. */
+export type DiskKind = "database" | "repository" | "system";
 
 export interface DiskStatus {
   kind: DiskKind;
-  /** The data directory or volume (database), the repository's path (repository). */
+  /** The data directory or volume (database), the repository's path (repository), `/` (system). */
   location: string | null;
   freeBytes: number;
   totalBytes: number;

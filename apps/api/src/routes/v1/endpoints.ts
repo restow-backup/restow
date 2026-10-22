@@ -116,7 +116,11 @@ export function toEndpointDto(summary: EndpointSummaryDto): EndpointDto {
       checkedAt: summary.readiness.checkedAt,
       overdue: summary.readiness.overdue,
     },
-    attention: summary.attention,
+    // `revoke_suggested` (0.4.5) is not part of this contract yet; such a machine is silent or
+    // overdue as well, which the contract names.
+    attention: summary.attention.filter(
+      (reason): reason is EndpointDto["attention"][number] => reason !== "revoke_suggested",
+    ),
     createdAt: summary.createdAt,
   };
 }

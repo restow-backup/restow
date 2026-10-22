@@ -100,6 +100,11 @@ function mailboxHistory(seed: number): ManifestMirrorEntry[][] {
       const message = `${folder}/Big ${n}.json`;
       current.push(
         entry(message, { metadata: { subject: `Big ${n}`, format: "json" }, itemId: `big-${n}` }),
+        // The attachments folder row the engine records; neither listing shows it.
+        entry(`${folder}/Big ${n}.attachments`, {
+          kind: "folder",
+          metadata: { folderKind: "attachments", messageItemId: `big-${n}` },
+        }),
         entry(`${folder}/Big ${n}.attachments/a.pdf`, {
           kind: "file",
           metadata: { messagePath: message },

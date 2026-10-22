@@ -49,6 +49,8 @@ export interface SettingsDraft {
   keepMonthly: string;
   staleAfterHours: string;
   staleAfterDays: string;
+  /** Days without contact before revoking is suggested. */
+  revokeHintAfterDays: string;
   /** GiB; empty means the installation's default. */
   quotaGib: string;
 }
@@ -70,6 +72,7 @@ export type DraftField =
   | "keepMonthly"
   | "staleAfterHours"
   | "staleAfterDays"
+  | "revokeHintAfterDays"
   | "quotaGib";
 
 export interface DraftProblem {
@@ -99,6 +102,7 @@ export const DEFAULTS = {
   retention: { keepDaily: 30, keepWeekly: 12, keepMonthly: 12 },
   staleAfterHours: 2,
   staleAfterDays: 7,
+  revokeHintAfterDays: 30,
 } as const;
 
 const FALLBACK_ZONE = "UTC";
@@ -138,6 +142,7 @@ export function draftFromDetail(
     keepMonthly: String(settings.retention.keepMonthly),
     staleAfterHours: String(settings.staleAfterHours),
     staleAfterDays: String(settings.staleAfterDays),
+    revokeHintAfterDays: String(settings.revokeHintAfterDays ?? DEFAULTS.revokeHintAfterDays),
     quotaGib: numberText(settings.quotaGib),
   };
 }
@@ -288,6 +293,11 @@ export function checkDraft(
     if (problem) {
       problems.staleAfterDays = problem;
     }
+  }
+
+  const revokeHint = rangeProblem(draft.revokeHintAfterDays, 1, LIMITS.revokeHintDaysMax);
+  if (revokeHint) {
+    problems.revokeHintAfterDays = revokeHint;
   }
 
   const quota = rangeProblem(draft.quotaGib, 1, LIMITS.quotaGibMax, { optional: true });
@@ -460,6 +470,13 @@ export function buildPatch(
     if (days !== null && days !== settings.staleAfterDays) {
       changedSettings.staleAfterDays = days;
     }
+  }
+  const revokeHintAfterDays = wholeNumber(draft.revokeHintAfterDays);
+  if (
+    revokeHintAfterDays !== null &&
+    revokeHintAfterDays !== (settings.revokeHintAfterDays ?? DEFAULTS.revokeHintAfterDays)
+  ) {
+    changedSettings.revokeHintAfterDays = revokeHintAfterDays;
   }
   const quotaGib = draft.quotaGib.trim() === "" ? null : wholeNumber(draft.quotaGib);
   if (quotaGib !== settings.quotaGib) {

@@ -837,6 +837,51 @@ describe("key figures", () => {
     expect(mixed).toContain("75% saved by deduplication");
   });
 
+  it("warns of a repository on the server's system disk, with the trend for the provider", () => {
+    const GIB = 1024 ** 3;
+    const base = {
+      logicalBytes: 4 * GIB,
+      physicalBytes: 3 * GIB,
+      target: { source: "installation_default" as const, status: "ok" as const },
+    };
+    const provider = render(
+      <StorageWidget
+        view={ready({
+          ...base,
+          systemDisk: {
+            freeBytes: 40 * GIB,
+            totalBytes: 100 * GIB,
+            trend: { bytesPerDay: -5 * GIB, fullOn: "2026-10-28T12:00:00.000Z", basisHours: 72 },
+            samples: [],
+          },
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(provider);
+    expect(provider).toContain("Repository on the server&#x27;s system disk");
+    expect(provider).toContain("40 GB free of 100 GB");
+    expect(provider).toContain("5 GB less per day");
+    expect(provider).toContain("full around");
+    // The tenant learns of it, without the provider's figures.
+    const tenant = render(
+      <StorageWidget
+        view={ready({
+          ...base,
+          systemDisk: { freeBytes: null, totalBytes: null, trend: null, samples: [] },
+        })}
+        {...state}
+        canAdminister={false}
+      />,
+    );
+    expect(tenant).toContain("system disk");
+    expect(tenant).not.toContain("free of");
+    expect(render(<StorageWidget view={ready(base)} {...state} canAdminister />)).not.toContain(
+      "system disk",
+    );
+  });
+
   it("shows the protected mailboxes without an edition, a limit or a license link", () => {
     const installation = render(
       <MailboxUsageWidget view={ready(data.mailboxUsage)} {...state} isProviderAdmin />,

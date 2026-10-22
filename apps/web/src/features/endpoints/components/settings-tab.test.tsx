@@ -44,10 +44,12 @@ vi.mock("radix-ui", async (importOriginal) => {
     AlertDialog: { ...actual.AlertDialog, Portal: InPlacePortal },
   };
 });
+const navigate = vi.fn();
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
   return {
     ...actual,
+    useNavigate: () => navigate,
     Link: ({ to, children, ...props }: { to: string; children: React.ReactNode }) => (
       <a href={String(to)} {...props}>
         {children}
@@ -59,10 +61,12 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 const updateEndpoint = vi.fn();
 const revokeEndpoint = vi.fn();
 const uninstallEndpoint = vi.fn();
+const removeEndpoint = vi.fn();
 vi.mock("../api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api.js")>();
   return {
     ...actual,
+    removeEndpoint: (...args: unknown[]) => removeEndpoint(...args),
     updateEndpoint: (...args: unknown[]) => updateEndpoint(...args),
     revokeEndpoint: (...args: unknown[]) => revokeEndpoint(...args),
     uninstallEndpoint: (...args: unknown[]) => uninstallEndpoint(...args),
@@ -604,5 +608,88 @@ describe("SettingsTab", () => {
     });
     expect(page.text()).toContain("The uninstall is waiting for the machine.");
     expect((page.byText("button", "Uninstall agent") as HTMLButtonElement).disabled).toBe(true);
+    // A machine that is off never picks it up: revoking it right away is offered (#65).
+    await page.click(page.byText("button", "Revoke now"));
+    expect(page.text()).toContain("This cannot be undone");
+  });
+
+  it("suggests revoking a machine without contact for longer than its setting", async () => {
+    await open({ attention: ["silent", "revoke_suggested"] });
+    expect(document.querySelector('[data-slot="revoke-suggested"]')?.textContent).toContain(
+      "more than 30 days",
+    );
+    expect(field<HTMLInputElement>("settings-revoke-hint-days").value).toBe("30");
+  });
+
+  it("removes only a revoked machine", async () => {
+    await open();
+    expect((page.byText("button", "Remove machine") as HTMLButtonElement).disabled).toBe(true);
+    expect(page.text()).toContain("Revoke the machine first");
+  });
+
+  it("removes a revoked machine with its hostname typed, after a recent sign-in", async () => {
+    auth.passkey.mockResolvedValue({ data: {}, error: null });
+    auth.getSession.mockResolvedValue({ data: { user: { id: "u1" } }, error: null });
+    auth.listUserPasskeys.mockResolvedValue({ data: [{ id: "p1" }], error: null });
+    auth.refresh.mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "GET /setup/state": () =>
+          json({
+            passkeyReady: { ready: true, reasons: [], rpId: null, origin: null },
+            demo: { enabled: false, email: null, password: null },
+          }),
+      }).mock,
+    );
+    try {
+      removeEndpoint.mockRejectedValueOnce(
+        new ApiError(
+          403,
+          {
+            type: "urn:restow:problem:recent-sign-in-required",
+            title: "Confirm it is you",
+            status: 403,
+          },
+          "Confirm it is you",
+        ),
+      );
+      removeEndpoint.mockResolvedValueOnce({
+        id: ID,
+        mode: "delete",
+        state: "scheduled",
+        dueAt: "2026-10-20T12:00:00.000Z",
+        expiresAt: null,
+      });
+      await open({ status: "revoked", revokedAt: "2026-10-01T00:00:00.000Z" });
+      await page.click(page.byText("button", "Remove machine"));
+      const dialog = document.querySelector('[data-slot="remove-machine-dialog"]');
+      expect(dialog?.textContent).toContain("keep the backups until they expire");
+      const confirm = () =>
+        page.byText('[data-slot="remove-machine-dialog"] button', "Remove machine") ??
+        page.byText('[data-slot="remove-machine-dialog"] button', "Delete machine and backups");
+      expect((confirm() as HTMLButtonElement).disabled).toBe(true);
+      await page.click(document.getElementById("remove-mode-delete") as HTMLElement);
+      await page.type(field<HTMLInputElement>("remove-confirm-hostname"), "web-01");
+      const button = page.byText(
+        '[data-slot="remove-machine-dialog"] button',
+        "Delete machine and backups",
+      ) as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      await page.click(button);
+      await page.settle();
+      expect(removeEndpoint).toHaveBeenCalledWith(ID, {
+        mode: "delete",
+        confirmHostname: "web-01",
+      });
+      await page.settle();
+      await page.click(page.byText("button", "Confirm with passkey"));
+      await page.settle();
+      await page.settle();
+      expect(removeEndpoint).toHaveBeenCalledTimes(2);
+      expect(navigate).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

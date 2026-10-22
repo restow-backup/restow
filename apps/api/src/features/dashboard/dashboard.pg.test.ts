@@ -71,6 +71,8 @@ const FREE_SPACE: Record<string, { freeBytes: number; totalBytes: number }> = {
 
 /** A valid installation default (a local path); nothing is read or written there. */
 const STORAGE_ENV = { STORAGE_TARGET: "local", STORAGE_LOCAL_PATH: "/data/chunks" };
+/** Paths on the server's system disk in this fixture (device 1, like `/`); every other is device 2. */
+const SYSTEM_DISK_PATHS = new Set<string>();
 
 const ALL_WIDGETS: TenantWidgetId[] = [
   "setup",
@@ -546,6 +548,11 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
           now: () => NOW,
           // No filesystem is read: the repositories of the fixture report this free space.
           filesystemSpace: async (path) => FREE_SPACE[path] ?? null,
+          systemDisk: {
+            deviceOf: async (path) =>
+              path === "/" || path.startsWith("/etc/") || SYSTEM_DISK_PATHS.has(path) ? 1 : 2,
+            mountinfo: async () => null,
+          },
           access,
         }),
       );
@@ -1054,7 +1061,58 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         repositoryBytes: 0,
         target: { source: "installation_default", status: "ok" },
         immutability: { objectLock: 0, deletionDelay: 0, primary: "none", warnings: 0 },
+        systemDisk: null,
       });
+    });
+
+    it("warns of a primary on the server's system disk, with the trend for provider admins", async () => {
+      const day = 24 * 60 * 60 * 1000;
+      const keep = one(await owner.select().from(settings));
+      SYSTEM_DISK_PATHS.add("/data/chunks");
+      try {
+        await owner.update(settings).set({
+          diskAlerts: {
+            system: {
+              low: false,
+              since: null,
+              notifiedAt: null,
+              freeBytes: 40e9,
+              totalBytes: 100e9,
+              samples: [
+                { at: new Date(NOW.getTime() - 2 * day).toISOString(), freeBytes: 60e9 },
+                { at: new Date(NOW.getTime() - day).toISOString(), freeBytes: 50e9 },
+                { at: NOW.toISOString(), freeBytes: 40e9 },
+              ],
+            },
+          },
+        });
+        // Contoso writes to the installation default (/data/chunks).
+        const forAdmin = ok((await dashboard(f.contoso, "provider_admin")).body.widgets.storage);
+        expect(forAdmin.systemDisk).toMatchObject({
+          freeBytes: 40e9,
+          totalBytes: 100e9,
+          trend: {
+            bytesPerDay: -10e9,
+            fullOn: new Date(NOW.getTime() + 4 * day).toISOString(),
+            basisHours: 48,
+          },
+        });
+        expect(forAdmin.systemDisk?.samples).toHaveLength(3);
+        // The tenant learns that, not the provider's figures.
+        const forTenant = ok((await dashboard(f.contoso, "tenant_user")).body.widgets.storage);
+        expect(forTenant.systemDisk).toEqual({
+          freeBytes: null,
+          totalBytes: null,
+          trend: null,
+          samples: [],
+        });
+        // A tenant with a repository of its own elsewhere gets no warning.
+        const fabrikam = ok((await dashboard(f.fabrikam, "provider_admin")).body.widgets.storage);
+        expect(fabrikam.systemDisk).toBeNull();
+      } finally {
+        SYSTEM_DISK_PATHS.clear();
+        await owner.update(settings).set({ diskAlerts: keep.diskAlerts });
+      }
     });
 
     it("counts the protected servers and clients and what needs an admin", async () => {

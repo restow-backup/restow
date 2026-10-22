@@ -15,6 +15,7 @@ import { isUuid } from "../handlers/framework.js";
 import { endpointCheck } from "./check.js";
 import type { EndpointJobDeps } from "./common.js";
 import { endpointMonitor } from "./monitor.js";
+import { endpointRemoval } from "./removal.js";
 import { endpointRetention } from "./retention.js";
 import { endpointVerify, RestoreTestIncompleteError } from "./verify.js";
 
@@ -81,6 +82,7 @@ export async function registerEndpointJobs(
   await work(ENDPOINT_QUEUES.retention, (job) => endpointRetention(deps, payloadOf(job.data)));
   await work(ENDPOINT_QUEUES.check, (job) => endpointCheck(deps, payloadOf(job.data)));
   await work(ENDPOINT_QUEUES.verify, (job) => endpointVerify(deps, payloadOf(job.data)));
+  await work(ENDPOINT_QUEUES.removal, (job) => endpointRemoval(deps, payloadOf(job.data)));
   await work(ENDPOINT_QUEUES.monitor, async () => {
     const summary = await endpointMonitor(deps);
     if (Object.values(summary).some((count) => count > 0)) {

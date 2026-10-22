@@ -136,6 +136,20 @@ export interface ImmutabilityOverview {
   warnings: number;
 }
 
+/**
+ * The tenant's primary repository is a directory on the server's system disk (release 0.4.5):
+ * backups that fill it stop the database and every service. The figures are the provider's
+ * (null for everyone else): the free space at the last check, its trend over the last week and
+ * the hourly samples behind it.
+ */
+export interface SystemDiskWarningDto {
+  freeBytes: number | null;
+  totalBytes: number | null;
+  /** Change of the free space per day (negative: it shrinks) and when it reaches zero at that rate. */
+  trend: { bytesPerDay: number; fullOn: string | null; basisHours: number } | null;
+  samples: { at: string; freeBytes: number }[];
+}
+
 export interface StorageWidget {
   logicalBytes: number;
   /** Everything stored: the chunk store and the restic repositories. */
@@ -144,6 +158,8 @@ export interface StorageWidget {
   repositoryBytes: number;
   target: StorageTargetHealth;
   immutability: ImmutabilityOverview;
+  /** Set when the primary repository lies on the server's system disk; null otherwise. */
+  systemDisk: SystemDiskWarningDto | null;
 }
 
 export interface RecentJobDto {

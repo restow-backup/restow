@@ -1,9 +1,9 @@
 import { Readable } from "node:stream";
 import { endpointPrefix } from "@restow/core";
 import { endpoints } from "@restow/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
-import { db } from "../../db.js";
+import { db, providerDb } from "../../db.js";
 import { providerRoleSatisfies } from "../../lib/provider-access.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
@@ -20,6 +20,7 @@ import {
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { resticRestorePointImmutability } from "../storage/immutability.js";
+import { retentionHoldSettings } from "../suspicion/service.js";
 import {
   getEndpointAgentPolicy,
   getTenantAgentPolicy,
@@ -29,6 +30,7 @@ import type { EndpointActor } from "./audit.js";
 import { cancelEndpointBackup, requestEndpointUpdate } from "./cancel.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
+import { listRemovals, removeEndpoint } from "./removal.js";
 import {
   agentPolicyLevelSchema,
   agentUpdatesSchema,
@@ -42,6 +44,7 @@ import {
   listRunsQuerySchema,
   listTokensQuerySchema,
   MAX_DOWNLOAD_BODY_BYTES,
+  removeEndpointSchema,
   runParamSchema,
   snapshotImmutabilityParamSchema,
   tokenIdParamSchema,
@@ -100,6 +103,10 @@ import {
  *                                               the person of the directory the machine is assigned to
  *   POST   /:id/revoke                          refuse the endpoint from now on
  *   POST   /:id/uninstall                       have the agent remove itself, then revoke
+ *   POST   /:id/remove                          remove a revoked machine from Restow: its backups are
+ *                                               deleted at once or when they expire (#65; typed
+ *                                               hostname, recent sign-in)
+ *   GET    /removals                            removed machines whose backups are not deleted yet
  *   POST   /:id/tasks                           back up now, or restore into a new folder on the endpoint
  *   POST   /:id/cancel                          stop the running backup, withdraw a queued one
  *   POST   /:id/update                          the agent installs its update when idle
@@ -192,6 +199,10 @@ endpointsRoutes.post("/tokens", admin, async (c) => {
   return c.json(created, 201);
 });
 
+endpointsRoutes.get("/removals", admin, async (c) => {
+  return c.json(await listRemovals(db, c.get("tenantId")));
+});
+
 endpointsRoutes.get("/agent-updates", admin, async (c) => {
   return c.json(await getAgentUpdates(db, c.get("tenantId")));
 });
@@ -257,6 +268,20 @@ endpointsRoutes.post("/:id/uninstall", admin, async (c) => {
   return c.json(await requestUninstall(db, c.get("tenantId"), id, actorOf(c)), 202);
 });
 
+endpointsRoutes.post("/:id/remove", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, removeEndpointSchema);
+  // Deleting backups cannot be undone: a sign-in from the last minutes, like other such actions.
+  assertRecentSignIn(c.get("auth").session);
+  const holdSettings = await retentionHoldSettings(providerDb).catch(() => null);
+  return c.json(
+    await removeEndpoint(db, c.get("tenantId"), id, input, actorOf(c), {
+      suspicionHoldsApply: holdSettings?.enabled ?? true,
+    }),
+    202,
+  );
+});
+
 endpointsRoutes.post("/:id/tasks", restorer, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   const input = await parseJsonBody(c.req, createTaskSchema);
@@ -319,7 +344,9 @@ endpointsRoutes.get("/:id/snapshots/:snapshotId/immutability", restorer, async (
     tx
       .select({ id: endpoints.id })
       .from(endpoints)
-      .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.id, id)))
+      .where(
+        and(eq(endpoints.tenantId, tenantId), eq(endpoints.id, id), isNull(endpoints.removedAt)),
+      )
       .limit(1),
   );
   if (!row) {

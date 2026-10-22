@@ -115,6 +115,19 @@ export interface StorageWidget {
     primary: "object_lock" | "deletion_delay" | "none";
     warnings: number;
   };
+  /**
+   * The primary repository lies on the server's system disk (0.4.5); null when not, absent from
+   * an older api. The figures only for provider admins (null otherwise).
+   */
+  systemDisk?: SystemDiskWarning | null;
+}
+
+export interface SystemDiskWarning {
+  freeBytes: number | null;
+  totalBytes: number | null;
+  /** Change of the free space per day (negative: shrinking) and the day it reaches zero. */
+  trend: { bytesPerDay: number; fullOn: string | null; basisHours: number } | null;
+  samples: { at: string; freeBytes: number }[];
 }
 
 export interface RecentJob {

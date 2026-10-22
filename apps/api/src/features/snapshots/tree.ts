@@ -79,6 +79,17 @@ export function nativeVersionsParent(filePath: string): string {
  */
 export const ATTACHMENT_PARENT_KEY = "messagePath";
 
+/**
+ * The folder row the Exchange engine records for the attachments of such a
+ * message (`<subject>.attachments`, `metadata.folderKind = "attachments"`,
+ * packages/core backup/exchange/mail.ts). Its only children are those
+ * attachments, which the explorer never lists, so the folder itself is not
+ * listed either: up to 0.4.4 every JSON-format message with attachments showed
+ * an empty folder next to it.
+ */
+export const FOLDER_KIND_KEY = "folderKind";
+export const ATTACHMENTS_FOLDER_KIND = "attachments";
+
 // ---------------------------------------------------------------------------
 // Mail metadata
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import { and, eq } from "drizzle-orm";
 import { currentInstallationDefault } from "../../lib/installation-default.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { locationOf } from "./dto.js";
+import { onSystemDisk, type SystemDiskDeps } from "./system-disk.js";
 
 /**
  * Where a tenant's backups land right now (docs/STORAGE.md, "Where backups land"): the
@@ -37,6 +38,11 @@ export interface BackupDestinationDto {
   location: string | null;
   /** A directory on a disk of the server itself (not a network share). */
   onServerDisk: boolean;
+  /**
+   * A directory on the server's system disk: the disk under the operating system, Docker and
+   * PostgreSQL (system-disk.ts). Backups that fill it stop the whole server.
+   */
+  onSystemDisk: boolean;
   /** The installation default is not usable (no tenant primary either). */
   misconfigured: boolean;
 }
@@ -126,6 +132,15 @@ export interface DestinationDeps {
   /** The installation default (tests); the saved one or the environment otherwise. */
   defaults?: () => Promise<InstallationDefaultStorage | null>;
   mountinfo?: MountinfoReader;
+  systemDisk?: SystemDiskDeps;
+}
+
+/** Whether a location is a directory on the server's system disk (only a local one can be). */
+export async function locationOnSystemDisk(
+  location: StorageLocation | null,
+  deps: SystemDiskDeps = {},
+): Promise<boolean> {
+  return location?.kind === "local" ? onSystemDisk(location.basePath, deps) : false;
 }
 
 /** The tenant's own primary target row, if any. */
@@ -156,6 +171,7 @@ export async function backupDestination(
       kind: row.kind,
       location: location ? describeStorageLocation(location) : null,
       onServerDisk: location ? await isOnServerDisk(location, false, deps.mountinfo) : false,
+      onSystemDisk: await locationOnSystemDisk(location, deps.systemDisk),
       misconfigured: false,
     };
   }
@@ -168,6 +184,7 @@ export async function backupDestination(
       kind: null,
       location: null,
       onServerDisk: false,
+      onSystemDisk: false,
       misconfigured: true,
     };
   }
@@ -178,6 +195,7 @@ export async function backupDestination(
     kind: defaults.primary.kind,
     location: viewer.isProviderAdmin ? describeStorageLocation(defaults.primary) : null,
     onServerDisk: await isOnServerDisk(defaults.primary, true, deps.mountinfo),
+    onSystemDisk: await locationOnSystemDisk(defaults.primary, deps.systemDisk),
     misconfigured: false,
   };
 }
