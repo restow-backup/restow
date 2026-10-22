@@ -1,40 +1,62 @@
-import { Link } from "@tanstack/react-router";
-import { ArrowRight, Info, TriangleAlert } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { ARCHIVE_PATH } from "@/features/archive/paths";
 import { ExtensionSlot } from "@/lib/extensions";
 
+import type { CaptureKind } from "../api.js";
+import {
+  type CaptureSettingsKey,
+  type CaptureWays,
+  forwardingChosen,
+  needsJournal,
+} from "../capture-ways.js";
 import { JOB_PURPOSES, type JobPurpose } from "../form.js";
+import { CaptureWaysField } from "./capture-ways-field.js";
 import { EditorSection } from "./editor-section.js";
 
 /**
  * The first question of a mail job's editor: what the job is for (docs/ARCHIVE.md, "Journaling
  * und Postfach-Sicherung"). A backup restores folders, calendar, contacts and whole mailboxes; the
  * archive keeps every mail, unchanged, from before anyone could change or delete it. While the job
- * archives, the section names how mail reaches the archive (Exchange journaling, set up once per
- * tenant) with the way to its setup, what the storage does for immutability, and what the
- * Business modules say about the journal (slot `jobs.archiveSetup`).
+ * archives, the section offers the capture ways that fit the kinds of mail objects the job covers
+ * (capture-ways-field.tsx), says what the storage does for immutability, and shows what the
+ * Business modules add for the ways chosen (slot `jobs.archiveSetup`: the journal address only
+ * where Exchange journaling is chosen).
  */
 export function PurposeSection({
   idPrefix,
   purpose,
   objectLock,
   onChange,
+  captureKinds,
+  scopeMode,
+  capture,
+  onCaptureChange,
+  captureMissing,
+  captureServerMessage,
 }: {
   idPrefix: string;
   purpose: JobPurpose;
   /** Whether the tenant's storage has Object Lock; null while unknown. */
   objectLock: boolean | null;
   onChange: (purpose: JobPurpose) => void;
+  /** The kinds of mail objects the job covers. */
+  captureKinds: readonly CaptureKind[];
+  scopeMode: "all" | "selected";
+  capture: CaptureWays;
+  onCaptureChange: (capture: CaptureWays) => void;
+  /** Kinds without a way, once a save was tried. */
+  captureMissing: readonly CaptureSettingsKey[];
+  captureServerMessage?: string;
 }) {
   const { t } = useTranslation("backupjobs");
   const id = (name: string) => `${idPrefix}-${name}`;
   const archive = purpose !== "backup";
+  // Without the Business modules nothing receives journal reports or forwarded copies.
+  const smtpChosen = needsJournal(capture, captureKinds) || forwardingChosen(capture, captureKinds);
 
   return (
     <EditorSection id={idPrefix} title={t("editor.purpose.title")}>
@@ -66,20 +88,15 @@ export function PurposeSection({
 
       {archive ? (
         <div className="space-y-3">
-          <div className="space-y-2 rounded-md border p-3" data-slot="archive-capture">
-            <p className="text-sm font-medium">{t("editor.purpose.capture.title")}</p>
-            <p className="text-xs text-muted-foreground">
-              {t("editor.purpose.capture.journaling")}
-            </p>
-            <Link
-              to={ARCHIVE_PATH}
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-              data-slot="archive-capture-setup"
-            >
-              {t("editor.purpose.capture.setup")}
-              <ArrowRight aria-hidden="true" />
-            </Link>
-          </div>
+          <CaptureWaysField
+            idPrefix={id("capture")}
+            kinds={captureKinds}
+            scopeMode={scopeMode}
+            value={capture}
+            onChange={onCaptureChange}
+            missing={captureMissing}
+            serverMessage={captureServerMessage}
+          />
           {objectLock === false ? (
             <Alert variant="warning" data-slot="archive-object-lock">
               <TriangleAlert aria-hidden="true" />
@@ -92,12 +109,14 @@ export function PurposeSection({
           ) : null}
           <ExtensionSlot
             name="jobs.archiveSetup"
-            props={{ archive }}
+            props={{ archive, kinds: captureKinds, capture }}
             fallback={
-              <Alert data-slot="archive-edition">
-                <Info aria-hidden="true" />
-                <AlertDescription>{t("editor.archive.edition")}</AlertDescription>
-              </Alert>
+              smtpChosen ? (
+                <Alert data-slot="archive-edition">
+                  <Info aria-hidden="true" />
+                  <AlertDescription>{t("editor.archive.edition")}</AlertDescription>
+                </Alert>
+              ) : null
             }
           />
         </div>

@@ -9,6 +9,7 @@ import type { StoredCadence } from "@/features/schedules/presets";
 
 import {
   type BackupJob,
+  type CaptureKind,
   type CreateBackupJobInput,
   type JobCandidate,
   type JobDefaults,
@@ -31,6 +32,14 @@ import {
   windowsKey,
   windowsOfDrafts,
 } from "./bandwidth-windows.js";
+import {
+  type CaptureSettingsKey,
+  type CaptureWays,
+  DEFAULT_CAPTURE_WAYS,
+  effectiveCaptureWays,
+  keysWithoutWay,
+  sameCaptureWays,
+} from "./capture-ways.js";
 import { excludesProblem, parseLargerThanGib } from "./exclusions.js";
 import { pathsProblem } from "./folders.js";
 
@@ -459,6 +468,8 @@ export interface SelectedMember {
   job: { id: string; name: string } | null;
   /** What it does differently; kept when the scope is saved again. */
   overrides?: JobMemberOverrides;
+  /** Mail objects: which archive capture ways fit it; null or absent when none or not known yet. */
+  captureKind?: CaptureKind | null;
 }
 
 export function selectedOfCandidate(candidate: JobCandidate): SelectedMember {
@@ -468,6 +479,7 @@ export function selectedOfCandidate(candidate: JobCandidate): SelectedMember {
     name: candidate.name,
     detail: candidate.detail,
     job: candidate.job,
+    ...(candidate.captureKind ? { captureKind: candidate.captureKind } : {}),
   };
 }
 
@@ -479,6 +491,7 @@ export function selectedOfMember(member: JobMember): SelectedMember {
     detail: member.detail,
     job: null,
     ...(Object.keys(member.overrides).length > 0 ? { overrides: member.overrides } : {}),
+    ...(member.captureKind ? { captureKind: member.captureKind } : {}),
   };
 }
 
@@ -493,8 +506,13 @@ export interface JobDraft {
    * a schedule; machine jobs always back up.
    */
   purpose: JobPurpose;
-  /** Mail jobs only: archive the mailboxes through journaling. */
+  /** Mail jobs only: archive the job's mail objects. */
   archive: boolean;
+  /**
+   * Mail jobs: the archive's capture ways per kind of mail object (docs/ARCHIVE.md
+   * "Erfassungswege"); kept while the job does not archive, sent only while it does.
+   */
+  archiveCapture: CaptureWays;
   /** Mail jobs: run on a schedule; off means the job runs when someone starts it. */
   scheduleOn: boolean;
   cadence: CadenceDraft;
@@ -522,6 +540,7 @@ export function newJobDraft(kind: JobKind, defaults: JobDefaults | undefined): J
     // A new mail job backs up and archives (maintainer decision, 0.4.2): the person picks less.
     purpose: kind === "mail" ? "both" : "backup",
     archive: kind === "mail",
+    archiveCapture: effectiveCaptureWays(DEFAULT_CAPTURE_WAYS),
     scheduleOn: true,
     cadence: cadenceDraftOfSchedule(
       kind === "mail" ? (defaults?.schedule ?? null) : null,
@@ -559,6 +578,7 @@ export function draftOfJob(
     enabled: job.enabled,
     purpose: purposeOfJob(job),
     archive: job.archive,
+    archiveCapture: effectiveCaptureWays(job.archiveCapture),
     scheduleOn: job.kind === "mail" ? job.schedule !== null : true,
     cadence: cadenceDraftOfSchedule(job.kind === "mail" ? job.schedule : null, null, zone),
     endpointSchedule: endpointScheduleDraftOf(
@@ -637,10 +657,19 @@ export interface JobProblems {
   verifyCadence?: boolean;
   endpointSchedule?: Partial<Record<EndpointScheduleField, FormProblem>>;
   settings?: SettingsProblems;
+  /** Mail jobs that archive: the kinds of mail objects with no capture way chosen. */
+  archiveCapture?: CaptureSettingsKey[];
 }
 
-/** Everything the API would refuse about the draft, found before the request. */
-export function checkJobDraft(draft: JobDraft): JobProblems {
+/**
+ * Everything the API would refuse about the draft, found before the request. `captureKinds`
+ * are the kinds of mail objects the job covers (capture-ways.ts `captureKindsOfScope`): an
+ * archiving job needs at least one way for each.
+ */
+export function checkJobDraft(
+  draft: JobDraft,
+  captureKinds: readonly CaptureKind[] = [],
+): JobProblems {
   const problems: JobProblems = {};
   const name = draft.name.trim();
   if (name === "") {
@@ -657,6 +686,12 @@ export function checkJobDraft(draft: JobDraft): JobProblems {
     }
     if (draft.verifyOn && !checkCadence(draft.verifyCadence).ok) {
       problems.verifyCadence = true;
+    }
+    if (draft.archive) {
+      const missing = keysWithoutWay(draft.archiveCapture, captureKinds);
+      if (missing.length > 0) {
+        problems.archiveCapture = missing;
+      }
     }
   } else {
     const schedule = checkEndpointSchedule(draft.endpointSchedule);
@@ -720,7 +755,9 @@ export function createInputOf(
     ...(draft.kind === "mail" ? { retentionPolicyId: draft.retentionPolicyId } : {}),
     settings: draft.kind === "endpoint" ? settingsOfDraft(draft.settings) : {},
     enabled: draft.kind === "mail" ? draft.enabled : true,
-    ...(draft.kind === "mail" && draft.archive ? { archive: true } : {}),
+    ...(draft.kind === "mail" && draft.archive
+      ? { archive: true, archiveCapture: draft.archiveCapture }
+      : {}),
     ...(move ? { moveMembers: true } : {}),
   };
 }
@@ -807,6 +844,10 @@ export function updateInputOf(job: BackupJob, draft: JobDraft): UpdateBackupJobI
     }
     if (draft.archive !== job.archive) {
       patch.archive = draft.archive;
+    }
+    // The ways only count while the job archives; a server before 0.4.4 knows none.
+    if (draft.archive && !sameCaptureWays(draft.archiveCapture, job.archiveCapture)) {
+      patch.archiveCapture = draft.archiveCapture;
     }
   } else {
     const settings = settingsOfDraft(draft.settings);

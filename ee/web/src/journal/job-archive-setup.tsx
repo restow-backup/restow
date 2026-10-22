@@ -1,9 +1,8 @@
 import { Link } from "@tanstack/react-router";
-import { ExternalLink, Info, Mail } from "lucide-react";
+import { ExternalLink, Mail } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CopyButton, StatusBadge } from "@/components/kit";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import "@/features/archive/i18n";
@@ -14,30 +13,23 @@ import { useJournalScope, useJournalSetup } from "./hooks";
 import { STATUS_TONE } from "./presenters";
 
 /**
- * The archive section of a mail job's editor (slot `jobs.archiveSetup`, #32):
- * while the job archives, the tenant's journal address and whether reports
- * arrive, with the way to the full guide on the archive page. Journaling is
- * set up once per tenant (one address, one journal rule); the job only says
- * which mailboxes are expected in the archive. Without the Business edition
- * it says that nothing is captured.
+ * The archive section of a mail job's editor (slot `jobs.archiveSetup`, #32): while the job
+ * archives Microsoft 365 mailboxes by Exchange journaling, the tenant's journal address and
+ * whether reports arrive, with the way to the full guide on the archive page. Journaling is
+ * set up once per tenant (one address, one journal rule); the job only says which mailboxes
+ * are expected in the archive.
+ *
+ * The journal address is issued by its first request, so it is asked for only while
+ * journaling is chosen: a job of IMAP accounts, or one that captures by Graph alone, never
+ * requests it. Below Business the core's capture ways say which edition has journaling.
  */
-export function JobArchiveSetup({ archive }: SlotProps["jobs.archiveSetup"]) {
+export function JobArchiveSetup({ archive, kinds, capture }: SlotProps["jobs.archiveSetup"]) {
   const { t } = useTranslation("archive");
   const { enabled, canManage, licensed } = useJournalScope();
-  const setup = useJournalSetup();
+  const journal = archive && kinds.includes("m365") && capture.m365.journal;
+  const setup = useJournalSetup({ wanted: journal });
 
-  if (!archive) {
-    return null;
-  }
-  if (!licensed) {
-    return (
-      <Alert data-slot="archive-edition">
-        <Info aria-hidden="true" />
-        <AlertDescription>{t("journal.job.edition")}</AlertDescription>
-      </Alert>
-    );
-  }
-  if (!enabled || !canManage) {
+  if (!journal || !licensed || !enabled || !canManage) {
     return null;
   }
 

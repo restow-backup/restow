@@ -23,13 +23,21 @@ export function useJournalScope() {
   };
 }
 
-export function useJournalSetup() {
+/**
+ * The tenant's journal setup. The first request issues the journal address (the API audits
+ * it), so a caller that does not need journaling passes `wanted: false` and nothing is asked:
+ * the job editor asks only while Exchange journaling is chosen. `refetchInterval` overrides
+ * the refresh (the wait for the first report polls faster).
+ */
+export function useJournalSetup(
+  options: { wanted?: boolean; refetchInterval?: number | false } = {},
+) {
   const { tenantId, enabled, canManage, licensed } = useJournalScope();
   return useQuery({
     queryKey: journalKeys.setup(tenantId),
     queryFn: fetchJournalSetup,
-    enabled: enabled && canManage && licensed,
-    refetchInterval: REFRESH_MS,
+    enabled: (options.wanted ?? true) && enabled && canManage && licensed,
+    refetchInterval: options.refetchInterval ?? REFRESH_MS,
   });
 }
 

@@ -17,7 +17,7 @@ import { i18n } from "@/i18n";
 
 import { candidate, defaults, endpointJob, list, mailJob } from "../fixtures.js";
 import "../i18n.js";
-import { focusOn, type Opened, openJobs, press } from "../testing.js";
+import { adminSession, focusOn, type Opened, openJobs, press } from "../testing.js";
 
 /**
  * The job editor: errors where they belong and announced, what is sent, the question before
@@ -74,12 +74,14 @@ const MAIL_ROUTES = {
         candidate({
           targetId: "o1",
           kind: "mailbox",
+          captureKind: "m365",
           name: "Anna Berg",
           detail: "anna@mueller.example.test",
         }),
         candidate({
           targetId: "o2",
           kind: "mailbox",
+          captureKind: "m365",
           name: "Ben Koch",
           detail: "ben@mueller.example.test",
         }),
@@ -200,13 +202,16 @@ describe("saving a new mail job", () => {
     expect(sections[0]?.textContent).toContain("What should this job do?");
     expect(field("Back up and archive").getAttribute("aria-checked")).toBe("true");
     expect(textOf(sections[0] ?? null)).toContain("before users can change or delete it");
-    // How mail reaches the archive, with the way to set it up.
-    expect(slot("archive-capture")?.textContent).toContain("Exchange journaling");
-    expect(slot("archive-capture-setup")?.getAttribute("href")).toBe("/archive");
+    // How mail reaches the archive: nothing to offer until the job has mailboxes.
+    expect(slot("archive-capture")?.textContent).toContain("How mail reaches the archive");
+    expect(slot("capture-no-kinds")?.textContent).toContain("Choose the mailboxes");
+    await click(checkbox("Anna Berg"));
+    expect(slot("capture-kind-m365")?.textContent).toContain("Microsoft Graph");
+    expect(slot("capture-kind-m365")?.textContent).toContain("Exchange journaling");
     // The fixture's repository is an S3 bucket without Object Lock.
     expect(slot("archive-object-lock")?.textContent).toContain("no Object Lock");
-    // No extension in this build: the core's own note.
-    expect(slot("archive-edition")?.textContent).toContain("Business edition");
+    // No extension in this build and no SMTP way chosen: no note about the Business modules.
+    expect(slot("archive-edition")).toBeNull();
     // Every 8 hours already: nothing to suggest.
     expect(slot("archive-frequency")).toBeNull();
     await typeInto(field("Name"), "Archived");
@@ -216,6 +221,11 @@ describe("saving a new mail job", () => {
       kind: "mail",
       name: "Archived",
       archive: true,
+      archiveCapture: {
+        m365: { graph: true, journal: false },
+        imap: { sync: true, forward: false },
+        google: { sync: true, forward: false },
+      },
       schedule: { kind: "interval", intervalMinutes: 480 },
     });
   });
@@ -1071,5 +1081,153 @@ describe("a change that needs a recent sign-in", () => {
     expect(document.body.textContent).toContain("Confirm it is you");
     expect(posts).toBe(1);
     expect(slot("job-editor")).not.toBeNull();
+  });
+});
+
+describe("the capture ways of an archiving mail job", () => {
+  const IMAP_CANDIDATES = [
+    candidate({
+      targetId: "i1",
+      kind: "imap",
+      captureKind: "imap",
+      name: "info@hoster.example",
+      detail: "info@hoster.example",
+    }),
+    candidate({
+      targetId: "i2",
+      kind: "imap",
+      captureKind: "imap_microsoft",
+      name: "office@outlook.example",
+      detail: "office@outlook.example",
+    }),
+    candidate({
+      targetId: "g1",
+      kind: "imap",
+      captureKind: "google",
+      name: "team@workspace.example",
+      detail: "team@workspace.example",
+    }),
+    candidate({
+      targetId: "o1",
+      kind: "mailbox",
+      captureKind: "m365",
+      name: "Anna Berg",
+      detail: "anna@mueller.example.test",
+    }),
+  ];
+  const routes = (post?: (body: unknown) => void) => ({
+    ...MAIL_ROUTES,
+    "GET /backup-jobs/candidates": () => json({ items: IMAP_CANDIDATES, total: 4 }),
+    "POST /backup-jobs": (request: RecordedRequest) => {
+      post?.(request.body);
+      return json(mailJob({ id: "new", name: "Mail" }), 201);
+    },
+  });
+  const way = (key: string, field: string) =>
+    slot(`capture-way-${key}-${field}`)?.querySelector<HTMLElement>(
+      '[role="checkbox"]',
+    ) as HTMLElement;
+
+  it("offers an IMAP-only job the IMAP ways only, labelled near-time and at transport", async () => {
+    await open("/jobs?type=mail&new=1", routes());
+    await click(checkbox("info@hoster.example"));
+    expect(slot("capture-kind-imap")?.textContent).toContain("IMAP archiving");
+    expect(slot("capture-kind-imap")?.textContent).toContain("Forwarding to the archive address");
+    expect(slot("capture-kind-imap")?.textContent).toContain("Near-time");
+    expect(slot("capture-kind-imap")?.textContent).toContain("At transport");
+    expect(slot("capture-kind-m365")).toBeNull();
+    expect(slot("capture-kind-google")).toBeNull();
+    expect(textOf(editor())).not.toContain("Exchange journaling");
+    // Nothing asked for a journal address.
+    expect(opened?.requests.some((request) => request.path.startsWith("/archive/journal"))).toBe(
+      false,
+    );
+  });
+
+  it("shows one card per kind for a mixed job, and the hint for IMAP accounts at Microsoft", async () => {
+    await open("/jobs?type=mail&new=1", routes());
+    await click(checkbox("Anna Berg"));
+    await click(checkbox("office@outlook.example"));
+    await click(checkbox("team@workspace.example"));
+    expect(slot("capture-kind-m365")).not.toBeNull();
+    expect(slot("capture-kind-imap")).not.toBeNull();
+    expect(slot("capture-kind-google")?.textContent).toContain("Routing to the archive address");
+    expect(slot("capture-imap-microsoft")?.textContent).toContain("Microsoft 365 source");
+  });
+
+  it("locks the ways the edition does not include and names the edition", async () => {
+    await open("/jobs?type=mail&new=1", routes());
+    await click(checkbox("info@hoster.example"));
+    expect(slot("capture-way-imap-sync")?.dataset.available).toBe("false");
+    expect(way("imap", "sync").hasAttribute("disabled")).toBe(true);
+    expect(slot("capture-way-imap-sync")?.textContent).toContain("Business edition");
+  });
+
+  it("sends the ways chosen and refuses a kind without any", async () => {
+    let body: unknown = null;
+    await opened?.mounted.unmount();
+    opened = await openJobs("/jobs?type=mail&new=1", {
+      routes: routes((sent) => {
+        body = sent;
+      }),
+      session: adminSession({ features: ["archive.mailboxCapture", "archive.smtpCapture"] }),
+    });
+    await flush(8);
+    await typeInto(field("Name"), "Mail");
+    await click(checkbox("info@hoster.example"));
+    await click(way("imap", "forward"));
+    expect(slot("capture-forward-setup")?.getAttribute("href")).toBe("/archive#archive-forwarding");
+    // No extension in this build: the core's own note on the SMTP ways.
+    expect(slot("archive-edition")?.textContent).toContain("Business modules");
+    await click(way("imap", "sync"));
+    await click(way("imap", "forward"));
+    await click(buttonByText(editor(), "Create job"));
+    await flush(3);
+    expect(slot("capture-kind-imap")?.querySelector('[role="alert"]')?.textContent).toBe(
+      "Choose at least one way for these mailboxes.",
+    );
+    expect(created()).toBe(false);
+    await click(way("imap", "forward"));
+    await click(buttonByText(editor(), "Create job"));
+    await flush(5);
+    expect(body).toMatchObject({
+      archive: true,
+      archiveCapture: { imap: { sync: false, forward: true } },
+    });
+  });
+
+  it("offers the ways of every kind the tenant has to a job that covers all", async () => {
+    await open("/jobs?type=mail&new=1", {
+      ...routes(),
+      "GET /backup-jobs": () => json(list([])),
+      "GET /backup-jobs/defaults": () =>
+        json(defaults("mail", { mailSourceKinds: ["m365", "google"] })),
+    });
+    expect(slot("capture-kind-m365")).not.toBeNull();
+    expect(slot("capture-kind-google")).not.toBeNull();
+    expect(slot("capture-kind-imap")).toBeNull();
+  });
+
+  it("shows the server's refusal at the kind it names", async () => {
+    await open("/jobs?type=mail&new=1", {
+      ...routes(),
+      "POST /backup-jobs": () =>
+        problem("urn:restow:problem:invalid-backup-job", 422, {
+          issues: [
+            {
+              path: ["archiveCapture", "google"],
+              code: "archive_capture_no_way",
+              message: "Every kind of mailbox the job archives needs at least one capture way.",
+            },
+          ],
+        }),
+    });
+    await typeInto(field("Name"), "Mail");
+    await click(checkbox("team@workspace.example"));
+    await click(buttonByText(editor(), "Create job"));
+    await flush(5);
+    expect(slot("capture-kind-google")?.querySelector('[role="alert"]')?.textContent).toContain(
+      "needs at least one capture way",
+    );
   });
 });

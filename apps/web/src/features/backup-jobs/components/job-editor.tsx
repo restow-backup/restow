@@ -45,6 +45,7 @@ import {
   type JobScopeMode,
   LIMITS,
 } from "../api.js";
+import { captureKindsOfScope, serverCaptureKeys } from "../capture-ways.js";
 import { withDataFolder } from "../folders.js";
 import {
   archiveBackupCadence,
@@ -430,7 +431,12 @@ function EditorForm({
     setSaveError(null);
   };
 
-  const problems: JobProblems = checkJobDraft(draft);
+  const captureKinds = captureKindsOfScope(
+    draft.scopeMode,
+    draft.scopeMode === "all" ? [] : draft.selected,
+    defaults.mailSourceKinds,
+  );
+  const problems: JobProblems = checkJobDraft(draft, captureKinds);
   const shown = attempted ? problems : {};
   const serverProblem = jobProblemOf(saveError);
   const target: ProblemTarget | null = serverProblem ? problemTarget(serverProblem.path) : null;
@@ -442,7 +448,7 @@ function EditorForm({
   ): Promise<void> => {
     setAttempted(true);
     setSaveError(null);
-    const found = checkJobDraft(draft);
+    const found = checkJobDraft(draft, captureKinds);
     if (jobHasProblems(found) || closed) {
       setAttempts((count) => count + 1);
       return;
@@ -565,8 +571,15 @@ function EditorForm({
     (member) => member.overrides && Object.keys(member.overrides).length > 0,
   ).length;
   // What the server said about a field the form shows it at; the rest, and every other failure, stands on top.
+  // A refused capture way stands at its kind's card, unless the editor shows no such card.
+  const serverCaptureMissing =
+    target === "archiveCapture" ? serverCaptureKeys(serverProblem?.path, captureKinds) : [];
   const generalError =
-    saveError && (!serverProblem || target === "general" || target === "scope")
+    saveError &&
+    (!serverProblem ||
+      target === "general" ||
+      target === "scope" ||
+      (target === "archiveCapture" && serverCaptureMissing.length === 0))
       ? serverProblem
         ? serverMessage
         : t(jobErrorKey(saveError))
@@ -616,6 +629,12 @@ function EditorForm({
                   setDraft((current) => withPurpose(current, purpose));
                   setSaveError(null);
                 }}
+                captureKinds={captureKinds}
+                scopeMode={draft.scopeMode}
+                capture={draft.archiveCapture}
+                onCaptureChange={(archiveCapture) => edit({ archiveCapture })}
+                captureMissing={shown.archiveCapture ?? serverCaptureMissing}
+                captureServerMessage={serverCaptureMissing.length > 0 ? serverMessage : undefined}
               />
             ) : null}
             <EditorSection id={ids("general")} title={t("editor.general.title")}>

@@ -194,8 +194,13 @@ export interface BackupJob {
   kind: JobKind;
   name: string;
   enabled: boolean;
-  /** Mail jobs: the job's mailboxes are archived through journaling. Machine jobs: false. */
+  /** Mail jobs: the job's mail objects are archived (#32). Machine jobs: false. */
   archive: boolean;
+  /**
+   * Mail jobs: the archive's capture ways per kind of mail object, the defaults filled in
+   * (docs/ARCHIVE.md "Erfassungswege"). Other kinds: `{}`. Absent from servers before 0.4.4.
+   */
+  archiveCapture?: ArchiveCaptureSettings;
   origin: JobOrigin;
   scopeMode: JobScopeMode;
   /** Null: no schedule, the job runs when someone starts it. */
@@ -235,12 +240,30 @@ export type MemberKind =
   | "smb"
   | "nfs";
 export type MemberRestoreState = "green" | "yellow" | "red" | "unverified" | "no_backup";
+
+/**
+ * Which archive capture ways fit a mail object (apps/api backup-jobs dto.ts, packages/db
+ * archive-capture.ts): `m365` a Microsoft 365 mailbox, `google` an IMAP account at Google,
+ * `imap_microsoft` an IMAP account on a Microsoft host (a Microsoft 365 source fits better),
+ * `imap` any other IMAP account.
+ */
+export type CaptureKind = "m365" | "google" | "imap" | "imap_microsoft";
+
+/** A mail job's capture ways per kind of mail object (`imap_microsoft` uses `imap`). */
+export interface ArchiveCaptureSettings {
+  m365?: { graph: boolean; journal: boolean };
+  imap?: { sync: boolean; forward: boolean };
+  google?: { sync: boolean; forward: boolean };
+}
+
 export type MemberOutcome = "succeeded" | "partial" | "failed" | "running" | "queued" | "cancelled";
 
 export interface JobMember {
   /** The id of the protected object (mail) or the machine. */
   targetId: string;
   kind: MemberKind;
+  /** Mail objects: which archive capture ways fit it; null for OneDrive, sites and machines. */
+  captureKind?: CaptureKind | null;
   name: string;
   /** The address or the operating system. */
   detail: string | null;
@@ -280,6 +303,8 @@ export interface JobMembers {
 export interface JobCandidate {
   targetId: string;
   kind: MemberKind;
+  /** Mail objects: which archive capture ways fit it; null otherwise. */
+  captureKind?: CaptureKind | null;
   name: string;
   detail: string | null;
   status: string;
@@ -342,6 +367,11 @@ export interface JobDefaults {
   basis?: { os: string[]; profiles: ("server" | "client")[]; mixed: boolean } | null;
   /** The tenant's primary storage target: the only one jobs write to. */
   repository: Repository;
+  /**
+   * Mail jobs: the capture kinds of the tenant's active mail objects (what a job of scope
+   * "all" archives). Empty for other kinds; absent from servers before 0.4.4.
+   */
+  mailSourceKinds?: CaptureKind[];
   retentionPolicies: RetentionPolicyChoice[];
   /** Machine jobs: what a machine keeps its repository with unless the job says otherwise. */
   endpointRetention: JobRetention;
@@ -405,8 +435,10 @@ export interface CreateBackupJobInput {
   retentionPolicyId?: string | null;
   settings?: JobEndpointSettings;
   enabled?: boolean;
-  /** Mail jobs: archive the job's mailboxes through journaling. */
+  /** Mail jobs: archive the job's mail objects. */
   archive?: boolean;
+  /** Mail jobs: how the archive captures each kind of mail object; absent = the defaults. */
+  archiveCapture?: ArchiveCaptureSettings;
   /** Take objects and machines that belong to another job instead of refusing them. */
   moveMembers?: boolean;
   /** Copy jobs: the share copied from and the share copied into. */
@@ -426,6 +458,7 @@ export interface UpdateBackupJobInput {
   settings?: JobEndpointSettings;
   enabled?: boolean;
   archive?: boolean;
+  archiveCapture?: ArchiveCaptureSettings;
   sourceFileShareId?: string;
   targetFileShareId?: string;
   confirmMirror?: boolean;

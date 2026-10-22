@@ -236,8 +236,7 @@
     "job": {
       "title": "Journaling in Exchange",
       "description": "Exchange stellt die Journal-Reports dieses Mandanten an diese Adresse zu. Konnektor und Journalregel richten Sie einmal pro Mandant ein; die Anleitung steht im Archiv.",
-      "guide": "Anleitung im Archiv öffnen",
-      "edition": "Die Erfassung über Exchange-Journaling gehört zur Business-Edition. Ohne sie bleibt die Einstellung gespeichert, es wird aber nichts archiviert."
+      "guide": "Anleitung im Archiv öffnen"
     }
   },
   "flags": {

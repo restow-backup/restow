@@ -236,8 +236,7 @@
     "job": {
       "title": "Journaling in Exchange",
       "description": "Exchange delivers this tenant's journal reports to this address. Set up the connector and the journal rule once per tenant; the guide is in the archive.",
-      "guide": "Open the guide in the archive",
-      "edition": "Capture through Exchange journaling is part of the Business edition. Without it the setting is kept, but nothing is archived."
+      "guide": "Open the guide in the archive"
     }
   },
   "flags": {
