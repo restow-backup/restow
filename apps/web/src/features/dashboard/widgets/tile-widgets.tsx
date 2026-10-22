@@ -2,7 +2,7 @@ import { HardDrive, Inbox, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { KpiTile, StatusBadge } from "@/components/kit";
-import { formatBytes, formatInteger, formatPercent } from "@/lib/format";
+import { formatBytes, formatDateTime, formatInteger, formatPercent } from "@/lib/format";
 
 import type {
   MailboxUsageWidget as MailboxData,
@@ -292,6 +292,52 @@ function ImmutabilityLine({ immutability }: { immutability: StorageData["immutab
   return <span data-slot="immutability">{t("storage.immutability.none")}</span>;
 }
 
+/**
+ * The primary repository on the server's system disk (0.4.5): a warning for everyone, and for
+ * provider admins the free space and where it is heading (the api keeps it once an hour).
+ */
+export function SystemDiskLine({
+  systemDisk,
+  language,
+}: {
+  systemDisk: StorageData["systemDisk"];
+  language: string;
+}) {
+  const { t } = useTranslation("dashboard");
+  if (!systemDisk) {
+    return null;
+  }
+  const { freeBytes, totalBytes, trend } = systemDisk;
+  return (
+    <span className="flex flex-col gap-1" data-slot="system-disk">
+      <StatusBadge tone="warning" icon>
+        {t("storage.systemDisk.badge")}
+      </StatusBadge>
+      {freeBytes !== null && totalBytes !== null ? (
+        <span>
+          {t("storage.systemDisk.free", {
+            free: formatBytes(freeBytes, language),
+            total: formatBytes(totalBytes, language),
+          })}
+          {trend
+            ? ` · ${t(
+                trend.bytesPerDay < 0
+                  ? "storage.systemDisk.shrinking"
+                  : "storage.systemDisk.steady",
+                {
+                  bytes: formatBytes(Math.abs(trend.bytesPerDay), language),
+                },
+              )}`
+            : null}
+          {trend?.fullOn
+            ? ` · ${t("storage.systemDisk.fullOn", { date: formatDateTime(trend.fullOn, language) })}`
+            : null}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 /** Bytes in the chunk store after deduplication, and whether the target answers. */
 export function StorageWidget({
   canAdminister,
@@ -346,6 +392,7 @@ export function StorageWidget({
                 ) : null}
                 <StorageTargetBadge target={data.target} />
                 <ImmutabilityLine immutability={data.immutability} />
+                <SystemDiskLine systemDisk={data.systemDisk} language={language} />
               </span>
             }
             link={

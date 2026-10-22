@@ -210,6 +210,13 @@
       "deletionDelay": "{count, plural, one {Löschverzögerung auf # Repository (nicht unveränderbar)} other {Löschverzögerung auf # Repositories (nicht unveränderbar)}}",
       "none": "Keine unveränderbaren Backups",
       "warning": "{count, plural, one {Unveränderbarkeit: # Repository braucht Aufmerksamkeit} other {Unveränderbarkeit: # Repositories brauchen Aufmerksamkeit}}"
+    },
+    "systemDisk": {
+      "badge": "Repository auf der Systemplatte des Servers",
+      "free": "{free} frei von {total}",
+      "shrinking": "{bytes} weniger pro Tag",
+      "steady": "schrumpft nicht ({bytes} pro Tag)",
+      "fullOn": "voll etwa am {date}"
     }
   },
   "mailboxUsage": {

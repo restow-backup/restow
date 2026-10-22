@@ -210,6 +210,13 @@
       "deletionDelay": "{count, plural, one {Deletion delay on # repository (not immutable)} other {Deletion delay on # repositories (not immutable)}}",
       "none": "No immutable backups",
       "warning": "{count, plural, one {Immutability: # repository needs attention} other {Immutability: # repositories need attention}}"
+    },
+    "systemDisk": {
+      "badge": "Repository on the server's system disk",
+      "free": "{free} free of {total}",
+      "shrinking": "{bytes} less per day",
+      "steady": "not shrinking ({bytes} per day)",
+      "fullOn": "full around {date}"
     }
   },
   "mailboxUsage": {

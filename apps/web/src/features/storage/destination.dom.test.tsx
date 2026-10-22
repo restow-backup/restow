@@ -57,6 +57,31 @@ const BUCKET: BackupDestination = {
   misconfigured: false,
 };
 
+describe("a repository on the server's system disk (0.4.5)", () => {
+  it("is named in the line and in the warning", async () => {
+    const onSystem = { ...LOCAL_DEFAULT, onSystemDisk: true };
+    rendered = await render(
+      <>
+        <BackupDestinationNote destination={onSystem} />
+        <ServerDiskWarning destination={onSystem} />
+      </>,
+      { routes: {} },
+    );
+    expect(slot("backup-destination-system-disk")?.textContent).toBe("System disk");
+    expect(slot("server-disk-warning")?.textContent).toContain(
+      "Backups land on the server's system disk",
+    );
+    expect(slot("system-disk-warning")?.textContent).toContain(
+      "the database and Restow itself stop",
+    );
+  });
+
+  it("is not claimed for a share elsewhere", async () => {
+    rendered = await render(<BackupDestinationNote destination={NAS} />, { routes: {} });
+    expect(slot("backup-destination-system-disk")).toBeNull();
+  });
+});
+
 describe("BackupDestinationNote", () => {
   it("highlights the installation default on the server's local disk", async () => {
     rendered = await render(<BackupDestinationNote />, {
