@@ -4,13 +4,16 @@ import { forwardingRoutes } from "./forwarding/routes.js";
 import { journalRoutes } from "./journal/routes.js";
 import { journalReceiverService } from "./journal/service.js";
 import { legalHoldRoutes } from "./legal-holds/routes.js";
+import { licenseUpdateCoverage } from "./license/coverage.js";
 import { licenseFeatureGate } from "./license/gate.js";
 import { pendingLicenseKeyService } from "./license/pending.js";
 import { licenseRouteContribution } from "./license/routes.js";
 import { editionSessionField } from "./license/session.js";
+
 // The start check against the installed licence key is a program of its own, run by the
 // api container before the migrations (Dockerfile); exported so the build compiles it.
 export { runStartupLicenseCheck } from "./license/startup-check.js";
+
 import { registerProviderRoutes } from "./provider-api/routes.js";
 import { providerDashboardLoader } from "./provider-dashboard/view.js";
 import { eeProviderRouteRules } from "./provider-rules.js";
@@ -37,7 +40,11 @@ export const eeApiExtension: ApiExtension = {
   authRouteGuards: [microsoftSignInGuard],
   signInProviders: [microsoftSignInProvider],
   services: [journalReceiverService, pendingLicenseKeyService],
-  hooks: { ...reportsExtensionHooks, providerDashboard: providerDashboardLoader },
+  hooks: {
+    ...reportsExtensionHooks,
+    providerDashboard: providerDashboardLoader,
+    updateCoverage: licenseUpdateCoverage,
+  },
   featureGate: licenseFeatureGate,
   sessionFields: [editionSessionField],
   providerRouteRules: eeProviderRouteRules,

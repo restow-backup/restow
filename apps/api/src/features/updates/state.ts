@@ -4,6 +4,7 @@ import {
   isUpdateAvailable,
   parseVersion,
   runningCommitFrom,
+  runningReleasedAtFrom,
   runningVersionFrom,
   type VersionInfo,
   type VersionSource,
@@ -69,6 +70,7 @@ export class UpdateStateCache implements VersionSource {
     private readonly running: string | null,
     environmentUrl: string | undefined,
     private readonly commit: string | null = null,
+    private readonly releasedAt: string | null = null,
   ) {
     const fromEnvironment = parseEnvironmentSource(environmentUrl);
     this.snapshot = {
@@ -111,6 +113,7 @@ export class UpdateStateCache implements VersionSource {
     return {
       running: this.running,
       commit: this.commit,
+      releasedAt: this.releasedAt,
       latest: latest?.version ?? null,
       updateAvailable: enabled ? isUpdateAvailable(this.running, latest?.version ?? null) : null,
       releaseUrl: latest?.url ?? null,
@@ -133,5 +136,6 @@ export function createUpdateState(
     runningVersionFrom(env),
     env.RESTOW_UPDATE_CHECK_URL,
     runningCommitFrom(env),
+    runningReleasedAtFrom(env),
   );
 }

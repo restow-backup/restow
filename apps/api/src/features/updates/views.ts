@@ -5,6 +5,7 @@ import {
   type RunSummary,
   type StateView,
 } from "../../updater/protocol.js";
+import { coveredReleaseOf, type UpdateCoverage } from "./coverage.js";
 import type {
   JobActivityView,
   JobPauseView,
@@ -12,6 +13,7 @@ import type {
   MaintenanceView,
   ReleaseView,
   RunView,
+  UpdateCoverageView,
   UpdaterAvailability,
   UpdaterView,
 } from "./schemas.js";
@@ -19,8 +21,29 @@ import type { MaintenanceSummary } from "./state.js";
 
 /** The documents of schemas.ts, built from the stored records and the updater's state. */
 
-export function toReleaseView(release: StoredUpdateRelease): ReleaseView {
-  return { ...release, digests: { ...release.digests } };
+export function toReleaseView(
+  release: StoredUpdateRelease,
+  coverage: UpdateCoverage | null = null,
+): ReleaseView {
+  return {
+    ...release,
+    digests: { ...release.digests },
+    releasedAt: release.releasedAt ?? null,
+    covered: coverage ? coverage.covers(coveredReleaseOf(release)) : null,
+  };
+}
+
+/** The update terms that restrict the offered releases, or null when nothing does. */
+export function coverageViewOf(
+  coverage: UpdateCoverage | null,
+  releases: readonly StoredUpdateRelease[],
+): UpdateCoverageView | null {
+  if (!coverage) {
+    return null;
+  }
+  const latestCovered =
+    releases.find((release) => coverage.covers(coveredReleaseOf(release)))?.version ?? null;
+  return { coveredUntil: coverage.coveredUntil, series: coverage.series, latestCovered };
 }
 
 /** What every signed-in user may see of an announced or running maintenance. */

@@ -147,6 +147,7 @@ jobs:
           VERSION: ${{ steps.names.outputs.version }}
           APP_DIGEST: ${{ steps.app.outputs.digest }}
           WEB_DIGEST: ${{ steps.web.outputs.digest }}
+          CREATED: ${{ steps.names.outputs.created }}
           SHA: ${{ github.sha }}
           SERVER_URL: ${{ github.server_url }}
           REPOSITORY: ${{ github.repository }}
@@ -164,6 +165,7 @@ jobs:
             echo
             echo "restow: ${APP_DIGEST}"
             echo "restow-web: ${WEB_DIGEST}"
+            echo "released: ${CREATED}"
           } > "$notes"
           gh release create "v${VERSION}" \
             --repo "$ALPHA_REPOSITORY" \

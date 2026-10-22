@@ -379,6 +379,23 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
       expect(await withEnv(releaseEnv, () => gate.currentEdition(db))).toBe("business");
     });
 
+    it("tells the update check which releases the key covers", async () => {
+      const { licenseUpdateCoverage } = await import("./coverage.js");
+      await service.installLicense(db, periodKey("2027-11-30"), actor);
+      const coverage = await licenseUpdateCoverage(db);
+      expect(coverage).toMatchObject({ coveredUntil: "2027-11-30", series: "1" });
+      expect(coverage?.covers({ version: "1.6.0", releasedAt: "2027-11-30T23:00:00Z" })).toBe(true);
+      expect(coverage?.covers({ version: "1.7.0", releasedAt: "2027-12-01T00:00:00Z" })).toBe(
+        false,
+      );
+      // Running as Community already: nothing further to hold back.
+      expect(
+        await withEnv({ ...releaseEnv, RESTOW_RUN_AS_COMMUNITY: "1" }, () =>
+          licenseUpdateCoverage(db),
+        ),
+      ).toBeNull();
+    });
+
     it("lets the start check refuse that release before any migration, and only that one", async () => {
       const { runStartupLicenseCheck } = await import("./startup-check.js");
       const url = process.env.DATABASE_URL as string;

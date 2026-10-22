@@ -1,5 +1,11 @@
 import { refuseHostBeforeConnect } from "@restow/core";
-import type { Database, JobStartPause, PlannedUpdate, StoredUpdateCheck } from "@restow/db";
+import type {
+  Database,
+  JobStartPause,
+  PlannedUpdate,
+  StoredUpdateCheck,
+  StoredUpdateRelease,
+} from "@restow/db";
 import { notifications, settings } from "@restow/db";
 import { eq, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
@@ -31,6 +37,7 @@ import {
   sourceTargetOf,
 } from "../../updater/source-policy.js";
 import { announcedAgentVersion } from "../endpoints/distribution.js";
+import { coveredReleaseOf, loadUpdateCoverage, type UpdateCoverage } from "./coverage.js";
 import { type FetchLike, fetchReleases, releasesForChannel } from "./feed.js";
 import {
   enterFleetPhase,
@@ -82,6 +89,7 @@ import {
 } from "./updater-client.js";
 import {
   activePause,
+  coverageViewOf,
   jobPauseViewOf,
   maintenanceSummaryOf,
   maintenanceViewOf,
@@ -150,6 +158,8 @@ export const UPDATE_PROBLEMS = {
   invalidTime: "urn:restow:problem:update-invalid-time",
   /** The license key belongs on the license page of the full build. */
   licenseKeyNotPending: "urn:restow:problem:license-key-not-pending",
+  /** The installed licence key does not cover the release (its update period ended before it). */
+  notCovered: "urn:restow:problem:update-not-covered",
 } as const;
 
 /** The check runs once a day; after a failure it tries again after an hour at the earliest. */
@@ -518,6 +528,8 @@ export class UpdateService {
     const releases = snapshot.enabled
       ? releasesOf(snapshot.check, snapshot.source, snapshot.channel)
       : [];
+    const offered = newerThan(releases, running);
+    const coverage = await loadUpdateCoverage(db);
     const now = this.now();
     const environment = snapshot.origin === "environment";
     const source: SourceView = {
@@ -557,9 +569,10 @@ export class UpdateService {
             ? (snapshot.check.error as CheckError)
             : null,
       },
-      latest: releases[0] ? toReleaseView(releases[0]) : null,
+      latest: releases[0] ? toReleaseView(releases[0], coverage) : null,
       updateAvailable: info.updateAvailable,
-      releases: newerThan(releases, running).map(toReleaseView),
+      releases: offered.map((release) => toReleaseView(release, coverage)),
+      coverage: coverageViewOf(coverage, offered),
       updater: withDrain(
         updaterViewOf({
           state: updaterState,
@@ -1002,6 +1015,13 @@ export class UpdateService {
         type: UPDATE_PROBLEMS.busy,
         detail: "An update is planned for a chosen time. Cancel it first.",
       });
+    }
+    // A release the installed licence key does not cover is not installed (docs/LICENSING.md,
+    // "Updates"): its api would not start. Checked for a plan as well, and again when the plan
+    // is carried out (the key may have changed in between).
+    const coverage = await loadUpdateCoverage(db);
+    if (coverage && !coverage.covers(coveredReleaseOf(release))) {
+      throw notCovered(release.version, coverage, candidates);
     }
     if (input.at && !fromPlan) {
       return this.storeUpdatePlan(input, input.at, release.version, actor);
@@ -1861,6 +1881,28 @@ function withDrain(view: UpdaterView, draining: boolean): UpdaterView {
 // ---------------------------------------------------------------------------
 // Problems
 // ---------------------------------------------------------------------------
+
+/** 409: the release lies outside the update period of the installed licence key. */
+function notCovered(
+  version: string,
+  coverage: UpdateCoverage,
+  candidates: readonly StoredUpdateRelease[],
+): ProblemError {
+  const latestCovered = coverageViewOf(coverage, candidates)?.latestCovered ?? null;
+  return new ProblemError(409, "Outside the update period", {
+    type: UPDATE_PROBLEMS.notCovered,
+    detail:
+      coverage.coveredUntil !== null
+        ? `Version ${version} was released after the update period of the installed licence key ended (${coverage.coveredUntil}). The installed version keeps working; renew the update period to install it.`
+        : `Version ${version} is not part of the ${coverage.series}.x versions the installed licence key covers. The installed version keeps working.`,
+    extensions: {
+      version,
+      coveredUntil: coverage.coveredUntil,
+      series: coverage.series,
+      latestCovered,
+    },
+  });
+}
 
 function setupIncomplete(): ProblemError {
   return new ProblemError(409, "Setup not completed", {

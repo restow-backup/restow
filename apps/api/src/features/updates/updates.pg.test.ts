@@ -1134,6 +1134,76 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       expect(updater.scheduled).toEqual([]);
     });
 
+    it("offers and installs only releases the installed licence key covers (0.4.5)", async () => {
+      const { registerApiExtension, resetExtensionsForTesting } = await import(
+        "../../extensions.js"
+      );
+      // What ee/api registers for a key whose update period ends on 2027-11-30.
+      registerApiExtension({
+        name: "coverage-test",
+        hooks: {
+          updateCoverage: async () => ({
+            coveredUntil: "2027-11-30",
+            series: "1",
+            covers: (release) =>
+              release.releasedAt !== null &&
+              Date.parse(release.releasedAt) <= Date.parse("2027-11-30T23:59:59.999Z"),
+          }),
+        },
+      });
+      try {
+        feed.respondWith(
+          githubReleases(
+            { tag: "v0.3.0", body: `restow: ${DIGEST}\nreleased: 2027-12-02T10:00:00+01:00` },
+            { tag: "v0.2.0", body: `restow: ${DIGEST}\nreleased: 2027-11-30T22:00:00Z` },
+          ),
+        );
+        const { service } = await withCheck();
+        const view = await service.view();
+        expect(view.coverage).toEqual({
+          coveredUntil: "2027-11-30",
+          series: "1",
+          latestCovered: "0.2.0",
+        });
+        expect(view.releases.map((release) => [release.version, release.covered])).toEqual([
+          ["0.3.0", false],
+          ["0.2.0", true],
+        ]);
+        expect(view.releases[0]?.releasedAt).toBe("2027-12-02T09:00:00.000Z");
+
+        const refused = await service
+          .schedule({ version: "0.3.0", leadSeconds: 0 }, actor)
+          .catch((error) => error);
+        expect(refused).toBeInstanceOf(ProblemError);
+        expect(refused).toMatchObject({
+          status: 409,
+          type: "urn:restow:problem:update-not-covered",
+          extensions: { version: "0.3.0", coveredUntil: "2027-11-30", latestCovered: "0.2.0" },
+        });
+        // A plan for a chosen time is refused as well.
+        await expect(
+          service.schedule(
+            { version: "0.3.0", leadSeconds: 300, at: { date: "2099-01-01", time: "03:00" } },
+            actor,
+          ),
+        ).rejects.toMatchObject({ type: "urn:restow:problem:update-not-covered" });
+        expect(updater.scheduled).toEqual([]);
+
+        await service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor);
+        expect(updater.scheduled.map((request) => request.release.version)).toEqual(["0.2.0"]);
+      } finally {
+        resetExtensionsForTesting();
+      }
+    });
+
+    it("leaves every release open without a key that restricts updates", async () => {
+      feed.respondWith(githubReleases({ tag: "v0.2.0" }));
+      const { service } = await withCheck();
+      const view = await service.view();
+      expect(view.coverage).toBeNull();
+      expect(view.releases[0]?.covered).toBeNull();
+    });
+
     it("refuses a version that is not among the newer releases of the last check", async () => {
       const { service } = await withCheck();
       for (const version of ["0.1.0", "9.9.9", "0.2.0-rc.1"]) {

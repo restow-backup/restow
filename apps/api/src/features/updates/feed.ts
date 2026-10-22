@@ -107,6 +107,24 @@ export function digestsOf(
   return digests;
 }
 
+const RELEASED_LINE =
+  /^[\s>*_-]*`?released`?\s*[:=]\s*`?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}))`?\s*$/im;
+
+/**
+ * The release date a release publishes in its notes (0.4.5), one line next to the digests:
+ *
+ *     released: 2027-03-02T10:15:00+01:00
+ *
+ * the date its images carry as RESTOW_RELEASED_AT (the commit date of the tag), so the
+ * update check decides exactly as the started release will (licence update periods,
+ * docs/LICENSING.md). As ISO-8601 UTC; null when the notes carry none (releases before
+ * 0.4.5), and older installations ignore the line.
+ */
+export function releasedAtOf(notes: string | null | undefined): string | null {
+  const match = notes ? RELEASED_LINE.exec(notes) : null;
+  return match?.[1] ? isoOrNull(match[1]) : null;
+}
+
 /**
  * A release entry, or null for a draft and for tags that are not versions. Its
  * digests are those of the images of `variant`.
@@ -136,6 +154,7 @@ export function toRelease(
     notes: source.length === 0 ? null : source.slice(0, MAX_NOTES_LENGTH),
     notesTruncated: truncated,
     digests: digestsOf(source, variant),
+    releasedAt: releasedAtOf(source),
   };
 }
 
