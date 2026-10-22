@@ -19,7 +19,7 @@ import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
-import { isMissingQueueSchema, jobQueue } from "../jobs/queue.js";
+import { jobQueue } from "../jobs/queue.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 
@@ -249,7 +249,8 @@ export async function removeEndpoint(
 
 /**
  * Hand the deletion to the worker now. Without the job queue (the worker has not started yet)
- * the scheduler hands it over within a minute anyway, from `removal_due_at`.
+ * the scheduler hands it over within a minute anyway, from `removal_due_at`, so no failure to
+ * queue fails the removal.
  */
 async function queueRemoval(
   database: Database,
@@ -267,11 +268,10 @@ async function queueRemoval(
       });
       return jobId !== null && jobId !== undefined;
     });
-  } catch (error) {
-    if (isMissingQueueSchema(error)) {
-      return false;
-    }
-    throw error;
+  } catch {
+    // The queue is not there yet (the worker or the scheduler creates it at start), or pg-boss
+    // refused: the removal stands, and the scheduler hands it over from `removal_due_at`.
+    return false;
   }
 }
 
