@@ -11,6 +11,10 @@ import { mountPath as apikeysMountPath } from "./features/apikeys/meta.js";
 import { apikeysRoutes } from "./features/apikeys/routes.js";
 import { mountPath as archiveMountPath } from "./features/archive/meta.js";
 import { archiveRoutes } from "./features/archive/routes.js";
+import {
+  archiveCaptureMountPath,
+  archiveCaptureRoutes,
+} from "./features/archive-capture/routes.js";
 import { mountPath as backupJobsMountPath } from "./features/backup-jobs/meta.js";
 import { backupJobsRoutes } from "./features/backup-jobs/routes.js";
 import { mountPath as dashboardMountPath } from "./features/dashboard/meta.js";
@@ -239,6 +243,7 @@ export function buildApp() {
   app.route(`${API_V1}${exportsMountPath}`, exportsRoutes);
   app.route(`${API_V1}${verifyMountPath}`, verifyRoutes);
   app.route(`${API_V1}${retentionMountPath}`, retentionRoutes);
+  app.route(`${API_V1}${archiveCaptureMountPath}`, archiveCaptureRoutes);
   app.route(`${API_V1}${archiveMountPath}`, archiveRoutes);
   app.route(`${API_V1}${storageMountPath}`, storageRoutes);
   app.route(`${API_V1}${apikeysMountPath}`, apikeysRoutes);

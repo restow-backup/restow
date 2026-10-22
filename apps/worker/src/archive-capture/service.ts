@@ -474,7 +474,12 @@ export class ArchiveCaptureService {
 
       step = "ensure";
       const ensured = await way.ensure(ctx());
-      state = ensured.state ?? state;
+      // How mail is noticed, for the status page (reserved keys, see ./ways.ts).
+      state = {
+        ...(ensured.state ?? state),
+        _mode: ensured.mode,
+        _pollReason: ensured.pollReason ?? null,
+      };
       if (stream.activatedAt === null && ensured.activated) {
         activatedAt = this.now();
         // Live capture works: from here on the one-time takeover of the existing mail runs.
@@ -509,7 +514,11 @@ export class ArchiveCaptureService {
 
       step = "catch_up";
       const caught = await way.catchUp(ctx());
-      state = caught.state ?? state;
+      state = {
+        ...(caught.state ?? state),
+        _mode: ensured.mode,
+        _pollReason: ensured.pollReason ?? null,
+      };
       if (state.resyncRequestedAt !== undefined) {
         const { resyncRequestedAt: _done, ...rest } = state;
         state = rest;

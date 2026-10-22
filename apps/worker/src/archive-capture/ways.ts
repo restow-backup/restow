@@ -44,6 +44,11 @@
  * component with {@link CaptureWay.start}, which gets {@link CaptureWayServices} to mark
  * streams due when the server announces new mail; the pass then fetches it.
  *
+ * State keys starting with `_` and `resyncRequestedAt` are the framework's: `_mode` and
+ * `_pollReason` (from {@link EnsureResult}, read by the status page), `resyncRequestedAt`
+ * (set by the API's resync, cleared after the catch-up that honoured it). A way keeps its
+ * own keys and passes the others through unchanged.
+ *
  * Abort: every step gets {@link CaptureContext.signal}. It fires when the lease is lost,
  * on shutdown or update drain, when the gate closes and when the tenant's storage switch
  * begins. A way stops at the next mail boundary and returns (or throws `JobAbortedError`);

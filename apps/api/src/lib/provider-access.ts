@@ -468,6 +468,12 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/archive/items/:id": operate(),
   "GET /api/v1/archive/items/:id/preview": operate(),
   "GET /api/v1/archive/items/:id/download": operate(),
+  // Archive capture beyond journaling (0.4.4): its state, a resync, the hold confirmation.
+  "GET /api/v1/archive/capture": view(),
+  "GET /api/v1/archive/capture/mailboxes": view(),
+  "POST /api/v1/archive/capture/mailboxes/:objectId/resync": configure(),
+  "GET /api/v1/archive/capture/holds": view(),
+  "PUT /api/v1/archive/capture/holds/:sourceId": configure(),
   "GET /api/v1/retention/policies": view(),
   "POST /api/v1/retention/policies": configure(),
   "POST /api/v1/retention/policies/preview": configure(),

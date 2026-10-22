@@ -342,7 +342,7 @@ describe.skipIf(!adminUrl)("archive capture (Postgres)", () => {
       consecutiveFailures: 0,
     });
     expect(stream?.activatedAt).not.toBeNull();
-    expect(stream?.state).toEqual({ done: 2 });
+    expect(stream?.state).toEqual({ done: 2, _mode: "poll", _pollReason: null });
     expect(stream?.nextDueAt?.getTime()).toBeGreaterThan(Date.now() + 3_000_000);
 
     const items = await db
