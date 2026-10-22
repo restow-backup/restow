@@ -46,6 +46,8 @@ compose.override.yaml
 /deploy/caddy-sites/*.caddy
 # Image tarballs written by deploy/demo/build-images.sh
 /deploy/demo/images/
+# Fast-reset templates written by deploy/demo/reset.sh (database dump and volumes of a seed)
+/deploy/demo/templates/
 
 # Output of the release smoke (scripts/smoke/run.mjs): working files, logs, reports
 /smoke-out/

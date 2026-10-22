@@ -67,9 +67,12 @@ and "Resource limits".
   demo runs the full images (the Business and Service Provider modules under
   `ee/` included) with `RESTOW_EDITION=service_provider` (see "Edition").
 - Everything resets every night at 03:00 Europe/Berlin
-  (`deploy/demo/systemd`, `deploy/demo/reset.sh`): the whole compose
-  project, including its volumes, is torn down and rebuilt from scratch,
-  reseeded, and only then republished (see "Reset").
+  (`deploy/demo/systemd`, `deploy/demo/reset.sh`): once per release the whole
+  compose project, including its volumes, is torn down, rebuilt from scratch and
+  reseeded, and the result saved as a template; the other nights the demo's
+  database and volumes are restored from that template, with its times moved
+  forward to today, in well under a minute. Only then is it republished (see
+  "Reset" and "Fast reset").
 - No visitor IP address is ever stored: demo mode disables better-auth's own
   IP tracking outright (`apps/api auth.ts`, `advanced.ipAddress.
   disableIpTracking`) and `lib/request.ts` `clientIp`/`clientIpOf` — the one
@@ -129,6 +132,10 @@ This is the part that must not be gotten wrong.
   (`apps/worker handlers/webhooks.ts`, `apps/api notify.ts`) — a second,
   independent line of defence on top of the demo guard already refusing to
   create a webhook or change the mail transport.
+- The `template` service (fast reset, see "Fast reset") runs only during a
+  reset, has no network at all (`network_mode: none`) and only ever runs `tar`
+  and `du` on the demo's own volumes; the archives stream through `reset.sh`.
+  The templates on the host hold the demo database and stay private to root.
 - No Microsoft 365 / Entra credentials are configured anywhere in this
   compose project. `ENTRA_*` variables are simply absent from
   `deploy/demo/.env.example`.
@@ -168,6 +175,10 @@ CPU/memory, whether co-hosted or not:
   partition or LVM volume — outside the scope of this compose file.
 - **CPU/memory limits on every container** (`deploy.resources.limits` in
   `docker-compose.yml`), sized for the demo's small, fixed workload.
+- **Templates on the host disk are bounded**: two at most, each about the
+  size of the seeded volumes plus a compressed database dump, and none is
+  saved unless `RESTOW_DEMO_TEMPLATE_MIN_FREE_MB` stays free afterwards (see
+  "Fast reset").
 
 ## Images
 
@@ -358,6 +369,7 @@ cd /opt/restow-demo/deploy/demo
 cp .env.example .env
 "$EDITOR" .env
 # RESTOW_DEMO_COMPOSE_FILES=docker-compose.yml:docker-compose.override.public.yml
+# RESTOW_DEMO_PUBLISH_PUBLIC=true     (confirms the line above, see "Reset")
 ./reset.sh
 ```
 
@@ -495,31 +507,52 @@ write, so a visitor cannot install or remove a key either.
    before touching anything, that every image the project needs is loaded
    (it never builds; see "Images") and that `web` is not about to be
    published on a wildcard address;
-2. `docker compose down --volumes` (the database, the mail volume, the
-   chunk store and Caddy's TLS state all go);
-3. `up -d --no-build --wait` **every service except `web`**;
-4. `docker compose run --rm seed` (synthetic mail, tenants, sources,
+2. if a template of this exact release, these images and this `.env` exists
+   and is recent enough, restores it (see "Fast reset") and goes on with step 6;
+3. otherwise `docker compose down --volumes` (the database, the mail volume,
+   the chunk store and Caddy's TLS state all go);
+4. `up -d --no-build --wait` **every service except `web`**;
+5. `docker compose run --rm seed` (synthetic mail, tenants, sources,
    schedules, first backups + verification, the simulated machines, the mail
-   archive);
-5. only if the seed succeeded, `up -d agent-sim` (the heartbeat sidecar of
+   archive), then saves the template the next nights restore;
+6. only if the seed or the restore succeeded, `up -d agent-sim` (the heartbeat sidecar of
    the simulated machines, which also plays their simulated live runs) and then `up -d --no-build --wait web` — the one
    container anything outside this compose project can reach. If the seed
    failed, `web` stays down and the run exits non-zero: an unconfigured or
    half-seeded installation is never published (security review finding 1).
    The seed fails, for one, when a simulated machine is not proven
-   restorable at the end, or the archive's hash chain does not verify.
+   restorable at the end, or the archive's hash chain does not verify. A
+   restore that fails is never published either: the run falls back to the
+   full seed of steps 3 to 5.
 
-It reads which compose files to use from `RESTOW_DEMO_COMPOSE_FILES` in
-`.env` (colon-separated, default just `docker-compose.yml`; see "Running
-it"), and logs to `/var/log/restow-demo-reset.log` (override with
+The log ends with how the demo came back ("seeded from scratch" or
+"restored from template ...") and how long it was offline.
+
+Which compose files it uses comes from `RESTOW_DEMO_COMPOSE_FILES`
+(colon-separated, default just `docker-compose.yml`; see "Running it"): from
+the environment of the run if set there, otherwise from `.env`. Up to Restow
+0.4.4 the script read it from the environment only, although this README
+said `.env`; a demo whose `.env` asks for the public override has therefore
+run with `docker-compose.yml` alone so far, its `web` on the bridge address. To
+keep it that way on a co-hosted host that carries the line by mistake, a list
+from `.env` that would publish `web` on every interface (as the public
+override does with 80/443) is only used together with
+`RESTOW_DEMO_PUBLISH_PUBLIC=true` in `.env` (or the environment); without it
+the run keeps `docker-compose.yml` and logs why. On the demo's own VM
+("Option A") add that line once. Every entry must be a file in
+`deploy/demo/`; anything else stops the run before it touches the project.
+The run logs which files it uses and where the setting came from.
+
+It logs to `/var/log/restow-demo-reset.log` (override with
 `RESTOW_DEMO_RESET_LOG`). `RESTOW_DEMO_ENV_FILE` points the variables of the
 compose file itself at another file for a test run (the services still read
-`env_file: .env` next to the compose file). `RESTOW_DEMO_FOLLOW` and
-`RESTOW_DEMO_FOLLOW_REGISTRY` (see "Following the releases") come from the
-environment of the run if set there, otherwise from that file; the script reads
-them as plain `NAME=value` lines and never sources the file.
-`deploy/demo/test.sh` tests both modes against a stub `docker` (CI runs it with
-the other shell script tests).
+`env_file: .env` next to the compose file). `RESTOW_DEMO_FOLLOW`,
+`RESTOW_DEMO_FOLLOW_REGISTRY` (see "Following the releases"),
+`RESTOW_DEMO_PUBLISH_PUBLIC` and the `RESTOW_DEMO_TEMPLATE*` settings (see
+"Fast reset") come from the environment of the run if set there, otherwise
+from that file; the script reads them as plain `NAME=value` lines and never
+sources the file. `deploy/demo/test.sh` tests all of this against a stub
+`docker` (CI runs it with the other shell script tests).
 
 Install the nightly schedule with systemd:
 
@@ -539,6 +572,137 @@ app shell ("Demo — all data resets every night at 03:00 …",
 together if the time is ever moved. It also runs two minutes after every
 boot: the chunk store is a tmpfs volume, empty after a reboot, while
 Postgres still lists the old restore points.
+
+## Fast reset
+
+A full seed replays a month of real backups, restores and restore tests and
+takes many minutes, all of them offline (the production edge shows its
+"being reset" page meanwhile, `deploy/caddy-sites/demo.caddy.example`). So the
+demo is seeded once per release and restored from a template every other
+night.
+
+**The template.** Right after a successful full seed, `reset.sh` stops the
+scheduler, waits until no job, pg-boss job or machine run is in progress (at
+most `RESTOW_DEMO_TEMPLATE_QUIET_SECONDS`, default 300; a queued job is fine,
+it is queued in the same database), stops api and worker and saves:
+
+- `database.dump`: `pg_dump -Fc` of the demo database;
+- `roles.sql`: its login roles (`pg_dumpall --roles-only`, without the
+  bootstrap superuser postgres creates itself);
+- `demo-data.tar`, `demo-mail.tar`, `demo-agents.tar`: every volume the seed
+  writes — the chunk store with the machines' restic repositories, the Dovecot
+  mail store, the logins of the simulated machines. Caddy's state is not part
+  of it;
+- `meta`: the key, the release, the images and the database's clock at that
+  moment.
+
+Then api, worker and scheduler start again and the run goes on as usual. The
+tars are written by the `template` service of `docker-compose.yml` (the seed
+image, no network, `tar` and `du` only), which holds the volumes while api,
+worker and Dovecot are stopped: `demo-data` and `demo-mail` are tmpfs volumes
+and would be gone otherwise.
+
+Templates live in `RESTOW_DEMO_TEMPLATE_DIR` (default `deploy/demo/templates`,
+gitignored), one directory per key: the release (the followed one, else the
+version label of the application image, else `local`) and a hash of the image
+ids of every service, the `.env` file and the template format. A new release,
+a rebuilt image, or any change to `.env` (passwords, the master key, the demo
+account, the seed settings) therefore never restores an old template. The
+newest two are kept, so going back one release restores too. The directory
+and its files are private to root (0700/0600): a template holds the demo
+database, with the demo account's password hash and the encrypted repository
+keys. Before saving, the run checks the free space: the database and the
+volumes plus a fifth, with `RESTOW_DEMO_TEMPLATE_MIN_FREE_MB` (default 1024)
+left on the disk afterwards. Without that, or when jobs do not finish, no
+template is saved, the log says why and the next night seeds again; the demo
+itself is not affected.
+
+**The restore.** When a template for the current key exists, is complete and
+is at most `RESTOW_DEMO_TEMPLATE_MAX_AGE_DAYS` old (default 7; 0 always seeds),
+the run restores it instead of seeding:
+
+1. while the demo still runs: start postgres (it normally runs already),
+   create the template's roles where missing, `pg_restore` the dump into a
+   second database next to the demo's (`<db>_next`) and move its times forward
+   (below);
+2. offline: stop `web`, `agent-sim`, api, worker, scheduler and Dovecot; the
+   restored database replaces the old one (two renames); the volumes are
+   emptied and filled from the tars; Dovecot, api, worker and scheduler start;
+3. `agent-sim` and `web` start as after a seed, and the old database is
+   dropped.
+
+postgres keeps running and Caddy keeps its state (and, on its own VM, its
+certificate): nothing a visitor can change lives there. If any step fails, the
+template is deleted and the run seeds from scratch, so the demo comes back
+either way.
+
+The demo is offline for step 2 only: stopping the services (at most 10 s, the
+worker's stop timeout; a few seconds when idle), the swap (under a second),
+the volumes (a second or two for the demo's few hundred MB), and api, worker
+and scheduler becoming healthy (about 10 s; the health checks of postgres,
+Dovecot and api run every 2 to 5 s for that). Expect 15 to 25 s, against many
+minutes for a full seed. The `pg_restore` (about 5 s for the demo's database)
+and the time shift happen before. The log says how long it was.
+
+**Moving the times.** The seed moves its history back so that it ends at the
+moment it ran (`seed/src/backdate.ts`); restored a few days later, the history
+would end days ago ("last backup 3 days ago", charts whose last days are
+empty). `seed/sql/shift-time.sql` therefore moves every time of the system
+forward by the age of the template (now minus the moment it was taken), in one
+transaction, as the database owner, before any Restow service starts. Every
+`timestamp` and `timestamptz` column of every table in `public` moves, found
+in the catalog when it runs — a superset of what the backdate step moves
+(`RUN_TABLES`, `FIRST_RUN_TABLES`, `ENDPOINT_RUN_TABLES`), so a table a later
+release adds is covered without a change. So the restored demo shows exactly
+what it showed right after its seed: the same "last backup 12 minutes ago",
+the same 30 days of charts, ending today, machines last seen a minute ago,
+next runs and expiry dates as far ahead as they were. Not moved:
+
+- the audit log (`audit_log`, `audit_anchor`): it stays truthful and keeps the
+  real moment of every seed action, the template's day; it is append-only
+  anyway;
+- the mail archive (`archive_*`): append-only, and each item's chain hash
+  covers its moment of capture. Its items keep the template's day as capture
+  time, at most `RESTOW_DEMO_TEMPLATE_MAX_AGE_DAYS` ago;
+- `license` (signed);
+- times of the backed-up data rather than of the system: files' modification
+  times in the catalogs, a mail's date, and the times restic writes into a
+  snapshot (`endpoint_snapshot_flags.snapshot_time` and its kin), which must
+  stay what the repository says.
+
+Sign-ins (`session`) and one-time codes (`verification`) are deleted, not
+moved: visitors sign in with the demo account as after a seed. Enrollment
+tokens, agent tasks, downloads and API keys move with everything else, so what
+was valid for another hour still is; the machines' agent logins (in the
+template's `demo-agents` volume) do not expire. `seed/src/shift-time.pg.test.ts`
+checks all of this against the real schema.
+
+**What cannot move, and why a template expires.** A machine's snapshot list
+(Servers & clients › a machine › Snapshots) reads the snapshots from its restic
+repository, and restic keeps the time it was given in the snapshot itself:
+after a restore those times are as old as the template, while everything else
+(the runs, restore tests, readiness, "last backup") comes from the database
+and is moved. The storage's files get the time of the restore as their
+modification time (the server dates a machine's snapshots for its retention
+by the earlier of that and the run's end, and the runs have moved forward);
+the mail store and the other volumes keep theirs. The synthetic mailboxes also
+keep their mail as it was, so the newest mail is as old as the template.
+That is why a template older than `RESTOW_DEMO_TEMPLATE_MAX_AGE_DAYS` (default
+7) is replaced by a full seed: with the nightly reset, the demo seeds once a
+week and once per release, and restores in between.
+
+Settings (`.env` or the environment of the run):
+
+| Setting | Default | |
+| --- | --- | --- |
+| `RESTOW_DEMO_TEMPLATES` | `true` | `false` always seeds and saves no template |
+| `RESTOW_DEMO_TEMPLATE_DIR` | `templates` | relative to `deploy/demo/`, or absolute |
+| `RESTOW_DEMO_TEMPLATE_MAX_AGE_DAYS` | `7` | older templates are replaced by a full seed; `0` always seeds |
+| `RESTOW_DEMO_TEMPLATE_MIN_FREE_MB` | `1024` | free space left on the disk after saving a template |
+| `RESTOW_DEMO_TEMPLATE_QUIET_SECONDS` | `300` | how long the save waits for running jobs |
+
+To force a full seed once, delete the template directory (or its newest
+entry) before the run.
 
 ## The seed and the synthetic mail
 

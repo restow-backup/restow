@@ -26,7 +26,9 @@
 #     (routes/setup.ts refuses any admin but the documented one);
 #   - deploy/demo/reset.sh recreates the whole project (and so the database
 #     and the mail volume) from scratch every night, and starts `web` only
-#     after the seed has finished successfully.
+#     after the seed has finished successfully, or after it has restored the
+#     state of an earlier seed of the same release from a template (README,
+#     "Fast reset").
 #
 # Nothing here is ever built on the host that runs the demo: every service
 # runs from a prebuilt image, and this file has no `build:` section at all.
@@ -78,11 +80,14 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-restow}
     volumes:
       - demo-pgdata:/var/lib/postgresql/data
+    # Short intervals so `up --wait` returns within seconds of the service
+    # being ready: the fast reset (README, "Fast reset") is offline only that
+    # long. pg_isready and nc are cheap; the retries keep the old grace period.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-restow} -d ${POSTGRES_DB:-restow}"]
-      interval: 10s
+      interval: 2s
       timeout: 5s
-      retries: 5
+      retries: 25
       start_period: 10s
     networks:
       - internal
@@ -103,9 +108,9 @@ services:
       - demo-mail:/var/mail/vhosts
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "143"]
-      interval: 10s
+      interval: 2s
       timeout: 5s
-      retries: 5
+      retries: 25
       start_period: 5s
     networks:
       - internal
@@ -134,9 +139,11 @@ services:
         - node
         - -e
         - "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-      interval: 15s
+      # 5 s rather than 15 s: `up --wait` of the fast reset returns that much
+      # sooner; 30 retries keep the old 150 s before it counts as unhealthy.
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 30
       start_period: 20s
     deploy:
       resources:
@@ -286,6 +293,35 @@ services:
           cpus: "0.1"
           memory: 96M
 
+  # Fast reset (README, "Fast reset"): holds the seeded volumes while
+  # reset.sh saves them into a template after a full seed, and while it
+  # restores them from one. demo-data and demo-mail are tmpfs volumes, which
+  # live only while some container has them mounted: this one keeps them
+  # mounted while api, worker and dovecot are stopped, and reset.sh removes it
+  # once they run again. It only ever runs `tar` and `du` (through
+  # `docker compose exec`, the archives stream through reset.sh's stdin and
+  # stdout), has no network at all, and runs as root only so the files keep
+  # their owners (vmail, node) across save and restore. The seed image, which
+  # every demo host has anyway.
+  template:
+    profiles: ["template"]
+    image: ${RESTOW_DEMO_SEED_IMAGE:-restow-demo-seed:local}
+    pull_policy: never
+    user: "0:0"
+    entrypoint: ["tail", "-f", "/dev/null"]
+    init: true
+    network_mode: none
+    volumes:
+      - demo-data:/volumes/demo-data
+      - demo-mail:/volumes/demo-mail
+      - demo-agents:/volumes/demo-agents
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+
   # Caddy: the built SPA plus the /api reverse proxy (unchanged from the
   # product image's `web` target and Caddyfile — only its environment
   # differs). The only container reachable from outside this compose
@@ -367,7 +403,8 @@ volumes:
   # written by the seed, read by the heartbeat sidecar. A plain volume, not
   # tmpfs: a tmpfs volume lives only while some container has it mounted, and
   # the seed has exited by the time the sidecar starts. reset.sh removes it
-  # every night like the rest (`down --volumes`).
+  # with the rest when it seeds (`down --volumes`), and empties and refills it
+  # from the template when it restores one (README, "Fast reset").
   demo-agents:
   demo-caddy-data:
   demo-caddy-config:
