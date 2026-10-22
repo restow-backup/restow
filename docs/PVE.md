@@ -324,9 +324,16 @@ with the operate permission). Every stop asks first and is audited
   (and expire after 12 hours as usual). "Paused by <user>" shows on the node.
 - **Cancel all queued** per node (nodes table) or for the whole tenant (page
   header): withdraws every backup that has not started yet.
+- **Start now / Stop a job** (0.4.5, Servers & clients → Jobs): "Start now" queues
+  a backup of every guest the job covers, as its schedule would (the schedule does
+  not move; guests with a waiting backup, on a node without restow-pve or the
+  unconfirmed Restow server VM are skipped and counted). "Stop" withdraws the
+  job's queued backups and asks its running ones to stop, as above. Both are
+  audited on the job (`pve.job.run_requested`, `pve.job.cancelled`).
 
 API: `POST /api/v1/pve/guests/:id/cancel`, `POST /api/v1/pve/nodes/:id/queue/pause`,
-`.../queue/resume`, `.../queue/cancel`, `POST /api/v1/pve/queue/cancel`.
+`.../queue/resume`, `.../queue/cancel`, `POST /api/v1/pve/queue/cancel`,
+`POST /api/v1/pve/jobs/:id/run`, `POST /api/v1/pve/jobs/:id/cancel`.
 
 ## Updates of the node
 

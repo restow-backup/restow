@@ -563,6 +563,7 @@
         "changed": "Scope of a backup job changed"
       },
       "run_requested": "Backup job run requested",
+      "run_cancelled": "Backups of a backup job stopped",
       "migrated": "Schedules and machine configurations turned into backup jobs",
       "recommended_applied": "Recommended backup jobs set up"
     },
@@ -602,7 +603,9 @@
         "requested": "Boot test of the restore point requested"
       },
       "job": {
-        "changed": "Backup job for VMs and containers changed"
+        "changed": "Backup job for VMs and containers changed",
+        "run_requested": "Backup of every guest of a job requested",
+        "cancelled": "Backups of a job for VMs and containers stopped"
       },
       "snapshot": {
         "committed": "Restore point of the guest stored",

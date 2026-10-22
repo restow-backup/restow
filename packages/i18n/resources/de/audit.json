@@ -563,6 +563,7 @@
         "changed": "Umfang eines Backup-Jobs geändert"
       },
       "run_requested": "Lauf eines Backup-Jobs angefordert",
+      "run_cancelled": "Sicherungen eines Backup-Jobs gestoppt",
       "migrated": "Zeitpläne und Rechner-Konfigurationen in Backup-Jobs überführt",
       "recommended_applied": "Empfohlene Backup-Jobs eingerichtet"
     },
@@ -602,7 +603,9 @@
         "requested": "Startprüfung des Sicherungsstands angefordert"
       },
       "job": {
-        "changed": "Backup-Job für VMs und Container geändert"
+        "changed": "Backup-Job für VMs und Container geändert",
+        "run_requested": "Sicherung aller Gäste eines Jobs angefordert",
+        "cancelled": "Sicherungen eines Jobs für VMs und Container gestoppt"
       },
       "snapshot": {
         "committed": "Sicherungsstand des Gasts gespeichert",

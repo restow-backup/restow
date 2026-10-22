@@ -30,6 +30,8 @@ export const BACKUP_JOB_AUDIT_ACTIONS = {
   deleted: "backup_job.deleted",
   scopeChanged: "backup_job.scope.changed",
   runRequested: "backup_job.run_requested",
+  // "Stop" of a job (0.4.5): every queued or running backup of it at once.
+  runCancelled: "backup_job.run_cancelled",
   migrated: "backup_job.migrated",
   recommendedApplied: "backup_job.recommended_applied",
 } as const;
