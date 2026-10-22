@@ -654,6 +654,96 @@ describe("the page of a mail job", () => {
     expect(body).toEqual({ enabled: false });
   });
 
+  describe("a job that also archives", () => {
+    const ARCHIVING = mailJob({
+      archive: true,
+      archiveCapture: {
+        m365: { graph: true, journal: true },
+        imap: { sync: true, forward: false },
+        google: { sync: true, forward: false },
+      },
+    });
+    const routes = (patch: (body: unknown) => void) => ({
+      ...mailRoutes(ARCHIVING),
+      "GET /backup-jobs/defaults": () => json(defaults("mail", { mailSourceKinds: ["m365"] })),
+      [`PATCH /backup-jobs/${ARCHIVING.id}`]: (request: { body: unknown }) => {
+        patch(request.body);
+        return json(ARCHIVING);
+      },
+    });
+    const dialog = () => document.querySelector('[role="alertdialog"]') as HTMLElement;
+    const editor = () => slot("job-editor") as HTMLElement;
+    const label = (text: string) =>
+      [...editor().querySelectorAll("label")].find((node) => node.textContent?.trim() === text);
+    const control = (text: string) =>
+      document.getElementById(label(text)?.htmlFor ?? "") as HTMLElement;
+
+    it("says that archiving goes on while the job is paused", async () => {
+      opened = await openJobs(`/jobs/definitions/${ARCHIVING.id}?type=mail`, {
+        routes: routes(() => {}),
+      });
+      await flush(6);
+      await click(buttonByText(slot("job-detail") as HTMLElement, "Pause"));
+      await flush(3);
+      expect(slot("pause-archive")?.textContent).toContain("archiving continues");
+      expect(slot("pause-archive")?.textContent).toContain(
+        "switch archiving, or a capture way, off",
+      );
+    });
+
+    it("says nothing about archiving when pausing a job that does not archive", async () => {
+      opened = await openJobs(`/jobs/definitions/${MAIL.id}?type=mail`, { routes: mailRoutes() });
+      await flush(6);
+      await click(buttonByText(slot("job-detail") as HTMLElement, "Pause"));
+      await flush(3);
+      expect(dialog()).not.toBeNull();
+      expect(slot("pause-archive")).toBeNull();
+    });
+
+    it("asks before archiving stops, and keeps the archive", async () => {
+      let body: unknown = null;
+      opened = await openJobs(`/jobs/definitions/${ARCHIVING.id}?type=mail`, {
+        routes: routes((sent) => {
+          body = sent;
+        }),
+      });
+      await flush(6);
+      await click(buttonByText(slot("job-detail") as HTMLElement, "Edit"));
+      await flush(8);
+      await click(control("Back up"));
+      await click(buttonByText(editor(), "Save changes"));
+      await flush(3);
+      expect(dialog().textContent).toContain("new mail of these mailboxes is no longer archived");
+      expect(dialog().textContent).toContain("The archive kept so far stays unchanged");
+      expect(body).toBeNull();
+      await click(buttonByText(dialog(), "Stop archiving"));
+      await flush(5);
+      expect(body).toMatchObject({ archive: false });
+    });
+
+    it("asks before a capture way is switched off and names it", async () => {
+      let body: unknown = null;
+      opened = await openJobs(`/jobs/definitions/${ARCHIVING.id}?type=mail`, {
+        routes: routes((sent) => {
+          body = sent;
+        }),
+        session: adminSession({ features: ["archive.mailboxCapture", "archive.smtpCapture"] }),
+      });
+      await flush(6);
+      await click(buttonByText(slot("job-detail") as HTMLElement, "Edit"));
+      await flush(8);
+      await click(control("Exchange journaling"));
+      await click(buttonByText(editor(), "Save changes"));
+      await flush(3);
+      expect(slot("capture-stop-list")?.textContent).toBe(
+        "Exchange journaling for Microsoft 365 mailboxes",
+      );
+      await click(buttonByText(dialog(), "Switch off"));
+      await flush(5);
+      expect(body).toMatchObject({ archiveCapture: { m365: { graph: true, journal: false } } });
+    });
+  });
+
   it("explains an 'all' job and offers neither Add nor Remove, while overrides stay possible", async () => {
     opened = await openJobs(`/jobs/definitions/${MAIL.id}?type=mail&tab=scope`, {
       routes: mailRoutes(),

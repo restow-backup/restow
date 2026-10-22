@@ -2,6 +2,8 @@ import type { AnyRoute } from "@tanstack/react-router";
 import type { LucideIcon } from "lucide-react";
 import type * as React from "react";
 
+import type { CaptureKind } from "@/features/backup-jobs/api";
+import type { CaptureWays } from "@/features/backup-jobs/capture-ways";
 import type { ProviderView } from "@/features/dashboard/api";
 import type { WidgetView } from "@/features/dashboard/presenters";
 import type { ReadinessState } from "@/features/verify/search";
@@ -67,12 +69,18 @@ export interface SlotProps {
    */
   "tenant.archiveSettings": { readOnly: boolean };
   /**
-   * The archive section of a mail job's editor (features/backup-jobs, job-editor.tsx):
-   * what the Business modules show about journaling (the journal address and
-   * whether reports arrive) while the job archives. The core's fallback says
-   * that capture needs the Business edition.
+   * The archive section of a mail job's editor (features/backup-jobs, purpose-section.tsx):
+   * what the Business modules show for the capture ways chosen while the job archives (the
+   * journal address and whether reports arrive, only where Exchange journaling is chosen for
+   * Microsoft 365 mailboxes). `kinds` are the kinds of mail objects the job covers, `capture`
+   * the ways chosen per kind (features/backup-jobs/capture-ways.ts). The core's fallback says
+   * that the SMTP ways need the Business modules.
    */
-  "jobs.archiveSetup": { archive: boolean };
+  "jobs.archiveSetup": {
+    archive: boolean;
+    kinds: readonly CaptureKind[];
+    capture: CaptureWays;
+  };
   /**
    * The sidebar footer row next to the running version
    * (components/layout/app-sidebar.tsx); hidden while the sidebar is collapsed.

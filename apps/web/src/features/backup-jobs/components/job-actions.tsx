@@ -112,7 +112,12 @@ export function useJobActions(options: { onDeleted?: (job: BackupJob) => void } 
         }}
         title={t("pause.title", { name: pausing?.name ?? "" })}
         description={
-          <p>{pausing ? t("pause.description", { count: pausing.scope.count }) : null}</p>
+          <>
+            <p>{pausing ? t("pause.description", { count: pausing.scope.count }) : null}</p>
+            {pausing?.kind === "mail" && pausing.archive ? (
+              <p data-slot="pause-archive">{t("pause.archiveContinues")}</p>
+            ) : null}
+          </>
         }
         confirmLabel={t("pause.confirm")}
         onConfirm={async () => {

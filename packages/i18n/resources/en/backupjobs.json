@@ -514,7 +514,8 @@
   "pause": {
     "title": "Pause {name}?",
     "description": "{count, plural, one {# object is not backed up on a schedule while the job is paused.} other {# objects are not backed up on a schedule while the job is paused.}} Nothing is deleted; resume it any time.",
-    "confirm": "Pause job"
+    "confirm": "Pause job",
+    "archiveContinues": "This job also archives: archiving continues while the job is paused. It stops only when you switch archiving, or a capture way, off in the job."
   },
   "delete": {
     "title": "Delete {name}?",
@@ -606,7 +607,8 @@
         "copy": "e.g. Projects to the second site"
       },
       "enabled": "Switched on",
-      "enabledHint": "Switched off, the job keeps its settings but does not run."
+      "enabledHint": "Switched off, the job keeps its settings but does not run.",
+      "enabledArchive": "Archiving continues while the job is switched off; it stops only when archiving or a capture way is switched off."
     },
     "scope": {
       "title": {
@@ -672,11 +674,6 @@
         "label": "Archive",
         "hint": "Keep every mail tamper-evident, captured before users can change or delete it, for the GoBD, retention periods and legal hold."
       },
-      "capture": {
-        "title": "How mail reaches the archive: Exchange journaling",
-        "journaling": "Exchange sends a copy of every mail to {appName} while it is in transport, before it reaches the mailbox, so nobody can change or delete it first. Journaling is set up once per tenant: a journal address and a journal rule in Microsoft 365.",
-        "setup": "Set up journaling"
-      },
       "backupOnly": {
         "title": "Backups alone keep no mail between two runs",
         "description": "A backup sees the mailbox as it is when it runs. Mail that arrives and is deleted before the next run is in no backup, and backups are not tamper-evident. Archiving captures every mail as it arrives."
@@ -684,7 +681,7 @@
       "archiveOnlySchedule": "This job makes no backups on a schedule: mail is captured by the archive as it arrives. Calendar, contacts and folders are only backed up when someone starts the job.",
       "rarer": {
         "title": "Backups can run less often",
-        "description": "The archive already captures every mail as it arrives, so backups only keep what journaling does not see: folders, calendar, contacts and read status. Every 8 hours is usually enough and puts less load on Microsoft 365. This is a suggestion; the schedule stays as you set it.",
+        "description": "The archive already captures every mail, so backups only keep what the archive does not hold: folders, calendar, contacts and read status. Every 8 hours is usually enough and puts less load on the mail server. This is a suggestion; the schedule stays as you set it.",
         "apply": "Back up every 8 hours"
       },
       "gap": {
@@ -696,7 +693,7 @@
     "archive": {
       "noObjectLock": "This tenant's storage has no Object Lock. The archive is then immutable at application level only: whoever can reach the storage or the server can change or delete data.",
       "objectLockUnknown": "The archive is kept in the installation's default repository. Whether it has Object Lock is shown under Repositories.",
-      "edition": "Capture through Exchange journaling is part of the Business edition. Without it the setting is kept, but nothing is archived."
+      "edition": "Exchange journaling and forwarded copies are part of the Business modules. Without them the setting is kept, but these ways capture nothing."
     },
     "folders": {
       "title": "Folders",
@@ -775,6 +772,70 @@
       "loadError": "The policy of the tenant could not be loaded; the job keeps what it sets.",
       "bandwidthDefault": "Without a limit of its own and without Unlimited, the job uses: {value} ({source}).",
       "bandwidthLocked": "Locked by the installation: {value} applies to every job; the limit and windows here have no effect."
+    },
+    "capture": {
+      "title": "How mail reaches the archive",
+      "description": "Choose at least one way for each kind of mailbox in this job. You can combine ways: the same mail captured twice is kept once, with the stronger way.",
+      "noMail": "The tenant has no mailboxes yet. Once a source is connected, the ways that fit its mailboxes appear here.",
+      "pickFirst": "Choose the mailboxes of this job below; the ways that fit them appear here.",
+      "kind": {
+        "m365": "Microsoft 365 mailboxes",
+        "imap": "IMAP accounts",
+        "google": "Google Workspace (IMAP)"
+      },
+      "way": {
+        "m365": {
+          "graph": "Microsoft Graph",
+          "journal": "Exchange journaling"
+        },
+        "imap": {
+          "sync": "IMAP archiving",
+          "forward": "Forwarding to the archive address"
+        },
+        "google": {
+          "sync": "IMAP archiving",
+          "forward": "Routing to the archive address"
+        }
+      },
+      "wayHint": {
+        "m365": {
+          "graph": "{appName} fetches every new mail from the mailbox shortly after delivery, with the app consent the backup already has.",
+          "journal": "Exchange Online sends {appName} a journal report of every mail; needs the journal receiver and a journal rule."
+        },
+        "imap": {
+          "sync": "{appName} keeps the mailbox in sync and captures every mail as soon as it is in the mailbox.",
+          "forward": "The provider sends a copy of every incoming and outgoing mail to an address of {appName} (BCC map, Sieve rule)."
+        },
+        "google": {
+          "sync": "{appName} keeps the account in sync over IMAP and captures every mail as soon as it is in the mailbox.",
+          "forward": "A routing rule in Google Workspace adds the archive address as a further recipient of every mail."
+        }
+      },
+      "assurance": {
+        "transport": {
+          "label": "At transport",
+          "hint": "The copy is made before anyone can change or delete the mail."
+        },
+        "mailbox": {
+          "label": "Near-time",
+          "hint": "A mail moved or deleted right after delivery can be missed."
+        }
+      },
+      "edition": "Part of the Business edition.",
+      "imapMicrosoft": "Some of these accounts are at Microsoft. Connect the tenant as a Microsoft 365 source instead: Graph and Exchange journaling capture its mailboxes more completely than IMAP.",
+      "setupJournal": "Set up journaling",
+      "setupForward": "Set up forwarding",
+      "noWay": "Choose at least one way for these mailboxes."
+    },
+    "captureStop": {
+      "archiveTitle": "Stop archiving the mail of this job?",
+      "archiveDescription": "From now on, new mail of these mailboxes is no longer archived.",
+      "archiveConfirm": "Stop archiving",
+      "waysTitle": "Switch these capture ways off?",
+      "waysDescription": "From now on, these ways no longer capture new mail of these mailboxes:",
+      "way": "{way} for {kind}",
+      "waysConfirm": "Switch off",
+      "kept": "The archive kept so far stays unchanged until the end of its retention."
     }
   },
   "folders": {
@@ -972,7 +1033,8 @@
       "bandwidth_window_days_invalid": "A time window has a day that does not exist.",
       "bandwidth_window_time_invalid": "A time window has a time that is not valid.",
       "bandwidth_window_kbps_invalid": "A time window has a limit that is not valid.",
-      "bandwidth_window_overlap": "Two time windows overlap. Let one end where the other starts."
+      "bandwidth_window_overlap": "Two time windows overlap. Let one end where the other starts.",
+      "archive_capture_no_way": "Every kind of mailbox the job archives needs at least one capture way."
     }
   },
   "errors": {

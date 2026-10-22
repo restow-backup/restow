@@ -59,6 +59,7 @@ export type ProblemTarget =
   | "hooks"
   | "retention"
   | "retentionPolicy"
+  | "archiveCapture"
   | "general";
 
 export function problemTarget(path: readonly string[]): ProblemTarget {
@@ -74,6 +75,8 @@ export function problemTarget(path: readonly string[]): ProblemTarget {
       return "scope";
     case "retentionPolicyId":
       return "retentionPolicy";
+    case "archiveCapture":
+      return "archiveCapture";
     case "settings":
       switch (second) {
         case "paths":

@@ -45,6 +45,12 @@ import {
   type JobScopeMode,
   LIMITS,
 } from "../api.js";
+import {
+  type CaptureReduction,
+  captureKindsOfScope,
+  captureReduction,
+  serverCaptureKeys,
+} from "../capture-ways.js";
 import { withDataFolder } from "../folders.js";
 import {
   archiveBackupCadence,
@@ -403,6 +409,10 @@ function EditorForm({
     less: JobRetention;
     options: { moveMembers?: boolean };
   } | null>(null);
+  const [captureStop, setCaptureStop] = React.useState<{
+    reduction: CaptureReduction;
+    options: { moveMembers?: boolean; stricterConfirmed?: boolean };
+  } | null>(null);
   const [saveError, setSaveError] = React.useState<unknown>(null);
   const [saving, setSaving] = React.useState(false);
   const create = useCreateBackupJob();
@@ -430,7 +440,12 @@ function EditorForm({
     setSaveError(null);
   };
 
-  const problems: JobProblems = checkJobDraft(draft);
+  const captureKinds = captureKindsOfScope(
+    draft.scopeMode,
+    draft.scopeMode === "all" ? [] : draft.selected,
+    defaults.mailSourceKinds,
+  );
+  const problems: JobProblems = checkJobDraft(draft, captureKinds);
   const shown = attempted ? problems : {};
   const serverProblem = jobProblemOf(saveError);
   const target: ProblemTarget | null = serverProblem ? problemTarget(serverProblem.path) : null;
@@ -438,11 +453,15 @@ function EditorForm({
   const at = (field: ProblemTarget) => (target === field ? serverMessage : undefined);
 
   const save = async (
-    options: { moveMembers?: boolean; stricterConfirmed?: boolean } = {},
+    options: {
+      moveMembers?: boolean;
+      stricterConfirmed?: boolean;
+      captureConfirmed?: boolean;
+    } = {},
   ): Promise<void> => {
     setAttempted(true);
     setSaveError(null);
-    const found = checkJobDraft(draft);
+    const found = checkJobDraft(draft, captureKinds);
     if (jobHasProblems(found) || closed) {
       setAttempts((count) => count + 1);
       return;
@@ -455,6 +474,14 @@ function EditorForm({
       );
       if (less) {
         setStricter({ less, options });
+        return;
+      }
+    }
+    // Switching archiving or a capture way off stops capturing new mail from now on: ask first.
+    if (job && kind === "mail" && !options.captureConfirmed) {
+      const reduction = captureReduction(job, draft, captureKinds);
+      if (reduction) {
+        setCaptureStop({ reduction, options });
         return;
       }
     }
@@ -565,8 +592,15 @@ function EditorForm({
     (member) => member.overrides && Object.keys(member.overrides).length > 0,
   ).length;
   // What the server said about a field the form shows it at; the rest, and every other failure, stands on top.
+  // A refused capture way stands at its kind's card, unless the editor shows no such card.
+  const serverCaptureMissing =
+    target === "archiveCapture" ? serverCaptureKeys(serverProblem?.path, captureKinds) : [];
   const generalError =
-    saveError && (!serverProblem || target === "general" || target === "scope")
+    saveError &&
+    (!serverProblem ||
+      target === "general" ||
+      target === "scope" ||
+      (target === "archiveCapture" && serverCaptureMissing.length === 0))
       ? serverProblem
         ? serverMessage
         : t(jobErrorKey(saveError))
@@ -616,6 +650,12 @@ function EditorForm({
                   setDraft((current) => withPurpose(current, purpose));
                   setSaveError(null);
                 }}
+                captureKinds={captureKinds}
+                scopeMode={draft.scopeMode}
+                capture={draft.archiveCapture}
+                onCaptureChange={(archiveCapture) => edit({ archiveCapture })}
+                captureMissing={shown.archiveCapture ?? serverCaptureMissing}
+                captureServerMessage={serverCaptureMissing.length > 0 ? serverMessage : undefined}
               />
             ) : null}
             <EditorSection id={ids("general")} title={t("editor.general.title")}>
@@ -643,6 +683,7 @@ function EditorForm({
                     <Label htmlFor={ids("enabled")}>{t("editor.general.enabled")}</Label>
                     <p id={messageId(ids("enabled"))} className="text-xs text-muted-foreground">
                       {t("editor.general.enabledHint")}
+                      {draft.archive ? ` ${t("editor.general.enabledArchive")}` : null}
                     </p>
                   </div>
                   <Switch
@@ -1114,6 +1155,52 @@ function EditorForm({
           const pending = stricter;
           setStricter(null);
           void save({ ...(pending?.options ?? {}), stricterConfirmed: true });
+        }}
+      />
+      <ConfirmDialog
+        open={captureStop !== null}
+        onOpenChange={(next) => {
+          if (!next) setCaptureStop(null);
+        }}
+        title={t(
+          captureStop?.reduction.archiveOff
+            ? "editor.captureStop.archiveTitle"
+            : "editor.captureStop.waysTitle",
+        )}
+        description={
+          <>
+            <p>
+              {t(
+                captureStop?.reduction.archiveOff
+                  ? "editor.captureStop.archiveDescription"
+                  : "editor.captureStop.waysDescription",
+              )}
+            </p>
+            {captureStop && captureStop.reduction.ways.length > 0 ? (
+              <ul className="list-disc pl-5" data-slot="capture-stop-list">
+                {captureStop.reduction.ways.map((way) => (
+                  <li key={`${way.key}-${way.field}`}>
+                    {t("editor.captureStop.way", {
+                      way: t(`editor.capture.way.${way.key}.${way.field}`),
+                      kind: t(`editor.capture.kind.${way.key}`),
+                    })}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p>{t("editor.captureStop.kept")}</p>
+          </>
+        }
+        confirmLabel={t(
+          captureStop?.reduction.archiveOff
+            ? "editor.captureStop.archiveConfirm"
+            : "editor.captureStop.waysConfirm",
+        )}
+        destructive
+        onConfirm={() => {
+          const pending = captureStop;
+          setCaptureStop(null);
+          void save({ ...(pending?.options ?? {}), captureConfirmed: true });
         }}
       />
       {identity.dialog}

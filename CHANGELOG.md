@@ -83,6 +83,22 @@ private repository.
 - `GET /api/v1/archive/journal` names `firstReportAt`, the first journal report that arrived.
 - Release smoke check 13: IMAP archiving with backfill and IDLE, forwarded copies and their
   dedupe against the synced mail, against the Dovecot of check 5.
+- Job editor: the archive's capture ways per kind of mailbox in the job (Microsoft 365: Graph and
+  Exchange journaling; IMAP and Google Workspace: IMAP archiving and forwarding), each labelled
+  as captured at transport or near-time, locked with the edition that has it, at least one per
+  kind; IMAP accounts on a Microsoft host get the hint to connect a Microsoft 365 source instead.
+- Archive page: capture from the mailboxes (Graph and IMAP archiving: streams, how mail is
+  noticed and why a mailbox is checked at intervals, counts, takeover of existing mail), the
+  capture per mailbox with a catch-up, and the hold confirmation of each Microsoft 365 source
+  with the Exchange Online PowerShell commands that check it. Search and detail name forwarded
+  copies, mail captured afterwards and the other ways that captured the same mail again; a
+  capture replaced by a stronger one is hidden unless asked for (`includeSuperseded` on
+  `GET /api/v1/archive/search`), and the detail links both (`supersededBy`, `captures`).
+- Business: Exchange journaling as ready-made Exchange Online PowerShell commands (connector,
+  mailbox for undeliverable journal reports, journal rule) and a wait for the first report that
+  checks every 5 seconds. Forwarding to the archive: an address per IMAP account (created,
+  copied, renewed after a question), its status, and instructions for Postfix and mailcow BCC
+  maps, Sieve `redirect :copy` and Google Workspace routing to the tenant's journal address.
 
 ### Changed
 
@@ -102,9 +118,17 @@ private repository.
   address that is not a journal report (no `X-MS-Journal-Report` header and not built like one)
   is archived as a forwarded copy with its own headers' envelope instead of as an incomplete
   report.
+- Pausing a mail job stops only its scheduled backups; archiving goes on, and the pause
+  question says so. Switching archiving or a capture way off in the editor asks first: new mail
+  of these mailboxes is no longer archived from then on, the archive kept so far stays.
+- docs/ARCHIVE.md describes the capture ways of 0.4.4; docs/ARCHITECTURE.md describes the
+  Graph throttling as it is built (no shared token bucket per source).
 
 ### Fixed
 
+- Opening the job editor of a job with only IMAP accounts no longer creates the tenant's
+  journal address: it is requested only while Exchange journaling is chosen for Microsoft 365
+  mailboxes.
 - The archive chain could fork when two writers of one tenant stamped their items with the same
   time: the predecessor was taken by time alone. Writers now take the last item in the order the
   chain check walks (time, then id) and stamp their item strictly later.

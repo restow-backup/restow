@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 
 import { EmptyState, ErrorState, PageHeader, RefreshButton, RelativeTime } from "@/components/kit";
 import { Alert, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -45,6 +46,7 @@ import { activeTenantPageTo } from "@/lib/tenant-paths";
 import type { ArchiveSearchResult, ArchiveSource } from "./api.js";
 import { ArchiveDetail } from "./archive-detail.js";
 import { ArchiveProtectionNotice } from "./archive-protection.js";
+import { CaptureStatusSection } from "./capture-status.js";
 import { ChainCheck } from "./chain-check.js";
 import { useArchiveSearch, useTenantScope } from "./hooks.js";
 import {
@@ -65,6 +67,7 @@ import {
  */
 const SOURCE_KEYS: Readonly<Record<ArchiveSource, { list: string; detail: string }>> = {
   journal: { list: "table.sources.journal", detail: "detail.sourceJournal" },
+  smtp_forward: { list: "table.sources.smtp_forward", detail: "detail.sourceSmtpForward" },
   graph_sync: { list: "table.sources.graph_sync", detail: "detail.sourceGraphSync" },
   imap_sync: { list: "table.sources.imap_sync", detail: "detail.sourceImapSync" },
   file_import: { list: "table.sources.file_import", detail: "detail.sourceFileImport" },
@@ -97,7 +100,8 @@ function onlyTextDiffers(a: ArchiveFilters, b: ArchiveFilters): boolean {
     a.dateFrom === b.dateFrom &&
     a.dateTo === b.dateTo &&
     a.mailbox === b.mailbox &&
-    a.hasAttachment === b.hasAttachment
+    a.hasAttachment === b.hasAttachment &&
+    Boolean(a.includeSuperseded) === Boolean(b.includeSuperseded)
   );
 }
 
@@ -380,6 +384,18 @@ export function ArchivePage() {
             <label htmlFor="archive-has-attachment">{t("search.hasAttachment")}</label>
           </div>
         </div>
+        <div className="flex items-center gap-2 text-sm">
+          <Checkbox
+            id="archive-include-superseded"
+            checked={filters.includeSuperseded === true}
+            onCheckedChange={(v) => update({ includeSuperseded: v === true })}
+            aria-describedby="archive-include-superseded-hint"
+          />
+          <label htmlFor="archive-include-superseded">{t("search.includeSuperseded")}</label>
+          <span id="archive-include-superseded-hint" className="sr-only">
+            {t("search.includeSupersededHint")}
+          </span>
+        </div>
         {invertedRange(filters) ? (
           <p role="alert" className="text-xs text-destructive">
             {t("search.invertedRange")}
@@ -462,8 +478,9 @@ export function ArchivePage() {
                             })}
                           />
                         </TableCell>
-                        <TableCell pin={PIN_FIRST} className="max-w-64 truncate font-medium">
-                          {result.subject ?? "—"}
+                        <TableCell pin={PIN_FIRST} className="max-w-64 font-medium">
+                          <span className="block truncate">{result.subject ?? "—"}</span>
+                          <CaptureBadges result={result} />
                         </TableCell>
                         <TableCell className="max-w-40 truncate">{result.from ?? "—"}</TableCell>
                         <TableCell>
@@ -471,6 +488,15 @@ export function ArchivePage() {
                         </TableCell>
                         <TableCell className="text-muted-foreground whitespace-nowrap text-xs">
                           {sourceLabel(result.source, "list")}
+                          {result.alsoCapturedVia && result.alsoCapturedVia.length > 0 ? (
+                            <span className="block" data-slot="archive-also-captured">
+                              {t("table.alsoVia", {
+                                ways: result.alsoCapturedVia
+                                  .map((way) => sourceLabel(way, "list"))
+                                  .join(", "),
+                              })}
+                            </span>
+                          ) : null}
                         </TableCell>
                         <TableCell>
                           {result.hasAttachment && (
@@ -521,16 +547,49 @@ export function ArchivePage() {
               </div>
             )}
 
-            <ArchiveDetail ref={detailRef} itemId={selected} sourceLabel={sourceLabel} />
+            <ArchiveDetail
+              ref={detailRef}
+              itemId={selected}
+              sourceLabel={sourceLabel}
+              onOpenItem={open}
+            />
           </div>
         </>
       )}
 
       <ChainCheck onOpenItem={open} />
 
+      <CaptureStatusSection />
+
       <ExportDialog request={exportRequest} onClose={() => setExportRequest(null)} />
 
       <ExtensionSlot name="archive.sections" props={{}} />
     </div>
+  );
+}
+
+/**
+ * What the list says about how a mail was captured beyond its way: taken over afterwards
+ * (backfill, `captured-late`), and replaced by a stronger capture (listed only on request).
+ */
+function CaptureBadges({ result }: { result: ArchiveSearchResult }) {
+  const { t } = useTranslation("archive");
+  const late = result.flags.includes("captured-late");
+  if (!late && !result.superseded) {
+    return null;
+  }
+  return (
+    <span className="mt-0.5 flex flex-wrap gap-1">
+      {late ? (
+        <Badge variant="outline" data-slot="archive-captured-late">
+          {t("table.capturedLate")}
+        </Badge>
+      ) : null}
+      {result.superseded ? (
+        <Badge variant="secondary" data-slot="archive-superseded">
+          {t("table.superseded")}
+        </Badge>
+      ) : null}
+    </span>
   );
 }

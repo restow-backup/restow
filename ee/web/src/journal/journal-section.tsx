@@ -16,10 +16,24 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import "@/features/archive/i18n";
+import { JOURNAL_SECTION_ANCHOR } from "@/features/archive/paths";
 import { errorMessageKey } from "@/lib/api";
 
 import type { JournalSetup } from "./api";
-import { useJournalScope, useJournalSetup, useRotateJournalAddress } from "./hooks";
+import {
+  FirstReport,
+  type FirstReportWait,
+  firstReportPolling,
+  useFirstReportWait,
+} from "./first-report";
+import {
+  JOURNAL_REFRESH_MS,
+  useJournalScope,
+  useJournalSetup,
+  useRotateJournalAddress,
+} from "./hooks";
+import { JournalPowerShell } from "./journal-powershell";
+import { FIRST_REPORT_POLL_MS } from "./powershell";
 import {
   type ChecklistState,
   checklistItems,
@@ -52,14 +66,23 @@ const CHECKLIST_ICON = {
 export function JournalSection() {
   const { t } = useTranslation("archive");
   const { enabled, canManage, licensed } = useJournalScope();
-  const setup = useJournalSetup();
+  const wait = useFirstReportWait();
+  // While waiting for the first report, ask every 5 seconds until it is there.
+  const setup = useJournalSetup({
+    refetchInterval: (data) =>
+      firstReportPolling(wait, data) ? FIRST_REPORT_POLL_MS : JOURNAL_REFRESH_MS,
+  });
 
   if (!enabled || !canManage || !licensed) {
     return null;
   }
 
   return (
-    <section className="space-y-4 rounded-md border p-4" aria-labelledby="journal-title">
+    <section
+      id={JOURNAL_SECTION_ANCHOR}
+      className="scroll-mt-6 space-y-4 rounded-md border p-4"
+      aria-labelledby="journal-title"
+    >
       <div className="space-y-1">
         <h3 id="journal-title" className="flex items-center gap-2 font-medium">
           <Mail aria-hidden="true" className="size-4" />
@@ -69,7 +92,7 @@ export function JournalSection() {
       </div>
 
       {setup.data ? (
-        <JournalSetupView setup={setup.data} />
+        <JournalSetupView setup={setup.data} wait={wait} />
       ) : setup.isError ? (
         <Alert variant="destructive">
           <TriangleAlert aria-hidden="true" />
@@ -90,7 +113,7 @@ export function JournalSection() {
   );
 }
 
-function JournalSetupView({ setup }: { setup: JournalSetup }) {
+function JournalSetupView({ setup, wait }: { setup: JournalSetup; wait: FirstReportWait }) {
   const { t } = useTranslation("archive");
   const rotate = useRotateJournalAddress();
   const hostLabel = setup.hostname ?? t("journal.guide.hostFallback");
@@ -189,6 +212,8 @@ function JournalSetupView({ setup }: { setup: JournalSetup }) {
         ) : null}
       </div>
 
+      {notSetUp ? null : <FirstReport setup={setup} wait={wait} />}
+
       <Collapsible defaultOpen={guideOpenByDefault(setup.status)} className="space-y-3">
         <CollapsibleTrigger asChild>
           <Button variant="ghost" size="sm" className="-ml-2 group">
@@ -236,6 +261,7 @@ function JournalSetupView({ setup }: { setup: JournalSetup }) {
                 </li>
               ))}
             </ol>
+            <JournalPowerShell setup={setup} />
             {setup.docsUrl ? (
               <Button variant="link" size="sm" className="-ml-2" asChild>
                 <a href={setup.docsUrl} target="_blank" rel="noreferrer noopener">

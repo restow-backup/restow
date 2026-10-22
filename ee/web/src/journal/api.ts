@@ -38,6 +38,8 @@ export interface JournalSetup {
   status: JournalStatus;
   receiver: { listening: boolean; reason: ReceiverReason | null };
   lastReportAt: string | null;
+  /** When the first journal report of the tenant arrived (0.4.4); null before any, absent before 0.4.4. */
+  firstReportAt?: string | null;
   counts: { last24Hours: number; last7Days: number };
   requirements: {
     dnsName: string | null;

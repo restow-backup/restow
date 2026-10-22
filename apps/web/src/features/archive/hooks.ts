@@ -3,12 +3,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "@/lib/session";
 
 import {
+  type ArchiveHold,
+  type ArchiveHolds,
   type ArchiveSearchParams,
   archiveKeys,
+  type CaptureMailboxQuery,
+  fetchArchiveHolds,
   fetchArchiveItem,
   fetchArchivePreview,
   fetchArchiveRetention,
+  fetchCaptureMailboxes,
+  fetchCaptureStatus,
+  requestCaptureResync,
   searchArchive,
+  setArchiveHold,
   verifyArchiveChain,
 } from "./api.js";
 
@@ -76,5 +84,73 @@ export function useArchiveRetention() {
     queryKey: archiveKeys.retention(tenantId),
     queryFn: fetchArchiveRetention,
     enabled: enabled && canManage,
+  });
+}
+
+/** The capture state follows the worker's streams: look again now and then. */
+const CAPTURE_REFRESH_MS = 30_000;
+
+/** How mail reaches the archive, per way (GET /archive/capture). */
+export function useCaptureStatus() {
+  const { tenantId, enabled, canManage } = useTenantScope();
+  return useQuery({
+    queryKey: archiveKeys.capture(tenantId),
+    queryFn: fetchCaptureStatus,
+    enabled: enabled && canManage,
+    refetchInterval: CAPTURE_REFRESH_MS,
+  });
+}
+
+/** One page of the capture streams, filtered by way and status. */
+export function useCaptureMailboxes(query: CaptureMailboxQuery) {
+  const { tenantId, enabled, canManage } = useTenantScope();
+  return useQuery({
+    queryKey: archiveKeys.captureMailboxes(tenantId, query),
+    queryFn: () => fetchCaptureMailboxes(query),
+    enabled: enabled && canManage,
+    placeholderData: (previous) => previous,
+    refetchInterval: CAPTURE_REFRESH_MS,
+  });
+}
+
+/** A full catch-up of one mailbox (audited); the status and the list are read again. */
+export function useCaptureResync() {
+  const { tenantId } = useTenantScope();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (objectId: string) => requestCaptureResync(objectId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: archiveKeys.capture(tenantId) });
+    },
+  });
+}
+
+/** The hold confirmation of the Microsoft 365 sources. */
+export function useArchiveHolds() {
+  const { tenantId, enabled, canManage } = useTenantScope();
+  return useQuery({
+    queryKey: archiveKeys.holds(tenantId),
+    queryFn: fetchArchiveHolds,
+    enabled: enabled && canManage,
+  });
+}
+
+/** Confirm or withdraw a source's hold (audited). */
+export function useSetArchiveHold() {
+  const { tenantId } = useTenantScope();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sourceId, status }: { sourceId: string; status: ArchiveHold["status"] }) =>
+      setArchiveHold(sourceId, status),
+    onSuccess: (hold) => {
+      queryClient.setQueryData<ArchiveHolds>(archiveKeys.holds(tenantId), (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((item) => (item.sourceId === hold.sourceId ? hold : item)),
+            }
+          : current,
+      );
+    },
   });
 }

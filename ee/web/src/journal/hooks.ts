@@ -4,10 +4,16 @@ import { useTenantScope } from "@/features/archive/hooks";
 
 import { editionAllows, useEdition } from "../license/edition";
 
-import { fetchJournalReceiver, fetchJournalSetup, journalKeys, rotateJournalAddress } from "./api";
+import {
+  fetchJournalReceiver,
+  fetchJournalSetup,
+  type JournalSetup,
+  journalKeys,
+  rotateJournalAddress,
+} from "./api";
 
 /** The status follows the receiver and the incoming reports: look again now and then. */
-const REFRESH_MS = 30_000;
+export const JOURNAL_REFRESH_MS = 30_000;
 
 /**
  * Who sees the journal section: the archive page's own scope (a tenant
@@ -23,13 +29,25 @@ export function useJournalScope() {
   };
 }
 
-export function useJournalSetup() {
+/**
+ * The tenant's journal setup. The first request issues the journal address (the API audits
+ * it), so a caller that does not need journaling passes `wanted: false` and nothing is asked:
+ * the job editor asks only while Exchange journaling is chosen. `refetchInterval` overrides
+ * the refresh (the wait for the first report polls faster).
+ */
+export function useJournalSetup(
+  options: {
+    wanted?: boolean;
+    /** How often to ask again, from the setup last read; the default is every 30 seconds. */
+    refetchInterval?: (setup: JournalSetup | undefined) => number;
+  } = {},
+) {
   const { tenantId, enabled, canManage, licensed } = useJournalScope();
   return useQuery({
     queryKey: journalKeys.setup(tenantId),
     queryFn: fetchJournalSetup,
-    enabled: enabled && canManage && licensed,
-    refetchInterval: REFRESH_MS,
+    enabled: (options.wanted ?? true) && enabled && canManage && licensed,
+    refetchInterval: (query) => options.refetchInterval?.(query.state.data) ?? JOURNAL_REFRESH_MS,
   });
 }
 
@@ -49,6 +67,6 @@ export function useJournalReceiver() {
   return useQuery({
     queryKey: journalKeys.receiver,
     queryFn: fetchJournalReceiver,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: JOURNAL_REFRESH_MS,
   });
 }

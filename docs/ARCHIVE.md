@@ -4,9 +4,10 @@ Backup ist zum Zurückholen, Archiv ist zum Beweisen. Restow führt beides im se
 Speicher, aber mit getrennten Regeln. Dieses Dokument ist die fachliche Grundlage; es
 ist keine Rechtsberatung, die Paragraphen dienen der Orientierung.
 
-Das Dokument beschreibt das Zielbild des Archivs. Was Restow 0.1.0 davon tatsächlich
-kann, steht im Abschnitt "Umsetzungsstand 0.1.0" am Ende; Abschnitte und Absätze, die
-darüber hinausgehen, sind als "Zielbild, nicht in 0.1.0" gekennzeichnet.
+**Stand: Restow 0.4.4 (in Arbeit).** Was diese Version kann, steht im Abschnitt
+"Umsetzungsstand" am Ende; er wird zur Freigabe von 0.4.4 gegen den Code geprüft und
+abgeschlossen. Was für 0.4.4 geplant ist, ist als
+**"Geplant für 0.4.4"** gekennzeichnet, alles Weitere als **"Zielbild"**.
 
 ## Was das Gesetz verlangt (Deutschland)
 
@@ -20,34 +21,118 @@ darüber hinausgehen, sind als "Zielbild, nicht in 0.1.0" gekennzeichnet.
 - "Unveränderbar" bedeutet: Nach Erfassung kann niemand, auch kein Admin, Inhalte
   ändern oder löschen, bevor die Frist abläuft; Löschungen nach Fristablauf werden
   protokolliert.
-- "Zeitgerecht/vollständig": Die Kopie muss entstehen, bevor ein Nutzer die Mail
-  verändern oder löschen kann. Deshalb Journaling, nicht Postfach-Sync.
+- "Zeitgerecht/vollständig": Die Kopie soll entstehen, bevor ein Nutzer die Mail
+  verändern oder löschen kann. Am sichersten gelingt das beim Transport (Journaling);
+  eine Erfassung aus dem Postfach ist zeitnah, aber nicht garantiert lückenlos
+  (Abschnitt "Echt oder zeitnah").
 - DSGVO: Löschkonzept nach Fristablauf, Auskunftsfähigkeit (Suche nach Person),
   Zugriffsbeschränkung, Legal Hold nur mit dokumentiertem Grund.
 
+## Archiv im Mail-Job
+
+Der Editor eines Mail-Jobs fragt zuerst "Was soll dieser Job tun?" (seit 0.4.2):
+
+- **Sichern**: Ordner, Kalender, Kontakte und ganze Postfächer wiederherstellen können.
+- **Archivieren**: jede Mail revisionssicher aufbewahren. "Archivieren" allein sichert nicht
+  nach Zeitplan (der Job hat dann keinen Zeitplan; ein von Hand gestarteter Lauf sichert
+  trotzdem).
+- **Beides**: die Vorgabe für neue Jobs.
+
+Archivieren und beides schalten das Archiv für die Postfächer des Jobs ein. Die Auswahl sagt,
+welche Postfächer im Archiv erwartet werden, nennt den Erfassungsweg und zeigt dessen Status.
+Mit Archiv schlägt der Editor bei einem Zeitplan häufiger als alle 8 Stunden vor, seltener zu
+sichern (nur ein Vorschlag, Abschnitt "Journaling und Postfach-Sicherung"). Ein Maschinen-Job
+kann nicht archivieren. Object Lock ist keine Voraussetzung; ohne Object Lock zeigt der Editor,
+dass das Archiv dann nur auf Anwendungsebene unveränderbar ist (Abschnitt "Speicherung").
+
+**Bis 0.4.3** bietet der Editor als Erfassungsweg ausschließlich das Exchange-Online-Journaling
+an, auch für IMAP-Konten. Für ein IMAP-Postfach ist das kein brauchbarer Weg.
+
+**Geplant für 0.4.4:** Der Editor erkennt die Art der Quelle des Jobs (Microsoft 365, IMAP,
+Google Workspace über IMAP) und bietet nur die Erfassungswege an, die dazu passen (Tabelle im
+nächsten Abschnitt). Eine Journal-Adresse wird nur angelegt und angezeigt, wo sie gebraucht
+wird: für das Exchange-Journaling und, wenn gewählt, für die Weiterleitung bei IMAP-Anbietern.
+Ein Job mit Postfächern verschiedener Art zeigt den Weg je Art. Jeder Weg ist als **echt** oder
+**zeitnah** gekennzeichnet; je Art muss mindestens ein Weg gewählt sein. Ein Weg, den die Edition
+nicht enthält, ist gesperrt und nennt die Edition.
+
+Anhalten eines Mail-Jobs hält nur die Sicherungen nach Zeitplan an; die Archivierung läuft weiter
+(die Rückfrage beim Anhalten sagt das). Sie endet nur, wenn im Job das Archivieren oder ein
+Erfassungsweg ausgeschaltet wird. Der Editor fragt dann vor dem Speichern nach: Neue Mail dieser
+Postfächer wird ab dann nicht mehr (über diesen Weg) archiviert, das bisherige Archiv bleibt.
+
 ## Erfassungswege
 
-In 0.1.0 schreiben genau zwei Wege ins Archiv: das Exchange-Online-Journaling (1) und der
-Datei-Import mit "gleichzeitig archivieren" (4). Der fortlaufende Graph- und IMAP-Sync (2, 3) ist
-Zielbild und nicht Teil von 0.1.0; es gibt dafür keinen Worker-Handler und keinen Zeitplan.
+| Weg | Quelle | Erfassung | Stand |
+| --- | --- | --- | --- |
+| Exchange-Online-Journaling | Microsoft 365 | **echt**: beim Transport, vor der Zustellung | seit 0.1.0 (Business, Service Provider) |
+| Graph-Erfassung | Microsoft 365 | **zeitnah**: kurz nach der Zustellung aus dem Postfach | geplant für 0.4.4 |
+| Weiterleitung an die Journal-Adresse | IMAP-Anbieter mit serverseitiger Kopie (BCC- oder Weiterleitungsregel), Google Workspace (Routing-Regel) | **echt**: beim Transport des Anbieters | geplant für 0.4.4 |
+| IMAP-Archivierung | jedes IMAP-Konto, auch Google Workspace | **zeitnah**: aus dem Postfach, laufend | geplant für 0.4.4 |
+| Datei-Import mit "gleichzeitig archivieren" | EML, MSG, MBOX, ZIP, MailStore-Export | **nachträglich** | seit 0.1.0 |
 
-1. Exchange Online Journaling (Standard für M365, Edition Business und Service Provider):
-   SMTP-Journal-Report an `journal+<token>@<Journal-Host>` (Einrichtung: Abschnitt
-   "Exchange-Online-Journaling einrichten"). Erfasst ein- und ausgehend, intern und
-   extern, inklusive BCC über den Umschlag. Restow speichert das Original
-   (message/rfc822) byte-genau und den Umschlag als JSON.
-2. Graph-Sync (Zielbild, nicht in 0.1.0): sichert, was vor Aktivierung des Journalings im
-   Postfach lag (Altbestand) und Kalender/Kontakte. Wird als "nachträglich erfasst"
-   markiert, weil die Unveränderbarkeit erst ab Erfassung gilt.
-3. IMAP-Archivierung (Zielbild, nicht in 0.1.0): fortlaufender Sync (IDLE oder Intervall),
-   Erfassung sobald die Mail im Postfach liegt; für Anbieter ohne Journaling die
-   bestmögliche Näherung, in der Doku als solche benannt. Optional SMTP-Kopie (BCC-Regel
-   beim Anbieter) an die Journal-Adresse.
-4. Datei-Import (Erfassungsweg `file_import`): Mails aus einem Altpostfach (EML, MSG, MBOX,
-   ZIP, MailStore-Export), die der Administrator beim Import ins Archiv übernimmt
+Jedes Archivobjekt trägt seinen Erfassungsweg (`source`: `journal`, `graph_sync`, `imap_sync`,
+`file_import`; ab 0.4.4 zusätzlich `smtp_forward` für die Weiterleitung). Suche, Detail, Export und
+Nachweisbericht nennen ihn; eine importierte oder zeitnah erfasste Mail erscheint nie als
+Journal.
+
+1. **Exchange-Online-Journaling.** SMTP-Journal-Report an `journal+<token>@<Journal-Host>`
+   (Einrichtung: Abschnitt "Exchange-Online-Journaling einrichten"). Erfasst ein- und
+   ausgehend, intern und extern, inklusive BCC über den Umschlag. Restow speichert das
+   Original (message/rfc822) byte-genau und den Umschlag als JSON. **Geplant für 0.4.4:**
+   Restow erzeugt die Befehle für Exchange Online PowerShell (Journalregel, Adresse für nicht
+   zustellbare Journalberichte) zum Kopieren und meldet den ersten angekommenen Report.
+2. **Graph-Erfassung (geplant für 0.4.4).** Restow abonniert für jedes archivierte Postfach
+   die Benachrichtigungen über neue Mails (Microsoft Graph) und holt jede neue Mail kurz nach
+   der Zustellung; ein regelmäßiger Abgleich holt nach, was eine verlorene Benachrichtigung
+   verpasst hat. Gelöschte Mails liest Restow aus "Wiederherstellbare Elemente". Nötig ist
+   nur die App-Zustimmung, die es für die Sicherung schon gibt: kein Port 25, kein
+   Mail-Hostname, keine Journalregel. Damit auch schnell gelöschte Mail erfasst wird, sollte
+   im Mandanten eine Aufbewahrungsrichtlinie oder ein Litigation Hold aktiv sein. Graph gibt
+   darüber keine Auskunft: Die Archiv-Seite zeigt je Microsoft-365-Quelle die Befehle für
+   Exchange Online PowerShell, die es prüfen, und der Administrator bestätigt den Hold dort
+   (auditiert); ohne Bestätigung steht dort "Hold nicht bestätigt". Einmalig übernimmt die Graph-Erfassung auch den Altbestand, markiert
+   als nachträglich erfasst.
+3. **Weiterleitung an die Journal-Adresse (geplant für 0.4.4).** Für Anbieter ohne
+   Exchange-Journaling: Der Anbieter schickt serverseitig eine Kopie jeder ein- und
+   ausgehenden Mail an die Journal-Adresse des Mandanten (zum Beispiel eine BCC-Regel in
+   Postfix, mailcow oder beim Hoster, eine Routing-Regel "Weitere Empfänger hinzufügen" in
+   Google Workspace). Der Empfänger nimmt dann außer Exchange-Journalberichten auch solche
+   Kopien an. Absender und Empfänger stehen bei einer solchen Kopie nur in den Kopfzeilen
+   (From, To, Cc, Delivered-To); BCC-Empfänger sind darin nicht sichtbar. Eine eigene Adresse je
+   Konto ordnet die Kopie trotzdem eindeutig dem richtigen Postfach zu. Die Kopie entsteht beim
+   Transport des Anbieters, also wie beim Journaling vor jedem Zugriff des Nutzers. Je
+   IMAP-Konto zeigt Restow, wie die Regel einzurichten ist, und ob schon Kopien ankommen.
+4. **IMAP-Archivierung (geplant für 0.4.4).** Laufender Abgleich des Postfachs (IDLE oder
+   Intervall), Erfassung sobald die Mail im Postfach liegt; für Anbieter ohne Weiterleitung
+   die bestmögliche Näherung und als solche gekennzeichnet. Übernimmt einmalig auch den
+   Altbestand. Liefert die Weiterleitung dieselbe Mail, wird sie über Message-ID und
+   Inhalts-Hash zusammengeführt; das Archiv behält den früheren, stärkeren Erfassungsweg.
+5. **Datei-Import (Erfassungsweg `file_import`).** Mails aus einem Altpostfach (EML, MSG,
+   MBOX, ZIP, MailStore-Export), die der Administrator beim Import ins Archiv übernimmt
    (docs/IMPORT.md). Die Frist beginnt mit der Erfassung (dem Import), das Sendedatum der
    Mail steht in `sent_at`; die Unveränderbarkeit gilt erst ab Erfassung, wie bei jeder
    nachträglichen Erfassung.
+
+### Echt oder zeitnah
+
+**Echtes Journaling** (Exchange-Journalregel, Weiterleitung beim Anbieter): Die Kopie entsteht
+beim Transport, bevor die Mail in einem Postfach liegt. Kein Nutzer, keine Postfachregel und
+kein Client kann vorher eingreifen. Der Umschlag nennt alle Empfänger, auch BCC und aufgelöste
+Verteiler, und auch Mail, die nie in einem Postfach landet oder sofort gelöscht wird, ist
+erfasst. Das ist der stärkste Nachweis für "vollständig und vor jeder Veränderung erfasst".
+Der Preis: Restow muss Mail von außen annehmen (Port 25, eigener Hostname mit TLS), und ist
+Restow länger nicht erreichbar, gibt der Absender die Zustellung irgendwann auf.
+
+**Zeitnahe Erfassung** (Graph, IMAP): Restow holt die Mail kurz nach der Zustellung aus dem
+Postfach. In dieser Lücke kann eine Mail verschoben oder gelöscht werden; ein Hold im
+Microsoft-365-Mandanten schließt die Lücke für gelöschte Mail weitgehend, bei IMAP gibt es
+dafür nichts Vergleichbares. BCC sieht Restow nur beim Absender; Mail, die eine Anwendung ohne
+Kopie in "Gesendete Elemente" verschickt, fehlt.
+
+Kurz: Journaling beweist jede Mail so, wie sie durch den Server ging; die zeitnahe Erfassung
+liefert jede Mail so, wie sie kurz danach im Postfach lag. Restow kennzeichnet beides und
+behauptet für die zeitnahe Erfassung keine Vollständigkeit.
 
 ## Exchange-Online-Journaling einrichten
 
@@ -56,7 +141,8 @@ löschen kann. Die Einrichtung hat zwei Seiten: die Installation (Betreiber) und
 Microsoft-365-Mandanten (Administrator des Kunden). Den Stand zeigt Restow selbst: Archiv,
 Abschnitt "Exchange-Journaling" (Mandanten-Administrator, Edition Business oder Service
 Provider, Fähigkeit `archive.journalReceiver`). Ohne die Edition erscheint der Abschnitt
-nicht, die API-Pfade antworten mit 404.
+nicht, die API-Pfade antworten mit 404. Microsoft verlangt, dass das Ziel der Journalberichte
+außerhalb von Exchange Online liegt; am SMTP-Weg führt beim Journaling deshalb nichts vorbei.
 
 ### Installation (Betreiber)
 
@@ -231,7 +317,7 @@ Vorschau und Journal zusammen.
   Umschlag (darüber `recipients-truncated`; der archivierte Report enthält alle). Ein ehrlicher
   Report bis zur Größengrenze bleibt so weit unter dem Speicher seines Prozesses.
 
-### Zuordnung zu Postfächern und Archiv je Job (ab 0.3.0)
+### Zuordnung zu Postfächern (seit 0.3.0)
 
 Ein Journal-Report nennt Empfänger und Absender, kein Postfach. Der Empfänger ordnet jeden
 archivierten Report in derselben Transaktion allen geschützten Postfächern des Mandanten zu,
@@ -244,36 +330,21 @@ Die Zuordnung steht in `archive_item_mailboxes` (nur hinzufügen, nie ändern, w
 
 - Ein Report, der kein Postfach des Mandanten nennt, wird trotzdem archiviert und gehört dann nur
   dem Mandanten. Nichts wird verworfen.
-- Der Editor eines Mail-Jobs fragt zuerst "Was soll dieser Job tun?" (ab 0.4.2): **Sichern**
-  (Ordner, Kalender, Kontakte und ganze Postfächer wiederherstellen), **Archivieren** (jede Mail
-  revisionssicher, erfasst bevor Nutzer sie ändern oder löschen können) oder **beides**
-  (Vorgabe für neue Jobs). Archivieren und beides schalten das Archiv für den Job ein (das
-  Archiv-Häkchen seit 0.3.0); "Archivieren" allein sichert nicht nach Zeitplan (der Job hat dann
-  keinen Zeitplan, ein von Hand gestarteter Lauf sichert trotzdem). Die Erfassung hängt nicht
-  daran: Exchange journalisiert nach seiner Journalregel, Restow archiviert jeden Report. Die
-  Auswahl sagt, welche Postfächer im Archiv erwartet werden, nennt den Erfassungsweg
-  (Exchange-Journaling: Kopie beim Transport, vor der Zustellung ins Postfach; einmal je Mandant
-  einzurichten, mit Verweis auf die Einrichtung) und zeigt Journal-Adresse und Empfangsstatus
-  (Business). Mit Archiv schlägt der Editor bei einem Zeitplan häufiger als alle 8 Stunden vor,
-  seltener zu sichern (nur ein Vorschlag, Abschnitt "Journaling und Postfach-Sicherung"); nur mit
-  Sicherung nennt er die Lücke zwischen zwei Läufen. Ein Maschinen-Job kann nicht archivieren.
-- Object Lock ist keine Voraussetzung. Ohne Object Lock zeigt der Editor den Hinweis, dass das
-  Archiv dann nur auf Anwendungsebene unveränderbar ist (Abschnitt "Speicherung").
 - Suche, Export und Legal Hold je Postfach berücksichtigen zugeordnete Journal-Reports.
 - Reports, die vor 0.3.0 eingegangen sind, haben keine Zuordnung; sie gehören weiter nur dem
   Mandanten.
 
 ### Grenzen
 
-- Journaling erfasst ab der Aktivierung. Was vorher im Postfach lag, erfasst das Archiv in
-  0.1.0 nicht von selbst (der Graph-Sync ist Zielbild); Altbestand lässt sich als Export des
+- Journaling erfasst ab der Aktivierung. Altbestand lässt sich bis 0.4.3 nur als Export des
   Postfachs über den Datei-Import mit "gleichzeitig archivieren" aufnehmen und ist dann als
-  nachträglich erfasst markiert.
+  nachträglich erfasst markiert. Geplant für 0.4.4: Die Graph-Erfassung übernimmt den
+  Altbestand einmalig selbst.
 - Der Empfänger verlangt STARTTLS (Abschnitt "TLS-Zertifikat") und startet nicht ohne
   gültiges Zertifikat. Die Prüfung des Absenders (SPF, Microsoft-Adressbereiche) ist
-  noch nicht umgesetzt, die Annahme beschränkt sich auf bekannte Journal-Adressen, ein
-  einfaches Rate-Limit je Absender-IP (im Arbeitsspeicher der API) und das Größenlimit (`JOURNAL_MAX_SIZE_MB`, Standard 150 MB;
-  größere Reports werden abgewiesen).
+  noch nicht umgesetzt; die Annahme beschränkt sich auf bekannte Journal-Adressen, ein
+  einfaches Rate-Limit je Absender-IP (im Arbeitsspeicher der API) und das Größenlimit
+  (`JOURNAL_MAX_SIZE_MB`, Standard 150 MB; größere Reports werden abgewiesen).
 
 ### Journaling und Postfach-Sicherung
 
@@ -310,7 +381,7 @@ Journaling erfasst nicht:
 - Reports, die Restow nicht erreichen (Connector, Firewall, Zertifikat): Exchange Online
   schickt sie an das Postfach für nicht zustellbare Journalberichte, nicht ins Archiv.
 
-Die Postfach-Sicherung (docs/MICROSOFT.md) erfasst Mail, Kalender und Kontakte mit
+Die Postfach-Sicherung (docs/MICROSOFT.md, docs/IMAP.md) erfasst Mail, Kalender und Kontakte mit
 Ordnern und Status zum Zeitpunkt des Laufs und stellt sie wieder her. Sie sieht nicht, was
 zwischen zwei Läufen eintrifft und wieder gelöscht wird, und ist nicht unveränderbar:
 Sicherungspunkte laufen nach ihrer Aufbewahrungsrichtlinie ab.
@@ -332,143 +403,142 @@ Wann was:
 - Archivobjekte gehen in den Chunk-Store wie Backup-Objekte, zusätzlich ein versiegelter
   Datensatz je Objekt: `tenants/<tid>/archive/<jahr>/<monat>/<archive_item_id>.json`
   (Format: `packages/core/src/archive/FORMAT.md`). Auf einem S3-Ziel mit Object Lock
-  (Compliance-Modus) setzt 0.1.0 die Retention bis Fristende nur auf diesen Datensatz. Die Packs
-  mit dem Nachrichteninhalt tragen keine Retention; der Garbage Collector kann sie umpacken oder
-  löschen, sobald keine Referenz mehr besteht. Hardware-WORM schützt den Inhalt einer Mail damit
-  in 0.1.0 nicht, und Sicherungsdaten (Backups) tragen gar keine Object-Lock-Retention.
+  (Compliance-Modus) trägt dieser Datensatz eine Retention bis zum Fristende des Archivs.
+- **Seit 0.4.0** lässt sich Object Lock je Repository einschalten (docs/STORAGE.md,
+  "Immutable backups"). Dann sind auch die Packs des Chunk-Stores gesperrt, also auch die
+  Inhalte archivierter Mails: für die Frist des Repositories (1 bis 3650 Tage), verlängert,
+  solange sie gebraucht werden. Diese Frist ist eine Einstellung des Repositories, nicht die
+  Archivfrist. Ohne Object Lock am Repository tragen die Packs keine Retention, und Hardware-WORM
+  schützt den Inhalt einer Mail nicht.
 - Hash-Kette: `archive_items.chain_hash = SHA-256(prev_chain_hash || item_hash ||
   received_at)`. Nach Ende eines UTC-Tages schreibt der nächtliche Ankerlauf des Workers
   (`apps/worker/src/handlers/archive-anchor.ts`, zusammen mit den Audit-Ankern) je Mandant
   einen Anker in `archive_anchor`: Datum, Kettenwert des letzten Eintrags des Tages und die
   Länge der Kette bis dahin; jeder Anker steht zusätzlich im Worker-Log. Die Archivprüfung
-  (`apps/api/src/features/archive/verify.ts`) prüft drei Dinge und nennt jedes im Ergebnis:
-  die Verkettung aller Einträge (erster Bruch mit Position ab 1 und Element), den Abgleich
-  mit jedem Anker (erkennt am Ende abgeschnittene Einträge bis zum neuesten Anker; Einträge
-  danach sind noch nicht versiegelt) und eine Stichprobe von Nachrichten, die aus dem
-  Speicher gelesen und mit Größe und SHA-256 der Erfassung verglichen werden. Jede Prüfung
-  steht im Audit-Log (`archive.chain.verified`). Nicht umgesetzt: Versand der Anker per
-  E-Mail und externe Zeitstempel (RFC 3161).
-- Dedupe: Gleiche Inhalte liegen im Chunk-Store einmal je Mandant. Zielbild, nicht in 0.1.0:
-  gleiche Mail an mehrere Postfächer = ein Original mit mehreren Zuordnungen
-  (Envelope-Empfänger bleiben je Zuordnung erhalten).
+  (`apps/api/src/features/archive/verify.ts`, Schaltfläche auf der Archiv-Seite) prüft drei
+  Dinge und nennt jedes im Ergebnis: die Verkettung aller Einträge (erster Bruch mit Position
+  ab 1 und Element), den Abgleich mit jedem Anker (erkennt am Ende abgeschnittene Einträge bis
+  zum neuesten Anker; Einträge danach sind noch nicht versiegelt) und optional eine Stichprobe
+  von Nachrichten, die aus dem Speicher gelesen und mit Größe und SHA-256 der Erfassung
+  verglichen werden. Jede Prüfung steht im Audit-Log (`archive.chain.verified`). Zielbild:
+  Versand der Anker per E-Mail und externe Zeitstempel (RFC 3161).
+- Dedupe: Gleiche Inhalte liegen im Chunk-Store einmal je Mandant. Zielbild: gleiche Mail an
+  mehrere Postfächer als ein Original mit mehreren Zuordnungen (die Zuordnung zu Postfächern
+  gibt es seit 0.3.0, das Original liegt aber je Erfassung einmal im Archiv).
 - Ohne Object Lock (lokaler Speicher, NFS, S3 ohne Lock): Restow erzwingt Unveränderbarkeit
-  nur auf Anwendungsebene (kein Lösch-/Änderungspfad im Code, Kettenprüfung); wer Zugriff auf
-  die Dateien oder den Server hat, kann sie ändern oder löschen. Die Seite Repositories zeigt solche
-  Ziele als "Kein Hardware-WORM" bzw. "Object Lock nicht aktiviert".
+  nur auf Anwendungsebene (kein Lösch- oder Änderungspfad im Code, Kettenprüfung); wer Zugriff
+  auf die Dateien oder den Server hat, kann sie ändern oder löschen. Die Seite Repositories
+  zeigt solche Ziele als "Kein Hardware-WORM" bzw. "Object Lock nicht aktiviert", die
+  Archiv-Seite sagt, wie der Speicher archivierte Mail schützt.
 - Das Feld `object_lock` eines Archivobjekts und der Zähler `objectLocked` in Archivstatus und
-  Nachweisbericht bedeuten in 0.1.0 nur "hat ein Fristende", nicht "liegt unter Object Lock".
+  Nachweisbericht bedeuten "hat ein Fristende", nicht "liegt unter Object Lock".
 
 ## Retention und Löschung
 
-In 0.1.0 gilt für jeden Mandanten eine feste Voreinstellung: 8 Jahre, Fristende am
+Für jeden Mandanten gilt bis heute eine feste Voreinstellung: 8 Jahre, Fristende am
 31. Dezember des Jahres des Eingangs plus 8 Jahre
-(`apps/api/src/features/archive/retention-policy.ts`). Weder API noch Oberfläche schreiben eine
-Archiv-Richtlinie; die Tabelle `retention_policies` kennt für das Archiv den Eintrag
-`applies_to.target = "archive"`, es legt ihn aber niemand an. Der Löschlauf und der Legal Hold
-sind Edition Business und Service Provider.
+(`apps/api/src/features/archive/retention-policy.ts`). Die Archiv-Seite zeigt sie
+(`GET /api/v1/archive/retention`); weder API noch Oberfläche setzen eine andere. Löschlauf
+und Legal Hold sind Edition Business und Service Provider.
 
-- Zielbild, nicht in 0.1.0: Richtlinie je Mandant (wählbar 6/8/10/unbegrenzt), optional je
-  Postfach-Gruppe. Fristbeginn = Erfassungsdatum (oder Kalenderjahresende, Option "zum
-  Jahresende", wie AO § 147 Abs. 4 rechnet).
-- Legal Hold mit Grund, Anleger, Datum; blockiert Löschung, wird auditiert. In 0.1.0 gilt er
-  mandantenweit oder je Postfach, nicht je Suchergebnis (Zielbild). Ein Hold je Postfach schützt
-  die Archivobjekte, die diesem Postfach gehören: aus dem Datei-Import mit "gleichzeitig
-  archivieren" und, ab 0.3.0, die Journal-Reports, die ihm zugeordnet sind (Abschnitt "Zuordnung
-  zu Postfächern"). Reports ohne Zuordnung schützt nur ein mandantenweiter Hold.
-  Die Freigabe nimmt einen Grund an (`DELETE /archive/legal-holds/:id` mit `{ "reason": … }`),
-  den die Oberfläche verlangt und das Audit-Log (`archive.legal_hold.released`) festhält; ein
-  bereits freigegebener Hold wird nicht ein zweites Mal freigegeben (409).
+- Zielbild: Richtlinie je Mandant (wählbar 6/8/10/unbegrenzt), optional je Postfach-Gruppe.
+  Fristbeginn = Erfassungsdatum (oder Kalenderjahresende, wie AO § 147 Abs. 4 rechnet).
+- Legal Hold mit Grund, Anleger und Datum; blockiert die Löschung und wird auditiert. Er gilt
+  mandantenweit oder je Postfach (seit 0.3.1), nicht je Suchergebnis (Zielbild). Ein Hold je
+  Postfach schützt die Archivobjekte, die diesem Postfach gehören: aus dem Datei-Import und die
+  ihm zugeordneten Journal-Reports. Reports ohne Zuordnung schützt nur ein mandantenweiter
+  Hold. Die Freigabe verlangt einen Grund (`DELETE /archive/legal-holds/:id` mit
+  `{ "reason": … }`), den das Audit-Log (`archive.legal_hold.released`) festhält; ein bereits
+  freigegebener Hold wird nicht ein zweites Mal freigegeben (409).
 - Löschlauf: täglich (Aufgabe `retention`, empfohlener Zeitplan 04:30), löscht nur abgelaufene
-  Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Zielbild, nicht in 0.1.0: ein
-  Löschprotokoll (Anzahl, Zeitraum, Hashes der gelöschten Objekte) als eigener Eintrag der Kette.
+  Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Zielbild: ein Löschprotokoll
+  (Anzahl, Zeitraum, Hashes der gelöschten Objekte) als eigener Eintrag der Kette.
 
 ## Suche und Export
 
-- Umgesetzt (0.1.0): Volltextsuche über Betreff, extrahierten Text des Bodys (sehr lange
-  Bodies können gekürzt sein) und Umschlag (Absender, Empfänger), mit Filter nach Datum und
-  "hat Anhang". Postgres `to_tsvector('simple', ...)`, kein Stemming. Nur Administratoren des
-  Mandanten suchen (auditiert, je Suche und je gelesenem Element). Jeder Treffer trägt seinen
-  Erfassungsweg (`source`: `journal`, `graph_sync`, `imap_sync` oder `file_import`); Liste und
-  Detail der Archivseite zeigen ihn, ein importiertes Mail-Archiv erscheint nie als Journal.
-- Zielbild, nicht in 0.1.0: Suche auch in Anhängen (PDF, DOCX, XLSX, TXT) und nach Mandant,
-  Postfach und Größe; Endnutzer suchen nur im eigenen Postfach; Provider-Admin nur mit
-  expliziter Freigabe durch den Mandanten (Vier-Augen-Schalter).
-- Export (umgesetzt): Mails aus Archiv (Auswahl oder aktuelle Suche), Sicherung oder
-  importiertem Postfach als EML in einem ZIP mit Ordnerstruktur, `MANIFEST.csv` und `SHA256SUMS`, oder als MBOX (docs/IMPORT.md,
-  Abschnitt Export). Der Export ist ohne Restow lesbar (jeder Mailclient öffnet EML). Zielbild,
-  nicht in 0.1.0: `CHAIN.txt` mit den Kettenwerten des Zeitraums.
-- Nachweisbericht (umgesetzt als API, JSON): `GET /api/v1/archive/report` (Scope `archive:read`,
+- Volltextsuche über Betreff, extrahierten Text des Bodys (sehr lange Bodies können gekürzt
+  sein) und Umschlag (Absender, Empfänger), mit Filter nach Datum und "hat Anhang". Postgres
+  `to_tsvector('simple', ...)`, kein Stemming. Nur Administratoren des Mandanten suchen
+  (auditiert, je Suche und je gelesenem Element). Jeder Treffer nennt seinen Erfassungsweg,
+  ab 0.4.4 auch die Wege, die dieselbe Mail erneut erfasst haben, und "nachträglich erfasst".
+  Eine Erfassung, die ein stärkerer Weg ersetzt hat, blendet die Suche aus ("Ersetzte
+  Erfassungen zeigen" listet sie, `includeSuperseded=true`); das Detail verweist in beide
+  Richtungen. Ein Export nach Filter enthält ersetzte Erfassungen weiterhin.
+- Lesen (Leseansicht) und Herunterladen (`.eml`) einer archivierten Nachricht, beides im
+  Audit-Log.
+- Export: Mails aus Archiv (Auswahl oder aktuelle Suche), Sicherung oder importiertem Postfach
+  als EML in einem ZIP mit Ordnerstruktur, `MANIFEST.csv` und `SHA256SUMS`, oder als MBOX
+  (docs/IMPORT.md, Abschnitt Export). Der Export ist ohne Restow lesbar.
+- Nachweisbericht als API (JSON): `GET /api/v1/archive/report` (Scope `archive:read`,
   höchstens 366 Tage) mit Mandant, Zeitraum, Anzahl, Erfassungswegen, Kettenzustand,
-  Retention-Richtlinie und Legal Holds. Es gibt weder PDF noch Signatur noch eine Oberfläche
-  dafür. Zielbild, nicht in 0.1.0: der Bericht als signiertes PDF mit Speicherziel,
-  Object-Lock-Status und Löschprotokollen.
+  Retention-Richtlinie und Legal Holds.
+- Zielbild: Suche in Anhängen (PDF, DOCX, XLSX, TXT) und nach Postfach und Größe;
+  Selbstbedienungssuche der Endnutzer im eigenen Postfach; Zugriff eines Provider-Admins nur mit
+  Freigabe durch den Mandanten; `CHAIN.txt` im Export; der Nachweisbericht als signiertes PDF
+  in der Oberfläche.
 
-## Verfahrensdokumentation (Zielbild, nicht in 0.1.0)
+## Verfahrensdokumentation (Zielbild)
 
-Generiert je Mandant aus Konfiguration und Vorlage: Systembeschreibung, Erfassungsweg,
+Generiert je Mandant aus Konfiguration und Vorlage: Systembeschreibung, Erfassungswege,
 Speicherort, Verschlüsselung, Zugriffsrechte, Retention, Löschverfahren, Kontrollen
 (Kettenprüfung, Scrub), Verantwortliche, Änderungshistorie. Als Markdown und PDF,
 versioniert, mit Datum. Das Dokument ist Bestandteil der Prüfungsfähigkeit, nicht Kür.
 
-## Umsetzungsstand 0.1.0
+## Umsetzungsstand 0.4.4
 
-Stand der ersten öffentlichen Version. Jede Zeile ist gegen den Code geprüft; was hier nicht
-steht, ist nicht umgesetzt.
+Wird zur Freigabe von 0.4.4 abgeschlossen. Bis dahin beschreiben die Zeilen den geprüften Stand
+von 0.4.3; was hier nicht steht, ist nicht umgesetzt.
 
-- **Erfassung.** Archivobjekte entstehen nur auf zwei Wegen: durch den SMTP-Journal-Empfänger
-  (Edition Business und Service Provider) und durch den Datei-Import mit "gleichzeitig
-  archivieren". Der fortlaufende IMAP-Sync und der Graph-Sync existieren nicht: Es gibt keinen
-  Worker-Handler für die Archiv-Queue, und die Zeitplanart "Archiv" wird nicht angeboten.
+- **Erfassung.** Archivobjekte entstehen auf zwei Wegen: durch den SMTP-Journal-Empfänger
+  (Exchange-Online-Journaling, Edition Business und Service Provider) und durch den
+  Datei-Import mit "gleichzeitig archivieren". Graph-Erfassung, Weiterleitung von
+  IMAP-Anbietern und IMAP-Archivierung gibt es noch nicht.
+- **Mail-Job.** Zweck Sichern, Archivieren oder beides (seit 0.4.2); Archiv je Job und
+  Zuordnung der Journal-Reports zu den genannten Postfächern (seit 0.3.0). In 0.4.3 nennt der
+  Editor als Erfassungsweg für jede Art von Postfach nur das Exchange-Journaling; 0.4.4 bietet
+  je Art die passenden Wege an (Abschnitt "Archiv im Mail-Job").
 - **Journal-Empfänger** (`ee/api/src/journal/`, Teil der api-Rolle). Er braucht
-  `JOURNAL_SMTP_PORT`, `JOURNAL_HOSTNAME` und ein TLS-Zertifikat
-  (`JOURNAL_TLS_CERT_PATH`, `JOURNAL_TLS_KEY_PATH`); ohne gültiges Zertifikat öffnet er den Port
-  nicht. STARTTLS ist Pflicht: Eine Sitzung ohne STARTTLS wird bei `MAIL FROM` mit 530 abgewiesen.
-  Unbekannte Empfänger werden bei RCPT TO abgelehnt (550), bei Speicher- oder
-  Datenbankfehlern antwortet er 451, damit Exchange Online es erneut versucht.
-  Die Lizenzfähigkeit liest er nur beim Start der API. Nicht umgesetzt: die Prüfung des Absenders (SPF,
+  `JOURNAL_SMTP_PORT`, `JOURNAL_HOSTNAME` und ein TLS-Zertifikat; ohne gültiges Zertifikat
+  öffnet er den Port nicht. STARTTLS ist Pflicht. Unbekannte Empfänger werden bei RCPT TO
+  abgelehnt (550), bei Speicher- oder Datenbankfehlern antwortet er 451. Zertifikate werden
+  alle fünf Minuten neu gelesen. Nicht umgesetzt: die Prüfung des Absenders (SPF,
   Microsoft-Adressbereiche).
 - **Speicherung.** Originale byte-genau und verschlüsselt im Chunk-Store, je Objekt ein
-  versiegelter Datensatz mit der Hash-Kette. Unveränderbarkeit auf lokalem Speicher und NFS
-  nur auf Anwendungsebene. Auf S3 mit Object Lock trägt in 0.1.0 nur der Datensatz eine
-  Retention, nicht die Packs mit dem Nachrichteninhalt; Sicherungsdaten tragen keine.
-  Tägliche Archiv-Anker (`archive_anchor`) schreibt der Worker; externe Zeitstempel gibt es nicht.
-- **Suche.** Volltext (Postgres `simple`, kein Stemming) über Betreff, extrahierten Text
-  (lange Bodies können gekürzt sein) und Umschlag, nicht über Anhänge. Nur Administratoren des
-  Mandanten; kein Selbstbedienungszugriff für Endnutzer. Jede Suche und jedes gelesene Element
-  steht im Audit-Log (`apps/api/src/features/archive/`).
-- **Archivprüfung** (Verkettung, tägliche Anker, Inhaltsstichprobe) als API-Endpunkt und
-  Schaltfläche auf der Archiv-Seite (`apps/web/src/features/archive/`), synchron in einer
-  Anfrage; ein Hintergrundlauf mit Fortschritt ist nicht umgesetzt.
-- **Lesen und Herunterladen** einer archivierten Nachricht (Leseansicht, `.eml`), beides im
-  Audit-Log.
-- **Retention.** Fest 8 Jahre bis zum Jahresende des Eingangsjahres; keine API und keine
-  Oberfläche setzen eine andere Richtlinie. Der tägliche Löschlauf (Business und Service
-  Provider, `ee/worker/src/archive-retention/`, im bestehenden `retention`-Job) löscht nur
-  abgelaufene Objekte ohne Legal Hold und schreibt jede Löschung ins Audit-Log.
-- **Legal Hold** (Business und Service Provider, `ee/api/src/legal-holds/`): mandantenweit
-  oder je Postfach, nicht je Suchergebnis. Ein Hold je Postfach schützt die Objekte, die dem
-  Postfach gehören: aus dem Datei-Import und, ab 0.3.0, die ihm zugeordneten Journal-Reports
-  (`archive_item_mailboxes`). Journal-Reports ohne Zuordnung (vor 0.3.0 eingegangen oder ohne
-  geschütztes Postfach im Umschlag) schützt nur ein mandantenweiter Hold.
-- **Export.** Mails aus Archiv, Sicherung und importiertem Postfach als EML in einem ZIP
-  (`MANIFEST.csv`, `SHA256SUMS`) oder als MBOX (docs/IMPORT.md).
-- **Nachweisbericht.** Nur als API (JSON, `GET /api/v1/archive/report`), kein PDF, keine
-  Oberfläche. Der Zähler `objectLocked` zählt Objekte mit Fristende, nicht Objekte unter Object
-  Lock.
+  versiegelter Datensatz mit der Hash-Kette, tägliche Anker. Mit Object Lock am Repository
+  (seit 0.4.0) sind auch die Packs gesperrt; auf lokalem Speicher und NFS gilt die
+  Unveränderbarkeit nur auf Anwendungsebene. Externe Zeitstempel gibt es nicht.
+- **Archivprüfung** (Verkettung, Anker, Inhaltsstichprobe) als API und Schaltfläche, synchron
+  in einer Anfrage; ein Hintergrundlauf mit Fortschritt ist nicht umgesetzt.
+- **Suche, Lesen, Export** wie im Abschnitt "Suche und Export"; nicht über Anhänge, nur für
+  Administratoren des Mandanten.
+- **Retention.** Fest 8 Jahre bis zum Jahresende des Eingangsjahres. Der tägliche Löschlauf
+  (`ee/worker/src/archive-retention/`) löscht nur abgelaufene Objekte ohne Legal Hold.
+- **Legal Hold** (`ee/api/src/legal-holds/`): mandantenweit oder je Postfach, Freigabe mit
+  Grund.
+- **Nachweisbericht.** Nur als API (JSON), kein PDF, keine Oberfläche.
 - **Audit-Log.** Aufgezeichnet wird in jeder Edition; die Ansicht mit Filter und
-  Kettenprüfung ist Business und Service Provider. Ein CSV- oder PDF-Export ist geplant.
-- **Nicht umgesetzt:** Graph-Sync, IMAP-Archivierung, Suche in Anhängen, Selbstbedienungssuche
-  der Endnutzer, Legal Hold je Suchergebnis, Verfahrensdokumentation, signierter PDF-Nachweis,
-  Zuordnung einer Mail zu mehreren Postfächern als Referenz, `CHAIN.txt` im Export, OAuth2
-  für IMAP-Quellen. Der Stand der ganzen Version steht im Abschnitt "Known Issues" von
-  CHANGELOG.md.
+  Kettenprüfung ist Business und Service Provider.
+- **IMAP-Quellen** melden sich mit Passwort an. Die Engine kennt OAuth2 (Microsoft, Google,
+  eigener Anbieter), API und Oberfläche bieten es aber noch nicht an (docs/IMAP.md).
+
+## Geplant für 0.4.4
+
+- Job-Editor erkennt die Art der Quelle (Microsoft 365, IMAP, Google Workspace über IMAP) und
+  bietet nur passende Erfassungswege an; Journal-Adressen nur dort, wo sie gebraucht werden.
+- Graph-Erfassung für Microsoft 365 als einfacher Standard, mit Prüfung des Holds im Mandanten
+  und Übernahme des Altbestands.
+- Exchange-Journaling vereinfacht: fertige PowerShell-Befehle und Meldung des ersten Reports.
+- Weiterleitung an die Journal-Adresse für IMAP-Anbieter und Google Workspace, mit Anleitung und
+  Empfangsstatus je Konto.
+- IMAP-Archivierung (laufender Abgleich) mit Übernahme des Altbestands.
+- Zusammenführen derselben Mail aus mehreren Erfassungswegen (Message-ID, Inhalts-Hash).
 
 ## Was Restow nicht behauptet
 
 - Keine "Zertifizierung" (IDW PS 880 ist ein Prüfungsstandard für Software, teuer und
   optional; wir sagen "GoBD-orientiert" und beschreiben die Maßnahmen).
 - Kein Ersatz für die Prüfung durch Steuerberater oder Datenschutzbeauftragte.
-- Keine Garantie der Vollständigkeit für IMAP-Archivierung ohne Journaling (Zielbild; die
-  IMAP-Archivierung gibt es in 0.1.0 nicht).
-- Keine Hardware-WORM-Garantie: Auf lokalem Speicher und NFS ist die Unveränderbarkeit nur
-  Anwendungsebene, und auch auf S3 mit Object Lock sind in 0.1.0 nur die Datensätze gesperrt.
+- Keine Garantie der Vollständigkeit für zeitnah erfasste Mail (Graph, IMAP): Sie ist als
+  solche gekennzeichnet.
+- Keine Hardware-WORM-Garantie ohne Object Lock: Auf lokalem Speicher und NFS ist die
+  Unveränderbarkeit nur Anwendungsebene.

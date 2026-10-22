@@ -257,8 +257,13 @@ diese Schlüssel zuerst und öffnet damit das Manifest.
   Kanal nicht steht, pollen die Seiten weiter. Die Einträge „Jobs“ der Seitenleiste zählen laufende und wartende
   Backups aus demselben Kanal (ohne eigenen Request; ohne Kanal aus der Job-Liste). `/api/v1/jobs/events` bleibt unverändert. Der Verlauf (`/api/v1/history`,
   `/history/:id`) ist ein Lesemodell über `jobs` und `endpoint_runs`, ohne eigene Tabelle.
-- Throttling-Budget je Source: Token-Bucket in Postgres (je Tenant-App), Worker
-  reservieren Kapazität; 429 verkleinert das Budget, Erfolg vergrößert es (AIMD).
+- Throttling: Der Graph-Client (`packages/core/src/graph/client.ts`) befolgt 429, 503 und 504
+  mit `Retry-After` (sonst Backoff mit Jitter), fasst Anfragen in `$batch` zu je 20 zusammen und
+  wiederholt gedrosselte Teilantworten einzeln. Die Last je Mandant begrenzt die Zahl gleichzeitiger
+  Jobs je Worker-Prozess (`WORKER_TENANT_CONCURRENCY`, Standard 2; für die Archiv-Erfassung
+  `ARCHIVE_CAPTURE_TENANT_CONCURRENCY`, `TenantConcurrencyLimiter` in
+  `apps/worker/src/handlers/framework.ts`). Ein gemeinsames Budget je Source über alle Prozesse
+  (Token-Bucket in Postgres, das sich nach 429 verkleinert) gibt es nicht.
 - Wiederaufnahme: Job speichert Cursor (Ordner, Delta-Token, letzte Item-ID); Neustart
   setzt fort, nichts wird doppelt geladen.
   Eine Unterbrechung durch das Zeitlimit (95 % der 23-Stunden-Frist von pg-boss) oder einen

@@ -34,7 +34,9 @@
     "next": "Next page",
     "pagination": "Pages of results",
     "loadError": "The archive search failed",
-    "loadErrorDescription": "The result is unknown. It does not mean that nothing is archived."
+    "loadErrorDescription": "The result is unknown. It does not mean that nothing is archived.",
+    "includeSuperseded": "Show replaced captures",
+    "includeSupersededHint": "A mail captured again by a stronger way is listed once; this also lists the earlier, weaker capture."
   },
   "table": {
     "subject": "Subject",
@@ -49,8 +51,12 @@
       "journal": "Journal",
       "graph_sync": "Graph sync",
       "imap_sync": "IMAP sync",
-      "file_import": "Import"
-    }
+      "file_import": "Import",
+      "smtp_forward": "Forwarded"
+    },
+    "alsoVia": "also via {ways}",
+    "capturedLate": "Captured afterwards",
+    "superseded": "Replaced"
   },
   "detail": {
     "title": "Message",
@@ -74,7 +80,13 @@
     "sourceJournal": "Exchange Online journal",
     "sourceGraphSync": "Graph sync",
     "sourceImapSync": "IMAP sync",
-    "sourceFileImport": "Mail file import"
+    "sourceFileImport": "Mail file import",
+    "sourceSmtpForward": "Copy forwarded by the mail provider",
+    "alsoCaptured": "Also captured via",
+    "supersedes": "Replaces",
+    "supersedesLink": "the earlier capture of this mail",
+    "supersededBy": "Replaced by",
+    "supersededByLink": "a stronger capture of this mail"
   },
   "chain": {
     "title": "Hash chain",
@@ -236,8 +248,32 @@
     "job": {
       "title": "Journaling in Exchange",
       "description": "Exchange delivers this tenant's journal reports to this address. Set up the connector and the journal rule once per tenant; the guide is in the archive.",
-      "guide": "Open the guide in the archive",
-      "edition": "Capture through Exchange journaling is part of the Business edition. Without it the setting is kept, but nothing is archived."
+      "guide": "Open the guide in the archive"
+    },
+    "powershell": {
+      "title": "Commands for Exchange Online PowerShell",
+      "intro": "Instead of the steps above, an administrator of the Microsoft 365 tenant can run these commands. They create the connector to this installation, set the mailbox for undeliverable journal reports and create the journal rule for all mail.",
+      "ndrLabel": "Mailbox for undeliverable journal reports",
+      "ndrPlaceholder": "journal-ndr@contoso.com",
+      "ndrHint": "A real mailbox of the tenant that someone reads, such as a shared mailbox. Exchange sends reports there that could not reach {appName}.",
+      "ndrProblem": {
+        "empty": "Enter the mailbox for undeliverable journal reports.",
+        "invalid": "Enter a valid mail address.",
+        "journal_address": "This is the journal address itself. Enter a mailbox of the tenant.",
+        "journal_host": "This address is at the journal host. Enter a mailbox of the tenant."
+      },
+      "blockLabel": "Exchange Online PowerShell",
+      "needsNdr": "The commands appear once the mailbox for undeliverable journal reports is entered."
+    },
+    "firstReport": {
+      "first": "First report:",
+      "start": "Wait for a report",
+      "hint": "Send a mail within the organisation after setting up the rule. The page then checks every 5 seconds whether its report arrived.",
+      "waiting": "Waiting for a report",
+      "waitingHint": "Checking every 5 seconds. A report usually arrives within a few minutes of the mail.",
+      "stop": "Stop waiting",
+      "arrived": "A report arrived",
+      "expired": "No report arrived within 30 minutes. Check the connector, the journal rule and the firewall, and the mailbox for undeliverable journal reports."
     }
   },
   "flags": {
@@ -252,7 +288,9 @@
     "original-message-missing": "Original message missing; the raw report was archived instead",
     "original-message-unparseable": "Original message could not be parsed",
     "recipient-classification-degraded": "To/Cc/Bcc could not be determined for every recipient",
-    "recipients-truncated": "More than 100,000 recipients; only the first 100,000 are listed (the archived report keeps all of them)"
+    "recipients-truncated": "More than 100,000 recipients; only the first 100,000 are listed (the archived report keeps all of them)",
+    "captured-late": "Captured afterwards: in the mailbox before capture started",
+    "message-id-conflict": "Another archived mail has the same Message-ID but different content"
   },
   "protection": {
     "title": "Protection of the archive storage",
@@ -276,6 +314,195 @@
     "unknown": {
       "title": "Protection unknown",
       "description": "The archive's repository could not be determined."
+    }
+  },
+  "commands": {
+    "copy": "Copy: {label}"
+  },
+  "capture": {
+    "title": "Capture from the mailboxes",
+    "description": "How mail reaches the archive from the mailboxes themselves: Microsoft Graph for Microsoft 365, IMAP archiving for IMAP accounts. Both capture near-time, shortly after delivery; journaling and forwarding below capture at transport.",
+    "way": {
+      "graph_sync": "Microsoft Graph",
+      "imap_sync": "IMAP archiving"
+    },
+    "assurance": {
+      "mailbox": "Near-time"
+    },
+    "edition": "Part of the Business edition.",
+    "unused": {
+      "graph_sync": "No mail job captures Microsoft 365 mailboxes by Graph.",
+      "imap_sync": "No mail job captures IMAP accounts by IMAP archiving."
+    },
+    "streams": {
+      "live": "{count, plural, one {# mailbox live} other {# mailboxes live}}",
+      "backfilling": "{count, plural, one {# taking over existing mail} other {# taking over existing mail}}",
+      "pending": "{count, plural, one {# waiting to start} other {# waiting to start}}",
+      "error": "{count, plural, one {# with an error} other {# with an error}}",
+      "paused": "{count, plural, one {# paused} other {# paused}}",
+      "disabled": "{count, plural, one {# switched off} other {# switched off}}"
+    },
+    "status": {
+      "pending": "Waiting",
+      "backfilling": "Taking over",
+      "live": "Live",
+      "paused": "Paused",
+      "disabled": "Off",
+      "error": "Error"
+    },
+    "mode": {
+      "graph": "Notified by Microsoft: {notifications}, checking at intervals: {poll}",
+      "imap": "Watched with IDLE: {notifications}, checking at intervals: {poll}"
+    },
+    "pollReason": {
+      "line": "{count, plural, one {# mailbox} other {# mailboxes}} checked at intervals: {reason}",
+      "codes": {
+        "graph": {
+          "notification_url_unavailable": "Microsoft cannot reach this installation over public HTTPS, so it cannot send notifications.",
+          "subscription_failed": "Microsoft refused the subscription for notifications."
+        },
+        "imap": {
+          "idle_unsupported": "The mail server does not support IDLE.",
+          "idle_disabled": "IDLE is switched off for this IMAP source.",
+          "idle_budget": "This worker already watches as many accounts with IDLE as it may."
+        }
+      }
+    },
+    "lastCapture": "Last capture",
+    "never": "Never",
+    "counts": {
+      "last24Hours": "24 hours",
+      "last7Days": "7 days",
+      "value": "{items} new, {count, plural, one {# again} other {# again}}"
+    },
+    "backfill": {
+      "label": "Existing mail taken over",
+      "progress": "Existing mail taken over: {completed} of {total} mailboxes",
+      "late": "{count, plural, one {# mail} other {# mails}} in the last 7 days captured afterwards"
+    },
+    "mailboxes": {
+      "title": "Per mailbox",
+      "filterWay": "Way",
+      "allWays": "All ways",
+      "filterStatus": "Status",
+      "allStates": "All states",
+      "none": "No mailbox matches the filter.",
+      "mailbox": "Mailbox",
+      "way": "Way",
+      "status": "Status",
+      "lastCapture": "Last capture",
+      "actions": "Actions",
+      "mode": {
+        "notifications": "notified",
+        "poll": "checked at intervals"
+      },
+      "backfillDone": "Existing mail taken over",
+      "resync": "Catch up",
+      "resyncFor": "Catch up {mailbox} completely",
+      "resyncDone": "{mailbox} is caught up on the next pass.",
+      "pages": "Pages of mailboxes",
+      "previous": "Previous",
+      "next": "Next"
+    },
+    "hold": {
+      "title": "Deleted mail in Microsoft 365",
+      "description": "Graph captures mail shortly after delivery. So that mail deleted right away is still captured, a retention policy or a litigation hold should keep deleted mail in the tenant. {appName} cannot read that from Graph: check it with the commands and confirm it here.",
+      "statusConfirmed": "Hold confirmed",
+      "statusUnknown": "Hold not confirmed",
+      "confirmedBy": "by {by},",
+      "why": "{count, plural, one {# mailbox is} other {# mailboxes are}} captured by Graph. Without a hold, mail deleted right after delivery can be missing.",
+      "commands": "Commands that check holds",
+      "confirm": "Confirm hold",
+      "confirmTitle": "Confirm the hold for {source}?",
+      "confirmDescription": "You confirm that a retention policy or litigation hold keeps deleted mail of the archived mailboxes in this tenant. The confirmation is recorded with your name in the audit log.",
+      "confirmed": "Hold confirmed.",
+      "withdraw": "Withdraw confirmation",
+      "withdrawTitle": "Withdraw the confirmation for {source}?",
+      "withdrawDescription": "The archive page then shows again that no hold is confirmed. The withdrawal is recorded in the audit log.",
+      "withdrawn": "Confirmation withdrawn.",
+      "commandsIntro": "Read-only commands for Exchange Online PowerShell and Security & Compliance PowerShell. They change nothing; run them as an administrator of the Microsoft 365 tenant."
+    },
+    "holds": {
+      "checks": {
+        "connect_exchange": "Sign in to Exchange Online PowerShell",
+        "litigation_hold": "Litigation hold and in-place holds of every mailbox",
+        "mailboxes_without_hold": "Mailboxes without any hold",
+        "organization_holds": "Retention policies that apply to the whole organisation",
+        "connect_compliance": "Sign in to Security & Compliance PowerShell",
+        "retention_policies": "Retention policies for Exchange, with the mailboxes they cover and exclude",
+        "retention_rules": "What each retention policy keeps, and for how long"
+      }
+    }
+  },
+  "forwarding": {
+    "title": "Forwarding to the archive",
+    "description": "For IMAP accounts whose job chose forwarding: the mail provider sends a copy of every incoming and outgoing mail to an address of {appName}. The copy is made at transport, before the user can change or delete the mail. Each account has its own address, so every copy belongs to the right mailbox.",
+    "empty": "No mail job has chosen forwarding for its IMAP accounts. Choose it in the job's capture ways.",
+    "pages": "Pages of accounts",
+    "accounts": "Accounts with forwarding",
+    "account": "Account",
+    "address": "Archive address",
+    "status": "Status",
+    "lastCopy": "Last copy",
+    "googleAccount": "Google Workspace · {source}",
+    "googleUsesTenant": "Routing rule to the tenant's journal address (tab Google Workspace)",
+    "copyFor": "Copy the archive address of {account}",
+    "create": "Create address",
+    "createFor": "Create the archive address of {account}",
+    "rotateFor": "Renew the archive address of {account}",
+    "rotate": {
+      "title": "Renew the archive address of {account}?",
+      "description": "A new address replaces the current one. The current address stops working at once: copies sent to it are refused.",
+      "consequence": "Change the address in the provider's rule right away, otherwise copies are missing until then.",
+      "confirm": "Renew address",
+      "done": "New archive address created. Change it at the provider now."
+    },
+    "state": {
+      "receiving": "Copies arriving",
+      "stale": "No copy for over 24 hours",
+      "no_copies": "No copies yet",
+      "no_address": "No address yet"
+    },
+    "counts": "{day} in 24 hours, {week} in 7 days",
+    "setup": {
+      "title": "Set up at the provider",
+      "tab": {
+        "postfix": "Postfix",
+        "mailcow": "mailcow",
+        "sieve": "Sieve",
+        "google": "Google Workspace"
+      },
+      "needsAddress": "Create the archive addresses of the accounts first; the configuration then appears here.",
+      "someMissing": "Accounts without an address are not included yet.",
+      "postfix": {
+        "intro": "Postfix copies every mail by sender and by recipient to the address in a map: incoming mail of the account by recipient, outgoing mail by sender.",
+        "map": "Map file {path}",
+        "main": "Lines for main.cf",
+        "reload": "Build the map and reload Postfix"
+      },
+      "mailcow": {
+        "intro": "In mailcow under E-Mail, Configuration, BCC, add a sender map and a recipient map for each account, each with its archive address as BCC destination.",
+        "entries": "BCC maps to add"
+      },
+      "sieve": {
+        "intro": "Where the provider runs Sieve, a rule per account redirects a copy of every incoming mail; the mail itself stays in the mailbox.",
+        "for": "Sieve rule for {account}",
+        "outgoing": "Sieve runs on delivery only: for outgoing mail the provider also needs a BCC rule by sender."
+      },
+      "google": {
+        "intro": "Google Workspace routes a copy of every mail to the tenant's journal address. {appName} assigns each copy to the accounts it names in its headers.",
+        "steps": {
+          "open": "Open the Google Admin console: Apps, Google Workspace, Gmail, Routing.",
+          "rule": "Under Routing, add a rule and give it a name.",
+          "messages": "Messages to affect: Inbound, Outbound, “Internal: sending” and “Internal: receiving”.",
+          "recipient": "For the messages above: Also deliver to, Add more recipients, the address below.",
+          "save": "Save the rule. Changes can take up to an hour."
+        },
+        "address": "Tenant's journal address",
+        "noAddress": "The tenant's journal address is created in the section Exchange journaling above (it needs a valid journal host). Open that section once, then the address appears here.",
+        "activity": "Copies at this address: {day} in 24 hours, {week} in 7 days.",
+        "noCopies": "No copy has arrived at this address in the last 7 days."
+      }
     }
   }
 }

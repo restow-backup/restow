@@ -514,7 +514,8 @@
   "pause": {
     "title": "{name} pausieren?",
     "description": "{count, plural, one {# Objekt wird nicht nach Zeitplan gesichert, solange der Job pausiert ist.} other {# Objekte werden nicht nach Zeitplan gesichert, solange der Job pausiert ist.}} Es wird nichts gelöscht; Sie können ihn jederzeit fortsetzen.",
-    "confirm": "Job pausieren"
+    "confirm": "Job pausieren",
+    "archiveContinues": "Dieser Job archiviert auch: Die Archivierung läuft weiter, während der Job angehalten ist. Sie endet nur, wenn Sie im Job das Archivieren oder einen Erfassungsweg ausschalten."
   },
   "delete": {
     "title": "{name} löschen?",
@@ -606,7 +607,8 @@
         "copy": "z. B. Projekte zum zweiten Standort"
       },
       "enabled": "Eingeschaltet",
-      "enabledHint": "Ausgeschaltet behält der Job seine Einstellungen, läuft aber nicht."
+      "enabledHint": "Ausgeschaltet behält der Job seine Einstellungen, läuft aber nicht.",
+      "enabledArchive": "Die Archivierung läuft auch bei ausgeschaltetem Job weiter; sie endet nur, wenn Sie das Archivieren oder einen Erfassungsweg ausschalten."
     },
     "scope": {
       "title": {
@@ -672,11 +674,6 @@
         "label": "Archivieren",
         "hint": "Jede E-Mail revisionssicher aufbewahren, erfasst bevor Nutzer sie ändern oder löschen können, für GoBD, Aufbewahrungsfristen und Legal Hold."
       },
-      "capture": {
-        "title": "So gelangen E-Mails ins Archiv: Exchange-Journaling",
-        "journaling": "Exchange schickt {appName} eine Kopie jeder E-Mail, während sie transportiert wird, noch bevor sie im Postfach ankommt. So kann sie vorher niemand ändern oder löschen. Journaling wird einmal je Mandant eingerichtet: eine Journal-Adresse und eine Journalregel in Microsoft 365.",
-        "setup": "Journaling einrichten"
-      },
       "backupOnly": {
         "title": "Sicherungen allein halten keine E-Mails zwischen zwei Läufen fest",
         "description": "Eine Sicherung sieht das Postfach so, wie es beim Lauf ist. Eine E-Mail, die vor dem nächsten Lauf eingeht und wieder gelöscht wird, ist in keiner Sicherung, und Sicherungen sind nicht revisionssicher. Das Archiv erfasst jede E-Mail beim Eingang."
@@ -684,7 +681,7 @@
       "archiveOnlySchedule": "Dieser Job sichert nicht nach Zeitplan: E-Mails erfasst das Archiv beim Eingang. Kalender, Kontakte und Ordner werden nur gesichert, wenn jemand den Job startet.",
       "rarer": {
         "title": "Sicherungen können seltener laufen",
-        "description": "Das Archiv erfasst bereits jede E-Mail beim Eingang. Sicherungen halten dann nur fest, was das Journaling nicht sieht: Ordner, Kalender, Kontakte und den Gelesen-Status. Alle 8 Stunden genügen meist und belasten Microsoft 365 weniger. Das ist ein Vorschlag; der Zeitplan bleibt, wie Sie ihn eingestellt haben.",
+        "description": "Das Archiv erfasst bereits jede E-Mail. Sicherungen halten dann nur fest, was das Archiv nicht enthält: Ordner, Kalender, Kontakte und den Gelesen-Status. Alle 8 Stunden genügen meist und belasten den Mailserver weniger. Das ist ein Vorschlag; der Zeitplan bleibt, wie Sie ihn eingestellt haben.",
         "apply": "Alle 8 Stunden sichern"
       },
       "gap": {
@@ -696,7 +693,7 @@
     "archive": {
       "noObjectLock": "Der Speicher dieses Mandanten hat kein Object Lock. Das Archiv ist dann nur auf Anwendungsebene unveränderbar: Wer Zugriff auf den Speicher oder den Server hat, kann Daten ändern oder löschen.",
       "objectLockUnknown": "Das Archiv liegt im Standard-Repository der Installation. Ob dieses Object Lock hat, sehen Sie unter Repositories.",
-      "edition": "Die Erfassung über Exchange-Journaling gehört zur Business-Edition. Ohne sie bleibt die Einstellung gespeichert, es wird aber nichts archiviert."
+      "edition": "Exchange-Journaling und weitergeleitete Kopien gehören zu den Business-Modulen. Ohne sie bleibt die Einstellung gespeichert, über diese Wege wird aber nichts erfasst."
     },
     "folders": {
       "title": "Ordner",
@@ -775,6 +772,70 @@
       "loadError": "Die Richtlinie des Mandanten konnte nicht geladen werden; der Job behält, was er festlegt.",
       "bandwidthDefault": "Ohne eigenes Limit und ohne Unbegrenzt nutzt der Job: {value} ({source}).",
       "bandwidthLocked": "Von der Installation gesperrt: {value} gilt für jeden Job; Limit und Zeitfenster hier wirken nicht."
+    },
+    "capture": {
+      "title": "So gelangen E-Mails ins Archiv",
+      "description": "Wählen Sie für jede Art von Postfach in diesem Job mindestens einen Weg. Wege lassen sich kombinieren: Dieselbe E-Mail, zweimal erfasst, bleibt einmal im Archiv, mit dem stärkeren Weg.",
+      "noMail": "Der Mandant hat noch keine Postfächer. Sobald eine Quelle verbunden ist, erscheinen hier die Wege, die zu ihren Postfächern passen.",
+      "pickFirst": "Wählen Sie unten die Postfächer dieses Jobs; hier erscheinen dann die Wege, die zu ihnen passen.",
+      "kind": {
+        "m365": "Microsoft-365-Postfächer",
+        "imap": "IMAP-Konten",
+        "google": "Google Workspace (IMAP)"
+      },
+      "way": {
+        "m365": {
+          "graph": "Microsoft Graph",
+          "journal": "Exchange-Journaling"
+        },
+        "imap": {
+          "sync": "IMAP-Archivierung",
+          "forward": "Weiterleitung an die Archivadresse"
+        },
+        "google": {
+          "sync": "IMAP-Archivierung",
+          "forward": "Routing an die Archivadresse"
+        }
+      },
+      "wayHint": {
+        "m365": {
+          "graph": "{appName} holt jede neue E-Mail kurz nach der Zustellung aus dem Postfach, mit der App-Zustimmung, die es für die Sicherung schon gibt.",
+          "journal": "Exchange Online schickt {appName} einen Journalbericht jeder E-Mail; dafür sind der Journal-Empfänger und eine Journalregel nötig."
+        },
+        "imap": {
+          "sync": "{appName} gleicht das Postfach laufend ab und erfasst jede E-Mail, sobald sie im Postfach liegt.",
+          "forward": "Der Anbieter schickt eine Kopie jeder ein- und ausgehenden E-Mail an eine Adresse von {appName} (BCC-Regel, Sieve-Regel)."
+        },
+        "google": {
+          "sync": "{appName} gleicht das Konto laufend über IMAP ab und erfasst jede E-Mail, sobald sie im Postfach liegt.",
+          "forward": "Eine Routing-Regel in Google Workspace fügt die Archivadresse jeder E-Mail als weiteren Empfänger hinzu."
+        }
+      },
+      "assurance": {
+        "transport": {
+          "label": "Echt",
+          "hint": "Die Kopie entsteht, bevor jemand die E-Mail ändern oder löschen kann."
+        },
+        "mailbox": {
+          "label": "Zeitnah",
+          "hint": "Eine E-Mail, die gleich nach der Zustellung verschoben oder gelöscht wird, kann fehlen."
+        }
+      },
+      "edition": "Gehört zur Business-Edition.",
+      "imapMicrosoft": "Einige dieser Konten liegen bei Microsoft. Verbinden Sie den Mandanten besser als Microsoft-365-Quelle: Graph und Exchange-Journaling erfassen seine Postfächer vollständiger als IMAP.",
+      "setupJournal": "Journaling einrichten",
+      "setupForward": "Weiterleitung einrichten",
+      "noWay": "Wählen Sie für diese Postfächer mindestens einen Weg."
+    },
+    "captureStop": {
+      "archiveTitle": "Archivierung für diesen Job beenden?",
+      "archiveDescription": "Neue E-Mails dieser Postfächer werden ab jetzt nicht mehr archiviert.",
+      "archiveConfirm": "Archivierung beenden",
+      "waysTitle": "Diese Erfassungswege ausschalten?",
+      "waysDescription": "Ab jetzt erfassen diese Wege keine neuen E-Mails dieser Postfächer mehr:",
+      "way": "{way} für {kind}",
+      "waysConfirm": "Ausschalten",
+      "kept": "Das bisherige Archiv bleibt unverändert bis zum Ende seiner Aufbewahrungsfrist erhalten."
     }
   },
   "folders": {
@@ -972,7 +1033,8 @@
       "bandwidth_window_days_invalid": "Ein Zeitfenster hat einen Tag, den es nicht gibt.",
       "bandwidth_window_time_invalid": "Ein Zeitfenster hat eine ungültige Uhrzeit.",
       "bandwidth_window_kbps_invalid": "Ein Zeitfenster hat ein ungültiges Limit.",
-      "bandwidth_window_overlap": "Zwei Zeitfenster überschneiden sich. Lassen Sie eines dort enden, wo das andere beginnt."
+      "bandwidth_window_overlap": "Zwei Zeitfenster überschneiden sich. Lassen Sie eines dort enden, wo das andere beginnt.",
+      "archive_capture_no_way": "Jede Art von Postfach, die der Job archiviert, braucht mindestens einen Erfassungsweg."
     }
   },
   "errors": {
