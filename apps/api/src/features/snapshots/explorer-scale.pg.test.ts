@@ -133,9 +133,15 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer listing at scale", () => {
       expect(plan.seqScans, scope.path).toBe(0);
       expect(plan.indexes.has("manifest_versions_object_parent_idx"), scope.path).toBe(true);
       expect(plan.indexes.has("manifest_versions_object_last_idx"), scope.path).toBe(false);
-      // A few index pages per folder listed (the skip scan probes each child folder), not
-      // the thousands of pages of the mailbox's messages.
-      expect(plan.buffers, scope.path).toBeLessThan(1_000 + 10 * plan.total);
+      // A few index pages per child folder (the skip scan probes each one, including the
+      // attachments folders of JSON-format messages, which it walks but does not list),
+      // not the thousands of pages of the mailbox's messages.
+      const hidden = await db.execute<{ n: number }>(sql`
+        SELECT count(*)::int AS n FROM manifest_versions
+        WHERE protected_object_id = ${scope.objectId}::uuid AND parent_path = ${scope.path}
+          AND kind = 'folder' AND metadata ->> 'folderKind' = 'attachments'`);
+      const children = plan.total + Number(hidden.rows[0]?.n ?? 0);
+      expect(plan.buffers, scope.path).toBeLessThan(1_000 + 10 * children);
     }
   });
 

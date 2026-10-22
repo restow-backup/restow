@@ -8,6 +8,15 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Fixed
+
+- Restore explorer: a mail message stored as JSON (too large for a plain message) no longer
+  shows an empty `<subject>.attachments` folder next to it. Its attachments are restored with
+  the message and were never listed; the folder row the backup records for them is now hidden
+  from the listing, the folder tree and search as well.
+
 ## [0.4.4] - 2026-10-22
 
 Beta release. Run it alongside your existing backups, not as your only one, until

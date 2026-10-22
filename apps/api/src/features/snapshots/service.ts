@@ -61,6 +61,8 @@ import type {
 } from "./schemas.js";
 import {
   ATTACHMENT_PARENT_KEY,
+  ATTACHMENTS_FOLDER_KIND,
+  FOLDER_KIND_KEY,
   type BreadcrumbSegment,
   baseNameOf,
   breadcrumbOf,
@@ -619,7 +621,10 @@ function chunkRefsOf(row: RawEntryRow): string[] | null {
  */
 function legacyListingCte(scope: ListingScope): SQL {
   const path = sql`${scope.path}::text`;
-  const filters: SQL[] = [sql`(m.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL`];
+  const filters: SQL[] = [
+    sql`(m.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL`,
+    notAttachmentsFolder("m"),
+  ];
   if (!scope.includeDeleted) {
     filters.push(sql`m.deleted = false`);
   }
@@ -675,6 +680,12 @@ function legacyListingCte(scope: ListingScope): SQL {
   `;
 }
 
+/** Not the attachments folder of a JSON-format message (see {@link ATTACHMENTS_FOLDER_KIND}). */
+function notAttachmentsFolder(alias: string): SQL {
+  const a = sql.raw(alias);
+  return sql`(${a}.kind <> 'folder' OR (${a}.metadata ->> ${FOLDER_KIND_KEY}::text) IS DISTINCT FROM ${ATTACHMENTS_FOLDER_KIND}::text)`;
+}
+
 /**
  * Conditions that make a `manifest_versions` row (as `alias`) an entry of the
  * scope's snapshot that the listing shows: its range holds the snapshot's
@@ -682,7 +693,11 @@ function legacyListingCte(scope: ListingScope): SQL {
  * (unless asked for) and not one of OneDrive's own versions (for drives and
  * sites). The same filters as {@link legacyListingCte}'s `scope`.
  */
-function listedVersion(scope: ListingScope, alias: string): SQL {
+function listedVersion(
+  scope: ListingScope,
+  alias: string,
+  options: { attachmentsFolders?: boolean } = {},
+): SQL {
   const v = sql.raw(alias);
   const filters: SQL[] = [
     sql`${v}.protected_object_id = ${scope.objectId}::uuid`,
@@ -691,6 +706,9 @@ function listedVersion(scope: ListingScope, alias: string): SQL {
     sql`${v}.last_sequence >= ${scope.sequence}::int`,
     sql`(${v}.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL`,
   ];
+  if (!options.attachmentsFolders) {
+    filters.push(notAttachmentsFolder(alias));
+  }
   if (!scope.includeDeleted) {
     filters.push(sql`${v}.deleted = false`);
   }
@@ -801,11 +819,13 @@ function versionListingCte(scope: ListingScope): SQL {
       WHERE g.segment <> ''
         -- A child with a row of its own is listed by direct. In a CASE, so the planner
         -- keeps this an index probe per child instead of an anti-join over every row of
-        -- the folder; the probes below run only for the children it leaves.
+        -- the folder; the probes below run only for the children it leaves. An attachments
+        -- folder counts as a row of its own here (direct hides it, and nothing below it is
+        -- listed), which spares it those probes.
         AND CASE WHEN EXISTS (
               SELECT 1 FROM manifest_versions x
               WHERE x.path = ${childPath} AND x.parent_path = ${parent}::text AND x.name = g.segment
-                AND ${listedVersion(scope, "x")}
+                AND ${listedVersion(scope, "x", { attachmentsFolders: true })}
             ) THEN false ELSE ${entryBelow(sql`true`)} END
     ),
     listing AS (
@@ -1208,6 +1228,7 @@ async function searchSnapshots(
   const result = await tx.execute<RawEntryRow>(sql`
     SELECT m.* FROM ${snapshotEntries(tenantId, snapshotIds)} AS m
     WHERE ${metadataField(ATTACHMENT_PARENT_KEY)} IS NULL
+      AND ${notAttachmentsFolder("m")}
       AND strpos(m.path, ${NATIVE_VERSION_MARKER}::text) = 0
       AND (${sql.join(
         [
