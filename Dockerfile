@@ -317,6 +317,13 @@ DIR="/prod/$ROLE"
 # application and installation roles) as the database owner
 # (DATABASE_MIGRATION_URL) before it serves. Idempotent; single-instance deploys
 # only (a dedicated migrate job is the pattern once the api scales horizontally).
+# The full build first checks the release against the installed licence key (read only,
+# ee/api/src/license/startup-check.ts): a release a Business or Service Provider key does not
+# cover stops here, before any migration, so the previous version can run again unchanged
+# (docs/LICENSING.md, "Updates"). The Community build has no such file.
+if [ "$ROLE" = api ] && [ -f "$DIR/dist/ee/api/src/license/startup-check.js" ]; then
+  ( cd "$DIR" && node dist/ee/api/src/license/startup-check.js ) || { echo "restow: this version is not covered by the installed licence key; the database was not changed (see the message above)" >&2; exit 1; }
+fi
 if [ "$ROLE" = api ]; then
   echo "restow: applying database migrations" >&2
   ( cd "$DIR" && node -e "import('@restow/db/migrate').then(m=>m.migrateFromEnvironment()).then(()=>process.exit(0)).catch(e=>{console.error(e.message);process.exit(1)})" ) || { echo "restow: migrations failed" >&2; exit 1; }
@@ -378,15 +385,18 @@ LABEL org.opencontainers.image.vendor="IT Systeme Flores UG (haftungsbeschraenkt
 # tells the update check and the opt-in updater to stay on the Community images.
 FROM runtime-base AS runtime-community
 COPY --from=deploy-community /prod /prod
-# Release tag and commit of this build (CI: --build-arg RESTOW_VERSION=0.2.1). GET
-# /api/v1/status reports them and the opt-in update check compares against the
-# version; empty for local builds. Declared last so a new version does not rebuild
+# Release tag, commit and release date of this build (CI: --build-arg RESTOW_VERSION=0.2.1,
+# RESTOW_CREATED=<commit date of the tag>). GET /api/v1/status reports them and the opt-in
+# update check compares against the version; the release date (RESTOW_RELEASED_AT) decides
+# which releases a licence key with an update period covers (docs/LICENSING.md). Empty for
+# local builds, which every key covers. Declared last so a new version does not rebuild
 # the layers above it.
 ARG RESTOW_VERSION=
 ARG RESTOW_REVISION=
 ARG RESTOW_CREATED=
 ENV RESTOW_VERSION=${RESTOW_VERSION} \
     RESTOW_REVISION=${RESTOW_REVISION} \
+    RESTOW_RELEASED_AT=${RESTOW_CREATED} \
     RESTOW_IMAGE_VARIANT=community
 LABEL org.opencontainers.image.title="Restow Community" \
       org.opencontainers.image.description="Self-hosted backup and archive for Microsoft 365 and IMAP: the api, worker and scheduler roles of one image (Community build: the Apache-2.0 core without the Business and Service Provider modules)" \
@@ -409,6 +419,7 @@ ARG RESTOW_REVISION=
 ARG RESTOW_CREATED=
 ENV RESTOW_VERSION=${RESTOW_VERSION} \
     RESTOW_REVISION=${RESTOW_REVISION} \
+    RESTOW_RELEASED_AT=${RESTOW_CREATED} \
     RESTOW_IMAGE_VARIANT=full
 LABEL org.opencontainers.image.title="Restow" \
       org.opencontainers.image.description="Self-hosted backup and archive for Microsoft 365 and IMAP: the api, worker and scheduler roles of one image" \

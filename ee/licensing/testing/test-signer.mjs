@@ -10,7 +10,7 @@
  * in the private restow-license repository; its private key never enters this
  * repository.
  */
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 
 const PREFIX = "restow-license-v1";
 const PAYLOAD_KEYS = [
@@ -22,9 +22,18 @@ const PAYLOAD_KEYS = [
   "issued_at",
 ];
 
-/** base64url of the JSON text, members in the documented order. */
+/**
+ * base64url of the JSON text: the required members in the documented order, then
+ * every further member of `payload` (the optional `series`, `updates_until`, `kid`,
+ * or any member a later issuer may add) in its own order; undefined ones are left out.
+ */
 function encodePayload(payload) {
   const ordered = Object.fromEntries(PAYLOAD_KEYS.map((key) => [key, payload[key]]));
+  for (const [key, value] of Object.entries(payload)) {
+    if (!PAYLOAD_KEYS.includes(key) && value !== undefined) {
+      ordered[key] = value;
+    }
+  }
   return Buffer.from(JSON.stringify(ordered), "utf8").toString("base64url");
 }
 
@@ -41,10 +50,16 @@ function signEncoded(encoded, privateKey) {
 export function createTestLicenseSigner() {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const raw = publicKey.export({ format: "jwk" }).x;
+  const kid = createHash("sha256").update(Buffer.from(raw, "base64url")).digest("hex").slice(0, 16);
   return {
     publicKey: raw,
     publicKeyObject: publicKey,
-    /** The payload a request stands for, exactly as an issued key carries it. */
+    /** The `kid` of this signer's key (ee/licensing/src/keyring.ts). */
+    kid,
+    /**
+     * The payload a request stands for, exactly as an issued key carries it. The
+     * optional members only when the request names them (`withKid` adds this key's id).
+     */
     payload(request) {
       return {
         edition: request.edition,
@@ -53,6 +68,9 @@ export function createTestLicenseSigner() {
         licensee: request.licensee,
         installation_id: request.installationId,
         issued_at: (request.issuedAt ?? new Date()).toISOString(),
+        series: request.series,
+        updates_until: request.updatesUntil,
+        kid: request.withKid ? kid : undefined,
       };
     },
     /** A signed key for an edition, a licensee and an installation id. */

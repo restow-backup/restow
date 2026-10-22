@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -52,6 +53,14 @@ export const license = pgTable("license", {
   // Ed25519 signature of the license key, verified before the row was written.
   signature: text("signature"),
   issuedAt: timestamp("issued_at", { withTimezone: true }),
+  // The update terms of the key (0.4.5, ee/licensing entitlement.ts): the major version
+  // series it covers without an update period (null: "1", every key issued before), the
+  // last day of its update period (null: none), and the id of the vendor key it was
+  // signed with (null: the original one). Rows are never rewritten: every installed key
+  // stays as the history, the active one is the key in effect.
+  series: text("series"),
+  updatesUntil: date("updates_until", { mode: "string" }),
+  signingKeyId: text("signing_key_id"),
   // The currently applied license row.
   active: boolean("active").notNull().default(true),
   ...timestamps(),

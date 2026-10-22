@@ -173,6 +173,7 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
       installationId: f.installationId,
       key: null,
       verification: expect.objectContaining({ status: "ready", source: "environment" }),
+      runAsCommunity: false,
     });
   });
 
@@ -232,7 +233,7 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
     expect(await db.select().from(license).where(eq(license.active, true))).toHaveLength(1);
   });
 
-  it("replaces the active key with a new one", async () => {
+  it("replaces the active key with a new one of another edition", async () => {
     const state = await service.installLicense(
       db,
       keyFor("service_provider", f.installationId),
@@ -241,6 +242,14 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
     expect(state).toMatchObject({ edition: "service_provider", source: "key" });
     expect(await gate.licenseFeatureGate.isEnabled(db, "tenants.additional")).toBe(true);
     expect(await db.select().from(license).where(eq(license.active, true))).toHaveLength(1);
+    const entry = (await licenseAudit("license.replaced")).find(
+      (row) => (row.details as { edition?: string } | null)?.edition === "service_provider",
+    );
+    expect(entry?.details).toMatchObject({
+      edition: "service_provider",
+      previousEdition: "business",
+      entitlement: { entitled: true },
+    });
   });
 
   it("removes the key, falls back to the environment and audits the removal", async () => {
@@ -270,6 +279,126 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
     expect(state).toMatchObject({ edition: "business", source: "key" });
     const [row] = await db.select().from(license).where(eq(license.active, true));
     expect(row?.mailboxLimit).toBeNull();
+  });
+
+  describe("update periods (0.4.5)", () => {
+    const releaseEnv = { RESTOW_VERSION: "1.8.0", RESTOW_RELEASED_AT: "2028-03-01T09:00:00Z" };
+    const withEnv = async <T>(env: Record<string, string>, run: () => Promise<T>): Promise<T> => {
+      const saved = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
+      Object.assign(process.env, env);
+      try {
+        return await run();
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) {
+            delete process.env[key];
+          } else {
+            process.env[key] = value;
+          }
+        }
+      }
+    };
+    const periodKey = (
+      updatesUntil: string,
+      edition: "business" | "service_provider" = "business",
+    ) =>
+      vendor.sign({
+        edition,
+        licensee: "Example GmbH",
+        installationId: f.installationId,
+        series: "1",
+        updatesUntil,
+      });
+
+    it("replaces a still valid key of the same edition (a renewal) and keeps the history", async () => {
+      await service.installLicense(db, keyFor("business", f.installationId), actor);
+      const rowsBefore = (await db.select().from(license)).length;
+      const state = await service.installLicense(db, periodKey("2027-11-30"), actor);
+      expect(state.key?.updates).toEqual({
+        series: "1",
+        until: "2027-11-30",
+        coversRunning: true,
+        reason: "development_build",
+      });
+      const rows = await db.select().from(license);
+      expect(rows).toHaveLength(rowsBefore + 1);
+      expect(rows.filter((row) => row.active)).toHaveLength(1);
+      expect(rows.find((row) => row.active)).toMatchObject({
+        edition: "business",
+        series: "1",
+        updatesUntil: "2027-11-30",
+        signingKeyId: null,
+      });
+      const entry = (await licenseAudit("license.replaced")).find(
+        (row) => (row.details as { updatesUntil?: string } | null)?.updatesUntil === "2027-11-30",
+      );
+      expect(entry?.details).toMatchObject({
+        edition: "business",
+        previousEdition: "business",
+        series: "1",
+        updatesUntil: "2027-11-30",
+        previousUpdates: { series: "1", updatesUntil: null },
+        entitlement: { entitled: true, reason: "development_build" },
+      });
+    });
+
+    it("refuses a key whose update period ended before the running release", async () => {
+      const refused = await withEnv(releaseEnv, () =>
+        service.installLicense(db, periodKey("2027-11-30", "service_provider"), actor),
+      ).catch((e) => e);
+      expect(refused).toBeInstanceOf(ProblemError);
+      expect((refused as ProblemError).extensions).toMatchObject({
+        reason: "outside_update_period",
+        updatesUntil: "2027-11-30",
+        version: "1.8.0",
+      });
+      // The key in effect stays.
+      expect(await gate.currentEdition(db)).toBe("business");
+    });
+
+    it("installs a renewal that covers the running release", async () => {
+      const state = await withEnv(releaseEnv, () =>
+        service.installLicense(db, periodKey("2028-11-30"), actor),
+      );
+      expect(state.key?.updates).toMatchObject({ until: "2028-11-30", coversRunning: true });
+    });
+
+    it("runs a release the key does not cover as Community with RESTOW_RUN_AS_COMMUNITY", async () => {
+      await service.installLicense(db, periodKey("2027-11-30"), actor);
+      const state = await withEnv({ ...releaseEnv, RESTOW_RUN_AS_COMMUNITY: "1" }, () =>
+        service.getLicenseState(db),
+      );
+      expect(state).toMatchObject({ edition: "community", runAsCommunity: true });
+      expect(state.key?.updates).toMatchObject({ until: "2027-11-30", coversRunning: false });
+      expect(
+        await withEnv({ ...releaseEnv, RESTOW_RUN_AS_COMMUNITY: "1" }, () =>
+          gate.currentEdition(db),
+        ),
+      ).toBe("community");
+      // Without the variable nothing changes at runtime.
+      expect(await withEnv(releaseEnv, () => gate.currentEdition(db))).toBe("business");
+    });
+
+    it("lets the start check refuse that release before any migration, and only that one", async () => {
+      const { runStartupLicenseCheck } = await import("./startup-check.js");
+      const url = process.env.DATABASE_URL as string;
+      const logs: string[] = [];
+      const log = (_level: string, message: string) => {
+        logs.push(message);
+      };
+      const check = (env: Record<string, string>) =>
+        runStartupLicenseCheck({ DATABASE_MIGRATION_URL: url, ...env }, { log });
+      expect(await check(releaseEnv)).toBe(1);
+      expect(logs.at(-1)).toContain("2027-11-30");
+      expect(await check({ ...releaseEnv, RESTOW_RUN_AS_COMMUNITY: "1" })).toBe(0);
+      expect(
+        await check({ RESTOW_VERSION: "1.6.0", RESTOW_RELEASED_AT: "2027-11-30T12:00:00Z" }),
+      ).toBe(0);
+      expect(await check({})).toBe(0);
+      // A beta licence starts every 1.x release.
+      await service.installLicense(db, keyFor("business", f.installationId), actor);
+      expect(await check(releaseEnv)).toBe(0);
+    });
   });
 
   describe("a key entered on the Community build", () => {
