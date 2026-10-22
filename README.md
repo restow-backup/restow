@@ -172,7 +172,7 @@ and it is treated as one:
 | Web interface | React 19, Vite, TanStack Router and Query, shadcn/ui, Tailwind CSS v4, i18next (German and English) |
 | Jobs | Separate worker and scheduler processes on pg-boss (queue in PostgreSQL, no Redis) |
 | Database | PostgreSQL 16 with Row Level Security per tenant, Drizzle ORM and migrations |
-| Microsoft 365 | Microsoft Graph only (delta queries, own throttling layer), MSAL for app authentication |
+| Microsoft 365 | Microsoft Graph only (delta queries, own throttling layer), own client-credentials token client for app authentication (secret or certificate) |
 | IMAP and SMTP | imapflow, mailparser, smtp-server for journal receipt |
 | Endpoint agent | Go with the standard library only, driving restic; Linux and macOS |
 | Storage | Own chunk store: content-defined chunking, SHA-256, AES-256-GCM, pack files; local disk, S3-compatible, NFS |

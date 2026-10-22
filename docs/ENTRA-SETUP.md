@@ -123,8 +123,8 @@ läuft der Consent über den Link aus Teil 3, nicht über dieses Portal.
 
 ## Teil 3 — Zugangsdaten: Zertifikat (bevorzugt) oder Client-Secret
 
-Die Backup-App authentifiziert sich per Client Credentials. Zwei Wege, `@azure/msal-node`
-kann beide:
+Die Backup-App authentifiziert sich per Client Credentials. Zwei Wege, Restows eigener
+Token-Client (`packages/core/src/graph/auth/token.ts`) kann beide:
 
 **Zertifikat (bevorzugt).**
 

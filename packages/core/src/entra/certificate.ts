@@ -63,7 +63,7 @@ function infoOf(certificate: X509Certificate, certificatePem: string): Certifica
 
 /**
  * The private key as PKCS#8 PEM (`BEGIN PRIVATE KEY`), which every consumer
- * (the client-assertion signer, msal) accepts; the input when it cannot be
+ * (the client-assertion signer) accepts; the input when it cannot be
  * re-encoded.
  */
 export function normalizePrivateKeyPem(privateKeyPem: string): string {

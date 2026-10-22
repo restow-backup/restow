@@ -2,12 +2,12 @@
  * Access tokens for the Graph backup app (client credentials, one token per
  * customer tenant).
  *
- * `@azure/msal-node` is only installed in apps/api, so core keeps its own small,
- * dependency-free implementation of the OAuth 2.0 client-credentials grant against
- * the Entra v2.0 token endpoint. It supports a client secret and the certificate
- * flow (RS256 client assertion, docs/ENTRA-SETUP.md, part 3), caches tokens until
- * shortly before they expire and coalesces concurrent refreshes. apps/api may wrap
- * msal instead through {@link CachingTokenProvider.fromAcquirer}; the client only
+ * Restow's own small, dependency-free implementation of the OAuth 2.0
+ * client-credentials grant against the Entra v2.0 token endpoint (no Microsoft
+ * authentication library). It supports a client secret and the certificate flow
+ * (RS256 client assertion, docs/ENTRA-SETUP.md, part 3), caches tokens until
+ * shortly before they expire and coalesces concurrent refreshes. Another acquirer
+ * can be wrapped through {@link CachingTokenProvider.fromAcquirer}; the client only
  * needs the {@link AccessTokenProvider} shape.
  *
  * Nothing in this module logs or throws secret material.
@@ -101,7 +101,7 @@ export class CachingTokenProvider implements AccessTokenProvider {
     private readonly options: { expirySkewMs?: number; now?: () => number } = {},
   ) {}
 
-  /** Wrap any acquirer (for example msal's acquireTokenByClientCredential) in the cache. */
+  /** Wrap any acquirer (a function returning an {@link AcquiredToken}) in the cache. */
   static fromAcquirer(
     acquire: () => Promise<AcquiredToken>,
     options?: { expirySkewMs?: number; now?: () => number },

@@ -205,7 +205,7 @@ describe("client credentials with a certificate", () => {
 });
 
 describe("CachingTokenProvider.fromAcquirer", () => {
-  it("wraps an external acquirer (msal) and honours invalidate()", async () => {
+  it("wraps an external acquirer and honours invalidate()", async () => {
     let acquisitions = 0;
     const provider = CachingTokenProvider.fromAcquirer(async () => {
       acquisitions += 1;

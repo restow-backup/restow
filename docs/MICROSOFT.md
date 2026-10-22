@@ -38,7 +38,8 @@ Endnutzer-SSO (Self-Service-Restore) läuft getrennt als delegierter OIDC-Login
 im Backup besitzt.
 
 Client-Secret-Rotation: Secrets laufen maximal 24 Monate; Restow warnt 60 Tage vorher.
-Besser: Zertifikat statt Secret (msal-node unterstützt beides).
+Besser: Zertifikat statt Secret (der eigene Token-Client in
+packages/core/src/graph/auth/token.ts unterstützt beides).
 
 ## Application Access Policies
 
