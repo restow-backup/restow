@@ -428,6 +428,13 @@
       "when": 1792660885556,
       "tag": "0060_archive_capture",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1792673099439,
+      "tag": "0061_explorer_parent_index",
+      "breakpoints": true
     }
   ]
 }

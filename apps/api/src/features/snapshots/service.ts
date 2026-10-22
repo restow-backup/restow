@@ -452,9 +452,12 @@ export async function listSnapshots(
 // Tree
 // ---------------------------------------------------------------------------
 
-interface ListingScope {
+export interface ListingScope {
   tenantId: string;
   snapshotId: string;
+  /** The snapshot's object and sequence: its entries are the version rows whose range holds it. */
+  objectId: string;
+  sequence: number;
   path: string;
   includeDeleted: boolean;
   foldersOnly: boolean;
@@ -467,7 +470,7 @@ interface ListingScope {
   sort: "date" | "upcoming" | "name";
 }
 
-/** The raw shape of a listing row (see {@link listingCte}). */
+/** The raw shape of a listing row (see {@link legacyListingCte} and {@link versionListingCte}). */
 interface ListingRow extends Record<string, unknown> {
   id: string;
   kind: ManifestObjectKind;
@@ -608,8 +611,13 @@ function chunkRefsOf(row: RawEntryRow): string[] | null {
  * like `mail` or `calendar` have no row of their own), and without these the
  * explorer could not reach anything below them. Attachments of JSON-format
  * messages and OneDrive's own version objects are not browsed.
+ *
+ * This form reads every entry of the snapshot, and is used only for a snapshot
+ * of 0.3.4 or earlier whose per-snapshot rows the worker has not converted yet
+ * (`manifest_objects`); every other snapshot is listed by
+ * {@link versionListingCte}, which returns the same rows from an index.
  */
-function listingCte(scope: ListingScope): SQL {
+function legacyListingCte(scope: ListingScope): SQL {
   const path = sql`${scope.path}::text`;
   const filters: SQL[] = [sql`(m.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL`];
   if (!scope.includeDeleted) {
@@ -668,6 +676,147 @@ function listingCte(scope: ListingScope): SQL {
 }
 
 /**
+ * Conditions that make a `manifest_versions` row (as `alias`) an entry of the
+ * scope's snapshot that the listing shows: its range holds the snapshot's
+ * sequence, and it is not an attachment of a JSON-format message, not deleted
+ * (unless asked for) and not one of OneDrive's own versions (for drives and
+ * sites). The same filters as {@link legacyListingCte}'s `scope`.
+ */
+function listedVersion(scope: ListingScope, alias: string): SQL {
+  const v = sql.raw(alias);
+  const filters: SQL[] = [
+    sql`${v}.protected_object_id = ${scope.objectId}::uuid`,
+    sql`${v}.tenant_id = ${scope.tenantId}::uuid`,
+    sql`${v}.first_sequence <= ${scope.sequence}::int`,
+    sql`${v}.last_sequence >= ${scope.sequence}::int`,
+    sql`(${v}.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL`,
+  ];
+  if (!scope.includeDeleted) {
+    filters.push(sql`${v}.deleted = false`);
+  }
+  if (scope.hideNativeVersions) {
+    filters.push(sql`strpos(${v}.path, ${NATIVE_VERSION_MARKER}::text) = 0`);
+  }
+  return sql.join(filters, sql` AND `);
+}
+
+/** `parent_path` in byte order, the expression `manifest_versions_object_parent_idx` holds. */
+function bytewiseParent(alias: string): SQL {
+  return sql`(${sql.raw(alias)}.parent_path COLLATE "C")`;
+}
+
+/**
+ * The same `listing` as {@link legacyListingCte}, for a snapshot whose entries
+ * are version rows (every snapshot from 0.3.5 on), read through
+ * `manifest_versions_object_parent_idx` (object, parent path in byte order,
+ * last sequence) instead of every entry of the snapshot:
+ *
+ * - `direct`: the rows whose parent is the folder, one index range (the
+ *   folders among them from `manifest_versions_object_folder_idx`).
+ * - `walk`: a skip scan over the parent paths below the folder. In byte order
+ *   everything below `a/b` lies in ['a/b/', 'a/b0'), and everything below its
+ *   child `a/b/c` in ['a/b/c/', 'a/b/c0'); after a parent path inside a child's
+ *   subtree the walk jumps past that subtree, so it reads one index entry per
+ *   child folder (twice for a child whose name continues with a character
+ *   sorting before `/`), not one per row below the folder.
+ * - `implicit`: of those child segments, the ones without a row of their own
+ *   that have an entry of the snapshot below them (an index probe each), with
+ *   `deleted` set when every such entry is deleted.
+ *
+ * Up to 0.4.3 the listing read every entry of the snapshot (every message of
+ * a mailbox, every file of a OneDrive) with its metadata, twice per request,
+ * and matched the child segments against them without an index: seconds for
+ * a large mailbox, minutes for a OneDrive with tens of thousands of folders.
+ * Columns as {@link legacyListingCte}, plus `vid` (the row id, null for an
+ * implicit folder) and without `metadata`, which {@link queryListing} reads
+ * for the rows of the requested page only.
+ */
+function versionListingCte(scope: ListingScope): SQL {
+  const parent = scope.path;
+  const prefix = parent === "" ? "" : `${parent}/`;
+  const prefixLength = prefix.length;
+  // Below the folder: ['a/b/', 'a/b0'); below the root: everything but the root itself.
+  const below = (alias: string): SQL =>
+    parent === ""
+      ? sql`${bytewiseParent(alias)} > ''`
+      : sql`${bytewiseParent(alias)} > ${prefix}::text AND ${bytewiseParent(alias)} < ${`${parent}0`}::text`;
+  const nextParent = (bound: SQL): SQL => sql`
+    SELECT n.parent_path FROM manifest_versions n
+    WHERE n.protected_object_id = ${scope.objectId}::uuid AND ${below("n")}
+      AND ${bytewiseParent("n")} ${bound}
+    ORDER BY ${bytewiseParent("n")}
+    LIMIT 1`;
+  const segmentOf = (column: SQL): SQL =>
+    sql`split_part(substr(${column}, ${prefixLength}::int + 1), '/', 1)`;
+  const childPath = sql`(${prefix}::text || g.segment)`;
+  /** An entry of the snapshot below the child `g.segment`, optionally with `extra`. */
+  const entryBelow = (extra: SQL): SQL => sql`(
+    EXISTS (
+      SELECT 1 FROM manifest_versions d
+      WHERE ${bytewiseParent("d")} = ${childPath} AND ${listedVersion(scope, "d")} AND ${extra}
+    )
+    OR EXISTS (
+      SELECT 1 FROM manifest_versions d
+      WHERE ${bytewiseParent("d")} >= ${childPath} || '/'
+        AND ${bytewiseParent("d")} < ${childPath} || '0'
+        AND ${listedVersion(scope, "d")} AND ${extra}
+    )
+  )`;
+  const deleted = scope.includeDeleted
+    ? sql`NOT ${entryBelow(sql`d.deleted = false`)}`
+    : sql`false`;
+  return sql`
+    WITH RECURSIVE direct AS (
+      SELECT v.id AS vid, v.id::text AS id, v.kind, v.name, v.path, v.parent_path, v.size, v.mtime,
+             v.item_id, v.deleted,
+             CASE WHEN v.kind = 'mail' THEN ${mailDateExpression(sql`v.metadata`, sql`v.mtime`)}
+                  WHEN v.kind = 'event' THEN ${eventStartExpression(sql`v.metadata`)}
+             END AS sort_date,
+             false AS implicit
+      FROM manifest_versions v
+      WHERE ${bytewiseParent("v")} = ${parent}::text
+        ${scope.foldersOnly ? sql`AND v.kind = 'folder'` : sql``}
+        AND ${listedVersion(scope, "v")}
+    ),
+    walk(pp) AS (
+      SELECT (${nextParent(sql`IS NOT NULL`)})
+      UNION ALL
+      SELECT CASE
+               WHEN strpos(substr(w.pp, ${prefixLength}::int + 1), '/') = 0
+                 THEN (${nextParent(sql`> w.pp`)})
+               ELSE (${nextParent(sql`>= ${prefix}::text || ${segmentOf(sql`w.pp`)} || '0'`)})
+             END
+      FROM walk w
+      WHERE w.pp IS NOT NULL
+    ),
+    segments AS (
+      SELECT DISTINCT ${segmentOf(sql`w.pp`)} AS segment FROM walk w WHERE w.pp IS NOT NULL
+    ),
+    implicit AS (
+      SELECT NULL::uuid AS vid, 'folder:' || ${childPath} AS id, 'folder'::manifest_object_kind AS kind,
+             g.segment AS name, ${childPath} AS path, ${parent}::text AS parent_path,
+             0::bigint AS size, NULL::timestamptz AS mtime, NULL::text AS item_id,
+             ${deleted} AS deleted, NULL::timestamptz AS sort_date, true AS implicit
+      FROM segments g
+      WHERE g.segment <> ''
+        -- A child with a row of its own is listed by direct. In a CASE, so the planner
+        -- keeps this an index probe per child instead of an anti-join over every row of
+        -- the folder; the probes below run only for the children it leaves.
+        AND CASE WHEN EXISTS (
+              SELECT 1 FROM manifest_versions x
+              WHERE x.path = ${childPath} AND x.parent_path = ${parent}::text AND x.name = g.segment
+                AND ${listedVersion(scope, "x")}
+            ) THEN false ELSE ${entryBelow(sql`true`)} END
+    ),
+    listing AS (
+      SELECT * FROM direct
+      UNION ALL
+      SELECT * FROM implicit
+    )
+  `;
+}
+
+/**
  * A sortable key for natural (numeric-aware) name order: every run of digits
  * is zero-padded, so "2.eml" sorts before "10.eml" instead of after (plain
  * text order put "1", "10", "11", "2" in that lexical order, the ordering bug
@@ -700,15 +849,23 @@ function naturalSortKey(column: SQL): SQL {
  * {@link compareEntries} for the equivalent in-memory order used for search hits.
  */
 function listingOrder(sort: "date" | "upcoming" | "name"): SQL {
+  return sql`ORDER BY ${listingLeadingKeys(sort)}, ${naturalSortKey(sql`name`)}, path`;
+}
+
+/**
+ * The keys of {@link listingOrder} before the name: cheap to compute, unlike
+ * the natural name key, so a page is first cut down by these alone (see
+ * {@link listingStatement}).
+ */
+function listingLeadingKeys(sort: "date" | "upcoming" | "name"): SQL {
   const byDate = sort === "name" ? sql`false` : sql`true`;
   const upcoming = sort === "upcoming" ? sql`kind = 'event' AND sort_date >= now()` : sql`false`;
   return sql`
-    ORDER BY CASE WHEN kind = 'folder' THEN 0 ELSE 1 END,
-             CASE WHEN ${upcoming} THEN 0 ELSE 1 END,
-             CASE WHEN ${upcoming} THEN sort_date END ASC,
-             CASE WHEN ${byDate} AND kind IN ('mail', 'event') AND sort_date IS NOT NULL THEN 0 ELSE 1 END,
-             CASE WHEN ${byDate} AND kind IN ('mail', 'event') THEN sort_date END DESC,
-             ${naturalSortKey(sql`name`)}, path
+    CASE WHEN kind = 'folder' THEN 0 ELSE 1 END,
+    CASE WHEN ${upcoming} THEN 0 ELSE 1 END,
+    CASE WHEN ${upcoming} THEN sort_date END ASC,
+    CASE WHEN ${byDate} AND kind IN ('mail', 'event') AND sort_date IS NOT NULL THEN 0 ELSE 1 END,
+    CASE WHEN ${byDate} AND kind IN ('mail', 'event') THEN sort_date END DESC
   `;
 }
 
@@ -728,23 +885,90 @@ function fromListingRow(row: ListingRow): EntryRow {
   };
 }
 
-/** One page of a folder's children, with the total for paging. */
+/** Whether the snapshot still has per-snapshot rows of 0.3.4 or earlier (see `manifestEntries`). */
+async function hasLegacyRows(tx: DbExecutor, snapshotId: string): Promise<boolean> {
+  const result = await tx.execute<{ legacy: boolean }>(
+    sql`SELECT EXISTS (SELECT 1 FROM manifest_objects WHERE snapshot_id = ${snapshotId}::uuid) AS legacy`,
+  );
+  return result.rows[0]?.legacy === true;
+}
+
+/**
+ * The statement of one listing page from the version rows (see
+ * {@link versionListingCte}). The listing is computed once (its mail dates
+ * included); the rows up to the end of the page are picked by the cheap
+ * leading keys of the order, together with every row tied with the last of
+ * them (`WITH TIES`), and only those are ordered by name, so a folder of
+ * 50 000 messages sorted by date computes the natural name key for a page,
+ * not for every message: the same rows in the same order as sorting
+ * everything by {@link listingOrder}. The metadata is read afterwards for the
+ * rows of the page only, by id; the total comes along with every row.
+ */
+export function listingStatement(
+  scope: ListingScope,
+  page: { limit: number; offset: number },
+): SQL {
+  return sql`
+    ${versionListingCte(scope)},
+    computed AS MATERIALIZED (SELECT * FROM listing),
+    candidates AS (
+      SELECT * FROM computed
+      ORDER BY ${listingLeadingKeys(scope.sort)}
+      FETCH FIRST (${page.offset + page.limit}::bigint) ROWS WITH TIES
+    ),
+    page AS (
+      SELECT * FROM candidates
+      ${listingOrder(scope.sort)}
+      LIMIT ${page.limit} OFFSET ${page.offset}
+    )
+    SELECT *, (SELECT count(*) FROM computed) AS total FROM (
+      SELECT p.*, v.metadata FROM page p LEFT JOIN manifest_versions v ON v.id = p.vid
+    ) AS paged
+    ${listingOrder(scope.sort)}
+  `;
+}
+
+/**
+ * One page of a folder's children, with the total for paging. A snapshot of
+ * 0.3.4 or earlier not converted yet is listed by a scan of its entries
+ * ({@link legacyListingCte}); `method: "scan"` lists any snapshot that way, the
+ * reference the tests compare the index-based listing against.
+ */
 export async function queryListing(
   tx: DbExecutor,
   scope: ListingScope,
   page: { limit: number; offset: number },
+  method: "auto" | "scan" = "auto",
 ): Promise<{ entries: TreeEntryDto[]; total: number }> {
-  const listing = listingCte(scope);
-  const counted = await tx.execute<{ total: number }>(
-    sql`${listing} SELECT count(*)::int AS total FROM listing`,
+  if (method === "scan" || (await hasLegacyRows(tx, scope.snapshotId))) {
+    const listing = legacyListingCte(scope);
+    const counted = await tx.execute<{ total: number }>(
+      sql`${listing} SELECT count(*)::int AS total FROM listing`,
+    );
+    const rows = await tx.execute<ListingRow>(
+      sql`${listing} SELECT * FROM listing ${listingOrder(scope.sort)} LIMIT ${page.limit} OFFSET ${page.offset}`,
+    );
+    return {
+      entries: rows.rows.map((row) => toTreeEntry(fromListingRow(row))),
+      total: Number(counted.rows[0]?.total ?? 0),
+    };
+  }
+  // The planner prices the probe per child folder as if it could read the whole object, which
+  // puts the statement past `jit_above_cost`; compiling it then takes longer (about 100 ms)
+  // than running it. Local to the caller's transaction.
+  await tx.execute(sql`SELECT set_config('jit', 'off', true)`);
+  const rows = await tx.execute<ListingRow & { total: number | string }>(
+    listingStatement(scope, page),
   );
-  const rows = await tx.execute<ListingRow>(
-    sql`${listing} SELECT * FROM listing ${listingOrder(scope.sort)} LIMIT ${page.limit} OFFSET ${page.offset}`,
-  );
-  return {
-    entries: rows.rows.map((row) => toTreeEntry(fromListingRow(row))),
-    total: Number(counted.rows[0]?.total ?? 0),
-  };
+  let total = Number(rows.rows[0]?.total ?? 0);
+  if (rows.rows.length === 0 && page.offset > 0) {
+    // A page past the end has no row to carry the count.
+    const counted = await tx.execute<{ total: number }>(
+      sql`${versionListingCte(scope)} SELECT count(*)::int AS total FROM listing`,
+    );
+    total = Number(counted.rows[0]?.total ?? 0);
+  }
+  return { entries: rows.rows.map((row) => toTreeEntry(fromListingRow(row))), total };
 }
 
 /** Children of one folder in one snapshot: folders first, mails newest first, files by name. */
@@ -763,6 +987,8 @@ export async function listTree(
       {
         tenantId,
         snapshotId,
+        objectId: loaded.object.id,
+        sequence: loaded.snapshot.sequence,
         path: query.path,
         includeDeleted: query.includeDeleted,
         foldersOnly: query.foldersOnly,
@@ -859,7 +1085,8 @@ export async function listVersions(
       const storedRows = await tx.execute<RawEntryRow>(sql`
         SELECT m.* FROM ${snapshotEntries(tenantId, [query.snapshotId])} AS m
         WHERE m.protected_object_id = ${objectId}::uuid
-          AND m.parent_path = ${nativeVersionsParent(query.path)}
+          -- In byte order, so it is a lookup in manifest_versions_object_parent_idx.
+          AND (m.parent_path COLLATE "C") = ${nativeVersionsParent(query.path)}
         ORDER BY m.mtime DESC
         LIMIT ${query.limit}
       `);
@@ -1352,8 +1579,13 @@ export async function calendarView(
       AND ${
         query.entryId
           ? sql`m.id = ${query.entryId}::uuid`
-          : sql`(m.parent_path = ${path}::text
-                 OR left(m.parent_path, length(${path}::text) + 1) = ${path}::text || '/')`
+          : // The byte-order range ['calendar', 'calendar0') holds the calendar and everything
+            // below it (and a few siblings the exact test drops): one range of
+            // manifest_versions_object_parent_idx instead of every entry of the mailbox.
+            sql`(m.parent_path COLLATE "C") >= ${path}::text
+                AND (m.parent_path COLLATE "C") < ${path}::text || '0'
+                AND (m.parent_path = ${path}::text
+                     OR left(m.parent_path, length(${path}::text) + 1) = ${path}::text || '/')`
       }`;
 
     const singles = await tx.execute<RawEntryRow & { event_start: Date | string }>(sql`

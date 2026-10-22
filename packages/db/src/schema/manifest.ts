@@ -145,6 +145,22 @@ export const manifestVersions = pgTable(
     index("manifest_versions_object_last_idx").on(t.protectedObjectId, t.lastSequence),
     index("manifest_versions_object_path_idx").on(t.protectedObjectId, t.path),
     index("manifest_versions_object_item_idx").on(t.protectedObjectId, t.itemId),
+    // The explorer's folder listing (apps/api snapshots/service.ts `versionListingCte`): the
+    // children of one folder and a skip scan over the folders below it. Paths in byte order
+    // (`COLLATE "C"`) whatever the database's collation, so everything below `a/b` is the one
+    // range ['a/b/', 'a/b0').
+    index("manifest_versions_object_parent_idx").on(
+      t.protectedObjectId,
+      sql`(${t.parentPath} COLLATE "C")`,
+      t.lastSequence,
+    ),
+    // The folders among a folder's children (the folder tree). Partial rather than a `kind`
+    // column in the index above: under row-level security a condition on an enum is applied
+    // only after the row is read (enum equality is not leakproof), a partial index still
+    // applies.
+    index("manifest_versions_object_folder_idx")
+      .on(t.protectedObjectId, sql`(${t.parentPath} COLLATE "C")`, t.lastSequence)
+      .where(sql`${t.kind} = 'folder'`),
     check("manifest_versions_range_ck", sql`${t.firstSequence} <= ${t.lastSequence}`),
   ],
 );
