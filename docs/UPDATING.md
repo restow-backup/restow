@@ -146,6 +146,17 @@ backups where they are" is refused while containers or file shares have restic
 repositories; use "move". An existing installation has no time zone of its own
 until an owner chooses one (see "The installation's time zone" below).
 
+Updating to 0.4.3 applies no migration, and the `docker-compose.yml` of 0.4.0
+stays. Proxmox VE nodes on restow-pve 0.4.2 install 0.4.3 in the step after the
+server update (or with **Update nodes and agents now**, see below). Nodes on
+restow-pve 0.4.1 ignore that step and "update now"; they update with their own
+check, or by hand once no backup or restore runs on the node:
+`/opt/restow-pve/bin/restow-pve update`, then restart the PVE daemons
+(`systemctl restart restow-pve pvedaemon pvestatd pveproxy pvescheduler`). From
+0.4.3 on restow-pve restarts the daemons itself after every update it installs.
+Demo hosts can let the demo follow the releases, whose demo images are now
+published with them (deploy/demo/README.md).
+
 From 0.4.0 on, S3 endpoints must use `https://` (or `http://` only on `localhost`,
 `127.0.0.1`, `[::1]`). A repository or default repository that already uses `http://`
 to another host keeps working after the update, so no backup stops; its card (or

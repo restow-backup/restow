@@ -8,7 +8,26 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [Unreleased]
+## [0.4.3] - 2026-10-22
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.3 stops a locked repository from failing a Proxmox VE restore check (it is
+postponed and, if the lock stays, reads "Could not check" in amber with who holds the lock)
+and tidies VMs & containers up into tabs with search, filters, a detail panel and tables
+that no longer jump while backups run. Proxmox VE nodes and agents follow a server update
+even when its announcement went unanswered, "Update nodes and agents now" starts that step
+by hand, and restow-pve restarts the PVE daemons after it updates itself. No database
+migration; nodes still on restow-pve 0.4.1 need one update by hand (Upgrade Notes).
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.5.0. In the session API, a Proxmox VE guest's
+`lastVerify.state` can be `yellow` (with `notChecked`) and a node carries `offeredVersion`
+and `outdated`; both are additive.
 
 ### Added
 
@@ -22,6 +41,11 @@ private repository.
   available".
 - Proxmox VE inventory (`GET /api/v1/pve`): every node carries `offeredVersion` (the
   restow-pve release the server offers) and `outdated` next to its `helperVersion`.
+- Releases publish the two images of the public demo as well (`restow-demo-seed` and
+  `restow-demo-dovecot`, amd64 and arm64, signed, with SBOMs and the release's tags), and
+  `deploy/demo/reset.sh` can follow a channel or a fixed version (`RESTOW_DEMO_FOLLOW` in
+  `deploy/demo/.env`): the nightly reset pulls the images of one release and stops before it
+  changes anything when they do not match or a pull fails (deploy/demo/README.md).
 
 ### Changed
 
@@ -45,6 +69,8 @@ private repository.
 - The Backup column says how large a guest's first (full) backup was and what the last
   follow-up added, for example "First: 32 GB on Oct 3 · Last: +210 MB"; the detail panel
   shows the new data of each of the last 30 backups as small bars (#58).
+- The README screenshots show 0.4.2, with two new views (the mail archive and a server).
+- Development: the web tests run on happy-dom 21.
 
 ### Fixed
 
@@ -95,6 +121,55 @@ private repository.
   instead of wrapping, the progress has a reserved slot, and "Back up now", "Stop",
   "Withdraw" and "Stopping…" share one button size. Error texts no longer appear in red under
   a guest's row, and warnings no longer only in a tooltip.
+- Demo: during the nightly reset the demo shows a short page in English and German that
+  reloads every minute, instead of a 502. After signing in, the overview opens on a customer
+  tenant instead of the empty provider organization, and the simulated machines report the
+  running release as their agent version instead of 0.2.1.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New image, no database migration, no new required environment variables, and the
+`docker-compose.yml` of 0.4.0 stays.
+
+- Proxmox VE nodes should run restow-pve 0.4.3: it waits for the server's repository lock
+  during a container backup and restarts the PVE daemons after it updates itself. Nodes on
+  restow-pve 0.4.2 install it with the step after the server update (or "Update nodes and
+  agents now"). Nodes on restow-pve 0.4.1 ignore "update now" and that step; they update with
+  their own check (two minutes after the service starts, then every six hours), or by hand
+  once no backup or restore runs on the node:
+  `/opt/restow-pve/bin/restow-pve update`, then
+  `systemctl restart restow-pve pvedaemon pvestatd pveproxy pvescheduler`. From 0.4.3 on
+  restow-pve restarts the daemons itself; a node that an older release updated does it once
+  after the new release starts.
+- Restore checks that a locked repository failed before the update stay red until the next
+  check of the guest ("Check now" on the guest or VMs & containers).
+- Demo hosts: the demo images are now published with every release; to let the demo follow
+  them, set `RESTOW_DEMO_FOLLOW` as deploy/demo/README.md describes.
+- Rollback: 0.4.2 starts on the same database. It shows a restore point that could not be
+  checked as unchecked.
+
+### Known Issues
+
+- The new parts were tested against a simulated Proxmox VE API and S3 store only, never
+  against a real Proxmox VE cluster or S3 provider.
+- The redesigned VMs & containers page was tested with DOM tests, not visually in a browser
+  with thousands of guests.
+- The known issues of 0.4.2 still apply, except the file share repository healing, which
+  comes later.
+
+### Verification
+
+Before the tag, on the release branch (main plus the 0.4.3 workstreams): lint and typecheck
+of all workspaces, the unit and Postgres suites of every package on Postgres 16 (with the
+Postgres guard), the web DOM tests on happy-dom 21 including the layout-width and
+green-is-proof checks, the v1 OpenAPI test, gofmt, go vet and the Go tests of the agents,
+the Perl tests of the Proxmox VE plugin, the server installer and demo reset tests, and
+shellcheck. The release smoke runs in the release pipeline; no real Proxmox VE cluster or S3
+provider was used before the tag.
 
 ## [0.4.2] - 2026-10-21
 
