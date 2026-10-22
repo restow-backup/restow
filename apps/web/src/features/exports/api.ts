@@ -101,6 +101,8 @@ export interface ArchiveExportFilter {
   dateFrom?: string;
   dateTo?: string;
   hasAttachment?: boolean;
+  /** As in the search: also items a stronger capture of the same mail superseded (0.4.4). */
+  includeSuperseded?: boolean;
 }
 
 export type ArchiveExportSelection = { itemIds: string[] } | { filter: ArchiveExportFilter };

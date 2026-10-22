@@ -246,6 +246,7 @@ export function ArchivePage() {
                 dateTo: params.dateTo,
                 hasAttachment: params.hasAttachment,
                 mailbox: params.mailbox,
+                includeSuperseded: params.includeSuperseded,
               },
               total: search.data?.total ?? null,
               ...(mailboxLabel ? { mailboxLabel } : {}),

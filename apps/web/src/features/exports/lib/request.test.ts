@@ -233,6 +233,12 @@ describe("buildExportRequest for the archive", () => {
       dateFrom: "2026-01-01",
     });
     expect(cleanFilter({})).toEqual({});
+    // The superseded captures follow the search: only sent when the search shows them.
+    expect(cleanFilter({ q: "invoice", includeSuperseded: true })).toEqual({
+      q: "invoice",
+      includeSuperseded: true,
+    });
+    expect(cleanFilter({ q: "invoice", includeSuperseded: false })).toEqual({ q: "invoice" });
   });
 });
 

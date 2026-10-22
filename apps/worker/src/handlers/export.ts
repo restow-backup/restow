@@ -73,6 +73,8 @@ export interface ArchiveExportFilter {
   dateFrom?: string;
   dateTo?: string;
   hasAttachment?: boolean;
+  /** Absent or false: items a stronger capture of the same mail superseded are left out. */
+  includeSuperseded?: boolean;
 }
 
 export interface ArchiveExportSelection {
@@ -157,6 +159,15 @@ function archiveConditions(tenantId: string, selection: ArchiveExportSelection):
         coalesce(${archiveItems.envelope}::text, '')
       ) @@ plainto_tsquery('simple', ${filter.q})`,
     );
+  }
+  if (!filter.includeSuperseded) {
+    // As the search (apps/api features/archive/service.ts): a capture a stronger one of the
+    // same mail superseded is hidden, so the export holds what the search counted. The outer
+    // table is named literally: inside the subquery drizzle's bare column would bind to it.
+    conditions.push(sql`not exists (
+      select 1 from archive_items newer
+       where newer.tenant_id = archive_items.tenant_id
+         and newer.supersedes_item_id = archive_items.id)`);
   }
   return conditions;
 }

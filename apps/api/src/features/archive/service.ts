@@ -122,11 +122,15 @@ const alsoCapturedVia = sql<string[]>`(
  */
 const messageDate = sql`coalesce(${archiveItems.sentAt}, ${archiveItems.receivedAt})`;
 
-/** The search filters that select archive items (also used by export requests). */
+/**
+ * The search filters that select archive items (also used by export requests, so an export of
+ * the current search covers exactly what the search counted). `includeSuperseded` absent or
+ * false hides items a stronger capture of the same mail superseded, as the search does.
+ */
 export type ArchiveFilter = Pick<
   ArchiveSearchQuery,
   "q" | "mailbox" | "from" | "dateFrom" | "dateTo" | "hasAttachment"
->;
+> & { includeSuperseded?: boolean };
 
 /** The `where` conditions of an archive search, always including the tenant. */
 export function archiveSearchConditions(tenantId: string, query: ArchiveFilter): SQL[] {
@@ -157,6 +161,9 @@ export function archiveSearchConditions(tenantId: string, query: ArchiveFilter):
         ) @@ plainto_tsquery('simple', ${query.q})`,
     );
   }
+  if (!query.includeSuperseded) {
+    conditions.push(sql`not ${isSuperseded}`);
+  }
   return conditions;
 }
 
@@ -168,11 +175,7 @@ export async function searchArchive(
   actor: ArchiveActor,
 ): Promise<ArchiveSearchResponse> {
   return withTenantTx(db, tenantId, async (tx) => {
-    const conditions = archiveSearchConditions(tenantId, query);
-    if (!query.includeSuperseded) {
-      conditions.push(sql`not ${isSuperseded}`);
-    }
-    const where = and(...conditions);
+    const where = and(...archiveSearchConditions(tenantId, query));
 
     const [{ count }] = await tx
       .select({ count: sql<number>`count(*)::int` })

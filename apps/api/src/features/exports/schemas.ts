@@ -45,6 +45,8 @@ export const archiveExportFilterSchema = z
     dateFrom: optionalDateSchema,
     dateTo: optionalDateSchema,
     hasAttachment: z.boolean().optional(),
+    /** As in the search: items a stronger capture superseded only when true (0.4.4). */
+    includeSuperseded: z.boolean().optional(),
   })
   .strict()
   .refine((filter) => !filter.dateFrom || !filter.dateTo || filter.dateFrom <= filter.dateTo, {
@@ -113,6 +115,8 @@ export interface StoredArchiveFilter {
   dateFrom?: string;
   dateTo?: string;
   hasAttachment?: boolean;
+  /** Only stored when true; absent hides superseded items, as the search does. */
+  includeSuperseded?: true;
 }
 
 export function toStoredArchiveFilter(filter: ArchiveExportFilter): StoredArchiveFilter {
@@ -123,5 +127,6 @@ export function toStoredArchiveFilter(filter: ArchiveExportFilter): StoredArchiv
   if (filter.dateFrom) stored.dateFrom = filter.dateFrom.toISOString();
   if (filter.dateTo) stored.dateTo = filter.dateTo.toISOString();
   if (filter.hasAttachment !== undefined) stored.hasAttachment = filter.hasAttachment;
+  if (filter.includeSuperseded) stored.includeSuperseded = true;
   return stored;
 }

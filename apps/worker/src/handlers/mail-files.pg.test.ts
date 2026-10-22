@@ -1009,4 +1009,46 @@ describe.skipIf(!adminUrl)("mail file import and export against Postgres", SLOW_
     ).toBe("mailbox");
     expect(restoreTargetKindOf({ selection: { all: true } } as never)).toBeNull();
   });
+
+  it("exports an archive search without the captures a stronger one superseded, unless asked", async () => {
+    const seed = async (
+      label: string,
+      via: "graph_sync" | "journal",
+      supersedes: string | null,
+    ) => {
+      const [row] = await db
+        .insert(archiveItems)
+        .values({
+          tenantId,
+          messageId: `msg-superseded-${label}`,
+          itemHash: `hash-superseded-${label}`,
+          chainHash: `chain-superseded-${label}-${randomUUID()}`,
+          receivedAt: new Date("2026-09-01T10:00:00Z"),
+          capturedVia: via,
+          supersedesItemId: supersedes,
+          storagePath: `tenants/${tenantId}/archive/superseded-${label}`,
+          subject: "Quokka report",
+          envelope: { from: "sender@example.test", to: ["anna@example.test"] },
+        })
+        .returning({ id: archiveItems.id });
+      return row?.id as string;
+    };
+    // Graph captured the mail first; the journal report of it superseded that capture.
+    const synced = await seed("synced", "graph_sync", null);
+    const journal = await seed("journal", "journal", synced);
+    const store = pgExportStore(tenantRunner(db, tenantId), tenantId);
+
+    const hidden = { filter: { q: "quokka" } };
+    expect(await store.countArchive(hidden)).toBe(1);
+    expect((await store.archivePage(hidden, null, 10)).rows.map((row) => row.id)).toEqual([
+      journal,
+    ]);
+    const all = { filter: { q: "quokka", includeSuperseded: true } };
+    expect(await store.countArchive(all)).toBe(2);
+    expect((await store.archivePage(all, null, 10)).rows.map((row) => row.id).sort()).toEqual(
+      [synced, journal].sort(),
+    );
+    // Ticked items are exported as ticked.
+    expect(await store.countArchive({ itemIds: [synced] })).toBe(1);
+  });
 });

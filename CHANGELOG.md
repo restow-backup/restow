@@ -101,6 +101,9 @@ private repository.
   maps, Sieve `redirect :copy` and Google Workspace routing to the tenant's journal address.
 - IMAP source page: the archive setting `archiveIdle`, IMAP IDLE (automatic) or checks at
   intervals only, saved at once and locked without the edition that archives from the mailbox.
+- Exporting the current archive search leaves out the captures a stronger one superseded, as
+  the search does, so the export holds what the search counted; with superseded captures shown,
+  the export includes them (`includeSuperseded` in the export's search filter).
 - Alerts of the archive capture as `archive.failed` (bell, rules, mail): a mailbox whose capture
   has been in error for more than an hour, an IMAP account whose forwarded copies stopped for
   24 hours while its job wants them, and a journal address without reports for 24 hours, each

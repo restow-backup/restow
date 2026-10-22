@@ -462,6 +462,7 @@ function filterLines(
     lines.push(t("dialog.scope.archive.filter.dateFrom", { date: clean.dateFrom }));
   if (clean.dateTo) lines.push(t("dialog.scope.archive.filter.dateTo", { date: clean.dateTo }));
   if (clean.hasAttachment) lines.push(t("dialog.scope.archive.filter.hasAttachment"));
+  if (clean.includeSuperseded) lines.push(t("dialog.scope.archive.filter.includeSuperseded"));
   return lines;
 }
 

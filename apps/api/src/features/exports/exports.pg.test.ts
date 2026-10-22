@@ -1132,6 +1132,44 @@ describe.skipIf(!testDatabaseAdminUrl)("mail exports against Postgres", () => {
       });
       expect(await owner.select().from(mailExports)).toHaveLength(before.length);
     });
+
+    it("leaves out a capture a stronger one superseded, as the search does, unless asked", async () => {
+      // A journal copy of the March invoice arrived after it and superseded it (0.4.4).
+      await owner.insert(archiveItems).values({
+        tenantId: f.tenantId,
+        messageId: "msg-c1-journal",
+        itemHash: "hash-c1-journal",
+        chainHash: "chain-c1-journal",
+        receivedAt: new Date("2026-09-02T00:00:00Z"),
+        sentAt: new Date("2019-03-05T10:00:00Z"),
+        capturedVia: "journal",
+        supersedesItemId: archiveItem.invoiceMarch,
+        storagePath: `tenants/${f.tenantId}/archive/c1-journal`,
+        subject: "Invoice March",
+        envelope: { from: "sender@contoso.test", to: ["anna@contoso.test"] },
+      });
+      const hidden = await service.createExport(
+        appDb,
+        f.tenantId,
+        actor(f.admin),
+        archiveRequest({ filter: { q: "invoice" } }),
+      );
+      const [stored] = await owner.select().from(mailExports).where(eq(mailExports.id, hidden.id));
+      // The search's total: April, and the journal copy instead of the March item it replaced.
+      expect(stored?.selection).toEqual({ filter: { q: "invoice" }, matched: 2 });
+
+      const all = await service.createExport(
+        appDb,
+        f.tenantId,
+        actor(f.admin),
+        archiveRequest({ filter: { q: "invoice", includeSuperseded: true } }),
+      );
+      const [both] = await owner.select().from(mailExports).where(eq(mailExports.id, all.id));
+      expect(both?.selection).toEqual({
+        filter: { q: "invoice", includeSuperseded: true },
+        matched: 3,
+      });
+    });
   });
 
   // -------------------------------------------------------------------------

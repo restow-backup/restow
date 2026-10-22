@@ -192,7 +192,8 @@
           "from": "Sender: {from}",
           "dateFrom": "From: {date}",
           "dateTo": "Until: {date}",
-          "hasAttachment": "Only mails with attachments"
+          "hasAttachment": "Only mails with attachments",
+          "includeSuperseded": "Including replaced captures"
         }
       }
     },

@@ -160,6 +160,9 @@ export function cleanFilter(filter: ArchiveExportFilter): ArchiveExportFilter {
   if (filter.hasAttachment === true) {
     clean.hasAttachment = true;
   }
+  if (filter.includeSuperseded === true) {
+    clean.includeSuperseded = true;
+  }
   return clean;
 }
 

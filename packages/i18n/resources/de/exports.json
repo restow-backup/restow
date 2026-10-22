@@ -192,7 +192,8 @@
           "from": "Absender: {from}",
           "dateFrom": "Von: {date}",
           "dateTo": "Bis: {date}",
-          "hasAttachment": "Nur E-Mails mit Anhang"
+          "hasAttachment": "Nur E-Mails mit Anhang",
+          "includeSuperseded": "Einschließlich ersetzter Erfassungen"
         }
       }
     },
