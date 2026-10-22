@@ -8,6 +8,38 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- Microsoft 365 group mailboxes as protected objects of their own kind `group` (docs/MICROSOFT.md
+  "Gruppenpostfächer"): the calendar and the conversations of Microsoft 365 groups and of the
+  groups behind Teams. The directory sync reads `groups/delta` as a second delta stream next to
+  the users (a full enumeration on the first and every full sync, only changes in between, its
+  delta link stored with the rows), keeps only Microsoft 365 groups and orphans removed ones.
+  Group mailboxes are opt-in: the protection rules get a switch "Protect all Microsoft 365
+  groups" (`groups`: `selected` by default, or `all`), and single groups can be included in the
+  list of protected objects. A mail job with scope "all" covers every protected group, like
+  sites. Group mailboxes never count as protected mailboxes.
+- Group mailbox backup: the group calendar through the same calendar code as a user's (series
+  masters with their exceptions), falling back to the group's `calendarView` and one read per
+  series master when Graph refuses the event listing to the app; a calendar Graph refuses
+  entirely is a warning on the run, not a failure. Every post of every conversation is stored as
+  an RFC 5322 message under `mail/Conversations` (with its file attachments when Graph hands them
+  out, otherwise their absence is recorded); only threads with new posts are read again. A group
+  that no longer exists fails with the new cause `graph.group_unavailable`. Migration
+  `0065_group_mailboxes` (an enum value only).
+- Group mailbox restore: the restore explorer lists groups in the "SharePoint & Teams" section
+  with the areas "Group calendar" and "Conversations"; download (EML, JSON) and export (EML,
+  MBOX, PST) work as for mailboxes. A restore into a user's mailbox brings back events and
+  conversations; a restore into the group brings back calendar events only, because Microsoft
+  Graph lets no app post into a group conversation (each post is reported as not restorable,
+  with the ways that work). Restoring a group is no impersonation. The integration API reports
+  `lastSuccess.groups` and `ObjectKind` includes `group` (integration API contract 1.6.0,
+  additive; clients that handle object kinds exhaustively should accept the new value), and the
+  dashboard lists group calendars and conversations among the last backups. No new Microsoft permission is needed:
+  `Group.Read.All` and `Calendars.ReadWrite` were always required.
+
 ## [0.4.4] - 2026-10-22
 
 Beta release. Run it alongside your existing backups, not as your only one, until

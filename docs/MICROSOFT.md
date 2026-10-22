@@ -26,7 +26,9 @@ je Kunden-Tenant. Application Permissions (keine delegierten) für Backup:
 - Files.ReadWrite.All (OneDrive; Restore)
 - Sites.ReadWrite.All (SharePoint Online, optional; Sites.Read.All genügt für die Sicherung,
   die Wiederherstellung in eine Website braucht ReadWrite; siehe „SharePoint Online" unten)
-- User.Read.All, Group.Read.All, Directory.Read.All (Verzeichnis-Sync, Schutzregeln)
+- User.Read.All, Group.Read.All, Directory.Read.All (Verzeichnis-Sync, Schutzregeln;
+  Group.Read.All liest auch die Microsoft-365-Gruppen und ihre Unterhaltungen, siehe
+  „Gruppenpostfächer" unten)
 - Organization.Read.All (Tenant-Name, Lizenzen)
 - Mail.Send (optional, nur wenn Benachrichtigungen über diese App statt über eine eigene
   App-Registrierung für Benachrichtigungen oder SMTP verschickt werden; sendet als
@@ -87,8 +89,9 @@ Schutzumfang" anzeigen, nicht als Fehler).
   `/calendars` liefert alle Kalender des Postfachs, auch die in anderen Kalendergruppen
   ("Weitere Kalender"); `/events` jeden Termin ohne Filter auf Teilnehmer oder Teams, also auch
   Termine nur für sich selbst. Ausnahmen einer Serie kommen aus `/events/{master}/instances` im
-  Fenster ein Jahr zurück bis zwei Jahre voraus. Nicht gesichert werden die Kalender von
-  Microsoft-365-Gruppen und Teams (Gruppenpostfächer sind keine geschützten Objekte). Ein von
+  Fenster ein Jahr zurück bis zwei Jahre voraus. Die Kalender von Microsoft-365-Gruppen und Teams
+  gehören nicht zum Postfach eines Nutzers; sie werden ab 0.4.5 als Gruppenpostfach gesichert
+  (siehe „Gruppenpostfächer"). Ein von
   einem anderen Postfach freigegebener Kalender gehört diesem Postfach und wird mit ihm gesichert.
   Die Metadaten eines Termins nennen Betreff, Beginn und Ende (UTC), ganztägig, Organisator, Ort
   und bei einer Serie das letzte Datum ihres Bereichs (Ort und Serienende ab 0.4.2).
@@ -250,7 +253,139 @@ Nutzer, wie bei anderen Microsoft-365-Sicherungsprodukten).
 - Nicht gegen einen echten Tenant geprüft: Die Formen folgen der Graph-v1.0-Referenz, die Tests
   laufen gegen eine simulierte Graph-API (`packages/core/src/backup/sharepoint/testing.ts`).
 
+## Gruppenpostfächer: Kalender und Unterhaltungen von Microsoft-365-Gruppen und Teams
+
+Jede Microsoft-365-Gruppe (`groupTypes` enthält `Unified`; ein Team ist eine solche Gruppe mit
+`resourceProvisioningOptions` = `Team`) hat ein Exchange-Gruppenpostfach mit **einem** Kalender und
+den **Gruppenunterhaltungen**. Es ist ein eigenes geschütztes Objekt
+(`protected_objects.kind = 'group'`, Migration `0065_group_mailboxes`, `external_id` = Objekt-ID
+der Gruppe), keinem Nutzer zugeordnet. Sicherheits- und Verteilergruppen haben kein
+Gruppenpostfach und werden übergangen. Die Dateien einer Gruppe bzw. eines Teams liegen in ihrer
+SharePoint-Website (siehe oben), Kanalnachrichten von Teams nicht im Gruppenpostfach (siehe
+„Teams"). Code: Graph-Ressourcen in `packages/core/src/graph/resources/groups.ts` und
+`calendar.ts` (`MailboxOwner`), Erkennung in `packages/core/src/directory/group-mailboxes.ts`,
+Sicherung in `packages/core/src/backup/groups`, Wiederherstellung in
+`packages/core/src/restore/groups.ts` (über die Exchange-Wiederherstellung).
+
+**Berechtigungen (keine neue).** Alles läuft mit den Anwendungsberechtigungen, die die App schon
+immer verlangt; ein erneuter Admin-Consent ist **nicht** nötig:
+
+| Aufruf (Graph v1.0) | Anwendungsberechtigung laut Referenz | bei Restow vorhanden über |
+| --- | --- | --- |
+| `GET /groups/delta`, `GET /groups/{id}` | `Group.Read.All` (u. a.) | `Group.Read.All` |
+| `GET /groups/{id}/threads`, `…/threads/{id}/posts` | `Group-Conversation.Read.All` (geringste), `Group.Read.All` | `Group.Read.All` |
+| `GET /groups/{id}/calendarView` | `Calendars.ReadBasic`/`Calendars.Read`/`Calendars.ReadWrite` | `Calendars.ReadWrite` |
+| `GET /groups/{id}/events/{id}/instances` | `Calendars.ReadBasic`/`Calendars.Read` | `Calendars.ReadWrite` |
+| `GET /groups/{id}/calendar/events`, `GET /groups/{id}/events/{id}` | laut Referenz **nur delegiert** | — (wird versucht, siehe unten) |
+| `POST /groups/{id}/calendar/events` | laut Referenz **nur delegiert** | — (wird versucht, siehe unten) |
+| `GET …/posts/{id}/attachments` | Anwendung: **nicht unterstützt** | — (`$expand=attachments` wird versucht) |
+| `POST /groups/{id}/threads`, `…/reply` | Anwendung: **nicht unterstützt** | — (keine Wiederherstellung in die Gruppe) |
+
+Die Referenz ist an diesen Stellen widersprüchlich (die Kalenderansicht der Gruppe nennt
+Anwendungsberechtigungen, die Ereignisliste nicht). Restow versucht deshalb zuerst den direkten
+Weg und fällt bei 401/403 (oder 400 „nicht unterstützt") zurück; eine Gruppe, deren Kalender Graph
+der App ganz verweigert, ergibt **eine Warnung** („Der Gruppenkalender kann mit den Berechtigungen
+der App nicht gelesen werden …") und die Unterhaltungen werden trotzdem gesichert. Eine Exchange
+Application Access Policy, die Gruppenpostfächer ausschließt, wirkt genauso.
+
+**Erkennung.** Die Verzeichnissynchronisierung liest neben `users/delta` einen zweiten
+Delta-Strom, `groups/delta` (`$select` = id, displayName, description, mail, mailEnabled,
+groupTypes, resourceProvisioningOptions; ohne Mitglieder). Der erste Lauf und jeder volle Abgleich
+zählen alle Gruppen seitenweise auf, dazwischen kommen nur Änderungen und Löschungen; der
+Delta-Link liegt in `sources.config.directory.groupsDeltaLink` und wird mit den Zeilen festgeschrieben.
+Tausende Gruppen kosten damit wenige Seiten je Lauf. Eine gelöschte Gruppe (`@removed`) bzw. bei
+voller Aufzählung eine nicht mehr genannte wird verwaist; ihre Sicherungsstände bleiben. Ohne
+`Group.Read.All` meldet der Abgleich die Warnung `groups_unavailable` und lässt bekannte Gruppen
+unverändert.
+
+**Schutzumfang: Opt-in.** Die Regeln haben einen eigenen Modus für Gruppen
+(`config.protection.groups`): `selected` (**Vorgabe**: keine Gruppe, außer eingeschlossenen) oder
+`all` (alle Microsoft-365-Gruppen). Bewusst anders als bei Websites: Ein Tenant mit Tausenden
+Gruppen soll nach dem Update nicht ungefragt alle sichern. Gruppen stecken in Mail-Jobs wie
+Postfächer und Websites; ein Job mit Umfang „alle" umfasst alle **geschützten** (aktiven) Gruppen,
+ein Job mit Umfang „ausgewählte" die gewählten. Wer Gruppen sichern will, schaltet in den
+Schutzregeln „Alle Microsoft-365-Gruppen schützen" ein oder schließt einzelne Gruppen in der Liste
+der geschützten Objekte ein; neu geschützte Gruppen bekommen sofort ihre erste Sicherung.
+
+**Sicherung, ein Sicherungsstand je Gruppe** (Aufbau wie ein Postfach, damit Explorer,
+Wiederherstellung, Download, Export, Restore-Prüfung und Aufbewahrung unverändert greifen):
+
+| Pfad im Sicherungsstand | Inhalt |
+| --- | --- |
+| `calendar/Calendar/<Betreff>.<id>.json` | jedes Ereignis des Gruppenkalenders als Graph-JSON, Serienmaster mit den Ausnahmen im Fenster (ein Jahr zurück, zwei voraus) — derselbe Code wie für Nutzerkalender (`backup/exchange/calendar.ts`) |
+| `mail/Conversations/<Thema>.<id>.eml` | jeder Beitrag (Post) jeder Unterhaltung als RFC-5322-Nachricht |
+
+- Kalender: zuerst `/groups/{id}/calendar/events` (Einzeltermine und Serienmaster, wie bei
+  Nutzern). Verweigert Graph das der App, liest Restow `/groups/{id}/calendarView` über **fünf
+  Jahre zurück bis zwei Jahre voraus**, übernimmt Einzeltermine und liest je Serie ihren Master
+  **einmal** über die `seriesMasterId` (`/groups/{id}/events/{id}`); die Ausnahmen kommen dann wie
+  gewohnt über `/instances`. Ist auch der Master nicht lesbar, werden die Vorkommen der Serie im
+  Fenster als Einzeltermine gesichert (Typ `occurrence`/`exception` in der Metadatenspalte), damit
+  sie wenigstens als Termine wiederherstellbar sind. Ereignisse vor dem Fenster sieht dieser
+  Rückfallweg nicht. Kalender haben in v1.0 kein Delta: Jeder Lauf liest vollständig, unveränderte
+  Ereignisse kosten über die Bytes nichts.
+- Ereignisanhänge: wie bei Nutzerkalendern nicht gesichert (`hasAttachments` steht in den
+  Metadaten); Graph dokumentiert `…/events/{id}/attachments` für Gruppen nicht.
+- Unterhaltungen: `/groups/{id}/threads` vollständig je Lauf, Beiträge
+  (`/threads/{id}/posts?$expand=attachments`) nur für Threads, deren `lastDeliveredDateTime` sich
+  seit dem letzten Lauf bewegt hat (Zustand `conversationThreads` im Manifest), bei „Vollständig"
+  für alle. Ein Beitrag mit gleicher ID und gleichem `changeKey` behält seine Bytes. Weggefallene
+  Threads nehmen ihre Beiträge mit. Graph liefert keine MIME-Form von Beiträgen; Restow baut sie
+  deterministisch (`From`, ggf. `Sender`, `To` = Gruppenadresse, `Cc` = vom Beitrag hinzugefügte
+  Teilnehmer, `Subject`/`Thread-Topic` = Thema, `Date`, eine aus der Post-ID abgeleitete
+  `Message-ID`, Text/HTML, Dateianhänge als MIME-Teile). Verweigert Graph die Erweiterung um
+  Anhänge, werden die Beiträge ohne Anhänge gesichert und `missingAttachments` nennt das;
+  Link- und Elementanhänge werden namentlich vermerkt.
+- Eine gelöschte Gruppe schlägt mit `graph.group_unavailable` fehl (die nächste Synchronisierung
+  verwaist sie). Throttling wie bei Postfächern (derselbe Graph-Client, Parallelität über die
+  Gruppen statt innerhalb einer).
+
+**Wiederherstellung.** Im Explorer steht die Gruppe im Abschnitt „SharePoint & Teams" (ein
+Eintrag je Gruppe, Filter „Microsoft-365-Gruppen") mit den Bereichen **Gruppenkalender** und
+**Unterhaltungen**.
+
+- Download als ZIP: jede Auswahl (Beiträge als `.eml`, Ereignisse als `.json`).
+- Export: Unterhaltungen als EML, MBOX oder PST wie Postfach-Mails (Kalender wird übersprungen
+  und gezählt).
+- In das Postfach eines Benutzers (Ziel „Anderes Konto", Adresse eines Postfachs derselben
+  Quelle): Ereignisse in dessen Kalender (bei „Beide behalten" in einen Wiederherstellungskalender),
+  Unterhaltungen als Mails in einen Ordner `Conversations` (bei „Beide behalten" unterhalb des
+  Wiederherstellungsordners). Das ist der Weg, der sicher funktioniert.
+- In die Gruppe selbst (Ziel „Ursprünglicher Ort"): nur Kalenderereignisse, in den einen
+  Gruppenkalender (`POST /groups/{id}/calendar/events`; „Beide behalten" legt Kopien neben das
+  Vorhandene, „Vorhandene überspringen" lässt Ereignisse mit gleicher `iCalUId` stehen; Teilnehmer
+  werden nicht erneut eingeladen). Verweigert Graph das Schreiben der App (laut Referenz nur
+  delegiert), scheitert jedes Ereignis mit der Antwort von Graph, und der Weg über ein
+  Benutzerpostfach bleibt. Unterhaltungen **können nicht** in die Gruppe zurück: Graph v1.0 lässt
+  eine App weder einen Thread anlegen noch antworten (nur delegiert). Jeder Beitrag erscheint im
+  Bericht als „nicht wiederherstellbar" mit diesem Grund.
+- Eine Gruppe gehört keiner Person: ihre Wiederherstellung gilt nicht als Wiederherstellung im
+  Auftrag (kein Grund nötig); Gruppen sehen nur Wiederherstellungsoperatoren und Administratoren.
+  „Überschreiben" gibt es nicht.
+
+**Restore-Prüfung, Ransomware-Signale, Aufbewahrung.** Wie bei Postfächern: Die Stichprobe liest
+Beiträge und Ereignisse zurück, die Signale der Microsoft-365-Läufe (Elemente und Bytes je Lauf)
+gelten auch für Gruppen, die Aufbewahrung des Mail-Jobs gilt für ihre Sicherungsstände.
+
+**Lizenzzählung.** Gruppenpostfächer zählen nicht als geschützte Postfächer
+(`countProtectedMailboxes`), wie Websites.
+
+**Am echten Tenant zu prüfen** (die Tests laufen gegen eine simulierte Graph-API,
+`packages/core/src/backup/groups/testing/fake-group.ts`):
+
+1. Liefert `/groups/{id}/calendar/events` mit Client-Credentials Ereignisse oder 403? Greift im
+   zweiten Fall der Rückfall über `calendarView`, und liest `/groups/{id}/events/{id}` den Master?
+2. Liefert `/groups/{id}/threads/{id}/posts?$expand=attachments` die Anhänge mit `contentBytes`
+   oder 403/400?
+3. Nimmt `POST /groups/{id}/calendar/events` mit Client-Credentials an?
+4. Akzeptiert `groups/delta` `resourceProvisioningOptions` im `$select`?
+5. Wirkt eine Application Access Policy auf Gruppenpostfächer (403 je Gruppe als Warnung)?
+
 ## Teams (nicht v1)
+
+Kalender und Unterhaltungen der Microsoft-365-Gruppe hinter einem Team sichert Restow als
+Gruppenpostfach (siehe oben), die Dateien über die Teams-Website. Nicht gesichert werden
+Kanal- und Chatnachrichten:
 
 - Nachrichten-Export nur über Protected APIs (`/teams/{id}/channels/{cid}/messages`
   mit `getAllMessages`, `/users/{id}/chats/getAllMessages`). Freischaltung per
