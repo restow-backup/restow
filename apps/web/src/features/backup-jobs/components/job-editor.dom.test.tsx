@@ -19,6 +19,10 @@ import { candidate, defaults, endpointJob, list, mailJob } from "../fixtures.js"
 import "../i18n.js";
 import { adminSession, focusOn, type Opened, openJobs, press } from "../testing.js";
 
+// The whole editor renders per test and some tests type a lot (24 windows take about 3 s
+// alone); under the parallel load of the full suite they come near the default 5 s.
+vi.setConfig({ testTimeout: 20_000 });
+
 /**
  * The job editor: errors where they belong and announced, what is sent, the question before
  * a object is taken from another job, exclusions as chips, folders by typing, and the way

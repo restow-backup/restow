@@ -13,6 +13,10 @@ import "./i18n.js";
 import { ArchivePage } from "./archive-page.js";
 import { SEARCH_DEBOUNCE_MS } from "./presenters.js";
 
+// Each test renders the whole archive page; the debounce test waits on real timers. Under the
+// parallel load of the full suite they come near the default 5 s.
+vi.setConfig({ testTimeout: 20_000 });
+
 /**
  * The archive search as a person uses it: one (audited) search per pause in
  * typing, an honest error instead of "nothing archived", pages with
