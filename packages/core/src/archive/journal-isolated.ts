@@ -27,6 +27,8 @@
  * the report's doing). The receiver answers both with 451, so Exchange
  * delivers the report again later.
  */
+
+import { UNAVAILABLE_ARCHIVE_FIELDS } from "../mailfiles/archive-fields-parse.js";
 import {
   type IsolatedTask,
   IsolatedTaskError,
@@ -34,6 +36,7 @@ import {
   runIsolated,
 } from "../mailfiles/isolate.js";
 import type { JournalFlag, JournalReportTransfer, ParsedJournalReport } from "./journal.js";
+import type { PlainCopy } from "./plain-copy.js";
 
 const TASK: IsolatedTask = {
   module: new URL("./journal.js", import.meta.url).href,
@@ -141,4 +144,72 @@ export async function parseJournalReportIsolated(
     flags: transfer.flags,
     parseLimit: null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Plain copies (./plain-copy.ts, 0.4.4): the same processes, limits and contract.
+// ---------------------------------------------------------------------------
+
+const PLAIN_COPY_TASK: IsolatedTask = {
+  module: new URL("./plain-copy.js", import.meta.url).href,
+  exportName: "parsePlainCopyTask",
+};
+
+export interface IsolatedPlainCopy extends PlainCopy {
+  /** Flags of a copy archived without its details (the parse ran over a limit or failed). */
+  readonly flags: readonly JournalFlag[];
+  /** Why the copy was archived without its details; null when it was parsed. */
+  readonly parseLimit: JournalParseLimit | null;
+}
+
+/** A plain copy archived as received, flagged with why it carries no details. */
+export function unparsedPlainCopy(limit: JournalParseLimit): IsolatedPlainCopy {
+  return {
+    ...UNAVAILABLE_ARCHIVE_FIELDS,
+    deliveredTo: [],
+    flags: [LIMIT_FLAGS[limit]],
+    parseLimit: limit,
+  };
+}
+
+/**
+ * parsePlainCopy of ./plain-copy.ts in an isolated child process, with the journal report's
+ * contract: never loses a copy because of its content (one that cannot be parsed within the
+ * limits comes back without details, flagged), rejects with {@link JournalParserBusyError}
+ * when the queue is full and with an `Error` when no parser process can be started; the
+ * receiver answers both with 451.
+ */
+export async function parsePlainCopyIsolated(
+  raw: Buffer,
+  options: ParseJournalReportIsolatedOptions = {},
+): Promise<IsolatedPlainCopy> {
+  try {
+    const parsed = await runIsolated<PlainCopy>(PLAIN_COPY_TASK, raw, {
+      timeoutMs: options.timeoutMs ?? isolatedTimeoutMs(raw.length),
+      ...(options.heapLimitMb !== undefined ? { heapLimitMb: options.heapLimitMb } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+    return {
+      ...parsed,
+      sentAt: parsed.sentAt ? new Date(parsed.sentAt) : null,
+      flags: parsed.unavailable ? ["report-unparseable"] : [],
+      parseLimit: parsed.unavailable ? "failed" : null,
+    };
+  } catch (error) {
+    if (!(error instanceof IsolatedTaskError)) {
+      throw error;
+    }
+    switch (error.kind) {
+      case "busy":
+        throw new JournalParserBusyError();
+      case "unavailable":
+        throw new Error(`The mail parser could not run: ${error.message}`);
+      case "timeout":
+        return unparsedPlainCopy("timeout");
+      case "memory":
+        return unparsedPlainCopy("memory");
+      default:
+        return unparsedPlainCopy("failed");
+    }
+  }
 }

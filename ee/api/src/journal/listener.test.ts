@@ -92,8 +92,16 @@ async function start(
     server: {
       providerDb: {} as Database,
       receiverDeps: {} as JournalReceiverDeps,
-      resolveTenant: async () => "22222222-2222-2222-2222-222222222222",
-      receive: async () => fakeRecord,
+      resolveRecipient: async () => ({
+        kind: "tenant",
+        tenantId: "22222222-2222-2222-2222-222222222222",
+      }),
+      receive: async () => ({
+        kind: "journal_report",
+        outcome: "stored",
+        itemId: fakeRecord.id,
+        flags: fakeRecord.flags,
+      }),
     },
     setState: (state) => states.push(state),
     logger,

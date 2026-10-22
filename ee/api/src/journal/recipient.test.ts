@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { base32, generateJournalToken, parseJournalToken } from "./recipient.js";
+import {
+  archiveLocalPart,
+  base32,
+  generateJournalToken,
+  parseArchiveAddress,
+  parseJournalToken,
+} from "./recipient.js";
 
 describe("parseJournalToken", () => {
   it("extracts the token from a journal+<token>@host address", () => {
@@ -36,5 +42,28 @@ describe("generateJournalToken", () => {
   it("encodes bytes as base32 (RFC 4648 test vector, lowercase)", () => {
     expect(base32(new TextEncoder().encode("foobar"))).toBe("mzxw6ytboi");
     expect(base32(new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff]))).toBe("77777777");
+  });
+});
+
+describe("parseArchiveAddress", () => {
+  it("reads the tenant's journal address and an account's archive address", () => {
+    expect(parseArchiveAddress("journal+abc@archive.example.com")).toEqual({
+      kind: "tenant",
+      token: "abc",
+    });
+    expect(parseArchiveAddress("ARCHIVE+Def2@archive.example.com")).toEqual({
+      kind: "account",
+      token: "def2",
+    });
+    expect(parseArchiveAddress(`${archiveLocalPart("xyz")}@h`)).toEqual({
+      kind: "account",
+      token: "xyz",
+    });
+  });
+
+  it("ignores every other address and empty tokens", () => {
+    expect(parseArchiveAddress("alice@archive.example.com")).toBeNull();
+    expect(parseArchiveAddress("archive+@archive.example.com")).toBeNull();
+    expect(parseArchiveAddress("archived+abc@archive.example.com")).toBeNull();
   });
 });

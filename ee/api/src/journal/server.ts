@@ -27,18 +27,26 @@
  * archived as received and logged with its flags and size, never with its
  * content (./receiver.ts).
  *
- * Not implemented yet: SPF verification of the sending Exchange Online tenant
- * and per-sender-IP rate limiting beyond the coarse in-memory limiter below.
- * Both are noted in docs/IMAP.md as hardening for a production journal
- * receiver and are left for a later release rather than shipped half-built.
+ * Recipients (./recipient.ts): the tenant's journal address and, since 0.4.4, the archive
+ * addresses of single IMAP accounts. One transaction delivers into one tenant's archive: a
+ * recipient of a second tenant is answered 452 (the sender delivers it in a transaction of
+ * its own), so a message is never committed for one tenant and retried for another.
+ *
+ * Limits (in memory, per api process): connections per remote IP per minute
+ * (`JOURNAL_RATE_PER_IP`, default 600, answered 421) and deliveries per recipient address
+ * per minute (`JOURNAL_RATE_PER_ADDRESS`, default 300, answered 451 at RCPT TO), both high
+ * enough for a hoster forwarding the mail of many accounts.
+ *
+ * Not implemented: SPF verification of the sender (Exchange Online, or the forwarding
+ * provider); documented in docs/IMAP.md. The address token is the credential.
  */
 import { archive } from "@restow/core";
 import type { Database } from "@restow/db";
 import { SMTPServer, type SMTPServerDataStream, type SMTPServerSession } from "smtp-server";
 import type { Config } from "../../../../apps/api/src/config.js";
-import type { JournalReceiverDeps } from "./receiver.js";
-import { receiveJournalReport } from "./receiver.js";
-import { tenantIdForJournalAddress } from "./recipient.js";
+import type { ArchiveDelivery, ArchiveReceipt, JournalReceiverDeps } from "./receiver.js";
+import { receiveArchiveMail } from "./receiver.js";
+import { type ArchiveRecipient, resolveArchiveRecipient } from "./recipient.js";
 
 /**
  * How the server handles TLS; required, so a server can never be built without
@@ -51,7 +59,8 @@ export type JournalServerTls =
   | { readonly mode: "insecure" };
 
 export interface JournalServerOptions {
-  readonly config: Pick<Config["journal"], "hostname" | "maxSizeBytes">;
+  readonly config: Pick<Config["journal"], "hostname" | "maxSizeBytes"> &
+    Partial<Pick<Config["journal"], "ratePerIp" | "ratePerAddress">>;
   readonly tls: JournalServerTls;
   readonly providerDb: Database;
   readonly receiverDeps: JournalReceiverDeps;
@@ -60,16 +69,21 @@ export interface JournalServerOptions {
     warn(msg: string, fields?: Record<string, unknown>): void;
     error(msg: string, fields?: Record<string, unknown>): void;
   };
-  /** Simple per-remote-IP token bucket; overridable in tests. */
+  /** Connections per remote IP (default `config.ratePerIp` per minute); overridable in tests. */
   readonly rateLimiter?: RateLimiter;
-  /** Resolve a recipient address to a tenant id; overridable in tests (default: ./recipient.js). */
-  readonly resolveTenant?: (providerDb: Database, address: string) => Promise<string | null>;
-  /** Process one report to a committed archive item; overridable in tests (default: ./receiver.js). */
+  /** Deliveries per recipient address (default `config.ratePerAddress` per minute). */
+  readonly addressRateLimiter?: RateLimiter;
+  /** Resolve a recipient address to its archive; overridable in tests (default: ./recipient.js). */
+  readonly resolveRecipient?: (
+    providerDb: Database,
+    address: string,
+  ) => Promise<ArchiveRecipient | null>;
+  /** Process one message to a committed archive entry; overridable in tests (default: ./receiver.js). */
   readonly receive?: (
-    tenantId: string,
+    delivery: ArchiveDelivery,
     raw: Buffer,
     deps: JournalReceiverDeps,
-  ) => Promise<archive.ArchiveItemRecord>;
+  ) => Promise<ArchiveReceipt>;
 }
 
 export interface RateLimiter {
@@ -77,7 +91,10 @@ export interface RateLimiter {
   allow(key: string): boolean;
 }
 
-const MAX_DELIVERIES_PER_MINUTE = 60;
+/** Connections per remote IP per minute (`JOURNAL_RATE_PER_IP`). */
+export const DEFAULT_RATE_PER_IP = 600;
+/** Deliveries per recipient address per minute (`JOURNAL_RATE_PER_ADDRESS`). */
+export const DEFAULT_RATE_PER_ADDRESS = 300;
 
 /** Flags of a report that was archived as received because its parse ran over a limit. */
 const PARSE_LIMIT_FLAGS: ReadonlySet<string> = new Set([
@@ -87,14 +104,24 @@ const PARSE_LIMIT_FLAGS: ReadonlySet<string> = new Set([
 
 /** A coarse in-memory sliding-window limiter, per remote IP. */
 export function createInMemoryRateLimiter(
-  limit = MAX_DELIVERIES_PER_MINUTE,
+  limit = DEFAULT_RATE_PER_IP,
   windowMs = 60_000,
   now: () => number = Date.now,
 ): RateLimiter {
   const hits = new Map<string, number[]>();
+  let lastSweep = now();
   return {
     allow(key: string): boolean {
       const cutoff = now() - windowMs;
+      if (now() - lastSweep > windowMs) {
+        // Forget keys that were quiet for a whole window (many senders, many addresses).
+        lastSweep = now();
+        for (const [entry, times] of hits) {
+          if ((times[times.length - 1] ?? 0) <= cutoff) {
+            hits.delete(entry);
+          }
+        }
+      }
       const recent = (hits.get(key) ?? []).filter((t) => t > cutoff);
       if (recent.length >= limit) {
         hits.set(key, recent);
@@ -123,6 +150,10 @@ class TooManyRequests extends Error {
   readonly responseCode = 421;
 }
 
+class TooManyRecipientTenants extends Error {
+  readonly responseCode = 452;
+}
+
 class MessageTooLarge extends Error {
   readonly responseCode = 552;
 }
@@ -143,15 +174,23 @@ async function readStream(stream: SMTPServerDataStream, maxSizeBytes: number): P
 /** Build the (unstarted) SMTP server; call `.listen(port)` to start it. */
 export function createJournalServer(options: JournalServerOptions): SMTPServer {
   const { config, providerDb, receiverDeps, logger } = options;
-  const rateLimiter = options.rateLimiter ?? createInMemoryRateLimiter();
-  const resolveTenant = options.resolveTenant ?? tenantIdForJournalAddress;
-  const receive = options.receive ?? receiveJournalReport;
+  const rateLimiter =
+    options.rateLimiter ?? createInMemoryRateLimiter(config.ratePerIp ?? DEFAULT_RATE_PER_IP);
+  const addressRateLimiter =
+    options.addressRateLimiter ??
+    createInMemoryRateLimiter(config.ratePerAddress ?? DEFAULT_RATE_PER_ADDRESS);
+  const resolveRecipient = options.resolveRecipient ?? resolveArchiveRecipient;
+  const receive = options.receive ?? receiveArchiveMail;
   const { tls } = options;
   if (tls.mode === "tls" && (tls.key.length === 0 || tls.cert.length === 0)) {
     throw new Error("the journal receiver needs a non-empty TLS certificate and key");
   }
 
-  const resolvedTenants = new WeakMap<SMTPServerSession, string>();
+  /** The current transaction's tenant and accepted recipients, per session. */
+  const transactions = new WeakMap<
+    SMTPServerSession,
+    { tenantId: string; recipients: ArchiveRecipient[]; rcptTo: string[] }
+  >();
 
   return new SMTPServer({
     banner: config.hostname ?? "restow-archive",
@@ -181,6 +220,8 @@ export function createJournalServer(options: JournalServerOptions): SMTPServer {
     },
 
     onMailFrom(_address, session, callback) {
+      // A new transaction: the recipients of an earlier one on this connection do not count.
+      transactions.delete(session);
       // Exchange Online's connector always uses TLS: a session that has not
       // upgraded with STARTTLS yet is refused here, before a recipient or a
       // body is ever looked at.
@@ -197,12 +238,35 @@ export function createJournalServer(options: JournalServerOptions): SMTPServer {
 
     async onRcptTo(address, session, callback) {
       try {
-        const tenantId = await resolveTenant(providerDb, address.address);
-        if (!tenantId) {
-          callback(new RejectedRecipient(`unknown journal address: ${address.address}`));
+        const recipient = await resolveRecipient(providerDb, address.address);
+        if (!recipient) {
+          callback(new RejectedRecipient(`unknown archive address: ${address.address}`));
           return;
         }
-        resolvedTenants.set(session, tenantId);
+        const current = transactions.get(session);
+        if (current && current.tenantId !== recipient.tenantId) {
+          // One transaction, one archive: the sender retries this recipient on its own.
+          callback(
+            new TooManyRecipientTenants(
+              "4.5.3 one archive per transaction; deliver this recipient separately",
+            ),
+          );
+          return;
+        }
+        if (!addressRateLimiter.allow(address.address.toLowerCase())) {
+          callback(new TemporaryFailure("4.7.1 too many deliveries to this address, try later"));
+          return;
+        }
+        if (current) {
+          current.recipients.push(recipient);
+          current.rcptTo.push(address.address);
+        } else {
+          transactions.set(session, {
+            tenantId: recipient.tenantId,
+            recipients: [recipient],
+            rcptTo: [address.address],
+          });
+        }
         callback();
       } catch (error) {
         logger?.error("journal RCPT TO lookup failed", { errorMessage: String(error) });
@@ -211,24 +275,40 @@ export function createJournalServer(options: JournalServerOptions): SMTPServer {
     },
 
     async onData(stream, session, callback) {
-      const tenantId = resolvedTenants.get(session);
-      if (!tenantId) {
+      const transaction = transactions.get(session);
+      transactions.delete(session);
+      if (!transaction) {
         callback(new RejectedRecipient("no accepted journal recipient for this message"));
         return;
       }
+      const { tenantId } = transaction;
       try {
         const raw = await readStream(stream, config.maxSizeBytes);
-        const record = await receive(tenantId, raw, receiverDeps);
-        logger?.info("journal report archived", {
-          tenantId,
-          itemId: record.id,
-          flags: record.flags,
-        });
+        const mailFrom = session.envelope.mailFrom;
+        const record = await receive(
+          {
+            tenantId,
+            recipients: transaction.recipients,
+            mailFrom: mailFrom ? mailFrom.address || null : null,
+            rcptTo: transaction.rcptTo,
+          },
+          raw,
+          receiverDeps,
+        );
+        logger?.info(
+          record.kind === "journal_report" ? "journal report archived" : "forwarded copy archived",
+          {
+            tenantId,
+            itemId: record.itemId,
+            outcome: record.outcome,
+            flags: record.flags,
+          },
+        );
         if (record.flags.some((flag) => PARSE_LIMIT_FLAGS.has(flag))) {
           // The reason and the size, never a header or a line of the report.
           logger?.warn(
-            "journal report could not be parsed within the parser's time or memory limit; archived byte for byte without its details",
-            { tenantId, itemId: record.id, flags: record.flags, bytes: raw.length },
+            "a message could not be parsed within the parser's time or memory limit; archived byte for byte without its details",
+            { tenantId, itemId: record.itemId, flags: record.flags, bytes: raw.length },
           );
         }
         callback(null, "accepted");

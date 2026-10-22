@@ -15,6 +15,7 @@ export * from "./journal.js";
 export * from "./journal-isolated.js";
 export * from "./layout.js";
 export * from "./memory.js";
+export * from "./plain-copy.js";
 export * from "./reader.js";
 export * from "./retention.js";
 export * from "./types.js";
