@@ -211,7 +211,7 @@ export function coverageNotice(
   view: Pick<UpdatesView, "releases" | "coverage">,
 ): CoverageNotice | null {
   const newest = view.releases[0];
-  if (!newest || newest.covered !== false) {
+  if (newest?.covered !== false) {
     return null;
   }
   return {

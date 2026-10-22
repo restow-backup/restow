@@ -1051,6 +1051,16 @@ Nothing restarts on its own: the notice stays until the service has started
 again, by the button, by the command or by the next update, and then
 disappears by itself.
 
+## Licence keys and updates (full build)
+
+A Business or Service Provider licence key covers a set of releases: a beta licence (every
+key bought before 1.0) every 0.x and 1.x release, a key bought from 1.0 on every release made
+within its update period. The Updates tab offers and installs only covered releases and says
+calmly when a newer one lies outside the period; the installed version keeps working with all
+modules. A version the key does not cover that is started by hand stops before its database
+migrations, so going back needs no restore, or starts as Community with
+`RESTOW_RUN_AS_COMMUNITY=1`. Details: [LICENSING.md](LICENSING.md).
+
 ## Rollback
 
 - **No migrations in the release:** check out (or pull) the previous version

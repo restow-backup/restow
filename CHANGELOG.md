@@ -8,6 +8,42 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- Licence keys carry update terms (docs/LICENSING.md). The key format `restow-license-v1`
+  accepts the optional members `series`, `updates_until` and `kid` and ignores members it does
+  not know, so keys the licence server issues later keep verifying; the six members of today
+  stay required and keep their rules (`mailbox_limit` unchanged). Every key issued so far is a
+  beta licence: it covers every 0.x and 1.x release. A key with `updates_until` covers every
+  release made up to the end of that day (UTC). `kid` names the vendor signing key, for a
+  rotation without breaking issued keys. The contract for the issuer, with examples, is
+  ee/licensing/KEY-FORMAT.md.
+- The image carries its release date (`RESTOW_RELEASED_AT`, from the build argument
+  `RESTOW_CREATED`, the commit date of the release tag); `GET /api/v1/status` reports it as
+  `releasedAt`. Release notes publish the same date in a `released:` line next to the digests.
+- The update check marks releases the installed Business or Service Provider key does not
+  cover, says so calmly on the Updates page (the installed version keeps working; the newest
+  covered version installs as usual) and refuses to install or plan them (409
+  `urn:restow:problem:update-not-covered`).
+- Started by hand, a release the installed Business or Service Provider key does not cover
+  stops before its database migrations, with a log line naming the version, the end of the
+  update period and the last covered release date; nothing needs to be restored to go back.
+  With `RESTOW_RUN_AS_COMMUNITY=1` it starts as Community instead (the modules stay off, no
+  data is changed). Never for beta licences, development builds, installations without a key
+  or the demo.
+- The licence page shows which updates the key includes ("all 1.x (beta license)" or the end
+  of the update period) and, from 30 days before the end, a short notice on the same page.
+  A new key of the same edition replaces the active one even while it is in force (a
+  renewal); earlier keys stay in the history, and every installation or replacement is
+  audited with the key's update terms and whether they cover the running version. A key that
+  does not cover the running version is refused (`outside_update_period`).
+
+### Upgrade Notes
+
+- One database migration (0063): three nullable columns of the `license` table.
+
 ## [0.4.4] - 2026-10-22
 
 Beta release. Run it alongside your existing backups, not as your only one, until

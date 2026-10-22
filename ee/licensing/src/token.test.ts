@@ -1,7 +1,9 @@
 import { generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTestLicenseSigner } from "../testing/test-signer.mjs";
 import { keyringOf, licenseSigningKeyId } from "./keyring.js";
+import { EMBEDDED_LICENSE_PUBLIC_KEY, parseLicensePublicKey } from "./public-key.js";
 import {
   LICENSE_TOKEN_PREFIX,
   type LicensePayload,
@@ -395,5 +397,37 @@ describe("verifyLicenseToken: signing keys by kid", () => {
       ok: false,
       reason: "bad_signature",
     });
+  });
+});
+
+describe("the contract for the issuer (KEY-FORMAT.md)", () => {
+  const contract = readFileSync(new URL("../KEY-FORMAT.md", import.meta.url), "utf8");
+  const examples = [...contract.matchAll(/```json\n([\s\S]*?)```/g)].map((match) =>
+    JSON.parse(match[1] ?? ""),
+  );
+
+  it("has the four examples, and every one of them verifies as documented", () => {
+    expect(examples).toHaveLength(4);
+    for (const example of examples) {
+      // The examples name the vendor's real key; the test signs with a throwaway one.
+      if (example.kid) {
+        expect(example.kid).toBe(
+          licenseSigningKeyId(parseLicensePublicKey(EMBEDDED_LICENSE_PUBLIC_KEY)),
+        );
+        example.kid = vendor.kid;
+      }
+      const result = verifyLicenseToken(vendor.signRaw(JSON.stringify(example)), vendorKey);
+      expect(result.ok, JSON.stringify(example)).toBe(true);
+    }
+    const [beta, , period] = examples.map((example) =>
+      parseLicensePayload(example),
+    ) as LicensePayload[];
+    expect(beta?.updates_until).toBeNull();
+    expect(beta?.series).toBeNull();
+    expect(period?.updates_until).toBe("2029-01-15");
+  });
+
+  it("documents the beta key in the form builds up to 0.4.4 accept: exactly the six members", () => {
+    expect(Object.keys(examples[0] ?? {}).sort()).toEqual([...PAYLOAD_KEYS].sort());
   });
 });
