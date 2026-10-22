@@ -60,9 +60,10 @@ export function canAccessObject(viewer: Viewer, object: OwnedObject): boolean {
  * as such.
  */
 export function isImpersonation(viewer: Viewer, object: OwnedObject): boolean {
-  // A SharePoint site is a shared resource, nobody's personal data: restoring it
-  // acts for no one (only restore operators and admins see sites at all).
-  if (object.kind === "site") {
+  // A SharePoint site or a Microsoft 365 group mailbox is a shared resource,
+  // nobody's personal data: restoring it acts for no one (only restore
+  // operators and admins see them at all).
+  if (object.kind === "site" || object.kind === "group") {
     return false;
   }
   return !isOwnObject(viewer, object);

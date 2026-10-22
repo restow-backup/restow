@@ -365,6 +365,7 @@ describe("status summary", () => {
       onedrive: null,
       imap: "2026-09-21T03:00:00.000Z",
       sharepoint: null,
+      groups: null,
       archive: null,
     });
   });

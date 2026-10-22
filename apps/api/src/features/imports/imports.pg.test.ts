@@ -2252,6 +2252,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
           onedrive: null,
           imap: null,
           sharepoint: null,
+          groups: null,
           archive: null,
         });
         expect(summary.storage.logicalBytes).toBe(0);

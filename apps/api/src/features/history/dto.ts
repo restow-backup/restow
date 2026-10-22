@@ -49,6 +49,7 @@ export type SubjectKind =
   | "onedrive"
   | "imap"
   | "site"
+  | "group"
   | "server"
   | "client"
   | "file_share";

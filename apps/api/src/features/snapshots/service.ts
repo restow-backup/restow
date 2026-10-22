@@ -399,8 +399,9 @@ async function selectObjects(
     status: row.status,
     sourceKind: row.sourceKind,
     ownerEmail: row.ownerEmail,
-    ownerKey: row.kind === "site" ? null : row.ownerKey,
-    ownerName: row.kind === "site" ? null : row.ownerName,
+    // Sites and group mailboxes belong to no person.
+    ownerKey: row.kind === "site" || row.kind === "group" ? null : row.ownerKey,
+    ownerName: row.kind === "site" || row.kind === "group" ? null : row.ownerName,
     own: isOwnObject(viewer, row),
     snapshotCount: Number(row.snapshotCount),
     latestSnapshotId: row.latestSnapshotId,
@@ -1722,9 +1723,9 @@ export async function calendarView(
 // People: the explorer's left column, page by page
 // ---------------------------------------------------------------------------
 
-/** One entry of the explorer's left column: a person with their objects, or one site. */
+/** One entry of the explorer's left column: a person with their objects, one site or one group mailbox. */
 export interface PersonEntryDto {
-  /** `user:<user id>`, `object:<id>` for an object of no known person, `site:<id>`. */
+  /** `user:<user id>`, `object:<id>` for an object of no known person, `site:<id>`, `group:<id>`. */
   key: string;
   name: string;
   /** The person's address (the owner's), or null. */
@@ -1776,12 +1777,18 @@ function decodeCursor(value: string): PeopleCursor {
   });
 }
 
-const KIND_RANK: Readonly<Record<string, number>> = { mailbox: 0, onedrive: 1, imap: 2, site: 3 };
+const KIND_RANK: Readonly<Record<string, number>> = {
+  mailbox: 0,
+  onedrive: 1,
+  imap: 2,
+  site: 3,
+  group: 4,
+};
 
 /**
  * The explorer's left column one page at a time, for tenants with tens of thousands of people:
  * people grouped by the directory user their objects belong to (`protected_objects.user_id`),
- * or sites, the viewer's own entry first, then by name and key (a keyset, stable while objects
+ * or sites and Microsoft 365 group mailboxes (the "SharePoint & Teams" section), the viewer's own entry first, then by name and key (a keyset, stable while objects
  * come and go). Search and the type filter run in the database over every name, address and
  * account id. The grouping reads the tenant's objects through `protected_objects_tenant_status_idx`
  * once per page; the objects of the page (their restore points and readiness) are loaded by id.
@@ -1803,8 +1810,8 @@ export async function listPeople(
       query.objectId !== undefined
         ? sql`true`
         : query.section === "sites"
-          ? sql`po.kind = 'site'`
-          : sql`po.kind <> 'site'`;
+          ? sql`po.kind IN ('site', 'group')`
+          : sql`po.kind NOT IN ('site', 'group')`;
     const withBackup =
       query.include === "all"
         ? sql`true`
@@ -1842,6 +1849,7 @@ export async function listPeople(
       WITH o AS (
         SELECT po.id, po.kind, po.status,
                CASE WHEN po.kind = 'site' THEN 'site:' || po.id::text
+                    WHEN po.kind = 'group' THEN 'group:' || po.id::text
                     WHEN po.user_id IS NOT NULL THEN 'user:' || po.user_id::text
                     ELSE 'object:' || po.id::text END AS key,
                u.display_name AS owner_name,

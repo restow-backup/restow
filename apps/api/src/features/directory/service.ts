@@ -121,6 +121,7 @@ export interface ObjectCounts {
   onedrive: number;
   imap: number;
   site: number;
+  group: number;
 }
 
 export interface PendingSyncDto {
@@ -327,6 +328,7 @@ const EMPTY_COUNTS: ObjectCounts = {
   onedrive: 0,
   imap: 0,
   site: 0,
+  group: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -685,6 +687,8 @@ function notSelectedSql(): SQL {
     and ${protectedObjects.status} = 'excluded'
     and (case when ${protectedObjects.kind} = 'site'
       then (${sources.config}->'protection'->>'sites')
+      when ${protectedObjects.kind} = 'group'
+      then coalesce(${sources.config}->'protection'->>'groups', 'selected')
       else (${sources.config}->'scope'->>'mode') end) = 'selected'
     and coalesce(${sources.config}->'protection'->'overrides'->>${protectedObjects.externalId}, '') <> 'exclude'
   ), false)`;
@@ -914,6 +918,7 @@ async function toObjectDtos(
     {
       mode: ProtectionRulesDto["mode"];
       sites: ProtectionRulesDto["sites"];
+      groups: ProtectionRulesDto["groups"];
       overrides: Record<string, ProtectionOverride>;
       shared: Set<string>;
       imapAuthMode: ImapAuthMode;
@@ -927,6 +932,7 @@ async function toObjectDtos(
       entry = {
         mode: rules.mode,
         sites: rules.sites,
+        groups: rules.groups,
         overrides: { ...overrides },
         shared: new Set(readDirectoryState(row.sourceConfig).sharedOrBlockedIds),
         imapAuthMode: raw?.imapAuthMode ?? "shared",

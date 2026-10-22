@@ -36,7 +36,7 @@ export const readinessStateSchema = component(
 
 export const objectKindSchema = component(
   "ObjectKind",
-  z.enum(["mailbox", "onedrive", "imap", "site"]),
+  z.enum(["mailbox", "onedrive", "imap", "site", "group"]),
 );
 export const objectStatusSchema = component(
   "ObjectStatus",

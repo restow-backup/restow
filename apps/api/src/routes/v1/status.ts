@@ -38,6 +38,11 @@ export const lastSuccessSchema = component(
       sharepoint: timestampSchema
         .nullable()
         .describe("Newest restorable SharePoint site backup without failed items."),
+      groups: timestampSchema
+        .nullable()
+        .describe(
+          "Newest restorable backup of a Microsoft 365 group mailbox (calendar and conversations) without failed items.",
+        ),
       archive: timestampSchema.nullable().describe("Newest message captured into the archive."),
     })
     .describe(
@@ -156,7 +161,7 @@ export const statusSchema = component(
 );
 export type StatusDto = z.infer<typeof statusSchema>;
 
-type ObjectKind = "mailbox" | "onedrive" | "imap" | "site";
+type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 type ObjectStatus = "active" | "excluded" | "orphaned";
 
 /** Counts per status, including the statuses nothing has. */
@@ -177,6 +182,7 @@ export function lastSuccessOf(
     onedrive: of("onedrive"),
     imap: of("imap"),
     sharepoint: of("site"),
+    groups: of("group"),
     archive,
   };
 }
