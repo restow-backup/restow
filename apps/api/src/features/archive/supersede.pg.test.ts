@@ -148,12 +148,12 @@ describe.skipIf(!testDatabaseAdminUrl)("archive captures of one mail against Pos
 
   it("hides a superseded item from the search unless asked for it", async () => {
     const hidden = await get<{ items: Hit[]; total: number }>("/archive/search");
-    expect(hidden.items.map((item) => item.id).sort()).toEqual(
-      [ids.journal, ids.forwarded].sort(),
-    );
+    expect(hidden.items.map((item) => item.id).sort()).toEqual([ids.journal, ids.forwarded].sort());
     expect(hidden.total).toBe(2);
 
-    const all = await get<{ items: Hit[]; total: number }>("/archive/search?includeSuperseded=true");
+    const all = await get<{ items: Hit[]; total: number }>(
+      "/archive/search?includeSuperseded=true",
+    );
     expect(all.total).toBe(3);
     const byId = new Map(all.items.map((item) => [item.id, item]));
     expect(byId.get(ids.synced)).toMatchObject({ superseded: true, supersedesItemId: null });
