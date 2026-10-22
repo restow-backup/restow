@@ -9,5 +9,6 @@ export * from "./contacts.js";
 export * from "./drive.js";
 export * from "./mail.js";
 export * from "./sites.js";
+export * from "./subscriptions.js";
 export * from "./upload-session.js";
 export * from "./users.js";

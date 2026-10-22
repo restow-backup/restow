@@ -136,6 +136,14 @@
       "item_incomplete": {
         "title": "Microsoft hat das Element unvollständig gemeldet",
         "why": "Microsoft hat dieses Element ohne Namen oder ohne seinen Ordner gemeldet. Ohne diese Angaben kann {appName} es nicht einordnen. Das passiert meist, wenn das Element gerade verschoben, umbenannt oder hochgeladen wird; der nächste Lauf versucht es erneut."
+      },
+      "subscription_failed": {
+        "title": "Microsoft 365 sendet für dieses Postfach keine Änderungsbenachrichtigungen",
+        "why": "{appName} konnte das Abonnement für Änderungsbenachrichtigungen dieses Postfachs für das Archiv nicht einrichten oder verlängern. Die Archivierung läuft weiter: {appName} prüft das Postfach stattdessen regelmäßig auf neue Mails, sodass Mails später im Archiv ankommen als mit Benachrichtigungen. {appName} versucht automatisch, die Benachrichtigungen erneut einzurichten."
+      },
+      "notification_url_unavailable": {
+        "title": "Änderungsbenachrichtigungen brauchen eine öffentliche HTTPS-Adresse",
+        "why": "Microsoft stellt Änderungsbenachrichtigungen nur an eine Adresse zu, die es per HTTPS auf Port 443 erreicht. {appName} hat keine öffentliche URL, die mit https:// beginnt, daher prüft das Archiv jedes Microsoft-365-Postfach stattdessen regelmäßig auf neue Mails (nur Abfrage). Es geht nichts verloren, Mails kommen nur später im Archiv an."
       }
     },
     "imap": {
@@ -665,7 +673,8 @@
     "check_endpoint_agent": "Prüfen Sie, ob der Agent-Dienst auf dem Rechner läuft und der Rechner den Server per HTTPS erreicht.",
     "check_endpoint_file_access": "Prüfen Sie die Berechtigungen der im Lauf genannten Dateien. Datenbanken und andere Dateien, die sich beim Kopieren ändern, sichert man am besten mit einem Befehl, der vor der Sicherung einen Dump erstellt.",
     "choose_empty_restore_folder": "Fordern Sie die Wiederherstellung erneut an und wählen Sie einen Ordner, der noch nicht existiert oder leer ist. Eine Wiederherstellung überschreibt nie Dateien.",
-    "wait_endpoint_retry": "Nichts zu tun. Der Agent versucht es beim nächsten geplanten Lauf erneut, oder starten Sie mit Jetzt sichern einen."
+    "wait_endpoint_retry": "Nichts zu tun. Der Agent versucht es beim nächsten geplanten Lauf erneut, oder starten Sie mit Jetzt sichern einen.",
+    "set_public_https_url": "Hinterlegen Sie unter Installation › Server & Betrieb (oder in RESTOW_PUBLIC_URL) eine öffentliche URL, die mit https:// beginnt und die Microsoft auf Port 443 erreicht. {appName} richtet die Änderungsbenachrichtigungen dann selbst ein."
   },
   "go": {
     "settings_microsoft": "Microsoft-365-Einstellungen öffnen",
