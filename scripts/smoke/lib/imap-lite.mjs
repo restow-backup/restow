@@ -10,12 +10,14 @@ import net from "node:net";
 const CRLF = Buffer.from("\r\n");
 
 export class ImapClient {
-  constructor(socket) {
+  constructor(socket, { timeoutMs = 60_000 } = {}) {
     this.socket = socket;
     this.buffer = Buffer.alloc(0);
     this.waiting = null;
     this.tagCounter = 0;
     this.closed = false;
+    this.closeReason = null;
+    this.timeoutMs = timeoutMs;
     socket.on("data", (chunk) => {
       this.buffer = Buffer.concat([this.buffer, chunk]);
       this.wake();
@@ -24,23 +26,39 @@ export class ImapClient {
       this.closed = true;
       this.wake();
     });
-    socket.on("error", () => {
+    socket.on("error", (error) => {
+      this.closeReason ??= error.message;
       this.closed = true;
       this.wake();
     });
+    socket.on("timeout", () => socket.destroy(new Error("IMAP socket timed out")));
   }
 
+  /**
+   * `timeoutMs` bounds how long a command waits for the server. A logged-in client may sit
+   * idle between commands as long as the server allows (a check holds it across minutes of
+   * waiting for the stack); only a server that stops answering a command is given up on.
+   */
   static async connect({ host, port, user, password, timeoutMs = 15_000 }) {
     const socket = net.connect({ host, port });
     await new Promise((resolve, reject) => {
       socket.once("connect", resolve);
       socket.once("error", reject);
     });
-    socket.setTimeout(timeoutMs * 4, () => socket.destroy(new Error("IMAP socket timed out")));
-    const client = new ImapClient(socket);
-    await client.readLine(); // greeting
+    const client = new ImapClient(socket, { timeoutMs: timeoutMs * 4 });
+    await client.waitingForServer(() => client.readLine()); // greeting
     await client.command(`LOGIN ${quote(user)} ${quote(password)}`);
     return client;
+  }
+
+  /** Run `fn` with the inactivity timeout armed, and disarm it after. */
+  async waitingForServer(fn) {
+    this.socket.setTimeout(this.timeoutMs);
+    try {
+      return await fn();
+    } finally {
+      this.socket.setTimeout(0);
+    }
   }
 
   wake() {
@@ -54,7 +72,9 @@ export class ImapClient {
   async ensure(predicate) {
     while (!predicate()) {
       if (this.closed) {
-        throw new Error("the IMAP connection closed unexpectedly");
+        throw new Error(
+          `the IMAP connection closed unexpectedly${this.closeReason ? ` (${this.closeReason})` : ""}`,
+        );
       }
       await new Promise((resolve) => {
         this.waiting = resolve;
@@ -78,7 +98,11 @@ export class ImapClient {
   }
 
   /** Send a command, return the untagged responses `{ line, literals }` and the tagged status line. */
-  async command(text, { literal } = {}) {
+  async command(text, options = {}) {
+    return this.waitingForServer(() => this.send(text, options));
+  }
+
+  async send(text, { literal } = {}) {
     const tag = `s${++this.tagCounter}`;
     if (literal) {
       this.socket.write(`${tag} ${text} {${literal.length}}\r\n`);
