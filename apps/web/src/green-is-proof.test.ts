@@ -58,6 +58,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "a restore point whose restore check passed; a restore or restore check of a guest that completed",
   "./features/pve/guest-status.ts":
     "the state of a guest whose newest restore point passed its restore check (the only green state)",
+  "./features/endpoints/machine-status.ts":
+    "the state of a machine whose newest backup a restore check rated green, while a job renews it (the only green state)",
   "./features/pve/boot-test.tsx":
     "a boot test whose restored guest answered (its QEMU guest agent, or a container's init)",
   "./features/storage/components/restore-point-immutability.tsx":

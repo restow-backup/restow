@@ -131,7 +131,8 @@
       "assignedTo": "Assigned to",
       "attention": "Needs attention",
       "agentVersion": "Agent version",
-      "actions": "Actions"
+      "actions": "Actions",
+      "state": "State"
     },
     "actionsFor": "Actions for {name}",
     "assignedNobody": "Nobody",
@@ -1250,5 +1251,58 @@
     "requested": "The agent updates as soon as it is idle",
     "requestedNote": "It installs the signed release with its next contact once no backup or restore runs on the machine, then restarts.",
     "paused": "Agent updates are paused for this machine or its tenant."
+  },
+  "machineStatus": {
+    "cancelling": "Stopping…",
+    "running": "Backup running",
+    "busy": "Working",
+    "revoked": "Revoked",
+    "failed": "Backup failed",
+    "restore_failed": "Restore check failed",
+    "repository_damaged": "Repository damaged",
+    "silent": "Silent",
+    "backup_overdue": "Backup overdue",
+    "partial": "With warnings",
+    "no_job": "Without backup",
+    "never_seen": "Never connected",
+    "never": "No backup yet",
+    "restore_warning": "Restore check: attention",
+    "check_overdue": "Restore check overdue",
+    "interrupted": "Interrupted",
+    "offline": "Offline",
+    "unverified": "Unverified",
+    "verified": "Restore check passed",
+    "succeeded": "Backed up",
+    "unknown": "Unknown"
+  },
+  "sheet": {
+    "title": "Machine",
+    "details": "Show details",
+    "openFor": "Show details of {name}",
+    "notFound": "This machine does not exist (any more), or it belongs to another tenant.",
+    "state": "State",
+    "lastError": "Error of the last backup",
+    "copyError": "Copy error",
+    "warnings": "Warnings of the last backup",
+    "copyWarnings": "Copy warnings",
+    "logTail": "End of the log",
+    "copyLog": "Copy log",
+    "problems": "Needs attention",
+    "restoreCheck": "Restore check",
+    "result": "Result",
+    "checkedAt": "Checked",
+    "basis": "Checked by",
+    "basisKind": {
+      "restore_test": "Restore check on the machine",
+      "repository_check": "Repository check"
+    },
+    "facts": "Key facts",
+    "lastSuccess": "Last successful backup",
+    "nextRun": "Next backup",
+    "runs": "Last runs",
+    "noRuns": "No run reported yet.",
+    "openPage": "Open machine page",
+    "progressOf": "Backup progress of {name}",
+    "adminOnly": "Backing up and stopping is for administrators of backup jobs."
   }
 }

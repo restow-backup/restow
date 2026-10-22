@@ -131,7 +131,8 @@
       "assignedTo": "Zugeordnet zu",
       "attention": "Handlungsbedarf",
       "agentVersion": "Agent-Version",
-      "actions": "Aktionen"
+      "actions": "Aktionen",
+      "state": "Zustand"
     },
     "actionsFor": "Aktionen für {name}",
     "assignedNobody": "Niemandem",
@@ -1250,5 +1251,58 @@
     "requested": "Der Agent aktualisiert sich, sobald er frei ist",
     "requestedNote": "Er installiert das signierte Release bei seiner nächsten Meldung, sobald auf dem Rechner keine Sicherung und keine Wiederherstellung läuft, und startet dann neu.",
     "paused": "Agent-Updates sind für diesen Rechner oder seinen Mandanten pausiert."
+  },
+  "machineStatus": {
+    "cancelling": "Wird gestoppt…",
+    "running": "Sicherung läuft",
+    "busy": "Arbeitet",
+    "revoked": "Widerrufen",
+    "failed": "Sicherung fehlgeschlagen",
+    "restore_failed": "Restore-Prüfung fehlgeschlagen",
+    "repository_damaged": "Repository beschädigt",
+    "silent": "Meldet sich nicht",
+    "backup_overdue": "Sicherung überfällig",
+    "partial": "Mit Warnungen",
+    "no_job": "Ohne Sicherung",
+    "never_seen": "Nie verbunden",
+    "never": "Noch keine Sicherung",
+    "restore_warning": "Restore-Prüfung: Achtung",
+    "check_overdue": "Restore-Prüfung überfällig",
+    "interrupted": "Unterbrochen",
+    "offline": "Offline",
+    "unverified": "Ungeprüft",
+    "verified": "Restore-Prüfung bestanden",
+    "succeeded": "Gesichert",
+    "unknown": "Unbekannt"
+  },
+  "sheet": {
+    "title": "Rechner",
+    "details": "Details anzeigen",
+    "openFor": "Details von {name} anzeigen",
+    "notFound": "Diesen Rechner gibt es nicht (mehr), oder er gehört zu einem anderen Mandanten.",
+    "state": "Zustand",
+    "lastError": "Fehler der letzten Sicherung",
+    "copyError": "Fehler kopieren",
+    "warnings": "Warnungen der letzten Sicherung",
+    "copyWarnings": "Warnungen kopieren",
+    "logTail": "Ende des Protokolls",
+    "copyLog": "Protokoll kopieren",
+    "problems": "Braucht Aufmerksamkeit",
+    "restoreCheck": "Restore-Prüfung",
+    "result": "Ergebnis",
+    "checkedAt": "Geprüft",
+    "basis": "Geprüft durch",
+    "basisKind": {
+      "restore_test": "Restore-Prüfung auf dem Rechner",
+      "repository_check": "Repository-Prüfung"
+    },
+    "facts": "Eckdaten",
+    "lastSuccess": "Letzte erfolgreiche Sicherung",
+    "nextRun": "Nächste Sicherung",
+    "runs": "Letzte Läufe",
+    "noRuns": "Noch kein Lauf gemeldet.",
+    "openPage": "Seite des Rechners öffnen",
+    "progressOf": "Fortschritt der Sicherung von {name}",
+    "adminOnly": "Sichern und Stoppen ist Sache der Administratoren von Backup-Jobs."
   }
 }

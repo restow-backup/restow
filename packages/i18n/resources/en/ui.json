@@ -124,5 +124,9 @@
     "jumpHint": "Days with restore points are highlighted. A day without one opens the nearest earlier day.",
     "jumped": "Showing the restore points of {day}.",
     "jumpedEarlier": "No restore point on {date}. Showing {day}, the nearest earlier day."
+  },
+  "detail": {
+    "close": "Close",
+    "loading": "Loading…"
   }
 }

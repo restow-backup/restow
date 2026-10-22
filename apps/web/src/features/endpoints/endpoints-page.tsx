@@ -4,10 +4,12 @@ import { useTranslation } from "react-i18next";
 
 import { EmptyState, PageHeader, RefreshButton } from "@/components/kit";
 import { Button } from "@/components/ui/button";
+import { useJobsAccess } from "@/features/backup-jobs/components/access-note";
 import { PveInventorySection } from "@/features/pve/inventory-section";
 import { useSession } from "@/lib/session";
 import { EndpointsTable } from "./components/endpoints-table.js";
 import { EnrollDialog } from "./components/enroll-dialog.js";
+import { MachineSheet } from "./components/machine-sheet.js";
 import { PendingTokens } from "./components/pending-tokens.js";
 
 import { ProxmoxLink } from "./components/proxmox-link.js";
@@ -32,16 +34,27 @@ const CHIPS: readonly { area: EndpointArea; kind: EndpointProfile | undefined }[
 export function EndpointsPage({
   area,
   onKindChange,
+  openMachine = null,
+  onOpenMachine,
 }: {
   area: EndpointArea;
   /** Chooses a filter chip; omitted, the chips are not shown. */
   onKindChange?: (kind: EndpointProfile | undefined) => void;
+  /** The machine whose detail panel is open (`?machine=`). */
+  openMachine?: string | null;
+  /** Opens (an id) or closes (null) a machine's detail panel; omitted, a row leads to its page. */
+  onOpenMachine?: (machineId: string | null) => void;
 }) {
   const { t } = useTranslation("endpoints");
   const { activeTenant, isProviderAdmin, role } = useSession();
   const profile = profileOfArea(area);
   const endpoints = useEndpoints(profile);
   const [enrolling, setEnrolling] = React.useState<EndpointProfile | null>(null);
+  const jobsAccess = useJobsAccess();
+  const manageJobs = canManageJobs(role);
+  const sheetMachine = openMachine
+    ? ((endpoints.data ?? []).find((endpoint) => endpoint.id === openMachine) ?? null)
+    : null;
 
   const newButton = (kind: EndpointProfile, primary: boolean) => (
     <Button
@@ -108,7 +121,8 @@ export function EndpointsPage({
         fetching={endpoints.isFetching}
         error={endpoints.isError ? endpoints.error : null}
         onRetry={() => void endpoints.refetch()}
-        canManageJobs={canManageJobs(role)}
+        canManageJobs={manageJobs}
+        onOpen={onOpenMachine ? (endpoint) => onOpenMachine(endpoint.id) : undefined}
         empty={
           activeTenant === null ? (
             <EmptyState
@@ -140,6 +154,17 @@ export function EndpointsPage({
 
       {/* VMs and containers on the Proxmox VE nodes, in "All" and "Servers". */}
       {area === "clients" ? null : <PveInventorySection />}
+
+      {onOpenMachine ? (
+        <MachineSheet
+          machineId={openMachine}
+          machine={sheetMachine}
+          loading={endpoints.isPending}
+          onClose={() => onOpenMachine(null)}
+          allowed={manageJobs && !jobsAccess.closed}
+          reason={manageJobs ? jobsAccess.reason : t("sheet.adminOnly")}
+        />
+      ) : null}
 
       <EnrollDialog
         open={enrolling !== null}

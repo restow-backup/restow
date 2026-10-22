@@ -32,6 +32,7 @@ import { ApiError, errorMessageKey } from "@/lib/api";
 
 import type { EndpointDetail } from "./api.js";
 import { AttentionArea } from "./components/attention-area.js";
+import { stoppableBackup } from "./components/machine-cells.js";
 import { OverviewTab } from "./components/overview-tab.js";
 import { RunSheet } from "./components/run-sheet.js";
 import { SettingsTab } from "./components/settings-tab.js";
@@ -60,34 +61,7 @@ const TAB_ICON: Record<EndpointTab, typeof Camera> = {
   settings: Settings,
 };
 
-/**
- * What can be stopped (0.4.2): the running backup, else a "back up now" that waits for the
- * machine. `cancelling` while the agent has not stopped it yet.
- */
-export function stoppableBackup(
-  detail: Pick<EndpointDetail, "runs" | "tasks">,
-): { activity: "running" | "queued"; cancelling: boolean; by: string | null } | null {
-  const run = detail.runs.find((r) => r.kind === "backup" && r.status === "running");
-  if (run) {
-    return {
-      activity: "running",
-      cancelling: Boolean(run.cancelRequestedAt),
-      by: run.cancelledBy ?? null,
-    };
-  }
-  const queued = detail.tasks.filter(
-    (task) =>
-      task.kind === "backup_now" && (task.status === "pending" || task.status === "delivered"),
-  );
-  if (queued.length === 0) {
-    return null;
-  }
-  return {
-    activity: "queued",
-    cancelling: queued.every((task) => Boolean(task.cancelRequestedAt)),
-    by: queued[0]?.cancelledBy ?? null,
-  };
-}
+export { stoppableBackup };
 
 /** Stop the machine's running backup, or withdraw its queued one, after a question. */
 function StopBackupButton({ detail }: { detail: EndpointDetail }) {

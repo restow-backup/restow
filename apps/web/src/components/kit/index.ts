@@ -29,6 +29,13 @@ export {
 } from "./confirm-dialog.js";
 export { CopyButton, type CopyButtonProps } from "./copy-button.js";
 export * from "./data-table/index.js";
+export {
+  DetailFact,
+  DetailSection,
+  DetailSheet,
+  type DetailSheetProps,
+  LogBlock,
+} from "./detail-sheet.js";
 export { DisabledReason, type DisabledReasonProps } from "./disabled-reason.js";
 export { EmptyState, type EmptyStateProps } from "./empty-state.js";
 export { HintTooltip, type HintTooltipProps } from "./hint-tooltip.js";

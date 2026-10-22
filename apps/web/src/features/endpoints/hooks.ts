@@ -201,7 +201,7 @@ export function useRevokeToken() {
 }
 
 /** Refresh lists and the detail of one machine, but not the snapshots (restic reads). */
-function useRefreshEndpoint() {
+export function useRefreshEndpoint() {
   const { tenantId } = useTenantScope();
   const queryClient = useQueryClient();
   return React.useCallback(
