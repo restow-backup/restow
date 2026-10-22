@@ -4,10 +4,16 @@ import { useTenantScope } from "@/features/archive/hooks";
 
 import { editionAllows, useEdition } from "../license/edition";
 
-import { fetchJournalReceiver, fetchJournalSetup, journalKeys, rotateJournalAddress } from "./api";
+import {
+  fetchJournalReceiver,
+  fetchJournalSetup,
+  type JournalSetup,
+  journalKeys,
+  rotateJournalAddress,
+} from "./api";
 
 /** The status follows the receiver and the incoming reports: look again now and then. */
-const REFRESH_MS = 30_000;
+export const JOURNAL_REFRESH_MS = 30_000;
 
 /**
  * Who sees the journal section: the archive page's own scope (a tenant
@@ -30,14 +36,18 @@ export function useJournalScope() {
  * the refresh (the wait for the first report polls faster).
  */
 export function useJournalSetup(
-  options: { wanted?: boolean; refetchInterval?: number | false } = {},
+  options: {
+    wanted?: boolean;
+    /** How often to ask again, from the setup last read; the default is every 30 seconds. */
+    refetchInterval?: (setup: JournalSetup | undefined) => number;
+  } = {},
 ) {
   const { tenantId, enabled, canManage, licensed } = useJournalScope();
   return useQuery({
     queryKey: journalKeys.setup(tenantId),
     queryFn: fetchJournalSetup,
     enabled: (options.wanted ?? true) && enabled && canManage && licensed,
-    refetchInterval: options.refetchInterval ?? REFRESH_MS,
+    refetchInterval: (query) => options.refetchInterval?.(query.state.data) ?? JOURNAL_REFRESH_MS,
   });
 }
 
@@ -57,6 +67,6 @@ export function useJournalReceiver() {
   return useQuery({
     queryKey: journalKeys.receiver,
     queryFn: fetchJournalReceiver,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: JOURNAL_REFRESH_MS,
   });
 }

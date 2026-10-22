@@ -7,9 +7,13 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { ARCHIVE_PATH } from "@/features/archive/paths";
+import {
+  ARCHIVE_PATH,
+  FORWARDING_SECTION_ANCHOR,
+  JOURNAL_SECTION_ANCHOR,
+} from "@/features/archive/paths";
 import type { GatedFeature } from "@/lib/api";
-import { hasFeature, useSession } from "@/lib/session";
+import { useSession } from "@/lib/session";
 
 import type { CaptureKind } from "../api.js";
 import {
@@ -20,11 +24,6 @@ import {
   wayChosen,
   withWay,
 } from "../capture-ways.js";
-
-/** Where the archive page's sections are (archive-page.tsx, ee/web forwarding and journaling). */
-export const CAPTURE_SECTION_ANCHOR = "archive-capture";
-export const JOURNAL_SECTION_ANCHOR = "archive-journal";
-export const FORWARDING_SECTION_ANCHOR = "archive-forwarding";
 
 /**
  * How mail reaches the archive, per kind of mail object of the job (docs/ARCHIVE.md
@@ -58,7 +57,7 @@ export function CaptureWaysField({
   const { t } = useTranslation("backupjobs");
   const session = useSession();
   const keys = captureKeysOf(kinds);
-  const available = (feature: GatedFeature) => hasFeature(session, feature);
+  const available = (feature: GatedFeature) => session.features?.includes(feature) ?? false;
   const id = (name: string) => `${idPrefix}-${name}`;
 
   return (

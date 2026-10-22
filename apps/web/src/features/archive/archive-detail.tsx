@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { ErrorState, RelativeTime } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReadingPaneView } from "@/features/restore/explorer/reading-pane";
 
@@ -14,6 +14,8 @@ import { useArchiveItem, useArchivePreview, useTenantScope } from "./hooks.js";
 export interface ArchiveDetailProps {
   itemId: string | null;
   sourceLabel: (source: ArchiveSource | undefined, view: "list" | "detail") => string;
+  /** Opens another archived item (the capture this one superseded, or the one that superseded it). */
+  onOpenItem?: (itemId: string) => void;
 }
 
 /**
@@ -23,7 +25,7 @@ export interface ArchiveDetailProps {
  * a message is chosen, since every read is audited.
  */
 export const ArchiveDetail = React.forwardRef<HTMLElement, ArchiveDetailProps>(
-  function ArchiveDetail({ itemId, sourceLabel }, ref) {
+  function ArchiveDetail({ itemId, sourceLabel, onOpenItem }, ref) {
     const { t } = useTranslation("archive");
     const { tenantId } = useTenantScope();
     const item = useArchiveItem(itemId);
@@ -101,7 +103,7 @@ export const ArchiveDetail = React.forwardRef<HTMLElement, ArchiveDetailProps>(
                   retrying={item.isFetching}
                 />
               ) : (
-                <ArchiveFacts item={item.data} sourceLabel={sourceLabel} />
+                <ArchiveFacts item={item.data} sourceLabel={sourceLabel} onOpenItem={onOpenItem} />
               )}
             </div>
           </>
@@ -114,11 +116,29 @@ export const ArchiveDetail = React.forwardRef<HTMLElement, ArchiveDetailProps>(
 function ArchiveFacts({
   item,
   sourceLabel,
+  onOpenItem,
 }: {
   item: ArchiveItem;
   sourceLabel: ArchiveDetailProps["sourceLabel"];
+  onOpenItem?: ArchiveDetailProps["onOpenItem"];
 }) {
   const { t, i18n } = useTranslation("archive");
+  const captures = item.captures ?? [];
+  const late = item.flags.includes("captured-late");
+  const link = (id: string, label: string, slot: string) =>
+    onOpenItem ? (
+      <Button
+        variant="link"
+        size="sm"
+        className="h-auto p-0"
+        onClick={() => onOpenItem(id)}
+        data-slot={slot}
+      >
+        {label}
+      </Button>
+    ) : (
+      <span data-slot={slot}>{label}</span>
+    );
   return (
     <dl className="space-y-1 text-sm">
       <div>
@@ -131,8 +151,43 @@ function ArchiveFacts({
       </div>
       <div>
         <dt className="text-muted-foreground">{t("detail.source")}</dt>
-        <dd>{sourceLabel(item.source, "detail")}</dd>
+        <dd className="flex flex-wrap items-center gap-2">
+          {sourceLabel(item.source, "detail")}
+          {late ? (
+            <Badge variant="outline" data-slot="archive-detail-late">
+              {t("table.capturedLate")}
+            </Badge>
+          ) : null}
+        </dd>
       </div>
+      {captures.length > 0 ? (
+        <div data-slot="archive-detail-captures">
+          <dt className="text-muted-foreground">{t("detail.alsoCaptured")}</dt>
+          <dd>
+            <ul className="space-y-0.5">
+              {captures.map((capture, index) => (
+                // Capture rows are append-only and carry no id in the API; the order is fixed.
+                // biome-ignore lint/suspicious/noArrayIndexKey: see above
+                <li key={index}>
+                  {sourceLabel(capture.via, "detail")} · <RelativeTime value={capture.receivedAt} />
+                </li>
+              ))}
+            </ul>
+          </dd>
+        </div>
+      ) : null}
+      {item.supersedesItemId ? (
+        <div>
+          <dt className="text-muted-foreground">{t("detail.supersedes")}</dt>
+          <dd>{link(item.supersedesItemId, t("detail.supersedesLink"), "archive-supersedes")}</dd>
+        </div>
+      ) : null}
+      {item.supersededBy ? (
+        <div>
+          <dt className="text-muted-foreground">{t("detail.supersededBy")}</dt>
+          <dd>{link(item.supersededBy, t("detail.supersededByLink"), "archive-superseded-by")}</dd>
+        </div>
+      ) : null}
       <div>
         <dt className="text-muted-foreground">{t("detail.retentionUntil")}</dt>
         <dd>

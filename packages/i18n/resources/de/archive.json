@@ -34,7 +34,9 @@
     "next": "Nächste Seite",
     "pagination": "Seiten der Ergebnisse",
     "loadError": "Die Archivsuche ist fehlgeschlagen",
-    "loadErrorDescription": "Das Ergebnis ist unbekannt. Es bedeutet nicht, dass nichts archiviert ist."
+    "loadErrorDescription": "Das Ergebnis ist unbekannt. Es bedeutet nicht, dass nichts archiviert ist.",
+    "includeSuperseded": "Ersetzte Erfassungen zeigen",
+    "includeSupersededHint": "Eine E-Mail, die ein stärkerer Weg erneut erfasst hat, steht einmal in der Liste; damit erscheint auch die frühere, schwächere Erfassung."
   },
   "table": {
     "subject": "Betreff",
@@ -49,8 +51,12 @@
       "journal": "Journal",
       "graph_sync": "Graph-Sync",
       "imap_sync": "IMAP-Sync",
-      "file_import": "Import"
-    }
+      "file_import": "Import",
+      "smtp_forward": "Weiterleitung"
+    },
+    "alsoVia": "auch über {ways}",
+    "capturedLate": "Nachträglich erfasst",
+    "superseded": "Ersetzt"
   },
   "detail": {
     "title": "Nachricht",
@@ -74,7 +80,13 @@
     "sourceJournal": "Exchange-Online-Journal",
     "sourceGraphSync": "Graph-Sync",
     "sourceImapSync": "IMAP-Sync",
-    "sourceFileImport": "Mail-Datei-Import"
+    "sourceFileImport": "Mail-Datei-Import",
+    "sourceSmtpForward": "Vom Mailanbieter weitergeleitete Kopie",
+    "alsoCaptured": "Auch erfasst über",
+    "supersedes": "Ersetzt",
+    "supersedesLink": "die frühere Erfassung dieser E-Mail",
+    "supersededBy": "Ersetzt durch",
+    "supersededByLink": "eine stärkere Erfassung dieser E-Mail"
   },
   "chain": {
     "title": "Hash-Kette",
@@ -237,6 +249,31 @@
       "title": "Journaling in Exchange",
       "description": "Exchange stellt die Journal-Reports dieses Mandanten an diese Adresse zu. Konnektor und Journalregel richten Sie einmal pro Mandant ein; die Anleitung steht im Archiv.",
       "guide": "Anleitung im Archiv öffnen"
+    },
+    "powershell": {
+      "title": "Befehle für Exchange Online PowerShell",
+      "intro": "Statt der Schritte oben kann ein Administrator des Microsoft-365-Mandanten diese Befehle ausführen. Sie legen den Connector zu dieser Installation an, setzen das Postfach für nicht zustellbare Journalberichte und legen die Journalregel für alle E-Mails an.",
+      "ndrLabel": "Postfach für nicht zustellbare Journalberichte",
+      "ndrPlaceholder": "journal-ndr@contoso.de",
+      "ndrHint": "Ein echtes Postfach des Mandanten, das jemand liest, zum Beispiel ein freigegebenes Postfach. Dorthin schickt Exchange Berichte, die {appName} nicht erreicht haben.",
+      "ndrProblem": {
+        "empty": "Geben Sie das Postfach für nicht zustellbare Journalberichte an.",
+        "invalid": "Geben Sie eine gültige E-Mail-Adresse an.",
+        "journal_address": "Das ist die Journal-Adresse selbst. Geben Sie ein Postfach des Mandanten an.",
+        "journal_host": "Diese Adresse liegt beim Journal-Host. Geben Sie ein Postfach des Mandanten an."
+      },
+      "blockLabel": "Exchange Online PowerShell",
+      "needsNdr": "Die Befehle erscheinen, sobald das Postfach für nicht zustellbare Journalberichte angegeben ist."
+    },
+    "firstReport": {
+      "first": "Erster Report:",
+      "start": "Auf einen Report warten",
+      "hint": "Senden Sie nach dem Einrichten der Regel eine E-Mail innerhalb der Organisation. Die Seite prüft dann alle 5 Sekunden, ob ihr Report angekommen ist.",
+      "waiting": "Warte auf einen Report",
+      "waitingHint": "Prüft alle 5 Sekunden. Ein Report kommt meist wenige Minuten nach der E-Mail an.",
+      "stop": "Warten beenden",
+      "arrived": "Ein Report ist angekommen",
+      "expired": "In 30 Minuten ist kein Report angekommen. Prüfen Sie Connector, Journalregel und Firewall sowie das Postfach für nicht zustellbare Journalberichte."
     }
   },
   "flags": {
@@ -251,7 +288,9 @@
     "original-message-missing": "Originalnachricht fehlt; stattdessen wurde der rohe Report archiviert",
     "original-message-unparseable": "Originalnachricht konnte nicht gelesen werden",
     "recipient-classification-degraded": "An/Cc/Bcc konnte nicht für jeden Empfänger bestimmt werden",
-    "recipients-truncated": "Mehr als 100.000 Empfänger; nur die ersten 100.000 sind aufgeführt (der archivierte Report enthält alle)"
+    "recipients-truncated": "Mehr als 100.000 Empfänger; nur die ersten 100.000 sind aufgeführt (der archivierte Report enthält alle)",
+    "captured-late": "Nachträglich erfasst: lag vor Beginn der Erfassung im Postfach",
+    "message-id-conflict": "Eine andere archivierte E-Mail hat dieselbe Message-ID, aber anderen Inhalt"
   },
   "protection": {
     "title": "Schutz des Archivspeichers",
@@ -275,6 +314,179 @@
     "unknown": {
       "title": "Schutz unbekannt",
       "description": "Das Repository des Archivs konnte nicht ermittelt werden."
+    }
+  },
+  "commands": {
+    "copy": "Kopieren: {label}"
+  },
+  "capture": {
+    "title": "Erfassung aus den Postfächern",
+    "description": "So gelangen E-Mails aus den Postfächern selbst ins Archiv: Microsoft Graph für Microsoft 365, IMAP-Archivierung für IMAP-Konten. Beide erfassen zeitnah, kurz nach der Zustellung; Journaling und Weiterleitung weiter unten erfassen beim Transport.",
+    "way": {
+      "graph_sync": "Microsoft Graph",
+      "imap_sync": "IMAP-Archivierung"
+    },
+    "assurance": {
+      "mailbox": "Zeitnah"
+    },
+    "edition": "Gehört zur Business-Edition.",
+    "unused": {
+      "graph_sync": "Kein Mail-Job erfasst Microsoft-365-Postfächer über Graph.",
+      "imap_sync": "Kein Mail-Job erfasst IMAP-Konten über die IMAP-Archivierung."
+    },
+    "streams": {
+      "live": "{count, plural, one {# Postfach laufend} other {# Postfächer laufend}}",
+      "backfilling": "{count, plural, one {# übernimmt den Altbestand} other {# übernehmen den Altbestand}}",
+      "pending": "{count, plural, one {# wartet auf den Start} other {# warten auf den Start}}",
+      "error": "{count, plural, one {# mit Fehler} other {# mit Fehler}}",
+      "paused": "{count, plural, one {# angehalten} other {# angehalten}}",
+      "disabled": "{count, plural, one {# ausgeschaltet} other {# ausgeschaltet}}"
+    },
+    "status": {
+      "pending": "Wartet",
+      "backfilling": "Übernahme",
+      "live": "Laufend",
+      "paused": "Angehalten",
+      "disabled": "Aus",
+      "error": "Fehler"
+    },
+    "mode": {
+      "graph": "Benachrichtigt von Microsoft: {notifications}, Abfrage im Intervall: {poll}",
+      "imap": "Überwacht mit IDLE: {notifications}, Abfrage im Intervall: {poll}"
+    },
+    "pollReason": {
+      "line": "{count, plural, one {# Postfach} other {# Postfächer}} im Intervall abgefragt: {reason}",
+      "codes": {
+        "graph": {
+          "notification_url_unavailable": "Microsoft erreicht diese Installation nicht über öffentliches HTTPS und kann deshalb keine Benachrichtigungen senden.",
+          "subscription_failed": "Microsoft hat das Abonnement der Benachrichtigungen abgelehnt."
+        },
+        "imap": {
+          "idle_unsupported": "Der Mailserver unterstützt IDLE nicht."
+        }
+      }
+    },
+    "lastCapture": "Letzte Erfassung",
+    "never": "Noch nie",
+    "counts": {
+      "last24Hours": "24 Stunden",
+      "last7Days": "7 Tage",
+      "value": "{items} neu, {count, plural, one {# erneut} other {# erneut}}"
+    },
+    "backfill": {
+      "label": "Übernommener Altbestand",
+      "progress": "Altbestand übernommen: {completed} von {total} Postfächern",
+      "late": "{count, plural, one {# E-Mail} other {# E-Mails}} in den letzten 7 Tagen nachträglich erfasst"
+    },
+    "mailboxes": {
+      "title": "Je Postfach",
+      "filterWay": "Weg",
+      "allWays": "Alle Wege",
+      "filterStatus": "Status",
+      "allStates": "Alle Status",
+      "none": "Kein Postfach passt zum Filter.",
+      "mailbox": "Postfach",
+      "way": "Weg",
+      "status": "Status",
+      "lastCapture": "Letzte Erfassung",
+      "actions": "Aktionen",
+      "mode": {
+        "notifications": "benachrichtigt",
+        "poll": "im Intervall abgefragt"
+      },
+      "backfillDone": "Altbestand übernommen",
+      "resync": "Neu abgleichen",
+      "resyncFor": "{mailbox} vollständig neu abgleichen",
+      "resyncDone": "{mailbox} wird beim nächsten Durchlauf vollständig abgeglichen.",
+      "pages": "Seiten der Postfächer",
+      "previous": "Zurück",
+      "next": "Weiter"
+    },
+    "hold": {
+      "title": "Gelöschte E-Mails in Microsoft 365",
+      "description": "Graph erfasst E-Mails kurz nach der Zustellung. Damit auch sofort gelöschte E-Mails erfasst werden, sollte eine Aufbewahrungsrichtlinie oder ein Litigation Hold gelöschte E-Mails im Mandanten halten. {appName} kann das nicht über Graph lesen: Prüfen Sie es mit den Befehlen und bestätigen Sie es hier.",
+      "statusConfirmed": "Hold bestätigt",
+      "statusUnknown": "Hold nicht bestätigt",
+      "confirmedBy": "von {by},",
+      "why": "{count, plural, one {# Postfach wird} other {# Postfächer werden}} über Graph erfasst. Ohne Hold können E-Mails fehlen, die gleich nach der Zustellung gelöscht werden.",
+      "commands": "Exchange Online PowerShell: Aufbewahrungsrichtlinien und Holds anzeigen",
+      "confirm": "Hold bestätigen",
+      "confirmTitle": "Hold für {source} bestätigen?",
+      "confirmDescription": "Sie bestätigen, dass eine Aufbewahrungsrichtlinie oder ein Litigation Hold gelöschte E-Mails der archivierten Postfächer in diesem Mandanten hält. Die Bestätigung steht mit Ihrem Namen im Audit-Log.",
+      "confirmed": "Hold bestätigt.",
+      "withdraw": "Bestätigung zurücknehmen",
+      "withdrawTitle": "Bestätigung für {source} zurücknehmen?",
+      "withdrawDescription": "Die Archiv-Seite zeigt dann wieder, dass kein Hold bestätigt ist. Die Rücknahme steht im Audit-Log.",
+      "withdrawn": "Bestätigung zurückgenommen."
+    }
+  },
+  "forwarding": {
+    "title": "Weiterleitung an das Archiv",
+    "description": "Für IMAP-Konten, deren Job die Weiterleitung gewählt hat: Der Mailanbieter schickt eine Kopie jeder ein- und ausgehenden E-Mail an eine Adresse von {appName}. Die Kopie entsteht beim Transport, bevor der Nutzer die E-Mail ändern oder löschen kann. Jedes Konto hat eine eigene Adresse, so gehört jede Kopie zum richtigen Postfach.",
+    "empty": "Kein Mail-Job hat für seine IMAP-Konten die Weiterleitung gewählt. Wählen Sie sie in den Erfassungswegen des Jobs.",
+    "pages": "Seiten der Konten",
+    "accounts": "Konten mit Weiterleitung",
+    "account": "Konto",
+    "address": "Archivadresse",
+    "status": "Status",
+    "lastCopy": "Letzte Kopie",
+    "googleAccount": "Google Workspace",
+    "googleUsesTenant": "Routing-Regel an die Journal-Adresse des Mandanten (Reiter Google Workspace)",
+    "copyFor": "Archivadresse von {account} kopieren",
+    "create": "Adresse anlegen",
+    "createFor": "Archivadresse von {account} anlegen",
+    "rotateFor": "Archivadresse von {account} erneuern",
+    "rotate": {
+      "title": "Archivadresse von {account} erneuern?",
+      "description": "Eine neue Adresse ersetzt die bisherige. Die bisherige Adresse ist sofort ungültig: Kopien an sie werden abgewiesen.",
+      "consequence": "Ändern Sie die Adresse sofort in der Regel beim Anbieter, sonst fehlen bis dahin Kopien.",
+      "confirm": "Adresse erneuern",
+      "done": "Neue Archivadresse angelegt. Ändern Sie sie jetzt beim Anbieter."
+    },
+    "state": {
+      "receiving": "Kopien kommen an",
+      "stale": "Seit mehr als 24 Stunden keine Kopie",
+      "no_copies": "Noch keine Kopien",
+      "no_address": "Noch keine Adresse"
+    },
+    "counts": "{day} in 24 Stunden, {week} in 7 Tagen",
+    "setup": {
+      "title": "Beim Anbieter einrichten",
+      "tab": {
+        "postfix": "Postfix",
+        "mailcow": "mailcow",
+        "sieve": "Sieve",
+        "google": "Google Workspace"
+      },
+      "needsAddress": "Legen Sie zuerst die Archivadressen der Konten an; dann erscheint hier die Konfiguration.",
+      "someMissing": "Konten ohne Adresse sind noch nicht enthalten.",
+      "postfix": {
+        "intro": "Postfix kopiert jede E-Mail nach Absender und nach Empfänger an die Adresse aus einer Tabelle: eingehende E-Mails des Kontos nach Empfänger, ausgehende nach Absender.",
+        "map": "Tabelle {path}",
+        "main": "Zeilen für main.cf",
+        "reload": "Tabelle erzeugen und Postfix neu laden"
+      },
+      "mailcow": {
+        "intro": "Legen Sie in mailcow unter E-Mail, Konfiguration, BCC für jedes Konto eine Absender- und eine Empfänger-Zuordnung an, jeweils mit seiner Archivadresse als BCC-Ziel.",
+        "entries": "Anzulegende BCC-Zuordnungen"
+      },
+      "sieve": {
+        "intro": "Wo der Anbieter Sieve ausführt, leitet eine Regel je Konto eine Kopie jeder eingehenden E-Mail weiter; die E-Mail selbst bleibt im Postfach.",
+        "for": "Sieve-Regel für {account}",
+        "outgoing": "Sieve läuft nur bei der Zustellung: Für ausgehende E-Mails braucht der Anbieter zusätzlich eine BCC-Regel nach Absender."
+      },
+      "google": {
+        "intro": "Google Workspace leitet eine Kopie jeder E-Mail an die Journal-Adresse des Mandanten. {appName} ordnet jede Kopie den Konten zu, die ihre Kopfzeilen nennen.",
+        "steps": {
+          "open": "Öffnen Sie die Google Admin-Konsole: Apps, Google Workspace, Gmail, Routing.",
+          "rule": "Fügen Sie unter Routing eine Regel hinzu und geben Sie ihr einen Namen.",
+          "messages": "Betroffene Nachrichten: Eingehend, Ausgehend, „Intern: Senden“ und „Intern: Empfangen“.",
+          "recipient": "Für diese Nachrichten: Zusätzlich zustellen an, Weitere Empfänger hinzufügen, die Adresse unten.",
+          "save": "Speichern Sie die Regel. Änderungen können bis zu einer Stunde dauern."
+        },
+        "address": "Journal-Adresse des Mandanten",
+        "noAddress": "Die Journal-Adresse lässt sich nicht anzeigen: Es ist kein gültiger Journal-Host eingerichtet."
+      }
     }
   }
 }

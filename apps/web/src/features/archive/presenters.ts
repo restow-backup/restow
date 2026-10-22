@@ -18,6 +18,11 @@ export interface ArchiveFilters {
   dateTo: string;
   mailbox: string | null;
   hasAttachment: boolean;
+  /**
+   * Also list items a stronger capture of the same mail superseded (0.4.4); off by default,
+   * the newer item's detail links to them.
+   */
+  includeSuperseded?: boolean;
 }
 
 export const NO_FILTERS: ArchiveFilters = {
@@ -27,6 +32,7 @@ export const NO_FILTERS: ArchiveFilters = {
   dateTo: "",
   mailbox: null,
   hasAttachment: false,
+  includeSuperseded: false,
 };
 
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -62,6 +68,7 @@ export function searchParamsOf(filters: ArchiveFilters, offset: number): Archive
     dateTo: dayBoundary(filters.dateTo, true) ?? undefined,
     mailbox: filters.mailbox ?? undefined,
     hasAttachment: filters.hasAttachment ? true : undefined,
+    includeSuperseded: filters.includeSuperseded ? true : undefined,
     limit: ARCHIVE_PAGE_SIZE,
     offset,
   };

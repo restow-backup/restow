@@ -38,6 +38,11 @@ export interface JournalSetup {
   status: JournalStatus;
   receiver: { listening: boolean; reason: ReceiverReason | null };
   lastReportAt: string | null;
+  /**
+   * ASSUMED (workstream C, 0.4.4): when the first journal report of the tenant arrived; null
+   * before any. Absent from servers that do not send it yet.
+   */
+  firstReportAt?: string | null;
   counts: { last24Hours: number; last7Days: number };
   requirements: {
     dnsName: string | null;

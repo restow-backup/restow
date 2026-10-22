@@ -1,3 +1,4 @@
+import { ForwardingSection } from "./forwarding/forwarding-section";
 import { JournalHostNote } from "./journal/journal-host-note";
 import { JournalSection } from "./journal/journal-section";
 import { LegalHoldsSection } from "./legal-holds/legal-holds-section";
@@ -7,12 +8,18 @@ import { LegalHoldsSection } from "./legal-holds/legal-holds-section";
  * (the Archive page) renders one component, the slot `tenant.archiveSettings`
  * (Archive on the tenant page) another, so the modules that contribute to them
  * are composed here; each section decides by itself whether the edition and the
- * signed-in user see it. The journal address is part of the daily archive; legal
+ * signed-in user see it. The journal address and the forwarding of IMAP accounts are part of
+ * the daily archive; legal
  * holds are a setting of the tenant, and the journal host is shown beside them
  * read-only, because the installation sets it.
  */
 export function ArchiveSections() {
-  return <JournalSection />;
+  return (
+    <>
+      <JournalSection />
+      <ForwardingSection />
+    </>
+  );
 }
 
 export function ArchiveSettingsSections() {
