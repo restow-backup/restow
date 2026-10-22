@@ -47,6 +47,10 @@ const OTHERWISE_PROTECTED: Readonly<Record<string, string>> = {
   "POST /internal/file-shares/v1/samples":
     "HTTP Basic with the run's own credential, internal only",
   "POST /internal/file-shares/v1/finish": "HTTP Basic with the run's own credential, internal only",
+  "POST /api/v1/hooks/graph/notifications":
+    "the subscription's clientState (SHA-256, constant-time); only queues a fetch from Graph",
+  "POST /api/v1/hooks/graph/lifecycle":
+    "the subscription's clientState (SHA-256, constant-time); only makes the mailbox due",
 };
 
 const SAFE = /^(GET|HEAD|OPTIONS) /;

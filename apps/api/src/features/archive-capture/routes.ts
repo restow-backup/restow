@@ -6,6 +6,7 @@ import type { DbExecutor } from "../../lib/tenant-context.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import type { ArchiveActor } from "../archive/service.js";
+import { holdCheckCommands } from "./hold-checks.js";
 import {
   captureMailboxesQuerySchema,
   captureObjectParamSchema,
@@ -25,7 +26,8 @@ import { captureMailboxes, captureStatus, listHolds, requestResync, setHold } fr
  *   GET  /mailboxes                  the capture streams, filtered, keyset-paginated
  *   POST /mailboxes/:objectId/resync a full catch-up of the mailbox's streams (audited;
  *                                    needs `archive.mailboxCapture`)
- *   GET  /holds                      the hold confirmation per Microsoft 365 source
+ *   GET  /holds                      the hold confirmation per Microsoft 365 source, and
+ *                                    the PowerShell commands to check holds (./hold-checks.ts)
  *   PUT  /holds/:sourceId            confirm or withdraw it (audited)
  *
  * The capture itself runs in the worker (apps/worker/src/archive-capture).
@@ -63,7 +65,11 @@ export function buildArchiveCaptureRoutes(deps: ArchiveCaptureRoutesDeps): Hono<
   });
 
   routes.get("/holds", deps.requireAdmin, async (c) => {
-    return c.json({ items: await listHolds(deps.db, c.get("tenantId")) });
+    // `checks`: the read-only PowerShell commands to verify a hold before confirming it.
+    return c.json({
+      items: await listHolds(deps.db, c.get("tenantId")),
+      checks: holdCheckCommands(),
+    });
   });
 
   routes.put("/holds/:sourceId", deps.requireAdmin, async (c) => {
