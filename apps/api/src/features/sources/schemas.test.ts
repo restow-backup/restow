@@ -49,6 +49,14 @@ describe("createSourceSchema", () => {
     expect(createSourceSchema.parse(imap)).toMatchObject({ kind: "imap", port: 993 });
   });
 
+  it("accepts the archive IDLE setting (auto or off) on create and update", () => {
+    expect(createSourceSchema.parse({ ...imap, archiveIdle: "off" })).toMatchObject({
+      archiveIdle: "off",
+    });
+    expect(createSourceSchema.safeParse({ ...imap, archiveIdle: "never" }).success).toBe(false);
+    expect(updateSourceSchema.parse({ archiveIdle: "auto" })).toEqual({ archiveIdle: "auto" });
+  });
+
   it("rejects an IMAP source without a password or with a bad port", () => {
     expect(createSourceSchema.safeParse({ ...imap, password: "" }).success).toBe(false);
     expect(createSourceSchema.safeParse({ ...imap, port: 0 }).success).toBe(false);

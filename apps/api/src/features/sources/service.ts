@@ -197,6 +197,8 @@ export interface ImapSourceDto {
   imapAuthMode: ImapAuthMode;
   /** The master account's login shape, only meaningful for `imapAuthMode: "master_user"`. */
   masterUser: MasterUserInput | null;
+  /** Whether the archive capture watches the accounts with IMAP IDLE (`auto`) or polls only (`off`). */
+  archiveIdle: "auto" | "off";
 }
 
 export interface SourceDto {
@@ -352,6 +354,7 @@ export function toDto(row: Source, importedMailboxes: number | null = null): Sou
       lastProbe: cfg.lastProbe ?? null,
       imapAuthMode: cfg.imapAuthMode ?? "shared",
       masterUser: cfg.masterUser ?? null,
+      archiveIdle: cfg.archiveIdle ?? "auto",
     },
   };
 }
@@ -820,6 +823,7 @@ export async function createSource(
         privateNetworkApproval,
         imapAuthMode: mode,
         ...(input.masterUser ? { masterUser: input.masterUser } : {}),
+        ...(input.archiveIdle === "off" ? { archiveIdle: "off" as const } : {}),
       };
       values = {
         tenantId,
@@ -882,6 +886,11 @@ export async function updateSource(
         detail: "IMAP connection fields cannot be set on a Microsoft 365 source.",
       });
     }
+    if (current.kind === "m365" && patch.archiveIdle !== undefined) {
+      throw new ProblemError(422, "Validation failed", {
+        detail: "archiveIdle applies to IMAP sources only.",
+      });
+    }
     if (current.kind === "imap" && patch.entraTenantHint !== undefined) {
       throw new ProblemError(422, "Validation failed", {
         detail: "Entra fields cannot be set on an IMAP source.",
@@ -899,6 +908,14 @@ export async function updateSource(
     if (patch.entraTenantHint !== undefined) {
       configPatch.entraTenantHint = patch.entraTenantHint;
       changes.entraTenantHint = patch.entraTenantHint;
+    }
+    if (
+      patch.archiveIdle !== undefined &&
+      patch.archiveIdle !== (configOf(current).archiveIdle ?? "auto")
+    ) {
+      // Picked up by the workers' IDLE managers within a minute; no reconnect of the source.
+      configPatch.archiveIdle = patch.archiveIdle;
+      changes.archiveIdle = patch.archiveIdle;
     }
 
     let connectionChanged = false;

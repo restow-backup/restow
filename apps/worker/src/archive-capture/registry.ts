@@ -7,9 +7,12 @@
  * A stream whose way is not listed stays `pending` and the capture status names the way
  * as unavailable in this build; nothing fails.
  */
+import { createImapCaptureWay } from "./imap.js";
 import type { CaptureWay, MailboxWay } from "./ways.js";
 
-export const CAPTURE_WAYS: Partial<Record<MailboxWay, CaptureWay>> = {};
+export const CAPTURE_WAYS: Partial<Record<MailboxWay, CaptureWay>> = {
+  imap_sync: createImapCaptureWay(),
+};
 
 /** The way registered for `way` (tests replace the table through `ways` options instead). */
 export function captureWay(

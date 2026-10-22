@@ -248,6 +248,11 @@ export class ArchiveCaptureService {
         logger: this.deps.logger.child({ way: way.way }),
         signal: this.stopController.signal,
         markDue: (ids) => this.store.markDue(ids),
+        keyring: (tenantId) => this.deps.keyrings.get(tenantId),
+        active: () =>
+          this.enabled &&
+          !this.stopController.signal.aborted &&
+          !(this.deps.updateDrain?.draining?.() ?? this.drainRequested),
       });
     }
     this.loop = this.run();
