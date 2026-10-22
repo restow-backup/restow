@@ -1314,7 +1314,7 @@
     "cancelling": "Wird gestoppt…",
     "running": "Sicherung läuft",
     "busy": "Arbeitet",
-    "revoked": "Widerrufen",
+    "revoked": "Gesperrt",
     "failed": "Sicherung fehlgeschlagen",
     "restore_failed": "Restore-Prüfung fehlgeschlagen",
     "repository_damaged": "Repository beschädigt",
