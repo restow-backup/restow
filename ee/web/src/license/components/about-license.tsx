@@ -1,9 +1,10 @@
-import { ExternalLink, Trash2 } from "lucide-react";
+import { ExternalLink, Info, Trash2 } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
 import { CopyButton } from "@/components/kit";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +20,8 @@ import {
   editionOrigin,
   licenseRequestUrl,
   licenseTermsUrl,
+  updatesLine,
+  updatesNotice,
 } from "../presenters";
 import type { LicenseState } from "../types";
 import { useLicenseState } from "../use-license";
@@ -117,9 +120,23 @@ function LicenseDetails({ state, closed }: { state: LicenseState; closed: boolea
   const unknown = tc("time.unknown");
   const origin = editionOrigin(state);
   const { key, verification } = state;
+  const updates = key ? updatesLine(key, language) : null;
+  // Read once per render: the notice is about the calendar, not about what works.
+  const notice = updatesNotice(key, Date.now(), language);
 
   return (
     <>
+      {state.runAsCommunity ? (
+        <Alert variant="info" data-slot="run-as-community">
+          <Info />
+          <AlertDescription>{t("updates.runAsCommunity")}</AlertDescription>
+        </Alert>
+      ) : notice ? (
+        <Alert variant="info" data-slot="updates-notice">
+          <Info />
+          <AlertDescription>{t(notice.key, notice.values)}</AlertDescription>
+        </Alert>
+      ) : null}
       <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
         <dt className="text-muted-foreground">{t("edition.label")}</dt>
         <dd className="flex flex-wrap items-center gap-2">
@@ -139,6 +156,12 @@ function LicenseDetails({ state, closed }: { state: LicenseState; closed: boolea
             <dd>{formatDateTime(key.issuedAt, language) ?? unknown}</dd>
             <dt className="text-muted-foreground">{t("key.installedAt")}</dt>
             <dd>{formatDateTime(key.installedAt, language) ?? unknown}</dd>
+            {updates ? (
+              <>
+                <dt className="text-muted-foreground">{t("updates.label")}</dt>
+                <dd data-slot="key-updates">{t(updates.key, updates.values)}</dd>
+              </>
+            ) : null}
             <dt className="text-muted-foreground">{t("about.terms")}</dt>
             <dd>
               <a

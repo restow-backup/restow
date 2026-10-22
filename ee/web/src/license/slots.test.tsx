@@ -147,6 +147,77 @@ describe("AboutLicense (the license section of the installation page)", () => {
     expect(html).not.toMatch(RIGHTS);
   });
 
+  it("says which updates the key includes: a beta licence, every 1.x version", () => {
+    sessionState.extensions = { edition: "business" };
+    const beta = community({
+      ...business,
+      key: {
+        ...(business.key as NonNullable<LicenseState["key"]>),
+        updates: { series: "1", until: null, coversRunning: true, reason: "series" },
+      },
+    });
+    const html = render(<AboutLicense requires={null} />, beta);
+    expect(html).toContain(">Updates<");
+    expect(html).toContain("all 1.x (beta license)");
+    expect(html).not.toContain('data-slot="updates-notice"');
+  });
+
+  it("names the end of the update period, and from 30 days before it a calm notice", async () => {
+    sessionState.extensions = { edition: "business" };
+    const period = community({
+      ...business,
+      key: {
+        ...(business.key as NonNullable<LicenseState["key"]>),
+        updates: { series: "1", until: "2027-11-30", coversRunning: true, reason: "within_period" },
+      },
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2027-10-30T12:00:00Z"));
+      let html = render(<AboutLicense requires={null} />, period);
+      expect(html).toContain("until Nov 30, 2027");
+      expect(html).not.toContain('data-slot="updates-notice"');
+
+      vi.setSystemTime(new Date("2027-11-01T00:00:00Z"));
+      html = render(<AboutLicense requires={null} />, period);
+      expect(html).toContain('data-slot="updates-notice"');
+      expect(html).toContain("Your update period ends on Nov 30, 2027");
+
+      vi.setSystemTime(new Date("2027-12-01T00:00:00Z"));
+      html = render(<AboutLicense requires={null} />, period);
+      expect(html).toContain("Your update period ended on Nov 30, 2027");
+
+      await i18n.changeLanguage("de");
+      vi.setSystemTime(new Date("2027-11-20T00:00:00Z"));
+      html = render(<AboutLicense requires={null} />, period);
+      expect(html).toContain("bis 30.11.2027");
+      expect(html).toContain("Ihr Update-Zeitraum endet am 30.11.2027");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("explains a release that runs as Community because the key does not cover it", () => {
+    const html = render(
+      <AboutLicense requires={null} />,
+      community({
+        runAsCommunity: true,
+        key: {
+          ...(business.key as NonNullable<LicenseState["key"]>),
+          updates: {
+            series: "1",
+            until: "2027-11-30",
+            coversRunning: false,
+            reason: "after_period",
+          },
+        },
+      }),
+    );
+    expect(html).toContain('data-slot="run-as-community"');
+    expect(html).toContain("RESTOW_RUN_AS_COMMUNITY");
+    expect(html).toContain("Your data is unchanged");
+  });
+
   it("links the German license terms in the German interface", async () => {
     await i18n.changeLanguage("de");
     const html = render(<AboutLicense requires={null} />, business);

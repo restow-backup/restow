@@ -1,6 +1,6 @@
 import { ApiError, errorMessageKey } from "@/lib/api";
 
-import type { LicenseRejectionReason, LicenseState } from "./types";
+import type { InstalledKey, LicenseRejectionReason, LicenseState } from "./types";
 
 /**
  * Pure view logic of the license section. Messages are returned as namespaced
@@ -71,7 +71,60 @@ const REJECTION_REASONS: readonly LicenseRejectionReason[] = [
   "bad_signature",
   "invalid_payload",
   "installation_mismatch",
+  "unknown_signing_key",
 ];
+
+/** A day `YYYY-MM-DD` in the language of the interface, never shifted by the time zone. */
+export function formatDay(value: string, language: string): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeZone: "UTC" }).format(date);
+}
+
+/** The line "Updates: ..." of the installed key, or null for a server before 0.4.5. */
+export function updatesLine(key: InstalledKey, language: string): TranslatedMessage | null {
+  const updates = key.updates;
+  if (!updates) {
+    return null;
+  }
+  return updates.until === null
+    ? { key: "license:updates.series", values: { series: updates.series } }
+    : { key: "license:updates.until", values: { date: formatDay(updates.until, language) } };
+}
+
+/** How far ahead of its end the license page mentions the end of the update period. */
+export const UPDATES_NOTICE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The calm notice about the end of the update period: from {@link UPDATES_NOTICE_DAYS}
+ * days before its last day, and after it. Only on this page; nothing is mailed. The clock
+ * decides only what is said here, never what works.
+ */
+export function updatesNotice(
+  key: InstalledKey | null,
+  now: number,
+  language: string,
+): TranslatedMessage | null {
+  const until = key?.updates?.until;
+  if (!until) {
+    return null;
+  }
+  const end = Date.parse(`${until}T23:59:59.999Z`);
+  if (Number.isNaN(end)) {
+    return null;
+  }
+  const date = formatDay(until, language);
+  if (now > end) {
+    return { key: "license:updates.ended", values: { date } };
+  }
+  if (end - now <= UPDATES_NOTICE_DAYS * DAY_MS) {
+    return { key: "license:updates.endingSoon", values: { date } };
+  }
+  return null;
+}
 
 function isRejectionReason(value: unknown): value is LicenseRejectionReason {
   return REJECTION_REASONS.includes(value as LicenseRejectionReason);
@@ -82,7 +135,7 @@ function text(value: unknown): string {
 }
 
 /** Explain why installing or removing a key failed, in the operator's terms. */
-export function licenseErrorMessage(error: unknown): TranslatedMessage {
+export function licenseErrorMessage(error: unknown, language = "en"): TranslatedMessage {
   const problem = error instanceof ApiError ? error.problem : null;
   switch (problem?.type) {
     case LICENSE_PROBLEM_TYPES.invalid: {
@@ -95,6 +148,20 @@ export function licenseErrorMessage(error: unknown): TranslatedMessage {
             installation: text(problem.installationId),
           },
         };
+      }
+      if (reason === "outside_update_period") {
+        return typeof problem.updatesUntil === "string"
+          ? {
+              key: "license:errors.outside_update_period",
+              values: {
+                date: formatDay(problem.updatesUntil, language),
+                version: text(problem.version),
+              },
+            }
+          : {
+              key: "license:errors.outside_series",
+              values: { series: text(problem.series), version: text(problem.version) },
+            };
       }
       if (isRejectionReason(reason)) {
         return { key: `license:errors.${reason}` };

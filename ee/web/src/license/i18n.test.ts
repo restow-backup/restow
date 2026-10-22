@@ -54,7 +54,14 @@ describe("license namespace", () => {
   for (const [language, texts] of Object.entries(languages)) {
     it(`formats every ${language} message without leftovers`, () => {
       const t = i18n.getFixedT(language, LICENSE_NAMESPACE);
-      const values = { edition: "business", keyInstallation: "a-1", installation: "b-2" };
+      const values = {
+        edition: "business",
+        keyInstallation: "a-1",
+        installation: "b-2",
+        date: "30.11.2027",
+        version: "1.8.0",
+        series: "1",
+      };
       for (const key of texts.keys()) {
         const text = t(key, values);
         expect(text, key).not.toBe(key);
