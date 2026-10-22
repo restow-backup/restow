@@ -6,6 +6,7 @@
  * - sync.ts         the sync run against Graph, over a repository seam
  * - config.ts       rules, overrides and sync state inside `sources.config`
  * - groups.ts       group search for the rules editor
+ * - group-mailboxes.ts  Microsoft 365 group mailboxes from groups/delta (pure planning)
  * - csv.ts          IMAP account list and CSV import
  * - credentials.ts  Entra app credentials from environment values
  */
@@ -13,6 +14,7 @@
 export * from "./config.js";
 export * from "./credentials.js";
 export * from "./csv.js";
+export * from "./group-mailboxes.js";
 export * from "./groups.js";
 export * from "./plan.js";
 export * from "./rules.js";
