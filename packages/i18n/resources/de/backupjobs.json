@@ -35,13 +35,14 @@
     "new": "Neuer Job",
     "open": "Öffnen",
     "edit": "Bearbeiten",
-    "runNow": "Jetzt ausführen",
+    "runNow": "Jetzt starten",
     "openHistory": "Verlauf öffnen",
     "pause": "Pausieren",
     "resume": "Fortsetzen",
     "delete": "Löschen",
     "refresh": "Jobs aktualisieren",
-    "openGuest": "VM oder Container öffnen"
+    "openGuest": "VM oder Container öffnen",
+    "openPve": "VMs & Container öffnen"
   },
   "list": {
     "title": "Jobs",
@@ -68,7 +69,8 @@
       "lastRun": "Letzter Lauf",
       "nextRun": "Nächster Lauf",
       "restoreCheck": "Restore-Prüfung",
-      "type": "Typ"
+      "type": "Typ",
+      "state": "Zustand"
     },
     "uncovered": {
       "mail": "{count, plural, one {# geschütztes Objekt ist in keinem Job und wird nicht nach Zeitplan gesichert.} other {# geschützte Objekte sind in keinem Job und werden nicht nach Zeitplan gesichert.}}",
@@ -476,6 +478,13 @@
       "revoked": "{count, plural, one {# Rechner ist gesperrt.} other {# Rechner sind gesperrt.}}",
       "not_in_job": "{count, plural, one {# ist nicht in diesem Job.} other {# sind nicht in diesem Job.}}",
       "retired": "{count, plural, one {# Freigabe ist stillgelegt.} other {# Freigaben sind stillgelegt.}}"
+    },
+    "emptyScope": "Der Job umfasst noch nichts.",
+    "pve": {
+      "queued": "{count, plural, one {Sicherung von # Gast aus {name} eingereiht} other {Sicherungen von # Gästen aus {name} eingereiht}}",
+      "alreadyQueued": "{count, plural, one {# Gast wartet schon oder wird gerade gesichert.} other {# Gäste warten schon oder werden gerade gesichert.}}",
+      "noNode": "{count, plural, one {# Gast liegt auf einem Knoten, der nicht verbunden ist.} other {# Gäste liegen auf Knoten, die nicht verbunden sind.}}",
+      "selfBackup": "Die VM des {appName}-Servers bleibt außen vor, bis ihre Sicherung unter VMs & Container bestätigt ist."
     }
   },
   "toasts": {
@@ -1293,5 +1302,61 @@
     "cancel": "Abbrechen",
     "done": "{count, plural, one {Empfohlener Job eingerichtet: {names}} other {Empfohlene Jobs eingerichtet: {names}}}",
     "doneNothing": "Nichts geändert: Alles hat bereits einen Job."
+  },
+  "stop": {
+    "action": "Stoppen",
+    "stopping": "Wird gestoppt…",
+    "title": "Sicherungen von {name} stoppen?",
+    "body": {
+      "mail": "Jede wartende Sicherung dieses Jobs wird zurückgezogen. Laufende Sicherungen halten an ihrem nächsten sicheren Punkt an und behalten, was sie bis dahin gespeichert haben. Der nächste geplante Lauf startet wie gewohnt.",
+      "endpoint": "Angeforderte Sicherungen, die noch nicht begonnen haben, werden zurückgezogen. Rechner, die gerade sichern, beenden restic sauber bei ihrer nächsten Meldung (innerhalb etwa einer Minute); von einem gestoppten Lauf wird nichts gespeichert, er endet als abgebrochen, nicht als fehlgeschlagen. Die nächsten geplanten Sicherungen laufen wie gewohnt.",
+      "share": "Wartende Läufe dieses Jobs werden zurückgezogen, laufende von ihrem Runner gestoppt. Von einem gestoppten Lauf wird nichts gespeichert; er endet als abgebrochen, nicht als fehlgeschlagen.",
+      "pve": "Wartende Sicherungen der Gäste dieses Jobs werden zurückgezogen, laufende auf ihrem Knoten gestoppt. Von einer gestoppten Sicherung bleibt nichts; sie endet als abgebrochen, nicht als fehlgeschlagen. Die nächste geplante Runde läuft wie gewohnt.",
+      "guest": "Die von Hand gestartete Sicherung wird gestoppt (oder zurückgezogen, solange sie wartet). Von ihr bleibt nichts; sie endet als abgebrochen, nicht als fehlgeschlagen."
+    },
+    "confirm": "Sicherungen stoppen",
+    "keep": "Weiterlaufen lassen",
+    "done": "Sicherungen von {name} gestoppt",
+    "withdrawn": "{count, plural, one {# wartende Sicherung zurückgezogen.} other {# wartende Sicherungen zurückgezogen.}}",
+    "stoppingCount": "{count, plural, one {# laufende Sicherung wird gestoppt.} other {# laufende Sicherungen werden gestoppt.}}",
+    "doneNote": {
+      "mail": "Sie enden an ihrem nächsten sicheren Punkt.",
+      "endpoint": "Die Rechner stoppen sie bei ihrer nächsten Meldung, meist innerhalb einer Minute.",
+      "share": "Ihre Runner stoppen sie in Kürze.",
+      "pve": "Die Knoten stoppen sie in Kürze.",
+      "guest": "Der Knoten stoppt sie in Kürze."
+    },
+    "nothing": "Nichts zu stoppen: Keine Sicherung dieses Jobs wartet oder läuft noch."
+  },
+  "sheet": {
+    "title": "Job",
+    "details": "Details anzeigen",
+    "openFor": "Details von {name} anzeigen",
+    "notFound": "Diesen Job gibt es nicht (mehr).",
+    "kind": {
+      "mail": "Job für Mail & SaaS",
+      "endpoint": "Job für Rechner",
+      "share": "Job für Dateifreigaben",
+      "copy": "Kopierjob"
+    },
+    "state": "Zustand",
+    "lastError": "Fehler des letzten fehlgeschlagenen Laufs",
+    "copyError": "Fehler kopieren",
+    "warnings": "Warnungen des letzten Laufs mit Warnungen",
+    "copyWarnings": "Warnungen kopieren",
+    "restoreCheck": "Restore-Prüfungen",
+    "checkedAt": "Zuletzt geprüft",
+    "facts": "Eckdaten",
+    "verifySchedule": "Restore-Prüfungen",
+    "runs": "Letzte Läufe",
+    "noRuns": "Noch kein Lauf.",
+    "openPage": "Seite des Jobs öffnen",
+    "openGuests": "Seine VMs & Container öffnen",
+    "pveFailed": "{count, plural, one {Die Sicherung von # Gast ist in dieser Runde fehlgeschlagen.} other {Die Sicherungen von # Gästen sind in dieser Runde fehlgeschlagen.}}",
+    "pveShowFailed": "Fehlgeschlagene Gäste zeigen",
+    "pveRestoreCheck": "Der neueste Sicherungsstand jedes Gasts wird wöchentlich zurückgelesen; das Ergebnis je Gast steht unter VMs & Container.",
+    "keep": "Behält",
+    "keepValue": "{daily} tägliche, {weekly} wöchentliche, {monthly} monatliche Sicherungsstände",
+    "progressOf": "Fortschritt von {name}"
   }
 }

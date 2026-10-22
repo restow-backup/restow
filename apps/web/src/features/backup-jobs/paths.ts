@@ -15,6 +15,9 @@ import { ALL_JOB_KINDS, type JobKind } from "./api.js";
  *                                         new job starts with. This is the hook for "New job from
  *                                         selection" in the context menus of the inventory and of the
  *                                         protected objects.
+ *   /jobs?type=…&job=<id>                 the same list with the detail panel of one row open (0.4.5):
+ *                                         a job's id, or `pve:<id>` / `pve-guest:<id>` for the rows of
+ *                                         Proxmox VE on Servers & clients.
  *   /jobs/definitions/<id>?type=…&tab=…   one job. `type` keeps the right menu entry active (the page
  *                                         adds it once the job is loaded when the address came without
  *                                         one); `tab` is overview (default), scope, settings or runs.
@@ -67,13 +70,18 @@ export interface JobsListSearch {
    * source and target share and the target folder.
    */
   copy: { source: string | null; target: string | null; folder: string | null };
+  /** The row whose detail panel is open (`?job=`, 0.4.5). */
+  open: string | null;
 }
+
+/** A row's id as the address may carry it: a job's, or a Proxmox VE row's (`pve:<id>`). */
+const ROW_ID = /^(?:pve:|pve-guest:)?[A-Za-z0-9_-]{1,64}$/;
 
 function oneId(value: unknown): string | null {
   return typeof value === "string" && ID_TOKEN.test(value) ? value : null;
 }
 
-/** Reads `?type=`, `?new=`, `?select=` and a copy job's `?source=&target=&folder=`. */
+/** Reads `?type=`, `?new=`, `?select=`, a copy job's `?source=&target=&folder=` and `?job=`. */
 export function parseJobsSearch(search: Record<string, unknown>): JobsListSearch {
   const folder = typeof search.folder === "string" ? search.folder.slice(0, 1024) : null;
   return {
@@ -81,6 +89,7 @@ export function parseJobsSearch(search: Record<string, unknown>): JobsListSearch
     create: isTruthy(search.new),
     select: parseSelectedIds(search.select),
     copy: { source: oneId(search.source), target: oneId(search.target), folder },
+    open: typeof search.job === "string" && ROW_ID.test(search.job) ? search.job : null,
   };
 }
 

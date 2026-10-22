@@ -664,6 +664,20 @@ export function runBackupJob(
   return apiFetch<RunBackupJobResult>(`${BASE}/${id(jobId)}/run`, { method: "POST", body: input });
 }
 
+/** What "Stop" of a job did (0.4.5): backups withdrawn before they started, backups asked to stop. */
+export interface CancelBackupJobResult {
+  withdrawn: number;
+  stopping: number;
+}
+
+/** "Stop" of a job: every queued or running backup of it (0.4.5). */
+export function cancelBackupJob(jobId: string): Promise<CancelBackupJobResult> {
+  return apiFetch<CancelBackupJobResult>(`${BASE}/${id(jobId)}/cancel`, {
+    method: "POST",
+    body: {},
+  });
+}
+
 export function fetchJobRuns(jobId: string, limit = 30): Promise<JobRuns> {
   return apiFetch<JobRuns>(`${BASE}/${id(jobId)}/runs${queryString({ limit })}`);
 }

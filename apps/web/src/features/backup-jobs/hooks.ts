@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import * as React from "react";
 
 import { endpointKeys } from "@/features/endpoints/api";
+import { historyKeys } from "@/features/history/api";
 import { useLiveOpen } from "@/features/history/live/provider";
 import { useDebouncedValue } from "@/features/schedules/hooks";
 import { useSession } from "@/lib/session";
@@ -14,6 +15,7 @@ import {
   type BackupJobList,
   backupJobKeys,
   type CreateBackupJobInput,
+  cancelBackupJob,
   createBackupJob,
   deleteBackupJob,
   fetchBackupJob,
@@ -264,6 +266,21 @@ export function useRemoveJobMember(jobId: string) {
   return useMutation({
     mutationFn: (targetId: string) => removeJobMember(jobId, targetId),
     onSettled: refresh,
+  });
+}
+
+/** Stop every queued or running backup of a job (0.4.5). */
+export function useCancelBackupJob() {
+  const refresh = useRefreshJobs();
+  const queryClient = useQueryClient();
+  const { tenantId } = useJobsScope();
+  return useMutation({
+    mutationFn: (jobId: string) => cancelBackupJob(jobId),
+    onSettled: () => {
+      void refresh();
+      // The runs it stopped show their new state in History and the live rows at once.
+      void queryClient.invalidateQueries({ queryKey: historyKeys.all(tenantId) });
+    },
   });
 }
 

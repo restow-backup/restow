@@ -426,6 +426,11 @@ describe.skipIf(!canRun)("stopping Proxmox VE backups against Postgres", () => {
       .from(pveTasks)
       .where(and(eq(pveTasks.status, "pending"), sql`${pveTasks.params}->>'jobId' = ${job.id}`));
     expect(tasks.map((t) => t.guestId).sort()).toEqual([vm, ct].sort());
+    // The job list follows the round like a scheduled one.
+    const round = (await service.overview(shared.db, fixture.tenantId)).jobs.find(
+      (j) => j.id === job.id,
+    )?.round;
+    expect(round).toMatchObject({ total: 2, queued: 2 });
     // A second click queues nothing twice.
     expect(await service.runPveJob(shared.db, fixture.tenantId, job.id, actor())).toMatchObject({
       queued: 0,

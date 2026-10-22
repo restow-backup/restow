@@ -103,13 +103,9 @@ describe("the list of mail jobs", () => {
     expect(page?.getAttribute("data-kind")).toBe("mail");
     expect(text()).toContain("All mailboxes, daily");
     expect(text()).toContain("214 mailboxes, 6 OneDrives");
-    // An "all" job says so, and says it has overrides.
-    expect(text()).toContain("Everything in no other job, new ones included");
-    expect(text()).toContain("Restore check: ");
     expect(text()).toContain("Daily at");
-    // Running is its own badge, and the count of what runs now.
+    // Running is its own badge (one state per row); what runs is in the panel.
     expect(document.querySelector('[data-state="running"]')?.textContent).toContain("Running");
-    expect(text()).toContain("2 running");
   });
 
   it("colours the restore check by what it proves: green only when every object passed", async () => {
@@ -119,12 +115,12 @@ describe("the list of mail jobs", () => {
     const failed = [...document.querySelectorAll('[data-restore-check="failed"]')];
     const attention = [...document.querySelectorAll('[data-restore-check="attention"]')];
     expect(passed.map((node) => node.textContent)).toEqual(["4 of 4 passed"]);
-    expect(failed.map((node) => node.textContent)).toEqual(["5 of 6 passed"]);
-    expect(attention.map((node) => node.textContent)).toEqual(["210 of 220 passed"]);
+    expect(failed.map((node) => node.textContent?.split(":")[0])).toEqual(["5 of 6 passed"]);
+    expect(attention.map((node) => node.textContent?.split(":")[0])).toEqual(["210 of 220 passed"]);
     expect(failed[0]?.getAttribute("data-tone")).toBe("destructive");
     expect(attention[0]?.getAttribute("data-tone")).toBe("warning");
     expect(passed[0]?.getAttribute("data-tone")).toBe("success");
-    // The facts behind an amber or red badge are in words next to it.
+    // The facts behind an amber or red badge are in words for screen readers (the panel shows them).
     expect(text()).toContain("1 failed");
     expect(text()).toContain("10 not checked yet");
   });
@@ -139,7 +135,7 @@ describe("the list of mail jobs", () => {
     }
   });
 
-  it("shows the progress of a running backup in its row: the bar, the speed with its line, and the percent beside the name", async () => {
+  it("shows the progress of a running backup beside its state, and the run's progress in the panel", async () => {
     const queryClient = newQueryClient();
     queryClient.setQueryData(historyKeys.live(TENANT.id), {
       "live-run": liveRun({
@@ -147,18 +143,25 @@ describe("the list of mail jobs", () => {
         job: { id: "job-running", name: "Executive board, hourly" },
       }),
     });
-    opened = await openJobs("/jobs?type=mail", { ...mailRoutes(), queryClient });
+    opened = await openJobs("/jobs?type=mail", {
+      ...mailRoutes({
+        routes: { "GET /history": () => json({ items: [], next: null }) },
+      }),
+      queryClient,
+    });
     await flush(5);
     const row = [...document.querySelectorAll("tr")].find((tr) =>
       tr.textContent?.includes("Executive board, hourly"),
     );
-    // The last-run column has the live progress; the other jobs have none.
-    expect(row?.querySelector('[data-slot="run-progress"]')).not.toBeNull();
-    expect(row?.querySelector('[data-slot="sparkline"]')).not.toBeNull();
-    expect(document.querySelectorAll('[data-slot="run-progress"]')).toHaveLength(1);
-    // On a phone that column is off screen, so the percent stays with the job's name.
-    const pinned = row?.querySelector('td[data-pinned="left"]');
-    expect(pinned?.textContent).toContain("40 %");
+    // One bar beside the state of the running job, none elsewhere.
+    expect(row?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("40");
+    expect(document.querySelectorAll('tbody [role="progressbar"]')).toHaveLength(1);
+    expect(row?.querySelector('[data-action="stop"]')).not.toBeNull();
+    await click(row?.querySelector('[data-job-name="job-running"]'));
+    await flush(3);
+    const sheet = slot("job-sheet");
+    expect(sheet?.querySelector('[data-slot="run-progress"]')).not.toBeNull();
+    expect(sheet?.textContent).toContain("2 running");
   });
 
   it("pins the first column: the job stays while the others scroll", async () => {
@@ -169,70 +172,103 @@ describe("the list of mail jobs", () => {
     expect(pinned[0]?.textContent).toContain("All mailboxes, daily");
   });
 
-  it("opens a job by its name and the drawer of its current or last run by a click on the row", async () => {
-    opened = await openJobs("/jobs?type=mail", mailRoutes());
+  it("opens a job's detail panel by a click on its row, its name or its state, named in the address", async () => {
+    opened = await openJobs(
+      "/jobs?type=mail",
+      mailRoutes({ routes: { "GET /history": () => json({ items: [], next: null }) } }),
+    );
     await flush(5);
-    const link = [...document.querySelectorAll("a")].find((anchor) =>
-      anchor.textContent?.includes("OneDrive, nightly"),
-    );
-    expect(link?.getAttribute("href")).toContain("/jobs/definitions/job-failed");
     const row = [...document.querySelectorAll("tr")].find((tr) =>
-      tr.textContent?.includes("Executive board, hourly"),
+      tr.textContent?.includes("OneDrive, nightly"),
     );
-    await click(row?.querySelector("td:nth-child(2)"));
+    await click(row?.querySelector("td:nth-child(4)"));
     await flush(3);
-    // The page stays where it is; the address names the run that opened.
+    // The page stays where it is; the address names the open row.
     expect(opened.where().pathname).toBe("/jobs");
-    expect(opened.where().search).toMatchObject({
-      type: "mail",
-      run: "11111111-1111-4111-8111-111111111111",
-    });
-    expect(document.querySelector('[data-slot="run-drawer"]')).not.toBeNull();
+    expect(opened.where().search).toMatchObject({ type: "mail", job: "job-failed" });
+    const sheet = slot("job-sheet");
+    expect(sheet?.textContent).toContain("OneDrive, nightly");
+    expect(sheet?.querySelector('[data-slot="job-sheet-open"]')?.getAttribute("href")).toContain(
+      "/jobs/definitions/job-failed",
+    );
+    // The restore checks in full: the badge and the facts behind it.
+    expect(sheet?.querySelector('[data-slot="job-sheet-verify"]')?.textContent).toContain(
+      "1 failed",
+    );
   });
 
-  it("opens the job itself when it has no run to show yet", async () => {
-    const NEVER = mailJob({
-      id: "job-never",
-      name: "Fresh job",
-      lastRun: { at: null, failed: 0, partial: 0, running: 0, queued: 0, runId: null },
-    });
-    opened = await openJobs("/jobs?type=mail", {
-      routes: {
-        "GET /backup-jobs": () => json(list([NEVER])),
-        "GET /backup-jobs/defaults": () => json(defaults("mail")),
-        "GET /backup-jobs/candidates": () => json({ items: [], total: 0 }),
-      },
-    });
-    await flush(5);
-    const row = [...document.querySelectorAll("tr")].find((tr) =>
-      tr.textContent?.includes("Fresh job"),
+  it("shows the whole error of the last failed run in the panel, copyable", async () => {
+    const ERROR =
+      "Graph request failed: 503 Service Unavailable (request-id 7f3a…) while reading folder Inbox/2026";
+    opened = await openJobs(
+      "/jobs?type=mail&job=job-failed",
+      mailRoutes({
+        routes: {
+          "GET /history": () =>
+            json({
+              items: [
+                liveRun({
+                  id: "failed-run",
+                  state: "failed",
+                  errorMessage: ERROR,
+                  job: { id: "job-failed", name: "OneDrive, nightly" },
+                }),
+              ],
+              next: null,
+            }),
+        },
+      }),
     );
-    await click(row?.querySelector("td:nth-child(2)"));
+    await flush(6);
+    const block = document.querySelector('[data-slot="job-error"]');
+    expect(block?.querySelector("pre")?.textContent).toBe(ERROR);
+    expect(block?.querySelector('button[aria-label="Copy error"]')).not.toBeNull();
+    // Nothing of it in the table.
+    expect(document.querySelector("table")?.textContent).not.toContain("Service Unavailable");
+  });
+
+  it("starts a job now from its row and stops it after a question", async () => {
+    const run = vi.fn(() => json({ queued: 6, skipped: [] }, 202));
+    const cancel = vi.fn(() => json({ withdrawn: 1, stopping: 2 }, 202));
+    opened = await openJobs(
+      "/jobs?type=mail",
+      mailRoutes({
+        routes: {
+          "POST /backup-jobs/job-failed/run": run,
+          "POST /backup-jobs/job-running/cancel": cancel,
+        },
+      }),
+    );
+    await flush(5);
+    await click(byLabel("Start now: OneDrive, nightly"));
     await flush(3);
-    expect(opened.where().pathname).toBe("/jobs/definitions/job-never");
+    expect(run).toHaveBeenCalledTimes(1);
+    await click(byLabel("Stop: Executive board, hourly"));
+    await flush(3);
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("Stop the backups of Executive board, hourly?");
+    expect(cancel).not.toHaveBeenCalled();
+    await click(buttonByText(dialog as HTMLElement, "Stop backups"));
+    await flush(3);
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 
-  it("links the time of the last run to its drawer, so the keyboard and a copied link get there too", async () => {
-    opened = await openJobs("/jobs?type=mail", mailRoutes());
-    await flush(5);
-    const links = [...document.querySelectorAll("a")].filter((anchor) =>
-      anchor.getAttribute("href")?.includes("run=11111111-1111-4111-8111-111111111111"),
-    );
-    expect(links.length).toBeGreaterThan(0);
-  });
-
-  it("offers Pause on a mail job and Open, Edit, Run now, its history and Delete beside it", async () => {
+  it("offers Pause on a mail job and Details, Open, Edit, Start now, its history and Delete beside it", async () => {
     opened = await openJobs("/jobs?type=mail", mailRoutes());
     await flush(5);
     const items = await openMenu(byLabel("Actions for OneDrive, nightly"));
     expect(items.map((item) => item.textContent)).toEqual([
+      "Show details",
       "Open",
       "Edit",
-      "Run now",
+      "Start now",
       "Open history",
       "Pause",
       "Delete",
     ]);
+    // A job whose backups run also offers Stop.
+    const running = await openMenu(byLabel("Actions for Executive board, hourly"));
+    expect(running.map((item) => item.textContent)).toContain("Stop");
   });
 
   it("asks before deleting and says what stops being backed up", async () => {
@@ -440,13 +476,13 @@ describe("the list of machine jobs", () => {
     await flush(5);
     expect(slot("jobs-page")?.getAttribute("data-kind")).toBe("endpoint");
     expect(text()).toContain("3 servers");
-    expect(text()).toContain("1 with overrides");
     expect(text()).toContain("Daily at");
     const items = await openMenu(byLabel("Actions for Linux servers, daily"));
     expect(items.map((item) => item.textContent)).toEqual([
+      "Show details",
       "Open",
       "Edit",
-      "Run now",
+      "Start now",
       "Open history",
       "Delete",
     ]);
@@ -550,14 +586,25 @@ describe("Proxmox VE in the list of machine jobs (#53)", () => {
     expect(text()).toContain("Type");
     expect(text()).toContain("Nightly VMs");
     expect(text()).toContain("Proxmox VE");
-    expect(text()).toContain("2 of 5 guests done");
     expect(text()).toContain("5 VMs and containers");
-    expect(text()).toContain("Recommended");
+    // The round's progress beside the job's state: 2 of 5 guests done.
+    const row = [...document.querySelectorAll("tr")].find((tr) =>
+      tr.textContent?.includes("Nightly VMs"),
+    );
+    expect(row?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("40");
     // A backup asked for by hand is a row of its own until it ends; web01's belongs to the round.
     expect(text()).toContain("Manual backup · mail01");
     expect(text()).not.toContain("Manual backup · web01");
     const items = await openMenu(byLabel("Actions for Manual backup · mail01"));
-    expect(items.map((item) => item.textContent)).toEqual(["Open VM or container"]);
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Show details",
+      "Open VM or container",
+      "Stop",
+    ]);
+    // The job's panel says how its round stands.
+    await click(row?.querySelector("td:nth-child(4)"));
+    await flush(3);
+    expect(slot("job-sheet")?.textContent).toContain("2 of 5 guests done");
   });
 
   it("offers one New job entry per type", async () => {
@@ -648,11 +695,15 @@ describe("the page closed for the public demo and for a role that may only look"
     const trigger = byLabel("Actions for All mailboxes, daily") as HTMLElement;
     expect(describedText(trigger)).toContain("This is the public demo");
     const items = await openMenu(trigger);
-    expect(items.length).toBe(6);
+    expect(items.length).toBe(7);
     const changes = items.filter(
-      (item) => !["Open", "Open history"].includes(item.textContent ?? ""),
+      (item) => !["Show details", "Open", "Open history"].includes(item.textContent ?? ""),
     );
     expect(changes.length).toBe(4);
+    // So is the row's Start now.
+    expect((byLabel("Start now: All mailboxes, daily") as HTMLButtonElement | null)?.disabled).toBe(
+      true,
+    );
     for (const item of changes) {
       expect(
         item.getAttribute("aria-disabled") ?? item.getAttribute("data-disabled"),

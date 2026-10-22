@@ -1065,7 +1065,8 @@ export interface PveJobRunResult {
 
 /**
  * POST /pve/jobs/:id/run (0.4.5): a backup of every guest the job covers, now, as the scheduler
- * would queue it (apps/worker pve/maintenance.ts `planJobs`), without moving the job's schedule.
+ * would queue it (apps/worker pve/maintenance.ts `planJobs`), without moving the job's schedule
+ * (`last_run_at` becomes now, so the job list shows the round as it goes).
  * The guests, their nodes and their open tasks are read once each; the tasks go in with one
  * statement, so a job of thousands of guests is one short transaction.
  */
@@ -1153,6 +1154,9 @@ export async function runPveJob(
     }
     if (rows.length > 0) {
       await tx.insert(pveTasks).values(rows);
+      // The job's round starts now: the job list follows it ("2 of 5 guests done") like a
+      // scheduled one. The schedule (`next_run_at`) stays as it was.
+      await tx.update(pveJobs).set({ lastRunAt: now }).where(eq(pveJobs.id, job.id));
     }
     result.queued = rows.length;
     await auditPve(tx, {
