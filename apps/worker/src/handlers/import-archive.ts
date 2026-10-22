@@ -15,8 +15,12 @@
  * Idempotent: a message whose hash is already archived for this mailbox is
  * counted as `alreadyArchived` and not written again, so a retried job and a
  * second import of the same mail never duplicate archive items.
+ *
+ * Every message goes in through the shared archive append (@restow/core
+ * archive/append.ts, `PgArchiveAppendStore`): the upload outside the tenant's
+ * chain lock, the chain link and the row under it, with the duplicate policy
+ * `keep` (every imported message is an item of its own, as before 0.4.4).
  */
-import { randomUUID } from "node:crypto";
 import {
   archive,
   ChunkReader,
@@ -27,8 +31,14 @@ import {
   mailfiles,
   type ProtectedObjectRef,
 } from "@restow/core";
-import { type ArchiveEnvelope, archiveItems, retentionPolicies } from "@restow/db";
-import { and, desc, eq, sql } from "drizzle-orm";
+import {
+  type ArchiveEnvelope,
+  archiveEnvelopeRow,
+  archiveItems,
+  PgArchiveAppendStore,
+  retentionPolicies,
+} from "@restow/db";
+import { and, eq, sql } from "drizzle-orm";
 import type { WorkerJobContext } from "./framework.js";
 import { withTenantTx } from "./framework.js";
 
@@ -48,25 +58,21 @@ export interface ArchiveImportOptions {
 }
 
 export function toDbEnvelope(envelope: archive.JournalEnvelope): ArchiveEnvelope {
-  const to: string[] = [];
-  const cc: string[] = [];
-  const bcc: string[] = [];
-  const recipients: string[] = [];
-  for (const recipient of envelope.recipients) {
-    recipients.push(recipient.address);
-    (recipient.type === "to" ? to : recipient.type === "cc" ? cc : bcc).push(recipient.address);
-  }
-  return { from: envelope.sender ?? undefined, to, cc, bcc, recipients };
+  return archiveEnvelopeRow(envelope) as ArchiveEnvelope;
 }
 
-async function retentionPolicyOf(ctx: WorkerJobContext): Promise<archive.RetentionPolicy> {
-  const [row] = await withTenantTx(ctx.db, ctx.tenantId, (tx) =>
+/** The retention of the tenant's archive (its archive policy, else the default). */
+export async function archiveRetentionPolicyFor(
+  db: WorkerJobContext["db"],
+  tenantId: string,
+): Promise<archive.RetentionPolicy> {
+  const [row] = await withTenantTx(db, tenantId, (tx) =>
     tx
       .select({ years: retentionPolicies.years, mode: retentionPolicies.mode })
       .from(retentionPolicies)
       .where(
         and(
-          eq(retentionPolicies.tenantId, ctx.tenantId),
+          eq(retentionPolicies.tenantId, tenantId),
           sql`${retentionPolicies.appliesTo}->>'target' = 'archive'`,
         ),
       )
@@ -118,7 +124,7 @@ export async function archiveImportedMessages(
   const manifest = await loadManifest(ctx.storage, record.manifestPath, ctx.keys);
   const messages = messagesOfImport(manifest.objects, ctx.jobId);
   const known = await alreadyArchivedHashes(ctx, protectedObject.id);
-  const policy = await retentionPolicyOf(ctx);
+  const policy = await archiveRetentionPolicyFor(ctx.db, ctx.tenantId);
   const reader = new ChunkReader({
     storage: ctx.storage,
     keys: ctx.keys,
@@ -177,58 +183,30 @@ async function ingestOne(
   policy: archive.RetentionPolicy,
 ): Promise<void> {
   const fields = await mailfiles.extractArchiveFields(raw, { signal: ctx.signal });
-  const itemId = randomUUID();
-  const receivedAt = ctx.now();
-  await withTenantTx(ctx.db, ctx.tenantId, async (tx) => {
-    // One chain per tenant: the same lock the journal receiver takes.
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${`archive-chain:${ctx.tenantId}`}))`,
-    );
-    const [last] = await tx
-      .select({ chainHash: archiveItems.chainHash })
-      .from(archiveItems)
-      .where(eq(archiveItems.tenantId, ctx.tenantId))
-      .orderBy(desc(archiveItems.createdAt))
-      .limit(1);
-    const record = await archive.writeArchiveItem({
-      tenantId: ctx.tenantId,
-      itemId,
-      storage: ctx.storage,
-      keys: ctx.keys,
-      index: ctx.chunkIndex,
-      original: raw,
-      receivedAt,
-      envelope: fields.envelope,
-      flags: [],
-      source: "file_import",
-      retentionPolicy: policy,
-      prevChainHash: last?.chainHash ?? null,
-      now: ctx.now,
-      logger: ctx.logger,
-    });
-    await tx.insert(archiveItems).values({
-      id: record.id,
-      tenantId: record.tenantId,
-      protectedObjectId: protectedObject.id,
-      messageId: fields.messageId ?? record.id,
-      itemHash: record.itemHash,
-      prevChainHash: record.prevChainHash,
-      chainHash: record.chainHash,
-      receivedAt: record.receivedAt,
-      capturedVia: "file_import",
-      retentionUntil: record.retentionUntil,
-      storagePath: archive.archiveItemKey(record.tenantId, record.receivedAt, record.id),
-      // An item with a retention date; not proof that the target enforced Object Lock.
-      objectLock: record.retentionUntil !== null,
+  // One chain per tenant: the store takes the same lock the journal receiver takes.
+  const store: archive.ArchiveAppendStore = new PgArchiveAppendStore(ctx.db, ctx.tenantId);
+  await archive.captureArchiveItem({
+    tenantId: ctx.tenantId,
+    storage: ctx.storage,
+    keys: ctx.keys,
+    index: ctx.chunkIndex,
+    store,
+    original: raw,
+    source: "file_import",
+    receivedAt: ctx.now(),
+    envelope: fields.envelope,
+    flags: [],
+    messageId: fields.messageId,
+    metadata: {
       subject: fields.subject,
-      sizeBytes: record.size,
-      envelope: toDbEnvelope(fields.envelope),
-      chunks: [...record.chunks],
-      flags: [...record.flags],
       bodyText: fields.bodyText,
       hasAttachment: fields.hasAttachment,
       sentAt: fields.sentAt ?? (object.mtime > 0 ? new Date(object.mtime) : null),
-      createdAt: record.createdAt,
-    });
+    },
+    retentionPolicy: policy,
+    protectedObjectId: protectedObject.id,
+    duplicates: "keep",
+    now: ctx.now,
+    logger: ctx.logger,
   });
 }

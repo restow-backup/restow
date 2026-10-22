@@ -77,6 +77,8 @@ function toRow(record: ArchiveItemRecord, storagePath: string) {
     envelope: toDbEnvelope(record.envelope),
     chunks: [...record.chunks],
     flags: [...record.flags],
+    bodyHash: record.bodyHash ?? null,
+    supersedesItemId: record.supersedesItemId ?? null,
     createdAt: record.createdAt,
   };
 }
@@ -100,6 +102,8 @@ function fromRow(row: typeof archiveItems.$inferSelect): ArchiveItemRecord {
     legalHold: false,
     retentionUntil: row.retentionUntil,
     createdAt: row.createdAt,
+    ...(row.bodyHash ? { bodyHash: row.bodyHash } : {}),
+    ...(row.supersedesItemId ? { supersedesItemId: row.supersedesItemId } : {}),
   };
 }
 
@@ -134,15 +138,15 @@ export class PgArchiveCatalog implements archive.ArchiveCatalog {
   }
 
   async lastChainHash(tenantId: string): Promise<string | null> {
-    // Append order is `created_at` order (the catalog's own contract); the
-    // caller (journal/receiver.ts) holds the per-tenant advisory chain lock
-    // around this call and the matching append, so two concurrent
-    // deliveries can never both read the same predecessor.
+    // Append order is (`created_at`, `id`) order, the order chain verification
+    // walks (verify.ts); writers append through @restow/core archive/append.ts,
+    // under the per-tenant advisory chain lock and with a strictly increasing
+    // `created_at`, so two concurrent writers never read the same predecessor.
     const [row] = await this.options.db
       .select({ chainHash: archiveItems.chainHash })
       .from(archiveItems)
       .where(eq(archiveItems.tenantId, tenantId))
-      .orderBy(desc(archiveItems.createdAt))
+      .orderBy(desc(archiveItems.createdAt), desc(archiveItems.id))
       .limit(1);
     return row?.chainHash ?? null;
   }
@@ -152,7 +156,7 @@ export class PgArchiveCatalog implements archive.ArchiveCatalog {
       .select()
       .from(archiveItems)
       .where(eq(archiveItems.tenantId, tenantId))
-      .orderBy(asc(archiveItems.createdAt));
+      .orderBy(asc(archiveItems.createdAt), asc(archiveItems.id));
     return rows.map(fromRow);
   }
 

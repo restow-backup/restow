@@ -60,6 +60,16 @@ export interface JournalEnvelope {
   /** The mailbox a delegate sent on behalf of, from an `On-Behalf-Of:` envelope line, or null. */
   readonly onBehalfOf: string | null;
   readonly recipients: readonly JournalRecipient[];
+  /**
+   * A forwarded plain copy (`smtp_forward`, 0.4.4) has no journal envelope: its sender
+   * and recipients come from the copy's headers, and what the SMTP transaction said is
+   * kept here. `MAIL FROM` (the original sender, or an SRS address).
+   */
+  readonly envelopeFrom?: string | null;
+  /** `RCPT TO` of the transaction: the archive address, not the mail's recipients. */
+  readonly envelopeTo?: readonly string[];
+  /** `Delivered-To` / `X-Original-To` headers the forwarding provider added. */
+  readonly deliveredTo?: readonly string[];
 }
 
 /**

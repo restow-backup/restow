@@ -223,7 +223,9 @@ export function toRetentionPolicy(policy: RetentionPolicy): RetentionPolicyDto {
   };
 }
 
-type Channel = "journal" | "graph_sync" | "imap_sync" | "file_import";
+// `smtp_forward` (forwarded copies, 0.4.4) is not a channel of the 1.x contract yet: its
+// rows are left out here until the contract names it.
+type Channel = "journal" | "graph_sync" | "imap_sync" | "file_import" | "smtp_forward";
 
 function byChannel<T>(rows: readonly { channel: Channel; value: T }[], empty: T) {
   const find = (channel: Channel) => rows.find((row) => row.channel === channel)?.value ?? empty;

@@ -7,9 +7,31 @@
  */
 import type { JournalEnvelope, JournalFlag } from "./journal.js";
 
-/** Where an archived item's bytes were captured from (docs/ARCHIVE.md, the capture paths section). */
-/** `file_import` = mail imported from files into an imported mailbox and archived with it (docs/IMPORT.md). */
-export type ArchiveSource = "journal" | "graph_sync" | "imap_sync" | "file_import";
+/**
+ * Where an archived item's bytes were captured from (docs/ARCHIVE.md, the capture paths
+ * section). `file_import` = mail imported from files into an imported mailbox and archived
+ * with it (docs/IMPORT.md); `smtp_forward` = a plain copy a mail provider forwarded to an
+ * archive address at transport (0.4.4). Readers never validate it: a value a newer version
+ * writes is shown as it is.
+ */
+export type ArchiveSource = "journal" | "graph_sync" | "imap_sync" | "file_import" | "smtp_forward";
+
+/** Every archive source, in rank order (./identity.ts `captureRank`). */
+export const ARCHIVE_SOURCES: readonly ArchiveSource[] = [
+  "journal",
+  "smtp_forward",
+  "graph_sync",
+  "imap_sync",
+  "file_import",
+];
+
+/**
+ * Flags an item carries: the journal parser's ({@link JournalFlag}), and those of the
+ * capture (0.4.4): `captured-late` = taken over by the one-time backfill of a mailbox way,
+ * received before live capture started; `message-id-conflict` = the archive already holds
+ * another mail with the same Message-ID but a different body.
+ */
+export type ArchiveFlag = JournalFlag | "captured-late" | "message-id-conflict";
 
 /**
  * One archived item, as written by {@link writeArchiveItem} (./writer.ts) and
@@ -35,13 +57,23 @@ export interface ArchiveItemRecord {
   readonly chunks: readonly string[];
   /** Null for sources that do not carry a journal envelope (Graph sync, IMAP sync). */
   readonly envelope: JournalEnvelope | null;
-  readonly flags: readonly JournalFlag[];
+  readonly flags: readonly ArchiveFlag[];
   readonly source: ArchiveSource;
   readonly legalHold: boolean;
   /** Computed retention date, or null for unlimited retention (./retention.ts). */
   readonly retentionUntil: Date | null;
-  /** When this record was written (not necessarily `receivedAt`: backfilled Graph sync differs). */
+  /**
+   * When this record was written (not necessarily `receivedAt`: backfilled Graph sync
+   * differs). Strictly increasing within a tenant's chain (./append.ts): append order.
+   */
   readonly createdAt: Date;
+  /**
+   * SHA-256 of the body (./identity.ts `bodyHash`), written from 0.4.4 on; absent in
+   * older records.
+   */
+  readonly bodyHash?: string;
+  /** The weaker item of the same mail this one supersedes (0.4.4); absent when none. */
+  readonly supersedesItemId?: string;
 }
 
 /** An item id already exists in the catalog. */

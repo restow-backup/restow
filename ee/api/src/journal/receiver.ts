@@ -21,26 +21,21 @@
  * `archive.JournalParserBusyError`, or none could be started), the parse
  * rejects before anything is stored and the caller answers 451.
  *
- * The chain hash lookup and the item's insert are one atomic step: both run
- * inside a transaction that first takes a per-tenant advisory lock (the same
- * pattern apps/api/src/lib/audit.ts uses for the audit chain), so two
- * concurrent deliveries for the same tenant can never claim the same
- * predecessor chain hash.
+ * The item goes in through the shared archive append (@restow/core
+ * archive/append.ts `captureArchiveItem`, packages/db `PgArchiveAppendStore`):
+ * the original is uploaded outside the tenant's chain lock, and the chain hash
+ * lookup, the item's insert and its mailbox assignments are one atomic step
+ * under that lock, so two concurrent deliveries for the same tenant can never
+ * claim the same predecessor chain hash, and neither waits for the other's
+ * upload. Every report becomes an item of its own (duplicate policy `keep`,
+ * as before 0.4.4); one that arrives after a mailbox capture of the same mail
+ * names the item it supersedes.
  */
-import { randomUUID } from "node:crypto";
 import { archive, type KeyProvider, type Logger } from "@restow/core";
-import type { Database } from "@restow/db";
-import { sql } from "drizzle-orm";
-import { PgArchiveCatalog } from "../../../../apps/api/src/features/archive/catalog.js";
-import { type DbExecutor, withTenantTx } from "../../../../apps/api/src/lib/tenant-context.js";
+import { type Database, PgArchiveAppendStore } from "@restow/db";
 import { loadTenantKeyring, PgChunkIndex, tenantRunner } from "./chunkstore.js";
-import { assignArchiveItemMailboxes, envelopeAddresses } from "./mailboxes.js";
+import { envelopeAddresses } from "./mailboxes.js";
 import { resolveTenantWritableStorage } from "./storage.js";
-
-/** Per-tenant lock key for the archive chain, distinct from the audit chain's own lock key. */
-function chainLockKey(tenantId: string): string {
-  return `archive-chain:${tenantId}`;
-}
 
 export interface JournalReceiverDeps {
   readonly db: Database;
@@ -71,52 +66,38 @@ export async function receiveJournalReport(
   const parsed = await archive.parseJournalReportIsolated(rawBytes, deps.parseLimits ?? {});
   const now = deps.now ?? (() => new Date());
   const receivedAt = now();
-  const itemId = randomUUID();
   const [keys, retentionPolicy, storage] = await Promise.all([
     loadTenantKeyring({ db: deps.db, tenantId, keyProvider: deps.keyProvider }),
     deps.retentionPolicyFor(tenantId),
     resolveTenantWritableStorage(deps.db, tenantId),
   ]);
-  const chunkIndex = new PgChunkIndex(tenantRunner(deps.db, tenantId), tenantId);
-
-  return withTenantTx(deps.db, tenantId, async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${chainLockKey(tenantId)}))`);
-    const catalog = archiveCatalogOn(tx);
-    const prevChainHash = await catalog.lastChainHash(tenantId);
-
-    const record = await archive.writeArchiveItem({
-      tenantId,
-      itemId,
-      storage,
-      keys,
-      index: chunkIndex,
-      original: parsed.original,
-      receivedAt,
-      envelope: parsed.envelope,
-      flags: parsed.flags,
-      source: "journal",
-      retentionPolicy,
-      prevChainHash,
-      now,
-      logger: deps.logger,
-    });
-    await catalog.append(record);
+  const store: archive.ArchiveAppendStore = new PgArchiveAppendStore(deps.db, tenantId);
+  const result = await archive.captureArchiveItem({
+    tenantId,
+    storage,
+    keys,
+    index: new PgChunkIndex(tenantRunner(deps.db, tenantId), tenantId),
+    store,
+    original: parsed.original,
+    source: "journal",
+    receivedAt,
+    envelope: parsed.envelope,
+    flags: parsed.flags,
+    messageId: parsed.envelope.messageId,
+    retentionPolicy,
     // The mailboxes the envelope names (#32); none keeps the item the tenant's only.
-    const mailboxes = await assignArchiveItemMailboxes(
-      tx,
-      tenantId,
-      record.id,
-      envelopeAddresses(parsed.envelope),
-    );
-    deps.logger?.debug("journal report assigned to mailboxes", { itemId: record.id, mailboxes });
-    return record;
+    mailboxes: { addresses: envelopeAddresses(parsed.envelope) },
+    duplicates: "keep",
+    now,
+    logger: deps.logger,
   });
-}
-
-function archiveCatalogOn(tx: DbExecutor): PgArchiveCatalog {
-  return new PgArchiveCatalog({
-    db: tx,
-    storagePathOf: (record) =>
-      archive.archiveItemKey(record.tenantId, record.receivedAt, record.id),
+  if (result.outcome !== "stored") {
+    // Unreachable under the `keep` policy; a report is never dropped.
+    throw new Error("a journal report was not stored as an archive item");
+  }
+  deps.logger?.debug("journal report assigned to mailboxes", {
+    itemId: result.record.id,
+    mailboxes: result.mailboxes,
   });
+  return result.record;
 }

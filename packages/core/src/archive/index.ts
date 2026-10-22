@@ -6,8 +6,10 @@
  * for the on-disk layout.
  */
 
+export * from "./append.js";
 export * from "./chain.js";
 export * from "./format.js";
+export * from "./identity.js";
 export * from "./journal.js";
 export * from "./journal-isolated.js";
 export * from "./layout.js";

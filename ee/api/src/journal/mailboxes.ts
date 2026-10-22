@@ -9,12 +9,15 @@
  * every SMTP alias the directory sync stored (`users.mail_addresses`); an IMAP
  * account by its login. A report that names no mailbox of the tenant stays
  * assigned to the tenant only: it is archived all the same, nothing is ever
- * dropped. The assignments are written in the receiver's own transaction,
- * so an item never exists without the ones it had when it was received.
+ * dropped. The assignments are written in the transaction that appends the
+ * item (@restow/core archive/append.ts), so an item never exists without the
+ * ones it had when it was received.
  */
 import type { archive } from "@restow/core";
-import { sql } from "drizzle-orm";
-import type { DbExecutor } from "../../../../apps/api/src/lib/tenant-context.js";
+
+// The assignment itself is the core's since 0.4.4 (packages/db archive-append.ts): every
+// capture path assigns through the shared archive append.
+export { assignArchiveItemMailboxes } from "@restow/db";
 
 /** The addresses of an envelope that make a mailbox the owner of the mail, lowercase, once each. */
 export function envelopeAddresses(envelope: archive.JournalEnvelope): string[] {
@@ -32,41 +35,4 @@ export function envelopeAddresses(envelope: archive.JournalEnvelope): string[] {
     add(recipient.forwardedBy);
   }
   return [...addresses];
-}
-
-/**
- * Assign the archive item `itemId` to every mailbox of the tenant the
- * addresses name. Runs inside the tenant-pinned transaction of the receiver
- * (Row Level Security keeps it to the tenant). Returns how many mailboxes it assigned.
- */
-export async function assignArchiveItemMailboxes(
-  tx: DbExecutor,
-  tenantId: string,
-  itemId: string,
-  addresses: readonly string[],
-): Promise<number> {
-  if (addresses.length === 0) {
-    return 0;
-  }
-  const list = sql`ARRAY[${sql.join(
-    addresses.map((address) => sql`${address}`),
-    sql`, `,
-  )}]::text[]`;
-  const result = await tx.execute(sql`
-    insert into archive_item_mailboxes (tenant_id, archive_item_id, protected_object_id)
-    select ${tenantId}::uuid, ${itemId}::uuid, po.id
-      from protected_objects po
-      left join users u on u.id = po.user_id
-     where po.tenant_id = ${tenantId}::uuid
-       and (
-         (po.kind = 'mailbox' and u.id is not null and (
-            lower(u.email) = any(${list})
-            or lower(u.upn) = any(${list})
-            or u.mail_addresses && ${list}
-         ))
-         or (po.kind = 'imap' and lower(po.external_id) = any(${list}))
-       )
-    on conflict do nothing
-  `);
-  return result.rowCount ?? 0;
 }

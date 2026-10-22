@@ -38,9 +38,16 @@
  *
  * This module does not touch the {@link ArchiveCatalog}: the caller appends
  * the returned record itself, in the same transaction it uses to look up
- * `prevChainHash` (ARCHIVE-JOURNAL's receiver does this against Postgres, so
+ * `prevChainHash` (./append.ts does this under the tenant's chain lock, so
  * the lookup and the append are atomic; nothing here could make that
  * guarantee on its own).
+ *
+ * Two halves (0.4.4): {@link storeArchiveContent} chunks and uploads the
+ * original and pins nothing, so it can run outside the chain lock (the
+ * upload is the slow part; scrub GC's grace period keeps the fresh chunks
+ * alive until they are referenced); {@link commitArchiveItem} pins the
+ * chunks, links the record into the chain and writes it, under the lock.
+ * {@link writeArchiveItem} does both in one call, as before.
  */
 import type { ObjectInput } from "../engine/chunkstore.js";
 import { ChunkWriter } from "../engine/chunkstore.js";
@@ -48,10 +55,50 @@ import type { ChunkIndex, Logger, StorageTargets, TenantKeyring } from "../engin
 import type { PutOptions } from "../storage/backend.js";
 import { computeArchiveChainHash } from "./chain.js";
 import { sealArchiveItem } from "./format.js";
-import type { JournalEnvelope, JournalFlag } from "./journal.js";
+import type { JournalEnvelope } from "./journal.js";
 import { archiveItemKey } from "./layout.js";
 import { type RetentionPolicy, retentionUntil } from "./retention.js";
-import type { ArchiveItemRecord, ArchiveSource } from "./types.js";
+import type { ArchiveFlag, ArchiveItemRecord, ArchiveSource } from "./types.js";
+
+export interface StoreArchiveContentOptions {
+  readonly tenantId: string;
+  readonly storage: StorageTargets;
+  readonly keys: TenantKeyring;
+  readonly index: ChunkIndex;
+  readonly original: ObjectInput;
+  readonly logger?: Logger;
+}
+
+/** An original stored in the chunk store, not yet referenced by any item. */
+export interface ArchiveContent {
+  /** SHA-256 (hex) of the original, byte-exact. */
+  readonly itemHash: string;
+  readonly size: number;
+  /** Ordered stored chunk ids (hex). */
+  readonly chunks: readonly string[];
+}
+
+export interface CommitArchiveItemOptions {
+  readonly tenantId: string;
+  /** Catalog identity for this item, assigned by the caller. */
+  readonly itemId: string;
+  readonly storage: StorageTargets;
+  readonly keys: TenantKeyring;
+  readonly index: ChunkIndex;
+  readonly content: ArchiveContent;
+  readonly receivedAt: Date;
+  readonly envelope: JournalEnvelope | null;
+  readonly flags: readonly ArchiveFlag[];
+  readonly source: ArchiveSource;
+  readonly retentionPolicy: RetentionPolicy;
+  readonly legalHold?: boolean;
+  /** The tenant chain's current last chain hash, or null for the first item. */
+  readonly prevChainHash: string | null;
+  /** When the record is written: strictly after the chain's last item (./append.ts). */
+  readonly createdAt: Date;
+  readonly bodyHash?: string;
+  readonly supersedesItemId?: string;
+}
 
 export interface WriteArchiveItemOptions {
   readonly tenantId: string;
@@ -63,7 +110,7 @@ export interface WriteArchiveItemOptions {
   readonly original: ObjectInput;
   readonly receivedAt: Date;
   readonly envelope: JournalEnvelope | null;
-  readonly flags: readonly JournalFlag[];
+  readonly flags: readonly ArchiveFlag[];
   readonly source: ArchiveSource;
   readonly retentionPolicy: RetentionPolicy;
   readonly legalHold?: boolean;
@@ -94,19 +141,14 @@ async function putOnAllTargets(
 }
 
 /**
- * Write one archived item: chunk, dedupe and seal the original bytes into
- * the pack store, then write its sealed record. Returns the record the
- * caller must append to the {@link ArchiveCatalog}.
+ * Chunk, dedupe and seal an original into the tenant's pack store. Pins nothing: the
+ * chunks stay unreferenced until {@link commitArchiveItem} (scrub GC's grace period
+ * covers the time in between), so a capture that turns out to be a duplicate costs no
+ * reference to release.
  */
-export async function writeArchiveItem(
-  options: WriteArchiveItemOptions,
-): Promise<ArchiveItemRecord> {
-  const itemKey = archiveItemKey(options.tenantId, options.receivedAt, options.itemId);
-  const existing = await options.storage.primary.head(itemKey);
-  if (existing) {
-    throw new ArchiveWriteOnceError(itemKey);
-  }
-
+export async function storeArchiveContent(
+  options: StoreArchiveContentOptions,
+): Promise<ArchiveContent> {
   const writer = new ChunkWriter({
     tenantId: options.tenantId,
     storage: options.storage,
@@ -116,34 +158,53 @@ export async function writeArchiveItem(
   });
   const written = await writer.write(options.original);
   await writer.close();
+  return { itemHash: written.sha256, size: written.size, chunks: written.chunks };
+}
+
+/**
+ * Pin a stored original's chunks, link it into the chain and write its sealed record.
+ * Runs under the caller's chain lock; returns the record the caller appends to the
+ * catalog in the same transaction.
+ */
+export async function commitArchiveItem(
+  options: CommitArchiveItemOptions,
+): Promise<ArchiveItemRecord> {
+  const itemKey = archiveItemKey(options.tenantId, options.receivedAt, options.itemId);
+  const existing = await options.storage.primary.head(itemKey);
+  if (existing) {
+    throw new ArchiveWriteOnceError(itemKey);
+  }
   // Pin the chunks this item needs: without a reference, scrub GC treats
   // them as unreferenced (no backup shares them) and reclaims them after its
   // grace period, which would silently break restore of this item later.
-  await options.index.addReferences(written.chunks);
+  await options.index.addReferences(options.content.chunks);
 
   const chainHash = computeArchiveChainHash(
     options.prevChainHash,
-    written.sha256,
+    options.content.itemHash,
     options.receivedAt,
   );
   const retentionUntilDate = retentionUntil(options.receivedAt, options.retentionPolicy);
-  const now = (options.now ?? (() => new Date()))();
 
   const record: ArchiveItemRecord = {
     id: options.itemId,
     tenantId: options.tenantId,
     receivedAt: options.receivedAt,
-    itemHash: written.sha256,
+    itemHash: options.content.itemHash,
     prevChainHash: options.prevChainHash,
     chainHash,
-    size: written.size,
-    chunks: written.chunks,
+    size: options.content.size,
+    chunks: options.content.chunks,
     envelope: options.envelope,
     flags: [...options.flags],
     source: options.source,
     legalHold: options.legalHold ?? false,
     retentionUntil: retentionUntilDate,
-    createdAt: now,
+    createdAt: options.createdAt,
+    ...(options.bodyHash !== undefined ? { bodyHash: options.bodyHash } : {}),
+    ...(options.supersedesItemId !== undefined
+      ? { supersedesItemId: options.supersedesItemId }
+      : {}),
   };
 
   const sealed = sealArchiveItem(record, options.keys.current, itemKey);
@@ -159,4 +220,25 @@ export async function writeArchiveItem(
   await putOnAllTargets(options.storage, itemKey, sealed, putOptions);
 
   return record;
+}
+
+/**
+ * Write one archived item: chunk, dedupe and seal the original bytes into
+ * the pack store, then write its sealed record. Returns the record the
+ * caller must append to the {@link ArchiveCatalog}. The caller holds the chain
+ * lock around the whole call; ./append.ts uploads outside it instead.
+ */
+export async function writeArchiveItem(
+  options: WriteArchiveItemOptions,
+): Promise<ArchiveItemRecord> {
+  const itemKey = archiveItemKey(options.tenantId, options.receivedAt, options.itemId);
+  if (await options.storage.primary.head(itemKey)) {
+    throw new ArchiveWriteOnceError(itemKey);
+  }
+  const content = await storeArchiveContent(options);
+  return commitArchiveItem({
+    ...options,
+    content,
+    createdAt: (options.now ?? (() => new Date()))(),
+  });
 }

@@ -39,6 +39,9 @@ interface ArchiveItemJson {
   readonly legalHold: boolean;
   readonly retentionUntil: string | null;
   readonly createdAt: string;
+  /** From 0.4.4; written only when known, so an older record serializes as before. */
+  readonly bodyHash?: string;
+  readonly supersedesItemId?: string;
 }
 
 /** Serialize a record to its unsealed plaintext JSON bytes. */
@@ -58,6 +61,8 @@ export function serializeArchiveItem(record: ArchiveItemRecord): Buffer {
     legalHold: record.legalHold,
     retentionUntil: record.retentionUntil ? record.retentionUntil.toISOString() : null,
     createdAt: record.createdAt.toISOString(),
+    ...(record.bodyHash !== undefined ? { bodyHash: record.bodyHash } : {}),
+    ...(record.supersedesItemId !== undefined ? { supersedesItemId: record.supersedesItemId } : {}),
   };
   return Buffer.from(JSON.stringify(json), "utf8");
 }
@@ -80,6 +85,10 @@ export function deserializeArchiveItem(bytes: Buffer): ArchiveItemRecord {
     legalHold: json.legalHold,
     retentionUntil: json.retentionUntil ? new Date(json.retentionUntil) : null,
     createdAt: new Date(json.createdAt),
+    ...(typeof json.bodyHash === "string" ? { bodyHash: json.bodyHash } : {}),
+    ...(typeof json.supersedesItemId === "string"
+      ? { supersedesItemId: json.supersedesItemId }
+      : {}),
   };
 }
 
