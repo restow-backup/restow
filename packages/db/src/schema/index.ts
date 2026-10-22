@@ -26,6 +26,7 @@
 
 export * from "./apiKeys.js";
 export * from "./archive.js";
+export * from "./archive-capture.js";
 export * from "./audit.js";
 export * from "./auth.js";
 export * from "./backup.js";

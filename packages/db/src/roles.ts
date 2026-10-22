@@ -665,6 +665,15 @@ export async function provisionRoles(
         "archive_item_mailboxes",
         `REVOKE DELETE ON archive_item_mailboxes FROM ${tenant}`,
       ),
+      // So are its further captures (0.4.4): the tenant role selects and inserts.
+      whenTableExists(
+        "archive_item_captures",
+        `REVOKE UPDATE, TRUNCATE ON archive_item_captures FROM ${both}`,
+      ),
+      whenTableExists(
+        "archive_item_captures",
+        `REVOKE DELETE ON archive_item_captures FROM ${tenant}`,
+      ),
       // The installation tables are the installation role's alone.
       ...tablesWithAccess("installation").map((table) =>
         whenTableExists(table, `REVOKE ALL ON ${ident(table)} FROM ${tenant}`),

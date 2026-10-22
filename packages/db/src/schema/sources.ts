@@ -118,6 +118,18 @@ export type SourceConfig = {
   // network. Tenant admins cannot, so their hosts must stay public (docs/IMAP.md);
   // any change of host or port by someone else clears the approval.
   privateNetworkApproval?: { by: string; at: string } | null;
+  // imap with authKind "oauth2": whose OAuth2 service issued the token (non-secret; the
+  // sealed secret carries the same). "google" makes the source's accounts Google
+  // Workspace for the archive's capture ways (packages/db archive-capture.ts captureKindOf).
+  oauth2Provider?: "microsoft" | "google" | "custom";
+  // m365: whether an administrator confirmed that a retention policy or litigation hold
+  // keeps deleted mail in the tenant (docs/ARCHIVE.md, Graph capture). Restow cannot read it
+  // from Graph; `unknown` until confirmed (audited `archive.hold.confirmed`).
+  archiveHold?: {
+    status: "unknown" | "confirmed";
+    confirmedBy: string | null;
+    confirmedAt: string | null;
+  };
   // m365: which mailboxes/drives to protect (all, a group, an exclusion list).
   scope?: {
     mode?: "all" | "group";

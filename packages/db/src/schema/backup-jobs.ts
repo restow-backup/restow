@@ -158,6 +158,20 @@ export type BackupJobCopySettings = {
 };
 
 /**
+ * How a mail job's archive captures the mail of its objects (docs/ARCHIVE.md
+ * "Erfassungswege", 0.4.4), per kind of mail object (`captureKind`, packages/db
+ * archive-capture.ts): Microsoft 365 mailboxes by Graph and/or Exchange journaling, IMAP
+ * accounts (Google Workspace among them) by IMAP sync and/or a provider's forwarded copy.
+ * A kind the job has no objects of may be absent; a kind it has needs at least one way
+ * while the job archives (the API checks it). Ignored while `archive` is false.
+ */
+export type ArchiveCaptureSettings = {
+  m365?: { graph: boolean; journal: boolean };
+  imap?: { sync: boolean; forward: boolean };
+  google?: { sync: boolean; forward: boolean };
+};
+
+/**
  * The settings of a job: mail jobs carry none, endpoint, share and copy jobs their own kind's
  * (a reader looks at the job's `kind` first).
  */
@@ -213,6 +227,13 @@ export const backupJobs = pgTable(
      * Always false for endpoint jobs.
      */
     archive: boolean("archive").notNull().default(false),
+    /**
+     * Mail jobs with `archive`: the capture ways per kind of mail object
+     * ({@link ArchiveCaptureSettings}); `{}` = the defaults (Graph for Microsoft 365, IMAP
+     * sync for IMAP). The worker's capture service keeps a stream per object and mailbox way
+     * chosen here (apps/worker/src/archive-capture/reconcile.ts).
+     */
+    archiveCapture: jsonb("archive_capture").$type<ArchiveCaptureSettings>().notNull().default({}),
     origin: text("origin").$type<BackupJobOrigin>().notNull().default("user"),
     /**
      * The job Restow recommended and made with one click (#52): `mail`, or `endpoint:<os>:<profile>`

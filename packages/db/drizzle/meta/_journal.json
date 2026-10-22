@@ -414,6 +414,20 @@
       "when": 1792606622870,
       "tag": "0058_installation_time_zone",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1792660798403,
+      "tag": "0059_archive_capture_enum",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1792660885556,
+      "tag": "0060_archive_capture",
+      "breakpoints": true
     }
   ]
 }

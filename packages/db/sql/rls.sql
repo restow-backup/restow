@@ -98,7 +98,13 @@ DECLARE
     'audit_anchor',
     'archive_items',
     'archive_item_mailboxes',
+    'archive_item_captures',
     'archive_anchor',
+    -- Archive capture from the mailbox (0.4.4, docs/ARCHIVE.md "Erfassungswege").
+    'archive_capture_streams',
+    'archive_capture_pending',
+    'graph_subscriptions',
+    'archive_forward_addresses',
     'retention_policies',
     'legal_holds',
     'api_keys',
@@ -206,6 +212,17 @@ BEGIN
     DROP TRIGGER IF EXISTS archive_item_mailboxes_append_only ON archive_item_mailboxes;
     CREATE TRIGGER archive_item_mailboxes_append_only
       BEFORE UPDATE ON archive_item_mailboxes
+      FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
+  END IF;
+END $$;
+
+-- Further captures of an archived mail are evidence next to the chain: only ever added.
+DO $$
+BEGIN
+  IF to_regclass('public.archive_item_captures') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS archive_item_captures_append_only ON archive_item_captures;
+    CREATE TRIGGER archive_item_captures_append_only
+      BEFORE UPDATE ON archive_item_captures
       FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
   END IF;
 END $$;

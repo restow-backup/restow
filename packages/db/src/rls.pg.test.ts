@@ -473,6 +473,116 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
     expect(left.rowCount).toBe(0);
   });
 
+  it("keeps an archived mail's further captures inside the tenant and append-only", async () => {
+    const { rows: objects } = await owner.query<{ id: string }>(
+      `INSERT INTO protected_objects (tenant_id, source_id, kind, external_id)
+         SELECT tenant_id, id, 'imap', 'capture@contoso.example' FROM sources WHERE tenant_id = $1
+       RETURNING id`,
+      [contoso],
+    );
+    const { rows: items } = await owner.query<{ id: string }>(
+      `INSERT INTO archive_items (tenant_id, message_id, item_hash, chain_hash, received_at, captured_via, storage_path)
+         VALUES ($1, '<capture@contoso.example>', 'item', $2, now(), 'journal', 'archive/capture')
+       RETURNING id`,
+      [contoso, `chain-${randomUUID()}`],
+    );
+    const objectId = objects[0]?.id as string;
+    const itemId = items[0]?.id as string;
+    const insert = (client: pg.PoolClient, tenantId: string) =>
+      client.query(
+        `INSERT INTO archive_item_captures
+           (tenant_id, archive_item_id, captured_via, protected_object_id, item_hash, received_at)
+         VALUES ($1, $2, 'imap_sync', $3, 'other-bytes', now())`,
+        [tenantId, itemId, objectId],
+      );
+
+    await inTransaction(app, contoso, (client) => insert(client, contoso));
+    await expect(inTransaction(app, fabrikam, (client) => insert(client, contoso))).rejects.toThrow(
+      /row-level security/,
+    );
+    const seen = await inTransaction(app, fabrikam, (client) =>
+      client.query("SELECT id FROM archive_item_captures WHERE archive_item_id = $1", [itemId]),
+    );
+    expect(seen.rowCount).toBe(0);
+    await expect(
+      inTransaction(app, contoso, (client) =>
+        client.query("DELETE FROM archive_item_captures WHERE archive_item_id = $1", [itemId]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      inTransaction(app, contoso, (client) =>
+        client.query(
+          "UPDATE archive_item_captures SET item_hash = 'x' WHERE archive_item_id = $1",
+          [itemId],
+        ),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      owner.query("UPDATE archive_item_captures SET item_hash = 'x' WHERE archive_item_id = $1", [
+        itemId,
+      ]),
+    ).rejects.toThrow(/append-only/);
+
+    // The retention run removes the item; its captures go with it.
+    await provider.query("DELETE FROM archive_items WHERE id = $1", [itemId]);
+    const left = await owner.query(
+      "SELECT id FROM archive_item_captures WHERE archive_item_id = $1",
+      [itemId],
+    );
+    expect(left.rowCount).toBe(0);
+  });
+
+  it("keeps the capture streams, pending mail, subscriptions and archive addresses per tenant", async () => {
+    const { rows: objects } = await owner.query<{ id: string; source_id: string }>(
+      `INSERT INTO protected_objects (tenant_id, source_id, kind, external_id)
+         SELECT tenant_id, id, 'imap', 'stream@contoso.example' FROM sources WHERE tenant_id = $1
+       RETURNING id, source_id`,
+      [contoso],
+    );
+    const object = objects[0] as { id: string; source_id: string };
+    await inTransaction(app, contoso, async (client) => {
+      await client.query(
+        `INSERT INTO archive_capture_streams (tenant_id, protected_object_id, source_id, way)
+         VALUES ($1, $2, $3, 'imap_sync')`,
+        [contoso, object.id, object.source_id],
+      );
+      await client.query(
+        `INSERT INTO archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+         VALUES ($1, $2, 'imap_sync', 'INBOX;1;7')`,
+        [contoso, object.id],
+      );
+      await client.query(
+        `INSERT INTO graph_subscriptions
+           (tenant_id, source_id, protected_object_id, subscription_id, resource, client_state_hash, expires_at)
+         VALUES ($1, $2, $3, $4, 'users/x/messages', 'hash', now())`,
+        [contoso, object.source_id, object.id, `sub-${randomUUID()}`],
+      );
+      await client.query(
+        `INSERT INTO archive_forward_addresses (tenant_id, protected_object_id, token)
+         VALUES ($1, $2, $3)`,
+        [contoso, object.id, `token${suffix}`],
+      );
+    });
+    const counts = await inTransaction(app, fabrikam, async (client) =>
+      Promise.all(
+        [
+          "archive_capture_streams",
+          "archive_capture_pending",
+          "graph_subscriptions",
+          "archive_forward_addresses",
+        ].map(async (table) => (await client.query(`SELECT id FROM ${table}`)).rowCount),
+      ),
+    );
+    expect(counts).toEqual([0, 0, 0, 0]);
+    const own = await inTransaction(app, contoso, (client) =>
+      client.query(
+        "UPDATE archive_capture_streams SET status = 'live' WHERE protected_object_id = $1",
+        [object.id],
+      ),
+    );
+    expect(own.rowCount).toBe(1);
+  });
+
   it("lets the installation role see every tenant", async () => {
     const { rows } = await provider.query<{ id: string }>("SELECT id FROM tenants ORDER BY slug");
     expect(rows.map((row) => row.id)).toEqual([contoso, fabrikam]);

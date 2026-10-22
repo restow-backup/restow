@@ -22,6 +22,10 @@ export function createDb(connectionString: string) {
 
 export type Database = ReturnType<typeof createDb>;
 
+// Appending to a tenant's archive chain (@restow/core archive/append.ts), and mailbox assignment.
+export * from "./archive-append.js";
+// The mail objects' capture kinds and the capture ways a mail job asks for (0.4.4).
+export * from "./archive-capture.js";
 // How the archive is filtered and held by mailbox, journal assignments included (#32).
 export * from "./archive-mailboxes.js";
 export {

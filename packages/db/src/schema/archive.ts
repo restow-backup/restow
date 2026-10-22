@@ -25,6 +25,9 @@ export const archiveCaptureEnum = pgEnum("archive_capture", [
   "imap_sync",
   // Mail files imported into an imported mailbox and archived with it (docs/IMPORT.md).
   "file_import",
+  // A plain copy of a mail a provider forwarded to an archive address at transport
+  // (BCC or routing rule, docs/ARCHIVE.md "Weiterleitung an die Journal-Adresse").
+  "smtp_forward",
 ]);
 
 /** Retention clock start: from the capture date, or from calendar year-end
@@ -94,6 +97,26 @@ export const archiveItems = pgTable(
     // mail is captured today but was written years ago; retention counts from
     // `received_at` (the capture), search and display prefer this date.
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    /**
+     * SHA-256 (hex) of the message body: the bytes after the first blank line, line ends
+     * normalized to CRLF, trailing whitespace of each line and trailing empty lines removed
+     * (@restow/core archive/identity.ts `bodyHash`). Two captures of one mail whose headers
+     * differ (a journal copy and the mailbox copy) still match on it. Null for items
+     * captured before 0.4.4.
+     */
+    bodyHash: text("body_hash"),
+    /**
+     * Where a mailbox capture found the mail: the Graph immutable id, or IMAP
+     * `<folder>;<uidvalidity>;<uid>`. Null for journal, forwarded and imported mail.
+     */
+    externalRef: text("external_ref"),
+    /**
+     * The weaker capture of the same mail this item supersedes (a journal copy that arrived
+     * after the mailbox capture, docs/ARCHIVE.md "Erfassungswege"). The superseded item stays
+     * untouched (append-only); search hides it by default. No foreign key: ON DELETE SET NULL
+     * would be an UPDATE, which the append-only trigger refuses.
+     */
+    supersedesItemId: uuid("supersedes_item_id"),
     ...createdOnly(),
   },
   (t) => [
@@ -101,6 +124,22 @@ export const archiveItems = pgTable(
     // The journal setup page asks for the newest item and the counts of the last days per
     // capture path (ee/api journal setup): an index range scan instead of a scan of the tenant's archive.
     index("archive_items_tenant_capture_received_idx").on(t.tenantId, t.capturedVia, t.receivedAt),
+    // Duplicate detection under the chain lock (@restow/core archive/identity.ts): by the
+    // normalized Message-ID, and by the exact bytes.
+    index("archive_items_tenant_message_key_idx").on(
+      t.tenantId,
+      sql`lower(btrim(${t.messageId}, '<> '))`,
+    ),
+    index("archive_items_tenant_item_hash_idx").on(t.tenantId, t.itemHash),
+    // "Already captured from this mailbox?" before a mailbox capture downloads a mail.
+    index("archive_items_object_external_ref_idx")
+      .on(t.protectedObjectId, t.externalRef)
+      .where(sql`${t.externalRef} IS NOT NULL`),
+    index("archive_items_supersedes_idx")
+      .on(t.supersedesItemId)
+      .where(sql`${t.supersedesItemId} IS NOT NULL`),
+    // The chain tip: the newest item in append order (created_at, then id).
+    index("archive_items_tenant_created_idx").on(t.tenantId, t.createdAt, t.id),
   ],
 );
 
@@ -130,6 +169,45 @@ export const archiveItemMailboxes = pgTable(
   (t) => [
     uniqueIndex("archive_item_mailboxes_item_object_uq").on(t.archiveItemId, t.protectedObjectId),
     index("archive_item_mailboxes_object_idx").on(t.tenantId, t.protectedObjectId),
+  ],
+);
+
+/**
+ * Further captures of an archived mail (docs/ARCHIVE.md "Erfassungswege"): when a capture
+ * finds a mail the archive already holds through an equal or stronger way (a mailbox
+ * capture of a journaled mail), no second item is written; this row records that the mail
+ * was also captured this way, for this mailbox, with these bytes. Evidence next to the
+ * chain, not part of it (@restow/core archive/FORMAT.md). Append-only like
+ * `archive_item_mailboxes`; the rows go with their item or mailbox.
+ */
+export const archiveItemCaptures = pgTable(
+  "archive_item_captures",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    archiveItemId: uuid("archive_item_id")
+      .notNull()
+      .references(() => archiveItems.id, { onDelete: "cascade" }),
+    capturedVia: archiveCaptureEnum("captured_via").notNull(),
+    protectedObjectId: uuid("protected_object_id").references(() => protectedObjects.id, {
+      onDelete: "cascade",
+    }),
+    // SHA-256 of the bytes this capture saw (may differ from the item's: other headers).
+    itemHash: text("item_hash").notNull(),
+    externalRef: text("external_ref"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+    flags: jsonb("flags").$type<string[]>(),
+    ...createdOnly(),
+  },
+  (t) => [
+    index("archive_item_captures_item_idx").on(t.tenantId, t.archiveItemId),
+    index("archive_item_captures_via_received_idx").on(t.tenantId, t.capturedVia, t.receivedAt),
+    // "Already captured from this mailbox?" for captures that did not become an item.
+    index("archive_item_captures_object_external_ref_idx")
+      .on(t.protectedObjectId, t.externalRef)
+      .where(sql`${t.externalRef} IS NOT NULL`),
   ],
 );
 
@@ -207,6 +285,9 @@ export const archiveSearchVectorSql = (t: typeof archiveItems) => sql`to_tsvecto
 
 export type ArchiveItem = typeof archiveItems.$inferSelect;
 export type NewArchiveItem = typeof archiveItems.$inferInsert;
+export type ArchiveItemCapture = typeof archiveItemCaptures.$inferSelect;
+export type NewArchiveItemCapture = typeof archiveItemCaptures.$inferInsert;
+export type ArchiveCapture = (typeof archiveCaptureEnum.enumValues)[number];
 export type ArchiveAnchor = typeof archiveAnchor.$inferSelect;
 export type NewArchiveAnchor = typeof archiveAnchor.$inferInsert;
 export type RetentionPolicy = typeof retentionPolicies.$inferSelect;
