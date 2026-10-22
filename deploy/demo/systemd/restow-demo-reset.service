@@ -21,7 +21,7 @@
 #   tail -f /var/log/restow-demo-reset.log
 
 [Unit]
-Description=Restow public demo: nightly reset (compose down -v, up from prebuilt images, seed)
+Description=Restow public demo: nightly reset (restore the release's template, or compose down -v, up from prebuilt images, seed)
 Wants=network-online.target
 After=network-online.target docker.service
 Requires=docker.service

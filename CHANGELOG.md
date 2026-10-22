@@ -39,6 +39,18 @@ private repository.
   renewal); earlier keys stay in the history, and every installation or replacement is
   audited with the key's update terms and whether they cover the running version. A key that
   does not cover the running version is refused (`outside_update_period`).
+- Public demo, fast nightly reset (deploy/demo/README.md "Fast reset"): after a full seed
+  `deploy/demo/reset.sh` saves a template (a `pg_dump` of the demo database, its roles and a tar
+  of every volume the seed writes) keyed by the release, the image ids and `.env`, and restores
+  it the following nights instead of seeding: the database is restored next to the running one
+  and swapped in, so the demo is offline for about 15 to 25 seconds instead of many minutes. The
+  restore moves every system time forward by the template's age (`deploy/demo/seed/sql/
+  shift-time.sql`), so the history still ends today and "last backup 12 minutes ago" stays true;
+  the audit log, the mail archive and restic's own snapshot times keep their real times, sign-ins
+  are removed. A template older than `RESTOW_DEMO_TEMPLATE_MAX_AGE_DAYS` (default 7), a new
+  release, new images, a changed `.env` or a failed restore lead to a full seed. Two templates are
+  kept, with a free-space check before saving (`RESTOW_DEMO_TEMPLATE_*` settings,
+  `RESTOW_DEMO_TEMPLATES=false` switches it off).
 
 ### Changed
 
@@ -48,6 +60,19 @@ private repository.
 - `@azure/msal-node` is no longer a dependency: nothing used it. The Microsoft 365 app
   tokens, the admin consent and the IMAP OAuth2 sign-in use Restow's own token client,
   unchanged.
+- Public demo: the health checks of postgres, Dovecot and the api run every 2 to 5 seconds
+  instead of every 10 to 15 (with the same grace period), and the full reset stops the old
+  project with a 10 second timeout, so a reset waits less for services that are already ready
+  or about to be discarded.
+
+### Fixed
+
+- Public demo: `reset.sh` now reads `RESTOW_DEMO_COMPOSE_FILES` from `deploy/demo/.env` as the
+  README always said, not only from its environment, and logs which compose files a run uses.
+  A list from `.env` that would publish `web` on every interface (the own-VM override with
+  80/443) is used only together with the new `RESTOW_DEMO_PUBLISH_PUBLIC=true`, so a co-hosted
+  host whose `.env` carries that line keeps running as before; entries that are not compose
+  files in `deploy/demo/` are refused before anything is stopped.
 
 ### Upgrade Notes
 

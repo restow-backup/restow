@@ -13,6 +13,10 @@ import { createDb } from "@restow/db";
  * collect.ts) and their close relatives are touched, and only rows whose
  * timestamp falls inside a run's own window. The append-only audit log is
  * never touched: it keeps the true time of every seed action.
+ *
+ * A fast reset that restores a saved seed moves the other way: forward by the
+ * template's age, every time of the system and so a superset of these tables
+ * (sql/shift-time.sql, README "Fast reset"; shift-time.pg.test.ts checks it).
  */
 
 /** One run of the history: when it really happened, and when it should appear to have. */
