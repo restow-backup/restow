@@ -217,7 +217,14 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
       ways: { imap_sync: way },
       settings: { gateCheckMs: 0, reconcileMs: 0, leaseMs: 60_000 },
       enqueueBackfill: async (stream) => {
-        backfills.push(stream.protectedObjectId);
+        // The backfill job may start at once: activation and state are stored already.
+        const [row] = await db
+          .select()
+          .from(archiveCaptureStreams)
+          .where(eq(archiveCaptureStreams.id, stream.id));
+        if (row?.activatedAt && row.status === "backfilling" && row.state.folders) {
+          backfills.push(stream.protectedObjectId);
+        }
         return randomUUID();
       },
     });
