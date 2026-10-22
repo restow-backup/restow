@@ -4,6 +4,7 @@ import {
   isUpdateAvailable,
   parseVersion,
   runningCommitFrom,
+  runningReleasedAtFrom,
   runningVersionFrom,
 } from "./version.js";
 
@@ -82,5 +83,19 @@ describe("runningCommitFrom", () => {
     expect(runningCommitFrom({})).toBeNull();
     expect(runningCommitFrom({ RESTOW_REVISION: "unknown" })).toBeNull();
     expect(runningCommitFrom({ RESTOW_REVISION: "" })).toBeNull();
+  });
+});
+
+describe("runningReleasedAtFrom", () => {
+  it("reads the release date stamped into the image as UTC", () => {
+    expect(runningReleasedAtFrom({ RESTOW_RELEASED_AT: "2026-10-20T14:03:11+02:00" })).toBe(
+      "2026-10-20T12:03:11.000Z",
+    );
+  });
+
+  it("is null for a development build or a value that is no date", () => {
+    expect(runningReleasedAtFrom({})).toBeNull();
+    expect(runningReleasedAtFrom({ RESTOW_RELEASED_AT: "" })).toBeNull();
+    expect(runningReleasedAtFrom({ RESTOW_RELEASED_AT: "yesterday" })).toBeNull();
   });
 });

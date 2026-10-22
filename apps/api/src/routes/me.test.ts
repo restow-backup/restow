@@ -104,6 +104,7 @@ beforeEach(() => {
   state.version = {
     running: "0.301.0",
     commit: "9272693",
+    releasedAt: null,
     latest: "0.302.0",
     updateAvailable: true,
     releaseUrl: "https://example.test/releases/v0.302.0",
@@ -124,6 +125,7 @@ describe("GET /api/v1/me", () => {
     expect(body.version).toEqual({
       running: "0.301.0",
       commit: "9272693",
+      releasedAt: null,
       latest: "0.302.0",
       updateAvailable: true,
       releaseUrl: "https://example.test/releases/v0.302.0",
@@ -142,6 +144,7 @@ describe("GET /api/v1/me", () => {
     state.version = {
       running: null,
       commit: null,
+      releasedAt: null,
       latest: null,
       updateAvailable: null,
       releaseUrl: null,

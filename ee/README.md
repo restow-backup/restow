@@ -54,7 +54,12 @@ compiled into the app that loads them); it has no entry of its own.
 | Capability table (`CAPABILITIES`, `CAPABILITY_MIN_EDITION`, `hasCapability`) | `licensing/src/capabilities.ts` |
 | Key format `restow-license-v1`, offline verification, key id | `licensing/src/token.ts` |
 | Embedded verification key, `RESTOW_LICENSE_PUBLIC_KEY` override, fingerprint | `licensing/src/public-key.ts` |
-| The installed license (active row of the `license` table) | `licensing/src/store.ts` |
+| The installed license (active row of the `license` table; earlier keys stay as inactive rows, the history), `RESTOW_RUN_AS_COMMUNITY` | `licensing/src/store.ts` |
+| Signing keys by `kid` (rotation of the vendor key) | `licensing/src/keyring.ts` |
+| Update entitlement: which releases a key covers (series, `updates_until`, the release date) | `licensing/src/entitlement.ts`, docs/LICENSING.md |
+| The start check of a release against the installed key, before the migrations | `licensing/src/startup-check.ts`, `api/src/license/startup-check.ts` |
+| The update coverage hook of the core's update check | `api/src/license/coverage.ts` |
+| The key format as the contract for the licence server | `licensing/KEY-FORMAT.md` |
 | License gate of the API modules, the core's feature gate, `edition-required` problem | `api/src/license/gate.ts` |
 | `/api/v1/license` (state, install, remove; provider admins, owners change it) | `api/src/license/routes.ts`, `service.ts` |
 | `extensions.edition` of `GET /api/v1/me` | `api/src/license/session.ts` |
@@ -114,7 +119,7 @@ API (`apps/api/src/extensions.ts`, `ApiExtension`):
   (`apps/api/src/lib/provider-access.ts`, `providerRule` builders); the
   core's table covers only core routes.
 - `authRouteGuards`, `signInProviders`, `integrationRoutes`, `services`,
-  `hooks` (`reportSummary`, `providerDashboard`).
+  `hooks` (`reportSummary`, `providerDashboard`, `updateCoverage`).
 
 Worker (`apps/worker/src/extensions.ts`): `retentionTasks`, `handlers`. Each
 task decides itself whether it runs (`installationHasCapability` from

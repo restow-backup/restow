@@ -1,5 +1,9 @@
 import { ProblemError } from "../../../../apps/api/src/problem.js";
-import type { LicenseVerification } from "../../../licensing/src/index.js";
+import type {
+  LicenseVerification,
+  ReleaseBuild,
+  UpdateEntitlement,
+} from "../../../licensing/src/index.js";
 
 /**
  * RFC 7807 problems of the license feature. Each carries a stable `type` (and,
@@ -22,6 +26,8 @@ const REJECTION_DETAILS: Record<Rejection["reason"], string> = {
     "The signature does not match: the key was altered, or it was not issued for the verification key of this installation.",
   invalid_payload: "The key is signed, but its content is incomplete or contradictory.",
   installation_mismatch: "The key was issued for a different installation.",
+  unknown_signing_key:
+    "The key was signed with a vendor key this version does not know yet. Update to a later version first, then install it.",
 };
 
 /** 422 for a key that failed verification, naming the reason. */
@@ -35,6 +41,30 @@ export function licenseRejected(rejection: Rejection, installationId: string): P
     type: LICENSE_PROBLEM_TYPES.invalid,
     detail: REJECTION_DETAILS[rejection.reason],
     extensions,
+  });
+}
+
+/**
+ * 422 for a valid key that does not cover the running release: its update period ended
+ * before this release was made (or, without one, the release is of another series). The
+ * key works on every release it covers; here the modules would stay off.
+ */
+export function notCoveringRunningRelease(
+  entitlement: UpdateEntitlement,
+  build: ReleaseBuild,
+): ProblemError {
+  return new ProblemError(422, "License key rejected", {
+    type: LICENSE_PROBLEM_TYPES.invalid,
+    detail:
+      entitlement.coveredUntil !== null
+        ? `The key's update period ended on ${entitlement.coveredUntil}, before version ${build.version ?? "?"} was released. Install a key whose update period covers this version.`
+        : `The key covers the ${entitlement.series}.x versions, not version ${build.version ?? "?"}.`,
+    extensions: {
+      reason: "outside_update_period",
+      updatesUntil: entitlement.coveredUntil,
+      series: entitlement.series,
+      version: build.version,
+    },
   });
 }
 

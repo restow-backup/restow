@@ -331,6 +331,23 @@ export interface ReleaseView {
   notes: string | null;
   notesTruncated: boolean;
   digests: { app?: string; web?: string };
+  /** The release date its images carry (0.4.5; older servers: absent). */
+  releasedAt?: string | null;
+  /**
+   * Whether the installed licence key covers this release; null when nothing restricts
+   * updates (no Business or Service Provider key). Absent from servers before 0.4.5.
+   */
+  covered?: boolean | null;
+}
+
+/** The update terms of the installed licence key, when they restrict which releases install. */
+export interface UpdateCoverageView {
+  /** Last day of the update period (`YYYY-MM-DD`); null for a key without one. */
+  coveredUntil: string | null;
+  /** The series a key without update period covers (`"1"`). */
+  series: string | null;
+  /** The newest offered release the key covers, if any. */
+  latestCovered: string | null;
 }
 
 export type SourceProvider = "github" | "forgejo" | "feed";
@@ -466,6 +483,8 @@ export interface UpdatesView {
   latest: ReleaseView | null;
   updateAvailable: boolean | null;
   releases: ReleaseView[];
+  /** null or absent when every release may be installed (0.4.5). */
+  coverage?: UpdateCoverageView | null;
   updater: UpdaterView;
   leadTimes: readonly number[];
   maintenance: MaintenanceView;
@@ -566,6 +585,8 @@ export const UPDATE_VERSION_UNKNOWN_PROBLEM = "urn:restow:problem:update-version
 export const UPDATE_RUNNING_UNKNOWN_PROBLEM = "urn:restow:problem:update-running-unknown";
 export const UPDATE_SOURCE_NOT_ALLOWED_PROBLEM = "urn:restow:problem:update-source-not-allowed";
 export const UPDATE_NOT_VERIFIABLE_PROBLEM = "urn:restow:problem:update-not-verifiable";
+/** The installed licence key does not cover the release (0.4.5). */
+export const UPDATE_NOT_COVERED_PROBLEM = "urn:restow:problem:update-not-covered";
 export const INVALID_UPDATE_SOURCE_PROBLEM = "urn:restow:problem:invalid-update-source";
 export const BUILD_SWITCH_REFUSED_PROBLEM = "urn:restow:problem:build-switch-refused";
 export const RESTART_NOT_REQUESTED_PROBLEM = "urn:restow:problem:restart-not-requested";

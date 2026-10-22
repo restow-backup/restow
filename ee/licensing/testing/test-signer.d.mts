@@ -6,6 +6,12 @@ export interface TestLicenseRequest {
   licensee: string;
   installationId: string;
   issuedAt?: Date;
+  /** Optional `series` member. */
+  series?: string;
+  /** Optional `updates_until` member (`YYYY-MM-DD`, or null). */
+  updatesUntil?: string | null;
+  /** Add the optional `kid` member naming this signer's key. */
+  withKid?: boolean;
 }
 
 /** The signed payload in its wire spelling (ee/licensing/src/token.ts). */
@@ -16,12 +22,17 @@ export interface TestLicensePayload {
   licensee: string;
   installation_id: string;
   issued_at: string;
+  series?: string;
+  updates_until?: string | null;
+  kid?: string;
 }
 
 export interface TestLicenseSigner {
   /** Raw Ed25519 public key, base64url: the value for RESTOW_LICENSE_PUBLIC_KEY. */
   readonly publicKey: string;
   readonly publicKeyObject: KeyObject;
+  /** The `kid` of this signer's public key. */
+  readonly kid: string;
   payload(request: TestLicenseRequest): TestLicensePayload;
   sign(request: TestLicenseRequest): string;
   signPayload(payload: Record<string, unknown>): string;

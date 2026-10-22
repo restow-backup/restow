@@ -80,6 +80,11 @@ function ReleaseItem({
         {newest ? <Badge variant="info">{t("releases.newest")}</Badge> : null}
         {current ? <Badge variant="outline">{t("releases.installed")}</Badge> : null}
         {release.prerelease ? <Badge variant="warning">{t("releases.prerelease")}</Badge> : null}
+        {release.covered === false ? (
+          <Badge variant="outline" data-slot="outside-period">
+            {t("releases.outsidePeriod")}
+          </Badge>
+        ) : null}
         <span className="text-sm text-muted-foreground">
           {date ? t("releases.released", { date }) : t("releases.noDate")}
         </span>

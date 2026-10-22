@@ -31,7 +31,8 @@
     "restartUnsupported": "The running updater cannot restart services yet. Recreate it, or run the command on the server.",
     "notWaiting": "No update is waiting any more. The page shows the current state.",
     "updaterTimeout": "Checking whether the update was accepted… The updater did not answer in time; this page shows its state as soon as it answers.",
-    "fleetCurrent": "No reachable node or agent runs an older release. Update unreachable ones by hand once they are online again."
+    "fleetCurrent": "No reachable node or agent runs an older release. Update unreachable ones by hand once they are online again.",
+    "notCovered": "This version lies outside the update period of your license key. Your installed version keeps working as before."
   },
   "form": {
     "unsaved": "You have unsaved changes.",
@@ -205,7 +206,8 @@
     "showNotes": "Show release notes",
     "hideNotes": "Hide release notes",
     "noNotes": "This release has no notes.",
-    "truncated": "The notes are cut here. The full text is on the release page."
+    "truncated": "The notes are cut here. The full text is on the release page.",
+    "outsidePeriod": "Outside the update period"
   },
   "source": {
     "title": "Update source and channel",
@@ -846,5 +848,11 @@
     "updateNowTitle": "Update nodes and agents now?",
     "updateNowBody": "New runs pause for at most 15 minutes, as after an update. Reachable Proxmox VE nodes and agents that run an older release install {version} as soon as they are idle; the pause ends once all of them are done. Unreachable ones and agents with paused updates are not changed.",
     "updateNowHint": "No update led into this step (for example, the server was updated by hand)."
+  },
+  "coverage": {
+    "title": "Outside your update period",
+    "outsidePeriod": "Version {version} lies outside your update period, which ends on {date}. You can stay on your version, which keeps working with all modules, or renew the update period.",
+    "outsideSeries": "Version {version} is not one of the {series}.x versions your license key covers. You can stay on your version, which keeps working with all modules, or request a license key for the new version.",
+    "latestCovered": "The newest version within your update period is {version}; it installs as usual."
   }
 }

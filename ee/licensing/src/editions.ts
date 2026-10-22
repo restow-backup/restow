@@ -37,6 +37,11 @@ export interface InstalledLicenseTerms {
 export interface EffectiveLicense {
   edition: LicenseEdition;
   source: LicenseSource;
+  /**
+   * Set when an installed key is left aside because it does not cover the running
+   * release and the operator started it with RESTOW_RUN_AS_COMMUNITY (./store.ts).
+   */
+  runAsCommunity?: true;
 }
 
 /** Environment variable naming the edition of the public demo (deploy/demo). */

@@ -13,6 +13,7 @@ import type { VersionInfo } from "./version.js";
 const VERSION: VersionInfo = {
   running: "1.4.0",
   commit: null,
+  releasedAt: null,
   latest: null,
   updateAvailable: null,
   releaseUrl: null,

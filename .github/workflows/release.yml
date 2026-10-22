@@ -784,6 +784,7 @@ jobs:
       - name: The release notes and the checksums
         env:
           CHANNEL: ${{ needs.verify.outputs.channel }}
+          CREATED: ${{ needs.verify.outputs.created }}
           APP_INDEX: ${{ steps.tag.outputs.app_index }}
           WEB_INDEX: ${{ steps.tag.outputs.web_index }}
           COMMUNITY_APP_INDEX: ${{ steps.tag.outputs.community_app_index }}
@@ -826,6 +827,12 @@ jobs:
             echo "restow-web: $WEB_INDEX"
             echo "restow-community: $COMMUNITY_APP_INDEX"
             echo "restow-web-community: $COMMUNITY_WEB_INDEX"
+            echo "\`\`\`"
+            echo
+            echo "The release date the images carry (RESTOW_RELEASED_AT, the commit date of the tag). Licence keys with an update period cover the releases made up to its end; the updater reads this line to offer only those (docs/LICENSING.md):"
+            echo
+            echo "\`\`\`"
+            echo "released: $CREATED"
             echo "\`\`\`"
             echo
             echo "All four images are multi-arch (linux/amd64, linux/arm64), signed with cosign (keyless) and carry an SPDX SBOM as attestation. Verify any of them with:"

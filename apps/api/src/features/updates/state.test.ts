@@ -1,7 +1,7 @@
 import type { StoredUpdateCheck, StoredUpdateRelease } from "@restow/db";
 import { describe, expect, it } from "vitest";
 import { defaultSource, parseEnvironmentSource } from "./source.js";
-import { newerThan, releasesOf, UpdateStateCache } from "./state.js";
+import { createUpdateState, newerThan, releasesOf, UpdateStateCache } from "./state.js";
 
 function release(version: string, prerelease = false): StoredUpdateRelease {
   return {
@@ -50,6 +50,7 @@ describe("the version document", () => {
     expect(cache("0.1.0").current()).toEqual({
       running: "0.1.0",
       commit: null,
+      releasedAt: null,
       latest: null,
       updateAvailable: null,
       releaseUrl: null,
@@ -201,5 +202,17 @@ describe("candidates", () => {
     expect(releasesOf(check(), source, "stable")).toHaveLength(2);
     expect(releasesOf(check(), source, "beta")).toEqual([]);
     expect(releasesOf(null, source, "stable")).toEqual([]);
+  });
+});
+
+describe("the release date of the running build", () => {
+  it("comes from RESTOW_RELEASED_AT, null for a development build", () => {
+    expect(
+      createUpdateState({
+        RESTOW_VERSION: "0.4.5",
+        RESTOW_RELEASED_AT: "2026-11-02T09:00:00Z",
+      }).current().releasedAt,
+    ).toBe("2026-11-02T09:00:00.000Z");
+    expect(createUpdateState({ RESTOW_VERSION: "0.4.5" }).current().releasedAt).toBeNull();
   });
 });

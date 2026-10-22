@@ -40,6 +40,11 @@ export const versionInfoSchema = component(
       .describe(
         "Short git revision the running build was made from; null when the build does not carry it.",
       ),
+    releasedAt: timestampSchema
+      .nullable()
+      .describe(
+        "When the running build was released (the commit date of its release tag); null for builds without one. Licence keys with an update period cover the releases made up to its end.",
+      ),
     latest: z
       .string()
       .nullable()
@@ -163,6 +168,18 @@ export function runningCommitFrom(
 ): string | null {
   const value = env.RESTOW_REVISION?.trim() ?? "";
   return REVISION.test(value) ? value.slice(0, 7).toLowerCase() : null;
+}
+
+/**
+ * The release date stamped into the image (`RESTOW_RELEASED_AT`, from the build argument
+ * `RESTOW_CREATED`: the commit date of the release tag), as ISO-8601 UTC, or null.
+ */
+export function runningReleasedAtFrom(
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const value = env.RESTOW_RELEASED_AT?.trim() ?? "";
+  const time = value ? Date.parse(value) : Number.NaN;
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
 }
 
 /** The version stamped into the image (`RESTOW_VERSION`, tag prefix `v` dropped), or null. */

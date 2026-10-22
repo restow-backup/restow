@@ -10,6 +10,9 @@
  */
 export * from "./capabilities.js";
 export * from "./editions.js";
+export * from "./entitlement.js";
+export * from "./keyring.js";
 export * from "./public-key.js";
+export * from "./startup-check.js";
 export * from "./store.js";
 export * from "./token.js";

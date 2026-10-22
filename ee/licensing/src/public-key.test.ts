@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createTestLicenseSigner } from "../testing/test-signer.mjs";
+import { licenseSigningKeyId } from "./keyring.js";
 import {
   EMBEDDED_LICENSE_PUBLIC_KEY,
   exportRawPublicKey,
@@ -11,6 +12,9 @@ import {
   publicKeyFingerprint,
   resolveLicensePublicKey,
 } from "./public-key.js";
+
+/** `kid` of the vendor key of 2026-09-24, as KEY-FORMAT.md documents it. */
+const EMBEDDED_KID = "9f58f8deb1a097c1";
 
 const { publicKey } = generateKeyPairSync("ed25519");
 const raw = exportRawPublicKey(publicKey);
@@ -87,5 +91,34 @@ describe("resolveLicensePublicKey", () => {
       status: "invalid",
       source: "environment",
     });
+  });
+});
+
+describe("resolveLicensePublicKey: keyring", () => {
+  it("gives the embedded key as the default and adds the keys of a rotation", () => {
+    const first = generateKeyPairSync("ed25519").publicKey;
+    const second = generateKeyPairSync("ed25519").publicKey;
+    const resolved = resolveLicensePublicKey({}, exportRawPublicKey(first), [
+      exportRawPublicKey(second),
+    ]);
+    expect(resolved.status).toBe("ready");
+    if (resolved.status !== "ready") return;
+    expect(resolved.keyring.defaultKey.equals(first)).toBe(true);
+    expect(resolved.keyring.byKid.get(licenseSigningKeyId(second))?.equals(second)).toBe(true);
+    expect(resolved.keyring.byKid.size).toBe(2);
+  });
+
+  it("uses the override alone, without the embedded keys", () => {
+    const override = generateKeyPairSync("ed25519").publicKey;
+    const resolved = resolveLicensePublicKey({
+      RESTOW_LICENSE_PUBLIC_KEY: exportRawPublicKey(override),
+    });
+    expect(resolved.status === "ready" && resolved.keyring.byKid.size).toBe(1);
+  });
+
+  it("names the kid of the embedded vendor key (ee/licensing/KEY-FORMAT.md)", () => {
+    expect(licenseSigningKeyId(parseLicensePublicKey(EMBEDDED_LICENSE_PUBLIC_KEY))).toBe(
+      EMBEDDED_KID,
+    );
   });
 });

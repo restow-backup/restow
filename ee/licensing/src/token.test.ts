@@ -1,11 +1,15 @@
 import { generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTestLicenseSigner } from "../testing/test-signer.mjs";
+import { keyringOf, licenseSigningKeyId } from "./keyring.js";
+import { EMBEDDED_LICENSE_PUBLIC_KEY, parseLicensePublicKey } from "./public-key.js";
 import {
   LICENSE_TOKEN_PREFIX,
   type LicensePayload,
   licenseKeyId,
   normalizeLicenseToken,
+  PAYLOAD_KEYS,
   parseLicensePayload,
   verifyLicenseToken,
 } from "./token.js";
@@ -191,12 +195,25 @@ describe("verifyLicenseToken: payload rules", () => {
     });
   });
 
-  it("rejects unknown members", () => {
-    const text = JSON.stringify({ ...businessPayload(), expires_at: "2027-01-01T00:00:00Z" });
-    expect(verifyLicenseToken(signRaw(text), vendorKey)).toEqual({
-      ok: false,
-      reason: "invalid_payload",
+  it("ignores members it does not know (a later issuer may add some; the payload is signed)", () => {
+    const text = JSON.stringify({
+      ...businessPayload(),
+      expires_at: "2027-01-01T00:00:00Z",
+      seats: { kind: "unlimited" },
     });
+    const result = verifyLicenseToken(signRaw(text), vendorKey);
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.license).not.toHaveProperty("expires_at");
+  });
+
+  it("still requires every one of the six members", () => {
+    for (const key of PAYLOAD_KEYS) {
+      const { [key]: _dropped, ...rest } = businessPayload();
+      expect(verifyLicenseToken(signRaw(JSON.stringify(rest)), vendorKey)).toEqual({
+        ok: false,
+        reason: "invalid_payload",
+      });
+    }
   });
 
   it("rejects a Community key (Community needs none)", () => {
@@ -274,5 +291,143 @@ describe("verifyLicenseToken: verification key", () => {
     const ed = generateKeyPairSync("ed25519");
     expect(() => verifyLicenseToken(token, ed.privateKey)).toThrow(TypeError);
     expect(() => verifyLicenseToken(token, rsa.publicKey)).toThrow(TypeError);
+  });
+});
+
+describe("verifyLicenseToken: update terms (0.4.5)", () => {
+  it("reads a key of before 0.4.5 as a beta licence: series 1, no update period, original key", () => {
+    const result = verifyLicenseToken(signed(businessPayload()), vendorKey);
+    expect(result.ok && result.license).toMatchObject({
+      series: "1",
+      updatesUntil: null,
+      signingKeyId: null,
+    });
+  });
+
+  it("reads series and updates_until of a key issued after 1.0", () => {
+    const token = vendor.sign({
+      edition: "business",
+      licensee: "Example GmbH",
+      installationId: INSTALLATION,
+      series: "1",
+      updatesUntil: "2027-11-30",
+    });
+    const result = verifyLicenseToken(token, vendorKey, { installationId: INSTALLATION });
+    expect(result.ok && result.license).toMatchObject({ series: "1", updatesUntil: "2027-11-30" });
+  });
+
+  it("treats null optional members as absent", () => {
+    const text = JSON.stringify({
+      ...businessPayload(),
+      series: null,
+      updates_until: null,
+      kid: null,
+    });
+    const result = verifyLicenseToken(signRaw(text), vendorKey);
+    expect(result.ok && result.license).toMatchObject({
+      series: "1",
+      updatesUntil: null,
+      signingKeyId: null,
+    });
+  });
+
+  it.each([
+    ["a numeric series", { series: 1 }],
+    ["a series that is no major version", { series: "1.x" }],
+    ["a series with a leading zero", { series: "01" }],
+    ["an update period with a time", { updates_until: "2027-11-30T00:00:00Z" }],
+    ["an impossible day", { updates_until: "2027-02-30" }],
+    ["a numeric update period", { updates_until: 20271130 }],
+    ["a kid that is no text", { kid: 7 }],
+  ])("rejects %s", (_label, patch) => {
+    expect(parseLicensePayload({ ...businessPayload(), ...patch })).toBeNull();
+  });
+});
+
+describe("verifyLicenseToken: signing keys by kid", () => {
+  const rotated = createTestLicenseSigner();
+  const keyring = keyringOf(vendorKey, [rotated.publicKeyObject]);
+
+  it("derives the kid from the public key", () => {
+    expect(licenseSigningKeyId(vendorKey)).toBe(vendor.kid);
+    expect(vendor.kid).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("verifies a key without kid against the default key", () => {
+    expect(verifyLicenseToken(signed(businessPayload()), keyring).ok).toBe(true);
+  });
+
+  it("verifies a key naming a known kid against that key", () => {
+    const token = rotated.sign({
+      edition: "business",
+      licensee: "Example GmbH",
+      installationId: INSTALLATION,
+      withKid: true,
+    });
+    const result = verifyLicenseToken(token, keyring);
+    expect(result.ok && result.license.signingKeyId).toBe(rotated.kid);
+  });
+
+  it("refuses a key of a rotated signing key that names no kid", () => {
+    const token = rotated.sign({
+      edition: "business",
+      licensee: "Example GmbH",
+      installationId: INSTALLATION,
+    });
+    expect(verifyLicenseToken(token, keyring)).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("refuses a kid this build does not know", () => {
+    const token = stranger.sign({
+      edition: "business",
+      licensee: "Example GmbH",
+      installationId: INSTALLATION,
+      withKid: true,
+    });
+    expect(verifyLicenseToken(token, keyring)).toEqual({
+      ok: false,
+      reason: "unknown_signing_key",
+    });
+  });
+
+  it("cannot be fooled by naming the kid of another key", () => {
+    const text = JSON.stringify({ ...businessPayload(), kid: rotated.kid });
+    // Signed by the vendor's default key, but claims the rotated one.
+    expect(verifyLicenseToken(signRaw(text), keyring)).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
+  });
+});
+
+describe("the contract for the issuer (KEY-FORMAT.md)", () => {
+  const contract = readFileSync(new URL("../KEY-FORMAT.md", import.meta.url), "utf8");
+  const examples = [...contract.matchAll(/```json\n([\s\S]*?)```/g)].map((match) =>
+    JSON.parse(match[1] ?? ""),
+  );
+
+  it("has the four examples, and every one of them verifies as documented", () => {
+    expect(examples).toHaveLength(4);
+    for (const example of examples) {
+      // The examples name the vendor's real key; the test signs with a throwaway one.
+      if (example.kid) {
+        expect(example.kid).toBe(
+          licenseSigningKeyId(parseLicensePublicKey(EMBEDDED_LICENSE_PUBLIC_KEY)),
+        );
+        example.kid = vendor.kid;
+      }
+      const result = verifyLicenseToken(vendor.signRaw(JSON.stringify(example)), vendorKey);
+      expect(result.ok, JSON.stringify(example)).toBe(true);
+    }
+    const [beta, , period] = examples.map((example) =>
+      parseLicensePayload(example),
+    ) as LicensePayload[];
+    expect(beta?.updates_until).toBeNull();
+    expect(beta?.series).toBeNull();
+    expect(period?.updates_until).toBe("2029-01-15");
+  });
+
+  it("documents the beta key in the form builds up to 0.4.4 accept: exactly the six members", () => {
+    expect(Object.keys(examples[0] ?? {}).sort()).toEqual([...PAYLOAD_KEYS].sort());
   });
 });

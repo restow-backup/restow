@@ -20,14 +20,16 @@ const FIELD_ID = "license-key";
  * instead of letting every attempt fail.
  */
 export function InstallKeyForm({ state }: { state: LicenseState }) {
-  const { t } = useTranslation("license");
+  const { t, i18n } = useTranslation("license");
   const install = useInstallLicense();
   const [value, setValue] = React.useState("");
   const [missing, setMissing] = React.useState(false);
   const readiness = installReadiness(state);
   const ready = readiness === "ready";
 
-  const serverMessage = install.error ? licenseErrorMessage(install.error) : null;
+  const serverMessage = install.error
+    ? licenseErrorMessage(install.error, i18n.resolvedLanguage ?? i18n.language)
+    : null;
   const error = missing
     ? t("install.required")
     : serverMessage

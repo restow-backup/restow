@@ -79,7 +79,10 @@
     "installation_mismatch": "Dieser Schlüssel gilt für die Installation {keyInstallation}, diese Installation hat die ID {installation}. Fordern Sie einen Schlüssel für diese ID an.",
     "unavailable": "Diese Installation kann Lizenzschlüssel derzeit nicht prüfen.",
     "notConfigured": "Die Installation ist noch nicht eingerichtet.",
-    "notInstalled": "Es ist kein Lizenzschlüssel installiert."
+    "notInstalled": "Es ist kein Lizenzschlüssel installiert.",
+    "unknown_signing_key": "Dieser Schlüssel ist mit einem Herstellerschlüssel signiert, den diese Version noch nicht kennt. Aktualisieren Sie {appName} zuerst und installieren Sie den Schlüssel danach.",
+    "outside_update_period": "Der Update-Zeitraum dieses Schlüssels endete am {date}, vor der Veröffentlichung von Version {version}. Installieren Sie einen Schlüssel, dessen Update-Zeitraum diese Version abdeckt.",
+    "outside_series": "Dieser Schlüssel umfasst die Versionen {series}.x, nicht Version {version}."
   },
   "tenants": {
     "blocked": {
@@ -97,5 +100,13 @@
     "locked": "Berichte: verfügbar in Business",
     "action": "Lizenzseite öffnen",
     "askProvider": "Freischalten kann die Administration der Installation (Ihr Provider)."
+  },
+  "updates": {
+    "label": "Updates",
+    "series": "alle {series}.x (Beta-Lizenz)",
+    "until": "bis {date}",
+    "endingSoon": "Ihr Update-Zeitraum endet am {date}. Alle bis dahin veröffentlichten Versionen arbeiten dauerhaft mit allen Modulen weiter. Für spätere Versionen können Sie den Update-Zeitraum um ein Jahr verlängern; den neuen Schlüssel installieren Sie hier, er ersetzt diesen.",
+    "ended": "Ihr Update-Zeitraum endete am {date}. Die installierte Version und alle bis dahin veröffentlichten Versionen arbeiten dauerhaft mit allen Modulen weiter. Für spätere Versionen können Sie den Update-Zeitraum verlängern.",
+    "runAsCommunity": "Diese Version von {appName} wurde nach dem Ende des Update-Zeitraums Ihres Schlüssels veröffentlicht und läuft auf Wunsch des Betreibers als Community (RESTOW_RUN_AS_COMMUNITY). Ihre Daten sind unverändert. Installieren Sie einen Schlüssel, dessen Update-Zeitraum diese Version abdeckt, dann stehen alle Module sofort wieder bereit."
   }
 }

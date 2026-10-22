@@ -10,6 +10,7 @@ import {
   MAX_NOTES_LENGTH,
   MAX_RELEASES,
   parseReleases,
+  releasedAtOf,
   releasesForChannel,
   retryAtOf,
   toRelease,
@@ -41,6 +42,7 @@ describe("release feeds", () => {
       notes: "## Added\n- Updates tab",
       notesTruncated: false,
       digests: {},
+      releasedAt: null,
     });
   });
 
@@ -96,6 +98,38 @@ describe("release feeds", () => {
     expect(parseReleases({ tag_name: "v1.0.0" })).toHaveLength(1);
     expect(parseReleases({ message: "Not Found" })).toEqual([]);
     expect(parseReleases(null)).toEqual([]);
+  });
+});
+
+describe("the published release date (0.4.5)", () => {
+  it("reads the released line next to the digests, as UTC", () => {
+    const notes = [
+      "```",
+      `restow: ${D1}`,
+      `restow-web: ${D2}`,
+      "```",
+      "",
+      "```",
+      "released: 2027-03-02T10:15:00+01:00",
+      "```",
+    ].join("\n");
+    expect(releasedAtOf(notes)).toBe("2027-03-02T09:15:00.000Z");
+    expect(releasedAtOf("- `released`: `2027-03-02T09:15:00Z`")).toBe("2027-03-02T09:15:00.000Z");
+    expect(
+      toRelease({ tag_name: "v1.2.0", body: `restow: ${D1}\nreleased: 2027-03-02T09:15:00Z` })
+        ?.releasedAt,
+    ).toBe("2027-03-02T09:15:00.000Z");
+  });
+
+  it("is null for releases that publish none, and ignores prose", () => {
+    expect(releasedAtOf(null)).toBeNull();
+    expect(releasedAtOf("## Added\n- released: soon")).toBeNull();
+    expect(releasedAtOf("It was released: 2027-03-02T09:15:00Z, see above")).toBeNull();
+    expect(releasedAtOf("released: 2027-13-45T09:15:00Z")).toBeNull();
+  });
+
+  it("does not disturb the digests (older installations read only those)", () => {
+    expect(digestsOf(`restow: ${D1}\nreleased: 2027-03-02T09:15:00Z`)).toEqual({ app: D1 });
   });
 });
 

@@ -41,6 +41,7 @@ function integrationApi() {
       current: () => ({
         running: "1.4.0",
         commit: null,
+        releasedAt: null,
         latest: null,
         updateAvailable: null,
         releaseUrl: null,

@@ -79,7 +79,10 @@
     "installation_mismatch": "This key belongs to installation {keyInstallation}; this installation has the ID {installation}. Request a key for this ID.",
     "unavailable": "This installation cannot verify license keys at the moment.",
     "notConfigured": "The installation has not been set up yet.",
-    "notInstalled": "No license key is installed."
+    "notInstalled": "No license key is installed.",
+    "unknown_signing_key": "This key is signed with a vendor key this version does not know yet. Update {appName} first, then install the key.",
+    "outside_update_period": "The update period of this key ended on {date}, before version {version} was released. Install a key whose update period covers this version.",
+    "outside_series": "This key covers the {series}.x versions, not version {version}."
   },
   "tenants": {
     "blocked": {
@@ -97,5 +100,13 @@
     "locked": "Reports: available in Business",
     "action": "Open the license page",
     "askProvider": "The administrators of the installation (your provider) can unlock them."
+  },
+  "updates": {
+    "label": "Updates",
+    "series": "all {series}.x (beta license)",
+    "until": "until {date}",
+    "endingSoon": "Your update period ends on {date}. Every version released until then keeps working with all modules, permanently. For later versions you can renew the update period for another year; install the new key here and it replaces this one.",
+    "ended": "Your update period ended on {date}. The installed version and every version released until then keep working with all modules, permanently. For later versions you can renew the update period.",
+    "runAsCommunity": "This version of {appName} was released after the update period of your key ended and runs as Community at the operator's request (RESTOW_RUN_AS_COMMUNITY). Your data is unchanged. Install a key whose update period covers this version and every module is back at once."
   }
 }

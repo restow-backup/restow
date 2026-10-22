@@ -1,4 +1,5 @@
 import { createHash, createPublicKey, type KeyObject } from "node:crypto";
+import { keyringOf, type LicenseKeyring } from "./keyring.js";
 
 /**
  * The Ed25519 public key license keys are verified against, offline.
@@ -25,6 +26,14 @@ export const LICENSE_PUBLIC_KEY_PLACEHOLDER = "PLACEHOLDER-NO-LICENSE-PUBLIC-KEY
  * 2026-09-24; the matching private key never leaves the signer.
  */
 export const EMBEDDED_LICENSE_PUBLIC_KEY: string = "jTH9dQE90rwOooSYx3Gs2wnuhrxoD5Kcqw1wNR7g9Wk";
+
+/**
+ * Further vendor verification keys this build knows (a signing key rotation,
+ * ./keyring.ts): a key naming one of them by `kid` verifies here. The key above
+ * stays the default, the key of every licence key without `kid`. Empty until
+ * the first rotation.
+ */
+export const EMBEDDED_ADDITIONAL_LICENSE_PUBLIC_KEYS: readonly string[] = [];
 
 /** DER prefix of an Ed25519 SubjectPublicKeyInfo; the raw 32-byte key follows it. */
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
@@ -106,14 +115,27 @@ export type LicenseKeySource = "environment" | "embedded";
 
 /** The verification key in effect, or why there is none. */
 export type LicenseVerificationKey =
-  | { status: "ready"; source: LicenseKeySource; key: KeyObject; fingerprint: string }
+  | {
+      status: "ready";
+      source: LicenseKeySource;
+      /** The default key (keys without `kid`). */
+      key: KeyObject;
+      /** Every key this build verifies with, by `kid`. */
+      keyring: LicenseKeyring;
+      fingerprint: string;
+    }
   | { status: "unconfigured" }
   | { status: "invalid"; source: LicenseKeySource };
 
-function load(text: string, source: LicenseKeySource): LicenseVerificationKey {
+function load(
+  text: string,
+  source: LicenseKeySource,
+  additional: readonly string[] = [],
+): LicenseVerificationKey {
   try {
     const key = parseLicensePublicKey(text);
-    return { status: "ready", source, key, fingerprint: publicKeyFingerprint(key) };
+    const keyring = keyringOf(key, additional.map(parseLicensePublicKey));
+    return { status: "ready", source, key, keyring, fingerprint: publicKeyFingerprint(key) };
   } catch {
     return { status: "invalid", source };
   }
@@ -122,11 +144,14 @@ function load(text: string, source: LicenseKeySource): LicenseVerificationKey {
 /**
  * Resolve the verification key: the environment override first, then the
  * embedded key. An override that cannot be read is reported as invalid rather
- * than silently falling back, so a typo never passes unnoticed.
+ * than silently falling back, so a typo never passes unnoticed. The override is
+ * a keyring of one key (development and tests); the embedded key comes with the
+ * further embedded keys of a rotation.
  */
 export function resolveLicensePublicKey(
   env: Readonly<Record<string, string | undefined>> = process.env,
   embedded: string = EMBEDDED_LICENSE_PUBLIC_KEY,
+  additional: readonly string[] = EMBEDDED_ADDITIONAL_LICENSE_PUBLIC_KEYS,
 ): LicenseVerificationKey {
   const override = env[LICENSE_PUBLIC_KEY_ENV]?.trim();
   if (override) {
@@ -136,5 +161,5 @@ export function resolveLicensePublicKey(
   if (builtIn === "" || builtIn === LICENSE_PUBLIC_KEY_PLACEHOLDER) {
     return { status: "unconfigured" };
   }
-  return load(builtIn, "embedded");
+  return load(builtIn, "embedded", additional);
 }

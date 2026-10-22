@@ -97,6 +97,7 @@ describe.skipIf(!testDatabaseAdminUrl)("POST /api/v1/restore, mode 'replace'", (
         current: () => ({
           running: "1.4.0",
           commit: null,
+          releasedAt: null,
           latest: null,
           updateAvailable: null,
           releaseUrl: null,

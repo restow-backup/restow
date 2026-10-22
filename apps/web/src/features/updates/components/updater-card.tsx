@@ -17,8 +17,11 @@ import { useCountdown } from "../maintenance/use-countdown";
 import {
   blockerKey,
   clockOffset,
+  coverageNotice,
   ENABLE_UPDATER_COMMAND,
   formatClock,
+  formatCoverageDate,
+  installableReleases,
   isSourceInstallRefused,
   manualUpdateCommands,
   mounterUpdateNote,
@@ -327,14 +330,50 @@ function Blocked({ view }: { view: UpdatesView }) {
 
 // --- Ready -------------------------------------------------------------------------------------------------
 
+/**
+ * The newest release lies outside the update period of the licence key (0.4.5): said calmly,
+ * with what stays as it is and the newest release the key covers.
+ */
+export function CoverageNote({ view }: { view: UpdatesView }) {
+  const { t, i18n } = useTranslation("updates");
+  const notice = coverageNotice(view);
+  if (!notice) {
+    return null;
+  }
+  const date = formatCoverageDate(notice.until, i18n.resolvedLanguage ?? i18n.language);
+  return (
+    <Alert variant="info" data-slot="coverage-note">
+      <Info />
+      <AlertTitle>{t("coverage.title")}</AlertTitle>
+      <AlertDescription>
+        <p>
+          {date
+            ? t("coverage.outsidePeriod", { version: notice.version, date })
+            : t("coverage.outsideSeries", {
+                version: notice.version,
+                series: notice.series ?? "1",
+              })}
+        </p>
+        {notice.latestCovered ? (
+          <p data-slot="coverage-latest">
+            {t("coverage.latestCovered", { version: notice.latestCovered })}
+          </p>
+        ) : null}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 function Ready({ view, canChange }: { view: UpdatesView; canChange: boolean }) {
   const { t } = useTranslation("updates");
   const [installing, setInstalling] = React.useState(false);
-  const newest = view.releases[0];
+  // The newest release the installed licence key covers (0.4.5: the others are not offered).
+  const newest = installableReleases(view)[0];
   const refused = isSourceInstallRefused(view);
   const allowLine = sourceAllowlistLine(view.source);
   return (
     <>
+      <CoverageNote view={view} />
       {refused ? (
         <Alert
           variant="warning"

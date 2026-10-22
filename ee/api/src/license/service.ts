@@ -16,6 +16,9 @@ import {
   type LicenseVerificationKey,
   licenseKeyId,
   resolveLicensePublicKey,
+  runningBuildOf,
+  updateEntitlement,
+  updateTermsOf,
   verifyLicenseToken,
 } from "../../../licensing/src/index.js";
 import { buildLicenseState, type LicenseStateDto } from "./dto.js";
@@ -24,6 +27,7 @@ import {
   LICENSE_PROBLEM_TYPES,
   licenseNotInstalled,
   licenseRejected,
+  notCoveringRunningRelease,
   verificationUnavailable,
 } from "./problems.js";
 import {
@@ -40,11 +44,19 @@ import {
  * `RESTOW_LICENSE_PUBLIC_KEY` override) and must be bound to this
  * installation. Only its verified terms and signature are stored; the key text
  * itself is not kept. Every change lands in the installation audit chain with
- * the edition and the protected mailboxes (core usage figures) at that moment.
+ * the edition, the update terms, whether they cover the running release, and
+ * the protected mailboxes (core usage figures) at that moment.
+ *
+ * A new key always takes the place of the active one, of the same edition or
+ * another, whether the active key is still in force or not (a renewal of the
+ * update period is a new key of the same edition). The rows of earlier keys are
+ * kept, inactive, as the history of installed keys.
  */
 
 export const LICENSE_AUDIT_ACTIONS = {
   installed: "license.installed",
+  /** A new key took the place of an active key (a renewal, or a change of edition). */
+  replaced: "license.replaced",
   removed: "license.removed",
   /** A key entered on the Community build failed verification here and was dropped. */
   pendingRejected: "license.pending_key.rejected",
@@ -75,6 +87,7 @@ function keyIdOf(row: License | null): string | null {
 
 function stateOf(installed: License | null, installationId: string | null): LicenseStateDto {
   return buildLicenseState({
+    build: runningBuildOf(),
     effective: effectiveLicenseOf(installed),
     environmentEdition: environmentEdition(),
     installed,
@@ -149,11 +162,18 @@ export async function installLicense(
   if (!installationId) {
     throw installationNotConfigured();
   }
-  const result = verifyLicenseToken(key, verification.key, { installationId });
+  const result = verifyLicenseToken(key, verification.keyring, { installationId });
   if (!result.ok) {
     throw licenseRejected(result, installationId);
   }
   const granted = result.license;
+  // A key whose update period ended before this release was made does not turn the
+  // Business or Service Provider modules on here (docs/LICENSING.md, "Updates").
+  const build = runningBuildOf();
+  const entitlement = updateEntitlement(granted, build);
+  if (!entitlement.entitled) {
+    throw notCoveringRunningRelease(entitlement, build);
+  }
 
   const [previous, tenants] = await Promise.all([loadInstalledLicense(db), loadTenantUsage(db)]);
   if (previous?.signature === granted.signature) {
@@ -173,6 +193,9 @@ export async function installLicense(
         installationId: granted.installationId,
         signature: granted.signature,
         issuedAt: granted.issuedAt,
+        series: granted.series,
+        updatesUntil: granted.updatesUntil,
+        signingKeyId: granted.signingKeyId,
         active: true,
       })
       .returning();
@@ -182,7 +205,7 @@ export async function installLicense(
     await audit(tx, {
       actor: actor.email,
       actorUserId: actor.id,
-      action: LICENSE_AUDIT_ACTIONS.installed,
+      action: previous ? LICENSE_AUDIT_ACTIONS.replaced : LICENSE_AUDIT_ACTIONS.installed,
       target: installationId,
       targetType: "installation",
       ip: actor.ip,
@@ -192,6 +215,18 @@ export async function installLicense(
         licensee: granted.licensee,
         keyId: granted.keyId,
         issuedAt: granted.issuedAt.toISOString(),
+        series: granted.series,
+        updatesUntil: granted.updatesUntil,
+        signingKeyId: granted.signingKeyId,
+        // Whether the key covers the release it was installed on, and why.
+        entitlement: {
+          entitled: entitlement.entitled,
+          reason: entitlement.reason,
+          version: build.version,
+          releasedAt: build.releasedAt ? new Date(build.releasedAt).toISOString() : null,
+        },
+        previousKeyId: keyIdOf(previous),
+        previousUpdates: previous ? updateTermsOf(previous) : null,
         previousEdition: before.edition,
         previousSource: before.source,
         mailboxesInUse: totalMailboxes(tenants),

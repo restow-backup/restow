@@ -172,6 +172,23 @@ export interface ReleaseView {
   notesTruncated: boolean;
   /** Image digests the release published (`sha256:...`), when it did. */
   digests: { app?: string; web?: string };
+  /** The release date its images carry (the `released:` line of its notes); null without one. */
+  releasedAt: string | null;
+  /**
+   * Whether the installed licence key covers this release (docs/LICENSING.md, "Updates");
+   * null when nothing restricts updates (no Business or Service Provider key).
+   */
+  covered: boolean | null;
+}
+
+/** The update terms of the installed licence key, when they restrict which releases install. */
+export interface UpdateCoverageView {
+  /** The last day of the update period (`YYYY-MM-DD`); null for a key without one. */
+  coveredUntil: string | null;
+  /** The series a key without update period covers (`"1"`: 1.x and every 0.x). */
+  series: string | null;
+  /** The newest offered release the key covers, if any. */
+  latestCovered: string | null;
 }
 
 export type SourceProvider = "github" | "forgejo" | "feed";
@@ -348,6 +365,8 @@ export interface UpdatesView {
   updateAvailable: boolean | null;
   /** Releases newer than the running version in this channel, newest first (at most 10). */
   releases: ReleaseView[];
+  /** null when every release may be installed (no Business or Service Provider key). */
+  coverage: UpdateCoverageView | null;
   updater: UpdaterView;
   leadTimes: readonly number[];
   maintenance: MaintenanceView;

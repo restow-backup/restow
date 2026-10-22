@@ -959,6 +959,45 @@ describe("the updater", () => {
     expect(text(slot("dumps-empty", root) as HTMLElement)).toContain("No backup yet");
   });
 
+  it("says calmly when the newest release lies outside the update period, and offers the newest covered one", () => {
+    const root = show(
+      updatesFixture({
+        releases: [
+          releaseFixture({ version: "0.3.0", tag: "v0.3.0", covered: false }),
+          releaseFixture({ version: "0.2.0", tag: "v0.2.0", covered: true }),
+        ],
+        coverage: { coveredUntil: "2027-11-30", series: "1", latestCovered: "0.2.0" },
+      }),
+    );
+    const note = slot("coverage-note", root) as HTMLElement;
+    expect(text(note)).toContain("Version 0.3.0 lies outside your update period");
+    expect(text(note)).toContain("Nov 30, 2027");
+    expect(text(note)).toContain("The newest version within your update period is 0.2.0");
+    expect(note.getAttribute("data-variant")).toBe("info");
+    expect(text(root)).toContain("Version 0.2.0 is available");
+    expect(text(root)).toContain("Outside the update period");
+    expect(buttonByText(root, "Install update")).not.toBeNull();
+  });
+
+  it("offers nothing to install when every newer release lies outside the update period", () => {
+    const root = show(
+      updatesFixture({
+        releases: [releaseFixture({ version: "2.0.0", tag: "v2.0.0", covered: false })],
+        coverage: { coveredUntil: null, series: "1", latestCovered: null },
+      }),
+    );
+    expect(text(slot("coverage-note", root) as HTMLElement)).toContain(
+      "is not one of the 1.x versions",
+    );
+    expect(slot("coverage-latest", root)).toBeNull();
+    expect(buttonByText(root, "Install update")).toBeNull();
+  });
+
+  it("shows no update period note when nothing restricts updates", () => {
+    const root = show(updatesFixture());
+    expect(slot("coverage-note", root)).toBeNull();
+  });
+
   it("offers nothing to install when no release is newer", () => {
     const root = show(updatesFixture({ releases: [], updateAvailable: false }));
     expect(buttonByText(root, "Install update")).toBeNull();
