@@ -553,3 +553,113 @@ describe("ImapFlowSession.fetchMeta", () => {
     expect(calls).toBe(1);
   });
 });
+
+describe("ImapFlowSession archive capture commands", () => {
+  function captureClient() {
+    const listeners = new Map<string, Set<(event: unknown) => void>>();
+    const calls: string[] = [];
+    let releaseIdle: (() => void) | null = null;
+    const client = {
+      secureConnection: true,
+      usable: true,
+      mailbox: { path: "INBOX", exists: 3 } as unknown,
+      capabilities: new Map<string, boolean>([["IDLE", true]]),
+      connect: async () => {},
+      logout: async () => {},
+      close: () => {},
+      once: () => undefined,
+      on(event: string, listener: (event: unknown) => void) {
+        if (!listeners.has(event)) {
+          listeners.set(event, new Set());
+        }
+        listeners.get(event)?.add(listener);
+        return client;
+      },
+      off(event: string, listener: (event: unknown) => void) {
+        listeners.get(event)?.delete(listener);
+        return client;
+      },
+      emit(event: string, payload: unknown) {
+        for (const listener of listeners.get(event) ?? []) {
+          listener(payload);
+        }
+      },
+      status: async (path: string, query: Record<string, boolean>) => {
+        calls.push(`status ${path} ${Object.keys(query).sort().join(",")}`);
+        return { path, messages: 3, uidNext: 9, uidValidity: 4242n };
+      },
+      search: async (query: { uid: string }) => {
+        calls.push(`search ${query.uid}`);
+        return [5];
+      },
+      idle: () => {
+        calls.push("idle");
+        return new Promise<boolean>((resolve) => {
+          releaseIdle = () => resolve(true);
+        });
+      },
+      noop: async () => {
+        calls.push("noop");
+        releaseIdle?.();
+      },
+    };
+    return { client, calls };
+  }
+
+  async function sessionOf(client: unknown, maxIdleTimeMs?: number) {
+    const options: unknown[] = [];
+    const connector = new ImapFlowConnector({
+      createClient: (clientOptions) => {
+        options.push(clientOptions);
+        return client as never;
+      },
+    });
+    const session = await connector.connect(
+      account,
+      { kind: "password", password: "p" },
+      {
+        logger: noopLogger,
+        signal: new AbortController().signal,
+        ...(maxIdleTimeMs ? { maxIdleTimeMs } : {}),
+      },
+    );
+    return { session, options };
+  }
+
+  it("reads STATUS without selecting and passes maxIdleTime through", async () => {
+    const { client, calls } = captureClient();
+    const { session, options } = await sessionOf(client, 25 * 60_000);
+    expect(await session.status("Sent")).toEqual({
+      path: "Sent",
+      uidValidity: "4242",
+      uidNext: 9,
+      exists: 3,
+    });
+    expect(calls).toEqual(["status Sent messages,uidNext,uidValidity"]);
+    expect(options[0]).toMatchObject({ maxIdleTime: 25 * 60_000, disableAutoIdle: true });
+    expect(session.idleSupported).toBe(true);
+  });
+
+  it("drops the highest UID that `n:*` matches below n", async () => {
+    const { client, calls } = captureClient();
+    const { session } = await sessionOf(client);
+    expect(await session.uidsAbove(7)).toEqual([]);
+    expect(calls).toEqual(["search 8:*"]);
+  });
+
+  it("yields when EXISTS grows and ends IDLE with NOOP when aborted", async () => {
+    const { client, calls } = captureClient();
+    const { session } = await sessionOf(client);
+    const controller = new AbortController();
+    const iterator = session.idle(controller.signal)[Symbol.asyncIterator]();
+    const next = iterator.next();
+    await new Promise((resolve) => setImmediate(resolve));
+    client.emit("exists", { path: "INBOX", count: 3, prevCount: 3 });
+    client.emit("exists", { path: "INBOX", count: 4, prevCount: 3 });
+    expect(await next).toEqual({ value: "exists", done: false });
+    const ended = iterator.next();
+    controller.abort();
+    expect(await ended).toEqual({ value: undefined, done: true });
+    expect(calls).toEqual(["idle", "noop"]);
+  });
+});

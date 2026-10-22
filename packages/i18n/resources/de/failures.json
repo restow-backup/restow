@@ -178,6 +178,18 @@
       "message_missing": {
         "title": "Der IMAP-Server hat eine Nachricht nicht ausgeliefert",
         "why": "Der Server hat die Nachricht im Ordner aufgeführt, sie beim Abruf aber nicht zurückgegeben. Meist wurde sie zwischenzeitlich gelöscht oder verschoben, oder der Server hat den Abruf wegen einer Grenze abgebrochen. Der nächste Lauf versucht es erneut."
+      },
+      "idle_unsupported": {
+        "title": "Der IMAP-Server bietet kein IDLE an",
+        "why": "Der Server meldet neue Mails nicht beim Eingang (IMAP IDLE). {appName} prüft das Konto stattdessen in festen Abständen auf neue Mails, sie erreichen das Archiv daher mit der Verzögerung dieses Abstands."
+      },
+      "idle_disabled": {
+        "title": "IDLE ist für diese Quelle ausgeschaltet",
+        "why": "Die Quelle ist so eingestellt, dass keine Verbindung je Konto offen gehalten wird (Archiv-IDLE aus), etwa weil der Anbieter nur wenige Verbindungen erlaubt. {appName} prüft das Konto stattdessen in festen Abständen auf neue Mails."
+      },
+      "idle_budget": {
+        "title": "Für dieses Konto ist keine IDLE-Verbindung frei",
+        "why": "Jeder Worker beobachtet höchstens eine festgelegte Zahl von Konten mit IMAP IDLE (ARCHIVE_IMAP_IDLE_MAX). Dieses Konto wird in festen Abständen auf neue Mails geprüft, bis eine Verbindung frei wird oder ein anderer Worker es übernimmt."
       }
     },
     "network": {

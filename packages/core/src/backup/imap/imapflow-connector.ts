@@ -70,7 +70,11 @@ export class ImapFlowConnector implements ImapConnector {
     credential: ImapCredential,
     options: ImapConnectOptions,
   ): Promise<ImapSession> {
-    const client = this.createClient(buildClientOptions(account, credential));
+    const client = this.createClient(
+      buildClientOptions(account, credential, {
+        ...(options.maxIdleTimeMs !== undefined ? { maxIdleTimeMs: options.maxIdleTimeMs } : {}),
+      }),
+    );
     const logger = options.logger.child({ component: "imapflow", host: account.host });
     const session = new ImapFlowSession(client, logger);
     try {
@@ -149,6 +153,7 @@ export function authzidNotHonouredMessage(
 export function buildClientOptions(
   account: ImapAccountConfig,
   credential: ImapCredential,
+  extra: { readonly maxIdleTimeMs?: number } = {},
 ): ImapFlowOptions {
   const allowPrivateNetwork = account.allowPrivateNetwork === true;
   const refused = refuseHostBeforeConnect(account.host, allowPrivateNetwork);
@@ -195,6 +200,7 @@ export function buildClientOptions(
     connectionTimeout: CONNECTION_TIMEOUT_MS,
     socketTimeout: SOCKET_TIMEOUT_MS,
     maxLiteralSize: MAX_LITERAL_BYTES,
+    ...(extra.maxIdleTimeMs !== undefined ? { maxIdleTime: extra.maxIdleTimeMs } : {}),
   };
 }
 
@@ -332,6 +338,99 @@ class ImapFlowSession implements ImapSession {
       }
     } catch (error) {
       throw this.translate(error);
+    }
+  }
+
+  async status(path: string): Promise<ImapFolderStatus> {
+    const status = await this.guard(() =>
+      this.client.status(path, { messages: true, uidNext: true, uidValidity: true }),
+    );
+    return {
+      path: status.path ?? path,
+      uidValidity: (status.uidValidity ?? 0n).toString(),
+      uidNext: status.uidNext ?? 0,
+      exists: status.messages ?? 0,
+    };
+  }
+
+  async uidsAbove(uid: number): Promise<number[]> {
+    const mailbox = this.client.mailbox;
+    if (!mailbox || mailbox.exists === 0) {
+      return [];
+    }
+    const found = await this.guard(() =>
+      this.client.search({ uid: `${Math.max(0, uid) + 1}:*` }, { uid: true }),
+    );
+    // `n:*` always matches the highest UID, also when it lies below n (RFC 3501 6.4.8).
+    return (found || []).filter((value) => value > uid).sort((a, b) => a - b);
+  }
+
+  get idleSupported(): boolean {
+    return this.client.capabilities.has("IDLE");
+  }
+
+  async *idle(signal: AbortSignal): AsyncIterable<"exists"> {
+    let arrived = false;
+    let wake: (() => void) | null = null;
+    const notify = () => {
+      const resolve = wake;
+      wake = null;
+      resolve?.();
+    };
+    const onExists = (event: { count: number; prevCount: number }) => {
+      if (event.count > event.prevCount) {
+        arrived = true;
+        notify();
+      }
+    };
+    const onClose = () => notify();
+    this.client.on("exists", onExists);
+    this.client.on("close", onClose);
+    signal.addEventListener("abort", notify, { once: true });
+    let idling: Promise<unknown> | null = null;
+    let failure: unknown = null;
+    try {
+      while (!signal.aborted) {
+        if (!this.client.usable) {
+          throw new ImapSessionError(
+            this.lastError ? describe(this.lastError) : "connection closed during IDLE",
+            true,
+          );
+        }
+        if (failure !== null) {
+          throw this.translate(failure);
+        }
+        if (arrived) {
+          arrived = false;
+          yield "exists";
+          continue;
+        }
+        if (idling === null) {
+          idling = this.client
+            .idle()
+            .catch((error) => {
+              failure = error;
+            })
+            .finally(() => {
+              idling = null;
+              notify();
+            });
+        }
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+          if (arrived || signal.aborted || !this.client.usable || failure !== null) {
+            notify();
+          }
+        });
+      }
+    } finally {
+      this.client.off("exists", onExists);
+      this.client.off("close", onClose);
+      signal.removeEventListener("abort", notify);
+      if (idling !== null && this.client.usable) {
+        // Any command ends IDLE (imapflow sends DONE first); NOOP is the cheapest one.
+        await this.client.noop().catch(() => undefined);
+      }
     }
   }
 

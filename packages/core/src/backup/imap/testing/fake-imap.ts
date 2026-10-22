@@ -65,6 +65,9 @@ export interface FakeAddOptions {
 
 let messageCounter = 0;
 
+/** Who is told when mail arrives in a folder (IDLE sessions of the fake server). */
+type ArrivalListener = (folder: FakeFolder) => void;
+
 export class FakeFolder {
   readonly name: string;
   readonly parent: string[];
@@ -74,6 +77,8 @@ export class FakeFolder {
   uidValidity: number;
   uidNext = 1;
   readonly messages = new Map<number, FakeMessage>();
+  /** Set by {@link FakeImapServer.addFolder}: IDLE sessions learn about new mail through it. */
+  onArrival: ArrivalListener | null = null;
 
   constructor(
     readonly path: string,
@@ -115,6 +120,7 @@ export class FakeFolder {
       envelope,
     };
     this.messages.set(uid, message);
+    this.onArrival?.(this);
     return message;
   }
 
@@ -155,6 +161,10 @@ export interface FakeServerStats {
   opens: number;
   listFlags: number;
   metaFetches: number;
+  /** STATUS commands (archive capture). */
+  statusCalls: number;
+  /** IDLE iterations started (archive capture). */
+  idles: number;
   /** Every UID whose source was delivered, as "<folder>:<uid>". */
   sourcesDelivered: string[];
 }
@@ -172,6 +182,10 @@ export interface FakeServerFaults {
   omit: Set<string>;
   /** "<folder>:<uid>": ENVELOPE/BODYSTRUCTURE could not be read for this message this run. */
   envelopeFailures: Set<string>;
+  /** The server does not announce IDLE. */
+  noIdle: boolean;
+  /** "<folder>:<uid>": metadata is listed, but the source is never delivered. */
+  omitSource: Set<string>;
 }
 
 export class FakeImapServer implements ImapConnector {
@@ -184,6 +198,8 @@ export class FakeImapServer implements ImapConnector {
     opens: 0,
     listFlags: 0,
     metaFetches: 0,
+    statusCalls: 0,
+    idles: 0,
     sourcesDelivered: [],
   };
   readonly faults: FakeServerFaults = {
@@ -193,7 +209,10 @@ export class FakeImapServer implements ImapConnector {
     dropOnDeliver: new Set(),
     omit: new Set(),
     envelopeFailures: new Set(),
+    noIdle: false,
+    omitSource: new Set(),
   };
+  private readonly arrivalListeners = new Set<ArrivalListener>();
   /**
    * Credentials seen by connect: the login, the credential kind, and (for
    * assertions on per-mailbox and master-user auth) the password / OAuth2
@@ -211,9 +230,30 @@ export class FakeImapServer implements ImapConnector {
 
   addFolder(path: string, options?: FakeFolderOptions): FakeFolder {
     const folder = new FakeFolder(path, options);
+    folder.onArrival = (arrived) => {
+      for (const listener of this.arrivalListeners) {
+        listener(arrived);
+      }
+    };
     this.folders.set(path, folder);
     return folder;
   }
+
+  /** IDLE sessions subscribe here; returns the unsubscribe. */
+  onArrival(listener: ArrivalListener): () => void {
+    this.arrivalListeners.add(listener);
+    return () => this.arrivalListeners.delete(listener);
+  }
+
+  /** Drop every open session, as a server restart would (IDLE sessions end with an error). */
+  dropAll(): void {
+    for (const listener of [...this.dropListeners]) {
+      listener();
+    }
+  }
+
+  /** Sessions register here to be dropped by {@link dropAll}. */
+  readonly dropListeners = new Set<() => void>();
 
   folder(path: string): FakeFolder {
     const folder = this.folders.get(path);
@@ -261,8 +301,95 @@ export class FakeImapServer implements ImapConnector {
 class FakeSession implements ImapSession {
   usable = true;
   private current: FakeFolder | null = null;
+  private readonly drop = () => {
+    if (this.usable) {
+      this.usable = false;
+      this.server.sessionClosed();
+    }
+    this.server.dropListeners.delete(this.drop);
+    this.wakeIdle?.();
+  };
+  private wakeIdle: (() => void) | null = null;
 
-  constructor(private readonly server: FakeImapServer) {}
+  constructor(private readonly server: FakeImapServer) {
+    server.dropListeners.add(this.drop);
+  }
+
+  get idleSupported(): boolean {
+    return !this.server.faults.noIdle;
+  }
+
+  async status(path: string): Promise<ImapFolderStatus> {
+    await this.command();
+    this.server.stats.statusCalls++;
+    const folder = this.server.folders.get(path);
+    if (!folder?.selectable || this.server.faults.openFailures.has(path)) {
+      throw new ImapSessionError(`STATUS ${path}: NO Mailbox does not exist`, false);
+    }
+    return {
+      path,
+      uidValidity: String(folder.uidValidity),
+      uidNext: folder.uidNext,
+      exists: folder.messages.size,
+    };
+  }
+
+  async uidsAbove(uid: number): Promise<number[]> {
+    await this.command();
+    return this.requireFolder()
+      .uids()
+      .filter((value) => value > uid);
+  }
+
+  async *idle(signal: AbortSignal): AsyncIterable<"exists"> {
+    // Subscribed before the first await, so mail added right after `next()` is seen.
+    const folder = this.current;
+    let arrived = false;
+    const wake = () => {
+      const resolve = this.wakeIdle;
+      this.wakeIdle = null;
+      resolve?.();
+    };
+    const unsubscribe = this.server.onArrival((changed) => {
+      if (changed === folder) {
+        arrived = true;
+        wake();
+      }
+    });
+    try {
+      await this.command();
+    } catch (error) {
+      unsubscribe();
+      throw error;
+    }
+    if (this.server.faults.noIdle || !folder) {
+      unsubscribe();
+      throw new ImapSessionError(
+        folder ? "IDLE: BAD Unknown command" : "no folder selected",
+        false,
+      );
+    }
+    this.server.stats.idles++;
+    signal.addEventListener("abort", wake, { once: true });
+    try {
+      while (!signal.aborted) {
+        if (!this.usable) {
+          throw new ImapSessionError("connection closed during IDLE", true);
+        }
+        if (arrived) {
+          arrived = false;
+          yield "exists";
+          continue;
+        }
+        await new Promise<void>((resolve) => {
+          this.wakeIdle = resolve;
+        });
+      }
+    } finally {
+      unsubscribe();
+      signal.removeEventListener("abort", wake);
+    }
+  }
 
   async listFolders(): Promise<ImapFolderInfo[]> {
     await this.command();
@@ -342,7 +469,7 @@ class FakeSession implements ImapSession {
         throw new ImapSessionError("read ECONNRESET", true);
       }
       const message = folder.messages.get(uid);
-      if (!message || this.server.faults.omit.has(key)) {
+      if (!message || this.server.faults.omit.has(key) || this.server.faults.omitSource.has(key)) {
         continue;
       }
       this.server.stats.sourcesDelivered.push(key);
@@ -369,6 +496,8 @@ class FakeSession implements ImapSession {
       this.usable = false;
       this.server.sessionClosed();
     }
+    this.server.dropListeners.delete(this.drop);
+    this.wakeIdle?.();
   }
 
   private async command(): Promise<void> {

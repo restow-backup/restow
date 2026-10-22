@@ -178,6 +178,18 @@
       "message_missing": {
         "title": "The IMAP server did not deliver a message",
         "why": "The server listed the message in the folder but did not return it when it was fetched. Usually it was deleted or moved in the meantime, or the server cut the fetch short because of a limit. The next run tries again."
+      },
+      "idle_unsupported": {
+        "title": "The IMAP server does not offer IDLE",
+        "why": "The server does not announce new mail as it arrives (IMAP IDLE). {appName} checks the account for new mail at regular intervals instead, so mail reaches the archive with the delay of that interval."
+      },
+      "idle_disabled": {
+        "title": "IDLE is switched off for this source",
+        "why": "The source is set not to keep a connection open per account (archive IDLE off), for example because the provider allows only few connections. {appName} checks the account for new mail at regular intervals instead."
+      },
+      "idle_budget": {
+        "title": "No IDLE connection is free for this account",
+        "why": "Every worker keeps at most a set number of accounts watched with IMAP IDLE (ARCHIVE_IMAP_IDLE_MAX). This account is checked for new mail at regular intervals until a connection is free, or another worker takes it over."
       }
     },
     "network": {

@@ -259,6 +259,25 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("wait_automatic"), step("check_server_limits")],
   },
+  // Archive capture (0.4.4): the account is polled instead of watched with IDLE (informational).
+  "imap.idle_unsupported": {
+    category: "imap",
+    transient: false,
+    retryable: false,
+    steps: () => [step("wait_automatic")],
+  },
+  "imap.idle_disabled": {
+    category: "imap",
+    transient: false,
+    retryable: false,
+    steps: () => [step("check_source_settings", "source")],
+  },
+  "imap.idle_budget": {
+    category: "imap",
+    transient: true,
+    retryable: false,
+    steps: () => [step("wait_automatic"), step("check_server_limits")],
+  },
 
   // --- Network -----------------------------------------------------------------------------
   "network.dns": {
