@@ -506,11 +506,14 @@ function HoldRow({ hold }: { hold: ArchiveHold }) {
           {t("capture.hold.why", { count: hold.graphMailboxes })}
         </p>
       )}
-      <CommandBlock
-        id={`hold-commands-${hold.sourceId}`}
-        label={t("capture.hold.commands")}
-        value={commands}
-      />
+      {/* Once confirmed, the commands are not needed on the page any more. */}
+      {confirmed ? null : (
+        <CommandBlock
+          id={`hold-commands-${hold.sourceId}`}
+          label={t("capture.hold.commands")}
+          value={commands}
+        />
+      )}
       {confirmed ? (
         <ConfirmDialog
           trigger={
