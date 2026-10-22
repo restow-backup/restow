@@ -1,3 +1,9 @@
+import {
+  ARCHIVE_PATH,
+  CAPTURE_SECTION_ANCHOR,
+  FORWARDING_SECTION_ANCHOR,
+  JOURNAL_SECTION_ANCHOR,
+} from "@/features/archive/paths";
 import { endpointDetailTo } from "@/features/endpoints/paths";
 import { FILE_SHARES_PATH } from "@/features/file-shares/paths";
 import { installationSectionPath } from "@/features/installation/paths";
@@ -70,6 +76,20 @@ export function notificationTarget(
   const objectId = text(details.protectedObjectId);
   if (objectId && item.event.startsWith("backup.suspicious")) {
     return at(`${RESTORE_PATHS.explorer}?object=${encodeURIComponent(objectId)}`);
+  }
+  // An alert of the archive capture: the archive page at the section that shows it.
+  if (item.event === "archive.failed") {
+    const section =
+      details.reason === "capture_error"
+        ? CAPTURE_SECTION_ANCHOR
+        : details.reason === "forward_stale"
+          ? FORWARDING_SECTION_ANCHOR
+          : details.reason === "journal_stale"
+            ? JOURNAL_SECTION_ANCHOR
+            : null;
+    if (section) {
+      return at(`${ARCHIVE_PATH}#${section}`);
+    }
   }
   if (item.event.startsWith("verify.")) {
     const reportId = text(details.reportId);

@@ -525,7 +525,15 @@
     "retention": "Retention",
     "retentionPaused": "Paused: no restore point of this object is deleted until an administrator marks the finding as a false alarm or releases the hold.",
     "heldSince": "Paused since",
-    "heldRestorePoints": "Restore points on hold"
+    "heldRestorePoints": "Restore points on hold",
+    "archiveProblem": "Problem",
+    "archiveSince": "Since",
+    "archiveLast": "Last arrival",
+    "archiveReason": {
+      "capture_error": "Archive capture from this mailbox has been failing for more than an hour. New mail of the mailbox does not reach the archive until it works again.",
+      "forward_stale": "No forwarded copy of this account has arrived for more than 24 hours, although copies arrived before. Check the forwarding rule at the mail provider.",
+      "journal_stale": "No journal report has arrived for more than 24 hours, although reports arrived before. Check the journal rule and the connector in Exchange Online, and that the journal receiver is reachable."
+    }
   },
   "summary": {
     "previous": "previous period",
@@ -566,7 +574,10 @@
       "completed": "Restore completed: {object}"
     },
     "archive": {
-      "failed": "Archive sync failed: {object}"
+      "failed": "Archive sync failed: {object}",
+      "capture_error": "Archive capture failing for over an hour: {object}",
+      "forward_stale": "No forwarded copies for 24 hours: {object}",
+      "journal_stale": "No journal reports for 24 hours"
     },
     "directory": {
       "failed": "Directory sync failed"

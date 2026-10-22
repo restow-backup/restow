@@ -106,6 +106,33 @@ describe("renderAlert", () => {
     expect(german.text).toContain("Aufbewahrung: Angehalten");
   });
 
+  it("says what stopped in the archive capture, since when and what arrived last", () => {
+    const alert = (language: "en" | "de", details: Record<string, unknown>) =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Archive",
+        payload: { event: "archive.failed", occurredAt: "2026-10-13T10:00:00.000Z", details },
+      });
+    const failing = alert("en", {
+      reason: "capture_error",
+      queue: "archive",
+      objectName: "alice@contoso.example",
+      errorSince: "2026-10-13T08:30:00.000Z",
+    });
+    expect(failing.subject).toBe("[Contoso] Archive sync failed: alice@contoso.example");
+    expect(failing.text).toContain("Archive capture from this mailbox has been failing");
+    expect(failing.text).toContain("Since: 13 Oct 2026, 08:30 UTC");
+    const journal = alert("de", {
+      reason: "journal_stale",
+      queue: "archive",
+      lastReportAt: "2026-10-12T07:00:00.000Z",
+    });
+    expect(journal.subject).toBe("[Contoso] Archiv-Abgleich fehlgeschlagen: Archiv-Abgleich");
+    expect(journal.text).toContain("Seit mehr als 24 Stunden ist kein Journal-Report angekommen");
+    expect(journal.text).toContain("Zuletzt angekommen: 12.10.2026");
+  });
+
   it("says since when retention of a held object is paused", () => {
     const reminder = (language: "en" | "de") =>
       renderAlert({

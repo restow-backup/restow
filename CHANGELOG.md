@@ -99,6 +99,11 @@ private repository.
   checks every 5 seconds. Forwarding to the archive: an address per IMAP account (created,
   copied, renewed after a question), its status, and instructions for Postfix and mailcow BCC
   maps, Sieve `redirect :copy` and Google Workspace routing to the tenant's journal address.
+- Alerts of the archive capture as `archive.failed` (bell, rules, mail): a mailbox whose capture
+  has been in error for more than an hour, an IMAP account whose forwarded copies stopped for
+  24 hours while its job wants them, and a journal address without reports for 24 hours, each
+  after it received before and once per stretch. The bell and the mail say which of these it
+  is and lead to its section of the archive page.
 
 ### Changed
 
@@ -119,7 +124,8 @@ private repository.
   is archived as a forwarded copy with its own headers' envelope instead of as an incomplete
   report.
 - Pausing a mail job stops only its scheduled backups; archiving goes on, and the pause
-  question says so. Switching archiving or a capture way off in the editor asks first: new mail
+  question says so. The forwarding page counts the accounts of a paused job as wanting their
+  forwarded copy. Switching archiving or a capture way off in the editor asks first: new mail
   of these mailboxes is no longer archived from then on, the archive kept so far stays.
 - docs/ARCHIVE.md describes the capture ways of 0.4.4; docs/ARCHITECTURE.md describes the
   Graph throttling as it is built (no shared token bucket per source).

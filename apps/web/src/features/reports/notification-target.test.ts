@@ -48,6 +48,20 @@ describe("where a notification leads", () => {
     expect(suspicious({ protectedObjectId: "o-1" })).toBe("/restore?object=o-1");
   });
 
+  it("opens the archive page at the capture, forwarding or journal section", () => {
+    const archive = (details: Record<string, unknown>) =>
+      notificationTarget({ event: "archive.failed", tenantId, details }, admin)?.to;
+    expect(archive({ reason: "capture_error", protectedObjectId: "o-1" })).toBe(
+      "/archive#archive-capture",
+    );
+    expect(archive({ reason: "forward_stale", protectedObjectId: "o-1" })).toBe(
+      "/archive#archive-forwarding",
+    );
+    expect(archive({ reason: "journal_stale" })).toBe("/archive#archive-journal");
+    // A failed archive job still opens its run.
+    expect(archive({ jobId: "job-1", queue: "archive" })).toBe("/history/job-1");
+  });
+
   it("gives a viewer without the tenant's admin pages no target, never a Forbidden page", () => {
     expect(
       notificationTarget(

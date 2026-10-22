@@ -184,7 +184,13 @@ export class PgStreamStore {
     const ok = outcome.failure === null;
     const result = await this.db.execute(sql`
       update archive_capture_streams set
-        state = ${JSON.stringify(outcome.state)}::jsonb,
+        -- _errorSince: when the stream went into error (kept while it stays there, removed
+        -- by the next pass that is not one); the capture alerts (./alerts.ts) read it.
+        state = case when ${outcome.status} = 'error'
+                     then ${JSON.stringify(outcome.state)}::jsonb || jsonb_build_object('_errorSince',
+                            coalesce(state->>'_errorSince', to_char(now() at time zone 'UTC',
+                                     'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
+                     else ${JSON.stringify(outcome.state)}::jsonb - '_errorSince' end,
         -- A stream disabled or paused meanwhile (reconcile, an administrator) stays so.
         status = case when status in ('disabled', 'paused') then status
                       else ${outcome.status}::archive_stream_status end,

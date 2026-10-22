@@ -54,6 +54,7 @@ import {
   tenants,
 } from "@restow/db";
 import { and, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { alertArchiveCapture } from "../archive-capture/alerts.js";
 import { withTenantTx } from "../handlers/framework.js";
 import { emitWebhookEvent } from "../handlers/webhooks.js";
 import { alertOverdueBackups } from "../overdue.js";
@@ -78,6 +79,8 @@ export interface MonitorSummary {
   quotaAlerts: number;
   /** `backup.overdue` raised for mailboxes, OneDrives, IMAP accounts, servers and clients. */
   overdueAlerts: number;
+  /** `archive.failed` of the archive capture: a stream in error, forwarding or journaling silent. */
+  archiveAlerts: number;
 }
 
 export function endpointName(endpoint: Pick<Endpoint, "displayName" | "hostname">): string {
@@ -626,11 +629,13 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
     staleAlerts: 0,
     quotaAlerts: 0,
     overdueAlerts: 0,
+    archiveAlerts: 0,
   };
   summary.runAlerts = await alertFailedRuns(deps, now);
   summary.reportAlerts = await alertReports(deps, now);
   summary.staleAlerts = await alertStaleEndpoints(deps, now);
   summary.quotaAlerts = await alertStorageQuota(deps, now);
   summary.overdueAlerts = await alertOverdueBackups(deps, now);
+  summary.archiveAlerts = await alertArchiveCapture(deps, now);
   return summary;
 }

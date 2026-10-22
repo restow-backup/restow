@@ -130,6 +130,18 @@ describe("bellEventKey", () => {
       "bellEvents.backup.failed",
     );
   });
+
+  it("names what stopped in the archive capture, and a failed archive job as before", () => {
+    expect(bellEventKey({ event: "archive.failed", details: { reason: "forward_stale" } })).toBe(
+      "bellEvents.archive.forward_stale",
+    );
+    expect(bellEventKey({ event: "archive.failed", details: { reason: "capture_error" } })).toBe(
+      "bellEvents.archive.capture_error",
+    );
+    expect(bellEventKey({ event: "archive.failed", details: { queue: "archive" } })).toBe(
+      "bellEvents.archive.failed",
+    );
+  });
 });
 
 describe("unreadAttentionCount", () => {

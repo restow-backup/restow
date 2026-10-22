@@ -196,7 +196,7 @@ async function accountRows(
       select a.*,
              exists (
                select 1 from backup_jobs j
-                where j.tenant_id = ${tenantId}::uuid and j.kind = 'mail' and j.archive and j.enabled
+                where j.tenant_id = ${tenantId}::uuid and j.kind = 'mail' and j.archive
                   and coalesce((j.archive_capture->(case when a.capture_kind = 'google' then 'google' else 'imap' end)->>'forward')::boolean, false)
                   and (
                     exists (select 1 from backup_job_members m

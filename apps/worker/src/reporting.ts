@@ -259,7 +259,7 @@ export async function queueRuleDeliveries(
 }
 
 /** The cause of a failed job as an alert carries it: code, facts and the ids of the steps to take. */
-function alertFailure(failure: NonNullable<Job["failure"]>) {
+export function alertFailure(failure: NonNullable<Job["failure"]>) {
   return {
     code: failure.code,
     transient: failure.transient,

@@ -25,6 +25,14 @@ export function bellEventKey(item: Pick<BellNotification, "event" | "details">):
       ? "bellEvents.installation.disk_low_repository"
       : "bellEvents.installation.disk_low_database";
   }
+  // An alert of the archive capture names what stopped (apps/worker archive-capture/alerts.ts).
+  const reason = item.details?.reason;
+  if (
+    item.event === "archive.failed" &&
+    (reason === "capture_error" || reason === "forward_stale" || reason === "journal_stale")
+  ) {
+    return `bellEvents.archive.${reason}`;
+  }
   return `bellEvents.${item.event}`;
 }
 

@@ -244,6 +244,18 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     }
     rows.push([t("reports:mail.retention"), t("reports:mail.retentionPaused")]);
   }
+  if (event === "archive.failed") {
+    // An alert of the archive capture (apps/worker archive-capture/alerts.ts): what stopped,
+    // since when, and when something last arrived.
+    const reason = text(details.reason);
+    if (reason === "capture_error" || reason === "forward_stale" || reason === "journal_stale") {
+      rows.push([t("reports:mail.archiveProblem"), t(`reports:mail.archiveReason.${reason}`)]);
+    }
+    const since = formatWhen(text(details.errorSince), input.language);
+    if (since) rows.push([t("reports:mail.archiveSince"), `${since} UTC`]);
+    const last = formatWhen(text(details.lastCopyAt) ?? text(details.lastReportAt), input.language);
+    if (last) rows.push([t("reports:mail.archiveLast"), `${last} UTC`]);
+  }
   // A failed job says why and what to do, in the recipient's language; the raw message follows.
   const failure = alertFailure(details.failure);
   if (failure) {

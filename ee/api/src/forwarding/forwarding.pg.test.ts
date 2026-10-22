@@ -241,7 +241,8 @@ describe.skipIf(!testDatabaseAdminUrl)("forwarded copies against Postgres", () =
       .returning();
     fabrikamAccount = other?.id ?? "";
 
-    // Anna's job wants the forwarded copy; Ben's only the IMAP sync; Carla is in no job.
+    // Anna's job wants the forwarded copy (paused: pausing stops scheduled backups only,
+    // archiving goes on); Ben's only the IMAP sync; Carla is in no job.
     const [forwardJob, syncJob] = await owner
       .insert(backupJobs)
       .values([
@@ -250,6 +251,7 @@ describe.skipIf(!testDatabaseAdminUrl)("forwarded copies against Postgres", () =
           kind: "mail",
           name: "Forward",
           archive: true,
+          enabled: false,
           archiveCapture: { imap: { sync: true, forward: true } },
         },
         { tenantId: contoso, kind: "mail", name: "Sync", archive: true },

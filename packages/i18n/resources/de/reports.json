@@ -525,7 +525,15 @@
     "retention": "Aufbewahrung",
     "retentionPaused": "Angehalten: Kein Sicherungsstand dieses Objekts wird gelöscht, bis ein Administrator den Befund als Fehlalarm markiert oder die Aufbewahrung wieder freigibt.",
     "heldSince": "Angehalten seit",
-    "heldRestorePoints": "Zurückgehaltene Sicherungsstände"
+    "heldRestorePoints": "Zurückgehaltene Sicherungsstände",
+    "archiveProblem": "Problem",
+    "archiveSince": "Seit",
+    "archiveLast": "Zuletzt angekommen",
+    "archiveReason": {
+      "capture_error": "Die Archiv-Erfassung aus diesem Postfach schlägt seit mehr als einer Stunde fehl. Neue Mail des Postfachs kommt erst wieder ins Archiv, wenn sie funktioniert.",
+      "forward_stale": "Seit mehr als 24 Stunden ist keine weitergeleitete Kopie dieses Kontos angekommen, vorher kamen Kopien an. Prüfen Sie die Weiterleitungsregel beim Mail-Anbieter.",
+      "journal_stale": "Seit mehr als 24 Stunden ist kein Journal-Report angekommen, vorher kamen Reports an. Prüfen Sie die Journalregel und den Connector in Exchange Online und ob der Journal-Empfänger erreichbar ist."
+    }
   },
   "summary": {
     "previous": "Vorzeitraum",
@@ -566,7 +574,10 @@
       "completed": "Wiederherstellung abgeschlossen: {object}"
     },
     "archive": {
-      "failed": "Archiv-Abgleich fehlgeschlagen: {object}"
+      "failed": "Archiv-Abgleich fehlgeschlagen: {object}",
+      "capture_error": "Archiv-Erfassung seit über einer Stunde fehlerhaft: {object}",
+      "forward_stale": "Seit 24 Stunden keine weitergeleiteten Kopien: {object}",
+      "journal_stale": "Seit 24 Stunden keine Journal-Reports"
     },
     "directory": {
       "failed": "Verzeichnisabgleich fehlgeschlagen"
