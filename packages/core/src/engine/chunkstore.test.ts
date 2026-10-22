@@ -238,6 +238,86 @@ describe("ChunkWriter / ChunkReader through the local pack store", () => {
     expect(Buffer.concat(await collect(r.read(result.chunks))).equals(data)).toBe(true);
   });
 
+  /** Count the whole-object reads and the ranged reads a backend serves. */
+  function counted(backend: StorageTargets["primary"]) {
+    const reads = { whole: 0, ranged: 0, rangedBytes: 0 };
+    const target: StorageTargets["primary"] = {
+      put: (key, data, options) => backend.put(key, data, options),
+      get: (key) => {
+        reads.whole += 1;
+        return backend.get(key);
+      },
+      getStream: (key) => {
+        reads.whole += 1;
+        return backend.getStream(key);
+      },
+      getRange: (key, start, end) => {
+        reads.ranged += 1;
+        reads.rangedBytes += end - start + 1;
+        return (backend.getRange as NonNullable<typeof backend.getRange>)(key, start, end);
+      },
+      head: (key) => backend.head(key),
+      delete: (key) => backend.delete(key),
+      list: (prefix) => backend.list(prefix),
+    };
+    return { reads, target };
+  }
+
+  it("reads single chunks by byte range instead of whole packs when asked to", async () => {
+    const w = writer();
+    const data = pseudoRandom(MAX_CHUNK_SIZE * 3, 21);
+    const result = await w.write(data);
+    const small = await w.write(Buffer.from("one small message"));
+    await w.close();
+    const [packKey] = await storage.primary.list(packPrefix(TENANT));
+    const packSize = (await storage.primary.get(packKey)).length;
+
+    const primary = counted(storage.primary);
+    const reader = new ChunkReader({
+      storage: { primary: primary.target, copies: storage.copies },
+      keys,
+      index,
+      rangedReads: true,
+    });
+    expect(Buffer.concat(await collect(reader.read(small.chunks))).toString()).toBe(
+      "one small message",
+    );
+    expect(primary.reads.whole).toBe(0);
+    expect(primary.reads.ranged).toBe(1);
+    expect(primary.reads.rangedBytes).toBeLessThan(packSize / 10);
+    expect(Buffer.concat(await collect(reader.read(result.chunks))).equals(data)).toBe(true);
+    expect(primary.reads.whole).toBe(0);
+  });
+
+  it("reads a damaged chunk range from the copy, then through the whole pack", async () => {
+    const w = writer();
+    const object = await w.write(Buffer.from("range reads survive damage"));
+    await w.close();
+    const [packKey] = await storage.primary.list(packPrefix(TENANT));
+    const intact = Buffer.from(await storage.primary.get(packKey));
+    const [location] = (await index.locate(object.chunks)).values();
+    const damaged = Buffer.from(intact);
+    damaged[(location as { offset: number }).offset + 40] ^= 0xff;
+
+    await storage.primary.put(packKey, damaged);
+    const copy = counted(storage.copies[0] as StorageTargets["primary"]);
+    const reader = new ChunkReader({
+      storage: { primary: storage.primary, copies: [copy.target] },
+      keys,
+      index,
+      rangedReads: true,
+    });
+    expect(Buffer.concat(await collect(reader.read(object.chunks))).toString()).toBe(
+      "range reads survive damage",
+    );
+    expect(copy.reads).toMatchObject({ whole: 0, ranged: 1 });
+
+    // Damaged everywhere: the whole-pack path reports it as without ranged reads.
+    await storage.copies[0]?.put(packKey, damaged);
+    const broken = new ChunkReader({ storage, keys, index, rangedReads: true });
+    await expect(collect(broken.read(object.chunks))).rejects.toThrow();
+  });
+
   it("reports the size of every pack it stored, once each, after the pack is durable", async () => {
     const stored: number[] = [];
     const w = writer({

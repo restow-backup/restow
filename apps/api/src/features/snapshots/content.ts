@@ -100,11 +100,20 @@ class ReadOnlyChunkIndex implements ChunkIndex {
  * chunk index), for reads of stored content that need more than one object:
  * the mail preview reads one message, the archive's content check several.
  * Sequential for the same reason as {@link readManifestObjectBytes}.
+ *
+ * Each chunk is read with a byte-range request for exactly its bytes
+ * (`rangedReads`): a message is a few chunks out of packs of up to 64 MiB,
+ * and up to 0.4.3 every preview downloaded each of those packs whole.
  */
 export async function openContentReader(db: DbExecutor, tenantId: string): Promise<ChunkReader> {
   const keys = await loadTenantKeyring(db, tenantId);
   const storage = await resolveTenantStorage(db, tenantId);
-  return new ChunkReader({ storage, keys, index: new ReadOnlyChunkIndex(db, tenantId) });
+  return new ChunkReader({
+    storage,
+    keys,
+    index: new ReadOnlyChunkIndex(db, tenantId),
+    rangedReads: true,
+  });
 }
 
 /** The manifest index fields a chunk read needs. */

@@ -47,7 +47,7 @@ import { storedId } from "../chunkId.js";
 import { encryptChunk, sha256 } from "../crypto.js";
 import type { ManifestObject } from "../manifest.js";
 import { type PackEntry, PackReader, PackWriter } from "../pack.js";
-import { isObjectNotFound, type StorageBackend } from "../storage/backend.js";
+import { isObjectNotFound, readRange, type StorageBackend } from "../storage/backend.js";
 import { sealedAad } from "./keyring.js";
 import { packKey } from "./layout.js";
 import { noopLogger } from "./logger.js";
@@ -598,6 +598,16 @@ export interface ChunkReaderOptions {
   readonly packCacheLimit?: number;
   /** Recompute each pack's whole-file hash when opening it (slow; the scrub job does this). */
   readonly verifyPacks?: boolean;
+  /**
+   * Read each chunk on its own, with a byte-range request at the offset the
+   * index records, instead of downloading its whole pack (up to
+   * {@link DEFAULT_MAX_PACK_BYTES}). For readers that need a few chunks out of
+   * many packs (the explorer's mail preview reads one message); a restore
+   * reads most of a pack and is better served by the whole file. A chunk is
+   * still proven by {@link openChunkAs}; one that fails on every target this
+   * way is read through its whole pack, as without this option.
+   */
+  readonly rangedReads?: boolean;
   readonly logger?: Logger;
   readonly signal?: AbortSignal;
 }
@@ -780,8 +790,60 @@ export class ChunkReader {
       if (!location) {
         throw new MissingChunkError(hex);
       }
-      yield await this.readChunk(hex, location.packPath);
+      yield this.options.rangedReads
+        ? await this.readChunkRange(hex, location)
+        : await this.readChunk(hex, location.packPath);
     }
+  }
+
+  /**
+   * One chunk by a byte-range request for exactly its sealed bytes, from the
+   * first target that returns it intact; through {@link readChunk} (the whole
+   * pack) when none does, which also covers an index offset that does not
+   * match the pack.
+   */
+  private async readChunkRange(hex: string, location: ChunkLocation): Promise<Buffer> {
+    const id = Buffer.from(hex, "hex");
+    const targets: readonly StorageBackend[] = [
+      this.options.storage.primary,
+      ...this.options.storage.copies,
+    ];
+    for (let index = 0; index < targets.length; index++) {
+      throwIfAborted(this.options.signal);
+      try {
+        const stream = await readRange(
+          targets[index] as StorageBackend,
+          location.packPath,
+          location.offset,
+          location.offset + location.length - 1,
+        );
+        const parts: Buffer[] = [];
+        for await (const part of stream) {
+          parts.push(Buffer.isBuffer(part) ? part : Buffer.from(part as Uint8Array));
+        }
+        const sealed = Buffer.concat(parts);
+        if (sealed.length !== location.length) {
+          throw new StoredDataDamagedError(
+            `chunk ${hex}: ${sealed.length} of ${location.length} bytes in pack ${location.packPath}`,
+          );
+        }
+        return openChunkAs(this.options.keys, id, sealed);
+      } catch (error) {
+        if (error instanceof JobAbortedError) {
+          throw error;
+        }
+        (this.options.logger ?? noopLogger).warn(
+          "chunk range is unreadable on a storage target, trying the next",
+          {
+            pack: location.packPath,
+            chunk: hex,
+            target: storageTargetName(index),
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+    }
+    return this.readChunk(hex, location.packPath);
   }
 
   /**
