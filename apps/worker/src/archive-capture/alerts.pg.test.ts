@@ -261,14 +261,12 @@ describe.skipIf(!adminUrl)("archive capture alerts (Postgres)", () => {
       .values({ tenantId, protectedObjectId: quiet, token: randomUUID(), createdAt: threeDaysAgo })
       .returning();
     for (const objectId of [busy, never]) {
-      await db
-        .insert(archiveForwardAddresses)
-        .values({
-          tenantId,
-          protectedObjectId: objectId,
-          token: randomUUID(),
-          createdAt: threeDaysAgo,
-        });
+      await db.insert(archiveForwardAddresses).values({
+        tenantId,
+        protectedObjectId: objectId,
+        token: randomUUID(),
+        createdAt: threeDaysAgo,
+      });
     }
     // Issued after its last copy (rotated): it has not received yet.
     await db
