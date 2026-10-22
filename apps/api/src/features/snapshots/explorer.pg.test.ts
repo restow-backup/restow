@@ -105,7 +105,13 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer queries against Postgres", () =
         { path: "mail/Inbox", foldersOnly: "true" },
       ];
       for (const query of queries) {
-        const listed = await listTree(db, f.tenantId, reader(f.admin), f.mailbox.first, tree(query));
+        const listed = await listTree(
+          db,
+          f.tenantId,
+          reader(f.admin),
+          f.mailbox.first,
+          tree(query),
+        );
         expect(listed.entries.map((e) => e.name)).not.toContain("Big.cccc.attachments");
       }
       const found = await search(db, f.tenantId, reader(f.admin), {

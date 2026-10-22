@@ -62,7 +62,6 @@ import type {
 import {
   ATTACHMENT_PARENT_KEY,
   ATTACHMENTS_FOLDER_KIND,
-  FOLDER_KIND_KEY,
   type BreadcrumbSegment,
   baseNameOf,
   breadcrumbOf,
@@ -71,6 +70,7 @@ import {
   type EntryRow,
   escapeLike,
   eventSummaryOf,
+  FOLDER_KIND_KEY,
   fingerprintOf,
   mailSummaryOf,
   NATIVE_VERSION_MARKER,
