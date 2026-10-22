@@ -8,6 +8,62 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- Archive capture foundation for mail beyond Exchange journaling (docs/ARCHIVE.md
+  "Erfassungswege"). A mail job's archive keeps its capture ways per kind of mail object
+  (`archiveCapture` on create, change and read of a mail job: Microsoft 365 by Graph and/or
+  journaling, IMAP and Google Workspace by IMAP sync and/or a forwarded copy; the defaults are
+  Graph and IMAP sync). A job that archives needs at least one way for every kind of mailbox it
+  covers (422 `archive_capture_no_way`). Members and candidates carry `captureKind` (`m365`,
+  `google`, `imap`, `imap_microsoft`), and `GET /api/v1/backup-jobs/defaults?kind=mail` names
+  the tenant's `mailSourceKinds`.
+- Worker: a capture service keeps one stream per archived mailbox and mailbox way, claimed
+  across worker processes with `FOR UPDATE SKIP LOCKED` and a lease, reconciled from the mail
+  jobs every two minutes without a job row per mail. It idles while the edition does not include
+  capture from the mailbox, stops on shutdown and update drain, and pauses a tenant while its
+  storage switches targets. New settings `ARCHIVE_CAPTURE_CONCURRENCY` (16),
+  `ARCHIVE_CAPTURE_TENANT_CONCURRENCY` (4) and `ARCHIVE_BACKFILL_CONCURRENCY` (4). The `archive`
+  queue has a handler: the one-time takeover of a mailbox's existing mail once its stream is live
+  (marked as captured late), and archive schedules of older releases make the named mailboxes
+  due. The Graph and IMAP ways plug into this framework.
+- `GET /api/v1/archive/capture` (state per capture way: availability, streams, how mail is
+  noticed, counts of 24 hours and 7 days, takeover progress), `GET /archive/capture/mailboxes`,
+  `POST /archive/capture/mailboxes/:objectId/resync` (audited as
+  `archive.capture.resync_requested`) and `GET`/`PUT /archive/capture/holds/:sourceId`, the
+  confirmation that a retention policy or litigation hold keeps deleted mail in a Microsoft 365
+  tenant (audited as `archive.hold.confirmed` and `archive.hold.unconfirmed`).
+- Business: new capability `archive.mailboxCapture`; the gated features
+  `archive.mailboxCapture` and `archive.smtpCapture` (API `/me` and the worker's new `features`
+  extension point). `archive.journalReceiver` also covers forwarded copies.
+
+### Changed
+
+- Every archive writer (journal receiver, file import, capture ways) appends through one shared
+  path. The original is uploaded before the tenant's chain lock is taken, so a large report no
+  longer holds up the other deliveries of the tenant. Mail captured more than once is recognised
+  by Message-ID and content: a capture not stronger than what the archive holds becomes a capture
+  row on that item instead of a second item, a stronger one names the item it supersedes, and the
+  same Message-ID with another body is kept and flagged `message-id-conflict`. Journal reports and
+  imported messages are still stored as items of their own.
+- The archive record format gains the optional `bodyHash` and `supersedesItemId` and the source
+  `smtp_forward` (packages/core archive/FORMAT.md); records written before stay as they are.
+
+### Fixed
+
+- The archive chain could fork when two writers of one tenant stamped their items with the same
+  time: the predecessor was taken by time alone. Writers now take the last item in the order the
+  chain check walks (time, then id) and stamp their item strictly later.
+
+### Upgrade Notes
+
+- Two database migrations (0059, 0060): a new capture value, the capture tables (streams,
+  pending notifications, Graph subscriptions, per-account archive addresses, further captures)
+  and new columns and indexes on `archive_items` and `backup_jobs`. The indexes on
+  `archive_items` are built during the update; on a large archive this takes a moment.
+
 ## [0.4.3] - 2026-10-22
 
 Beta release. Run it alongside your existing backups, not as your only one, until

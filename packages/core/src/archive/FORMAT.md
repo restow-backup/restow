@@ -79,9 +79,22 @@ documentation):
   "source": "journal",
   "legalHold": false,
   "retentionUntil": "2036-01-01T00:00:00.000Z",
-  "createdAt": "2026-03-01T10:15:03.000Z"
+  "createdAt": "2026-03-01T10:15:03.000Z",
+  "bodyHash": "<sha-256 hex of the normalized body; from 0.4.4, absent before>",
+  "supersedesItemId": "<id of the weaker item of the same mail; only when there is one>"
 }
 ```
+
+`source` is one of `journal`, `smtp_forward` (a plain copy a mail provider
+forwarded to an archive address at transport, 0.4.4), `graph_sync`, `imap_sync`
+and `file_import`. Readers never validate it: a value a later version writes is
+shown as it is. `flags` holds the journal parser's flags and, from 0.4.4,
+`captured-late` (taken over by the one-time backfill of a mailbox way, received
+before live capture of the mailbox began) and `message-id-conflict` (the archive
+already held another mail with the same Message-ID but a different body).
+`bodyHash` and `supersedesItemId` are written only when set, so a record from
+before 0.4.4 serializes and reads exactly as it did; a reader that does not know
+them ignores them.
 
 `chunks` is ordered; concatenating the chunks it names, in that order,
 reproduces the original message byte-for-byte (`reader.ts`,
@@ -146,11 +159,43 @@ elapsed — the sealed item record would still look intact, but
 longer rebuild the original from it. References are released only by the
 retention deletion run (ARCHIVE-JOURNAL), never by the writer itself.
 
+## One mail, several captures (0.4.4)
+
+Every writer appends through `append.ts` (`captureArchiveItem`). A capture is the
+same mail as an archived item when the normalized Message-ID
+(`lower(btrim(message_id, '<> '))`, `identity.ts` `messageKey`) matches and
+either the exact bytes (`itemHash`) or the body (`bodyHash`: the bytes after the
+first empty line, CRLF line ends, trailing spaces and tabs of every line and
+trailing empty lines removed) match; without a Message-ID only the exact bytes
+count. Ways rank `journal` = `smtp_forward` (at transport) above `graph_sync` =
+`imap_sync` (from the mailbox) above `file_import`.
+
+- A capture that is not stronger than the strongest item it matches becomes no
+  item: Postgres records it as a row of `archive_item_captures` (the item, the
+  way, the mailbox, the bytes' hash, where it was found, when). These rows are
+  evidence next to the chain, not part of it, and there is no storage object for
+  them; the capture's bytes are never referenced (scrub GC reclaims them).
+- A stronger capture becomes a new item whose record names the weaker one in
+  `supersedesItemId`. The weaker item stays untouched; search hides superseded
+  items by default.
+- The same Message-ID with another body is a different mail: both are kept and
+  the newer one carries `message-id-conflict`.
+
+The journal receiver and the file import keep every report and message as an
+item of their own (policy `keep`), as before 0.4.4; a journal report that
+arrives after a mailbox capture of the same mail still names it in
+`supersedesItemId`.
+
 ## The hash chain
 
 `chainHash = SHA-256(prevChainHash || itemHash || receivedAt.toISOString())`
 (`chain.ts`, `computeArchiveChainHash`), one chain per tenant, entries in
-append order. `verifyChain` walks a chain and recomputes every entry's hash
+append order. Append order is (`createdAt`, `id`) order: under the tenant's chain
+lock a writer takes the last item in that order as its predecessor and gives its
+own item a `createdAt` strictly after it (`append.ts`), whatever the clocks of
+the writing processes say, so the chain cannot fork. The original bytes are
+uploaded before the lock is taken; only linking, sealing the record and the
+catalog row happen under it. `verifyChain` walks a chain and recomputes every entry's hash
 from its predecessor; a tampered `itemHash`, a deleted entry or two swapped
 entries all show up the same way — a mismatch at the first position they
 affect — because each of those changes the predecessor a later entry's
@@ -181,7 +226,7 @@ hold always wins, regardless of how far past its retention date an item is.
 
 ## What is deliberately not here
 
-- **Which mailbox an item belongs to, and multi-mailbox dedup bookkeeping**
+- **Which mailbox an item belongs to, its further captures, and multi-mailbox dedup bookkeeping**
   (docs/ARCHIVE.md: the same mail journaled to two mailboxes is one original,
   several associations) is catalog/Postgres bookkeeping, not part of this
   storage-independent core. The chunk-level dedup this format gets for free
@@ -190,6 +235,6 @@ hold always wins, regardless of how far past its retention date an item is.
 - **The Postgres `ArchiveCatalog` implementation**, `archive_anchor`
   persistence, and wiring the SMTP receiver to call `writeArchiveItem` land
   with ARCHIVE-JOURNAL.
-- **IMAP archiving's own capture path** reuses this same writer and format
-  (a `source` of `"imap_sync"`, no `envelope`); building that sync loop is a
-  separate item.
+- **The mailbox capture ways** (Graph and IMAP, apps/worker/src/archive-capture)
+  reuse this same append and format (`source` `graph_sync` or `imap_sync`, the
+  envelope taken from the mail's own headers).

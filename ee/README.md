@@ -79,6 +79,7 @@ installation without a key runs as Community.
 | License key management and the edition | all editions of the full build | `licensing`, `api/src/license`, `web/src/license` | session routes, feature gate, session fields, provider route rules, web slots and nav locks |
 | Legal holds | `archive.legalHold` (Business) | `api/src/legal-holds`, `web/src/legal-holds` | session routes (guarded), `archive.sections` slot |
 | SMTP journal receiver, its per-tenant setup page (address, status, rotation, Exchange Online guide) and its installation page (Installation → Journal receiving: listening or not and why, port, TLS, host, size limit) | `archive.journalReceiver` (Business) | `api/src/journal`, `web/src/journal` | background service, session routes (guarded), `archive.sections` slot, `installationSections` |
+| Archive capture from the mailbox by Microsoft Graph and IMAP (the core's capture service in `apps/worker/src/archive-capture` and its routes under `/archive/capture`, open only with the capability) | `archive.mailboxCapture` (Business) | `api/src/license/gate.ts`, `worker/src/index.ts` | feature gate `archive.mailboxCapture` (API and worker) |
 | Archive deletion runs | `archive.retentionEnforcement` (Business) | `worker/src/archive-retention` | retention tasks |
 | Audit log viewer (search, details, chain verification) | `audit.log` (Business) | `api/src/audit-log`, `web/src/audit-log` | session routes (guarded), routes and a locked nav entry |
 | Microsoft (Entra ID) sign-in for end users | `auth.microsoftSso` (Business) | `api/src/sso` | better-auth plugin, auth route guard, sign-in provider |
@@ -99,7 +100,8 @@ API (`apps/api/src/extensions.ts`, `ApiExtension`):
 - `featureGate`: decides the core functions that exist only when an extension
   enables them (`apps/api/src/lib/features.ts`, `GATED_FEATURES`:
   `tenants.additional`, `apiKeys.provider`, `stats.allTenants`,
-  `dashboard.allTenants`, `reports.timed`, `providerTeam.tenantScope`). With no
+  `dashboard.allTenants`, `reports.timed`, `providerTeam.tenantScope`,
+  `archive.mailboxCapture`, `archive.smtpCapture`). With no
   gate registered all are
   off and the core answers 403 `urn:restow:problem:feature-unavailable`.
   `ee/` maps each to a capability (`FEATURE_CAPABILITIES`) and answers 403
@@ -116,7 +118,11 @@ API (`apps/api/src/extensions.ts`, `ApiExtension`):
 
 Worker (`apps/worker/src/extensions.ts`): `retentionTasks`, `handlers`. Each
 task decides itself whether it runs (`installationHasCapability` from
-`ee/licensing`).
+`ee/licensing`). `features`: the gate of the core's gated worker work
+(`WORKER_GATED_FEATURES`: `archive.mailboxCapture`, `archive.smtpCapture`, the
+same names as the API's); `ee/worker` maps them to `archive.mailboxCapture` and
+`archive.journalReceiver` (`WORKER_FEATURE_CAPABILITIES`). Without a gate the
+capture service idles.
 
 Web (`apps/web/src/lib/extensions.tsx`, `WebExtension`):
 

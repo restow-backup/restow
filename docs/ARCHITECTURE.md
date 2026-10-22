@@ -1038,7 +1038,9 @@ Oberfläche.
 
 Worker (`apps/worker/src/extensions.ts`): `retentionTasks`, `handlers`; jede Aufgabe prüft
 selbst, ob sie laufen darf (Archiv-Löschlauf: `ee/licensing`, Capability
-`archive.retentionEnforcement`).
+`archive.retentionEnforcement`). `features` ist die Schranke der Kernarbeit, die nur mit einer
+Erweiterung läuft (`archive.mailboxCapture`: der Archiv-Erfassungsdienst,
+`apps/worker/src/archive-capture`; `archive.smtpCapture`); ohne Schranke ist sie aus.
 
 `ee/licensing` ist der gemeinsame Teil von `ee/api` und `ee/worker`: Editionen,
 Capability-Tabelle, Offline-Prüfung Ed25519-signierter Schlüssel gegen den eingebetteten
