@@ -11,6 +11,7 @@ import { loadShareCounts, type ShareProtection } from "../file-shares/protection
 import { listJobsQuerySchema } from "../jobs/schemas.js";
 import { listJobs } from "../jobs/service.js";
 import { type GuestProtection, loadGuestCounts } from "../pve/protection.js";
+import type { SystemDiskDeps } from "../storage/system-disk.js";
 import {
   countTenantMailboxes,
   loadTenantUsage,
@@ -30,6 +31,7 @@ import {
   type ProviderViewDto,
   type RecentJobDto,
   type RecentJobsWidget,
+  type SystemDiskWarningDto,
   TENANT_WIDGET_IDS,
   type TenantWidgetId,
   type TenantWidgetsDto,
@@ -58,6 +60,7 @@ import { summarizeRetention } from "./retention.js";
 import type { DashboardQuery } from "./schemas.js";
 import { dayKeys, fillDays } from "./series.js";
 import { buildSetupChecklist, type SetupFacts } from "./setup.js";
+import { loadSystemDiskWarning } from "./system-disk.js";
 import "./hooks.js";
 import type { SettledSource } from "./hooks.js";
 
@@ -94,6 +97,8 @@ export interface DashboardDeps {
   installationDefault?: () => Promise<InstallationDefaultStorage | null>;
   /** Free space of the filesystem a local repository is on (statfs); omitted, `statfsSpace`. */
   filesystemSpace?: FilesystemSpaceReader;
+  /** How the server's system disk is recognised (tests); the api container's view otherwise. */
+  systemDisk?: SystemDiskDeps;
   now: () => Date;
 }
 
@@ -309,6 +314,8 @@ interface Sources {
   storageHistory: Settled<StorageHistory>;
   /** The free space of the repository, where known; a failure to read it only leaves it out. */
   capacity: Settled<StorageCapacity | null>;
+  /** The primary on the system disk; a failure to read it only leaves the warning out. */
+  systemDisk: Settled<SystemDiskWarningDto | null>;
   jobs: Settled<RecentJobsWidget>;
   mailboxes: Settled<MailboxUsageWidget>;
   endpoints: Settled<EndpointsWidget>;
@@ -429,6 +436,7 @@ function buildWidgets(
           repositoryBytes: value(facts).repositoryBytes,
           target: value(facts).storage,
           immutability: value(facts).immutability,
+          systemDisk: sources.systemDisk.ok ? sources.systemDisk.value : null,
         }));
         break;
       case "mailboxUsage":
@@ -552,6 +560,7 @@ export async function loadDashboard(
     trends,
     storageHistory,
     capacity,
+    systemDisk,
     jobs,
     mailboxes,
     endpoints,
@@ -585,6 +594,16 @@ export async function loadDashboard(
       loadStorageHistory(deps.db, tenantId, now, storageDays),
     ),
     load("storage-capacity", needs("storageGrowth"), () => loadStorageCapacity(deps, tenantId)),
+    load("system-disk", needs("storage"), async () =>
+      loadSystemDiskWarning({
+        facts: await loadStorageCapacityFacts(deps.db, tenantId),
+        installationDefault: await defaultLocation(deps),
+        providerDb: deps.providerDb,
+        isProviderAdmin: viewer.isProviderAdmin,
+        now,
+        systemDisk: deps.systemDisk,
+      }),
+    ),
     load("jobs", needs("recentJobs"), () => loadRecentJobs(deps.db, tenantId, now)),
     load("mailboxes", needs("mailboxUsage"), () => loadMailboxUsage(deps, viewer, readUsage)),
     // Its own source: a failing endpoint query fails this card only.
@@ -630,6 +649,7 @@ export async function loadDashboard(
         trends,
         storageHistory,
         capacity,
+        systemDisk,
         jobs,
         mailboxes,
         endpoints,

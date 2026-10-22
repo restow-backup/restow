@@ -188,8 +188,13 @@ export type DiskAlertEntry = {
   /** Free and total bytes at the last check. */
   freeBytes?: number;
   totalBytes?: number;
+  /**
+   * The free space at most once an hour over the last two weeks, oldest first (the system disk
+   * only, release 0.4.5): the trend the dashboard shows next to a repository on that disk.
+   */
+  samples?: { at: string; freeBytes: number }[];
 };
-export type DiskAlertState = Partial<Record<"database" | "repository", DiskAlertEntry>>;
+export type DiskAlertState = Partial<Record<"database" | "repository" | "system", DiskAlertEntry>>;
 
 /**
  * Single-row installation configuration written by the setup wizard in one

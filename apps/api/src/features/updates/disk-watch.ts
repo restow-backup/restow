@@ -1,6 +1,6 @@
 import { type Database, type DiskAlertEntry, type DiskAlertState, settings } from "@restow/db";
 import { eq, sql } from "drizzle-orm";
-import type { DatabaseService, DiskKind, DiskStatus } from "./database.js";
+import { type DatabaseService, type DiskKind, type DiskStatus, diskStatus } from "./database.js";
 import { raiseInstallationEvent } from "./notify.js";
 
 /**
@@ -11,6 +11,10 @@ import { raiseInstallationEvent } from "./notify.js";
  *               can see it; without the updater it is not watched)
  *   repository  the file system under the installation's local default repository
  *               (STORAGE_LOCAL_PATH or the saved local default)
+ *   system      the disk under the operating system and Docker's data directory, read as `/`
+ *               from inside the api container (0.4.5; storage/system-disk.ts). Its free space
+ *               is also kept once an hour for two weeks (`samples`): the trend the dashboard
+ *               shows next to a repository on that disk.
  *
  * A disk is low below a tenth of its size, and always below 5 GiB (a quarter of a disk
  * smaller than 20 GiB). When a disk becomes low, the warning goes out once: a
@@ -26,10 +30,15 @@ export const DISK_WATCH_INTERVAL_MS = 15 * 60_000;
 const FIRST_CHECK_MS = 90_000;
 /** A low disk counts as recovered only this far above its threshold. */
 export const DISK_RECOVERED_FACTOR = 1.2;
+/** The system disk's free space is kept this often, this long. */
+export const SAMPLE_EVERY_MS = 55 * 60_000;
+export const SAMPLES_KEPT_MS = 14 * 24 * 60 * 60_000;
 
 export interface DiskWatchDeps {
   db: Database;
   service: Pick<DatabaseService, "disks">;
+  /** The system disk (`/`); omitted, it is not watched. */
+  systemDisk?: () => Promise<{ freeBytes: number; totalBytes: number } | null>;
   now?: () => Date;
   log?: (level: "info" | "warn" | "error", message: string, fields?: object) => void;
 }
@@ -45,7 +54,14 @@ export class DiskWatch {
 
   /** One check of both disks; raises what became low. */
   async checkOnce(): Promise<DiskWatchOutcome> {
-    const disks = await this.deps.service.disks();
+    const [watched, system] = await Promise.all([
+      this.deps.service.disks(),
+      this.deps.systemDisk ? this.deps.systemDisk().catch(() => null) : Promise.resolve(null),
+    ]);
+    const disks: Record<DiskKind, DiskStatus | null> = {
+      ...watched,
+      system: system ? diskStatus("system", "/", system.freeBytes, system.totalBytes) : null,
+    };
     const now = this.now();
     return this.deps.db.transaction(async (tx) => {
       const [row] = await tx
@@ -53,25 +69,32 @@ export class DiskWatch {
         .from(settings)
         .limit(1)
         .for("update");
-      const outcome: DiskWatchOutcome = { database: "unknown", repository: "unknown" };
+      const outcome: DiskWatchOutcome = {
+        database: "unknown",
+        repository: "unknown",
+        system: "unknown",
+      };
       if (!row) {
         return outcome;
       }
       const next: DiskAlertState = { ...(row.alerts ?? {}) };
-      for (const kind of ["database", "repository"] as const) {
+      for (const kind of ["database", "repository", "system"] as const) {
         const status = disks[kind];
         if (!status) {
           continue;
         }
         const previous = next[kind];
         const decided = decide(previous, status, now);
-        next[kind] = decided.entry;
+        next[kind] =
+          kind === "system"
+            ? { ...decided.entry, samples: withSample(previous?.samples, status, now) }
+            : decided.entry;
         outcome[kind] = decided.outcome;
         if (decided.outcome === "raised") {
           await raiseInstallationEvent(tx, {
             event: DISK_LOW_EVENT,
             level: "warning",
-            message: `Low disk space under the ${kind === "database" ? "database" : "local repository"}: ${formatGib(status.freeBytes)} of ${formatGib(status.totalBytes)} free.`,
+            message: `Low disk space ${DISK_PLACES[kind]}: ${formatGib(status.freeBytes)} of ${formatGib(status.totalBytes)} free.`,
             details: {
               disk: kind,
               location: status.location,
@@ -131,6 +154,28 @@ export class DiskWatch {
       },
     };
   }
+}
+
+const DISK_PLACES: Record<DiskKind, string> = {
+  database: "under the database",
+  repository: "under the local repository",
+  system: "on the system disk of the server",
+};
+
+/** The samples with this check's free space, at most one per {@link SAMPLE_EVERY_MS}. */
+export function withSample(
+  samples: readonly { at: string; freeBytes: number }[] | undefined,
+  status: Pick<DiskStatus, "freeBytes">,
+  now: Date,
+): { at: string; freeBytes: number }[] {
+  const kept = (samples ?? []).filter(
+    (sample) => now.getTime() - Date.parse(sample.at) < SAMPLES_KEPT_MS,
+  );
+  const last = kept.at(-1);
+  if (last && now.getTime() - Date.parse(last.at) < SAMPLE_EVERY_MS) {
+    return kept;
+  }
+  return [...kept, { at: now.toISOString(), freeBytes: status.freeBytes }];
 }
 
 /** The next state of one disk, and what happened. */

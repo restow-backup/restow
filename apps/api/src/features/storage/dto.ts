@@ -76,6 +76,11 @@ export interface StorageTargetDto {
   migration: StorageMigrationDto | null;
   /** Immutable backups on this repository (docs/STORAGE.md). */
   immutability: ImmutabilityDto;
+  /**
+   * A directory on the server's system disk (system-disk.ts): backups that fill it stop the
+   * server. Filled in by the list of targets; false elsewhere.
+   */
+  onSystemDisk: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -197,6 +202,8 @@ export interface InstallationDefaultDto {
   copyLocation: string | null;
   /** The environment's storage settings are invalid. */
   misconfigured: boolean;
+  /** A directory on the server's system disk (system-disk.ts). */
+  onSystemDisk: boolean;
 }
 
 export interface StorageTargetListDto {
@@ -284,6 +291,7 @@ export function toTargetDto(
     canManage: canManageKind(row.kind, viewer.isProviderAdmin),
     migration,
     immutability: toImmutabilityDto(row, deferredDeletions, viewer),
+    onSystemDisk: false,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -314,6 +322,7 @@ export function toInstallationDefaultDto(
       hasCopy: false,
       copyLocation: null,
       misconfigured: true,
+      onSystemDisk: false,
     };
   }
   return {
@@ -324,5 +333,6 @@ export function toInstallationDefaultDto(
     copyLocation:
       viewer.isProviderAdmin && defaults.copy ? describeStorageLocation(defaults.copy) : null,
     misconfigured: false,
+    onSystemDisk: false,
   };
 }
