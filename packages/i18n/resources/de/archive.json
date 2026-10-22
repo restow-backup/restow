@@ -362,7 +362,9 @@
           "subscription_failed": "Microsoft hat das Abonnement der Benachrichtigungen abgelehnt."
         },
         "imap": {
-          "idle_unsupported": "Der Mailserver unterstützt IDLE nicht."
+          "idle_unsupported": "Der Mailserver unterstützt IDLE nicht.",
+          "idle_disabled": "IDLE ist für diese IMAP-Quelle ausgeschaltet.",
+          "idle_budget": "Dieser Worker überwacht bereits so viele Konten mit IDLE, wie er darf."
         }
       }
     },
@@ -409,7 +411,7 @@
       "statusUnknown": "Hold nicht bestätigt",
       "confirmedBy": "von {by},",
       "why": "{count, plural, one {# Postfach wird} other {# Postfächer werden}} über Graph erfasst. Ohne Hold können E-Mails fehlen, die gleich nach der Zustellung gelöscht werden.",
-      "commands": "Exchange Online PowerShell: Aufbewahrungsrichtlinien und Holds anzeigen",
+      "commands": "Befehle zur Prüfung der Holds",
       "confirm": "Hold bestätigen",
       "confirmTitle": "Hold für {source} bestätigen?",
       "confirmDescription": "Sie bestätigen, dass eine Aufbewahrungsrichtlinie oder ein Litigation Hold gelöschte E-Mails der archivierten Postfächer in diesem Mandanten hält. Die Bestätigung steht mit Ihrem Namen im Audit-Log.",
@@ -417,7 +419,19 @@
       "withdraw": "Bestätigung zurücknehmen",
       "withdrawTitle": "Bestätigung für {source} zurücknehmen?",
       "withdrawDescription": "Die Archiv-Seite zeigt dann wieder, dass kein Hold bestätigt ist. Die Rücknahme steht im Audit-Log.",
-      "withdrawn": "Bestätigung zurückgenommen."
+      "withdrawn": "Bestätigung zurückgenommen.",
+      "commandsIntro": "Befehle, die nur lesen, für Exchange Online PowerShell und Security & Compliance PowerShell. Sie ändern nichts; führen Sie sie als Administrator des Microsoft-365-Mandanten aus."
+    },
+    "holds": {
+      "checks": {
+        "connect_exchange": "Bei Exchange Online PowerShell anmelden",
+        "litigation_hold": "Litigation Hold und In-Place Holds jedes Postfachs",
+        "mailboxes_without_hold": "Postfächer ohne jeden Hold",
+        "organization_holds": "Aufbewahrungsrichtlinien für die ganze Organisation",
+        "connect_compliance": "Bei Security & Compliance PowerShell anmelden",
+        "retention_policies": "Aufbewahrungsrichtlinien für Exchange mit den Postfächern, die sie einschließen und ausnehmen",
+        "retention_rules": "Was jede Aufbewahrungsrichtlinie aufbewahrt und wie lange"
+      }
     }
   },
   "forwarding": {
@@ -430,7 +444,7 @@
     "address": "Archivadresse",
     "status": "Status",
     "lastCopy": "Letzte Kopie",
-    "googleAccount": "Google Workspace",
+    "googleAccount": "Google Workspace · {source}",
     "googleUsesTenant": "Routing-Regel an die Journal-Adresse des Mandanten (Reiter Google Workspace)",
     "copyFor": "Archivadresse von {account} kopieren",
     "create": "Adresse anlegen",
@@ -485,7 +499,9 @@
           "save": "Speichern Sie die Regel. Änderungen können bis zu einer Stunde dauern."
         },
         "address": "Journal-Adresse des Mandanten",
-        "noAddress": "Die Journal-Adresse lässt sich nicht anzeigen: Es ist kein gültiger Journal-Host eingerichtet."
+        "noAddress": "Die Journal-Adresse des Mandanten entsteht im Abschnitt Exchange-Journaling oben (dafür ist ein gültiger Journal-Host nötig). Öffnen Sie den Abschnitt einmal, dann erscheint die Adresse hier.",
+        "activity": "Kopien an diese Adresse: {day} in 24 Stunden, {week} in 7 Tagen.",
+        "noCopies": "An diese Adresse ist in den letzten 7 Tagen keine Kopie angekommen."
       }
     }
   }

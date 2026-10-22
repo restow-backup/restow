@@ -4,6 +4,7 @@ import { useSession } from "@/lib/session";
 
 import {
   type ArchiveHold,
+  type ArchiveHolds,
   type ArchiveSearchParams,
   archiveKeys,
   type CaptureMailboxQuery,
@@ -142,9 +143,10 @@ export function useSetArchiveHold() {
     mutationFn: ({ sourceId, status }: { sourceId: string; status: ArchiveHold["status"] }) =>
       setArchiveHold(sourceId, status),
     onSuccess: (hold) => {
-      queryClient.setQueryData<{ items: ArchiveHold[] }>(archiveKeys.holds(tenantId), (current) =>
+      queryClient.setQueryData<ArchiveHolds>(archiveKeys.holds(tenantId), (current) =>
         current
           ? {
+              ...current,
               items: current.items.map((item) => (item.sourceId === hold.sourceId ? hold : item)),
             }
           : current,

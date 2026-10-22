@@ -43,12 +43,15 @@ function account(over: Partial<ForwardingAccount>): ForwardingAccount {
     objectId: "po-info",
     displayName: null,
     login: "info@hoster.example",
+    sourceId: "src-hoster",
+    sourceName: "Hoster IMAP",
     captureKind: "imap",
+    forwardWanted: true,
     address: "archive+aaaa@archive.example.test",
+    localPart: "archive+aaaa",
     addressCreatedAt: "2026-10-01T00:00:00.000Z",
-    lastCopyAt: "2026-10-22T09:00:00.000Z",
-    counts: { last24Hours: 5, last7Days: 30 },
     status: "receiving",
+    activity: { lastCopyAt: "2026-10-22T09:00:00.000Z", last24Hours: 5, last7Days: 30 },
     ...over,
   };
 }
@@ -57,16 +60,19 @@ const OVERVIEW: ForwardingOverview = {
   hostname: "archive.example.test",
   hostnameIssue: null,
   receiver: { listening: true, reason: null },
-  items: [
+  tenantAddress: "journal+tttt@archive.example.test",
+  tenantActivity: { lastCopyAt: "2026-10-22T08:00:00.000Z", last24Hours: 3, last7Days: 12 },
+  docsUrl: null,
+  accounts: [
     account({}),
     account({
       objectId: "po-sales",
       login: "sales@hoster.example",
       address: null,
+      localPart: null,
       addressCreatedAt: null,
-      lastCopyAt: null,
-      counts: { last24Hours: 0, last7Days: 0 },
       status: "no_address",
+      activity: { lastCopyAt: null, last24Hours: 0, last7Days: 0 },
     }),
     account({
       objectId: "po-team",
@@ -136,24 +142,20 @@ describe("ForwardingSection", () => {
   beforeEach(() => {
     edition = "business";
     apiFetch.mockImplementation((path: string, init?: { method?: string }) => {
-      if (path === "/archive/forwarding") return Promise.resolve(OVERVIEW);
+      if (path === "/archive/forwarding?wanted=true") return Promise.resolve(OVERVIEW);
       if (path === "/archive/forwarding/po-sales/address" && init?.method === "POST") {
         return Promise.resolve(
           account({
             objectId: "po-sales",
             login: "sales@hoster.example",
             address: "archive+bbbb@archive.example.test",
-            lastCopyAt: null,
-            counts: { last24Hours: 0, last7Days: 0 },
             status: "no_copies",
+            activity: { lastCopyAt: null, last24Hours: 0, last7Days: 0 },
           }),
         );
       }
       if (path === "/archive/forwarding/po-info/rotate" && init?.method === "POST") {
         return Promise.resolve(account({ address: "archive+cccc@archive.example.test" }));
-      }
-      if (path === "/archive/journal") {
-        return Promise.resolve({ address: "journal+tttt@archive.example.test" });
       }
       return Promise.reject(new Error(`unexpected request ${path}`));
     });
@@ -174,9 +176,8 @@ describe("ForwardingSection", () => {
     expect(info?.textContent).toContain("5 in 24 hours, 30 in 7 days");
     expect(sales?.textContent).toContain("No address yet");
     expect(team?.textContent).toContain("Routing rule to the tenant's journal address");
+    expect(team?.textContent).toContain("Google Workspace · Hoster IMAP");
     expect(team?.textContent).toContain("No copy for over 24 hours");
-    // Nothing asked for the tenant's journal address yet.
-    expect(apiFetch.mock.calls.some(([path]) => path === "/archive/journal")).toBe(false);
   });
 
   it("issues an account's address on request", async () => {
@@ -241,13 +242,26 @@ describe("ForwardingSection", () => {
     );
   });
 
-  it("asks for the tenant's journal address once the Google Workspace tab is opened", async () => {
+  it("routes Google Workspace to the tenant's journal address without issuing one", async () => {
     await mount();
     await openTab("Google Workspace");
-    expect(apiFetch.mock.calls.some(([path]) => path === "/archive/journal")).toBe(true);
     expect(slot("forwarding-google")?.querySelector("pre")?.textContent).toBe(
       "journal+tttt@archive.example.test",
     );
+    expect(slot("forwarding-tenant-activity")?.textContent).toBe(
+      "Copies at this address: 3 in 24 hours, 12 in 7 days.",
+    );
+    expect(apiFetch.mock.calls.some(([path]) => String(path).startsWith("/archive/journal"))).toBe(
+      false,
+    );
+  });
+
+  it("says where the tenant's address comes from while there is none", async () => {
+    const without = { ...OVERVIEW, tenantAddress: null };
+    apiFetch.mockImplementation(() => Promise.resolve(without));
+    await mount();
+    await openTab("Google Workspace");
+    expect(slot("forwarding-google")?.textContent).toContain("section Exchange journaling");
   });
 
   it("shows nothing below Business", async () => {

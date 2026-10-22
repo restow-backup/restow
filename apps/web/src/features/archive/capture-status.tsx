@@ -1,4 +1,4 @@
-import { Inbox, Lock, RefreshCw, ShieldQuestion, TriangleAlert } from "lucide-react";
+import { ChevronDown, Inbox, Lock, RefreshCw, ShieldQuestion, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -6,6 +6,7 @@ import { ConfirmDialog, RelativeTime, StatusBadge, type StatusTone } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -25,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CauseLine } from "@/features/failures";
+import { CauseLine, useCauseTitle } from "@/features/failures";
 import { errorMessageKey } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
 import { useSession } from "@/lib/session";
@@ -34,7 +35,6 @@ import {
   type ArchiveHold,
   type CaptureMailbox,
   type CaptureMailboxQuery,
-  DEFAULT_HOLD_CHECK_COMMANDS,
   type MailboxWay,
   type MailboxWayStatus,
   STREAM_STATUSES,
@@ -124,6 +124,7 @@ export function CaptureStatusSection() {
 
 function WayCard({ status }: { status: MailboxWayStatus }) {
   const { t, i18n } = useTranslation("archive");
+  const causeTitle = useCauseTitle();
   const language = i18n.resolvedLanguage ?? i18n.language;
   const number = (value: number) => formatInteger(value, language);
   const active = STREAM_STATUSES.filter(
@@ -178,9 +179,11 @@ function WayCard({ status }: { status: MailboxWayStatus }) {
             <li key={code}>
               {t("capture.pollReason.line", {
                 count,
-                reason: i18n.exists(`archive:capture.pollReason.codes.${code}`)
-                  ? t(`capture.pollReason.codes.${code}`)
-                  : code,
+                reason: i18n.exists(`failures:cause.${code}.title`)
+                  ? causeTitle(code)
+                  : i18n.exists(`archive:capture.pollReason.codes.${code}`)
+                    ? t(`capture.pollReason.codes.${code}`)
+                    : code,
               })}
             </li>
           ))}
@@ -445,14 +448,16 @@ function CaptureMailboxes() {
  * commands shown (Restow cannot read it from Graph). Shown for sources Graph captures from.
  */
 function HoldsCard() {
-  const { t } = useTranslation("archive");
+  const { t, i18n } = useTranslation("archive");
   const holds = useArchiveHolds();
   const items = (holds.data?.items ?? []).filter(
     (hold) => hold.graphMailboxes > 0 || hold.status === "confirmed",
   );
+  const checks = holds.data?.checks ?? [];
   if (items.length === 0) {
     return null;
   }
+  const open = items.some((hold) => hold.status !== "confirmed");
   return (
     <div className="space-y-3 rounded-md border p-3" data-slot="capture-holds">
       <div className="space-y-0.5">
@@ -467,6 +472,34 @@ function HoldsCard() {
           <HoldRow key={hold.sourceId} hold={hold} />
         ))}
       </ul>
+      {checks.length > 0 ? (
+        <Collapsible defaultOpen={open} className="space-y-2" data-slot="capture-hold-checks">
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="group -ml-2">
+              <ChevronDown
+                aria-hidden="true"
+                className="transition-transform group-data-[state=closed]:-rotate-90"
+              />
+              {t("capture.hold.commands")}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-3">
+            <p className="text-muted-foreground text-xs">{t("capture.hold.commandsIntro")}</p>
+            {checks.map((check) => (
+              <CommandBlock
+                key={check.id}
+                id={`hold-check-${check.id}`}
+                label={
+                  i18n.exists(`archive:capture.holds.checks.${check.id}`)
+                    ? t(`capture.holds.checks.${check.id}`)
+                    : check.id
+                }
+                value={check.command}
+              />
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
+      ) : null}
     </div>
   );
 }
@@ -475,11 +508,6 @@ function HoldRow({ hold }: { hold: ArchiveHold }) {
   const { t } = useTranslation("archive");
   const setHold = useSetArchiveHold();
   const confirmed = hold.status === "confirmed";
-  const commands = (
-    hold.checkCommands && hold.checkCommands.length > 0
-      ? hold.checkCommands
-      : DEFAULT_HOLD_CHECK_COMMANDS
-  ).join("\n");
   const change = (status: ArchiveHold["status"]) =>
     setHold.mutateAsync({ sourceId: hold.sourceId, status }).then(() => {
       toast.success(
@@ -505,14 +533,6 @@ function HoldRow({ hold }: { hold: ArchiveHold }) {
         <p className="text-muted-foreground text-xs">
           {t("capture.hold.why", { count: hold.graphMailboxes })}
         </p>
-      )}
-      {/* Once confirmed, the commands are not needed on the page any more. */}
-      {confirmed ? null : (
-        <CommandBlock
-          id={`hold-commands-${hold.sourceId}`}
-          label={t("capture.hold.commands")}
-          value={commands}
-        />
       )}
       {confirmed ? (
         <ConfirmDialog

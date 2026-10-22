@@ -267,13 +267,7 @@ export interface CaptureMailboxQuery {
   limit?: number;
 }
 
-/**
- * The hold confirmation of a Microsoft 365 source (GET /archive/capture/holds).
- *
- * `checkCommands` is the contract assumed from workstream B (Graph capture, 0.4.4): the
- * Exchange Online PowerShell commands that show whether a hold keeps deleted mail. Until the
- * API sends them, the page uses {@link DEFAULT_HOLD_CHECK_COMMANDS}.
- */
+/** The hold confirmation of a Microsoft 365 source (GET /archive/capture/holds). */
 export interface ArchiveHold {
   sourceId: string;
   name: string;
@@ -282,18 +276,23 @@ export interface ArchiveHold {
   confirmedAt: string | null;
   /** Mailboxes of the source captured by Graph. */
   graphMailboxes: number;
-  /** ASSUMED (workstream B): the check commands for this source; absent until the API sends them. */
-  checkCommands?: string[];
 }
 
-/** The read-only commands that show retention policies and holds (Exchange Online PowerShell). */
-export const DEFAULT_HOLD_CHECK_COMMANDS: readonly string[] = [
-  "Connect-ExchangeOnline",
-  "Get-OrganizationConfig | Format-List InPlaceHolds",
-  "Get-Mailbox -ResultSize Unlimited | Where-Object { $_.LitigationHoldEnabled -or $_.InPlaceHolds } | Format-Table DisplayName, LitigationHoldEnabled, InPlaceHolds",
-  "Connect-IPPSSession",
-  "Get-RetentionCompliancePolicy -DistributionDetail | Format-List Name, Enabled, Mode, ExchangeLocation",
-];
+/**
+ * A read-only command that checks holds (apps/api archive-capture/hold-checks.ts): where it
+ * runs and what it is. Its text is `archive:capture.holds.checks.<id>`.
+ */
+export interface HoldCheck {
+  id: string;
+  shell: "exchange" | "compliance";
+  command: string;
+}
+
+export interface ArchiveHolds {
+  items: ArchiveHold[];
+  /** The same for every source; absent from a server before 0.4.4. */
+  checks?: HoldCheck[];
+}
 
 function captureQuery(query: CaptureMailboxQuery): string {
   return toQueryString(query as ArchiveSearchParams);
@@ -314,8 +313,8 @@ export function requestCaptureResync(objectId: string): Promise<{ streams: numbe
   );
 }
 
-export function fetchArchiveHolds(): Promise<{ items: ArchiveHold[] }> {
-  return apiFetch<{ items: ArchiveHold[] }>("/archive/capture/holds");
+export function fetchArchiveHolds(): Promise<ArchiveHolds> {
+  return apiFetch<ArchiveHolds>("/archive/capture/holds");
 }
 
 export function setArchiveHold(

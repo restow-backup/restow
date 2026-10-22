@@ -362,7 +362,9 @@
           "subscription_failed": "Microsoft refused the subscription for notifications."
         },
         "imap": {
-          "idle_unsupported": "The mail server does not support IDLE."
+          "idle_unsupported": "The mail server does not support IDLE.",
+          "idle_disabled": "IDLE is switched off for this IMAP source.",
+          "idle_budget": "This worker already watches as many accounts with IDLE as it may."
         }
       }
     },
@@ -409,7 +411,7 @@
       "statusUnknown": "Hold not confirmed",
       "confirmedBy": "by {by},",
       "why": "{count, plural, one {# mailbox is} other {# mailboxes are}} captured by Graph. Without a hold, mail deleted right after delivery can be missing.",
-      "commands": "Exchange Online PowerShell: show retention policies and holds",
+      "commands": "Commands that check holds",
       "confirm": "Confirm hold",
       "confirmTitle": "Confirm the hold for {source}?",
       "confirmDescription": "You confirm that a retention policy or litigation hold keeps deleted mail of the archived mailboxes in this tenant. The confirmation is recorded with your name in the audit log.",
@@ -417,7 +419,19 @@
       "withdraw": "Withdraw confirmation",
       "withdrawTitle": "Withdraw the confirmation for {source}?",
       "withdrawDescription": "The archive page then shows again that no hold is confirmed. The withdrawal is recorded in the audit log.",
-      "withdrawn": "Confirmation withdrawn."
+      "withdrawn": "Confirmation withdrawn.",
+      "commandsIntro": "Read-only commands for Exchange Online PowerShell and Security & Compliance PowerShell. They change nothing; run them as an administrator of the Microsoft 365 tenant."
+    },
+    "holds": {
+      "checks": {
+        "connect_exchange": "Sign in to Exchange Online PowerShell",
+        "litigation_hold": "Litigation hold and in-place holds of every mailbox",
+        "mailboxes_without_hold": "Mailboxes without any hold",
+        "organization_holds": "Retention policies that apply to the whole organisation",
+        "connect_compliance": "Sign in to Security & Compliance PowerShell",
+        "retention_policies": "Retention policies for Exchange, with the mailboxes they cover and exclude",
+        "retention_rules": "What each retention policy keeps, and for how long"
+      }
     }
   },
   "forwarding": {
@@ -430,7 +444,7 @@
     "address": "Archive address",
     "status": "Status",
     "lastCopy": "Last copy",
-    "googleAccount": "Google Workspace",
+    "googleAccount": "Google Workspace · {source}",
     "googleUsesTenant": "Routing rule to the tenant's journal address (tab Google Workspace)",
     "copyFor": "Copy the archive address of {account}",
     "create": "Create address",
@@ -485,7 +499,9 @@
           "save": "Save the rule. Changes can take up to an hour."
         },
         "address": "Tenant's journal address",
-        "noAddress": "The journal address cannot be shown: no valid journal host is configured."
+        "noAddress": "The tenant's journal address is created in the section Exchange journaling above (it needs a valid journal host). Open that section once, then the address appears here.",
+        "activity": "Copies at this address: {day} in 24 hours, {week} in 7 days.",
+        "noCopies": "No copy has arrived at this address in the last 7 days."
       }
     }
   }

@@ -22,8 +22,8 @@ import "@/features/archive/i18n";
 import { FORWARDING_SECTION_ANCHOR } from "@/features/archive/paths";
 import { errorMessageKey } from "@/lib/api";
 
-import { useJournalScope, useJournalSetup } from "../journal/hooks";
-import type { ForwardingAccount, ForwardingStatus } from "./api";
+import { useJournalScope } from "../journal/hooks";
+import type { ForwardingAccount, ForwardingOverview, ForwardingStatus } from "./api";
 import { useCreateForwardAddress, useForwarding, useRotateForwardAddress } from "./hooks";
 import {
   type ForwardTarget,
@@ -69,7 +69,7 @@ export function ForwardingSection() {
   if (!enabled || !canManage || !licensed) {
     return null;
   }
-  const accounts = page.data?.items ?? [];
+  const accounts = page.data?.accounts ?? [];
 
   return (
     <section
@@ -140,7 +140,7 @@ export function ForwardingSection() {
               </Button>
             </nav>
           ) : null}
-          <ProviderInstructions accounts={accounts} />
+          <ProviderInstructions overview={page.data} />
         </>
       )}
     </section>
@@ -169,11 +169,11 @@ function AccountsTable({ accounts }: { accounts: readonly ForwardingAccount[] })
               <span className="block truncate font-medium" title={accountLabel(account)}>
                 {accountLabel(account)}
               </span>
-              {account.captureKind === "google" ? (
-                <span className="text-muted-foreground block text-xs">
-                  {t("forwarding.googleAccount")}
-                </span>
-              ) : null}
+              <span className="text-muted-foreground block truncate text-xs">
+                {account.captureKind === "google"
+                  ? t("forwarding.googleAccount", { source: account.sourceName })
+                  : account.sourceName}
+              </span>
             </TableCell>
             <TableCell className="min-w-0">
               {account.captureKind === "google" ? (
@@ -240,18 +240,18 @@ function AccountsTable({ accounts }: { accounts: readonly ForwardingAccount[] })
               >
                 {t(`forwarding.state.${account.status}`)}
               </StatusBadge>
-              {account.counts.last7Days > 0 ? (
+              {account.activity.last7Days > 0 ? (
                 <span className="text-muted-foreground block text-xs tabular-nums">
                   {t("forwarding.counts", {
-                    day: account.counts.last24Hours,
-                    week: account.counts.last7Days,
+                    day: account.activity.last24Hours,
+                    week: account.activity.last7Days,
                   })}
                 </span>
               ) : null}
             </TableCell>
             <TableCell className="whitespace-nowrap text-sm">
-              {account.lastCopyAt ? (
-                <RelativeTime value={account.lastCopyAt} />
+              {account.activity.lastCopyAt ? (
+                <RelativeTime value={account.activity.lastCopyAt} />
               ) : (
                 <span className="text-muted-foreground">{t("capture.never")}</span>
               )}
@@ -264,8 +264,9 @@ function AccountsTable({ accounts }: { accounts: readonly ForwardingAccount[] })
 }
 
 /** How to make the provider send the copies, per kind of mail server. */
-function ProviderInstructions({ accounts }: { accounts: readonly ForwardingAccount[] }) {
+function ProviderInstructions({ overview }: { overview: ForwardingOverview }) {
   const { t } = useTranslation("archive");
+  const accounts = overview.accounts;
   const targets: ForwardTarget[] = accounts.flatMap((account) =>
     account.captureKind !== "google" && account.address
       ? [{ login: account.login, address: account.address }]
@@ -305,7 +306,7 @@ function ProviderInstructions({ accounts }: { accounts: readonly ForwardingAccou
           </TabsContent>
         ))}
         <TabsContent value="google" className="space-y-3 pt-2">
-          <GoogleRouting />
+          <GoogleRouting overview={overview} />
         </TabsContent>
       </Tabs>
     </div>
@@ -368,13 +369,13 @@ function ProviderBlocks({
 /**
  * Google Workspace has no per-account forwarding Restow supports (Gmail's own forwarding
  * needs each user to confirm it); a routing rule in the Admin console adds the tenant's
- * journal address as a further recipient of every mail. The address is fetched only once
- * this tab is opened.
+ * journal address as a further recipient of every mail. The forwarding route never issues
+ * that address: until the journal section did, the tab says where it comes from.
  */
-function GoogleRouting() {
+function GoogleRouting({ overview }: { overview: ForwardingOverview }) {
   const { t } = useTranslation("archive");
-  const setup = useJournalSetup();
-  const address = setup.data?.address ?? null;
+  const address = overview.tenantAddress;
+  const activity = overview.tenantActivity;
   return (
     <div className="space-y-3" data-slot="forwarding-google">
       <p className="text-muted-foreground text-sm">{t("forwarding.setup.google.intro")}</p>
@@ -384,13 +385,21 @@ function GoogleRouting() {
         ))}
       </ol>
       {address ? (
-        <CommandBlock
-          id="forwarding-google-address"
-          label={t("forwarding.setup.google.address")}
-          value={address}
-        />
-      ) : setup.isPending ? (
-        <Skeleton className="h-9 w-full" aria-busy="true" />
+        <>
+          <CommandBlock
+            id="forwarding-google-address"
+            label={t("forwarding.setup.google.address")}
+            value={address}
+          />
+          <p className="text-muted-foreground text-xs" data-slot="forwarding-tenant-activity">
+            {activity.lastCopyAt
+              ? t("forwarding.setup.google.activity", {
+                  day: activity.last24Hours,
+                  week: activity.last7Days,
+                })
+              : t("forwarding.setup.google.noCopies")}
+          </p>
+        </>
       ) : (
         <p className="text-muted-foreground text-xs">{t("forwarding.setup.google.noAddress")}</p>
       )}

@@ -119,6 +119,16 @@ const HOLD: ArchiveHold = {
   graphMailboxes: 4,
 };
 
+const CHECKS = [
+  { id: "connect_exchange", shell: "exchange", command: "Connect-ExchangeOnline" },
+  {
+    id: "retention_policies",
+    shell: "compliance",
+    command: "Get-RetentionCompliancePolicy -DistributionDetail",
+  },
+  { id: "future_check", shell: "exchange", command: "Get-Something" },
+];
+
 const RESULTS = [
   {
     id: "item-forwarded",
@@ -254,7 +264,9 @@ describe("capture on the archive page", () => {
       if (path.startsWith("/archive/capture/mailboxes")) {
         return Promise.resolve({ items: [MAILBOX], nextCursor: null });
       }
-      if (path === "/archive/capture/holds") return Promise.resolve({ items: [HOLD] });
+      if (path === "/archive/capture/holds") {
+        return Promise.resolve({ items: [HOLD], checks: CHECKS });
+      }
       if (path.startsWith("/archive/capture/holds/") && init?.method === "PUT") {
         return Promise.resolve({
           ...HOLD,
@@ -292,7 +304,8 @@ describe("capture on the archive page", () => {
     expect(graph?.textContent).toContain("1 with an error");
     expect(graph?.textContent).not.toContain("switched off");
     expect(graph?.textContent).toContain("Notified by Microsoft: 2, checking at intervals: 1");
-    expect(slot("capture-poll-reasons")?.textContent).toContain("over public HTTPS");
+    // The reason's text comes from the failure catalog where it has one (workstream B's).
+    expect(slot("capture-poll-reasons")?.textContent).toContain("1 mailbox checked at intervals:");
     expect(slot("capture-backfill")?.textContent).toContain("3 of 4 mailboxes");
     expect(graph?.textContent).toContain("Near-time");
     // IMAP archiving is not in this edition: said so, without counts of streams.
@@ -327,9 +340,15 @@ describe("capture on the archive page", () => {
     const hold = slot("capture-hold");
     expect(hold?.textContent).toContain("Hold not confirmed");
     expect(hold?.textContent).toContain("4 mailboxes are captured by Graph");
-    expect(hold?.querySelector("pre")?.textContent).toContain(
+    const checks = slot("capture-hold-checks");
+    expect([...(checks?.querySelectorAll("pre") ?? [])].map((pre) => pre.textContent)).toEqual([
+      "Connect-ExchangeOnline",
       "Get-RetentionCompliancePolicy -DistributionDetail",
-    );
+      "Get-Something",
+    ]);
+    expect(checks?.textContent).toContain("Sign in to Exchange Online PowerShell");
+    // A check this version has no text for is named by its id.
+    expect(checks?.textContent).toContain("future_check");
     await click(byText(hold as HTMLElement, "Confirm hold"));
     const dialog = document.querySelector('[role="alertdialog"]') as HTMLElement;
     expect(dialog?.textContent).toContain("Confirm the hold for Contoso 365?");
@@ -343,18 +362,16 @@ describe("capture on the archive page", () => {
     expect(slot("capture-hold")?.textContent).toContain("admin@contoso.example");
   });
 
-  it("uses the check commands the API sends for a source", async () => {
-    const own = { ...HOLD, checkCommands: ["Get-Mailbox -Identity 'x' | Format-List *Hold*"] };
+  it("shows no check commands from a server that sends none", async () => {
     const fallback = apiFetch.getMockImplementation();
     apiFetch.mockImplementation((path: string, init?: unknown) =>
       path === "/archive/capture/holds"
-        ? Promise.resolve({ items: [own] })
+        ? Promise.resolve({ items: [HOLD] })
         : fallback?.(path, init),
     );
     await mount();
-    expect(slot("capture-hold")?.querySelector("pre")?.textContent).toBe(
-      "Get-Mailbox -Identity 'x' | Format-List *Hold*",
-    );
+    expect(slot("capture-hold")).not.toBeNull();
+    expect(slot("capture-hold-checks")).toBeNull();
   });
 
   it("names a forwarded copy, a late capture and the other ways in the list", async () => {

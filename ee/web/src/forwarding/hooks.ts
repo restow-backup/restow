@@ -36,7 +36,7 @@ function useReplaceAccount() {
         page
           ? {
               ...page,
-              items: page.items.map((item) =>
+              accounts: page.accounts.map((item) =>
                 item.objectId === account.objectId ? account : item,
               ),
             }
