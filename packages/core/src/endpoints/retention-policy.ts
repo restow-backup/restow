@@ -287,3 +287,31 @@ export function auditSnapshots(input: {
   }
   return { dated, unrecorded, flags };
 }
+
+/**
+ * When the retention of a machine that makes no more backups lets the newest of them go
+ * (removing a machine with "keep backups until they expire", #65): `newest` plus the longest of
+ * its rules, read as time (N days, N weeks, N calendar months). restic's rules count snapshots,
+ * not time, so on a machine without new backups they would keep the last ones for ever; the time
+ * each rule covers on a machine that backed up daily is what an admin expects them to keep. Null
+ * for a policy that keeps everything (no rule), which never lets anything go.
+ */
+export function retentionExpiry(newest: Date, rules: RetentionRules): Date | null {
+  const days = Math.max(0, rules.keepDaily, rules.keepWeekly * 7);
+  const months = Math.max(0, rules.keepMonthly);
+  if (days === 0 && months === 0) {
+    return null;
+  }
+  const byDays = new Date(newest.getTime() + days * DAY_MS);
+  const byMonths = new Date(newest.getTime());
+  if (months > 0) {
+    const day = byMonths.getUTCDate();
+    byMonths.setUTCDate(1);
+    byMonths.setUTCMonth(byMonths.getUTCMonth() + months);
+    const last = new Date(
+      Date.UTC(byMonths.getUTCFullYear(), byMonths.getUTCMonth() + 1, 0),
+    ).getUTCDate();
+    byMonths.setUTCDate(Math.min(day, last));
+  }
+  return byDays > byMonths ? byDays : byMonths;
+}

@@ -20,6 +20,8 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   restoreFinished: "endpoint.restore.finished",
   restoreTestRequested: "endpoint.restore_test.requested",
   uninstallRequested: "endpoint.uninstall.requested",
+  /** Removed from Restow (#65); the worker's steps follow as `endpoint.removal.*`. */
+  removed: "endpoint.removed",
   browse: "endpoint.snapshot.browsed",
   download: "endpoint.snapshot.downloaded",
   repositoryDenied: "endpoint.repository.denied",

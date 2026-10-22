@@ -77,7 +77,13 @@ export async function cancelEndpointBackup(
     const [endpoint] = await tx
       .select({ id: endpoints.id, hostname: endpoints.hostname })
       .from(endpoints)
-      .where(and(eq(endpoints.id, endpointId), eq(endpoints.tenantId, tenantId)))
+      .where(
+        and(
+          eq(endpoints.id, endpointId),
+          eq(endpoints.tenantId, tenantId),
+          isNull(endpoints.removedAt),
+        ),
+      )
       .limit(1);
     if (!endpoint) {
       throw new ProblemError(404, "Endpoint not found");

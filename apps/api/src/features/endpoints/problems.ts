@@ -82,4 +82,14 @@ export const ENDPOINT_PROBLEMS = {
    * `keys` lists them.
    */
   agentPolicyLocked: "urn:restow:problem:agent-policy-locked",
+  /** 409: only a revoked machine can be removed (#65). */
+  notRevoked: "urn:restow:problem:endpoint-not-revoked",
+  /** 422: the hostname typed to confirm a removal is not the machine's. */
+  confirmHostname: "urn:restow:problem:endpoint-confirm-hostname",
+  /** 409: deleting a removed machine's backups now is refused while a legal hold covers the tenant. */
+  removalLegalHold: "urn:restow:problem:endpoint-removal-legal-hold",
+  /** 409: ... and while a suspicious restore point of the machine holds them. */
+  removalSuspicionHold: "urn:restow:problem:endpoint-removal-suspicion-hold",
+  /** 409: keeping the backups until they expire, but the machine's retention keeps everything. */
+  removalNeverExpires: "urn:restow:problem:endpoint-removal-never-expires",
 } as const;

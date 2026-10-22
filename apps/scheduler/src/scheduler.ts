@@ -143,7 +143,7 @@ export class SchedulerLoop {
       await this.runReports(now, summary);
       if (this.deps.endpoints && !this.stopped && this.deps.isLeader()) {
         const planned = await this.deps.endpoints.plan(now);
-        if (planned && (planned.retention || planned.check || planned.verify)) {
+        if (planned && (planned.retention || planned.check || planned.verify || planned.removal)) {
           logger.info("endpoint jobs queued", { ...planned, at: now.toISOString() });
         }
       }

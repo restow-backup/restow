@@ -1,6 +1,6 @@
 import { connectionOf } from "@restow/core";
 import { type Database, endpoints } from "@restow/db";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import type { BackupJobDto } from "../backup-jobs/dto.js";
 import { listBackupJobs } from "../backup-jobs/read.js";
@@ -268,7 +268,7 @@ export function databaseSources(db: Database, tenantId: string, since: Date): Li
             nextRunAt: endpoints.nextRunAt,
           })
           .from(endpoints)
-          .where(eq(endpoints.tenantId, tenantId));
+          .where(and(eq(endpoints.tenantId, tenantId), isNull(endpoints.removedAt)));
         const at = new Date();
         return rows.map(
           (row): MachineLiveDto => ({

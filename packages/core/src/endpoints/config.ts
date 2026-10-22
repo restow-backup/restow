@@ -252,3 +252,26 @@ export const DEFAULT_ENDPOINT_RETENTION = {
 export const DEFAULT_SERVER_STALE_HOURS = 2;
 /** Client profile: no backup for this many days raises the alert. */
 export const DEFAULT_CLIENT_STALE_DAYS = 7;
+/** Without contact for this many days, the machine suggests revoking it (#65). */
+export const DEFAULT_REVOKE_HINT_DAYS = 30;
+
+/**
+ * Whether a machine has been out of contact long enough that revoking it is suggested: active,
+ * and its last contact (its enrollment, if it never reported) older than `revokeHintAfterDays`.
+ */
+export function revokeSuggested(
+  endpoint: {
+    status: string;
+    lastSeenAt: Date | null;
+    createdAt: Date;
+    settings: { revokeHintAfterDays?: number } | null;
+  },
+  now: Date,
+): boolean {
+  if (endpoint.status !== "active") {
+    return false;
+  }
+  const days = endpoint.settings?.revokeHintAfterDays ?? DEFAULT_REVOKE_HINT_DAYS;
+  const since = endpoint.lastSeenAt ?? endpoint.createdAt;
+  return now.getTime() - since.getTime() > days * 24 * 60 * 60 * 1000;
+}

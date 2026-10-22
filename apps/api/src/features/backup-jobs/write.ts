@@ -38,7 +38,7 @@ import {
   retentionPolicies,
   withPendingMarkers,
 } from "@restow/db";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import {
   type DbExecutor,
@@ -617,7 +617,14 @@ async function assertTargets(
   const rows = await tx
     .select({ id: endpoints.id, status: endpoints.status })
     .from(endpoints)
-    .where(and(eq(endpoints.tenantId, tenantId), inArray(endpoints.id, ids)));
+    // A removed machine (#65) is gone: not found, like one of another tenant.
+    .where(
+      and(
+        eq(endpoints.tenantId, tenantId),
+        inArray(endpoints.id, ids),
+        isNull(endpoints.removedAt),
+      ),
+    );
   const found = new Map(rows.map((row) => [row.id, row]));
   targetIds.forEach((id, index) => {
     const row = found.get(id);

@@ -112,9 +112,34 @@ interface TenantRepositories {
   readonly prefixes: string[];
 }
 
-async function resticPrefixes(db: Database, tenantId: string): Promise<TenantRepositories> {
+/**
+ * The repositories whose locks the renewal keeps. A removed machine's (#65) is left out once its
+ * backups are to go (at once, or their expiry has come): its locks run out, so the deletion
+ * (endpoints/removal.ts) is not deferred again and again by the renewal itself.
+ */
+export async function resticPrefixes(
+  db: Database,
+  tenantId: string,
+  now: Date,
+): Promise<TenantRepositories> {
   return withTenantTx(db, tenantId, async (tx) => {
-    const machine = await tx.select({ id: endpoints.id }).from(endpoints);
+    const machine = (
+      await tx
+        .select({
+          id: endpoints.id,
+          removedAt: endpoints.removedAt,
+          removal: endpoints.removal,
+          removalDueAt: endpoints.removalDueAt,
+        })
+        .from(endpoints)
+    ).filter(
+      (row) =>
+        row.removedAt === null ||
+        (row.removal?.mode === "expire" &&
+          row.removal.state === "scheduled" &&
+          row.removalDueAt !== null &&
+          row.removalDueAt > now),
+    );
     const shares = await tx.select({ id: fileShares.id }).from(fileShares);
     const guests = await tx.select({ id: pveGuests.id }).from(pveGuests);
     return {
@@ -195,7 +220,7 @@ export async function maintainImmutableTarget(options: {
   const since = lockedSince(backend);
   let renewed = false;
   let renewal: ImmutabilityTargetSummary["renewal"] = null;
-  const repositories = await resticPrefixes(db, tenantId);
+  const repositories = await resticPrefixes(db, tenantId, now);
   const skip = await deferredKeys(db, tenantId, targetId);
 
   const lastRenewal = state.renewedAt ? new Date(state.renewedAt) : null;

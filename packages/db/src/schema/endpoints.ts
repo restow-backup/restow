@@ -176,6 +176,48 @@ export type EndpointRetention = {
  * Settings only the server uses; never sent to the agent. Every field is
  * optional, a missing one takes its documented default (docs/AGENT.md).
  */
+/**
+ * Removing a machine from Restow (release 0.4.5, #65), on `endpoints.removal`. Only a revoked
+ * machine is removed; from then on it is left out of every list, picker, dashboard and counter,
+ * while its runs, reports and audit entries stay (the row is kept as a tombstone).
+ *
+ *   delete   its restic repository (`endpoints/<id>/` on every target of the tenant that holds
+ *            files of it) is deleted as soon as nothing holds it.
+ *   expire   its backups stay until the machine's retention would have let the newest of them
+ *            go (`expiresAt`), then they are deleted the same way.
+ *
+ * The worker (`endpoint-removal`) deletes when `endpoints.removal_due_at` has come. A legal hold
+ * over the whole tenant, or a suspicion hold on the machine, holds the deletion (`held`, tried
+ * again daily); objects the storage still locks (S3 Object Lock, a directory's deletion delay)
+ * defer it until they run out (`deferred`, `lockedUntil`). `done` once nothing of the repository
+ * is left; the repository password, the stored samples and the snapshot marks go with it.
+ */
+export type EndpointRemovalMode = "delete" | "expire";
+export type EndpointRemovalState = "scheduled" | "held" | "deferred" | "done";
+
+export type EndpointRemoval = {
+  mode: EndpointRemovalMode;
+  state: EndpointRemovalState;
+  /** Who asked (the account's e-mail) and when. */
+  requestedBy: string;
+  requestedAt: string;
+  /** `expire`: when the machine's retention lets the newest backup go. */
+  expiresAt?: string | null;
+  /** `held`: what holds it. */
+  heldBy?: "legal_hold" | "suspicion" | null;
+  /** `deferred`: the latest retain-until of the objects the storage refused to delete. */
+  lockedUntil?: string | null;
+  /** `deferred`: how many objects the storage refused to delete. */
+  lockedObjects?: number;
+  /** Objects deleted so far, over every attempt. */
+  deletedObjects?: number;
+  /** The last attempt of the worker, and why it failed (if it did). */
+  attemptedAt?: string | null;
+  lastError?: string | null;
+  /** `done`: when the last object was gone. */
+  completedAt?: string | null;
+};
+
 export type EndpointSettings = {
   retention?: EndpointRetention;
   /**
@@ -188,6 +230,11 @@ export type EndpointSettings = {
   staleAfterHours?: number;
   /** Client profile: days without a backup before the alert (default 7). */
   staleAfterDays?: number;
+  /**
+   * Days without contact after which the machine page and the attention list suggest revoking
+   * the machine (default 30, release 0.4.5, #65).
+   */
+  revokeHintAfterDays?: number;
   /**
    * The tenant paused automatic agent updates (docs/AGENT.md, "Self-update"):
    * the tenant-wide switch is stored on each of its endpoints, and a new
@@ -306,12 +353,19 @@ export const endpoints = pgTable(
     // "Update now" (0.4.2): the heartbeat tells the agent to look for its update at once (it
     // installs it when idle); cleared once the agent reports the offered version.
     updateRequestedAt: timestamp("update_requested_at", { withTimezone: true }),
+    // Removed from Restow (release 0.4.5, #65; EndpointRemoval): left out of every list from
+    // then on. Null while the machine is listed (active or revoked).
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    removal: jsonb("removal").$type<EndpointRemoval>(),
+    // When the worker next deletes the machine's backups; null when nothing is left to do.
+    removalDueAt: timestamp("removal_due_at", { withTimezone: true }),
     ...timestamps(),
   },
   (t) => [
     index("endpoints_tenant_profile_idx").on(t.tenantId, t.profile, t.status),
     index("endpoints_status_seen_idx").on(t.status, t.lastSeenAt),
     index("endpoints_assigned_user_idx").on(t.assignedUserId),
+    index("endpoints_removal_due_idx").on(t.removalDueAt).where(sql`${t.removalDueAt} IS NOT NULL`),
   ],
 );
 

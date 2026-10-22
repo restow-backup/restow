@@ -151,12 +151,13 @@ describe.skipIf(!adminUrl)("endpoint jobs of the scheduler", () => {
     }
   });
 
-  it("names the four queues and creates them with the shared settings", () => {
+  it("names the five queues and creates them with the shared settings", () => {
     expect(Object.values(ENDPOINT_QUEUES)).toEqual([
       "endpoint-retention",
       "endpoint-check",
       "endpoint-verify",
       "endpoint-monitor",
+      "endpoint-removal",
     ]);
     expect(Object.keys(ENDPOINT_QUEUE_OPTIONS).sort()).toEqual(
       Object.values(ENDPOINT_QUEUES).sort(),
@@ -189,6 +190,29 @@ describe.skipIf(!adminUrl)("endpoint jobs of the scheduler", () => {
     expect(due).toContain(overdue);
     expect(due).not.toContain(recent);
     expect(due).toContain(revoked);
+  });
+
+  it("checks a removed machine no more and finds its due removal, for active tenants only", async () => {
+    const planner = new EndpointJobPlanner({ installation: provider.$client }, boss);
+    const removed = await endpoint({ status: "revoked", checkAt: null });
+    const later = await endpoint({ status: "revoked", checkAt: null });
+    const suspended = await endpoint({ status: "revoked", tenant: suspendedTenantId });
+    const removal = { mode: "delete", state: "scheduled", requestedBy: "a", requestedAt: "x" };
+    await q(
+      `UPDATE endpoints SET removed_at = $2, removal = $3::jsonb, removal_due_at = $2
+        WHERE id = ANY($1::uuid[])`,
+      [[removed, suspended], new Date(now.getTime() - HOUR), JSON.stringify(removal)],
+    );
+    await q(
+      `UPDATE endpoints SET removed_at = $2, removal = $3::jsonb, removal_due_at = $4 WHERE id = $1`,
+      [later, now, JSON.stringify({ ...removal, mode: "expire" }), new Date(now.getTime() + DAY)],
+    );
+    const due = await planner.due(now);
+    expect(due.check.map((row) => row.id)).not.toContain(removed);
+    expect(due.check.map((row) => row.id)).not.toContain(later);
+    expect(due.removal.map((row) => row.id)).toContain(removed);
+    expect(due.removal.map((row) => row.id)).not.toContain(later);
+    expect(due.removal.map((row) => row.id)).not.toContain(suspended);
   });
 
   it("finds a restore test due for a new backup with samples and no server-side test yet", async () => {

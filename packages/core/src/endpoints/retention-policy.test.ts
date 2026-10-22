@@ -5,6 +5,7 @@ import {
   type DatedSnapshot,
   isoWeek,
   localDate,
+  retentionExpiry,
 } from "./retention-policy.js";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -250,5 +251,31 @@ describe("which snapshots retention may decide on", () => {
     expect(audit.unrecorded).toHaveLength(30);
     expect(audit.flags.every((flag) => flag.reasons.includes("unrecorded"))).toBe(true);
     expect(audit.flags.every((flag) => flag.reasons.includes("future_time"))).toBe(true);
+  });
+});
+
+describe("retentionExpiry", () => {
+  const newest = new Date("2026-01-31T10:00:00.000Z");
+
+  it("takes the longest rule, read as days, weeks or calendar months", () => {
+    expect(retentionExpiry(newest, { keepDaily: 30, keepWeekly: 12, keepMonthly: 12 })).toEqual(
+      new Date("2027-01-31T10:00:00.000Z"),
+    );
+    expect(retentionExpiry(newest, { keepDaily: 30, keepWeekly: 12, keepMonthly: 0 })).toEqual(
+      new Date("2026-04-25T10:00:00.000Z"),
+    );
+    expect(retentionExpiry(newest, { keepDaily: 100, keepWeekly: 0, keepMonthly: 1 })).toEqual(
+      new Date("2026-05-11T10:00:00.000Z"),
+    );
+  });
+
+  it("ends a month on its last day when the day does not exist", () => {
+    expect(retentionExpiry(newest, { keepDaily: 0, keepWeekly: 0, keepMonthly: 1 })).toEqual(
+      new Date("2026-02-28T10:00:00.000Z"),
+    );
+  });
+
+  it("never expires a policy that keeps everything", () => {
+    expect(retentionExpiry(newest, { keepDaily: 0, keepWeekly: 0, keepMonthly: 0 })).toBeNull();
   });
 });

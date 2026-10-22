@@ -6,6 +6,7 @@
 //   endpoint-check      every endpoint once a week: restic check, a slice of the data
 //   endpoint-verify     every new good backup that has samples but no server-side restore test
 //   endpoint-monitor    every five minutes: silent endpoints, failed runs, failed tests, alerts
+//   endpoint-removal    every removed machine whose backups are due for deletion (#65)
 //
 // What is due comes from the endpoint rows themselves (last_retention_at,
 // last_check_at, the reports), so a restart or a second scheduler decides the
@@ -19,6 +20,7 @@ import type PgBoss from "pg-boss";
 import { errorMessage, logger } from "./logger.js";
 
 const HOUR_SECONDS = 60 * 60;
+const REMOVAL_SPACING_SECONDS = 15 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface EndpointJobCounts {
@@ -26,6 +28,7 @@ export interface EndpointJobCounts {
   readonly check: number;
   readonly verify: number;
   readonly monitor: number;
+  readonly removal: number;
 }
 
 /** The pg-boss options of an endpoint queue (settings shared with the worker, @restow/core). */
@@ -51,7 +54,9 @@ export class EndpointJobPlanner {
   ) {}
 
   /** The endpoints whose retention, check or restore test is due. */
-  async due(now: Date): Promise<{ retention: DueRow[]; check: DueRow[]; verify: DueRow[] }> {
+  async due(
+    now: Date,
+  ): Promise<{ retention: DueRow[]; check: DueRow[]; verify: DueRow[]; removal: DueRow[] }> {
     const retentionBefore = new Date(now.getTime() - this.retentionEveryMs);
     const checkBefore = new Date(now.getTime() - this.checkEveryMs);
     const base = `
@@ -66,8 +71,10 @@ export class EndpointJobPlanner {
         ORDER BY e.last_retention_at NULLS FIRST LIMIT 200`,
       [retentionBefore],
     );
+    // A removed machine's repository is checked no more: it is on its way out.
     const check = await this.pools.installation.query<DueRow>(
       `SELECT e.id, e.tenant_id ${base}
+          AND e.removed_at IS NULL
           AND (e.last_check_at IS NULL OR e.last_check_at < $1)
         ORDER BY e.last_check_at NULLS FIRST LIMIT 200`,
       [checkBefore],
@@ -82,7 +89,22 @@ export class EndpointJobPlanner {
                              AND r.origin = 'server' AND r.snapshot_id = e.last_snapshot_id)
         ORDER BY e.last_success_at LIMIT 200`,
     );
-    return { retention: retention.rows, check: check.rows, verify: verify.rows };
+    // Through endpoints_removal_due_idx: only the removals that are due.
+    const removal = await this.pools.installation.query<DueRow>(
+      `SELECT e.id, e.tenant_id
+         FROM endpoints e
+         JOIN tenants t ON t.id = e.tenant_id
+        WHERE t.status = 'active'
+          AND e.removal_due_at IS NOT NULL AND e.removal_due_at <= $1
+        ORDER BY e.removal_due_at LIMIT 200`,
+      [now],
+    );
+    return {
+      retention: retention.rows,
+      check: check.rows,
+      verify: verify.rows,
+      removal: removal.rows,
+    };
   }
 
   private async send(
@@ -104,7 +126,7 @@ export class EndpointJobPlanner {
       return null;
     }
     this.lastPlanned = now.getTime();
-    const counts = { retention: 0, check: 0, verify: 0, monitor: 0 };
+    const counts = { retention: 0, check: 0, verify: 0, monitor: 0, removal: 0 };
     try {
       const due = await this.due(now);
       for (const row of due.retention) {
@@ -115,6 +137,11 @@ export class EndpointJobPlanner {
       }
       for (const row of due.verify) {
         if (await this.send(ENDPOINT_QUEUES.verify, row, HOUR_SECONDS)) counts.verify++;
+      }
+      for (const row of due.removal) {
+        // A failing deletion is retried every quarter of an hour, not on every pass.
+        if (await this.send(ENDPOINT_QUEUES.removal, row, REMOVAL_SPACING_SECONDS))
+          counts.removal++;
       }
       const monitor = await this.boss.send(
         ENDPOINT_QUEUES.monitor,
