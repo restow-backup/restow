@@ -224,7 +224,10 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
   }, [missing, first, setSearch]);
 
   const objectId = object?.id ?? null;
-  const restorePoints = useSnapshots(objectId);
+  // The restore points load alongside the owner's entry, not after it: the address already
+  // names the object, and the API checks access itself. Once the entry says the object is not
+  // this viewer's (`missing`), its query is dropped again.
+  const restorePoints = useSnapshots(objectId ?? (missing ? null : (search.object ?? null)));
   const restorePoint =
     restorePoints.data?.find((candidate) => candidate.id === search.snapshot) ?? null;
   const latest = restorePoints.data?.[0] ?? null;
