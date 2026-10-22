@@ -678,6 +678,8 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
           if (ctx.signal.aborted || !isGraphError(error) || error.status === 401) {
             throw error;
           }
+          // Not left to run until it expires next to its successor.
+          await deleteAtGraph(ctx, access.client, row.subscription_id);
           return recreate("reauthorization_failed");
         }
         await withTenantTx(ctx.db, ctx.tenantId, (tx) =>
