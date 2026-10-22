@@ -194,151 +194,160 @@ export function JobDialog({
   );
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
-        <form onSubmit={submit} className="space-y-4">
+      {/* Wide, with the settings in two columns from md on, so a job's settings fit on a desktop screen
+          without scrolling: what and when on the left, scope, keeping and checks on the right. */}
+      <DialogContent className="max-w-5xl">
+        <form onSubmit={submit} className="space-y-4" data-slot="pve-job-form">
           <DialogHeader>
             <DialogTitle>{job ? job.name : t("jobs.create")}</DialogTitle>
           </DialogHeader>
           {/* The repository the job's container backups and VM disks land in. */}
           <BackupDestinationNote />
-          <div className="space-y-1">
-            <Label htmlFor="pve-job-name">{t("jobs.name")}</Label>
-            <Input
-              id="pve-job-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-1" data-slot="pve-job-cadence">
-            <p className="text-sm font-medium">{t("jobs.schedule")}</p>
-            <CadenceFields
-              idPrefix="pve-job-cadence"
-              draft={cadence}
-              onChange={setCadence}
-              attempted={attempted}
-              lastRunAt={job?.lastRunAt ?? null}
-              presets={PVE_PRESET_TYPES}
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={scopeAll}
-              onChange={(e) => setScopeAll(e.target.checked)}
-            />
-            {t("jobs.allGuests")}
-          </label>
-          <div className="grid grid-cols-3 gap-2">
-            {number("keepDaily")}
-            {number("keepWeekly")}
-            {number("keepMonthly")}
-          </div>
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={testEnabled}
-              onChange={(e) => setTestEnabled(e.target.checked)}
-            />
-            {t("jobs.restoreTest")}
-          </label>
-          {testEnabled ? (
-            <div className="space-y-1">
-              <Label htmlFor="pve-job-test-storage">{t("jobs.restoreTestStorage")}</Label>
-              <Input
-                id="pve-job-test-storage"
-                value={testStorage}
-                onChange={(e) => setTestStorage(e.target.value)}
-              />
+          <div className="grid gap-x-8 gap-y-4 md:grid-cols-2">
+            <div className="min-w-0 space-y-4" data-slot="pve-job-column-schedule">
+              <div className="space-y-1">
+                <Label htmlFor="pve-job-name">{t("jobs.name")}</Label>
+                <Input
+                  id="pve-job-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-1" data-slot="pve-job-cadence">
+                <p className="text-sm font-medium">{t("jobs.schedule")}</p>
+                <CadenceFields
+                  idPrefix="pve-job-cadence"
+                  draft={cadence}
+                  onChange={setCadence}
+                  attempted={attempted}
+                  lastRunAt={job?.lastRunAt ?? null}
+                  presets={PVE_PRESET_TYPES}
+                />
+              </div>
             </div>
-          ) : null}
-          <div className="space-y-1" data-slot="pve-job-boot-test">
-            <Label htmlFor="pve-job-boot-test">{t("jobs.bootTest")}</Label>
-            <select
-              id="pve-job-boot-test"
-              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-              value={bootSchedule}
-              onChange={(e) => setBootSchedule(e.target.value as PveBootTestSchedule)}
-            >
-              <option value="off">{t("jobs.bootTestOff")}</option>
-              <option value="weekly">{t("jobs.bootTestWeekly")}</option>
-              <option value="after_backup">{t("jobs.bootTestAfterBackup")}</option>
-            </select>
-            <p className="text-xs text-muted-foreground">{t("jobs.bootTestHint")}</p>
-          </div>
-          {bootSchedule !== "off" ? (
-            <div className="space-y-1">
-              <Label htmlFor="pve-job-boot-memory">{t("jobs.bootTestMemory")}</Label>
-              <Input
-                id="pve-job-boot-memory"
-                type="number"
-                min={256}
-                step={256}
-                value={bootMemory}
-                onChange={(e) => setBootMemory(Number(e.target.value))}
-              />
-            </div>
-          ) : null}
-          {guests ? (
-            <fieldset className="space-y-2" data-slot="pve-job-guests">
-              <legend className="text-sm font-medium">{t("jobs.guests")}</legend>
-              {offered.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("jobs.noGuests")}</p>
-              ) : (
-                <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
-                  {offered.map((guest) => {
-                    const elsewhere = guest.jobId && guest.jobId !== job?.id ? guest.jobName : null;
-                    return (
-                      <li key={guest.id}>
-                        <label className="flex items-start gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            className="mt-0.5"
-                            checked={chosen.has(guest.id)}
-                            onChange={(e) =>
-                              setChosen((current) => {
-                                const next = new Set(current);
-                                if (e.target.checked) next.add(guest.id);
-                                else next.delete(guest.id);
-                                return next;
-                              })
-                            }
-                          />
-                          <span className="min-w-0">
-                            <span className="block truncate">{guestLabel(guest)}</span>
-                            <RestowServerNote guest={guest} compact />
-                            {elsewhere ? (
-                              <span className="block text-xs text-muted-foreground">
-                                {chosen.has(guest.id)
-                                  ? t("jobs.guestMoves", { job: elsewhere })
-                                  : t("jobs.guestInJob", { job: elsewhere })}
-                              </span>
-                            ) : null}
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </fieldset>
-          ) : null}
-          {chosenSelf.length > 0 ? (
-            <div className="space-y-2" data-slot="pve-job-self-backup">
-              {chosenSelf.map((guest) => (
-                <RestowServerNote key={guest.id} guest={guest} />
-              ))}
+            <div className="min-w-0 space-y-4" data-slot="pve-job-column-settings">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={scopeAll}
+                  onChange={(e) => setScopeAll(e.target.checked)}
+                />
+                {t("jobs.allGuests")}
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {number("keepDaily")}
+                {number("keepWeekly")}
+                {number("keepMonthly")}
+              </div>
               <label className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"
-                  className="mt-0.5"
-                  checked={selfConfirmed}
-                  onChange={(e) => setSelfConfirmed(e.target.checked)}
+                  checked={testEnabled}
+                  onChange={(e) => setTestEnabled(e.target.checked)}
                 />
-                {t("selfBackup.confirmInJob")}
+                {t("jobs.restoreTest")}
               </label>
+              {testEnabled ? (
+                <div className="space-y-1">
+                  <Label htmlFor="pve-job-test-storage">{t("jobs.restoreTestStorage")}</Label>
+                  <Input
+                    id="pve-job-test-storage"
+                    value={testStorage}
+                    onChange={(e) => setTestStorage(e.target.value)}
+                  />
+                </div>
+              ) : null}
+              <div className="space-y-1" data-slot="pve-job-boot-test">
+                <Label htmlFor="pve-job-boot-test">{t("jobs.bootTest")}</Label>
+                <select
+                  id="pve-job-boot-test"
+                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  value={bootSchedule}
+                  onChange={(e) => setBootSchedule(e.target.value as PveBootTestSchedule)}
+                >
+                  <option value="off">{t("jobs.bootTestOff")}</option>
+                  <option value="weekly">{t("jobs.bootTestWeekly")}</option>
+                  <option value="after_backup">{t("jobs.bootTestAfterBackup")}</option>
+                </select>
+                <p className="text-xs text-muted-foreground">{t("jobs.bootTestHint")}</p>
+              </div>
+              {bootSchedule !== "off" ? (
+                <div className="space-y-1">
+                  <Label htmlFor="pve-job-boot-memory">{t("jobs.bootTestMemory")}</Label>
+                  <Input
+                    id="pve-job-boot-memory"
+                    type="number"
+                    min={256}
+                    step={256}
+                    value={bootMemory}
+                    onChange={(e) => setBootMemory(Number(e.target.value))}
+                  />
+                </div>
+              ) : null}
+              {guests ? (
+                <fieldset className="space-y-2" data-slot="pve-job-guests">
+                  <legend className="text-sm font-medium">{t("jobs.guests")}</legend>
+                  {offered.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{t("jobs.noGuests")}</p>
+                  ) : (
+                    <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
+                      {offered.map((guest) => {
+                        const elsewhere =
+                          guest.jobId && guest.jobId !== job?.id ? guest.jobName : null;
+                        return (
+                          <li key={guest.id}>
+                            <label className="flex items-start gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5"
+                                checked={chosen.has(guest.id)}
+                                onChange={(e) =>
+                                  setChosen((current) => {
+                                    const next = new Set(current);
+                                    if (e.target.checked) next.add(guest.id);
+                                    else next.delete(guest.id);
+                                    return next;
+                                  })
+                                }
+                              />
+                              <span className="min-w-0">
+                                <span className="block truncate">{guestLabel(guest)}</span>
+                                <RestowServerNote guest={guest} compact />
+                                {elsewhere ? (
+                                  <span className="block text-xs text-muted-foreground">
+                                    {chosen.has(guest.id)
+                                      ? t("jobs.guestMoves", { job: elsewhere })
+                                      : t("jobs.guestInJob", { job: elsewhere })}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </fieldset>
+              ) : null}
+              {chosenSelf.length > 0 ? (
+                <div className="space-y-2" data-slot="pve-job-self-backup">
+                  {chosenSelf.map((guest) => (
+                    <RestowServerNote key={guest.id} guest={guest} />
+                  ))}
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={selfConfirmed}
+                      onChange={(e) => setSelfConfirmed(e.target.checked)}
+                    />
+                    {t("selfBackup.confirmInJob")}
+                  </label>
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </div>
           <DialogFooter>
             <Button
               type="submit"

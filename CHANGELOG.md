@@ -137,6 +137,10 @@ private repository.
 
 - Restore explorer: the restore points of an account load alongside its owner's entry
   instead of after it, one round trip less before a mailbox or OneDrive shows its folders.
+- The Proxmox VE job dialog is twice as wide and lays its settings out in two columns from
+  tablet width on (name and schedule with the next runs on the left; scope, restore points,
+  restore check, boot test and guests on the right), so a job's settings fit on a desktop screen
+  without scrolling; on a phone it stays one column at full width.
 
 ### Fixed
 

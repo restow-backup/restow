@@ -577,6 +577,13 @@ describe("Proxmox VE in the list of machine jobs (#53)", () => {
     await flush(3);
     // The Proxmox VE job form lists the guests to put into the new job.
     expect(slot("pve-job-guests")?.textContent).toContain("mail01 · VM 102 · pve1");
+    // Wide and in two columns, so a job's settings fit on a desktop screen without scrolling.
+    expect(slot("pve-job-form")?.closest('[data-slot="dialog-content"]')?.className).toContain(
+      "max-w-5xl",
+    );
+    expect(slot("pve-job-column-schedule")?.contains(slot("pve-job-cadence"))).toBe(true);
+    expect(slot("pve-job-column-settings")?.contains(slot("pve-job-boot-test"))).toBe(true);
+    expect(slot("pve-job-column-settings")?.contains(slot("pve-job-guests"))).toBe(true);
   });
 });
 
