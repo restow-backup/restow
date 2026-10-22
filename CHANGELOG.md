@@ -66,7 +66,9 @@ private repository.
   removal state to `endpoints`.
 - Machines: an uninstall that waits for a machine that is off now offers "Revoke now", and a
   machine without contact for longer than a configurable number of days (default 30, under Alerts
-  of the machine) suggests revoking it, on its page and among what needs attention (#65).
+  of the machine) suggests revoking it, on its page and among what needs attention (#65). The
+  machine's detail panel on Inventory shows the suggestion as a state and offers "Revoke now" and,
+  once the machine is revoked, "Remove from Restow" as well.
 - Repositories: a warning when a directory repository lies on the system disk of the Restow
   server, the disk under the operating system, Docker and the database (a full system disk stops
   everything, as on 16 October 2026). The api recognises it from inside its container by device

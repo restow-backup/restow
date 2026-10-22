@@ -24,7 +24,7 @@ import { toast } from "@/components/ui/sonner";
 import { formatDateTime } from "@/lib/format";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
-import type { EndpointDetail, RemovalMode } from "../api.js";
+import type { EndpointDetail, EndpointSummary, RemovalMode } from "../api.js";
 import { useRemoveEndpoint, useRevokeEndpoint, useUninstallEndpoint } from "../hooks.js";
 import { inventoryTo } from "../paths.js";
 import { endpointErrorKey, endpointName } from "../presenters.js";
@@ -159,52 +159,87 @@ export function DangerZone({ detail }: { detail: EndpointDetail }) {
           );
         }}
       />
-      <ConfirmDialog
+      <RevokeMachineDialog
+        machine={detail}
         open={revoking}
         onOpenChange={setRevoking}
-        title={t("danger.revoke.confirm.title", { name })}
-        description={
-          <>
-            <p>{t("danger.revoke.confirm.description")}</p>
-            <p>{t("danger.revoke.confirm.irreversible")}</p>
-          </>
-        }
-        confirmLabel={t("danger.revoke.confirm.action")}
-        confirmationText={detail.hostname}
-        destructive
-        error={revoke.isError ? t(endpointErrorKey(revoke.error)) : undefined}
-        onConfirm={async () => {
-          await revoke.mutateAsync();
-          toast.success(t("danger.revoke.toast"));
-        }}
+        revoke={revoke}
       />
       {removing ? (
-        <RemoveDialog detail={detail} name={name} onClose={() => setRemoving(false)} />
+        <RemoveMachineDialog machine={detail} onClose={() => setRemoving(false)} />
       ) : null}
     </Card>
   );
 }
 
+/** The machine a dialog of the danger zone acts on (its page's detail or an Inventory row). */
+type DangerMachine = Pick<EndpointSummary, "id" | "hostname" | "displayName">;
+
+/**
+ * "Revoke": the hostname typed, irreversible. Used by the danger zone and by the machine's
+ * detail panel on Inventory ("Revoke now").
+ */
+export function RevokeMachineDialog({
+  machine,
+  open,
+  onOpenChange,
+  revoke: given,
+}: {
+  machine: DangerMachine;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** The danger zone's own mutation (it resets it when opening); otherwise one of its own. */
+  revoke?: ReturnType<typeof useRevokeEndpoint>;
+}) {
+  const { t } = useTranslation("endpoints");
+  const own = useRevokeEndpoint(machine.id);
+  const revoke = given ?? own;
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t("danger.revoke.confirm.title", { name: endpointName(machine) })}
+      description={
+        <>
+          <p>{t("danger.revoke.confirm.description")}</p>
+          <p>{t("danger.revoke.confirm.irreversible")}</p>
+        </>
+      }
+      confirmLabel={t("danger.revoke.confirm.action")}
+      confirmationText={machine.hostname}
+      destructive
+      error={revoke.isError ? t(endpointErrorKey(revoke.error)) : undefined}
+      onConfirm={async () => {
+        await revoke.mutateAsync();
+        toast.success(t("danger.revoke.toast"));
+      }}
+    />
+  );
+}
+
 /**
  * "Remove from {appName}": how the backups go, the hostname typed, and a recent sign-in (asked
- * for when the API wants one, then the removal is repeated).
+ * for when the API wants one, then the removal is repeated). Used by the danger zone and by the
+ * machine's detail panel on Inventory.
  */
-function RemoveDialog({
-  detail,
-  name,
+export function RemoveMachineDialog({
+  machine,
   onClose,
+  onRemoved,
 }: {
-  detail: EndpointDetail;
-  name: string;
+  machine: DangerMachine;
   onClose: () => void;
+  /** After the removal; without it the page goes to Inventory (the machine's page is gone). */
+  onRemoved?: () => void;
 }) {
   const { t, i18n } = useTranslation("endpoints");
   const navigate = useNavigate();
-  const remove = useRemoveEndpoint(detail.id);
+  const name = endpointName(machine);
+  const remove = useRemoveEndpoint(machine.id);
   const identity = useConfirmIdentity();
   const [mode, setMode] = React.useState<RemovalMode>("expire");
   const [typed, setTyped] = React.useState("");
-  const matches = typed.trim() === detail.hostname;
+  const matches = typed.trim() === machine.hostname;
 
   const submit = () =>
     remove.mutate(
@@ -225,7 +260,11 @@ function RemoveDialog({
             ),
           );
           onClose();
-          void navigate({ to: inventoryTo() });
+          if (onRemoved) {
+            onRemoved();
+          } else {
+            void navigate({ to: inventoryTo() });
+          }
         },
         onError: (error) => {
           if (isRecentSignInRequired(error)) {
@@ -263,7 +302,7 @@ function RemoveDialog({
           <p className="text-sm text-muted-foreground">{t("danger.remove.confirm.locks")}</p>
           <Field
             id="remove-confirm-hostname"
-            label={t("danger.remove.confirm.typeHostname", { hostname: detail.hostname })}
+            label={t("danger.remove.confirm.typeHostname", { hostname: machine.hostname })}
           >
             <Input
               id="remove-confirm-hostname"

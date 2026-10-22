@@ -32,6 +32,7 @@ export const MACHINE_STATUS_ORDER = [
   "partial",
   "no_job",
   "never_seen",
+  "revoke_suggested",
   "never",
   "restore_warning",
   "check_overdue",
@@ -71,6 +72,8 @@ export const MACHINE_STATUS_META: Record<
   partial: { tone: "warning", problem: true },
   no_job: { tone: "warning", problem: true },
   never_seen: { tone: "warning", problem: true },
+  // No contact for longer than the machine's `revokeHintAfterDays` (#65): revoke, then remove.
+  revoke_suggested: { tone: "warning", problem: true },
   never: { tone: "warning", problem: true },
   restore_warning: { tone: "warning", problem: true },
   check_overdue: { tone: "warning", problem: false },
@@ -145,6 +148,9 @@ export function machineStatuses(machine: StatusMachine): MachineStatus[] {
   }
   if (active && (attention.has("never_seen") || machine.connection === "never")) {
     keys.add("never_seen");
+  }
+  if (active && attention.has("revoke_suggested")) {
+    keys.add("revoke_suggested");
   }
   if (!machine.lastBackupAt && run?.status !== "running") {
     keys.add("never");

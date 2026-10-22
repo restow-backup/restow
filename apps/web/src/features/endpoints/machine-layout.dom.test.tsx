@@ -27,6 +27,7 @@ vi.mock("@/lib/session", async (importOriginal) => ({
 }));
 vi.mock("@/features/tenant-page/access", () => ({ useTenantWriteBlock: () => null }));
 vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => () => undefined,
   Link: ({ children, to, search: _search, ...props }: Record<string, unknown>) => (
     <a href={String(to)} {...(props as object)}>
       {children as React.ReactNode}
@@ -262,5 +263,62 @@ describe("an inventory that does not jump", () => {
     expect(
       document.body.querySelector('[data-slot="machine-sheet-actions"]')?.textContent,
     ).toContain("Back up now");
+  });
+  it("offers the way out of a machine that is gone in the detail panel (#65)", async () => {
+    const gone = machine(3, {
+      connection: "offline",
+      attention: ["silent", "revoke_suggested"],
+    });
+    fetchEndpoint.mockResolvedValue({
+      ...gone,
+      runs: [],
+      tasks: [],
+      problems: [],
+      settings: { revokeHintAfterDays: 45 },
+    } as unknown as EndpointDetail);
+    await mount(
+      <MachineSheet machineId={gone.id} machine={gone} onClose={() => undefined} allowed />,
+    );
+    for (let i = 0; i < 20 && !document.body.querySelector('[data-slot="revoke-suggested"]'); i++) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    const states = [
+      ...document.body.querySelectorAll('[data-slot="machine-states"] [data-status]'),
+    ].map((badge) => badge.getAttribute("data-status"));
+    expect(states).toContain("revoke_suggested");
+    const removal = document.body.querySelector('[data-slot="machine-sheet-removal"]');
+    expect(removal?.textContent).toContain("more than 45 days");
+    expect(removal?.querySelector('[data-action="revoke-now"]')).not.toBeNull();
+    expect(removal?.querySelector('[data-action="remove-machine"]')).toBeNull();
+  });
+
+  it("offers removal once the machine is revoked, and nothing to who may not", async () => {
+    const revoked = machine(4, { status: "revoked", revokedAt: "2026-10-21T00:00:00.000Z" });
+    fetchEndpoint.mockResolvedValue({
+      ...revoked,
+      runs: [],
+      tasks: [],
+      problems: [],
+      settings: {},
+    } as unknown as EndpointDetail);
+    await mount(
+      <MachineSheet machineId={revoked.id} machine={revoked} onClose={() => undefined} allowed />,
+    );
+    const removal = document.body.querySelector('[data-slot="machine-sheet-removal"]');
+    expect(removal?.querySelector('[data-action="remove-machine"]')).not.toBeNull();
+    expect(removal?.querySelector('[data-action="revoke-now"]')).toBeNull();
+    await act(async () => root.unmount());
+    container.remove();
+    await mount(
+      <MachineSheet
+        machineId={revoked.id}
+        machine={revoked}
+        onClose={() => undefined}
+        allowed={false}
+      />,
+    );
+    expect(document.body.querySelector('[data-slot="machine-sheet-removal"]')).toBeNull();
   });
 });

@@ -1323,6 +1323,7 @@
     "partial": "With warnings",
     "no_job": "Without backup",
     "never_seen": "Never connected",
+    "revoke_suggested": "Revoke suggested",
     "never": "No backup yet",
     "restore_warning": "Restore check: attention",
     "check_overdue": "Restore check overdue",

@@ -1323,6 +1323,7 @@
     "partial": "Mit Warnungen",
     "no_job": "Ohne Sicherung",
     "never_seen": "Nie verbunden",
+    "revoke_suggested": "Sperren empfohlen",
     "never": "Noch keine Sicherung",
     "restore_warning": "Restore-Prüfung: Achtung",
     "check_overdue": "Restore-Prüfung überfällig",

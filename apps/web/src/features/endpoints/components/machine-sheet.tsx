@@ -1,9 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { ExternalLink, FolderSearch } from "lucide-react";
+import { Ban, ExternalLink, FolderSearch, Trash2 } from "lucide-react";
+import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { DetailFact, DetailSection, DetailSheet, LogBlock, RelativeTime } from "@/components/kit";
-import { buttonVariants } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CauseLine } from "@/features/failures/cause-line";
 import { cn } from "@/lib/utils";
@@ -13,6 +15,7 @@ import { useEndpoint, useEndpointFormat, useRun } from "../hooks.js";
 import { machineStatuses } from "../machine-status.js";
 import { endpointDetailTo, fileRestoreTo } from "../paths.js";
 import { assigneeName, endpointHostLine, endpointName } from "../presenters.js";
+import { RemoveMachineDialog, RevokeMachineDialog } from "./danger-zone.js";
 import {
   MachineActionButton,
   MachineStatusBadge,
@@ -28,7 +31,8 @@ import { OsLabel, RunStatusBadge } from "./status.js";
  * state (`?machine=<id>`, so a link opens it), closed with Esc or the close button; focus goes
  * back to the machine's name in the table. It lists every state, the full error and warning
  * texts of the newest backup (monospace, scrollable, copyable), the restore check, the key
- * facts, the newest runs and the actions.
+ * facts, the newest runs and the actions, among them "Revoke now" and "Remove from {appName}"
+ * of the machine's danger zone (#65) when they apply.
  */
 
 /** How many of the newest runs the panel lists. */
@@ -171,6 +175,7 @@ export function MachineSheet({
           detailPending={detailQuery.isPending}
           allowed={allowed}
           reason={reason}
+          onRemoved={onClose}
         />
       ) : null}
     </DetailSheet>
@@ -183,12 +188,14 @@ function MachineSheetBody({
   detailPending,
   allowed,
   reason,
+  onRemoved,
 }: {
   machine: EndpointSummary;
   detail: EndpointDetail | undefined;
   detailPending: boolean;
   allowed: boolean;
   reason?: string;
+  onRemoved: () => void;
 }) {
   const { t } = useTranslation("endpoints");
   const format = useEndpointFormat();
@@ -286,6 +293,8 @@ function MachineSheetBody({
         </DetailSection>
       ) : null}
 
+      {allowed ? <MachineRemoval machine={machine} detail={detail} onRemoved={onRemoved} /> : null}
+
       <DetailSection title={t("sheet.restoreCheck")} slot="machine-sheet-verify">
         <dl className="space-y-1.5">
           <DetailFact label={t("sheet.result")}>
@@ -355,6 +364,90 @@ function MachineSheetBody({
         )}
       </DetailSection>
     </>
+  );
+}
+
+/**
+ * The danger zone's way out for a machine that is gone (#65), where Inventory shows it: "Revoke
+ * now" when revoking is suggested (no contact for longer than its `revokeHintAfterDays`) or an
+ * uninstall waits for it, and "Remove from {appName}" once it is revoked. Nothing for a machine
+ * that is simply in use; uninstalling stays on its page.
+ */
+function MachineRemoval({
+  machine,
+  detail,
+  onRemoved,
+}: {
+  machine: EndpointSummary;
+  detail: EndpointDetail | undefined;
+  onRemoved: () => void;
+}) {
+  const { t } = useTranslation("endpoints");
+  const [revoking, setRevoking] = React.useState(false);
+  const [removing, setRemoving] = React.useState(false);
+  const revoked = machine.status === "revoked";
+  const revokeSuggested = machine.attention.includes("revoke_suggested");
+  const uninstallWaiting = (detail?.tasks ?? []).some(
+    (task) =>
+      task.kind === "uninstall" && (task.status === "pending" || task.status === "delivered"),
+  );
+  if (!revoked && !revokeSuggested && !uninstallWaiting) {
+    return null;
+  }
+  return (
+    <DetailSection title={t("danger.remove.title")} slot="machine-sheet-removal">
+      {revoked ? (
+        <>
+          <p className="text-sm text-muted-foreground">{t("danger.remove.description")}</p>
+          <div>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => setRemoving(true)}
+              data-action="remove-machine"
+            >
+              <Trash2 aria-hidden="true" />
+              {t("danger.remove.action")}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* The days come with the detail (the machine's own setting): no 30 that turns into 45. */}
+          {revokeSuggested && detail ? (
+            <Alert variant="warning" data-slot="revoke-suggested">
+              <AlertDescription>
+                {t("danger.revokeSuggested", {
+                  days: detail.settings.revokeHintAfterDays ?? 30,
+                })}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {uninstallWaiting ? (
+            <p className="text-sm text-muted-foreground">{t("danger.uninstall.revokeNowHint")}</p>
+          ) : null}
+          <div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setRevoking(true)}
+              data-action="revoke-now"
+            >
+              <Ban aria-hidden="true" />
+              {t("danger.uninstall.revokeNow")}
+            </Button>
+          </div>
+        </>
+      )}
+      <RevokeMachineDialog machine={machine} open={revoking} onOpenChange={setRevoking} />
+      {removing ? (
+        <RemoveMachineDialog
+          machine={machine}
+          onClose={() => setRemoving(false)}
+          onRemoved={onRemoved}
+        />
+      ) : null}
+    </DetailSection>
   );
 }
 
