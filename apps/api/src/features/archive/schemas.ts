@@ -11,6 +11,14 @@ export const archiveSearchQuerySchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((value) => (value === undefined ? undefined : value === "true")),
+  /**
+   * Also list items a stronger capture of the same mail superseded (0.4.4, docs/ARCHIVE.md
+   * "Erfassungswege"); hidden by default, the detail of the newer item links to them.
+   */
+  includeSuperseded: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((value) => value === "true"),
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
   offset: z.coerce.number().int().min(0).optional().default(0),
 });

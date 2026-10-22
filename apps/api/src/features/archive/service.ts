@@ -8,10 +8,11 @@ import { archive } from "@restow/core";
 import {
   type ArchiveEnvelope,
   archiveAnchor,
+  archiveItemCaptures,
   archiveItemOfMailbox,
   archiveItems,
 } from "@restow/db";
-import { and, desc, eq, gte, lte, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, type SQL, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -49,6 +50,12 @@ export interface ArchiveSearchResultDto {
   flags: string[];
   /** How the item was captured: the journal receiver, a sync, or an imported mail file. */
   source: archive.ArchiveSource;
+  /** The weaker capture of the same mail this item replaces in the search (0.4.4); null if none. */
+  supersedesItemId: string | null;
+  /** A stronger capture of the same mail replaced this one (listed only with `includeSuperseded`). */
+  superseded: boolean;
+  /** The other ways that captured the same mail again (capture rows), each once, sorted. */
+  alsoCapturedVia: archive.ArchiveSource[];
 }
 
 export interface ArchiveSearchResponse {
@@ -68,6 +75,9 @@ function toResultDto(row: {
   sizeBytes: number | null;
   flags: string[] | null;
   capturedVia: archive.ArchiveSource;
+  supersedesItemId: string | null;
+  superseded: boolean;
+  alsoCapturedVia: string[] | null;
 }): ArchiveSearchResultDto {
   return {
     id: row.id,
@@ -81,8 +91,28 @@ function toResultDto(row: {
     sizeBytes: row.sizeBytes,
     flags: row.flags ?? [],
     source: row.capturedVia,
+    supersedesItemId: row.supersedesItemId,
+    superseded: row.superseded,
+    alsoCapturedVia: (row.alsoCapturedVia ?? []) as archive.ArchiveSource[],
   };
 }
+
+/*
+ * The two correlated subqueries name the outer table literally: drizzle renders a column of
+ * the queried table unqualified, which inside the subquery would bind to the inner alias.
+ */
+
+/** Whether a stronger capture of the same mail superseded the item (indexed by supersedes_item_id). */
+const isSuperseded = sql<boolean>`exists (
+  select 1 from archive_items newer
+   where newer.tenant_id = archive_items.tenant_id
+     and newer.supersedes_item_id = archive_items.id)`;
+
+/** The ways that captured the item's mail again (archive_item_captures, by (tenant, item)). */
+const alsoCapturedVia = sql<string[]>`(
+  select coalesce(array_agg(distinct c.captured_via::text order by c.captured_via::text), '{}')
+    from archive_item_captures c
+   where c.tenant_id = archive_items.tenant_id and c.archive_item_id = archive_items.id)`;
 
 /**
  * The date a message is filtered and ordered by: its own date (`sent_at`)
@@ -139,6 +169,9 @@ export async function searchArchive(
 ): Promise<ArchiveSearchResponse> {
   return withTenantTx(db, tenantId, async (tx) => {
     const conditions = archiveSearchConditions(tenantId, query);
+    if (!query.includeSuperseded) {
+      conditions.push(sql`not ${isSuperseded}`);
+    }
     const where = and(...conditions);
 
     const [{ count }] = await tx
@@ -157,6 +190,9 @@ export async function searchArchive(
         sizeBytes: archiveItems.sizeBytes,
         flags: archiveItems.flags,
         capturedVia: archiveItems.capturedVia,
+        supersedesItemId: archiveItems.supersedesItemId,
+        superseded: isSuperseded,
+        alsoCapturedVia,
       })
       .from(archiveItems)
       .where(where)
@@ -179,6 +215,7 @@ export async function searchArchive(
         dateFrom: query.dateFrom ? query.dateFrom.toISOString() : null,
         dateTo: query.dateTo ? query.dateTo.toISOString() : null,
         hasAttachment: query.hasAttachment ?? null,
+        includeSuperseded: query.includeSuperseded,
         offset: query.offset,
         results: rows.length,
         total: count,
@@ -193,7 +230,24 @@ export async function searchArchive(
 export type ArchiveItemDto = archive.ArchiveItemRecord & {
   /** The message's own date (Date header) when the capture path knew it; null otherwise. */
   sentAt: string | null;
+  /** The stronger capture of the same mail that replaced this item, if any (0.4.4). */
+  supersededBy: string | null;
+  /**
+   * Each time another way captured the same mail again (archive_item_captures, oldest first,
+   * at most {@link MAX_ITEM_CAPTURES}): the evidence outside the chain (FORMAT.md).
+   */
+  captures: ArchiveItemCaptureDto[];
 };
+
+export interface ArchiveItemCaptureDto {
+  via: archive.ArchiveSource;
+  receivedAt: string;
+  /** The mailbox it was captured from; null for a capture without one (tenant address). */
+  protectedObjectId: string | null;
+}
+
+/** Capture rows the detail lists; a mail captured more often than that is rare and says so by the count. */
+export const MAX_ITEM_CAPTURES = 50;
 
 /** One archived item's metadata (never the decrypted body — see features/archive/routes.ts for the preview endpoint). */
 export async function getArchiveItem(
@@ -217,6 +271,27 @@ export async function getArchiveItem(
       .from(archiveItems)
       .where(eq(archiveItems.id, itemId))
       .limit(1);
+    const [newer] = await tx
+      .select({ id: archiveItems.id })
+      .from(archiveItems)
+      .where(and(eq(archiveItems.tenantId, tenantId), eq(archiveItems.supersedesItemId, itemId)))
+      .orderBy(asc(archiveItems.createdAt), asc(archiveItems.id))
+      .limit(1);
+    const captures = await tx
+      .select({
+        via: archiveItemCaptures.capturedVia,
+        receivedAt: archiveItemCaptures.receivedAt,
+        protectedObjectId: archiveItemCaptures.protectedObjectId,
+      })
+      .from(archiveItemCaptures)
+      .where(
+        and(
+          eq(archiveItemCaptures.tenantId, tenantId),
+          eq(archiveItemCaptures.archiveItemId, itemId),
+        ),
+      )
+      .orderBy(asc(archiveItemCaptures.receivedAt), asc(archiveItemCaptures.id))
+      .limit(MAX_ITEM_CAPTURES);
     await audit(tx, {
       tenantId,
       actor: actor.label,
@@ -227,7 +302,16 @@ export async function getArchiveItem(
       ip: actor.ip,
       details: null,
     });
-    return { ...record, sentAt: dates?.sentAt ? dates.sentAt.toISOString() : null };
+    return {
+      ...record,
+      sentAt: dates?.sentAt ? dates.sentAt.toISOString() : null,
+      supersededBy: newer?.id ?? null,
+      captures: captures.map((capture) => ({
+        via: capture.via as archive.ArchiveSource,
+        receivedAt: capture.receivedAt.toISOString(),
+        protectedObjectId: capture.protectedObjectId,
+      })),
+    };
   });
 }
 
