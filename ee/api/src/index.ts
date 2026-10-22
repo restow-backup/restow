@@ -1,5 +1,6 @@
 import type { ApiExtension } from "../../../apps/api/src/extensions.js";
 import { auditLogRoutes } from "./audit-log/routes.js";
+import { forwardingRoutes } from "./forwarding/routes.js";
 import { journalRoutes } from "./journal/routes.js";
 import { journalReceiverService } from "./journal/service.js";
 import { legalHoldRoutes } from "./legal-holds/routes.js";
@@ -22,7 +23,13 @@ import { microsoftSignInGuard, microsoftSignInProvider } from "./sso/access.js";
  */
 export const eeApiExtension: ApiExtension = {
   name: "ee",
-  sessionRoutes: [licenseRouteContribution, auditLogRoutes, journalRoutes, legalHoldRoutes],
+  sessionRoutes: [
+    licenseRouteContribution,
+    auditLogRoutes,
+    journalRoutes,
+    forwardingRoutes,
+    legalHoldRoutes,
+  ],
   integrationRoutes: [registerProviderRoutes],
   authRouteGuards: [microsoftSignInGuard],
   signInProviders: [microsoftSignInProvider],

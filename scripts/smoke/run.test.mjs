@@ -12,7 +12,7 @@ test("the checks have unique ids and every dependency exists", () => {
   assert.equal(new Set(ids).size, ids.length);
   assert.deepEqual(
     [...ids].sort((a, b) => Number(a) - Number(b)),
-    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"],
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"],
   );
   for (const check of CHECKS) {
     for (const need of check.needs) {
@@ -26,8 +26,9 @@ test("--only pulls in what a check builds on, in run order", () => {
     selectChecks(CHECKS, { only: null, skip: [], ...options }).map((check) => check.id);
   assert.deepEqual(ids({ only: ["7"] }), ["1", "3", "5", "7"]);
   assert.deepEqual(ids({ only: ["9"] }), ["9"]);
-  assert.deepEqual(ids({}).length, 12);
+  assert.deepEqual(ids({}).length, 13);
   assert.deepEqual(ids({ only: ["12"] }), ["1", "3", "12"]);
+  assert.deepEqual(ids({ only: ["13"] }), ["1", "3", "13"]);
 });
 
 test("check 2 takes /readyz as ready only with the database, the worker and the scheduler ok", () => {
@@ -153,9 +154,9 @@ test("--variant picks the build, its targets and a stack that does not collide w
   assert.throws(() => parseArgs(["--variant", "enterprise"]), /full or community/);
 });
 
-test("the community variant skips exactly the journal and the storage targets, with a reason", () => {
+test("the community variant skips exactly the journal, the storage targets and archive capture, with a reason", () => {
   const skipped = CHECKS.filter((check) => check.communitySkip).map((check) => check.id);
-  assert.deepEqual(skipped, ["6", "8"]);
+  assert.deepEqual(skipped, ["6", "8", "13"]);
   for (const check of CHECKS.filter((entry) => entry.communitySkip)) {
     assert.match(check.communitySkip, /^skipped: .*Community build/);
   }

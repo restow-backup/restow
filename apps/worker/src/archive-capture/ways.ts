@@ -201,6 +201,16 @@ export interface CaptureWayServices {
   readonly signal: AbortSignal;
   /** Mark streams due now (a pass follows within a poll interval). */
   markDue(streamIds: readonly string[]): Promise<void>;
+  /**
+   * The tenant's keyring (cached by the framework): a component that logs in to the mail
+   * service itself (IMAP IDLE) opens the account's sealed credential with it.
+   */
+  keyring(tenantId: string): Promise<TenantKeyring>;
+  /**
+   * Whether the service works right now: the gate is open and no update drains the
+   * worker. A background component holds no connections while this is false.
+   */
+  active(): boolean;
 }
 
 /** A capture way (see the module docstring). */

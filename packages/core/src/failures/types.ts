@@ -63,6 +63,11 @@ export const FAILURE_CODES = [
   "imap.mailbox_full",
   "imap.connection_lost",
   "imap.message_missing",
+  // Archive capture over IMAP (0.4.4): why an account is polled instead of watched with IDLE.
+  // Informational: the account is still captured, only with the delay of the poll.
+  "imap.idle_unsupported",
+  "imap.idle_disabled",
+  "imap.idle_budget",
   // Network (any remote host: Microsoft, an IMAP server, ...)
   "network.dns",
   "network.unreachable",

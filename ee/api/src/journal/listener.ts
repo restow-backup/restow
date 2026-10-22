@@ -14,7 +14,8 @@ export interface JournalListenerOptions {
   readonly config: Pick<
     Config["journal"],
     "port" | "hostname" | "maxSizeBytes" | "tlsCertPath" | "tlsKeyPath" | "allowInsecure"
-  >;
+  > &
+    Partial<Pick<Config["journal"], "ratePerIp" | "ratePerAddress">>;
   /** NODE_ENV=production, which is what the release image runs with; only changes what is logged. */
   readonly production: boolean;
   /** Everything the server needs besides the configuration, the TLS mode and the logger. */

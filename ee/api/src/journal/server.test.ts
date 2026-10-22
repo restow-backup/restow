@@ -5,7 +5,8 @@ import nodemailer from "nodemailer";
 import type { SMTPServer } from "smtp-server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../../../../apps/api/src/config.js";
-import type { JournalReceiverDeps } from "./receiver.js";
+import type { ArchiveDelivery, ArchiveReceipt, JournalReceiverDeps } from "./receiver.js";
+import type { ArchiveRecipient } from "./recipient.js";
 import {
   createInMemoryRateLimiter,
   createJournalServer,
@@ -22,8 +23,10 @@ import { certificate, fingerprint, rawSmtp } from "./tls-test-support.js";
  * issued STARTTLS and the certificate served is the configured one; without
  * one (the explicit development opt-out), STARTTLS is not offered at all.
  * Exercised against a real TCP connection with `nodemailer` and a raw SMTP
- * client, `resolveTenant` and `receive` faked so this never touches Postgres
- * or storage. The certificates are throwaway ones generated here.
+ * client, the recipient lookup and `receive` faked so this never touches Postgres
+ * or storage. The certificates are throwaway ones generated here. Since 0.4.4 also:
+ * account addresses next to the tenant's, one tenant per transaction (452), the
+ * per-address limit (451) and what the receiver gets of the SMTP envelope.
  */
 
 const config: Pick<Config["journal"], "hostname" | "maxSizeBytes"> = {
@@ -51,23 +54,38 @@ afterEach(async () => {
 });
 
 async function start(options: {
-  resolveTenant: (providerDb: Database, address: string) => Promise<string | null>;
+  /** The tenant of a journal address (shorthand for {@link resolveRecipient}). */
+  resolveTenant?: (providerDb: Database, address: string) => Promise<string | null>;
+  resolveRecipient?: (providerDb: Database, address: string) => Promise<ArchiveRecipient | null>;
   receive: (
     tenantId: string,
     raw: Buffer,
-    deps: JournalReceiverDeps,
-  ) => Promise<archive.ArchiveItemRecord>;
+    delivery: ArchiveDelivery,
+  ) => Promise<archive.ArchiveItemRecord | ArchiveReceipt>;
   tls?: JournalServerTls;
   logger?: JournalServerOptions["logger"];
+  addressRateLimiter?: JournalServerOptions["addressRateLimiter"];
 }): Promise<number> {
+  const resolveTenant = options.resolveTenant ?? (async () => null);
   server = createJournalServer({
     config,
     tls: options.tls ?? tlsMode,
     providerDb: fakeProviderDb,
     receiverDeps: fakeReceiverDeps,
     rateLimiter: createInMemoryRateLimiter(1000),
-    resolveTenant: options.resolveTenant,
-    receive: options.receive,
+    ...(options.addressRateLimiter ? { addressRateLimiter: options.addressRateLimiter } : {}),
+    resolveRecipient:
+      options.resolveRecipient ??
+      (async (db, address) => {
+        const tenantId = await resolveTenant(db, address);
+        return tenantId ? { kind: "tenant", tenantId } : null;
+      }),
+    receive: async (delivery, raw) => {
+      const result = await options.receive(delivery.tenantId, raw, delivery);
+      return "itemId" in result
+        ? result
+        : { kind: "journal_report", outcome: "stored", itemId: result.id, flags: result.flags };
+    },
     ...(options.logger ? { logger: options.logger } : {}),
   });
   await new Promise<void>((resolve) => server?.listen(0, resolve));
@@ -340,7 +358,6 @@ describe("journal SMTP receiver, TLS with a certificate", () => {
         tls: { mode: "tls", key: Buffer.alloc(0), cert: Buffer.alloc(0) },
         providerDb: fakeProviderDb,
         receiverDeps: fakeReceiverDeps,
-        ...acceptAll,
       }),
     ).toThrow(/non-empty TLS certificate and key/);
   });
@@ -375,5 +392,143 @@ describe("journal SMTP receiver, the explicit insecure opt-out", () => {
         text: "hello",
       });
     expect(received).toHaveLength(1);
+  });
+});
+
+describe("archive SMTP receiver, recipients and limits (0.4.4)", () => {
+  const OTHER_TENANT = "33333333-3333-3333-3333-333333333333";
+  const ACCOUNT = "44444444-4444-4444-4444-444444444444";
+  const recipients = async (_db: Database, address: string): Promise<ArchiveRecipient | null> => {
+    switch (address) {
+      case "journal+known@archive.example.com":
+        return { kind: "tenant", tenantId: fakeRecord.tenantId };
+      case "archive+alice@archive.example.com":
+        return { kind: "account", tenantId: fakeRecord.tenantId, protectedObjectId: ACCOUNT };
+      case "journal+other@archive.example.com":
+        return { kind: "tenant", tenantId: OTHER_TENANT };
+      default:
+        return null;
+    }
+  };
+
+  async function deliver(
+    port: number,
+    from: string,
+    to: readonly string[],
+  ): Promise<{ codes: number[]; data: number | null }> {
+    const session = await rawSmtp(port);
+    await session.send("EHLO mx.hoster.example");
+    const codes = [(await session.send(`MAIL FROM:<${from}>`)).code];
+    for (const address of to) {
+      codes.push((await session.send(`RCPT TO:<${address}>`)).code);
+    }
+    let data: number | null = null;
+    if (codes.slice(1).includes(250)) {
+      await session.send("DATA");
+      data = (await session.send("Subject: copy\r\nMessage-ID: <c@x>\r\n\r\nhello\r\n.")).code;
+    }
+    session.close();
+    return { codes, data };
+  }
+
+  it("takes an account address and the tenant's together and hands over the SMTP envelope", async () => {
+    const deliveries: ArchiveDelivery[] = [];
+    const port = await start({
+      tls: { mode: "insecure" },
+      resolveRecipient: recipients,
+      receive: async (_tenantId, _raw, delivery) => {
+        deliveries.push(delivery);
+        return { kind: "forwarded_copy", outcome: "stored", itemId: fakeRecord.id, flags: [] };
+      },
+    });
+    const result = await deliver(port, "SRS0=ab=cd=example.org=bob@hoster.example", [
+      "archive+alice@archive.example.com",
+      "journal+known@archive.example.com",
+    ]);
+    expect(result).toEqual({ codes: [250, 250, 250], data: 250 });
+    expect(deliveries).toEqual([
+      {
+        tenantId: fakeRecord.tenantId,
+        recipients: [
+          { kind: "account", tenantId: fakeRecord.tenantId, protectedObjectId: ACCOUNT },
+          { kind: "tenant", tenantId: fakeRecord.tenantId },
+        ],
+        mailFrom: "SRS0=ab=cd=example.org=bob@hoster.example",
+        rcptTo: ["archive+alice@archive.example.com", "journal+known@archive.example.com"],
+      },
+    ]);
+  });
+
+  it("answers 452 for a recipient of a second tenant and delivers for the first only", async () => {
+    const deliveries: ArchiveDelivery[] = [];
+    const port = await start({
+      tls: { mode: "insecure" },
+      resolveRecipient: recipients,
+      receive: async (_tenantId, _raw, delivery) => {
+        deliveries.push(delivery);
+        return fakeRecord;
+      },
+    });
+    const result = await deliver(port, "bob@example.org", [
+      "journal+known@archive.example.com",
+      "journal+other@archive.example.com",
+    ]);
+    expect(result).toEqual({ codes: [250, 250, 452], data: 250 });
+    expect(deliveries.map((delivery) => delivery.tenantId)).toEqual([fakeRecord.tenantId]);
+    expect(deliveries[0]?.rcptTo).toEqual(["journal+known@archive.example.com"]);
+  });
+
+  it("starts every transaction afresh: the second tenant in its own transaction is accepted", async () => {
+    const tenants: string[] = [];
+    const port = await start({
+      tls: { mode: "insecure" },
+      resolveRecipient: recipients,
+      receive: async (tenantId) => {
+        tenants.push(tenantId);
+        return fakeRecord;
+      },
+    });
+    const session = await rawSmtp(port);
+    await session.send("EHLO mx.hoster.example");
+    for (const address of [
+      "journal+known@archive.example.com",
+      "journal+other@archive.example.com",
+    ]) {
+      expect((await session.send("MAIL FROM:<bob@example.org>")).code).toBe(250);
+      expect((await session.send(`RCPT TO:<${address}>`)).code).toBe(250);
+      await session.send("DATA");
+      expect((await session.send("Subject: x\r\n\r\nx\r\n.")).code).toBe(250);
+    }
+    session.close();
+    expect(tenants).toEqual([fakeRecord.tenantId, OTHER_TENANT]);
+  });
+
+  it("answers 451 at RCPT TO when an address is over its per-minute limit", async () => {
+    const port = await start({
+      tls: { mode: "insecure" },
+      resolveRecipient: recipients,
+      addressRateLimiter: createInMemoryRateLimiter(1),
+      receive: async () => fakeRecord,
+    });
+    expect(
+      await deliver(port, "bob@example.org", ["archive+alice@archive.example.com"]),
+    ).toMatchObject({ codes: [250, 250], data: 250 });
+    expect(await deliver(port, "bob@example.org", ["archive+alice@archive.example.com"])).toEqual({
+      codes: [250, 451],
+      data: null,
+    });
+    // Another address is not limited by it.
+    expect(
+      await deliver(port, "bob@example.org", ["journal+known@archive.example.com"]),
+    ).toMatchObject({ codes: [250, 250], data: 250 });
+  });
+
+  it("forgets quiet keys of the limiter", () => {
+    let now = 0;
+    const limiter = createInMemoryRateLimiter(1, 1_000, () => now);
+    expect(limiter.allow("a")).toBe(true);
+    expect(limiter.allow("a")).toBe(false);
+    now = 5_000;
+    expect(limiter.allow("a")).toBe(true);
   });
 });

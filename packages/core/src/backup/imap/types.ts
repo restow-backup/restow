@@ -159,6 +159,23 @@ export interface ImapSession {
   /** Byte-exact sources of the given UIDs, in server order. UIDs the server does not return are simply absent. */
   fetchSources(uids: readonly number[]): AsyncIterable<ImapMessageSource>;
   closeFolder(): Promise<void>;
+  /**
+   * STATUS (UIDVALIDITY, UIDNEXT, MESSAGES) of a folder without selecting it: how the
+   * archive capture (../../archive/imap-capture.ts) sees whether a folder has new mail.
+   * The open folder, if any, stays open.
+   */
+  status(path: string): Promise<ImapFolderStatus>;
+  /** UIDs above `uid` in the open folder (UID SEARCH UID uid+1:*), ascending. */
+  uidsAbove(uid: number): Promise<number[]>;
+  /** Whether the server announced IDLE (RFC 2177) in its capabilities. */
+  readonly idleSupported: boolean;
+  /**
+   * IDLE on the open folder: yields once whenever new mail arrived (EXISTS grew) since the
+   * last yield. Another command on the session (STATUS, a FETCH) ends IDLE for its
+   * duration; the iteration starts it again on its next step. Ends when `signal` fires;
+   * throws an {@link ImapSessionError} (connection lost) when the connection drops.
+   */
+  idle(signal: AbortSignal): AsyncIterable<"exists">;
   /** True while the underlying connection can still take commands. */
   readonly usable: boolean;
   logout(): Promise<void>;
@@ -167,6 +184,11 @@ export interface ImapSession {
 export interface ImapConnectOptions {
   readonly logger: Logger;
   readonly signal: AbortSignal;
+  /**
+   * Restart IDLE after this long (the archive capture's IDLE connections): servers drop an
+   * IDLE that lasts longer than 30 minutes (RFC 2177 recommends re-issuing it before 29).
+   */
+  readonly maxIdleTimeMs?: number;
 }
 
 export interface ImapConnector {

@@ -405,8 +405,9 @@ instead of creating its own. Check 3 also proves, in both builds, that the setup
 exactly that tenant, named as the setup request says and listed first in the profile, and
 check 1's upgrade from the previous release proves that the one tenant of an update from
 0.1.x becomes the own organisation. Check 6 (the journal receiver, a Business
-module) and check 8 (it needs one tenant per storage target; the targets are core code,
-checked in the full run) are reported as skipped with that reason.
+module), check 8 (it needs one tenant per storage target; the targets are core code,
+checked in the full run) and check 13 (archive capture, Business) are reported as skipped
+with that reason.
 
 It needs Docker with compose and buildx, Node 22 and, for check 9, `pnpm` (or corepack). It
 copies `deploy/release/docker-compose.yml` into `smoke-out/run/stack`, generates every
@@ -485,6 +486,15 @@ The checks:
     refused as `share.empty_source` with its restore points untouched, and the api and the
     worker never restarted. The Docker host needs the `cifs` kernel module: both workflows load
     it (`linux-modules-extra-$(uname -r)` on the runner) before the smoke runs.
+13. **Archive capture** (docs/IMAP.md "Archivierung" and "Weiterleitung", full build): an
+    account of the Dovecot of check 5 with two older mails; a mail job with archive on and
+    both IMAP ways; the capture service activates the account, the backfill takes over the
+    older mails flagged captured late, the account is watched with IDLE and a new mail is
+    archived as `imap_sync` within seconds; the account's archive address issued once through
+    the API; the same mail forwarded to it over SMTP (STARTTLS) becomes the `smtp_forward`
+    item that supersedes the synced one; a copy to the account and the tenant address in one
+    transaction is one item and one capture row; the forwarding page shows the account
+    receiving; the hash chain verifies over every item. The Graph way is not part of it.
 
 ### What the smoke does not do
 
@@ -498,7 +508,7 @@ The report states each of these; none is ever shown as a pass.
 - Upgrade path: there is no earlier public release for 0.1.0, so check 1 reports that step
   as not run. It runs from the next release on (the workflow finds the previous release),
   for each build from its own previous images.
-- The Community run skips check 6 and check 8 (above) and says so in its report; the
+- The Community run skips checks 6, 8 and 13 (above) and says so in its report; the
   same code is checked in the full run.
 - Check 12 runs against Samba only: no Windows Server, no NAS, no NFS (a kernel NFS server
   needs a privileged container), no file held open by another client (the per-file warning

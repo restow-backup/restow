@@ -156,6 +156,29 @@ export class PgStreamStore {
     return (result.rowCount ?? 0) > 0;
   }
 
+  /**
+   * Record an activation while `owner` holds the lease: the way's state, `activated_at` and
+   * `backfilling`, before the backfill is queued, so the backfill job (which may start at
+   * once) reads both. False when the lease was lost.
+   */
+  async activate(
+    owner: string,
+    id: string,
+    state: ArchiveStreamState,
+    activatedAt: Date,
+  ): Promise<boolean> {
+    const result = await this.db.execute(sql`
+      update archive_capture_streams set
+        state = ${JSON.stringify(state)}::jsonb,
+        activated_at = coalesce(activated_at, ${activatedAt.toISOString()}::timestamptz),
+        status = case when status = 'pending' then 'backfilling'::archive_stream_status
+                      else status end,
+        updated_at = now()
+       where id = ${id}::uuid and lease_owner = ${owner}
+    `);
+    return (result.rowCount ?? 0) > 0;
+  }
+
   /** Write a pass's outcome and release the lease; false when the lease was lost. */
   async complete(owner: string, id: string, outcome: StreamOutcome): Promise<boolean> {
     const ok = outcome.failure === null;

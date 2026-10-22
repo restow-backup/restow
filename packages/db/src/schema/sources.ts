@@ -122,6 +122,10 @@ export type SourceConfig = {
   // sealed secret carries the same). "google" makes the source's accounts Google
   // Workspace for the archive's capture ways (packages/db archive-capture.ts captureKindOf).
   oauth2Provider?: "microsoft" | "google" | "custom";
+  // imap: whether the archive capture keeps one IMAP IDLE connection open per account
+  // (docs/IMAP.md "Archivierung"). Absent = "auto" (IDLE where the server offers it, within
+  // the worker's budget); "off" = poll only, for providers with a tight connection limit.
+  archiveIdle?: "auto" | "off";
   // m365: whether an administrator confirmed that a retention policy or litigation hold
   // keeps deleted mail in the tenant (docs/ARCHIVE.md, Graph capture). Restow cannot read it
   // from Graph; `unknown` until confirmed (audited `archive.hold.confirmed`).

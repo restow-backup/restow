@@ -8,10 +8,12 @@
  * as unavailable in this build; nothing fails.
  */
 import { graphCaptureWay } from "./graph.js";
+import { createImapCaptureWay } from "./imap.js";
 import type { CaptureWay, MailboxWay } from "./ways.js";
 
 export const CAPTURE_WAYS: Partial<Record<MailboxWay, CaptureWay>> = {
   graph_sync: graphCaptureWay,
+  imap_sync: createImapCaptureWay(),
 };
 
 /** The way registered for `way` (tests replace the table through `ways` options instead). */

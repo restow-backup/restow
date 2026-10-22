@@ -204,6 +204,7 @@ describe("toDto", () => {
       lastProbe: null,
       imapAuthMode: "shared",
       masterUser: null,
+      archiveIdle: "auto",
     });
     expect(JSON.stringify(dto)).not.toContain("9d8e9f00");
   });

@@ -59,6 +59,30 @@ private repository.
   Security & Compliance PowerShell commands to check litigation holds and retention policies
   before confirming a hold. Graph v1.0 offers no way to read them (spike result in
   docs/MICROSOFT.md).
+- IMAP archiving (Business; docs/IMAP.md "Archivierung"): the capture way `imap_sync` archives an
+  IMAP account continuously. Activation records where every folder stands, the one-time takeover
+  brings in the mail that was there (resumable, flagged captured late), and every pass reads only
+  new mail: STATUS per folder, metadata first, sources only of mail the archive does not hold for
+  the account yet. All folders but Drafts; on Gmail and Google Workspace only All Mail, Spam and
+  Trash. A changed UIDVALIDITY reads the folder again without archiving anything twice. Up to
+  `ARCHIVE_IMAP_IDLE_MAX` (300) accounts per worker are watched with IMAP IDLE, shared between
+  worker processes through Postgres locks, with a STATUS round over the other folders every
+  `ARCHIVE_IMAP_POLL_MINUTES` (5); other accounts are polled every
+  `ARCHIVE_IMAP_LOGIN_POLL_MINUTES` (10). New source setting `archiveIdle` (`auto`, `off`) for
+  providers with a tight connection limit. Why an account is polled is shown as
+  `imap.idle_unsupported`, `imap.idle_disabled` or `imap.idle_budget`.
+- Forwarded copies into the archive (Business; docs/IMAP.md "Weiterleitung"): the receiver takes
+  plain copies a provider forwards (Postfix BCC maps, mailcow, Sieve `redirect :copy`, Google
+  Workspace routing) as source `smtp_forward`, next to Exchange journal reports. Every IMAP
+  account can have its own archive address `archive+<token>@<journal host>`; a copy to it belongs
+  to exactly that account, a copy to the tenant's journal address is assigned by its headers and
+  `MAIL FROM`. New routes `GET /api/v1/archive/forwarding` (accounts, addresses, copies of the
+  last 7 days; issues nothing), `POST /api/v1/archive/forwarding/:objectId/address` (issued once,
+  audited `archive.forward.address_created`) and `POST /api/v1/archive/forwarding/:objectId/rotate`
+  (audited `archive.forward.address_rotated`, fingerprints only).
+- `GET /api/v1/archive/journal` names `firstReportAt`, the first journal report that arrived.
+- Release smoke check 13: IMAP archiving with backfill and IDLE, forwarded copies and their
+  dedupe against the synced mail, against the Dovecot of check 5.
 
 ### Changed
 
@@ -71,6 +95,13 @@ private repository.
   imported messages are still stored as items of their own.
 - The archive record format gains the optional `bodyHash` and `supersedesItemId` and the source
   `smtp_forward` (packages/core archive/FORMAT.md); records written before stay as they are.
+- Journal receiver: one SMTP transaction delivers into one tenant's archive; a recipient of a
+  second tenant is answered 452 and delivered by the sender separately. The limit per sending IP
+  rises from 60 to 600 connections per minute (`JOURNAL_RATE_PER_IP`), and a new limit per
+  archive address (`JOURNAL_RATE_PER_ADDRESS`, 300 per minute) answers 451. Mail to the journal
+  address that is not a journal report (no `X-MS-Journal-Report` header and not built like one)
+  is archived as a forwarded copy with its own headers' envelope instead of as an incomplete
+  report.
 
 ### Fixed
 

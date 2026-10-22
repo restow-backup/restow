@@ -66,6 +66,8 @@ function fixtureConfig(overrides: Partial<Config> = {}): Config {
       tlsKeyPath: undefined,
       allowInsecure: false,
       maxSizeBytes: 150 * 1024 * 1024,
+      ratePerIp: 600,
+      ratePerAddress: 300,
     },
     imports: {
       dir: "/var/lib/restow/import",

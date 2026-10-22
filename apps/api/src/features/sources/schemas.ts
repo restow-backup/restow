@@ -102,6 +102,12 @@ export type ImapConnectionInput = z.infer<typeof imapConnectionSchema>;
  *     {@link masterUserSchema}.
  */
 export const imapAuthModeSchema = z.enum(["shared", "per_mailbox", "master_user"]);
+
+/**
+ * Whether the archive capture watches the source's accounts with IMAP IDLE (one connection
+ * each, docs/IMAP.md "Archivierung"): `auto` (default) or `off` (poll only).
+ */
+export const archiveIdleSchema = z.enum(["auto", "off"]);
 export type ImapAuthMode = z.infer<typeof imapAuthModeSchema>;
 
 /**
@@ -128,6 +134,7 @@ export const createImapSourceSchema = imapConnectionSchema.extend({
   password: z.string().min(1).max(4096).optional(),
   imapAuthMode: imapAuthModeSchema.default("shared"),
   masterUser: masterUserSchema.optional(),
+  archiveIdle: archiveIdleSchema.optional(),
 });
 export type CreateImapSourceInput = z.infer<typeof createImapSourceSchema>;
 
@@ -158,6 +165,7 @@ export const updateSourceSchema = z
     imapAuthMode: imapAuthModeSchema.optional(),
     // Replaces the master-user shape wholesale; null clears it (back to no master user).
     masterUser: masterUserSchema.nullable().optional(),
+    archiveIdle: archiveIdleSchema.optional(),
   })
   .strict()
   .refine((patch) => Object.keys(patch).length > 0, { message: "Nothing to update." });

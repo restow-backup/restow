@@ -238,6 +238,10 @@ export interface JournalConfig {
   allowInsecure: boolean;
   /** Maximum accepted message size in bytes (docs/IMAP.md: 150 MB default). */
   maxSizeBytes: number;
+  /** Connections per remote IP per minute (`JOURNAL_RATE_PER_IP`, default 600; 421 beyond). */
+  ratePerIp: number;
+  /** Deliveries per archive address per minute (`JOURNAL_RATE_PER_ADDRESS`, default 300; 451 beyond). */
+  ratePerAddress: number;
 }
 
 /**
@@ -354,6 +358,8 @@ export function loadConfig(env: Env = process.env): Config {
         int(env, "JOURNAL_MAX_SIZE_MB") !== undefined
           ? (int(env, "JOURNAL_MAX_SIZE_MB") as number) * 1024 * 1024
           : 150 * 1024 * 1024,
+      ratePerIp: positiveInt(env, "JOURNAL_RATE_PER_IP", 600),
+      ratePerAddress: positiveInt(env, "JOURNAL_RATE_PER_ADDRESS", 300),
     },
     imports: {
       dir: str(env, "IMPORT_DIR") ?? DEFAULT_IMPORT_DIR,

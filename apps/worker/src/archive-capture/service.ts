@@ -248,6 +248,11 @@ export class ArchiveCaptureService {
         logger: this.deps.logger.child({ way: way.way }),
         signal: this.stopController.signal,
         markDue: (ids) => this.store.markDue(ids),
+        keyring: (tenantId) => this.deps.keyrings.get(tenantId),
+        active: () =>
+          this.enabled &&
+          !this.stopController.signal.aborted &&
+          !(this.deps.updateDrain?.draining?.() ?? this.drainRequested),
       });
     }
     this.loop = this.run();
@@ -482,8 +487,14 @@ export class ArchiveCaptureService {
       };
       if (stream.activatedAt === null && ensured.activated) {
         activatedAt = this.now();
+        // Persisted before the backfill is queued: the job may start before this pass ends,
+        // and it reads the way's state (where live capture starts) and `activated_at`.
+        if (!(await this.store.activate(this.owner, stream.id, state, activatedAt))) {
+          throw new Error("the stream's lease was lost during its activation");
+        }
         // Live capture works: from here on the one-time takeover of the existing mail runs.
-        backfillJobId = (await this.enqueueBackfill({ ...stream, activatedAt })) ?? undefined;
+        backfillJobId =
+          (await this.enqueueBackfill({ ...stream, state, activatedAt })) ?? undefined;
         logger.info("archive capture stream activated", { backfillJobId });
       }
       const status = workingStatus({
