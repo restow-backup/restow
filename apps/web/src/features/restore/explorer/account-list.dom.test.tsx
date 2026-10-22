@@ -134,7 +134,6 @@ function stubPeople(people: PersonEntry[], sites: PersonEntry[] = [], pageSize =
 const slots = (name: string) => [
   ...document.querySelectorAll<HTMLElement>(`[data-slot="${name}"]`),
 ];
-const text = () => document.body.textContent ?? "";
 
 describe("the people list", () => {
   it("shows a person's mailbox and OneDrive as one entry, a deleted account marked, sites apart", async () => {
@@ -151,7 +150,10 @@ describe("the people list", () => {
     expect(carla?.textContent).toContain("Attention");
     expect(carla?.getAttribute("aria-current")).toBe("true");
     expect(dieter?.textContent).toContain("Account deleted");
-    expect(text()).toContain("SharePoint & Teams sites");
+    // Sites and Microsoft 365 group mailboxes share the heading (0.4.5).
+    expect(
+      document.querySelector('[data-slot="account-sites"] [cmdk-group-heading]')?.textContent,
+    ).toBe("SharePoint & Teams");
     expect(slots("account-site").map((node) => node.textContent)).toEqual([
       expect.stringContaining("Projekt Nordlicht"),
     ]);
