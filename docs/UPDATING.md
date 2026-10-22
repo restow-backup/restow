@@ -179,6 +179,14 @@ ten million rows of the table on SSD storage (count them with
 `SELECT count(*) FROM jobs;` and the like beforehand), seconds on most
 installations, and several minutes for the `jobs` table of a large one.
 
+The same holds for the 0.4.4 migration `0061_explorer_parent_index`: two indexes on
+`manifest_versions`, the backup index of Microsoft 365 mailboxes, OneDrives and sites,
+which the restore explorer lists folders from. That table is usually the largest of an
+installation (one row per mail, file or event, and per change of one); during the build,
+backups of Microsoft 365 wait to record their restore point. Count it beforehand with
+`SELECT count(*) FROM manifest_versions;` and plan the update outside the backup window
+when it holds tens of millions of rows.
+
 If the updater ever wrote `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` into `.env`,
 those two lines decide which images the services run. Change them, or remove
 them to go back to building from the source checkout. `RESTOW_UPDATER_IMAGE`

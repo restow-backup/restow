@@ -46,7 +46,10 @@ Postgres-Service bereit und setzt die Variable.
   `features/snapshots/calendar.pg.test.ts` (Kalender im Explorer: Termine nach Beginn,
   Monatsansicht mit Serien aus echtem verschlüsseltem Inhalt),
   `features/snapshots/people.pg.test.ts` (Personen im Explorer seitenweise: stabiler Keyset,
-  Suche, Typfilter, eigener Eintrag zuerst), `features/webhooks/integrations.pg.test.ts`
+  Suche, Typfilter, eigener Eintrag zuerst), `features/snapshots/explorer-scale.pg.test.ts`
+  (Ordnerliste eines Postfachs mit 60 000 Nachrichten und eines OneDrive mit 20 000 Ordnern
+  über den Index: Plan ohne Scan aller Einträge, gleiche Zeilen wie der vollständige Scan,
+  rund 25 s), `features/webhooks/integrations.pg.test.ts`
 - ee (Business und Service Provider): `ee/api/src/license/license.pg.test.ts` (Schlüssel
   mit einem Wegwerf-Testschlüssel aus `ee/licensing/testing/test-signer.mjs`),
   `ee/api/src/audit-log/audit.pg.test.ts`,
