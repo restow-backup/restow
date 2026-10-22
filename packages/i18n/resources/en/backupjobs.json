@@ -514,7 +514,8 @@
   "pause": {
     "title": "Pause {name}?",
     "description": "{count, plural, one {# object is not backed up on a schedule while the job is paused.} other {# objects are not backed up on a schedule while the job is paused.}} Nothing is deleted; resume it any time.",
-    "confirm": "Pause job"
+    "confirm": "Pause job",
+    "archiveContinues": "This job also archives: archiving continues while the job is paused. It stops only when you switch archiving, or a capture way, off in the job."
   },
   "delete": {
     "title": "Delete {name}?",
@@ -606,7 +607,8 @@
         "copy": "e.g. Projects to the second site"
       },
       "enabled": "Switched on",
-      "enabledHint": "Switched off, the job keeps its settings but does not run."
+      "enabledHint": "Switched off, the job keeps its settings but does not run.",
+      "enabledArchive": "Archiving continues while the job is switched off; it stops only when archiving or a capture way is switched off."
     },
     "scope": {
       "title": {
@@ -824,6 +826,16 @@
       "setupJournal": "Set up journaling",
       "setupForward": "Set up forwarding",
       "noWay": "Choose at least one way for these mailboxes."
+    },
+    "captureStop": {
+      "archiveTitle": "Stop archiving the mail of this job?",
+      "archiveDescription": "From now on, new mail of these mailboxes is no longer archived.",
+      "archiveConfirm": "Stop archiving",
+      "waysTitle": "Switch these capture ways off?",
+      "waysDescription": "From now on, these ways no longer capture new mail of these mailboxes:",
+      "way": "{way} for {kind}",
+      "waysConfirm": "Switch off",
+      "kept": "The archive kept so far stays unchanged until the end of its retention."
     }
   },
   "folders": {

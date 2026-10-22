@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   captureKeysOf,
   captureKindsOfScope,
+  captureReduction,
   DEFAULT_CAPTURE_WAYS,
   effectiveCaptureWays,
   forwardingChosen,
@@ -85,5 +86,36 @@ describe("capture ways in the job draft", () => {
     });
     // A job that stops archiving keeps its ways as they are.
     expect(updateInputOf(job, { ...changed, archive: false })).toEqual({ archive: false });
+  });
+});
+
+describe("what a save stops capturing", () => {
+  const saved = {
+    archive: true,
+    archiveCapture: withWay(DEFAULT_CAPTURE_WAYS, "imap", "forward", true),
+  };
+
+  it("names archiving switched off, and nothing for a job that did not archive", () => {
+    const draft = { archive: false, archiveCapture: DEFAULT_CAPTURE_WAYS };
+    expect(captureReduction(saved, draft, ["imap"])).toEqual({ archiveOff: true, ways: [] });
+    expect(captureReduction({ ...saved, archive: false }, draft, ["imap"])).toBeNull();
+  });
+
+  it("names each way switched off for a kind the job covers, not ways added", () => {
+    const draft = {
+      archive: true,
+      archiveCapture: withWay(
+        withWay(saved.archiveCapture, "imap", "sync", false),
+        "m365",
+        "journal",
+        true,
+      ),
+    };
+    expect(captureReduction(saved, draft, ["imap", "m365"])).toEqual({
+      archiveOff: false,
+      ways: [{ key: "imap", field: "sync" }],
+    });
+    // A kind the job does not cover is no reduction.
+    expect(captureReduction(saved, draft, ["m365"])).toBeNull();
   });
 });

@@ -45,7 +45,12 @@ import {
   type JobScopeMode,
   LIMITS,
 } from "../api.js";
-import { captureKindsOfScope, serverCaptureKeys } from "../capture-ways.js";
+import {
+  type CaptureReduction,
+  captureKindsOfScope,
+  captureReduction,
+  serverCaptureKeys,
+} from "../capture-ways.js";
 import { withDataFolder } from "../folders.js";
 import {
   archiveBackupCadence,
@@ -404,6 +409,10 @@ function EditorForm({
     less: JobRetention;
     options: { moveMembers?: boolean };
   } | null>(null);
+  const [captureStop, setCaptureStop] = React.useState<{
+    reduction: CaptureReduction;
+    options: { moveMembers?: boolean; stricterConfirmed?: boolean };
+  } | null>(null);
   const [saveError, setSaveError] = React.useState<unknown>(null);
   const [saving, setSaving] = React.useState(false);
   const create = useCreateBackupJob();
@@ -444,7 +453,11 @@ function EditorForm({
   const at = (field: ProblemTarget) => (target === field ? serverMessage : undefined);
 
   const save = async (
-    options: { moveMembers?: boolean; stricterConfirmed?: boolean } = {},
+    options: {
+      moveMembers?: boolean;
+      stricterConfirmed?: boolean;
+      captureConfirmed?: boolean;
+    } = {},
   ): Promise<void> => {
     setAttempted(true);
     setSaveError(null);
@@ -461,6 +474,14 @@ function EditorForm({
       );
       if (less) {
         setStricter({ less, options });
+        return;
+      }
+    }
+    // Switching archiving or a capture way off stops capturing new mail from now on: ask first.
+    if (job && kind === "mail" && !options.captureConfirmed) {
+      const reduction = captureReduction(job, draft, captureKinds);
+      if (reduction) {
+        setCaptureStop({ reduction, options });
         return;
       }
     }
@@ -662,6 +683,7 @@ function EditorForm({
                     <Label htmlFor={ids("enabled")}>{t("editor.general.enabled")}</Label>
                     <p id={messageId(ids("enabled"))} className="text-xs text-muted-foreground">
                       {t("editor.general.enabledHint")}
+                      {draft.archive ? ` ${t("editor.general.enabledArchive")}` : null}
                     </p>
                   </div>
                   <Switch
@@ -1133,6 +1155,52 @@ function EditorForm({
           const pending = stricter;
           setStricter(null);
           void save({ ...(pending?.options ?? {}), stricterConfirmed: true });
+        }}
+      />
+      <ConfirmDialog
+        open={captureStop !== null}
+        onOpenChange={(next) => {
+          if (!next) setCaptureStop(null);
+        }}
+        title={t(
+          captureStop?.reduction.archiveOff
+            ? "editor.captureStop.archiveTitle"
+            : "editor.captureStop.waysTitle",
+        )}
+        description={
+          <>
+            <p>
+              {t(
+                captureStop?.reduction.archiveOff
+                  ? "editor.captureStop.archiveDescription"
+                  : "editor.captureStop.waysDescription",
+              )}
+            </p>
+            {captureStop && captureStop.reduction.ways.length > 0 ? (
+              <ul className="list-disc pl-5" data-slot="capture-stop-list">
+                {captureStop.reduction.ways.map((way) => (
+                  <li key={`${way.key}-${way.field}`}>
+                    {t("editor.captureStop.way", {
+                      way: t(`editor.capture.way.${way.key}.${way.field}`),
+                      kind: t(`editor.capture.kind.${way.key}`),
+                    })}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p>{t("editor.captureStop.kept")}</p>
+          </>
+        }
+        confirmLabel={t(
+          captureStop?.reduction.archiveOff
+            ? "editor.captureStop.archiveConfirm"
+            : "editor.captureStop.waysConfirm",
+        )}
+        destructive
+        onConfirm={() => {
+          const pending = captureStop;
+          setCaptureStop(null);
+          void save({ ...(pending?.options ?? {}), captureConfirmed: true });
         }}
       />
       {identity.dialog}

@@ -158,3 +158,38 @@ export function serverCaptureKeys(
   const named = path?.[1];
   return shown.filter((key) => key === named);
 }
+
+/** What a save stops capturing: archiving as a whole, or single ways of the kinds the job covers. */
+export interface CaptureReduction {
+  archiveOff: boolean;
+  ways: { key: CaptureSettingsKey; field: CaptureWayOption["field"] }[];
+}
+
+/**
+ * What an edit of a saved job stops capturing, so the editor asks first: new mail of these
+ * mailboxes is no longer archived (by that way) from the save on; the archive kept so far
+ * stays. Null when nothing stops (a way added, or the job did not archive).
+ */
+export function captureReduction(
+  saved: { archive: boolean; archiveCapture?: ArchiveCaptureSettings },
+  draft: { archive: boolean; archiveCapture: CaptureWays },
+  kinds: readonly CaptureKind[],
+): CaptureReduction | null {
+  if (!saved.archive) {
+    return null;
+  }
+  if (!draft.archive) {
+    return { archiveOff: true, ways: [] };
+  }
+  const before = effectiveCaptureWays(saved.archiveCapture);
+  const ways = captureKeysOf(kinds).flatMap((key) =>
+    CAPTURE_WAY_OPTIONS[key]
+      .filter(
+        (option) =>
+          wayChosen(before, key, option.field) &&
+          !wayChosen(draft.archiveCapture, key, option.field),
+      )
+      .map((option) => ({ key, field: option.field })),
+  );
+  return ways.length > 0 ? { archiveOff: false, ways } : null;
+}

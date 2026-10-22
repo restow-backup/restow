@@ -514,7 +514,8 @@
   "pause": {
     "title": "{name} pausieren?",
     "description": "{count, plural, one {# Objekt wird nicht nach Zeitplan gesichert, solange der Job pausiert ist.} other {# Objekte werden nicht nach Zeitplan gesichert, solange der Job pausiert ist.}} Es wird nichts gelöscht; Sie können ihn jederzeit fortsetzen.",
-    "confirm": "Job pausieren"
+    "confirm": "Job pausieren",
+    "archiveContinues": "Dieser Job archiviert auch: Die Archivierung läuft weiter, während der Job angehalten ist. Sie endet nur, wenn Sie im Job das Archivieren oder einen Erfassungsweg ausschalten."
   },
   "delete": {
     "title": "{name} löschen?",
@@ -606,7 +607,8 @@
         "copy": "z. B. Projekte zum zweiten Standort"
       },
       "enabled": "Eingeschaltet",
-      "enabledHint": "Ausgeschaltet behält der Job seine Einstellungen, läuft aber nicht."
+      "enabledHint": "Ausgeschaltet behält der Job seine Einstellungen, läuft aber nicht.",
+      "enabledArchive": "Die Archivierung läuft auch bei ausgeschaltetem Job weiter; sie endet nur, wenn Sie das Archivieren oder einen Erfassungsweg ausschalten."
     },
     "scope": {
       "title": {
@@ -824,6 +826,16 @@
       "setupJournal": "Journaling einrichten",
       "setupForward": "Weiterleitung einrichten",
       "noWay": "Wählen Sie für diese Postfächer mindestens einen Weg."
+    },
+    "captureStop": {
+      "archiveTitle": "Archivierung für diesen Job beenden?",
+      "archiveDescription": "Neue E-Mails dieser Postfächer werden ab jetzt nicht mehr archiviert.",
+      "archiveConfirm": "Archivierung beenden",
+      "waysTitle": "Diese Erfassungswege ausschalten?",
+      "waysDescription": "Ab jetzt erfassen diese Wege keine neuen E-Mails dieser Postfächer mehr:",
+      "way": "{way} für {kind}",
+      "waysConfirm": "Ausschalten",
+      "kept": "Das bisherige Archiv bleibt unverändert bis zum Ende seiner Aufbewahrungsfrist erhalten."
     }
   },
   "folders": {
