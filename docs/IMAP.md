@@ -144,14 +144,111 @@ Ablauf für einen typischen Hoster ohne Master-User (Hetzner, IONOS, all-inkl):
    Backup-Lauf ansteht. Ein Postfach ohne Passwort oder mit fehlgeschlagenem Test
    zeigt "Nicht geschützt" bzw. den Grund des letzten Tests, nie grün.
 
-## IMAP-Archivierung (Zielbild, nicht in 0.1.0)
+## Archivierung
 
-Fortlaufender Sync, Erfassung bei Ankunft im Postfach (IDLE oder Intervall). Für Vollständigkeit
-empfiehlt Restow eine serverseitige Kopie (Sieve/BCC-Regel oder Journaling beim Anbieter) an
-die Journal-Adresse; die UI zeigt je Konto, welcher Weg aktiv ist. In 0.1.0 gibt es diesen
-Sync nicht: IMAP-Postfächer werden gesichert (Backup), aber nicht fortlaufend archiviert.
-Mail aus einem IMAP-Postfach kommt nur über den Datei-Import (Export des Postfachs) mit
-"gleichzeitig archivieren" ins Archiv (docs/IMPORT.md).
+Ab 0.4.4 archiviert Restow IMAP-Konten fortlaufend (Edition Business und Service Provider,
+Fähigkeit `archive.mailboxCapture`; docs/ARCHIVE.md, "Erfassungswege"). Ein Mail-Job mit
+Archiv wählt je Art des Postfachs die Wege: für IMAP und Google Workspace die
+IMAP-Synchronisation (`archiveCapture.imap.sync` bzw. `.google.sync`, Standard) und/oder die
+weitergeleitete Kopie (`.forward`, siehe "Weiterleitung"). Beide dürfen zusammen laufen; was
+beide erfassen, liegt einmal im Archiv.
+
+**Was erfasst wird.** Jeder auswählbare Ordner, auch Gesendet, Papierkorb und Spam; Entwürfe
+nicht (Ordner mit `\Drafts` oder dem Namen Drafts/Entwürfe, und jede Mail mit dem Flag
+`\Draft`). Bei Gmail und Google Workspace erscheint jede Mail einmal je Label: gelesen werden
+dort nur `[Gmail]/All Mail` (Alle Nachrichten), Spam und Papierkorb, die jede Mail genau einmal
+halten. Erkannt wird ein Google-Konto an der OAuth2-Quelle von Google, am Host
+`imap.gmail.com`/`imap.googlemail.com` oder an der Ordnerliste (`\All` unter `[Gmail]`).
+
+**Wie.** Bei der Aktivierung merkt sich der Worker je Ordner UIDVALIDITY und UIDNEXT. Mail bis
+dahin übernimmt einmalig der Backfill-Job ("Archiv-Übernahme", fortsetzbar, markiert als
+nachträglich erfasst), danach erfasst jeder Durchlauf nur Neues: STATUS je Ordner, und nur ein
+Ordner, dessen UIDNEXT weitergerückt ist, wird geöffnet; von neuen UIDs erst die Metadaten,
+dann nur die Quellen der Mails, die das Archiv für dieses Konto noch nicht hält (nach
+`<Ordner>;<UIDVALIDITY>;<UID>` oder Message-ID). Eine verschobene Mail oder eine schon
+weitergeleitete Kopie wird so nicht erneut geladen. Ändert sich UIDVALIDITY, wird der Ordner
+von vorn gelesen, ohne Doppel im Archiv. Ein Neuabgleich aus der Oberfläche liest alle
+Ordner von vorn.
+
+**IDLE und Polling.** Jeder Worker-Prozess beobachtet bis zu `ARCHIVE_IMAP_IDLE_MAX` Konten
+(Standard 300, `0` schaltet IDLE ab) mit je einer Verbindung per IMAP IDLE auf INBOX (bei
+Gmail auf All Mail), vor 29 Minuten erneuert. Neue Mail löst sofort einen Durchlauf aus; alle
+`ARCHIVE_IMAP_POLL_MINUTES` (Standard 5) fragt dieselbe Verbindung per STATUS die übrigen
+Ordner ab; alle 30 Minuten läuft zur Sicherheit ein voller Durchlauf. Mehrere Worker teilen
+sich die Konten über Postgres-Sperren (eine Verbindung je Worker hält sie), ein abgestürzter
+Worker gibt seine Konten mit seiner Datenbankverbindung frei. Konten ohne IDLE-Platz werden alle
+`ARCHIVE_IMAP_LOGIN_POLL_MINUTES` (Standard 10) per Anmeldung abgefragt. Die Statusseite nennt
+je Konto den Modus und bei Polling den Grund: `imap.idle_unsupported` (Server ohne IDLE),
+`imap.idle_disabled` (Quelle mit Archiv-IDLE aus) oder `imap.idle_budget` (kein freier Platz).
+
+**Verbindungsbudget.** Viele Anbieter begrenzen gleichzeitige Verbindungen je Konto (Gmail 15,
+Exchange Online 20, viele Hoster 2 bis 5). Die Archivierung hält je Konto eine Verbindung
+dauerhaft (IDLE) und während eines Durchlaufs oder der Übernahme kurz eine zweite; das Backup
+nutzt zusätzlich bis zu zwei. Reicht das Limit nicht, die Quelle auf `archiveIdle: "off"`
+stellen (`PATCH /api/v1/sources/:id`, `{"archiveIdle": "off"}`): dann nur Polling, keine
+Dauerverbindung. Die Mailclients der Nutzer brauchen ihre eigenen Verbindungen.
+
+**IMAP auf Microsoft-Hosts** (`outlook.office365.com` u. a.) wird archiviert wie jedes Konto;
+für Microsoft 365 ist eine Microsoft-365-Quelle mit Graph oder Journaling der bessere Weg.
+
+## Weiterleitung
+
+Ein Anbieter kann jede Mail eines Kontos schon beim Transport als Kopie an das Archiv schicken.
+Das erfasst Mail, bevor ein Nutzer sie löschen kann (stärker als die Synchronisation aus dem
+Postfach) und braucht keine IMAP-Verbindung. Der Empfänger ist derselbe wie für Exchange
+Online (Abschnitt "SMTP-Journal-Empfänger", Edition Business und Service Provider); er erkennt
+Journal-Reports am Header `X-MS-Journal-Report` oder an ihrem Aufbau und nimmt alles andere als
+einfache Kopie (Quelle `smtp_forward`).
+
+**Adressen.**
+
+- **Konto-Adresse** `archive+<token>@<JOURNAL_HOSTNAME>`: je IMAP-Konto, auf Anforderung
+  ausgestellt (`POST /api/v1/archive/forwarding/:objectId/address`, einmalig, Audit
+  `archive.forward.address_created`), erneuerbar (`.../rotate`, die alte Adresse wird sofort
+  abgewiesen, Audit `archive.forward.address_rotated`; im Audit-Log steht nur ein
+  Fingerabdruck). Eine Kopie an diese Adresse gehört genau diesem Konto. Für Regeln je Konto.
+- **Mandanten-Adresse** `journal+<token>@<JOURNAL_HOSTNAME>`: die Journal-Adresse des
+  Mandanten. Für domänenweite Regeln; eine einfache Kopie wird den Postfächern zugeordnet,
+  deren Adresse in ihren Kopfzeilen steht (From, To, Cc, Delivered-To, X-Original-To u. a.)
+  oder im `MAIL FROM`.
+
+`GET /api/v1/archive/forwarding` listet die Konten mit Adresse, ob ein Job die Weiterleitung
+gewählt hat, und den Kopien der letzten 7 Tage (je Konto und für die Mandanten-Adresse).
+
+**Einrichtung.**
+
+- **Postfix** (eigener Server): je Konto eine Zeile in `sender_bcc_maps` (gesendete Mail) und
+  `recipient_bcc_maps` (empfangene Mail), z. B. `anna@example.com archive+<token>@archive.example.com`,
+  dann `postmap` und `postfix reload`. Für alle Konten einer Domäne auf einmal `always_bcc`
+  an die Mandanten-Adresse (Zuordnung dann über die Kopfzeilen).
+- **mailcow**: Konfiguration → E-Mail → BCC → BCC-Map je Postfach, Typ "Sender" und
+  "Empfänger", Ziel die Konto-Adresse.
+- **Sieve** (Dovecot Pigeonhole, viele Hoster): im Filter des Kontos
+  `require ["copy"]; redirect :copy "archive+<token>@archive.example.com";`. Erfasst nur
+  eingehende Mail; gesendete Mail kommt über die IMAP-Synchronisation dazu.
+- **Google Workspace**: Admin-Konsole → Apps → Google Workspace → Gmail → Routing →
+  "Weitere Empfänger hinzufügen" (Add more recipients) für eingehende und ausgehende Mail, Ziel
+  die Mandanten-Adresse. Die Weiterleitung je Nutzer in Gmail wird nicht unterstützt (sie
+  verlangt eine Bestätigung im Postfach und lässt sich vom Nutzer abschalten).
+
+**Grenzen.**
+
+- **BCC ist in einer Kopie nicht sichtbar.** Eine weitergeleitete Kopie hat keinen Umschlag
+  wie ein Journal-Report: `RCPT TO` ist die Archiv-Adresse, nicht die Empfänger der Mail.
+  Wer Bcc erhielt, steht nur in der Kopie, wenn der Anbieter es in eine Kopfzeile schreibt
+  (Delivered-To, X-Original-To). Die Konto-Adresse ordnet deshalb sicher zu; die
+  Mandanten-Adresse nur nach dem, was in den Kopfzeilen steht.
+- `MAIL FROM` ist oft eine SRS-Adresse des Weiterleiters; Restow speichert es im Umschlag
+  (`envelopeFrom`), ordnet danach aber nur zu, wenn es eine Adresse des Mandanten ist.
+- Der Empfänger prüft kein SPF des Absenders; die Adresse (zufälliges Token) ist das
+  Geheimnis. Eine Transaktion liefert in genau ein Archiv: ein Empfänger eines zweiten
+  Mandanten erhält 452 und wird vom Absender getrennt zugestellt.
+- Gleiche Mail auf mehreren Wegen: Die Kopie zur Transportzeit ist stärker als die
+  Synchronisation. Kommt sie zuerst, nimmt die Synchronisation dieselbe Mail nicht noch
+  einmal auf; kommt sie danach, wird sie das Element, das das synchronisierte ersetzt
+  (`supersedesItemId`, die Suche zeigt das neuere). Dieselbe Kopie an mehrere Konten oder an
+  Konto- und Mandanten-Adresse ergibt ein Element und je weiterem Empfänger eine
+  Erfassungszeile.
 
 ## SMTP-Journal-Empfänger
 
@@ -160,8 +257,12 @@ Mail aus einem IMAP-Postfach kommt nur über den Datei-Import (Export des Postfa
   Hostname mit MX-Eintrag `archive.<domain>`. Ohne Zertifikat startet der Empfänger nicht,
   mit Zertifikat nimmt er nichts vor STARTTLS an (530), das Testzertifikat der Bibliothek
   wird nie benutzt. Nur Edition Business und Service Provider.
-- Annahme nur für bekannte Journal-Adressen (Token je Mandant), maximale Größe
-  150 MB (`JOURNAL_MAX_SIZE_MB`), einfaches Rate-Limit je Absender-IP.
+- Annahme nur für bekannte Adressen (Journal-Adresse je Mandant, ab 0.4.4 auch Archiv-Adressen
+  je IMAP-Konto, siehe "Weiterleitung"), maximale Größe 150 MB (`JOURNAL_MAX_SIZE_MB`).
+  Grenzen je api-Prozess: Verbindungen je Absender-IP und Minute (`JOURNAL_RATE_PER_IP`,
+  Standard 600, darüber 421) und Zustellungen je Adresse und Minute
+  (`JOURNAL_RATE_PER_ADDRESS`, Standard 300, darüber 451 bei RCPT TO); hoch genug für einen
+  Hoster, der die Mail vieler Konten weiterleitet.
   Absenderprüfung (Zielbild, nicht in 0.1.0): Exchange Online liefert aus
   `*.protection.outlook.com`; den SPF des Absenders zu prüfen ist noch nicht umgesetzt (Journal-Reports
   kommen von der Tenant-Domain bzw. `MicrosoftExchange329e71ec88ae4615bbc36ab6ce41109e@<tenant>.onmicrosoft.com`).
