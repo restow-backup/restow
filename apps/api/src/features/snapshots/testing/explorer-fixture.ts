@@ -268,6 +268,10 @@ export async function createExplorerFixture(db: Database): Promise<ExplorerFixtu
       mtime: day(1),
       metadata: { subject: "Big attachment", format: "json" },
     }),
+    row(mailbox(snapshotId), "mail/Inbox/Big.cccc.attachments", "folder", {
+      itemId: "msg-big/attachments",
+      metadata: { folderKind: "attachments", messageItemId: "msg-big" },
+    }),
     row(mailbox(snapshotId), "mail/Inbox/Big.cccc.attachments/plan.pdf.dddd", "file", {
       itemId: "att-plan",
       metadata: { messagePath: "mail/Inbox/Big.cccc.json" },

@@ -61,6 +61,7 @@ import type {
 } from "./schemas.js";
 import {
   ATTACHMENT_PARENT_KEY,
+  ATTACHMENTS_FOLDER_KIND,
   type BreadcrumbSegment,
   baseNameOf,
   breadcrumbOf,
@@ -69,6 +70,7 @@ import {
   type EntryRow,
   escapeLike,
   eventSummaryOf,
+  FOLDER_KIND_KEY,
   fingerprintOf,
   mailSummaryOf,
   NATIVE_VERSION_MARKER,
@@ -598,6 +600,21 @@ function fromRawEntry(row: RawEntryRow): EntryRow {
   };
 }
 
+/**
+ * Rows (as `alias`) that the explorer and search never show on their own: the
+ * attachments of JSON-format messages and the attachments folder holding them,
+ * both restored together with their message.
+ */
+function notMessageAttachment(alias: string): SQL {
+  return sql`(${sql.raw(alias)}.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL
+    AND NOT ${isAttachmentsFolder(alias)}`;
+}
+
+/** The row (as `alias`) is the attachments folder of a JSON-format message. */
+function isAttachmentsFolder(alias: string): SQL {
+  return sql`coalesce(${sql.raw(alias)}.metadata ->> ${FOLDER_KIND_KEY}::text = ${ATTACHMENTS_FOLDER_KIND}::text, false)`;
+}
+
 function chunkRefsOf(row: RawEntryRow): string[] | null {
   return row.chunk_refs === null || row.chunk_refs === undefined
     ? null
@@ -610,7 +627,8 @@ function chunkRefsOf(row: RawEntryRow): string[] | null {
  * as a parent of deeper rows. Backups do not record every folder (area roots
  * like `mail` or `calendar` have no row of their own), and without these the
  * explorer could not reach anything below them. Attachments of JSON-format
- * messages and OneDrive's own version objects are not browsed.
+ * messages (and their attachments folders) and OneDrive's own version objects
+ * are not browsed.
  *
  * This form reads every entry of the snapshot, and is used only for a snapshot
  * of 0.3.4 or earlier whose per-snapshot rows the worker has not converted yet
@@ -619,6 +637,8 @@ function chunkRefsOf(row: RawEntryRow): string[] | null {
  */
 function legacyListingCte(scope: ListingScope): SQL {
   const path = sql`${scope.path}::text`;
+  // Attachments folders stay in `scope`, flagged: they are not listed, but a child
+  // with a row of its own is never an implicit folder (as in versionListingCte).
   const filters: SQL[] = [sql`(m.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL`];
   if (!scope.includeDeleted) {
     filters.push(sql`m.deleted = false`);
@@ -629,7 +649,8 @@ function legacyListingCte(scope: ListingScope): SQL {
   const childPath = sql`CASE WHEN ${path} = '' THEN n.segment ELSE ${path} || '/' || n.segment END`;
   return sql`
     WITH scope AS (
-      SELECT m.id, m.kind, m.name, m.path, m.parent_path, m.size, m.mtime, m.item_id, m.deleted, m.metadata
+      SELECT m.id, m.kind, m.name, m.path, m.parent_path, m.size, m.mtime, m.item_id, m.deleted, m.metadata,
+             ${isAttachmentsFolder("m")} AS hidden
       FROM ${snapshotEntries(scope.tenantId, [scope.snapshotId])} AS m
       WHERE ${sql.join(filters, sql` AND `)}
     ),
@@ -641,7 +662,7 @@ function legacyListingCte(scope: ListingScope): SQL {
              END AS sort_date,
              false AS implicit
       FROM scope s
-      WHERE s.parent_path = ${path}
+      WHERE s.parent_path = ${path} AND NOT s.hidden
         ${scope.foldersOnly ? sql`AND s.kind = 'folder'` : sql``}
     ),
     nested AS (
@@ -651,7 +672,8 @@ function legacyListingCte(scope: ListingScope): SQL {
                '/', 1) AS segment,
              s.deleted
       FROM scope s
-      WHERE CASE WHEN ${path} = '' THEN s.parent_path <> ''
+      WHERE NOT s.hidden
+        AND CASE WHEN ${path} = '' THEN s.parent_path <> ''
                  ELSE left(s.parent_path, length(${path}) + 1) = ${path} || '/' END
     ),
     implicit AS (
@@ -678,18 +700,25 @@ function legacyListingCte(scope: ListingScope): SQL {
 /**
  * Conditions that make a `manifest_versions` row (as `alias`) an entry of the
  * scope's snapshot that the listing shows: its range holds the snapshot's
- * sequence, and it is not an attachment of a JSON-format message, not deleted
+ * sequence, and it is not an attachment of a JSON-format message (nor its
+ * attachments folder), not deleted
  * (unless asked for) and not one of OneDrive's own versions (for drives and
  * sites). The same filters as {@link legacyListingCte}'s `scope`.
  */
-function listedVersion(scope: ListingScope, alias: string): SQL {
+function listedVersion(
+  scope: ListingScope,
+  alias: string,
+  { attachmentsFolders = false }: { attachmentsFolders?: boolean } = {},
+): SQL {
   const v = sql.raw(alias);
   const filters: SQL[] = [
     sql`${v}.protected_object_id = ${scope.objectId}::uuid`,
     sql`${v}.tenant_id = ${scope.tenantId}::uuid`,
     sql`${v}.first_sequence <= ${scope.sequence}::int`,
     sql`${v}.last_sequence >= ${scope.sequence}::int`,
-    sql`(${v}.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL`,
+    attachmentsFolders
+      ? sql`(${v}.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL`
+      : notMessageAttachment(alias),
   ];
   if (!scope.includeDeleted) {
     filters.push(sql`${v}.deleted = false`);
@@ -799,13 +828,14 @@ function versionListingCte(scope: ListingScope): SQL {
              ${deleted} AS deleted, NULL::timestamptz AS sort_date, true AS implicit
       FROM segments g
       WHERE g.segment <> ''
-        -- A child with a row of its own is listed by direct. In a CASE, so the planner
-        -- keeps this an index probe per child instead of an anti-join over every row of
-        -- the folder; the probes below run only for the children it leaves.
+        -- A child with a row of its own is listed by direct, or hidden as the attachments
+        -- folder of a JSON-format message. In a CASE, so the planner keeps this an index
+        -- probe per child instead of an anti-join over every row of the folder; the
+        -- probes below run only for the children it leaves.
         AND CASE WHEN EXISTS (
               SELECT 1 FROM manifest_versions x
               WHERE x.path = ${childPath} AND x.parent_path = ${parent}::text AND x.name = g.segment
-                AND ${listedVersion(scope, "x")}
+                AND ${listedVersion(scope, "x", { attachmentsFolders: true })}
             ) THEN false ELSE ${entryBelow(sql`true`)} END
     ),
     listing AS (
@@ -1207,7 +1237,7 @@ async function searchSnapshots(
   const metadataField = (key: string) => sql`m.metadata ->> ${key}::text`;
   const result = await tx.execute<RawEntryRow>(sql`
     SELECT m.* FROM ${snapshotEntries(tenantId, snapshotIds)} AS m
-    WHERE ${metadataField(ATTACHMENT_PARENT_KEY)} IS NULL
+    WHERE ${notMessageAttachment("m")}
       AND strpos(m.path, ${NATIVE_VERSION_MARKER}::text) = 0
       AND (${sql.join(
         [

@@ -79,6 +79,16 @@ export function nativeVersionsParent(filePath: string): string {
  */
 export const ATTACHMENT_PARENT_KEY = "messagePath";
 
+/**
+ * The folder those attachments sit in (`<Subject>.<id>.attachments`) is a
+ * folder object with `metadata.folderKind` set to this value. It is restored
+ * with its message as well, so the explorer and search do not list it either:
+ * without its attachments it would only show up as an empty folder next to
+ * every oversized message.
+ */
+export const FOLDER_KIND_KEY = "folderKind";
+export const ATTACHMENTS_FOLDER_KIND = "attachments";
+
 // ---------------------------------------------------------------------------
 // Mail metadata
 // ---------------------------------------------------------------------------

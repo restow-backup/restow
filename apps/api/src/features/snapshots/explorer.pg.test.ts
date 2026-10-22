@@ -99,6 +99,31 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer queries against Postgres", () =
       expect(inbox.hasMore).toBe(false);
     });
 
+    it("hides the attachments folder of an oversized message, which is restored with it", async () => {
+      // packages/core backup/exchange/mail.ts records `<Subject>.<id>.attachments` as
+      // a folder object (folderKind "attachments") next to every JSON-format message.
+      for (const snapshotId of [f.mailbox.first, f.mailbox.second]) {
+        for (const foldersOnly of ["true", "false"]) {
+          const inbox = await listTree(
+            db,
+            f.tenantId,
+            reader(f.admin),
+            snapshotId,
+            tree({ path: "mail/Inbox", foldersOnly }),
+          );
+          const names = inbox.entries.map((e) => e.name);
+          expect(names).not.toContain("Big.cccc.attachments");
+          expect(names).toContain("Projects");
+        }
+      }
+      const hits = await search(db, f.tenantId, reader(f.admin), {
+        q: "Big.cccc",
+        objectId: f.annaMailbox,
+        limit: 100,
+      });
+      expect(hits.hits.map((hit) => hit.name)).toEqual(["Big.cccc.json"]);
+    });
+
     it("sorts dated mail by its own recorded date, not by mtime, when the two disagree", async () => {
       // mtime (the manifest index mtime) is Exchange's lastModifiedDateTime, which a
       // read-flag or category change bumps independently of when the mail arrived

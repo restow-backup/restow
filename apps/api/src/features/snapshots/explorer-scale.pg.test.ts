@@ -133,11 +133,34 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer listing at scale", () => {
       expect(plan.seqScans, scope.path).toBe(0);
       expect(plan.indexes.has("manifest_versions_object_parent_idx"), scope.path).toBe(true);
       expect(plan.indexes.has("manifest_versions_object_last_idx"), scope.path).toBe(false);
-      // A few index pages per folder listed (the skip scan probes each child folder), not
-      // the thousands of pages of the mailbox's messages.
-      expect(plan.buffers, scope.path).toBeLessThan(1_000 + 10 * plan.total);
+      // A few index pages per child folder (the skip scan probes each one, including the
+      // attachments folders it steps over without listing them), not the thousands of
+      // pages of the mailbox's messages.
+      const children = plan.total + (await hiddenAttachmentsFolders(scope));
+      expect(plan.buffers, scope.path).toBeLessThan(1_000 + 10 * children);
     }
   });
+
+  it("does not list the attachments folders of oversized messages", async () => {
+    const scope = newestMail("mail/Inbox", { foldersOnly: true });
+    expect(await hiddenAttachmentsFolders(scope)).toBeGreaterThan(0);
+    for (const method of ["auto", "scan"] as const) {
+      const listed = await queryListing(db, scope, { limit: 10_000, offset: 0 }, method);
+      expect(listed.entries.filter((entry) => entry.name.endsWith(".attachments"))).toEqual([]);
+      expect(listed.total).toBe(listed.entries.length);
+    }
+  });
+
+  /** The attachments folders directly in the scope's folder, which the listing hides. */
+  async function hiddenAttachmentsFolders(scope: ListingScope): Promise<number> {
+    const result = await db.execute<{ count: number }>(sql`
+      SELECT count(*)::int AS count FROM manifest_versions
+      WHERE protected_object_id = ${scope.objectId}::uuid AND parent_path = ${scope.path}
+        AND first_sequence <= ${scope.sequence}::int AND last_sequence >= ${scope.sequence}::int
+        AND metadata ->> 'folderKind' = 'attachments'
+    `);
+    return result.rows[0]?.count ?? 0;
+  }
 
   it("lists a large OneDrive's root and deep folders from the index", async () => {
     const parts = f.deepFolder.split("/");
@@ -215,7 +238,19 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer listing at scale", () => {
   }, 300_000);
 
   it("returns what the full scan returns where the skip scan has edge cases", async () => {
-    const paths = ["", "A", "A.b", "A b", "A-c", "Docs", "Mailish", "Gone", "Ünïcode", "Missing"];
+    const paths = [
+      "",
+      "A",
+      "A.b",
+      "A b",
+      "A-c",
+      "Docs",
+      "Mailish",
+      "Attachments only",
+      "Gone",
+      "Ünïcode",
+      "Missing",
+    ];
     for (const snapshot of [
       { id: edge.first, sequence: 1 },
       { id: edge.second, sequence: 2 },
@@ -269,8 +304,8 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer listing at scale", () => {
  * A small object whose paths sit where a skip scan over byte-ordered parent
  * paths can go wrong: siblings whose names continue with a character sorting
  * before `/` (`A`, `A b`, `A-c`, `A.b`), folders known only through deeper
- * rows, OneDrive's own versions and attachments of JSON-format messages below
- * a folder (neither makes a folder appear), a folder whose only entry was
+ * rows, OneDrive's own versions and attachments of JSON-format messages (with
+ * their attachments folder) below a folder (neither makes a folder appear), a folder whose only entry was
  * deleted in the second restore point, and names beyond ASCII.
  */
 async function createEdgeObject(
@@ -331,9 +366,11 @@ async function createEdgeObject(
       at("Docs/r.docx:versions/1.0", "file"),
       at("Only versions/q.docx:versions/1.0", "file"),
       at("Mailish/m.json", "mail", { metadata: { subject: "Big", format: "json" } }),
+      at("Mailish/m.attachments", "folder", { metadata: { folderKind: "attachments" } }),
       at("Mailish/m.attachments/a.pdf", "file", {
         metadata: { messagePath: "Mailish/m.json" },
       }),
+      at("Attachments only/m.attachments", "folder", { metadata: { folderKind: "attachments" } }),
       at("Attachments only/m.attachments/b.pdf", "file", {
         metadata: { messagePath: "Attachments only/m.json" },
       }),

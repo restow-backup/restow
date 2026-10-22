@@ -8,6 +8,16 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Fixed
+
+- Restore explorer: a mail folder no longer lists an empty `….attachments` folder next to every
+  oversized Exchange message (one stored as Graph JSON), neither in the folder tree, the item
+  list nor search; in a large mailbox the Inbox showed hundreds of them beside its real
+  subfolders. The folder holds the message's attachments, which are restored together with the
+  message as before.
+
 ## [0.4.4] - 2026-10-22
 
 Beta release. Run it alongside your existing backups, not as your only one, until
