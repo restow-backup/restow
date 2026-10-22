@@ -24,9 +24,10 @@ import type { ChunkDataStats } from "./chunkstore.js";
 
 /**
  * What a protected object is: an Exchange mailbox, a OneDrive, an IMAP
- * account, or a SharePoint Online site (its libraries and lists).
+ * account, a SharePoint Online site (its libraries and lists), or the group
+ * mailbox of a Microsoft 365 group or team (its calendar and conversations).
  */
-export type ProtectedObjectKind = "mailbox" | "onedrive" | "imap" | "site";
+export type ProtectedObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 
 /** The pg-boss queues (docs/ARCHITECTURE.md, Job-System). */
 export type JobQueue =

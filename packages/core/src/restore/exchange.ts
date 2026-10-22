@@ -47,6 +47,7 @@ import type { GraphClient } from "../graph/client.js";
 import { isGraphError } from "../graph/errors.js";
 import {
   type CalendarInfo,
+  calendarPath,
   createCalendar,
   createEvent,
   findOccurrenceByOriginalStart,
@@ -56,7 +57,14 @@ import {
   toCreatableEvent,
   updateEvent,
 } from "../graph/resources/calendar.js";
-import { collect, odataString, paginate, query, userPath } from "../graph/resources/common.js";
+import {
+  collect,
+  isGroupOwner,
+  type MailboxOwner,
+  odataString,
+  paginate,
+  query,
+} from "../graph/resources/common.js";
 import {
   createContact,
   ensureContactFolderPath,
@@ -145,13 +153,37 @@ export function eventTransactionId(restoreJobId: string, object: ManifestObject)
   return `restow-${digest.slice(0, 40)}`;
 }
 
+/**
+ * Why a group conversation cannot go back into its group: Graph v1.0 lets
+ * only a signed-in user (delegated permission) start a thread or reply to
+ * one, never an app. Shown on every such item of a restore into a group.
+ */
+export const GROUP_POST_NOT_RESTORABLE =
+  "Microsoft Graph does not let an app post into a group conversation; restore the conversations into a user mailbox, or download or export them (EML, MBOX)";
+
+/** Restore into the group mailbox itself (./groups.ts) instead of a user's mailbox. */
+export interface GroupRestoreTarget {
+  readonly groupId: string;
+}
+
 export class ExchangeRestoreEngine implements RestoreEngine {
   readonly kind = "mailbox" as const;
 
   constructor(private readonly options: ExchangeRestoreEngineOptions) {}
 
-  async run(ctx: JobContext, request: RestoreRequest): Promise<RestoreReport> {
-    const userId = targetMailboxOf(request);
+  /**
+   * Restore a mailbox snapshot, or a group mailbox snapshot: into a user's
+   * mailbox (the default), or with `group` into the group itself, where only
+   * calendar events can go (a group mailbox exposes no mail folders and an
+   * app cannot post to its conversations).
+   */
+  async run(
+    ctx: JobContext,
+    request: RestoreRequest,
+    into: { readonly group?: GroupRestoreTarget } = {},
+  ): Promise<RestoreReport> {
+    const group = into.group;
+    const userId = group ? group.groupId : targetMailboxOf(request);
     const logger = ctx.logger.child({
       component: "restore-exchange",
       restoreJobId: request.restoreJobId,
@@ -172,6 +204,7 @@ export class ExchangeRestoreEngine implements RestoreEngine {
       ctx,
       client: await this.options.graph(ctx, request.protectedObject),
       userId,
+      ...(group ? { owner: { groupId: group.groupId } } : {}),
       mode,
       legacyReplace,
       restoreJobId: request.restoreJobId,
@@ -182,7 +215,9 @@ export class ExchangeRestoreEngine implements RestoreEngine {
       ledger,
       logger,
     });
-    const folders = plan.folders.filter((folder) => !session.isStructural(folder));
+    const folders = plan.folders.filter(
+      (folder) => !session.isStructural(folder) && (!group || folderKindOf(folder) === "calendar"),
+    );
     const expected = plan.objects.filter(
       (object) => !plan.folders.includes(object) || folders.includes(object),
     );
@@ -196,7 +231,11 @@ export class ExchangeRestoreEngine implements RestoreEngine {
       mode,
     });
 
-    await this.restorePlan(ctx, plan, folders, session, ledger);
+    if (group) {
+      await this.restoreIntoGroup(ctx, plan, folders, session, ledger);
+    } else {
+      await this.restorePlan(ctx, plan, folders, session, ledger);
+    }
 
     ledger.settle(expected);
     await ctx.progress.flush();
@@ -208,6 +247,50 @@ export class ExchangeRestoreEngine implements RestoreEngine {
       unverified: report.unverified,
     });
     return report;
+  }
+
+  /** Calendar events into the group's calendar; everything else is reported, not attempted. */
+  private async restoreIntoGroup(
+    ctx: JobContext,
+    plan: RestorePlan,
+    folders: readonly ManifestObject[],
+    session: ExchangeRestoreSession,
+    ledger: RestoreLedger,
+  ): Promise<void> {
+    if (folders.length > 0) {
+      ctx.progress.phase("folders");
+      for (const folder of folders) {
+        await session.restoreFolder(folder);
+      }
+    }
+    if (plan.events.length > 0) {
+      ctx.progress.phase("calendar");
+      for (const event of plan.events) {
+        await session.restoreEvent(event);
+      }
+    }
+    for (const object of [...plan.mail, ...plan.orphanAttachments]) {
+      ledger.failed(object, new Error(GROUP_POST_NOT_RESTORABLE), "not_restorable");
+    }
+    for (const object of [
+      ...plan.contacts,
+      ...plan.files,
+      ...plan.versions,
+      ...plan.informational,
+    ]) {
+      ledger.failed(
+        object,
+        new Error("only calendar events can be restored into a group"),
+        "wrong_target",
+      );
+    }
+    for (const object of plan.unknown) {
+      ledger.failed(
+        object,
+        new Error(`objects of type "${object.type ?? ""}" cannot be restored into a group`),
+        "not_restorable",
+      );
+    }
   }
 
   private async restorePlan(
@@ -279,6 +362,11 @@ interface SessionOptions {
   readonly ctx: JobContext;
   readonly client: GraphClient;
   readonly userId: string;
+  /**
+   * Whose calendar events go into: the user `userId`, or the group mailbox of
+   * a Microsoft 365 group (./groups.ts), which has exactly one calendar.
+   */
+  readonly owner?: MailboxOwner;
   /** A mailbox restore only ever restores or skips; "replace" never reaches here. */
   readonly mode: "rename" | "skip";
   /** The stored request asked for the discontinued "replace" mode; ran as "rename" instead. */
@@ -344,7 +432,12 @@ export class ExchangeRestoreSession {
   private readonly calendarIds = new Map<string, string>();
   private readonly contactsByFolder = new Map<string, Map<string, ExistingContact>>();
 
-  constructor(private readonly o: SessionOptions) {}
+  /** Whose calendar the events go into (see {@link SessionOptions.owner}). */
+  private readonly owner: MailboxOwner;
+
+  constructor(private readonly o: SessionOptions) {
+    this.owner = o.owner ?? o.userId;
+  }
 
   private skipReason(what: string, where: string): string {
     return this.o.mode === "rename"
@@ -695,7 +788,7 @@ export class ExchangeRestoreSession {
   // --- calendar -----------------------------------------------------------
 
   async restoreEvent(object: ManifestObject): Promise<void> {
-    const { ctx, client, userId, reader, ledger } = this.o;
+    const { ctx, client, reader, ledger } = this.o;
     throwIfAborted(ctx);
     try {
       const item = toCalendarItem(await readJsonObject(reader, object));
@@ -719,7 +812,7 @@ export class ExchangeRestoreSession {
         ...toCreatableEvent(item.event, { keepAttendees: this.o.keepAttendees }),
         transactionId: eventTransactionId(this.o.restoreJobId, object),
       };
-      const created = await createEvent(client, userId, calendarId, body);
+      const created = await createEvent(client, this.owner, calendarId, body);
       if (!created.id) {
         throw new Error("Graph created the event but returned no id");
       }
@@ -771,19 +864,24 @@ export class ExchangeRestoreSession {
 
   /** Re-apply a backed-up exception to the matching occurrence of the recreated series. */
   private async applyException(masterId: string, exception: Event): Promise<boolean> {
-    const { client, userId } = this.o;
+    const { client } = this.o;
     const originalStart = exception.originalStart ?? exception.start?.dateTime;
     if (!originalStart) {
       return false;
     }
-    const occurrence = await findOccurrenceByOriginalStart(client, userId, masterId, originalStart);
+    const occurrence = await findOccurrenceByOriginalStart(
+      client,
+      this.owner,
+      masterId,
+      originalStart,
+    );
     if (!occurrence?.id) {
       return false;
     }
     const { recurrence: _recurrence, ...patch } = toCreatableEvent(exception, {
       keepAttendees: this.o.keepAttendees,
     });
-    await updateEvent(client, userId, occurrence.id, patch);
+    await updateEvent(client, this.owner, occurrence.id, patch);
     return true;
   }
 
@@ -791,9 +889,14 @@ export class ExchangeRestoreSession {
    * The target calendar's display name, or undefined for the default
    * calendar. Rename mode never writes into an existing calendar: the default
    * calendar's events go to a calendar named like the restore folder, other
-   * calendars' to `<restore folder> (<calendar>)`.
+   * calendars' to `<restore folder> (<calendar>)`. A group mailbox has only
+   * its one calendar, so a restore into a group always writes there (in rename
+   * mode next to the existing events, as copies).
    */
   private calendarNameFor(facts: CalendarFacts): string | undefined {
+    if (isGroupOwner(this.owner)) {
+      return undefined;
+    }
     if (this.o.mode !== "rename") {
       return facts.isDefault || facts.name === undefined ? undefined : facts.name;
     }
@@ -804,7 +907,8 @@ export class ExchangeRestoreSession {
 
   /** The id of the calendar an event (or calendar folder) goes into, created on demand. */
   async calendarFor(facts: CalendarFacts): Promise<string> {
-    const { client, userId } = this.o;
+    const { client } = this.o;
+    const owner = this.owner;
     const wanted = this.calendarNameFor(facts);
     const key = wanted?.toLowerCase() ?? "";
     const cached = this.calendarIds.get(key);
@@ -813,25 +917,23 @@ export class ExchangeRestoreSession {
     }
     let id: string;
     if (wanted === undefined) {
-      id = (await getDefaultCalendar(client, userId)).id;
+      id = (await getDefaultCalendar(client, owner)).id;
     } else {
       if (!this.calendars) {
-        this.calendars = await collect(listCalendars(client, userId));
+        this.calendars = await collect(listCalendars(client, owner));
       }
       const found = this.calendars.find((calendar) => (calendar.name ?? "").toLowerCase() === key);
-      id = found ? found.id : (await createCalendar(client, userId, wanted)).id;
+      id = found ? found.id : (await createCalendar(client, owner, wanted)).id;
     }
     this.calendarIds.set(key, id);
     return id;
   }
 
   private async findEventsByICalUId(calendarId: string, uid: string): Promise<ExistingEvent[]> {
-    const url = `${userPath(this.o.userId)}/calendars/${encodeURIComponent(calendarId)}/events${query(
-      {
-        $filter: `iCalUId eq ${odataString(uid)}`,
-        $select: "id,subject",
-      },
-    )}`;
+    const url = `${calendarPath(this.owner, calendarId)}/events${query({
+      $filter: `iCalUId eq ${odataString(uid)}`,
+      $select: "id,subject",
+    })}`;
     return collect(paginate<ExistingEvent>(this.o.client, url));
   }
 

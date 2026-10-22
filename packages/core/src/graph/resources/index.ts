@@ -7,6 +7,7 @@ export * from "./calendar.js";
 export * from "./common.js";
 export * from "./contacts.js";
 export * from "./drive.js";
+export * from "./groups.js";
 export * from "./mail.js";
 export * from "./sites.js";
 export * from "./subscriptions.js";

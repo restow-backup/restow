@@ -28,8 +28,15 @@ export {
   createRestoreArchive,
   DownloadRestoreEngine,
 } from "./download.js";
-export type { ExchangeRestoreEngineOptions } from "./exchange.js";
-export { ExchangeRestoreEngine, eventTransactionId, targetMailboxOf } from "./exchange.js";
+export type { ExchangeRestoreEngineOptions, GroupRestoreTarget } from "./exchange.js";
+export {
+  ExchangeRestoreEngine,
+  eventTransactionId,
+  GROUP_POST_NOT_RESTORABLE,
+  targetMailboxOf,
+} from "./exchange.js";
+export type { GroupRestoreEngineOptions } from "./groups.js";
+export { GroupRestoreEngine } from "./groups.js";
 export type { ImapRestoreEngineOptions, ImapRestoreSession, ImapSessionFactory } from "./imap.js";
 export { ImapRestoreEngine, ImapRestoreError } from "./imap.js";
 export type {

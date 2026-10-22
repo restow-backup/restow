@@ -63,6 +63,29 @@ export function userPath(userId: string): string {
   return `/users/${encodeURIComponent(userId)}`;
 }
 
+/**
+ * Whose Exchange data a request addresses: a user (object id or UPN, the
+ * plain string every caller used before) or the group mailbox of a Microsoft
+ * 365 group. Group mailboxes have exactly one calendar and no mail folders
+ * that Graph exposes; see ./groups.ts.
+ */
+export type MailboxOwner = string | { readonly groupId: string };
+
+/** True for the mailbox of a Microsoft 365 group. */
+export function isGroupOwner(owner: MailboxOwner): owner is { readonly groupId: string } {
+  return typeof owner !== "string";
+}
+
+/** `/users/{id}` or `/groups/{id}`, safely encoded. */
+export function ownerPath(owner: MailboxOwner): string {
+  return isGroupOwner(owner) ? groupPath(owner.groupId) : userPath(owner);
+}
+
+/** `/groups/{id}` with the id safely encoded. */
+export function groupPath(groupId: string): string {
+  return `/groups/${encodeURIComponent(groupId)}`;
+}
+
 /** Quote a string for an OData `$filter` literal (single quotes are doubled). */
 export function odataString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;

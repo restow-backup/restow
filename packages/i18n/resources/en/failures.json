@@ -101,6 +101,10 @@
         "title": "This SharePoint site no longer exists",
         "why": "Microsoft reports that the SharePoint site does not exist any more: it was deleted, or its address changed. Backups that already exist stay restorable. The next directory sync marks the site as orphaned."
       },
+      "group_unavailable": {
+        "title": "This Microsoft 365 group no longer exists",
+        "why": "Microsoft reports that the group does not exist any more: it was deleted, or its team was removed. Backups that already exist stay restorable. The next directory sync marks the group as orphaned."
+      },
       "throttled": {
         "title": "Microsoft is slowing {appName} down (throttling)",
         "why": "Microsoft limits how many requests an app may send to a tenant or a mailbox and answered \"too many requests\"{has_retryAfterSeconds, select, yes { and asked {appName} to wait {retryAfterSeconds, plural, one {# second} other {# seconds}}} other {}}. This is normal for large backups and not an error on your side. {appName} waits as asked, adds some delay of its own and does not hammer Microsoft."

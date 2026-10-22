@@ -47,6 +47,16 @@ describe("countProtectedMailboxes", () => {
     ).toBe(1);
   });
 
+  it("never counts Microsoft 365 group mailboxes", () => {
+    expect(
+      countProtectedMailboxes([
+        object("mailbox", "anna"),
+        object("group", null),
+        object("group", null),
+      ]),
+    ).toBe(1);
+  });
+
   it("ignores excluded and orphaned objects", () => {
     expect(
       countProtectedMailboxes([
