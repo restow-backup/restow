@@ -29,6 +29,7 @@ import { scans } from "./checks/09-scans.mjs";
 import { endpoint } from "./checks/10-endpoint.mjs";
 import { importExport } from "./checks/11-import-export.mjs";
 import { fileShare } from "./checks/12-file-share.mjs";
+import { archiveCapture } from "./checks/13-archive-capture.mjs";
 import { run } from "./lib/exec.mjs";
 import { createLicenseSigner } from "./lib/license.mjs";
 import { CheckRun, formatDuration, RESULT, Report, Skip, StepFailure } from "./lib/report.mjs";
@@ -42,8 +43,9 @@ Build (docs/CI.md, "Two build targets"):
   --variant full|community  the build under test (default full). full: the targets runtime and web,
                             a Service Provider license key from a throwaway test signer, every check.
                             community: runtime-community and web-community, one tenant shared by
-                            the checks, no license API; check 6 (journal receiver, Business) and
-                            check 8 (one tenant per storage target) are skipped with the reason.
+                            the checks, no license API; check 6 (journal receiver, Business),
+                            check 8 (one tenant per storage target) and check 13 (archive capture,
+                            Business) are skipped with the reason.
                             Defaults for community: --project restow-smoke-community,
                             --port-base 38500, --report smoke-report-community.md,
                             --work-dir smoke-out/run-community
@@ -268,6 +270,15 @@ const CHECKS = [
     requires: "api",
   },
   {
+    id: "13",
+    name: "Archive capture: IMAP sync with IDLE and backfill, forwarded copies, dedupe, chain",
+    fn: archiveCapture,
+    needs: ["1", "3"],
+    requires: "api",
+    communitySkip:
+      "skipped: archive capture from the mailbox and forwarded copies are Business modules, which the Community build does not contain; the full build's smoke checks them",
+  },
+  {
     id: "4",
     name: "Microsoft 365 backup and restore against the dev tenant",
     fn: m365,
@@ -277,7 +288,7 @@ const CHECKS = [
   { id: "9", name: "Image scan (Trivy) and dependency audit (pnpm audit)", fn: scans, needs: [] },
 ];
 
-const STACK_CHECKS = new Set(["1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "12"]);
+const STACK_CHECKS = new Set(["1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "12", "13"]);
 
 /**
  * Which checks run: the selection, widened by what they need. A check left out with --skip

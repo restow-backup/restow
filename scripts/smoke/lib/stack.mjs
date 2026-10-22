@@ -35,7 +35,7 @@ export const JOURNAL_HOST = "archive.smoke.test";
 /** Where the release compose mounts the operator's certificate directory in the api container. */
 export const JOURNAL_TLS_MOUNT = "/etc/restow/journal-tls";
 
-export const MAILBOXES = ["alice", "bob", "s3box", "localbox", "nfsbox", "upgrade"].map(
+export const MAILBOXES = ["alice", "bob", "s3box", "localbox", "nfsbox", "upgrade", "capture"].map(
   (name) => `${name}@smoke.test`,
 );
 

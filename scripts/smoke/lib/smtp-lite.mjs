@@ -1,6 +1,6 @@
 /**
- * A minimal SMTP sender for the journal check: one message to one recipient,
- * no authentication. With `tls` it upgrades with STARTTLS the way Exchange
+ * A minimal SMTP sender for the journal check: one message to one recipient
+ * (or several, `to` as an array, in one transaction), no authentication. With `tls` it upgrades with STARTTLS the way Exchange
  * Online's connector does (always TLS) and verifies the certificate against the
  * given trust anchor and name; without it the session stays in plain text, which
  * is how the check proves that the receiver refuses mail before STARTTLS.
@@ -119,12 +119,14 @@ export async function sendMail({
     socket.destroy();
     return { accepted: false, final: mail, replies, tls: tlsSession };
   }
-  const rcpt = await send(`RCPT TO:<${to}>`);
-  replies.push(rcpt);
-  if (rcpt.code >= 400) {
-    await send("QUIT").catch(() => {});
-    socket.destroy();
-    return { accepted: false, final: rcpt, replies, tls: tlsSession };
+  for (const recipient of Array.isArray(to) ? to : [to]) {
+    const rcpt = await send(`RCPT TO:<${recipient}>`);
+    replies.push(rcpt);
+    if (rcpt.code >= 400) {
+      await send("QUIT").catch(() => {});
+      socket.destroy();
+      return { accepted: false, final: rcpt, replies, tls: tlsSession };
+    }
   }
   replies.push(await send("DATA"));
   socket.write(`${dotStuff(message)}\r\n.\r\n`);
