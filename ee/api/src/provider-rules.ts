@@ -45,6 +45,13 @@ export const eeProviderRouteRules: Readonly<Record<string, ProviderRouteRule>> =
   // but not a member limited to some tenants (it concerns all of them).
   "GET /api/v1/archive/journal/receiver": view(scope.provider),
 
+  // Forwarded copies (0.4.4). An account's archive address is a credential like the journal
+  // address (whoever knows it can deliver into that account's archive), so reading the list
+  // with the addresses, issuing and rotating are configuration work.
+  "GET /api/v1/archive/forwarding": configure(),
+  "POST /api/v1/archive/forwarding/:objectId/address": configure(),
+  "POST /api/v1/archive/forwarding/:objectId/rotate": configure(),
+
   // The cross-tenant provider API, reachable with a session too.
   "GET /api/v1/provider/tenants": view(scope.provider),
   "GET /api/v1/provider/users": view(scope.provider),

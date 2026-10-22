@@ -15,7 +15,7 @@
  */
 import { createHash } from "node:crypto";
 import { archiveItems, tenants } from "@restow/db";
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 import type { Config } from "../../../../apps/api/src/config.js";
 import type { ArchiveActor } from "../../../../apps/api/src/features/archive/service.js";
 import { audit } from "../../../../apps/api/src/lib/audit.js";
@@ -89,6 +89,11 @@ export interface JournalSetupDto {
   };
   /** When the newest journal report was archived; null when none has arrived. */
   lastReportAt: string | null;
+  /**
+   * When the first journal report was archived (the setup works since then); null when
+   * none has arrived. The setup page waits for it after the journal rule was created.
+   */
+  firstReportAt: string | null;
   counts: { last24Hours: number; last7Days: number };
   /** What the operator's network and Exchange Online need, from the configuration. */
   requirements: {
@@ -278,8 +283,18 @@ async function auditAddress(
   });
 }
 
-/** What the archive holds from the journal: the newest report and the recent counts. */
+/**
+ * What the archive holds from the journal: the first and the newest report and the recent
+ * counts. Journal reports only (source `journal`): plain copies sent to the same address are
+ * forwarded copies (`smtp_forward`, ../forwarding/service.ts).
+ */
 async function journalActivity(tx: Transaction, tenantId: string, now: Date) {
+  const [first] = await tx
+    .select({ receivedAt: archiveItems.receivedAt })
+    .from(archiveItems)
+    .where(and(eq(archiveItems.tenantId, tenantId), eq(archiveItems.capturedVia, "journal")))
+    .orderBy(asc(archiveItems.receivedAt))
+    .limit(1);
   const [newest] = await tx
     .select({ receivedAt: archiveItems.receivedAt })
     .from(archiveItems)
@@ -302,6 +317,7 @@ async function journalActivity(tx: Transaction, tenantId: string, now: Date) {
       ),
     );
   return {
+    firstReportAt: first?.receivedAt ?? null,
     lastReportAt: newest?.receivedAt ?? null,
     last24Hours: counts?.last24Hours ?? 0,
     last7Days: counts?.last7Days ?? 0,
@@ -346,6 +362,7 @@ async function describeSetup(
     status: journalStatus({ reason, lastReportAt: activity.lastReportAt, now }),
     receiver: { listening: reason === null, reason },
     lastReportAt: activity.lastReportAt?.toISOString() ?? null,
+    firstReportAt: activity.firstReportAt?.toISOString() ?? null,
     counts: { last24Hours: activity.last24Hours, last7Days: activity.last7Days },
     requirements: receiverRequirements(env, hostname, reason),
     docsUrl: journalDocsUrl(env.docsTroubleshootingUrl),

@@ -238,6 +238,10 @@
       "hold": {
         "confirmed": "Hold for deleted mail confirmed (Microsoft 365)",
         "unconfirmed": "Hold confirmation for deleted mail withdrawn (Microsoft 365)"
+      },
+      "forward": {
+        "address_created": "Archive address of an IMAP account issued",
+        "address_rotated": "Archive address of an IMAP account rotated"
       }
     },
     "backup": {

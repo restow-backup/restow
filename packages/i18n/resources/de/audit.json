@@ -238,6 +238,10 @@
       "hold": {
         "confirmed": "Aufbewahrung gelöschter Mail bestätigt (Microsoft 365)",
         "unconfirmed": "Bestätigung der Aufbewahrung gelöschter Mail zurückgenommen (Microsoft 365)"
+      },
+      "forward": {
+        "address_created": "Archiv-Adresse eines IMAP-Kontos ausgestellt",
+        "address_rotated": "Archiv-Adresse eines IMAP-Kontos erneuert"
       }
     },
     "backup": {
