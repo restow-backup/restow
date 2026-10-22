@@ -176,6 +176,7 @@ function Counts({ source }: { source: DirectorySource }) {
               mailbox: counts.mailbox,
               onedrive: counts.onedrive,
               site: counts.site ?? 0,
+              group: counts.group ?? 0,
             })
           : t("sources.imapKinds", { count: counts.imap })}
       </p>
@@ -427,10 +428,17 @@ function Warnings({ warnings, total }: { warnings: readonly SyncWarning[]; total
                           : "sync.warnings.sites_unavailable",
                         { status: warning.status },
                       )
-                    : t(`sync.warnings.${warning.kind}`, {
-                        user: warning.user ?? warning.userId,
-                        status: warning.status,
-                      })}
+                    : warning.kind === "groups_unavailable"
+                      ? t(
+                          warning.status === 401 || warning.status === 403
+                            ? "sync.warnings.groups_permission"
+                            : "sync.warnings.groups_unavailable",
+                          { status: warning.status },
+                        )
+                      : t(`sync.warnings.${warning.kind}`, {
+                          user: warning.user ?? warning.userId,
+                          status: warning.status,
+                        })}
               </li>
             ))}
           </ul>

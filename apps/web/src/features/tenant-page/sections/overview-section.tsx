@@ -330,6 +330,9 @@ function Figures({ tenant }: { tenant: TenantDetail }) {
         kinds.onedrive > 0 ? t("overview.figures.kinds.onedrive", { count: kinds.onedrive }) : null,
         kinds.imap > 0 ? t("overview.figures.kinds.imap", { count: kinds.imap }) : null,
         (kinds.site ?? 0) > 0 ? t("overview.figures.kinds.site", { count: kinds.site ?? 0 }) : null,
+        (kinds.group ?? 0) > 0
+          ? t("overview.figures.kinds.group", { count: kinds.group ?? 0 })
+          : null,
       ].filter(Boolean) as string[])
     : [];
 

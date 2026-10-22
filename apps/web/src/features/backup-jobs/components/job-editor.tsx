@@ -541,7 +541,8 @@ function EditorForm({
         member.kind !== "mailbox" &&
         member.kind !== "onedrive" &&
         member.kind !== "imap" &&
-        member.kind !== "site",
+        member.kind !== "site" &&
+        member.kind !== "group",
     )
     .map((member) => ({ id: member.id, name: member.name }));
   const machines: BrowsableMachine[] =

@@ -54,7 +54,14 @@ export function readinessOf(objects: readonly SnapshotObject[]): ObjectState {
 // --- The second column: a person's areas --------------------------------------------------------
 
 /** What a person's backups hold, as the second column lists it. */
-export type PersonArea = "mail" | "calendar" | "contacts" | "onedrive" | "imap";
+export type PersonArea =
+  | "mail"
+  | "calendar"
+  | "contacts"
+  | "onedrive"
+  | "imap"
+  | "groupCalendar"
+  | "conversations";
 
 export interface AreaLink {
   area: PersonArea;
@@ -63,7 +70,10 @@ export interface AreaLink {
   path: string;
 }
 
-/** The person's areas in order: Mail, Calendar, Contacts of the mailbox, OneDrive, IMAP mail. */
+/**
+ * The person's areas in order: Mail, Calendar, Contacts of the mailbox, OneDrive, IMAP mail; for a
+ * group entry its group calendar and conversations.
+ */
 export function areasOf(person: Person): AreaLink[] {
   const links: AreaLink[] = [];
   for (const object of person.objects) {
@@ -77,6 +87,12 @@ export function areasOf(person: Person): AreaLink[] {
       links.push({ area: "onedrive", object, path: "" });
     } else if (object.kind === "imap") {
       links.push({ area: "imap", object, path: "" });
+    } else if (object.kind === "group") {
+      // A Microsoft 365 group mailbox: its calendar and its conversations (packages/core backup/groups).
+      links.push(
+        { area: "groupCalendar", object, path: "calendar" },
+        { area: "conversations", object, path: "mail" },
+      );
     }
   }
   return links;

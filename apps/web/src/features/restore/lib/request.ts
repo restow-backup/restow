@@ -121,6 +121,11 @@ function restoresFiles(kind: ObjectKind): boolean {
  * folder (packages/core restore/common.ts); OneDrive renames files instead.
  */
 export function usesRestoreFolder(kind: ObjectKind, state: RestoreFormState): boolean {
+  // A restore into the group itself writes into its one calendar (copies next to what is
+  // there); into another mailbox it uses the restore folder like a mailbox does.
+  if (kind === "group" && state.target === "original") {
+    return false;
+  }
   return modeApplies(state.target) && state.mode === "rename" && !restoresFiles(kind);
 }
 

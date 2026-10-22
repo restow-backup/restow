@@ -10,7 +10,7 @@ import { apiFetch } from "@/lib/api";
  * tenant switch never shows another tenant's data.
  */
 
-export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site";
+export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 export type EntryKind = "mail" | "folder" | "file" | "event" | "contact";
 export type RestoreTargetType = "original" | "other" | "download";

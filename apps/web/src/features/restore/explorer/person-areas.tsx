@@ -1,4 +1,4 @@
-import { CalendarDays, Contact, HardDrive, Inbox, Server } from "lucide-react";
+import { CalendarDays, Contact, HardDrive, Inbox, MessagesSquare, Server } from "lucide-react";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -20,11 +20,15 @@ const AREA_ICONS: Record<PersonArea, typeof Inbox> = {
   contacts: Contact,
   onedrive: HardDrive,
   imap: Server,
+  groupCalendar: CalendarDays,
+  conversations: MessagesSquare,
 };
 
 /**
  * The second column for a person (#49): what their backups hold — Mail, Calendar and Contacts of
  * the mailbox, the OneDrive, an IMAP account — each leading to the right object, with its own
+ * restore points along the bottom. A Microsoft 365 group gets the same column with its group
+ * calendar and its conversations;
  * restore points along the bottom. The area shown opens onto its folders.
  */
 export function PersonAreas({

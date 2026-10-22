@@ -9,6 +9,7 @@ import {
   MailOpen,
   Network,
   Server,
+  UsersRound,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -25,6 +26,7 @@ type BackupType =
   | "mail"
   | "onedrive"
   | "sharepoint"
+  | "groups"
   | "imap"
   | "machines"
   | "guests"
@@ -35,6 +37,7 @@ const TYPE_ICON: Readonly<Record<BackupType, LucideIcon>> = {
   mail: Mail,
   onedrive: Cloud,
   sharepoint: Globe,
+  groups: UsersRound,
   imap: MailOpen,
   machines: Server,
   guests: Container,
@@ -74,6 +77,12 @@ export function backupTypeRows(data: LastBackupData): TypeRow[] {
       type: "sharepoint",
       at: data.lastSuccess.sharepoint ?? null,
       protectedCount: data.protectedKinds.site ?? 0,
+      staleAfterHours: mail,
+    },
+    {
+      type: "groups",
+      at: data.lastSuccess.groups ?? null,
+      protectedCount: data.protectedKinds.group ?? 0,
       staleAfterHours: mail,
     },
     {

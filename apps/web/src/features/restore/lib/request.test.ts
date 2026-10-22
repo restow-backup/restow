@@ -126,6 +126,9 @@ describe("modes and options", () => {
     expect(usesRestoreFolder("mailbox", state)).toBe(true);
     expect(usesRestoreFolder("imap", state)).toBe(true);
     expect(usesRestoreFolder("onedrive", state)).toBe(false);
+    // A group's events go back into its one calendar; into a user's mailbox they use the folder.
+    expect(usesRestoreFolder("group", state)).toBe(false);
+    expect(usesRestoreFolder("group", { ...state, target: "other" })).toBe(true);
     expect(usesRestoreFolder("mailbox", { ...state, mode: "skip" })).toBe(false);
     expect(usesRestoreFolder("mailbox", { ...state, target: "download" })).toBe(false);
   });

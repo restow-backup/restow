@@ -13,6 +13,7 @@ import {
   Palette as PaletteIcon,
   Server,
   Sun,
+  UsersRound,
 } from "lucide-react";
 
 import { PALETTES, type Palette, type Theme } from "@/components/theme-provider";
@@ -293,7 +294,7 @@ export const OBJECTS_NAV_COMMAND_ID = "nav:protected-objects";
 /** A protected object as the palette needs it (a row of the protected-objects API). */
 export interface PaletteObject {
   id: string;
-  kind: "mailbox" | "onedrive" | "imap" | "site";
+  kind: "mailbox" | "onedrive" | "imap" | "site" | "group";
   displayName: string | null;
   email: string | null;
   externalId: string;
@@ -304,6 +305,7 @@ const OBJECT_ICONS: Readonly<Record<PaletteObject["kind"], LucideIcon>> = {
   mailbox: Inbox,
   onedrive: HardDrive,
   site: Globe,
+  group: UsersRound,
   imap: Server,
 };
 

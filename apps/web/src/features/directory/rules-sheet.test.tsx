@@ -96,4 +96,12 @@ describe("RulesSheet", () => {
     expect(selected).toContain("Protect all SharePoint sites");
     expect(selected).toContain("No SharePoint site is backed up unless you include it");
   });
+
+  it("keeps Microsoft 365 groups opt-in unless the saved rules protect all of them", () => {
+    const unset = render(sourceWith(ALL_RULES));
+    expect(unset).toContain("Protect all Microsoft 365 groups");
+    expect(unset).toContain("No group calendar or conversation is backed up unless you include");
+    const all = render(sourceWith({ ...ALL_RULES, groups: "all" }));
+    expect(all).toContain("The calendar and the conversations of every Microsoft 365 group");
+  });
 });

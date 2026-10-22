@@ -36,6 +36,13 @@ describe("areaOf", () => {
     expect(areaOf({ kind: "folder", path: "mail/Inbox" }, "mailbox")).toBeNull();
     expect(areaOf({ kind: "file", path: "mail" }, "mailbox")).toBeNull();
   });
+
+  it("names a group mailbox's areas for what a group has", () => {
+    expect(areaOf({ kind: "folder", path: "calendar" }, "group")).toBe("groupCalendar");
+    expect(areaOf({ kind: "folder", path: "mail" }, "group")).toBe("conversations");
+    expect(areaOf({ kind: "folder", path: "contacts" }, "group")).toBeNull();
+    expect(areaOf({ kind: "folder", path: "mail/Conversations" }, "group")).toBeNull();
+  });
 });
 
 describe("entryDate", () => {

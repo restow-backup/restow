@@ -48,17 +48,30 @@ const SITE_AREAS: Readonly<Record<string, SiteArea>> = {
 };
 export type SiteArea = "libraries" | "lists";
 
+/**
+ * The areas at the root of a Microsoft 365 group mailbox snapshot (packages/core
+ * backup/groups): the mailbox layout, named for what a group has.
+ */
+const GROUP_AREAS: Readonly<Record<string, GroupArea>> = {
+  calendar: "groupCalendar",
+  mail: "conversations",
+};
+export type GroupArea = "groupCalendar" | "conversations";
+
 /** The mailbox or site area a root folder stands for, so its label can be translated. */
 export function areaOf(
   entry: Pick<NamedEntry, "kind" | "path">,
   objectKind: ObjectKind,
-): MailboxArea | SiteArea | null {
+): MailboxArea | SiteArea | GroupArea | null {
   if (objectKind === "onedrive" || entry.kind !== "folder" || parentPathOf(entry.path) !== "") {
     return null;
   }
   const name = baseNameOf(entry.path);
   if (objectKind === "site") {
     return SITE_AREAS[name] ?? null;
+  }
+  if (objectKind === "group") {
+    return GROUP_AREAS[name] ?? null;
   }
   return (MAILBOX_AREAS as readonly string[]).includes(name) ? (name as MailboxArea) : null;
 }

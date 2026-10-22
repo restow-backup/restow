@@ -5,6 +5,7 @@ import {
   Copy,
   Download,
   FolderInput,
+  Info,
   type LucideIcon,
   Replace,
   SkipForward,
@@ -105,6 +106,7 @@ const ACCOUNT_HINT_KEYS: Record<ObjectKind, string> = {
   onedrive: "dialog.target.accountHint.onedrive",
   imap: "dialog.target.accountHint.imap",
   site: "dialog.target.accountHint.site",
+  group: "dialog.target.accountHint.group",
 };
 
 function RestoreForm({
@@ -133,8 +135,9 @@ function RestoreForm({
     canRestoreElsewhere:
       request.onlyTarget === undefined &&
       (isProviderAdmin || restoresForTenant(activeTenant?.role)),
-    // A SharePoint site belongs to no person: restoring it acts on behalf of no one.
-    reasonRequired: !object.own && object.kind !== "site",
+    // A SharePoint site or a group mailbox belongs to no person: restoring it acts on behalf
+    // of no one.
+    reasonRequired: !object.own && object.kind !== "site" && object.kind !== "group",
     originalAvailable: request.onlyTarget === undefined && object.status !== "orphaned",
     downloadOnly: demoMode,
   };
@@ -264,7 +267,9 @@ function RestoreForm({
           ? t("dialog.mode.renameDescriptionFiles")
           : object.kind === "site"
             ? t("dialog.mode.renameDescriptionSite")
-            : t("dialog.mode.renameDescriptionMail", { folder: restoreFolderName }),
+            : object.kind === "group" && state.target === "original"
+              ? t("dialog.mode.renameDescriptionGroup")
+              : t("dialog.mode.renameDescriptionMail", { folder: restoreFolderName }),
       icon: Copy,
     },
     {
@@ -342,6 +347,14 @@ function RestoreForm({
             {fieldError("accountId") ?? t(ACCOUNT_HINT_KEYS[object.kind])}
           </p>
         </div>
+      ) : null}
+
+      {object.kind === "group" && state.target === "original" ? (
+        <Alert variant="info" data-slot="restore-group-note">
+          <Info />
+          <AlertTitle>{t("dialog.group.title")}</AlertTitle>
+          <AlertDescription>{t("dialog.group.description")}</AlertDescription>
+        </Alert>
       ) : null}
 
       {modeApplies(state.target) ? (

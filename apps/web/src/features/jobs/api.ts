@@ -23,7 +23,7 @@ export type JobQueue = (typeof JOB_QUEUES)[number];
 export const JOB_STATUSES = ["queued", "active", "completed", "failed", "cancelled"] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
-export const OBJECT_KINDS = ["mailbox", "onedrive", "imap", "site"] as const;
+export const OBJECT_KINDS = ["mailbox", "onedrive", "imap", "site", "group"] as const;
 export type ObjectKind = (typeof OBJECT_KINDS)[number];
 
 export type ObjectStatus = "active" | "excluded" | "orphaned";

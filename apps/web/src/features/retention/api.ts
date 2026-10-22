@@ -28,7 +28,7 @@ export interface RetentionTier {
   keepEveryDays: number;
 }
 
-export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site";
+export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 
 export interface RetentionScopeObject {
   id: string;

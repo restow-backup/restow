@@ -15,7 +15,7 @@ export type WidgetResult<T> = { state: "ok"; data: T } | { state: "error" };
 export type Readiness = "green" | "yellow" | "red";
 export type TenantStatus = "active" | "suspended" | "deleting";
 export type JobStatus = "queued" | "active" | "completed" | "failed" | "cancelled";
-export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site";
+export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 
 export interface LastBackupWidget {
   lastSuccess: {
@@ -24,10 +24,15 @@ export interface LastBackupWidget {
     imap: string | null;
     /** SharePoint sites (absent from an older server). */
     sharepoint?: string | null;
+    /** Group mailboxes of Microsoft 365 groups and teams (absent from an older server). */
+    groups?: string | null;
     archive: string | null;
   };
-  /** `site` is absent from an older server. */
-  protectedKinds: Record<Exclude<ObjectKind, "site">, number> & { site?: number };
+  /** `site` and `group` are absent from an older server. */
+  protectedKinds: Record<Exclude<ObjectKind, "site" | "group">, number> & {
+    site?: number;
+    group?: number;
+  };
   /** Servers and clients: how many a backup job protects, how many are in none, their newest good backup. */
   machines: { protected: number; withoutJob: number; lastSuccessAt: string | null };
   /**
