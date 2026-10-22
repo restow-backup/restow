@@ -65,7 +65,11 @@ Postgres-Service bereit und setzt die Variable.
   REST-Endpunkt der API: append-only, Prune nur mit Wartungszugang, Restore Byte für Byte,
   Restore-Test grün nur bei passenden Hashes, Download), apps/worker
   `endpoints/endpoints.pg.test.ts` (Retention, Prüfung, Restore-Test, Alarme),
-  apps/scheduler `endpoints.pg.test.ts`
+  apps/scheduler `endpoints.pg.test.ts`. Ohne restic: apps/api
+  `features/endpoints/removal.pg.test.ts` (Rechner entfernen: nur gesperrt, Hostname, Legal Hold,
+  Verdacht, Ablaufdatum, aus jeder Liste, Mandantentrennung) und apps/worker
+  `endpoints/removal.pg.test.ts` (Löschen auf allen Zielen, Halt, Aufschub durch Sperren,
+  Verlängerung der Sperren)
 - apps/scheduler: `scheduler.pg.test.ts`, `roles.pg.test.ts` (Scheduler auf den
   provisionierten Rollen, pg-boss als Installationsrolle)
 - Jobs (docs/ARCHITECTURE.md, "Jobs"): packages/db `backup-jobs.pg.test.ts` (RLS, Eindeutigkeiten,

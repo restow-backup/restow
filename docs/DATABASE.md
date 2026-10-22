@@ -54,7 +54,10 @@ administrators, and e-mails and webhooks of every alert rule that lists “Low d
 space” (only provider administrators can choose it). It is raised again only
 after the disk recovered to a fifth above the line in between. The database's disk
 is read through the opt-in updater; without it only the repository's disk is
-watched.
+watched. From 0.4.5 the api also watches the server's system disk (`/` as the api
+container sees it: the disk under Docker's data directory) with the same rule, and keeps
+its free space once an hour for two weeks: the trend the dashboard shows when a
+repository lies on that disk ([docs/STORAGE.md, Where backups land](STORAGE.md#where-backups-land)).
 
 ## Moving the database (Installation › Database)
 

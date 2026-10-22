@@ -10,6 +10,33 @@ private repository.
 
 ## [Unreleased]
 
+### Added
+
+- Machines: a revoked machine can be removed from Restow (#65). "Remove from Restow" in its
+  danger zone offers "Remove from the list, keep the backups until they expire" (the newest
+  backup plus the longest rule of the machine's retention, read as time) or "Delete the machine
+  and its backups", with the hostname typed and a recent sign-in. The machine leaves every list,
+  picker, dashboard and count and its backup job; its runs, reports and audit entries stay. The
+  worker deletes its restic repository (`endpoints/<id>/`) on every target that holds files of it:
+  the primary, its copies and retired primaries. Deleting now is refused while a legal hold over
+  the tenant or an unresolved suspicious restore point holds the backups, and the worker waits
+  for such a hold when the backups expire. Objects the storage still locks (S3 Object Lock, a
+  directory's deletion delay) are deferred until their lock runs out, recorded like a refused
+  prune and left out of the lock renewal. The machines page lists the removals still pending,
+  with the date, the hold or the lock. Every step is audited. Database migration 0064 adds the
+  removal state to `endpoints`.
+- Machines: an uninstall that waits for a machine that is off now offers "Revoke now", and a
+  machine without contact for longer than a configurable number of days (default 30, under Alerts
+  of the machine) suggests revoking it, on its page and among what needs attention (#65).
+- Repositories: a warning when a directory repository lies on the system disk of the Restow
+  server, the disk under the operating system, Docker and the database (a full system disk stops
+  everything, as on 16 October 2026). The api recognises it from inside its container by device
+  and block device of the path, the installation default and the mounter's shares included; it
+  is shown on the Repositories page, in the "Backups land in" line of the job editors and on the
+  dashboard's storage tile, where provider admins also see the free space, its trend over the last
+  week and when the disk would be full. The api now also watches the system disk for low disk
+  space. Nothing is blocked.
+
 ### Fixed
 
 - Restore explorer: a mail message stored as JSON (too large for a plain message) no longer

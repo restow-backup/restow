@@ -629,6 +629,30 @@ installation default counts as the server's disk — the Repositories section an
 dialogs that add PVE nodes, machines and file shares warn: "Backups land on the
 server's own disk", with a link to choose another repository.
 
+**On the system disk (0.4.5).** Worse than a disk of the server is its system disk: the
+disk under the operating system, Docker's data directory and, usually, PostgreSQL. When
+backups fill it, the database and every service stop, not only the backups (this
+happened on 16 October 2026 with a default repository in the app volume). The api
+recognises it from inside its container (`apps/api/src/features/storage/system-disk.ts`):
+a directory is on the system disk when it is on the same device (`st_dev`) as `/` (the
+container's overlay, which lives in Docker's data directory), `/etc/hostname`,
+`/etc/hosts` or `/etc/resolv.conf` (bind mounts of files in
+`/var/lib/docker/containers/<id>/`), or on the same block device as one of them according
+to `/proc/self/mountinfo` (btrfs subvolumes and the like give every subvolume a device
+number of its own). A path that does not exist yet counts by the nearest directory above
+it. A named volume on the default data directory, a host directory on the root disk and a
+mount point under `/mnt/restow` whose NFS share is not mounted (it is then a directory in
+the container's own layer) all count; a share mounted by the mounter or a bind mount of a
+second disk does not. The api and the worker mount the same volumes and shares at the same
+paths, so what the api sees is where the worker writes. The flag `onSystemDisk` is on
+`GET /api/v1/storage/destination`, on every target of the Repositories list and on the
+installation default; the line "Backups land in" gets a "System disk" badge, the warning
+above says what is at stake, and the storage tile of the dashboard warns as well. Provider
+admins see there how much of the disk is free and how fast that shrinks: the api reads `/`
+with its other watched disks every 15 minutes and keeps the free space once an hour for two
+weeks (`settings.disk_alerts.system.samples`); the trend is a straight line through the last
+week, with the day the disk would be full at that rate. Nothing is blocked.
+
 ### Retrying a failed move
 
 A failed `move` can be tried again from its card ("Retry") instead of deleting the
