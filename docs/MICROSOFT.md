@@ -276,6 +276,103 @@ Nutzer, wie bei anderen Microsoft-365-Sicherungsprodukten).
   150 MB. Die Prüfung der Absender-Domänen (`*.protection.outlook.com`, SPF) ist Zielbild und in
   0.1.0 nicht umgesetzt.
 
+## Archiv-Erfassung per Graph (Änderungsbenachrichtigungen)
+
+Ab 0.4.4 (Business, Fähigkeit `archive.mailboxCapture`) archiviert Restow Microsoft-365-Postfächer
+auch ohne Journaling: Graph meldet neue Mails, der Worker holt sie ab und legt sie ins Archiv.
+Code: `packages/core/src/graph/resources/subscriptions.ts`, `packages/core/src/archive/graph-capture.ts`,
+`apps/worker/src/archive-capture/graph.ts`, Hooks in `apps/api/src/features/archive-capture/hooks.ts`.
+
+- **Keine neue Berechtigung.** Abonnements auf `users/{id}/messages` (changeType `created`) und das
+  Abholen deckt `Mail.ReadWrite` (Application) ab, das die Sicherung ohnehin hat. Keine
+  Ressourcendaten in Benachrichtigungen, also kein Verschlüsselungszertifikat.
+- **Öffentliches HTTPS ist Pflicht.** Graph stellt nur an eine per HTTPS auf Port 443 erreichbare
+  Adresse zu: `<öffentliche URL>/api/v1/hooks/graph/notifications` und `.../lifecycle`. Die
+  öffentliche URL kommt aus Installation › Server & Betrieb, sonst aus `RESTOW_PUBLIC_URL`. Ohne
+  `https://`, mit anderem Port, localhost oder privater Adresse legt Restow keine Abonnements an
+  und fragt jedes Postfach alle `ARCHIVE_GRAPH_POLL_MINUTES` (15) per Delta ab (nur Abfrage); der
+  Status nennt den Grund `graph.notification_url_unavailable`. Lehnt Graph ein Abonnement ab
+  (Validierung der URL scheitert, 403), gilt für das Postfach dasselbe mit
+  `graph.subscription_failed`; nach einer Stunde versucht Restow es erneut.
+- **Validierung:** Beim Anlegen ruft Graph beide URLs mit `?validationToken=` auf; der Hook
+  antwortet mit dem Token als `text/plain` (Graph wartet höchstens 10 s). Benachrichtigungen
+  beantwortet er mit 202, nachdem er die Mail-ID als ausstehend vermerkt hat (Graph erwartet die
+  Antwort in 3 s, sonst wiederholt und verwirft es später). Körper höchstens 1 MiB.
+- **clientState:** je Abonnement 32 Zufallsbytes; gespeichert wird nur der SHA-256
+  (`graph_subscriptions.client_state_hash`), verglichen zeitkonstant. Benachrichtigungen mit
+  falschem oder fehlendem clientState oder unbekanntem Abonnement werden ignoriert (trotzdem 202).
+  Eine Benachrichtigung trägt nie die Mail: der Worker holt sie mit eigenem Token bei Graph.
+- **Unveränderliche IDs:** Anlegen, Delta, Auflistung und Metadaten senden
+  `Prefer: IdType="ImmutableId"`. Eine verschobene Mail behält ihre ID und wird nicht doppelt
+  erfasst. Die Sicherung nutzt weiter die normalen IDs (ihre Manifeste bleiben gültig); die
+  Archiv-Erfassung hält eigenen Delta-Zustand je Ordner (`archive_capture_streams.state`), nie
+  den der Sicherung.
+- **Lebensdauer und Verlängerung:** angelegt mit 4230 Minuten, verlängert per `$batch` (PATCH
+  `expirationDateTime`), sobald weniger als 24 h übrig sind. Anlegen und Verlängern aller
+  Postfächer eines Microsoft-Tenants laufen gebündelt in `$batch` zu höchstens 20, höchstens
+  ein Batch je Sekunde und Tenant. Grenze bei Microsoft: 1000 Abonnements je Postfach über alle
+  Apps.
+- **Lebenszyklus** (`lifecycleNotificationUrl`): `reauthorizationRequired` → `POST
+  /subscriptions/{id}/reauthorize` (scheitert das, neues Abonnement); `subscriptionRemoved` →
+  neues Abonnement und Nachholen; `missed` → Nachholen per Delta sofort.
+- **App-Wechsel:** Ein Abonnement gehört der App, die es angelegt hat. Restow merkt sich den
+  Fingerabdruck der App (Client-ID und Authority, nicht das Secret) und legt bei einer anderen
+  App neu an; der Worker prüft die App der Installation alle fünf Minuten und macht bei einer
+  Änderung alle Graph-Postfächer sofort fällig.
+- **Abholen:** Metadaten per `$batch` (`id, internetMessageId, receivedDateTime, isDraft,
+  parentFolderId`), Entwürfe übersprungen (eine gesendete Mail kommt als eigene Nachricht in
+  Gesendete Elemente), was das Archiv für das Postfach schon hat, wird nicht geladen; dann MIME
+  über `$value`. 404 heißt: inzwischen gelöscht oder verschoben, das Nachholen schaut nach.
+  Mails über ~150 MB (kein MIME-Export) werden nicht archiviert und protokolliert.
+- **Nachholen:** Delta über alle Ordner (versteckte eingeschlossen; ohne Suchordner, Entwürfe,
+  Postausgang, Synchronisierungsprobleme) plus `recoverableitemsdeletions`, alle
+  `ARCHIVE_GRAPH_CATCHUP_MINUTES` (360) mit Benachrichtigungen. 410 Gone → dieser Ordner wird neu
+  aufgezählt, Unbekanntes erfasst. Fortschritt wird je Seite gesichert.
+- **Recoverable Items:** Graph v1.0 kennt nur `recoverableitemsdeletions` als Well-known-Ordner.
+  `Purges`, `Versions`, `DiscoveryHolds` sind über v1.0 nicht erreichbar. Was ein Benutzer
+  endgültig löscht, bevor Restow es abholt (Sekunden bis Minuten mit Benachrichtigungen), kann
+  fehlen; nur Journaling erfasst vor der Zustellung.
+- **Übernahme:** Die vorhandenen Mails übernimmt einmalig ein `archive`-Job seitenweise (Cursor
+  im Job, nach zwei Stunden fortgesetzt im nächsten Job); Mails, die vor dem Start der Erfassung
+  eingingen, sind als `captured-late` markiert.
+
+### Holds (Aufbewahrung im Tenant)
+
+Restow fragt ab 0.4.4 je Microsoft-365-Quelle, ob ein Administrator bestätigt, dass gelöschte
+Mails im Tenant durch einen Hold aufbewahrt werden (`PUT /archive/capture/holds/:sourceId`,
+auditiert `archive.hold.confirmed`). `GET /archive/capture/holds` liefert dazu die lesenden
+Prüfbefehle (`checks`, `apps/api/src/features/archive-capture/hold-checks.ts`):
+
+```powershell
+Connect-ExchangeOnline
+Get-Mailbox -ResultSize Unlimited | Select-Object UserPrincipalName, LitigationHoldEnabled, LitigationHoldDuration, InPlaceHolds
+Get-Mailbox -ResultSize Unlimited | Where-Object { -not $_.LitigationHoldEnabled -and $_.InPlaceHolds.Count -eq 0 } | Select-Object UserPrincipalName
+Get-OrganizationConfig | Select-Object -ExpandProperty InPlaceHolds
+Connect-IPPSSession
+Get-RetentionCompliancePolicy -DistributionDetail | Where-Object { $_.ExchangeLocation } | Select-Object Name, Enabled, Mode, DistributionStatus, ExchangeLocation, ExchangeLocationException
+Get-RetentionComplianceRule | Select-Object Policy, Name, RetentionDuration, RetentionComplianceAction
+```
+
+**Spike (0.4.4, zeitlich begrenzt): Holds per Graph v1.0 erkennen.** Ergebnis: nicht möglich,
+der Zustand bleibt `unknown`/`confirmed` mit Bestätigung durch den Administrator.
+
+- Litigation Hold (`LitigationHoldEnabled`), In-Place-Holds und Retention-Policies
+  (`Get-RetentionCompliancePolicy`) haben keine Entsprechung in Graph v1.0; `user`,
+  `mailboxSettings` und `mailFolder` tragen nichts davon; nach unserem Kenntnisstand gibt es dafür
+  auch in `beta` keine
+  Ressource.
+- `security/labels/retentionLabels` (v1.0, Records Management) beschreibt Aufbewahrungs-
+  *Bezeichnungen*, nicht die Richtlinien und nicht, welche Postfächer sie abdecken.
+- `security/cases/ediscoveryCases/{id}/legalHolds` (v1.0, `ediscoveryHoldPolicy`) listet die Holds
+  von eDiscovery-Fällen samt Postfach-Quellen. Laut Doku mit `eDiscovery.Read.All` auch als
+  Application-Berechtigung (die Seite der Auflistung selbst wurde im Spike nicht abgerufen). Das
+  deckt nur eDiscovery-Holds ab, nicht Litigation Hold und keine Retention-Policies, und
+  bräuchte eine neue, weitreichende Berechtigung (Lesen aller eDiscovery-Fälle). Daher nicht
+  umgesetzt; ein späteres `detected` könnte darauf aufbauen, nur als Ergänzung zur Bestätigung.
+- Die Exchange-Online-PowerShell (oder die REST-Variante der Exchange Admin API) kann es, ist aber
+  keine Graph-Schnittstelle; Restow führt sie nicht aus (siehe „Schnittstellen“), es zeigt nur die
+  Befehle.
+
 ## Identität und Rollen
 
 - Admin-Consent-Rückweg: der Parameter `tenant` ist unsigniert und nur eine Behauptung.

@@ -38,6 +38,26 @@ private repository.
 - Business: new capability `archive.mailboxCapture`; the gated features
   `archive.mailboxCapture` and `archive.smtpCapture` (API `/me` and the worker's new `features`
   extension point). `archive.journalReceiver` also covers forwarded copies.
+- Archive capture of Microsoft 365 mailboxes by Graph (docs/MICROSOFT.md "Archiv-Erfassung per
+  Graph"): one change notification subscription per archived mailbox (created and renewed in
+  `$batch`, at most 20 per request and one request per second and Microsoft tenant; renewed with
+  less than a day left; reauthorized, recreated after removal, after expiry and when the Entra app
+  changes), immutable message ids, notified mail fetched within minutes (drafts skipped), a delta
+  catch-up over every folder and the recoverable deletions with its own state (every
+  `ARCHIVE_GRAPH_CATCHUP_MINUTES`, default 360, and at once after a missed notification), and the
+  one-time takeover of the existing mail in resumable pages. No new Microsoft permission is
+  needed. Without a public HTTPS URL the mailboxes are polled every `ARCHIVE_GRAPH_POLL_MINUTES`
+  (default 15) and the capture status names the reason (`graph.notification_url_unavailable`);
+  a subscription Microsoft refuses is retried hourly meanwhile (`graph.subscription_failed`).
+- Public hooks `POST /api/v1/hooks/graph/notifications` and `/lifecycle` for Graph: the
+  validation token is echoed, everything else answered 202; only notifications whose
+  `clientState` matches the subscription's stored SHA-256 count, and they only queue a fetch.
+  Bodies are limited to 1 MiB, and the hooks answer 404 while the edition does not include
+  capture from the mailbox.
+- `GET /api/v1/archive/capture/holds` also returns `checks`: read-only Exchange Online and
+  Security & Compliance PowerShell commands to check litigation holds and retention policies
+  before confirming a hold. Graph v1.0 offers no way to read them (spike result in
+  docs/MICROSOFT.md).
 
 ### Changed
 
