@@ -37,12 +37,18 @@ export const imapSecurityEnum = pgEnum("imap_security", ["tls", "starttls", "non
  * `site` = a SharePoint Online site (release 0.4.x): its document libraries,
  * lists and site metadata, discovered tenant-wide through Graph (not through a
  * directory user) and backed up with the OneDrive drive engine per library.
+ *
+ * `group` = the group mailbox of a Microsoft 365 group or team (release 0.4.5):
+ * its calendar and its conversations, discovered through `groups/delta` (no
+ * directory user; `external_id` is the group's Entra object id) and backed up
+ * with the Exchange engine's calendar phase plus the conversations phase.
  */
 export const protectedObjectKindEnum = pgEnum("protected_object_kind", [
   "mailbox",
   "onedrive",
   "imap",
   "site",
+  "group",
 ]);
 
 /** Where a protected object came from: automatic directory sync or a manual entry. */
