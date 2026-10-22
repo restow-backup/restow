@@ -184,9 +184,10 @@ je Konto den Modus und bei Polling den Grund: `imap.idle_unsupported` (Server oh
 **Verbindungsbudget.** Viele Anbieter begrenzen gleichzeitige Verbindungen je Konto (Gmail 15,
 Exchange Online 20, viele Hoster 2 bis 5). Die Archivierung hält je Konto eine Verbindung
 dauerhaft (IDLE) und während eines Durchlaufs oder der Übernahme kurz eine zweite; das Backup
-nutzt zusätzlich bis zu zwei. Reicht das Limit nicht, die Quelle auf `archiveIdle: "off"`
-stellen (`PATCH /api/v1/sources/:id`, `{"archiveIdle": "off"}`): dann nur Polling, keine
-Dauerverbindung. Die Mailclients der Nutzer brauchen ihre eigenen Verbindungen.
+nutzt zusätzlich bis zu zwei. Reicht das Limit nicht, auf der Seite der Quelle unter
+"Archivierung" "Nur in Abständen prüfen" wählen (API: `PATCH /api/v1/sources/:id`,
+`{"archiveIdle": "off"}`): dann nur Polling, keine Dauerverbindung. Die Worker übernehmen die
+Einstellung innerhalb einer Minute. Die Mailclients der Nutzer brauchen ihre eigenen Verbindungen.
 
 **IMAP auf Microsoft-Hosts** (`outlook.office365.com` u. a.) wird archiviert wie jedes Konto;
 für Microsoft 365 ist eine Microsoft-365-Quelle mit Graph oder Journaling der bessere Weg.

@@ -452,7 +452,7 @@
           "off": "Check at intervals only"
         },
         "hints": {
-          "auto": "Where the server offers IMAP IDLE, {appName} keeps one connection per account open and archives new mail within moments. Together with a running backup an account then uses up to three connections.",
+          "auto": "Where the server offers IMAP IDLE, {appName} keeps one connection per account open and archives new mail within moments. While a pass runs and a backup is running, an account can use up to four connections.",
           "off": "No connection stays open; {appName} checks the accounts for new mail every few minutes. For providers that allow only few connections per account."
         }
       },

@@ -452,7 +452,7 @@
           "off": "Nur in Abständen prüfen"
         },
         "hints": {
-          "auto": "Wo der Server IMAP IDLE anbietet, hält {appName} je Konto eine Verbindung offen und archiviert neue Mail nach Augenblicken. Zusammen mit einer laufenden Sicherung nutzt ein Konto dann bis zu drei Verbindungen.",
+          "auto": "Wo der Server IMAP IDLE anbietet, hält {appName} je Konto eine Verbindung offen und archiviert neue Mail nach Augenblicken. Während eines Durchlaufs und einer laufenden Sicherung nutzt ein Konto bis zu vier Verbindungen.",
           "off": "Keine Verbindung bleibt offen; {appName} prüft die Konten alle paar Minuten auf neue Mail. Für Anbieter, die je Konto nur wenige Verbindungen erlauben."
         }
       },

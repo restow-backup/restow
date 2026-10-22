@@ -157,6 +157,23 @@ check, or by hand once no backup or restore runs on the node:
 Demo hosts can let the demo follow the releases, whose demo images are now
 published with them (deploy/demo/README.md).
 
+Updating to 0.4.4 applies three migrations (0059 to 0061) at the api's start: the
+tables of the archive capture, new columns and indexes on `archive_items` and
+`backup_jobs`, and two indexes on `manifest_versions` for the restore explorer.
+The indexes are built inside the migration (see below); on a large archive or
+`manifest_versions` table the start takes longer. The `docker-compose.yml` of
+0.4.0 stays and no environment variable becomes required. With a Business or
+Service Provider license, mail jobs that archive start capturing their mailboxes
+right after the update (Graph for Microsoft 365, IMAP sync for IMAP accounts, the
+defaults of a job that never chose its ways), each with a one-time takeover of
+the mail already in the mailbox; existing journal reports keep arriving whatever
+the job chose. Graph capture is notified of new mail only when the installation's
+public URL is `https://` on port 443 and reachable from Microsoft; otherwise every
+mailbox is polled every 15 minutes. The journal receiver's limits per sending IP
+(`JOURNAL_RATE_PER_IP`, now 600 per minute) and per address
+(`JOURNAL_RATE_PER_ADDRESS`, 300) and the capture settings (`ARCHIVE_*`) are
+optional; `.env.example` lists them.
+
 From 0.4.0 on, S3 endpoints must use `https://` (or `http://` only on `localhost`,
 `127.0.0.1`, `[::1]`). A repository or default repository that already uses `http://`
 to another host keeps working after the update, so no backup stops; its card (or
@@ -179,7 +196,10 @@ ten million rows of the table on SSD storage (count them with
 `SELECT count(*) FROM jobs;` and the like beforehand), seconds on most
 installations, and several minutes for the `jobs` table of a large one.
 
-The same holds for the 0.4.4 migration `0061_explorer_parent_index`: two indexes on
+The same holds for the 0.4.4 migrations `0060_archive_capture` (five indexes on
+`archive_items`, one row per archived mail; three of them read every row, the two
+partial ones start empty) and
+`0061_explorer_parent_index`: two indexes on
 `manifest_versions`, the backup index of Microsoft 365 mailboxes, OneDrives and sites,
 which the restore explorer lists folders from. That table is usually the largest of an
 installation (one row per mail, file or event, and per change of one); during the build,
