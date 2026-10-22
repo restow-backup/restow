@@ -60,6 +60,10 @@ import { pathToFileURL } from "node:url";
  *   ARCHIVE_CAPTURE_TENANT_CONCURRENCY
  *                                ... of them per tenant (default 4)
  *   ARCHIVE_BACKFILL_CONCURRENCY one-time archive backfills at once in this process (default 4)
+ *   ARCHIVE_GRAPH_CATCHUP_MINUTES
+ *                                Graph delta catch-up of an archived mailbox with change
+ *                                notifications (default 360)
+ *   ARCHIVE_GRAPH_POLL_MINUTES   ... without them (poll-only, default 15)
  *   LOG_LEVEL                    debug | info | warn | error (default info)
  */
 import {

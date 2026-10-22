@@ -7,9 +7,12 @@
  * A stream whose way is not listed stays `pending` and the capture status names the way
  * as unavailable in this build; nothing fails.
  */
+import { graphCaptureWay } from "./graph.js";
 import type { CaptureWay, MailboxWay } from "./ways.js";
 
-export const CAPTURE_WAYS: Partial<Record<MailboxWay, CaptureWay>> = {};
+export const CAPTURE_WAYS: Partial<Record<MailboxWay, CaptureWay>> = {
+  graph_sync: graphCaptureWay,
+};
 
 /** The way registered for `way` (tests replace the table through `ways` options instead). */
 export function captureWay(
