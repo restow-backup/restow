@@ -1085,7 +1085,8 @@ export async function listVersions(
       const storedRows = await tx.execute<RawEntryRow>(sql`
         SELECT m.* FROM ${snapshotEntries(tenantId, [query.snapshotId])} AS m
         WHERE m.protected_object_id = ${objectId}::uuid
-          AND m.parent_path = ${nativeVersionsParent(query.path)}
+          -- In byte order, so it is a lookup in manifest_versions_object_parent_idx.
+          AND (m.parent_path COLLATE "C") = ${nativeVersionsParent(query.path)}
         ORDER BY m.mtime DESC
         LIMIT ${query.limit}
       `);
@@ -1578,8 +1579,13 @@ export async function calendarView(
       AND ${
         query.entryId
           ? sql`m.id = ${query.entryId}::uuid`
-          : sql`(m.parent_path = ${path}::text
-                 OR left(m.parent_path, length(${path}::text) + 1) = ${path}::text || '/')`
+          : // The byte-order range ['calendar', 'calendar0') holds the calendar and everything
+            // below it (and a few siblings the exact test drops): one range of
+            // manifest_versions_object_parent_idx instead of every entry of the mailbox.
+            sql`(m.parent_path COLLATE "C") >= ${path}::text
+                AND (m.parent_path COLLATE "C") < ${path}::text || '0'
+                AND (m.parent_path = ${path}::text
+                     OR left(m.parent_path, length(${path}::text) + 1) = ${path}::text || '/')`
       }`;
 
     const singles = await tx.execute<RawEntryRow & { event_start: Date | string }>(sql`
