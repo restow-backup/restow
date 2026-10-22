@@ -8,6 +8,16 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Changed
+
+- Dependencies: major updates of the translation libraries and of the Microsoft
+  authentication library: i18next 26 and react-i18next 17 (updated together),
+  @azure/msal-node 7. Texts, plurals and number and date formats read exactly as
+  before in English and German. The Microsoft 365 app tokens, the admin consent and
+  the IMAP OAuth2 sign-in use Restow's own token client and are unchanged.
+
 ## [0.4.4] - 2026-10-22
 
 Beta release. Run it alongside your existing backups, not as your only one, until
