@@ -1,7 +1,7 @@
 /**
  * Which capture streams the mail jobs want (docs/ARCHIVE.md "Erfassungswege").
  *
- * A stream is wanted for every active mail object of an enabled mail job with archive on
+ * A stream is wanted for every active mail object of a mail job with archive on
  * whose capture kind (packages/db archive-capture.ts) has its mailbox way chosen in the
  * job's `archive_capture` (absent = the default: Graph for Microsoft 365, IMAP sync for
  * IMAP): the job's members, and for a job of scope `all` every object of the tenant that
@@ -14,6 +14,9 @@
  *   - a stream nobody wants any more is `disabled` and due now, so the service passes it
  *     once more to release what its way set up (a Graph subscription); its state and
  *     history stay.
+ *
+ * A paused job keeps capturing: pausing stops its scheduled backups only. Capture stops when
+ * the job's archive or the way is switched off (both audited as a change of the job).
  *
  * No `jobs` row, no per-row query.
  */
@@ -34,12 +37,12 @@ export async function reconcileCaptureStreams(providerDb: Database): Promise<Rec
       select j.tenant_id, j.archive_capture as capture, m.protected_object_id as object_id
         from backup_jobs j
         join backup_job_members m on m.job_id = j.id
-       where j.kind = 'mail' and j.archive and j.enabled and m.protected_object_id is not null
+       where j.kind = 'mail' and j.archive and m.protected_object_id is not null
       union all
       select j.tenant_id, j.archive_capture, po.id
         from backup_jobs j
         join protected_objects po on po.tenant_id = j.tenant_id
-       where j.kind = 'mail' and j.scope_mode = 'all' and j.archive and j.enabled
+       where j.kind = 'mail' and j.scope_mode = 'all' and j.archive
          and po.kind in ('mailbox', 'imap')
          and not exists (
            select 1 from backup_job_members m2

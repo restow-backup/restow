@@ -22,7 +22,8 @@ private repository.
   the tenant's `mailSourceKinds`.
 - Worker: a capture service keeps one stream per archived mailbox and mailbox way, claimed
   across worker processes with `FOR UPDATE SKIP LOCKED` and a lease, reconciled from the mail
-  jobs every two minutes without a job row per mail. It idles while the edition does not include
+  jobs every two minutes without a job row per mail. Pausing a job stops its scheduled backups only;
+  capture goes on until archiving or the way is switched off in the job. It idles while the edition does not include
   capture from the mailbox, stops on shutdown and update drain, and pauses a tenant while its
   storage switches targets. New settings `ARCHIVE_CAPTURE_CONCURRENCY` (16),
   `ARCHIVE_CAPTURE_TENANT_CONCURRENCY` (4) and `ARCHIVE_BACKFILL_CONCURRENCY` (4). The `archive`

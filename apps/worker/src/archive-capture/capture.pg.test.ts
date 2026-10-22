@@ -290,6 +290,11 @@ describe.skipIf(!adminUrl)("archive capture (Postgres)", () => {
       .where(eq(backupJobs.id, jobId));
     expect(await reconcileCaptureStreams(db)).toEqual({ wanted: 0, disabled: 1 });
 
+    // A paused job keeps capturing: pausing stops scheduled backups only.
+    await db.update(backupJobs).set({ enabled: false }).where(eq(backupJobs.id, jobId));
+    expect(await reconcileCaptureStreams(db)).toEqual({ wanted: 0, disabled: 0 });
+    expect((await streams()).find((row) => row.protectedObjectId === imap)?.status).toBe("pending");
+
     // Archive off: everything disabled; on again: back, due now.
     await db.update(backupJobs).set({ archive: false }).where(eq(backupJobs.id, jobId));
     expect((await reconcileCaptureStreams(db)).disabled).toBe(1);
