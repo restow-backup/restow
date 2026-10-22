@@ -136,6 +136,14 @@
       "item_incomplete": {
         "title": "Microsoft reported the item incompletely",
         "why": "Microsoft reported this item without a name or without its folder. Without them {appName} cannot place it. This usually happens while the item is being moved, renamed or uploaded; the next run tries again."
+      },
+      "subscription_failed": {
+        "title": "Microsoft 365 does not send change notifications for this mailbox",
+        "why": "{appName} could not set up or renew the change notification subscription of this mailbox for the archive. Archiving goes on: {appName} checks the mailbox regularly for new mail instead, so mail reaches the archive later than with notifications. {appName} tries to set up the notifications again automatically."
+      },
+      "notification_url_unavailable": {
+        "title": "Change notifications need a public HTTPS address",
+        "why": "Microsoft delivers change notifications only to an address it can reach over HTTPS on port 443. {appName} has no public URL starting with https://, so the archive checks each Microsoft 365 mailbox regularly for new mail instead (poll-only mode). Nothing is lost, mail only reaches the archive later."
       }
     },
     "imap": {
@@ -665,7 +673,8 @@
     "check_endpoint_agent": "Check that the agent service is running on the machine and that the machine can reach the server over HTTPS.",
     "check_endpoint_file_access": "Check the permissions of the files named in the run. Databases and other files that change while they are copied are best dumped by a command that runs before the backup.",
     "choose_empty_restore_folder": "Request the restore again and choose a folder that does not exist yet or is empty. A restore never overwrites files.",
-    "wait_endpoint_retry": "Nothing to do. The agent tries again at its next scheduled run, or start one with Back up now."
+    "wait_endpoint_retry": "Nothing to do. The agent tries again at its next scheduled run, or start one with Back up now.",
+    "set_public_https_url": "Set a public URL starting with https:// under Installation › Server & operation (or RESTOW_PUBLIC_URL) that Microsoft can reach on port 443. {appName} then sets up change notifications by itself."
   },
   "go": {
     "settings_microsoft": "Open Microsoft 365 settings",

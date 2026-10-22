@@ -49,6 +49,9 @@ export const FAILURE_CODES = [
   "graph.delta_expired",
   "graph.quota_exceeded",
   "graph.request_rejected",
+  // Archive capture by Graph change notifications (docs/MICROSOFT.md "Change notifications")
+  "graph.subscription_failed",
+  "graph.notification_url_unavailable",
   // IMAP
   "imap.auth_failed",
   "imap.oauth_failed",
@@ -319,6 +322,7 @@ export const FAILURE_STEP_IDS = [
   "raise_run_hours",
   "start_mounter",
   "read_technical_details",
+  "set_public_https_url",
 ] as const;
 
 export type FailureStepId = (typeof FAILURE_STEP_IDS)[number];

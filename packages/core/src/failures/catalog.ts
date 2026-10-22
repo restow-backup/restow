@@ -188,6 +188,21 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     steps: () => [READ_DETAILS, step("contact_microsoft_support")],
   },
 
+  // Archive capture: no notifications for a mailbox; it is polled meanwhile, nothing is lost.
+  "graph.subscription_failed": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic"), READ_DETAILS],
+  },
+  // Archive capture: no public HTTPS URL, every Microsoft 365 mailbox is polled.
+  "graph.notification_url_unavailable": {
+    category: "config",
+    transient: false,
+    retryable: false,
+    steps: () => [step("set_public_https_url")],
+  },
+
   // --- IMAP --------------------------------------------------------------------------------
   "imap.auth_failed": {
     category: "imap",

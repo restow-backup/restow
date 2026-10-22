@@ -266,11 +266,12 @@
 	# Request body limits: the api enforces the exact limit of every route
 	# (apps/api/src/middleware/body-limit.ts: 1 MiB unless listed there); the edge sets
 	# the outer bound, so an oversized body is cut off before it reaches the api. The
-	# routes nobody signs in for (sign-in, the setup wizard, set-password links) get the
-	# api's default of 1 MiB right here; everything else under /api is bounded by the
+	# routes nobody signs in for (sign-in, the setup wizard, set-password links, the
+	# Microsoft Graph notification hooks of the archive capture) get the api's default of
+	# 1 MiB right here; everything else under /api is bounded by the
 	# largest body the api accepts at all, an import upload segment (32 MiB).
 	handle /api/* {
-		@api_public path /api/auth/* /api/v1/setup /api/v1/setup/* /api/v1/accounts/*
+		@api_public path /api/auth/* /api/v1/setup /api/v1/setup/* /api/v1/accounts/* /api/v1/hooks/*
 		request_body @api_public {
 			max_size 1MiB
 		}

@@ -159,6 +159,11 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "POST /agent/pve/v1/snapshots/:snapshotId/restic",
   "POST /agent/pve/v1/tasks/:taskId/result",
   "GET /install/pve.sh",
+  // Microsoft Graph change notifications for the archive capture (0.4.4): Graph posts
+  // without a session, each notification is checked against its subscription's clientState
+  // (features/archive-capture/hooks.ts).
+  "POST /api/v1/hooks/graph/notifications",
+  "POST /api/v1/hooks/graph/lifecycle",
 ]);
 
 /**

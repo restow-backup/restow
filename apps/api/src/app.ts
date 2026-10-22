@@ -11,6 +11,7 @@ import { mountPath as apikeysMountPath } from "./features/apikeys/meta.js";
 import { apikeysRoutes } from "./features/apikeys/routes.js";
 import { mountPath as archiveMountPath } from "./features/archive/meta.js";
 import { archiveRoutes } from "./features/archive/routes.js";
+import { graphHookRoutes, graphHooksMountPath } from "./features/archive-capture/hooks.js";
 import {
   archiveCaptureMountPath,
   archiveCaptureRoutes,
@@ -215,6 +216,10 @@ export function buildApp() {
   app.route(PVE_RESTIC_PATH, pveResticRoutes);
   app.get(`${INSTALL_PATH}/pve.sh`, pveInstallScript);
   app.route(INSTALL_PATH, installRoutes);
+  // Microsoft Graph change notifications for the archive capture (docs/MICROSOFT.md): no
+  // session, each post checked against its subscription's clientState; 404 while the gate
+  // archive.mailboxCapture is closed.
+  app.route(`${API_V1}${graphHooksMountPath}`, graphHookRoutes);
 
   // Web UI (session) routes, in navigation order.
   app.route(`${API_V1}/status`, status);
