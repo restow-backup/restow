@@ -75,7 +75,13 @@ export async function reconcileCaptureStreams(providerDb: Database): Promise<Rec
     wanted as (
       insert into archive_capture_streams as cs
              (tenant_id, protected_object_id, source_id, way, status, next_due_at)
-      select tenant_id, object_id, source_id, way, 'pending', now() from desired
+      select d.tenant_id, d.object_id, d.source_id, d.way, 'pending', now() from desired d
+       -- Streams that exist and are wanted stay untouched (and unlocked: a claim running at
+       -- the same time must not skip them).
+       where not exists (
+         select 1 from archive_capture_streams e
+          where e.protected_object_id = d.object_id and e.way = d.way and e.status <> 'disabled'
+       )
       on conflict (protected_object_id, way) do update set
         status = (case when cs.activated_at is null then 'pending' else 'live' end)::archive_stream_status,
         source_id = excluded.source_id,
