@@ -40,6 +40,15 @@ private repository.
   audited with the key's update terms and whether they cover the running version. A key that
   does not cover the running version is refused (`outside_update_period`).
 
+### Changed
+
+- Dependencies: major update of the translation libraries, i18next 26 and react-i18next
+  17 (updated together). Texts, plurals and number and date formats read exactly as
+  before in English and German.
+- `@azure/msal-node` is no longer a dependency: nothing used it. The Microsoft 365 app
+  tokens, the admin consent and the IMAP OAuth2 sign-in use Restow's own token client,
+  unchanged.
+
 ### Upgrade Notes
 
 - One database migration (0063): three nullable columns of the `license` table.

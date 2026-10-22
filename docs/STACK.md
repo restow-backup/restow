@@ -253,7 +253,11 @@ Rechtstexte (Datenschutz, Lizenz) liegen als Markdown je Sprache, nicht in JSON.
 
 ## Microsoft
 
-- @azure/msal-node (MIT): Client Credentials, Zertifikat oder Secret, Token-Cache.
+- App-Token: eigener Client in packages/core/src/graph/auth/token.ts (keine Abhängigkeit,
+  kein msal): OAuth-2.0-Client-Credentials gegen den Entra-v2.0-Token-Endpunkt mit
+  Client-Secret oder Zertifikat (RS256-Client-Assertion mit x5t), Token-Cache bis kurz
+  vor Ablauf, gebündelte gleichzeitige Erneuerungen, nur erlaubte Authority-Hosts
+  (öffentliche und souveräne Clouds).
 - Graph über `fetch` mit eigenem Client (Retry/Throttling/Batch). Das offizielle
   SDK `@microsoft/microsoft-graph-client` ist möglich, aber die Throttling-Steuerung
   muss ohnehin selbst gebaut werden; weniger Abstraktion ist hier besser.

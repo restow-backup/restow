@@ -27,9 +27,6 @@ importers:
 
   apps/api:
     dependencies:
-      '@azure/msal-node':
-        specifier: ^2.16.0
-        version: 2.16.3
       '@better-auth/passkey':
         specifier: ^1.7.7
         version: 1.7.8(@better-auth/core@1.7.8(@better-auth/utils@0.5.0)(@better-fetch/fetch@1.3.2)(better-call@1.4.2(zod@4.6.5))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.3))(@better-auth/utils@0.5.0)(@better-fetch/fetch@1.3.2)(better-auth@1.7.8(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@types/pg@8.23.1)(gel@2.2.1)(kysely@0.29.6)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.4(@types/node@26.6.4)(happy-dom@21.0.1)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))))(better-call@1.4.2(zod@3.25.76))(nanostores@1.5.3)
@@ -171,8 +168,8 @@ importers:
         specifier: ^4
         version: 4.4.0
       i18next:
-        specifier: ^24.2.0
-        version: 24.2.3(typescript@5.9.3)
+        specifier: ^26.5.2
+        version: 26.5.6(typescript@5.9.3)
       i18next-icu:
         specifier: ^2.5.0
         version: 2.5.0(intl-messageformat@10.7.18)
@@ -195,8 +192,8 @@ importers:
         specifier: ^7.90.0
         version: 7.90.0(@types/react@19.3.0)(react@19.3.0)
       react-i18next:
-        specifier: ^15.4.0
-        version: 15.7.4(i18next@24.2.3(typescript@5.9.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@5.9.3)
+        specifier: ^17.1.0
+        version: 17.1.3(i18next@26.5.6(typescript@5.9.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@5.9.3)
       react-is:
         specifier: ^19.0.0
         version: 19.3.0
@@ -348,8 +345,8 @@ importers:
         specifier: ^19.0.0
         version: 19.3.0(react@19.3.0)
       react-i18next:
-        specifier: ^15.4.0
-        version: 15.7.4(i18next@24.2.3(typescript@5.9.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@5.9.3)
+        specifier: ^17.1.0
+        version: 17.1.3(i18next@26.5.6(typescript@5.9.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@5.9.3)
     devDependencies:
       '@types/react':
         specifier: ^19.0.2
@@ -448,8 +445,8 @@ importers:
   packages/i18n:
     dependencies:
       i18next:
-        specifier: ^24.2.0
-        version: 24.2.3(typescript@5.9.3)
+        specifier: ^26.5.2
+        version: 26.5.6(typescript@5.9.3)
       i18next-icu:
         specifier: ^2.5.0
         version: 2.5.0(intl-messageformat@10.7.18)
@@ -530,14 +527,6 @@ packages:
   '@aws/lambda-invoke-store@0.3.0':
     resolution: {integrity: sha512-sl4Bm6yiMNYrZKkqqDFWN0UfnWhlS8ivKxrYl+6t0gCLrqr8y3B2IqZZbFRkfaVVp7C/baApyh71P+LeE1A2sQ==}
     engines: {node: '>=18.0.0'}
-
-  '@azure/msal-common@14.16.1':
-    resolution: {integrity: sha512-nyxsA6NA4SVKh5YyRpbSXiMr7oQbwark7JU9LMeg6tJYTSPyAGkdx61wPT4gyxZfxlSxMMEyAsWaubBlNyIa1w==}
-    engines: {node: '>=0.8.0'}
-
-  '@azure/msal-node@2.16.3':
-    resolution: {integrity: sha512-CO+SE4weOsfJf+C5LM8argzvotrXw252/ZU6SM2Tz63fEblhH1uuVaaO4ISYFuN4Q6BhTo7I3qIdi8ydUQCqhw==}
-    engines: {node: '>=16'}
 
   '@babel/runtime@7.29.7':
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
@@ -2479,9 +2468,6 @@ packages:
     resolution: {integrity: sha512-Db1SbgBS/fg/392AblrMJk97KggmvYhr4pB5ZIMTWtaivCPMWLkmb7m21cJvpvgK+J3nsU2CmmixNBZx4vFj/w==}
     engines: {node: '>=8.0.0'}
 
-  buffer-equal-constant-time@1.0.1:
-    resolution: {integrity: sha512-zRpUiDwd/xk6ADqPMATG8vc9VPrkck7T07OIx0gnjmJAnHnTVXNQG3vfvWNuiZIkwu9KrKdA1iJKfsfTVxE6NA==}
-
   buffer-from@1.1.2:
     resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
 
@@ -2775,9 +2761,6 @@ packages:
       sqlite3:
         optional: true
 
-  ecdsa-sig-formatter@1.0.11:
-    resolution: {integrity: sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==}
-
   email-addresses@5.0.0:
     resolution: {integrity: sha512-4OIPYlA6JXqtVn8zpHpGiI7vE6EQOAg16aGnDMIAlZVinnoZ8208tW1hAbjWydgN/4PLTT9q+O1K6AH/vALJGw==}
 
@@ -2912,8 +2895,8 @@ packages:
   hsl-to-rgb-for-reals@1.1.1:
     resolution: {integrity: sha512-LgOWAkrN0rFaQpfdWBQlv/VhkOxb5AsBjk6NQVx4yEzWS923T07X0M1Y0VNko2H52HeSpZrZNNMJ0aFqsdVzQg==}
 
-  html-parse-stringify@3.1.0:
-    resolution: {integrity: sha512-E0oAXcELOtsXe+BmpJ2EZyedbldPpriV5vICzEuo6xjC/D1lDukOI7KrpfQGF2Qc4wWEy0nk3bFORS2K5ZAhFQ==}
+  html-parse-stringify@4.0.1:
+    resolution: {integrity: sha512-0zHsZJrK7S3K2aucXWL6ycoYJ/iNtIcFHC/nYQgFklPtrv5LpJctIiSCroWZWeuoXvuyFdzp6KzjJQ+OT5MfFw==}
 
   html-to-text@10.0.1:
     resolution: {integrity: sha512-GiVhRI1BatGARSCmlXWNCjDT0cWrwBWoeduLoV0WSKAgaV/wa+hUWy5LiQLUs4UwiUrE52ZCMfBGiKD87TDPrg==}
@@ -2934,10 +2917,10 @@ packages:
     peerDependencies:
       intl-messageformat: '>=10.3.3 <13.0.0'
 
-  i18next@24.2.3:
-    resolution: {integrity: sha512-lfbf80OzkocvX7nmZtu7nSTNbrTYR52sLWxPtlXX1zAhVw8WEnFk4puUkCR4B1dNQwbSpEHHHemcZu//7EcB7A==}
+  i18next@26.5.6:
+    resolution: {integrity: sha512-GFWrDwGmYhOQS3bKvjA2Ir2ob9ScEdyY1UbeQJ10jyVACGQ6XxmDYqC/lxEj/IPEJlPQYNRnYffDET6TM8mnFg==}
     peerDependencies:
-      typescript: ^5
+      typescript: ^5 || ^6 || ^7
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -3010,16 +2993,6 @@ packages:
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
-
-  jsonwebtoken@9.0.3:
-    resolution: {integrity: sha512-MT/xP0CrubFRNLNKvxJ2BYfy53Zkm++5bX9dtuPbqAeQpTVe0MQTFhao8+Cp//EmJp244xt6Drw/GVEGCUj40g==}
-    engines: {node: '>=12', npm: '>=6'}
-
-  jwa@2.0.1:
-    resolution: {integrity: sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg==}
-
-  jws@4.0.1:
-    resolution: {integrity: sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA==}
 
   kysely@0.29.6:
     resolution: {integrity: sha512-hHaB8C/rfzDDtr/t8YZwxAuPJTT0zHyaPoVzcXwDYhYNAgH/4sIfVhi/XLLIY+bL/FqaIJnjATDbi8ObSELmxg==}
@@ -3198,27 +3171,6 @@ packages:
 
   linkify-it@5.0.2:
     resolution: {integrity: sha512-ONTm2jCMAVZjgQa/Fy1kScXsuOoF5NPTsoFBdE1KVIZ2vAh/r9+Bqo+0jINCBYnavTPQZz38QzFTme79ENoN3Q==}
-
-  lodash.includes@4.3.0:
-    resolution: {integrity: sha512-W3Bx6mdkRTGtlJISOvVD/lbqjTlPPUDTMnlXZFnVwi9NKJ6tiAk6LVdlhZMm17VZisqhKcgzpO5Wz91PCt5b0w==}
-
-  lodash.isboolean@3.0.3:
-    resolution: {integrity: sha512-Bz5mupy2SVbPHURB98VAcw+aHh4vRV5IPNhILUCsOzRmsTmSQ17jIuqopAentWoehktxGd9e/hbIXq980/1QJg==}
-
-  lodash.isinteger@4.0.4:
-    resolution: {integrity: sha512-DBwtEWN2caHQ9/imiNeEA5ys1JoRtRfY3d7V9wkqtbycnAmTvRRmbHKDV4a0EYc678/dia0jrte4tjYwVBaZUA==}
-
-  lodash.isnumber@3.0.3:
-    resolution: {integrity: sha512-QYqzpfwO3/CWf3XP+Z+tkQsfaLL/EnUlXWVkIk5FUPc4sBdTehEqZONuyRt2P67PXAk+NXmTBcc97zw9t1FQrw==}
-
-  lodash.isplainobject@4.0.6:
-    resolution: {integrity: sha512-oSXzaWypCMHkPC3NvBEaPHf0KsA5mvPrOPgQWDsbg8n7orZ290M0BmC/jgRZ4vcJ6DTAhjrsSYgdsW/F+MFOBA==}
-
-  lodash.isstring@4.0.1:
-    resolution: {integrity: sha512-0wJxfxH1wgO3GrbuP+dTTk7op+6L41QCXbGINEmD+ny/G/eCqGzxyCsh7159S+mgDDcoarnBw6PC1PS5+wUGgw==}
-
-  lodash.once@4.1.1:
-    resolution: {integrity: sha512-Sb487aTOCr9drQVL8pIxOzVhafOjZN9UU54hiN8PU3uAiSV7lx1yYNpbNmex2PK6dSJoNTSJUUswT651yww3Mg==}
 
   long@3.2.0:
     resolution: {integrity: sha512-ZYvPPOMqUwPoDsbJaR10iQJYnMuZhRTvHYl62ErLIEX7RgFlziSBUUvrt3OVfc47QlHHpzPZYP17g3Fv7oeJkg==}
@@ -3472,14 +3424,14 @@ packages:
       '@types/react':
         optional: true
 
-  react-i18next@15.7.4:
-    resolution: {integrity: sha512-nyU8iKNrI5uDJch0z9+Y5XEr34b0wkyYj3Rp+tfbahxtlswxSCjcUL9H0nqXo9IR3/t5Y5PKIA3fx3MfUyR9Xw==}
+  react-i18next@17.1.3:
+    resolution: {integrity: sha512-XfaTqU09NPuBDuADQ8TEPbE0Goc2Gh6FHu0qvdFWfOWCdGQWRxRY2Uo5tDPtGBdzu4COXp0LQCkQIYa0IhJXlA==}
     peerDependencies:
-      i18next: '>= 23.4.0'
+      i18next: '>= 26.2.0'
       react: '>= 16.8.0'
       react-dom: '*'
       react-native: '*'
-      typescript: ^5
+      typescript: ^5 || ^6 || ^7
     peerDependenciesMeta:
       react-dom:
         optional: true
@@ -3934,10 +3886,6 @@ packages:
       jsdom:
         optional: true
 
-  void-elements@3.1.0:
-    resolution: {integrity: sha512-Dhxzh5HZuiHQhbvTW9AMetFfBHDMYpo23Uo9btPXgdYP+3T5S+p+jgNy7spra+veYhBP2dCSgxR/i2Y02h5/6w==}
-    engines: {node: '>=0.10.0'}
-
   whatwg-mimetype@3.0.0:
     resolution: {integrity: sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q==}
     engines: {node: '>=12'}
@@ -4156,14 +4104,6 @@ snapshots:
       tslib: 2.8.1
 
   '@aws/lambda-invoke-store@0.3.0': {}
-
-  '@azure/msal-common@14.16.1': {}
-
-  '@azure/msal-node@2.16.3':
-    dependencies:
-      '@azure/msal-common': 14.16.1
-      jsonwebtoken: 9.0.3
-      uuid: 11.1.1
 
   '@babel/runtime@7.29.7': {}
 
@@ -6042,8 +5982,6 @@ snapshots:
 
   buffer-crc32@1.0.0: {}
 
-  buffer-equal-constant-time@1.0.1: {}
-
   buffer-from@1.1.2: {}
 
   buffer-image-size@0.6.4:
@@ -6232,10 +6170,6 @@ snapshots:
       kysely: 0.29.6
       pg: 8.23.1
 
-  ecdsa-sig-formatter@1.0.11:
-    dependencies:
-      safe-buffer: 5.2.1
-
   email-addresses@5.0.0: {}
 
   emoji-regex-xs@1.0.0: {}
@@ -6408,9 +6342,7 @@ snapshots:
 
   hsl-to-rgb-for-reals@1.1.1: {}
 
-  html-parse-stringify@3.1.0:
-    dependencies:
-      void-elements: 3.1.0
+  html-parse-stringify@4.0.1: {}
 
   html-to-text@10.0.1:
     dependencies:
@@ -6440,9 +6372,7 @@ snapshots:
     dependencies:
       intl-messageformat: 10.7.18
 
-  i18next@24.2.3(typescript@5.9.3):
-    dependencies:
-      '@babel/runtime': 7.29.7
+  i18next@26.5.6(typescript@5.9.3):
     optionalDependencies:
       typescript: 5.9.3
 
@@ -6506,30 +6436,6 @@ snapshots:
   jose@6.2.12: {}
 
   js-tokens@4.0.0: {}
-
-  jsonwebtoken@9.0.3:
-    dependencies:
-      jws: 4.0.1
-      lodash.includes: 4.3.0
-      lodash.isboolean: 3.0.3
-      lodash.isinteger: 4.0.4
-      lodash.isnumber: 3.0.3
-      lodash.isplainobject: 4.0.6
-      lodash.isstring: 4.0.1
-      lodash.once: 4.1.1
-      ms: 2.1.3
-      semver: 7.8.5
-
-  jwa@2.0.1:
-    dependencies:
-      buffer-equal-constant-time: 1.0.1
-      ecdsa-sig-formatter: 1.0.11
-      safe-buffer: 5.2.1
-
-  jws@4.0.1:
-    dependencies:
-      jwa: 2.0.1
-      safe-buffer: 5.2.1
 
   kysely@0.29.6: {}
 
@@ -6672,20 +6578,6 @@ snapshots:
     dependencies:
       uc.micro: 2.1.0
 
-  lodash.includes@4.3.0: {}
-
-  lodash.isboolean@3.0.3: {}
-
-  lodash.isinteger@4.0.4: {}
-
-  lodash.isnumber@3.0.3: {}
-
-  lodash.isplainobject@4.0.6: {}
-
-  lodash.isstring@4.0.1: {}
-
-  lodash.once@4.1.1: {}
-
   long@3.2.0: {}
 
   loose-envify@1.4.0:
@@ -6727,7 +6619,8 @@ snapshots:
     dependencies:
       brace-expansion: 5.0.12
 
-  ms@2.1.3: {}
+  ms@2.1.3:
+    optional: true
 
   nanoid@3.3.19: {}
 
@@ -6976,12 +6869,13 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
 
-  react-i18next@15.7.4(i18next@24.2.3(typescript@5.9.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@5.9.3):
+  react-i18next@17.1.3(i18next@26.5.6(typescript@5.9.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@5.9.3):
     dependencies:
       '@babel/runtime': 7.29.7
-      html-parse-stringify: 3.1.0
-      i18next: 24.2.3(typescript@5.9.3)
+      html-parse-stringify: 4.0.1
+      i18next: 26.5.6(typescript@5.9.3)
       react: 19.3.0
+      use-sync-external-store: 1.7.0(react@19.3.0)
     optionalDependencies:
       react-dom: 19.3.0(react@19.3.0)
       typescript: 5.9.3
@@ -7143,7 +7037,8 @@ snapshots:
     dependencies:
       parseley: 0.13.1
 
-  semver@7.8.5: {}
+  semver@7.8.5:
+    optional: true
 
   serialize-error@8.1.0:
     dependencies:
@@ -7429,8 +7324,6 @@ snapshots:
     transitivePeerDependencies:
       - msw
     optional: true
-
-  void-elements@3.1.0: {}
 
   whatwg-mimetype@3.0.0: {}
 
