@@ -415,4 +415,67 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
     await secondManager?.stop();
     await until(() => server.stats.open === 0, "every IMAP session to close");
   });
+
+  it("shows a watched account as IDLE without waiting for its next scheduled pass (service loop)", async () => {
+    // As the worker runs it: the service's own loop starts the IDLE manager with its
+    // services (gate, keyrings, installation pool); no pass is forced by the test.
+    const object = await account("erik@example.net");
+    const way = createImapCaptureWay({
+      connector: server,
+      env: {},
+      settings: { idleMax: 5, refreshMs: 50 },
+    });
+    const instance = new ArchiveCaptureService({
+      db,
+      providerDb: db,
+      keyrings: new TenantCache(async () => keys),
+      storage: new TenantCache(async () => storage),
+      logger: silent,
+      gate: open,
+      ways: { imap_sync: way },
+      settings: { gateCheckMs: 0, reconcileMs: 0, leaseMs: 60_000, pollMs: 20 },
+      enqueueBackfill: async () => randomUUID(),
+    });
+    const streamOf = async () =>
+      (
+        await db
+          .select()
+          .from(archiveCaptureStreams)
+          .where(eq(archiveCaptureStreams.protectedObjectId, object))
+      )[0];
+    instance.start();
+    try {
+      // Activated while nobody watches it yet: polled, next pass in 10 minutes.
+      await until(
+        async () => (await streamOf())?.activatedAt != null,
+        "the stream to be activated",
+      );
+      await until(() => (way.idle()?.idling().length ?? 0) === 1, "the IDLE connection");
+      // Once the IDLE manager watches it, a pass records that well before those 10 minutes.
+      await until(
+        async () => (await streamOf())?.state._mode === "notifications",
+        "the stream to show IDLE",
+      );
+      expect((await streamOf())?.nextDueAt?.getTime()).toBeGreaterThan(Date.now() + 25 * 60_000);
+
+      // New mail arrives through IDLE alone.
+      put("INBOX", "idle-live@example.net");
+      await until(async () => (await itemsOf(object)).length === 1, "the mail pushed by IDLE");
+
+      // IDLE turned off for the source: the account is given back and shown as polled.
+      await db
+        .update(sources)
+        .set({ config: { archiveIdle: "off" } })
+        .where(eq(sources.id, sourceId));
+      await until(
+        async () => (await streamOf())?.state._pollReason === "imap.idle_disabled",
+        "the stream to show polling",
+      );
+      expect(await idleWatched(db, (await streamOf())?.id as string)).toBe(false);
+    } finally {
+      await instance.stop();
+      await way.idle()?.stop();
+    }
+    await until(() => server.stats.open === 0, "every IMAP session to close");
+  }, 30_000);
 });

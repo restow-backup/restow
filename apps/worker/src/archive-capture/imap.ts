@@ -402,6 +402,8 @@ interface HeldStream {
   /** The IDLE connection once it watches, and the folder it watches. */
   session: ImapSession | null;
   folder: string | null;
+  /** IDLE was established once: the stream's pass recorded it, or is due to. */
+  established: boolean;
 }
 
 interface IdleManagerDeps {
@@ -596,10 +598,12 @@ export class ImapIdleManager {
       if (this.lockClient === client) {
         this.lockClient = null;
       }
-      for (const held of this.held.values()) {
+      const given = [...this.held.values()];
+      for (const held of given) {
         held.controller.abort("lock connection lost");
       }
       this.held.clear();
+      void this.handedBack(given);
     });
     this.lockClient = client;
     return client;
@@ -620,6 +624,20 @@ export class ImapIdleManager {
     held.controller.abort("released");
     await held.done.catch(() => undefined);
     await this.unlock(id);
+    await this.handedBack([held]);
+  }
+
+  /**
+   * Accounts given back (unlocked): a pass records that they are polled now and when to
+   * come back (`_mode`, `nextDueAt`), and fetches whatever arrived meanwhile. Not on
+   * shutdown; a stream whose watch never began needs it only after a failure.
+   */
+  private async handedBack(given: readonly HeldStream[]): Promise<void> {
+    if (this.deps.services.signal.aborted) {
+      return;
+    }
+    const ids = given.filter((held) => held.established).map((held) => held.id);
+    await this.deps.services.markDue(ids).catch(() => undefined);
   }
 
   private async releaseAll(): Promise<void> {
@@ -639,6 +657,7 @@ export class ImapIdleManager {
       done: Promise.resolve(),
       session: null,
       folder: null,
+      established: false,
     };
     this.held.set(stream.id, held);
     held.done = this.run(held).then(async (outcome) => {
@@ -648,6 +667,11 @@ export class ImapIdleManager {
       // Ended on its own (a failure, no IDLE): free the slot and the lock, retry later.
       this.held.delete(stream.id);
       await this.unlock(stream.id);
+      // After the unlock, so the pass sees the account as polled. Whatever arrived while
+      // nobody watched is fetched by that pass.
+      if (outcome !== "released" || held.established) {
+        await this.deps.services.markDue([stream.id]).catch(() => undefined);
+      }
       this.backoff.set(
         stream.id,
         this.now() + (outcome === "unsupported" ? NO_IDLE_RETRY_MS : this.deps.settings.retryMs),
@@ -693,6 +717,12 @@ export class ImapIdleManager {
       await session.openFolder(folder);
       held.session = session;
       held.folder = folder;
+      held.established = true;
+      // The account is watched (the lock is held): a pass records it for the status page
+      // (`_mode: notifications`) and moves the safety pass out to `watchedPassMinutes`.
+      // Without it the stream showed polling until its next scheduled pass, up to
+      // `loginPollMinutes` later.
+      await services.markDue([held.id]).catch(() => undefined);
       for await (const _ of session.idle(signal)) {
         await services.markDue([held.id]);
       }
@@ -705,8 +735,7 @@ export class ImapIdleManager {
       logger.info("imap idle watch ended; the account is polled until it is watched again", {
         errorMessage: safeErrorMessage(error),
       });
-      // Whatever arrived while nobody watched is fetched by the next pass.
-      await services.markDue([held.id]).catch(() => undefined);
+      // The stream is made due once the lock is given back (watch()).
       return unsupported ? "unsupported" : "failed";
     } finally {
       held.session = null;
