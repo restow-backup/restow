@@ -115,7 +115,9 @@ export function FileRestorePage({
       ? null
       : (machineId ??
         (!machines.isPending && pveSettled && !hasContainers ? onlyMachine(list) : null));
-  const nothingAtAll = !machines.isPending && list.length === 0 && pveSettled && !hasContainers;
+  // A machine asked for by link (also a removed one, whose backups are kept) is never "nothing".
+  const nothingAtAll =
+    machineId === null && !machines.isPending && list.length === 0 && pveSettled && !hasContainers;
 
   if (nothingAtAll) {
     return (
@@ -561,7 +563,10 @@ function MachineRestorePoints({
     <SnapshotsTab
       detail={query.data}
       onShowOverview={
-        administers ? () => void navigate({ to: endpointDetailTo(machineId) }) : undefined
+        // A removed machine has no overview left to show.
+        administers && !query.data.removed
+          ? () => void navigate({ to: endpointDetailTo(machineId) })
+          : undefined
       }
     />
   );

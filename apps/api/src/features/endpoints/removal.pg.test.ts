@@ -9,6 +9,7 @@
  * RESTOW_TEST_DATABASE_URL points at and dropped after.
  */
 import { randomUUID } from "node:crypto";
+import { defaultEndpointConfig } from "@restow/core";
 import {
   auditLog,
   backupJobMembers,
@@ -75,7 +76,7 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
       status: fields.status ?? "revoked",
       revokedAt: fields.status === "active" ? null : new Date(NOW.getTime() - DAY),
       secretHash: "h",
-      config: {} as never,
+      config: defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
       settings: fields.settings ?? {},
       lastSuccessAt:
         fields.lastSuccessAt === undefined
@@ -161,9 +162,14 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
 
     const after = (await service.listEndpoints(shared.db, fixture.tenantId, {}, NOW)).items;
     expect(after.map((item) => item.id)).not.toContain(id);
-    await expect(
-      service.getEndpoint(shared.db, fixture.tenantId, id, "https://restow.test.example"),
-    ).rejects.toMatchObject({ status: 404 });
+    // Until its backups are gone, its page opens for restoring from them, and only for that.
+    const kept = await service.getEndpoint(
+      shared.db,
+      fixture.tenantId,
+      id,
+      "https://restow.test.example",
+    );
+    expect(kept.removed).toMatchObject({ mode: "delete", state: "scheduled" });
     await expect(
       service.revokeEndpoint(shared.db, fixture.tenantId, id, actor()),
     ).rejects.toMatchObject({ status: 404 });
@@ -194,6 +200,16 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
 
     const listed = await removal.listRemovals(shared.db, fixture.tenantId);
     expect(listed.items.map((item) => item.id)).toContain(id);
+
+    // Once its backups are deleted, the machine is gone for every reader.
+    const [row] = await fixture.db.select().from(endpoints).where(eq(endpoints.id, id));
+    await fixture.db
+      .update(endpoints)
+      .set({ removal: { ...(row?.removal as object), state: "done" } as never })
+      .where(eq(endpoints.id, id));
+    await expect(
+      service.getEndpoint(shared.db, fixture.tenantId, id, "https://restow.test.example"),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it("keeps the backups until the machine's retention lets the newest one go", async () => {

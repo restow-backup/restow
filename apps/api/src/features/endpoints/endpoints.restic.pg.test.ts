@@ -545,6 +545,41 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
         );
       expect(entry?.actor).toBe("admin@contoso.example");
       expect(JSON.stringify(entry?.details)).toContain(id);
+
+      // Removed from Restow with its backups kept: they are still browsed, until they are gone.
+      const removedAs = (state: string) =>
+        fixture.db
+          .update(endpoints)
+          .set({
+            removedAt: new Date(),
+            removal: {
+              mode: "expire",
+              state,
+              requestedBy: "admin@contoso.example",
+              requestedAt: new Date().toISOString(),
+            } as never,
+          })
+          .where(eq(endpoints.id, agent.endpointId));
+      try {
+        await removedAs("scheduled");
+        const kept = await service.browseSnapshot(
+          shared.db,
+          fixture.tenantId,
+          agent.endpointId,
+          { snapshotId: id, path: source, limit: 100 },
+          actor(),
+        );
+        expect(kept.entries.map((entry) => entry.name)).toContain("hello.txt");
+        await removedAs("done");
+        await expect(
+          service.listSnapshots(shared.db, fixture.tenantId, agent.endpointId),
+        ).rejects.toMatchObject({ status: 404 });
+      } finally {
+        await fixture.db
+          .update(endpoints)
+          .set({ removedAt: null, removal: null })
+          .where(eq(endpoints.id, agent.endpointId));
+      }
     }, 60_000);
 
     it("pages through a folder by cursor, and refuses a cursor it did not issue", async () => {

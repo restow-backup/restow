@@ -1,11 +1,14 @@
-import { Trash2 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { FolderOpen, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatBytes, formatDateTime } from "@/lib/format";
 
 import type { EndpointRemoval } from "../api.js";
 import { useRemovals } from "../hooks.js";
+import { fileRestoreTo } from "../paths.js";
 
 /** The sentence that says where a removal stands and when its backups go. */
 export function removalStateKey(removal: EndpointRemoval): {
@@ -54,21 +57,32 @@ export function RemovalsCard({ canRemove }: { canRemove: boolean }) {
         <ul className="divide-y text-sm">
           {items.map((removal) => {
             const state = removalStateKey(removal);
+            const name = removal.displayName?.trim() || removal.hostname;
             return (
               <li
                 key={removal.id}
                 className="flex flex-col gap-1 py-2 sm:flex-row sm:items-center sm:justify-between"
               >
-                <span className="min-w-0 break-words font-medium">
-                  {removal.displayName?.trim() || removal.hostname}
-                </span>
-                <span className="text-muted-foreground">
-                  {t(state.key, {
-                    date: state.date ? formatDateTime(state.date, i18n.language) : "",
-                  })}
-                  {removal.repositoryBytes
-                    ? ` · ${formatBytes(removal.repositoryBytes, i18n.language)}`
-                    : ""}
+                <span className="min-w-0 break-words font-medium">{name}</span>
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-muted-foreground">
+                    {t(state.key, {
+                      date: state.date ? formatDateTime(state.date, i18n.language) : "",
+                    })}
+                    {removal.repositoryBytes
+                      ? ` · ${formatBytes(removal.repositoryBytes, i18n.language)}`
+                      : ""}
+                  </span>
+                  <Link
+                    {...fileRestoreTo(removal.id)}
+                    search={fileRestoreTo(removal.id).search as never}
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                    aria-label={t("removals.restoreFilesFor", { name })}
+                    data-slot="removal-restore"
+                  >
+                    <FolderOpen aria-hidden="true" />
+                    {t("removals.restoreFiles")}
+                  </Link>
                 </span>
               </li>
             );

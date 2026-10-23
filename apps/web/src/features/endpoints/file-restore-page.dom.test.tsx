@@ -193,6 +193,13 @@ describe("FileRestorePage", () => {
     expect(document.querySelector("[data-slot='machine-picker']")).toBeNull();
   });
 
+  it("opens a removed machine linked by id, though no list has it any more (#65)", async () => {
+    fetchEndpoints.mockResolvedValue([]);
+    await open("22222222-2222-4222-8222-222222222222");
+    expect(page.text()).not.toContain("Nothing backed up yet");
+    expect(document.querySelector("[data-slot='machine-picker']")).not.toBeNull();
+  });
+
   it("lists the containers with a restore point in their own group, by schedule or by hand (#62)", async () => {
     fetchOverview.mockResolvedValue(
       overview([

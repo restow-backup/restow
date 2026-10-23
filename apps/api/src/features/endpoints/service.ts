@@ -39,7 +39,7 @@ import {
   tenants,
   users,
 } from "@restow/db";
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "../../lib/audit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -127,12 +127,24 @@ function notFound(): ProblemError {
   return new ProblemError(404, "Endpoint not found");
 }
 
-/** A machine of the tenant that is not removed (#65): a removed one is gone for every reader. */
-async function loadEndpoint(tx: Transaction, tenantId: string, id: string): Promise<Endpoint> {
+/**
+ * A machine of the tenant that is not removed (#65): a removed one is gone for every reader.
+ * `withKeptBackups`: also a removed one whose backups are still stored (its removal not done),
+ * for reading them: its page, its restore points, browsing, downloads and the repository key.
+ */
+async function loadEndpoint(
+  tx: Transaction,
+  tenantId: string,
+  id: string,
+  options: { withKeptBackups?: boolean } = {},
+): Promise<Endpoint> {
+  const present = options.withKeptBackups
+    ? or(isNull(endpoints.removedAt), sql`coalesce(${endpoints.removal}->>'state', '') <> 'done'`)
+    : isNull(endpoints.removedAt);
   const [endpoint] = await tx
     .select()
     .from(endpoints)
-    .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.id, id), isNull(endpoints.removedAt)))
+    .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.id, id), present))
     .limit(1);
   if (!endpoint) {
     throw notFound();
@@ -321,7 +333,7 @@ export async function getEndpoint(
   now: Date = new Date(),
 ): Promise<EndpointDetailDto> {
   return withTenantTx(database, tenantId, async (tx) => {
-    const endpoint = await loadEndpoint(tx, tenantId, id);
+    const endpoint = await loadEndpoint(tx, tenantId, id, { withKeptBackups: true });
     const runs = await tx
       .select()
       .from(endpointRuns)
@@ -406,6 +418,15 @@ export async function getEndpoint(
       : null;
     return {
       ...summary,
+      removed:
+        endpoint.removedAt && endpoint.removal
+          ? {
+              at: endpoint.removedAt.toISOString(),
+              mode: endpoint.removal.mode,
+              state: endpoint.removal.state,
+              expiresAt: endpoint.removal.expiresAt ?? null,
+            }
+          : null,
       config: options.revealHooks ? endpoint.config : { ...endpoint.config, hooks: {} },
       configVersion: endpoint.configVersion,
       agentConfigVersion: endpoint.agentConfigVersion,
@@ -1235,7 +1256,9 @@ async function openFor(
   tenantId: string,
   id: string,
 ): Promise<{ endpoint: Endpoint; open: () => Promise<OpenRepository> }> {
-  const endpoint = await withTenantTx(database, tenantId, (tx) => loadEndpoint(tx, tenantId, id));
+  const endpoint = await withTenantTx(database, tenantId, (tx) =>
+    loadEndpoint(tx, tenantId, id, { withKeptBackups: true }),
+  );
   const access = await repositoryAccess(database, endpoint);
   const open = async (): Promise<OpenRepository> => {
     const release = await holdRepositoryForRead(database, id);
@@ -1644,7 +1667,9 @@ export async function revealRepositoryPassword(
   id: string,
   actor: EndpointActor,
 ): Promise<RepositoryKeyDto> {
-  const endpoint = await withTenantTx(database, tenantId, (tx) => loadEndpoint(tx, tenantId, id));
+  const endpoint = await withTenantTx(database, tenantId, (tx) =>
+    loadEndpoint(tx, tenantId, id, { withKeptBackups: true }),
+  );
   const access = await repositoryAccess(database, endpoint);
   await withTenantTx(database, tenantId, (tx) =>
     auditEndpoint(tx, {

@@ -52,7 +52,7 @@ import {
   useRequestEndpointUpdate,
   useRestoreTest,
 } from "./hooks.js";
-import { ENDPOINT_TABS, type EndpointTab, inventoryTo } from "./paths.js";
+import { ENDPOINT_TABS, type EndpointTab, fileRestoreTo, inventoryTo } from "./paths.js";
 import { endpointErrorKey, endpointHostLine, endpointName, isWithoutBackup } from "./presenters.js";
 
 const TAB_ICON: Record<EndpointTab, typeof Camera> = {
@@ -294,6 +294,24 @@ export function EndpointDetailPage({
   }
 
   const detail = query.data;
+  if (detail.removed) {
+    // Removed from Restow, backups kept: their restore is all that is left of the machine.
+    return (
+      <div className="space-y-6" data-slot="endpoint-removed">
+        <PageHeader title={endpointName(detail)} actions={back} />
+        <Alert>
+          <AlertDescription>{t("removals.detailNote")}</AlertDescription>
+        </Alert>
+        <Link
+          {...fileRestoreTo(detail.id)}
+          search={fileRestoreTo(detail.id).search as never}
+          className={buttonVariants({ size: "sm" })}
+        >
+          {t("removals.restoreFiles")}
+        </Link>
+      </div>
+    );
+  }
   const hostLine = endpointHostLine(detail);
   return (
     <div className="space-y-5">

@@ -159,7 +159,11 @@ export function SnapshotsTab({
     startDownload: startBrowserDownload,
     limits: { downloadPaths: LIMITS.downloadPaths, restorePaths: LIMITS.restorePaths },
     canRestore: detail.status === "active",
-    note: detail.status !== "active" ? t("browser.revokedNote") : undefined,
+    note: detail.removed
+      ? t("browser.removedNote")
+      : detail.status !== "active"
+        ? t("browser.revokedNote")
+        : undefined,
     timelineLabel: t("snapshots.timelineLabel", { name: endpointName(detail) }),
     suspicion: {
       target: { kind: "endpoint", objectId: detail.id },

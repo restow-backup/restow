@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 import { endpointPrefix } from "@restow/core";
 import { endpoints } from "@restow/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db, providerDb } from "../../db.js";
 import { providerRoleSatisfies } from "../../lib/provider-access.js";
@@ -345,7 +345,15 @@ endpointsRoutes.get("/:id/snapshots/:snapshotId/immutability", restorer, async (
       .select({ id: endpoints.id })
       .from(endpoints)
       .where(
-        and(eq(endpoints.tenantId, tenantId), eq(endpoints.id, id), isNull(endpoints.removedAt)),
+        and(
+          eq(endpoints.tenantId, tenantId),
+          eq(endpoints.id, id),
+          // A removed machine whose backups are still stored keeps its restore points (#65).
+          or(
+            isNull(endpoints.removedAt),
+            sql`coalesce(${endpoints.removal}->>'state', '') <> 'done'`,
+          ),
+        ),
       )
       .limit(1),
   );

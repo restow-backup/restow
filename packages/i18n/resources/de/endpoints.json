@@ -708,7 +708,8 @@
       "editJob": "Job bearbeiten",
       "noJobHint": "Fehlt ein Ordner? Gesichert werden nur die Ordner eines Backup-Jobs, und dieser Rechner ist derzeit in keinem.",
       "wholeContainer": "/ (der ganze Container)"
-    }
+    },
+    "removedNote": "Dieser Rechner wurde aus {appName} entfernt, daher lassen sich keine Dateien auf ihm wiederherstellen. Bis seine Sicherungen gelöscht sind, ist Herunterladen als ZIP weiterhin möglich."
   },
   "restore": {
     "title": "Auf den Rechner wiederherstellen",
@@ -1308,7 +1309,10 @@
     "held": {
       "legal": "Gehalten von einer Legal Hold über den ganzen Mandanten",
       "suspicion": "Gehalten von einem ungeklärten verdächtigen Sicherungsstand"
-    }
+    },
+    "restoreFiles": "Dateien wiederherstellen",
+    "restoreFilesFor": "Dateien von {name} wiederherstellen",
+    "detailNote": "Dieser Rechner wurde aus {appName} entfernt. Bis seine Sicherungen gelöscht sind, lassen sie sich durchsuchen und Dateien als ZIP herunterladen; mehr nicht."
   },
   "machineStatus": {
     "cancelling": "Wird gestoppt…",

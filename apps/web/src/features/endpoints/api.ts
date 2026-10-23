@@ -298,6 +298,16 @@ export interface EndpointMachine {
 }
 
 export interface EndpointDetail extends EndpointSummary {
+  /**
+   * Removed from Restow while its backups are still stored (servers from 0.4.6): they can be
+   * browsed and downloaded, nothing else. Null or missing for a machine that is not removed.
+   */
+  removed?: {
+    at: string;
+    mode: "delete" | "expire";
+    state: "scheduled" | "held" | "deferred" | "done";
+    expiresAt: string | null;
+  } | null;
   config: EndpointConfig;
   /** null when the agent does not report data folders (before 0.4.0, macOS). */
   dataFolders: EndpointDataFolders | null;

@@ -947,8 +947,9 @@ Anmeldung wie bei anderen unumkehrbaren Aktionen, auditiert als `endpoint.remove
   Aufbewahrung ohne Regel behält alles und wird abgelehnt (409).
 
 Ab dann fehlt der Rechner in jeder Liste, Auswahl, Übersicht und Zählung (Inventar, auch hinter
-"Gesperrte Rechner anzeigen", Dateiwiederherstellung, Jobs, Live-Ansicht, Dashboard) und jede
-Anfrage an ihn antwortet 404. Er verlässt seinen Backup-Job. Seine Zeile bleibt als Grabstein
+"Gesperrte Rechner anzeigen", Auswahl der Dateiwiederherstellung, Jobs, Live-Ansicht, Dashboard)
+und jede Anfrage an ihn antwortet 404, außer dem Lesen seiner Sicherungen, solange sie noch
+liegen (unten). Er verlässt seinen Backup-Job. Seine Zeile bleibt als Grabstein
 (`endpoints.removed_at`, `removal`, `removal_due_at`, Migration 0064) mit Läufen, Berichten und
 Audit-Einträgen, damit Verlauf und Audit-Log ihn weiter nennen.
 
@@ -967,9 +968,14 @@ und stillgelegte Primärziele eines Wechsels mit "behalten". Zustände in `endpo
 
 `GET /api/v1/endpoints/removals` listet die entfernten Rechner, deren Sicherungen noch nicht
 gelöscht sind; die Rechnerseite zeigt sie Admins mit Datum, Halt oder Sperrfrist. Die weitere
-Prüfung (`endpoint-check`) eines entfernten Rechners entfällt. Die Dateiwiederherstellung bietet
-die Sicherungen eines entfernten Rechners nicht mehr an; wer sie bis zum Ablauf noch brauchen
-könnte, lässt sich vorher das Repository-Passwort anzeigen.
+Prüfung (`endpoint-check`) eines entfernten Rechners entfällt.
+
+Bis seine Sicherungen gelöscht sind (Zustand nicht `done`), lassen sie sich weiter lesen (seit
+0.4.6): Rechnerseite (nur ein Hinweis und der Weg zur Wiederherstellung), Sicherungspunkte,
+Durchsuchen, Download als ZIP und Repository-Passwort (`GET /:id`, `/:id/snapshots`, `/:id/browse`,
+`/:id/downloads`, `POST /:id/repository-password`), wie bei einem gesperrten Rechner auditiert. Die
+Liste der entfernten Rechner verlinkt dafür "Dateien wiederherstellen". Wiederherstellen auf den
+Rechner selbst und jede andere Aktion antworten weiter 404. Danach ist er für jeden Leser weg.
 
 ## Restore
 

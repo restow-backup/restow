@@ -708,7 +708,8 @@
       "editJob": "Edit the job",
       "noJobHint": "Missing a folder? Only the folders of a backup job are backed up, and this machine is in none at the moment.",
       "wholeContainer": "/ (the whole container)"
-    }
+    },
+    "removedNote": "This machine was removed from {appName}, so files cannot be restored onto it. Until its backups are deleted, you can still download them as a ZIP."
   },
   "restore": {
     "title": "Restore to the machine",
@@ -1308,7 +1309,10 @@
     "held": {
       "legal": "Held by a legal hold over the whole tenant",
       "suspicion": "Held by an unresolved suspicious restore point"
-    }
+    },
+    "restoreFiles": "Restore files",
+    "restoreFilesFor": "Restore files of {name}",
+    "detailNote": "This machine was removed from {appName}. Until its backups are deleted, they can be browsed and files downloaded as a ZIP; nothing else."
   },
   "machineStatus": {
     "cancelling": "Stopping…",

@@ -237,6 +237,16 @@ export interface MachineDto {
 }
 
 export interface EndpointDetailDto extends EndpointSummaryDto {
+  /**
+   * Removed from Restow while its backups are still stored (#65): they can be browsed and
+   * downloaded, nothing else. Null for a machine that is not removed.
+   */
+  removed: {
+    at: string;
+    mode: "delete" | "expire";
+    state: "scheduled" | "held" | "deferred" | "done";
+    expiresAt: string | null;
+  } | null;
   config: EndpointConfig;
   /** null when the agent does not report data folders. */
   dataFolders: DataFoldersDto | null;
