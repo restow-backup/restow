@@ -35,6 +35,21 @@ describe("parseOAuth2Secret", () => {
     }
   });
 
+  it("accepts only tenant references and https token endpoints", () => {
+    const base = { provider: "microsoft", refreshToken: "rt", clientId: "c" };
+    for (const tenantId of ["..", "a/b", "contoso.com?x=1", "evil.test#", "x y"]) {
+      expect(() => parseOAuth2Secret(JSON.stringify({ ...base, tenantId }))).toThrow(/tenantId/);
+    }
+    for (const tenantId of ["common", "Organizations", "0b3f6b2e-9c2d-4c3a-9e7f-1d2c3b4a5f60"]) {
+      expect(parseOAuth2Secret(JSON.stringify({ ...base, tenantId })).tenantId).toBe(tenantId);
+    }
+    for (const tokenEndpoint of ["http://169.254.169.254/token", "file:///etc/passwd", "nope"]) {
+      expect(() =>
+        parseOAuth2Secret(JSON.stringify({ ...base, provider: "custom", tokenEndpoint })),
+      ).toThrow(/https/);
+    }
+  });
+
   it("derives endpoints and scopes per provider", () => {
     expect(resolveTokenEndpoint(microsoft)).toBe(
       "https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/v2.0/token",

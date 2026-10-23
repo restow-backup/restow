@@ -78,6 +78,7 @@ const KNOWN_REASONS = new Set([
   "passwordMismatch",
   "totp",
   "emailInUse",
+  "tenantId",
 ]);
 
 /**

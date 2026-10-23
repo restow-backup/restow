@@ -155,6 +155,17 @@ private repository.
 - The job dialog of Proxmox VE: on a phone (390 px) the three restore-point fields stack, so
   "Monatliche Sicherungsstände" no longer runs over the dialog's edge.
 
+### Security
+
+- The setup wizard accepts the Entra tenant for Graph mail only as a tenant id (GUID) or a
+  verified domain, as Settings already did; anything else is refused (422) before it can reach
+  the token URL. The URL was never open to another host (the value is URL-encoded, the login
+  host is fixed), but a value such as `..` changed its path.
+- An IMAP OAuth2 secret is refused unless its `tenantId` is a tenant id, a verified domain,
+  `common`, `organizations` or `consumers`, and its `tokenEndpoint` is an https URL. Neither the
+  API nor the UI creates such secrets yet; the token request will also need the address policy
+  of IMAP connections before XOAUTH2 is offered.
+
 ### Upgrade Notes
 
 - Three database migrations run at the api's start: 0063 adds three nullable columns to the

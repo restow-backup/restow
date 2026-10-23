@@ -1,5 +1,5 @@
 import { z } from "zod";
-
+import { isValidTenantId } from "@/features/settings/forms";
 import type { SetupSubmission, SmtpSecurity } from "@/lib/api";
 import { PASSWORD_MIN_LENGTH } from "@/lib/password";
 
@@ -132,12 +132,22 @@ export const setupFormSchema = z
           message: "email",
         });
       }
-    } else if (!isEmail(values.mail.graph.sender)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["mail", "graph", "sender"],
-        message: "email",
-      });
+    } else {
+      if (!isEmail(values.mail.graph.sender)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["mail", "graph", "sender"],
+          message: "email",
+        });
+      }
+      const tenantId = values.mail.graph.tenantId;
+      if (tenantId.length > 0 && !isValidTenantId(tenantId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["mail", "graph", "tenantId"],
+          message: "tenantId",
+        });
+      }
     }
   });
 

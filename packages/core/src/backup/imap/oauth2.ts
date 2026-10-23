@@ -9,6 +9,8 @@
  * caller so the worker can persist it (core has no write access to secrets).
  */
 
+import { normalizeTenantReference } from "../../entra/consent.js";
+
 export type ImapOAuth2Provider = "microsoft" | "google" | "custom";
 
 /** Plaintext layout of an `oauth2` IMAP secret. */
@@ -49,6 +51,9 @@ const MICROSOFT_IMAP_SCOPE = "https://outlook.office365.com/IMAP.AccessAsUser.Al
 const GOOGLE_IMAP_SCOPE = "https://mail.google.com/";
 const DEFAULT_TTL_MS = 55 * 60 * 1000;
 
+/** The multi-tenant authorities Entra accepts besides a tenant id or verified domain. */
+const MICROSOFT_AUTHORITIES = new Set(["common", "organizations", "consumers"]);
+
 export function microsoftTokenEndpoint(tenantId = "common"): string {
   return `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`;
 }
@@ -80,6 +85,24 @@ export function parseOAuth2Secret(raw: string): ImapOAuth2Secret {
   const clientSecret = optionalString(value.clientSecret, "clientSecret");
   const tokenEndpoint = optionalString(value.tokenEndpoint, "tokenEndpoint");
   const tenantId = optionalString(value.tenantId, "tenantId");
+  if (
+    tenantId !== undefined &&
+    !MICROSOFT_AUTHORITIES.has(tenantId.toLowerCase()) &&
+    normalizeTenantReference(tenantId) === null
+  ) {
+    throw new OAuth2Error(
+      "oauth2 secret: tenantId must be a tenant id, a verified domain, common, organizations or consumers",
+      null,
+      "invalid_secret",
+    );
+  }
+  if (tokenEndpoint !== undefined && !isHttpsUrl(tokenEndpoint)) {
+    throw new OAuth2Error(
+      "oauth2 secret: tokenEndpoint must be an https URL",
+      null,
+      "invalid_secret",
+    );
+  }
   const scope = optionalString(value.scope, "scope");
   if (provider === "custom" && !tokenEndpoint) {
     throw new OAuth2Error(
@@ -89,6 +112,14 @@ export function parseOAuth2Secret(raw: string): ImapOAuth2Secret {
     );
   }
   return { provider, refreshToken, clientId, clientSecret, tokenEndpoint, tenantId, scope };
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function nonEmptyString(value: unknown, field: string): string {

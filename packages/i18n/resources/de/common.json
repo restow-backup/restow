@@ -198,7 +198,8 @@
     "maxLength": "Höchstens {max} Zeichen.",
     "passwordMismatch": "Die Passwörter stimmen nicht überein.",
     "totp": "Bitte geben Sie den 6-stelligen Code ein.",
-    "emailInUse": "Mit dieser E-Mail-Adresse gibt es bereits ein Konto. Wählen Sie eine andere."
+    "emailInUse": "Mit dieser E-Mail-Adresse gibt es bereits ein Konto. Wählen Sie eine andere.",
+    "tenantId": "Geben Sie eine Tenant-ID (GUID) oder eine verifizierte Domain wie contoso.onmicrosoft.com ein."
   },
   "time": {
     "never": "Noch nie",

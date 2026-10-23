@@ -24,9 +24,25 @@ describe("setupRequestSchema", () => {
   it("accepts a Graph mail setup with an optional tenant id", () => {
     const parsed = setupRequestSchema.parse({
       ...validSmtp,
-      mail: { transport: "graph", graph: { sender: "restow@example.com", tenantId: "contoso" } },
+      mail: {
+        transport: "graph",
+        graph: { sender: "restow@example.com", tenantId: "contoso.onmicrosoft.com" },
+      },
     });
-    expect(parsed.mail?.transport === "graph" && parsed.mail.graph.tenantId).toBe("contoso");
+    expect(parsed.mail?.transport === "graph" && parsed.mail.graph.tenantId).toBe(
+      "contoso.onmicrosoft.com",
+    );
+  });
+
+  it("rejects a Graph tenant id that is neither a GUID nor a domain", () => {
+    for (const tenantId of ["contoso", "..", "a/b", "contoso.com?x=1", "contoso.com#x"]) {
+      expect(
+        setupRequestSchema.safeParse({
+          ...validSmtp,
+          mail: { transport: "graph", graph: { sender: "restow@example.com", tenantId } },
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it("requires the name of the operator's own organisation, trimmed and at most 200 characters", () => {

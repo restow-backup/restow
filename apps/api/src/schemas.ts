@@ -1,4 +1,4 @@
-import { canonicalTimeZone } from "@restow/core";
+import { canonicalTimeZone, normalizeTenantReference } from "@restow/core";
 import { z } from "zod";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/password-policy.js";
 import { ProblemError } from "./problem.js";
@@ -42,7 +42,13 @@ export const smtpSetupSchema = z.object({
 export const graphSetupSchema = z.object({
   sender: z.string().trim().email(),
   /** Entra tenant id for client-credentials sendMail; defaults to the environment. */
-  tenantId: z.string().trim().min(1).optional(),
+  tenantId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(253)
+    .refine((value) => normalizeTenantReference(value) !== null, "tenantId")
+    .optional(),
 });
 
 export const mailSetupSchema = z.discriminatedUnion("transport", [

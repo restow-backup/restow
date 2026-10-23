@@ -133,6 +133,10 @@ describe("setupFormSchema", () => {
     expect(issuePaths(graph)).toEqual(["mail.graph.sender"]);
     graph.mail.graph = { sender: "restow@example.com", tenantId: "" };
     expect(issuePaths(graph)).toEqual([]);
+    graph.mail.graph = { sender: "restow@example.com", tenantId: "contoso" };
+    expect(issuePaths(graph)).toEqual(["mail.graph.tenantId"]);
+    graph.mail.graph = { sender: "restow@example.com", tenantId: "contoso.onmicrosoft.com" };
+    expect(issuePaths(graph)).toEqual([]);
   });
 
   it("validates no mail field when the step is skipped, however incomplete", () => {
@@ -257,11 +261,11 @@ describe("buildSubmission", () => {
     values.mail = {
       ...values.mail,
       transport: "graph",
-      graph: { sender: "restow@example.com", tenantId: " 1111 " },
+      graph: { sender: "restow@example.com", tenantId: " contoso.onmicrosoft.com " },
     };
     expect(buildSubmission(values, "2026-09-30", "en").mail).toEqual({
       transport: "graph",
-      graph: { sender: "restow@example.com", tenantId: "1111" },
+      graph: { sender: "restow@example.com", tenantId: "contoso.onmicrosoft.com" },
     });
   });
 });
