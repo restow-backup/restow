@@ -233,7 +233,7 @@ export interface GuestReadinessRow {
   /** What decided the rating: the read-back of blocks or the boot test; missing on older servers. */
   basis?: "verify" | "boot_test" | null;
   /** The newest rated boot test of the newest restore point; missing on older servers. */
-  bootTest?: { outcome: string; reason: string; checkedAt: string } | null;
+  bootTest?: { outcome: string; reason: string; message?: string; checkedAt: string } | null;
   /** A restore check of the newest restore point waits for the worker (servers from 0.4.2). */
   checkRequested?: boolean;
   /** What the restore check of the newest restore point found, when red (servers from 0.4.2). */

@@ -66,6 +66,16 @@ export function BootTestBadge({
         {t(`guest.bootTestOutcome.${test.outcome}`)}
       </Badge>
       <RelativeTime value={test.checkedAt} focusable={false} className="text-xs" />
+      {test.outcome === "red" && test.message ? (
+        // What the node saw (restore, start or stop of the temporary guest), not only red.
+        <span
+          className="line-clamp-2 max-w-80 text-xs break-words text-destructive-text"
+          title={test.message}
+          data-slot="pve-boot-test-message"
+        >
+          {test.message}
+        </span>
+      ) : null}
     </span>
   );
 }

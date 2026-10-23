@@ -71,7 +71,12 @@ export function GuestReadinessRowView({
   const { t } = useTranslation("pve");
   const check = useGuestCheck();
   const name = guestRowName(row);
-  const errors = row.state === "red" ? (row.verifyErrors ?? []) : [];
+  // A red row names what failed: the boot test's message when the boot test decided, else
+  // what the restore check found.
+  const bootMessage =
+    row.state === "red" && row.basis === "boot_test" ? (row.bootTest?.message ?? "") : "";
+  const errors =
+    row.state === "red" ? [...(bootMessage ? [bootMessage] : []), ...(row.verifyErrors ?? [])] : [];
   // A check that could not run says why (who held the repository's lock), muted: no finding.
   const notChecked = row.state === "yellow" ? (row.verifyNotChecked?.detail ?? "") : "";
   const result = t(guestResultKey(row));

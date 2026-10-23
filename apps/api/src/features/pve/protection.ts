@@ -62,7 +62,7 @@ export interface GuestReadinessRowDto {
   /** What decided the rating: the read-back of blocks, or the boot test. */
   basis: "verify" | "boot_test" | null;
   /** The newest rated boot test of the newest restore point. */
-  bootTest: { outcome: string; reason: string; checkedAt: string } | null;
+  bootTest: { outcome: string; reason: string; message: string; checkedAt: string } | null;
   checkedAt: string | null;
   overdue: boolean;
   latestBackupAt: string | null;
@@ -319,7 +319,12 @@ export async function loadGuestProtection(
       readiness,
       basis: readiness ? rating.basis : null,
       bootTest: bootTest
-        ? { outcome: bootTest.outcome, reason: bootTest.reason, checkedAt: bootTest.checkedAt }
+        ? {
+            outcome: bootTest.outcome,
+            reason: bootTest.reason,
+            message: (bootTest.message ?? "").slice(0, 500),
+            checkedAt: bootTest.checkedAt,
+          }
         : null,
       checkedAt: checkedAt?.toISOString() ?? null,
       overdue,
