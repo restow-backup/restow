@@ -831,12 +831,18 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
       .where(and(eq(pveTasks.guestId, id), inArray(pveTasks.status, ["pending", "delivered"])))
       .orderBy(desc(pveTasks.createdAt));
     const jobs = await tx.select().from(pveJobs);
-    // The guest's first backup ever, also when retention pruned it since: a later
-    // point is never "the first one" just because the older ones are gone.
+    // The first backup of the guest's current chain, also when retention pruned it since: a
+    // later point is never "the first one" just because the older ones are gone. A new backup
+    // chain (its earlier points marked unavailable) begins with a first backup of its own.
     const [first] = await tx
       .select({ sequence: sql<number>`min(${pveSnapshots.sequence})` })
       .from(pveSnapshots)
-      .where(eq(pveSnapshots.guestId, id));
+      .where(
+        and(
+          eq(pveSnapshots.guestId, id),
+          sql`${pveSnapshots.sequence} > COALESCE((SELECT max(u.sequence) FROM pve_snapshots u WHERE u.guest_id = ${id} AND u.status = 'unavailable'), -1)`,
+        ),
+      );
     const firstSequence =
       first?.sequence === null || first?.sequence === undefined ? null : Number(first.sequence);
     const [cluster] = await tx

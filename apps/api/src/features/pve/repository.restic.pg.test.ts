@@ -276,7 +276,7 @@ describe.skipIf(!canRun)("the repository of a container is checked before a back
     expect(detail.repository?.chains[0]?.reason).toBe("missing");
     const listed = new Map(detail.snapshots.map((s) => [s.id, s]));
     expect(listed.get(first.snapshotId)).toMatchObject({ available: false, browsable: false });
-    expect(listed.get(third.snapshotId)).toMatchObject({ available: true });
+    expect(listed.get(third.snapshotId)).toMatchObject({ available: true, backupType: "first" });
     // A restore point of the old chain is neither restored nor checked any more.
     await expect(
       service.requestVerify(shared.db, fixture.tenantId, first.snapshotId, actor()),
