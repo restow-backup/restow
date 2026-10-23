@@ -26,7 +26,8 @@ private repository.
 - The update check marks releases the installed Business or Service Provider key does not
   cover, says so calmly on the Updates page (the installed version keeps working; the newest
   covered version installs as usual) and refuses to install or plan them (409
-  `urn:restow:problem:update-not-covered`).
+  `urn:restow:problem:update-not-covered`). The bell and the `update.available` alert rules
+  announce only the newest covered release.
 - Started by hand, a release the installed Business or Service Provider key does not cover
   stops before its database migrations, with a log line naming the version, the end of the
   update period and the last covered release date; nothing needs to be restored to go back.

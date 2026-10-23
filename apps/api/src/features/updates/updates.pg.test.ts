@@ -1170,6 +1170,14 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
           ["0.2.0", true],
         ]);
         expect(view.releases[0]?.releasedAt).toBe("2027-12-02T09:00:00.000Z");
+        // The bell announces the newest covered release, not the newest one.
+        const announced = await owner
+          .select()
+          .from(notifications)
+          .where(eq(notifications.event, "update.available"));
+        expect(announced.map((item) => item.details)).toEqual([
+          expect.objectContaining({ version: "0.2.0" }),
+        ]);
 
         const refused = await service
           .schedule({ version: "0.3.0", leadSeconds: 0 }, actor)

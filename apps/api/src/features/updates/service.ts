@@ -424,17 +424,21 @@ export class UpdateService {
       },
     });
 
-    if (
-      check.state === "ok" &&
-      latest &&
-      isUpdateAvailable(state.runningVersion(), latest.version)
-    ) {
+    if (check.state === "ok" && latest) {
       try {
-        await raiseUpdateAvailable(
-          db,
-          { release: latest, running: state.runningVersion() },
-          this.now(),
-        );
+        // The bell and the alert rules announce the newest release the licence key covers;
+        // one it does not cover stays on the Updates page only.
+        const coverage = await loadUpdateCoverage(db);
+        const announced = coverage
+          ? (check.releases.find((release) => coverage.covers(coveredReleaseOf(release))) ?? null)
+          : latest;
+        if (announced && isUpdateAvailable(state.runningVersion(), announced.version)) {
+          await raiseUpdateAvailable(
+            db,
+            { release: announced, running: state.runningVersion() },
+            this.now(),
+          );
+        }
       } catch (error) {
         this.deps.log?.("warn", "raising the update alert failed", {
           error: error instanceof Error ? error.message : String(error),

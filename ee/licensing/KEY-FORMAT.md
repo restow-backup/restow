@@ -87,11 +87,12 @@ its raw 32 bytes. Both sides derive it from the key, so no naming is agreed.
 
 ## Compatibility with builds before 0.4.5
 
-Builds up to 0.4.4 accept **exactly** the six required members and refuse a key with any
-further member as `invalid_payload`. Issue the six-member form (the beta key below,
-without `series`) to an installation that may still run 0.4.4 or older; every member
-added later must be optional and safe to ignore, since builds from 0.4.5 on ignore what
-they do not know.
+Keys with optional members are for Restow 0.4.5 and later. Builds up to 0.4.4 accept
+**exactly** the six required members and refuse a key with any further member as
+`invalid_payload`; such an installation updates to 0.4.5 first, with its current key. Only
+when a key must work on 0.4.4 or older, issue the six-member form (the beta key below,
+without `series`). Every member added later must be optional and safe to ignore, since
+builds from 0.4.5 on ignore what they do not know.
 
 ## Examples
 

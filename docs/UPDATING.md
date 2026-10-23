@@ -313,7 +313,9 @@ the notification bell of the provider administrators, and the alert rules (on ea
 tenant's page, Notifications) that list the event *Update available* (e-mail, webhook), in
 every tenant. A rule for this event can be created by provider administrators
 only; a tenant's own administrators are not told about your updates. The same
-version never raises it twice.
+version never raises it twice. With a Business or Service Provider key that restricts
+updates, the alert names the newest release the key covers; a release it does not cover
+shows on the Updates page only.
 
 The integration API (`GET /api/v1/status`, `VersionInfo`) reports the same
 state: `running`, `latest`, `updateAvailable`, `updateCheck`, and the fields

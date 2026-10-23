@@ -520,7 +520,7 @@
         "revoked": "Enrollment-Token widerrufen"
       },
       "enrolled": "Rechner eingerichtet",
-      "revoked": "Rechner widerrufen",
+      "revoked": "Rechner gesperrt",
       "removed": "Rechner aus {appName} entfernt",
       "removal": {
         "held": "Löschen der Sicherungen des entfernten Rechners angehalten",

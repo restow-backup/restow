@@ -1344,7 +1344,7 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   Primärziels (Ersetzen mit "verschieben" oder "behalten" und das Hochstufen einer Kopie) mit 409
   `storage-active-endpoints` und einer klaren Meldung. Ein Endpunkt-Repository zählt außerdem als Daten
   des Primärziels: Dessen Ort lässt sich nicht ändern, und es lässt sich nicht entfernen, solange es
-  Repositories hält. Vorgehen für einen Wechsel: die Rechner widerrufen oder deinstallieren
+  Repositories hält. Vorgehen für einen Wechsel: die Rechner sperren oder deinstallieren
   (`POST .../uninstall`), das Primärziel wechseln, die Rechner neu anmelden (neue Endpunkte mit neuem
   Repository im neuen Primärziel). Die Repositories der widerrufenen Rechner bleiben auf dem alten Ziel
   (es wird zu `previous` oder zur Kopie) und vom Server lesend auffindbar (Browsen, Download); das alte Ziel
