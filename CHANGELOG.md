@@ -10,6 +10,29 @@ private repository.
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-10-23
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.5 prepares the licence for paid update periods: keys can carry an update period
+and a series, the image knows its release date, and an installation is offered, told about and
+allowed to install only the releases its Business or Service Provider key covers. Every key
+issued so far is a beta licence and keeps covering every 0.x and 1.x release. Revoked machines
+can be removed from Restow, with or without their backups; Microsoft 365 group calendars and
+conversations are backed up as protected objects of their own (opt-in); both job lists can
+start and stop every job and open a detail panel like VMs & containers. The public demo resets
+from a saved template in about a minute. Three database migrations (Upgrade Notes).
+
+### Breaking Changes
+
+None. The integration API contract moves to 1.6.0, additively: `ObjectKind` includes
+`group` and the status reports `lastSuccess.groups`; clients that handle object kinds
+exhaustively should accept the new value. Licence keys with the new optional members verify
+only on 0.4.5 and later (ee/licensing/KEY-FORMAT.md).
+
 ### Added
 
 - Licence keys carry update terms (docs/LICENSING.md). The key format `restow-license-v1`
@@ -169,10 +192,41 @@ private repository.
 
 ### Upgrade Notes
 
+New images and three database migrations; no new required environment variable, and the
+`docker-compose.yml` of 0.4.0 stays.
+
 - Three database migrations run at the api's start: 0063 adds three nullable columns to the
   `license` table, 0064 the removal state of a machine to `endpoints` (three nullable columns
   and a partial index over the removals that are due), 0065 the protected object kind `group`
-  (an enum value only).
+  (an enum value only). None of them rewrites a table.
+- Installed licence keys keep working unchanged: every key issued before 0.4.5 is a beta
+  licence and covers every 0.x and 1.x release. From now on, an image started with a key that
+  does not cover it stops before the migrations and says so in the log;
+  `RESTOW_RUN_AS_COMMUNITY=1` starts it as Community instead (docs/LICENSING.md).
+- Group mailboxes are opt-in: after the update no group is backed up until the protection
+  rules switch "Protect all Microsoft 365 groups" on or single groups are included. The first
+  directory sync after the update reads the groups of every Microsoft 365 source once in full.
+- Rollback to 0.4.4 after the migrations was not tested: take a database backup before the
+  update and restore it to go back.
+
+### Known Issues
+
+- Group calendars and conversations were tested against a simulated Graph API, never against a
+  real Microsoft 365 tenant; which calendar reads Graph allows an app on a group can differ by
+  tenant (the backup falls back to `calendarView` and reports what it could not read).
+- Machines removed from Restow cannot be restored from in the interface while their backups
+  are kept until expiry.
+- IMAP sources with OAuth2 still cannot be created in the API or the interface.
+- The known issues of 0.4.4 still apply.
+
+### Verification
+
+Before the tag, on the release branch (0.4.4 plus the 0.4.5 workstreams): lint and typecheck
+of all workspaces, the unit and Postgres suites of every package on Postgres 16 (with the
+Postgres guard), the web DOM tests, the v1 OpenAPI test, drizzle-kit without drift, the Go
+tests of the agents, the server installer and demo reset tests and the third-party notices.
+The release smoke ran on the release branch; no real Microsoft 365 tenant was used before the
+tag.
 
 ## [0.4.4] - 2026-10-22
 
