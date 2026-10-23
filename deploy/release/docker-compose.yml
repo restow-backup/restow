@@ -3,7 +3,7 @@
 name: restow
 
 x-restow-app: &restow-app
-  image: ${RESTOW_IMAGE:?set RESTOW_IMAGE in .env (for example ghcr.io/restow-backup/restow:0.4.5 or ghcr.io/restow-backup/restow-community:0.4.5)}
+  image: ${RESTOW_IMAGE:?set RESTOW_IMAGE in .env (for example ghcr.io/restow-backup/restow:0.4.6 or ghcr.io/restow-backup/restow-community:0.4.6)}
   env_file:
     - .env
   depends_on:
@@ -90,7 +90,7 @@ services:
         condition: service_healthy
 
   caddy:
-    image: ${RESTOW_WEB_IMAGE:?set RESTOW_WEB_IMAGE in .env (for example ghcr.io/restow-backup/restow-web:0.4.5 or ghcr.io/restow-backup/restow-web-community:0.4.5)}
+    image: ${RESTOW_WEB_IMAGE:?set RESTOW_WEB_IMAGE in .env (for example ghcr.io/restow-backup/restow-web:0.4.6 or ghcr.io/restow-backup/restow-web-community:0.4.6)}
     environment:
       RESTOW_APP_DOMAIN: ${RESTOW_APP_DOMAIN:?set RESTOW_APP_DOMAIN in .env (for example app.example.com)}
       RESTOW_EDGE_HSTS: ${RESTOW_EDGE_HSTS:-}

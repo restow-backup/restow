@@ -10,6 +10,83 @@ private repository.
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-10-23
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.6 fixes restoring Proxmox VE containers, which failed on current Proxmox VE for
+every restore and every boot test of a container, and stops a new backup chain from being
+flagged as a ransomware attack. Removed machines keep their backups browsable until they are
+deleted, a requested restore check says it is queued until its result is in, and error texts
+open in a card that can be copied. No database migration.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.6.0.
+
+### Added
+
+- Removed machines (#65): until their backups are deleted, the page of a removed machine offers
+  their restore (and nothing else), and the restore points, browsing, the ZIP download and the
+  repository key keep working for them, audited as before. The list of removed machines links
+  "Restore files". Restoring onto the machine and every other action stay refused (404); once
+  the backups are deleted the machine is gone for every reader (docs/AGENT.md).
+
+### Changed
+
+- Error texts behind a badge or a cut-off line (the boot test, the restore check of a VM or
+  container on its page and in the recovery readiness table) open on hover or keyboard focus in
+  a card with the whole text, selectable and with a Copy button, instead of a browser tooltip.
+- A boot test that did not boot shows the node's message under its badge, on the guest's page
+  and in the recovery readiness table.
+- "Check now" of a VM or container: the row says "Check queued" under the last check, and the
+  guest's page above the earlier result, until the result is in; both refresh every few seconds
+  meanwhile.
+- Dependencies: happy-dom 21.0.4 (tests of the web interface only; Dependabot #78).
+
+### Fixed
+
+- Proxmox VE: restoring a container from Restow failed with `Can't use string ("restow") as a
+  HASH ref` on current Proxmox VE, which passes the storage ID to the backup provider's
+  container restore before the info hash. Boot tests of containers ("Did not boot") and
+  "Restore as a new guest" of containers were affected; VMs were not. The plugin of restow-pve
+  accepts both forms; it is installed with the restow-pve update, which reloads the PVE daemons.
+- Ransomware detection: the first backup of a container's new backup chain (its repository was
+  missing, or reset) was judged against the old chain and flagged as suspicious, since every
+  file is new in an empty repository. The baseline now begins with the newest chain. A restore
+  point flagged that way before the update stays flagged; mark it as a false alarm.
+- The first backup of a container's new backup chain is called "First backup", not
+  "Incremental".
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+- No database migration and no new setting.
+- Update restow-pve on every Proxmox VE node (the server offers it after its own update; nodes
+  update themselves when idle) before relying on container restores or boot tests. Until then,
+  container restores keep failing as before; VMs are not affected.
+- Container restore points that read "Did not boot" or a failed restore check from before
+  0.4.3: run "Boot test now" or "Check now" once the node is updated.
+
+### Known Issues
+
+- The known issues of 0.4.5 still apply.
+
+### Verification
+
+Before the tag, on the release branch (0.4.5 plus the 0.4.6 fixes): lint and typecheck of all
+workspaces, the unit and Postgres suites of every package on Postgres 16 (with the Postgres
+guard), restic-backed tests with restic 0.19, the web DOM tests, the Perl tests of the Proxmox VE
+plugin (the container restore with and without the storage ID) and the third-party notices.
+The release smoke runs in the release pipeline; the container restore fix was not run against
+a real Proxmox VE node before the tag.
+
 ## [0.4.5] - 2026-10-23
 
 Beta release. Run it alongside your existing backups, not as your only one, until
