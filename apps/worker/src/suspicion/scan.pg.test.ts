@@ -407,6 +407,63 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     expect(raised.at(-1)?.message).toContain("do not compress");
   });
 
+  it("starts a container's history anew with a new backup chain", async () => {
+    const [cluster] = await q<{ id: string }>(
+      `INSERT INTO pve_clusters (tenant_id, name, fingerprint, storage_id)
+       VALUES ($1, 'chain', $2, 'restow') RETURNING id`,
+      [tenantId, "d".repeat(64)],
+    );
+    const [ct] = await q<{ id: string }>(
+      `INSERT INTO pve_guests (tenant_id, cluster_id, vmid, kind, name, node)
+       VALUES ($1, $2, 102, 'ct', 'achilles', 'pve1') RETURNING id`,
+      [tenantId, cluster?.id],
+    );
+    const ctRun = async (at: Date, filesNew: number) => {
+      const [row] = await q<{ id: string }>(
+        `INSERT INTO pve_runs (tenant_id, cluster_id, guest_id, kind, status, started_at, finished_at, snapshot_id, stats)
+         VALUES ($1, $2, $3, 'backup', 'succeeded', $4, $4, $5, $6) RETURNING id`,
+        [
+          tenantId,
+          cluster?.id,
+          ct?.id,
+          at,
+          randomUUID(),
+          JSON.stringify({
+            resticFilesNew: filesNew,
+            resticFilesChanged: 0,
+            resticFilesTotal: 60_000,
+            resticBytesAdded: filesNew * 25_000,
+          }),
+        ],
+      );
+      return row?.id as string;
+    };
+    for (let day = 13; day >= 4; day--) {
+      await ctRun(ago(day * DAY), 200 + (day % 3) * 20);
+    }
+    // The repository was gone: a new chain began, and its first backup adds every file again.
+    const chainAt = ago(4 * HOUR);
+    await q(`UPDATE pve_guests SET repository_chains = $2 WHERE id = $1`, [
+      ct?.id,
+      JSON.stringify([
+        {
+          at: chainAt.toISOString(),
+          reason: "missing",
+          target: null,
+          actor: null,
+          unavailablePoints: 5,
+        },
+      ]),
+    ]);
+    const first = await ctRun(ago(3 * HOUR), 60_000);
+
+    await suspicionPass(deps);
+    expect(await judgement(first)).toMatchObject({
+      verdict: "none",
+      signals: { changeRate: "learning" },
+    });
+  });
+
   it("announces an unresolved retention hold again after the reminder days, and a release ends the episode", async () => {
     const reminders = () =>
       q<{ details: Record<string, unknown>; level: string }>(

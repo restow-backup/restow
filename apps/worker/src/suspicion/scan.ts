@@ -101,6 +101,12 @@ interface KindSource {
   object: SQL;
   time: SQL;
   run: SQL;
+  /**
+   * Where the object's history begins (its newest backup chain), or none. A new chain starts
+   * an empty repository, so its first backup adds everything again: comparing that with the
+   * old chain's runs would read as a mass change.
+   */
+  historyStart?: SQL;
   metrics: (row: RunRow) => RunMetrics;
 }
 
@@ -133,6 +139,7 @@ const SOURCES: readonly KindSource[] = [
     object: sql`r.guest_id`,
     time: sql`r.finished_at`,
     run: sql`r.id`,
+    historyStart: sql`COALESCE((g.repository_chains->0->>'at')::timestamptz, '-infinity'::timestamptz)`,
     metrics: (row) => pveRunMetrics(row.extra ?? "", row.data),
   },
   {
@@ -244,7 +251,7 @@ async function agedOutOf(db: Database, source: KindSource, since: Date): Promise
 
 /**
  * The metrics of the object's earlier runs that count for its baseline, newest first: every
- * run but those judged suspicious and not called a false alarm.
+ * run of its current backup chain but those judged suspicious and not called a false alarm.
  */
 async function baselineOf(
   tx: TenantTx,
@@ -255,7 +262,9 @@ async function baselineOf(
   const result = await tx.execute<RunRow>(
     select(
       source,
-      sql`${source.object} = ${row.object_id} AND ${source.time} < ${dateOf(row.at)}`,
+      source.historyStart
+        ? sql`${source.object} = ${row.object_id} AND ${source.time} < ${dateOf(row.at)} AND ${source.time} > ${source.historyStart}`
+        : sql`${source.object} = ${row.object_id} AND ${source.time} < ${dateOf(row.at)}`,
       sql`${source.time} DESC`,
       settings.baselineRuns + HISTORY_SLACK,
     ),
