@@ -29,6 +29,7 @@ export {
 } from "./confirm-dialog.js";
 export { CopyButton, type CopyButtonProps } from "./copy-button.js";
 export * from "./data-table/index.js";
+export { DetailHover, type DetailHoverProps } from "./detail-hover.js";
 export {
   DetailFact,
   DetailSection,

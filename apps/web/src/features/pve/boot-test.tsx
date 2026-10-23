@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { RelativeTime } from "@/components/kit";
+import { DetailHover, RelativeTime } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 
 import type { GuestKind, PveBootTest, PveBootTestOutcome, PveGuestDetail } from "./api.js";
@@ -54,23 +54,32 @@ export function BootTestBadge({
     return <Badge variant="muted">{t("guest.bootTestNone")}</Badge>;
   }
   const detail = bootTestDetailKey(test, kind);
-  const title = detail
-    ? t(detail, {
-        seconds: test.bootSeconds === null ? "?" : Math.round(test.bootSeconds),
-        message: test.message,
-      })
-    : test.message;
+  // Red says it in the badge; the node's message is the text. The other outcomes explain why.
+  const summary =
+    detail && test.outcome !== "red"
+      ? t(detail, { seconds: test.bootSeconds === null ? "?" : Math.round(test.bootSeconds) })
+      : null;
+  const badge = (
+    <Badge variant={bootTestVariant(test.outcome)}>
+      {t(`guest.bootTestOutcome.${test.outcome}`)}
+    </Badge>
+  );
+  const tone =
+    test.outcome === "red" ? "destructive" : test.outcome === "yellow" ? "warning" : "muted";
   return (
     <span className="inline-flex flex-col gap-0.5" data-slot="pve-boot-test">
-      <Badge variant={bootTestVariant(test.outcome)} title={title}>
-        {t(`guest.bootTestOutcome.${test.outcome}`)}
-      </Badge>
+      {test.message ? (
+        <DetailHover text={test.message} title={summary ?? undefined} tone={tone}>
+          {badge}
+        </DetailHover>
+      ) : (
+        badge
+      )}
       <RelativeTime value={test.checkedAt} focusable={false} className="text-xs" />
       {test.outcome === "red" && test.message ? (
         // What the node saw (restore, start or stop of the temporary guest), not only red.
         <span
           className="line-clamp-2 max-w-80 text-xs break-words text-destructive-text"
-          title={test.message}
           data-slot="pve-boot-test-message"
         >
           {test.message}

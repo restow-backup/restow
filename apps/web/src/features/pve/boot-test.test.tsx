@@ -54,11 +54,29 @@ describe("the tone of a boot test", () => {
 });
 
 describe("BootTestBadge", () => {
-  it("names the outcome and puts the proof in the title", () => {
+  it("names the outcome; the proof opens on hover, copyable", () => {
     const html = render(<BootTestBadge test={test()} kind="vm" />);
     expect(html).toContain("Booted");
-    expect(html).toContain("answered after 42 s");
     expect(html).toContain('data-variant="success"');
+    expect(html).toContain('data-slot="hover-card-trigger"');
+    // No browser tooltip: it can be neither styled nor copied.
+    expect(html).not.toContain("title=");
+  });
+
+  it("shows the node's message under a red badge", () => {
+    const html = render(
+      <BootTestBadge
+        test={test({
+          outcome: "red",
+          reason: "restore_failed",
+          message: "TASK ERROR: unable to restore CT 122",
+        })}
+        kind="ct"
+      />,
+    );
+    expect(html).toContain("Did not boot");
+    expect(html).toContain('data-slot="pve-boot-test-message"');
+    expect(html).toContain("TASK ERROR: unable to restore CT 122");
   });
 
   it("tells a VM without a guest agent apart, and an untested restore point", () => {
@@ -67,7 +85,6 @@ describe("BootTestBadge", () => {
     );
     expect(yellow).toContain("Started, no answer");
     expect(yellow).toContain('data-variant="warning"');
-    expect(yellow).toContain("Install the guest agent");
     expect(render(<BootTestBadge test={null} kind="vm" />)).toContain("Not tested");
   });
 });

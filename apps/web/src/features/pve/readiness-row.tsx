@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight, Box, Monitor } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { RelativeTime, StatusBadge } from "@/components/kit";
+import { DetailHover, RelativeTime, StatusBadge } from "@/components/kit";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { PIN_FIRST, TableCell, TableRow } from "@/components/ui/table";
@@ -80,13 +80,6 @@ export function GuestReadinessRowView({
   // A check that could not run says why (who held the repository's lock), muted: no finding.
   const notChecked = row.state === "yellow" ? (row.verifyNotChecked?.detail ?? "") : "";
   const result = t(guestResultKey(row));
-  // A red restore check names what it found (the real restic or read error), not only the rule.
-  const resultTitle =
-    errors.length > 0
-      ? `${result}\n${errors.join("\n")}`
-      : notChecked
-        ? `${result}\n${notChecked}`
-        : result;
   const Icon = row.kind === "vm" ? Monitor : Box;
   return (
     <TableRow data-slot="guest-readiness-row">
@@ -129,25 +122,25 @@ export function GuestReadinessRowView({
         </div>
       </TableCell>
       <TableCell className="max-w-64">
-        <span className="line-clamp-2 text-muted-foreground" title={resultTitle}>
-          {result}
-        </span>
+        <span className="line-clamp-2 text-muted-foreground">{result}</span>
         {errors[0] ? (
-          <span
-            className="line-clamp-1 text-xs text-destructive-text"
-            title={errors.join("\n")}
-            data-slot="guest-readiness-error"
-          >
-            {errors[0]}
-          </span>
+          <DetailHover text={errors.join("\n")} title={result} tone="destructive">
+            <span
+              className="line-clamp-1 text-xs text-destructive-text"
+              data-slot="guest-readiness-error"
+            >
+              {errors[0]}
+            </span>
+          </DetailHover>
         ) : notChecked ? (
-          <span
-            className="line-clamp-1 text-xs text-muted-foreground"
-            title={notChecked}
-            data-slot="guest-readiness-not-checked"
-          >
-            {notChecked}
-          </span>
+          <DetailHover text={notChecked} title={result} tone="warning">
+            <span
+              className="line-clamp-1 text-xs text-muted-foreground"
+              data-slot="guest-readiness-not-checked"
+            >
+              {notChecked}
+            </span>
+          </DetailHover>
         ) : null}
       </TableCell>
       <TableCell className="whitespace-nowrap">

@@ -5,7 +5,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { useConfirmIdentity } from "@/components/confirm-identity-dialog";
-import { PageHeader, RefreshButton, RelativeTime } from "@/components/kit";
+import { DetailHover, PageHeader, RefreshButton, RelativeTime } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -212,34 +212,35 @@ function VerifyResult({ point }: { point: PveRestorePoint }) {
     // The check never ran: attention, neither failed nor passed; restic's words underneath.
     return (
       <div className="max-w-80 space-y-1" data-slot="pve-point-verify-not-checked">
-        <Badge variant="warning" title={notChecked.detail || undefined}>
+        <Badge variant="warning">
           {notChecked.reason === "locked"
             ? t("guest.verifyNotCheckedLocked")
             : t("guest.verifyNotCheckedInterrupted")}
         </Badge>
         {notChecked.detail ? (
-          <p
-            className="line-clamp-2 text-xs break-words text-muted-foreground"
-            title={notChecked.detail}
-          >
-            {notChecked.detail}
-          </p>
+          <DetailHover text={notChecked.detail} tone="warning">
+            <span className="line-clamp-2 text-xs break-words text-muted-foreground">
+              {notChecked.detail}
+            </span>
+          </DetailHover>
         ) : null}
       </div>
     );
   }
   // Still tried again: the earlier result (if any) stands, with a note why the new check waits.
-  const postponed = notChecked ? (
-    <Badge
-      variant="muted"
-      title={notChecked.detail || undefined}
-      data-slot="pve-point-verify-postponed"
-    >
+  const postponedBadge = notChecked ? (
+    <Badge variant="muted" data-slot="pve-point-verify-postponed">
       {notChecked.reason === "locked"
         ? t("guest.verifyPostponedLocked")
         : t("guest.verifyPostponedInterrupted")}
     </Badge>
   ) : null;
+  const postponed =
+    postponedBadge && notChecked?.detail ? (
+      <DetailHover text={notChecked.detail}>{postponedBadge}</DetailHover>
+    ) : (
+      postponedBadge
+    );
   if (!point.verify || typeof point.verify.checkedAt !== "string") {
     return (
       postponed ?? (
@@ -250,17 +251,17 @@ function VerifyResult({ point }: { point: PveRestorePoint }) {
     );
   }
   if (point.verify.errors.length > 0 || point.verify.mismatched > 0) {
-    // The real error under the badge (cut to two lines; all of it in the tooltip), not only red.
+    // The real error under the badge (cut to two lines; all of it, copyable, on hover).
     const errors = point.verify.errors.join("\n");
     return (
       <div className="max-w-80 space-y-1" data-slot="pve-point-verify-failed">
-        <Badge variant="destructive" title={errors || undefined}>
-          {t("guest.verifyFailed")}
-        </Badge>
+        <Badge variant="destructive">{t("guest.verifyFailed")}</Badge>
         {point.verify.errors[0] ? (
-          <p className="line-clamp-2 text-xs break-words text-destructive-text" title={errors}>
-            {point.verify.errors[0]}
-          </p>
+          <DetailHover text={errors} tone="destructive">
+            <span className="line-clamp-2 text-xs break-words text-destructive-text">
+              {point.verify.errors[0]}
+            </span>
+          </DetailHover>
         ) : null}
       </div>
     );
