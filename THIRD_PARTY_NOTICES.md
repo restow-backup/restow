@@ -2523,7 +2523,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Hiroki Osame <hiroki.osame@gmail.com>`
 - License text: [text 1](#text-1)
 
-### happy-dom 21.0.1
+### happy-dom 21.0.4
 
 - License: MIT
 - Copyright: `Copyright (c) 2019 David Ortner (capricorn86)`
