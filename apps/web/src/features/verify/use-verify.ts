@@ -36,6 +36,11 @@ function isBusy(overview: ReadinessOverview | undefined): boolean {
   return (overview?.summary.running ?? 0) > 0 || overview?.storage.running != null;
 }
 
+/** A restore check of a VM or container waits for the worker; the live channel does not say when it ends. */
+function guestCheckWaiting(overview: ReadinessOverview | undefined): boolean {
+  return (overview?.guests ?? []).some((guest) => guest.checkRequested === true);
+}
+
 export function useReadinessOverview() {
   const { tenantId, enabled } = useTenantScope();
   const connected = useLiveOpen();
@@ -45,7 +50,13 @@ export function useReadinessOverview() {
     enabled,
     // A restore check is a run: the live channel says when one ends. It polls only while that is down.
     refetchInterval: (query) =>
-      connected ? false : isBusy(query.state.data) ? LIVE_REFRESH_MS : IDLE_REFRESH_MS,
+      guestCheckWaiting(query.state.data)
+        ? LIVE_REFRESH_MS
+        : connected
+          ? false
+          : isBusy(query.state.data)
+            ? LIVE_REFRESH_MS
+            : IDLE_REFRESH_MS,
   });
 }
 

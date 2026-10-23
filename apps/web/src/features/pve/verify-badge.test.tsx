@@ -42,6 +42,19 @@ describe("the restore check of a restore point", () => {
     expect(html).not.toContain('data-variant="success"');
   });
 
+  it("says a new check is queued above the earlier result", () => {
+    const failed = {
+      checkedAt: "2026-10-21T21:43:00Z",
+      blocks: 0,
+      mismatched: 0,
+      errors: ["exit 11"],
+    };
+    const asked = render(failed, true);
+    expect(asked).toContain('data-slot="pve-point-verify-requeued"');
+    expect(asked).toContain("Failed");
+    expect(render(failed)).not.toContain("pve-point-verify-requeued");
+  });
+
   it("keeps the earlier result while the check is postponed, and says why it waits", () => {
     const passed = render(
       {

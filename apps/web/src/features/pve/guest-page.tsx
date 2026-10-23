@@ -192,6 +192,21 @@ function runStatusKey(run: Pick<PveRun, "kind" | "status" | "stats">): string {
 
 export function VerifyBadge({ point }: { point: PveRestorePoint }) {
   const { t } = useTranslation(PVE_NAMESPACE);
+  const result = <VerifyResult point={point} />;
+  // Checked before and asked again: the new check is queued; the earlier result stands under it.
+  if (point.verifyRequested && typeof point.verify?.checkedAt === "string") {
+    return (
+      <div className="space-y-1" data-slot="pve-point-verify-requeued">
+        <Badge variant="info">{t("guest.verifyQueuedBadge")}</Badge>
+        {result}
+      </div>
+    );
+  }
+  return result;
+}
+
+function VerifyResult({ point }: { point: PveRestorePoint }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
   const notChecked = point.verify?.notChecked;
   if (notChecked?.gaveUpAt) {
     // The check never ran: attention, neither failed nor passed; restic's words underneath.

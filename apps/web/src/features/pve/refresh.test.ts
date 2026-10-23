@@ -12,8 +12,11 @@ import {
 
 const overview = (activity: PveGuest["activity"][]) =>
   ({ guests: activity.map((value) => ({ activity: value })) }) as unknown as PveOverview;
-const detail = (statuses: PveRun["status"][]) =>
-  ({ runs: statuses.map((status) => ({ status })) }) as unknown as PveGuestDetail;
+const detail = (statuses: PveRun["status"][], verifyRequested = false) =>
+  ({
+    runs: statuses.map((status) => ({ status })),
+    snapshots: [{ verifyRequested }],
+  }) as unknown as PveGuestDetail;
 
 describe("overviewRefreshMs", () => {
   it("refreshes slowly while nothing waits or runs", () => {
@@ -28,9 +31,10 @@ describe("overviewRefreshMs", () => {
 });
 
 describe("guestRefreshMs", () => {
-  it("refreshes often only while a run is going", () => {
+  it("refreshes often only while a run is going or a check waits", () => {
     expect(guestRefreshMs(undefined)).toBe(15_000);
     expect(guestRefreshMs(detail(["succeeded", "failed"]))).toBe(15_000);
     expect(guestRefreshMs(detail(["running", "succeeded"]))).toBe(ACTIVE_REFRESH_MS);
+    expect(guestRefreshMs(detail(["succeeded"], true))).toBe(ACTIVE_REFRESH_MS);
   });
 });

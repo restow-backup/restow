@@ -442,7 +442,10 @@ export function overviewRefreshMs(data: PveOverview | undefined): number {
 
 /** How often a guest page refreshes: often while one of its runs is still going. */
 export function guestRefreshMs(data: PveGuestDetail | undefined): number {
-  return data?.runs.some((run) => run.status === "running") ? ACTIVE_REFRESH_MS : 15_000;
+  return data?.runs.some((run) => run.status === "running") ||
+    data?.snapshots.some((point) => point.verifyRequested)
+    ? ACTIVE_REFRESH_MS
+    : 15_000;
 }
 
 export const fetchOverview = () => apiFetch<PveOverview>("/pve");

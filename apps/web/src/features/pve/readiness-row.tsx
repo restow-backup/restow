@@ -109,11 +109,19 @@ export function GuestReadinessRowView({
         </div>
       </TableCell>
       <TableCell className="whitespace-nowrap">
-        <RelativeTime
-          value={row.checkedAt}
-          fallback={t("readiness.notChecked")}
-          focusable={false}
-        />
+        <div className="flex flex-col items-start gap-1">
+          <RelativeTime
+            value={row.checkedAt}
+            fallback={t("readiness.notChecked")}
+            focusable={false}
+          />
+          {row.checkRequested ? (
+            // Asked for and not done yet: the row says so until the result replaces it.
+            <StatusBadge tone="info" live aria-live="polite" data-slot="guest-readiness-waiting">
+              {t("readiness.checkWaiting")}
+            </StatusBadge>
+          ) : null}
+        </div>
       </TableCell>
       <TableCell className="max-w-64">
         <span className="line-clamp-2 text-muted-foreground" title={resultTitle}>
