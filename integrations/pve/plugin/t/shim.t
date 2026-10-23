@@ -124,6 +124,9 @@ $p->restore_vm_volume_cleanup('x', 'drive-scsi0', {});
 $p->restore_vm_cleanup('x');
 is($p->restore_container_init('y', {})->{'archive-directory'}, '/var/tmp/restow-pve/ct', 'container directory');
 $p->restore_container_cleanup('y', {});
+# pve-container passes the storage ID before the info hash.
+is($p->restore_container_init('y', 'restow', {})->{'archive-directory'}, '/var/tmp/restow-pve/ct', 'container directory with storage ID');
+$p->restore_container_cleanup('y', 'restow', {});
 calls();
 
 # --- storage plugin ----------------------------------------------------------

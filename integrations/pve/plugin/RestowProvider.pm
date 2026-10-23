@@ -49,7 +49,7 @@ sub helper {
 
 sub info_hash {
     my ($info) = @_;
-    $info //= {};
+    $info = {} if ref($info) ne 'HASH';
     my $res = {};
     $res->{bandwidthLimit} = int($info->{'bandwidth-limit'}) if $info->{'bandwidth-limit'};
     $res->{firewallConfig} = $info->{'firewall-config'} if defined($info->{'firewall-config'});
@@ -209,14 +209,18 @@ sub restore_vm_volume_cleanup {
     return;
 }
 
+# pve-container calls these with the storage ID before the info hash
+# (`($volname, $storeid, {})`); the documented form is `($volname, $info)`.
+# The info hash is the last argument either way.
 sub restore_container_init {
-    my ($self, $volname, $info) = @_;
+    my ($self, $volname, @rest) = @_;
+    my $info = $rest[-1];
     my $res = $self->helper('restore-container-init', { volname => $volname, info => info_hash($info) });
     return { 'archive-directory' => $res->{archiveDirectory} };
 }
 
 sub restore_container_cleanup {
-    my ($self, $volname, $info) = @_;
+    my ($self, $volname, @rest) = @_;
     $self->helper('restore-container-cleanup', { volname => $volname });
     return;
 }
