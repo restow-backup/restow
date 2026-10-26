@@ -47,6 +47,6 @@
     "@types/sanitize-html": "^2.16.2",
     "@types/smtp-server": "^3.5.13",
     "tsx": "^4.19.0",
-    "unpdf": "^1.8.1"
+    "unpdf": "^1.9.1"
   }
 }
