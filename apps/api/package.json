@@ -28,7 +28,7 @@
     "@restow/core": "workspace:*",
     "@restow/db": "workspace:*",
     "@restow/i18n": "workspace:*",
-    "better-auth": "^1.7.7",
+    "better-auth": "^1.7.12",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.13",
     "imapflow": "^1.0.171",
