@@ -486,4 +486,64 @@ describe.skipIf(!testDatabaseAdminUrl)("verification per snapshot against Postgr
       expect(drive[0]?.verification.state).toBe("green");
     });
   });
+  describe("objects removed from their source (a mailbox Microsoft 365 deleted)", () => {
+    async function removed(
+      name: string,
+      reasons: { code: string; severity: string; count?: number; ageHours?: number }[],
+    ) {
+      const [bob] = await db.select().from(protectedObjects).where(eq(protectedObjects.id, f.bob));
+      const [row] = await db
+        .insert(protectedObjects)
+        .values({
+          tenantId: f.tenantId,
+          sourceId: bob?.sourceId as string,
+          kind: "mailbox",
+          externalId: `${name}@contoso.test`,
+          displayName: name,
+          status: "orphaned",
+        })
+        .returning();
+      const objectId = row?.id as string;
+      const [point] = await db
+        .insert(snapshots)
+        .values({
+          tenantId: f.tenantId,
+          protectedObjectId: objectId,
+          sequence: 1,
+          manifestPath: `tenants/${f.tenantId}/manifests/${randomUUID()}.json`,
+          itemCount: 10,
+          byteSize: 4096,
+          startedAt: day(1),
+          completedAt: day(1),
+        })
+        .returning();
+      await db.insert(verifyReports).values({
+        tenantId: f.tenantId,
+        protectedObjectId: objectId,
+        snapshotId: point?.id as string,
+        recoveryReadiness: reasons.some((reason) => reason.severity === "red") ? "red" : "green",
+        details: { origin: "verify", reasons },
+        checkedAt: day(10),
+      });
+      return objectId;
+    }
+
+    it("rates the kept backup by whether it restores, not by its age, and never as overdue", async () => {
+      const old = await removed("fiona", [
+        { code: "snapshot_outdated", severity: "red", ageHours: 216 },
+      ]);
+      const damaged = await removed("gus", [
+        { code: "items_missing", severity: "red", count: 2 },
+        { code: "snapshot_outdated", severity: "red", ageHours: 216 },
+      ]);
+      const overview = await readinessOverview(db, f.tenantId, NOW);
+      expect(byObject(overview.objects, old)).toMatchObject({
+        state: "green",
+        readiness: "green",
+        overdue: false,
+      });
+      // A kept backup that does not restore stays red.
+      expect(byObject(overview.objects, damaged)).toMatchObject({ state: "red", overdue: false });
+    });
+  });
 });

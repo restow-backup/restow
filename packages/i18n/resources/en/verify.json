@@ -105,7 +105,7 @@
       "queued": "Check queued",
       "active": "Check running"
     },
-    "orphaned": "Removed from source",
+    "orphaned": "Removed from source, backups kept",
     "overdue": "Overdue",
     "never": "Never",
     "noBackup": "No backup yet",

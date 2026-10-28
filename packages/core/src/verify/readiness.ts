@@ -155,3 +155,29 @@ export function assessReadiness(
   reasons.sort((a, b) => RANK[b.severity] - RANK[a.severity]);
   return { readiness: worstReadiness(reasons.map((reason) => reason.severity)), reasons };
 }
+
+/** The reasons that only say how old the latest backup is. */
+const FRESHNESS_REASONS: ReadonlySet<string> = new Set(["snapshot_outdated", "snapshot_stale"]);
+
+/**
+ * The rating of an object that can no longer be backed up (removed from its source, a
+ * mailbox Microsoft 365 deleted): its last backup is all there will be, so only whether it
+ * restores counts, not its age. The worst severity of the other reasons; green without any.
+ */
+export function readinessWithoutFreshness(
+  reasons: readonly { readonly code: string; readonly severity: string }[],
+): RecoveryReadiness {
+  let worst: RecoveryReadiness = "green";
+  for (const reason of reasons) {
+    if (FRESHNESS_REASONS.has(reason.code)) {
+      continue;
+    }
+    if (reason.severity === "red") {
+      return "red";
+    }
+    if (reason.severity === "yellow") {
+      worst = "yellow";
+    }
+  }
+  return worst;
+}

@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { ScrubJobPayload, VerifyJobPayload } from "@restow/core";
+import {
+  readinessWithoutFreshness,
+  type ScrubJobPayload,
+  type VerifyJobPayload,
+} from "@restow/core";
 import {
   type Database,
   jobs,
@@ -542,19 +546,26 @@ export async function readinessOverview(
       const verification = facts?.verification ?? { state: "no_backup", report: null };
       const report = verification.report;
       const checkedAt = report?.checkedAt ?? null;
+      // Removed from its source: the last backup is all there will be. It is rated by whether it
+      // restores, not by its age, and nothing schedules checks for it any more, so it is never
+      // overdue (a deleted mailbox whose mails are kept is no failure).
+      const retained = object.status === "orphaned";
+      const rating =
+        retained && report ? readinessWithoutFreshness(parseReasons(report.reasons)) : null;
       // A fresh "no_backup" object is not a problem yet, only once it missed
       // its first chance (isFirstBackupOverdue); every other state keeps the
       // ordinary "the last check is stale" rule. Either way, an object whose
       // first backup is already queued or running is not overdue: it is
       // being worked on, not neglected.
-      const overdue =
-        verification.state === "no_backup"
+      const overdue = retained
+        ? false
+        : verification.state === "no_backup"
           ? isFirstBackupOverdue(protectedSince, now) && !runningFirstBackupIds.has(object.id)
           : isOverdue(checkedAt, now);
       items.push({
         object,
-        state: verification.state,
-        readiness: report?.readiness ?? null,
+        state: rating ?? verification.state,
+        readiness: rating ?? report?.readiness ?? null,
         checkedAt: checkedAt?.toISOString() ?? null,
         overdue,
         latestSnapshotAt: latestSnapshot?.completedAt?.toISOString() ?? null,

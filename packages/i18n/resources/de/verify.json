@@ -105,7 +105,7 @@
       "queued": "Prüfung eingeplant",
       "active": "Prüfung läuft"
     },
-    "orphaned": "In der Quelle entfernt",
+    "orphaned": "In der Quelle entfernt, Sicherungen bleiben",
     "overdue": "Überfällig",
     "never": "Nie",
     "noBackup": "Noch keine Sicherung",
