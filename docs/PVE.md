@@ -559,7 +559,9 @@ audited `pve.guest.excluded`; `pve_guests.excluded_at` and `excluded_by`).
 - **No job backs it up**, not even the job for all guests (`pveGuestCounted` in
   packages/core/src/pve/protection.ts, which every count and the worker's job
   plan read). Its own job stays recorded, so including it again restores what it
-  had. Excluding withdraws its queued backups; a running one ends as it would.
+  had. Excluding withdraws its queued backups; a running one ends as it would. A
+  backup queued in the same moment is withdrawn at the node's next heartbeat,
+  before the node gets it.
 - **"Back up now" and putting it into a job are refused** (409
   `urn:restow:problem:pve-guest-excluded`) until it is included again.
 - **It counts nowhere as unprotected**: not in the overviews, the readiness, the

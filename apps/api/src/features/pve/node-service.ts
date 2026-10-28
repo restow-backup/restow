@@ -409,6 +409,24 @@ async function deliverDueTasks(
 ) {
   // Never a boot test beside a backup on the node: it waits for the next heartbeat.
   const holdBootTests = (input.activeRuns?.length ?? 0) > 0;
+  // A backup queued while its guest was being excluded (docs/PVE.md, "Excluding a guest") is
+  // withdrawn here, before the node ever sees it.
+  await tx
+    .update(pveTasks)
+    .set({
+      status: "cancelled",
+      finishedAt: now,
+      cancelRequestedAt: now,
+      errorMessage: "The guest was excluded from backup before it started.",
+    })
+    .where(
+      and(
+        eq(pveTasks.nodeId, node.nodeId),
+        eq(pveTasks.kind, "backup"),
+        eq(pveTasks.status, "pending"),
+        sql`EXISTS (SELECT 1 FROM pve_guests g WHERE g.id = "pve_tasks"."guest_id" AND g.excluded_at IS NOT NULL)`,
+      ),
+    );
   const due = await tx
     .select()
     .from(pveTasks)

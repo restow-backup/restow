@@ -216,8 +216,8 @@ async function endpointSummary(tx: Transaction, tenantId: string): Promise<KindR
 }
 
 /**
- * Proxmox VE jobs. The guests in a job: guests PVE can back up (present, no VM template) that
- * name a job, or none while the tenant has a job for all guests (pveJobOfGuest in @restow/core,
+ * Proxmox VE jobs. The guests in a job: guests PVE can back up (present, no VM template) and
+ * an administrator did not exclude (pveGuestCounted) that name a job, or none while the tenant has a job for all guests (pveJobOfGuest in @restow/core,
  * without the condition that the job is enabled: a paused job still had its outcome). A backup
  * that went through but could not read some items of a container left something out.
  */
@@ -229,6 +229,7 @@ async function pveSummary(tx: Transaction, tenantId: string): Promise<KindRow | 
     covered AS (
       SELECT g.id FROM pve_guests g
        WHERE g.tenant_id = ${tenantId} AND g.present AND NOT (g.kind = 'vm' AND g.template)
+         AND g.excluded_at IS NULL
          AND ((g.job_id IS NOT NULL AND g.job_id IN (SELECT id FROM pve))
            OR (g.job_id IS NULL AND EXISTS (SELECT 1 FROM pve WHERE scope_all)))
     ),

@@ -241,6 +241,10 @@ export function primaryStatus(guest: StatusGuest, node?: StatusNode): GuestStatu
 
 /** Whether a guest matches a state filter. */
 export function matchesStateFilter(statuses: readonly GuestStatus[], filter: GuestStateFilter) {
+  // An excluded guest is only "excluded": its old runs and checks put it in no other group.
+  if (statuses.some((status) => status.key === "excluded")) {
+    return filter === "excluded";
+  }
   if (filter === "problems") {
     return statuses.some((status) => status.problem);
   }
@@ -254,5 +258,10 @@ export function matchesStateFilter(statuses: readonly GuestStatus[], filter: Gue
 
 /** Sort rank of a guest's state: its primary state's priority (lower is more urgent). */
 export function statusRank(status: GuestStatus): number {
+  // Excluded leads its row's badge but is a quiet state: it sorts after every problem, with the
+  // templates.
+  if (status.key === "excluded") {
+    return GUEST_STATUS_ORDER.indexOf("template") - 0.5;
+  }
   return GUEST_STATUS_ORDER.indexOf(status.key);
 }

@@ -1285,6 +1285,28 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       .from(auditLog)
       .where(eq(auditLog.action, "pve.guest.excluded"));
     expect(audits).toHaveLength(1);
+    // A backup queued in the moment the guest was excluded never reaches the node.
+    const [late] = await fixture.db
+      .insert(pveTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        nodeId: task?.nodeId ?? "",
+        guestId: id,
+        kind: "backup",
+        params: { vmid: 200, mode: "snapshot", verifyRead: false },
+        expiresAt: new Date(Date.now() + 3_600_000),
+      })
+      .returning();
+    const beat = await json<{ tasks: { id: string }[] }>(
+      await call(node, "/heartbeat", { json: { helperVersion: "0.3.0", state: "idle" } }),
+      200,
+    );
+    expect(beat.tasks.map((t) => t.id)).not.toContain(late?.id);
+    const [withdrawn] = await fixture.db
+      .select()
+      .from(pveTasks)
+      .where(eq(pveTasks.id, late?.id ?? ""));
+    expect(withdrawn?.status).toBe("cancelled");
     // Excluding twice changes nothing; including it again clears the mark.
     await service.setGuestExcluded(shared.db, fixture.tenantId, id, true, actor());
     await service.setGuestExcluded(shared.db, fixture.tenantId, id, false, actor());

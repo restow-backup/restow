@@ -6,9 +6,11 @@ import type { PveGuest } from "./api";
 import {
   GUEST_STATUS_META,
   GUEST_STATUS_ORDER,
+  type GuestStatus,
   guestStatuses,
   matchesStateFilter,
   primaryStatus,
+  statusRank,
   verifyStatusKey,
 } from "./guest-status";
 
@@ -111,6 +113,14 @@ describe("guest states", () => {
     expect(statuses.some((status) => status.problem)).toBe(false);
     expect(matchesStateFilter(statuses, "excluded")).toBe(true);
     expect(matchesStateFilter(statuses, "problems")).toBe(false);
+    expect(matchesStateFilter(statuses, "failed")).toBe(false);
+    const succeeded = guestStatuses(
+      testGuest({ lastRunStatus: "succeeded", excludedAt: "2026-10-01T00:00:00.000Z" }),
+    );
+    expect(matchesStateFilter(succeeded, "ok")).toBe(false);
+    // It sorts after a failure, though its badge leads its own row.
+    const failed = primaryStatus(testGuest({ lastRunStatus: "failed" }));
+    expect(statusRank(statuses[0] as GuestStatus)).toBeGreaterThan(statusRank(failed));
   });
 
   it("shows a restore check that could not run as amber, never green or red", () => {
