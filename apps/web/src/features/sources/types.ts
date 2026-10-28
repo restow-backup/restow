@@ -131,6 +131,8 @@ export type ImapProbeFailure =
   | "starttls_unavailable"
   | "dns"
   | "refused"
+  /** The server refused the login for now (too many connections, auth backend down). */
+  | "busy"
   | "unknown";
 
 export interface ImapServerInfo {

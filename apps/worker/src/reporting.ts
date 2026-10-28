@@ -49,6 +49,12 @@ import {
 } from "@restow/db";
 import { and, eq, max } from "drizzle-orm";
 import type { TenantTx } from "./progress.js";
+import {
+  loadRestoreCounts,
+  nothingRestoredMessage,
+  type RestoreCounts,
+  restoreOutcome,
+} from "./restore-outcome.js";
 
 /** Write the notifications and queue the deliveries of every rule they reach. */
 export async function raiseEvents(
@@ -277,14 +283,20 @@ type FinishedJob = Pick<
   Job,
   "id" | "queue" | "status" | "protectedObjectId" | "completedAt" | "errorMessage"
 > &
-  Partial<Pick<Job, "failure">>;
+  Partial<Pick<Job, "failure">> & {
+    /** A completed restore's stored counters (restore-outcome.ts); loaded when left out. */
+    readonly restoreResult?: RestoreCounts | null;
+  };
 
 /**
  * The event a finished job raises, if any: a failed backup, restore, archive
  * sync or directory sync, a completed restore, and a successful backup (a
  * routine event: the bell writes it only when its column has it on).
  * `objectName` is the protected object's display name (or null for
- * tenant-wide jobs).
+ * tenant-wide jobs). A restore that completed but restored nothing while items
+ * failed raises restore.failed like a failed one, with the count as its error;
+ * one that skipped everything stays restore.completed, saying so instead of
+ * claiming it restored something (restore-outcome.ts).
  */
 export function jobFinishedNotification(
   tenantId: string,
@@ -301,9 +313,13 @@ export function jobFinishedNotification(
     // next run tries again, and the overdue rules speak up if none gets through (core limits.ts).
     return null;
   }
-  if (job.status === "failed") {
+  const outcome =
+    job.status === "completed" && job.queue === "restore"
+      ? restoreOutcome(job.restoreResult)
+      : null;
+  if (job.status === "failed" || outcome === "nothingRestored") {
     event = FAILED_JOB_EVENTS[job.queue];
-  } else if (job.status === "completed" && job.queue === "restore") {
+  } else if (outcome) {
     event = "restore.completed";
   } else if (job.status === "completed" && job.queue === "backup") {
     event = "backup.succeeded";
@@ -312,20 +328,33 @@ export function jobFinishedNotification(
     return null;
   }
   const target = objectName ?? job.queue;
-  const failed = job.status === "failed";
+  const failed = job.status === "failed" || outcome === "nothingRestored";
+  // The run itself went through: its error is that not one item could be written.
+  const errorMessage =
+    outcome === "nothingRestored"
+      ? nothingRestoredMessage(job.restoreResult?.failures ?? 0)
+      : failed
+        ? job.errorMessage
+        : null;
   return {
     tenantId,
     level: failed ? (event === "directory.failed" ? "warning" : "error") : "info",
     event,
     message: failed
-      ? `The ${job.queue} job for ${target} failed${job.errorMessage ? `: ${job.errorMessage}` : "."}`
-      : `The ${job.queue} for ${target} completed.`,
+      ? `The ${job.queue} job for ${target} failed${errorMessage ? `: ${errorMessage}` : "."}`
+      : outcome === "allSkipped"
+        ? `The ${job.queue} for ${target} completed without restoring anything: every item was skipped.`
+        : `The ${job.queue} for ${target} completed.`,
     details: {
       jobId: job.id,
       queue: job.queue,
       protectedObjectId: job.protectedObjectId,
       objectName,
-      errorMessage: failed ? job.errorMessage : null,
+      errorMessage,
+      // Set only for a restore that did not restore anything (restore-outcome.ts).
+      ...(outcome === "nothingRestored" || outcome === "allSkipped"
+        ? { restoreOutcome: outcome, restoreResult: job.restoreResult ?? null }
+        : {}),
       // Why it failed and what to do, as codes the mail and the webhook consumer translate.
       failure: failed && job.failure ? alertFailure(job.failure) : null,
       completedAt: job.completedAt?.toISOString() ?? null,
@@ -334,7 +363,11 @@ export function jobFinishedNotification(
 }
 
 /** Raise the event of a finished job inside the tenant's transaction. */
-export async function raiseJobFinished(tx: TenantTx, tenantId: string, job: FinishedJob) {
+export async function raiseJobFinished(tx: TenantTx, tenantId: string, finished: FinishedJob) {
+  const job =
+    finished.restoreResult === undefined
+      ? { ...finished, restoreResult: await loadRestoreCounts(tx, finished) }
+      : finished;
   let objectName: string | null = null;
   if (job.protectedObjectId) {
     const [object] = await tx

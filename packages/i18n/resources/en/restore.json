@@ -355,6 +355,8 @@
       "active": "Running",
       "completed": "Completed",
       "completedWithIssues": "Completed with issues",
+      "completedNothingRestored": "Nothing restored",
+      "completedAllSkipped": "Everything skipped",
       "failed": "Failed",
       "cancelled": "Cancelled",
       "unknown": "Unknown"

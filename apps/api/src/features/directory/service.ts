@@ -5,11 +5,13 @@ import {
   type GroupSummary,
   type ImapAccountInput,
   isGraphError,
+  isServiceLimitedFailure,
   normalizeAccounts,
   type ProtectionOverride,
   type ProtectionRulesDto,
   parseImapAccountsCsv,
   readDirectoryState,
+  readinessWithoutFreshness,
   readProtection,
   rulesToRecord,
   searchGroups,
@@ -52,6 +54,7 @@ import {
 } from "../sources/imap.js";
 import { storedHostMayBePrivate } from "../sources/imap-host.js";
 import type { ImapAuthMode } from "../sources/schemas.js";
+import { parseReasons } from "../verify/details.js";
 import { loadObjectVerifications } from "../verify/verification-state.js";
 import {
   acknowledgementDto,
@@ -200,6 +203,12 @@ export interface ProtectedObjectDto {
     at: string;
     /** Why that backup failed, when it did and the cause is known. */
     failure: FailureDto | null;
+    /**
+     * A failed run a service held back (Graph throttled or unavailable, the storage asking to
+     * slow down, @restow/core `isServiceLimitedFailure`): no failure, the next scheduled run
+     * tries again, so the UI shows it amber, never as "backup failed".
+     */
+    serviceLimited: boolean;
   } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
   /** The backup job that covers it; null when none does. */
@@ -815,6 +824,8 @@ async function backupFacts(
   tx: Transaction,
   tenantId: string,
   objectIds: string[],
+  /** The objects removed from their source (status `orphaned`), rated without freshness. */
+  orphanedIds: ReadonlySet<string> = new Set(),
 ): Promise<Map<string, BackupFacts>> {
   const facts = new Map<string, BackupFacts>();
   if (objectIds.length === 0) {
@@ -887,12 +898,18 @@ async function backupFacts(
   }
 
   // The rating of the newest backup only: after a new backup the object has
-  // no rating until a check has read that backup back.
+  // no rating until a check has read that backup back. An object removed from
+  // its source keeps its last backup for good: it is rated by whether that
+  // backup restores, not by its age, as the readiness view (verify/service.ts
+  // readinessOverview) and the statistics rate it.
   const verifications = await loadObjectVerifications(tx, tenantId, objectIds);
   for (const [objectId, { verification }] of verifications) {
     const report = verification.report;
     if (report) {
-      factsOf(objectId).readiness = { rating: report.readiness, checkedAt: report.checkedAt };
+      const rating = orphanedIds.has(objectId)
+        ? readinessWithoutFreshness(parseReasons(report.reasons))
+        : report.readiness;
+      factsOf(objectId).readiness = { rating, checkedAt: report.checkedAt };
     }
   }
   return facts;
@@ -907,6 +924,7 @@ async function toObjectDtos(
     tx,
     tenantId,
     rows.map((row) => row.object.id),
+    new Set(rows.filter((row) => row.object.status === "orphaned").map((row) => row.object.id)),
   );
   const coverage =
     rows.length > 0 ? await loadMailCoverage(tx, tenantId) : { objects: [], links: new Map() };
@@ -981,6 +999,10 @@ async function toObjectDtos(
             at: fact.latestJob.at.toISOString(),
             failure:
               fact.latestJob.status === "completed" ? null : failureDto(fact.latestJob.failure),
+            serviceLimited: isServiceLimitedFailure(
+              fact.latestJob.status,
+              fact.latestJob.failure as { code?: string | null } | null,
+            ),
           }
         : null,
       readiness: fact.readiness

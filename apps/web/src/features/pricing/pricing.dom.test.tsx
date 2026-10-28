@@ -80,7 +80,7 @@ describe("the price settings", () => {
     const { mock, requests } = routedFetch({
       "GET /settings/pricing": () =>
         json({ currency: "EUR", storagePrice: null, storageUnit: "GB", mailboxPrice: null }),
-      "PUT /settings/pricing": (request) => json({ ...PRICING, ...request.body }),
+      "PUT /settings/pricing": (request) => json({ ...PRICING, ...(request.body as object) }),
     });
     vi.stubGlobal("fetch", mock);
     mounted = mount(<PricingSection />, { session: sessionAs({}) });

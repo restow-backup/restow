@@ -1307,6 +1307,19 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       .from(pveTasks)
       .where(eq(pveTasks.id, late?.id ?? ""));
     expect(withdrawn?.status).toBe("cancelled");
+    // History shows it: one cancelled run of the task, withdrawn by the exclusion, not a person.
+    const lateRuns = await fixture.db
+      .select()
+      .from(pveRuns)
+      .where(eq(pveRuns.taskId, late?.id ?? ""));
+    expect(lateRuns).toHaveLength(1);
+    expect(lateRuns[0]).toMatchObject({
+      status: "cancelled",
+      guestId: id,
+      kind: "backup",
+      cancelledBy: null,
+      errorMessage: "The guest was excluded from backup before it started.",
+    });
     // Excluding twice changes nothing; including it again clears the mark.
     await service.setGuestExcluded(shared.db, fixture.tenantId, id, true, actor());
     await service.setGuestExcluded(shared.db, fixture.tenantId, id, false, actor());

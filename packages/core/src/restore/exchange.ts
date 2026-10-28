@@ -430,7 +430,13 @@ export class ExchangeRestoreSession {
   private wellKnown: WellKnownFolders | null = null;
   private calendars: CalendarInfo[] | null = null;
   private readonly calendarIds = new Map<string, string>();
-  private readonly contactsByFolder = new Map<string, Map<string, ExistingContact>>();
+  /**
+   * Per contact folder: the contacts it held before this run wrote to it, by
+   * {@link contactKey}. Contacts this run creates are never added, so a second
+   * backed-up contact with the same name and address is not mistaken for one
+   * an earlier attempt restored.
+   */
+  private readonly contactsByFolder = new Map<string, Map<string, ExistingContact[]>>();
 
   /** Whose calendar the events go into (see {@link SessionOptions.owner}). */
   private readonly owner: MailboxOwner;
@@ -948,7 +954,14 @@ export class ExchangeRestoreSession {
 
       const key = contactKey(contact);
       if (key.length > 0) {
-        const duplicate = (await this.existingContacts(folderId)).get(key);
+        // Skip mode leaves every backed-up contact alone that the folder
+        // already had under this key. Rename mode writes into the restore
+        // folder of this job: what it held before this run is what an earlier
+        // attempt restored, contact for contact (as MessageIdDuplicates does
+        // for mail), so each backed-up contact claims one of those copies and
+        // only a contact that found one is skipped.
+        const matches = (await this.existingContacts(folderId)).get(key) ?? [];
+        const duplicate = this.o.mode === "skip" ? matches[0] : matches.shift();
         if (duplicate) {
           ledger.skipped(
             object,
@@ -967,9 +980,6 @@ export class ExchangeRestoreSession {
         throw new Error("Graph created the contact but returned no id");
       }
       const createdId = created.id;
-      if (key.length > 0) {
-        this.contactsByFolder.get(folderId ?? "")?.set(key, { ...created, id: createdId });
-      }
       const verified = contactKey(created) === key;
       ledger.restored(object, {
         targetRef: createdId,
@@ -998,17 +1008,23 @@ export class ExchangeRestoreSession {
     });
   }
 
-  private async existingContacts(folderId: string | null): Promise<Map<string, ExistingContact>> {
+  private async existingContacts(folderId: string | null): Promise<Map<string, ExistingContact[]>> {
     const cacheKey = folderId ?? "";
     const cached = this.contactsByFolder.get(cacheKey);
     if (cached) {
       return cached;
     }
-    const index = new Map<string, ExistingContact>();
+    const index = new Map<string, ExistingContact[]>();
     for await (const contact of listContacts(this.o.client, this.o.userId, folderId)) {
       const key = contactKey(contact);
-      if (contact.id && key.length > 0 && !index.has(key)) {
-        index.set(key, { ...contact, id: contact.id });
+      if (contact.id && key.length > 0) {
+        const matches = index.get(key);
+        const existing = { ...contact, id: contact.id };
+        if (matches) {
+          matches.push(existing);
+        } else {
+          index.set(key, [existing]);
+        }
       }
     }
     this.contactsByFolder.set(cacheKey, index);

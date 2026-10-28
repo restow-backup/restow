@@ -42,6 +42,7 @@ import {
   type MessageContent,
   type MessageDeltaEntry,
   messagesDelta,
+  resolveWellKnownFolders,
   type WellKnownFolderName,
 } from "../../graph/resources/mail.js";
 import type { ManifestObject } from "../../manifest.js";
@@ -57,6 +58,7 @@ import {
 } from "./paths.js";
 import {
   type BackupRun,
+  describeError,
   EXCHANGE_PHASES,
   type FetchedObject,
   FOLDERS_GROUP,
@@ -489,24 +491,33 @@ function relocated(
  * Bring the folder objects and the folder map in line with the current tree:
  * objects of vanished folders go, objects of renamed or moved folders are
  * re-pathed (their bytes stay), every folder gets a fresh folder object.
+ * Folders the state has below a `keepBelow` folder (one whose subfolders could
+ * not be listed) are not in the tree but not proven gone: their objects, state
+ * and delta links stay as they are.
  */
-export function reconcileMailFolders(run: BackupRun, planned: readonly PlannedFolder[]): void {
+export function reconcileMailFolders(
+  run: BackupRun,
+  planned: readonly PlannedFolder[],
+  keepBelow: ReadonlySet<string> = new Set(),
+): void {
   const plannedById = new Map(planned.map((folder) => [folder.node.id, folder]));
+  const kept = keptUnlistedFolders(run.state.mailFolders, plannedById, keepBelow);
+  const isGone = (folderId: string) => !plannedById.has(folderId) && !kept.has(folderId);
 
   for (const group of run.index.groups("mail:")) {
-    if (!plannedById.has(group.slice("mail:".length))) {
+    if (isGone(group.slice("mail:".length))) {
       dropGroup(run, group);
     }
   }
   for (const folderId of Object.keys(run.state.mailFolders)) {
-    if (!plannedById.has(folderId)) {
+    if (isGone(folderId)) {
       forgetFolder(run, folderId);
     }
   }
   // Folder objects are swept on their own too, in case the state was reset.
   for (const member of run.index.members(FOLDERS_GROUP)) {
     const isMailFolder = member.metadata?.[META.folderKind] === FOLDER_KIND_MAIL;
-    if (isMailFolder && member.id !== undefined && !plannedById.has(member.id)) {
+    if (isMailFolder && member.id !== undefined && isGone(member.id)) {
       run.index.removePath(member.path);
     }
   }
@@ -542,11 +553,49 @@ export function reconcileMailFolders(run: BackupRun, planned: readonly PlannedFo
   }
 
   const folders: Record<string, MailFolderState> = {};
+  for (const folderId of kept) {
+    const previous = run.state.mailFolders[folderId];
+    if (previous) {
+      folders[folderId] = previous;
+    }
+  }
   for (const folder of planned) {
     run.index.put(folderObject(folder));
     folders[folder.node.id] = folderState(folder);
   }
   run.state.mailFolders = folders;
+}
+
+/**
+ * Folders of the stored state that are not in the current tree but sit below a
+ * `keepBelow` folder (by the stored parent chain), so their absence is not proof
+ * that they are gone.
+ */
+function keptUnlistedFolders(
+  stored: Readonly<Record<string, MailFolderState>>,
+  plannedById: ReadonlyMap<string, PlannedFolder>,
+  keepBelow: ReadonlySet<string>,
+): Set<string> {
+  const kept = new Set<string>();
+  if (keepBelow.size === 0) {
+    return kept;
+  }
+  for (const folderId of Object.keys(stored)) {
+    if (plannedById.has(folderId)) {
+      continue;
+    }
+    const visited = new Set<string>([folderId]);
+    let parentId = stored[folderId]?.parentId ?? null;
+    while (parentId !== null && !visited.has(parentId)) {
+      if (keepBelow.has(parentId)) {
+        kept.add(folderId);
+        break;
+      }
+      visited.add(parentId);
+      parentId = stored[parentId]?.parentId ?? null;
+    }
+  }
+  return kept;
 }
 
 /** Remove every object of a mail folder group (the folder is gone). */
@@ -1095,15 +1144,43 @@ export function announceFirstBackup(run: BackupRun, planned: readonly PlannedFol
 export async function backupMail(run: BackupRun, options: MailPhaseOptions): Promise<void> {
   run.enterPhase("mail", EXCHANGE_PHASES.folders);
   let tree: MailFolderNode[];
+  const unlisted = new Map<string, unknown>();
   try {
+    const wellKnown = await resolveWellKnownFolders(run.client, run.userId);
+    for (const [name, error] of wellKnown.unresolved ?? []) {
+      // Only a label (or the search-folder skip) is lost; the mailbox goes on.
+      run.logger.warn("well-known mail folder could not be resolved, treated as absent", {
+        wellKnownName: name,
+        reason: describeError(error),
+      });
+    }
     tree = await listMailFolderTree(run.client, run.userId, {
       includeHidden: options.includeHiddenFolders,
+      wellKnown,
+      onVanishedFolder: (folder, error) => {
+        run.logger.info("mail folder answered 404 while its subfolders were listed", {
+          folderId: folder.id,
+        });
+        unlisted.set(folder.id, error);
+      },
     });
   } catch (error) {
     throw toMailboxAccessError(error, "mail folders");
   }
   const planned = planMailFolders(tree, options.skipWellKnownFolders);
-  reconcileMailFolders(run, planned);
+  // A parent still in the tree whose subfolders could not be listed: its
+  // subtree is not proven gone, so keep what the snapshot has below it and
+  // record a failure instead of pruning it silently. A parent that is really
+  // deleted is absent from the next run's tree and its subtree goes then.
+  const keepBelow = new Set<string>();
+  for (const folder of planned) {
+    const error = unlisted.get(folder.node.id);
+    if (error !== undefined) {
+      keepBelow.add(folder.node.id);
+      run.fail(folder.path, error);
+    }
+  }
+  reconcileMailFolders(run, planned, keepBelow);
   run.logger.info("mail folders enumerated", {
     folders: planned.length,
     skipped: tree.length - planned.length,

@@ -328,7 +328,7 @@
     "description": "Wie lange Sicherungen aufbewahrt werden.",
     "keepAll": "Alles wird aufbewahrt: Es gibt noch keine Aufbewahrungsrichtlinie, daher wird keine Sicherung gelöscht.",
     "keepByAge": "Jeder Sicherungsstand wird aufbewahrt; die Richtlinie setzt keine Altersgrenze.",
-    "prunes": "Sicherungsstände, die älter als {days} Tage sind, werden gelöscht; {keepLast, plural, one {der neueste Stand} other {die neuesten # Stände}} jedes Objekts bleiben immer erhalten.",
+    "prunes": "Sicherungsstände, die älter als {days} Tage sind, werden gelöscht; {keepLast, plural, one {der neueste Stand jedes Objekts bleibt} other {die neuesten # Stände jedes Objekts bleiben}} immer erhalten.",
     "policy": "Richtlinie: {name}",
     "noPolicy": "Keine Richtlinie",
     "holds": "{count, plural, one {# Legal Hold hält das Löschen an} other {# Legal Holds halten das Löschen an}}",
@@ -385,6 +385,7 @@
       "completed": "Abgeschlossen",
       "completedWithFailures": "Abgeschlossen mit Fehlern",
       "failed": "Fehlgeschlagen",
+      "limited": "Vom Dienst gedrosselt, wird wiederholt",
       "cancelled": "Abgebrochen"
     },
     "empty": {

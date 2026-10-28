@@ -4,7 +4,9 @@
 // paused rules stay silent; a failed backup raises `backup.failed` with the
 // mailbox's name. A successful backup raises the routine `backup.succeeded`,
 // which the bell writes only when its column has it on; a rule never queues a
-// delivery to a webhook or recipient whose column has the event off.
+// delivery to a webhook or recipient whose column has the event off. A
+// completed restore that restored nothing while items failed raises
+// `restore.failed`, by the counters stored on its row.
 //
 // Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server (a database
 // named `restow_worker_reporting_test` is recreated there); skipped otherwise.
@@ -263,5 +265,43 @@ describe.skipIf(!adminUrl)("raising events against Postgres", () => {
       [fabrikam],
     );
     expect(bell.rows).toEqual([{ event: "backup.succeeded", level: "info" }]);
+  });
+
+  it("reads a completed restore's stored counters: nothing restored, items failed is restore.failed", async () => {
+    const jobId = "00000000-0000-4000-8000-000000000301";
+    await db.$client.query(
+      `INSERT INTO jobs (id, tenant_id, queue, status, protected_object_id, payload, completed_at)
+       VALUES ($1, $2, 'restore', 'completed', $3, $4::jsonb, now())`,
+      [
+        jobId,
+        contoso,
+        mailbox,
+        JSON.stringify({ result: { restored: 0, skipped: 1, failures: 2, unverified: 0 } }),
+      ],
+    );
+    await withTenantTx(db, contoso, (tx) =>
+      raiseJobFinished(tx, contoso, {
+        id: jobId,
+        queue: "restore",
+        status: "completed",
+        protectedObjectId: mailbox,
+        completedAt: new Date(),
+        errorMessage: null,
+      }),
+    );
+    const bell = await db.$client.query<{ event: string; level: string; details: unknown }>(
+      "SELECT event, level, details FROM notifications WHERE tenant_id = $1 AND details->>'jobId' = $2",
+      [contoso, jobId],
+    );
+    expect(bell.rows).toEqual([
+      expect.objectContaining({
+        event: "restore.failed",
+        level: "error",
+        details: expect.objectContaining({
+          errorMessage: "Nothing was restored: 2 items failed.",
+          restoreOutcome: "nothingRestored",
+        }),
+      }),
+    ]);
   });
 });

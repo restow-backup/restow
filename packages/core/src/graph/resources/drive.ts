@@ -189,11 +189,40 @@ export interface ItemDownload {
   contentType: string | null;
 }
 
+/**
+ * File bytes are asked for as they are stored: fetch would otherwise offer
+ * br/gzip/deflate and decompress transparently, while Content-Length keeps the
+ * encoded size (and the stored bytes would depend on the host's mood).
+ */
+const DOWNLOAD_HEADERS: Readonly<Record<string, string>> = {
+  Accept: "*/*",
+  "Accept-Encoding": "identity",
+};
+
+/**
+ * What the headers say about a download. Content-Length is the expected size
+ * only for an unencoded body: a host that compresses anyway announces the
+ * encoded size of bytes fetch hands over decompressed, so the truncation check
+ * (backup/onedrive/run.ts) gets no size to compare with.
+ */
+export function downloadOf(stream: Readable, headers: Record<string, string>): ItemDownload {
+  const encoding = (headers["content-encoding"] ?? "identity").trim().toLowerCase();
+  const length = headers["content-length"];
+  return {
+    stream,
+    contentLength:
+      (encoding === "identity" || encoding === "") && length !== undefined && /^\d+$/.test(length)
+        ? Number(length)
+        : null,
+    contentType: headers["content-type"] ?? null,
+  };
+}
+
 async function streamDownloadUrl(
   client: GraphClient,
   url: string,
 ): Promise<ItemDownload | GraphError> {
-  const req: GraphRequest = { method: "GET", url, auth: false, headers: { Accept: "*/*" } };
+  const req: GraphRequest = { method: "GET", url, auth: false, headers: { ...DOWNLOAD_HEADERS } };
   const response = await client.stream(req);
   if (!response.body) {
     return new GraphError({
@@ -204,12 +233,7 @@ async function streamDownloadUrl(
       payload: response.error,
     });
   }
-  const length = response.headers["content-length"];
-  return {
-    stream: response.body,
-    contentLength: length !== undefined && /^\d+$/.test(length) ? Number(length) : null,
-    contentType: response.headers["content-type"] ?? null,
-  };
+  return downloadOf(response.body, response.headers);
 }
 
 /**
@@ -274,7 +298,7 @@ export async function openVersionDownload(
   const req: GraphRequest = {
     method: "GET",
     url: `${itemBase(driveId, itemId)}/versions/${encodeURIComponent(versionId)}/content`,
-    headers: { Accept: "*/*" },
+    headers: { ...DOWNLOAD_HEADERS },
   };
   const response = await client.stream(req);
   if (!response.body) {
@@ -286,12 +310,7 @@ export async function openVersionDownload(
       payload: response.error,
     });
   }
-  const length = response.headers["content-length"];
-  return {
-    stream: response.body,
-    contentLength: length !== undefined && /^\d+$/.test(length) ? Number(length) : null,
-    contentType: response.headers["content-type"] ?? null,
-  };
+  return downloadOf(response.body, response.headers);
 }
 
 // ---------------------------------------------------------------------------

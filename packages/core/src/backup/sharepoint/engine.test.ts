@@ -241,6 +241,79 @@ describe("SharePointBackupEngine", () => {
     );
   });
 
+  it("counts the item failures of libraries an earlier attempt finished", async () => {
+    const { sp, documents } = world();
+    const locked = [...documents.entries.values()].find((entry) => entry.name === "readme.txt");
+    if (!locked) throw new Error("no readme.txt");
+    locked.downloadStatus = 423;
+    const ids = { snap: 1, pack: 1 };
+    const controller = new AbortController();
+    const ctx = harness.context({
+      signal: controller.signal,
+      onProgress: (update) => {
+        // Stop as soon as the second library starts.
+        if (update.snapshot.done >= 3) controller.abort();
+      },
+    });
+    await expect(engine(sp, ids).run(ctx, siteObject, {})).rejects.toBeInstanceOf(JobAbortedError);
+    const result = await engine(sp, ids).run(harness.context(), siteObject, {});
+    // The failure was reported by the first attempt; the resume counts it, not reports it.
+    expect(result.failures).toEqual([]);
+    expect(result.failuresFromEarlierAttempts).toBe(1);
+    const manifest = await harness.manifest(result);
+    const state = manifest.state as unknown as SiteManifestState;
+    expect(state.libraries.every((library) => !("failures" in library))).toBe(true);
+  });
+
+  it("reports a library whose delta answers 404 as a vanished library, not a missing OneDrive", async () => {
+    const { sp, documents } = world();
+    const ids = { snap: 1, pack: 1 };
+    await engine(sp, ids).run(harness.context(), siteObject, {});
+    documents.refuse = 404;
+    const second = await engine(sp, ids).run(harness.context({ jobId: "job-2" }), siteObject, {});
+    expect(second.failures).toEqual([
+      expect.objectContaining({
+        itemRef: "Libraries/Documents",
+        cause: expect.objectContaining({ code: "graph.item_not_found", transient: true }),
+      }),
+    ]);
+  });
+
+  it.each([500, 502])(
+    "fails the job instead of committing stale copies when a library's delta answers %i",
+    async (status) => {
+      const { sp, documents } = world();
+      const ids = { snap: 1, pack: 1 };
+      await engine(sp, ids).run(harness.context(), siteObject, {});
+      documents.refuse = status;
+      await expect(
+        engine(sp, ids).run(harness.context({ jobId: "job-2" }), siteObject, {}),
+      ).rejects.toMatchObject({ status });
+    },
+  );
+
+  it("reports a list Graph keeps answering with 500 and still commits the site", async () => {
+    const { sp, tasks } = world();
+    const ids = { snap: 1, pack: 1 };
+    await engine(sp, ids).run(harness.context(), siteObject, {});
+    tasks.refuse = 500;
+    const second = await engine(sp, ids).run(harness.context({ jobId: "job-2" }), siteObject, {});
+    expect(second.failures.map((failure) => failure.itemRef)).toEqual(["Lists/Team Tasks"]);
+    const manifest = await harness.manifest(second);
+    expect(at(manifest, "Lists/Team Tasks/Call customer (1).json").metadata?.stale).toBe("true");
+  });
+
+  it("backs up a library whose root permissions Graph answers with 500", async () => {
+    const { sp, documents } = world();
+    documents.refusePermissions = 500;
+    const result = await engine(sp).run(harness.context(), siteObject, {});
+    expect(result.failures).toEqual([]);
+    const manifest = await harness.manifest(result);
+    expect(manifest.objects.map((object) => object.path)).toContain(
+      "Libraries/Documents/readme.txt",
+    );
+  });
+
   it("indexes the site once: work grows with the objects, not with lists times objects", async () => {
     /** A second run over a site with `lists` lists: full scans of the writer and reads of the previous objects. */
     async function measure(lists: number) {

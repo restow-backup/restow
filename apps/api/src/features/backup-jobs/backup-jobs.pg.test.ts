@@ -1369,6 +1369,35 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
       200,
     );
     expect(runs.items.map((run) => [run.source, run.type])).toEqual([["mail", "backup"]]);
+
+    // A backup Graph held back reads held back in the runs table, not failed.
+    const [held] = await owner
+      .insert(jobs)
+      .values({
+        tenantId: contoso,
+        queue: "backup",
+        status: "failed",
+        protectedObjectId: objects.clara,
+        payload: { backupJobId: job.id, protectedObjectId: objects.clara },
+        failure: {
+          v: 1,
+          code: "graph.throttled",
+          transient: true,
+          params: {},
+          technical: {},
+          occurredAt: new Date().toISOString(),
+          step: null,
+          retry: null,
+        },
+      })
+      .returning();
+    const withHeld = await json<{ items: { id: string; serviceLimited?: boolean }[] }>(
+      await call("GET", `/${job.id}/runs`),
+      200,
+    );
+    expect(withHeld.items.find((run) => run.id === held?.id)?.serviceLimited).toBe(true);
+    expect(withHeld.items.find((run) => run.id !== held?.id)?.serviceLimited).toBe(false);
+    await owner.delete(jobs).where(eq(jobs.id, held?.id ?? ""));
   });
 
   it("stops every waiting or running backup of a job at once (0.4.5), audited", async () => {

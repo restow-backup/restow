@@ -173,6 +173,65 @@ describe("syncDelta", () => {
     expect(store.record.k).toBeUndefined();
   });
 
+  it("resyncs a stored link Graph rejects with a 400 naming an invalid sync state", async () => {
+    const graph = createFakeGraph([
+      {
+        url: /\$deltatoken=STALE/,
+        respond: {
+          status: 400,
+          json: graphError("ErrorInvalidSyncStateData", "Invalid sync state."),
+        },
+      },
+      {
+        url: (u) => u.pathname.endsWith("/messages/delta") && !u.search.includes("token"),
+        respond: { status: 200, json: mailFixture.initialPage1 },
+      },
+      { url: /\$skiptoken=SKIP1/, respond: { status: 200, json: mailFixture.initialPage2 } },
+    ]);
+    const store = new RecordDeltaTokenStore({
+      "mail:user-1:inbox":
+        "https://graph.microsoft.com/v1.0/users/user-1/mailFolders/AAMkFolderInbox/messages/delta?$deltatoken=STALE",
+    });
+    const resyncs: string[] = [];
+    const { items, summary } = await collectDelta<{ id: string }>({
+      client: graph.client(),
+      store,
+      key: "mail:user-1:inbox",
+      initialUrl: INITIAL,
+      onResync: (info) => resyncs.push(`${info.reason}:${info.nextUrl}`),
+    });
+    expect(summary.mode).toBe("resync");
+    expect(items).toHaveLength(3);
+    expect(resyncs).toEqual([`invalidSyncState:${INITIAL}`]);
+    expect(store.record["mail:user-1:inbox"]).toContain("DELTA1");
+  });
+
+  it("does not retry a 400 on the initial URL or a 400 with an unrelated code", async () => {
+    const invalid = createFakeGraph([
+      { url: /delta/, respond: { status: 400, json: graphError("SyncStateInvalid") } },
+    ]);
+    await expect(
+      collectDelta({
+        client: invalid.client(),
+        store: new InMemoryDeltaTokenStore(),
+        key: "k",
+        initialUrl: "/x/delta",
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(invalid.calls).toHaveLength(1);
+
+    const other = createFakeGraph([
+      { url: /delta/, respond: { status: 400, json: graphError("ErrorInvalidRequest") } },
+    ]);
+    const store = new RecordDeltaTokenStore({
+      k: "https://graph.microsoft.com/v1.0/x/delta?$deltatoken=KEEP",
+    });
+    await expect(
+      collectDelta({ client: other.client(), store, key: "k", initialUrl: "/x/delta" }),
+    ).rejects.toMatchObject({ status: 400, code: "ErrorInvalidRequest" });
+    expect(store.record.k).toContain("KEEP");
+  });
+
   it("propagates other errors untouched", async () => {
     const graph = createFakeGraph([
       { url: /delta/, respond: { status: 403, json: graphError("ErrorAccessDenied") } },

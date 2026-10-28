@@ -214,6 +214,7 @@ async function plan(
             id: backupJobs.id,
             name: backupJobs.name,
             scopeMode: backupJobs.scopeMode,
+            enabled: backupJobs.enabled,
             archive: backupJobs.archive,
             archiveCapture: backupJobs.archiveCapture,
             schedule: backupJobs.schedule,
@@ -315,8 +316,10 @@ async function plan(
             name: allJob.name,
             os: null,
             profile: null,
-            // Its schedules stay as they are: the archive runs with its backups.
-            schedule: allJob.schedule,
+            // Its schedules stay as they are: the archive runs with its backups. A paused job
+            // runs by hand only (the scheduler skips it), so its schedule is not named as one it
+            // keeps running on: null makes the preview say "by hand only, as the job did".
+            schedule: allJob.enabled ? allJob.schedule : null,
             verifySchedule: allJob.verifySchedule,
             retention: null,
             retentionPolicy: null,

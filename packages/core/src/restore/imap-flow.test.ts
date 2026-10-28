@@ -24,6 +24,7 @@ class FakeImapFlow extends EventEmitter {
   createError: Error | null = null;
   appendResult: { uid?: number } | false = { uid: 41 };
   logoutFails = false;
+  usable = true;
   closed = false;
   locks = 0;
   /** Empty by default: a server advertising neither AUTH=LOGIN nor AUTH=PLAIN. */
@@ -173,6 +174,11 @@ describe("ImapFlowRestoreSession", () => {
     await expect(session.append("INBOX", Buffer.from("x"), [], undefined)).rejects.toThrow(
       /rejected the APPEND/,
     );
+
+    // imapflow clears `usable` when the socket closes: the run then fails the job.
+    expect(session.connectionLost).toBe(false);
+    fake.usable = false;
+    expect(session.connectionLost).toBe(true);
 
     fake.logoutFails = true;
     await session.close();

@@ -134,6 +134,8 @@ export interface RunObject {
   runId: string | null;
   subject: RunSubject;
   state: RunState;
+  /** Its backup a service held back (`Run.serviceLimited`); missing on servers before 0.4.7. */
+  serviceLimited?: boolean;
   restoreCheck: RunRestoreCheck;
   current: boolean;
 }
@@ -145,6 +147,8 @@ export interface RunBatch {
   succeeded: number;
   partial: number;
   failed: number;
+  /** Failed backups a service held back, not in `failed`; missing on servers before 0.4.7. */
+  limited?: number;
   cancelled: number;
   truncated: boolean;
 }

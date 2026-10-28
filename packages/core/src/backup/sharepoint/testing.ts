@@ -34,6 +34,8 @@ export interface FakeSpEntry {
   changedAt: number;
   deletedAt: number | null;
   shared?: { scope: string };
+  /** Answer the content download with this status instead (423 = locked). */
+  downloadStatus?: number;
 }
 
 export interface FakeSpLibrary {
@@ -45,6 +47,8 @@ export interface FakeSpLibrary {
   counter: number;
   /** Answer every request for this library with this status (403 = access denied). */
   refuse: number | null;
+  /** Answer only the root permissions request with this status. */
+  refusePermissions: number | null;
   permissions: unknown[];
 }
 
@@ -53,6 +57,7 @@ export interface FakeSpListItem {
   fields: Record<string, unknown>;
   eTag: string;
   lastModifiedDateTime: string;
+  createdDateTime: string;
 }
 
 export interface FakeSpList {
@@ -122,6 +127,7 @@ export class FakeSharePoint {
       entries: new Map(),
       counter: 1,
       refuse: null,
+      refusePermissions: null,
       permissions: [
         {
           id: "perm-owners",
@@ -211,6 +217,9 @@ export class FakeSharePoint {
     return list;
   }
 
+  /** The createdDateTime the next added item gets (a restore's POST included). */
+  itemCreatedDateTime = "2025-06-01T08:00:00Z";
+
   addListItem(list: FakeSpList, fields: Record<string, unknown>): FakeSpListItem {
     const id = String(list.items.reduce((max, item) => Math.max(max, Number(item.id)), 0) + 1);
     const item: FakeSpListItem = {
@@ -218,6 +227,7 @@ export class FakeSharePoint {
       fields: { ...fields },
       eTag: `"${list.id}-${id},1"`,
       lastModifiedDateTime: "2026-09-01T08:00:00Z",
+      createdDateTime: this.itemCreatedDateTime,
     };
     list.items.push(item);
     return item;
@@ -313,7 +323,7 @@ export class FakeSharePoint {
     return {
       id: item.id,
       eTag: item.eTag,
-      createdDateTime: "2025-06-01T08:00:00Z",
+      createdDateTime: item.createdDateTime,
       lastModifiedDateTime: item.lastModifiedDateTime,
       createdBy: { user: { displayName: "Alice Example" } },
       lastModifiedBy: { user: { displayName: "Bob Example" } },
@@ -343,7 +353,10 @@ export class FakeSharePoint {
 
   private delta(library: FakeSpLibrary, url: URL): FixtureResponse {
     if (library.refuse !== null) {
-      return { status: library.refuse, json: graphError("accessDenied") };
+      return {
+        status: library.refuse,
+        json: graphError(library.refuse === 404 ? "itemNotFound" : "accessDenied"),
+      };
     }
     const token = url.searchParams.get("token");
     const since = token === null ? 0 : Number(token.slice(1));
@@ -436,8 +449,12 @@ export class FakeSharePoint {
           if (!library) {
             return NOT_FOUND;
           }
-          return library.refuse !== null
-            ? { status: library.refuse, json: graphError("accessDenied") }
+          const refuse = library.refuse ?? library.refusePermissions;
+          return refuse !== null
+            ? {
+                status: refuse,
+                json: graphError(refuse >= 500 ? "generalException" : "accessDenied"),
+              }
             : { status: 200, json: { value: library.permissions } };
         },
       },
@@ -450,6 +467,9 @@ export class FakeSharePoint {
           for (const site of this.sites) {
             for (const library of site.libraries) {
               const entry = library.entries.get(id);
+              if (entry && entry.deletedAt === null && entry.downloadStatus !== undefined) {
+                return { status: entry.downloadStatus, json: graphError("resourceLocked") };
+              }
               if (entry && entry.deletedAt === null) {
                 return { status: 200, bytes: new Uint8Array(entry.content) };
               }

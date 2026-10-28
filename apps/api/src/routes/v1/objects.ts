@@ -157,7 +157,7 @@ export function toProtectedObjectDto(
           failure: job.status === "completed" ? null : failureDto(job.failure),
         }
       : null,
-    readiness: readinessOf(facts, now),
+    readiness: readinessOf(facts, now, object.status),
     createdAt: object.createdAt.toISOString(),
     updatedAt: object.updatedAt.toISOString(),
   };

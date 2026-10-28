@@ -50,8 +50,8 @@ export function stateView(
   if (run.checkIncomplete && run.state !== "running" && run.state !== "queued") {
     return { key: "incomplete", tone: "info", live: false };
   }
-  // Held back by Graph or the storage: amber, not red; the next run tries again.
-  if (run.serviceLimited && run.state === "failed") {
+  // Held back by Graph or the storage: amber, not red; the next scheduled run tries again.
+  if (isHeldBack(run)) {
     return { key: "limited", tone: "warning", live: false };
   }
   switch (run.state) {
@@ -70,6 +70,16 @@ export function stateView(
     default:
       return { key: "cancelled", tone: "muted", live: false };
   }
+}
+
+/**
+ * A failed backup that Graph or the storage held back (`Run.serviceLimited`): amber everywhere
+ * (badge, bar, failure box), never red. Backups only: a restore, export or check a service held
+ * back has no next run and stays failed, even from a server before 0.4.7 that set the flag for
+ * every kind.
+ */
+export function isHeldBack(run: Pick<Run, "state" | "kind" | "serviceLimited">): boolean {
+  return run.serviceLimited === true && run.state === "failed" && run.kind === "backup";
 }
 
 export function isRunning(state: RunState): boolean {
@@ -333,6 +343,13 @@ export function eventView(event: Pick<RunEvent, "type" | "params">): EventView {
       return { key: failed > 0 ? "completedWithFailuresPlain" : "completed", values: { failed } };
     }
     case "failed":
+      // A backup a service held back ends held back, not failed (the server sets `limited`).
+      if (params.limited === true) {
+        return {
+          key: params.message ? "limitedWithReason" : "limited",
+          values: { reason: text(params.message) },
+        };
+      }
       return {
         key: params.message ? "failedWithReason" : "failed",
         values: { reason: text(params.message) },

@@ -8,7 +8,9 @@ import {
   captureFolderPlan,
   catchUpImapCapture,
   type ImapCaptureSink,
+  type ImapCaptureState,
   imapCaptureActivated,
+  MAX_UNDELIVERED_ATTEMPTS,
   readImapBackfillCursor,
   readImapCaptureState,
 } from "./imap-capture.js";
@@ -239,6 +241,205 @@ describe("IMAP archive capture", () => {
     const second = await catchUpImapCapture(session, first.state, sink);
     expect(second.state.folders.INBOX?.lastUid).toBe(3);
     expect(appended.map((item) => item.messageId)).toEqual(["a@x", "c@x", "b@x"]);
+  });
+
+  it("captures the UIDs after an undelivered one and holds only the checkpoint before it", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    const state = await activateImapCapture(session);
+    for (let i = 1; i <= 5; i++) {
+      put(inbox, `m${i}@x`);
+    }
+    server.faults.omitSource.add("INBOX:2");
+    const limits = { metaBatch: 2, maxBatchBytes: 1024 * 1024, maxBatchMessages: 10 };
+    const first = await catchUpImapCapture(session, state, sink, { limits });
+    // The later groups (3-4, 5) were still read; the position stays before UID 2.
+    expect(appended.map((item) => item.messageId)).toEqual(["m1@x", "m3@x", "m4@x", "m5@x"]);
+    expect(first.state.folders.INBOX).toMatchObject({ lastUid: 1, stuck: { uid: 2, attempts: 1 } });
+  });
+
+  it("backfills every folder past a message the server listed but did not deliver", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    for (let i = 1; i <= 5; i++) {
+      put(inbox, `old-${i}@x`);
+    }
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    const state = await activateImapCapture(session);
+    server.faults.omitSource.add("INBOX:1");
+    const warnings: { message: string; fields: unknown }[] = [];
+    const result = await backfillImapCapture(session, state, readImapBackfillCursor(null), sink, {
+      limits: { metaBatch: 2, maxBatchBytes: 1024 * 1024, maxBatchMessages: 10 },
+      logger: {
+        ...silent,
+        warn: (message: string, fields?: unknown) => warnings.push({ message, fields }),
+      },
+      saveCursor: async () => undefined,
+    });
+    expect(result.completed).toBe(true);
+    expect(appended.map((item) => item.messageId)).toEqual([
+      "old-2@x",
+      "old-3@x",
+      "old-4@x",
+      "old-5@x",
+    ]);
+    expect(warnings.map((warning) => warning.message)).toEqual([
+      "imap archive backfill: messages listed but not delivered",
+    ]);
+  });
+
+  it("gives up on a message the server keeps listing without delivering it", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    let state = await activateImapCapture(session);
+    put(inbox, "a@x");
+    put(inbox, "never@x");
+    put(inbox, "c@x");
+    server.faults.omitSource.add("INBOX:2");
+    for (let pass = 1; pass < MAX_UNDELIVERED_ATTEMPTS; pass++) {
+      const result = await catchUpImapCapture(session, state, sink);
+      state = result.state;
+      expect(result.undeliverable).toBe(0);
+      expect(state.folders.INBOX).toMatchObject({ lastUid: 1, stuck: { uid: 2, attempts: pass } });
+    }
+    const last = await catchUpImapCapture(session, state, sink);
+    expect(last.undeliverable).toBe(1);
+    expect(last.state.folders.INBOX?.lastUid).toBe(3);
+    expect(last.state.folders.INBOX?.stuck).toBeUndefined();
+    // Caught up now: the next pass selects nothing.
+    const opens = server.stats.opens;
+    await catchUpImapCapture(session, last.state, sink);
+    expect(server.stats.opens).toBe(opens);
+    expect(appended.map((item) => item.messageId)).toEqual(["a@x", "c@x"]);
+    // The counter survives the round trip through the stream's state JSON.
+    expect(readImapCaptureState(JSON.parse(JSON.stringify(state))).folders.INBOX?.stuck).toEqual({
+      uid: 2,
+      attempts: MAX_UNDELIVERED_ATTEMPTS - 1,
+    });
+  });
+
+  it("captures the rest of a FETCH batch when the server refuses one message in it", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    const state = await activateImapCapture(session);
+    put(inbox, "a@x");
+    put(inbox, "corrupt@x");
+    put(inbox, "c@x");
+    server.faults.refuseSource.add("INBOX:2");
+    const result = await catchUpImapCapture(session, state, sink, { logger: silent });
+    expect(appended.map((item) => item.messageId)).toEqual(["a@x", "c@x"]);
+    expect(result.state.folders.INBOX?.lastUid).toBe(1);
+  });
+
+  it("reads the folders after one whose FETCH the server refuses", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const sent = server.addFolder("Sent", { specialUse: "\\Sent" });
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    const state = await activateImapCapture(session);
+    put(inbox, "in@x");
+    put(sent, "out@x");
+    server.faults.refuseMeta.add("INBOX");
+    const result = await catchUpImapCapture(session, state, sink, { logger: silent });
+    expect(appended.map((item) => item.messageId)).toEqual(["out@x"]);
+    // INBOX keeps where it stood, so the next pass reads it again.
+    expect(result.state.folders.INBOX).toEqual(state.folders.INBOX);
+    server.faults.refuseMeta.clear();
+    await catchUpImapCapture(session, result.state, sink);
+    expect(appended.map((item) => item.messageId)).toEqual(["out@x", "in@x"]);
+  });
+
+  it("holds the checkpoint on a download cap instead of giving messages up", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const sent = server.addFolder("Sent", { specialUse: "\\Sent" });
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    let state = await activateImapCapture(session);
+    const before = state.folders.INBOX;
+    put(inbox, "a@x");
+    put(inbox, "b@x");
+    put(sent, "out@x");
+    server.faults.refuseSource.add("INBOX:1");
+    server.faults.refuseSource.add("INBOX:2");
+    server.faults.refuseSourceCode = "OVERQUOTA";
+    for (let pass = 1; pass <= MAX_UNDELIVERED_ATTEMPTS + 1; pass++) {
+      const result = await catchUpImapCapture(session, state, sink, { logger: silent });
+      state = result.state;
+      expect(result.undeliverable).toBe(0);
+      // Not the messages' fault: no attempt is counted, the position does not move.
+      expect(state.folders.INBOX?.lastUid).toBe(before?.lastUid);
+      expect(state.folders.INBOX?.stuck).toBeUndefined();
+    }
+    // The cap is the account's: the folders after INBOX were not tried against it.
+    expect(appended).toEqual([]);
+    server.faults.refuseSource.clear();
+    await catchUpImapCapture(session, state, sink);
+    expect(appended.map((item) => item.messageId)).toEqual(["a@x", "b@x", "out@x"]);
+  });
+
+  it("fails a backfill on a download cap and resumes it from the cursor", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    for (let i = 1; i <= 4; i++) {
+      put(inbox, `old-${i}@x`);
+    }
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    const state = await activateImapCapture(session);
+    server.faults.refuseSource.add("INBOX:3");
+    server.faults.refuseSource.add("INBOX:4");
+    server.faults.refuseSourceCode = "OVERQUOTA";
+    let saved = readImapBackfillCursor(null);
+    const run = () =>
+      backfillImapCapture(session, state, saved, sink, {
+        limits: { metaBatch: 2, maxBatchBytes: 1024 * 1024, maxBatchMessages: 10 },
+        logger: silent,
+        saveCursor: async (cursor) => {
+          saved = cursor;
+        },
+      });
+    await expect(run()).rejects.toThrow(/download limits/);
+    expect(saved.completed).not.toContain("INBOX");
+    expect(saved.active.INBOX?.lastUid).toBe(2);
+    server.faults.refuseSource.clear();
+    const result = await run();
+    expect(result.completed).toBe(true);
+    expect(appended.map((item) => item.messageId)).toEqual([
+      "old-1@x",
+      "old-2@x",
+      "old-3@x",
+      "old-4@x",
+    ]);
+  });
+
+  it("keeps the folders a pass has not reached yet in every mid-pass checkpoint", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const sent = server.addFolder("Sent", { specialUse: "\\Sent" });
+    put(sent, "before@x");
+    const session = await connect(server);
+    const { sink } = memorySink();
+    const state = await activateImapCapture(session);
+    put(inbox, "in@x");
+    put(sent, "out@x");
+    const checkpoints: ImapCaptureState[] = [];
+    await catchUpImapCapture(session, state, sink, {
+      checkpoint: async (snapshot) => {
+        checkpoints.push(snapshot);
+      },
+    });
+    // The first checkpoint is taken in INBOX: Sent still has its lastUid and backfillUpTo.
+    expect(checkpoints[0]?.folders.Sent).toEqual(state.folders.Sent);
+    expect(checkpoints[0]?.folders.Sent?.backfillUpTo).toBe(1);
   });
 
   it("resumes a backfill from its cursor and stops at the deadline", async () => {

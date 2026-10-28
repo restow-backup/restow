@@ -438,6 +438,7 @@
         "starttls_unavailable": "Der Server bietet auf diesem Port kein STARTTLS an. TLS auf Port 993 oder einen anderen Port verwenden.",
         "dns": "Der Hostname konnte nicht aufgelöst werden.",
         "refused": "Die Verbindung wurde abgelehnt. Host und Port prüfen.",
+        "busy": "Der Server hat die Anmeldung vorübergehend abgelehnt, zum Beispiel weil zu viele Verbindungen für das Konto offen sind. An den Zugangsdaten liegt es nicht. Versuchen Sie es später erneut.",
         "unknown": "Die Verbindung ist aus einem unerwarteten Grund fehlgeschlagen."
       },
       "detail": "Serverantwort: {message}"

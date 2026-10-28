@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
   Archive,
@@ -35,8 +35,15 @@ import { fileSharesTo } from "@/features/file-shares/paths";
 import { deleteJob as deletePveJob, type PveJob, pveKeys } from "@/features/pve/api";
 import { JobDialog as PveJobDialog } from "@/features/pve/pve-page";
 import { pveConnected, usePveOverview } from "@/features/pve/use-overview";
-import { useSession } from "@/lib/session";
-import type { BackupJob, JobKind } from "../api.js";
+import { canAccess, useSession } from "@/lib/session";
+import { JOB_ROLES } from "../access.js";
+import {
+  type BackupJob,
+  backupJobKeys,
+  fetchRecommendedPlan,
+  type JobKind,
+  type RecommendedScope,
+} from "../api.js";
 import { closedProps, JobsAccessNote, useJobsAccess } from "../components/access-note.js";
 import { useJobActions } from "../components/job-actions.js";
 import { useJobRunControls } from "../components/job-run-controls.js";
@@ -44,13 +51,16 @@ import { JobSheet } from "../components/job-sheet.js";
 import { JobsTable } from "../components/jobs-table.js";
 import { KindEditor } from "../components/kind-editor.js";
 import { type JobsListRow, pveListRows } from "../components/pve-rows.js";
-import { RecommendedJobButton } from "../components/recommended-job.js";
+import { RecommendedJobButton, scopeKey } from "../components/recommended-job.js";
 import { useBackupJobs } from "../hooks.js";
 
 /**
  * Where the objects or machines of a notice are listed: the protected objects filtered by how
  * they stand towards the jobs, or the inventory (its "without backup" banner and filter).
  */
+/** What "Switch archiving on" asks the recommendation for: the archive of the mail jobs alone. */
+const ARCHIVE_SCOPE: RecommendedScope = { everything: true, kinds: ["archive"] };
+
 function uncoveredLink(kind: JobKind, job: "none" | "unscheduled") {
   if (kind === "share" || kind === "copy") {
     return fileSharesTo();
@@ -109,16 +119,29 @@ export function JobsPage({
   const items = query.data?.items;
   const uncovered = query.data?.uncovered[kind] ?? 0;
   const session = useSession();
+  const { tenantId, enabled: tenantEnabled } = useTenantScope();
   // The mail job over all objects does not archive yet, where the installation offers the
-  // capture (0.4.7): the recommended job switches it on.
-  const archiveOffered =
+  // capture (0.4.7): the recommended job switches it on. Whether the click would really do
+  // something is the server's to say (nothing to capture: only OneDrives, SharePoint sites or
+  // groups; capture ways chosen by hand), so the notice asks the preview the dialog shows and
+  // shows only while it plans an archive. Its own cache entry: the dialog reads afresh and says
+  // what it finds ("archives already") without taking the notice, and itself, away underneath;
+  // a dialog with nothing to do reads the jobs and this again when it closes.
+  const archiveCandidate =
     kind === "mail" &&
     (session.features?.includes("archive.mailboxCapture") ?? false) &&
+    canAccess(session.role, JOB_ROLES) &&
     (items ?? []).some((job) => job.scopeMode === "all" && !job.archive);
+  const archivePlan = useQuery({
+    queryKey: backupJobKeys.recommended(tenantId, `offer:${scopeKey(ARCHIVE_SCOPE)}`),
+    queryFn: () => fetchRecommendedPlan(ARCHIVE_SCOPE),
+    enabled: tenantEnabled && archiveCandidate,
+  });
+  const archiveOffered =
+    archiveCandidate && (archivePlan.data?.items ?? []).some((item) => item.kind === "archive");
   const unscheduled = query.data?.unscheduled?.[kind] ?? 0;
   const loading = query.isPending && query.fetchStatus !== "idle";
   const queryClient = useQueryClient();
-  const { tenantId } = useTenantScope();
   // Servers & clients list the Proxmox VE jobs too, once Proxmox VE is connected (#53).
   const pveView = usePveOverview();
   const pveData = pveView.query.data;
@@ -217,10 +240,7 @@ export function JobsPage({
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>{t("list.archiveOffer.text")}</span>
             <span className="flex shrink-0 flex-wrap gap-2">
-              <RecommendedJobButton
-                scope={{ everything: true, kinds: ["archive"] }}
-                label={t("list.archiveOffer.action")}
-              />
+              <RecommendedJobButton scope={ARCHIVE_SCOPE} label={t("list.archiveOffer.action")} />
             </span>
           </AlertDescription>
         </Alert>

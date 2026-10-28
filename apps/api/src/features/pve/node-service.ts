@@ -411,13 +411,14 @@ async function deliverDueTasks(
   const holdBootTests = (input.activeRuns?.length ?? 0) > 0;
   // A backup queued while its guest was being excluded (docs/PVE.md, "Excluding a guest") is
   // withdrawn here, before the node ever sees it.
-  await tx
+  const excludedMessage = "The guest was excluded from backup before it started.";
+  const withdrawn = await tx
     .update(pveTasks)
     .set({
       status: "cancelled",
       finishedAt: now,
       cancelRequestedAt: now,
-      errorMessage: "The guest was excluded from backup before it started.",
+      errorMessage: excludedMessage,
     })
     .where(
       and(
@@ -426,7 +427,23 @@ async function deliverDueTasks(
         eq(pveTasks.status, "pending"),
         sql`EXISTS (SELECT 1 FROM pve_guests g WHERE g.id = "pve_tasks"."guest_id" AND g.excluded_at IS NOT NULL)`,
       ),
-    );
+    )
+    .returning({ id: pveTasks.id });
+  if (withdrawn.length > 0) {
+    // History shows the withdrawn backup, as withdrawQueued does (cancel.ts): one cancelled run
+    // per task. Nobody withdrew it by hand (the exclusion did, the message says so), so
+    // cancelled_by stays null.
+    await tx.execute(sql`
+      INSERT INTO pve_runs (tenant_id, cluster_id, node_id, guest_id, kind, origin, status,
+        task_id, error_message, started_at, finished_at, cancel_requested_at)
+      SELECT t.tenant_id, g.cluster_id, t.node_id, g.id, 'backup', 'restow', 'cancelled',
+        t.id, ${excludedMessage}, t.created_at, ${now}, ${now}
+      FROM pve_tasks t JOIN pve_guests g ON g.id = t.guest_id
+      WHERE t.id IN (${sql.join(
+        withdrawn.map((t) => sql`${t.id}::uuid`),
+        sql`, `,
+      )})`);
+  }
   const due = await tx
     .select()
     .from(pveTasks)

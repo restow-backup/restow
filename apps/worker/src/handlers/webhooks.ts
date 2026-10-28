@@ -44,7 +44,12 @@ import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import { isIP, type LookupFunction } from "node:net";
-import { WEBHOOK_EVENTS, type WebhookEvent, webhookEventRow } from "@restow/core";
+import {
+  isServiceLimitedFailure,
+  WEBHOOK_EVENTS,
+  type WebhookEvent,
+  webhookEventRow,
+} from "@restow/core";
 import {
   type Database,
   type Job,
@@ -57,6 +62,12 @@ import {
 } from "@restow/db";
 import { defaultLanguage, type SupportedLanguage } from "@restow/i18n";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import {
+  loadRestoreCounts,
+  nothingRestoredMessage,
+  type RestoreCounts,
+  restoreOutcome,
+} from "../restore-outcome.js";
 import {
   isUuid,
   PgSecretReader,
@@ -175,20 +186,52 @@ type JobSummary = Pick<
   Job,
   "id" | "queue" | "status" | "protectedObjectId" | "startedAt" | "completedAt" | "errorMessage"
 > &
-  Partial<Pick<Job, "failure">>;
+  Partial<Pick<Job, "failure">> & {
+    /** A completed restore's stored counters (restore-outcome.ts); loaded when left out. */
+    readonly restoreResult?: RestoreCounts | null;
+  };
 
-/** The event a job's final status raises; cancelled and unfinished jobs raise none. */
-export function jobWebhookEvent(status: Job["status"]): WebhookEvent | null {
-  if (status === "completed") {
-    return "job.completed";
+/**
+ * The event a job's final status raises; cancelled and unfinished jobs raise none. A restore
+ * that completed but restored nothing while items failed raises job.failed (restore-outcome.ts,
+ * the same rule as `jobFinishedNotification`): the ticket must not close on it. A backup
+ * Graph or the storage held back (throttled, unavailable) raises none either: no failure of the
+ * object, so no ticket; the next scheduled run tries again, and the overdue rules speak up if
+ * none gets through (core failures/limits.ts, the same rule as `jobFinishedNotification`). A
+ * restore or export held back has no next run and still raises job.failed.
+ */
+export function jobWebhookEvent(
+  job: Pick<JobSummary, "queue" | "status" | "failure" | "restoreResult">,
+): WebhookEvent | null {
+  if (job.status === "completed") {
+    return nothingRestored(job) ? "job.failed" : "job.completed";
   }
-  return status === "failed" ? "job.failed" : null;
+  if (job.status !== "failed") {
+    return null;
+  }
+  return job.queue === "backup" && isServiceLimitedFailure(job.status, job.failure)
+    ? null
+    : "job.failed";
 }
 
-/** The `data` of a job event: what an RMM needs to open or close a ticket. */
+function nothingRestored(job: Pick<JobSummary, "queue" | "status" | "restoreResult">): boolean {
+  return (
+    job.queue === "restore" &&
+    job.status === "completed" &&
+    restoreOutcome(job.restoreResult) === "nothingRestored"
+  );
+}
+
+/**
+ * The `data` of a job event: what an RMM needs to open or close a ticket. A completed restore
+ * also carries its counters (`result`), so a receiver sees what it did; one that restored nothing
+ * while items failed has their count as its error.
+ */
 export function jobEventData(job: JobSummary): Record<string, unknown> {
   const duration =
     job.startedAt && job.completedAt ? job.completedAt.getTime() - job.startedAt.getTime() : null;
+  const restoreResult =
+    job.queue === "restore" && job.status === "completed" ? (job.restoreResult ?? null) : null;
   return {
     job: {
       id: job.id,
@@ -198,10 +241,25 @@ export function jobEventData(job: JobSummary): Record<string, unknown> {
       startedAt: job.startedAt?.toISOString() ?? null,
       completedAt: job.completedAt?.toISOString() ?? null,
       durationMs: duration,
-      errorMessage: job.status === "failed" ? job.errorMessage : null,
+      errorMessage:
+        job.status === "failed"
+          ? job.errorMessage
+          : nothingRestored(job)
+            ? nothingRestoredMessage(restoreResult?.failures ?? 0)
+            : null,
       // Why it failed, machine-readable: a stable code (e.g. graph.consent_missing), whether
       // waiting alone may help, and the parameters a ticket needs (permission, host, ...).
       failure: job.status === "failed" ? (job.failure ?? null) : null,
+      ...(restoreResult
+        ? {
+            result: {
+              restored: restoreResult.restored,
+              skipped: restoreResult.skipped,
+              failures: restoreResult.failures,
+              unverified: restoreResult.unverified,
+            },
+          }
+        : {}),
     },
   };
 }
@@ -210,9 +268,16 @@ export function jobEventData(job: JobSummary): Record<string, unknown> {
 export async function emitJobWebhook(
   db: Database,
   tenantId: string,
-  job: JobSummary,
+  finished: JobSummary,
 ): Promise<EmittedWebhookEvent | null> {
-  const event = jobWebhookEvent(job.status);
+  const job =
+    finished.restoreResult === undefined
+      ? {
+          ...finished,
+          restoreResult: await withTenantTx(db, tenantId, (tx) => loadRestoreCounts(tx, finished)),
+        }
+      : finished;
+  const event = jobWebhookEvent(job);
   if (!event) {
     return null;
   }

@@ -229,6 +229,8 @@
     "completedWithFailuresPlain": "Abgeschlossen, {failed} fehlgeschlagen",
     "failed": "Fehlgeschlagen",
     "failedWithReason": "Fehlgeschlagen: {reason}",
+    "limited": "Vom Dienst gedrosselt, wird wiederholt",
+    "limitedWithReason": "Vom Dienst gedrosselt: {reason}",
     "cancelled": "Abgebrochen",
     "agentError": "{message}",
     "agentErrorPath": "{path}: {message}",

@@ -1,3 +1,5 @@
+import { readinessWithoutFreshness } from "@restow/core";
+import { parseReasons } from "../verify/details.js";
 import {
   isOverdue,
   type ObjectState,
@@ -31,6 +33,13 @@ import type {
  * objects are not protected, orphaned ones count while they have a backup.
  * Only an object's current status is stored, not its history, so an object
  * excluded today is left out of earlier moments as well.
+ *
+ * An orphaned object (removed from its source, its backups kept) is rated as
+ * the recovery-readiness page rates it (verify/service.ts readinessOverview):
+ * by whether its last backup restores, without the age of that backup (core
+ * `readinessWithoutFreshness`), and it is never overdue, since nothing
+ * schedules checks for it any more. Like the status, this applies to earlier
+ * moments of the period as well.
  */
 
 export interface ReadinessCounts {
@@ -226,7 +235,12 @@ export class ReadinessTimeline {
         latestFinding: latestReportBefore(this.findingsByObject.get(object.id), moment),
         newestCheck: latestReportBefore(this.checksByObject.get(object.id), moment),
       });
-      const state = verification.state;
+      const retained = object.status === "orphaned";
+      const report = verification.report;
+      const state: ObjectState =
+        retained && report
+          ? readinessWithoutFreshness(parseReasons(report.reasons))
+          : verification.state;
       states.set(object.id, state);
       if (!isProtected(object.status, snapshot !== null)) {
         continue;
@@ -236,9 +250,9 @@ export class ReadinessTimeline {
       } else {
         counts[state] += 1;
       }
-      // Overdue by the report behind the state, as the verify page rates it.
-      const checkedAt = verification.report?.checkedAt ?? null;
-      rated.push({ state, overdue: isOverdue(checkedAt, moment), checkedAt });
+      // Overdue by the report behind the state, as the verify page rates it; never for an orphan.
+      const checkedAt = report?.checkedAt ?? null;
+      rated.push({ state, overdue: retained ? false : isOverdue(checkedAt, moment), checkedAt });
     }
     return { counts, total: rated.length, overall: overallReadiness(rated), states, rated };
   }

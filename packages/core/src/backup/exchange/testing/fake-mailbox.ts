@@ -134,6 +134,8 @@ export class FakeMailbox {
   pageSize = 2;
   /** Hook run before every request; may return a response to short-circuit. */
   intercept: ((call: RecordedCall) => FixtureResponse | undefined) | undefined;
+  /** Hook run before every $batch sub-request; may return a sub-response to short-circuit. */
+  interceptBatchSub: ((url: string) => { status: number; body?: unknown } | undefined) | undefined;
 
   private version = 0;
   private readonly log: ChangeLogEntry[] = [];
@@ -322,6 +324,10 @@ export class FakeMailbox {
   }
 
   private answerBatchSub(subUrl: string): { status: number; body?: unknown } {
+    const intercepted = this.interceptBatchSub?.(subUrl);
+    if (intercepted) {
+      return intercepted;
+    }
     const url = new URL(subUrl, "https://graph.microsoft.com/v1.0/");
     const response = this.answer(url);
     return { status: response.status, body: response.json };

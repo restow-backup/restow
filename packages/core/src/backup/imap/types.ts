@@ -274,3 +274,35 @@ export class ImapSessionError extends Error {
 export function isImapSessionError(error: unknown): error is ImapSessionError {
   return error instanceof ImapSessionError;
 }
+
+/** RFC 5530 response codes of a refusal that clears by itself (not wrong credentials). */
+const TEMPORARY_REFUSAL_CODES = new Set(["UNAVAILABLE", "INUSE", "LIMIT"]);
+const TEMPORARY_REFUSAL_TEXT =
+  /too many (simultaneous |concurrent )?connections|temporar(y|ily)|try again later|rate.?limit|throttl|exceeded (the )?(command|bandwidth|download)|(bandwidth|download) limit/i;
+
+/**
+ * Whether a NO from the server (imapflow's `serverResponseCode` and `response` /
+ * `responseText`) is a temporary refusal: a connection limit per account (Gmail's
+ * "[ALERT] Too many simultaneous connections"), the auth backend down for a moment
+ * (Dovecot's "[UNAVAILABLE] Temporary authentication failure"), a command or download cap.
+ * imapflow marks every NO to LOGIN/AUTHENTICATE `authenticationFailed`, so the login path
+ * asks this before blaming the credentials. `[AUTHENTICATIONFAILED]` always means them.
+ */
+export function isTemporaryImapRefusal(failure: {
+  readonly serverResponseCode?: unknown;
+  readonly response?: unknown;
+  readonly responseText?: unknown;
+}): boolean {
+  const code = typeof failure.serverResponseCode === "string" ? failure.serverResponseCode : "";
+  const upper = code.toUpperCase();
+  if (upper === "AUTHENTICATIONFAILED" || upper === "AUTHORIZATIONFAILED") {
+    return false;
+  }
+  if (TEMPORARY_REFUSAL_CODES.has(upper)) {
+    return true;
+  }
+  const text = [failure.response, failure.responseText]
+    .filter((part): part is string => typeof part === "string")
+    .join(" ");
+  return TEMPORARY_REFUSAL_TEXT.test(text);
+}

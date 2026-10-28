@@ -183,6 +183,10 @@
         "title": "The IMAP mailbox is full",
         "why": "The server refused to store more data because the mailbox reached its quota."
       },
+      "server_limit": {
+        "title": "The IMAP server temporarily refused because of a limit",
+        "why": "The server refused the login or a read command for now{has_imapCode, select, yes { ({imapCode})} other {}}, for example because too many connections are open for the account at once or a download limit per day was reached. The credentials are not the problem. {appName} tries again later on its own."
+      },
       "connection_lost": {
         "title": "The connection to the IMAP server was lost",
         "why": "The server closed the connection during the run or stopped answering. {appName} reconnects and continues where it stopped. Mail servers do this under load or when a connection limit is reached."

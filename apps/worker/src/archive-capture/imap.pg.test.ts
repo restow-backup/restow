@@ -39,6 +39,7 @@ import {
 import { runMigrations } from "@restow/db/migrate";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { FakeImapServer as DistFakeImapServer } from "../../../../packages/core/dist/backup/imap/testing/fake-imap.js";
 import { FakeImapServer } from "../../../../packages/core/src/backup/imap/testing/fake-imap.js";
 import type { WorkerFeatureGate } from "../extensions.js";
 import { archiveHandler, configureArchiveHandler } from "../handlers/archive.js";
@@ -416,6 +417,44 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
     await manager?.stop();
     await secondManager?.stop();
     await until(() => server.stats.open === 0, "every IMAP session to close");
+  });
+
+  it("retries a watch refused with a NO on EXAMINE soon, not after the day-long no-IDLE backoff", async () => {
+    await account("fritz@example.net");
+    // The built core's fake: its ImapSessionError is the class the worker's (built)
+    // isImapSessionError knows, so the NO is seen as a command-level error, as in production.
+    const server = new DistFakeImapServer();
+    server.addFolder("INBOX");
+    const settings = { idleMax: 1, refreshMs: 20, retryMs: 50 };
+    const way = createImapCaptureWay({ connector: server, env: {}, settings });
+    const { instance } = captureService(way);
+    await instance.tick();
+    await instance.settle();
+    // The server announces IDLE but refuses EXAMINE of the watched folder for now.
+    server.faults.openFailures.add("INBOX");
+    const opensBefore = server.stats.opens;
+    const controller = new AbortController();
+    way.start?.({
+      db,
+      providerDb: db,
+      logger: silent,
+      signal: controller.signal,
+      markDue: async () => undefined,
+      keyring: async () => keys,
+      active: () => true,
+    });
+    const manager = way.idle();
+    try {
+      await until(() => server.stats.opens > opensBefore, "the refused EXAMINE");
+      await until(() => (manager?.watching().length ?? 0) === 0, "the failed watch to end");
+      server.faults.openFailures.clear();
+      // Retried after retryMs (doubling while it keeps failing), not after 24 hours.
+      await until(() => (manager?.idling().length ?? 0) === 1, "the IDLE connection on retry");
+    } finally {
+      controller.abort();
+      await manager?.stop();
+      await until(() => server.stats.open === 0, "every IMAP session to close");
+    }
   });
 
   it("shows a watched account as IDLE without waiting for its next scheduled pass (service loop)", async () => {

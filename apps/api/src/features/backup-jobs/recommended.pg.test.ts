@@ -581,6 +581,21 @@ describe.skipIf(!testDatabaseAdminUrl)("recommended jobs against Postgres", () =
         .set({ archiveCapture: {} })
         .where(eq(backupJobs.id, mail?.id ?? ""));
 
+      // A paused job runs by hand only: the preview does not name a schedule it keeps.
+      await owner
+        .update(backupJobs)
+        .set({ enabled: false })
+        .where(eq(backupJobs.id, mail?.id ?? ""));
+      const paused = await json<RecommendedPlanDto>(
+        await call("GET", "/recommended?everything=1&kinds=archive"),
+        200,
+      );
+      expect(paused.items.map((item) => [item.action, item.schedule])).toEqual([["enable", null]]);
+      await owner
+        .update(backupJobs)
+        .set({ enabled: true })
+        .where(eq(backupJobs.id, mail?.id ?? ""));
+
       const preview = await json<RecommendedPlanDto>(
         await call("GET", "/recommended?everything=1"),
         200,

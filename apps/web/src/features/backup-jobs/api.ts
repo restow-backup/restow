@@ -397,6 +397,11 @@ export interface JobRun {
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
+  /**
+   * Mail: a failed backup that Graph or the storage held back, shown held back, not failed.
+   * Missing for the other sources and on servers before 0.4.7.
+   */
+  serviceLimited?: boolean;
 }
 
 export interface JobRuns {

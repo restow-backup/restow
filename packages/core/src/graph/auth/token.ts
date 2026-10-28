@@ -13,6 +13,7 @@
  * Nothing in this module logs or throws secret material.
  */
 import { createHash, createSign, randomUUID } from "node:crypto";
+import { isTransientTransferError } from "../../storage/transfer.js";
 
 /** Anything that can hand out a valid bearer token for Graph. */
 export interface AccessTokenProvider {
@@ -75,6 +76,27 @@ export interface AppCredentials {
   authorityHost?: string;
   scope?: string;
 }
+
+/**
+ * The token endpoint could not be reached at all (DNS, connect, reset, timeout), even after
+ * a few quick attempts. Deliberately neither a TypeError nor an error with a transport `code`:
+ * without a token every following Graph call fails as well, so the engines must fail the run
+ * (and resume it later from its checkpoint) instead of recording each item as failed
+ * (`isItemLevelError`). The network error stays as `cause`, so the failure classifier still
+ * reports the actual network cause.
+ */
+export class TokenEndpointUnreachableError extends Error {
+  constructor(cause: unknown) {
+    const detail = cause instanceof Error ? `: ${cause.message}` : "";
+    super(`The token endpoint could not be reached${detail}`, { cause });
+    this.name = "TokenEndpointUnreachableError";
+  }
+}
+
+/** Waits before a token request is sent again after a network error (two retries). */
+export const TOKEN_NETWORK_RETRY_DELAYS_MS: readonly number[] = [1_000, 4_000];
+/** How long one token request may take before it counts as a network error. */
+export const TOKEN_REQUEST_TIMEOUT_MS = 60_000;
 
 export class TokenAcquisitionError extends Error {
   readonly status: number | undefined;
@@ -142,14 +164,28 @@ export class CachingTokenProvider implements AccessTokenProvider {
    * `minAgeMs` ago. A token carries the app's permissions as they were when it was issued, so
    * a permission an administrator granted since then only arrives with a new one. The minimum
    * age keeps a run of refusals (an item the app may not read) from fetching a token each time.
-   * True when the next {@link getToken} fetches a new token.
+   * True when the next {@link getToken} hands out a different token than the refused one.
+   *
+   * `refusedToken` is the token the refused request was sent with. Requests run concurrently:
+   * when several were sent with the same old token, the first refusal drops it and the others
+   * land while the new one is being fetched (nothing cached) or once it arrived (cached, but
+   * younger than `minAgeMs`). Both mean the refused token is already gone, so they are told to
+   * send again too, without fetching another token. Without `refusedToken` (older callers)
+   * only the cached token's age decides.
    */
-  refreshAfterRefusal(minAgeMs = TOKEN_REFRESH_MIN_AGE_MS): boolean {
+  refreshAfterRefusal(refusedToken?: string, minAgeMs = TOKEN_REFRESH_MIN_AGE_MS): boolean {
+    if (refusedToken !== undefined && this.cached?.accessToken !== refusedToken) {
+      // Already replaced, being replaced or dropped: the next getToken is not the refused one.
+      return true;
+    }
     if (!this.cached) {
       return false;
     }
     const now = this.options.now?.() ?? Date.now();
-    if (now - this.cachedAtMs < minAgeMs) {
+    const ageMs = now - this.cachedAtMs;
+    // A negative age means the wall clock stepped back (NTP correction, VM resume) since the
+    // token was cached; its real age is unknown, so it does not hold back the refresh.
+    if (ageMs >= 0 && ageMs < minAgeMs) {
       return false;
     }
     this.cached = null;
@@ -163,6 +199,10 @@ export interface ClientCredentialsOptions {
   fetchImpl?: typeof fetch;
   now?: () => number;
   expirySkewMs?: number;
+  /** Waits between attempts after a network error (default {@link TOKEN_NETWORK_RETRY_DELAYS_MS}). */
+  networkRetryDelaysMs?: readonly number[];
+  /** Injectable sleep for those waits (tests pass a no-op). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** Token endpoint of the v2.0 authority for a tenant. */
@@ -181,7 +221,34 @@ export class ClientCredentialsTokenProvider extends CachingTokenProvider {
     const fetchImpl = options.fetchImpl ?? fetch;
     const now = options.now ?? Date.now;
     const endpoint = tokenEndpointFor(options.tenantId, options.app.authorityHost);
-    super(() => requestClientCredentialsToken({ endpoint, app: options.app, fetchImpl, now }), {
+    const retryDelaysMs = options.networkRetryDelaysMs ?? TOKEN_NETWORK_RETRY_DELAYS_MS;
+    const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    const acquire = async (): Promise<AcquiredToken> => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await requestClientCredentialsToken({
+            endpoint,
+            app: options.app,
+            fetchImpl,
+            now,
+          });
+        } catch (error) {
+          if (error instanceof TokenAcquisitionError) {
+            throw error; // Entra answered: retrying the same request changes nothing.
+          }
+          if (!isTransientTransferError(error) && !isFetchFailure(error)) {
+            throw error;
+          }
+          const delay = retryDelaysMs[attempt];
+          if (delay === undefined) {
+            throw new TokenEndpointUnreachableError(error);
+          }
+          // A short network blip (reset, DNS hiccup) must not fail a whole run: try again.
+          await sleep(delay);
+        }
+      }
+    };
+    super(acquire, {
       expirySkewMs: options.expirySkewMs,
       now,
     });
@@ -211,6 +278,14 @@ export class TenantTokenProviders {
   forget(tenantId: string): void {
     this.providers.delete(tenantId);
   }
+}
+
+/**
+ * undici rejects with `TypeError("fetch failed")` when no response arrived; its cause names the
+ * socket or DNS error, but not always with a code the transfer classifier knows (ENOTFOUND).
+ */
+function isFetchFailure(error: unknown): boolean {
+  return error instanceof TypeError && /fetch failed/i.test(error.message);
 }
 
 interface TokenEndpointSuccess {
@@ -251,12 +326,14 @@ async function requestClientCredentialsToken(input: {
     );
   }
 
-  // A redirect would re-send the client secret or assertion to its target.
+  // A redirect would re-send the client secret or assertion to its target. The timeout keeps a
+  // hanging endpoint from holding every Graph call that waits for this token.
   const response = await input.fetchImpl(input.endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: params.toString(),
     redirect: "error",
+    signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
   });
   const text = await response.text();
   let payload: TokenEndpointSuccess & TokenEndpointFailure = {};
@@ -356,6 +433,8 @@ export function toTokenCallback(provider: AccessTokenProvider): () => Promise<st
 }
 
 /** The callback a Graph client calls after a 401 or 403 (`GraphClientOptions.refreshAccessToken`). */
-export function toRefreshCallback(provider: CachingTokenProvider): () => boolean {
-  return () => provider.refreshAfterRefusal();
+export function toRefreshCallback(
+  provider: CachingTokenProvider,
+): (refusedToken?: string) => boolean {
+  return (refusedToken) => provider.refreshAfterRefusal(refusedToken);
 }

@@ -1,5 +1,7 @@
 import { createHash, createVerify, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { isItemLevelError } from "../../backup/exchange/run.js";
+import { classifyFailure } from "../../failures/classify.js";
 import { must } from "../testing/fake-graph.js";
 import {
   buildClientAssertion,
@@ -9,6 +11,7 @@ import {
   derFromPem,
   TenantTokenProviders,
   TokenAcquisitionError,
+  TokenEndpointUnreachableError,
   tokenEndpointFor,
 } from "./token.js";
 
@@ -81,6 +84,97 @@ describe("client credentials with a secret", () => {
     expect(await provider.getToken()).toBe("tok-1");
     expect(provider.refreshAfterRefusal()).toBe(false);
     expect(endpoint.calls).toHaveLength(2);
+  });
+
+  it("lets concurrent refusals of the same old token send again with the new one", async () => {
+    let now = 1_000_000;
+    let release: (() => void) | undefined;
+    let index = 0;
+    const provider = CachingTokenProvider.fromAcquirer(
+      async () => {
+        const token = `tok-${index++}`;
+        if (index > 1) {
+          await new Promise<void>((r) => {
+            release = r;
+          });
+        }
+        return { accessToken: token, expiresAtMs: now + 3_600_000 };
+      },
+      { now: () => now },
+    );
+    expect(await provider.getToken()).toBe("tok-0");
+    now += 120_000;
+    // Three requests were sent with tok-0; the first refusal drops it.
+    expect(provider.refreshAfterRefusal("tok-0")).toBe(true);
+    const refetch = provider.getToken();
+    // The second lands while tok-1 is being fetched ...
+    expect(provider.refreshAfterRefusal("tok-0")).toBe(true);
+    release?.();
+    expect(await refetch).toBe("tok-1");
+    // ... the third after it arrived (younger than a minute, but not the refused token).
+    expect(provider.refreshAfterRefusal("tok-0")).toBe(true);
+    expect(await provider.getToken()).toBe("tok-1");
+    // A refusal of the fresh token itself is about the request.
+    expect(provider.refreshAfterRefusal("tok-1")).toBe(false);
+    expect(index).toBe(2);
+  });
+
+  it("refreshes after a refusal when the wall clock stepped back since the token was cached", async () => {
+    let now = 1_000_000_000;
+    const provider = CachingTokenProvider.fromAcquirer(
+      async () => ({ accessToken: "tok", expiresAtMs: now + 3_600_000 }),
+      { now: () => now },
+    );
+    await provider.getToken();
+    now -= 600_000;
+    expect(provider.refreshAfterRefusal("tok")).toBe(true);
+  });
+
+  it("tries an unreachable token endpoint again, then fails the run rather than one item", async () => {
+    let calls = 0;
+    const reset = () =>
+      new TypeError("fetch failed", {
+        cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+      });
+    const flaky = (async () => {
+      calls++;
+      if (calls === 1) {
+        throw reset();
+      }
+      return new Response(JSON.stringify({ expires_in: 3600, access_token: "tok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const waits: number[] = [];
+    const options = {
+      tenantId: "t",
+      app: { clientId: "c", credential: { type: "secret" as const, clientSecret: "s3cr3t-value" } },
+      sleep: async (ms: number) => {
+        waits.push(ms);
+      },
+    };
+    expect(
+      await new ClientCredentialsTokenProvider({ ...options, fetchImpl: flaky }).getToken(),
+    ).toBe("tok");
+    expect(waits).toEqual([1_000]);
+
+    calls = 0;
+    const down = (async () => {
+      calls++;
+      throw reset();
+    }) as unknown as typeof fetch;
+    const error = await new ClientCredentialsTokenProvider({ ...options, fetchImpl: down })
+      .getToken()
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(TokenEndpointUnreachableError);
+    expect(calls).toBe(3);
+    // Without a token every following call fails too: the run fails and resumes later.
+    expect(isItemLevelError(error)).toBe(false);
+    expect(isItemLevelError(reset())).toBe(true);
+    // The network cause is still what the failure reports.
+    expect(classifyFailure(error).code).toBe("network.unreachable");
+    expect((error as Error).message).not.toContain("s3cr3t-value");
   });
 
   it("refuses to follow redirects, so the secret is never re-sent to another host", async () => {

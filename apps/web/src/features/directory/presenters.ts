@@ -96,6 +96,7 @@ export function objectSubtitle(object: ProtectedObject): string | null {
 
 export type BackupState =
   | { kind: "running" }
+  | { kind: "limited"; at: string }
   | { kind: "failed"; at: string }
   | { kind: "done"; at: string }
   | { kind: "never" };
@@ -103,7 +104,10 @@ export type BackupState =
 /**
  * What the "last backup" column says. A failed latest run is shown even when
  * an older snapshot exists: the object is not protected as recently as the
- * date suggests, and the UI must not hide that.
+ * date suggests, and the UI must not hide that. A run a service held back
+ * (`serviceLimited`) is no failure: it reads amber "held back", as in the
+ * jobs and history views, never as a red "backup failed"; an object that
+ * stays held back for long is caught by the readiness and overdue rules.
  */
 export function backupState(object: ProtectedObject): BackupState {
   const job = object.latestBackupJob;
@@ -111,7 +115,7 @@ export function backupState(object: ProtectedObject): BackupState {
     return { kind: "running" };
   }
   if (job?.status === "failed") {
-    return { kind: "failed", at: job.at };
+    return job.serviceLimited ? { kind: "limited", at: job.at } : { kind: "failed", at: job.at };
   }
   return object.lastBackupAt ? { kind: "done", at: object.lastBackupAt } : { kind: "never" };
 }

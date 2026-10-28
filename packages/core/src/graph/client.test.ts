@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { JobAbortedError } from "../engine/chunkstore.js";
+import { isTransientTransferError } from "../storage/transfer.js";
 import {
   chunkIntoBatches,
   computeBackoffMs,
   FetchGraphClient,
   GraphResponseTimeoutError,
   MAX_BATCH_SIZE,
+  MAX_RETRY_AFTER_MS,
   parseRetryAfter,
 } from "./client.js";
 import { GraphError } from "./errors.js";
@@ -96,6 +98,37 @@ describe("batching", () => {
 });
 
 describe("throttling", () => {
+  /** The waits of a client whose first GET is answered 429 with Retry-After: 300. */
+  async function retryAfterWaits(options: { signal?: AbortSignal; maxRetryAfterMs?: number }) {
+    const waits: number[] = [];
+    let calls = 0;
+    const fetchImpl = (async () =>
+      ++calls === 1
+        ? new Response("{}", { status: 429, headers: { "retry-after": "300" } })
+        : new Response("{}", {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })) as unknown as typeof fetch;
+    const client = new FetchGraphClient({
+      accessTokenProvider: async () => "token",
+      fetchImpl,
+      random: () => 0,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+      ...options,
+    });
+    expect((await client.request({ method: "GET", url: "/me" })).status).toBe(200);
+    return waits;
+  }
+
+  it("honours a minutes-long Retry-After only for a client with a signal", async () => {
+    // An API request has no signal that would end the wait: kept to maxBackoffMs.
+    expect(await retryAfterWaits({})).toEqual([60_000]);
+    expect(await retryAfterWaits({ signal: new AbortController().signal })).toEqual([300_000]);
+    expect(await retryAfterWaits({ maxRetryAfterMs: 300_000 })).toEqual([300_000]);
+  });
+
   it("parses Retry-After seconds, and rejects absent/garbage values", () => {
     expect(parseRetryAfter("2")).toBe(2000);
     expect(parseRetryAfter(null)).toBeNull();
@@ -106,6 +139,13 @@ describe("throttling", () => {
     const opts = { baseMs: 500, maxMs: 60_000, random: () => 0 };
     expect(computeBackoffMs(0, 2000, opts)).toBe(2000);
     expect(computeBackoffMs(3, null, opts)).toBe(500 * 8);
+
+    // A server's Retry-After beyond maxMs is honoured (Exchange asks for minutes), up to a bound.
+    expect(computeBackoffMs(0, 120_000, opts)).toBe(120_000);
+    expect(computeBackoffMs(0, 3_600_000, opts)).toBe(MAX_RETRY_AFTER_MS);
+    expect(computeBackoffMs(10, null, opts)).toBe(60_000);
+
+    expect(computeBackoffMs(0, 120_000, { ...opts, maxRetryAfterMs: 60_000 })).toBe(60_000);
 
     const jittered = computeBackoffMs(0, 1000, { baseMs: 500, maxMs: 60_000, random: () => 0.999 });
     expect(jittered).toBeGreaterThanOrEqual(1000);
@@ -144,6 +184,98 @@ describe("throttling", () => {
     const res = await client.request({ method: "GET", url: "/me" });
     expect(res.status).toBe(504);
     expect(graph.calls).toHaveLength(3);
+  });
+});
+
+describe("connection errors before Graph answered", () => {
+  /** A fetch that fails like undici on a reset socket `failures` times, then answers 200. */
+  function resetting(failures: number) {
+    const methods: string[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      methods.push(init?.method ?? "GET");
+      if (methods.length <= failures) {
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }),
+        });
+      }
+      return new Response(JSON.stringify({ responses: [{ id: "0", status: 200, body: {} }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const throttles: number[] = [];
+    const client = new FetchGraphClient({
+      accessTokenProvider: async () => "token",
+      fetchImpl,
+      sleep: async () => {},
+      random: () => 0,
+      maxRetries: 3,
+      onThrottle: (info) => throttles.push(info.status),
+    });
+    return { client, methods, throttles };
+  }
+
+  it("sends a GET again after a reset, with backoff not reported as throttling", async () => {
+    const { client, methods, throttles } = resetting(2);
+    expect((await client.request({ method: "GET", url: "/drives/d/root/delta" })).status).toBe(200);
+    expect(methods).toEqual(["GET", "GET", "GET"]);
+    expect(throttles).toEqual([]);
+  });
+
+  it("gives up after maxRetries and throws the network error", async () => {
+    const { client, methods } = resetting(10);
+    await expect(client.request({ method: "GET", url: "/sites/s" })).rejects.toThrow(
+      "fetch failed",
+    );
+    expect(methods).toHaveLength(4);
+  });
+
+  it("never sends a request that changes something twice", async () => {
+    const { client, methods } = resetting(1);
+    await expect(
+      client.request({ method: "POST", url: "/users/u/messages", body: {} }),
+    ).rejects.toThrow("fetch failed");
+    expect(methods).toEqual(["POST"]);
+  });
+
+  it("sends a $batch of reads again, but not a $batch that writes", async () => {
+    const reads = resetting(1);
+    const answered = await reads.client.batch([{ id: "x", method: "GET", url: "/users/a" }]);
+    expect(answered.map((r) => r.status)).toEqual([200]);
+    expect(reads.methods).toEqual(["POST", "POST"]);
+
+    const writes = resetting(1);
+    await expect(
+      writes.client.batch([{ id: "x", method: "PATCH", url: "/users/a", body: {} }]),
+    ).rejects.toThrow("fetch failed");
+    expect(writes.methods).toEqual(["POST"]);
+  });
+
+  it("does not send again once the job was cancelled", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      controller.abort();
+      throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } });
+    }) as unknown as typeof fetch;
+    const client = new FetchGraphClient({
+      accessTokenProvider: async () => "token",
+      fetchImpl,
+      sleep: async () => {},
+      signal: controller.signal,
+    });
+    await expect(client.request({ method: "GET", url: "/me" })).rejects.toBeInstanceOf(
+      JobAbortedError,
+    );
+    expect(calls).toBe(1);
+  });
+
+  it("classifies a reset as transient, a cancellation never", () => {
+    expect(
+      isTransientTransferError(new TypeError("fetch failed", { cause: { code: "ECONNRESET" } })),
+    ).toBe(true);
+    expect(isTransientTransferError(new JobAbortedError())).toBe(false);
   });
 });
 
@@ -296,6 +428,72 @@ describe("a refused token (401, 403)", () => {
     // Refused again with the new token: no third attempt.
     expect(graph.calls).toHaveLength(3);
     expect(refreshes).toBe(2);
+  });
+});
+
+describe("a refused token inside a $batch", () => {
+  it("sends the refused sub-requests once more with a new token", async () => {
+    let round = 0;
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) => {
+          round += 1;
+          return batchEnvelope(call, (sub) =>
+            sub.url === "/users/b/messages" && round === 1
+              ? { status: 403, body: graphError("ErrorAccessDenied") }
+              : { status: 200, body: { url: sub.url } },
+          );
+        },
+      },
+    ]);
+    let token = 0;
+    const refused: (string | undefined)[] = [];
+    const client = graph.client({
+      accessTokenProvider: async () => `token-${token}`,
+      refreshAccessToken: (refusedToken) => {
+        refused.push(refusedToken);
+        token++;
+        return true;
+      },
+    });
+    const responses = await client.batch([
+      { id: "a", method: "GET", url: "/users/a/messages" },
+      { id: "b", method: "GET", url: "/users/b/messages" },
+    ]);
+    expect(responses.map((r) => [r.id, r.status])).toEqual([
+      ["a", 200],
+      ["b", 200],
+    ]);
+    expect(refused).toEqual(["token-0"]);
+    const second = graph.callsTo("POST", "$batch")[1];
+    expect(second?.headers.authorization).toBe("Bearer token-1");
+    const resent = must(second?.json as { requests: { url: string }[] } | undefined);
+    expect(resent.requests.map((r) => r.url)).toEqual(["/users/b/messages"]);
+  });
+
+  it("returns the refusal when the provider keeps its token, and asks only once", async () => {
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) =>
+          batchEnvelope(call, () => ({ status: 403, body: graphError("ErrorAccessDenied") })),
+      },
+    ]);
+    let refreshes = 0;
+    const fresh = graph.client({
+      refreshAccessToken: () => {
+        refreshes++;
+        return true;
+      },
+    });
+    const responses = await fresh.batch([{ id: "a", method: "GET", url: "/users/a" }]);
+    expect(responses.map((r) => r.status)).toEqual([403]);
+    // Refused again with the new token: no third round.
+    expect(graph.callsTo("POST", "$batch")).toHaveLength(2);
+    expect(refreshes).toBe(1);
   });
 });
 

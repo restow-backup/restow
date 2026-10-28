@@ -65,6 +65,8 @@
     "failed": "Letzter Lauf fehlgeschlagen",
     "failedHint": "Der letzte Sicherungslauf ist {when} fehlgeschlagen. Den Grund zeigt die Ansicht des Laufs.",
     "failedWhen": "Der letzte Sicherungslauf ist {when} fehlgeschlagen.",
+    "limited": "Vom Dienst gebremst",
+    "limitedWhen": "Ein Dienst hat den letzten Sicherungslauf {when} gebremst. Das ist kein Fehler; der nächste geplante Lauf versucht es erneut.",
     "openJob": "Lauf öffnen",
     "snapshots": "{count, plural, one {# Sicherungsstand} other {# Sicherungsstände}}",
     "now": "Jetzt sichern",
@@ -107,6 +109,7 @@
       "starttls_unavailable": "Der Server bietet auf diesem Port kein STARTTLS an.",
       "dns": "Der Hostname konnte nicht aufgelöst werden.",
       "refused": "Die Verbindung wurde abgelehnt.",
+      "busy": "Der Server hat die Anmeldung vorübergehend abgelehnt, zum Beispiel weil zu viele Verbindungen offen sind. Versuchen Sie es später erneut.",
       "unknown": "Die Verbindung ist aus unerwartetem Grund fehlgeschlagen."
     }
   },

@@ -152,6 +152,14 @@ export interface ProgressReporter {
    * where the engine has the error at hand, its classified cause.
    */
   fail(itemRef: string, reason: string, cause?: FailureCause, details?: ItemFailureDetails): void;
+  /**
+   * Take back failures this run reported for items that came through later in
+   * the same run (Graph lists an item twice in one delta feed, a retried item
+   * arrives again in the walk): pass the records as they were reported. The
+   * count drops, and a failure already persisted leaves item_failures and the
+   * run's summary again. Optional: a reporter without it keeps the failure.
+   */
+  withdraw?(failures: readonly ItemFailureRecord[]): void;
   /** Name the current phase, e.g. "enumerate", "download", "manifest". */
   phase(name: string): void;
   /**
@@ -429,6 +437,12 @@ export interface BackupResult {
   /** New plaintext bytes stored in this run (after dedup). */
   readonly bytes: number;
   readonly failures: readonly ItemFailureRecord[];
+  /**
+   * Item failures an earlier attempt of the same job reported (item_failures)
+   * for parts this attempt did not do again (SharePoint libraries finished
+   * before a resume): counted in the stored result, never reported twice.
+   */
+  readonly failuresFromEarlierAttempts?: number;
   /**
    * What the run changed, for the ransomware signals (docs/RANSOMWARE.md): engines that can tell
    * (OneDrive) report it; absent for a first backup and for engines that cannot.

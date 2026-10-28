@@ -14,6 +14,7 @@ import {
 } from "../../engine/memory.js";
 import { loadManifest } from "../../engine/snapshot.js";
 import type { JobContext, ProtectedObjectRef, RestoreRequest } from "../../engine/types.js";
+import { classifyFailure } from "../../failures/classify.js";
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { ImapRestoreEngine } from "../../restore/imap.js";
 import { LocalStorageBackend } from "../../storage/local.js";
@@ -413,6 +414,58 @@ describe("ImapBackupEngine", () => {
     expect(manifest.objects.some((o) => o.path === "mail/INBOX/4.eml")).toBe(true);
     const state = manifest.state as { imap: { folders: Record<string, { uidValidity: string }> } };
     expect(state.imap.folders.Sent.uidValidity).toBe("1000");
+  });
+
+  it("fails the folder once on a download cap instead of one failure per message", async () => {
+    const inbox = server.addFolder("INBOX");
+    for (let i = 1; i <= 6; i++) {
+      inbox.add(eml(`m${i}`));
+    }
+    server.faults.refuseSource.add("INBOX:2");
+    server.faults.refuseSourceCode = "OVERQUOTA";
+    const result = await engine().run(context(), protectedObject, {});
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        itemRef: "INBOX",
+        cause: expect.objectContaining({ code: "imap.server_limit", transient: true }),
+      }),
+    ]);
+  });
+
+  it("does not count a message deleted during the run as a failure", async () => {
+    const inbox = server.addFolder("INBOX");
+    for (let i = 1; i <= 6; i++) {
+      inbox.add(eml(`m${i}`));
+    }
+    // The user deletes message 3 while the first batch (1-4) is being fetched.
+    server.onDelivered = (_folder, uid) => {
+      if (uid === 1) {
+        inbox.delete(3);
+      }
+    };
+    const result = await engine().run(context(), protectedObject, {});
+    server.onDelivered = null;
+    expect(result.objectsWritten).toBe(5);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("classifies giving up after too many dropped connections as a lost connection", async () => {
+    const inbox = server.addFolder("INBOX");
+    for (let i = 1; i <= 6; i++) {
+      inbox.add(eml(`m${i}`));
+      server.faults.dropOnDeliver.add(`INBOX:${i}`);
+    }
+    const failure = await engine({ limits: { maxReconnects: 2, fetchBatchMessages: 4 } })
+      .run(context(), protectedObject, {})
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    expect(failure).toBeInstanceOf(Error);
+    expect(classifyFailure(failure)).toMatchObject({
+      code: "imap.connection_lost",
+      transient: true,
+    });
   });
 
   it("re-opens a dropped connection, fetches the rest one by one and records omitted messages", async () => {

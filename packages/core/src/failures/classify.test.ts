@@ -187,6 +187,25 @@ describe("Microsoft Graph answers", () => {
     ).toBe("graph.onedrive_unavailable");
   });
 
+  it("itemNotFound for the drive itself (root, delta feed): OneDrive unavailable, not an item", () => {
+    for (const url of [
+      "/drives/b!x/root/delta",
+      "/drives/b!x/root/delta?token=abc",
+      "/drives/b!x",
+      "/users/a@b.de/drive/root",
+    ]) {
+      expect(classifyFailure(graph(404, "itemNotFound", "Item not found", url))).toMatchObject({
+        code: "graph.onedrive_unavailable",
+        transient: false,
+      });
+    }
+    expect(
+      classifyFailure(
+        graph(404, "itemNotFound", "Item not found", "/drives/b!x/items/01ABC/content"),
+      ).code,
+    ).toBe("graph.item_not_found");
+  });
+
   it("404 on a drive: OneDrive not provisioned", () => {
     const cause = classifyFailure(
       graph(404, "ResourceNotFound", "Resource could not be discovered.", "/users/a@b.de/drive"),

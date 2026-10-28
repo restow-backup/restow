@@ -8,6 +8,11 @@ overrides:
   uuid: ^11.1.1
   esbuild@<0.25.0: ^0.25.0
 
+patchedDependencies:
+  pg-boss@10.4.2:
+    hash: kkhmulya4xlgeyiosibw64mulq
+    path: patches/pg-boss@10.4.2.patch
+
 importers:
 
   .:
@@ -68,7 +73,7 @@ importers:
         version: 10.1.1
       pg-boss:
         specifier: ^10.1.5
-        version: 10.4.2
+        version: 10.4.2(patch_hash=kkhmulya4xlgeyiosibw64mulq)
       react:
         specifier: ^19.0.0
         version: 19.3.0
@@ -120,7 +125,7 @@ importers:
         version: 8.23.1
       pg-boss:
         specifier: ^10.0.0
-        version: 10.4.2
+        version: 10.4.2(patch_hash=kkhmulya4xlgeyiosibw64mulq)
     devDependencies:
       '@types/pg':
         specifier: ^8.11.0
@@ -266,7 +271,7 @@ importers:
         version: 1.7.8
       pg-boss:
         specifier: ^10.1.5
-        version: 10.4.2
+        version: 10.4.2(patch_hash=kkhmulya4xlgeyiosibw64mulq)
     devDependencies:
       tsx:
         specifier: ^4.19.2
@@ -6666,7 +6671,7 @@ snapshots:
 
   pend@1.2.0: {}
 
-  pg-boss@10.4.2:
+  pg-boss@10.4.2(patch_hash=kkhmulya4xlgeyiosibw64mulq):
     dependencies:
       cron-parser: 4.9.0
       pg: 8.23.1

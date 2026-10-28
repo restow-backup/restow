@@ -35,7 +35,14 @@ import { backupContacts } from "./contacts.js";
 import { folderObjectAt } from "./folders.js";
 import { backupMail, DEFAULT_SKIPPED_FOLDERS, type MailPhaseOptions } from "./mail.js";
 import { CALENDAR_ROOT, CONTACTS_ROOT, MAIL_ROOT } from "./paths.js";
-import { BackupRun, EXCHANGE_PHASES, isMailboxAccessError, META, type RunCounters } from "./run.js";
+import {
+  BackupRun,
+  EXCHANGE_PHASES,
+  isMailboxAccessError,
+  isTokenRejected,
+  META,
+  type RunCounters,
+} from "./run.js";
 import {
   type ExchangeState,
   MAIL_SELECT_VERSION,
@@ -196,14 +203,15 @@ export class ExchangeBackupEngine<Db = unknown> implements BackupEngine<Db> {
       });
       return result;
     } catch (error) {
-      if (isMailboxAccessError(error)) {
+      if (isMailboxAccessError(error) && !isTokenRejected(error)) {
         // Nothing of this run is worth keeping: no consent, excluded by policy, no mailbox.
+        // A 401 (token rejected) is transient and falls through to the checkpoint below.
         logger.error("mailbox is not accessible, snapshot abandoned", { error });
         await writer.abort();
         await ctx.cursor.clear();
         throw error;
       }
-      // Cancellation, shutdown, throttling beyond retries, storage trouble: keep the
+      // 401, cancellation, shutdown, throttling beyond retries, storage trouble: keep the
       // position so the next attempt continues where this one stopped.
       const reason = error instanceof JobAbortedError ? "aborted" : "failed";
       logger.warn(`mailbox backup ${reason}, checkpointing`, { error });

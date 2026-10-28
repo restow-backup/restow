@@ -236,6 +236,11 @@
       "title": "Befunde",
       "none": "Keine Befunde: Jedes geprüfte Element kam bytegenau aus einer aktuellen Sicherung zurück."
     },
+    "removed": {
+      "title": "Aus der Quelle entfernt",
+      "description": "Dieses Objekt gibt es in seiner Quelle nicht mehr, eine neuere Sicherung folgt also nicht. Für die Bewertung zählt nur, ob sich die aufbewahrte Sicherung wiederherstellen lässt, nicht ihr Alter.",
+      "notCounted": "Nicht gewertet: {reason}"
+    },
     "stats": {
       "checked": "Geprüfte Elemente",
       "verified": "Bytegenau wiederhergestellt",

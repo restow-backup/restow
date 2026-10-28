@@ -16,7 +16,10 @@ import { pgBossExecutor } from "./pg-boss-tx.js";
  * Queue policies, priorities and singleton keys are the worker's contract
  * (@restow/core engine/jobs.ts, apps/worker/src/queues.ts); the API only
  * reuses them. A `stately` queue refuses a second queued job with the same
- * singleton key, which surfaces here as `null` from {@link sendJob}.
+ * singleton key, which surfaces here as `null` from {@link sendJob}. One queued
+ * beside a running one of the same key is accepted: it starts once the running
+ * one ends (a second import into a mailbox, "Back up now" during a backup), and
+ * it holds back no other key's job (patches/pg-boss@10.4.2.patch).
  */
 
 const instances = new WeakMap<object, PgBoss>();
@@ -50,8 +53,8 @@ export function sendOptionsFor<Q extends JobQueue>(
 
 /**
  * Enqueue `payload` inside `tx`. Returns pg-boss' job id, or null when the
- * queue already holds a queued or active job with the same singleton key
- * (the caller then reports "already queued" instead of inserting a row).
+ * queue already holds a queued job with the same singleton key (the caller
+ * then reports "already queued" instead of inserting a row).
  */
 export async function sendJob<Q extends JobQueue>(
   tx: Transaction,

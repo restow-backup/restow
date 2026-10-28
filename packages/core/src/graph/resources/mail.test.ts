@@ -54,6 +54,63 @@ describe("mail folders", () => {
     expect(payload.requests).toHaveLength(17);
   });
 
+  it("treats a well-known name whose lookup fails with 400/403 as absent instead of failing", async () => {
+    const wellKnown = foldersFixture.wellKnown as Record<string, string>;
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) =>
+          batchEnvelope(call, (sub) => {
+            const name = sub.url.match(/mailFolders\/([^/?]+)/)?.[1] ?? "";
+            if (name === "clutter") {
+              return { status: 400, body: graphError("ErrorInvalidRequest", "Not supported.") };
+            }
+            if (name === "scheduled") {
+              return { status: 403, body: graphError("ErrorAccessDenied", "Access is denied.") };
+            }
+            const id = wellKnown[name];
+            return id
+              ? { status: 200, body: { id } }
+              : { status: 404, body: graphError("ErrorFolderNotFound") };
+          }),
+      },
+    ]);
+    const result = await resolveWellKnownFolders(graph.client(), USER);
+    expect(result.byName.get("inbox")).toBe("AAMkFolderInbox");
+    expect(result.byName.has("clutter")).toBe(false);
+    expect(result.byName.has("scheduled")).toBe(false);
+    expect([...(result.unresolved?.keys() ?? [])].sort()).toEqual(["clutter", "scheduled"]);
+    expect(result.unresolved?.get("scheduled")?.status).toBe(403);
+  });
+
+  it.each([429, 500, 503])(
+    "fails instead of treating a well-known name as absent on a transient %i",
+    async (status) => {
+      const wellKnown = foldersFixture.wellKnown as Record<string, string>;
+      const graph = createFakeGraph([
+        {
+          method: "POST",
+          url: "/v1.0/$batch",
+          respond: (call) =>
+            batchEnvelope(call, (sub) => {
+              const name = sub.url.match(/mailFolders\/([^/?]+)/)?.[1] ?? "";
+              if (name === "searchfolders") {
+                return { status, body: graphError("ErrorServerBusy", "Try again later.") };
+              }
+              const id = wellKnown[name];
+              return id
+                ? { status: 200, body: { id } }
+                : { status: 404, body: graphError("ErrorFolderNotFound") };
+            }),
+        },
+      ]);
+      const error = await resolveWellKnownFolders(graph.client(), USER).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(GraphError);
+      expect((error as GraphError).status).toBe(status);
+    },
+  );
+
   it("walks the tree breadth first, including hidden folders, batching child lookups", async () => {
     const graph = createFakeGraph([
       {
@@ -106,6 +163,55 @@ describe("mail folders", () => {
     expect(topLevel.searchParams.get("includeHiddenFolders")).toBe("true");
     // Well-known resolution plus one batch per tree level with children.
     expect(graph.callsTo("POST", "$batch")).toHaveLength(3);
+  });
+});
+
+describe("mail folder tree with a folder deleted while it is listed", () => {
+  function treeGraph(projectsChildren: { status: number; body: unknown }) {
+    return createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) =>
+          batchEnvelope(call, (sub) => {
+            if (sub.url.includes("/childFolders")) {
+              if (sub.url.includes("AAMkFolderInbox")) {
+                return { status: 200, body: foldersFixture.inboxChildren };
+              }
+              if (sub.url.includes("AAMkFolderProjects")) {
+                return projectsChildren;
+              }
+              return { status: 200, body: { value: [] } };
+            }
+            const name = sub.url.match(/mailFolders\/([^/?]+)/)?.[1] ?? "";
+            const id = (foldersFixture.wellKnown as Record<string, string>)[name];
+            return id
+              ? { status: 200, body: { id } }
+              : { status: 404, body: graphError("ErrorFolderNotFound") };
+          }),
+      },
+      {
+        url: (u) => u.pathname === `/v1.0/users/${USER}/mailFolders` && !u.search.includes("skip"),
+        respond: { status: 200, json: foldersFixture.topLevelPage1 },
+      },
+      { url: /\$skip=100/, respond: { status: 200, json: foldersFixture.topLevelPage2 } },
+    ]);
+  }
+
+  it("skips the subtree of a parent that vanished before its children were listed", async () => {
+    const graph = treeGraph({ status: 404, body: graphError("ErrorItemNotFound") });
+    const vanished: string[] = [];
+    const tree = await listMailFolderTree(graph.client(), USER, {
+      onVanishedFolder: (folder) => vanished.push(folder.id),
+    });
+    expect(tree.map((f) => f.path.join("/"))).toContain("Inbox/Projects");
+    expect(tree.find((f) => f.id === "AAMkFolderRestow")).toBeUndefined();
+    expect(vanished).toEqual(["AAMkFolderProjects"]);
+  });
+
+  it("still fails on a 404 that says the mailbox itself is unavailable", async () => {
+    const graph = treeGraph({ status: 404, body: graphError("MailboxNotEnabledForRESTAPI") });
+    await expect(listMailFolderTree(graph.client(), USER)).rejects.toMatchObject({ status: 404 });
   });
 });
 
@@ -248,6 +354,51 @@ describe("message content", () => {
         .find((u) => u.pathname.endsWith("/messages/AAMkMsgBig")),
     );
     expect(messageGet.searchParams.get("$select")).toContain("body");
+  });
+
+  it.each([
+    [
+      "a MIME conversion error",
+      [{ status: 500, json: graphError("ErrorMimeContentConversionFailed") }],
+      1,
+    ],
+    [
+      "a 500 that repeats",
+      [
+        { status: 500, json: graphError("ErrorInternalServerError") },
+        { status: 500, json: graphError("ErrorInternalServerError") },
+      ],
+      2,
+    ],
+  ])("falls back to JSON plus attachments after %s", async (_what, responses, mimeCalls) => {
+    const graph = createFakeGraph([
+      { url: /messages\/AAMkMsgBig\/\$value/, respond: responses },
+      {
+        url: (u) => u.pathname === `/v1.0/users/${USER}/messages/AAMkMsgBig`,
+        respond: { status: 200, json: contentFixture.messageJson },
+      },
+      {
+        url: (u) => u.pathname.endsWith("/messages/AAMkMsgBig/attachments"),
+        respond: { status: 200, json: contentFixture.attachments },
+      },
+    ]);
+    const content = await fetchMessageContent(graph.client(), USER, "AAMkMsgBig");
+    expect(content.kind).toBe("parts");
+    expect(graph.callsTo("GET", "/messages/AAMkMsgBig/$value")).toHaveLength(mimeCalls);
+  });
+
+  it("asks for the MIME once more after a single 500 and keeps the MIME format", async () => {
+    const graph = createFakeGraph([
+      {
+        url: /messages\/AAMkMsg1\/\$value/,
+        respond: [
+          { status: 500, json: graphError("ErrorInternalServerError") },
+          { status: 200, headers: { "content-type": "message/rfc822" }, text: contentFixture.mime },
+        ],
+      },
+    ]);
+    const content = await fetchMessageContent(graph.client(), USER, "AAMkMsg1");
+    expect(content.kind).toBe("mime");
   });
 
   it("skips the MIME attempt entirely when the known size exceeds the threshold", async () => {

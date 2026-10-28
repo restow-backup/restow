@@ -517,16 +517,21 @@ describe.skipIf(!testDatabaseAdminUrl)("verification per snapshot against Postgr
           completedAt: day(1),
         })
         .returning();
-      await db.insert(verifyReports).values({
-        tenantId: f.tenantId,
-        protectedObjectId: objectId,
-        snapshotId: point?.id as string,
-        recoveryReadiness: reasons.some((reason) => reason.severity === "red") ? "red" : "green",
-        details: { origin: "verify", reasons },
-        checkedAt: day(10),
-      });
+      const [report] = await db
+        .insert(verifyReports)
+        .values({
+          tenantId: f.tenantId,
+          protectedObjectId: objectId,
+          snapshotId: point?.id as string,
+          recoveryReadiness: reasons.some((reason) => reason.severity === "red") ? "red" : "green",
+          details: { origin: "verify", reasons },
+          checkedAt: day(10),
+        })
+        .returning();
+      removedReports.set(objectId, report?.id as string);
       return objectId;
     }
+    const removedReports = new Map<string, string>();
 
     it("rates the kept backup by whether it restores, not by its age, and never as overdue", async () => {
       const old = await removed("fiona", [
@@ -544,6 +549,36 @@ describe.skipIf(!testDatabaseAdminUrl)("verification per snapshot against Postgr
       });
       // A kept backup that does not restore stays red.
       expect(byObject(overview.objects, damaged)).toMatchObject({ state: "red", overdue: false });
+    });
+
+    it("lists the backup age as set aside, not as a finding next to the rating", async () => {
+      const old = await removed("hanna", [
+        { code: "snapshot_outdated", severity: "red", ageHours: 216 },
+      ]);
+      const damaged = await removed("ivo", [
+        { code: "items_missing", severity: "red", count: 2 },
+        { code: "snapshot_stale", severity: "yellow", ageHours: 60 },
+      ]);
+      const codes = (reasons: { code: string }[] | undefined) => reasons?.map((r) => r.code);
+      const overview = await readinessOverview(db, f.tenantId, NOW);
+      const latest = byObject(overview.objects, old)?.report;
+      expect(codes(latest?.reasons)).toEqual([]);
+      expect(codes(latest?.setAsideReasons)).toEqual(["snapshot_outdated"]);
+      const kept = byObject(overview.objects, damaged)?.report;
+      expect(codes(kept?.reasons)).toEqual(["items_missing"]);
+      expect(codes(kept?.setAsideReasons)).toEqual(["snapshot_stale"]);
+
+      // The report page and the history rate it as the overview does.
+      const detail = await getReport(db, f.tenantId, removedReports.get(old) as string, ACTOR);
+      expect(detail).toMatchObject({ readiness: "green", reasons: [] });
+      expect(codes(detail.setAsideReasons)).toEqual(["snapshot_outdated"]);
+      const history = await listReports(db, f.tenantId, { objectId: damaged, limit: 10 });
+      expect(history.items[0]).toMatchObject({ readiness: "red" });
+      expect(codes(history.items[0]?.reasons)).toEqual(["items_missing"]);
+
+      // An active object keeps its age reasons where they always were.
+      const active = await getReport(db, f.tenantId, f.adaGreenReport, ACTOR);
+      expect(active.setAsideReasons).toEqual([]);
     });
   });
 });

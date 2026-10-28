@@ -234,6 +234,21 @@ describe.skipIf(!testDatabaseAdminUrl)("the jobs of every tenant at a glance", (
     await owner.insert(jobs).values([
       run(anna, "failed", at(10)),
       run(anna, "completed", at(11)),
+      // Graph held its newest backup back: no failure, the completed run before it stands (and
+      // is no newer than carl's, so the last run stays at 13:00).
+      {
+        ...run(anna, "failed", at(14)),
+        failure: {
+          v: 1 as const,
+          code: "graph.throttled",
+          transient: true,
+          params: {},
+          technical: {},
+          occurredAt: at(14).toISOString(),
+          step: null,
+          retry: null,
+        },
+      },
       run(anna, "queued", at(15)),
       run(ben, "completed", at(10)),
       run(ben, "failed", at(12)),

@@ -21,6 +21,7 @@ import { assignFolderPaths, CONTACTS_ROOT, contactObjectPath, displayFolderPath 
 import {
   type BackupRun,
   contactsGroup,
+  isAreaRefused,
   isItemLevelError,
   isVanished,
   META,
@@ -146,6 +147,13 @@ export async function backupContacts(run: BackupRun): Promise<void> {
   try {
     tree = await listContactFolderTree(run.client, run.userId);
   } catch (error) {
+    if (isAreaRefused(error)) {
+      // Mail was readable (the mail phase got through), so a refusal here is a missing
+      // permission or a mail-only RBAC/access-policy scope: fail this area, keep the
+      // mail of this run. Nothing is pruned, the objects of the last snapshot stay.
+      run.fail(CONTACTS_ROOT, error);
+      return;
+    }
     const wrapped = toMailboxAccessError(error, "contact folders");
     if (!isItemLevelError(wrapped)) {
       throw wrapped;

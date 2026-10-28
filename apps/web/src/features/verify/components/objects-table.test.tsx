@@ -321,6 +321,29 @@ describe("ObjectsTable", () => {
     expect(html).toMatch(/title="[^"]*data that is missing from the chunk index/);
   });
 
+  it("shows no backup-age reason under the green badge of an orphaned object", () => {
+    const outdated = {
+      code: "snapshot_outdated",
+      severity: "red" as const,
+      count: null,
+      ageHours: 240,
+      failure: null,
+    };
+    const report = {
+      id: "r1",
+      kind: "verify" as const,
+      origin: "verify" as const,
+      reasons: [outdated],
+      counts: { checked: 30, verified: 30, failed: 0 },
+    };
+    const orphaned = table([readiness({ object: object({ status: "orphaned" }), report })]);
+    expect(orphaned).toContain("30 of 30 items restored byte-exact");
+    expect(orphaned).not.toContain("The latest backup is 10 days old");
+    // Still in its source, the age is the finding.
+    const active = table([readiness({ state: "red", readiness: "red", report })]);
+    expect(active).toContain("The latest backup is 10 days old");
+  });
+
   it("shows the same finding text whether or not the server explained the reason", () => {
     const explained = table([
       readiness({

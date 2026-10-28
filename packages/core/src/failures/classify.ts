@@ -14,7 +14,12 @@ import { OAuth2Error } from "../backup/imap/oauth2.js";
  * error (ECONNREFUSED) says nothing about whether it was Microsoft, an IMAP
  * server or the storage endpoint.
  */
-import { ImapAuthError, ImapConfigError, ImapSessionError } from "../backup/imap/types.js";
+import {
+  ImapAuthError,
+  ImapConfigError,
+  ImapSessionError,
+  isTemporaryImapRefusal,
+} from "../backup/imap/types.js";
 import {
   ChunkStoreFailedError,
   JobAbortedError,
@@ -552,6 +557,51 @@ function imapTechnical(layer: ErrorLike): FailureTechnical {
   return technical;
 }
 
+/** Commands that store into a mailbox (and so can hit its quota). */
+const IMAP_WRITE_COMMANDS = new Set(["APPEND", "COPY", "MOVE", "CREATE", "RENAME", "STORE"]);
+/** Commands that only read (with the write ones: every verb the engines send). */
+const IMAP_READ_COMMANDS = new Set([
+  "FETCH",
+  "SELECT",
+  "EXAMINE",
+  "SEARCH",
+  "STATUS",
+  "LIST",
+  "LSUB",
+  "IDLE",
+  "NOOP",
+  "CAPABILITY",
+  "NAMESPACE",
+  "ENABLE",
+  "ID",
+  "CLOSE",
+  "UNSELECT",
+  "LOGIN",
+  "AUTHENTICATE",
+  "GETQUOTAROOT",
+]);
+
+/**
+ * Whether the executed command (`"<tag> <VERB> ..."`, `UID <VERB>` read as VERB) writes to a
+ * mailbox; undefined when the verb is not known (a quota answer then reads as before: a full
+ * mailbox). imapflow's tags are hex counters ("1F"), so the verb is found by name, not by
+ * position alone.
+ */
+function writesToMailbox(command: string | undefined): boolean | undefined {
+  const words = (command ?? "").trim().toUpperCase().split(/\s+/).slice(0, 3);
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i] as string;
+    const verb = word === "UID" ? words[i + 1] : word;
+    if (verb !== undefined && IMAP_WRITE_COMMANDS.has(verb)) {
+      return true;
+    }
+    if (verb !== undefined && IMAP_READ_COMMANDS.has(verb)) {
+      return false;
+    }
+  }
+  return undefined;
+}
+
 /** imapflow-shaped errors (they are plain Errors with extra properties). */
 function classifyImapShape(
   layer: ErrorLike,
@@ -562,6 +612,10 @@ function classifyImapShape(
   const response = `${str(layer.responseText) ?? ""} ${str(layer.response) ?? ""}`;
   const technical = imapTechnical(layer);
   const hostParams: FailureParams = context.host ? { host: context.host } : {};
+  const limitParams: FailureParams = {
+    ...hostParams,
+    ...(serverCode ? { imapCode: serverCode } : {}),
+  };
   if (
     (heuristics && /\[AUTHENTICATIONFAILED\]/i.test(`${response} ${messageOf(layer)}`)) ||
     layer.authenticationFailed === true ||
@@ -569,6 +623,11 @@ function classifyImapShape(
     serverCode === "AUTHORIZATIONFAILED" ||
     str(layer.code)?.toUpperCase() === "AUTHENTICATIONFAILED"
   ) {
+    // imapflow sets authenticationFailed on every NO to LOGIN/AUTHENTICATE, also on a
+    // connection limit or an auth backend that is down: those clear by themselves.
+    if (isTemporaryImapRefusal(layer)) {
+      return buildCause("imap.server_limit", limitParams, technical, true);
+    }
     return buildCause("imap.auth_failed", hostParams, technical);
   }
   const quotaText = heuristics ? `${response} ${messageOf(layer)}` : response;
@@ -577,6 +636,18 @@ function classifyImapShape(
     serverCode === "LIMIT" ||
     /over ?quota|quota exceeded|mailbox is full/i.test(quotaText)
   ) {
+    // A full mailbox only refuses writes. On a read (a backup never writes: FETCH, SELECT,
+    // EXAMINE, SEARCH, ...) OVERQUOTA is a provider's download or bandwidth cap, and RFC 5530
+    // LIMIT is an implementation limit on any command: both clear by themselves.
+    const write = writesToMailbox(str(layer.executedCommand));
+    if (write === false || (serverCode === "LIMIT" && write !== true)) {
+      return buildCause("imap.server_limit", limitParams, technical, true);
+    }
+    if (serverCode === "LIMIT") {
+      // LIMIT on APPEND, COPY, CREATE, ...: e.g. a message too large. Permanent, and not a
+      // full mailbox either.
+      return buildCause("imap.command_failed", limitParams, technical);
+    }
     return buildCause("imap.mailbox_full", hostParams, technical);
   }
   if (

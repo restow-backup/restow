@@ -39,6 +39,7 @@ import {
   type ImapMessageSource,
   type ImapSession,
   ImapSessionError,
+  isTemporaryImapRefusal,
 } from "./types.js";
 
 /** Envelope FETCH fields shared by the metadata and source fetches (docs/IMAP.md). */
@@ -205,8 +206,24 @@ export function buildClientOptions(
 }
 
 function translateConnectError(error: unknown): Error {
-  const failure = error as { authenticationFailed?: boolean; response?: string; message?: string };
+  const failure = error as {
+    authenticationFailed?: boolean;
+    response?: string;
+    responseText?: string;
+    serverResponseCode?: string;
+    message?: string;
+  };
   if (failure?.authenticationFailed) {
+    if (isTemporaryImapRefusal(failure)) {
+      // imapflow flags every NO to LOGIN/AUTHENTICATE; a connection limit or an auth backend
+      // that is down is not a wrong password: a transient session error (retried, and
+      // classified imap.server_limit through the cause), not ImapAuthError.
+      return new ImapSessionError(
+        `login temporarily refused: ${failure.response ?? describe(error)}`,
+        true,
+        { cause: error },
+      );
+    }
     return new ImapAuthError("authentication failed", failure.response ?? null);
   }
   const tls = error as { tlsFailed?: boolean };

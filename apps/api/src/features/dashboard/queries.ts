@@ -798,6 +798,8 @@ export async function loadTenantHealthExtras(
         and(
           eq(jobs.tenantId, tenantId),
           eq(jobs.status, "failed"),
+          // Only a backup a service held back is no failure (the next scheduled run tries again);
+          // a held-back restore, export or import has ended and counts, as it raises its alert.
           notServiceLimitedJob(),
           sql`${jobFinishedAt} >= ${previousSince}`,
         ),
@@ -888,6 +890,9 @@ export interface StaleThresholds {
  * The overdue bound of each kind from the schedules of the tenant's enabled jobs
  * (`staleBackupHours`: twice the longest planned gap of the most relaxed job, two days
  * without any schedule). A weekly job is not overdue on day three; an hourly one is after a day.
+ * A mailbox member's own schedule does not count here: it bounds that member only (the worker's
+ * `backup.overdue` judges it by it, apps/worker overdue.ts), and the card reads the tenant's
+ * newest mail backup, which the members on the job's schedule keep fresh.
  */
 export async function loadStaleThresholds(
   db: Database,

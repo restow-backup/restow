@@ -134,6 +134,25 @@ describe("drive", () => {
     );
   });
 
+  it("asks for the file bytes unencoded and takes no size from an encoded response", async () => {
+    const graph = createFakeGraph([
+      {
+        url: /tempauth=OK/,
+        respond: {
+          status: 200,
+          // The body fetch hands over is decompressed; the header keeps the encoded size.
+          headers: { "content-encoding": "gzip", "content-length": "4" },
+          bytes: new TextEncoder().encode("hello notes"),
+        },
+      },
+    ]);
+    const notes = fixture.initialPage2.value[0] as DriveDeltaItem;
+    const download = await openItemDownload(graph.client(), DRIVE, notes);
+    expect(must(graph.calls[0]).headers["accept-encoding"]).toBe("identity");
+    expect(download.contentLength).toBeNull();
+    expect((await drain(download.stream)).toString()).toBe("hello notes");
+  });
+
   it("uploads small files with one PUT and sets fileSystemInfo afterwards", async () => {
     const graph = createFakeGraph([
       {

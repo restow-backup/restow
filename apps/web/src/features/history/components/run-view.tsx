@@ -17,6 +17,7 @@ import { useTweened } from "../live/motion";
 import {
   barPercent,
   eventView,
+  isHeldBack,
   isMailSubject,
   livenessOf,
   remainingSeconds,
@@ -112,8 +113,9 @@ function FailureSection({ run, detail }: { run: Run; detail: RunDetail | undefin
       docsUrl={detail?.docsUrl ?? null}
       affectedItems={run.progress?.itemsFailed ?? 0}
       retrying={retrying}
-      // A restore check that could not complete proves nothing about the backup: neutral.
-      tone={run.checkIncomplete ? "info" : undefined}
+      // A restore check that could not complete proves nothing about the backup: neutral. A
+      // backup a service held back is no failure of the object: amber, as its badge.
+      tone={run.checkIncomplete ? "info" : isHeldBack(run) ? "warning" : undefined}
       className="[&_*]:break-words"
       aria-label={title(run)}
     />
@@ -245,7 +247,7 @@ function ProgressSection({
             run.state === "running" && "bg-info",
             run.state === "queued" && "bg-muted-foreground/30",
             (run.state === "succeeded" || run.state === "partial") && "bg-muted-foreground",
-            run.state === "failed" && "bg-destructive",
+            run.state === "failed" && (isHeldBack(run) ? "bg-warning" : "bg-destructive"),
             run.state === "cancelled" && "bg-muted-foreground/50",
             indeterminate && "w-full opacity-40 motion-safe:animate-pulse",
           )}
@@ -563,7 +565,14 @@ function ObjectRow({
         ) : null}
       </span>
       <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-        <RunStateBadge run={{ state: object.state, kind: "backup", checkIncomplete: false }} />
+        <RunStateBadge
+          run={{
+            state: object.state,
+            kind: "backup",
+            checkIncomplete: false,
+            serviceLimited: object.serviceLimited,
+          }}
+        />
         <RestoreCheckChip check={object.restoreCheck} />
       </span>
     </span>

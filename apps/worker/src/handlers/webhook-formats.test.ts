@@ -176,6 +176,36 @@ describe("buildChatMessage", () => {
     expect(msg.title).toBe("Run completed: Contoso");
   });
 
+  it("reports a restore that skipped every item as completed without restoring, not as success", () => {
+    const msg = buildChatMessage(
+      "job.completed",
+      envelope("job.completed", {
+        job: {
+          id: "j-3",
+          queue: "restore",
+          status: "completed",
+          result: { restored: 0, skipped: 4, failures: 0, unverified: 0 },
+        },
+      }),
+      { ...EN, objectName: "Alice" },
+    );
+    expect(msg.severity).toBe("info");
+    expect(msg.title).toBe("Restore completed, nothing restored (every item skipped): Alice");
+    const done = buildChatMessage(
+      "job.completed",
+      envelope("job.completed", {
+        job: {
+          id: "j-4",
+          queue: "restore",
+          status: "completed",
+          result: { restored: 3, skipped: 1, failures: 0, unverified: 0 },
+        },
+      }),
+      { ...EN, objectName: "Alice" },
+    );
+    expect(done).toMatchObject({ severity: "success", title: "Restore completed: Alice" });
+  });
+
   it("colours a restore check by its rating and links its report", () => {
     const base = {
       reportId: "rep-1",

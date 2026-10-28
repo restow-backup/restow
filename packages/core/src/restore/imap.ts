@@ -47,7 +47,13 @@ import {
 } from "./common.js";
 import { imapFlagsOf, imapInternalDateOf } from "./conventions.js";
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
-import { failureCodeOf, isAbortError, RestoreLedger, type RestoreReport } from "./results.js";
+import {
+  describeRestoreError,
+  failureCodeOf,
+  isAbortError,
+  RestoreLedger,
+  type RestoreReport,
+} from "./results.js";
 import { planRestore, type RestorePlan, resolveRestoreSource } from "./selection.js";
 
 /**
@@ -86,6 +92,14 @@ export interface ImapRestoreSession {
    * without a byte comparison.
    */
   fetchSha256?(mailbox: string, uid: number): Promise<string | null>;
+  /**
+   * True once the connection is gone (the server closed it, an idle or session
+   * limit, a network drop). Every later command would fail the same way, so the
+   * run stops treating errors as item failures and fails the job instead: the
+   * queue retries it on a fresh connection, and the Message-ID duplicate check
+   * skips what this attempt already appended. Sessions that cannot tell omit it.
+   */
+  readonly connectionLost?: boolean;
   /** Log out and close the connection. Never throws. */
   close(): Promise<void>;
 }
@@ -359,6 +373,7 @@ class ImapRestoreRun {
       if (isAbortError(error)) {
         throw error;
       }
+      this.throwIfConnectionLost(error);
       this.ledger.failed(folder, this.legacyReplaceError(error), failureCodeOf(error));
     }
   }
@@ -439,7 +454,23 @@ class ImapRestoreRun {
       if (isAbortError(error)) {
         throw error;
       }
+      this.throwIfConnectionLost(error);
       ledger.failed(message, this.legacyReplaceError(error), failureCodeOf(error));
+    }
+  }
+
+  /**
+   * A command failed because the connection is gone: not this item's fault,
+   * and every remaining item would fail the same way and the job would still
+   * end "completed with issues". Thrown out of the run instead, so the engine
+   * closes the session and the worker fails the attempt and pg-boss retries
+   * it; the retry recognises what this attempt already appended by Message-ID.
+   */
+  private throwIfConnectionLost(error: unknown): void {
+    if (this.session.connectionLost === true) {
+      throw new ImapRestoreError(`the IMAP connection was lost: ${describeRestoreError(error)}`, {
+        cause: error,
+      });
     }
   }
 

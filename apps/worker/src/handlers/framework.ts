@@ -75,7 +75,7 @@ import {
   storageTargets,
   tenantKeys,
 } from "@restow/db";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type PgBoss from "pg-boss";
 import { mayContinueForFree, type RetryBudget } from "../continuation.js";
 import { isSourceScopedCause, jobFailureRecord, retryStateOf } from "../failure.js";
@@ -1454,6 +1454,8 @@ export async function loadProtectedObject(
  * Make sure the lifecycle row exists and mark it active. The scheduler and the
  * API insert the row before enqueuing; the upsert covers the race where the
  * queue delivers first, and keeps the first `started_at` across retries.
+ * False when the row says cancelled: a cancel that landed after the runner
+ * checked is not turned back into a running job.
  */
 async function markJobActive(
   run: TenantTxRunner,
@@ -1462,9 +1464,9 @@ async function markJobActive(
   pgBossJobId: string,
   now: Date,
   protectedObjectId: string | null,
-): Promise<void> {
-  await run(async (tx) => {
-    await tx
+): Promise<boolean> {
+  return run(async (tx) => {
+    const marked = await tx
       .insert(jobs)
       .values({
         id: payload.jobId,
@@ -1483,7 +1485,10 @@ async function markJobActive(
           pgBossJobId,
           startedAt: sql`coalesce(${jobs.startedAt}, ${now})`,
         },
-      });
+        setWhere: ne(jobs.status, "cancelled"),
+      })
+      .returning({ id: jobs.id });
+    return marked.length > 0;
   });
 }
 
@@ -1505,6 +1510,13 @@ export type FinishedJob = Pick<
   | "failure"
 >;
 
+/**
+ * Record a run's outcome on its row. Null when nothing was written: a retry or a
+ * failure never overwrites a user's cancel (the cancel is honoured, no retry),
+ * and a cancel is recorded once (the row of a job cancelled while queued
+ * already has its end, written by the API). A completed run is recorded even
+ * over a cancel that came too late: its snapshot is real.
+ */
 async function finishJob(
   run: TenantTxRunner,
   jobId: string,
@@ -1514,6 +1526,12 @@ async function finishJob(
   failure: FailureRecordJson | null = null,
 ): Promise<FinishedJob | null> {
   const terminal = status === "completed" || status === "failed" || status === "cancelled";
+  const guard =
+    status === "completed"
+      ? undefined
+      : status === "cancelled"
+        ? isNull(jobs.completedAt)
+        : ne(jobs.status, "cancelled");
   const [row] = await run((tx) =>
     tx
       .update(jobs)
@@ -1525,7 +1543,7 @@ async function finishJob(
         // A finished or dead job has nothing to resume; a retry keeps its cursor.
         ...(terminal ? { cursor: null } : {}),
       })
-      .where(eq(jobs.id, jobId))
+      .where(and(eq(jobs.id, jobId), guard))
       .returning({
         id: jobs.id,
         queue: jobs.queue,
@@ -1645,11 +1663,15 @@ export async function runJob(
     pgBossJobId: job.id,
     attempt: job.retryCount,
   });
-  const release = await runtime.tenantLimiter.acquire(payload.tenantId, runtime.shutdownSignal);
   const run = tenantRunner(runtime.db, payload.tenantId);
   const controller = new AbortController();
   const onShutdown = () => controller.abort("shutdown");
+  if (runtime.shutdownSignal.aborted) {
+    onShutdown();
+  }
   runtime.shutdownSignal.addEventListener("abort", onShutdown, { once: true });
+  // Set once the job holds one of its tenant's slots; null while it waits for one.
+  let release: (() => void) | null = null;
   const stopDrainWatch = runtime.updateDrain?.subscribe(() => {
     if (!controller.signal.aborted) {
       controller.abort("update");
@@ -1660,6 +1682,9 @@ export async function runJob(
   let reporter: ReturnType<typeof createProgressReporter>["reporter"] | null = null;
   const cursorStore = new CheckpointTrackingCursorStore(new PgCursorStore(run, payload.jobId));
 
+  // pg-boss' expiry clock started when it handed the job out, not when a tenant slot frees
+  // up: the abort is armed before the wait, so a job that waited out its time stops here
+  // (and never starts) before pg-boss fails it and a retry runs beside this attempt.
   const expiryDelay = expiryAbortDelayMs(job.expireInSeconds);
   if (expiryDelay !== null) {
     expiryTimer = setTimeout(() => controller.abort("expired"), expiryDelay);
@@ -1696,7 +1721,7 @@ export async function runJob(
     status: JobStatus,
     errorMessage?: string,
     failure?: FailureRecordJson,
-  ): Promise<void> => {
+  ): Promise<FinishedJob | null> => {
     const row = await finishJob(
       run,
       payload.jobId,
@@ -1706,17 +1731,47 @@ export async function runJob(
       failure ?? null,
     );
     if (!row?.completedAt) {
-      return;
+      return row;
     }
     await discardOwnSnapshots(row.protectedObjectId);
     if (!runtime.onJobFinished) {
-      return;
+      return row;
     }
     try {
       await runtime.onJobFinished(payload.tenantId, row);
     } catch (hookError) {
       logger.warn("job-finished hook failed", errorFields(hookError));
     }
+    return row;
+  };
+
+  /**
+   * The row says cancelled before this attempt ran anything: end it without
+   * running. A job cancelled while it ran, whose worker died before noticing
+   * (the reconciler or pg-boss' expiry then handed it out again), has no end
+   * yet: it gets one now, with its cursor cleared, its snapshots dropped and
+   * the job-finished hook. A job cancelled while queued already has its end
+   * (the API wrote it); only the earlier attempt's checkpoint is dropped.
+   */
+  const endCancelledBeforeStart = async (): Promise<void> => {
+    logger.info("job was cancelled before it started");
+    if (!(await finish("cancelled"))) {
+      await discardOwnSnapshots(protectedObjectIdOf(payload));
+    }
+  };
+
+  /**
+   * A failing attempt whose row the user cancelled meanwhile (the failure came
+   * before the cancel poll noticed): {@link finishJob} kept the cancel, so it
+   * ends as cancelled and is not retried. False when the row was not cancelled.
+   */
+  const honourCancel = async (): Promise<boolean> => {
+    if ((await currentStatus(run, payload.jobId).catch(() => null)) !== "cancelled") {
+      return false;
+    }
+    await finish("cancelled");
+    logger.info("job cancelled while its attempt failed");
+    return true;
   };
 
   // The object the job works on, once loaded: a failure that concerns its whole
@@ -1776,11 +1831,11 @@ export async function runJob(
   };
 
   try {
+    // The tenant's slots are shared by all queues; the wait ends with the job's own signal
+    // (expiry, shutdown, an update's drain) and then fails the attempt like any interruption.
+    release = await runtime.tenantLimiter.acquire(payload.tenantId, controller.signal);
     if ((await currentStatus(run, payload.jobId)) === "cancelled") {
-      logger.info("job was cancelled before it started");
-      // Cancelled while waiting for a retry: the earlier attempt's checkpoint
-      // is never resumed now.
-      await discardOwnSnapshots(protectedObjectIdOf(payload));
+      await endCancelledBeforeStart();
       return;
     }
     const protectedObjectId = protectedObjectIdOf(payload);
@@ -1790,7 +1845,21 @@ export async function runJob(
     // The row references the object only when it exists (foreign key); a job
     // for a vanished object is still recorded, as failed, right below.
     workingObject = protectedObject;
-    await markJobActive(run, payload, queue, job.id, runtime.now(), protectedObject?.id ?? null);
+    if (
+      !(await markJobActive(
+        run,
+        payload,
+        queue,
+        job.id,
+        runtime.now(),
+        protectedObject?.id ?? null,
+      ))
+    ) {
+      // Cancelled between the check above and here.
+      workingObject = null;
+      await endCancelledBeforeStart();
+      return;
+    }
     logger.info("job started");
     if (protectedObjectId && !protectedObject) {
       throw new InvalidPayloadError(`protected object ${protectedObjectId} does not exist`);
@@ -1880,7 +1949,9 @@ export async function runJob(
         retry: null,
         queue,
       });
-      await finish("failed", errorMessageOf(error), failure);
+      if (!(await finish("failed", errorMessageOf(error), failure)) && (await honourCancel())) {
+        return;
+      }
       if (isSourceScopedCause(failure)) {
         await markSourceFailure(failure, errorMessageOf(error));
       }
@@ -1892,12 +1963,16 @@ export async function runJob(
     // shutdown or an update's drain gives it back even without progress (#46).
     let budget: RetryBudget = { retryCount: job.retryCount, retryLimit: job.retryLimit };
     if (runtime.continueInterrupted) {
-      const continues = mayContinueForFree({
-        reason,
-        checkpointed: cursorStore.checkpointed,
-        startedAt: await firstStartedAt(run, payload.jobId).catch(() => null),
-        now: failedAt,
-      });
+      const continues =
+        release === null
+          ? // Stopped while waiting for a tenant slot: it never ran, the wait was not its doing.
+            reason === "expired" || reason === "shutdown" || reason === "update"
+          : mayContinueForFree({
+              reason,
+              checkpointed: cursorStore.checkpointed,
+              startedAt: await firstStartedAt(run, payload.jobId).catch(() => null),
+              now: failedAt,
+            });
       if (continues) {
         try {
           budget = (await runtime.continueInterrupted(queue, job.id)) ?? budget;
@@ -1917,7 +1992,10 @@ export async function runJob(
       retry: status === "queued" ? retryStateOf({ ...job, ...budget }, failedAt) : null,
       queue,
     });
-    await finish(status, errorMessageOf(error), failure);
+    if (!(await finish(status, errorMessageOf(error), failure)) && (await honourCancel())) {
+      // No rethrow: pg-boss completes the job, so no retry runs it again.
+      return;
+    }
     if (isSourceScopedCause(failure)) {
       await markSourceFailure(failure, errorMessageOf(error));
     }
@@ -1940,7 +2018,7 @@ export async function runJob(
     }
     runtime.shutdownSignal.removeEventListener("abort", onShutdown);
     stopDrainWatch?.();
-    release();
+    release?.();
   }
 }
 

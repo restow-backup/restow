@@ -1,0 +1,33 @@
+diff --git a/src/plans.js b/src/plans.js
+index f7163002e7194f58414280f00076226d67081558..55da2569c14ddb7263aaa21bc8c6c04cd212268a 100644
+--- a/src/plans.js
++++ b/src/plans.js
+@@ -507,10 +507,27 @@ function fetchNextJob (schema) {
+   return ({ includeMetadata, priority = true, ignoreStartAfter = false } = {}) => `
+     WITH next as (
+       SELECT id, singleton_key, policy
+-      FROM ${schema}.job
++      FROM ${schema}.job nj
+       WHERE name = $1
+         AND state < '${JOB_STATES.active}'
+         ${ignoreStartAfter ? '' : 'AND start_after < now()'}
++        -- Restow patch: skip a singleton/stately job whose key already has an active job.
++        -- Activating it would violate job_i2/job_i3, and fetch() swallows that error and
++        -- returns nothing, so one such job at the head blocked the whole queue.
++        AND NOT (
++          nj.policy = '${QUEUE_POLICIES.stately}' AND EXISTS (
++            SELECT 1 FROM ${schema}.job a
++            WHERE a.name = $1 AND a.state = '${JOB_STATES.active}' AND a.policy = '${QUEUE_POLICIES.stately}'
++              AND COALESCE(a.singleton_key, '') = COALESCE(nj.singleton_key, '')
++          )
++        )
++        AND NOT (
++          nj.policy = '${QUEUE_POLICIES.singleton}' AND EXISTS (
++            SELECT 1 FROM ${schema}.job a
++            WHERE a.name = $1 AND a.state = '${JOB_STATES.active}' AND a.policy = '${QUEUE_POLICIES.singleton}'
++              AND COALESCE(a.singleton_key, '') = COALESCE(nj.singleton_key, '')
++          )
++        )
+       ORDER BY ${priority ? 'priority desc, ' : ''}created_on, id
+       LIMIT $2
+       FOR UPDATE SKIP LOCKED

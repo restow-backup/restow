@@ -265,6 +265,48 @@ describe.skipIf(!adminUrl)("backup jobs planned by the scheduler", () => {
     expect((await jobRow(all))?.next_run_at?.toISOString()).toBe("2026-03-05T02:00:00.000Z");
   });
 
+  it("queues one backup of an object beside its running one, and no more", async () => {
+    clock = new Date("2026-03-04T10:00:00Z");
+    const busy = await tenant("busy-object");
+    const m365 = await source(busy);
+    const ivan = await mailbox(busy, m365, "ivan");
+    const all = await job(busy, { name: "All", scope: "all", schedule: every(480) });
+    expect(await loop().tick()).toMatchObject({ schedules: 1, enqueued: 1 });
+    // The worker picks it up: pg-boss and the jobs row both say active (a long first backup).
+    await owner.$client.query(
+      `UPDATE pgboss.job SET state = 'active', started_on = now()
+        WHERE id::text IN (SELECT pg_boss_job_id FROM jobs WHERE tenant_id = $1)`,
+      [busy],
+    );
+    await owner.$client.query(
+      "UPDATE jobs SET status = 'active', started_at = now() WHERE tenant_id = $1",
+      [busy],
+    );
+    const keyed = async () =>
+      (
+        await owner.$client.query<{ state: string }>(
+          "SELECT state FROM pgboss.job WHERE name = 'backup' AND singleton_key = $1",
+          [`backup:${ivan}`],
+        )
+      ).rows
+        .map((row) => row.state)
+        .sort();
+
+    // The next run is queued beside the running one (stately: one queued per key) and starts
+    // once that one ends; the patched pg-boss lets the other keys pass it meanwhile.
+    clock = new Date("2026-03-04T18:00:00Z");
+    expect(await loop().tick()).toMatchObject({ schedules: 1, enqueued: 1, skipped: 0 });
+    expect(await queued(busy, "backup")).toHaveLength(2);
+    expect(await keyed()).toEqual(["active", "created"]);
+    expect((await jobRow(all))?.next_run_at?.toISOString()).toBe("2026-03-05T02:00:00.000Z");
+
+    // A third one is not taken while that one waits (the earlier tests' jobs are due as well).
+    clock = new Date("2026-03-05T02:00:00Z");
+    expect(await loop().tick()).toMatchObject({ enqueued: 0 });
+    expect(await queued(busy, "backup")).toHaveLength(2);
+    expect(await keyed()).toEqual(["active", "created"]);
+  });
+
   it("plans restore checks on their own schedule", async () => {
     clock = new Date("2026-03-04T10:00:00Z");
     const fabrikam = await tenant("fabrikam");
@@ -473,6 +515,42 @@ describe.skipIf(!adminUrl)("backup jobs planned by the scheduler", () => {
     expect(await loop().tick()).toMatchObject({ schedules: 1, enqueued: 0, deferred: 1 });
     expect((await jobRow(broken))?.next_run_at?.toISOString()).toBe("2026-03-04T11:00:00.000Z");
     expect(await loop().tick()).toMatchObject({ schedules: 0, deferred: 0 });
+  });
+
+  it("knows which orphan's newest backup still awaits its check", async () => {
+    const acme = await tenant("orphan-checks");
+    const m365 = await source(acme);
+    const snapshot = async (objectId: string, sequence: number) =>
+      (
+        await owner.$client.query<{ id: string }>(
+          `INSERT INTO snapshots (tenant_id, protected_object_id, sequence, completed_at, manifest_path)
+           VALUES ($1, $2, $3, now(), $4) RETURNING id`,
+          [acme, objectId, sequence, `manifests/${objectId}/${sequence}`],
+        )
+      ).rows[0]?.id ?? "";
+    const check = (objectId: string, snapshotId: string) =>
+      owner.$client.query(
+        `INSERT INTO verify_reports (tenant_id, protected_object_id, snapshot_id, recovery_readiness)
+         VALUES ($1, $2, $3, 'green')`,
+        [acme, objectId, snapshotId],
+      );
+    // Checked an older backup only: the newest one awaits its check.
+    const pending = await mailbox(acme, m365, "pending", "orphaned");
+    await check(pending, await snapshot(pending, 1));
+    await snapshot(pending, 2);
+    const checked = await mailbox(acme, m365, "checked", "orphaned");
+    await check(checked, await snapshot(checked, 1));
+    const empty = await mailbox(acme, m365, "empty", "orphaned");
+    const active = await mailbox(acme, m365, "active");
+    await snapshot(active, 1);
+
+    const targets = await store().loadTargets(acme);
+    const flag = new Map(targets.protectedObjects.map((row) => [row.id, row.unverifiedBackup]));
+    expect(flag.get(pending)).toBe(true);
+    expect(flag.get(checked)).toBe(false);
+    expect(flag.get(empty)).toBe(false);
+    // Only orphans are read: an active object's checks come by the schedule anyway.
+    expect(flag.get(active)).toBe(false);
   });
 
   it("reads only the member rows of the tenant it plans for", async () => {

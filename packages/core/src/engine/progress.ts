@@ -21,6 +21,11 @@ export interface ProgressUpdate {
   readonly snapshot: ProgressSnapshot;
   /** Failures recorded since the previous update. */
   readonly failures: readonly ItemFailureRecord[];
+  /**
+   * Failures an earlier update carried that the engine took back (the item came
+   * through later in the run): the sink removes them again. Absent when none.
+   */
+  readonly withdrawn?: readonly ItemFailureRecord[];
 }
 
 export interface ProgressSink {
@@ -50,6 +55,7 @@ export class ProgressTracker implements ProgressReporter {
   private startedAt: number | null = null;
 
   private pendingFailures: ItemFailureRecord[] = [];
+  private pendingWithdrawals: ItemFailureRecord[] = [];
   private dirty = false;
   private itemsSinceFlush = 0;
   private lastFlushAt: number;
@@ -106,6 +112,25 @@ export class ProgressTracker implements ProgressReporter {
     this.markDirty(1);
   }
 
+  withdraw(failures: readonly ItemFailureRecord[]): void {
+    if (failures.length === 0) {
+      return;
+    }
+    this.failedCount = Math.max(0, this.failedCount - failures.length);
+    for (const failure of failures) {
+      // Not published yet: it simply never goes out. Published: the sink takes it back.
+      const index = this.pendingFailures.findIndex(
+        (pending) => pending.itemRef === failure.itemRef && pending.reason === failure.reason,
+      );
+      if (index !== -1) {
+        this.pendingFailures.splice(index, 1);
+      } else {
+        this.pendingWithdrawals.push(failure);
+      }
+    }
+    this.markDirty(0);
+  }
+
   phase(name: string): void {
     if (this.currentPhase === name) {
       return;
@@ -130,7 +155,7 @@ export class ProgressTracker implements ProgressReporter {
 
   /** Persist pending state. Resolves once the sink has seen everything so far. */
   async flush(): Promise<void> {
-    if (this.dirty || this.pendingFailures.length > 0) {
+    if (this.dirty || this.pendingFailures.length > 0 || this.pendingWithdrawals.length > 0) {
       this.scheduleFlush();
     }
     while (this.inFlight) {
@@ -177,8 +202,14 @@ export class ProgressTracker implements ProgressReporter {
   }
 
   private async runFlush(): Promise<void> {
-    const update: ProgressUpdate = { snapshot: this.snapshot(), failures: this.pendingFailures };
+    const withdrawn = this.pendingWithdrawals;
+    const update: ProgressUpdate = {
+      snapshot: this.snapshot(),
+      failures: this.pendingFailures,
+      ...(withdrawn.length > 0 ? { withdrawn } : {}),
+    };
     this.pendingFailures = [];
+    this.pendingWithdrawals = [];
     this.dirty = false;
     this.itemsSinceFlush = 0;
     this.lastFlushAt = this.clock();
@@ -187,6 +218,7 @@ export class ProgressTracker implements ProgressReporter {
     } catch (error) {
       // Re-queue the failures so they are not lost; counters are cumulative anyway.
       this.pendingFailures = [...update.failures, ...this.pendingFailures];
+      this.pendingWithdrawals = [...withdrawn, ...this.pendingWithdrawals];
       this.dirty = true;
       this.options.onError?.(error);
     }

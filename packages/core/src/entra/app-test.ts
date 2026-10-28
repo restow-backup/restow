@@ -2,6 +2,7 @@ import {
   ClientCredentialsTokenProvider,
   GRAPH_DEFAULT_SCOPE,
   TokenAcquisitionError,
+  TokenEndpointUnreachableError,
 } from "../graph/auth/token.js";
 import type { EntraAppSource, EntraCredentialKind, ResolvedEntraApp } from "./app-registration.js";
 import { diffPermissions, type PermissionDiff, rolesFromAccessToken } from "./permissions.js";
@@ -99,6 +100,10 @@ export function redactDetail(
 }
 
 function networkDetail(error: unknown): string {
+  if (error instanceof TokenEndpointUnreachableError) {
+    // The provider's wrapper only says "unreachable"; the network error names why.
+    return networkDetail(error.cause);
+  }
   if (error instanceof Error) {
     if (error.name === "TimeoutError" || error.name === "AbortError") {
       return "The token endpoint did not answer in time.";
@@ -165,6 +170,8 @@ export async function testAppRegistration(input: TestAppRegistrationInput): Prom
     tenantId: input.tenantId,
     app: { ...app.credentials, scope: GRAPH_DEFAULT_SCOPE },
     fetchImpl: withTimeout(input.fetchImpl ?? fetch, input.timeoutMs ?? APP_TEST_TIMEOUT_MS),
+    // An interactive test reports a network error at once; the administrator runs it again.
+    networkRetryDelaysMs: [],
   });
 
   let token: string;

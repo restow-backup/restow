@@ -6,7 +6,8 @@
  *
  * The bound follows the tenant's jobs (`staleBackupHours` in @restow/core: twice the longest
  * planned gap of the most relaxed enabled job of the kind, two days without any schedule), for
- * mailboxes, OneDrives and IMAP accounts by the mail jobs, for servers and clients by the
+ * mailboxes, OneDrives and IMAP accounts by the mail jobs (a member with a schedule of its own
+ * by that one as well, for that member only), for servers and clients by the
  * endpoint jobs, for VMs and containers of Proxmox VE by the PVE jobs
  * (`pveStaleBackupHours`), and for file shares by the share jobs (docs/FILESHARES.md 13). An object counts from its newest committed backup, or from when its
  * protection started if it never had one. A guest counts while it is in an enabled PVE job, or
@@ -24,6 +25,7 @@
  * Runs with the endpoint monitor, every five minutes, across all active tenants.
  */
 import {
+  type JobSchedule,
   overdueDeadlineOf,
   pveGuestCounted,
   pveJobOfGuest,
@@ -37,6 +39,7 @@ import {
   backupJobs,
   endpoints,
   fileShares,
+  jobs,
   type NewNotification,
   notifications,
   protectedObjects,
@@ -49,6 +52,7 @@ import {
   tenants,
 } from "@restow/db";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { MAX_CONTINUATION_DAYS } from "./continuation.js";
 import type { EndpointJobDeps } from "./endpoints/common.js";
 import { withTenantTx } from "./handlers/framework.js";
 import { lastAlertAt, queueRuleDeliveries, raiseEvents } from "./reporting.js";
@@ -65,6 +69,8 @@ export interface OverdueCandidate {
   since: Date;
   /** Whether a backup ever succeeded. */
   backedUp: boolean;
+  /** Its own bound, when it has one (a mailbox member's own schedule); else its kind's. */
+  hours?: number;
 }
 
 /** After how many hours without a successful backup each kind is overdue, by the schedules. */
@@ -78,7 +84,13 @@ export interface OverdueBounds {
 }
 
 /** The bound of a candidate's kind. */
-export function boundOf(candidate: Pick<OverdueCandidate, "kind">, bounds: OverdueBounds): number {
+export function boundOf(
+  candidate: Pick<OverdueCandidate, "kind" | "hours">,
+  bounds: OverdueBounds,
+): number {
+  if (candidate.hours !== undefined) {
+    return candidate.hours;
+  }
   switch (candidate.kind) {
     case "endpoint":
       return bounds.machines;
@@ -192,6 +204,26 @@ async function tenantCandidates(
         isNotNull(backupJobs.schedule),
       ),
     );
+  // A mailbox member with a schedule of its own runs on it, not on its job's (the scheduler
+  // plans it at member level): a weekly member of a daily job is not overdue two days after its
+  // Sunday backup. Its schedule counts for that member only, so it does not widen the bound of
+  // every other mailbox of the tenant.
+  const memberSchedules = await db
+    .select({
+      protectedObjectId: backupJobMembers.protectedObjectId,
+      schedule: sql<JobSchedule>`${backupJobMembers.overrides} -> 'schedule'`,
+    })
+    .from(backupJobMembers)
+    .innerJoin(backupJobs, eq(backupJobs.id, backupJobMembers.jobId))
+    .where(
+      and(
+        eq(backupJobs.tenantId, tenantId),
+        eq(backupJobs.enabled, true),
+        eq(backupJobs.kind, "mail"),
+        isNotNull(backupJobMembers.protectedObjectId),
+        sql`jsonb_typeof(${backupJobMembers.overrides} -> 'schedule') = 'object'`,
+      ),
+    );
   const objects = await db
     .select({
       id: protectedObjects.id,
@@ -213,6 +245,19 @@ async function tenantCandidates(
         eq(protectedObjects.status, "active"),
         // Imported mailboxes are never backed up: they are never overdue.
         sql`${protectedObjects.sourceId} not in (select ${sources.id} from ${sources} where ${sources.kind} = 'import')`,
+        // A backup still on its way is not overdue: it ends in a snapshot or in a failure of
+        // its own (a large mailbox's first backup continues for days, continuation.ts). Only a
+        // run that started counts: one only waiting in the queue (for a slot of its tenant, say)
+        // may wait there for ever, and that is the stuck queue this alert is for. A run that
+        // started longer ago than the continuation limit no longer counts either.
+        sql`not exists (select 1 from ${jobs} as j
+              where j.protected_object_id = "protected_objects"."id"
+                and j.queue = 'backup'
+                and j.status in ('queued', 'active')
+                and j.started_at is not null
+                and j.started_at > ${new Date(
+                  now.getTime() - MAX_CONTINUATION_DAYS * 24 * HOUR_MS,
+                ).toISOString()}::timestamptz)`,
       ),
     );
   const machines = await db
@@ -313,12 +358,29 @@ async function tenantCandidates(
     backedUp: share.lastSuccessAt !== null,
   }));
 
+  const mail = staleBackupHours(
+    schedules.filter((row) => row.kind === "mail").map((row) => row.schedule),
+    now,
+  );
+  const ownSchedules = new Map<string, JobSchedule[]>();
+  for (const row of memberSchedules) {
+    if (row.protectedObjectId) {
+      ownSchedules.set(row.protectedObjectId, [
+        ...(ownSchedules.get(row.protectedObjectId) ?? []),
+        row.schedule,
+      ]);
+    }
+  }
+  // An object with a schedule of its own: the more relaxed of it and the mail jobs' bound (it
+  // may sit in another job without one as well).
+  const ownHours = (id: string): number | undefined => {
+    const own = ownSchedules.get(id);
+    return own ? Math.max(mail, staleBackupHours(own, now)) : undefined;
+  };
+
   return {
     bounds: {
-      mail: staleBackupHours(
-        schedules.filter((row) => row.kind === "mail").map((row) => row.schedule),
-        now,
-      ),
+      mail,
       machines: staleBackupHours(
         schedules.filter((row) => row.kind === "endpoint").map((row) => row.schedule),
         now,
@@ -339,6 +401,7 @@ async function tenantCandidates(
         name: object.name,
         since: object.last ?? object.since,
         backedUp: object.last !== null,
+        hours: ownHours(object.id),
       })),
       ...machines.map((machine) => ({
         kind: "endpoint" as const,

@@ -58,7 +58,13 @@ export interface LatestReport {
   id: string;
   kind: CheckKind;
   origin: ReportOrigin;
+  /** The reasons behind the rating (for an orphaned object without the backup-age ones). */
   reasons: Reason[];
+  /**
+   * Reasons that do not count for this object: the backup age of an object removed from its
+   * source. Missing on servers before 0.4.7, which listed them under `reasons`.
+   */
+  setAsideReasons?: Reason[];
   counts: CountSummary | null;
 }
 
@@ -300,7 +306,10 @@ export interface ReportSummary {
   jobId: string | null;
   /** The backup the report checked; null for storage findings and reports that name none. */
   snapshotId: string | null;
+  /** The reasons behind `readiness` (for an orphaned object without the backup-age ones). */
   reasons: Reason[];
+  /** See {@link LatestReport.setAsideReasons}. */
+  setAsideReasons?: Reason[];
   counts: CountSummary | null;
 }
 

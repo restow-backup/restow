@@ -1282,6 +1282,7 @@
     "loadError": "Die Empfehlung konnte nicht geladen werden.",
     "applyError": "Die empfohlenen Jobs konnten nicht eingerichtet werden. Es wurde nichts geändert.",
     "nothing": "Nichts zu tun: Alles hier hat bereits einen Backup-Job.",
+    "archiveCovered": "Nichts zu tun: {name} archiviert bereits.",
     "create": "Neuer Job: {name}",
     "add": "Zu {name} hinzufügen",
     "kind": {
@@ -1310,6 +1311,7 @@
     "cancel": "Abbrechen",
     "done": "{count, plural, one {Empfohlener Job eingerichtet: {names}} other {Empfohlene Jobs eingerichtet: {names}}}",
     "doneNothing": "Nichts geändert: Alles hat bereits einen Job.",
+    "doneEnabled": "{count, plural, one {Archivierung eingeschaltet in {names}} other {Archivierung eingeschaltet in: {names}}}",
     "enable": "Archivierung einschalten in {name}",
     "archiveSchedule": "Läuft weiter nach dem Zeitplan des Jobs: {schedule}",
     "archiveManual": "Läuft weiter nur von Hand, wie der Job bisher",

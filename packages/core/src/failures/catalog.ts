@@ -268,6 +268,14 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("free_target_space")],
   },
+  // A login or a read command refused for a limit that clears by itself (connections per
+  // account, a download or command cap, the auth backend down for a moment).
+  "imap.server_limit": {
+    category: "imap",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic"), step("check_server_limits")],
+  },
   "imap.connection_lost": {
     category: "imap",
     transient: true,

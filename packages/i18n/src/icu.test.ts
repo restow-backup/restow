@@ -26,6 +26,23 @@ describe("ICU formatting", () => {
     expect(de.t("dashboard:readiness.unverified.title", { count: 3 })).not.toContain("{count");
   });
 
+  it("agrees the verb with the plural, not only the noun (retention's pruning line)", () => {
+    const de = createI18n({ lng: "de" });
+    expect(de.t("retention:dashboardWidget.prunes", { days: 30, keepLast: 1 })).toBe(
+      "Sicherungsstände, die älter als 30 Tage sind, werden gelöscht; der neueste Sicherungsstand jedes Objekts bleibt immer erhalten.",
+    );
+    expect(de.t("retention:dashboardWidget.prunes", { days: 30, keepLast: 3 })).toContain(
+      "die neuesten 3 Sicherungsstände jedes Objekts bleiben immer erhalten.",
+    );
+    const en = createI18n({ lng: "en" });
+    expect(en.t("retention:dashboardWidget.prunes", { days: 30, keepLast: 1 })).toContain(
+      "the newest restore point of each object is always kept.",
+    );
+    expect(en.t("retention:dashboardWidget.prunes", { days: 30, keepLast: 3 })).toContain(
+      "the newest 3 restore points of each object are always kept.",
+    );
+  });
+
   it("interpolates plain arguments and leaves tag placeholders for <Trans>", () => {
     const en = createI18n({ lng: "en" });
     expect(en.t("dashboard:tenantScope", { tenant: "Acme" })).toBe("Showing Acme");

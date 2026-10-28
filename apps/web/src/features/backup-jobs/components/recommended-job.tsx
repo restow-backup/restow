@@ -32,7 +32,8 @@ import { closedProps, useJobsAccess } from "./access-note.js";
 /** How many names of machines or guests the preview lists before "+3 more". */
 const NAMES_SHOWN = 5;
 
-function scopeKey(scope: RecommendedScope): string {
+/** The cache key part of a preview's scope. */
+export function scopeKey(scope: RecommendedScope): string {
   return JSON.stringify([
     scope.mail === true,
     [...(scope.endpointIds ?? [])].sort(),
@@ -219,13 +220,25 @@ function RecommendedDialog({
   const apply = useMutation({
     mutationFn: () => applyRecommendedJobs(scope),
     onSuccess: (result) => {
+      // Archiving switched on in a job that exists (kind archive, not made): no job was set up.
+      const enabledIn = result.items.filter((item) => item.kind === "archive" && !item.created);
+      const setUp = result.items.filter((item) => !enabledIn.includes(item));
       if (result.items.length === 0) {
         toast.info(t("recommended.doneNothing"));
-      } else {
+      }
+      if (setUp.length > 0) {
         toast.success(
           t("recommended.done", {
-            count: result.items.length,
-            names: result.items.map((item) => item.name).join(", "),
+            count: setUp.length,
+            names: setUp.map((item) => item.name).join(", "),
+          }),
+        );
+      }
+      if (enabledIn.length > 0) {
+        toast.success(
+          t("recommended.doneEnabled", {
+            count: enabledIn.length,
+            names: enabledIn.map((item) => item.name).join(", "),
           }),
         );
       }
@@ -240,9 +253,21 @@ function RecommendedDialog({
   const noWay = skipped.filter((skip) => skip.reason === "no_capture_way");
   // Mail jobs over selected objects keep their archive setting: named, not counted as objects.
   const handPicked = skipped.filter((skip) => skip.kind === "archive" && skip.reason === "in_job");
+  // The job over all objects archives already (another tab or admin switched it on meanwhile).
+  const archiveCovered = skipped.filter(
+    (skip) => skip.kind === "archive" && skip.reason === "covered",
+  );
   const counted = skipped.filter((skip) => skip.kind !== "archive");
+  // Nothing to do after all: what offered the click was stale (another tab or admin acted), so
+  // the jobs and the notices built on them are read again, and the offer goes with them.
+  const close = () => {
+    if (plan.data && plan.data.items.length === 0) {
+      void queryClient.invalidateQueries({ queryKey: backupJobKeys.all(tenantId) });
+    }
+    onClose();
+  };
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog open onOpenChange={(next) => (next ? undefined : close())}>
       <DialogContent className="max-h-[90vh] overflow-y-auto" data-slot="recommended-dialog">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -255,9 +280,15 @@ function RecommendedDialog({
             {t("recommended.loadError")}
           </p>
         ) : items.length === 0 ? (
-          <p className="text-sm text-muted-foreground" data-slot="recommended-nothing">
-            {t("recommended.nothing")}
-          </p>
+          // "Everything has a backup job" does not answer the archive: a job whose ways were
+          // chosen by hand says so below on its own, one that archives already is named.
+          noWay.length > 0 ? null : (
+            <p className="text-sm text-muted-foreground" data-slot="recommended-nothing">
+              {archiveCovered.length > 0
+                ? t("recommended.archiveCovered", { name: archiveCovered[0]?.name ?? "" })
+                : t("recommended.nothing")}
+            </p>
+          )
         ) : (
           <ul className="space-y-2">
             {items.map((item) => (
@@ -293,7 +324,7 @@ function RecommendedDialog({
           </p>
         ) : null}
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={close}>
             {t("recommended.cancel")}
           </Button>
           <Button

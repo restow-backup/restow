@@ -97,6 +97,12 @@ export interface Job {
    * Older servers omit it.
    */
   checkIncomplete?: boolean;
+  /**
+   * A failed backup that Graph or the storage held back (throttled, unavailable): no fault of
+   * the object, the next scheduled run tries again. Shown held back, never as failed. Missing on
+   * servers before 0.4.7.
+   */
+  serviceLimited?: boolean;
 }
 
 export interface ItemFailure {

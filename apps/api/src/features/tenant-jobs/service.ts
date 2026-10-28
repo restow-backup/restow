@@ -11,6 +11,7 @@ import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { mapBounded } from "../../lib/bounded-map.js";
 import { notImportedRaw } from "../../lib/imported-objects.js";
 import { type ProviderAccess, providerMayEnterTenant } from "../../lib/provider-access.js";
+import { notServiceLimitedJobRaw } from "../../lib/service-limit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { isOverdue, jobStateOf } from "../backup-jobs/dto.js";
@@ -147,6 +148,9 @@ async function mailSummary(tx: Transaction, tenantId: string): Promise<KindRow |
            FROM jobs j
           WHERE j.protected_object_id = c.id AND j.queue = 'backup'
             AND j.status IN ('completed', 'failed')
+            -- A run Graph or the storage held back is no failure: the one before it stands, as
+            -- the tenant's Jobs page reads it (backup-jobs/loaders.ts).
+            AND ${notServiceLimitedJobRaw("j")}
           ORDER BY j.created_at DESC LIMIT 1
        ) n
     )

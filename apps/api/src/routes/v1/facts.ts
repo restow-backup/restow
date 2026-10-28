@@ -1,6 +1,8 @@
+import { readinessWithoutFreshness } from "@restow/core";
 import { type Job, jobs, snapshots, type VerifyReport } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
+import { parseReasons } from "../../features/verify/details.js";
 import { isOverdue, objectStateOf } from "../../features/verify/summary.js";
 import { loadObjectVerifications } from "../../features/verify/verification-state.js";
 import type { Transaction } from "../../lib/tenant-context.js";
@@ -38,6 +40,8 @@ export interface VerifyFact {
   rating: VerifyReport["recoveryReadiness"];
   kind: VerifyReport["kind"];
   checkedAt: Date;
+  /** The report's stored reasons (raw jsonb): an orphaned object is rated by them. */
+  reasons?: unknown;
 }
 
 export interface ObjectFacts {
@@ -129,6 +133,7 @@ export async function loadObjectFacts(
         rating: report.readiness,
         kind: report.kind,
         checkedAt: report.checkedAt,
+        reasons: report.reasons,
       };
     }
   }
@@ -154,14 +159,30 @@ export const objectReadinessSchema = component(
 );
 export type ObjectReadinessDto = z.infer<typeof objectReadinessSchema>;
 
-export function readinessOf(facts: ObjectFacts, now: Date): ObjectReadinessDto {
+/**
+ * The readiness of one object, as the verify feature rates it (verify/service.ts
+ * readinessOverview): an orphaned object (removed from its source, backups kept) is rated by
+ * whether its last backup restores, without the age of that backup, and is never overdue, since
+ * nothing schedules checks for it any more.
+ */
+export function readinessOf(
+  facts: ObjectFacts,
+  now: Date,
+  status: "active" | "excluded" | "orphaned" = "active",
+): ObjectReadinessDto {
   const checkedAt = facts.verify?.checkedAt ?? null;
+  const retained = status === "orphaned";
+  const rating = facts.verify
+    ? retained
+      ? readinessWithoutFreshness(parseReasons(facts.verify.reasons))
+      : facts.verify.rating
+    : null;
   return {
-    state: objectStateOf(facts.verify?.rating ?? null, facts.snapshot !== null),
-    rating: facts.verify?.rating ?? null,
+    state: objectStateOf(rating, facts.snapshot !== null),
+    rating,
     kind: facts.verify?.kind ?? null,
     checkedAt: checkedAt?.toISOString() ?? null,
-    overdue: isOverdue(checkedAt, now),
+    overdue: retained ? false : isOverdue(checkedAt, now),
   };
 }
 

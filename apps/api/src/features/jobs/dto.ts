@@ -1,5 +1,5 @@
-import { isServiceLimitedFailure } from "@restow/core";
 import type { ItemFailure, Job, JobProgress, Snapshot } from "@restow/db";
+import { isServiceLimitedBackup } from "../../lib/service-limit.js";
 import { type FailureDto, type FailureGroupDto, failureDto } from "../failures/dto.js";
 import type {
   ObjectVerification,
@@ -126,9 +126,11 @@ export interface JobDto {
    */
   checkIncomplete: boolean;
   /**
-   * A failed job that Graph or the storage held back (throttled, unavailable, "slow down";
-   * @restow/core `SERVICE_LIMIT_CAUSES`): no fault of the object, the next run tries again.
-   * Shown as held back, not failed, and left out of the failed counts.
+   * A failed backup that Graph or the storage held back (throttled, unavailable, "slow down";
+   * @restow/core `SERVICE_LIMIT_CAUSES`): no fault of the object, the next scheduled run tries
+   * again. Shown as held back, not failed, and left out of the failed counts. Backups only
+   * (lib/service-limit.ts): a restore, export, import or check a service held back has no next
+   * run and stays failed.
    */
   serviceLimited: boolean;
 }
@@ -448,7 +450,7 @@ export function toJobDto(row: JobViewRow, itemCauses: ItemCauseCountDto[] = []):
     retryable: isRetryable(job, object),
     checkIncomplete:
       job.queue === "verify" && !running && record(payload?.result)?.incomplete === true,
-    serviceLimited: isServiceLimitedFailure(job.status, job.failure),
+    serviceLimited: isServiceLimitedBackup(job),
   };
 }
 

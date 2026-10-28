@@ -11,6 +11,7 @@
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { JobAbortedError } from "../engine/chunkstore.js";
+import { isTransientTransferError } from "../storage/transfer.js";
 import { GraphError } from "./errors.js";
 
 /** Default Graph base URL. */
@@ -107,11 +108,13 @@ export interface GraphClientOptions {
   /** Returns a valid bearer token; called before each attempt so refresh is transparent. */
   accessTokenProvider: () => Promise<string>;
   /**
-   * Called once per request when Graph answers 401 or 403. True when the provider dropped its
-   * token: the request is sent once more with a new one, which carries permissions granted
-   * since the old one was issued. Without it, a refusal is returned as it is.
+   * Called once per request when Graph answers 401 or 403, with the token the refused request
+   * was sent with. True when the provider no longer hands out that token (it dropped it now, or
+   * a concurrent refusal already replaced it): the request is sent once more with the current
+   * one, which carries permissions granted since the old one was issued. Without it, a refusal
+   * is returned as it is. A `$batch` whose sub-requests were refused asks the same once.
    */
-  refreshAccessToken?: () => boolean;
+  refreshAccessToken?: (refusedToken?: string) => boolean;
   baseUrl?: string;
   /** Injectable fetch (defaults to the global). */
   fetchImpl?: typeof fetch;
@@ -120,15 +123,27 @@ export interface GraphClientOptions {
   maxBatchSize?: number;
   /** Base backoff in ms when no Retry-After is provided. */
   baseBackoffMs?: number;
-  /** Upper bound on a single backoff wait, in ms. */
+  /**
+   * Upper bound on a single exponential backoff wait, in ms. A server's Retry-After is
+   * honoured beyond it, up to `maxRetryAfterMs`, only when the client has a `signal`.
+   */
   maxBackoffMs?: number;
+  /**
+   * Upper bound on honouring a server's Retry-After, in ms. Defaults to
+   * {@link MAX_RETRY_AFTER_MS} for a client with a `signal` (a job, whose wait ends when it
+   * is cancelled), else to `maxBackoffMs`, so an interactive request without a signal is
+   * not parked for minutes.
+   */
+  maxRetryAfterMs?: number;
   /** Injectable sleep (defaults to setTimeout); tests pass a no-op. */
   sleep?: (ms: number) => Promise<void>;
   /** Injectable RNG in [0, 1) for jitter (defaults to Math.random). */
   random?: () => number;
   /**
-   * Called whenever the client waits because of throttling, so the job layer can
-   * surface "waiting for Graph (Retry-After 32 s)" honestly instead of appearing stuck.
+   * Called whenever the client waits because Graph asked it to (429/503/504) or did not
+   * answer in time, so the job layer can surface "waiting for Graph (Retry-After 32 s)"
+   * honestly instead of appearing stuck. Not called for the backoff after a broken
+   * connection (reset, DNS), which is not Graph throttling.
    */
   onThrottle?: (info: ThrottleInfo) => void;
   /**
@@ -210,20 +225,33 @@ export function parseRetryAfter(headerValue: string | null | undefined): number 
 }
 
 /**
- * Compute how long to wait before a retry. Uses Retry-After when present, else an
- * exponential backoff, and adds jitter of up to one base interval. The result is
- * capped at `maxMs` (plus the jitter allowance).
+ * Upper bound on honouring a server's Retry-After, in ms. Exchange answers mailbox
+ * concurrency throttling with Retry-After of several minutes, and a retry before that
+ * is refused again (and can extend the penalty), so the server's value wins over
+ * `maxBackoffMs`. The bound only keeps a nonsensical value (hours) from parking a
+ * worker; the wait still ends at once when the job is cancelled or times out (signal).
+ */
+export const MAX_RETRY_AFTER_MS = 5 * 60_000;
+
+/**
+ * Compute how long to wait before a retry. Uses Retry-After when present (up to
+ * `maxRetryAfterMs`, default {@link MAX_RETRY_AFTER_MS}), else an exponential backoff capped at `maxMs`, and
+ * adds jitter of up to one base interval.
  */
 export function computeBackoffMs(
   attempt: number,
   retryAfterMs: number | null,
-  options: { baseMs: number; maxMs: number; random: () => number },
+  options: { baseMs: number; maxMs: number; random: () => number; maxRetryAfterMs?: number },
 ): number {
-  const exponential = Math.min(options.maxMs, options.baseMs * 2 ** attempt);
-  const base = retryAfterMs ?? exponential;
   const jitter = options.random() * options.baseMs;
-  return Math.min(options.maxMs + options.baseMs, base + jitter);
+  if (retryAfterMs !== null) {
+    return Math.min(options.maxRetryAfterMs ?? MAX_RETRY_AFTER_MS, retryAfterMs) + jitter;
+  }
+  return Math.min(options.maxMs, options.baseMs * 2 ** attempt) + jitter;
 }
+
+/** Methods that change nothing on the server, so a request lost on the wire may be sent again. */
+const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
@@ -260,7 +288,7 @@ async function parseBodyText<T>(text: string, contentType: string): Promise<T> {
 /** Minimal fetch-based {@link GraphClient} with the throttling layer built in. */
 export class FetchGraphClient implements GraphClient {
   private readonly accessTokenProvider: () => Promise<string>;
-  private readonly refreshAccessToken: (() => boolean) | undefined;
+  private readonly refreshAccessToken: ((refusedToken?: string) => boolean) | undefined;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly maxRetries: number;
@@ -272,6 +300,7 @@ export class FetchGraphClient implements GraphClient {
   private readonly onThrottle: ((info: ThrottleInfo) => void) | undefined;
   private readonly signal: AbortSignal | undefined;
   private readonly responseTimeoutMs: number;
+  private readonly maxRetryAfterMs: number;
 
   constructor(options: GraphClientOptions) {
     this.accessTokenProvider = options.accessTokenProvider;
@@ -287,6 +316,9 @@ export class FetchGraphClient implements GraphClient {
     this.onThrottle = options.onThrottle;
     this.signal = options.signal;
     this.responseTimeoutMs = options.responseTimeoutMs ?? GRAPH_RESPONSE_TIMEOUT_MS;
+    // Minutes-long Retry-After waits only where a signal can end them (worker jobs).
+    this.maxRetryAfterMs =
+      options.maxRetryAfterMs ?? (options.signal ? MAX_RETRY_AFTER_MS : this.maxBackoffMs);
   }
 
   /** A wait that ends early, with the signal's reason, when the client is aborted. */
@@ -375,19 +407,39 @@ export class FetchGraphClient implements GraphClient {
     attempt: number,
     url: string,
     retryAfter: string | null,
+    report = true,
   ) {
     const retryAfterMs = parseRetryAfter(retryAfter);
     const waitMs = computeBackoffMs(attempt, retryAfterMs, {
       baseMs: this.baseBackoffMs,
       maxMs: this.maxBackoffMs,
       random: this.random,
+      maxRetryAfterMs: this.maxRetryAfterMs,
     });
-    this.onThrottle?.({ status, attempt, waitMs, retryAfterMs, url });
+    if (report) {
+      this.onThrottle?.({ status, attempt, waitMs, retryAfterMs, url });
+    }
     await this.pause(waitMs);
   }
 
   /** The retry loop shared by {@link request} and {@link stream}. */
-  private async send(req: GraphRequest): Promise<Response> {
+  private async send(req: GraphRequest, retryOnNetworkError?: boolean): Promise<Response> {
+    return (await this.sendTracked(req, retryOnNetworkError)).response;
+  }
+
+  /**
+   * {@link send}, also handing back the token the final attempt was sent with (undefined
+   * without auth), so a `$batch` can name it when its sub-requests were refused.
+   *
+   * A connection-level failure before any response (reset, socket closed, DNS hiccup) is
+   * retried with backoff like a 503 when the request changes nothing: an idempotent method,
+   * or `retryOnNetworkError` (a `$batch` that only reads). Anything else is thrown at once,
+   * since the request may have reached Graph.
+   */
+  private async sendTracked(
+    req: GraphRequest,
+    retryOnNetworkError = IDEMPOTENT_METHODS.has(req.method.toUpperCase()),
+  ): Promise<{ response: Response; sentToken: string | undefined }> {
     const url = this.resolveUrl(req.url);
     const useAuth = req.auth !== false && this.isGraphOrigin(url);
     const hasRawBody = req.rawBody !== undefined;
@@ -399,8 +451,10 @@ export class FetchGraphClient implements GraphClient {
         ...(hasJsonBody ? { "Content-Type": "application/json" } : {}),
         ...req.headers,
       };
+      let sentToken: string | undefined;
       if (useAuth) {
-        headers.Authorization = `Bearer ${await this.accessTokenProvider()}`;
+        sentToken = await this.accessTokenProvider();
+        headers.Authorization = `Bearer ${sentToken}`;
       }
       let response: Response;
       try {
@@ -415,6 +469,18 @@ export class FetchGraphClient implements GraphClient {
           await this.waitForRetry(504, attempt, url, null);
           continue;
         }
+        // The connection broke before Graph answered; JobAbortedError and AbortError are
+        // never transient, so a cancelled job is not sent again.
+        if (
+          retryOnNetworkError &&
+          attempt < this.maxRetries &&
+          !this.signal?.aborted &&
+          isTransientTransferError(error)
+        ) {
+          // Back off as for a 503, but Graph never answered: not reported as throttling.
+          await this.waitForRetry(503, attempt, url, null, false);
+          continue;
+        }
         throw error;
       }
 
@@ -422,7 +488,7 @@ export class FetchGraphClient implements GraphClient {
         useAuth &&
         !refreshed &&
         (response.status === 401 || response.status === 403) &&
-        this.refreshAccessToken?.()
+        this.refreshAccessToken?.(sentToken)
       ) {
         // Refused with a token that may predate a permission granted since: once more, fresh.
         refreshed = true;
@@ -435,15 +501,25 @@ export class FetchGraphClient implements GraphClient {
         await this.waitForRetry(response.status, attempt, url, response.headers.get("retry-after"));
         continue;
       }
-      return response;
+      return { response, sentToken };
     }
   }
 
   async request<T = unknown>(req: GraphRequest): Promise<GraphResponse<T>> {
-    const response = await this.send(req);
+    return (await this.requestTracked<T>(req)).result;
+  }
+
+  private async requestTracked<T>(
+    req: GraphRequest,
+    retryOnNetworkError?: boolean,
+  ): Promise<{ result: GraphResponse<T>; sentToken: string | undefined }> {
+    const { response, sentToken } = await this.sendTracked(req, retryOnNetworkError);
     const text = await response.text();
     const body = await parseBodyText<T>(text, response.headers.get("content-type") ?? "");
-    return { status: response.status, headers: headersToRecord(response.headers), body };
+    return {
+      result: { status: response.status, headers: headersToRecord(response.headers), body },
+      sentToken,
+    };
   }
 
   async stream(req: GraphRequest): Promise<GraphStreamResponse> {
@@ -468,15 +544,21 @@ export class FetchGraphClient implements GraphClient {
     const requests = callerRequests.map((r, index) => ({ ...r, id: String(index) }));
     const responses = new Map<string, BatchResponse>();
     let pending = requests;
+    // Sub-requests refused (401/403) with a token that may predate a granted permission are
+    // sent once more with a new one, like a single request in `send`; once per call.
+    let refreshed = false;
     for (let attempt = 0; pending.length > 0; attempt++) {
       const throttled: BatchRequest[] = [];
+      const refused: BatchRequest[] = [];
+      let refusedToken: string | undefined;
       let longestRetryAfter: string | null = null;
       for (const group of chunkIntoBatches(pending, this.maxBatchSize)) {
-        const result = await this.request<{ responses?: BatchResponse[] }>({
-          method: "POST",
-          url: "/$batch",
-          body: { requests: group.map(toBatchPayload) },
-        });
+        // A $batch of reads changes nothing, so a broken connection may send it again.
+        const readOnly = group.every((r) => IDEMPOTENT_METHODS.has(r.method.toUpperCase()));
+        const { result, sentToken } = await this.requestTracked<{ responses?: BatchResponse[] }>(
+          { method: "POST", url: "/$batch", body: { requests: group.map(toBatchPayload) } },
+          readOnly,
+        );
         if (result.status >= 400) {
           throw new GraphError({
             status: result.status,
@@ -489,7 +571,16 @@ export class FetchGraphClient implements GraphClient {
         for (const sub of result.body.responses ?? []) {
           const normalised = { ...sub, headers: lowerCaseKeys(sub.headers) };
           const original = group.find((r) => r.id === sub.id);
-          if (original && RETRYABLE_STATUSES.has(sub.status) && attempt < this.maxRetries) {
+          if (
+            original &&
+            !refreshed &&
+            sentToken !== undefined &&
+            this.refreshAccessToken &&
+            (sub.status === 401 || sub.status === 403)
+          ) {
+            refused.push(original);
+            refusedToken ??= sentToken;
+          } else if (original && RETRYABLE_STATUSES.has(sub.status) && attempt < this.maxRetries) {
             throttled.push(original);
             longestRetryAfter = pickLongerRetryAfter(
               longestRetryAfter,
@@ -499,8 +590,14 @@ export class FetchGraphClient implements GraphClient {
           responses.set(sub.id, normalised);
         }
       }
-      pending = throttled;
-      if (pending.length > 0) {
+      // The refusals stay in `responses`: when the provider keeps its token they are the answer.
+      let resend = false;
+      if (refused.length > 0) {
+        refreshed = true;
+        resend = this.refreshAccessToken?.(refusedToken) === true;
+      }
+      pending = resend ? [...throttled, ...refused] : throttled;
+      if (throttled.length > 0) {
         await this.waitForRetry(429, attempt, "/$batch", longestRetryAfter);
       }
     }

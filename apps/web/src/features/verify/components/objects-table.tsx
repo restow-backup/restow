@@ -41,6 +41,9 @@ import {
 import type { ReadinessState } from "@/features/verify/search";
 import type { VerifyFormat } from "@/features/verify/use-verify";
 
+/** The reasons that only say how old the latest backup is (core verify/readiness.ts). */
+const FRESHNESS_REASONS: ReadonlySet<string> = new Set(["snapshot_outdated", "snapshot_stale"]);
+
 /*
  * This table stays on the plain kit `Table` primitive rather than the kit
  * `DataTable`: the "worst first" order is fixed (never user-sortable), rows
@@ -131,7 +134,14 @@ function ResultCell({
             checked: format.integer(report.counts.checked),
           })
         : null;
-  const firstReason = report.reasons[0];
+  // An orphaned object (removed from its source, backups kept) is rated without the age of its
+  // last backup (the server's readinessWithoutFreshness): the age is no reason to show under its
+  // badge, which would otherwise put "backup too old" next to a green rating.
+  const shownReasons =
+    item.object.status === "orphaned"
+      ? report.reasons.filter((entry) => !FRESHNESS_REASONS.has(entry.code))
+      : report.reasons;
+  const firstReason = shownReasons[0];
   const reason = firstReason ? reasonMessage(firstReason) : null;
   const reasonText = reason ? t(reason.key, reason.values) : null;
   return (

@@ -932,10 +932,7 @@ async function mailDetail(
   let objects: RunObjectDto[] = [];
   if (wave.runs.length > 0) {
     const waveChecks = await mailRestoreChecks(tx, tenantId, wave.rows);
-    batch = batchOf(
-      wave.runs.map((candidate) => candidate.state),
-      { truncated: wave.truncated },
-    );
+    batch = batchOf(wave.runs, { truncated: wave.truncated });
     objects = wave.runs
       .flatMap((candidate): RunObjectDto[] =>
         candidate.subject
@@ -944,6 +941,7 @@ async function mailDetail(
                 runId: candidate.id,
                 subject: candidate.subject,
                 state: candidate.state,
+                serviceLimited: candidate.serviceLimited,
                 restoreCheck: waveChecks.get(candidate.id) ?? NO_CHECK,
                 current: candidate.id === row.job.id,
               },
@@ -959,7 +957,14 @@ async function mailDetail(
       .slice(0, WAVE_LIST);
   } else if (run.subject) {
     objects = [
-      { runId: run.id, subject: run.subject, state: run.state, restoreCheck, current: true },
+      {
+        runId: run.id,
+        subject: run.subject,
+        state: run.state,
+        serviceLimited: run.serviceLimited,
+        restoreCheck,
+        current: true,
+      },
     ];
   }
 
@@ -1000,6 +1005,8 @@ async function mailDetail(
         itemsTotal: result?.objectsTotal ?? run.progress?.itemsTotal ?? null,
         failed: run.progress?.itemsFailed ?? 0,
         message: run.state === "failed" ? (run.errorMessage ?? null) : null,
+        // A backup a service held back reads "held back", not failed (lib/service-limit.ts).
+        limited: run.state === "failed" && run.serviceLimited,
       },
     });
   }
@@ -1105,10 +1112,7 @@ async function endpointDetail(
         const dto = waveHydrated.runs.get(sibling.id);
         return dto ? [dto] : [];
       });
-      batch = batchOf(
-        dtos.map((dto) => dto.state),
-        { truncated: siblings.length > WAVE_LIMIT },
-      );
+      batch = batchOf(dtos, { truncated: siblings.length > WAVE_LIMIT });
       objects = dtos
         .flatMap((dto): RunObjectDto[] =>
           dto.subject
@@ -1117,6 +1121,7 @@ async function endpointDetail(
                   runId: dto.id,
                   subject: dto.subject,
                   state: dto.state,
+                  serviceLimited: dto.serviceLimited,
                   restoreCheck: waveChecks.get(dto.id) ?? NO_CHECK,
                   current: dto.id === row.id,
                 },
@@ -1134,7 +1139,14 @@ async function endpointDetail(
   }
   if (objects.length === 0 && run.subject) {
     objects = [
-      { runId: run.id, subject: run.subject, state: run.state, restoreCheck, current: true },
+      {
+        runId: run.id,
+        subject: run.subject,
+        state: run.state,
+        serviceLimited: run.serviceLimited,
+        restoreCheck,
+        current: true,
+      },
     ];
   }
 
@@ -1318,7 +1330,16 @@ async function shareDetail(
     restoreCheck,
     batch: null,
     objects: run.subject
-      ? [{ runId: run.id, subject: run.subject, state: run.state, restoreCheck, current: true }]
+      ? [
+          {
+            runId: run.id,
+            subject: run.subject,
+            state: run.state,
+            serviceLimited: run.serviceLimited,
+            restoreCheck,
+            current: true,
+          },
+        ]
       : [],
     events: timeline(events),
     errors,

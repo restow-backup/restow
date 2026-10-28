@@ -244,6 +244,7 @@ function TargetRow({
                 failedItems={job.progress?.failed}
                 queue={job.queue}
                 checkIncomplete={job.checkIncomplete}
+                serviceLimited={job.serviceLimited}
               />
               <Link
                 to={jobDetailTo(job.id)}

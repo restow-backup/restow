@@ -419,6 +419,9 @@ async function importedTargetKind(
         ),
       ),
     )
+    // The worker's mailboxTargetObject resolves the same address with the same
+    // filter and order, so a duplicate address picks the same mailbox on both sides.
+    .orderBy(asc(protectedObjects.id))
     .limit(1);
   const kind = pickRestoreTargetKind({
     mailbox: mailbox !== undefined,

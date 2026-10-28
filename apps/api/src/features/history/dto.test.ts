@@ -477,13 +477,19 @@ describe("an agent run", () => {
 
 describe("batch and timeline", () => {
   it("counts a wave by state", () => {
-    expect(batchOf(["running", "succeeded", "succeeded", "failed", "queued"])).toEqual({
-      total: 5,
+    const runs = (["running", "succeeded", "succeeded", "failed", "queued"] as const).map(
+      (state) => ({ state, serviceLimited: false }),
+    );
+    // A backup a service held back counts apart, not as failed.
+    runs.push({ state: "failed", serviceLimited: true });
+    expect(batchOf(runs)).toEqual({
+      total: 6,
       queued: 1,
       running: 1,
       succeeded: 2,
       partial: 0,
       failed: 1,
+      limited: 1,
       cancelled: 0,
       truncated: false,
     });

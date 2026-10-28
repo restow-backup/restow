@@ -183,6 +183,10 @@
         "title": "Das IMAP-Postfach ist voll",
         "why": "Der Server hat es abgelehnt, weitere Daten zu speichern, weil das Postfach sein Kontingent erreicht hat."
       },
+      "server_limit": {
+        "title": "Der IMAP-Server lehnt wegen eines Limits vorübergehend ab",
+        "why": "Der Server hat die Anmeldung oder einen Lesebefehl vorerst abgelehnt{has_imapCode, select, yes { ({imapCode})} other {}}, zum Beispiel weil zu viele Verbindungen gleichzeitig für das Konto offen sind oder ein Download-Limit pro Tag erreicht wurde. An den Zugangsdaten liegt es nicht. {appName} versucht es später selbst erneut."
+      },
       "connection_lost": {
         "title": "Die Verbindung zum IMAP-Server wurde unterbrochen",
         "why": "Der Server hat die Verbindung während des Laufs geschlossen oder nicht mehr geantwortet. {appName} verbindet sich neu und macht dort weiter, wo es aufgehört hat. Mailserver tun das unter Last oder wenn ein Verbindungslimit erreicht ist."

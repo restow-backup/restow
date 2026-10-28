@@ -236,6 +236,11 @@
       "title": "Findings",
       "none": "No findings: every checked item came back byte-exact from a current backup."
     },
+    "removed": {
+      "title": "Removed from the source",
+      "description": "This object no longer exists in its source, so no newer backup will follow. Its rating counts only whether the kept backup restores, not how old it is.",
+      "notCounted": "Not counted: {reason}"
+    },
     "stats": {
       "checked": "Items checked",
       "verified": "Restored byte-exact",

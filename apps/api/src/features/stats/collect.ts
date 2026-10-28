@@ -218,7 +218,7 @@ async function readinessReports(
   const { start, end } = period.current;
   const columns = sql`r.id, r.protected_object_id as object_id, r.snapshot_id,
     r.details->>'origin' as origin, r.recovery_readiness::text as readiness,
-    r.checked_at, r.created_at`;
+    r.checked_at, r.created_at, r.details->'reasons' as reasons`;
   const newestFirst = sql`r.checked_at desc, r.created_at desc`;
   const isFinding = sql`r.details->>'origin' = 'scrub'`;
   const before = sql`r.tenant_id = ${tenantId} and r.checked_at < ${start}`;
@@ -249,6 +249,7 @@ async function readinessReports(
     readiness: row.readiness as ReadinessRating,
     checkedAt: toDate(row.checked_at),
     createdAt: toDate(row.created_at),
+    reasons: row.reasons ?? null,
   }));
 }
 

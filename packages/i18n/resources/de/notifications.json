@@ -6,7 +6,8 @@
   "chat": {
     "job": {
       "failed": "{job} fehlgeschlagen: {target}",
-      "completed": "{job} abgeschlossen: {target}"
+      "completed": "{job} abgeschlossen: {target}",
+      "completedAllSkipped": "{job} abgeschlossen, nichts wiederhergestellt (alle Elemente übersprungen): {target}"
     },
     "jobs": {
       "backup": "Sicherung",

@@ -19,6 +19,13 @@
  * the worse, or recovers. Every recorded outcome is also announced as the
  * `verify.completed` webhook.
  *
+ * An object removed from its source (status `orphaned`, its backups kept) is
+ * rated without the age of its last backup (core `readinessWithoutFreshness`):
+ * that backup is all there will be, so only whether it restores counts. The
+ * report keeps every reason in `details` (the report still says how old the
+ * backup is), but its rating, the notification and `verify.completed` carry
+ * the rating the Verify page, the statistics and the integration API show.
+ *
  * The rating belongs to the snapshot it checked, not to the object: a backup
  * taken after a green check is not verified until a check of that snapshot
  * ran (the API's verification-state rule reads `snapshot_id` for that).
@@ -38,6 +45,7 @@ import {
   type ProtectedObjectRef,
   type RecoveryReadiness,
   type RestoreProbe,
+  readinessWithoutFreshness,
   VerifyIncompleteError,
   type VerifyJobPayload,
   type VerifyKind,
@@ -49,6 +57,8 @@ import {
   jobs,
   type NewNotification,
   type NewVerifyReport,
+  type ProtectedObject,
+  protectedObjects,
   safeErrorMessage,
   verifyReports,
 } from "@restow/db";
@@ -244,6 +254,22 @@ export function toStoredIncompleteVerify(
   };
 }
 
+/**
+ * The reasons of a stored report (`verify_reports.details->'reasons'`), keeping only entries
+ * with a code and a severity: an older or foreign row never fails the rating.
+ */
+export function storedReasons(value: unknown): { code: string; severity: string }[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry: unknown) => {
+    const reason = entry as { code?: unknown; severity?: unknown } | null;
+    return reason && typeof reason.code === "string" && typeof reason.severity === "string"
+      ? [{ code: reason.code, severity: reason.severity }]
+      : [];
+  });
+}
+
 /** What one verify run records. */
 export interface VerifyRecord {
   readonly tenantId: string;
@@ -318,8 +344,17 @@ export function verifyCompletedNotification(
  * handler runs on the memory engine.
  */
 export interface VerifyStore {
-  /** The newest rating of the object, whichever snapshot it checked; null before the first. */
-  previousReadiness(protectedObjectId: string): Promise<RecoveryReadiness | null>;
+  /**
+   * The newest rating of the object, whichever snapshot it checked; null before the first.
+   * `withoutFreshness` rates that report without the age of its backup, as an orphaned
+   * object is rated now, so a red that came only from the age raises no "recovered".
+   */
+  previousReadiness(
+    protectedObjectId: string,
+    options?: { readonly withoutFreshness?: boolean },
+  ): Promise<RecoveryReadiness | null>;
+  /** The object's protection status; null when the row is gone. */
+  objectStatus(protectedObjectId: string): Promise<ProtectedObject["status"] | null>;
   /** Storage keys of the packs known damaged or unreadable (scrub.ts `loadPackFindings`). */
   packFindings(): Promise<PackFindings>;
   /**
@@ -335,10 +370,13 @@ export interface VerifyStore {
 export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
   const run = tenantRunner(db, tenantId);
   return {
-    async previousReadiness(protectedObjectId) {
+    async previousReadiness(protectedObjectId, options) {
       const [row] = await run((tx) =>
         tx
-          .select({ readiness: verifyReports.recoveryReadiness })
+          .select({
+            readiness: verifyReports.recoveryReadiness,
+            reasons: sql<unknown>`${verifyReports.details}->'reasons'`,
+          })
           .from(verifyReports)
           .where(
             and(
@@ -349,7 +387,28 @@ export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
           .orderBy(desc(verifyReports.checkedAt), desc(verifyReports.createdAt))
           .limit(1),
       );
-      return row?.readiness ?? null;
+      if (!row) {
+        return null;
+      }
+      return options?.withoutFreshness
+        ? readinessWithoutFreshness(storedReasons(row.reasons))
+        : row.readiness;
+    },
+
+    async objectStatus(protectedObjectId) {
+      const [row] = await run((tx) =>
+        tx
+          .select({ status: protectedObjects.status })
+          .from(protectedObjects)
+          .where(
+            and(
+              eq(protectedObjects.tenantId, tenantId),
+              eq(protectedObjects.id, protectedObjectId),
+            ),
+          )
+          .limit(1),
+      );
+      return row?.status ?? null;
     },
 
     packFindings: () => loadPackFindings(run, tenantId),
@@ -441,8 +500,10 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
       const kind = verifyKindOf(payload);
       const sampleSize = normalizeSampleSize(payload.sampleSize);
       const store = storeFor(ctx);
+      // Removed from its source: rated by whether its last backup restores, not by its age.
+      const retained = (await store.objectStatus(object.id)) === "orphaned";
       const [previous, findings] = await Promise.all([
-        store.previousReadiness(object.id),
+        store.previousReadiness(object.id, { withoutFreshness: retained }),
         store.packFindings(),
       ]);
       const resolver = options.probes();
@@ -477,6 +538,9 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
           throw error;
         }
         return { summary: { ...result, kind, previous } };
+      }
+      if (retained) {
+        outcome = { ...outcome, readiness: readinessWithoutFreshness(outcome.details.reasons) };
       }
       const stored = await store.record({
         tenantId: ctx.tenantId,

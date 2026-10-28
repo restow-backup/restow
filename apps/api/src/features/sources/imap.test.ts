@@ -104,6 +104,30 @@ describe("classifyImapError", () => {
     expect(classifyImapError({ code: "AUTHENTICATIONFAILED" })).toMatchObject({ reason: "auth" });
   });
 
+  it("does not blame the credentials for a login refused for a connection limit", () => {
+    expect(
+      classifyImapError({
+        authenticationFailed: true,
+        serverResponseCode: "ALERT",
+        response: "Too many simultaneous connections. (Failure)",
+      }),
+    ).toMatchObject({ reason: "busy" });
+    expect(
+      classifyImapError({
+        authenticationFailed: true,
+        serverResponseCode: "UNAVAILABLE",
+        response: "Temporary authentication failure.",
+      }),
+    ).toMatchObject({ reason: "busy" });
+    expect(
+      classifyImapError({
+        authenticationFailed: true,
+        serverResponseCode: "AUTHENTICATIONFAILED",
+        response: "Invalid credentials",
+      }),
+    ).toMatchObject({ reason: "auth" });
+  });
+
   it("maps socket and imapflow codes", () => {
     expect(classifyImapError({ code: "ENOTFOUND" })).toMatchObject({ reason: "dns" });
     expect(classifyImapError({ code: "ECONNREFUSED" })).toMatchObject({ reason: "refused" });

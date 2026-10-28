@@ -208,7 +208,7 @@ export function toDirectoryUser(
   const rated = withFacts
     .filter((entry) => countsForReadiness(entry.object.status, entry.facts.snapshot !== null))
     .map((entry) => {
-      const readiness = readinessOf(entry.facts, now);
+      const readiness = readinessOf(entry.facts, now, entry.object.status);
       return {
         state: readiness.state,
         overdue: readiness.overdue,
@@ -239,7 +239,7 @@ export function toDirectoryUser(
       externalId: object.externalId,
       displayName: object.displayName,
       lastBackupAt: objectFacts.snapshot?.completedAt?.toISOString() ?? null,
-      readiness: readinessOf(objectFacts, now),
+      readiness: readinessOf(objectFacts, now, object.status),
     })),
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),

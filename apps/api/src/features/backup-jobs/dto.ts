@@ -318,6 +318,11 @@ export interface JobRunDto {
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
+  /**
+   * Mail: a failed backup that Graph or the storage held back (lib/service-limit.ts), shown held
+   * back, not failed. Absent for the other sources.
+   */
+  serviceLimited?: boolean;
 }
 
 export interface BackupJobRunsDto {

@@ -422,10 +422,57 @@ describe("job events", () => {
   };
 
   it("maps final job states to events", () => {
-    expect(jobWebhookEvent("completed")).toBe("job.completed");
-    expect(jobWebhookEvent("failed")).toBe("job.failed");
-    expect(jobWebhookEvent("cancelled")).toBeNull();
-    expect(jobWebhookEvent("active")).toBeNull();
+    expect(jobWebhookEvent({ ...job, status: "completed" })).toBe("job.completed");
+    expect(jobWebhookEvent({ ...job, status: "failed" })).toBe("job.failed");
+    expect(jobWebhookEvent({ ...job, status: "cancelled" })).toBeNull();
+    expect(jobWebhookEvent({ ...job, status: "active" })).toBeNull();
+  });
+
+  it("raises no job.failed for a backup a service held back, but for a restore", () => {
+    const failure = {
+      v: 1 as const,
+      code: "graph.throttled",
+      transient: true,
+      params: {},
+      technical: { httpStatus: 429 },
+      occurredAt: "2026-09-23T10:05:00.000Z",
+      step: null,
+      retry: null,
+    };
+    // The next scheduled run tries the backup again: no ticket for it.
+    expect(jobWebhookEvent({ ...job, status: "failed", failure })).toBeNull();
+    // Nothing repeats a restore: someone waits for it.
+    expect(jobWebhookEvent({ ...job, queue: "restore", status: "failed", failure })).toBe(
+      "job.failed",
+    );
+  });
+
+  it("raises job.failed for a restore that completed but restored nothing while items failed", () => {
+    const restore = { ...job, queue: "restore" as const, status: "completed" as const };
+    const nothing = {
+      ...restore,
+      restoreResult: { restored: 0, skipped: 1, failures: 3, unverified: 0 },
+    };
+    expect(jobWebhookEvent(nothing)).toBe("job.failed");
+    expect(jobEventData(nothing).job).toMatchObject({
+      status: "completed",
+      errorMessage: "Nothing was restored: 3 items failed.",
+      result: { restored: 0, skipped: 1, failures: 3, unverified: 0 },
+    });
+    // Everything skipped, nothing failed: completed, no ticket.
+    const skipped = {
+      ...restore,
+      restoreResult: { restored: 0, skipped: 4, failures: 0, unverified: 0 },
+    };
+    expect(jobWebhookEvent(skipped)).toBe("job.completed");
+    expect((jobEventData(skipped).job as { errorMessage: unknown }).errorMessage).toBeNull();
+    // Some restored, some failed: still job.completed (the UI shows it with problems).
+    expect(
+      jobWebhookEvent({
+        ...restore,
+        restoreResult: { restored: 2, skipped: 0, failures: 1, unverified: 0 },
+      }),
+    ).toBe("job.completed");
   });
 
   it("describe the job, with the error only for failures", () => {

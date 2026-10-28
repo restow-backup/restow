@@ -55,8 +55,8 @@ import {
   type RestoreTarget,
   type ThrottleInfo,
 } from "@restow/core";
-import { protectedObjects, restoreJobs, sources } from "@restow/db";
-import { and, eq, sql } from "drizzle-orm";
+import { protectedObjects, restoreJobs, sources, users } from "@restow/db";
+import { and, asc, eq, ne, or, sql } from "drizzle-orm";
 import { ImapFlow } from "imapflow";
 import { processEntraApp } from "../entra-app.js";
 import type { TenantTxRunner } from "../progress.js";
@@ -440,6 +440,13 @@ async function openImapSession(
  * The Microsoft 365 mailbox an imported mailbox is restored into. The imported
  * mailbox's own source is `import` (it has no Graph tenant), so the Graph
  * client must come from the target mailbox's source.
+ *
+ * The filter is the API's (`importedTargetKind` in
+ * apps/api/src/features/restore/service.ts), which accepted the address when
+ * the job was requested: a synced mailbox's externalId is the Entra object id,
+ * so the typed address matches through the directory user's e-mail as well,
+ * orphaned mailboxes and imported mailboxes are never a target, and both sides
+ * order by id so a duplicate address resolves to the same row.
  */
 export async function mailboxTargetObject(
   run: TenantTxRunner,
@@ -449,30 +456,39 @@ export async function mailboxTargetObject(
   const login = (address ?? "").trim().toLowerCase();
   const [row] = await run((tx) =>
     tx
-      .select()
+      .select({ po: protectedObjects })
       .from(protectedObjects)
+      .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
+      .leftJoin(users, eq(users.id, protectedObjects.userId))
       .where(
         and(
           eq(protectedObjects.tenantId, tenantId),
           eq(protectedObjects.kind, "mailbox"),
-          eq(sql`lower(${protectedObjects.externalId})`, login),
+          ne(protectedObjects.status, "orphaned"),
+          ne(sources.kind, "import"),
+          or(
+            eq(sql`lower(${protectedObjects.externalId})`, login),
+            eq(sql`lower(${users.email})`, login),
+          ),
         ),
       )
+      .orderBy(asc(protectedObjects.id))
       .limit(1),
   );
-  if (!row) {
+  const po = row?.po;
+  if (!po) {
     throw new InvalidPayloadError(
       `mailbox "${address}" is not a Microsoft 365 mailbox of this tenant`,
     );
   }
   return {
-    id: row.id,
-    tenantId: row.tenantId,
-    sourceId: row.sourceId,
-    kind: row.kind,
-    externalId: row.externalId,
-    displayName: row.displayName,
-    userId: row.userId,
+    id: po.id,
+    tenantId: po.tenantId,
+    sourceId: po.sourceId,
+    kind: po.kind,
+    externalId: po.externalId,
+    displayName: po.displayName,
+    userId: po.userId,
   };
 }
 

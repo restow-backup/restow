@@ -20,6 +20,7 @@ import { jobDefinitionTo } from "../paths.js";
 import {
   describeJobSchedule,
   describeScope,
+  lastErrorRun,
   repositoryLabel,
   restoreCheckView,
   scheduleUsesZone,
@@ -197,7 +198,7 @@ function BackupJobBody({
   const language = i18n.resolvedLanguage ?? i18n.language;
   const runs = useJobRuns(job.id);
   const items = runs.data?.items ?? [];
-  const failed = items.find((run) => run.state === "failed");
+  const failed = lastErrorRun(items);
   const partial = items.find((run) => run.state === "partial" && run.errorMessage);
   const check = restoreCheckView(job.restoreCheck);
   const ctx = { t, tSchedules, language };

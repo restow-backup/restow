@@ -39,6 +39,7 @@ export function JobStatusBadge({
   failedItems = 0,
   queue,
   checkIncomplete = false,
+  serviceLimited = false,
 }: {
   status: JobStatus;
   failedItems?: number;
@@ -46,9 +47,11 @@ export function JobStatusBadge({
   queue?: JobQueue;
   /** A restore check that could not complete: neutral, it is repeated (`Job.checkIncomplete`). */
   checkIncomplete?: boolean;
+  /** A backup a service held back: amber, never "Failed" (`Job.serviceLimited`). */
+  serviceLimited?: boolean;
 }) {
   const { t } = useTranslation("backup");
-  const display = jobStatusDisplay(status, failedItems, queue, checkIncomplete);
+  const display = jobStatusDisplay(status, failedItems, queue, checkIncomplete, serviceLimited);
   const incomplete = display.key === "jobStatus.checkIncomplete";
   return (
     <Badge variant={display.variant} data-check={incomplete ? "incomplete" : undefined}>

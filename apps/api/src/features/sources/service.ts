@@ -1980,7 +1980,7 @@ export async function connectOwnApp(
     tokenProvider: provider,
     graph: new FetchGraphClient({
       accessTokenProvider: () => provider.getToken(),
-      refreshAccessToken: () => provider.refreshAfterRefusal(),
+      refreshAccessToken: (refused) => provider.refreshAfterRefusal(refused),
     }),
   });
   if (!verification.tokenAcquired) {

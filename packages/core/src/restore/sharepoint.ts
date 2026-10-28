@@ -21,7 +21,11 @@
  * `writableFields`). The mode decides what happens to an item that still
  * exists under its backed-up id:
  *
- *   rename (default)  a new item is added next to it ("keep both")
+ *   rename (default)  a new item is added next to it ("keep both"); an item
+ *                     an earlier attempt of the same restore already added
+ *                     (only on a retry of a job that added list items: created
+ *                     since the request, same field values) counts as restored
+ *                     instead of being added a second time
  *   replace           its fields are overwritten with the backed-up values
  *   skip              it is left alone
  *
@@ -50,6 +54,8 @@ import {
   createListItem,
   getDrive,
   getListItem,
+  listListItems,
+  type SiteListItem,
   updateListItemFields,
 } from "../graph/resources/sites.js";
 import type { ManifestObject, SnapshotManifest } from "../manifest.js";
@@ -200,6 +206,8 @@ export class SharePointRestoreEngine implements RestoreEngine {
         client,
         siteId: request.protectedObject.externalId,
         mode: request.mode,
+        restoreJobId: request.restoreJobId,
+        requestedAt: validDate(request.requestedAt),
         reader,
         ledger,
         objects,
@@ -301,9 +309,20 @@ interface ListSessionOptions {
   readonly client: GraphClient;
   readonly siteId: string;
   readonly mode: RestoreMode;
+  readonly restoreJobId: string;
+  /**
+   * When the restore was requested (stable across the attempts of a retried
+   * job); null for requests that do not carry it, which then cannot tell an
+   * earlier attempt's items apart and add them anew.
+   */
+  readonly requestedAt: Date | null;
   readonly reader: ReturnType<typeof chunkReaderFor>;
   readonly ledger: RestoreLedger;
   readonly objects: ReadonlyMap<string, ManifestObject>;
+}
+
+function validDate(value: Date | undefined): Date | null {
+  return value instanceof Date && !Number.isNaN(value.getTime()) ? value : null;
 }
 
 /** A backed-up list item as the engine wrote it (backup/sharepoint/engine.ts). */
@@ -312,8 +331,38 @@ interface StoredListItem {
   readonly fields?: Record<string, unknown>;
 }
 
+/**
+ * Cursor key a rename-mode restore sets (to its restore job id) before it adds
+ * its first list item: only an attempt that finds it there is a retry that may
+ * have added items already. The worker clears the cursor when the job ends.
+ */
+const LIST_ADDS_CURSOR_KEY = "sharepointListItemsAddedBy";
+
 class ListRestoreSession {
   constructor(private readonly o: ListSessionOptions) {}
+
+  /** Whether an earlier attempt of this restore job may have added list items. */
+  private earlierAttemptAdded: boolean | null = null;
+  private addsMarked = false;
+
+  private async retriedAfterAdds(): Promise<boolean> {
+    if (this.earlierAttemptAdded === null) {
+      const cursor = await this.o.ctx.cursor.load();
+      this.earlierAttemptAdded = cursor?.[LIST_ADDS_CURSOR_KEY] === this.o.restoreJobId;
+      this.addsMarked = this.earlierAttemptAdded;
+    }
+    return this.earlierAttemptAdded;
+  }
+
+  /** Record, before the first item is added, that this restore job adds list items. */
+  private async markAdds(): Promise<void> {
+    if (this.addsMarked) {
+      return;
+    }
+    const cursor = (await this.o.ctx.cursor.load()) ?? {};
+    await this.o.ctx.cursor.save({ ...cursor, [LIST_ADDS_CURSOR_KEY]: this.o.restoreJobId });
+    this.addsMarked = true;
+  }
 
   private async readJson<T>(object: ManifestObject): Promise<T> {
     const bytes = await this.o.reader.readObjectToBuffer(object);
@@ -337,6 +386,29 @@ class ListRestoreSession {
     }
   }
 
+  /**
+   * The list's items created at or after the request: what an earlier attempt
+   * of this restore may have added. Filtered here rather than with a Graph
+   * `$filter`, which SharePoint refuses on non-indexed columns of large lists;
+   * empty without a request time and on an attempt that is not a retry after
+   * added items (anything created since then is someone else's).
+   */
+  private async itemsAddedSinceRequest(listId: string): Promise<SiteListItem[]> {
+    const { requestedAt } = this.o;
+    if (requestedAt === null || !(await this.retriedAfterAdds())) {
+      return [];
+    }
+    const added: SiteListItem[] = [];
+    for await (const item of listListItems(this.o.client, this.o.siteId, listId)) {
+      throwIfAborted(this.o.ctx);
+      const created = Date.parse(item.createdDateTime ?? "");
+      if (!Number.isNaN(created) && created >= requestedAt.getTime()) {
+        added.push(item);
+      }
+    }
+    return added;
+  }
+
   async restoreList(group: ListGroup): Promise<void> {
     const { ctx, client, siteId, ledger } = this.o;
     const listFolder = this.o.objects.get(listPath(group.folder));
@@ -352,12 +424,36 @@ class ListRestoreSession {
       return;
     }
     const columns = await this.columnsOf(group.folder);
+    const earlier = this.o.mode === "rename" ? await this.itemsAddedSinceRequest(listId) : [];
     for (const object of group.items) {
       throwIfAborted(ctx);
       try {
         const stored = await this.readJson<StoredListItem>(object);
         const fields = writableFields(stored.fields ?? {}, columns);
         const originalId = object.metadata?.listItemId ?? stored.id;
+        if (this.o.mode === "rename") {
+          // Rename mode always adds, so a retried job (a worker shutdown, an
+          // update's drain, an expiry: the queue runs it again from the start)
+          // would add every item the interrupted attempt already added. Those
+          // are the items created since the request with the same values; each
+          // one stands for one backed-up item only, so two identical backed-up
+          // items still end up as two.
+          // No value to compare (nothing writable) matches any item: not a match.
+          const comparable = Object.keys(fields).some((key) => !key.includes("@"));
+          const index = comparable
+            ? earlier.findIndex((candidate) => sameValues(fields, candidate.fields ?? {}))
+            : -1;
+          const match = index >= 0 ? earlier.splice(index, 1)[0] : undefined;
+          if (match) {
+            ledger.restored(object, {
+              targetRef: match.id,
+              bytes: object.size,
+              verified: true,
+              note: "already added by an earlier attempt of this restore",
+            });
+            continue;
+          }
+        }
         if (this.o.mode !== "rename" && originalId) {
           const existing = await getListItem(client, siteId, listId, originalId);
           if (existing && this.o.mode === "skip") {
@@ -376,6 +472,9 @@ class ListRestoreSession {
               continue;
             }
           }
+        }
+        if (this.o.mode === "rename") {
+          await this.markAdds();
         }
         const created = await createListItem(client, siteId, listId, fields);
         ledger.restored(object, {

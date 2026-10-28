@@ -38,6 +38,7 @@ export type ImapFlowClient = Pick<
   | "fetchOne"
   | "logout"
   | "close"
+  | "usable"
 >;
 
 function isAlreadyExists(error: unknown): boolean {
@@ -78,6 +79,11 @@ export class ImapFlowRestoreSession implements ImapRestoreSession {
       }
     }
     return session;
+  }
+
+  /** imapflow clears `usable` once the socket closed or the server said BYE. */
+  get connectionLost(): boolean {
+    return this.client.usable === false;
   }
 
   specialUseMailbox(use: string): string | undefined {

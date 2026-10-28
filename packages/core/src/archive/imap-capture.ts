@@ -28,7 +28,20 @@ import {
   isImapSessionError,
 } from "../backup/imap/types.js";
 import type { Logger } from "../engine/types.js";
+import { classifyFailure } from "../failures/classify.js";
 import { messageKey } from "./identity.js";
+
+/**
+ * A NO that is the account's temporary cap (throttling, a download or bandwidth limit), not
+ * the message's fault: fetching on one by one only hits it again, and counting it against
+ * the message would give up deliverable mail. The folder stops and keeps its checkpoint.
+ */
+function isServerLimit(error: unknown): boolean {
+  return (
+    isImapSessionError(error) &&
+    classifyFailure(error, { role: "imap" }).code === "imap.server_limit"
+  );
+}
 
 /** One folder as the capture remembers it. */
 export interface ImapCaptureFolderState {
@@ -39,7 +52,17 @@ export interface ImapCaptureFolderState {
   readonly lastUid: number;
   /** UIDs up to this one existed when live capture started: the backfill's (absent: none). */
   readonly backfillUpTo?: number;
+  /**
+   * The message `lastUid` is held before because the server listed it but did not deliver
+   * it, and in how many passes in a row that happened; after
+   * {@link MAX_UNDELIVERED_ATTEMPTS} the capture gives up on it instead of re-reading every
+   * UID above it on every pass forever.
+   */
+  readonly stuck?: { readonly uid: number; readonly attempts: number };
 }
+
+/** Passes in a row a listed-but-undelivered message holds a folder back before it is given up. */
+export const MAX_UNDELIVERED_ATTEMPTS = 3;
 
 /** What the IMAP way keeps in `archive_capture_streams.state` (other keys pass through). */
 export interface ImapCaptureState {
@@ -70,6 +93,7 @@ export function readImapCaptureState(
           uidNext: entry.uidNext,
           lastUid: entry.lastUid,
           ...(typeof entry.backfillUpTo === "number" ? { backfillUpTo: entry.backfillUpTo } : {}),
+          ...(readStuck(entry.stuck) ?? {}),
         };
       }
     }
@@ -87,6 +111,13 @@ export function readImapCaptureState(
       : {}),
     ...(state?.gmail === true ? { gmail: true } : {}),
   };
+}
+
+function readStuck(raw: unknown): { stuck: { uid: number; attempts: number } } | undefined {
+  const stuck = raw as { uid?: unknown; attempts?: unknown } | null | undefined;
+  return stuck && typeof stuck.uid === "number" && typeof stuck.attempts === "number"
+    ? { stuck: { uid: stuck.uid, attempts: stuck.attempts } }
+    : undefined;
 }
 
 /** Whether the stream's state says the account was activated (its folders are known). */
@@ -180,6 +211,11 @@ export interface UidCaptureOutcome {
   readonly skipped: number;
   /** Every UID up to this one is handled (captured, held already, a draft or gone). */
   readonly handledUpTo: number;
+  /**
+   * UIDs (ascending) the server listed but did not deliver (or refused with a NO): every
+   * other UID was still captured, `handledUpTo` stays before the first of them.
+   */
+  readonly missing: readonly number[];
 }
 
 function abortIfNeeded(signal: AbortSignal): void {
@@ -190,8 +226,11 @@ function abortIfNeeded(signal: AbortSignal): void {
 
 /**
  * Capture the given UIDs (ascending) of the open folder: metadata first, sources only of
- * mail the archive lacks. A message the server listed but did not deliver stops
- * `handledUpTo` before it, so the next pass asks again.
+ * mail the archive lacks. A message the server listed but did not deliver (expunged between
+ * the two FETCHes, no source, or refused with a NO such as Exchange's "message could not be
+ * retrieved") stops `handledUpTo` before it, so the next pass asks again; the UIDs after it
+ * are still captured (the archive's refs and Message-IDs skip them on that next pass), only
+ * the checkpoint is held back.
  */
 export async function captureFolderUids(
   session: ImapSession,
@@ -202,12 +241,23 @@ export async function captureFolderUids(
     readonly limits?: ImapCaptureLimits;
     /** Called after each batch with the UID handled up to (a checkpoint). */
     readonly progress?: (handledUpTo: number) => Promise<void>;
+    readonly logger?: Logger;
   } = {},
 ): Promise<UidCaptureOutcome> {
   const limits = options.limits ?? DEFAULT_IMAP_CAPTURE_LIMITS;
   let captured = 0;
   let skipped = 0;
   let handledUpTo = 0;
+  const missing: number[] = [];
+  const deliver = async (message: { uid: number; source: Buffer; internalDate: Date | null }) => {
+    await sink.append({
+      original: message.source,
+      externalRef: imapExternalRef(folder.path, folder.uidValidity, message.uid),
+      receivedByService: message.internalDate,
+    });
+    captured++;
+    abortIfNeeded(sink.signal);
+  };
   for (let start = 0; start < uids.length; start += limits.metaBatch) {
     abortIfNeeded(sink.signal);
     const group = uids.slice(start, start + limits.metaBatch);
@@ -234,26 +284,55 @@ export async function captureFolderUids(
       maxMessages: limits.maxBatchMessages,
     })) {
       abortIfNeeded(sink.signal);
-      for await (const message of session.fetchSources(batch)) {
-        await sink.append({
-          original: message.source,
-          externalRef: refOf(message.uid),
-          receivedByService: message.internalDate,
-        });
-        delivered.add(message.uid);
-        captured++;
-        abortIfNeeded(sink.signal);
+      try {
+        for await (const message of session.fetchSources(batch)) {
+          delivered.add(message.uid);
+          await deliver(message);
+        }
+      } catch (error) {
+        if (!isImapSessionError(error) || error.connectionLost || isServerLimit(error)) {
+          throw error;
+        }
+        // A NO for the batch is often one message the server cannot hand out: the rest of
+        // the batch one by one, so only that one is left for the next pass.
+        for (const uid of batch) {
+          if (delivered.has(uid)) {
+            continue;
+          }
+          abortIfNeeded(sink.signal);
+          try {
+            for await (const message of session.fetchSources([uid])) {
+              delivered.add(message.uid);
+              await deliver(message);
+            }
+          } catch (single) {
+            if (!isImapSessionError(single) || single.connectionLost || isServerLimit(single)) {
+              throw single;
+            }
+            options.logger?.warn("imap archive capture: server refused a message", {
+              folder: folder.path,
+              uid,
+              errorMessage: single.message,
+            });
+          }
+        }
       }
     }
-    const missing = wanted.filter((meta) => !delivered.has(meta.uid)).map((meta) => meta.uid);
-    if (missing.length > 0) {
-      // Listed but not delivered: handled only up to the first of them; the next pass retries.
-      return { captured, skipped, handledUpTo: Math.max(handledUpTo, Math.min(...missing) - 1) };
+    const groupMissing = wanted.filter((meta) => !delivered.has(meta.uid)).map((meta) => meta.uid);
+    // Listed but not delivered: handled only up to the first of them (the next pass retries);
+    // the later groups are still read, only the checkpoint stays before the gap.
+    if (missing.length === 0 && groupMissing.length > 0) {
+      handledUpTo = Math.max(handledUpTo, Math.min(...groupMissing) - 1);
+      await options.progress?.(handledUpTo);
     }
-    handledUpTo = group[group.length - 1] as number;
-    await options.progress?.(handledUpTo);
+    missing.push(...groupMissing);
+    if (missing.length === 0) {
+      handledUpTo = group[group.length - 1] as number;
+      await options.progress?.(handledUpTo);
+    }
   }
-  return { captured, skipped, handledUpTo };
+  missing.sort((a, b) => a - b);
+  return { captured, skipped, handledUpTo, missing };
 }
 
 /**
@@ -310,6 +389,11 @@ export interface ImapCatchUpResult {
   readonly skipped: number;
   /** Folders that had new mail and were read. */
   readonly foldersRead: number;
+  /**
+   * Messages the server kept listing without delivering them that this pass gave up on
+   * (after {@link MAX_UNDELIVERED_ATTEMPTS} passes); they are not in the archive.
+   */
+  readonly undeliverable: number;
 }
 
 /** The live catch-up of an activated account (see the module docstring). */
@@ -323,18 +407,32 @@ export async function catchUpImapCapture(
     gmail: options.gmail ?? previous.gmail,
   });
   const folders: Record<string, ImapCaptureFolderState> = {};
-  // Folders the server refuses this time keep what was known about them.
-  const snapshot = (): ImapCaptureState => ({
-    ...previous,
-    folders: { ...folders },
-    idle: { folder: plan.idleFolder, supported: session.idleSupported },
-    ...(plan.gmail ? { gmail: true } : {}),
-  });
+  const visited = new Set<string>();
+  // Folders the server refuses this time keep what was known about them; folders this pass
+  // has not reached yet keep their previous entry, so a mid-pass checkpoint (or the state a
+  // failed or interrupted pass leaves) loses neither their lastUid nor their backfillUpTo.
+  const snapshot = (): ImapCaptureState => {
+    const merged: Record<string, ImapCaptureFolderState> = {};
+    for (const folder of plan.folders) {
+      const kept = visited.has(folder.path) ? folders[folder.path] : previous.folders[folder.path];
+      if (kept) {
+        merged[folder.path] = kept;
+      }
+    }
+    return {
+      ...previous,
+      folders: merged,
+      idle: { folder: plan.idleFolder, supported: session.idleSupported },
+      ...(plan.gmail ? { gmail: true } : {}),
+    };
+  };
   let captured = 0;
   let skipped = 0;
   let foldersRead = 0;
+  let undeliverable = 0;
   for (const folder of plan.folders) {
     abortIfNeeded(sink.signal);
+    visited.add(folder.path);
     const known = previous.folders[folder.path];
     let status: Awaited<ReturnType<ImapSession["status"]>>;
     try {
@@ -363,41 +461,92 @@ export async function catchUpImapCapture(
         folder: folder.path,
       });
     }
-    const opened = await session.openFolder(folder.path);
-    const uidValidity = opened.uidValidity;
-    const backfillUpTo = known?.uidValidity === uidValidity ? known.backfillUpTo : undefined;
-    const base = (lastUid: number): ImapCaptureFolderState => ({
-      uidValidity,
-      uidNext: opened.uidNext,
-      lastUid,
-      ...(backfillUpTo !== undefined ? { backfillUpTo } : {}),
-    });
-    const uids = await session.uidsAbove(from);
-    foldersRead++;
-    const outcome = await captureFolderUids(
-      session,
-      { path: folder.path, uidValidity },
-      uids,
-      sink,
-      {
-        ...(options.limits ? { limits: options.limits } : {}),
-        progress: async (handledUpTo) => {
-          folders[folder.path] = base(Math.max(from, handledUpTo));
-          await options.checkpoint?.(snapshot());
+    // Everything below is one folder: a NO on EXAMINE, SEARCH or FETCH (a corrupt mail, a
+    // throttled command) costs this folder for this pass, not every folder sorted after it.
+    try {
+      const opened = await session.openFolder(folder.path);
+      const uidValidity = opened.uidValidity;
+      const backfillUpTo = known?.uidValidity === uidValidity ? known.backfillUpTo : undefined;
+      const stuck = sameValidity && !options.rescan ? known.stuck : undefined;
+      const base = (
+        lastUid: number,
+        holding: ImapCaptureFolderState["stuck"] | null = stuck,
+      ): ImapCaptureFolderState => ({
+        uidValidity,
+        uidNext: opened.uidNext,
+        lastUid,
+        ...(backfillUpTo !== undefined ? { backfillUpTo } : {}),
+        ...(holding && holding.uid > lastUid ? { stuck: holding } : {}),
+      });
+      const uids = await session.uidsAbove(from);
+      foldersRead++;
+      const outcome = await captureFolderUids(
+        session,
+        { path: folder.path, uidValidity },
+        uids,
+        sink,
+        {
+          ...(options.limits ? { limits: options.limits } : {}),
+          ...(options.logger ? { logger: options.logger } : {}),
+          progress: async (handledUpTo) => {
+            folders[folder.path] = base(Math.max(from, handledUpTo));
+            await options.checkpoint?.(snapshot());
+          },
         },
-      },
-    );
-    captured += outcome.captured;
-    skipped += outcome.skipped;
-    const complete = outcome.handledUpTo >= (uids[uids.length - 1] ?? 0);
-    folders[folder.path] = base(
-      complete
-        ? Math.max(from, outcome.handledUpTo, opened.uidNext - 1)
-        : Math.max(from, outcome.handledUpTo),
-    );
-    await session.closeFolder();
+      );
+      captured += outcome.captured;
+      skipped += outcome.skipped;
+      const done = Math.max(from, outcome.handledUpTo, opened.uidNext - 1);
+      const [first, next] = outcome.missing;
+      if (first === undefined) {
+        folders[folder.path] = base(done, null);
+      } else {
+        const attempts = stuck?.uid === first ? stuck.attempts + 1 : 1;
+        if (attempts < MAX_UNDELIVERED_ATTEMPTS) {
+          folders[folder.path] = base(Math.max(from, outcome.handledUpTo), {
+            uid: first,
+            attempts,
+          });
+        } else {
+          // The server keeps listing it without handing it out: give it up, or every pass
+          // re-reads every UID above it and the folder never counts as caught up.
+          options.logger?.warn(
+            "imap archive capture gave up on a message the server does not deliver",
+            {
+              folder: folder.path,
+              uid: first,
+              attempts,
+            },
+          );
+          undeliverable++;
+          folders[folder.path] =
+            next === undefined
+              ? base(done, null)
+              : base(Math.max(from, next - 1), { uid: next, attempts: 1 });
+        }
+      }
+      await session.closeFolder();
+    } catch (error) {
+      if (!isImapSessionError(error) || error.connectionLost) {
+        throw error;
+      }
+      options.logger?.warn("imap archive capture could not read a folder", {
+        folder: folder.path,
+        errorMessage: error.message,
+      });
+      // What a checkpoint recorded before the error stays; otherwise what was known.
+      if (folders[folder.path] === undefined && known) {
+        folders[folder.path] = known;
+      }
+      await session.closeFolder().catch(() => undefined);
+      if (isServerLimit(error)) {
+        // The account's cap, not this folder's: the next folders would only hit it again.
+        // They keep their previous entries (see snapshot) and are read on the next pass.
+        break;
+      }
+    }
   }
-  return { state: snapshot(), captured, skipped, foldersRead };
+  return { state: snapshot(), captured, skipped, foldersRead, undeliverable };
 }
 
 /** Where a backfill stands: in the `archive` job's cursor. */
@@ -505,6 +654,7 @@ export async function backfillImapCapture(
       sink,
       {
         ...(options.limits ? { limits: options.limits } : {}),
+        ...(options.logger ? { logger: options.logger } : {}),
         progress: async (handledUpTo) => {
           active[path] = { uidValidity: opened.uidValidity, lastUid: handledUpTo };
           await options.saveCursor(cursor());
@@ -514,7 +664,17 @@ export async function backfillImapCapture(
     captured += outcome.captured;
     skipped += outcome.skipped;
     await session.closeFolder();
-    // A message listed but not delivered is left to the live capture's later rescans.
+    // The UIDs after a message listed but not delivered were still read. That message itself
+    // is not retried by anyone (live capture starts above backfillUpTo; only a requested
+    // resync reads below it): an expunged message is gone anyway, and one without a source
+    // would hold the folder forever, so the folder counts as done, but not silently.
+    if (outcome.missing.length > 0) {
+      options.logger?.warn("imap archive backfill: messages listed but not delivered", {
+        folder: path,
+        uids: outcome.missing.slice(0, 20),
+        count: outcome.missing.length,
+      });
+    }
     completed.add(path);
     delete active[path];
     await options.saveCursor(cursor());

@@ -375,6 +375,38 @@ describe("ImapRestoreEngine", () => {
     expect(target.closed).toBe(true);
   });
 
+  it("fails the job instead of every remaining message when the connection drops, and the retry resumes", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna",
+      now: () => NOW,
+      objects: [
+        message("INBOX", "mail/INBOX/1.eml", 1),
+        message("INBOX", "mail/INBOX/2.eml", 2),
+        message("INBOX", "mail/INBOX/3.eml", 3),
+      ],
+    });
+    const target = new FakeImapAccount({ delimiter: "." });
+    target.dropAfterAppends = 1;
+
+    const request = restoreRequestFor(fixture, { mode: "rename" });
+    await expect(engineFor(target).run(fixture.ctx, request)).rejects.toThrow(
+      /IMAP connection was lost: Connection not available/,
+    );
+    expect(target.closed).toBe(true);
+    const mailbox = `${RESTORE_FOLDER}.INBOX`;
+    expect(target.messages(mailbox)).toHaveLength(1);
+
+    // The retry runs on a fresh connection and skips what the first attempt appended.
+    target.connectionLost = false;
+    target.dropAfterAppends = null;
+    const report = await engineFor(target).run(fixture.ctx, request);
+    expect(report.failures).toEqual([]);
+    expect(report.restored).toBe(2);
+    expect(report.skipped).toBe(1);
+    expect(target.messages(mailbox)).toHaveLength(3);
+  });
+
   it("logs out when the job is cancelled mid-restore", async () => {
     const controller = new AbortController();
     fixture = await createSnapshotFixture({

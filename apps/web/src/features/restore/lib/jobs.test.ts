@@ -57,6 +57,15 @@ describe("status", () => {
     expect(statusKey({ status: "completed", result: result({ failures: 1 }) })).toBe(
       "jobs.status.completedWithIssues",
     );
+    // Every item failed: nothing was written, which is not an amber "with issues".
+    const nothing = { status: "completed", result: result({ restored: 0, failures: 3 }) } as const;
+    expect(statusTone(nothing)).toBe("destructive");
+    expect(statusKey(nothing)).toBe("jobs.status.completedNothingRestored");
+    // Everything skipped: not a green success either.
+    const skipped = { status: "completed", result: result({ restored: 0, skipped: 4 }) } as const;
+    expect(statusTone(skipped)).toBe("warning");
+    expect(statusKey(skipped)).toBe("jobs.status.completedAllSkipped");
+    expect(statusKey({ status: "completed", result: result() })).toBe("jobs.status.completed");
     expect(statusKey({ status: "failed", result: null })).toBe("jobs.status.failed");
     expect(statusTone({ status: "unknown", result: null })).toBe("muted");
   });

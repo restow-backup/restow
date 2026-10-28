@@ -31,6 +31,11 @@ export interface SiteLibraryState {
   /** The folder below `Libraries/` the library was recorded in. */
   readonly folder: string;
   readonly drive: OneDriveManifestState;
+  /**
+   * Job cursor only: the item failures the attempt that finished the library
+   * reported, so a resumed attempt still counts them in its result.
+   */
+  readonly failures?: number;
 }
 
 export interface SiteManifestState {
@@ -78,7 +83,16 @@ function readLibraries(value: unknown): SiteLibraryState[] {
     }
     const drive = readDriveState(isRecord(entry.drive) ? entry.drive : undefined, entry.driveId);
     if (drive) {
-      result.push({ driveId: entry.driveId, folder: entry.folder, drive });
+      const failures =
+        typeof entry.failures === "number" && Number.isInteger(entry.failures) && entry.failures > 0
+          ? entry.failures
+          : undefined;
+      result.push({
+        driveId: entry.driveId,
+        folder: entry.folder,
+        drive,
+        ...(failures !== undefined ? { failures } : {}),
+      });
     }
   }
   return result;

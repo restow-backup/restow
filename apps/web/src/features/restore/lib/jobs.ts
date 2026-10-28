@@ -15,17 +15,26 @@ export function isCancellable(job: Pick<RestoreJob, "status">): boolean {
 
 export type StatusTone = "muted" | "default" | "success" | "destructive" | "secondary" | "warning";
 
-/** Badge tone per status; a completed restore with failed items is a warning, not a success. */
+/**
+ * Badge tone per status. Engines record item errors per item, so a restore
+ * that could write nothing still ends "completed": with failed items and
+ * nothing restored it is shown as destructive, with failed or unconfirmed
+ * items next to restored ones as a warning, and one that skipped everything
+ * (nothing restored, nothing failed) as a warning too, never a green success.
+ */
 export function statusTone(job: Pick<RestoreJob, "status" | "result">): StatusTone {
   switch (job.status) {
     case "queued":
       return "muted";
     case "active":
       return "default";
-    case "completed":
-      return (job.result?.failures ?? 0) > 0 || (job.result?.unverified ?? 0) > 0
-        ? "warning"
-        : "success";
+    case "completed": {
+      const outcome = completedOutcome(job.result);
+      if (outcome === "clean") {
+        return "success";
+      }
+      return outcome === "nothingRestored" ? "destructive" : "warning";
+    }
     case "failed":
       return "destructive";
     case "cancelled":
@@ -35,10 +44,40 @@ export function statusTone(job: Pick<RestoreJob, "status" | "result">): StatusTo
   }
 }
 
-/** i18n key (namespace `restore`) of a status, including "completed with problems". */
+type CompletedOutcome = "clean" | "issues" | "nothingRestored" | "allSkipped";
+
+function completedOutcome(result: RestoreJob["result"]): CompletedOutcome {
+  const restored = result?.restored ?? 0;
+  const skipped = result?.skipped ?? 0;
+  const failures = result?.failures ?? 0;
+  if (restored === 0 && failures > 0) {
+    return "nothingRestored";
+  }
+  if (failures > 0 || (result?.unverified ?? 0) > 0) {
+    return "issues";
+  }
+  if (restored === 0 && skipped > 0) {
+    return "allSkipped";
+  }
+  return "clean";
+}
+
+/**
+ * i18n key (namespace `restore`) of a status, including "completed with
+ * problems", "nothing restored" and "everything skipped".
+ */
 export function statusKey(job: Pick<RestoreJob, "status" | "result">): string {
-  if (job.status === "completed" && statusTone(job) === "warning") {
-    return "jobs.status.completedWithIssues";
+  if (job.status === "completed") {
+    switch (completedOutcome(job.result)) {
+      case "nothingRestored":
+        return "jobs.status.completedNothingRestored";
+      case "allSkipped":
+        return "jobs.status.completedAllSkipped";
+      case "issues":
+        return "jobs.status.completedWithIssues";
+      default:
+        break;
+    }
   }
   return `jobs.status.${job.status}`;
 }

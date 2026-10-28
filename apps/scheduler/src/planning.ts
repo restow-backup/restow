@@ -40,6 +40,11 @@ export interface TenantTargets {
     readonly sourceId: string;
     readonly kind: "mailbox" | "onedrive" | "imap" | "site" | "group";
     readonly status: "active" | "excluded" | "orphaned";
+    /**
+     * The object's newest restorable backup has no check of its own yet. Read for orphaned
+     * objects only (see `awaitsLastCheck`); absent, the planner treats it as checked.
+     */
+    readonly unverifiedBackup?: boolean;
   }[];
   readonly sources: readonly {
     readonly id: string;
@@ -114,6 +119,17 @@ function sourceUsable(source: TenantTargets["sources"][number]): boolean {
 }
 
 /**
+ * An object removed from its source (orphaned, its backups kept) whose newest backup was never
+ * checked: no backup will follow, but that last one still needs its restore proof, or it stays
+ * "unverified" (red) for good, since an orphan is never overdue and no check would come by
+ * itself. A verify reads the storage only, not the source, so the source need not be usable.
+ * Once a check rated that backup, nothing is planned for the object any more.
+ */
+function awaitsLastCheck(object: TenantTargets["protectedObjects"][number]): boolean {
+  return object.status === "orphaned" && object.unverifiedBackup === true;
+}
+
+/**
  * Rarely-run scrubs check everything; frequent ones sample (docs/TESTING.md).
  * The rule is shared with the API's recommended schedules (@restow/core).
  */
@@ -163,7 +179,14 @@ export function expandSchedule(
         planned("backup", { ...base, jobId: newJobId(), protectedObjectId: object.id }, object.id),
       );
     case "verify":
-      return objects.map((object) =>
+      return [
+        ...objects,
+        ...targets.protectedObjects.filter(
+          (object) =>
+            awaitsLastCheck(object) &&
+            (schedule.protectedObjectId === null || object.id === schedule.protectedObjectId),
+        ),
+      ].map((object) =>
         planned(
           "verify",
           { ...base, jobId: newJobId(), protectedObjectId: object.id, kind: "verify" },
@@ -315,7 +338,10 @@ export function expandJobUnit(
   const usableSources = new Set(targets.sources.filter(sourceUsable).map((source) => source.id));
   const eligible = targets.protectedObjects.map((object) => ({
     id: object.id,
-    eligible: object.status === "active" && usableSources.has(object.sourceId),
+    eligible:
+      (object.status === "active" && usableSources.has(object.sourceId)) ||
+      // A job's verify also gives an orphan in its scope the check its last backup lacks.
+      (unit.what === "verify" && awaitsLastCheck(object)),
   }));
   const members = targets.jobMembers ?? [];
   const covered = mailJobObjectIds(unit.job, members, eligible);

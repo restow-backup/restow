@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest";
 import { noopLogger } from "../../engine/logger.js";
 import { BlockedAddressError } from "../../net/address-policy.js";
 import { buildClientOptions, deriveEnvelopeMeta, ImapFlowConnector } from "./imapflow-connector.js";
-import { type ImapAccountConfig, ImapAuthError, ImapConfigError } from "./types.js";
+import {
+  type ImapAccountConfig,
+  ImapAuthError,
+  ImapConfigError,
+  ImapSessionError,
+} from "./types.js";
 
 const account: ImapAccountConfig = {
   host: "imap.example.test",
@@ -145,6 +150,33 @@ describe("ImapFlowConnector.connect", () => {
         { logger: noopLogger, signal: new AbortController().signal },
       ),
     ).rejects.toBeInstanceOf(ImapAuthError);
+  });
+
+  it("does not read a login refused for a connection limit as wrong credentials", async () => {
+    // imapflow flags every NO to LOGIN as authenticationFailed, Gmail's connection limit too.
+    for (const refusal of [
+      { serverResponseCode: "ALERT", response: "Too many simultaneous connections. (Failure)" },
+      { serverResponseCode: "UNAVAILABLE", response: "Temporary authentication failure." },
+    ]) {
+      const connector = new ImapFlowConnector({
+        createClient: () =>
+          fakeClient({
+            connect: async () => {
+              throw Object.assign(new Error("Command failed"), {
+                authenticationFailed: true,
+                ...refusal,
+              });
+            },
+          }) as never,
+      });
+      const failure = connector.connect(
+        account,
+        { kind: "password", password: "p" },
+        { logger: noopLogger, signal: new AbortController().signal },
+      );
+      await expect(failure).rejects.toBeInstanceOf(ImapSessionError);
+      await expect(failure).rejects.toMatchObject({ connectionLost: true });
+    }
   });
 
   it("refuses a session that ended up unencrypted", async () => {

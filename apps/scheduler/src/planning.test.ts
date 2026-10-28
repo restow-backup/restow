@@ -345,6 +345,45 @@ describe("backup jobs", () => {
     expect(planned[0]?.payload).toMatchObject({ kind: "verify", backupJobId: "job-1" });
   });
 
+  it("checks an orphan's last backup once more when it was never checked, and backs it up never", () => {
+    const orphans: TenantTargets = {
+      ...targets,
+      protectedObjects: [
+        ...targets.protectedObjects,
+        // Its source is gone: a check reads the storage only.
+        {
+          id: "mb-left",
+          sourceId: "src-pending",
+          kind: "mailbox",
+          status: "orphaned",
+          unverifiedBackup: true,
+        },
+      ],
+      jobMembers: [],
+    };
+    const ids = (what: "backup" | "verify") =>
+      expandJobUnit({ level: "job", what, job: job() }, orphans, newJobId)
+        .map((item) => item.protectedObjectId)
+        .sort();
+    expect(ids("verify")).toEqual(["imap-1", "mb-1", "mb-left", "od-1"]);
+    // The checked orphan (mb-orphan) gets nothing, and no orphan is ever backed up.
+    expect(ids("backup")).toEqual(["imap-1", "mb-1", "od-1"]);
+    const scheduled = expandSchedule(schedule({ kind: "verify" }), orphans, newJobId);
+    expect(scheduled.map((item) => item.protectedObjectId)).toContain("mb-left");
+    expect(scheduled.map((item) => item.protectedObjectId)).not.toContain("mb-orphan");
+    expect(
+      expandSchedule(schedule({ kind: "backup" }), orphans, newJobId).map(
+        (item) => item.protectedObjectId,
+      ),
+    ).not.toContain("mb-left");
+    const own = expandSchedule(
+      schedule({ kind: "verify", protectedObjectId: "mb-1" }),
+      orphans,
+      newJobId,
+    );
+    expect(own.map((item) => item.protectedObjectId)).toEqual(["mb-1"]);
+  });
+
   it("knows which timer and schedule a unit runs on", () => {
     const base = job({ nextRunAt: new Date("2026-03-01T09:00:00Z") });
     const unit = { level: "job", what: "backup", job: base } as const;

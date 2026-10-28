@@ -114,6 +114,10 @@ describe("progress", () => {
 
   it("translates known phases and names unknown ones", () => {
     expect(phaseLabel("download")).toEqual({ key: "phase.download", values: {} });
+    // A SharePoint site's own phases, and the directory sync's site and group discovery.
+    for (const phase of ["site", "lists", "sites", "groups"]) {
+      expect(phaseLabel(phase)).toEqual({ key: `phase.${phase}`, values: {} });
+    }
     expect(phaseLabel("defragment")).toEqual({
       key: "phase.unknown",
       values: { name: "defragment" },
@@ -295,6 +299,17 @@ describe("jobStatusDisplay", () => {
     });
     // Failed items still win.
     expect(jobStatusDisplay("completed", 2, "restore").variant).toBe("warning");
+  });
+
+  it("shows a backup a service held back in amber, never as failed", () => {
+    expect(jobStatusDisplay("failed", 0, "backup", false, true)).toEqual({
+      key: "jobStatus.serviceLimited",
+      values: {},
+      variant: "warning",
+    });
+    // Only a failed run reads held back; without the flag a failure stays red.
+    expect(jobStatusDisplay("completed", 0, "backup", false, true).key).toBe("jobStatus.completed");
+    expect(jobStatusDisplay("failed", 0, "backup").variant).toBe("destructive");
   });
 
   it("keeps the other states of a restore as they are", () => {

@@ -9,6 +9,7 @@ import {
   canPause,
   describeJobSchedule,
   describeScope,
+  lastErrorRun,
   lastRunView,
   memberOutcomeTone,
   nextRunView,
@@ -340,5 +341,23 @@ describe("pause, repository and retention", () => {
         t("en"),
       ),
     ).toBe("Each machine keeps its own retention");
+  });
+});
+
+describe("lastErrorRun", () => {
+  it("skips a backup a service held back: no error, the next scheduled run tries again", () => {
+    const run = (id: string, state: "failed" | "succeeded", serviceLimited?: boolean) => ({
+      id,
+      kind: "backup" as const,
+      state,
+      serviceLimited,
+    });
+    const held = run("held", "failed", true);
+    expect(lastErrorRun([run("done", "succeeded"), held, run("failed", "failed")])?.id).toBe(
+      "failed",
+    );
+    expect(lastErrorRun([run("done", "succeeded"), held])).toBeUndefined();
+    // Servers before 0.4.7 send no flag: a failed run stays an error.
+    expect(lastErrorRun([run("old", "failed")])?.id).toBe("old");
   });
 });

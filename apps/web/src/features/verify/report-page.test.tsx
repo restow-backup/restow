@@ -316,6 +316,25 @@ describe("ReportPage failure explanations", () => {
     expect(html).toContain("Pack could not be fetched");
   });
 
+  it("names the backup age of an object removed from its source as a note, not a finding", () => {
+    const stale = reasons(false)[0];
+    if (!stale) throw new Error("fixture");
+    const base = report(false);
+    const removed: ReportDetail = {
+      ...base,
+      object: { ...base.object, status: "orphaned" },
+      readiness: "green",
+      // A server before 0.4.7 still lists the age under the findings.
+      reasons: [stale],
+      counts: { checked: 30, verified: 30, failed: 0 },
+    };
+    const html = render(removed);
+    expect(html).toContain("Removed from the source");
+    expect(html).toContain("Not counted: The latest backup is");
+    expect(html).toContain("No findings");
+    expect(html).toContain(">Ready<");
+  });
+
   it("says there are no findings for a green report", () => {
     const green: ReportDetail = { ...report(true), readiness: "green", reasons: [] };
     const html = render(green);

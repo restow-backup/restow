@@ -23,6 +23,7 @@ import {
   sources,
   tenants,
   users,
+  verifyReports,
 } from "@restow/db";
 import { and, eq } from "drizzle-orm";
 import PgBoss from "pg-boss";
@@ -481,6 +482,100 @@ describe.skipIf(!testDatabaseAdminUrl)("directory service against Postgres", () 
         .where(eq(snapshots.protectedObjectId, objectId));
       expect(snapshotRow).toBeDefined();
       expect(snapshotRow?.status).toBe("active");
+    });
+  });
+
+  describe("objects list facts", () => {
+    /** A backup of the object, and a check of it that found only the backup's age (red). */
+    async function outdatedBackup(objectId: string) {
+      const [snapshot] = await db
+        .insert(snapshots)
+        .values({
+          tenantId,
+          protectedObjectId: objectId,
+          sequence: 1,
+          startedAt: new Date("2026-08-01T00:00:00Z"),
+          completedAt: new Date("2026-08-01T01:00:00Z"),
+          manifestPath: `tenants/${tenantId}/manifests/${randomUUID()}`,
+          itemCount: 10,
+          byteSize: 1000,
+        })
+        .returning();
+      await db.insert(verifyReports).values({
+        tenantId,
+        protectedObjectId: objectId,
+        snapshotId: snapshot?.id as string,
+        recoveryReadiness: "red",
+        checkedAt: new Date("2026-09-20T00:00:00Z"),
+        details: {
+          origin: "verify",
+          reasons: [{ code: "snapshot_outdated", severity: "red", ageHours: 1200 }],
+        },
+      });
+    }
+
+    it("rates an orphaned object without the age of its last backup, an active one with it", async () => {
+      const { sourceId, objectIds } = await m365Source("Orphaned-Readiness", 2);
+      const [orphaned, active] = objectIds as [string, string];
+      await outdatedBackup(orphaned);
+      await outdatedBackup(active);
+      await db
+        .update(protectedObjects)
+        .set({ status: "orphaned" })
+        .where(eq(protectedObjects.id, orphaned));
+
+      const page = await service.listObjects(db, tenantId, {
+        sourceId,
+        page: 1,
+        pageSize: 25,
+        sort: "name",
+        order: "asc",
+      });
+      const byId = new Map(page.items.map((item) => [item.id, item]));
+      expect(byId.get(orphaned)?.readiness?.rating).toBe("green");
+      expect(byId.get(active)?.readiness?.rating).toBe("red");
+    });
+
+    it("marks a latest backup a service held back, and only that one", async () => {
+      const { sourceId, objectIds } = await m365Source("Throttled-Latest", 2);
+      const [throttled, broken] = objectIds as [string, string];
+      const failed = (protectedObjectId: string, code: string) =>
+        db.insert(jobs).values({
+          tenantId,
+          queue: "backup",
+          status: "failed",
+          protectedObjectId,
+          completedAt: new Date("2026-09-28T04:00:00Z"),
+          failure: {
+            v: 1,
+            code,
+            transient: false,
+            params: {},
+            technical: {},
+            occurredAt: "2026-09-28T04:00:00.000Z",
+            step: null,
+            retry: null,
+          },
+        });
+      await failed(throttled, "graph.throttled");
+      await failed(broken, "storage.unreachable");
+
+      const page = await service.listObjects(db, tenantId, {
+        sourceId,
+        page: 1,
+        pageSize: 25,
+        sort: "name",
+        order: "asc",
+      });
+      const byId = new Map(page.items.map((item) => [item.id, item]));
+      expect(byId.get(throttled)?.latestBackupJob).toMatchObject({
+        status: "failed",
+        serviceLimited: true,
+      });
+      expect(byId.get(broken)?.latestBackupJob).toMatchObject({
+        status: "failed",
+        serviceLimited: false,
+      });
     });
   });
 

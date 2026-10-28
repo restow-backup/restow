@@ -578,6 +578,40 @@ describe("ExchangeRestoreEngine", () => {
     expect(mailbox.calendars.size).toBe(2);
   });
 
+  it("restores two backed-up contacts with the same name and address, and recognises both on a retry", async () => {
+    const benAtWork: FixtureObject = {
+      ...ben,
+      path: "contacts/Clients/Ben Example.0006.json",
+      id: "C2",
+      content: JSON.stringify({
+        id: "old-2",
+        displayName: "Ben Example",
+        emailAddresses: [{ address: "ben@example.org", name: "Ben Example" }],
+        companyName: "Example Corp",
+      }),
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      now: () => NOW,
+      objects: [clientsFolder, ben, benAtWork],
+    });
+    const mailbox = new FakeMailbox();
+    const request = restoreRequestFor(fixture, { mode: "rename" });
+
+    const first = await engineFor(mailbox).run(fixture.ctx, request);
+    expect(first.failures).toEqual([]);
+    expect(first.restored).toBe(2);
+    expect(first.skipped).toBe(0);
+    expect(mailbox.contacts.size).toBe(2);
+
+    // The retry finds both copies in its restore folder and adds neither again.
+    const retry = await engineFor(mailbox).run(fixture.ctx, request);
+    expect(retry.restored).toBe(0);
+    expect(retry.skipped).toBe(2);
+    expect(mailbox.contacts.size).toBe(2);
+  });
+
   it("never creates the same event twice for one restore job, but does for a new job", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",

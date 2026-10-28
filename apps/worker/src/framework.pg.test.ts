@@ -932,6 +932,113 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       expect((await jobRow(jobId)).status).toBe("cancelled");
     });
 
+    it("ends a job cancelled while it ran, whose worker died before noticing, when it comes back", async () => {
+      const jobId = randomUUID();
+      // The API cancelled the active row (no end written); the worker was killed.
+      await db.insert(jobs).values({
+        id: jobId,
+        tenantId: fixture.tenantId,
+        queue: "backup",
+        status: "cancelled",
+        cursor: { page: 2 },
+        startedAt: new Date(Date.now() - 60_000),
+      });
+      const finished: { status: string }[] = [];
+      let ran = false;
+      await runJob(
+        runtime({
+          onJobFinished: async (_tenantId, row) => {
+            finished.push(row);
+          },
+        }),
+        handlerFor(async () => {
+          ran = true;
+        }),
+        pgBossJob({ jobId, tenantId: fixture.tenantId }, 1, 3),
+      );
+      expect(ran).toBe(false);
+      const row = await jobRow(jobId);
+      expect(row.status).toBe("cancelled");
+      expect(row.completedAt).not.toBeNull();
+      expect(row.cursor).toBeNull();
+      expect(finished.map((job) => job.status)).toEqual(["cancelled"]);
+
+      // Delivered once more: the end is not written (or announced) twice.
+      await runJob(
+        runtime({
+          onJobFinished: async (_tenantId, again) => {
+            finished.push(again);
+          },
+        }),
+        handlerFor(async () => {
+          ran = true;
+        }),
+        pgBossJob({ jobId, tenantId: fixture.tenantId }, 2, 3),
+      );
+      expect(ran).toBe(false);
+      expect(finished).toHaveLength(1);
+    });
+
+    it("keeps a cancel that came while the attempt failed, and does not retry it", async () => {
+      const jobId = randomUUID();
+      const handler = handlerFor(async () => {
+        // The user cancels; the attempt fails before the cancel poll sees it.
+        await db.update(jobs).set({ status: "cancelled" }).where(eq(jobs.id, jobId));
+        throw new Error("Graph said no");
+      });
+      // Resolves: pg-boss completes the job instead of retrying it.
+      await runJob(
+        runtime({ cancelPollMs: 60_000 }),
+        handler,
+        pgBossJob({ jobId, tenantId: fixture.tenantId }, 0, 3),
+      );
+      const row = await jobRow(jobId);
+      expect(row.status).toBe("cancelled");
+      expect(row.completedAt).not.toBeNull();
+    });
+
+    it("counts the wait for a tenant slot against the job's time limit and never runs it late", async () => {
+      const jobId = randomUUID();
+      await db
+        .insert(jobs)
+        .values({ id: jobId, tenantId: fixture.tenantId, queue: "backup", status: "queued" });
+      const limiter = new TenantConcurrencyLimiter(1);
+      const busy = await limiter.acquire(fixture.tenantId);
+      // The slot frees up only after pg-boss' clock (1 s) has run out.
+      const freeing = setTimeout(busy, 1_500);
+      const granted: string[] = [];
+      let ran = false;
+      const delivered = {
+        ...pgBossJob({ jobId, tenantId: fixture.tenantId }, 3, 3),
+        expireInSeconds: 1,
+      };
+      try {
+        await expect(
+          runJob(
+            runtime({
+              tenantLimiter: limiter,
+              continueInterrupted: async (_queue, pgBossJobId) => {
+                granted.push(pgBossJobId);
+                return { retryCount: 2, retryLimit: 3 };
+              },
+            }),
+            handlerFor(async () => {
+              ran = true;
+            }),
+            delivered,
+          ),
+        ).rejects.toBeInstanceOf(JobAbortedError);
+      } finally {
+        clearTimeout(freeing);
+        busy();
+      }
+      expect(ran).toBe(false);
+      // It never ran, so the wait does not use up its last attempt.
+      expect(granted).toEqual([delivered.id]);
+      expect((await jobRow(jobId)).status).toBe("queued");
+      expect(limiter.activeCount(fixture.tenantId)).toBe(0);
+    });
+
     it("interrupts a running job on shutdown and leaves it queued for retry", async () => {
       const jobId = randomUUID();
       const shutdown = new AbortController();

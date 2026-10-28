@@ -32,6 +32,15 @@ describe("backup.overdue", () => {
     expect(due.map((candidate) => candidate.id)).toEqual(["late", "gone"]);
   });
 
+  it("judges an object with a bound of its own by that one only", () => {
+    const weekly = { ...mailbox("weekly", 100), hours: 336 };
+    const due = overdueOf([weekly, mailbox("daily", 50)], bounds, new Map(), NOW);
+    expect(due.map((candidate) => candidate.id)).toEqual(["daily"]);
+    expect(
+      overdueNotification("t", { ...weekly, since: hoursAgo(400) }, bounds).details,
+    ).toMatchObject({ boundHours: 336, days: 14 });
+  });
+
   it("announces an object once per stretch, and again after a backup ended it", () => {
     const late = mailbox("late", 50);
     expect(overdueOf([late], bounds, new Map([["object:late", hoursAgo(1)]]), NOW)).toEqual([]);

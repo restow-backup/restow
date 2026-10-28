@@ -6,10 +6,12 @@
  * only that stream is enumerated again from scratch (docs/MICROSOFT.md: a full
  * resync of that folder, not of the whole mailbox). OneDrive sends a
  * fresh delta URL in the `Location` header of the 410; Outlook does not, so the
- * caller's initial URL is used.
+ * caller's initial URL is used. A stored link Graph rejects with a 400 that names
+ * an invalid sync state (after a mailbox move, a corrupted sync state) is treated
+ * the same way; otherwise the link would be kept and fail on every run forever.
  */
 import type { GraphClient } from "./client.js";
-import { isGone } from "./errors.js";
+import { type GraphError, isGone, isGraphError } from "./errors.js";
 
 /** Persists delta links per stream key (job cursor, database, memory). */
 export interface DeltaTokenStore {
@@ -56,7 +58,33 @@ export class RecordDeltaTokenStore implements DeltaTokenStore {
 export type DeltaMode = "initial" | "incremental" | "resync";
 
 /** Why a full enumeration was started although a token existed. */
-export type ResyncReason = "gone";
+export type ResyncReason = "gone" | "invalidSyncState";
+
+/** Graph codes of a 400 that mean the stored sync state itself cannot be used any more. */
+const INVALID_SYNC_STATE_CODES = new Set([
+  "syncstatenotfound",
+  "syncstateinvalid",
+  "errorinvalidsyncstatedata",
+  "resyncrequired",
+  "invalidsyncstate",
+]);
+
+/**
+ * The stored delta link cannot be used any more and the stream must be enumerated
+ * from scratch: 410 Gone, or a 400 whose code (or inner code) names an invalid
+ * sync state. Any other 400 is a real error and is not retried.
+ */
+export function needsResync(error: unknown): error is GraphError {
+  if (isGone(error)) {
+    return true;
+  }
+  if (!isGraphError(error) || error.status !== 400) {
+    return false;
+  }
+  return [error.code, error.innerCode].some(
+    (code) => code !== undefined && INVALID_SYNC_STATE_CODES.has(code.toLowerCase()),
+  );
+}
 
 export interface DeltaBatch<T> {
   mode: DeltaMode;
@@ -116,12 +144,16 @@ export async function* syncDelta<T>(
       }
       throw new Error(`Delta stream ${options.key} ended without a delta link`);
     } catch (error) {
-      if (!isGone(error) || mode === "resync") {
+      // A 400 is only blamed on the sync state when it came for a stored link: the
+      // initial URL carries none, and retrying it would just loop.
+      const gone = isGone(error);
+      if (!needsResync(error) || mode === "resync" || (!gone && mode === "initial")) {
         throw error;
       }
       await options.store.delete(options.key);
       const nextUrl = error.headers.location ?? options.initialUrl;
-      options.onResync?.({ key: options.key, reason: "gone", nextUrl });
+      const reason: ResyncReason = gone ? "gone" : "invalidSyncState";
+      options.onResync?.({ key: options.key, reason, nextUrl });
       url = nextUrl;
       mode = "resync";
       reset = pages > 0;

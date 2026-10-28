@@ -72,6 +72,11 @@ export interface ReadinessReport extends RatedReport {
   readonly objectId: string;
   /** Orders reports of the same instant, as the verify page does. */
   readonly createdAt: Date;
+  /**
+   * The stored reasons (`details->'reasons'`, raw jsonb): an orphaned object is rated by them
+   * without the age of its backup (readiness.ts). Absent, the stored rating stands.
+   */
+  readonly reasons?: unknown;
 }
 
 export interface TenantFacts {

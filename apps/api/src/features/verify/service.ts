@@ -109,7 +109,10 @@ export interface LatestReportDto {
   id: string;
   kind: VerifyKindInput;
   origin: ReportOrigin;
+  /** The reasons behind the rating (for an orphaned object without the backup-age ones). */
   reasons: ReasonDto[];
+  /** See {@link ReportSummaryDto.setAsideReasons}. */
+  setAsideReasons: ReasonDto[];
   counts: CountSummaryDto | null;
 }
 
@@ -210,7 +213,14 @@ export interface ReportSummaryDto {
   jobId: string | null;
   /** The backup the report checked; null for storage findings and reports that name none. */
   snapshotId: string | null;
+  /** The reasons behind `readiness` (for an orphaned object without the backup-age ones). */
   reasons: ReasonDto[];
+  /**
+   * Reasons the report recorded that do not count for this object: the age of the last
+   * backup (snapshot_outdated, snapshot_stale) of an object removed from its source, whose
+   * last backup is all there will be. Shown as a note, never as a finding; empty otherwise.
+   */
+  setAsideReasons: ReasonDto[];
   counts: CountSummaryDto | null;
 }
 
@@ -276,12 +286,36 @@ function originOf(value: string | null): ReportOrigin {
   return value === "verify" || value === "scrub" ? value : "unknown";
 }
 
-function toLatestReport(report: ReportFact): LatestReportDto {
+/** The reasons that only say how old the backup is, as readinessWithoutFreshness skips them. */
+const FRESHNESS_REASONS: ReadonlySet<string> = new Set(["snapshot_outdated", "snapshot_stale"]);
+const isFreshnessReason = (code: string) => FRESHNESS_REASONS.has(code);
+
+/**
+ * A report's reasons as the rating sees them. An orphaned object (removed from its source,
+ * backups kept) is rated without the age of its last backup (readinessWithoutFreshness), so
+ * the age reasons move aside: listing "backup 10 days old" as a finding next to a green
+ * rating would contradict it. Every other object keeps every reason.
+ */
+function ratedReasons(
+  report: Pick<ReportFact, "reasons" | "checkedAt">,
+  status: ObjectDto["status"],
+): { reasons: ReasonDto[]; setAsideReasons: ReasonDto[] } {
+  const all = parseReasons(report.reasons, report.checkedAt);
+  if (status !== "orphaned") {
+    return { reasons: all, setAsideReasons: [] };
+  }
+  return {
+    reasons: all.filter((reason) => !isFreshnessReason(reason.code)),
+    setAsideReasons: all.filter((reason) => isFreshnessReason(reason.code)),
+  };
+}
+
+function toLatestReport(report: ReportFact, status: ObjectDto["status"]): LatestReportDto {
   return {
     id: report.id,
     kind: report.kind,
     origin: originOf(report.origin),
-    reasons: parseReasons(report.reasons, report.checkedAt),
+    ...ratedReasons(report, status),
     counts: parseCountSummary(report.counts),
   };
 }
@@ -547,8 +581,9 @@ export async function readinessOverview(
       const report = verification.report;
       const checkedAt = report?.checkedAt ?? null;
       // Removed from its source: the last backup is all there will be. It is rated by whether it
-      // restores, not by its age, and nothing schedules checks for it any more, so it is never
-      // overdue (a deleted mailbox whose mails are kept is no failure).
+      // restores, not by its age, and it is never overdue (a deleted mailbox whose mails are kept
+      // is no failure): no new backup can come, and the weekly verify planner checks it only once
+      // more, when its newest backup has no report yet, so an old check is no neglect.
       const retained = object.status === "orphaned";
       const rating =
         retained && report ? readinessWithoutFreshness(parseReasons(report.reasons)) : null;
@@ -569,7 +604,7 @@ export async function readinessOverview(
         checkedAt: checkedAt?.toISOString() ?? null,
         overdue,
         latestSnapshotAt: latestSnapshot?.completedAt?.toISOString() ?? null,
-        report: report ? toLatestReport(report) : null,
+        report: report ? toLatestReport(report, object.status) : null,
         running: runningByObject.get(object.id) ?? null,
         latestSnapshotId: latestSnapshot?.id ?? null,
         previousCheck: facts?.verification.previous
@@ -626,16 +661,21 @@ export async function readinessOverview(
 type ReportRow = ReportFact & { object: ObjectDto };
 
 function toReportSummary(row: ReportRow): ReportSummaryDto {
+  const { reasons, setAsideReasons } = ratedReasons(row, row.object.status);
   return {
     id: row.id,
     object: row.object,
     kind: row.kind,
     origin: originOf(row.origin),
-    readiness: row.readiness,
+    // The stored rating counts the backup's age; an orphaned object's is rated without it, as
+    // in the overview (a filter on `readiness` still matches the stored rating).
+    readiness:
+      row.object.status === "orphaned" ? readinessWithoutFreshness(reasons) : row.readiness,
     checkedAt: row.checkedAt.toISOString(),
     jobId: row.jobId,
     snapshotId: row.snapshotId,
-    reasons: parseReasons(row.reasons, row.checkedAt),
+    reasons,
+    setAsideReasons,
     counts: parseCountSummary(row.counts),
   };
 }

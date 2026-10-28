@@ -36,6 +36,15 @@ describe("stateView", () => {
     expect(view({ state: "failed" })).toMatchObject({ key: "failed", tone: "destructive" });
   });
 
+  it("keeps a restore or check a service held back failed: nothing repeats it", () => {
+    for (const kind of ["restore", "restore_check"] as const) {
+      expect(view({ state: "failed", kind, serviceLimited: true }), kind).toMatchObject({
+        key: "failed",
+        tone: "destructive",
+      });
+    }
+  });
+
   it("is Lapis and pulsing while a run runs", () => {
     expect(view({ state: "running" })).toEqual({ key: "running", tone: "info", live: true });
   });
@@ -166,6 +175,12 @@ describe("eventView", () => {
       values: { reason: "boom" },
     });
     expect(event("failed", { message: null }).key).toBe("failed");
+    // A backup a service held back ends held back, not failed.
+    expect(event("failed", { message: "429", limited: true })).toEqual({
+      key: "limitedWithReason",
+      values: { reason: "429" },
+    });
+    expect(event("failed", { message: null, limited: true }).key).toBe("limited");
     expect(event("agent_error", { path: "/srv/x", message: "denied" }).key).toBe("agentErrorPath");
     expect(event("agent_error", { path: null, message: "denied" }).key).toBe("agentError");
     expect(event("finished", { filesNew: 3, filesChanged: 2, state: "succeeded" })).toEqual({

@@ -18,7 +18,7 @@ import type {
 } from "@microsoft/microsoft-graph-types";
 import type { BatchRequest, GraphClient, GraphRequest } from "../client.js";
 import { type DeltaBatch, type DeltaSummary, type DeltaTokenStore, syncDelta } from "../delta.js";
-import { GraphError, isGraphError, isNotFound } from "../errors.js";
+import { GraphError, isGraphError, isMailboxUnavailable, isNotFound } from "../errors.js";
 import {
   bodyOrThrow,
   collect,
@@ -81,6 +81,12 @@ export type WellKnownFolderName = (typeof WELL_KNOWN_FOLDER_NAMES)[number];
 export interface WellKnownFolders {
   byName: Map<WellKnownFolderName, string>;
   byId: Map<string, WellKnownFolderName>;
+  /**
+   * Names whose lookup was refused with a 4xx other than 404 and 429 (a 400 for a
+   * name this mailbox type does not support, a 403). They are treated as absent;
+   * the caller may log them as a warning. Throttling and 5xx answers throw instead.
+   */
+  unresolved?: Map<WellKnownFolderName, GraphError>;
 }
 
 const MAIL_FOLDER_PAGE_SIZE = 100;
@@ -95,7 +101,14 @@ function folderListQuery(includeHidden: boolean): string {
 
 /**
  * Resolve the well-known folders of a mailbox with a single $batch. Names a
- * mailbox does not have (404) are simply absent from the result.
+ * mailbox does not have (404) are simply absent from the result. A definite
+ * refusal of a name (4xx, e.g. a name this mailbox type does not support)
+ * makes that one name absent too and is listed in `unresolved`: the lookups
+ * only label folders (and pick the skipped search folders), so one refused
+ * name must never fail the whole mailbox before a single folder was listed. A
+ * mailbox that is really off limits fails right after, on the folder listing
+ * itself. Throttling (429) and server errors (5xx) throw: they are transient,
+ * and the run retries instead of going on with labels missing.
  */
 export async function resolveWellKnownFolders(
   client: GraphClient,
@@ -108,19 +121,28 @@ export async function resolveWellKnownFolders(
   }));
   const byName = new Map<WellKnownFolderName, string>();
   const byId = new Map<string, WellKnownFolderName>();
+  const unresolved = new Map<WellKnownFolderName, GraphError>();
   for (const response of await client.batch(requests)) {
     const name = response.id as WellKnownFolderName;
     if (response.status === 404) {
       continue;
     }
     if (response.status < 200 || response.status >= 300) {
-      throw new GraphError({
+      const error = new GraphError({
         status: response.status,
         method: "GET",
         url: `${userPath(userId)}/mailFolders/${name}`,
         headers: response.headers,
         payload: response.body,
       });
+      // Throttling the client retried in vain and server errors are transient:
+      // treating the name as absent would back up a skipped folder and drop the
+      // well-known labels for this run only. Fail so the run retries and resumes.
+      if (response.status === 429 || response.status >= 500) {
+        throw error;
+      }
+      unresolved.set(name, error);
+      continue;
     }
     const id = (response.body as { id?: string } | undefined)?.id;
     if (id) {
@@ -128,7 +150,7 @@ export async function resolveWellKnownFolders(
       byId.set(id, name);
     }
   }
-  return { byName, byId };
+  return { byName, byId, unresolved };
 }
 
 /** One folder of the mailbox tree, with its path from the root. */
@@ -151,9 +173,21 @@ export interface ListMailFolderTreeOptions {
   includeHidden?: boolean;
   /** Pre-resolved well-known folders; resolved on demand when omitted. */
   wellKnown?: WellKnownFolders;
+  /**
+   * Called for a folder whose child listing answered 404 (the folder was deleted
+   * after its parent listed it, or Graph answered a spurious 404), so its
+   * subfolders are missing from the tree, or only partly listed. The caller
+   * decides what to do with that subtree; the tree is not proof that it is gone.
+   */
+  onVanishedFolder?: (folder: MailFolderNode, error: unknown) => void;
 }
 
 type RawFolder = Pick<MailFolder, (typeof MAIL_FOLDER_SELECT)[number]> & { id: string };
+
+/** A folder that no longer exists (deleted or moved after it was listed), not a missing mailbox. */
+function isVanishedFolder(error: unknown): boolean {
+  return isNotFound(error) && !isMailboxUnavailable(error);
+}
 
 /**
  * The full folder tree of a mailbox, breadth first. Child folder listings are
@@ -219,13 +253,37 @@ export async function listMailFolderTree(
         method: "GET",
         url: `${userPath(userId)}/mailFolders/${encodeURIComponent(parent.id)}/childFolders`,
       };
-      const page = bodyOrThrow(
-        { status: response.status, headers: response.headers ?? {}, body: response.body },
-        req,
-      ) as { value?: RawFolder[]; "@odata.nextLink"?: string } | undefined;
+      let page: { value?: RawFolder[]; "@odata.nextLink"?: string } | undefined;
+      try {
+        page = bodyOrThrow(
+          { status: response.status, headers: response.headers ?? {}, body: response.body },
+          req,
+        ) as typeof page;
+      } catch (error) {
+        // The parent was probably deleted after it was listed, but the 404 alone
+        // does not prove it: leave the subtree out and let the caller decide
+        // (the parent's own enumeration then sees a real 404 and drops it). "No
+        // mailbox" codes that also come as 404 stay fatal.
+        if (isVanishedFolder(error)) {
+          options.onVanishedFolder?.(parent, error);
+          continue;
+        }
+        throw error;
+      }
       const children: RawFolder[] = [...(page?.value ?? [])];
-      if (page?.["@odata.nextLink"]) {
-        children.push(...(await collect(paginate<RawFolder>(client, page["@odata.nextLink"]))));
+      const nextLink = page?.["@odata.nextLink"];
+      if (nextLink) {
+        try {
+          for await (const raw of paginate<RawFolder>(client, nextLink)) {
+            children.push(raw);
+          }
+        } catch (error) {
+          // Vanished while its later pages were read: keep the children already seen.
+          if (!isVanishedFolder(error)) {
+            throw error;
+          }
+          options.onVanishedFolder?.(parent, error);
+        }
       }
       for (const raw of children) {
         if (seen.has(raw.id)) {
@@ -480,8 +538,45 @@ export function isMimeTooLargeError(error: unknown): boolean {
 }
 
 /**
+ * Errors from `$value` where the JSON + attachments export may still work: the
+ * message is too big, or Exchange cannot convert the item to MIME (IRM, corrupt
+ * or special item classes; these come as a 500 or a conversion code and would
+ * otherwise fail on every run, retried forever as "service unavailable").
+ * "Gone", "forbidden", "unauthorised" and throttling are never mistaken for it.
+ */
+export function isMimeExportRefusedError(error: unknown): boolean {
+  if (!isGraphError(error)) {
+    return false;
+  }
+  if (isMimeTooLargeError(error)) {
+    return true;
+  }
+  if ([401, 403, 404, 410, 429].includes(error.status)) {
+    return false;
+  }
+  const wording = `${error.code ?? ""} ${error.innerCode ?? ""} ${error.message}`;
+  if (/MimeContentConversion|ConversionFailed|CorruptData/i.test(wording)) {
+    return true;
+  }
+  // A plain 500 (fetchMessageContent asks once more first, the client does not
+  // retry a 500): try the JSON path. If the service is really down, the JSON
+  // fetch fails as well and the failure keeps its 5xx class.
+  return error.status === 500;
+}
+
+/** A 500 without a conversion code: may be transient, so MIME is asked once more. */
+function isPlainServerError(error: unknown): boolean {
+  if (!isGraphError(error) || error.status !== 500) {
+    return false;
+  }
+  const wording = `${error.code ?? ""} ${error.innerCode ?? ""} ${error.message}`;
+  return !/MimeContentConversion|ConversionFailed|CorruptData/i.test(wording);
+}
+
+/**
  * Fetch a message's content as MIME, falling back to JSON body plus individual
- * attachments when Graph refuses the MIME export (oversized message).
+ * attachments when Graph refuses the MIME export (oversized message, or an item
+ * Exchange cannot convert to MIME).
  */
 export async function fetchMessageContent(
   client: GraphClient,
@@ -495,8 +590,18 @@ export async function fetchMessageContent(
     try {
       return { kind: "mime", stream: await openMessageMime(client, userId, messageId) };
     } catch (error) {
-      if (!isMimeTooLargeError(error)) {
+      if (!isMimeExportRefusedError(error)) {
         throw error;
+      }
+      // A one-off 500 must not turn a message into the JSON format for good.
+      if (isPlainServerError(error)) {
+        try {
+          return { kind: "mime", stream: await openMessageMime(client, userId, messageId) };
+        } catch (retryError) {
+          if (!isMimeExportRefusedError(retryError)) {
+            throw retryError;
+          }
+        }
       }
     }
   }

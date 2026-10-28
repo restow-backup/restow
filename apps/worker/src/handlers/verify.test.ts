@@ -21,6 +21,7 @@ import {
   MemorySnapshotIndex,
   type ProtectedObjectRef,
   type RecoveryReadiness,
+  readinessWithoutFreshness,
   SnapshotWriter,
   type StorageBackend,
   VerifyIncompleteError,
@@ -54,6 +55,7 @@ import {
   readinessNotification,
   redReasonOf,
   type StoredIncompleteVerify,
+  storedReasons,
   toStoredVerifyResult,
   VERIFY_EVENTS,
   type VerifyCompletedEvent,
@@ -422,7 +424,10 @@ async function writeMailboxSnapshot(
 type StoredReport = NewVerifyReport & { id: string };
 
 /** The handler's store over plain arrays, with the same rules as the Postgres store. */
-function memoryStore(damaged: ReadonlySet<string> = new Set()) {
+function memoryStore(
+  damaged: ReadonlySet<string> = new Set(),
+  status: { current: "active" | "excluded" | "orphaned" } = { current: "active" },
+) {
   const reports: StoredReport[] = [];
   const raised: NewNotification[] = [];
   const incomplete: StoredIncompleteVerify[] = [];
@@ -430,9 +435,16 @@ function memoryStore(damaged: ReadonlySet<string> = new Set()) {
     recordIncomplete: async (_jobId, result) => {
       incomplete.push(result);
     },
-    previousReadiness: async (objectId) =>
-      reports.filter((report) => report.protectedObjectId === objectId).at(-1)?.recoveryReadiness ??
-      null,
+    previousReadiness: async (objectId, options) => {
+      const last = reports.filter((report) => report.protectedObjectId === objectId).at(-1);
+      if (!last) {
+        return null;
+      }
+      return options?.withoutFreshness
+        ? readinessWithoutFreshness(storedReasons((last.details as { reasons?: unknown }).reasons))
+        : last.recoveryReadiness;
+    },
+    objectStatus: async () => status.current,
     packFindings: async () => ({
       damaged: new Set(damaged),
       unreadable: new Set<string>(),
@@ -582,6 +594,33 @@ describe("verify handler on the memory engine", () => {
       "green",
     ]);
     expect(raised[0]?.details).toMatchObject({ previous: "green", readiness: "red" });
+  });
+
+  it("rates an orphaned object without the age of its last backup, and raises nothing for it", async () => {
+    const engine = memoryEngine();
+    await writeMailboxSnapshot(engine);
+    // Thirty days on: the only backup is far past the outdated threshold.
+    const later = { ...engine.ctx, now: () => new Date(NOW.getTime() + 30 * 86_400_000) };
+    const status = { current: "active" as "active" | "orphaned" };
+    const { store, reports, raised } = memoryStore(new Set(), status);
+    const events: VerifyCompletedEvent[] = [];
+    const handler = handlerWith(store, events);
+
+    // Still in the source: the age makes it red, and that is announced.
+    await handler.run(later, payload);
+    expect(reports.map((report) => report.recoveryReadiness)).toEqual(["red"]);
+    expect(raised.map((notification) => notification.event)).toEqual([VERIFY_EVENTS.red]);
+
+    // Removed from the source: the same backup restores, so it is green; the report still says
+    // how old it is, and the earlier red that came only from the age raises no "recovered".
+    status.current = "orphaned";
+    const result = await handler.run(later, payload);
+    expect(reports.map((report) => report.recoveryReadiness)).toEqual(["red", "green"]);
+    const details = reports[1]?.details as VerifyOutcome["details"];
+    expect(details.reasons.map((reason) => reason.code)).toContain("snapshot_outdated");
+    expect(raised.map((notification) => notification.event)).toEqual([VERIFY_EVENTS.red]);
+    expect(result?.summary).toMatchObject({ readiness: "green", previous: "green" });
+    expect(events[1]).toMatchObject({ readiness: "green", previous: "green" });
   });
 
   it("rates nothing when the storage does not answer, retries, and completes the last attempt without a rating", async () => {
@@ -869,6 +908,24 @@ describe.skipIf(!adminUrl)("verify handler against Postgres", () => {
       unreadable: new Set(),
       persistentlyUnreadable: new Set(),
     });
+  });
+
+  it("reads the object's status, and the previous rating without the backup's age on request", async () => {
+    const store = pgVerifyStore(db, tenantId);
+    expect(await store.objectStatus(object.id)).toBe("active");
+    expect(await store.objectStatus(randomUUID())).toBeNull();
+    // The newest red came from unreadable items: it stays red without the age, too.
+    expect(await store.previousReadiness(object.id, { withoutFreshness: true })).toBe("red");
+    await db.insert(verifyReports).values({
+      tenantId,
+      protectedObjectId: object.id,
+      snapshotId,
+      recoveryReadiness: "red",
+      checkedAt: new Date(NOW.getTime() + 86_400_000),
+      details: { reasons: [{ code: "snapshot_outdated", severity: "red", ageHours: 900 }] },
+    });
+    expect(await store.previousReadiness(object.id)).toBe("red");
+    expect(await store.previousReadiness(object.id, { withoutFreshness: true })).toBe("green");
   });
 
   it("refuses to record a run of another tenant", async () => {

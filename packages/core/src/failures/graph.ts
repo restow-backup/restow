@@ -90,6 +90,27 @@ export function graphResourceOf(url: string): GraphResourceInfo {
   return { resource: "other", permission: null };
 }
 
+/**
+ * True for requests that address a whole drive, not an item inside it:
+ * /drives/{id}, its root and the root's delta feed, and the same below
+ * /users/{id}/drive or /me/drive.
+ */
+function isDriveLevelPath(url: string): boolean {
+  let path = url;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    // A relative path is fine as it is.
+  }
+  const cut = path.search(/[?#]/);
+  const bare = (cut === -1 ? path : path.slice(0, cut)).replace(/^\/v\d+\.\d+/i, "");
+  const below = String.raw`(\/root(\/delta(\([^/]*\))?)?)?\/?$`;
+  return (
+    new RegExp(String.raw`^\/drives\/[^/]+${below}`, "i").test(bare) ||
+    new RegExp(String.raw`^\/(users\/[^/]+|me)\/drive${below}`, "i").test(bare)
+  );
+}
+
 const NOT_ENABLED_CODES = new Set([
   "mailboxnotenabledforrestapi",
   "errormailboxnotenabledforrestapi",
@@ -260,6 +281,12 @@ export function classifyGraphError(error: GraphError): FailureCause {
     return cause("graph.access_denied", false, withPermission, technical);
   }
   if (error.status === 404 || /spo license/i.test(error.graphMessage ?? "")) {
+    // A request for the drive itself (its root, its delta feed) that finds
+    // nothing means the OneDrive is gone (user deleted, retention over), even
+    // though Graph says "itemNotFound" for it; checked before the item case.
+    if (resource === "onedrive" && isDriveLevelPath(error.url) && hasCode(error, NOT_FOUND_CODES)) {
+      return cause("graph.onedrive_unavailable", false, base, technical);
+    }
     if (hasCode(error, ITEM_NOT_FOUND_CODES)) {
       // Deleted or moved between listing and reading; the next run sees the new state.
       return cause("graph.item_not_found", true, base, technical);

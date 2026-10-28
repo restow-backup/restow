@@ -16,7 +16,9 @@
  *              an interruption. Its next attempt continues from its checkpoint.
  *   settled    a row still `active` whose pg-boss job is no longer active (pg-boss
  *              expired it, or it is gone) takes the state pg-boss has: `queued` when a
- *              retry follows, else `failed`, explained as the last attempt.
+ *              retry follows, else `failed`, explained as the last attempt. A job that
+ *              ends here is announced like one the worker finished (`onJobFinished`:
+ *              the job.failed webhook, the bell, the notification rules).
  *
  * A job whose queue policy keeps one waiting job per object (`stately`) and that
  * already has one waiting is left to pg-boss' expiration: the waiting one covers it, as
@@ -31,6 +33,7 @@ import type { Logger } from "@restow/core";
 import { type Database, type FailureRecordJson, safeErrorMessage } from "@restow/db";
 import { sql } from "drizzle-orm";
 import { jobFailureRecord, retryStateOf } from "./failure.js";
+import type { FinishedJob } from "./handlers/framework.js";
 import { QUEUE_NAMES } from "./queues.js";
 
 /** A worker counts as live while its heartbeat is this fresh (it beats every 30 seconds). */
@@ -88,13 +91,40 @@ interface StuckRow extends Record<string, unknown> {
   retry_backoff: boolean | null;
 }
 
+interface SettledRow extends Record<string, unknown> {
+  id: string;
+  tenant_id: string;
+  queue: string;
+  status: string;
+  protected_object_id: string | null;
+  started_at: Date | string | null;
+  completed_at: Date | string | null;
+  error_message: string | null;
+  failure: FailureRecordJson | null;
+}
+
+export interface ReconcileOptions {
+  readonly now: Date;
+  readonly selfStartedAt: Date;
+  readonly logger: Logger;
+  /**
+   * Called for a job the pass ended for good, as the worker's runtime calls it for one
+   * it finished (`WorkerRuntime.onJobFinished`). A failing hook is logged and never
+   * changes the outcome.
+   */
+  readonly onJobFinished?: (tenantId: string, job: FinishedJob) => Promise<unknown>;
+}
+
+const asDate = (value: Date | string | null): Date | null =>
+  value === null ? null : new Date(value);
+
 /**
  * One pass. `selfStartedAt` is when this worker started: until its first heartbeat
  * it is live as well.
  */
 export async function reconcileJobs(
   providerDb: Database,
-  options: { now: Date; selfStartedAt: Date; logger: Logger },
+  options: ReconcileOptions,
 ): Promise<ReconcileSummary> {
   const { now, logger } = options;
   const queues = [...QUEUE_NAMES];
@@ -197,15 +227,39 @@ export async function reconcileJobs(
           )
         : null,
     );
-    const result = await providerDb.execute(sql`
+    // A dead job has nothing to resume (as the worker's own finish clears it); a retry keeps it.
+    const result = await providerDb.execute<SettledRow>(sql`
       UPDATE jobs
          SET status = ${retries ? "queued" : "failed"}::job_status,
              failure = ${JSON.stringify(failure)}::jsonb,
              error_message = ${new WorkerGoneError().message},
              completed_at = ${retries ? null : now.toISOString()}::timestamptz,
+             ${retries ? sql`` : sql`cursor = NULL,`}
              updated_at = now()
-       WHERE id = ${row.job_id}::uuid AND status = 'active'`);
+       WHERE id = ${row.job_id}::uuid AND status = 'active'
+      RETURNING id::text AS id, tenant_id::text AS tenant_id, queue::text AS queue,
+                status::text AS status, protected_object_id::text AS protected_object_id,
+                started_at, completed_at, error_message, failure`);
     settled += result.rowCount ?? 0;
+    const done = result.rows[0];
+    if (done && !retries && options.onJobFinished) {
+      try {
+        await options.onJobFinished(done.tenant_id, {
+          id: done.id,
+          queue: done.queue as FinishedJob["queue"],
+          status: done.status as FinishedJob["status"],
+          protectedObjectId: done.protected_object_id,
+          startedAt: asDate(done.started_at),
+          completedAt: asDate(done.completed_at),
+          errorMessage: done.error_message,
+          failure: done.failure,
+        });
+      } catch (error) {
+        logger.warn("job-finished hook failed for a job the worker left behind", {
+          errorMessage: safeErrorMessage(error),
+        });
+      }
+    }
   }
   if (requeued + settled > 0) {
     logger.warn("jobs a stopped worker left behind were reconciled", { requeued, settled });
@@ -216,7 +270,7 @@ export async function reconcileJobs(
 /** One pass, unless another worker runs it right now (then null). */
 export async function reconcileJobsOnce(
   providerDb: Database,
-  options: { now: Date; selfStartedAt: Date; logger: Logger },
+  options: ReconcileOptions,
 ): Promise<ReconcileSummary | null> {
   const client = await providerDb.$client.connect();
   try {
@@ -240,7 +294,7 @@ export async function reconcileJobsOnce(
 /** Run the pass now and every few minutes; returns a stop function. */
 export function startJobReconciler(
   providerDb: Database,
-  options: { selfStartedAt: Date; logger: Logger; intervalMs?: number; firstAfterMs?: number },
+  options: Omit<ReconcileOptions, "now"> & { intervalMs?: number; firstAfterMs?: number },
 ): () => void {
   let timer: NodeJS.Timeout | null = null;
   let stopped = false;

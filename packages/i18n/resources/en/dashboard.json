@@ -328,7 +328,7 @@
     "description": "How long backups are kept.",
     "keepAll": "Everything is kept: there is no retention policy yet, so no backup is ever pruned.",
     "keepByAge": "Every snapshot is kept; the policy sets no age limit.",
-    "prunes": "Snapshots older than {days} days are pruned; the newest {keepLast, plural, one {snapshot} other {# snapshots}} of each object are always kept.",
+    "prunes": "Snapshots older than {days} days are pruned; the newest {keepLast, plural, one {snapshot of each object is} other {# snapshots of each object are}} always kept.",
     "policy": "Policy: {name}",
     "noPolicy": "No policy",
     "holds": "{count, plural, one {# legal hold pauses pruning} other {# legal holds pause pruning}}",
@@ -385,6 +385,7 @@
       "completed": "Completed",
       "completedWithFailures": "Completed with failures",
       "failed": "Failed",
+      "limited": "Held back by the service, retried",
       "cancelled": "Cancelled"
     },
     "empty": {

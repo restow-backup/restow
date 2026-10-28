@@ -161,6 +161,7 @@ export type JobStatusKey =
   | "completed"
   | "completedWithFailures"
   | "failed"
+  | "limited"
   | "cancelled";
 
 /**
@@ -187,7 +188,10 @@ export function jobStatusView(job: RecentJob): {
         ? { key: "completedWithFailures", tone: "warning", live: false }
         : { key: "completed", tone: job.queue === "restore" ? "success" : "neutral", live: false };
     case "failed":
-      return { key: "failed", tone: "destructive", live: false };
+      // A backup a service held back is no failure: amber, the next scheduled run tries again.
+      return job.serviceLimited
+        ? { key: "limited", tone: "warning", live: false }
+        : { key: "failed", tone: "destructive", live: false };
     case "cancelled":
       return { key: "cancelled", tone: "muted", live: false };
   }

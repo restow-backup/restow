@@ -36,6 +36,7 @@
     "completed": "Abgeschlossen",
     "completedWithFailures": "{count, plural, one {Abgeschlossen, # Element fehlgeschlagen} other {Abgeschlossen, # Elemente fehlgeschlagen}}",
     "failed": "Fehlgeschlagen",
+    "serviceLimited": "Vom Dienst gedrosselt, wird wiederholt",
     "cancelled": "Abgebrochen",
     "checkIncomplete": "Nicht abgeschlossen, wird wiederholt"
   },
@@ -65,9 +66,13 @@
     "archive": "Packt das Archiv",
     "evaluate": "Prüft die Aufbewahrung",
     "prune": "Entfernt abgelaufene Snapshots",
+    "site": "Liest die Website",
+    "lists": "Listen",
     "load": "Lädt das bekannte Verzeichnis",
     "complete": "Vervollständigt unvollständige Benutzereinträge",
     "probe": "Prüft Postfächer und OneDrives",
+    "sites": "Sucht Websites",
+    "groups": "Sucht Gruppenpostfächer",
     "plan": "Wendet die Schutzregeln an",
     "persist": "Speichert das Verzeichnis",
     "unknown": "Arbeitet ({name})"

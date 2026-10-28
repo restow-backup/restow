@@ -500,6 +500,8 @@ async function main(): Promise<void> {
   const stopReconciler = startJobReconciler(providerDb, {
     selfStartedAt: startedAt,
     logger: logger.child({ component: "reconcile" }),
+    // A job it ends for good is announced like one a worker finished (webhook, bell).
+    onJobFinished: runtime.onJobFinished,
   });
 
   const stop = async (signal: NodeJS.Signals): Promise<void> => {

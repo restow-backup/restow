@@ -114,6 +114,8 @@ export function imapCaptureSettingsFromEnv(env: Env = process.env): ImapCaptureS
 export const IDLE_LOCK_CLASS = 0x494d4150;
 /** An account whose server has no IDLE is asked again after this long. */
 const NO_IDLE_RETRY_MS = 24 * 60 * 60_000;
+/** A watch that keeps failing backs off doubling from `retryMs` up to this. */
+const FAILED_RETRY_CAP_MS = 60 * 60_000;
 /** Where the backfill keeps its position in the `archive` job's cursor. */
 const CURSOR_KEY = "imapArchive";
 
@@ -449,6 +451,8 @@ export class ImapIdleManager {
   private readonly held = new Map<string, HeldStream>();
   /** Accounts not to try again before the time given (epoch ms). */
   private readonly backoff = new Map<string, number>();
+  /** Watches in a row that failed before IDLE began, per stream (the backoff grows with it). */
+  private readonly failures = new Map<string, number>();
   private lockClient: LockClient | null = null;
   private loop: Promise<void> | null = null;
   private lastStatusRound: number;
@@ -672,9 +676,23 @@ export class ImapIdleManager {
       if (outcome !== "released" || held.established) {
         await this.deps.services.markDue([stream.id]).catch(() => undefined);
       }
+      // A NO on EXAMINE or IDLE (throttling, a transient server error) is a failure, not a
+      // server without IDLE: retried after `retryMs`, doubling while it keeps failing, so a
+      // server that refuses every time is not asked every few minutes forever either.
+      const failed =
+        outcome === "failed" && !held.established ? (this.failures.get(stream.id) ?? 0) + 1 : 0;
+      if (failed > 0) {
+        this.failures.set(stream.id, failed);
+      } else {
+        this.failures.delete(stream.id);
+      }
+      const retryMs = Math.min(
+        this.deps.settings.retryMs * 2 ** Math.min(Math.max(failed - 1, 0), 16),
+        Math.max(FAILED_RETRY_CAP_MS, this.deps.settings.retryMs),
+      );
       this.backoff.set(
         stream.id,
-        this.now() + (outcome === "unsupported" ? NO_IDLE_RETRY_MS : this.deps.settings.retryMs),
+        this.now() + (outcome === "unsupported" ? NO_IDLE_RETRY_MS : retryMs),
       );
     });
   }
@@ -704,6 +722,7 @@ export class ImapIdleManager {
         env,
         maxIdleTimeMs: settings.maxIdleMs,
       });
+      // Only a server without the IDLE capability gets the day-long backoff.
       if (!session.idleSupported) {
         return "unsupported";
       }
@@ -731,12 +750,14 @@ export class ImapIdleManager {
       if (signal.aborted) {
         return "released";
       }
-      const unsupported = isImapSessionError(error) && !error.connectionLost;
       logger.info("imap idle watch ended; the account is polled until it is watched again", {
         errorMessage: safeErrorMessage(error),
       });
-      // The stream is made due once the lock is given back (watch()).
-      return unsupported ? "unsupported" : "failed";
+      // The stream is made due once the lock is given back (watch()). A command-level error
+      // (a NO on EXAMINE of the watched folder or on IDLE) is not "no IDLE": the server
+      // announced it (checked above), so it is retried like any other failure, and the
+      // status page does not read a refused command as a missing IDLE slot for a day.
+      return "failed";
     } finally {
       held.session = null;
       held.folder = null;

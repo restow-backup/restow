@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { toast } from "@/components/ui/sonner";
 import { historyKeys } from "@/features/history/api";
 import { run as liveRun } from "@/features/history/fixtures";
 import {
@@ -451,19 +452,167 @@ describe("the list of mail jobs", () => {
     expect(slot("recommended-skipped")).toBeNull();
   });
 
+  // The plan of "Switch archiving on" for the job over all objects (ALL), as the server makes it.
+  const ENABLE_ARCHIVE = {
+    kind: "archive",
+    key: "archive",
+    action: "enable",
+    jobId: ALL.id,
+    name: ALL.name,
+    os: null,
+    profile: null,
+    schedule: { kind: "interval", intervalMinutes: 480, timeZone: "Europe/Berlin" },
+    verifySchedule: null,
+    retention: null,
+    retentionPolicy: null,
+    repository: null,
+    mode: null,
+    paths: [],
+    members: [],
+    memberCount: 0,
+    archive: true,
+    captureKinds: ["m365"],
+  };
+
   it("offers to switch archiving on in the mail job over all objects, only where the capture is offered (0.4.7)", async () => {
-    opened = await openJobs("/jobs?type=mail", mailRoutes());
+    const routes = {
+      "GET /backup-jobs/recommended": () => json({ items: [ENABLE_ARCHIVE], skipped: [] }),
+    };
+    opened = await openJobs("/jobs?type=mail", mailRoutes({ routes }));
     await flush(5);
     expect(slot("archive-offer-notice")).toBeNull();
+    // Without the capture the recommendation is not even asked.
+    expect(opened.requests.some((request) => request.path === "/backup-jobs/recommended")).toBe(
+      false,
+    );
     await opened.mounted.unmount();
     opened = await openJobs("/jobs?type=mail", {
-      ...mailRoutes(),
+      ...mailRoutes({ routes }),
       session: adminSession({ features: ["archive.mailboxCapture"] }),
     });
     await flush(5);
     const notice = slot("archive-offer-notice");
     expect(notice?.textContent).toContain("does not archive yet");
     expect(buttonByText(notice as HTMLElement, "Switch archiving on")).toBeTruthy();
+  });
+
+  it("offers no archive the server would not switch on: nothing to capture, or ways chosen by hand (0.4.7)", async () => {
+    // Only OneDrives, sites or groups: nothing an archive could capture, the server plans nothing.
+    opened = await openJobs("/jobs?type=mail", {
+      ...mailRoutes({
+        routes: { "GET /backup-jobs/recommended": () => json({ items: [], skipped: [] }) },
+      }),
+      session: adminSession({ features: ["archive.mailboxCapture"] }),
+    });
+    await flush(5);
+    expect(opened.requests.some((request) => request.path === "/backup-jobs/recommended")).toBe(
+      true,
+    );
+    expect(slot("archive-offer-notice")).toBeNull();
+    await opened.mounted.unmount();
+    // The capture ways of the job were chosen by hand: archiving is a choice in the job.
+    opened = await openJobs("/jobs?type=mail", {
+      ...mailRoutes({
+        routes: {
+          "GET /backup-jobs/recommended": () =>
+            json({
+              items: [],
+              skipped: [{ kind: "archive", id: ALL.id, name: ALL.name, reason: "no_capture_way" }],
+            }),
+        },
+      }),
+      session: adminSession({ features: ["archive.mailboxCapture"] }),
+    });
+    await flush(5);
+    expect(slot("archive-offer-notice")).toBeNull();
+    // Where the dialog opens anyway (the mail notice), the job is named, not "everything has a job".
+    await opened.mounted.unmount();
+    opened = await openJobs("/jobs?type=mail", {
+      ...mailRoutes({
+        routes: {
+          "GET /backup-jobs": () => json(list([ALL], { mail: 7, endpoint: 0 })),
+          "GET /backup-jobs/recommended": () =>
+            json({
+              items: [],
+              skipped: [{ kind: "archive", id: ALL.id, name: ALL.name, reason: "no_capture_way" }],
+            }),
+        },
+      }),
+      session: adminSession({ features: ["archive.mailboxCapture"] }),
+    });
+    await flush(5);
+    await click(buttonByText(slot("uncovered-notice") as HTMLElement, "Create recommended job"));
+    await flush(5);
+    expect(slot("recommended-no-capture-way")?.textContent).toContain(ALL.name);
+    expect(slot("recommended-nothing")).toBeNull();
+  });
+
+  it("says archiving was switched on, and that a job archiving already leaves nothing to do (0.4.7)", async () => {
+    const success = vi.spyOn(toast, "success");
+    opened = await openJobs("/jobs?type=mail", {
+      ...mailRoutes({
+        routes: {
+          "GET /backup-jobs/recommended": () => json({ items: [ENABLE_ARCHIVE], skipped: [] }),
+          "POST /backup-jobs/recommended": () =>
+            json({
+              items: [
+                {
+                  kind: "archive",
+                  key: "archive",
+                  jobId: ALL.id,
+                  name: ALL.name,
+                  created: false,
+                  added: 0,
+                },
+              ],
+              skipped: [],
+            }),
+        },
+      }),
+      session: adminSession({ features: ["archive.mailboxCapture"] }),
+    });
+    await flush(5);
+    await click(buttonByText(slot("archive-offer-notice") as HTMLElement, "Switch archiving on"));
+    await flush(5);
+    await click(slot("recommended-dialog")?.querySelector('[data-action="confirm-recommended"]'));
+    await flush(5);
+    // Archiving switched on in a job that exists: no recommended job was "set up".
+    expect(success).toHaveBeenCalledWith(`Archiving switched on in ${ALL.name}`);
+    expect(success).not.toHaveBeenCalledWith(expect.stringContaining("Recommended job"));
+    success.mockRestore();
+
+    await opened.mounted.unmount();
+
+    // The list was stale: another admin switched archiving on meanwhile. The dialog reads afresh.
+    let reads = 0;
+    opened = await openJobs("/jobs?type=mail", {
+      ...mailRoutes({
+        routes: {
+          "GET /backup-jobs/recommended": () =>
+            json(
+              reads++ === 0
+                ? { items: [ENABLE_ARCHIVE], skipped: [] }
+                : {
+                    items: [],
+                    skipped: [{ kind: "archive", id: ALL.id, name: ALL.name, reason: "covered" }],
+                  },
+            ),
+        },
+      }),
+      session: adminSession({ features: ["archive.mailboxCapture"] }),
+    });
+    await flush(5);
+    await click(buttonByText(slot("archive-offer-notice") as HTMLElement, "Switch archiving on"));
+    await flush(5);
+    // Not "everything has a backup job": the archive question is answered by name.
+    expect(slot("recommended-nothing")?.textContent).toBe(
+      `Nothing to do: ${ALL.name} archives already.`,
+    );
+    // Closed, the notice goes: the offer is read again and has nothing left.
+    await click(buttonByText(slot("recommended-dialog") as HTMLElement, "Cancel"));
+    await flush(5);
+    expect(slot("recommended-dialog")).toBeNull();
+    expect(slot("archive-offer-notice")).toBeNull();
   });
 
   it("says nothing about uncovered objects of the other kind", async () => {

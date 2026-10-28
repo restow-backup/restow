@@ -1282,6 +1282,7 @@
     "loadError": "The recommendation could not be loaded.",
     "applyError": "The recommended jobs could not be set up. Nothing was changed.",
     "nothing": "Nothing to do: everything here has a backup job.",
+    "archiveCovered": "Nothing to do: {name} archives already.",
     "create": "New job: {name}",
     "add": "Add to {name}",
     "kind": {
@@ -1310,6 +1311,7 @@
     "cancel": "Cancel",
     "done": "{count, plural, one {Recommended job set up: {names}} other {Recommended jobs set up: {names}}}",
     "doneNothing": "Nothing changed: everything has a job already.",
+    "doneEnabled": "{count, plural, one {Archiving switched on in {names}} other {Archiving switched on in: {names}}}",
     "enable": "Switch archiving on in {name}",
     "archiveSchedule": "Keeps running on the job's schedule: {schedule}",
     "archiveManual": "Keeps running by hand only, as the job did",

@@ -229,6 +229,8 @@
     "completedWithFailuresPlain": "Completed, {failed} failed",
     "failed": "Failed",
     "failedWithReason": "Failed: {reason}",
+    "limited": "Held back by the service, retried",
+    "limitedWithReason": "Held back by the service: {reason}",
     "cancelled": "Cancelled",
     "agentError": "{message}",
     "agentErrorPath": "{path}: {message}",

@@ -103,8 +103,8 @@ describe.skipIf(!adminUrl)("reconciling jobs a stopped worker left behind", () =
     )[0];
   const jobRow = async (id: string) =>
     (
-      await q<{ status: string; failure: Record<string, unknown> | null }>(
-        "SELECT status::text AS status, failure FROM jobs WHERE id = $1",
+      await q<{ status: string; failure: Record<string, unknown> | null; cursor: unknown }>(
+        "SELECT status::text AS status, failure, cursor FROM jobs WHERE id = $1",
         [id],
       )
     )[0];
@@ -157,21 +157,41 @@ describe.skipIf(!adminUrl)("reconciling jobs a stopped worker left behind", () =
     // pg-boss expired one into a retry and failed the other for good.
     await q("UPDATE pgboss.job SET state = 'retry' WHERE id = $1", [retrying.bossId]);
     await q("UPDATE pgboss.job SET state = 'failed' WHERE id = $1", [lost.bossId]);
+    await q("UPDATE jobs SET cursor = '{\"page\": 4}'::jsonb WHERE id IN ($1, $2)", [
+      retrying.jobId,
+      lost.jobId,
+    ]);
     await liveWorker(60);
+    const finished: { tenantId: string; id: string; status: string; completedAt: Date | null }[] =
+      [];
     const summary = await reconcileJobs(db, {
       now: new Date(),
       selfStartedAt: new Date(),
       logger: noopLogger as never,
+      onJobFinished: async (tenant, job) => {
+        finished.push({ tenantId: tenant, ...job });
+      },
     });
     expect(summary).toEqual({ requeued: 0, settled: 2 });
     expect(await jobRow(retrying.jobId)).toMatchObject({
       status: "queued",
       failure: { code: "job.interrupted", params: expect.objectContaining({ final: "no" }) },
+      cursor: { page: 4 },
     });
     expect(await jobRow(lost.jobId)).toMatchObject({
       status: "failed",
       failure: { code: "job.interrupted", params: expect.objectContaining({ final: "yes" }) },
+      cursor: null,
     });
+    // Only the job that ended is announced (job.failed webhook, bell), like a worker's own.
+    expect(finished).toEqual([
+      expect.objectContaining({
+        tenantId,
+        id: lost.jobId,
+        status: "failed",
+        completedAt: expect.any(Date),
+      }),
+    ]);
   });
 
   it("runs the pass in one worker at a time", async () => {

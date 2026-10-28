@@ -183,6 +183,91 @@ describe("SharePointRestoreEngine", () => {
     });
   });
 
+  it("does not add the items again when a rename-mode restore is retried", async () => {
+    const world = await backedUp(harness);
+    // Items the restore adds are created after it was requested.
+    world.sp.itemCreatedDateTime = "2026-10-01T09:05:00Z";
+    const retried = request(world, {
+      selection: { folderPaths: ["Lists/Team Tasks"] },
+      requestedAt: new Date("2026-10-01T09:00:00Z"),
+    });
+    // The first attempt was interrupted after its first item.
+    await harness.cursor.save({ sharepointListItemsAddedBy: "restore-1" });
+    world.sp.addListItem(world.tasks, { Title: "Call customer", Status: "Open" });
+
+    const report = await restoreEngine(world).run(harness.context({ jobId: "restore" }), retried);
+    expect(report.failures).toEqual([]);
+    expect(world.tasks.items.map((item) => [item.id, item.fields.Title])).toEqual([
+      ["1", "Call customer"],
+      ["2", "Send offer"],
+      ["3", "Call customer"],
+      ["4", "Send offer"],
+    ]);
+    expect(world.sp.graph.callsTo("POST", "/items")).toHaveLength(1);
+    expect(
+      report.items.find((item) => item.path === "Lists/Team Tasks/Call customer (1).json"),
+    ).toMatchObject({
+      status: "restored",
+      targetRef: "3",
+      reason: "already added by an earlier attempt of this restore",
+    });
+
+    // A third run finds both and adds nothing.
+    const again = await restoreEngine(world).run(harness.context({ jobId: "restore" }), retried);
+    expect(again.failures).toEqual([]);
+    expect(world.tasks.items).toHaveLength(4);
+    expect(world.sp.graph.callsTo("POST", "/items")).toHaveLength(1);
+  });
+
+  it("does not take someone else's new item for its own on a first attempt", async () => {
+    const world = await backedUp(harness);
+    world.sp.itemCreatedDateTime = "2026-10-01T09:05:00Z";
+    // A colleague adds the same item after the request, before the restore runs.
+    world.sp.addListItem(world.tasks, { Title: "Call customer", Status: "Open" });
+    const report = await restoreEngine(world).run(
+      harness.context({ jobId: "restore" }),
+      request(world, {
+        selection: { folderPaths: ["Lists/Team Tasks"] },
+        requestedAt: new Date("2026-10-01T09:00:00Z"),
+      }),
+    );
+    expect(report.failures).toEqual([]);
+    expect(world.sp.graph.callsTo("POST", "/items")).toHaveLength(2);
+    expect(world.tasks.items).toHaveLength(5);
+    expect(
+      report.items.find((item) => item.path === "Lists/Team Tasks/Call customer (1).json"),
+    ).toMatchObject({ status: "restored", targetRef: "4" });
+  });
+
+  it("never matches an item without writable values on a retry", async () => {
+    const drive = new FakeDrive("b!docs");
+    const sp = new FakeSharePoint(drive.routes());
+    const site = sp.addSite({ id: SITE_ID, displayName: "Sales" });
+    const tasks = sp.addList(site, { displayName: "Team Tasks" });
+    sp.addListItem(tasks, {});
+    const client = sp.graph.client();
+    const backup = await new SharePointBackupEngine({
+      graph: async () => client,
+      checkpointMinIntervalMs: 0,
+      snapshotIdGenerator: () => "snap-1",
+    }).run(harness.context(), siteObject, {});
+    const world: World = { sp, drive, site, tasks, snapshotId: backup.snapshotId };
+    sp.itemCreatedDateTime = "2026-10-01T09:05:00Z";
+    await harness.cursor.save({ sharepointListItemsAddedBy: "restore-1" });
+    // Someone else's item, created since the request.
+    sp.addListItem(tasks, { Title: "Unrelated" });
+    const report = await restoreEngine(world).run(
+      harness.context({ jobId: "restore" }),
+      request(world, {
+        selection: { folderPaths: ["Lists/Team Tasks"] },
+        requestedAt: new Date("2026-10-01T09:00:00Z"),
+      }),
+    );
+    expect(report.failures).toEqual([]);
+    expect(sp.graph.callsTo("POST", "/items")).toHaveLength(1);
+    expect(report.items.find((item) => item.reason?.includes("earlier attempt"))).toBeUndefined();
+  });
+
   it("overwrites an existing item in replace mode and recreates a deleted one", async () => {
     const world = await backedUp(harness);
     const first = world.tasks.items[0];

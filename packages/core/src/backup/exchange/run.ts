@@ -639,6 +639,29 @@ export function isMailboxAccessError(error: unknown): boolean {
   return error.status === 401 || error.status === 403 || isMailboxUnavailable(error);
 }
 
+/**
+ * Graph rejected the token (401). Still a mailbox access error (it must not turn
+ * into a run full of item failures), but a transient one: an Entra/Graph incident
+ * or a token Graph refuses although it is fresh. The run checkpoints so the next
+ * attempt resumes, instead of abandoning a partial first backup that took hours.
+ */
+export function isTokenRejected(error: unknown): boolean {
+  if (error instanceof MailboxAccessError) {
+    return error.status === 401;
+  }
+  return isGraphError(error) && error.status === 401;
+}
+
+/**
+ * A 403 for one area (calendars, contacts) after the mail phase read the mailbox:
+ * a missing Calendars/Contacts permission or an RBAC/access-policy scope that
+ * covers mail only. It fails that area, not the mailbox. "No mailbox" codes that
+ * also come as 403 still abandon the snapshot.
+ */
+export function isAreaRefused(error: unknown): boolean {
+  return isGraphError(error) && error.status === 403 && !isMailboxUnavailable(error);
+}
+
 /** Wrap a structural failure (folder tree, calendar list) as a mailbox access error when that is what it is. */
 export function toMailboxAccessError(error: unknown, what: string): unknown {
   if (error instanceof MailboxAccessError || !isMailboxAccessError(error) || !isGraphError(error)) {

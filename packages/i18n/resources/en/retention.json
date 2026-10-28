@@ -132,7 +132,7 @@
     "thinningNote": "Restore points in between are thinned to save space; not every one is kept.",
     "keepAll": "Everything is kept: there is no retention policy yet, so no restore point is ever pruned.",
     "keepByAge": "Every restore point is kept; the policy sets no age limit.",
-    "prunes": "Restore points older than {days} days are pruned; the newest {keepLast, plural, one {restore point} other {# restore points}} of each object are always kept.",
+    "prunes": "Restore points older than {days} days are pruned; the newest {keepLast, plural, one {restore point of each object is} other {# restore points of each object are}} always kept.",
     "onlyOverrides": "There is no tenant default, so objects without their own policy keep every restore point. {count, plural, one {# object follows} other {# objects follow}} its own policy, which may prune its restore points.",
     "kept": "Restore points kept",
     "pruned": "Restore points pruned",

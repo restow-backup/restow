@@ -17,6 +17,7 @@ import { loadManifest } from "../../engine/snapshot.js";
 import type { FirstBackupProgress, JobContext, ProtectedObjectRef } from "../../engine/types.js";
 import { isGraphError } from "../../graph/errors.js";
 import {
+  batchEnvelope,
   createFakeGraph,
   type FakeGraph,
   graphError,
@@ -990,8 +991,9 @@ describe("ExchangeBackupEngine", () => {
     fake("AAMkMsg2").mimeResponses = [
       { status: 429, headers: { "Retry-After": "3" }, json: graphError("ApplicationThrottled") },
     ];
+    // A 502 the client does not retry (a 500 would be asked again and then exported as JSON).
     fake("AAMkMsg4").mimeResponses = [
-      { status: 500, json: graphError("ErrorInternalServerError", "Something went wrong.") },
+      { status: 502, json: graphError("ErrorInternalServerError", "Something went wrong.") },
     ];
     // The user deletes a message between the delta listing and the download.
     box.intercept = (call) => {
@@ -1008,12 +1010,12 @@ describe("ExchangeBackupEngine", () => {
     expect(result.failures).toEqual([
       {
         itemRef: failedRef,
-        reason: expect.stringContaining("Graph 500 ErrorInternalServerError"),
+        reason: expect.stringContaining("Graph 502 ErrorInternalServerError"),
         cause: expect.objectContaining({
           code: "graph.service_unavailable",
           transient: true,
           technical: expect.objectContaining({
-            httpStatus: 500,
+            httpStatus: 502,
             errorCode: "ErrorInternalServerError",
           }),
         }),
@@ -1243,6 +1245,31 @@ describe("ExchangeBackupEngine", () => {
     });
   });
 
+  it("keeps the subtree of a listed folder whose subfolders answer 404 and records a failure", async () => {
+    const first = await engine.run(newContext(), mailbox, {});
+    const restowBefore = (await manifestOf(first.snapshotId)).objects.filter((o) =>
+      o.path.startsWith("mail/Inbox/Projects/Restow"),
+    );
+    expect(restowBefore.length).toBeGreaterThan(0);
+    box.interceptBatchSub = (url) =>
+      url.includes(`/mailFolders/${F.projects}/childFolders`)
+        ? { status: 404, body: graphError("ErrorItemNotFound", "folder not found") }
+        : undefined;
+
+    const result = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+    box.interceptBatchSub = undefined;
+    const manifest = await manifestOf(result.snapshotId);
+
+    expect(result.failures.map((f) => f.itemRef)).toEqual(["mail/Inbox/Projects"]);
+    expect(result.counters.removed).toBe(0);
+    expect(manifest.objects.filter((o) => o.path.startsWith("mail/Inbox/Projects/Restow"))).toEqual(
+      restowBefore,
+    );
+    const state = readState(manifest.state);
+    expect(state.mailFolders[F.restow]?.path).toBe("mail/Inbox/Projects/Restow");
+    expect(state.mailDeltaLinks[F.restow]).toBeDefined();
+  });
+
   it("drops a folder deleted between the tree listing and its enumeration without a failure", async () => {
     await engine.run(newContext(), mailbox, {});
     box.intercept = (call) => {
@@ -1380,6 +1407,56 @@ describe("ExchangeBackupEngine", () => {
     expect((error as MailboxAccessError).status).toBe(403);
     expect(await snapshots.get("snap-1")).toBeNull();
     expect(cursor.cursor).toBeNull();
+  });
+
+  it("backs the mailbox up when one well-known folder lookup is refused (no 0 of 0 failure)", async () => {
+    const answerSub = (
+      box as unknown as { answerBatchSub(url: string): unknown }
+    ).answerBatchSub.bind(box);
+    box.intercept = (call) =>
+      call.method === "POST" && call.url.endsWith("/$batch")
+        ? batchEnvelope(call, (sub) =>
+            /mailFolders\/clutter\b/.test(sub.url)
+              ? { status: 400, body: graphError("ErrorInvalidRequest", "Not supported.") }
+              : (answerSub(sub.url) as { status: number; body?: unknown }),
+          )
+        : undefined;
+    const result = await engine.run(newContext(), mailbox, {});
+    expect(result.failures).toEqual([]);
+    expect(mailObjects(await manifestOf(result.snapshotId))).toHaveLength(MESSAGE_COUNT);
+  });
+
+  it.each([
+    ["calendars", /\/calendars$/, "calendar"],
+    ["contact folders", /\/contactFolders$/, "contacts"],
+  ])("keeps the mail when only the %s listing is refused with 403", async (_what, path, root) => {
+    box.intercept = (call) =>
+      path.test(new URL(call.url).pathname)
+        ? { status: 403, json: graphError("ErrorAccessDenied", "Access is denied.") }
+        : undefined;
+    const result = await engine.run(newContext(), mailbox, {});
+    const manifest = await manifestOf(result.snapshotId);
+    expect(mailObjects(manifest)).toHaveLength(MESSAGE_COUNT);
+    expect(result.failures).toHaveLength(1);
+    expect(must(result.failures[0])).toMatchObject({ itemRef: root });
+    expect(cursor.cursor).toBeNull();
+  });
+
+  it("checkpoints instead of abandoning the snapshot when Graph rejects the token (401)", async () => {
+    fake("AAMkMsg4").mimeResponses = [
+      { status: 401, json: graphError("InvalidAuthenticationToken", "Access token is invalid.") },
+    ];
+    const error = await engine.run(newContext(), mailbox, {}).catch((e: unknown) => e);
+    expect(isGraphError(error) && error.status).toBe(401);
+    const saved = parseCursor(cursor.cursor);
+    expect(saved.checkpoint?.snapshotId).toBe("snap-1");
+    expect(saved.progress.completedFolders).toEqual([F.inbox, F.sent, F.hidden]);
+
+    graph.calls.length = 0;
+    const result = await engine.run(newContext({ jobId: "job-1" }), mailbox, {});
+    expect(result.resumed).toBe(true);
+    expect(result.failures).toEqual([]);
+    expect(mimeDownloads()).toEqual(["AAMkMsg4", "AAMkMsg5"]);
   });
 
   it("keeps the position when a run fails for a reason that deserves a retry", async () => {

@@ -50,6 +50,7 @@ function RunBadge({ run }: { run: JobRun }) {
         queue={
           (JOB_QUEUES as readonly string[]).includes(run.type) ? (run.type as JobQueue) : undefined
         }
+        serviceLimited={run.serviceLimited}
       />
     );
   }

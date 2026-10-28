@@ -186,6 +186,15 @@ export interface FakeServerFaults {
   noIdle: boolean;
   /** "<folder>:<uid>": metadata is listed, but the source is never delivered. */
   omitSource: Set<string>;
+  /** "<folder>:<uid>": a FETCH of sources that includes this UID fails with a NO (the session stays usable). */
+  refuseSource: Set<string>;
+  /**
+   * The RFC 5530 code a {@link refuseSource} NO carries, as imapflow reports it (the error's
+   * cause), e.g. "OVERQUOTA" for a provider's download cap; null: a plain NO.
+   */
+  refuseSourceCode: string | null;
+  /** Folders whose metadata FETCH fails with a NO (EXAMINE and STATUS still work). */
+  refuseMeta: Set<string>;
 }
 
 export class FakeImapServer implements ImapConnector {
@@ -211,6 +220,9 @@ export class FakeImapServer implements ImapConnector {
     envelopeFailures: new Set(),
     noIdle: false,
     omitSource: new Set(),
+    refuseSource: new Set(),
+    refuseSourceCode: null,
+    refuseMeta: new Set(),
   };
   private readonly arrivalListeners = new Set<ArrivalListener>();
   /**
@@ -437,6 +449,12 @@ class FakeSession implements ImapSession {
     await this.command();
     this.server.stats.metaFetches++;
     const folder = this.requireFolder();
+    if (this.server.faults.refuseMeta.has(folder.path)) {
+      throw new ImapSessionError(
+        `UID FETCH: NO [SERVERBUG] Internal error in ${folder.path}`,
+        false,
+      );
+    }
     const result: ImapMessageMeta[] = [];
     for (const uid of [...uids].sort((a, b) => a - b)) {
       const key = `${folder.path}:${uid}`;
@@ -459,6 +477,17 @@ class FakeSession implements ImapSession {
   async *fetchSources(uids: readonly number[]): AsyncIterable<ImapMessageSource> {
     await this.command();
     const folder = this.requireFolder();
+    if (uids.some((uid) => this.server.faults.refuseSource.has(`${folder.path}:${uid}`))) {
+      const code = this.server.faults.refuseSourceCode;
+      const text = code ? "Account exceeded download limits" : "The message could not be retrieved";
+      const cause = Object.assign(new Error("Command failed"), {
+        responseStatus: "NO",
+        responseText: text,
+        executedCommand: `1F UID FETCH ${uids.join(",")} (UID BODY.PEEK[])`,
+        ...(code ? { serverResponseCode: code } : {}),
+      });
+      throw new ImapSessionError(`UID FETCH: NO ${text}`, false, { cause });
+    }
     for (const uid of [...uids].sort((a, b) => a - b)) {
       await tick();
       const key = `${folder.path}:${uid}`;

@@ -685,5 +685,46 @@ describe.skipIf(!adminUrl)("failure records against Postgres", () => {
         byCause: { "graph.item_too_large": MAX_ITEM_FAILURE_ROWS + 20, unknown: 1 },
       });
     });
+
+    it("takes a withdrawn failure back out of the rows and the summary", async () => {
+      const jobId = randomUUID();
+      await db
+        .insert(jobs)
+        .values({ id: jobId, tenantId, queue: "backup", protectedObjectId: objectId });
+      const sink = new PgProgressSink({
+        run: tenantRunner(db, tenantId),
+        tenantId,
+        jobId,
+        protectedObjectId: objectId,
+        logger: noopLogger,
+        now: () => NOW,
+      });
+      const locked = buildCause("graph.request_rejected", { httpStatus: 423 }, { httpStatus: 423 });
+      const snapshot = {
+        total: 2,
+        done: 0,
+        failed: 2,
+        bytes: 0,
+        phase: "enumerate",
+        etaSeconds: null,
+      };
+      const lockedFile = { itemRef: "Documents/a.txt", reason: "Graph 423: locked", cause: locked };
+      const other = { itemRef: "Documents/b.txt", reason: "Graph 423: locked", cause: locked };
+      await sink.publish({ snapshot, failures: [lockedFile, other] });
+      // A later delta entry delivered a.txt after all.
+      await sink.publish({
+        snapshot: { ...snapshot, failed: 1 },
+        failures: [],
+        withdrawn: [lockedFile],
+      });
+
+      const rows = await db.select().from(itemFailures).where(eq(itemFailures.jobId, jobId));
+      expect(rows.map((row) => row.itemRef)).toEqual(["Documents/b.txt"]);
+      expect((await jobRow(jobId))?.itemFailureSummary).toEqual({
+        total: 1,
+        stored: 1,
+        byCause: { "graph.request_rejected": 1 },
+      });
+    });
   });
 });

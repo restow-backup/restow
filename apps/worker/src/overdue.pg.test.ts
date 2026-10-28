@@ -192,4 +192,85 @@ describe.skipIf(!adminUrl)("backup.overdue against Postgres", () => {
     ]);
     expect(raised[1]?.details.lastSuccessAt).toBe(ago(30 * HOUR).toISOString());
   });
+
+  it("follows a member's own schedule and leaves an object alone while its backup runs", async () => {
+    const [provider] = await q<{ id: string }>("SELECT provider_id AS id FROM tenants LIMIT 1");
+    const [initech] = await q<{ id: string }>(
+      "INSERT INTO tenants (provider_id, name, slug) VALUES ($1, 'Initech', 'initech') RETURNING id",
+      [provider?.id],
+    );
+    const tenant = initech?.id ?? "";
+    const [source] = await q<{ id: string }>(
+      "INSERT INTO sources (tenant_id, kind, name, status) VALUES ($1, 'm365', 'M365', 'active') RETURNING id",
+      [tenant],
+    );
+    const box = async (name: string, lastBackup: Date | null) => {
+      const [row] = await q<{ id: string }>(
+        `INSERT INTO protected_objects (tenant_id, source_id, kind, external_id, display_name, status, created_at)
+         VALUES ($1, $2, 'mailbox', $3, $3, 'active', $4) RETURNING id`,
+        [tenant, source?.id, `${name}@initech.example`, ago(30 * 24 * HOUR)],
+      );
+      if (lastBackup) {
+        await q(
+          `INSERT INTO snapshots (tenant_id, protected_object_id, sequence, manifest_path, item_count, byte_size, started_at, completed_at)
+           VALUES ($1, $2, 1, $3, 1, 1, $4, $4)`,
+          [tenant, row?.id, `m/${name}`, lastBackup],
+        );
+      }
+      return row?.id ?? "";
+    };
+    // A daily mail job (two days), one member of it backed up weekly on its own schedule.
+    const [daily] = await q<{ id: string }>(
+      `INSERT INTO backup_jobs (tenant_id, kind, name, scope_mode, schedule, enabled)
+       VALUES ($1, 'mail', 'Daily', 'all', '{"kind":"cron","cron":"0 22 * * *","timeZone":"UTC"}', true)
+       RETURNING id`,
+      [tenant],
+    );
+    const weekly = await box("weekly", ago(4 * 24 * HOUR));
+    await q(
+      `INSERT INTO backup_job_members (tenant_id, job_id, protected_object_id, overrides)
+       VALUES ($1, $2, $3, '{"schedule":{"kind":"cron","cron":"0 3 * * 0","timeZone":"UTC"}}')`,
+      [tenant, daily?.id, weekly],
+    );
+    // A large mailbox whose first backup has run for three days and continues.
+    const running = await box("running", null);
+    await q(
+      `INSERT INTO jobs (tenant_id, queue, status, protected_object_id, started_at, created_at)
+       VALUES ($1, 'backup', 'active', $2, $3, $3)`,
+      [tenant, running, ago(3 * 24 * HOUR)],
+    );
+    // A daily mailbox of the same job, last backed up three days ago: overdue by the job's two
+    // days, the weekly member's schedule does not widen its bound.
+    const daily3 = await box("daily", ago(2 * 24 * HOUR));
+    // A backup only waiting in the queue, never started (no slot of its tenant came free), does
+    // not mute the alert.
+    const waiting = await box("waiting", null);
+    await q(
+      `INSERT INTO jobs (tenant_id, queue, status, protected_object_id, started_at, created_at)
+       VALUES ($1, 'backup', 'queued', $2, NULL, $3)`,
+      [tenant, waiting, ago(HOUR)],
+    );
+    // A row stuck for longer than any backup continues does not mute the alert.
+    const stuck = await box("stuck", null);
+    await q(
+      `INSERT INTO jobs (tenant_id, queue, status, protected_object_id, started_at, created_at)
+       VALUES ($1, 'backup', 'active', $2, $3, $3)`,
+      [tenant, stuck, ago(25 * 24 * HOUR)],
+    );
+
+    await alertOverdueBackups(deps, new Date(NOW.getTime() + 27 * HOUR));
+    const raised = await q<{ details: Record<string, unknown> }>(
+      "SELECT details FROM notifications WHERE event = 'backup.overdue' AND tenant_id = $1",
+      [tenant],
+    );
+    // The weekly member (five days since its backup) is judged by its own week, every other
+    // mailbox by the daily job's two days.
+    const byObject = new Map(
+      raised.map((row) => [row.details.protectedObjectId, row.details.boundHours]),
+    );
+    expect([...byObject.keys()].sort()).toEqual([daily3, waiting, stuck].sort());
+    expect([...byObject.values()]).toEqual([48, 48, 48]);
+    expect(byObject.has(weekly)).toBe(false);
+    expect(byObject.has(running)).toBe(false);
+  });
 });

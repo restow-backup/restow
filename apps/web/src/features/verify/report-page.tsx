@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import {
+  Archive,
   ArrowLeft,
   FileSearch,
   History,
@@ -31,6 +32,7 @@ import { jobDetailTo } from "@/features/jobs/paths";
 import type {
   CheckedItem,
   LatestBackup,
+  Reason,
   ReportDetail,
   ScrubFinding,
   VerifyDetails,
@@ -40,7 +42,12 @@ import { ItemCause, ReasonFindings } from "@/features/verify/components/reason-f
 import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
 import { ObjectKindIcon, ReportStateBadge } from "@/features/verify/components/status";
 import { VERIFY_ICON, verifyOverviewTo, verifyReportTo } from "@/features/verify/paths";
-import { objectAddress, objectLabel, objectName } from "@/features/verify/presenters";
+import {
+  objectAddress,
+  objectLabel,
+  objectName,
+  reasonMessage,
+} from "@/features/verify/presenters";
 import {
   useReport,
   useReportHistory,
@@ -464,6 +471,58 @@ function HistoryCard({
  * A report rates the backup it checked, nothing newer: when the object was
  * backed up again since, this says so and shows that backup's own state.
  */
+/** The reasons that only say how old the backup is. */
+const FRESHNESS_REASONS: ReadonlySet<string> = new Set(["snapshot_outdated", "snapshot_stale"]);
+
+/**
+ * The findings behind the rating and the reasons set aside. The server moves the backup age of
+ * an orphaned object (removed from its source, rated without it) to `setAsideReasons`; a server
+ * before 0.4.7 still lists it under `reasons`, so the split is made here as well.
+ */
+function reportFindings(report: ReportDetail): { findings: Reason[]; setAside: Reason[] } {
+  const setAside = [...(report.setAsideReasons ?? [])];
+  if (report.object.status !== "orphaned") {
+    return { findings: report.reasons, setAside };
+  }
+  const findings: Reason[] = [];
+  for (const reason of report.reasons) {
+    (FRESHNESS_REASONS.has(reason.code) ? setAside : findings).push(reason);
+  }
+  return { findings, setAside };
+}
+
+/**
+ * The object is gone from its source (backups kept): no newer backup can come, so the age of
+ * the kept one is no finding; it is named here, as a note, instead of under the findings.
+ */
+function RemovedFromSourceNotice({
+  setAside,
+  format,
+}: {
+  setAside: readonly Reason[];
+  format: VerifyFormat;
+}) {
+  const { t } = format;
+  return (
+    <Alert variant="info">
+      <Archive aria-hidden="true" />
+      <AlertTitle>{t("report.removed.title")}</AlertTitle>
+      <AlertDescription>
+        <p>{t("report.removed.description")}</p>
+        {setAside.map((reason, index) => {
+          const message = reasonMessage(reason);
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: the reasons have no identity beyond their position
+            <p key={index} className="text-muted-foreground">
+              {t("report.removed.notCounted", { reason: t(message.key, message.values) })}
+            </p>
+          );
+        })}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 function LatestBackupNotice({ latest, format }: { latest: LatestBackup; format: VerifyFormat }) {
   const { t } = format;
   const unverified = latest.verification.state === "unverified";
@@ -569,6 +628,7 @@ export function ReportPage({ reportId }: { reportId: string }) {
   }
 
   const details = report.details;
+  const { findings, setAside } = reportFindings(report);
   return (
     <div className="space-y-6">
       <BackLink format={format} />
@@ -594,6 +654,9 @@ export function ReportPage({ reportId }: { reportId: string }) {
       {report.latestBackup ? (
         <LatestBackupNotice latest={report.latestBackup} format={format} />
       ) : null}
+      {report.object.status === "orphaned" ? (
+        <RemovedFromSourceNotice setAside={setAside} format={format} />
+      ) : null}
 
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center gap-3 space-y-0">
@@ -603,8 +666,8 @@ export function ReportPage({ reportId }: { reportId: string }) {
         </CardHeader>
         <CardContent>
           <h2 className="mb-2 text-sm font-medium">{t("report.findings.title")}</h2>
-          {report.reasons.length > 0 ? (
-            <ReasonFindings reasons={report.reasons} objectName={objectName(report.object)} />
+          {findings.length > 0 ? (
+            <ReasonFindings reasons={findings} objectName={objectName(report.object)} />
           ) : (
             <p className="text-sm text-muted-foreground">{t("report.findings.none")}</p>
           )}

@@ -215,6 +215,7 @@ async function loadRecentJobs(
         ? job.throttle.until
         : null,
     failure: job.failure,
+    serviceLimited: job.serviceLimited,
     itemCauses: job.itemCauses,
   }));
   return { items };

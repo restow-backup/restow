@@ -69,10 +69,16 @@ export function jobStatusDisplay(
   failedItems = 0,
   queue?: JobQueue,
   checkIncomplete = false,
+  serviceLimited = false,
 ): JobStatusDisplay {
   // A restore check that could not complete proves nothing: neutral, never "Failed" or "Completed".
   if (checkIncomplete && status !== "active") {
     return { key: "jobStatus.checkIncomplete", values: {}, variant: "info" };
+  }
+  // A backup Graph or the storage held back (`Job.serviceLimited`) is no failure: amber, the next
+  // scheduled run tries again. The server sets the flag for backups only.
+  if (serviceLimited && status === "failed") {
+    return { key: "jobStatus.serviceLimited", values: {}, variant: "warning" };
   }
   if (status === "completed" && failedItems > 0) {
     return {
@@ -178,10 +184,15 @@ export const KNOWN_PHASES = [
   "archive",
   "evaluate",
   "prune",
+  // SharePoint sites (packages/core backup/sharepoint/engine.ts, SHAREPOINT_PHASES)
+  "site",
+  "lists",
   // Directory sync (packages/core directory/sync.ts)
   "load",
   "complete",
   "probe",
+  "sites",
+  "groups",
   "plan",
   "persist",
 ] as const;

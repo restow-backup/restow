@@ -17,6 +17,7 @@ import {
   entraEnvironmentOf,
   entraProblems,
   invalidateEntraApp,
+  refreshAfterRefusal,
   requireEntraApp,
   setEntraAppResolver,
   tokenProviderFor,
@@ -214,5 +215,43 @@ describe("the registration in use", () => {
     provider.invalidate();
     await provider.getToken();
     expect(used).toEqual(["only-secret", "only-secret"]);
+  });
+});
+
+describe("refreshing the token after a refusal", () => {
+  it("drops the token once a minute, but lets concurrent refusals of the dropped token send again", () => {
+    let now = 10_000_000;
+    let invalidations = 0;
+    const gate = refreshAfterRefusal(
+      `tenant:${randomUUID()}`,
+      { invalidate: () => invalidations++ },
+      () => now,
+    );
+    // Two requests were sent with T0; the first refusal drops it.
+    expect(gate("T0")).toBe(true);
+    expect(invalidations).toBe(1);
+    // The second lands inside the minute: T0 is already gone, so it retries with the new one.
+    now += 1_000;
+    expect(gate("T0")).toBe(true);
+    expect(invalidations).toBe(1);
+    // A refusal of the new token inside the minute is about the request, not the token.
+    expect(gate("T1")).toBe(false);
+    now += 61_000;
+    expect(gate("T1")).toBe(true);
+    expect(invalidations).toBe(2);
+  });
+
+  it("is not blocked when the wall clock stepped back after the last refresh", () => {
+    let now = 10_000_000;
+    let invalidations = 0;
+    const gate = refreshAfterRefusal(
+      `source:${randomUUID()}`,
+      { invalidate: () => invalidations++ },
+      () => now,
+    );
+    expect(gate("T0")).toBe(true);
+    now -= 3_600_000;
+    expect(gate("T1")).toBe(true);
+    expect(invalidations).toBe(2);
   });
 });

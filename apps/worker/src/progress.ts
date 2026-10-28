@@ -74,6 +74,37 @@ export function parseItemFailureSummary(value: unknown): ItemFailureSummaryJson 
 }
 
 /**
+ * Take failures the engine withdrew (the item came through later in the run)
+ * out of a run's summary again: counted down under their cause, never below
+ * zero, and `stored` down by the rows actually deleted.
+ */
+export function removeFromSummary(
+  summary: ItemFailureSummaryJson,
+  failures: readonly Pick<ItemFailureRecord, "cause">[],
+  deleted: number,
+): ItemFailureSummaryJson {
+  const byCause = { ...summary.byCause };
+  for (const failure of failures) {
+    let code = failure.cause?.code ?? UNKNOWN_WARNING_CAUSE;
+    if (!(code in byCause)) {
+      // Counted under "unknown" when the summary had no room for its cause.
+      code = UNKNOWN_WARNING_CAUSE;
+    }
+    const left = (byCause[code] ?? 0) - 1;
+    if (left > 0) {
+      byCause[code] = left;
+    } else {
+      delete byCause[code];
+    }
+  }
+  return {
+    total: Math.max(0, summary.total - failures.length),
+    stored: Math.max(0, summary.stored - deleted),
+    byCause,
+  };
+}
+
+/**
  * Add a batch of failures to a run's summary: every failure is counted under its cause, and
  * `stored` grows by the rows actually written.
  */
@@ -160,7 +191,7 @@ export class PgProgressSink implements ProgressSink {
 
   async publish(update: ProgressUpdate): Promise<void> {
     const { tenantId, jobId } = this.options;
-    const { snapshot, failures } = update;
+    const { snapshot, failures, withdrawn = [] } = update;
     const now = this.now();
     // An engine that does not count what it read has read what it stored.
     const bytesProcessed = Math.max(snapshot.bytesProcessed ?? 0, snapshot.bytes);
@@ -203,6 +234,9 @@ export class PgProgressSink implements ProgressSink {
 
       if (failures.length > 0) {
         await this.insertFailures(tx, failures, now, snapshot.phase);
+      }
+      if (withdrawn.length > 0) {
+        await this.deleteFailures(tx, withdrawn);
       }
 
       const [row] = await tx
@@ -281,6 +315,48 @@ export class PgProgressSink implements ProgressSink {
       };
     });
     await tx.insert(itemFailures).values(rows);
+  }
+
+  /**
+   * Failures an earlier publish of this job wrote that the engine took back:
+   * one row per failure (the newest with its ref and reason) and its count in
+   * the summary. A failure beyond the kept rows has no row; only its count goes.
+   */
+  private async deleteFailures(
+    tx: TenantTx,
+    failures: readonly ItemFailureRecord[],
+  ): Promise<void> {
+    const { tenantId, jobId } = this.options;
+    let deleted = 0;
+    for (const failure of failures) {
+      const [row] = await tx
+        .select({ id: itemFailures.id })
+        .from(itemFailures)
+        .where(
+          and(
+            eq(itemFailures.tenantId, tenantId),
+            eq(itemFailures.jobId, jobId),
+            eq(itemFailures.itemRef, failure.itemRef),
+            eq(itemFailures.reason, withoutQueryText(failure.reason).slice(0, 2000)),
+          ),
+        )
+        .orderBy(desc(itemFailures.createdAt))
+        .limit(1);
+      if (row) {
+        await tx.delete(itemFailures).where(eq(itemFailures.id, row.id));
+        deleted++;
+      }
+    }
+    const [job] = await tx
+      .select({ summary: jobs.itemFailureSummary })
+      .from(jobs)
+      .where(and(eq(jobs.tenantId, tenantId), eq(jobs.id, jobId)))
+      .limit(1);
+    const summary = parseItemFailureSummary(job?.summary ?? null);
+    await tx
+      .update(jobs)
+      .set({ itemFailureSummary: removeFromSummary(summary, failures, deleted) })
+      .where(and(eq(jobs.tenantId, tenantId), eq(jobs.id, jobId)));
   }
 }
 

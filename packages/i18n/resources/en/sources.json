@@ -438,6 +438,7 @@
         "starttls_unavailable": "The server does not offer STARTTLS on this port. Use TLS on port 993 or another port.",
         "dns": "The hostname could not be resolved.",
         "refused": "The connection was refused. Check host and port.",
+        "busy": "The server temporarily refused the login, for example because too many connections are open for the account. The credentials are not the problem. Try again later.",
         "unknown": "The connection failed for an unexpected reason."
       },
       "detail": "Server said: {message}"

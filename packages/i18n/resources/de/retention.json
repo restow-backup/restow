@@ -135,7 +135,7 @@
     "thinningNote": "Dazwischenliegende Sicherungsstände werden ausgedünnt, um Speicherplatz zu sparen; nicht jeder bleibt erhalten.",
     "keepAll": "Alles wird aufbewahrt: Es gibt noch keine Aufbewahrungsrichtlinie, daher wird kein Sicherungsstand gelöscht.",
     "keepByAge": "Jeder Sicherungsstand wird aufbewahrt; die Richtlinie setzt keine Altersgrenze.",
-    "prunes": "Sicherungsstände, die älter als {days} Tage sind, werden gelöscht; {keepLast, plural, one {der neueste Sicherungsstand} other {die neuesten # Sicherungsstände}} jedes Objekts bleiben immer erhalten.",
+    "prunes": "Sicherungsstände, die älter als {days} Tage sind, werden gelöscht; {keepLast, plural, one {der neueste Sicherungsstand jedes Objekts bleibt} other {die neuesten # Sicherungsstände jedes Objekts bleiben}} immer erhalten.",
     "onlyOverrides": "Es gibt keinen Mandanten-Standard, daher behalten Objekte ohne eigene Richtlinie jeden Sicherungsstand. {count, plural, one {# Objekt folgt} other {# Objekte folgen}} einer eigenen Richtlinie, die dessen Sicherungsstände löschen kann.",
     "kept": "Aufbewahrte Sicherungsstände",
     "pruned": "Gelöschte Sicherungsstände",

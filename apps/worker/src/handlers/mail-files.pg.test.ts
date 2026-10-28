@@ -42,6 +42,7 @@ import {
   sources,
   tenantKeys,
   tenants,
+  users,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { eq, sql } from "drizzle-orm";
@@ -1002,6 +1003,26 @@ describe.skipIf(!adminUrl)("mail file import and export against Postgres", SLOW_
     await expect(mailboxTargetObject(run, tenantId, null)).rejects.toThrow(
       /not a Microsoft 365 mailbox/,
     );
+    // A synced mailbox's externalId is the Entra object id: the address the admin
+    // typed (and the API accepted) matches through the directory user's e-mail.
+    const [bert] = await db
+      .insert(users)
+      .values({ tenantId, email: "bert@example.test", displayName: "Bert" })
+      .returning();
+    await db.insert(protectedObjects).values({
+      tenantId,
+      sourceId: m365?.id as string,
+      kind: "mailbox",
+      externalId: "6f1c2a9e-3b4d-4e5f-8a7b-9c0d1e2f3a4b",
+      displayName: "Bert",
+      userId: bert?.id as string,
+    });
+    await expect(mailboxTargetObject(run, tenantId, "Bert@Example.Test")).resolves.toMatchObject({
+      kind: "mailbox",
+      sourceId: m365?.id,
+      externalId: "6f1c2a9e-3b4d-4e5f-8a7b-9c0d1e2f3a4b",
+      userId: bert?.id,
+    });
     expect(
       restoreTargetKindOf({
         selection: { all: true, options: { targetKind: "mailbox" } },

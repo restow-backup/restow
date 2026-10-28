@@ -377,6 +377,8 @@ export class DriveBackupRun {
   private pendingReset = false;
 
   private readonly failures: ItemFailureRecord[] = [];
+  /** The failures recorded for each item, so a later success in the same run takes them back. */
+  private readonly failedById = new Map<string, ItemFailureRecord[]>();
   private readonly retryIds = new Set<string>();
   private retryOverflow: boolean;
   private downloaded = 0;
@@ -489,6 +491,7 @@ export class DriveBackupRun {
       try {
         item = await getItem(this.client, this.driveId, id);
       } catch (error) {
+        this.rethrowIfAborted(error);
         if (isNotFound(error)) {
           // Gone for good: the snapshot drops it, the previous snapshots keep it.
           this.forget(id);
@@ -670,10 +673,12 @@ export class DriveBackupRun {
     const now = this.now();
     switch (kind) {
       case "folder":
+        this.withdrawFailures(item.id);
         this.tree.put(folderObject(placed.item, placed.path, now), placed.placement);
         this.ctx.progress.advance(1);
         return;
       case "shortcut":
+        this.withdrawFailures(item.id);
         this.tree.put(shortcutObject(placed.item, placed.path, now), placed.placement);
         this.ctx.progress.advance(1);
         return;
@@ -709,6 +714,7 @@ export class DriveBackupRun {
     try {
       fresh = await getItem(this.client, this.driveId, item.id);
     } catch (error) {
+      this.rethrowIfAborted(error);
       if (isNotFound(error)) {
         this.forget(item.id);
       } else {
@@ -745,6 +751,10 @@ export class DriveBackupRun {
     const { item, path, placement } = placed;
     const existing = this.tree.get(item.id) ?? this.pool.get(item.id);
     const now = this.now();
+    // An earlier occurrence of this item in the run failed (Graph lists an item
+    // more than once in a delta feed; a retried item comes again in the walk):
+    // this one decides. Failing again below records the failure again.
+    this.withdrawFailures(item.id);
 
     if (existing !== undefined && canReuseContent(existing, item)) {
       this.tree.put(reusedFileObject(existing, item, path, now), placement);
@@ -804,12 +814,14 @@ export class DriveBackupRun {
     try {
       download = await open();
     } catch (error) {
+      this.rethrowIfAborted(error);
       return { ok: false, error };
     }
     let content: WrittenObject;
     try {
       content = await this.writer.chunks.write(measured(sourceBytes(download.stream), windows));
     } catch (error) {
+      this.rethrowIfAborted(error);
       if (error instanceof DownloadInterruptedError) {
         return { ok: false, error };
       }
@@ -823,6 +835,8 @@ export class DriveBackupRun {
 
   /** The item no longer exists at the source: drop it from this snapshot. */
   private forget(itemId: string): void {
+    // Gone, not failed: an earlier failure of it in this run no longer stands.
+    this.withdrawFailures(itemId);
     this.tree.remove(itemId);
     this.vanished++;
     this.ctx.progress.advance(1);
@@ -875,6 +889,7 @@ export class DriveBackupRun {
     try {
       listed = await collect(listItemVersions(this.client, this.driveId, item.id));
     } catch (error) {
+      this.rethrowIfAborted(error);
       this.recordFailure(item.id, path, error, "listing versions");
       this.carryVersions(item.id);
       return;
@@ -925,7 +940,9 @@ export class DriveBackupRun {
     const described = describeFailure(error);
     const reason = activity === undefined ? described : `${activity}: ${described}`;
     const cause = classifyFailure(error);
-    this.failures.push({ itemRef, reason, cause });
+    const record: ItemFailureRecord = { itemRef, reason, cause };
+    this.failures.push(record);
+    this.failedById.set(itemId, [...(this.failedById.get(itemId) ?? []), record]);
     this.ctx.progress.fail(itemRef, reason, cause);
     if (!this.retryIds.has(itemId)) {
       if (this.retryIds.size < this.settings.maxRetryIds) {
@@ -935,6 +952,28 @@ export class DriveBackupRun {
       }
     }
     this.logger.warn("item failed", { itemId, itemRef, reason });
+  }
+
+  /**
+   * The item came through after all: its earlier failures in this run leave the
+   * result, the retry list and the reporter (which also takes back what it
+   * persisted already; see ProgressReporter.withdraw).
+   */
+  private withdrawFailures(itemId: string): void {
+    const records = this.failedById.get(itemId);
+    if (records === undefined) {
+      return;
+    }
+    this.failedById.delete(itemId);
+    const taken = new Set(records);
+    for (let index = this.failures.length - 1; index >= 0; index--) {
+      const failure = this.failures[index];
+      if (failure !== undefined && taken.has(failure)) {
+        this.failures.splice(index, 1);
+      }
+    }
+    this.retryIds.delete(itemId);
+    this.ctx.progress.withdraw?.(records);
   }
 
   private reportCollisions(paths: readonly string[]): void {
@@ -1007,6 +1046,20 @@ export class DriveBackupRun {
   }
 
   private throwIfAborted(): void {
+    if (this.ctx.signal.aborted) {
+      throw new JobAbortedError();
+    }
+  }
+
+  /**
+   * Cancellation ends the run; it is never an item's failure. The client throws
+   * JobAbortedError when the job's signal fires during a throttling wait or
+   * before Graph answers, and a stream cut by the abort surfaces as any error.
+   */
+  private rethrowIfAborted(error: unknown): void {
+    if (error instanceof JobAbortedError) {
+      throw error;
+    }
     if (this.ctx.signal.aborted) {
       throw new JobAbortedError();
     }

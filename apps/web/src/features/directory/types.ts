@@ -160,6 +160,11 @@ export interface ProtectedObject {
     at: string;
     /** Why that backup failed, when it did and the cause is known. */
     failure: Failure | null;
+    /**
+     * A failed run a service held back (throttled, unavailable, the storage asking to slow
+     * down): no failure, the next scheduled run tries again. Absent from an older server.
+     */
+    serviceLimited?: boolean;
   } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
   /** The backup job that covers it; null when none does (or an older server). */
@@ -344,6 +349,8 @@ export type ImapProbeFailure =
   | "starttls_unavailable"
   | "dns"
   | "refused"
+  /** The server refused the login for now (too many connections, auth backend down). */
+  | "busy"
   | "unknown";
 
 export type ImapProbeResult =

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JobAbortedError } from "../../engine/chunkstore.js";
 import type { ProgressUpdate } from "../../engine/progress.js";
 import type { FirstBackupProgress, JobContext } from "../../engine/types.js";
+import { classifyFailure } from "../../failures/classify.js";
 import type { DriveDeltaItem } from "../../graph/resources/drive.js";
 import { type FixtureRoute, graphError, must } from "../../graph/testing/fake-graph.js";
 import driveFixture from "../../graph/testing/fixtures/drive-delta.json" with { type: "json" };
@@ -658,6 +659,65 @@ describe("OneDriveBackupEngine", () => {
     expect(state(manifest).retry).toEqual(["01Q3"]);
   });
 
+  it("takes back the failure of an item that a later delta entry of the same run delivers", async () => {
+    const graph = createFakeGraph([
+      { url: deltaUrl(null), respond: { status: 200, json: fixture.initialPage1 } },
+      {
+        url: deltaUrl("NEXT1"),
+        // Graph may list the same item again further down the feed.
+        respond: {
+          status: 200,
+          json: { ...fixture.initialPage2, value: [...fixture.initialPage2.value, q3Item()] },
+        },
+      },
+      {
+        url: downloadUrl("q3"),
+        respond: [
+          { status: 423, json: graphError("resourceLocked", "The resource is locked") },
+          { status: 200, bytes: new TextEncoder().encode(CONTENT.q3) },
+        ],
+      },
+      ...contentRoutes({ notes: CONTENT.notes, plan: CONTENT.plan }),
+    ]);
+    const result = await harness.engine(graph).run(harness.context(), oneDrive, {});
+    expect(result.failures).toEqual([]);
+    // The failure went out live; the sink is told to take it back.
+    const withdrawn = harness.progress.updates.flatMap((update) => update.withdrawn ?? []);
+    expect(withdrawn).toEqual(harness.progress.failures);
+    expect(withdrawn.map((failure) => failure.itemRef)).toEqual([Q3_PATH]);
+    expect(harness.progress.last?.snapshot.failed).toBe(0);
+    const manifest = await harness.manifest(result);
+    expect(state(manifest).retry).toEqual([]);
+    const q3 = objectAt(manifest, Q3_PATH);
+    expect(q3.metadata?.stale).toBeUndefined();
+    expect((await harness.readObject(q3)).toString()).toBe(CONTENT.q3);
+  });
+
+  it("ends the run on a cancellation during a download without blaming the file", async () => {
+    const controller = new AbortController();
+    const graph = createFakeGraph([
+      { url: deltaUrl(null), respond: { status: 200, json: fixture.initialPage1 } },
+      { url: deltaUrl("NEXT1"), respond: { status: 200, json: fixture.initialPage2 } },
+      {
+        url: downloadUrl("q3"),
+        respond: () => {
+          // The job is cancelled while the download is being opened; the request fails with it.
+          controller.abort("cancelled");
+          return { status: 500, json: graphError("generalException", "aborted") };
+        },
+      },
+      ...contentRoutes({ notes: CONTENT.notes, plan: CONTENT.plan }),
+    ]);
+    const ctx = harness.context({ signal: controller.signal });
+    await expect(harness.engine(graph).run(ctx, oneDrive, {})).rejects.toBeInstanceOf(
+      JobAbortedError,
+    );
+    await ctx.progress.flush();
+    expect(harness.progress.failures).toEqual([]);
+    const saved = readCursor(harness.cursor.cursor, DRIVE) as OneDriveCursor;
+    expect(saved.retry).toEqual([]);
+  });
+
   it("drops an item deleted between the delta and its download without reporting a failure", async () => {
     const graph = createFakeGraph([
       { url: deltaUrl(null), respond: { status: 200, json: fixture.initialPage1 } },
@@ -943,8 +1003,10 @@ describe("resolveOneDriveId", () => {
     expect(await resolveOneDriveId(client, { ...oneDrive, externalId: "alice@example.test" })).toBe(
       "b!drive1",
     );
-    await expect(
-      resolveOneDriveId(client, { ...oneDrive, externalId: "shared@example.test" }),
-    ).rejects.toBeInstanceOf(OneDriveUnavailableError);
+    const missing = resolveOneDriveId(client, { ...oneDrive, externalId: "shared@example.test" });
+    await expect(missing).rejects.toBeInstanceOf(OneDriveUnavailableError);
+    // Permanent and named for what it is, so the job is not retried as "unknown".
+    const cause = classifyFailure(await missing.catch((error: unknown) => error));
+    expect(cause).toMatchObject({ code: "graph.onedrive_unavailable", transient: false });
   });
 });

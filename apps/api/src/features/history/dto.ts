@@ -182,6 +182,8 @@ export interface RunObjectDto {
   runId: string | null;
   subject: RunSubjectDto;
   state: RunState;
+  /** Its run failed only because a service held the backup back (`RunDto.serviceLimited`). */
+  serviceLimited: boolean;
   restoreCheck: RunRestoreCheckDto;
   /** The object of the run that was opened. */
   current: boolean;
@@ -194,7 +196,10 @@ export interface RunBatchDto {
   running: number;
   succeeded: number;
   partial: number;
+  /** Failed runs, without the backups a service held back (`limited`). */
   failed: number;
+  /** Failed backups a service held back: no failure, the next scheduled run tries again. */
+  limited: number;
   cancelled: number;
   /** More objects than the list shows. */
   truncated: boolean;
@@ -743,21 +748,23 @@ export function shareRun(input: ShareRunInput): RunDto {
 
 /** The label of a group of runs by the kind of subject: used to word "3 of 4 mailboxes". */
 export function batchOf(
-  states: readonly RunState[],
+  runs: readonly Pick<RunDto, "state" | "serviceLimited">[],
   options: { truncated?: boolean } = {},
 ): RunBatchDto {
   const batch: RunBatchDto = {
-    total: states.length,
+    total: runs.length,
     queued: 0,
     running: 0,
     succeeded: 0,
     partial: 0,
     failed: 0,
+    limited: 0,
     cancelled: 0,
     truncated: options.truncated ?? false,
   };
-  for (const state of states) {
-    batch[state]++;
+  for (const run of runs) {
+    // A backup a service held back counts apart, never as failed (lib/service-limit.ts).
+    batch[run.state === "failed" && run.serviceLimited ? "limited" : run.state]++;
   }
   return batch;
 }

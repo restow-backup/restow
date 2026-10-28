@@ -84,6 +84,22 @@ describe("ProgressTracker", () => {
     expect(sink.failures).toHaveLength(3);
   });
 
+  it("takes back a withdrawn failure: unsent ones never go out, sent ones go to the sink", async () => {
+    const sink = new MemoryProgressSink();
+    const tracker = new ProgressTracker({ sink, flushEveryItems: 10, flushIntervalMs: 60_000 });
+    tracker.fail("sent.txt", "423 locked");
+    await tracker.flush();
+    tracker.fail("pending.txt", "500");
+    tracker.withdraw([
+      { itemRef: "sent.txt", reason: "423 locked" },
+      { itemRef: "pending.txt", reason: "500" },
+    ]);
+    await tracker.flush();
+    expect(sink.failures.map((f) => f.itemRef)).toEqual(["sent.txt"]);
+    expect(sink.last?.withdrawn?.map((f) => f.itemRef)).toEqual(["sent.txt"]);
+    expect(sink.last?.snapshot.failed).toBe(0);
+  });
+
   it("carries the item's own date with a failure, normalised, and drops one it cannot read", async () => {
     const sink = new MemoryProgressSink();
     const tracker = new ProgressTracker({ sink, flushEveryItems: 10, flushIntervalMs: 60_000 });

@@ -147,6 +147,11 @@ export interface RecentJob {
   throttledUntil: string | null;
   /** Why the job failed (classified); null when it did not or only text exists. */
   failure?: Failure | null;
+  /**
+   * A failed backup that Graph or the storage held back (throttled, unavailable): no fault of
+   * the object, the next scheduled run tries again. Missing on servers before 0.4.7.
+   */
+  serviceLimited?: boolean;
   /** The causes behind a finished job's failed items, most frequent first. */
   itemCauses?: ItemCauseCount[];
 }

@@ -120,6 +120,23 @@ describe("backupState", () => {
     ).toEqual({ kind: "failed", at: "2026-09-22T00:00:00.000Z" });
   });
 
+  it("shows a latest run a service held back as held back, never as failed", () => {
+    expect(
+      backupState(
+        object({
+          lastBackupAt: "2026-09-20T00:00:00.000Z",
+          latestBackupJob: {
+            id: "j",
+            status: "failed",
+            at: "2026-09-22T00:00:00.000Z",
+            failure: null,
+            serviceLimited: true,
+          },
+        }),
+      ),
+    ).toEqual({ kind: "limited", at: "2026-09-22T00:00:00.000Z" });
+  });
+
   it("reports running, done and never", () => {
     expect(
       backupState(

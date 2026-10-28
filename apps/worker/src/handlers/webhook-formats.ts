@@ -19,6 +19,7 @@
  */
 import { guidanceFor } from "@restow/core";
 import { createI18n, failureVariables, type SupportedLanguage } from "@restow/i18n";
+import { restoreCountsOf, restoreOutcome } from "../restore-outcome.js";
 
 /** Mirrors the `webhook_format` enum and the API's list. */
 export const WEBHOOK_FORMATS = ["restow", "discord", "slack", "teams"] as const;
@@ -224,9 +225,15 @@ const SUCCESS_EVENTS: ReadonlySet<string> = new Set([
   "scrub.repaired",
 ]);
 
-function severityOfLevel(level: unknown, event: string): ChatSeverity {
+/** A restore that skipped every item and restored none completed, but is no success to show. */
+function severityOfLevel(
+  level: unknown,
+  event: string,
+  details: Record<string, unknown> = {},
+): ChatSeverity {
   if (level === "error") return "error";
   if (level === "warning") return "warning";
+  if (details.restoreOutcome === "allSkipped") return "info";
   return SUCCESS_EVENTS.has(event) ? "success" : "info";
 }
 
@@ -300,13 +307,19 @@ export function buildChatMessage(
       }
       const error = failed ? str(job.errorMessage) : null;
       const jobId = str(job.id);
+      // A restore that skipped every item restored nothing: completed, but no green success.
+      const allSkipped = !failed && restoreOutcome(restoreCountsOf(job.result)) === "allSkipped";
       return {
         ...base,
-        severity: failed ? "error" : "success",
-        title: t(failed ? "notifications:chat.job.failed" : "notifications:chat.job.completed", {
-          job: label,
-          target,
-        }),
+        severity: failed ? "error" : allSkipped ? "info" : "success",
+        title: t(
+          failed
+            ? "notifications:chat.job.failed"
+            : allSkipped
+              ? "notifications:chat.job.completedAllSkipped"
+              : "notifications:chat.job.completed",
+          { job: label, target },
+        ),
         text: error,
         fields,
         timestamp: str(job.completedAt) ?? base.timestamp,
@@ -388,7 +401,9 @@ export function buildChatMessage(
       return {
         ...base,
         severity:
-          envelope.event === "report.summary" ? "info" : severityOfLevel(data.level, reportEvent),
+          envelope.event === "report.summary"
+            ? "info"
+            : severityOfLevel(data.level, reportEvent, details),
         title: subject ?? t("notifications:chat.unknown", { event: envelope.event }),
         text: reportBody(str(data.text), subject),
         fields: ruleName ? [{ name: t("notifications:chat.fields.rule"), value: ruleName }] : [],

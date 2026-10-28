@@ -23,10 +23,12 @@
  *                               for them), site designs and themes, workflows,
  *                               web parts outside the Site Pages library
  *
- * A library or list Graph refuses (403/404) is reported as an item failure and
- * keeps its last good copy; the rest of the site is backed up. Errors that
- * concern the whole site (site gone, token, storage) fail the job, which
- * resumes from the last checkpoint: finished libraries are not walked again.
+ * A library or list Graph will not give (403/404, or any other lasting answer
+ * such as a 400 or 500 for a list template Graph cannot read) is reported as an
+ * item failure and keeps its last good copy; the rest of the site is backed up.
+ * Errors that concern the whole site (site gone, token, storage) and throttling
+ * the client gave up on fail the job, which resumes from the last checkpoint:
+ * finished libraries are not walked again.
  */
 import { Readable } from "node:stream";
 import type { Permission } from "@microsoft/microsoft-graph-types";
@@ -44,8 +46,8 @@ import type {
 } from "../../engine/types.js";
 import { buildCause, classifyFailure } from "../../failures/classify.js";
 import type { FailureCause } from "../../failures/types.js";
-import type { GraphClient } from "../../graph/client.js";
-import { isGraphError } from "../../graph/errors.js";
+import { type GraphClient, RETRYABLE_STATUSES } from "../../graph/client.js";
+import { type GraphError, isGraphError } from "../../graph/errors.js";
 import { collect } from "../../graph/resources/common.js";
 import {
   getSite,
@@ -215,7 +217,11 @@ function libraryProgress(base: ProgressReporter, offset: number, prefix: string)
     advance: (done, bytes, processed) => base.advance(done, bytes, processed),
     transfer: base.transfer ? (bytes) => base.transfer?.(bytes) : undefined,
     fail: (itemRef, reason, cause, details) =>
-      base.fail(`${prefix}/${itemRef}`, reason, cause, details),
+      base.fail(`${prefix}/${itemRef}`, reason, cause && siteCause(cause), details),
+    withdraw: (failures) =>
+      base.withdraw?.(
+        failures.map((failure) => ({ ...failure, itemRef: `${prefix}/${failure.itemRef}` })),
+      ),
     phase: (name) => base.phase(name),
     firstBackup: undefined,
     snapshot: () => base.snapshot(),
@@ -223,9 +229,40 @@ function libraryProgress(base: ProgressReporter, offset: number, prefix: string)
   };
 }
 
-/** A library or list Graph refuses to show: reported, its last copy kept. */
-function isRefused(error: unknown): boolean {
-  return isGraphError(error) && [403, 404, 423].includes(error.status);
+/**
+ * A Graph answer about one library or list that retrying the job will not
+ * change (403/404/423, a 400, a 501): reported, its last copy kept, and the
+ * rest of the site still gets its snapshot. A 401 (token) concerns the whole
+ * site, the throttling statuses the client already retried (429/503/504) and
+ * the other 5xx answers (500/502, which the client does not retry and which
+ * SharePoint gives during short incidents) are left to the job's own retry,
+ * which resumes from the checkpoint instead of committing stale copies.
+ */
+function isPartFailure(error: unknown): error is GraphError {
+  if (!isGraphError(error) || error.status === 401 || RETRYABLE_STATUSES.has(error.status)) {
+    return false;
+  }
+  return error.status < 500 || error.status === 501;
+}
+
+/**
+ * {@link isPartFailure}, plus the lasting 500 Graph gives for one list template
+ * or one library's root permissions it cannot read. Only for those calls: a
+ * library's delta answering 500 is treated as transient.
+ */
+function isListPartFailure(error: unknown): error is GraphError {
+  return isPartFailure(error) || (isGraphError(error) && error.status === 500);
+}
+
+/**
+ * Site libraries are read through `/drives/{id}`, the same paths as a user's
+ * OneDrive, so the classifier may call a library that is gone "this user has no
+ * OneDrive". For a site it means the library vanished or is not reachable now.
+ */
+function siteCause(cause: FailureCause): FailureCause {
+  return cause.code === "graph.onedrive_unavailable"
+    ? buildCause("graph.item_not_found", cause.params, cause.technical, true)
+    : cause;
 }
 
 export class SharePointBackupEngine<Db = unknown> implements BackupEngine<Db> {
@@ -333,6 +370,11 @@ class SiteBackupRun {
   private readonly previous: PreviousSiteObjects;
   /** The writer's paths by library and list folder. */
   private readonly folders: WriterFolders;
+  /**
+   * Item failures of the libraries an earlier attempt of this job finished:
+   * counted in the result, not reported again (that attempt did it).
+   */
+  private earlierFailures = 0;
   /** A drive run threw: it checkpointed on its way out already. */
   private driveRunFailed = false;
 
@@ -413,6 +455,9 @@ class SiteBackupRun {
 
     const finished = this.done.get(drive.id);
     if (finished && finished.folder === folder) {
+      // Its item failures were reported (item_failures) by the attempt that
+      // finished it; only their number is still owed to this job's result.
+      this.earlierFailures += finished.failures ?? 0;
       return;
     }
     const previousLibrary =
@@ -448,15 +493,24 @@ class SiteBackupRun {
       try {
         outcome = await run.collect();
       } catch (error) {
-        this.driveRunFailed = !isRefused(error);
+        this.driveRunFailed = !isPartFailure(error);
         throw error;
       }
       for (const failure of outcome.failures) {
-        this.failures.push({ ...failure, itemRef: `${prefix}/${failure.itemRef}` });
+        this.failures.push({
+          ...failure,
+          itemRef: `${prefix}/${failure.itemRef}`,
+          ...(failure.cause ? { cause: siteCause(failure.cause) } : {}),
+        });
       }
-      this.done.set(drive.id, { driveId: drive.id, folder, drive: outcome.state });
+      this.done.set(drive.id, {
+        driveId: drive.id,
+        folder,
+        drive: outcome.state,
+        failures: outcome.failures.length,
+      });
     } catch (error) {
-      if (!isRefused(error)) {
+      if (!isPartFailure(error)) {
         throw error;
       }
       // The library cannot be read (permissions, locked): keep what the last
@@ -465,7 +519,12 @@ class SiteBackupRun {
       this.recordFailure(prefix, error);
       if (previousObjects && previousLibrary) {
         this.replaceBelow(prefix, previousObjects);
-        this.done.set(drive.id, { driveId: drive.id, folder, drive: previousLibrary.drive });
+        this.done.set(drive.id, {
+          driveId: drive.id,
+          folder,
+          drive: previousLibrary.drive,
+          failures: 1,
+        });
       }
     }
     // A finished library is never walked again by a retry of this job.
@@ -506,10 +565,11 @@ class SiteBackupRun {
         inheritedFrom: permission.inheritedFrom ? true : undefined,
       }));
     } catch (error) {
-      if (!isGraphError(error) || error.status >= 500 || error.status === 429) {
+      if (!isListPartFailure(error)) {
         throw error;
       }
-      // Information only: a library whose permissions cannot be read is still backed up.
+      // Information only: a library whose permissions cannot be read (refused,
+      // or a lasting 500/501) is still backed up.
       this.input.logger.info("library permissions not readable", {
         driveId,
         status: error.status,
@@ -584,7 +644,7 @@ class SiteBackupRun {
         this.countItem();
       }
     } catch (error) {
-      if (!isRefused(error)) {
+      if (!isListPartFailure(error)) {
         throw error;
       }
       this.recordFailure(prefix, error);
@@ -722,7 +782,7 @@ class SiteBackupRun {
 
   private recordFailure(itemRef: string, error: unknown): void {
     const reason = describeFailure(error);
-    const cause = classifyFailure(error);
+    const cause = siteCause(classifyFailure(error));
     this.failures.push({ itemRef, reason, cause });
     this.input.ctx.progress.fail(itemRef, reason, cause);
     this.input.logger.warn("site part failed", { itemRef, reason });
@@ -820,7 +880,8 @@ class SiteBackupRun {
     const state: SiteManifestState = {
       engine: SITE_ENGINE_NAME,
       siteId,
-      libraries: [...this.done.values()],
+      // The failure counts belong to this job's cursor, not to the next run's state.
+      libraries: [...this.done.values()].map(({ failures: _failures, ...library }) => library),
       completedAt: this.now(),
     };
     writer.setState(state as unknown as Record<string, unknown>);
@@ -836,7 +897,7 @@ class SiteBackupRun {
       objectsTotal: committed.itemCount,
       objectsChanged: changes.changed,
       objectsRemoved: changes.removed,
-      failures: this.failures.length,
+      failures: this.failures.length + this.earlierFailures,
       newBytes: bytes,
     });
     return {
@@ -846,6 +907,7 @@ class SiteBackupRun {
       objectsTotal: committed.itemCount,
       bytes,
       failures: this.failures,
+      ...(this.earlierFailures > 0 ? { failuresFromEarlierAttempts: this.earlierFailures } : {}),
       chunkStats: chunkDataStats(writer.chunks.stats),
     };
   }

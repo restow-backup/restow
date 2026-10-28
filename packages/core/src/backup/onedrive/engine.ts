@@ -31,6 +31,8 @@ import type {
   JobContext,
   ProtectedObjectRef,
 } from "../../engine/types.js";
+import { buildCause } from "../../failures/classify.js";
+import type { FailureCause } from "../../failures/types.js";
 import type { GraphClient } from "../../graph/client.js";
 import { getUserDrive } from "../../graph/resources/drive.js";
 import { DriveBackupRun, type RunSettings } from "./run.js";
@@ -64,12 +66,20 @@ export type OneDriveIdResolver = (
  * show "no OneDrive" rather than a failing backup.
  */
 export class OneDriveUnavailableError extends Error {
+  /** Read by the failure classifier (failures/classify.ts): permanent, not retried. */
+  readonly failure: FailureCause;
+
   constructor(
     readonly protectedObjectId: string,
     readonly externalId: string,
   ) {
     super(`no OneDrive is provisioned for ${externalId}`);
     this.name = "OneDriveUnavailableError";
+    this.failure = buildCause(
+      "graph.onedrive_unavailable",
+      { resource: "onedrive" },
+      { message: this.message },
+    );
   }
 }
 

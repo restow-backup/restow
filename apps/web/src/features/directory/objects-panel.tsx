@@ -859,6 +859,22 @@ function BackupCell({ object, language }: { object: ProtectedObject; language: s
         </div>
       );
     }
+    case "limited": {
+      // Held back by a service: amber, with the cause below, and the next run tries again.
+      const failure = backupFailure(object);
+      const job = object.latestBackupJob;
+      const when = formatRelative(state.at, language) ?? "";
+      return (
+        <div className="space-y-1">
+          <HintBadge variant="warning" label={t("backup.limited")}>
+            {t("backup.limitedWhen", { when })}
+          </HintBadge>
+          {failure && job ? (
+            <BackupCause failure={failure} jobId={job.id} linkLabel={t("backup.openJob")} />
+          ) : null}
+        </div>
+      );
+    }
     case "done":
       return (
         <div className="space-y-0.5">

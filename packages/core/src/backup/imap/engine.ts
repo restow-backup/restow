@@ -41,7 +41,7 @@ import type {
   Logger,
   ProtectedObjectRef,
 } from "../../engine/types.js";
-import { buildCause, classifyFailure } from "../../failures/classify.js";
+import { buildCause, classifyFailure, FailureError } from "../../failures/classify.js";
 import type { FailureCause } from "../../failures/types.js";
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { CredentialSource, SessionPool } from "./connections.js";
@@ -469,8 +469,12 @@ class BackupRun {
     if (error.connectionLost || !worker.session.usable) {
       this.reconnects++;
       if (this.reconnects > this.limits.maxReconnects) {
-        throw new Error(
+        // Classified as what it is (connections lost, transient), with the last drop as the
+        // cause for the log: a plain Error read as "cause not identified".
+        throw new FailureError(
           `imap connection dropped ${this.reconnects} times in one run; giving up (the retry resumes from the checkpoint)`,
+          { code: "imap.connection_lost", transient: true },
+          { cause: error },
         );
       }
       this.logger.warn("imap session lost, reconnecting", { reconnects: this.reconnects, error });
@@ -769,6 +773,7 @@ class BackupRun {
         await this.reopenAfterError(worker, folder, status, error);
         await this.downloadSingly(worker, folder, status, components, remaining, metas);
       }
+      await this.dropExpunged(worker, folder, remaining);
       for (const uid of remaining) {
         this.itemFailed(
           components,
@@ -781,6 +786,46 @@ class BackupRun {
           ),
         );
       }
+    }
+  }
+
+  /**
+   * Leave out of `remaining` the UIDs the folder no longer has: a long first backup of a
+   * busy mailbox sees messages deleted or moved after the FLAGS snapshot, and those are not
+   * a server fault. One `UID SEARCH UID <lowest>:*`; a UID still listed but not delivered
+   * stays a failure (imap.message_missing). When the check itself fails they all stay.
+   */
+  private async dropExpunged(
+    worker: FolderWorker,
+    folder: ImapFolderInfo,
+    remaining: Set<number>,
+  ): Promise<void> {
+    if (remaining.size === 0) {
+      return;
+    }
+    let present: Set<number>;
+    try {
+      present = new Set(await worker.session.uidsAbove(Math.min(...remaining) - 1));
+    } catch (error) {
+      if (!isImapSessionError(error)) {
+        throw error;
+      }
+      return;
+    }
+    let vanished = 0;
+    for (const uid of [...remaining]) {
+      if (!present.has(uid)) {
+        remaining.delete(uid);
+        vanished++;
+      }
+    }
+    if (vanished > 0) {
+      this.discoveredTotal = Math.max(0, this.discoveredTotal - vanished);
+      this.ctx.progress.total(this.discoveredTotal);
+      this.logger.info("imap messages expunged during the run, not counted as failures", {
+        folder: folder.path,
+        vanished,
+      });
     }
   }
 
@@ -808,13 +853,15 @@ class BackupRun {
         if (!isImapSessionError(error)) {
           throw error;
         }
+        const cause = classifyFailure(error, { role: "imap" });
+        if (cause.code === "imap.server_limit") {
+          // A download or command cap of the account: every further single FETCH (each after
+          // a re-EXAMINE) only hits it again and records one failure per message. The folder
+          // fails as a whole (transient) and the next run resumes from the checkpoint.
+          throw error;
+        }
         await this.reopenAfterError(worker, folder, status, error);
-        this.itemFailed(
-          components,
-          uid,
-          `fetch failed: ${error.message}`,
-          classifyFailure(error, { role: "imap" }),
-        );
+        this.itemFailed(components, uid, `fetch failed: ${error.message}`, cause);
         remaining.delete(uid);
         continue;
       }

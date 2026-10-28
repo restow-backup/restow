@@ -318,6 +318,23 @@ describe("ObjectsPanel failure causes", () => {
     expect(html).toContain('href="/history/job-7"');
   });
 
+  it("shows a backup a service held back as held back, with its cause, never as failed", () => {
+    const throttled = failedBackup(accessDenied);
+    const html = render(
+      page({
+        ...throttled,
+        latestBackupJob: throttled.latestBackupJob && {
+          ...throttled.latestBackupJob,
+          serviceLimited: true,
+        },
+      }),
+      [source()],
+    );
+    expect(html).toContain("Held back by the service");
+    expect(html).not.toContain("Last run failed");
+    expect(html).toContain('href="/history/job-7"');
+  });
+
   it("looks as before for a failed backup without a classified cause", () => {
     const html = render(page(failedBackup(null)), [source()]);
     expect(html).toContain("Last run failed");

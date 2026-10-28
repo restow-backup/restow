@@ -25,6 +25,7 @@ import {
   tenants,
 } from "@restow/db";
 import { and, asc, desc, eq, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
+import { isServiceLimitedBackup } from "../../lib/service-limit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { coverageOf, mailCoverageOf, runsOnSchedule } from "./coverage.js";
@@ -729,6 +730,7 @@ export async function listJobRuns(
           id: jobs.id,
           queue: jobs.queue,
           status: jobs.status,
+          failure: jobs.failure,
           objectId: jobs.protectedObjectId,
           startedAt: jobs.startedAt,
           completedAt: jobs.completedAt,
@@ -755,6 +757,7 @@ export async function listJobRuns(
           startedAt: iso(row.startedAt),
           finishedAt: iso(row.completedAt),
           createdAt: row.createdAt.toISOString(),
+          serviceLimited: isServiceLimitedBackup(row),
         });
       }
     } else {

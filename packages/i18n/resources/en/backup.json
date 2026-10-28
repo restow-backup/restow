@@ -36,6 +36,7 @@
     "completed": "Completed",
     "completedWithFailures": "{count, plural, one {Completed, # item failed} other {Completed, # items failed}}",
     "failed": "Failed",
+    "serviceLimited": "Held back by the service, retried",
     "cancelled": "Cancelled",
     "checkIncomplete": "Not completed, will be retried"
   },
@@ -65,9 +66,13 @@
     "archive": "Packing archive",
     "evaluate": "Evaluating retention",
     "prune": "Removing expired snapshots",
+    "site": "Reading the site",
+    "lists": "Lists",
     "load": "Loading the known directory",
     "complete": "Completing partial user entries",
     "probe": "Checking mailboxes and OneDrives",
+    "sites": "Finding sites",
+    "groups": "Finding group mailboxes",
     "plan": "Applying the protection rules",
     "persist": "Saving the directory",
     "unknown": "Working ({name})"

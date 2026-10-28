@@ -168,6 +168,38 @@ describe("ReadinessTimeline", () => {
     expect(timeline.at(day(5)).states.has("dora")).toBe(false);
   });
 
+  it("rates an orphan without the age of its last backup, and never as overdue", () => {
+    const outdated = {
+      ...check("gone", 1, 3, "red"),
+      reasons: [{ code: "snapshot_outdated", severity: "red", ageHours: 900 }],
+    };
+    const damaged = {
+      ...check("kept", 1, 3, "red"),
+      reasons: [
+        { code: "items_missing", severity: "red", count: 2 },
+        { code: "snapshot_outdated", severity: "red", ageHours: 900 },
+      ],
+    };
+    const timeline = new ReadinessTimeline(
+      [object("gone", 1, "orphaned"), object("kept", 1, "orphaned"), object("anna", 1)],
+      [snapshot("gone", 1, 2), snapshot("kept", 1, 2), snapshot("anna", 1, 2)],
+      [outdated, damaged, { ...check("anna", 1, 3, "red"), reasons: outdated.reasons }],
+    );
+    // Long after the last check: only the active object is overdue.
+    const moment = timeline.at(day(25));
+    expect(moment.states.get("gone")).toBe("green");
+    expect(moment.states.get("kept")).toBe("red");
+    expect(moment.states.get("anna")).toBe("red");
+    expect(moment.counts).toEqual({ green: 1, yellow: 0, red: 2, unverified: 0 });
+    expect(moment.rated.map((rated) => rated.overdue)).toEqual([false, false, true]);
+    const orphanOnly = new ReadinessTimeline(
+      [object("gone", 1, "orphaned")],
+      [snapshot("gone", 1, 2)],
+      [outdated],
+    );
+    expect(orphanOnly.at(day(25)).overall).toBe("green");
+  });
+
   it("rates a tenant yellow when every backup is fine but its check is overdue", () => {
     const fine = new ReadinessTimeline(
       [object("anna", 1)],

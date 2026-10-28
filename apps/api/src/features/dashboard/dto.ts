@@ -179,6 +179,8 @@ export interface RecentJobDto {
   throttledUntil: string | null;
   /** Why the job failed (or its last attempt did), classified; null for a job that did not fail. */
   failure: FailureDto | null;
+  /** A failed backup a service held back: shown held back, not failed (jobs DTO `serviceLimited`). */
+  serviceLimited: boolean;
   /** The causes behind a finished job's failed items, most frequent first (at most three). */
   itemCauses: { code: string; count: number }[];
 }

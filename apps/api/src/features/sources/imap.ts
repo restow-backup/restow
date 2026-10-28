@@ -2,6 +2,7 @@ import {
   BLOCKED_ADDRESS_CODE,
   guardedLookup,
   isBlockedAddressError,
+  isTemporaryImapRefusal,
   refuseHostBeforeConnect,
 } from "@restow/core";
 import { ImapFlow, type ImapFlowOptions } from "imapflow";
@@ -47,6 +48,8 @@ export type ImapProbeFailure =
   | "starttls_unavailable"
   | "dns"
   | "refused"
+  /** The server refused the login for now (too many connections, auth backend down). */
+  | "busy"
   | "unknown";
 
 export interface ImapServerInfo {
@@ -183,6 +186,11 @@ export function classifyImapError(error: unknown): {
     return { reason: "blocked_address", code: BLOCKED_ADDRESS_CODE };
   }
   if (err.authenticationFailed === true || code === "AUTHENTICATIONFAILED") {
+    // imapflow flags every NO to LOGIN/AUTHENTICATE, also a connection limit ("Too many
+    // simultaneous connections") or an auth backend that is down ([UNAVAILABLE]).
+    if (isTemporaryImapRefusal(err)) {
+      return { reason: "busy", code };
+    }
     return { reason: "auth", code };
   }
   switch (code) {

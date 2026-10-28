@@ -518,6 +518,25 @@ describe("toStoredBackupResult", () => {
     });
   });
 
+  it("counts the failures an earlier attempt reported for parts a resume skipped", () => {
+    const stored = toStoredBackupResult({
+      result: {
+        snapshotId: "snap-1",
+        sequence: 4,
+        objectsWritten: 12,
+        objectsTotal: 900,
+        bytes: 4096,
+        failures: [{ itemRef: "a", reason: "b" }],
+        failuresFromEarlierAttempts: 30,
+      },
+      repairedCopies: 0,
+      verifyJobId: null,
+      throttle: { waits: 0, totalWaitMs: 0 },
+      completedAt: new Date(Date.UTC(2026, 0, 1)),
+    });
+    expect(stored.failures).toBe(31);
+  });
+
   it("keeps the chunk writer's numbers for the compression and deduplication signals", () => {
     const chunkStats = {
       bytesIn: 9000,

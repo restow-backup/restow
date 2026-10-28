@@ -186,28 +186,38 @@ export function tokenProviderFor(
   };
 }
 
-/** When a refusal last dropped the tokens of a tenant or source (see `refreshAfterRefusal`). */
-const lastRefusalRefresh = new Map<string, number>();
+/** When a refusal last dropped the tokens of a tenant or source, and which token it dropped. */
+const lastRefusalRefresh = new Map<string, { at: number; dropped: string | undefined }>();
 
 /**
  * The Graph client's `refreshAccessToken`: after a 401 or 403, drop the cached token once a
  * minute per tenant or source, so a permission granted since the token was issued takes
  * effect without a new client secret, and a run of refusals does not fetch a token each time.
+ *
+ * Requests run concurrently: when several were sent with the same old token, the first
+ * refusal drops it and the others land inside the minute. Their token is the one already
+ * dropped, so they are told to send again too (with the new token, without dropping it).
  */
 export function refreshAfterRefusal(
   key: string,
   provider: { invalidate(): void },
   now: () => number = Date.now,
-): () => boolean {
-  return () => {
+): (refusedToken?: string) => boolean {
+  return (refusedToken) => {
     const at = now();
-    if (at - (lastRefusalRefresh.get(key) ?? 0) < TOKEN_REFRESH_MIN_AGE_MS) {
+    const last = lastRefusalRefresh.get(key);
+    if (last && refusedToken !== undefined && last.dropped === refusedToken) {
+      return true;
+    }
+    // A negative age means the wall clock stepped back since: it does not hold back the refresh.
+    const elapsed = at - (last?.at ?? 0);
+    if (elapsed >= 0 && elapsed < TOKEN_REFRESH_MIN_AGE_MS) {
       return false;
     }
     if (lastRefusalRefresh.size > 1024) {
       lastRefusalRefresh.clear();
     }
-    lastRefusalRefresh.set(key, at);
+    lastRefusalRefresh.set(key, { at, dropped: refusedToken });
     provider.invalidate();
     return true;
   };

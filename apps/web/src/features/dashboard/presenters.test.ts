@@ -157,6 +157,12 @@ describe("tones", () => {
     ).toEqual({ key: "throttled", tone: "warning", live: true });
     expect(jobStatusView(job({ status: "active" })).key).toBe("active");
     expect(jobStatusView(job({ status: "failed" })).tone).toBe("destructive");
+    // A backup Graph held back reads held back, in amber, never failed.
+    expect(jobStatusView(job({ status: "failed", serviceLimited: true }))).toEqual({
+      key: "limited",
+      tone: "warning",
+      live: false,
+    });
   });
 
   it("calls a backup older than two days stale", () => {

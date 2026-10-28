@@ -10,8 +10,11 @@
 // Enqueueing is atomic per schedule: the pg-boss job rows, the Restow `jobs`
 // rows and the schedule's next run are written in one transaction, using
 // pg-boss' `db` option to route its insert through the same connection. If a
-// singleton key is already queued or active, pg-boss returns null and no
-// `jobs` row is created; the schedule still advances.
+// singleton key is already queued, pg-boss returns null and no `jobs` row is
+// created; the schedule still advances. Beside an active job of the same key
+// pg-boss accepts one queued job (stately: at most one per key), which runs once
+// the active one ends; it does not hold up the other keys of the queue
+// (patches/pg-boss@10.4.2.patch).
 //
 // The recommended schedules are applied the same way: found across tenants on
 // the installation pool, written per tenant on the application pool in one
@@ -72,7 +75,7 @@ function toScheduleRow(record: ScheduleRecord): ScheduleRow {
 export interface EnqueueResult {
   /** Jobs handed to pg-boss and recorded in `jobs`. */
   readonly enqueued: number;
-  /** Jobs skipped because the same singleton key is already queued or active. */
+  /** Jobs skipped because the same singleton key is already queued (stately: one queued beside the active one). */
   readonly skipped: number;
 }
 
@@ -284,9 +287,23 @@ export class ScheduleStore {
       await client.query("BEGIN");
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
       const objects = await client.query<TenantTargets["protectedObjects"][number]>(
-        `SELECT id, source_id AS "sourceId", kind, status
-           FROM protected_objects
-          WHERE tenant_id = $1`,
+        // For an orphan (planning.ts awaitsLastCheck): whether its newest restorable backup
+        // has no check of its own, the verify feature's "unverified" rule.
+        `SELECT po.id, po.source_id AS "sourceId", po.kind, po.status,
+                (po.status = 'orphaned' AND EXISTS (
+                  SELECT 1 FROM (
+                    SELECT s.id FROM snapshots s
+                     WHERE s.tenant_id = po.tenant_id AND s.protected_object_id = po.id
+                       AND s.status = 'active' AND s.manifest_path IS NOT NULL
+                     ORDER BY s.sequence DESC LIMIT 1
+                  ) newest
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM verify_reports r
+                     WHERE r.tenant_id = po.tenant_id AND r.snapshot_id = newest.id
+                  )
+                )) AS "unverifiedBackup"
+           FROM protected_objects po
+          WHERE po.tenant_id = $1`,
         [tenantId],
       );
       const sources = await client.query<TenantTargets["sources"][number]>(

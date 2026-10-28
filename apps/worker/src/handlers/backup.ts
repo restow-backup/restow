@@ -59,6 +59,7 @@ import {
   type ImapAccountConfig,
   ImapBackupEngine,
   type ItemFailureDetails,
+  type ItemFailureRecord,
   JOB_PRIORITY,
   type Logger,
   OneDriveBackupEngine,
@@ -272,6 +273,10 @@ export class PhaseRecorder implements ProgressReporter {
     this.inner.fail(itemRef, reason, cause, details);
   }
 
+  withdraw(failures: readonly ItemFailureRecord[]): void {
+    this.inner.withdraw?.(failures);
+  }
+
   phase(name: string): void {
     this.inner.phase(name);
     if (name === this.state.phase) {
@@ -378,7 +383,8 @@ export function toStoredBackupResult(input: {
     objectsWritten: result.objectsWritten,
     objectsTotal: result.objectsTotal,
     bytes: result.bytes,
-    failures: result.failures.length,
+    // An earlier attempt's failures (a resumed site) were reported then; they still count here.
+    failures: result.failures.length + (result.failuresFromEarlierAttempts ?? 0),
     repairedCopies: input.repairedCopies,
     verifyJobId: input.verifyJobId,
     throttleWaits: input.throttle.waits,

@@ -877,6 +877,46 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         expect(await schedulesStep(tenantId)).toEqual(["done", null]);
       });
 
+      it("keeps the mail bound of the jobs when a member has a schedule of its own", async () => {
+        const tenantId = await tenantWithoutSchedules();
+        const staleMail = async () =>
+          ok((await dashboard(tenantId, "tenant_admin")).body.widgets.lastBackup).staleAfterHours
+            .mail;
+        const [daily] = await owner
+          .insert(backupJobs)
+          .values({
+            tenantId,
+            kind: "mail",
+            name: "Daily",
+            scopeMode: "all",
+            schedule: { kind: "cron", cron: "0 22 * * *", timeZone: "UTC" },
+          })
+          .returning();
+        expect(await staleMail()).toBe(48);
+        const [source] = await owner
+          .insert(sources)
+          .values({ tenantId, kind: "m365", name: "M365", status: "active" })
+          .returning();
+        const [mailbox] = await owner
+          .insert(protectedObjects)
+          .values({
+            tenantId,
+            sourceId: (source as { id: string }).id,
+            kind: "mailbox",
+            externalId: "weekly@jobs.example",
+          })
+          .returning();
+        // Backed up on Sundays only (the scheduler runs it on the member's own schedule): that
+        // bounds this member alone (the worker's alert), not the tenant's newest mail backup.
+        await owner.insert(backupJobMembers).values({
+          tenantId,
+          jobId: (daily as { id: string }).id,
+          protectedObjectId: (mailbox as { id: string }).id,
+          overrides: { schedule: { kind: "cron", cron: "0 3 * * 0", timeZone: "UTC" } },
+        });
+        expect(await staleMail()).toBe(48);
+      });
+
       it("lets a tenant that protects only machines finish the source, object, backup and check steps", async () => {
         const tenantId = await tenantWithoutSchedules();
         const steps = async () => {

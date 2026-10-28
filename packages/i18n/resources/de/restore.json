@@ -355,6 +355,8 @@
       "active": "Läuft",
       "completed": "Abgeschlossen",
       "completedWithIssues": "Mit Problemen abgeschlossen",
+      "completedNothingRestored": "Nichts wiederhergestellt",
+      "completedAllSkipped": "Alles übersprungen",
       "failed": "Fehlgeschlagen",
       "cancelled": "Abgebrochen",
       "unknown": "Unbekannt"

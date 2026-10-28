@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 import type { Run, RunFirstBackup } from "../api";
 import { useSecondClock } from "../live/clock";
-import { barPercent, estimateParts, runDurationSeconds, withRun } from "../presenters";
+import { barPercent, estimateParts, isHeldBack, runDurationSeconds, withRun } from "../presenters";
 import { formatClock } from "../samples";
 import { Sparkline } from "./sparkline";
 
@@ -20,7 +20,7 @@ export function RunBar({
   run,
   className,
 }: {
-  run: Pick<Run, "state" | "progress">;
+  run: Pick<Run, "state" | "progress" | "kind" | "serviceLimited">;
   className?: string;
 }) {
   const percent = barPercent(run);
@@ -36,7 +36,7 @@ export function RunBar({
           run.state === "running" && "bg-info",
           run.state === "queued" && "bg-muted-foreground/30",
           (run.state === "succeeded" || run.state === "partial") && "bg-muted-foreground",
-          run.state === "failed" && "bg-destructive",
+          run.state === "failed" && (isHeldBack(run) ? "bg-warning" : "bg-destructive"),
           run.state === "cancelled" && "bg-muted-foreground/50",
           indeterminate && "w-full opacity-40 motion-safe:animate-pulse",
         )}

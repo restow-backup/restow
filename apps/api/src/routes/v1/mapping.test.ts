@@ -237,6 +237,30 @@ describe("protected objects", () => {
     expect(readiness).toMatchObject({ state: "green", overdue: true });
   });
 
+  it("rates an orphaned object without the age of its backup, and never as overdue", () => {
+    const facts = (reasons: unknown) => ({
+      ...NO_FACTS,
+      snapshot: { id: "s", sequence: 1, completedAt: NOW, itemCount: 1, byteSize: 1 },
+      verify: {
+        rating: "red" as const,
+        kind: "verify" as const,
+        checkedAt: new Date("2026-09-01T00:00:00.000Z"),
+        reasons,
+      },
+    });
+    const outdated = facts([{ code: "snapshot_outdated", severity: "red", ageHours: 900 }]);
+    expect(readinessOf(outdated, NOW, "orphaned")).toMatchObject({
+      state: "green",
+      rating: "green",
+      overdue: false,
+    });
+    // Still in its source: the age counts, and the check is overdue.
+    expect(readinessOf(outdated, NOW)).toMatchObject({ state: "red", overdue: true });
+    // A backup that does not restore stays red for an orphan, too.
+    const damaged = facts([{ code: "items_missing", severity: "red", count: 1 }]);
+    expect(readinessOf(damaged, NOW, "orphaned")).toMatchObject({ state: "red", overdue: false });
+  });
+
   it("rates excluded objects not at all and orphaned ones while backups exist", () => {
     expect(countsForReadiness("excluded", true)).toBe(false);
     expect(countsForReadiness("orphaned", false)).toBe(false);
@@ -266,6 +290,7 @@ describe("verification report", () => {
       kind: "verify",
       origin: "verify",
       reasons: [],
+      setAsideReasons: [],
       counts: null,
     },
     running: null,

@@ -62,6 +62,7 @@ export const FAILURE_CODES = [
   "imap.config_invalid",
   "imap.command_failed",
   "imap.mailbox_full",
+  "imap.server_limit",
   "imap.connection_lost",
   "imap.message_missing",
   // Archive capture over IMAP (0.4.4): why an account is polled instead of watched with IDLE.

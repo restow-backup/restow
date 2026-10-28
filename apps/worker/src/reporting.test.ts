@@ -105,6 +105,49 @@ describe("jobFinishedNotification", () => {
     expect(done?.details).toMatchObject({ failure: null });
   });
 
+  it("raises restore.failed for a restore that completed but restored nothing while items failed", () => {
+    const restore = { ...failedJob(null), status: "completed" as const, queue: "restore" as const };
+    const nothing = jobFinishedNotification(
+      TENANT,
+      { ...restore, restoreResult: { restored: 0, skipped: 0, failures: 2, unverified: 0 } },
+      "Alice",
+    );
+    expect(nothing).toMatchObject({
+      event: "restore.failed",
+      level: "error",
+      message: "The restore job for Alice failed: Nothing was restored: 2 items failed.",
+      details: {
+        errorMessage: "Nothing was restored: 2 items failed.",
+        failure: null,
+        restoreOutcome: "nothingRestored",
+      },
+    });
+    // Everything skipped, nothing failed: completed, but not worded as if something came back.
+    const skipped = jobFinishedNotification(
+      TENANT,
+      { ...restore, restoreResult: { restored: 0, skipped: 5, failures: 0, unverified: 0 } },
+      "Alice",
+    );
+    expect(skipped).toMatchObject({
+      event: "restore.completed",
+      level: "info",
+      message:
+        "The restore for Alice completed without restoring anything: every item was skipped.",
+      details: { errorMessage: null, restoreOutcome: "allSkipped" },
+    });
+    // Restored items next to failed ones: a completed restore as before.
+    const partial = jobFinishedNotification(
+      TENANT,
+      { ...restore, restoreResult: { restored: 4, skipped: 0, failures: 1, unverified: 0 } },
+      "Alice",
+    );
+    expect(partial).toMatchObject({
+      event: "restore.completed",
+      message: "The restore for Alice completed.",
+    });
+    expect(partial?.details).not.toHaveProperty("restoreOutcome");
+  });
+
   it("raises backup.succeeded for a backup that worked, nothing for other finished queues", () => {
     const backup = jobFinishedNotification(
       TENANT,

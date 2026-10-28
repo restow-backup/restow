@@ -37,6 +37,9 @@ export class FakeImapAccount implements ImapRestoreSession {
   mangle: ((content: Buffer) => Buffer) | null = null;
   /** When set, APPEND to this mailbox is refused. */
   refuseAppendTo: string | null = null;
+  /** When set, the connection drops after this many APPENDs: later commands all fail. */
+  dropAfterAppends: number | null = null;
+  connectionLost = false;
 
   constructor(private readonly options: FakeImapOptions = {}) {
     this.delimiter = options.delimiter ?? "/";
@@ -97,6 +100,7 @@ export class FakeImapAccount implements ImapRestoreSession {
 
   async findByMessageId(mailbox: string, messageId: string): Promise<number[]> {
     this.commands.push(`SEARCH ${mailbox} ${messageId}`);
+    this.assertConnected();
     return this.box(mailbox)
       .messages.filter((message) => headerMessageId(message.content) === messageId)
       .map((message) => message.uid);
@@ -116,6 +120,11 @@ export class FakeImapAccount implements ImapRestoreSession {
     internalDate: Date | undefined,
   ): Promise<{ uid: number | undefined }> {
     this.commands.push(`APPEND ${mailbox}`);
+    this.assertConnected();
+    if (this.dropAfterAppends !== null && this.dropAfterAppends-- <= 0) {
+      this.connectionLost = true;
+      this.assertConnected();
+    }
     if (mailbox === this.refuseAppendTo) {
       throw new Error("NO [OVERQUOTA] mailbox is full");
     }
@@ -132,6 +141,12 @@ export class FakeImapAccount implements ImapRestoreSession {
 
   async close(): Promise<void> {
     this.closed = true;
+  }
+
+  private assertConnected(): void {
+    if (this.connectionLost) {
+      throw new Error("Connection not available");
+    }
   }
 }
 

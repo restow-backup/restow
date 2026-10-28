@@ -20,7 +20,7 @@ import {
   sources,
   tenants,
 } from "@restow/db";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   dropDatabase,
@@ -261,5 +261,39 @@ describe.skipIf(!testDatabaseAdminUrl)("failed jobs against Postgres", () => {
       { code: "graph.throttled", count: 900 },
       { code: "graph.item_too_large", count: 50 },
     ]);
+  });
+
+  it("reads only a backup a service held back as held back; a restore stays failed", async () => {
+    const throttled = (queue: "backup" | "restore", at: Date) =>
+      job("failed", {
+        queue,
+        startedAt: at,
+        completedAt: at,
+        failure: record("graph.throttled", { transient: true }),
+      });
+    // A tenant of its own, so the dashboard counts only these runs.
+    const [tenant] = await db
+      .insert(tenants)
+      .values({
+        providerId: (await db.select().from(providers))[0]?.id as string,
+        name: "Counted",
+        slug: `c-${randomUUID().slice(0, 8)}`,
+      })
+      .returning();
+    const now = new Date();
+    const backup = await throttled("backup", new Date(now.getTime() - 60_000));
+    const restore = await throttled("restore", new Date(now.getTime() - 60_000));
+    // The next scheduled run tries a backup again; nothing repeats a restore.
+    expect((await getJob(db, tenantId, backup)).serviceLimited).toBe(true);
+    expect((await getJob(db, tenantId, restore)).serviceLimited).toBe(false);
+
+    await db
+      .update(jobs)
+      .set({ tenantId: tenant?.id as string })
+      .where(inArray(jobs.id, [backup, restore]));
+    const { loadTenantHealthExtras } = await import("../dashboard/queries.js");
+    const extras = await loadTenantHealthExtras(db, tenant?.id as string, now);
+    // The restore someone waits for counts as failed, as it raises restore.failed.
+    expect(extras.failures24h).toBe(1);
   });
 });
