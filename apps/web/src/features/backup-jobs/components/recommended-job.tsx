@@ -52,13 +52,27 @@ function PlanItem({ item }: { item: RecommendedJobPlan }) {
   const more = item.memberCount - names.length;
   const nameList =
     more > 0 ? `${names.join(", ")} ${t("recommended.more", { count: more })}` : names.join(", ");
-  const lines: string[] = [
-    item.kind === "mail"
-      ? t("recommended.scope.mail", { count: item.memberCount })
-      : t(`recommended.scope.${item.kind}`, { count: item.memberCount, names: nameList }),
-    t("recommended.schedule", { schedule: describeJobSchedule(item.schedule, ctx) }),
-  ];
-  if (item.kind === "mail") {
+  const archiving = item.archive === true;
+  const lines: string[] = [];
+  if (item.action === "enable") {
+    // Archiving switched on in a job that exists: it keeps what it covers and when it runs.
+    lines.push(t("recommended.scope.archive"));
+    lines.push(
+      item.schedule
+        ? t("recommended.archiveSchedule", { schedule: describeJobSchedule(item.schedule, ctx) })
+        : t("recommended.archiveManual"),
+    );
+  } else {
+    lines.push(
+      item.kind === "mail" || item.kind === "archive"
+        ? t("recommended.scope.mail", { count: item.memberCount })
+        : t(`recommended.scope.${item.kind}`, { count: item.memberCount, names: nameList }),
+    );
+    if (item.schedule) {
+      lines.push(t("recommended.schedule", { schedule: describeJobSchedule(item.schedule, ctx) }));
+    }
+  }
+  if ((item.kind === "mail" || item.kind === "archive") && item.action === "create") {
     lines.push(
       item.verifySchedule
         ? t("recommended.verify", { schedule: describeJobSchedule(item.verifySchedule, ctx) })
@@ -69,6 +83,16 @@ function PlanItem({ item }: { item: RecommendedJobPlan }) {
         ? t("recommended.retentionPolicy", { policy: item.retentionPolicy })
         : t("recommended.retentionDefault"),
     );
+  }
+  if (archiving) {
+    lines.push(
+      t("recommended.capture", {
+        ways: (item.captureKinds ?? [])
+          .map((kind) => t(`recommended.captureKind.${kind}`))
+          .join(", "),
+      }),
+    );
+    lines.push(t("recommended.archiveRetention"));
   }
   if (item.kind === "pve") {
     lines.push(t("recommended.mode"));
@@ -99,9 +123,14 @@ function PlanItem({ item }: { item: RecommendedJobPlan }) {
         <span className="font-medium">
           {item.action === "create"
             ? t("recommended.create", { name: item.name })
-            : t("recommended.add", { name: item.name })}
+            : item.action === "enable"
+              ? t("recommended.enable", { name: item.name })
+              : t("recommended.add", { name: item.name })}
         </span>
         <Badge variant="muted">{t(`recommended.kind.${item.kind}`)}</Badge>
+        {archiving && item.kind === "mail" ? (
+          <Badge variant="muted">{t("recommended.kind.archive")}</Badge>
+        ) : null}
       </div>
       <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">
         {lines.map((line) => (
@@ -207,6 +236,11 @@ function RecommendedDialog({
   });
   const items = plan.data?.items ?? [];
   const skipped = plan.data?.skipped ?? [];
+  // A job whose capture way was switched off by hand: archiving needs a choice in the job.
+  const noWay = skipped.filter((skip) => skip.reason === "no_capture_way");
+  // Mail jobs over selected objects keep their archive setting: named, not counted as objects.
+  const handPicked = skipped.filter((skip) => skip.kind === "archive" && skip.reason === "in_job");
+  const counted = skipped.filter((skip) => skip.kind !== "archive");
   return (
     <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogContent className="max-h-[90vh] overflow-y-auto" data-slot="recommended-dialog">
@@ -231,9 +265,26 @@ function RecommendedDialog({
             ))}
           </ul>
         )}
-        {skipped.length > 0 ? (
+        {noWay.map((skip) => (
+          <p
+            key={skip.id}
+            className="text-xs text-muted-foreground"
+            data-slot="recommended-no-capture-way"
+          >
+            {t("recommended.noCaptureWay", { name: skip.name ?? "" })}
+          </p>
+        ))}
+        {handPicked.length > 0 ? (
+          <p className="text-xs text-muted-foreground" data-slot="recommended-hand-picked">
+            {t("recommended.handPicked", {
+              count: handPicked.length,
+              names: handPicked.map((skip) => skip.name ?? "").join(", "),
+            })}
+          </p>
+        ) : null}
+        {counted.length > 0 ? (
           <p className="text-xs text-muted-foreground" data-slot="recommended-skipped">
-            {t("recommended.skipped", { count: skipped.length })}
+            {t("recommended.skipped", { count: counted.length })}
           </p>
         ) : null}
         {apply.isError ? (

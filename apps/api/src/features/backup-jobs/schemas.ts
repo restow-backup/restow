@@ -329,8 +329,8 @@ export const recommendedScopeSchema = z
     everything: z.boolean().default(false),
     /** With `everything`: only these kinds; empty or absent = all. */
     kinds: z
-      .array(z.enum(["mail", "endpoint", "pve"]))
-      .max(3)
+      .array(z.enum(["mail", "endpoint", "pve", "archive"]))
+      .max(4)
       .default([]),
   })
   .refine(

@@ -695,18 +695,23 @@ export interface RecommendedScope {
   kinds?: readonly RecommendedKind[];
 }
 
-export type RecommendedKind = "mail" | "endpoint" | "pve";
+export type RecommendedKind = "mail" | "endpoint" | "pve" | "archive";
+
+/** The kinds of mail object an archive captures (packages/db archive-capture.ts). */
+export type RecommendedCaptureKind = "m365" | "google" | "imap" | "imap_microsoft";
 
 /** One job the click makes, or adds to (apps/api backup-jobs/recommended.ts). */
 export interface RecommendedJobPlan {
   kind: RecommendedKind;
   key: string;
-  action: "create" | "add";
+  /** `enable`: switch archiving on in the mail job over all objects (servers from 0.4.7). */
+  action: "create" | "add" | "enable";
   jobId: string | null;
   name: string;
   os: string | null;
   profile: "server" | "client" | null;
-  schedule: JobSchedule;
+  /** Null: a job that is switched to archiving and runs by hand keeps doing so. */
+  schedule: JobSchedule | null;
   verifySchedule: JobSchedule | null;
   retention: JobRetention | null;
   retentionPolicy: string | null;
@@ -715,13 +720,18 @@ export interface RecommendedJobPlan {
   paths: string[];
   members: { id: string; name: string }[];
   memberCount: number;
+  /** Mail: the job archives as well, with the default capture ways; missing before 0.4.7. */
+  archive?: boolean;
+  /** What the archive captures, each kind by its default way. */
+  captureKinds?: RecommendedCaptureKind[];
 }
 
 export interface RecommendedSkip {
   kind: RecommendedKind;
   id: string;
   name: string | null;
-  reason: "in_job" | "unavailable" | "covered";
+  /** no_capture_way: the job over all objects has a capture way switched off by hand. */
+  reason: "in_job" | "unavailable" | "covered" | "no_capture_way";
 }
 
 export interface RecommendedPlan {

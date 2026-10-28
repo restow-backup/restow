@@ -1,6 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ChevronDown, Container, ListChecks, ListPlus, Server, ShieldOff } from "lucide-react";
+import {
+  Archive,
+  ChevronDown,
+  Container,
+  ListChecks,
+  ListPlus,
+  Server,
+  ShieldOff,
+} from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -27,7 +35,7 @@ import { fileSharesTo } from "@/features/file-shares/paths";
 import { deleteJob as deletePveJob, type PveJob, pveKeys } from "@/features/pve/api";
 import { JobDialog as PveJobDialog } from "@/features/pve/pve-page";
 import { pveConnected, usePveOverview } from "@/features/pve/use-overview";
-
+import { useSession } from "@/lib/session";
 import type { BackupJob, JobKind } from "../api.js";
 import { closedProps, JobsAccessNote, useJobsAccess } from "../components/access-note.js";
 import { useJobActions } from "../components/job-actions.js";
@@ -100,6 +108,13 @@ export function JobsPage({
   const setOpen = onOpenRow ?? setOwnOpen;
   const items = query.data?.items;
   const uncovered = query.data?.uncovered[kind] ?? 0;
+  const session = useSession();
+  // The mail job over all objects does not archive yet, where the installation offers the
+  // capture (0.4.7): the recommended job switches it on.
+  const archiveOffered =
+    kind === "mail" &&
+    (session.features?.includes("archive.mailboxCapture") ?? false) &&
+    (items ?? []).some((job) => job.scopeMode === "all" && !job.archive);
   const unscheduled = query.data?.unscheduled?.[kind] ?? 0;
   const loading = query.isPending && query.fetchStatus !== "idle";
   const queryClient = useQueryClient();
@@ -192,6 +207,20 @@ export function JobsPage({
                   {t("list.uncovered.action")}
                 </Button>
               </DisabledReason>
+            </span>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {archiveOffered ? (
+        <Alert data-slot="archive-offer-notice">
+          <Archive aria-hidden="true" />
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{t("list.archiveOffer.text")}</span>
+            <span className="flex shrink-0 flex-wrap gap-2">
+              <RecommendedJobButton
+                scope={{ everything: true, kinds: ["archive"] }}
+                label={t("list.archiveOffer.action")}
+              />
             </span>
           </AlertDescription>
         </Alert>

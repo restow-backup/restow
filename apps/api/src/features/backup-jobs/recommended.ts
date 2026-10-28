@@ -10,8 +10,10 @@ import {
 import {
   backupJobMembers,
   backupJobs,
+  type CaptureKind,
   type Database,
   endpoints,
+  mailboxCaptureWay,
   type PveJobSchedule,
   type PveJobSettings,
   pveGuests,
@@ -30,7 +32,7 @@ import { endpointGroupName, languageOf, mailJobName, pveJobName, uniqueName } fr
 import { machineJobDefaults } from "./read.js";
 import { createBackupJobSchema } from "./schemas.js";
 import { BACKUP_JOB_AUDIT_ACTIONS, type JobActor, type JobContext } from "./service-types.js";
-import { addMembers, createBackupJob } from "./write.js";
+import { addMembers, createBackupJob, enableMailArchive, tenantCaptureKinds } from "./write.js";
 
 /**
  * "Create recommended job" (#52): one click protects what has no backup job, with the job Restow
@@ -49,6 +51,14 @@ import { addMembers, createBackupJob } from "./write.js";
  *              (incremental through the dirty bitmaps; the node reads in full when a bitmap is
  *              gone), 7 daily / 4 weekly / 6 monthly restore points. The weekly restore check (a
  *              sample of the newest restore point read back) runs for every guest anyway.
+ *   archive    (0.4.7, only while the installation offers `archive.mailboxCapture`) the mail
+ *              job over all objects archives too, with the default capture ways: Graph for
+ *              Microsoft 365 mailboxes, IMAP for the other accounts (the ways that need nothing
+ *              set up in the tenant; journaling and forwarding stay a choice in the editor). A
+ *              new recommended mail job is made archiving; an existing one over all objects that
+ *              does not archive yet is switched on ("enable", audited as an edit of the job).
+ *              Mail jobs over selected objects are never changed: they were set up by hand.
+ *              Nothing is planned while the tenant has no mail object an archive could capture.
  *
  * Idempotent: the apply takes the tenant row's lock first, so two clicks run one after the other
  * and the second finds the job of the first (by its key, `backup_jobs.recommended` and
@@ -57,7 +67,7 @@ import { addMembers, createBackupJob } from "./write.js";
  * added is audited as a change in the editor would be, plus one entry for the click.
  */
 
-export type RecommendedKind = "mail" | "endpoint" | "pve";
+export type RecommendedKind = "mail" | "endpoint" | "pve" | "archive";
 
 export interface RecommendedScope {
   /** The mail job over all objects. */
@@ -86,16 +96,17 @@ export interface RecommendedMember {
 
 export interface RecommendedJobPlanDto {
   kind: RecommendedKind;
-  /** `mail`, `endpoint:<os>:<profile>` or `pve`. */
+  /** `mail`, `endpoint:<os>:<profile>`, `pve` or `archive`. */
   key: string;
-  /** Make the job, or add to the recommended job that exists. */
-  action: "create" | "add";
+  /** Make the job, add to the recommended job that exists, or switch archiving on in it. */
+  action: "create" | "add" | "enable";
   jobId: string | null;
   name: string;
   /** Machines: the system and the profile of the group. */
   os: string | null;
   profile: "server" | "client" | null;
-  schedule: JobSchedule | PveJobSchedule;
+  /** Null only for a job that switches archiving on and runs by hand (it keeps its schedule). */
+  schedule: JobSchedule | PveJobSchedule | null;
   /** Mail: the restore-check schedule. */
   verifySchedule: JobSchedule | null;
   /** Machines and guests: the restore points kept; mail follows `retentionPolicy`. */
@@ -111,14 +122,23 @@ export interface RecommendedJobPlanDto {
   /** What the click protects: machines or guests by name; mail objects only as a count. */
   members: RecommendedMember[];
   memberCount: number;
+  /** Mail: the job archives as well (with the default capture ways). */
+  archive: boolean;
+  /** Mail that archives: the kinds of mail object the archive captures, each its default way. */
+  captureKinds: CaptureKind[];
 }
 
 export interface RecommendedSkipDto {
   kind: RecommendedKind;
   id: string;
   name: string | null;
-  /** in_job: already in a backup job; unavailable: unknown, revoked, a template or gone; covered: mail has a job over all objects. */
-  reason: "in_job" | "unavailable" | "covered";
+  /**
+   * in_job: already in a backup job (archive: a mail job over selected objects that does not
+   * archive); unavailable: unknown, revoked, a template or gone; covered: mail has a job over all
+   * objects (archive: it archives already); no_capture_way: the job over all objects has its
+   * capture ways chosen by hand (Graph or the IMAP sync off), so it is left for the editor.
+   */
+  reason: "in_job" | "unavailable" | "covered" | "no_capture_way";
 }
 
 export interface RecommendedPlanDto {
@@ -161,10 +181,17 @@ interface Planned {
   mail?: ReturnType<typeof recommendedSchedules>;
 }
 
+/** What the installation offers that the plan depends on. */
+export interface RecommendedOptions {
+  /** `archive.mailboxCapture` is on (lib/features.ts): archiving is part of the recommendation. */
+  archive: boolean;
+}
+
 async function plan(
   tx: Transaction,
   tenantId: string,
   scope: RecommendedScope,
+  options: RecommendedOptions,
 ): Promise<{ planned: Planned[]; skipped: RecommendedSkipDto[] }> {
   const [tenant] = await tx
     .select({ timeZone: tenants.timeZone, language: tenants.language })
@@ -178,54 +205,140 @@ async function plan(
   const primary = await loadPrimaryTarget(tx, tenantId);
 
   // --- Mail -------------------------------------------------------------------
-  if (scope.mail || allOf(scope, "mail")) {
-    const mailJobs = await tx
-      .select({ id: backupJobs.id, name: backupJobs.name, scopeMode: backupJobs.scopeMode })
-      .from(backupJobs)
-      .where(and(eq(backupJobs.tenantId, tenantId), eq(backupJobs.kind, "mail")));
-    const allJob = mailJobs.find((job) => job.scopeMode === "all");
-    const { objects, links } = await loadMailCoverage(tx, tenantId);
-    const uncovered = objects.filter((object) => coverageOf(object, links) === "none");
+  const mailWanted = scope.mail || allOf(scope, "mail");
+  const archiveWanted = options.archive && allOf(scope, "archive");
+  const mailJobs =
+    mailWanted || archiveWanted
+      ? await tx
+          .select({
+            id: backupJobs.id,
+            name: backupJobs.name,
+            scopeMode: backupJobs.scopeMode,
+            archive: backupJobs.archive,
+            archiveCapture: backupJobs.archiveCapture,
+            schedule: backupJobs.schedule,
+            verifySchedule: backupJobs.verifySchedule,
+          })
+          .from(backupJobs)
+          .where(and(eq(backupJobs.tenantId, tenantId), eq(backupJobs.kind, "mail")))
+      : [];
+  const allJob = mailJobs.find((job) => job.scopeMode === "all");
+  // What an archive would capture; nothing while the installation does not offer it.
+  const captureKinds =
+    options.archive && (mailWanted || archiveWanted) ? await tenantCaptureKinds(tx, tenantId) : [];
+  // The recommended mail job over all objects, archiving when there is something to capture.
+  const createMailPlan = async (
+    kind: "mail" | "archive",
+    memberCount: number,
+  ): Promise<Planned> => {
+    const recommended = recommendedSchedules({
+      timezone: timeZone,
+      hasMicrosoftSource: false,
+    }).filter((entry) => entry.kind === "backup" || entry.kind === "verify");
+    const backup = recommended.find((entry) => entry.kind === "backup");
+    const verify = recommended.find((entry) => entry.kind === "verify");
+    const policies = await loadSnapshotPolicies(tx, tenantId);
+    return {
+      mail: recommended,
+      targetIds: [],
+      plan: {
+        kind,
+        key: kind,
+        action: "create",
+        jobId: null,
+        name: uniqueName(language, mailJobName(language), new Set(mailJobs.map((job) => job.name))),
+        os: null,
+        profile: null,
+        schedule: backup
+          ? jobScheduleFromCadence(backup)
+          : { kind: "interval", intervalMinutes: 480, timeZone },
+        verifySchedule: verify ? jobScheduleFromCadence(verify) : null,
+        retention: null,
+        retentionPolicy: policies.find((policy) => policy.isDefault)?.name ?? null,
+        repository: repositoryDto(primary),
+        mode: null,
+        paths: [],
+        members: [],
+        memberCount,
+        archive: captureKinds.length > 0,
+        captureKinds,
+      },
+    };
+  };
+  let mailCreated = false;
+  // The mail objects in no job: what a new job over all objects would cover.
+  const uncovered =
+    mailWanted || archiveWanted
+      ? await loadMailCoverage(tx, tenantId).then(({ objects, links }) =>
+          objects.filter((object) => coverageOf(object, links) === "none"),
+        )
+      : [];
+  if (mailWanted) {
     if (allJob) {
       if (scope.mail) {
         skipped.push({ kind: "mail", id: allJob.id, name: allJob.name, reason: "covered" });
       }
     } else if (scope.mail || uncovered.length > 0) {
-      const recommended = recommendedSchedules({
-        timezone: timeZone,
-        hasMicrosoftSource: false,
-      }).filter((entry) => entry.kind === "backup" || entry.kind === "verify");
-      const backup = recommended.find((entry) => entry.kind === "backup");
-      const verify = recommended.find((entry) => entry.kind === "verify");
-      const policies = await loadSnapshotPolicies(tx, tenantId);
-      planned.push({
-        mail: recommended,
-        targetIds: [],
-        plan: {
-          kind: "mail",
-          key: "mail",
-          action: "create",
-          jobId: null,
-          name: uniqueName(
-            language,
-            mailJobName(language),
-            new Set(mailJobs.map((job) => job.name)),
-          ),
-          os: null,
-          profile: null,
-          schedule: backup
-            ? jobScheduleFromCadence(backup)
-            : { kind: "interval", intervalMinutes: 480, timeZone },
-          verifySchedule: verify ? jobScheduleFromCadence(verify) : null,
-          retention: null,
-          retentionPolicy: policies.find((policy) => policy.isDefault)?.name ?? null,
-          repository: repositoryDto(primary),
-          mode: null,
-          paths: [],
-          members: [],
-          memberCount: uncovered.length,
-        },
-      });
+      planned.push(await createMailPlan("mail", uncovered.length));
+      mailCreated = true;
+    }
+  }
+
+  // --- Mail archive ---------------------------------------------------------------
+  if (archiveWanted && captureKinds.length > 0) {
+    // Only a click that names the archive hears what it leaves alone.
+    const named = scope.kinds?.includes("archive") ?? false;
+    if (allJob) {
+      if (allJob.archive) {
+        if (named) {
+          skipped.push({ kind: "archive", id: allJob.id, name: allJob.name, reason: "covered" });
+        }
+      } else if (
+        // The ways were chosen by hand (Graph or the IMAP sync switched off, journaling or
+        // forwarding instead, or still waiting for a choice since 0.4.4): the job stays as it is.
+        captureKinds.some((kind) => mailboxCaptureWay(kind, allJob.archiveCapture) === null)
+      ) {
+        skipped.push({
+          kind: "archive",
+          id: allJob.id,
+          name: allJob.name,
+          reason: "no_capture_way",
+        });
+      } else {
+        planned.push({
+          targetIds: [],
+          plan: {
+            kind: "archive",
+            key: "archive",
+            action: "enable",
+            jobId: allJob.id,
+            name: allJob.name,
+            os: null,
+            profile: null,
+            // Its schedules stay as they are: the archive runs with its backups.
+            schedule: allJob.schedule,
+            verifySchedule: allJob.verifySchedule,
+            retention: null,
+            retentionPolicy: null,
+            repository: null,
+            mode: null,
+            paths: [],
+            members: [],
+            memberCount: 0,
+            archive: true,
+            captureKinds,
+          },
+        });
+      }
+    } else if (!mailCreated && uncovered.length > 0) {
+      // A new job over all objects covers only what is in no job yet.
+      planned.push(await createMailPlan("archive", uncovered.length));
+    }
+    // Hand-picked jobs keep their setting; the preview names them.
+    for (const job of mailJobs) {
+      if (job.scopeMode === "selected" && !job.archive) {
+        skipped.push({ kind: "archive", id: job.id, name: job.name, reason: "in_job" });
+      }
     }
   }
 
@@ -312,6 +425,8 @@ async function plan(
           paths: defaults.paths,
           members: members.slice(0, MEMBERS_SHOWN),
           memberCount: members.length,
+          archive: false,
+          captureKinds: [],
         },
       });
     }
@@ -374,6 +489,8 @@ async function plan(
           paths: [],
           members: chosen.slice(0, MEMBERS_SHOWN),
           memberCount: chosen.length,
+          archive: false,
+          captureKinds: [],
         },
       });
     }
@@ -386,9 +503,10 @@ export async function previewRecommendedJobs(
   db: Database,
   tenantId: string,
   scope: RecommendedScope,
+  options: RecommendedOptions = { archive: false },
 ): Promise<RecommendedPlanDto> {
   return withTenantTx(db, tenantId, async (tx) => {
-    const { planned, skipped } = await plan(tx, tenantId, scope);
+    const { planned, skipped } = await plan(tx, tenantId, scope, options);
     return { items: planned.map((entry) => entry.plan), skipped };
   });
 }
@@ -400,17 +518,32 @@ export async function applyRecommendedJobs(
   scope: RecommendedScope,
   actor: JobActor,
   context: JobContext,
+  options: RecommendedOptions = { archive: false },
 ): Promise<RecommendedAppliedDto> {
   const { now } = context;
   return withTenantTx(db, tenantId, async (tx) => {
     // One click at a time per tenant: the second waits here and then plans against the first's jobs.
     await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, tenantId)).for("update");
-    const { planned, skipped } = await plan(tx, tenantId, scope);
+    const { planned, skipped } = await plan(tx, tenantId, scope, options);
     const items: RecommendedAppliedDto["items"] = [];
     for (const { plan: item, targetIds, mail } of planned) {
-      if (item.kind === "mail") {
+      if (item.kind === "archive" && item.action === "enable" && item.jobId) {
+        // As an edit in the editor would: the capture ways checked, audited as a change.
+        await enableMailArchive(tx, tenantId, item.jobId, actor);
+        items.push({
+          kind: "archive",
+          key: "archive",
+          jobId: item.jobId,
+          name: item.name,
+          created: false,
+          added: 0,
+        });
+        continue;
+      }
+      if (item.kind === "mail" || item.kind === "archive") {
         const job = await ensureDefaultMailJob(tx, tenantId, mail ?? [], now, {
           recommended: "mail",
+          archive: item.archive,
         });
         if (job) {
           await audit(tx, {
@@ -428,11 +561,12 @@ export async function applyRecommendedJobs(
               schedule: item.schedule,
               verifySchedule: item.verifySchedule,
               recommended: "mail",
+              ...(item.archive ? { archive: true } : {}),
             },
           });
           items.push({
-            kind: "mail",
-            key: "mail",
+            kind: item.kind,
+            key: item.kind,
             jobId: job.id,
             name: job.name,
             created: true,

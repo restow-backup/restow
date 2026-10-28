@@ -3,7 +3,9 @@
  * preview writes nothing; the apply makes one job per kind and group (mail over all objects,
  * machines per system and profile, one Proxmox VE job) and adds to it later; a double click
  * makes nothing twice; objects in a job are skipped, never moved; another tenant's ids are not
- * found (Row Level Security); only administrators may apply; every job is audited.
+ * found (Row Level Security); only administrators may apply; every job is audited. Where the
+ * installation offers the archive capture (a test gate), the mail job over all objects archives
+ * too: a new one is made archiving, an existing one is switched on, a hand-picked way is kept.
  *
  * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server as a superuser (the database
  * `restow_api_recommended_jobs_test` is recreated there and dropped after, the roles with it).
@@ -72,6 +74,8 @@ describe.skipIf(!testDatabaseAdminUrl)("recommended jobs against Postgres", () =
   const guests: Record<string, string> = {};
   const adminId = randomUUID();
   const clock = new Date("2026-10-02T10:00:00.000Z");
+  // The archive capture gate (lib/features.ts): closed until the archive tests open it.
+  let gateOpen = false;
 
   async function machine(
     tenantId: string,
@@ -104,6 +108,13 @@ describe.skipIf(!testDatabaseAdminUrl)("recommended jobs against Postgres", () =
     appDb = createDb(roles.appUrl);
     const { buildBackupJobsRoutes } = await import("./routes.js");
     const { errorHandler } = await import("../../problem.js");
+    const { registerApiExtension } = await import("../../extensions.js");
+    registerApiExtension({
+      name: "test-gate",
+      featureGate: {
+        isEnabled: async (_pool, feature) => gateOpen && feature === "archive.mailboxCapture",
+      },
+    });
 
     await owner
       .insert(user)
@@ -205,6 +216,8 @@ describe.skipIf(!testDatabaseAdminUrl)("recommended jobs against Postgres", () =
   }, 60_000);
 
   afterAll(async () => {
+    const { resetExtensionsForTesting } = await import("../../extensions.js");
+    resetExtensionsForTesting();
     const shared = await import("../../db.js");
     await Promise.all([
       shared.db.$client.end(),
@@ -426,5 +439,194 @@ describe.skipIf(!testDatabaseAdminUrl)("recommended jobs against Postgres", () =
     expect(preview.items.map((item) => [item.key, item.action, item.memberCount])).toEqual([
       ["endpoint:linux:server", "create", 1],
     ]);
+  });
+  it("makes the recommended mail job archiving where the installation offers the capture", async () => {
+    const [provider] = await owner.select().from(providers).limit(1);
+    const [tailspin] = await owner
+      .insert(tenants)
+      .values({
+        providerId: provider?.id ?? "",
+        name: "Tailspin",
+        slug: "tailspin",
+        language: "en",
+        timeZone: ZONE,
+        backupJobsMigratedAt: clock,
+      })
+      .returning();
+    const tenant = tailspin?.id ?? "";
+    const [m365] = await owner
+      .insert(sources)
+      .values({ tenantId: tenant, kind: "m365", name: "Tailspin M365", status: "active" })
+      .returning();
+    const [imap] = await owner
+      .insert(sources)
+      .values({
+        tenantId: tenant,
+        kind: "imap",
+        name: "Tailspin IMAP",
+        host: "mail.tailspin.example",
+        status: "active",
+      })
+      .returning();
+    await owner.insert(protectedObjects).values([
+      {
+        tenantId: tenant,
+        sourceId: m365?.id ?? "",
+        kind: "mailbox",
+        externalId: "cara@tailspin.example",
+      },
+      {
+        tenantId: tenant,
+        sourceId: imap?.id ?? "",
+        kind: "imap",
+        externalId: "dan@tailspin.example",
+      },
+    ]);
+
+    // Without the capture nothing about archiving changes.
+    const closed = await json<RecommendedPlanDto>(
+      await call("GET", "/recommended?everything=1", { tenant }),
+      200,
+    );
+    expect(closed.items.map((item) => [item.kind, item.action, item.archive])).toEqual([
+      ["mail", "create", false],
+    ]);
+
+    gateOpen = true;
+    try {
+      const preview = await json<RecommendedPlanDto>(
+        await call("GET", "/recommended?everything=1", { tenant }),
+        200,
+      );
+      // One job over all objects that backs up and archives: no second archive item.
+      expect(
+        preview.items.map((item) => [item.kind, item.action, item.archive, item.captureKinds]),
+      ).toEqual([["mail", "create", true, ["imap", "m365"]]]);
+      // Asked for the archive alone, the same job is made.
+      const alone = await json<RecommendedPlanDto>(
+        await call("GET", "/recommended?everything=1&kinds=archive", { tenant }),
+        200,
+      );
+      expect(alone.items.map((item) => [item.kind, item.key, item.action, item.archive])).toEqual([
+        ["archive", "archive", "create", true],
+      ]);
+
+      const applied = await json<RecommendedAppliedDto>(
+        await call("POST", "/recommended", { tenant, body: { everything: true } }),
+        200,
+      );
+      expect(applied.items.map((item) => [item.kind, item.created])).toEqual([["mail", true]]);
+      const [job] = (await owner.select().from(backupJobs)).filter(
+        (row) => row.tenantId === tenant,
+      );
+      expect(job).toMatchObject({
+        kind: "mail",
+        scopeMode: "all",
+        recommended: "mail",
+        archive: true,
+        archiveCapture: {},
+      });
+      const created = (await owner.select().from(auditLog)).find(
+        (row) => row.action === "backup_job.created" && row.target === job?.id,
+      );
+      expect(created?.details).toMatchObject({ recommended: "mail", archive: true });
+      const again = await json<RecommendedPlanDto>(
+        await call("GET", "/recommended?everything=1&kinds=archive", { tenant }),
+        200,
+      );
+      expect(again.items).toEqual([]);
+      expect(again.skipped).toEqual([
+        { kind: "archive", id: job?.id, name: job?.name, reason: "covered" },
+      ]);
+    } finally {
+      gateOpen = false;
+    }
+  });
+
+  it("switches archiving on in the job over all objects, never in a hand-picked one", async () => {
+    const [mail] = (await owner.select().from(backupJobs)).filter(
+      (job) => job.tenantId === contoso && job.recommended === "mail",
+    );
+    expect(mail?.archive).toBe(false);
+    const [picked] = await owner
+      .insert(backupJobs)
+      .values({
+        tenantId: contoso,
+        kind: "mail",
+        name: "Board mailboxes",
+        scopeMode: "selected",
+        schedule: { kind: "interval", intervalMinutes: 240, timeZone: ZONE },
+      })
+      .returning();
+    gateOpen = true;
+    try {
+      // A way switched off by hand is a choice: the click leaves the job as it is.
+      await owner
+        .update(backupJobs)
+        .set({ archiveCapture: { m365: { graph: false, journal: false } } })
+        .where(eq(backupJobs.id, mail?.id ?? ""));
+      const blocked = await json<RecommendedPlanDto>(
+        await call("GET", "/recommended?everything=1&kinds=archive"),
+        200,
+      );
+      expect(blocked.items).toEqual([]);
+      expect(blocked.skipped).toContainEqual({
+        kind: "archive",
+        id: mail?.id,
+        name: "Mail backup",
+        reason: "no_capture_way",
+      });
+      await owner
+        .update(backupJobs)
+        .set({ archiveCapture: {} })
+        .where(eq(backupJobs.id, mail?.id ?? ""));
+
+      const preview = await json<RecommendedPlanDto>(
+        await call("GET", "/recommended?everything=1"),
+        200,
+      );
+      expect(preview.items.map((item) => [item.kind, item.action, item.jobId])).toEqual([
+        ["archive", "enable", mail?.id],
+      ]);
+      // It keeps its schedules.
+      expect(preview.items[0]).toMatchObject({
+        name: "Mail backup",
+        schedule: mail?.schedule,
+        captureKinds: ["m365"],
+      });
+      const applied = await json<RecommendedAppliedDto>(
+        await call("POST", "/recommended", { body: { everything: true } }),
+        200,
+      );
+      expect(applied.items.map((item) => [item.kind, item.jobId, item.created])).toEqual([
+        ["archive", mail?.id, false],
+      ]);
+      const [after] = await owner
+        .select()
+        .from(backupJobs)
+        .where(eq(backupJobs.id, mail?.id ?? ""));
+      expect(after).toMatchObject({ archive: true, schedule: mail?.schedule });
+      const [untouched] = await owner
+        .select()
+        .from(backupJobs)
+        .where(eq(backupJobs.id, picked?.id ?? ""));
+      expect(untouched?.archive).toBe(false);
+      const updated = (await owner.select().from(auditLog)).filter(
+        (row) => row.action === "backup_job.updated" && row.target === mail?.id,
+      );
+      expect(updated).toHaveLength(1);
+      expect(JSON.stringify(updated[0]?.details)).toContain("archive");
+      const again = await json<RecommendedPlanDto>(
+        await call("GET", "/recommended?everything=1&kinds=archive"),
+        200,
+      );
+      expect(again.items).toEqual([]);
+      expect(again.skipped).toEqual([
+        { kind: "archive", id: mail?.id, name: "Mail backup", reason: "covered" },
+        { kind: "archive", id: picked?.id, name: "Board mailboxes", reason: "in_job" },
+      ]);
+    } finally {
+      gateOpen = false;
+    }
   });
 });

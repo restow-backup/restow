@@ -18,6 +18,7 @@ import { i18n } from "@/i18n";
 import { candidate, defaults, endpointJob, iso, list, mailJob, restoreCheck } from "../fixtures.js";
 import "../i18n.js";
 import {
+  adminSession,
   describedText,
   lookerSession,
   type Opened,
@@ -399,6 +400,70 @@ describe("the list of mail jobs", () => {
     ]);
     // Done: the dialog closes (the toast names the job).
     expect(slot("recommended-dialog")).toBeNull();
+  });
+
+  it("previews the archive the recommended job switches on, and what it leaves alone (0.4.7)", async () => {
+    const plan = {
+      items: [
+        {
+          kind: "archive",
+          key: "archive",
+          action: "enable",
+          jobId: "j-all",
+          name: "Mail backup",
+          os: null,
+          profile: null,
+          schedule: { kind: "interval", intervalMinutes: 480, timeZone: "Europe/Berlin" },
+          verifySchedule: null,
+          retention: null,
+          retentionPolicy: null,
+          repository: null,
+          mode: null,
+          paths: [],
+          members: [],
+          memberCount: 0,
+          archive: true,
+          captureKinds: ["imap", "m365"],
+        },
+      ],
+      skipped: [{ kind: "archive", id: "j-board", name: "Board", reason: "in_job" }],
+    };
+    opened = await openJobs(
+      "/jobs?type=mail",
+      mailRoutes({
+        routes: {
+          "GET /backup-jobs": () => json(list([RUNNING], { mail: 7, endpoint: 0 })),
+          "GET /backup-jobs/recommended": () => json(plan),
+        },
+      }),
+    );
+    await flush(5);
+    await click(buttonByText(slot("uncovered-notice") as HTMLElement, "Create recommended job"));
+    await flush(5);
+    const dialog = slot("recommended-dialog");
+    expect(dialog?.textContent).toContain("Switch archiving on in Mail backup");
+    expect(dialog?.textContent).toContain("Keeps running on the job's schedule: Every 8 hours");
+    expect(dialog?.textContent).toContain(
+      "Archive capture: IMAP accounts by IMAP sync, Microsoft 365 mailboxes by Microsoft Graph",
+    );
+    expect(slot("recommended-hand-picked")?.textContent).toContain("Board");
+    // Archive skips are jobs, not objects: they are not counted as objects left out.
+    expect(slot("recommended-skipped")).toBeNull();
+  });
+
+  it("offers to switch archiving on in the mail job over all objects, only where the capture is offered (0.4.7)", async () => {
+    opened = await openJobs("/jobs?type=mail", mailRoutes());
+    await flush(5);
+    expect(slot("archive-offer-notice")).toBeNull();
+    await opened.mounted.unmount();
+    opened = await openJobs("/jobs?type=mail", {
+      ...mailRoutes(),
+      session: adminSession({ features: ["archive.mailboxCapture"] }),
+    });
+    await flush(5);
+    const notice = slot("archive-offer-notice");
+    expect(notice?.textContent).toContain("does not archive yet");
+    expect(buttonByText(notice as HTMLElement, "Switch archiving on")).toBeTruthy();
   });
 
   it("says nothing about uncovered objects of the other kind", async () => {

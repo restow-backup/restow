@@ -66,6 +66,21 @@ Exchange-Journaling gewählt ist; bis 0.4.3 legte schon das Öffnen eines Jobs m
 IMAP-Konten sie an. Adressen für die Weiterleitung entstehen erst auf Anforderung im Abschnitt
 "Weiterleitung" der Archiv-Seite.
 
+**Seit 0.4.7** gehört das Archiv zum empfohlenen Job ("Empfohlenen Job anlegen", "Alles ohne
+Job schützen"; `apps/api/src/features/backup-jobs/recommended.ts`), sofern die Installation die
+Erfassung aus dem Postfach anbietet (`archive.mailboxCapture`) und der Mandant Postfächer oder
+Konten hat, die sich erfassen lassen. Ein neuer empfohlener Mail-Job über alle Objekte sichert
+und archiviert ("Beides"); ein bestehender Job über alle Objekte, der noch nicht archiviert, wird
+umgeschaltet (Vorschau "Archivierung einschalten in …", Audit `backup_job.updated` mit
+`changes.archive`, sein Zeitplan bleibt). Gewählt werden die Vorgabe-Wege, die im Mandanten
+nichts weiter brauchen: Graph für Microsoft 365, IMAP-Archivierung für IMAP und Google Workspace;
+Journaling und Weiterleitung bleiben eine Wahl im Editor. Sind im Job über alle Objekte die Wege
+von Hand gewählt (Graph oder die IMAP-Archivierung aus, etwa nur Journaling), lässt der Klick ihn,
+wie er ist, und sagt das. Jobs über ausgewählte Postfächer ändert der Klick nie; die Vorschau
+nennt sie. Ein neuer Job über alle Objekte entsteht nur, wenn er etwas abdeckt, das in keinem Job
+ist. Die Liste der Mail-Jobs zeigt "Archivierung einschalten", solange der Job über alle Objekte
+nicht archiviert. Ohne die Erfassung bleibt der empfohlene Job, wie er war.
+
 Anhalten eines Mail-Jobs hält nur die Sicherungen nach Zeitplan an; die Archivierung läuft weiter
 (die Rückfrage beim Anhalten sagt das). Sie endet nur, wenn im Job das Archivieren oder ein
 Erfassungsweg ausgeschaltet wird. Der Editor fragt dann vor dem Speichern nach: Neue Mail dieser

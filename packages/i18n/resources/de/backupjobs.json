@@ -122,6 +122,10 @@
       "manual": "Manuelle Sicherung · {guest}",
       "deleteTitle": "Proxmox-VE-Job {name} löschen?",
       "deleteDescription": "Die VMs und Container dieses Jobs werden danach nicht mehr gesichert. Vorhandene Sicherungsstände bleiben erhalten."
+    },
+    "archiveOffer": {
+      "text": "Der Mail-Job über alle Objekte archiviert noch nicht. Mit dem Archiv wird jede Mail revisionssicher aufbewahrt, erfasst über Microsoft Graph und IMAP.",
+      "action": "Archivierung einschalten"
     }
   },
   "state": {
@@ -1283,12 +1287,14 @@
     "kind": {
       "mail": "Mail & SaaS",
       "endpoint": "Server & Clients",
-      "pve": "Proxmox VE"
+      "pve": "Proxmox VE",
+      "archive": "Archiv"
     },
     "scope": {
       "mail": "Alle geschützten Objekte, auch neue ({count} davon jetzt ohne Job)",
       "endpoint": "{count, plural, one {# Rechner} other {# Rechner}}: {names}",
-      "pve": "{count, plural, one {# VM oder Container} other {# VMs und Container}}: {names}"
+      "pve": "{count, plural, one {# VM oder Container} other {# VMs und Container}}: {names}",
+      "archive": "Archiviert zusätzlich jede Mail aller Objekte dieses Jobs, auch neuer"
     },
     "more": "und {count} weitere",
     "schedule": "Sicherung: {schedule}",
@@ -1303,7 +1309,20 @@
     "skipped": "Ausgelassen: {count, plural, one {# Objekt ist bereits in einem Job oder lässt sich nicht sichern.} other {# Objekte sind bereits in einem Job oder lassen sich nicht sichern.}}",
     "cancel": "Abbrechen",
     "done": "{count, plural, one {Empfohlener Job eingerichtet: {names}} other {Empfohlene Jobs eingerichtet: {names}}}",
-    "doneNothing": "Nichts geändert: Alles hat bereits einen Job."
+    "doneNothing": "Nichts geändert: Alles hat bereits einen Job.",
+    "enable": "Archivierung einschalten in {name}",
+    "archiveSchedule": "Läuft weiter nach dem Zeitplan des Jobs: {schedule}",
+    "archiveManual": "Läuft weiter nur von Hand, wie der Job bisher",
+    "capture": "Archiv-Erfassung: {ways}",
+    "captureKind": {
+      "m365": "Microsoft-365-Postfächer über Microsoft Graph",
+      "imap": "IMAP-Konten über IMAP-Abgleich",
+      "google": "Google-Konten über IMAP-Abgleich",
+      "imap_microsoft": "Microsoft-Konten über IMAP-Abgleich"
+    },
+    "archiveRetention": "Aufbewahrung im Archiv: nach der Archiv-Richtlinie des Mandanten. Journaling und Weiterleitung lassen sich im Job zusätzlich einschalten.",
+    "noCaptureWay": "Archivierung in {name} nicht eingeschaltet: Dort sind die Erfassungswege von Hand gewählt. Bitte im Job einschalten.",
+    "handPicked": "Archivierung bleibt, wie sie ist, in {count, plural, one {dem Job über ausgewählte Objekte} other {den Jobs über ausgewählte Objekte}}: {names}"
   },
   "stop": {
     "action": "Stoppen",

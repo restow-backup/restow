@@ -60,7 +60,14 @@ export async function ensureDefaultMailJob(
   tenantId: string,
   recommended: readonly RecommendedSchedule[],
   now: Date,
-  options: { recommended?: string } = {},
+  options: {
+    recommended?: string;
+    /**
+     * Archive as well, with the default capture ways (Graph for Microsoft 365, IMAP for the
+     * others: the ways that need no setup in the tenant, packages/db archive-capture.ts).
+     */
+    archive?: boolean;
+  } = {},
 ): Promise<{ id: string; name: string } | null> {
   const backup = scheduleOf(recommended.find((entry) => entry.kind === "backup"));
   const verify = scheduleOf(recommended.find((entry) => entry.kind === "verify"));
@@ -106,6 +113,8 @@ export async function ensureDefaultMailJob(
       enabled: true,
       origin: "user",
       recommended: options.recommended ?? null,
+      archive: options.archive ?? false,
+      archiveCapture: {},
       nextRunAt: first(backup),
       verifyNextRunAt: first(verify),
     })

@@ -122,6 +122,10 @@
       "manual": "Manual backup · {guest}",
       "deleteTitle": "Delete Proxmox VE job {name}?",
       "deleteDescription": "The VMs and containers of this job are no longer backed up. Existing restore points are kept."
+    },
+    "archiveOffer": {
+      "text": "The mail job over all objects does not archive yet. With the archive every mail is kept tamper-proof, captured by Microsoft Graph and IMAP.",
+      "action": "Switch archiving on"
     }
   },
   "state": {
@@ -1283,12 +1287,14 @@
     "kind": {
       "mail": "Mail & SaaS",
       "endpoint": "Servers & clients",
-      "pve": "Proxmox VE"
+      "pve": "Proxmox VE",
+      "archive": "Archive"
     },
     "scope": {
       "mail": "All protected objects, new ones included ({count} without a job now)",
       "endpoint": "{count, plural, one {# machine} other {# machines}}: {names}",
-      "pve": "{count, plural, one {# VM or container} other {# VMs and containers}}: {names}"
+      "pve": "{count, plural, one {# VM or container} other {# VMs and containers}}: {names}",
+      "archive": "Also archives every mail of all objects of this job, new ones included"
     },
     "more": "and {count} more",
     "schedule": "Backup: {schedule}",
@@ -1303,7 +1309,20 @@
     "skipped": "Left out: {count, plural, one {# object is in a job already or cannot be backed up.} other {# objects are in a job already or cannot be backed up.}}",
     "cancel": "Cancel",
     "done": "{count, plural, one {Recommended job set up: {names}} other {Recommended jobs set up: {names}}}",
-    "doneNothing": "Nothing changed: everything has a job already."
+    "doneNothing": "Nothing changed: everything has a job already.",
+    "enable": "Switch archiving on in {name}",
+    "archiveSchedule": "Keeps running on the job's schedule: {schedule}",
+    "archiveManual": "Keeps running by hand only, as the job did",
+    "capture": "Archive capture: {ways}",
+    "captureKind": {
+      "m365": "Microsoft 365 mailboxes by Microsoft Graph",
+      "imap": "IMAP accounts by IMAP sync",
+      "google": "Google accounts by IMAP sync",
+      "imap_microsoft": "Microsoft accounts by IMAP sync"
+    },
+    "archiveRetention": "Archive retention: by the tenant's archive policy. Journaling and forwarding can be switched on in the job as well.",
+    "noCaptureWay": "Archiving not switched on in {name}: its capture ways were chosen by hand. Please switch it on in the job.",
+    "handPicked": "Archiving stays as it is in {count, plural, one {the job over selected objects} other {the jobs over selected objects}}: {names}"
   },
   "stop": {
     "action": "Stop",

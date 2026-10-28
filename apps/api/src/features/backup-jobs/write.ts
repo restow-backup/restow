@@ -1193,6 +1193,20 @@ function archiveMessage(): string {
   return "Archiving is for mail jobs: the mail of their mailboxes is captured into the archive (journaling, Microsoft Graph, IMAP or a forwarded copy). Machine and file share jobs keep snapshots only.";
 }
 
+/** The kinds of mail object an archive could capture among the tenant's active objects. */
+export async function tenantCaptureKinds(
+  tx: Transaction,
+  tenantId: string,
+): Promise<CaptureKind[]> {
+  const rows = await tx.execute<{ kind: CaptureKind | null }>(sql`
+    select distinct ${captureKindSql("po", "s")} as kind
+      from protected_objects po
+      join sources s on s.id = po.source_id
+     where po.tenant_id = ${tenantId}::uuid and po.status = 'active'
+  `);
+  return rows.rows.flatMap((row) => (row.kind ? [row.kind] : [])).sort();
+}
+
 /**
  * A mail job that archives needs at least one capture way for every kind of mail object it
  * covers (packages/db archive-capture.ts): its members, or for scope "all" every active mail
@@ -1207,13 +1221,7 @@ async function assertCaptureWays(
 ): Promise<void> {
   let kinds: CaptureKind[];
   if (scopeMode === "all") {
-    const rows = await tx.execute<{ kind: CaptureKind | null }>(sql`
-      select distinct ${captureKindSql("po", "s")} as kind
-        from protected_objects po
-        join sources s on s.id = po.source_id
-       where po.tenant_id = ${tenantId}::uuid and po.status = 'active'
-    `);
-    kinds = rows.rows.flatMap((row) => (row.kind ? [row.kind] : []));
+    kinds = await tenantCaptureKinds(tx, tenantId);
   } else {
     kinds = (await loadObjectInfos(tx, tenantId, memberIds)).flatMap((object) =>
       object.captureKind ? [object.captureKind] : [],
@@ -1494,6 +1502,49 @@ export async function updateBackupJob(
     });
     return jobDto(tx, tenantId, id, options, now);
   });
+}
+
+/**
+ * Switch archiving on in a mail job, with the capture ways it has (the recommended job, 0.4.7):
+ * the same check and audit (`backup_job.updated`, `changes.archive`) as the edit in the editor,
+ * inside the caller's transaction. Returns false when the job archives already.
+ */
+export async function enableMailArchive(
+  tx: Transaction,
+  tenantId: string,
+  id: string,
+  actor: JobActor,
+): Promise<boolean> {
+  const [before] = await tx
+    .select()
+    .from(backupJobs)
+    .where(and(eq(backupJobs.tenantId, tenantId), eq(backupJobs.id, id)))
+    .for("update");
+  if (before?.kind !== "mail") {
+    throw new ProblemError(404, "Backup job not found");
+  }
+  if (before.archive) {
+    return false;
+  }
+  const archiveCapture = before.archiveCapture ?? {};
+  const memberIds = (await loadAllMembers(tx, tenantId)).flatMap((member) =>
+    member.jobId === id && member.protectedObjectId ? [member.protectedObjectId] : [],
+  );
+  await assertCaptureWays(tx, tenantId, before.scopeMode, memberIds, archiveCapture);
+  const [after] = await tx
+    .update(backupJobs)
+    .set({ archive: true, updatedAt: new Date() })
+    .where(eq(backupJobs.id, id))
+    .returning();
+  if (!after) {
+    throw new ProblemError(404, "Backup job not found");
+  }
+  await auditJob(tx, tenantId, actor, BACKUP_JOB_AUDIT_ACTIONS.updated, id, {
+    name: after.name,
+    kind: "mail",
+    changes: describeChanges(before, after),
+  });
+  return true;
 }
 
 // ---------------------------------------------------------------------------

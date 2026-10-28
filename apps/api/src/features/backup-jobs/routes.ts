@@ -1,8 +1,10 @@
 import type { Database } from "@restow/db";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db } from "../../db.js";
+import { featureEnabled } from "../../lib/features.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
+import type { DbExecutor } from "../../lib/tenant-context.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { mayConfigure } from "../endpoints/routes.js";
@@ -86,6 +88,8 @@ export interface BackupJobsRoutesDeps {
   now?: () => Date;
   /** File share copy jobs: the mounter and the name resolution (tests replace them). */
   fileShares?: JobContext["fileShares"];
+  /** The installation pool the feature gates read (tests); defaults to the API's. */
+  installation?: DbExecutor;
 }
 
 function actorOf(c: Context<TenantEnv>): JobActor {
@@ -129,15 +133,29 @@ export function buildBackupJobsRoutes(deps: BackupJobsRoutesDeps): Hono<TenantEn
     return c.json(await getDefaults(deps.db, c.get("tenantId"), kind, { endpointIds }));
   });
 
+  // Archiving is part of the recommendation where the installation offers the capture.
+  const recommendedOptions = async () => ({
+    archive: await featureEnabled("archive.mailboxCapture", deps.installation),
+  });
+
   routes.get("/recommended", admin, async (c) => {
     const scope = parseOrProblem(recommendedQuerySchema, c.req.query());
-    return c.json(await previewRecommendedJobs(deps.db, c.get("tenantId"), scope));
+    return c.json(
+      await previewRecommendedJobs(deps.db, c.get("tenantId"), scope, await recommendedOptions()),
+    );
   });
 
   routes.post("/recommended", admin, async (c) => {
     const scope = await parseJsonBody(c.req, recommendedScopeSchema);
     return c.json(
-      await applyRecommendedJobs(deps.db, c.get("tenantId"), scope, actorOf(c), contextOf(c)),
+      await applyRecommendedJobs(
+        deps.db,
+        c.get("tenantId"),
+        scope,
+        actorOf(c),
+        contextOf(c),
+        await recommendedOptions(),
+      ),
     );
   });
 
