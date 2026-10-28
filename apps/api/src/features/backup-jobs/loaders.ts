@@ -15,6 +15,7 @@ import {
   storageTargets,
 } from "@restow/db";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { notServiceLimitedJob } from "../../lib/service-limit.js";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { loadEndpointReadiness } from "../endpoints/readiness.js";
 import { loadObjectVerifications } from "../verify/verification-state.js";
@@ -134,6 +135,8 @@ export async function loadMailFacts(
         eq(jobs.tenantId, tenantId),
         eq(jobs.queue, "backup"),
         inArray(jobs.protectedObjectId, ids),
+        // A run Graph or the storage held back does not make the job failing: the one before stands.
+        notServiceLimitedJob(),
       ),
     )
     .orderBy(jobs.protectedObjectId, desc(jobs.createdAt));
@@ -150,6 +153,7 @@ export async function loadMailFacts(
         eq(jobs.queue, "backup"),
         inArray(jobs.status, ["completed", "failed"]),
         inArray(jobs.protectedObjectId, ids),
+        notServiceLimitedJob(),
       ),
     )
     .orderBy(jobs.protectedObjectId, desc(jobs.createdAt));

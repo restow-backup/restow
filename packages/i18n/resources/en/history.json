@@ -51,7 +51,8 @@
     "partial": "Completed with failed items",
     "failed": "Failed",
     "cancelled": "Cancelled",
-    "incomplete": "Not completed, will be repeated"
+    "incomplete": "Not completed, will be repeated",
+    "limited": "Held back by the service, retried"
   },
   "attempt": "Attempt {number} of {of}",
   "restoreCheck": {

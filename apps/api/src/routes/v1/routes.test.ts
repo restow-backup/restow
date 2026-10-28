@@ -472,6 +472,7 @@ describe("jobs", () => {
     cancellable: true,
     retryable: false,
     checkIncomplete: false,
+    serviceLimited: false,
   };
 
   it("starts a backup of everything and reports what was skipped", async () => {

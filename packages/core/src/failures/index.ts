@@ -10,6 +10,7 @@
 export * from "./catalog.js";
 export * from "./classify.js";
 export * from "./graph.js";
+export * from "./limits.js";
 export * from "./readiness.js";
 export * from "./record.js";
 export * from "./redact.js";

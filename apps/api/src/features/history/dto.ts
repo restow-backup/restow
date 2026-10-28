@@ -117,6 +117,8 @@ export interface RunDto {
    * never as failed.
    */
   checkIncomplete: boolean;
+  /** A failed run that Graph or the storage held back (jobs DTO `serviceLimited`). */
+  serviceLimited: boolean;
   /** Restore checks that are tried again: which attempt this is. Null for everything else. */
   attempt: RunAttemptDto | null;
   subject: RunSubjectDto | null;
@@ -478,6 +480,7 @@ export function mailRun(input: MailRunInput): RunDto {
     type: dto.queue,
     state,
     checkIncomplete: dto.checkIncomplete,
+    serviceLimited: dto.serviceLimited,
     attempt: mailCheckAttempt(dto.queue, dto.status, dto.failure),
     subject: dto.object
       ? {
@@ -589,6 +592,7 @@ export function endpointRun(input: EndpointRunInput): RunDto {
     type: run.kind,
     state,
     checkIncomplete: incomplete,
+    serviceLimited: false,
     attempt: endpointCheckAttempt(run.kind, input.taskParams),
     subject: {
       kind: endpoint.profile,
@@ -694,6 +698,7 @@ export function shareRun(input: ShareRunInput): RunDto {
     type: copy ? "copy" : run.kind,
     state,
     checkIncomplete: false,
+    serviceLimited: false,
     attempt: null,
     subject: {
       kind: "file_share",

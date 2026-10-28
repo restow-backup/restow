@@ -84,6 +84,11 @@ export interface Run {
   type: string;
   state: RunState;
   checkIncomplete: boolean;
+  /**
+   * A failed run that Microsoft Graph or the storage held back (throttled, unavailable): no
+   * fault of the object, the next run tries again. Missing on servers before 0.4.7.
+   */
+  serviceLimited?: boolean;
   attempt: RunAttempt | null;
   subject: RunSubject | null;
   job: { id: string; name: string } | null;

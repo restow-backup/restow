@@ -26,6 +26,7 @@ import {
   guidanceFor,
   isAlertThrottled,
   isReportEvent,
+  isServiceLimitedFailure,
   overdueDeadlineOf,
   plannedDeliveries,
   type ReportEvent,
@@ -291,6 +292,15 @@ export function jobFinishedNotification(
   objectName: string | null,
 ): NewNotification | null {
   let event: ReportEvent | undefined;
+  if (
+    job.status === "failed" &&
+    job.queue === "backup" &&
+    isServiceLimitedFailure(job.status, job.failure)
+  ) {
+    // Held back by Graph or the storage (throttled, unavailable): no failure of the object; the
+    // next run tries again, and the overdue rules speak up if none gets through (core limits.ts).
+    return null;
+  }
   if (job.status === "failed") {
     event = FAILED_JOB_EVENTS[job.queue];
   } else if (job.status === "completed" && job.queue === "restore") {

@@ -44,6 +44,30 @@ describe("jobFinishedNotification", () => {
     expect(JSON.stringify(notification?.details)).not.toContain("r-1");
   });
 
+  it("raises nothing for a backup that Graph or the storage held back (throttled, unavailable)", () => {
+    for (const code of ["graph.throttled", "graph.service_unavailable", "storage.rate_limited"]) {
+      const failure = {
+        v: 1,
+        code,
+        transient: true,
+        params: {},
+        technical: { httpStatus: 503 },
+        occurredAt: "2026-10-27T07:11:41.290Z",
+        step: null,
+        retry: null,
+      };
+      expect(jobFinishedNotification(TENANT, failedJob(failure), "Alice")).toBeNull();
+      // The same cause on a restore is still reported: someone waits for that restore.
+      expect(
+        jobFinishedNotification(
+          TENANT,
+          { ...failedJob(failure), queue: "restore" as const },
+          "Alice",
+        )?.event,
+      ).toBe("restore.failed");
+    }
+  });
+
   it("raises backup.failed for a SharePoint site that is gone, with the steps for it", () => {
     const notification = jobFinishedNotification(
       TENANT,

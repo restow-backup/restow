@@ -1,3 +1,4 @@
+import { isServiceLimitedFailure } from "@restow/core";
 import type { ItemFailure, Job, JobProgress, Snapshot } from "@restow/db";
 import { type FailureDto, type FailureGroupDto, failureDto } from "../failures/dto.js";
 import type {
@@ -124,6 +125,12 @@ export interface JobDto {
    * failed. False for every other job, and while the job runs.
    */
   checkIncomplete: boolean;
+  /**
+   * A failed job that Graph or the storage held back (throttled, unavailable, "slow down";
+   * @restow/core `SERVICE_LIMIT_CAUSES`): no fault of the object, the next run tries again.
+   * Shown as held back, not failed, and left out of the failed counts.
+   */
+  serviceLimited: boolean;
 }
 
 /** How many items failed for one cause code. */
@@ -441,6 +448,7 @@ export function toJobDto(row: JobViewRow, itemCauses: ItemCauseCountDto[] = []):
     retryable: isRetryable(job, object),
     checkIncomplete:
       job.queue === "verify" && !running && record(payload?.result)?.incomplete === true,
+    serviceLimited: isServiceLimitedFailure(job.status, job.failure),
   };
 }
 

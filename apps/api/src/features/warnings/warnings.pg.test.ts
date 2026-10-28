@@ -430,7 +430,14 @@ describe.skipIf(!testDatabaseAdminUrl)("warnings against Postgres", () => {
     );
     // Acknowledged a moment ago (the real clock); the failure and the new partial run come after it.
     const later = new Date(Date.now() + 60_000);
-    await backup(dora, "failed", later, 0, { failure: cause("graph.service_unavailable") });
+    // Held back by Graph (throttled): no failure of the mailbox, the acknowledgement stands.
+    await backup(dora, "failed", later, 0, { failure: cause("graph.throttled") });
+    expect((await json<WarningDetailDto>(await call(`/warnings/object/${dora}`))).state).toBe(
+      "acknowledged",
+    );
+    await backup(dora, "failed", new Date(later.getTime() + 30_000), 0, {
+      failure: cause("graph.access_denied"),
+    });
     const failedDetail = await json<WarningDetailDto>(await call(`/warnings/object/${dora}`));
     expect(failedDetail.state).toBe("failed");
     const run = await backup(dora, "completed", new Date(later.getTime() + 60_000), 1);

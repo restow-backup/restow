@@ -28,7 +28,7 @@ export function RunStateBadge({
   run,
   className,
 }: {
-  run: Pick<Run, "state" | "kind" | "checkIncomplete">;
+  run: Pick<Run, "state" | "kind" | "checkIncomplete" | "serviceLimited">;
   className?: string;
 }) {
   const { t } = useTranslation("history");
@@ -118,7 +118,7 @@ export function useRunTitle() {
 export function stateWord(
   t: (key: string) => string,
   state: RunState,
-  run: Pick<Run, "kind" | "checkIncomplete">,
+  run: Pick<Run, "kind" | "checkIncomplete" | "serviceLimited">,
 ) {
   return t(`state.${stateView({ ...run, state }).key}`);
 }

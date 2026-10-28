@@ -25,6 +25,7 @@ import {
   warningAcknowledgements,
 } from "@restow/db";
 import { and, count, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
+import { notServiceLimitedJob } from "../../lib/service-limit.js";
 import type { Transaction } from "../../lib/tenant-context.js";
 
 /**
@@ -138,6 +139,8 @@ export async function loadMailWarnings(
         eq(jobs.tenantId, tenantId),
         eq(jobs.queue, "backup"),
         inArray(jobs.status, ["completed", "failed"]),
+        // A run a service held back says nothing about the object: the run before it stands.
+        notServiceLimitedJob(),
         ids ? inArray(jobs.protectedObjectId, ids) : eq(protectedObjects.status, "active"),
       ),
     )
@@ -200,6 +203,7 @@ export async function loadMailWarnings(
           eq(jobs.tenantId, tenantId),
           eq(jobs.queue, "backup"),
           eq(jobs.status, "failed"),
+          notServiceLimitedJob(),
           inArray(
             jobs.protectedObjectId,
             acks.map((row) => row.protectedObjectId as string),

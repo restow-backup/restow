@@ -31,7 +31,8 @@ export interface StateView {
     | "partial"
     | "failed"
     | "cancelled"
-    | "incomplete";
+    | "incomplete"
+    | "limited";
   tone: StatusTone;
   /** A pulsing dot instead of an icon: something is running right now. */
   live: boolean;
@@ -43,9 +44,15 @@ export interface StateView {
  * completed, which brought the data back, is green. A restore check that could not complete is
  * neutral information (it is repeated), never "failed".
  */
-export function stateView(run: Pick<Run, "state" | "kind" | "checkIncomplete">): StateView {
+export function stateView(
+  run: Pick<Run, "state" | "kind" | "checkIncomplete" | "serviceLimited">,
+): StateView {
   if (run.checkIncomplete && run.state !== "running" && run.state !== "queued") {
     return { key: "incomplete", tone: "info", live: false };
+  }
+  // Held back by Graph or the storage: amber, not red; the next run tries again.
+  if (run.serviceLimited && run.state === "failed") {
+    return { key: "limited", tone: "warning", live: false };
   }
   switch (run.state) {
     case "running":

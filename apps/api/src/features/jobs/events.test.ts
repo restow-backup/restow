@@ -47,6 +47,7 @@ function job(overrides: Partial<JobDto> = {}): JobDto {
     cancellable: true,
     retryable: false,
     checkIncomplete: false,
+    serviceLimited: false,
     ...overrides,
   };
 }

@@ -32,6 +32,7 @@ import {
 } from "@restow/db";
 import { and, count, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { notImported, snapshotNotImported } from "../../lib/imported-objects.js";
+import { notServiceLimitedJob } from "../../lib/service-limit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { DEFAULT_STORAGE_AUDIT_ACTIONS } from "../settings/default-storage.js";
 import { SETTINGS_AUDIT_ACTIONS } from "../settings/service.js";
@@ -577,7 +578,8 @@ export async function loadTenantTrends(
         date: backupDay,
         succeeded: countWhere(sql`${jobs.status} = 'completed' and ${failedItems} = 0`),
         withItemFailures: countWhere(sql`${jobs.status} = 'completed' and ${failedItems} > 0`),
-        failed: countWhere(sql`${jobs.status} = 'failed'`),
+        // A run a service held back (throttled, unavailable) is no failed backup.
+        failed: countWhere(sql`${jobs.status} = 'failed' and ${notServiceLimitedJob()}`),
       })
       .from(jobs)
       .leftJoin(jobProgress, eq(jobProgress.jobId, jobs.id))
@@ -796,6 +798,7 @@ export async function loadTenantHealthExtras(
         and(
           eq(jobs.tenantId, tenantId),
           eq(jobs.status, "failed"),
+          notServiceLimitedJob(),
           sql`${jobFinishedAt} >= ${previousSince}`,
         ),
       );

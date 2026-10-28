@@ -51,7 +51,8 @@
     "partial": "Abgeschlossen mit fehlgeschlagenen Elementen",
     "failed": "Fehlgeschlagen",
     "cancelled": "Abgebrochen",
-    "incomplete": "Nicht abgeschlossen, wird wiederholt"
+    "incomplete": "Nicht abgeschlossen, wird wiederholt",
+    "limited": "Vom Dienst gedrosselt, wird wiederholt"
   },
   "attempt": "Versuch {number} von {of}",
   "restoreCheck": {

@@ -23,8 +23,18 @@ import {
 const ID = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 
 describe("stateView", () => {
-  const view = (overrides: Partial<Pick<Run, "state" | "kind" | "checkIncomplete">>) =>
-    stateView({ state: "succeeded", kind: "backup", checkIncomplete: false, ...overrides });
+  const view = (
+    overrides: Partial<Pick<Run, "state" | "kind" | "checkIncomplete" | "serviceLimited">>,
+  ) => stateView({ state: "succeeded", kind: "backup", checkIncomplete: false, ...overrides });
+
+  it("shows a run Graph or the storage held back amber, not red", () => {
+    expect(view({ state: "failed", serviceLimited: true })).toEqual({
+      key: "limited",
+      tone: "warning",
+      live: false,
+    });
+    expect(view({ state: "failed" })).toMatchObject({ key: "failed", tone: "destructive" });
+  });
 
   it("is Lapis and pulsing while a run runs", () => {
     expect(view({ state: "running" })).toEqual({ key: "running", tone: "info", live: true });
