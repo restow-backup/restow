@@ -32,6 +32,8 @@ export const DEFAULT_AUTHORITY_HOST = "https://login.microsoftonline.com";
 export const GRAPH_DEFAULT_SCOPE = "https://graph.microsoft.com/.default";
 /** Refresh this long before the token actually expires. */
 export const DEFAULT_EXPIRY_SKEW_MS = 5 * 60 * 1000;
+/** A token younger than this is not replaced after a refusal (see `refreshAfterRefusal`). */
+export const TOKEN_REFRESH_MIN_AGE_MS = 60 * 1000;
 
 /**
  * Login hosts Restow accepts as an Entra authority: the public cloud and the
@@ -94,6 +96,8 @@ export class TokenAcquisitionError extends Error {
 /** Caches an acquired token and coalesces concurrent refreshes. */
 export class CachingTokenProvider implements AccessTokenProvider {
   private cached: AcquiredToken | null = null;
+  /** When the cached token was fetched, in epoch milliseconds. */
+  private cachedAtMs = 0;
   private inFlight: Promise<AcquiredToken> | null = null;
 
   constructor(
@@ -121,13 +125,35 @@ export class CachingTokenProvider implements AccessTokenProvider {
       });
     }
     const token = await this.inFlight;
-    this.cached = token;
+    if (this.cached !== token) {
+      this.cached = token;
+      this.cachedAtMs = this.options.now?.() ?? Date.now();
+    }
     return token.accessToken;
   }
 
   /** Drop the cached token, e.g. after Graph answered 401 with an expired token. */
   invalidate(): void {
     this.cached = null;
+  }
+
+  /**
+   * Drop the cached token after Graph refused it (401 or 403), unless it was fetched less than
+   * `minAgeMs` ago. A token carries the app's permissions as they were when it was issued, so
+   * a permission an administrator granted since then only arrives with a new one. The minimum
+   * age keeps a run of refusals (an item the app may not read) from fetching a token each time.
+   * True when the next {@link getToken} fetches a new token.
+   */
+  refreshAfterRefusal(minAgeMs = TOKEN_REFRESH_MIN_AGE_MS): boolean {
+    if (!this.cached) {
+      return false;
+    }
+    const now = this.options.now?.() ?? Date.now();
+    if (now - this.cachedAtMs < minAgeMs) {
+      return false;
+    }
+    this.cached = null;
+    return true;
   }
 }
 
@@ -327,4 +353,9 @@ export class StaticTokenProvider implements AccessTokenProvider {
 /** Adapt a provider to the `accessTokenProvider` callback the Graph client takes. */
 export function toTokenCallback(provider: AccessTokenProvider): () => Promise<string> {
   return () => provider.getToken();
+}
+
+/** The callback a Graph client calls after a 401 or 403 (`GraphClientOptions.refreshAccessToken`). */
+export function toRefreshCallback(provider: CachingTokenProvider): () => boolean {
+  return () => provider.refreshAfterRefusal();
 }

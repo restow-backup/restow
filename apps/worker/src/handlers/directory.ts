@@ -59,6 +59,7 @@ import {
   selectFirstBackupTargets,
   syncDirectory,
   type ThrottleInfo,
+  toRefreshCallback,
   toTokenCallback,
   writeDirectoryState,
 } from "@restow/core";
@@ -151,6 +152,7 @@ export async function graphClientForSource(
   const tokens = new ClientCredentialsTokenProvider({ tenantId: source.entraTenantId, app });
   return new FetchGraphClient({
     accessTokenProvider: toTokenCallback(tokens),
+    refreshAccessToken: toRefreshCallback(tokens),
     onThrottle: throttled,
     signal: ctx.signal,
   });

@@ -246,6 +246,59 @@ describe("requests", () => {
   });
 });
 
+describe("a refused token (401, 403)", () => {
+  const denied = {
+    status: 403,
+    json: { error: { code: "Authorization_RequestDenied", message: "Insufficient privileges" } },
+  };
+
+  it("asks once for a new token and sends the request again, which then carries a granted permission", async () => {
+    const graph = createFakeGraph([
+      { url: /messages$/, respond: [denied, { status: 200, json: { value: [] } }] },
+    ]);
+    let token = 0;
+    let refreshes = 0;
+    const client = graph.client({
+      accessTokenProvider: async () => `token-${token}`,
+      refreshAccessToken: () => {
+        refreshes++;
+        token++;
+        return true;
+      },
+    });
+    await client.request({ method: "GET", url: "/users/u/messages" });
+    expect(refreshes).toBe(1);
+    expect(graph.calls.map((call) => call.headers.authorization)).toEqual([
+      "Bearer token-0",
+      "Bearer token-1",
+    ]);
+  });
+
+  it("returns the refusal when the provider keeps its token, and asks only once per request", async () => {
+    const graph = createFakeGraph([{ url: /messages$/, respond: denied }]);
+    let refreshes = 0;
+    const kept = graph.client({
+      refreshAccessToken: () => {
+        refreshes++;
+        return false;
+      },
+    });
+    expect((await kept.request({ method: "GET", url: "/users/u/messages" })).status).toBe(403);
+    expect(graph.calls).toHaveLength(1);
+
+    const fresh = graph.client({
+      refreshAccessToken: () => {
+        refreshes++;
+        return true;
+      },
+    });
+    expect((await fresh.request({ method: "GET", url: "/users/u/messages" })).status).toBe(403);
+    // Refused again with the new token: no third attempt.
+    expect(graph.calls).toHaveLength(3);
+    expect(refreshes).toBe(2);
+  });
+});
+
 describe("hanging requests and aborted jobs (#47)", () => {
   /** A fetch that never answers until its signal aborts it, then succeeds on the next call. */
   function hangingOnce() {

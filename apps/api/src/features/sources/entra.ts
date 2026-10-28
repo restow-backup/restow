@@ -13,6 +13,7 @@ import {
   type RefreshableTokenProvider,
   type ResolvedEntraApp,
   TenantTokenProviders,
+  TOKEN_REFRESH_MIN_AGE_MS,
 } from "@restow/core";
 import { type Database, findInstallationSecret } from "@restow/db";
 import { type Config, config as processConfig } from "../../config.js";
@@ -185,6 +186,33 @@ export function tokenProviderFor(
   };
 }
 
+/** When a refusal last dropped the tokens of a tenant or source (see `refreshAfterRefusal`). */
+const lastRefusalRefresh = new Map<string, number>();
+
+/**
+ * The Graph client's `refreshAccessToken`: after a 401 or 403, drop the cached token once a
+ * minute per tenant or source, so a permission granted since the token was issued takes
+ * effect without a new client secret, and a run of refusals does not fetch a token each time.
+ */
+export function refreshAfterRefusal(
+  key: string,
+  provider: { invalidate(): void },
+  now: () => number = Date.now,
+): () => boolean {
+  return () => {
+    const at = now();
+    if (at - (lastRefusalRefresh.get(key) ?? 0) < TOKEN_REFRESH_MIN_AGE_MS) {
+      return false;
+    }
+    if (lastRefusalRefresh.size > 1024) {
+      lastRefusalRefresh.clear();
+    }
+    lastRefusalRefresh.set(key, at);
+    provider.invalidate();
+    return true;
+  };
+}
+
 /** Forget a tenant's cached token (after disconnecting or deleting the source). */
 export function forgetTokenProvider(entraTenantId: string): void {
   tokens?.providers.forget(entraTenantId);
@@ -198,7 +226,10 @@ export function resetTokenProviders(): void {
 /** A throttled Graph client bound to one customer tenant. */
 export function graphClientFor(entraTenantId: string): GraphClient {
   const provider = tokenProviderFor(entraTenantId);
-  return new FetchGraphClient({ accessTokenProvider: () => provider.getToken() });
+  return new FetchGraphClient({
+    accessTokenProvider: () => provider.getToken(),
+    refreshAccessToken: refreshAfterRefusal(`tenant:${entraTenantId}`, provider),
+  });
 }
 
 // --- A source's own Graph app ------------------------------------------------------
@@ -280,5 +311,8 @@ export function tokenProviderForSource(
 /** A Graph client for a connected source, with its own app when it has one. */
 export function graphClientForSource(db: Database, source: SourceAppRef): GraphClient {
   const provider = tokenProviderForSource(db, source);
-  return new FetchGraphClient({ accessTokenProvider: () => provider.getToken() });
+  return new FetchGraphClient({
+    accessTokenProvider: () => provider.getToken(),
+    refreshAccessToken: refreshAfterRefusal(`source:${source.id}`, provider),
+  });
 }

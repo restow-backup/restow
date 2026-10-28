@@ -60,6 +60,29 @@ describe("client credentials with a secret", () => {
     expect(endpoint.calls).toHaveLength(2);
   });
 
+  it("drops a refused token at most once a minute, so a granted permission arrives without a new secret", async () => {
+    let now = 1_000_000;
+    const endpoint = tokenEndpointFake((_, index) => ({
+      status: 200,
+      json: { expires_in: 3600, access_token: `tok-${index}` },
+    }));
+    const provider = new ClientCredentialsTokenProvider({
+      tenantId: "t",
+      app: { clientId: "c", credential: { type: "secret", clientSecret: "x" } },
+      fetchImpl: endpoint.fetchImpl,
+      now: () => now,
+    });
+    expect(provider.refreshAfterRefusal()).toBe(false);
+    expect(await provider.getToken()).toBe("tok-0");
+    // Just fetched: a refusal now is about the request, not about the token's age.
+    expect(provider.refreshAfterRefusal()).toBe(false);
+    now += 61_000;
+    expect(provider.refreshAfterRefusal()).toBe(true);
+    expect(await provider.getToken()).toBe("tok-1");
+    expect(provider.refreshAfterRefusal()).toBe(false);
+    expect(endpoint.calls).toHaveLength(2);
+  });
+
   it("refuses to follow redirects, so the secret is never re-sent to another host", async () => {
     let redirect: RequestInit["redirect"];
     const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {

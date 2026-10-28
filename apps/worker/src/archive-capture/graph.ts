@@ -58,6 +58,7 @@ import {
   type SubscriptionResult,
   type SubscriptionSpec,
   subscriptionExpiry,
+  toRefreshCallback,
   toTokenCallback,
 } from "@restow/core";
 import {
@@ -401,6 +402,7 @@ export function pgGraphAccess(
     const provider = tokens.get(source.entraTenantId, app);
     const client = new FetchGraphClient({
       accessTokenProvider: toTokenCallback(provider),
+      refreshAccessToken: toRefreshCallback(provider),
       signal: ctx.signal,
       onThrottle: (info) =>
         ctx.logger.debug("archive capture waits for Graph", {

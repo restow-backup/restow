@@ -106,6 +106,12 @@ export interface GraphClient {
 export interface GraphClientOptions {
   /** Returns a valid bearer token; called before each attempt so refresh is transparent. */
   accessTokenProvider: () => Promise<string>;
+  /**
+   * Called once per request when Graph answers 401 or 403. True when the provider dropped its
+   * token: the request is sent once more with a new one, which carries permissions granted
+   * since the old one was issued. Without it, a refusal is returned as it is.
+   */
+  refreshAccessToken?: () => boolean;
   baseUrl?: string;
   /** Injectable fetch (defaults to the global). */
   fetchImpl?: typeof fetch;
@@ -254,6 +260,7 @@ async function parseBodyText<T>(text: string, contentType: string): Promise<T> {
 /** Minimal fetch-based {@link GraphClient} with the throttling layer built in. */
 export class FetchGraphClient implements GraphClient {
   private readonly accessTokenProvider: () => Promise<string>;
+  private readonly refreshAccessToken: (() => boolean) | undefined;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly maxRetries: number;
@@ -268,6 +275,7 @@ export class FetchGraphClient implements GraphClient {
 
   constructor(options: GraphClientOptions) {
     this.accessTokenProvider = options.accessTokenProvider;
+    this.refreshAccessToken = options.refreshAccessToken;
     this.baseUrl = (options.baseUrl ?? GRAPH_BASE_URL).replace(/\/+$/, "");
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.maxRetries = options.maxRetries ?? 5;
@@ -384,6 +392,7 @@ export class FetchGraphClient implements GraphClient {
     const useAuth = req.auth !== false && this.isGraphOrigin(url);
     const hasRawBody = req.rawBody !== undefined;
     const hasJsonBody = !hasRawBody && req.body !== undefined;
+    let refreshed = false;
     for (let attempt = 0; ; attempt++) {
       const headers: Record<string, string> = {
         Accept: "application/json",
@@ -409,6 +418,17 @@ export class FetchGraphClient implements GraphClient {
         throw error;
       }
 
+      if (
+        useAuth &&
+        !refreshed &&
+        (response.status === 401 || response.status === 403) &&
+        this.refreshAccessToken?.()
+      ) {
+        // Refused with a token that may predate a permission granted since: once more, fresh.
+        refreshed = true;
+        await response.text().catch(() => undefined);
+        continue;
+      }
       if (RETRYABLE_STATUSES.has(response.status) && attempt < this.maxRetries) {
         // Drain the body so the connection can be reused before we wait.
         await response.text().catch(() => undefined);

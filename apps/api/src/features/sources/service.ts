@@ -1978,7 +1978,10 @@ export async function connectOwnApp(
   });
   const verification = await verifyTenantConnection({
     tokenProvider: provider,
-    graph: new FetchGraphClient({ accessTokenProvider: () => provider.getToken() }),
+    graph: new FetchGraphClient({
+      accessTokenProvider: () => provider.getToken(),
+      refreshAccessToken: () => provider.refreshAfterRefusal(),
+    }),
   });
   if (!verification.tokenAcquired) {
     throw new ProblemError(409, "The app could not sign in", {

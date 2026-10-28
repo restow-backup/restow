@@ -72,6 +72,7 @@ import {
   singletonKeyFor,
   type TenantKeyring,
   type ThrottleInfo,
+  toRefreshCallback,
   toTokenCallback,
   type VerifyJobPayload,
 } from "@restow/core";
@@ -789,6 +790,7 @@ export async function graphClientForSource(
   const tokens = settings.tokens.get(source.entraTenantId, app);
   return new FetchGraphClient({
     accessTokenProvider: toTokenCallback(tokens),
+    refreshAccessToken: toRefreshCallback(tokens),
     onThrottle: deps.throttled,
     // A hanging request or throttling wait ends with the job (cancel, time limit, restart).
     signal: deps.ctx.signal,
