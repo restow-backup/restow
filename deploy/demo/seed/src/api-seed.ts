@@ -464,6 +464,16 @@ export async function waitForJobs(
 }
 
 /**
+ * Pure: the backup job an object has by now, for a "Back up now" the api answered with
+ * `already_queued`: Restow queued the object's first backup itself in the meantime (the
+ * scheduler's recommended schedules, or the first-backup path once the tenant's earlier backup
+ * had finished). The seed then waits for that one instead of counting the object as failed.
+ */
+export function queuedJobOf(objects: readonly BackupTargetView[], objectId: string): string | null {
+  return objects.find((object) => object.id === objectId)?.lastJob?.id ?? null;
+}
+
+/**
  * Get every protected object of the tenant through its first backup.
  *
  * Adding an IMAP account protects it, and Restow queues its first backup on
@@ -486,7 +496,15 @@ async function runFirstBackups(
   const total = await waitForJobs(client, tenantId, automatic, timeoutMs);
   for (const object of objectsWithoutFirstBackup(await listBackupTargets(client, tenantId))) {
     log(`starting the first backup of ${object.displayName ?? object.id}...`);
-    const jobIds = await triggerBackup(client, tenantId, object.id, timeoutMs, log);
+    let jobIds = await triggerBackup(client, tenantId, object.id, timeoutMs, log);
+    if (jobIds.length === 0) {
+      // Not queued because one is queued already: Restow got there first. Wait for that one.
+      const queued = queuedJobOf(await listBackupTargets(client, tenantId), object.id);
+      if (queued) {
+        log(`the first backup of ${object.displayName ?? object.id} was queued by Restow already`);
+        jobIds = [queued];
+      }
+    }
     if (jobIds.length === 0) {
       log(`the first backup of ${object.displayName ?? object.id} was not queued`);
       total.failed += 1;

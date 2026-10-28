@@ -6,6 +6,7 @@ import {
   demoReportRules,
   isDemoJobInProgress,
   objectsWithoutFirstBackup,
+  queuedJobOf,
   setupRequest,
 } from "./api-seed.js";
 import { DEMO_PROVIDER_NAME, DEMO_TENANTS } from "./company.js";
@@ -175,5 +176,30 @@ describe("setupRequest", () => {
       mail: { transport: "smtp", smtp: { from: "noreply@demo.restow.example" } },
       sendTest: false,
     });
+  });
+});
+
+describe("queuedJobOf", () => {
+  it("finds the backup Restow queued itself after the seed listed the objects", () => {
+    const objects = [
+      {
+        id: "info",
+        displayName: "Info",
+        status: "active",
+        lastSnapshot: { id: "s" },
+        lastJob: { id: "j1" },
+      },
+      {
+        id: "accounting",
+        displayName: "Accounting",
+        status: "active",
+        lastSnapshot: null,
+        lastJob: { id: "j2" },
+      },
+      { id: "sales", displayName: "Sales", status: "active", lastSnapshot: null, lastJob: null },
+    ];
+    expect(queuedJobOf(objects, "accounting")).toBe("j2");
+    expect(queuedJobOf(objects, "sales")).toBeNull();
+    expect(queuedJobOf(objects, "gone")).toBeNull();
   });
 });
