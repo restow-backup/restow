@@ -139,7 +139,8 @@
       "absent": "Nicht mehr gemeldet",
       "verified": "Restore-Prüfung bestanden",
       "succeeded": "Gesichert",
-      "unknown": "Noch kein Zustand"
+      "unknown": "Noch kein Zustand",
+      "excluded": "Ausgeschlossen"
     },
     "action": {
       "stop": "Stoppen",
@@ -165,7 +166,8 @@
         "waiting": "Wartend",
         "running": "Läuft",
         "no_backup": "Nicht gesichert",
-        "ok": "Gesichert"
+        "ok": "Gesichert",
+        "excluded": "Ausgeschlossen"
       }
     },
     "backupLine": {
@@ -407,14 +409,20 @@
       "selectWithoutJob": "Auswählen",
       "assigned": "{count, plural, one {# VM oder Container ist} other {# VMs und Container sind}} jetzt im Job.",
       "unassigned": "Aus dem Backup-Job entfernt.",
-      "backupQueued": "{count, plural, one {Sicherung angefordert} other {# Sicherungen angefordert}}. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute."
+      "backupQueued": "{count, plural, one {Sicherung angefordert} other {# Sicherungen angefordert}}. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute.",
+      "exclude": "Von der Sicherung ausschließen",
+      "include": "Wieder einschließen",
+      "includeOf": "{name} wieder in die Sicherung einschließen",
+      "excludedDone": "{count, plural, one {# VM oder Container ist} other {# VMs und Container sind}} von der Sicherung ausgeschlossen.",
+      "includedDone": "{count, plural, one {# VM oder Container wird} other {# VMs und Container werden}} wieder gesichert, sobald ein Job sie abdeckt."
     },
     "count": {
       "protected": "Geschützt: {count}",
       "failed": "Fehlgeschlagen: {count}",
       "incomplete": "Unvollständig: {count}",
       "noJob": "Ohne Job: {count}",
-      "never": "Noch nicht gesichert: {count}"
+      "never": "Noch nicht gesichert: {count}",
+      "excluded": "Ausgeschlossen: {count}"
     },
     "state": {
       "protected": "Geschützt",
@@ -422,7 +430,8 @@
       "incomplete": "Letzte Sicherung unvollständig",
       "noJob": "Kein Backup-Job",
       "never": "Noch nicht gesichert",
-      "excluded": "Nicht gesichert (Vorlage oder entfernt)"
+      "excluded": "Von der Sicherung ausgeschlossen",
+      "unsupported": "Nicht gesichert (Vorlage oder entfernt)"
     },
     "status": {
       "running": "Läuft",
@@ -539,5 +548,13 @@
     "addedChart": "Neue Daten je Sicherung",
     "addedBar": "{date}: +{size}",
     "addedFirst": "{date}: {size} (erste Sicherung)"
+  },
+  "exclusion": {
+    "title": "Von der Sicherung ausgeschlossen",
+    "byWhom": "Ausgeschlossen von {by} am {date}.",
+    "since": "Ausgeschlossen am {date}.",
+    "effect": "Kein Backup-Job sichert diesen Gast, auch nicht der Job für alle Gäste, und er zählt in keiner Übersicht als ungesichert. Vorhandene Sicherungsstände bleiben wiederherstellbar.",
+    "exclude": "Von der Sicherung ausschließen",
+    "hint": "Für Gäste, die bewusst nicht gesichert werden (zum Beispiel Test-VMs). Kein Job sichert ihn dann, und er fließt nicht als ungesichert in Übersichten, Warnungen und Statistiken ein. Wartende Sicherungen werden zurückgezogen."
   }
 }

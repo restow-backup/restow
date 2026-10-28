@@ -1,5 +1,5 @@
 import type { JobSchedule } from "@restow/core";
-import { pveGuestBackable } from "@restow/core";
+import { pveGuestCounted } from "@restow/core";
 import {
   type Database,
   safeErrorMessage,
@@ -337,6 +337,7 @@ interface PveGuestRow extends Record<string, unknown> {
   template: boolean;
   present: boolean;
   job_id: string | null;
+  excluded_at: Date | string | null;
   status: string | null;
   finished_at: Date | string | null;
   unreadable: number | null;
@@ -354,7 +355,7 @@ async function pveJobItems(db: Database, tenantId: string, now: Date): Promise<T
       return [];
     }
     const guests = await tx.execute<PveGuestRow>(sql`
-      SELECT g.id, g.kind, g.template, g.present, g.job_id,
+      SELECT g.id, g.kind, g.template, g.present, g.job_id, g.excluded_at,
              newest.status, newest.finished_at, newest.unreadable,
              EXISTS (SELECT 1 FROM pve_runs r WHERE r.guest_id = g.id AND r.kind = 'backup'
                        AND r.status = 'running') AS running,
@@ -371,10 +372,12 @@ async function pveJobItems(db: Database, tenantId: string, now: Date): Promise<T
     return jobs.rows.map((job) => {
       const covered = guests.rows.filter(
         (guest) =>
-          pveGuestBackable({
+          pveGuestCounted({
+            jobId: guest.job_id,
             kind: guest.kind as "vm" | "ct",
             template: guest.template,
             present: guest.present,
+            excludedAt: guest.excluded_at,
           }) &&
           (guest.job_id === job.id || (guest.job_id === null && job.scope_all)),
       );

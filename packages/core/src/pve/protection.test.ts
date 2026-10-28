@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { pveNextRunAt } from "./model.js";
 import {
   pveGuestBackable,
+  pveGuestCounted,
+  pveGuestExcluded,
   pveGuestIsRestowServer,
   pveJobOfGuest,
   pveRestorePointReadiness,
@@ -43,6 +45,18 @@ describe("when a guest is protected", () => {
     // A container template is an ordinary container for the backup.
     expect(pveJobOfGuest(guest({ jobId: "own", kind: "ct", template: true }), [own])).toBe(own);
     expect(pveGuestBackable(guest({ template: true }))).toBe(false);
+  });
+
+  it("never protects a guest an administrator excluded, not even by the job for all guests", () => {
+    const excludedAt = new Date("2026-10-01T00:00:00.000Z");
+    expect(pveJobOfGuest(guest({ jobId: "own", excludedAt }), [own, all])).toBeNull();
+    expect(pveJobOfGuest(guest({ excludedAt: excludedAt.toISOString() }), [all])).toBeNull();
+    expect(pveGuestExcluded(guest({ excludedAt }))).toBe(true);
+    expect(pveGuestExcluded(guest({ excludedAt: null }))).toBe(false);
+    expect(pveGuestCounted(guest({ excludedAt }))).toBe(false);
+    // Still backable: its restore points stay restorable.
+    expect(pveGuestBackable(guest({ excludedAt }))).toBe(true);
+    expect(pveGuestCounted(guest())).toBe(true);
   });
 });
 

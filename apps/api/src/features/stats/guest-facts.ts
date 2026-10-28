@@ -1,4 +1,4 @@
-import { pveGuestBackable, pveJobOfGuest } from "@restow/core";
+import { pveGuestCounted, pveJobOfGuest } from "@restow/core";
 import { pveGuests, pveJobs, pveRuns, pveSnapshots } from "@restow/db";
 import { type SQL, sql } from "drizzle-orm";
 import type { Transaction } from "../../lib/tenant-context.js";
@@ -86,6 +86,7 @@ export async function collectGuestFacts(
       kind: pveGuests.kind,
       template: pveGuests.template,
       present: pveGuests.present,
+      excludedAt: pveGuests.excludedAt,
     })
     .from(pveGuests)
     .where(sql`${pveGuests.tenantId} = ${tenantId}`);
@@ -124,7 +125,7 @@ export async function collectGuestFacts(
 
   return {
     list: guests
-      .filter((guest) => pveGuestBackable(guest))
+      .filter((guest) => pveGuestCounted(guest))
       .map((guest) => ({
         id: guest.id,
         createdAt: guest.createdAt,

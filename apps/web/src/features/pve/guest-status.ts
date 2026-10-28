@@ -30,6 +30,8 @@ export const GUEST_STATUS_ORDER = [
   "running",
   "waiting_offline",
   "waiting",
+  // Excluded on purpose: what the row says first, whatever its old runs said.
+  "excluded",
   "failed",
   "verify_failed",
   "verify_not_checked",
@@ -64,6 +66,7 @@ export const GUEST_STATE_FILTERS = [
   "waiting",
   "running",
   "no_backup",
+  "excluded",
   "ok",
 ] as const;
 export type GuestStateFilter = (typeof GUEST_STATE_FILTERS)[number];
@@ -93,6 +96,8 @@ export const GUEST_STATUS_META: Record<GuestStatusKey, StatusMeta> = {
   restow_server: { tone: "warning", problem: false, group: null },
   no_job: { tone: "warning", problem: true, group: "no_backup" },
   never: { tone: "warning", problem: true, group: "no_backup" },
+  // Excluded from backup by an administrator on purpose: not a problem, a filter of its own.
+  excluded: { tone: "muted", problem: false, group: "excluded" },
   cancelled: { tone: "muted", problem: false, group: null },
   template: { tone: "muted", problem: false, group: null },
   absent: { tone: "muted", problem: false, group: null },
@@ -122,6 +127,7 @@ type StatusGuest = Pick<
   | "lastVerify"
   | "restowServer"
   | "selfBackupConfirmedAt"
+  | "excludedAt"
   | "attention"
 >;
 
@@ -187,7 +193,12 @@ export function guestStatuses(guest: StatusGuest, node?: StatusNode): GuestStatu
   if (guest.restowServer && !guest.selfBackupConfirmedAt) {
     keys.add("restow_server");
   }
-  const backable = guest.present && !(guest.kind === "vm" && guest.template);
+  const excluded = Boolean(guest.excludedAt);
+  if (excluded) {
+    keys.add("excluded");
+  }
+  // Excluded guests are not "not backed up yet" or "in no job": that is what was asked for.
+  const backable = guest.present && !(guest.kind === "vm" && guest.template) && !excluded;
   if (backable && (guest.attention ?? []).includes("no_job")) {
     keys.add("no_job");
   }
@@ -218,7 +229,8 @@ export function guestStatuses(guest: StatusGuest, node?: StatusNode): GuestStatu
   return GUEST_STATUS_ORDER.filter((key) => keys.has(key)).map((key) => ({
     key,
     tone: GUEST_STATUS_META[key].tone,
-    problem: GUEST_STATUS_META[key].problem,
+    // What an excluded guest's old runs and checks said is no problem to act on any more.
+    problem: GUEST_STATUS_META[key].problem && !excluded,
   }));
 }
 

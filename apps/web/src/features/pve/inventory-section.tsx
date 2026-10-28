@@ -32,6 +32,7 @@ import {
   type PveJob,
   type PveNode,
   pveKeys,
+  setGuestExcluded,
 } from "./api.js";
 import { activityHint, BackupProgress } from "./backup-progress.js";
 import { BackupSizeCell } from "./backup-size.js";
@@ -43,6 +44,7 @@ import { RestowServerNote, useSelfBackupGuard } from "./self-backup.js";
 
 /** Where a guest stands with its backups, worst first. */
 export type GuestProtection =
+  | "unsupported"
   | "excluded"
   | "failed"
   | "noJob"
@@ -53,6 +55,10 @@ export type GuestProtection =
 export function guestProtection(guest: PveGuest): GuestProtection {
   // Templates cannot be backed up (PVE disables fleecing) and absent guests are gone.
   if ((guest.template && guest.kind === "vm") || !guest.present) {
+    return "unsupported";
+  }
+  // An administrator excluded it from backup on purpose: not unprotected (docs/PVE.md).
+  if (guest.excludedAt) {
     return "excluded";
   }
   if (!guest.jobId) {
@@ -75,6 +81,7 @@ const PROTECTION_BADGE = {
   noJob: "warning",
   never: "warning",
   excluded: "muted",
+  unsupported: "muted",
 } as const;
 
 interface NodeGroup {
@@ -116,9 +123,13 @@ export function groupByNode(nodes: PveNode[], guests: PveGuest[]): NodeGroup[] {
   return sorted;
 }
 
-/** A guest the selection may hold: present, and not a VM template (PVE cannot back those up). */
+/**
+ * A guest the selection may hold: present, not a VM template (PVE cannot back those up) and not
+ * excluded from backup.
+ */
 function selectable(guest: PveGuest): boolean {
-  return guestProtection(guest) !== "excluded";
+  const protection = guestProtection(guest);
+  return protection !== "unsupported" && protection !== "excluded";
 }
 
 const NEW_JOB = "__new__";
@@ -178,7 +189,27 @@ function useInventoryActions() {
     },
     onError: refresh,
   });
-  return { assign, backup };
+  const exclude = useMutation({
+    mutationFn: async ({ guestIds, excluded }: { guestIds: string[]; excluded: boolean }) => {
+      for (const guestId of guestIds) {
+        await setGuestExcluded(guestId, excluded);
+      }
+      return guestIds.length;
+    },
+    onSuccess: (count, { excluded }) => {
+      toast.success(
+        excluded
+          ? t("inventory.actions.excludedDone", { count })
+          : t("inventory.actions.includedDone", { count }),
+      );
+      refresh();
+    },
+    onError: (error) => {
+      toast.error((error as Error).message);
+      refresh();
+    },
+  });
+  return { assign, backup, exclude };
 }
 
 function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
@@ -187,7 +218,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
   const [open, setOpen] = React.useState(false);
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
   const [creating, setCreating] = React.useState(false);
-  const { assign, backup } = useInventoryActions();
+  const { assign, backup, exclude } = useInventoryActions();
   const selfBackup = useSelfBackupGuard();
   const guestsOf = (ids: readonly string[]) =>
     group.guests.filter((guest) => ids.includes(guest.id));
@@ -204,7 +235,15 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
       selfBackup.guard(guestsOf(ids), run);
     }
   };
-  const counts = { protected: 0, failed: 0, incomplete: 0, noJob: 0, never: 0, excluded: 0 };
+  const counts = {
+    protected: 0,
+    failed: 0,
+    incomplete: 0,
+    noJob: 0,
+    never: 0,
+    excluded: 0,
+    unsupported: 0,
+  };
   for (const guest of group.guests) {
     counts[guestProtection(guest)] += 1;
   }
@@ -212,7 +251,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
   // A guest that left (or became a template) since it was ticked drops out of the selection.
   const chosen = eligible.filter((guest) => selected.has(guest.id)).map((guest) => guest.id);
   const allChosen = eligible.length > 0 && chosen.length === eligible.length;
-  const busy = assign.isPending || backup.isPending;
+  const busy = assign.isPending || backup.isPending || exclude.isPending;
   const withoutJob = eligible.filter((guest) => !guest.jobId).map((guest) => guest.id);
   const toggle = (id: string, on: boolean) =>
     setSelected((current) => {
@@ -257,12 +296,13 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
           {t("inventory.guestCount", { count: group.guests.length })}
         </span>
         <span className="ml-auto flex flex-wrap gap-1" data-slot="pve-inventory-counts">
-          {(["protected", "failed", "incomplete", "noJob", "never"] as const).map((state) =>
-            counts[state] > 0 ? (
-              <Badge key={state} variant={PROTECTION_BADGE[state]}>
-                {t(`inventory.count.${state}`, { count: counts[state] })}
-              </Badge>
-            ) : null,
+          {(["protected", "failed", "incomplete", "noJob", "never", "excluded"] as const).map(
+            (state) =>
+              counts[state] > 0 ? (
+                <Badge key={state} variant={PROTECTION_BADGE[state]}>
+                  {t(`inventory.count.${state}`, { count: counts[state] })}
+                </Badge>
+              ) : null,
           )}
         </span>
       </CollapsibleTrigger>
@@ -303,6 +343,21 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                   onClick={() => backUp(chosen)}
                 >
                   {t("guests.backupNow")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  data-action="exclude-guests"
+                  onClick={() =>
+                    exclude.mutate(
+                      { guestIds: chosen, excluded: true },
+                      { onSuccess: () => setSelected(new Set()) },
+                    )
+                  }
+                >
+                  {t("inventory.actions.exclude")}
                 </Button>
                 <Button
                   type="button"
@@ -361,7 +416,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
               <TableBody>
                 {group.guests.map((guest) => {
                   const protection = guestProtection(guest);
-                  const canBackUp = protection !== "excluded";
+                  const canBackUp = protection !== "unsupported" && protection !== "excluded";
                   const label = guest.name ?? `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`;
                   return (
                     <TableRow
@@ -487,6 +542,20 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                             onClick={() => backUp([guest.id])}
                           >
                             {t("guests.backupNow")}
+                          </Button>
+                        ) : protection === "excluded" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy}
+                            aria-label={t("inventory.actions.includeOf", { name: label })}
+                            data-action="include-guest"
+                            onClick={() =>
+                              exclude.mutate({ guestIds: [guest.id], excluded: false })
+                            }
+                          >
+                            {t("inventory.actions.include")}
                           </Button>
                         ) : null}
                       </TableCell>

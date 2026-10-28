@@ -120,8 +120,14 @@ describe("guestProtection", () => {
     expect(guestProtection(guest(101, { jobId: null }))).toBe("noJob");
     expect(guestProtection(guest(102, { lastRunStatus: "failed" }))).toBe("failed");
     expect(guestProtection(guest(103, { lastSuccessAt: null, lastRunStatus: null }))).toBe("never");
-    expect(guestProtection(guest(104, { template: true }))).toBe("excluded");
-    expect(guestProtection(guest(105, { present: false }))).toBe("excluded");
+    expect(guestProtection(guest(104, { template: true }))).toBe("unsupported");
+    expect(guestProtection(guest(105, { present: false }))).toBe("unsupported");
+    // Excluded by an administrator: not "in no job", whatever its runs said.
+    expect(
+      guestProtection(
+        guest(106, { jobId: null, lastRunStatus: "failed", excludedAt: "2026-10-01" }),
+      ),
+    ).toBe("excluded");
   });
 });
 

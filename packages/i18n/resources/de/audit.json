@@ -626,7 +626,8 @@
       },
       "guest": {
         "restow_server": "Gast als {appName}-Server markiert oder Markierung aufgehoben",
-        "self_backup_confirmed": "Sicherung des {appName}-Servers mit {appName} bestätigt"
+        "self_backup_confirmed": "Sicherung des {appName}-Servers mit {appName} bestätigt",
+        "excluded": "Gast von der Sicherung ausgeschlossen oder wieder eingeschlossen"
       },
       "queue": {
         "cancelled": "Wartende Sicherungen von Gästen zurückgezogen",

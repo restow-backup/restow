@@ -306,6 +306,8 @@ export const assignJobSchema = z.object({
 
 export const restowServerSchema = z.object({ flagged: z.boolean() });
 
+export const guestExcludedSchema = z.object({ excluded: z.boolean() });
+
 export const backupNowSchema = z.object({
   verifyRead: z.boolean().default(false),
   /** Back up the Restow server's own VM anyway (docs/PVE.md). */

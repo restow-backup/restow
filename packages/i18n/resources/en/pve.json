@@ -139,7 +139,8 @@
       "absent": "No longer reported",
       "verified": "Restore check passed",
       "succeeded": "Backed up",
-      "unknown": "No state yet"
+      "unknown": "No state yet",
+      "excluded": "Excluded"
     },
     "action": {
       "stop": "Stop",
@@ -165,7 +166,8 @@
         "waiting": "Waiting",
         "running": "Running",
         "no_backup": "Not backed up",
-        "ok": "Backed up"
+        "ok": "Backed up",
+        "excluded": "Excluded"
       }
     },
     "backupLine": {
@@ -407,14 +409,20 @@
       "selectWithoutJob": "Select them",
       "assigned": "{count, plural, one {# VM or container is} other {# VMs and containers are}} now in the job.",
       "unassigned": "Removed from its backup job.",
-      "backupQueued": "{count, plural, one {Backup requested} other {# backups requested}}. The node starts them at its next check-in, usually within a minute."
+      "backupQueued": "{count, plural, one {Backup requested} other {# backups requested}}. The node starts them at its next check-in, usually within a minute.",
+      "exclude": "Exclude from backup",
+      "include": "Include again",
+      "includeOf": "Include {name} in backup again",
+      "excludedDone": "{count, plural, one {# VM or container is} other {# VMs and containers are}} excluded from backup.",
+      "includedDone": "{count, plural, one {# VM or container is} other {# VMs and containers are}} backed up again once a job covers them."
     },
     "count": {
       "protected": "Protected: {count}",
       "failed": "Failed: {count}",
       "incomplete": "Incomplete: {count}",
       "noJob": "No job: {count}",
-      "never": "Not backed up yet: {count}"
+      "never": "Not backed up yet: {count}",
+      "excluded": "Excluded: {count}"
     },
     "state": {
       "protected": "Protected",
@@ -422,7 +430,8 @@
       "incomplete": "Last backup incomplete",
       "noJob": "No backup job",
       "never": "Not backed up yet",
-      "excluded": "Not backed up (template or gone)"
+      "excluded": "Excluded from backup",
+      "unsupported": "Not backed up (template or gone)"
     },
     "status": {
       "running": "Running",
@@ -539,5 +548,13 @@
     "addedChart": "New data per backup",
     "addedBar": "{date}: +{size}",
     "addedFirst": "{date}: {size} (first backup)"
+  },
+  "exclusion": {
+    "title": "Excluded from backup",
+    "byWhom": "Excluded by {by} on {date}.",
+    "since": "Excluded on {date}.",
+    "effect": "No backup job backs this guest up, not even the job for all guests, and no overview counts it as unprotected. Existing restore points stay restorable.",
+    "exclude": "Exclude from backup",
+    "hint": "For guests that are not backed up on purpose (test VMs, for example). No job backs it up then, and it does not count as unprotected in overviews, warnings and statistics. Queued backups are withdrawn."
   }
 }

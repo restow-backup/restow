@@ -57,6 +57,7 @@ import {
   requestBootTest,
   resetRepository,
   restoreSnapshot,
+  setGuestExcluded,
   setRestowServer,
   verifySnapshot,
 } from "./api.js";
@@ -628,6 +629,81 @@ function RestowServerSection({ guest }: { guest: PveGuest }) {
   );
 }
 
+/**
+ * Excluding the guest from backup (docs/PVE.md, "Excluding a guest"): no job backs it up, not
+ * even the one for all guests, and it counts nowhere as unprotected. Its restore points stay.
+ */
+function ExclusionSection({ guest, canManage }: { guest: PveGuest; canManage: boolean }) {
+  const { t, i18n } = useTranslation(PVE_NAMESPACE);
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  const change = useMutation({
+    mutationFn: (excluded: boolean) => setGuestExcluded(guest.id, excluded),
+    onSuccess: (_, excluded) => {
+      toast.success(
+        excluded
+          ? t("inventory.actions.excludedDone", { count: 1 })
+          : t("inventory.actions.includedDone", { count: 1 }),
+      );
+      void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
+    },
+    onError: (error) => toast.error((error as Error).message),
+  });
+  if (guest.kind === "vm" && guest.template) {
+    return null;
+  }
+  if (guest.excludedAt) {
+    return (
+      <Alert data-slot="pve-guest-excluded">
+        <AlertTitle>{t("exclusion.title")}</AlertTitle>
+        <AlertDescription>
+          <p>
+            {guest.excludedBy
+              ? t("exclusion.byWhom", {
+                  by: guest.excludedBy,
+                  date: formatDateTime(guest.excludedAt, language),
+                })
+              : t("exclusion.since", { date: formatDateTime(guest.excludedAt, language) })}{" "}
+            {t("exclusion.effect")}
+          </p>
+          {canManage ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              disabled={change.isPending}
+              data-action="include-guest"
+              onClick={() => change.mutate(false)}
+            >
+              {t("inventory.actions.include")}
+            </Button>
+          ) : null}
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  if (!canManage) {
+    return null;
+  }
+  return (
+    <label className="flex max-w-prose items-start gap-2 text-sm" data-slot="pve-guest-exclude">
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={false}
+        disabled={change.isPending}
+        onChange={(e) => change.mutate(e.target.checked)}
+      />
+      <span>
+        {t("exclusion.exclude")}
+        <span className="block text-xs text-muted-foreground">{t("exclusion.hint")}</span>
+      </span>
+    </label>
+  );
+}
+
 export function PveGuestPage({ guestId }: { guestId: string }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
   const language = i18n.resolvedLanguage ?? i18n.language;
@@ -737,7 +813,10 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
             cancelling={stoppable.cancelling}
             cancelledBy={stoppable.by}
           />
-        ) : data && canManage && !(data.guest.kind === "vm" && data.guest.template) ? (
+        ) : data &&
+          canManage &&
+          !data.guest.excludedAt &&
+          !(data.guest.kind === "vm" && data.guest.template) ? (
           <Button type="button" onClick={() => setBackingUp(true)} data-action="backup-now">
             <Play aria-hidden="true" />
             {t("guest.backupNow")}
@@ -746,7 +825,8 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
       </PageHeader>
       {data && canManage ? <BackupDestinationNote /> : null}
       {chains[0] ? <RepositoryChainNotice chain={chains[0]} /> : null}
-      {data ? <RestowServerSection guest={data.guest} /> : null}
+      {data ? <ExclusionSection guest={data.guest} canManage={canManage} /> : null}
+      {data && !data.guest.excludedAt ? <RestowServerSection guest={data.guest} /> : null}
       <ObjectSuspicionBadge target={suspicionTarget} />
       <RetentionHoldNotice target={suspicionTarget} objectName={title} />
       <LastCleanHint

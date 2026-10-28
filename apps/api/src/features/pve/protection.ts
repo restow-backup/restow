@@ -1,5 +1,6 @@
 import {
   pveGuestBackable,
+  pveGuestExcluded,
   pveJobOfGuest,
   pveRestorePointRating,
   pveStaleBackupHours,
@@ -33,6 +34,9 @@ import {
  *   - Protected: present on its node, no VM template, and in an enabled PVE job (its own, or the
  *     job for all guests while it has none; `pveJobOfGuest` in @restow/core). A guest in no job
  *     is not backed up and counts as `withoutJob`.
+ *   - Excluded: an administrator took the guest out of backup on purpose (`pveGuestExcluded`).
+ *     It counts as `excluded` only: neither in `total` nor as `withoutJob`, and it is not rated,
+ *     so it never reads as unprotected. Its restore points stay restorable.
  *   - Rated (readiness): every protected guest, and a guest in no job that still has a restore
  *     point (flagged `withoutJob`, like a machine in no job). A guest the inventory found that
  *     nobody ever put into a job is listed as "in no job", never as "no backup": the inventory
@@ -82,8 +86,10 @@ export interface GuestReadinessRowDto {
 
 /** The tenant's guests in figures (zeros for a tenant without Proxmox VE). */
 export interface GuestCountsDto {
-  /** Guests PVE can back up (present on their node, no VM template), in a job or not. */
+  /** Guests PVE can back up (present on their node, no VM template), in a job or not, not excluded. */
   total: number;
+  /** Backable guests an administrator excluded from backup; counted nowhere else. */
+  excluded: number;
   /** Guests in an enabled PVE job. */
   protected: number;
   /** Guests in no enabled job: nothing backs them up. */
@@ -128,6 +134,7 @@ export interface GuestFact {
 
 export const NO_GUEST_COUNTS: GuestCountsDto = {
   total: 0,
+  excluded: 0,
   protected: 0,
   withoutJob: 0,
   failedLastBackup: 0,
@@ -251,7 +258,8 @@ export async function loadGuestProtection(
   counts.restorePoints = points?.n ?? 0;
 
   for (const guest of guests) {
-    const backable = pveGuestBackable(guest);
+    const excluded = pveGuestBackable(guest) && pveGuestExcluded(guest);
+    const backable = pveGuestBackable(guest) && !excluded;
     const job = pveJobOfGuest(guest, jobs);
     const inJob = job !== null;
     const snapshot = newestBy.get(guest.id) ?? null;
@@ -281,6 +289,9 @@ export async function loadGuestProtection(
       lastRun,
       rated: isRated,
     });
+    if (excluded) {
+      counts.excluded += 1;
+    }
     if (!backable) {
       continue;
     }

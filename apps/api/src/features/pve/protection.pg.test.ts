@@ -14,6 +14,8 @@
  *   new   CT 201 in Daily since two days, never backed up: no backup, overdue
  *   tpl   VM 104 template in Daily: PVE cannot back it up, counted nowhere
  *   gone  VM 105 no longer reported by its node: counted nowhere
+ *   skip  VM 106 excluded from backup by an admin (the job for all guests would cover it), with a
+ *         red restore point and a failed backup: counted nowhere, rated nowhere
  * Fabrikam: one VM in no job (and no job for all guests) that keeps a red restore point: not
  * protected, but rated by its restore point and flagged as in no job.
  *
@@ -60,7 +62,10 @@ function one<T>(rows: readonly T[]): T {
 interface Fixture {
   contoso: string;
   fabrikam: string;
-  guests: Record<"web" | "db" | "cache" | "old" | "new" | "tpl" | "gone" | "foreign", string>;
+  guests: Record<
+    "web" | "db" | "cache" | "old" | "new" | "tpl" | "gone" | "skip" | "foreign",
+    string
+  >;
 }
 
 async function seed(db: Database): Promise<Fixture> {
@@ -152,6 +157,11 @@ async function seed(db: Database): Promise<Fixture> {
     present: false,
     lastSuccessAt: ago(DAY),
   });
+  const skip = await guest(contoso, contosoCluster, 106, "skip", {
+    lastSuccessAt: ago(4 * DAY),
+    excludedAt: ago(DAY),
+    excludedBy: "admin@contoso.test",
+  });
   const foreign = await guest(fabrikam, fabrikamCluster, 101, "fabrikam-vm");
 
   let sequence = 0;
@@ -191,6 +201,7 @@ async function seed(db: Database): Promise<Fixture> {
   });
   await point(contoso, contosoCluster, cache, ago(5 * HOUR), null);
   await point(contoso, contosoCluster, old, ago(10 * DAY), { mismatched: 0, errors: [] });
+  await point(contoso, contosoCluster, skip, ago(4 * DAY), { mismatched: 1, errors: ["x"] });
   await point(fabrikam, fabrikamCluster, foreign, ago(HOUR), { mismatched: 1, errors: ["x"] });
 
   const run = async (
@@ -213,12 +224,13 @@ async function seed(db: Database): Promise<Fixture> {
   await run(database, "succeeded", ago(26 * HOUR));
   await run(database, "failed", ago(2 * HOUR));
   await run(cache, "succeeded", ago(5 * HOUR));
+  await run(skip, "failed", ago(5 * DAY));
   await run(web, "failed", ago(30 * HOUR), "restore");
 
   return {
     contoso,
     fabrikam,
-    guests: { web, db: database, cache, old, new: fresh, tpl, gone, foreign },
+    guests: { web, db: database, cache, old, new: fresh, tpl, gone, skip, foreign },
   };
 }
 
@@ -303,7 +315,8 @@ describe.skipIf(!testDatabaseAdminUrl)("VMs and containers in the overviews", ()
     expect(protectedObjects?.state === "ok" && protectedObjects.data).toMatchObject({
       active: 0,
       machines: { protected: 0, withoutJob: 0, failedLastBackup: 0 },
-      guests: { protected: 4, withoutJob: 1, failedLastBackup: 1, restorePoints: 4 },
+      // The excluded guest's restore point stays one.
+      guests: { protected: 4, withoutJob: 1, failedLastBackup: 1, restorePoints: 5 },
       noBackup: 1,
     });
     expect(readiness?.state === "ok" && readiness.data).toMatchObject({
@@ -317,11 +330,12 @@ describe.skipIf(!testDatabaseAdminUrl)("VMs and containers in the overviews", ()
     const { loadGuestCounts } = await import("./protection.js");
     expect((await loadGuestCounts(appDb, f.contoso, NOW)).counts).toEqual({
       total: 5,
+      excluded: 1,
       protected: 4,
       withoutJob: 1,
       failedLastBackup: 1,
       lastSuccessAt: ago(2 * HOUR).toISOString(),
-      restorePoints: 4,
+      restorePoints: 5,
     });
     const { loadTenantHealthExtras } = await import("../dashboard/queries.js");
     // The failed backup of db two hours ago, and the failed restore of web the day before.
@@ -338,6 +352,7 @@ describe.skipIf(!testDatabaseAdminUrl)("VMs and containers in the overviews", ()
     // restore point.
     expect((await loadGuestCounts(appDb, f.fabrikam, NOW)).counts).toEqual({
       total: 1,
+      excluded: 0,
       protected: 0,
       withoutJob: 1,
       failedLastBackup: 0,
@@ -373,12 +388,12 @@ describe.skipIf(!testDatabaseAdminUrl)("VMs and containers in the overviews", ()
     const facts = await withTenantTx(appDb, f.contoso, (tx) =>
       collectGuestFacts(tx, f.contoso, period),
     );
-    // The template and the guest no longer reported are left out.
+    // The template, the guest no longer reported and the excluded one are left out.
     expect(facts.list.map((row) => row.id).sort()).toEqual(
       [f.guests.web, f.guests.db, f.guests.cache, f.guests.old, f.guests.new].sort(),
     );
     expect(facts.list.find((row) => row.id === f.guests.old)?.inJob).toBe(false);
-    expect(facts.restorePoints).toHaveLength(5);
+    expect(facts.restorePoints).toHaveLength(6);
     expect(facts.restorePoints.find((row) => row.guestId === f.guests.db)?.check?.readiness).toBe(
       "red",
     );
@@ -389,6 +404,8 @@ describe.skipIf(!testDatabaseAdminUrl)("VMs and containers in the overviews", ()
       "2026-10-07/succeeded": 2,
       "2026-10-07/failed": 1,
       "2026-10-06/succeeded": 1,
+      // The excluded guest's failed backup before it was excluded stays in the history.
+      "2026-10-02/failed": 1,
     });
 
     const { aggregateTenant } = await import("../stats/aggregate.js");

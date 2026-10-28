@@ -98,6 +98,12 @@ export interface PveGuest {
   restowServerFlagged?: boolean;
   /** An admin confirmed backing up the Restow server's own VM anyway. */
   selfBackupConfirmedAt?: string | null;
+  /**
+   * When an administrator excluded the guest from backup, and who (docs/PVE.md, "Excluding a
+   * guest"); null while it is not excluded. Missing on servers before 0.4.7.
+   */
+  excludedAt?: string | null;
+  excludedBy?: string | null;
   /** The restore check of the newest restore point; missing on servers before 0.4.2. */
   lastVerify?: PveVerifyFact | null;
 }
@@ -525,6 +531,12 @@ export const setRestowServer = (guestId: string, flagged: boolean) =>
   apiFetch<void>(`/pve/guests/${encodeURIComponent(guestId)}/restow-server`, {
     method: "PUT",
     body: { flagged },
+  });
+/** Exclude a guest from backup, or include it again (docs/PVE.md, "Excluding a guest"). */
+export const setGuestExcluded = (guestId: string, excluded: boolean) =>
+  apiFetch<void>(`/pve/guests/${encodeURIComponent(guestId)}/excluded`, {
+    method: "PUT",
+    body: { excluded },
   });
 /** Check a guest's newest restore point now (Recovery readiness). */
 export const verifyGuest = (guestId: string) =>

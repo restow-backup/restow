@@ -304,6 +304,12 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       })
       .returning();
     expect(coveredBy(job as never, await owner.select().from(pveGuests))).toHaveLength(1);
+    // A guest an administrator excluded from backup is planned by no job (0.4.7).
+    const excluded = (await owner.select().from(pveGuests)).map((guest) => ({
+      ...guest,
+      excludedAt: clock,
+    }));
+    expect(coveredBy(job as never, excluded)).toHaveLength(0);
     expect(await planJobs(deps, clock)).toBe(1);
     expect(await planJobs(deps, clock)).toBe(0);
     const tasks = await owner.select().from(pveTasks);

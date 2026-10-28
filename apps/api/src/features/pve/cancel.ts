@@ -95,7 +95,7 @@ function scopeOfTasks(scope: Scope): SQL | undefined {
  * History, `delivered` ones without a running run get a cancel request. Set-based: one statement
  * each, whatever the number of guests.
  */
-async function withdrawQueued(
+export async function withdrawQueued(
   tx: Transaction,
   tenantId: string,
   scope: Scope,

@@ -361,7 +361,6 @@ for in `/var/lib/restow-pve/plugin-loaded`). The inventory (`GET /api/v1/pve`)
 reports per node `helperVersion`, `offeredVersion` and `outdated`.
 
 ## In the overviews
-## In the overviews
 
 Guests count everywhere the mailboxes and the machines do, by one rule
 (`apps/api/src/features/pve/protection.ts`, `packages/core/src/pve/protection.ts`):
@@ -370,6 +369,9 @@ Guests count everywhere the mailboxes and the machines do, by one rule
   enabled PVE job (its own, or the job for all guests while it has none). A
   guest in no enabled job is counted as "in no backup job"; one that left its
   job keeps the rating of its restore points, and keeps the tenant from green.
+- **Excluded** guests (see "Excluding a guest") count nowhere: not as
+  protected, not in `total`, not as in no job, and they are not rated. The
+  counts carry them as `excluded`.
 - **Readiness** is the restore check and the boot test of the newest restore
   point (`pveRestorePointRating`, packages/core/src/pve/boot-test.ts): red when
   either failed; by a boot test green only when the restored guest's QEMU guest
@@ -544,6 +546,27 @@ storage, and keep Restow's database dumps (docs/DATABASE.md).
   `urn:restow:problem:pve-restow-server`) until an admin confirms the risk in the
   dialog (`confirmSelfBackup`; audited `pve.guest.self_backup_confirmed`). Taking
   the mark back takes the confirmation back.
+
+## Excluding a guest
+
+Many guests of a cluster are not meant to be backed up (test VMs, a guest backed
+up elsewhere). Left in no job, each would count as "in no backup job" and keep
+the tenant from green. From 0.4.7 an admin excludes such a guest on purpose:
+"Exclude from backup" on the guest's page, or for a selection of guests in the
+inventory (`PUT /api/v1/pve/guests/:id/excluded` with `{ "excluded": true }`,
+audited `pve.guest.excluded`; `pve_guests.excluded_at` and `excluded_by`).
+
+- **No job backs it up**, not even the job for all guests (`pveGuestCounted` in
+  packages/core/src/pve/protection.ts, which every count and the worker's job
+  plan read). Its own job stays recorded, so including it again restores what it
+  had. Excluding withdraws its queued backups; a running one ends as it would.
+- **"Back up now" and putting it into a job are refused** (409
+  `urn:restow:problem:pve-guest-excluded`) until it is included again.
+- **It counts nowhere as unprotected**: not in the overviews, the readiness, the
+  warnings, `backup.overdue`, the statistics or the provider view. The guest
+  list shows "Excluded" (its own state filter), never a problem.
+- **Its restore points stay** and can be restored; retention keeps treating them
+  as before.
 
 ## On the node
 

@@ -435,7 +435,9 @@ export function GuestSheet({
                   className="h-9 w-full rounded-md border bg-background px-2 text-sm"
                   aria-label={t("guests.job")}
                   value={guest.jobId ?? ""}
-                  disabled={assigning || (guest.kind === "vm" && guest.template)}
+                  disabled={
+                    assigning || (guest.kind === "vm" && guest.template) || !!guest.excludedAt
+                  }
                   onChange={(event) => onAssign(guest, event.target.value || null)}
                 >
                   <option value="">{t("guests.noJob")}</option>
@@ -445,6 +447,11 @@ export function GuestSheet({
                     </option>
                   ))}
                 </select>
+                {guest.excludedAt ? (
+                  <p className="mt-1 text-xs text-muted-foreground" data-slot="pve-sheet-excluded">
+                    {t("exclusion.title")}
+                  </p>
+                ) : null}
               </Section>
 
               <Section title={t("sheet.runs")}>

@@ -47,7 +47,7 @@ import {
   pveBootTestPlan,
   pveBootTestTaskParams,
   pveDisksOf,
-  pveGuestBackable,
+  pveGuestCounted,
   pveNextRunAt,
   pveNodeDeclares,
   pveSelfBackupBlocked,
@@ -209,7 +209,7 @@ export function coveredBy(
 ): PveGuest[] {
   // The same rule as every overview (pveJobOfGuest in @restow/core), for one job.
   return guests.filter(
-    (g) => pveGuestBackable(g) && (g.jobId === job.id || (job.scopeAll && g.jobId === null)),
+    (g) => pveGuestCounted(g) && (g.jobId === job.id || (job.scopeAll && g.jobId === null)),
   );
 }
 

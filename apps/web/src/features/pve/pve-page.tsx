@@ -118,9 +118,10 @@ export function JobDialog({
   const [bootMemory, setBootMemory] = React.useState(
     job?.settings.bootTest?.maxMemoryMiB ?? DEFAULT_BOOT_TEST_MEMORY_MIB,
   );
-  // Templates and guests that are gone cannot be backed up; they are not offered.
+  // Templates and guests that are gone cannot be backed up, excluded ones are not to be; they
+  // are not offered.
   const offered = (guests ?? []).filter(
-    (guest) => guest.present && !(guest.kind === "vm" && guest.template),
+    (guest) => guest.present && !(guest.kind === "vm" && guest.template) && !guest.excludedAt,
   );
   const own = new Set(job ? offered.filter((g) => g.jobId === job.id).map((g) => g.id) : []);
   const [chosen, setChosen] = React.useState<ReadonlySet<string>>(

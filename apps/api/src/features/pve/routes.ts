@@ -41,6 +41,7 @@ import {
   createTokenSchema,
   filesDownloadParamSchema,
   filesQuerySchema,
+  guestExcludedSchema,
   idParamSchema,
   jobSchema,
   resetRepositorySchema,
@@ -61,6 +62,7 @@ import {
   revokeNode,
   runPveJob,
   saveJob,
+  setGuestExcluded,
   setRestowServerFlag,
 } from "./service.js";
 
@@ -92,6 +94,7 @@ import {
  *   POST   /guests/:id/repository/reset      a container: begin a new backup chain ({ confirmName },
  *                                            recent sign-in); its restore points become unavailable
  *   PUT    /guests/:id/restow-server         mark the guest as the Restow server's own VM, or not
+ *   PUT    /guests/:id/excluded              exclude the guest from backup, or include it again
  *   POST   /guests/:id/verify                check the guest's newest restore point now
  *   POST   /verify-unverified                check every guest's unchecked newest restore point
  *   POST   /snapshots/:id/restore            restore as a new guest into the restore pool
@@ -231,6 +234,13 @@ pveRoutes.put("/guests/:id/restow-server", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   const { flagged } = await parseJsonBody(c.req, restowServerSchema);
   await setRestowServerFlag(db, c.get("tenantId"), id, flagged, actorOf(c));
+  return c.body(null, 204);
+});
+
+pveRoutes.put("/guests/:id/excluded", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  const { excluded } = await parseJsonBody(c.req, guestExcludedSchema);
+  await setGuestExcluded(db, c.get("tenantId"), id, excluded, actorOf(c));
   return c.body(null, 204);
 });
 

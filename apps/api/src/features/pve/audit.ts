@@ -29,6 +29,8 @@ export const PVE_AUDIT_ACTIONS = {
   // confirmed backing it up anyway.
   restowServerFlagged: "pve.guest.restow_server",
   selfBackupConfirmed: "pve.guest.self_backup_confirmed",
+  // An admin excluded a guest from backup, or included it again (0.4.7).
+  guestExcluded: "pve.guest.excluded",
   snapshotCommitted: "pve.snapshot.committed",
   snapshotPruned: "pve.snapshot.pruned",
   // File restore of containers (#62): every folder page read and every ZIP started.

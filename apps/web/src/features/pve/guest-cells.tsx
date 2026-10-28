@@ -238,7 +238,7 @@ export function GuestActionButton({
       variant={variant}
       className={className}
       loading={backup.isPending}
-      disabled={template || !guest.present}
+      disabled={template || !guest.present || !!guest.excludedAt}
       aria-label={t("inventory.actions.backupNowOf", { name })}
       data-slot="pve-backup-now"
       onClick={() =>

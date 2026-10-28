@@ -3,7 +3,7 @@ import {
   DEFAULT_SCHEDULE_TIMEZONE,
   type JobSchedule,
   jobScheduleFromCadence,
-  pveGuestBackable,
+  pveGuestCounted,
   pveJobOfGuest,
   recommendedSchedules,
 } from "@restow/core";
@@ -333,7 +333,8 @@ async function plan(
     const chosen: RecommendedMember[] = [];
     for (const guest of guests) {
       const name = guest.name?.trim() || `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`;
-      if (!pveGuestBackable(guest)) {
+      // Absent, a VM template, or excluded from backup by an administrator.
+      if (!pveGuestCounted(guest)) {
         if (!allOf(scope, "pve"))
           skipped.push({ kind: "pve", id: guest.id, name, reason: "unavailable" });
         continue;

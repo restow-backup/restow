@@ -344,6 +344,11 @@ export const pveGuests = pgTable(
     restowServerDetected: boolean("restow_server_detected").notNull().default(false),
     restowServerFlagged: boolean("restow_server_flagged").notNull().default(false),
     selfBackupConfirmedAt: timestamp("self_backup_confirmed_at", { withTimezone: true }),
+    // An administrator excluded the guest from backup (docs/PVE.md, "Excluding a guest"): no job
+    // backs it up, not even one for "all guests", and it counts nowhere as unprotected. Its
+    // restore points stay as they are. Null while it is not excluded.
+    excludedAt: timestamp("excluded_at", { withTimezone: true }),
+    excludedBy: text("excluded_by"),
     reportedAt: timestamp("reported_at", { withTimezone: true }),
     ...timestamps(),
   },

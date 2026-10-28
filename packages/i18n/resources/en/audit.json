@@ -626,7 +626,8 @@
       },
       "guest": {
         "restow_server": "Guest marked as the {appName} server, or the mark taken back",
-        "self_backup_confirmed": "Backing up the {appName} server with {appName} confirmed"
+        "self_backup_confirmed": "Backing up the {appName} server with {appName} confirmed",
+        "excluded": "Guest excluded from backup, or included again"
       },
       "queue": {
         "cancelled": "Queued guest backups withdrawn",

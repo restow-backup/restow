@@ -1247,6 +1247,55 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     await fixture.db.delete(pveGuests).where(eq(pveGuests.vmid, 102));
   });
 
+  it("excludes a guest from backup: queued backups withdrawn, no backup, no job, nowhere unprotected", async () => {
+    const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
+    const id = ct?.id ?? "";
+    await fixture.db.delete(pveTasks).where(eq(pveTasks.guestId, id));
+    const queued = await service.backupNow(
+      shared.db,
+      fixture.tenantId,
+      id,
+      { verifyRead: false },
+      actor(),
+    );
+    await service.setGuestExcluded(shared.db, fixture.tenantId, id, true, actor());
+    const [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, queued.taskId));
+    expect(task?.status).toBe("cancelled");
+    const [excluded] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.id, id));
+    expect(excluded?.excludedAt).toBeInstanceOf(Date);
+    expect(excluded?.excludedBy).toBeTruthy();
+    await expect(
+      service.backupNow(shared.db, fixture.tenantId, id, { verifyRead: false }, actor()),
+    ).rejects.toMatchObject({ status: 409, type: service.PVE_PROBLEMS.excluded });
+    const [job] = await fixture.db.select().from(pveJobs).limit(1);
+    await expect(
+      service.assignJob(shared.db, fixture.tenantId, id, job?.id ?? "", actor()),
+    ).rejects.toMatchObject({ status: 409, type: service.PVE_PROBLEMS.excluded });
+    // Taking it out of its job stays possible.
+    await expect(
+      service.assignJob(shared.db, fixture.tenantId, id, null, actor()),
+    ).resolves.toEqual({ assigned: true });
+    const dto = (await service.overview(shared.db, fixture.tenantId)).guests.find(
+      (g) => g.id === id,
+    );
+    expect(dto).toMatchObject({ excludedAt: expect.any(String), excludedBy: expect.any(String) });
+    expect(dto?.attention).not.toContain("no_job");
+    const audits = await fixture.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "pve.guest.excluded"));
+    expect(audits).toHaveLength(1);
+    // Excluding twice changes nothing; including it again clears the mark.
+    await service.setGuestExcluded(shared.db, fixture.tenantId, id, true, actor());
+    await service.setGuestExcluded(shared.db, fixture.tenantId, id, false, actor());
+    const [included] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.id, id));
+    expect(included).toMatchObject({ excludedAt: null, excludedBy: null });
+    expect(
+      await fixture.db.select().from(auditLog).where(eq(auditLog.action, "pve.guest.excluded")),
+    ).toHaveLength(2);
+    await service.assignJob(shared.db, fixture.tenantId, id, ct?.jobId ?? null, actor());
+  });
+
   it("checks a guest's newest restore point now, or every unchecked one, and an older one exactly (D2)", async () => {
     const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
     await fixture.db.update(pveSnapshots).set({

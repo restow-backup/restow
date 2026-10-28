@@ -13,6 +13,8 @@ export interface PveGuestMembership {
   readonly kind: "vm" | "ct";
   readonly template: boolean;
   readonly present: boolean;
+  /** Set when an administrator excluded the guest from backup (see {@link pveGuestExcluded}). */
+  readonly excludedAt?: Date | string | null;
 }
 
 /** The job fields the rule reads (a subset of the `pve_jobs` row). */
@@ -33,7 +35,7 @@ export function pveJobOfGuest<J extends PveJobMembership>(
   guest: PveGuestMembership,
   jobs: readonly J[],
 ): J | null {
-  if (!pveGuestBackable(guest)) {
+  if (!pveGuestCounted(guest)) {
     return null;
   }
   if (guest.jobId !== null) {
@@ -46,6 +48,23 @@ export function pveJobOfGuest<J extends PveJobMembership>(
 /** A guest PVE can back up: present on its node and no VM template. */
 export function pveGuestBackable(guest: Pick<PveGuestMembership, "kind" | "template" | "present">) {
   return guest.present && !(guest.kind === "vm" && guest.template);
+}
+
+/**
+ * Whether an administrator excluded the guest from backup (docs/PVE.md, "Excluding a guest"):
+ * no job backs it up, not even the one for "all guests", and it counts nowhere as unprotected
+ * or without a job. Its restore points stay restorable.
+ */
+export function pveGuestExcluded(guest: Pick<PveGuestMembership, "excludedAt">): boolean {
+  return guest.excludedAt !== null && guest.excludedAt !== undefined;
+}
+
+/**
+ * Whether a guest counts as one to protect: backable and not excluded. Every count of guests
+ * (protected, in no job, overdue) and every job plan takes only these.
+ */
+export function pveGuestCounted(guest: PveGuestMembership): boolean {
+  return pveGuestBackable(guest) && !pveGuestExcluded(guest);
 }
 
 /**

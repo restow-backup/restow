@@ -1,7 +1,8 @@
 import {
   enrollmentTokenExpiry,
   generateEnrollmentToken,
-  pveGuestBackable,
+  pveGuestCounted,
+  pveGuestExcluded,
   pveGuestIsRestowServer,
   pveJobOfGuest,
   pveNextRunAt,
@@ -39,6 +40,7 @@ import {
 } from "../endpoints/distribution.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
 import { guestBootTestFacts } from "./boot-tests.js";
+import { withdrawQueued } from "./cancel.js";
 import { containerBackupPaths } from "./files.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
 import { browsableDisks } from "./vm-files.js";
@@ -56,7 +58,19 @@ export const PVE_PROBLEMS = {
   template: "urn:restow:problem:pve-template-unsupported",
   restoresOff: "urn:restow:problem:pve-restores-off",
   restowServer: "urn:restow:problem:pve-restow-server",
+  excluded: "urn:restow:problem:pve-guest-excluded",
 } as const;
+
+/** A guest an administrator excluded from backup is neither backed up nor put into a job. */
+function refuseExcluded(guest: PveGuest): void {
+  if (pveGuestExcluded(guest)) {
+    throw new ProblemError(409, "This guest is excluded from backup", {
+      type: PVE_PROBLEMS.excluded,
+      detail: "An administrator excluded this guest from backup. Include it again first.",
+      extensions: { guestId: guest.id },
+    });
+  }
+}
 
 /** Why backing up the Restow server's own VM needs a confirmation (docs/PVE.md). */
 const SELF_BACKUP_DETAIL =
@@ -410,7 +424,7 @@ function guestDto(
   }
   // Not backed up: in no enabled job, the job for all guests included (the overviews' rule,
   // pveJobOfGuest in @restow/core).
-  if (pveGuestBackable(g) && !pveJobOfGuest(g, [...jobs.values()])) {
+  if (pveGuestCounted(g) && !pveJobOfGuest(g, [...jobs.values()])) {
     attention.push("no_job");
   }
   if (lastRun?.status === "failed") {
@@ -458,6 +472,9 @@ function guestDto(
         : ("flagged" as const)
       : null,
     restowServerFlagged: g.restowServerFlagged,
+    // Excluded from backup by an administrator (docs/PVE.md, "Excluding a guest").
+    excludedAt: g.excludedAt?.toISOString() ?? null,
+    excludedBy: g.excludedBy ?? null,
     selfBackupConfirmedAt: g.selfBackupConfirmedAt?.toISOString() ?? null,
     lastVerify: verify,
     lastRunCancelledBy: lastRun?.cancelledBy ?? null,
@@ -664,7 +681,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
     // Paused jobs count their guests too (the worker's `coveredBy`).
     const allJob = jobs.find((j) => j.scopeAll);
     for (const g of guests) {
-      const jobId = pveGuestBackable(g) ? (g.jobId ?? allJob?.id) : undefined;
+      const jobId = pveGuestCounted(g) ? (g.jobId ?? allJob?.id) : undefined;
       if (jobId) {
         guestCounts.set(jobId, (guestCounts.get(jobId) ?? 0) + 1);
       }
@@ -996,6 +1013,7 @@ export async function backupNow(
 ) {
   return withTenantTx(database, tenantId, async (tx) => {
     const guest = await loadGuest(tx, guestId);
+    refuseExcluded(guest);
     if (pveSelfBackupBlocked(guest)) {
       if (!input.confirmSelfBackup || !actor) {
         refuseSelfBackup(guest);
@@ -1097,7 +1115,7 @@ export async function runPveJob(
             ? or(eq(pveGuests.jobId, jobId), isNull(pveGuests.jobId))
             : eq(pveGuests.jobId, jobId),
         )
-    ).filter(pveGuestBackable);
+    ).filter(pveGuestCounted);
     const result: PveJobRunResult = { queued: 0, alreadyQueued: 0, noNode: 0, selfBackup: 0 };
     if (guests.length === 0) {
       await auditPve(tx, {
@@ -1514,6 +1532,9 @@ export async function assignJob(
 ): Promise<{ assigned: boolean }> {
   return withTenantTx(database, tenantId, async (tx) => {
     const guest = await loadGuest(tx, guestId);
+    if (jobId) {
+      refuseExcluded(guest);
+    }
     if (jobId && pveSelfBackupBlocked(guest)) {
       // The recommended job leaves the Restow server's own VM out instead of failing (#52).
       if (options.skipRestowServer) {
@@ -1599,6 +1620,47 @@ export async function setRestowServerFlag(
       target: guestId,
       targetType: "pve_guest",
       details: { vmid: guest.vmid, flagged, detected: guest.restowServerDetected },
+    });
+  });
+}
+
+/**
+ * Exclude a guest from backup, or include it again (docs/PVE.md, "Excluding a guest"). An
+ * excluded guest is backed up by no job, not even the one for all guests, and counts nowhere as
+ * unprotected; its job stays recorded, so including it again restores what it had. Excluding
+ * withdraws its queued backups; a running one ends as it would. Its restore points stay.
+ */
+export async function setGuestExcluded(
+  database: DbExecutor,
+  tenantId: string,
+  guestId: string,
+  excluded: boolean,
+  actor: PveActor,
+  now: Date = new Date(),
+): Promise<void> {
+  await withTenantTx(database, tenantId, async (tx) => {
+    const guest = await loadGuest(tx, guestId);
+    if (pveGuestExcluded(guest) === excluded) {
+      return;
+    }
+    await tx
+      .update(pveGuests)
+      .set(
+        excluded
+          ? { excludedAt: now, excludedBy: actor.label }
+          : { excludedAt: null, excludedBy: null },
+      )
+      .where(eq(pveGuests.id, guestId));
+    const withdrawn = excluded
+      ? (await withdrawQueued(tx, tenantId, { guestId }, actor, now)).withdrawn
+      : 0;
+    await auditPve(tx, {
+      tenantId,
+      actor,
+      action: PVE_AUDIT_ACTIONS.guestExcluded,
+      target: guestId,
+      targetType: "pve_guest",
+      details: { vmid: guest.vmid, excluded, withdrawn },
     });
   });
 }

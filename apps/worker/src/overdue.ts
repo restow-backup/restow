@@ -25,7 +25,7 @@
  */
 import {
   overdueDeadlineOf,
-  pveGuestBackable,
+  pveGuestCounted,
   pveJobOfGuest,
   pveStaleBackupHours,
   rulesForEvent,
@@ -246,6 +246,7 @@ async function tenantCandidates(
       template: pveGuests.template,
       present: pveGuests.present,
       jobId: pveGuests.jobId,
+      excludedAt: pveGuests.excludedAt,
       createdAt: pveGuests.createdAt,
       lastSuccessAt: pveGuests.lastSuccessAt,
       newest:
@@ -257,7 +258,7 @@ async function tenantCandidates(
     .where(eq(pveGuests.tenantId, tenantId));
   const guestCandidates: OverdueCandidate[] = [];
   for (const guest of guests) {
-    if (!pveGuestBackable(guest)) {
+    if (!pveGuestCounted(guest)) {
       continue;
     }
     const job = pveJobOfGuest(guest, pveJobRows);

@@ -96,6 +96,23 @@ describe("guest states", () => {
     );
   });
 
+  it("shows a guest excluded from backup as excluded, never as a problem", () => {
+    const statuses = guestStatuses(
+      testGuest({
+        jobId: null,
+        lastSuccessAt: null,
+        lastRunStatus: "failed",
+        attention: [],
+        excludedAt: "2026-10-01T00:00:00.000Z",
+      }),
+    );
+    expect(statuses[0]?.key).toBe("excluded");
+    expect(statuses.map((status) => status.key)).not.toContain("never");
+    expect(statuses.some((status) => status.problem)).toBe(false);
+    expect(matchesStateFilter(statuses, "excluded")).toBe(true);
+    expect(matchesStateFilter(statuses, "problems")).toBe(false);
+  });
+
   it("shows a restore check that could not run as amber, never green or red", () => {
     const notChecked = (gaveUp: boolean) => ({
       reason: "locked" as const,
