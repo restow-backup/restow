@@ -20,7 +20,8 @@
     "database": "Datenbank",
     "ransomware": "Ransomware-Erkennung",
     "agentPolicy": "Richtlinie der Agenten",
-    "proxmox": "Proxmox VE"
+    "proxmox": "Proxmox VE",
+    "pricing": "Preise"
   },
   "descriptions": {
     "server": "Wie Browser diesen Server erreichen, ob Passkeys angeboten werden und die Zeitzone der Installation. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
@@ -37,7 +38,8 @@
     "database": "Wo die Datenbank ihre Daten ablegt, der freie Platz ihres Datenträgers und des Repositorys, und das Verschieben auf einen anderen Datenträger.",
     "ransomware": "Wie Sicherungsstände auf Anzeichen von Ransomware geprüft werden, und die Schwellenwerte jedes Signals, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "agentPolicy": "Sicherungsfenster, verpasste Sicherungen, Bandbreite, Netzteil und Wiederholungen der Server und Clients, und was Mandanten ändern dürfen.",
-    "proxmox": "Wie die Sicherungsstände von VMs und Containern geprüft werden, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}."
+    "proxmox": "Wie die Sicherungsstände von VMs und Containern geprüft werden, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
+    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Die Übersicht jedes Mandanten zeigt, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts."
   },
   "access": {
     "owner": "Sie können diese Einstellungen ansehen. Zum Ändern brauchen Sie die Rolle Inhaber im Provider-Team.",
@@ -588,5 +590,23 @@
         "failed": "{location} konnte nicht entfernt werden."
       }
     }
+  },
+  "pricing": {
+    "title": "Preise je Monat",
+    "description": "Nur eine Übersicht für Sie: Die Übersicht jedes Mandanten zeigt in einer Kachel, was er zu diesen Preisen ausmacht. {appName} rechnet nichts ab und begrenzt nichts. Leer lassen blendet einen Preis aus.",
+    "loadError": "Die Preise konnten nicht geladen werden.",
+    "mailbox": "Preis je Postfach",
+    "mailboxHint": "Je geschütztem Postfach oder IMAP-Konto; ein OneDrive zählt nicht doppelt (wie bei der Postfach-Zählung).",
+    "storage": "Preis für Speicher",
+    "storageHint": "Für die gespeicherten Sicherungen des Mandanten, dedupliziert und komprimiert. 1 GB = 1.000.000.000 Byte.",
+    "unit": "Einheit",
+    "perGb": "je GB",
+    "perTb": "je TB",
+    "currency": "Währung",
+    "none": "kein Preis",
+    "save": "Speichern",
+    "saved": "Preise gespeichert.",
+    "ownerOnly": "Ändern kann die Preise nur der Eigentümer der Installation.",
+    "invalid": "Bitte einen Preis wie 2,50 eingeben (höchstens vier Nachkommastellen) oder das Feld leer lassen."
   }
 }

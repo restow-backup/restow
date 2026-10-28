@@ -50,7 +50,12 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
 
 - `provider` (die Installation gehört genau einem Betreiber; Community = 1 Mandant)
 - `tenant` (Kunde; `mailboxCap`, Spalte `edition_limit_mailboxes`, ist eine mit dem Kunden
-  vereinbarte Postfachzahl, nur Anzeige, nie durchgesetzt), `tenant_key` (Verschlüsselung). Den ersten
+  vereinbarte Postfachzahl, nur Anzeige, nie durchgesetzt), `tenant_key` (Verschlüsselung). Seit
+  0.4.7 hinterlegt der Eigentümer unter Installation › Preise (`settings.pricing`,
+  `GET/PUT /api/v1/settings/pricing`, auditiert `settings.pricing.updated`) einen Monatspreis je
+  Postfach (Zählregel der Postfach-Nutzung) und je GB oder TB gespeicherter Sicherungen
+  (dedupliziert und komprimiert, dezimale Einheiten); die Übersicht jedes Mandanten zeigt den
+  Anbieter-Admins in einer Kachel, was er zu diesen Preisen ausmacht. Abgerechnet wird nichts. Den ersten
   Mandanten legt der Kern immer an; jeder weitere existiert nur, solange eine Erweiterung
   `tenants.additional` freischaltet (siehe unten).
 - Eigene Organisation (`tenant.kind`): Ein Mandant ist `customer` (Standard) oder `internal`,

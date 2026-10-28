@@ -246,6 +246,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // after its backup. It reaches every tenant's guests and the worker's load: the owner's.
   "GET /api/v1/settings/pve": view(PROVIDER),
   "PUT /api/v1/settings/pve": own(),
+  // The provider's prices for the tenant overview's price card (settings/pricing.ts): business
+  // figures of the provider, read by its admins, changed by the owner.
+  "GET /api/v1/settings/pricing": view(PROVIDER),
+  "PUT /api/v1/settings/pricing": own(),
   // The installation's agent policy (docs/AGENT.md, "Richtlinien"): it reaches every tenant's
   // machines, so changing it needs an administrator with every tenant.
   "GET /api/v1/settings/agent-policy": view(PROVIDER),
@@ -528,6 +532,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // Begins a new backup chain; the restore points before become unavailable (recent sign-in).
   "POST /api/v1/pve/guests/:id/repository/reset": configure(),
   "PUT /api/v1/pve/guests/:id/restow-server": configure(),
+  // Excluding a guest from backup (or including it again) decides what is backed up (0.4.7).
+  "PUT /api/v1/pve/guests/:id/excluded": configure(),
   "POST /api/v1/pve/guests/:id/verify": operate(),
   "POST /api/v1/pve/verify-unverified": operate(),
   "POST /api/v1/pve/guests/:id/backup": operate(),

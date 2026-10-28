@@ -26,6 +26,7 @@ import {
 } from "./microsoft-app/service.js";
 import { browserOrigin } from "./origin.js";
 import { getPasskeyImpact } from "./passkey-impact.js";
+import { getPricing, pricingSchema, updatePricing } from "./pricing.js";
 import {
   mailNotNeededSchema,
   mailTestSchema,
@@ -77,6 +78,9 @@ import {
  *   GET    /pve                   the installation's Proxmox VE settings (check every new restore
  *                                  point right after its backup) and their defaults
  *   PUT    /pve                   change them (what is left out stays)
+ *   GET    /pricing               the provider's prices per GB/TB of backups and per mailbox
+ *                                  (the tenant overview's price card; nothing bills them)
+ *   PUT    /pricing               change them (what is left out stays; null clears a price)
  *   GET    /agent-policy          the installation's agent policy, its locks, the defaults
  *   PUT    /agent-policy          replace it; every machine whose effective policy changes gets
  *                                  a new configuration version (all tenants)
@@ -211,6 +215,16 @@ settingsRoutes.get("/pve", async (c) => {
 settingsRoutes.put("/pve", async (c) => {
   const input = await parseJsonBody(c.req, pveSettingsSchema);
   return c.json(await updatePveSettings(providerDb, input, actorOf(c)));
+});
+
+// The provider's prices (settings/pricing.ts): every provider admin reads, the owner changes.
+settingsRoutes.get("/pricing", async (c) => {
+  return c.json(await getPricing(providerDb));
+});
+
+settingsRoutes.put("/pricing", async (c) => {
+  const input = await parseJsonBody(c.req, pricingSchema);
+  return c.json(await updatePricing(providerDb, input, actorOf(c)));
 });
 
 // Agent policies (docs/AGENT.md, "Richtlinien"): every provider admin reads the installation's

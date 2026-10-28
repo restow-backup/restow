@@ -345,6 +345,9 @@
       },
       "time_zone": {
         "changed": "Zeitzone der Installation geändert"
+      },
+      "pricing": {
+        "updated": "Preise des Anbieters (Speicher und Postfächer) geändert"
       }
     },
     "setup": {

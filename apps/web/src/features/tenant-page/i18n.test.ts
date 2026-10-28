@@ -119,6 +119,11 @@ const VALUES = {
   years: 8,
   kind: "s3",
   step: "Write",
+  // The price card (0.4.7).
+  amount: "€36.80",
+  price: "€2.50",
+  quantity: "340",
+  unit: "GB",
 };
 
 /**

@@ -37,11 +37,17 @@ import { toast } from "@/components/ui/sonner";
 import type { SetupItem } from "@/features/dashboard/api";
 import { useDashboard } from "@/features/dashboard/use-dashboard";
 import { useWordingScope } from "@/features/installation/scope";
+import { PriceCard } from "@/features/pricing/price-card";
 import { useSourceList } from "@/features/sources/use-sources";
 import { HealthSummary, TenantStatusBadge } from "@/features/tenants/components/badges";
 import { ConfirmDialog } from "@/features/tenants/components/confirm-dialog";
 import { DeleteTenantDialog } from "@/features/tenants/components/delete-tenant-dialog";
-import { useTenantDetail, useTenantHealth, useUpdateTenant } from "@/features/tenants/hooks";
+import {
+  useTenantDetail,
+  useTenantHealth,
+  useUpdateTenant,
+  useUsageOverview,
+} from "@/features/tenants/hooks";
 import { tenantsListTo } from "@/features/tenants/paths";
 import { genericError } from "@/features/tenants/presenters";
 import type { TenantDetail } from "@/features/tenants/types";
@@ -323,6 +329,11 @@ function Figures({ tenant }: { tenant: TenantDetail }) {
   const objects = widgets?.protectedObjects?.state === "ok" ? widgets.protectedObjects.data : null;
   const kinds = widgets?.lastBackup?.state === "ok" ? widgets.lastBackup.data.protectedKinds : null;
   const machines = widgets?.endpoints?.state === "ok" ? widgets.endpoints.data : null;
+  // The price card (provider only): the tenant's mailboxes under the counting rule, and its
+  // stored backups.
+  const usage = useUsageOverview();
+  const mailboxes = usage.data ? (usage.data.mailboxesByTenant[tenant.id] ?? 0) : null;
+  const storedBytes = widgets?.storage?.state === "ok" ? widgets.storage.data.physicalBytes : null;
 
   const objectParts = kinds
     ? ([
@@ -429,6 +440,7 @@ function Figures({ tenant }: { tenant: TenantDetail }) {
           </>
         )}
       </Stat>
+      <PriceCard mailboxes={mailboxes} storedBytes={storedBytes} />
     </div>
   );
 }

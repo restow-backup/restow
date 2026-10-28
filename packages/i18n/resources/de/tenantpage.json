@@ -146,6 +146,13 @@
       "title": "Mandant löschen",
       "description": "Das Löschen entfernt Sicherungen, Archiv und Schlüssel des Mandanten endgültig. Das lässt sich nicht rückgängig machen.",
       "internal": "Das ist Ihre eigene Organisation. Sie lässt sich nicht löschen, solange sie so markiert ist."
+    },
+    "price": {
+      "title": "Preis je Monat",
+      "perMonth": "{amount} / Monat",
+      "mailboxes": "{count, plural, one {# Postfach} other {# Postfächer}} × {price} = {amount}",
+      "storage": "{quantity} {unit} × {price} = {amount}",
+      "link": "Preise anpassen"
     }
   },
   "agents": {

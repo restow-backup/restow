@@ -1,6 +1,7 @@
 import {
   AppWindow,
   CalendarClock,
+  Coins,
   Container,
   Database,
   Download,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { GlobalAgentPolicySection } from "@/features/endpoints/components/global-agent-policy-section";
+import { PricingSection } from "@/features/pricing/pricing-section";
 import { PveSettingsSection } from "@/features/pve/settings-section";
 import { AboutSection } from "@/features/settings/sections/about-section";
 import { RansomwareSection } from "@/features/suspicion/components/ransomware-section";
@@ -35,7 +37,7 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
  *   40 Journal receiving (Business)    50 Default repository & network shares
  *   55 Database      57 Ransomware detection   58 Agent policy   59 Proxmox VE
- *   60 Provider API (Service Provider) 70 Updates
+ *   60 Provider API (Service Provider) 65 Prices 70 Updates
  *   80 License (extension) or Edition  90 About
  *
  * Edition (core) is the Community build's place for what the License section is in the
@@ -117,6 +119,15 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     icon: Container,
     order: 59,
     component: PveSettingsSection,
+  },
+  {
+    // The provider's prices behind the tenant overview's price card (0.4.7): nothing bills them.
+    id: "pricing",
+    labelKey: "installation:sections.pricing",
+    descriptionKey: "installation:descriptions.pricing",
+    icon: Coins,
+    order: 65,
+    component: PricingSection,
   },
   {
     id: "updates",

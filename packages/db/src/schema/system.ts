@@ -221,6 +221,20 @@ export type DiskAlertState = Partial<Record<"database" | "repository" | "system"
  * Secrets in `mailConfig` (e.g. SMTP password) are NOT stored here — only in the
  * encrypted secret store. `singleton` is a unique flag keeping this table to one row.
  */
+/**
+ * The provider's own prices, per month (0.4.7): per gigabyte or terabyte of stored backups (the
+ * deduplicated, compressed bytes on the repositories) and per protected mailbox (the counting
+ * rule of the usage figures). A price left out is not shown.
+ */
+export interface PricingSettings {
+  /** ISO 4217 code; EUR when left out. */
+  currency?: string;
+  storagePrice?: number | null;
+  /** The unit `storagePrice` is per: decimal GB (10^9 bytes) or TB (10^12 bytes). */
+  storageUnit?: "GB" | "TB";
+  mailboxPrice?: number | null;
+}
+
 export const settings = pgTable(
   "settings",
   {
@@ -286,6 +300,9 @@ export const settings = pgTable(
     agentPolicy: jsonb("agent_policy").$type<GlobalAgentPolicyRecord>().notNull().default({}),
     // Proxmox VE backups (docs/PVE.md): `{}` takes every default (PveInstallationSettings).
     pveSettings: jsonb("pve_settings").$type<PveInstallationSettings>().notNull().default({}),
+    // What the provider charges its customers (0.4.7, PricingSettings): only a figure on the
+    // tenant overview to keep an eye on; nothing bills or enforces it. `{}` sets no price.
+    pricing: jsonb("pricing").$type<PricingSettings>().notNull().default({}),
     ...timestamps(),
   },
   (t) => [uniqueIndex("settings_singleton_uq").on(t.singleton)],
