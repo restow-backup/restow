@@ -14,6 +14,7 @@ import {
   sourceKeys,
   testImapConnection,
   testSource,
+  updateOwnAppExpiry,
   updateSource,
   verifySource,
 } from "./api";
@@ -137,6 +138,15 @@ export function useConnectOwnApp(sourceId: string) {
   return useMutation({
     mutationFn: (input: OwnAppInput) => connectOwnApp(sourceId, input),
     onSuccess: (result) => store(result.source),
+  });
+}
+
+/** Note (or clear) when the own app's client secret expires; the answer is the stored source. */
+export function useUpdateOwnAppExpiry(sourceId: string) {
+  const store = useStoreSource();
+  return useMutation({
+    mutationFn: (secretExpiresAt: string | null) => updateOwnAppExpiry(sourceId, secretExpiresAt),
+    onSuccess: store,
   });
 }
 

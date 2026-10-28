@@ -112,6 +112,21 @@ describe("entra configuration status", () => {
       authorityHost: "https://login.microsoftonline.us",
     });
   });
+
+  it("reads ENTRA_CLIENT_SECRET_EXPIRES_AT as midnight UTC, an unreadable one as unknown", () => {
+    const dated = loadConfig({
+      ENTRA_CLIENT_ID: clientId,
+      ENTRA_CLIENT_SECRET: "s3cret",
+      ENTRA_CLIENT_SECRET_EXPIRES_AT: " 2027-03-01 ",
+    });
+    expect(entraEnvironmentOf(dated).secretExpiresAt).toBe("2027-03-01T00:00:00.000Z");
+    const wrong = loadConfig({
+      ENTRA_CLIENT_ID: clientId,
+      ENTRA_CLIENT_SECRET: "s3cret",
+      ENTRA_CLIENT_SECRET_EXPIRES_AT: "2027-02-30",
+    });
+    expect(entraEnvironmentOf(wrong)).not.toHaveProperty("secretExpiresAt");
+  });
 });
 
 describe("the registration in use", () => {

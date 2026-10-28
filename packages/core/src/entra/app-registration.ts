@@ -9,6 +9,7 @@ import {
   describeCertificate,
   normalizePrivateKeyPem,
 } from "./certificate.js";
+import { parseExpiryDate } from "./expiry.js";
 
 /**
  * The backup app registration (docs/ENTRA-SETUP.md, part 1 to 3): where its
@@ -18,7 +19,8 @@ import {
  * Two sources, in this order:
  *   1. the server environment: ENTRA_CLIENT_ID plus ENTRA_CLIENT_SECRET or
  *      ENTRA_CLIENT_CERT_PATH (one PEM with private key and certificate; it
- *      wins over the secret when both are set);
+ *      wins over the secret when both are set), optionally with
+ *      ENTRA_CLIENT_SECRET_EXPIRES_AT, the secret's expiry for the reminders;
  *   2. the registration a provider admin entered under Settings → Microsoft
  *      365: one JSON document sealed in `secrets` (installation level, kind
  *      `entra_app`), opened with the installation secrets key.
@@ -124,6 +126,12 @@ export interface EntraAppEnvironment {
   /** ENTRA_CLIENT_CERT_PATH: a PEM file with private key and certificate. */
   readonly certificatePath?: string;
   readonly authorityHost?: string;
+  /**
+   * ENTRA_CLIENT_SECRET_EXPIRES_AT: when ENTRA_CLIENT_SECRET expires (`2027-03-01`), as midnight
+   * UTC in ISO 8601; unset or unreadable means unknown (no reminders, the web says "unknown").
+   * Ignored for a certificate, which carries its own end.
+   */
+  readonly secretExpiresAt?: string;
 }
 
 function envValue(env: Record<string, string | undefined>, name: string): string | undefined {
@@ -139,6 +147,7 @@ export function entraAppEnvironmentFrom(
     clientSecret: envValue(env, "ENTRA_CLIENT_SECRET"),
     certificatePath: envValue(env, "ENTRA_CLIENT_CERT_PATH"),
     authorityHost: envValue(env, "ENTRA_AUTHORITY_HOST"),
+    secretExpiresAt: parseExpiryDate(envValue(env, "ENTRA_CLIENT_SECRET_EXPIRES_AT")) ?? undefined,
   };
 }
 
@@ -381,7 +390,11 @@ export class EntraAppResolver {
       credential: { type: "secret", clientSecret: env.clientSecret as string },
       ...(env.authorityHost ? { authorityHost: env.authorityHost } : {}),
     };
-    return resolved("environment", credentials, { ...common, certificate: null, expiresAt: null });
+    return resolved("environment", credentials, {
+      ...common,
+      certificate: null,
+      expiresAt: env.secretExpiresAt ?? null,
+    });
   }
 
   private fromDocument(row: StoredEntraAppRow): EntraAppResolution {

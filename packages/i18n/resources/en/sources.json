@@ -102,7 +102,9 @@
     "imapHostNotAllowed": "This IMAP server is in a loopback, private or link-local network. Only a provider admin can connect a source to an internal server; link-local addresses are never used.",
     "ownAppInvalid": "The app details are not usable. Check tenant ID, application ID and credentials.",
     "ownAppNoToken": "Microsoft did not issue a token for this app in this tenant.",
-    "sourceUsesOwnApp": "This source is connected through its own app. It has no consent link."
+    "sourceUsesOwnApp": "This source is connected through its own app. It has no consent link.",
+    "ownAppMissing": "This source is not connected through an app of its own.",
+    "ownAppCertificate": "The app uses a certificate. A certificate carries its own expiry date; only a client secret takes a date."
   },
   "detail": {
     "created": "Created {when}",
@@ -371,7 +373,7 @@
       "steps": {
         "one": "In the Microsoft Entra admin center of the tenant's Microsoft 365 organisation, go to Identity › Applications › App registrations › “New registration” and create an app. Supported account types: “Accounts in this organizational directory only”.",
         "two": "Under API permissions › “Add a permission” › Microsoft Graph › Application permissions, add every permission in the list below. Then choose “Grant admin consent for …”.",
-        "three": "Under Certificates & secrets, create a new client secret and copy its value right away; Entra shows it only once. Note the expiry date and enter a new one here before then.",
+        "three": "Under Certificates & secrets, create a new client secret and copy its value right away; Entra shows it only once. Note its expiry date and enter it below, so {appName} reminds you in time.",
         "four": "On the app's overview, copy the Directory (tenant) ID and the Application (client) ID and enter them below."
       },
       "noRedirect": "No redirect URI (callback URL) is needed; leave the field empty. {appName} signs in as the app without a user, so there is no consent link and no way back.",
@@ -402,7 +404,22 @@
       "replaceHint": "Enter a new value to replace the credentials.",
       "certificate": "Certificate and private key (PEM)",
       "certificateHint": "One PEM file with an unencrypted private key and the certificate.",
-      "credentialRequired": "Enter the credentials."
+      "credentialRequired": "Enter the credentials.",
+      "expiresAt": "Secret expires on",
+      "expiresAtHint": "The date of the secret entered here (not of the one it replaces), as shown in Entra under Certificates & secrets (column Expires). {appName} warns 30 days before, again 7 days before, and once it has expired. Leave empty if unknown.",
+      "invalidDate": "Enter a valid date.",
+      "expiry": {
+        "label": "Expires",
+        "unknown": "Not noted. Note the date to be warned before it expires.",
+        "add": "Note expiry date",
+        "edit": "Change expiry date",
+        "save": "Save date",
+        "clear": "Remove date",
+        "saved": "Expiry date saved.",
+        "cleared": "Expiry date removed.",
+        "soon": "The credential of this app expires soon. Create a new secret (or certificate) in Entra, enter it here with its new expiry date, and only then delete the old one. Never the other way round.",
+        "expired": "The credential of this app has expired. Microsoft no longer issues tokens for it, so every backup of this source fails until you enter a new secret or certificate."
+      }
     }
   },
   "imap": {

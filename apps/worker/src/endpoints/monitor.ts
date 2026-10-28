@@ -22,6 +22,9 @@
  *     refused because the budget is used up, raises `endpoint.storage_quota`
  *     (once per level; re-armed below 80 percent). A tenant whose endpoints
  *     together reach 90 percent of the tenant's budget is told once a day.
+ *   - The credential of a source's own Microsoft 365 app that runs out raises
+ *     `source.app_secret_expiring`, 30 days and 7 days before and once it has
+ *     expired (../source-app-expiry.ts).
  *
  * Every alert is raised once: the run, the report or the endpoint carries a
  * mark (`alerted_at`, `stale_alerted_at`) that is set in the same transaction
@@ -60,6 +63,7 @@ import { emitWebhookEvent } from "../handlers/webhooks.js";
 import { alertOverdueBackups } from "../overdue.js";
 import type { TenantTx } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
+import { alertSourceAppSecrets } from "../source-app-expiry.js";
 import type { EndpointJobDeps } from "./common.js";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -81,6 +85,8 @@ export interface MonitorSummary {
   overdueAlerts: number;
   /** `archive.failed` of the archive capture: a stream in error, forwarding or journaling silent. */
   archiveAlerts: number;
+  /** `source.app_secret_expiring`: a source's own Microsoft 365 app credential runs out. */
+  sourceAppSecretAlerts: number;
 }
 
 export function endpointName(endpoint: Pick<Endpoint, "displayName" | "hostname">): string {
@@ -630,6 +636,7 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
     quotaAlerts: 0,
     overdueAlerts: 0,
     archiveAlerts: 0,
+    sourceAppSecretAlerts: 0,
   };
   summary.runAlerts = await alertFailedRuns(deps, now);
   summary.reportAlerts = await alertReports(deps, now);
@@ -637,5 +644,6 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
   summary.quotaAlerts = await alertStorageQuota(deps, now);
   summary.overdueAlerts = await alertOverdueBackups(deps, now);
   summary.archiveAlerts = await alertArchiveCapture(deps, now);
+  summary.sourceAppSecretAlerts = await alertSourceAppSecrets(deps, now);
   return summary;
 }

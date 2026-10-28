@@ -153,11 +153,33 @@ describe("subjectKeyOf", () => {
     expect(subjectKeyOf("installation.disk_low", { disk: "database" })).toBe("disk:database");
     expect(subjectKeyOf("installation.disk_low", { disk: "repository" })).toBe("disk:repository");
   });
+
+  it("makes every date and stage its own subject for the expiry reminders", () => {
+    const expiresAt = "2027-03-01T00:00:00.000Z";
+    expect(
+      subjectKeyOf("source.app_secret_expiring", { sourceId: "s1", expiresAt, stage: "soon30" }),
+    ).toBe(`source_app:s1:${expiresAt}:soon30`);
+    expect(
+      subjectKeyOf("source.app_secret_expiring", { sourceId: "s1", expiresAt, stage: "soon7" }),
+    ).toBe(`source_app:s1:${expiresAt}:soon7`);
+    expect(subjectKeyOf("installation.app_secret_expiring", { expiresAt, stage: "expired" })).toBe(
+      `entra_app:${expiresAt}:expired`,
+    );
+    expect(subjectKeyOf("installation.app_secret_expiring", {})).toBe(
+      "event:installation.app_secret_expiring",
+    );
+  });
 });
 
 describe("installation events", () => {
   it("are events about the installation, not a tenant's data, and only those", () => {
-    expect(INSTALLATION_REPORT_EVENTS).toEqual(["update.available", "installation.disk_low"]);
+    expect(INSTALLATION_REPORT_EVENTS).toEqual([
+      "update.available",
+      "installation.disk_low",
+      "installation.app_secret_expiring",
+    ]);
+    expect(isInstallationReportEvent("installation.app_secret_expiring")).toBe(true);
+    expect(isInstallationReportEvent("source.app_secret_expiring")).toBe(false);
     expect(isInstallationReportEvent("installation.disk_low")).toBe(true);
     expect(isInstallationReportEvent("update.available")).toBe(true);
     expect(isInstallationReportEvent("backup.failed")).toBe(false);

@@ -262,6 +262,8 @@ const PROBLEM_KEYS: Record<string, string> = {
   "urn:restow:problem:own-app-invalid": "sources:errors.ownAppInvalid",
   "urn:restow:problem:own-app-no-token": "sources:errors.ownAppNoToken",
   "urn:restow:problem:source-uses-own-app": "sources:errors.sourceUsesOwnApp",
+  "urn:restow:problem:own-app-missing": "sources:errors.ownAppMissing",
+  "urn:restow:problem:own-app-certificate": "sources:errors.ownAppCertificate",
   "urn:restow:problem:own-tenant-unknown": "sources:errors.ownTenantUnknown",
   "urn:restow:problem:own-tenant-mismatch": "sources:errors.ownTenantMismatch",
   "urn:restow:problem:own-tenant-no-token": "sources:errors.ownTenantNoToken",

@@ -1,5 +1,6 @@
-import { isAllowedAuthorityHost } from "@restow/core";
+import { isAllowedAuthorityHost, parseExpiryDate } from "@restow/core";
 import { z } from "zod";
+import { expiryDateField } from "../../../lib/expiry-date.js";
 import { isValidTenantId } from "../schemas.js";
 
 /**
@@ -9,7 +10,6 @@ import { isValidTenantId } from "../schemas.js";
  */
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DATE = /^\d{4}-\d{2}-\d{2}(?:T[\d:.]+(?:Z|[+-]\d{2}:\d{2})?)?$/;
 
 /** Longest client secret accepted (Entra issues about 40 characters). */
 export const CLIENT_SECRET_MAX_LENGTH = 1024;
@@ -49,15 +49,12 @@ export function authorityHostOrigin(value: string): string | null {
   }
 }
 
-/** A calendar date (`2027-03-01`, time ignored) as midnight UTC in ISO 8601; null when invalid. */
+/**
+ * A calendar date (`2027-03-01`, time ignored) as midnight UTC in ISO 8601; null when invalid.
+ * The same check as every other expiry date (@restow/core parseExpiryDate, lib/expiry-date.ts).
+ */
 export function expiryDate(value: string): string | null {
-  if (!DATE.test(value)) {
-    return null;
-  }
-  const date = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
-  return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value.slice(0, 10)
-    ? null
-    : date.toISOString();
+  return parseExpiryDate(value);
 }
 
 /**
@@ -84,22 +81,7 @@ export const saveMicrosoftAppSchema = z
       .optional()
       .transform((value) => (value && value.trim().length > 0 ? value.trim() : undefined)),
     /** When the secret expires (from the Entra portal); only kept for a secret. */
-    secretExpiresAt: z
-      .string({ invalid_type_error: "date" })
-      .trim()
-      .nullish()
-      .transform(emptyToNull)
-      .transform((value, ctx) => {
-        if (value === null) {
-          return null;
-        }
-        const date = expiryDate(value);
-        if (!date) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "date" });
-          return z.NEVER;
-        }
-        return date;
-      }),
+    secretExpiresAt: expiryDateField(),
     /** The app's own directory: tenant id (GUID) or a verified domain. */
     homeTenantId: z
       .string({ invalid_type_error: "tenantId" })

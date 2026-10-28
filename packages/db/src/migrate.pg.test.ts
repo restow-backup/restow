@@ -361,6 +361,13 @@ describe.skipIf(!adminUrl)("migrations on a fresh and on a 0.300.x database", ()
           ORDER BY table_name`,
       );
       expect(rows.map((row) => row.table_name)).toEqual(["rate_limit", "service_heartbeats"]);
+      // 0068: the central app's expiry reminders start empty and never null.
+      const { rows: alerts } = await pool.query<{ is_nullable: string; column_default: string }>(
+        `SELECT is_nullable, column_default FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'settings'
+            AND column_name = 'app_secret_alerts' AND data_type = 'jsonb'`,
+      );
+      expect(alerts).toEqual([{ is_nullable: "NO", column_default: "'{}'::jsonb" }]);
     } finally {
       await pool.end();
     }

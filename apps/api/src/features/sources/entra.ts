@@ -9,6 +9,7 @@ import {
   EntraAppResolver,
   FetchGraphClient,
   type GraphClient,
+  parseExpiryDate,
   parseSourceAppSecret,
   type RefreshableTokenProvider,
   type ResolvedEntraApp,
@@ -55,13 +56,19 @@ export type EntraAppProblem =
   | "credential_unusable"
   | "no_public_url";
 
-/** The ENTRA_CLIENT_* part of the configuration, as the resolver reads it. */
+/**
+ * The ENTRA_CLIENT_* part of the configuration, as the resolver reads it. An unreadable
+ * ENTRA_CLIENT_SECRET_EXPIRES_AT counts as unknown (the same rule as @restow/core's
+ * entraAppEnvironmentFrom, which the worker uses).
+ */
 export function entraEnvironmentOf(config: Config): EntraAppEnvironment {
+  const secretExpiresAt = parseExpiryDate(config.entra.clientSecretExpiresAt);
   return {
     clientId: config.entra.clientId?.trim() || undefined,
     clientSecret: config.entra.clientSecret?.trim() || undefined,
     certificatePath: config.entra.clientCertPath?.trim() || undefined,
     authorityHost: config.entra.authorityHost?.trim() || undefined,
+    ...(secretExpiresAt ? { secretExpiresAt } : {}),
   };
 }
 

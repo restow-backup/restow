@@ -31,8 +31,10 @@ export const REPORT_EVENTS = [
   "endpoint.repository_locked",
   "file_share.storage_quota",
   "file_share.repository_locked",
+  "source.app_secret_expiring",
   "update.available",
   "installation.disk_low",
+  "installation.app_secret_expiring",
 ] as const;
 
 export type ReportEvent = (typeof REPORT_EVENTS)[number];
@@ -111,10 +113,18 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "file_share.storage_quota": { group: "storage", level: "warning" },
   // Retention and checks of a file share's repository kept finding it locked.
   "file_share.repository_locked": { group: "jobs", level: "warning" },
+  // The client secret (or certificate) of a Microsoft 365 source's own app registration ends
+  // within 30 days, within 7, or has ended (entra/expiry.ts; apps/worker source-app-expiry.ts):
+  // once per stage and date, `details.stage` names it. A tenant event in `jobs`, so the tenant's
+  // own administrators see it; the bell row is an error once it has ended.
+  "source.app_secret_expiring": { group: "jobs", level: "warning" },
   "update.available": { group: "system", level: "info" },
   // The disk under the database or under the installation's local default repository runs low
   // (apps/api features/updates/disk-watch.ts, docs/DATABASE.md "Disk space"): once per episode.
   "installation.disk_low": { group: "system", level: "warning" },
+  // The same for the central backup app registration (Settings, Microsoft 365, or the
+  // environment): apps/api features/updates/secret-watch.ts, once per stage and date.
+  "installation.app_secret_expiring": { group: "system", level: "warning" },
 };
 
 /**
@@ -126,6 +136,7 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
 export const INSTALLATION_REPORT_EVENTS: readonly ReportEvent[] = [
   "update.available",
   "installation.disk_low",
+  "installation.app_secret_expiring",
 ];
 
 export function isInstallationReportEvent(event: string): boolean {

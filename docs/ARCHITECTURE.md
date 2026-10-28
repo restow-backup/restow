@@ -530,6 +530,38 @@ Webhook-Dispatcher des Workers. Fehlschläge werden nach 1, 5, 15 und 60 Minuten
 dann aufgegeben. Im Demo-Modus sendet der Dienst nichts (NoopNotifier). Regeländerungen und
 Testsendungen stehen im Audit-Log (`report.rule.*`, `report.test_sent`).
 
+### Ablauf von App-Zugangsdaten (Microsoft 365)
+
+Seit 0.4.7 erinnern zwei Ereignisse, bevor ein Client-Secret oder Zertifikat einer Microsoft-365-App
+abläuft (Bedienung: docs/ENTRA-SETUP.md, Teil 3 und "Alternative: eine eigene App pro Quelle"):
+
+- `installation.app_secret_expiring` (Gruppe Installation, Warnung; nur für Provider-Admins wählbar)
+  für die zentrale App. Geprüft im API-Prozess von `SecretWatch`
+  (`apps/api/src/features/updates/secret-watch.ts`, gebaut wie `DiskWatch`: erster Lauf nach zwei
+  Minuten, dann alle 15 Minuten, im Demo-Modus aus). Das Datum kommt aus `resolveEntraApp()`: das
+  eingetragene Ablaufdatum des Secrets, `ENTRA_CLIENT_SECRET_EXPIRES_AT` für ein Secret aus der
+  Umgebung oder `notAfter` des Zertifikats. Der Stand liegt in `settings.app_secret_alerts`
+  (`{ central: { expiresAt, stage, at } }`, Migration `0068_app_secret_alerts`), gelesen mit
+  `FOR UPDATE`, damit mehrere API-Instanzen nur einmal melden.
+- `source.app_secret_expiring` (Gruppe Läufe, Warnung; auch für Mandanten-Admins) für die eigene App
+  einer Quelle. Geprüft im Endpoint-Monitor des Workers (`apps/worker/src/source-app-expiry.ts`, alle
+  fünf Minuten) über aktive M365-Quellen aktiver Mandanten. Das Datum steht öffentlich in
+  `sources.config.ownApp` (`secretExpiresAt`, beim Zertifikat `certificateNotAfter`), es muss nichts
+  entsiegelt werden; der Stand in `config.ownApp.expiryAlert`, geschrieben mit `jsonb_set`, damit
+  gleichzeitige Änderungen der API erhalten bleiben. `PATCH /sources/:id/own-app/expiry` trägt das
+  Datum eines Secrets nach, ohne das Secret erneut einzugeben.
+
+Beide nutzen dieselben Stufen (`packages/core/src/entra/expiry.ts`): `soon30` ab höchstens 30 ganzen
+Tagen, `soon7` ab höchstens 7, `expired` ab dem Ablaufzeitpunkt (dann mit Schwere `error`). Gemeldet
+wird nur eine Stufe, die über der für dasselbe Datum schon gemeldeten liegt, also höchstens einmal je
+Stufe und Datum, ohne Nachholen früherer Stufen; ein neues Datum (Rotation, geändertes Datum, neues
+Zertifikat) beginnt von vorn. Die Stufe steht in `details.stage`, und die Drosselschlüssel enthalten sie
+(`entra_app:<expiresAt>:<stage>`, `source_app:<sourceId>:<expiresAt>:<stage>`), damit eine Drosselung
+die nähere Erinnerung nicht schluckt. Die Badge der Oberfläche
+(`apps/web/src/features/shared/credential-expiry.ts`) folgt denselben Schwellen: gelb ab 30, rot ab 7
+Tagen. Das Ablaufdatum eines Secrets kommt nicht aus Graph (das bräuchte `Application.Read.All`, das
+bewusst nicht angefordert wird), sondern wird eingetragen.
+
 ### Benachrichtigungsmatrix: welcher Kanal welches Ereignis bekommt
 
 Seit 0.4.0 (Migration `0038_notification_matrix`) speichert jeder Kanal selbst, welche Ereignisse er

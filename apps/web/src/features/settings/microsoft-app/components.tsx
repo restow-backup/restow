@@ -1,33 +1,18 @@
-import {
-  Check,
-  ChevronRight,
-  CircleAlert,
-  CircleCheck,
-  Clock,
-  Copy,
-  type LucideIcon,
-} from "lucide-react";
+import { Check, ChevronRight, Copy } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import {
-  CopyButton,
-  copyToClipboard,
-  StatusBadge,
-  type StatusTone,
-  UI_NAMESPACE,
-} from "@/components/kit";
+import { CopyButton, copyToClipboard, UI_NAMESPACE } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
-import { type ExpiryState, expiryState } from "./presenters";
 
 /**
  * Small building blocks of the app-registration guide: copy controls, portal
  * paths and labels rendered the way the Entra portal names them, the step
- * frame and the expiry badge.
+ * frame (the expiry badge is shared: features/shared/credential-expiry-badge.tsx).
  */
 
 /** Where the guide is shown: the settings section, or embedded in a source page. */
@@ -174,62 +159,5 @@ export function StepFrame({
       <CardHeader>{heading}</CardHeader>
       <CardContent className="space-y-4 sm:pl-16">{children}</CardContent>
     </Card>
-  );
-}
-
-/** The badge text for an expiry state, as an i18n key and its values. */
-function expiryText(
-  state: ExpiryState,
-  language: string,
-): { key: string; values?: Record<string, string | number> } {
-  switch (state.kind) {
-    case "expired":
-      return { key: "microsoftApp.expiry.expired" };
-    case "soon":
-      return state.days === 0
-        ? { key: "microsoftApp.expiry.today" }
-        : { key: "microsoftApp.expiry.soon", values: { days: state.days } };
-    case "valid":
-      return {
-        key: "microsoftApp.expiry.valid",
-        values: { date: formatDay(state.date, language) },
-      };
-    case "unknown":
-      return { key: "microsoftApp.status.expiryUnknown" };
-  }
-}
-
-/** A calendar date in the UI language (expiry dates are whole days in UTC). */
-export function formatDay(iso: string, language: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime())
-    ? iso
-    : new Intl.DateTimeFormat(language, { dateStyle: "medium", timeZone: "UTC" }).format(date);
-}
-
-const EXPIRY_BADGE: Record<
-  Exclude<ExpiryState["kind"], "unknown">,
-  { tone: StatusTone; icon: LucideIcon }
-> = {
-  valid: { tone: "neutral", icon: CircleCheck },
-  soon: { tone: "warning", icon: Clock },
-  expired: { tone: "destructive", icon: CircleAlert },
-};
-
-/** Expiry of the credential: neutral while valid, amber within 60 days, red once expired. */
-export function ExpiryBadge({ expiresAt, now }: { expiresAt: string | null; now?: number }) {
-  const { t, i18n } = useTranslation("settings");
-  const language = i18n.resolvedLanguage ?? i18n.language;
-  const state = expiryState(expiresAt, now);
-  const { key, values } = expiryText(state, language);
-  const text = t(key, values);
-  if (state.kind === "unknown") {
-    return <span className="text-sm text-muted-foreground">{text}</span>;
-  }
-  const { tone, icon } = EXPIRY_BADGE[state.kind];
-  return (
-    <StatusBadge tone={tone} icon={icon}>
-      {text}
-    </StatusBadge>
   );
 }

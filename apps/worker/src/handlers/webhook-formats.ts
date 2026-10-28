@@ -398,6 +398,12 @@ export function buildChatMessage(
       const guestId = str(details.pveGuestId);
       const shareId = str(details.fileShareId);
       const reportEvent = str(data.event) ?? "";
+      // The page of the source whose own app credential runs out; other events that name a
+      // source keep their links.
+      const sourceId =
+        reportEvent === "source.app_secret_expiring" && envelope.tenantId
+          ? str(details.sourceId)
+          : null;
       return {
         ...base,
         severity:
@@ -417,7 +423,9 @@ export function buildChatMessage(
                 ? `/virtualization/${seg(guestId)}`
                 : shareId
                   ? `/file-shares/${seg(shareId)}`
-                  : "/alerts",
+                  : sourceId && envelope.tenantId
+                    ? `/tenants/${seg(envelope.tenantId)}/connections/sources/${seg(sourceId)}`
+                    : "/alerts",
         ),
       };
     }

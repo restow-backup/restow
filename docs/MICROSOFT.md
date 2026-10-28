@@ -39,7 +39,8 @@ Endnutzer-SSO (Self-Service-Restore) läuft getrennt als delegierter OIDC-Login
 (openid, profile, email) über better-auth; der Nutzer sieht nur, was sein `oid`
 im Backup besitzt.
 
-Client-Secret-Rotation: Secrets laufen maximal 24 Monate; Restow warnt 60 Tage vorher.
+Client-Secret-Rotation: Secrets laufen maximal 24 Monate; Restow erinnert 30 Tage vorher,
+erneut 7 Tage vorher und nach dem Ablauf (docs/ENTRA-SETUP.md, Teil 3).
 Besser: Zertifikat statt Secret (der eigene Token-Client in
 packages/core/src/graph/auth/token.ts unterstützt beides).
 

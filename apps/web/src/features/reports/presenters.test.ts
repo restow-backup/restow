@@ -170,6 +170,11 @@ describe("event groups", () => {
     expect(eventGroupsFor(true)).toContain("system");
     expect(eventGroupsFor(false)).not.toContain("system");
     expect(eventGroupsFor(false)).toEqual(["jobs", "recoverability", "storage"]);
-    expect(EVENT_GROUPS.system).toEqual(["update.available", "installation.disk_low"]);
+    expect(EVENT_GROUPS.system).toEqual([
+      "update.available",
+      "installation.disk_low",
+      "installation.app_secret_expiring",
+    ]);
+    expect(EVENT_GROUPS.jobs).toContain("source.app_secret_expiring");
   });
 });

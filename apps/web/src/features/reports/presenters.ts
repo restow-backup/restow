@@ -92,6 +92,8 @@ export const EVENT_GROUPS: Record<
     "endpoint.stale",
     "endpoint.repository_locked",
     "file_share.repository_locked",
+    // A source's own app credential runs out: a tenant event, so tenant admins can choose it.
+    "source.app_secret_expiring",
   ],
   recoverability: [
     "backup.suspicious",
@@ -111,7 +113,7 @@ export const EVENT_GROUPS: Record<
     "file_share.storage_quota",
   ],
   // About the installation, not a tenant's data: only provider administrators may pick these.
-  system: ["update.available", "installation.disk_low"],
+  system: ["update.available", "installation.disk_low", "installation.app_secret_expiring"],
 };
 
 /** The event groups a person may put into a rule (installation events are the provider's). */

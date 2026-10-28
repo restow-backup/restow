@@ -17,6 +17,7 @@ import {
   parseConsentSignInCallback,
   proveConsentingAdmin,
   readDirectoryState,
+  type SecretExpiryAlertMark,
   SOURCE_APP_SECRET_KIND,
   type SourceAppFormInput,
   serializeSourceAppDocument,
@@ -100,6 +101,7 @@ import type {
 export const SOURCE_AUDIT_ACTIONS = {
   created: "source.created",
   ownAppConnected: "source.own_app.connected",
+  ownAppExpiryUpdated: "source.own_app.expiry_updated",
   updated: "source.updated",
   deleted: "source.deleted",
   consentLinkCreated: "source.consent.link_created",
@@ -170,6 +172,21 @@ export interface OwnAppInfo {
   authorityHost: string | null;
   updatedAt: string;
   updatedBy: string;
+  /**
+   * When the client secret expires (midnight UTC, ISO 8601), as the admin noted it from the
+   * Entra portal; null when unknown or for a certificate. Absent on sources connected before
+   * 0.4.7 (read as null). Public on purpose: the worker's expiry check reads it without
+   * unsealing anything (apps/worker source-app-expiry.ts).
+   */
+  secretExpiresAt?: string | null;
+  /** A certificate credential's end of validity (its notAfter); null for a secret. */
+  certificateNotAfter?: string | null;
+  /**
+   * The last expiry reminder of this credential (@restow/core SecretExpiryAlertMark), written
+   * by the worker with a targeted jsonb_set. A new credential or a changed date drops it, so the
+   * reminders start over.
+   */
+  expiryAlert?: SecretExpiryAlertMark | null;
 }
 
 export interface M365SourceDto {
@@ -2008,12 +2025,16 @@ export async function connectOwnApp(
     } else {
       secretRef = (await storeSecret(tx, { tenantId, kind: SOURCE_APP_SECRET_KIND, plaintext })).id;
     }
+    // A whole new object: the old credential's expiryAlert is not carried over, so the
+    // reminders of a rotated secret or a new certificate start over.
     const info: OwnAppInfo = {
       clientId: built.document.clientId,
       credentialKind: built.document.credentialKind,
       authorityHost: built.document.authorityHost,
       updatedAt: at.toISOString(),
       updatedBy: actor.email,
+      secretExpiresAt: built.secretExpiresAt,
+      certificateNotAfter: built.certificate?.notAfter ?? null,
     };
     try {
       await tx.transaction(async (savepoint) => {
@@ -2047,6 +2068,8 @@ export async function connectOwnApp(
         entraTenantId: built.tenantId,
         clientId: info.clientId,
         credentialKind: info.credentialKind,
+        secretExpiresAt: info.secretExpiresAt,
+        certificateNotAfter: info.certificateNotAfter,
         ok: verification.ok,
         missing: verification.permissions?.missing ?? [],
       },
@@ -2060,6 +2083,75 @@ export async function connectOwnApp(
     ip: actor.ip,
   });
   return { source: toDto(updated), verification };
+}
+
+/**
+ * Note (or clear, with null) when the stored client secret of a source's own app expires,
+ * without entering the secret again: sources connected before 0.4.7 have no date, and a
+ * secret's lifetime can be extended in Entra. Only for an own app with a secret (a certificate
+ * carries its own end). The last reminder is dropped only when the date changes, so a new
+ * date starts the reminders over while saving the same date again does not re-send the
+ * stage already reminded about. A targeted jsonb update: the rest of `ownApp` and of the config stay as
+ * they are, whatever the worker wrote meanwhile.
+ */
+export async function updateOwnAppExpiry(
+  db: Database,
+  tenantId: string,
+  id: string,
+  actor: Actor,
+  secretExpiresAt: string | null,
+): Promise<SourceDto> {
+  await rejectImportSource(db, tenantId, id);
+  return withTenantTx(db, tenantId, async (tx) => {
+    const source = requireM365(await requireSource(tx, tenantId, id));
+    const ownApp = configOf(source).ownApp;
+    if (!ownApp) {
+      throw new ProblemError(409, "No own app", {
+        type: "urn:restow:problem:own-app-missing",
+        detail: "This source is not connected through an app of its own.",
+      });
+    }
+    if (ownApp.credentialKind !== "secret") {
+      throw new ProblemError(409, "The app uses a certificate", {
+        type: "urn:restow:problem:own-app-certificate",
+        detail: "A certificate carries its own expiry; only a client secret takes a date.",
+      });
+    }
+    const patch = JSON.stringify({ secretExpiresAt });
+    const [row] = await tx
+      .update(sources)
+      .set({
+        // The mark stays when it is for the same instant as the date saved now.
+        config: sql`jsonb_set(${sources.config}, '{ownApp}', (CASE WHEN (${sources.config} -> 'ownApp' -> 'expiryAlert' ->> 'expiresAt')::timestamptz IS NOT DISTINCT FROM ${secretExpiresAt}::timestamptz THEN ${sources.config} -> 'ownApp' ELSE (${sources.config} -> 'ownApp') - 'expiryAlert' END) || ${patch}::jsonb)`,
+      })
+      .where(
+        and(
+          eq(sources.tenantId, tenantId),
+          eq(sources.id, id),
+          sql`${sources.config} -> 'ownApp' ->> 'credentialKind' = 'secret'`,
+        ),
+      )
+      .returning();
+    if (!row) {
+      // Replaced by a certificate or disconnected between the read and the write.
+      throw notFound();
+    }
+    await audit(tx, {
+      tenantId,
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: SOURCE_AUDIT_ACTIONS.ownAppExpiryUpdated,
+      target: id,
+      targetType: "source",
+      ip: actor.ip,
+      details: {
+        clientId: ownApp.clientId,
+        previous: ownApp.secretExpiresAt ?? null,
+        secretExpiresAt,
+      },
+    });
+    return toDto(row);
+  });
 }
 
 /** "Verify permissions": token, permission diff and a first Graph call, stored on the source. */

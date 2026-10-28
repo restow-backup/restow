@@ -418,7 +418,11 @@
       "available": "Update verfügbar"
     },
     "installation": {
-      "disk_low": "Wenig Speicherplatz"
+      "disk_low": "Wenig Speicherplatz",
+      "app_secret_expiring": "Zugangsdaten der Microsoft-365-App laufen ab"
+    },
+    "source": {
+      "app_secret_expiring": "Zugangsdaten der eigenen App einer Quelle laufen ab"
     }
   },
   "eventHints": {
@@ -467,7 +471,11 @@
       "available": "Eine neuere Version der Software ist verfügbar. Wird einmal je Version für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden."
     },
     "installation": {
-      "disk_low": "Auf dem Datenträger unter der Datenbank oder unter dem lokalen Standard-Repository ist weniger als ein Zehntel frei (und weniger als 5 GiB). Wird für die gesamte Installation einmal ausgelöst, bis wieder genug Platz frei ist, und kann daher nur von Provider-Administratoren gewählt werden."
+      "disk_low": "Auf dem Datenträger unter der Datenbank oder unter dem lokalen Standard-Repository ist weniger als ein Zehntel frei (und weniger als 5 GiB). Wird für die gesamte Installation einmal ausgelöst, bis wieder genug Platz frei ist, und kann daher nur von Provider-Administratoren gewählt werden.",
+      "app_secret_expiring": "Warnt, bevor der geheime Clientschlüssel oder das Zertifikat der zentralen Microsoft-365-App-Registrierung abläuft: 30 Tage vorher, erneut 7 Tage vorher und nach dem Ablauf. Nur wenn der Ablauf bekannt ist. Wird für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden."
+    },
+    "source": {
+      "app_secret_expiring": "Warnt, bevor der geheime Clientschlüssel oder das Zertifikat der eigenen App einer Microsoft-365-Quelle abläuft: 30 Tage vorher, erneut 7 Tage vorher und nach dem Ablauf. Nur für Quellen, deren Ablauf bekannt ist (das für den Schlüssel eingetragene Datum oder das Ende des Zertifikats). Nach dem Ablauf schlagen Sicherungen der Quelle fehl, bis ein neuer Schlüssel oder ein neues Zertifikat eingetragen ist."
     }
   },
   "sections": {
@@ -534,7 +542,16 @@
       "capture_error": "Die Archiv-Erfassung aus diesem Postfach schlägt seit mehr als einer Stunde fehl. Neue Mail des Postfachs kommt erst wieder ins Archiv, wenn sie funktioniert.",
       "forward_stale": "Seit mehr als 24 Stunden ist keine weitergeleitete Kopie dieses Kontos angekommen, vorher kamen Kopien an. Prüfen Sie die Weiterleitungsregel beim Mail-Anbieter.",
       "journal_stale": "Seit mehr als 24 Stunden ist kein Journal-Report angekommen, vorher kamen Reports an. Prüfen Sie die Journalregel und den Connector in Exchange Online und ob der Journal-Empfänger erreichbar ist."
-    }
+    },
+    "clientId": "Anwendungs-ID (Client)",
+    "credential": "Zugangsdaten",
+    "credentialSecret": "Geheimer Clientschlüssel",
+    "credentialCertificate": "Zertifikat",
+    "expiresAt": "Läuft ab am",
+    "daysLeft": "Verbleibende Tage",
+    "secretExpired": "Abgelaufen: Microsoft stellt für diese App keine Token mehr aus. Jede Sicherung, die sie nutzt, schlägt fehl, bis ein neuer Schlüssel oder ein neues Zertifikat eingetragen ist.",
+    "secretRenewSource": "Legen Sie im Microsoft Entra Admin Center einen neuen geheimen Clientschlüssel (oder ein Zertifikat) für die App an, tragen Sie ihn unter Quellen bei dieser Quelle mit seinem neuen Ablaufdatum ein und löschen Sie erst dann den alten in Entra.",
+    "secretRenewCentral": "Legen Sie im Microsoft Entra Admin Center einen neuen geheimen Clientschlüssel (oder ein Zertifikat) für die App an, tragen Sie ihn unter Installation › Microsoft-Multi-Tenant-App mit seinem neuen Ablaufdatum ein und löschen Sie erst dann den alten in Entra."
   },
   "summary": {
     "previous": "Vorzeitraum",
@@ -618,13 +635,23 @@
     },
     "installation": {
       "disk_low_database": "Wenig Speicherplatz unter der Datenbank: {free} frei",
-      "disk_low_repository": "Wenig Speicherplatz unter dem lokalen Repository: {free} frei"
+      "disk_low_repository": "Wenig Speicherplatz unter dem lokalen Repository: {free} frei",
+      "app_secret_expiring": "Zugangsdaten der Microsoft-365-App laufen am {date} ab",
+      "app_secret_expiring_soon30": "Zugangsdaten der Microsoft-365-App laufen {days, plural, =0 {heute} one {in # Tag} other {in # Tagen}} ab ({date})",
+      "app_secret_expiring_soon7": "Zugangsdaten der Microsoft-365-App laufen {days, plural, =0 {heute} one {in # Tag} other {in # Tagen}} ab ({date}). Bitte jetzt erneuern",
+      "app_secret_expiring_expired": "Zugangsdaten der Microsoft-365-App sind abgelaufen ({date}). Microsoft-365-Sicherungen schlagen fehl"
     },
     "database": {
       "move": {
         "succeeded": "Datenbank nach {object} verschoben",
         "failed": "Datenbank nicht nach {object} verschoben"
       }
+    },
+    "source": {
+      "app_secret_expiring": "Zugangsdaten der eigenen App von {object} laufen am {date} ab",
+      "app_secret_expiring_soon30": "Zugangsdaten der eigenen App von {object} laufen {days, plural, =0 {heute} one {in # Tag} other {in # Tagen}} ab ({date})",
+      "app_secret_expiring_soon7": "Zugangsdaten der eigenen App von {object} laufen {days, plural, =0 {heute} one {in # Tag} other {in # Tagen}} ab ({date}). Bitte jetzt erneuern",
+      "app_secret_expiring_expired": "Zugangsdaten der eigenen App von {object} sind abgelaufen ({date}). Sicherungen der Quelle schlagen fehl"
     }
   },
   "toasts": {

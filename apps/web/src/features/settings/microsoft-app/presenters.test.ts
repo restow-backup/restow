@@ -4,17 +4,12 @@ import { ApiError } from "@/lib/api";
 import type { AppPermission, MicrosoftAppView } from "./api";
 import {
   certificateSubjectName,
-  EXPIRY_WARNING_DAYS,
-  expiryState,
   fieldReasonKey,
   microsoftAppErrorKey,
   opensslCommands,
   permissionsCopyText,
   registrationStatus,
 } from "./presenters";
-
-const DAY = 24 * 60 * 60 * 1000;
-const NOW = Date.parse("2026-09-23T10:00:00.000Z");
 
 function view(overrides: Partial<MicrosoftAppView> = {}): MicrosoftAppView {
   return {
@@ -34,26 +29,6 @@ function view(overrides: Partial<MicrosoftAppView> = {}): MicrosoftAppView {
     ...overrides,
   };
 }
-
-describe("expiryState", () => {
-  it("is unknown without a date", () => {
-    expect(expiryState(null, NOW)).toEqual({ kind: "unknown" });
-    expect(expiryState("not a date", NOW)).toEqual({ kind: "unknown" });
-  });
-
-  it("warns within 60 days and turns red once expired", () => {
-    expect(expiryState(new Date(NOW - 1).toISOString(), NOW)).toEqual({ kind: "expired" });
-    expect(expiryState(new Date(NOW + 5 * DAY).toISOString(), NOW)).toEqual({
-      kind: "soon",
-      days: 5,
-    });
-    expect(
-      expiryState(new Date(NOW + (EXPIRY_WARNING_DAYS - 1) * DAY).toISOString(), NOW),
-    ).toMatchObject({ kind: "soon" });
-    const later = new Date(NOW + (EXPIRY_WARNING_DAYS + 1) * DAY).toISOString();
-    expect(expiryState(later, NOW)).toEqual({ kind: "valid", date: later });
-  });
-});
 
 describe("registrationStatus", () => {
   it("names ready, missing and unusable registrations", () => {

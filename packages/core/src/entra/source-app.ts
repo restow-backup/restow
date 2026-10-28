@@ -1,5 +1,7 @@
 import { type AppCredentials, isAllowedAuthorityHost } from "../graph/auth/token.js";
 import { certificateCredentials } from "./app-registration.js";
+import type { CertificateInfo } from "./certificate.js";
+import { parseExpiryDate } from "./expiry.js";
 
 /**
  * A customer's own Graph app for one Microsoft 365 source, entered by hand
@@ -39,7 +41,8 @@ export type SourceAppInputProblem =
   | "credential"
   | "certificate"
   | "authority_host"
-  | "tenant_id";
+  | "tenant_id"
+  | "expires_at";
 
 export type SourceAppInput =
   | {
@@ -48,6 +51,14 @@ export type SourceAppInput =
       tenantId: string;
       document: SourceAppDocument;
       credentials: AppCredentials;
+      /**
+       * When the secret expires (midnight UTC, ISO 8601), as the admin noted it; null when
+       * unknown and always null for a certificate, which carries its own end (`certificate`).
+       * Public, so it goes into `sources.config.ownApp`, never into the sealed document.
+       */
+      secretExpiresAt: string | null;
+      /** Thumbprint and validity of a certificate credential (`notAfter` is its expiry). */
+      certificate: CertificateInfo | null;
     }
   | { ok: false; problem: SourceAppInputProblem };
 
@@ -58,6 +69,11 @@ export interface SourceAppFormInput {
   clientSecret?: string | null;
   certificatePem?: string | null;
   authorityHost?: string | null;
+  /**
+   * When the client secret expires, from the Entra portal (`2027-03-01`, a time ignored);
+   * empty for unknown. Ignored for a certificate.
+   */
+  secretExpiresAt?: string | null;
 }
 
 /** Validate what an admin typed and build the document and the credentials from it. */
@@ -79,9 +95,16 @@ export function buildSourceApp(input: SourceAppFormInput): SourceAppInput {
     if (!clientSecret) {
       return { ok: false, problem: "credential" };
     }
+    const noted = input.secretExpiresAt?.trim() || null;
+    const secretExpiresAt = noted === null ? null : parseExpiryDate(noted);
+    if (noted !== null && secretExpiresAt === null) {
+      return { ok: false, problem: "expires_at" };
+    }
     return {
       ok: true,
       tenantId,
+      secretExpiresAt,
+      certificate: null,
       document: { version: 1, clientId, credentialKind: "secret", clientSecret, authorityHost },
       credentials: {
         clientId,
@@ -101,6 +124,9 @@ export function buildSourceApp(input: SourceAppFormInput): SourceAppInput {
   return {
     ok: true,
     tenantId,
+    // A date noted for a secret means nothing for a certificate: its own notAfter counts.
+    secretExpiresAt: null,
+    certificate: built.certificate,
     document: {
       version: 1,
       clientId,

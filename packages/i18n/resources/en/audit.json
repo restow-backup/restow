@@ -384,7 +384,8 @@
         "probed": "IMAP server probed"
       },
       "own_app": {
-        "connected": "Own Graph app of the source connected"
+        "connected": "Own Graph app of the source connected",
+        "expiry_updated": "Expiry date of the source's own app secret changed"
       },
       "own_tenant": {
         "connected": "Own tenant connected without consent"

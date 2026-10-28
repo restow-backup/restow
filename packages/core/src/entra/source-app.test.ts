@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSourceApp, parseSourceAppSecret, serializeSourceAppDocument } from "./source-app.js";
+import { createTestCertificate } from "./testing/certificate.js";
 
 const tenant = "4F87BBA3-94BE-4E93-B8CC-8AAC907AAF54";
 const client = "486a2769-5d9c-402a-8a83-c3bc9b980e47";
@@ -45,6 +46,59 @@ describe("buildSourceApp", () => {
         certificatePem: "garbage",
       }),
     ).toEqual({ ok: false, problem: "certificate" });
+  });
+
+  it("passes the noted expiry of a secret through, outside the sealed document", () => {
+    const built = buildSourceApp({
+      tenantId: tenant,
+      clientId: client,
+      credentialKind: "secret",
+      clientSecret: "s3cret",
+      secretExpiresAt: " 2027-03-01 ",
+    });
+    expect(built).toMatchObject({
+      ok: true,
+      secretExpiresAt: "2027-03-01T00:00:00.000Z",
+      certificate: null,
+    });
+    expect(built.ok && "secretExpiresAt" in built.document).toBe(false);
+    const unknown = buildSourceApp({
+      tenantId: tenant,
+      clientId: client,
+      credentialKind: "secret",
+      clientSecret: "s3cret",
+      secretExpiresAt: "",
+    });
+    expect(unknown.ok && unknown.secretExpiresAt).toBeNull();
+  });
+
+  it("refuses an expiry that is no date", () => {
+    expect(
+      buildSourceApp({
+        tenantId: tenant,
+        clientId: client,
+        credentialKind: "secret",
+        clientSecret: "s3cret",
+        secretExpiresAt: "2027-02-30",
+      }),
+    ).toEqual({ ok: false, problem: "expires_at" });
+  });
+
+  it("drops a noted expiry for a certificate and keeps the certificate's own end", () => {
+    const notAfter = new Date("2027-06-01T12:00:00Z");
+    const built = buildSourceApp({
+      tenantId: tenant,
+      clientId: client,
+      credentialKind: "certificate",
+      certificatePem: createTestCertificate({ notAfter }).combinedPem,
+      secretExpiresAt: "2027-03-01",
+    });
+    expect(built.ok).toBe(true);
+    if (!built.ok) {
+      return;
+    }
+    expect(built.secretExpiresAt).toBeNull();
+    expect(built.certificate?.notAfter).toBe(notAfter.toISOString());
   });
 });
 

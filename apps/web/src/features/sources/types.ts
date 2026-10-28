@@ -100,6 +100,16 @@ export interface OwnAppInfo {
   authorityHost: string | null;
   updatedAt: string;
   updatedBy: string;
+  /**
+   * When the client secret expires (midnight UTC, ISO 8601), as an admin noted it from the
+   * Entra portal; null or absent when unknown, and for a certificate (apps/api sources
+   * service.ts OwnAppInfo).
+   */
+  secretExpiresAt?: string | null;
+  /** A certificate credential's end of validity (its notAfter); null for a secret. */
+  certificateNotAfter?: string | null;
+  /** The last expiry reminder the worker raised for this credential (stage per date). */
+  expiryAlert?: { expiresAt: string; stage: "soon30" | "soon7" | "expired"; at: string } | null;
 }
 
 export interface OwnAppInput {
@@ -108,6 +118,8 @@ export interface OwnAppInput {
   credentialKind: "secret" | "certificate";
   clientSecret?: string | null;
   certificatePem?: string | null;
+  /** `YYYY-MM-DD`; null or absent when unknown. Only taken with a secret. */
+  secretExpiresAt?: string | null;
 }
 
 export interface M365SourceDto {

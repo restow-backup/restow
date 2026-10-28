@@ -9,6 +9,7 @@ import { FILE_SHARES_PATH } from "@/features/file-shares/paths";
 import { installationSectionPath } from "@/features/installation/paths";
 import { guestTo } from "@/features/pve/paths";
 import { RESTORE_PATHS } from "@/features/restore/navigation";
+import { sourceDetailTo } from "@/features/sources/paths";
 import { verifyReportTo } from "@/features/verify/paths";
 import { tenantPagePath } from "@/lib/tenant-paths";
 
@@ -52,11 +53,26 @@ export function notificationTarget(
       ? { to: installationSectionPath("database"), tenantId: null }
       : null;
   }
+  // The central Microsoft 365 app's credential runs out: Installation > Microsoft 365 app.
+  if (item.event === "installation.app_secret_expiring") {
+    return viewer.isProviderAdmin
+      ? { to: installationSectionPath("microsoft-app"), tenantId: null }
+      : null;
+  }
   if (!viewer.canManage) {
     return null;
   }
   const tenantId = item.tenantId;
   const at = (to: string): NotificationTarget => ({ to, tenantId });
+  // A source's own app credential runs out: the source's page, where its date is noted.
+  const sourceId = text(details.sourceId);
+  if (item.event === "source.app_secret_expiring" && sourceId) {
+    return at(
+      tenantId
+        ? tenantPagePath(tenantId, "connections", "sources", sourceId)
+        : String(sourceDetailTo(sourceId)),
+    );
+  }
   // A server or client: its own page says what happened and what to do.
   const endpointId = text(details.endpointId);
   if (endpointId) {

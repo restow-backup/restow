@@ -211,6 +211,31 @@ export type DiskAlertEntry = {
 export type DiskAlertState = Partial<Record<"database" | "repository" | "system", DiskAlertEntry>>;
 
 /**
+ * The last expiry reminder of a Microsoft 365 app credential (0.4.7, @restow/core
+ * entra/expiry.ts): for which date, which stage, when. One reminder per stage and date; a mark
+ * for another date counts as none, so a new secret or certificate starts over. The per-source
+ * mark of the same shape lives in `sources.config.ownApp.expiryAlert`.
+ */
+export interface AppSecretAlertEntry {
+  /** The credential's end the reminder was about (ISO 8601). */
+  expiresAt: string;
+  stage: "soon30" | "soon7" | "expired";
+  /** When it went out (ISO 8601). */
+  at: string;
+  /**
+   * The registration it was about (0.4.7): its client ID and where it came from
+   * (`environment` or `database`). Another registration with the same date starts over; a mark
+   * without them (written before they were kept) counts as the current one's.
+   */
+  clientId?: string;
+  source?: string;
+}
+/** `settings.app_secret_alerts`: the central backup app registration's reminder. */
+export interface AppSecretAlertState {
+  central?: AppSecretAlertEntry;
+}
+
+/**
  * Single-row installation configuration written by the setup wizard in one
  * transaction together with the first provider admin. `setupCompletedAt` is the
  * one-way lock of the public wizard: once set it is never cleared, whatever
@@ -303,6 +328,9 @@ export const settings = pgTable(
     // What the provider charges its customers (0.4.7, PricingSettings): only a figure on the
     // tenant overview to keep an eye on; nothing bills or enforces it. `{}` sets no price.
     pricing: jsonb("pricing").$type<PricingSettings>().notNull().default({}),
+    // The expiry reminders sent for the central app registration's secret or certificate
+    // (apps/api features/updates/secret-watch.ts, see AppSecretAlertState); `{}` before the first.
+    appSecretAlerts: jsonb("app_secret_alerts").$type<AppSecretAlertState>().notNull().default({}),
     ...timestamps(),
   },
   (t) => [uniqueIndex("settings_singleton_uq").on(t.singleton)],

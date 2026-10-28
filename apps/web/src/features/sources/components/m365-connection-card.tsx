@@ -22,6 +22,7 @@ import { useConnectOwnTenant, useConsentLink, useEntraStatus } from "../use-sour
 import { CopyField } from "./copy-field";
 import { DetailsItem, DetailsList } from "./details-list";
 import { EntraNotConfigured } from "./entra-not-configured";
+import { OwnAppExpiryAlert, OwnAppExpiryItem } from "./own-app-expiry";
 import { OwnAppForm } from "./own-app-form";
 
 /** A consent link together with the source state it was issued against. */
@@ -156,6 +157,7 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
                 <DetailsItem label={t("m365.ownApp.credentialKind")}>
                   {t(`m365.ownApp.kinds.${m365.ownApp.credentialKind}`)}
                 </DetailsItem>
+                <OwnAppExpiryItem sourceId={source.id} ownApp={m365.ownApp} />
               </>
             ) : null}
             <DetailsItem label={t("m365.connect.consent")}>
@@ -226,6 +228,10 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
               </AlertDescription>
             </Alert>
           </div>
+        ) : null}
+
+        {connected && ownAppMode && m365?.ownApp ? (
+          <OwnAppExpiryAlert ownApp={m365.ownApp} />
         ) : null}
 
         {shownError && errorMessage ? (

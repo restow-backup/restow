@@ -102,7 +102,9 @@
     "imapHostNotAllowed": "Dieser IMAP-Server liegt in einem Loopback-, privaten oder Link-Local-Netz. Nur ein Provider-Admin kann eine Quelle mit einem internen Server verbinden; Link-Local-Adressen werden nie verwendet.",
     "ownAppInvalid": "Die Angaben zur App sind nicht verwendbar. Prüfen Sie Tenant-ID, Anwendungs-ID und Zugangsdaten.",
     "ownAppNoToken": "Microsoft hat für diese App in diesem Tenant kein Token ausgestellt.",
-    "sourceUsesOwnApp": "Diese Quelle ist über eine eigene App verbunden. Es gibt dafür keinen Consent-Link."
+    "sourceUsesOwnApp": "Diese Quelle ist über eine eigene App verbunden. Es gibt dafür keinen Consent-Link.",
+    "ownAppMissing": "Diese Quelle ist nicht über eine eigene App verbunden.",
+    "ownAppCertificate": "Die App nutzt ein Zertifikat. Ein Zertifikat bringt sein Ablaufdatum selbst mit; nur ein Client-Secret braucht ein Datum."
   },
   "detail": {
     "created": "Angelegt {when}",
@@ -371,7 +373,7 @@
       "steps": {
         "one": "Im Microsoft Entra Admin Center des Microsoft-365-Tenants des Mandanten unter Identität › Anwendungen › App-Registrierungen › „Neue Registrierung“ eine App anlegen. Unterstützte Kontotypen: „Nur Konten in diesem Organisationsverzeichnis“.",
         "two": "Unter API-Berechtigungen › „Berechtigung hinzufügen“ › Microsoft Graph › Anwendungsberechtigungen alle Berechtigungen aus der Liste unten hinzufügen. Danach „Administratorzustimmung für … erteilen“ wählen.",
-        "three": "Unter Zertifikate & Geheimnisse ein neues Clientgeheimnis anlegen und den Wert sofort kopieren; Entra zeigt ihn nur einmal. Notieren Sie das Ablaufdatum und tragen Sie vorher hier ein neues ein.",
+        "three": "Unter Zertifikate & Geheimnisse ein neues Clientgeheimnis anlegen und den Wert sofort kopieren; Entra zeigt ihn nur einmal. Notieren Sie das Ablaufdatum und tragen Sie es unten ein, damit {appName} Sie rechtzeitig erinnert.",
         "four": "Auf der Übersicht der App die Verzeichnis-ID (Mandant) und die Anwendungs-ID (Client) kopieren und unten eintragen."
       },
       "noRedirect": "Eine Umleitungs-URI (Callback-URL) ist nicht nötig; lassen Sie das Feld leer. {appName} meldet sich als App ohne Benutzer an, es gibt keinen Consent-Link und keinen Rückweg.",
@@ -402,7 +404,22 @@
       "replaceHint": "Neuen Wert eintragen, um die Zugangsdaten zu ersetzen.",
       "certificate": "Zertifikat und privater Schlüssel (PEM)",
       "certificateHint": "Eine PEM-Datei mit unverschlüsseltem privaten Schlüssel und dem Zertifikat.",
-      "credentialRequired": "Bitte die Zugangsdaten eintragen."
+      "credentialRequired": "Bitte die Zugangsdaten eintragen.",
+      "expiresAt": "Secret läuft ab am",
+      "expiresAtHint": "Das Datum des hier eingegebenen Geheimnisses (nicht des ersetzten), wie in Entra unter Zertifikate & Geheimnisse (Spalte „Läuft ab“) angezeigt. {appName} warnt 30 Tage vorher, erneut 7 Tage vorher und nach dem Ablauf. Leer lassen, wenn unbekannt.",
+      "invalidDate": "Bitte ein gültiges Datum eintragen.",
+      "expiry": {
+        "label": "Läuft ab",
+        "unknown": "Nicht eingetragen. Tragen Sie das Datum ein, um vor dem Ablauf gewarnt zu werden.",
+        "add": "Ablaufdatum eintragen",
+        "edit": "Ablaufdatum ändern",
+        "save": "Datum speichern",
+        "clear": "Datum entfernen",
+        "saved": "Ablaufdatum gespeichert.",
+        "cleared": "Ablaufdatum entfernt.",
+        "soon": "Die Zugangsdaten dieser App laufen bald ab. Legen Sie in Entra ein neues Secret (oder Zertifikat) an, tragen Sie es hier mit dem neuen Ablaufdatum ein und löschen Sie erst dann das alte. Nie umgekehrt.",
+        "expired": "Die Zugangsdaten dieser App sind abgelaufen. Microsoft stellt dafür keine Tokens mehr aus, daher schlägt jede Sicherung dieser Quelle fehl, bis Sie ein neues Secret oder Zertifikat eintragen."
+      }
     }
   },
   "imap": {

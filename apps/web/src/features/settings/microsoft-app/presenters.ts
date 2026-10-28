@@ -36,33 +36,6 @@ export function opensslCommands(productName: string): string {
   ].join("\n");
 }
 
-/** A credential this close to its end is flagged (docs/ENTRA-SETUP.md: warn 60 days ahead). */
-export const EXPIRY_WARNING_DAYS = 60;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-export type ExpiryState =
-  | { kind: "unknown" }
-  | { kind: "expired" }
-  | { kind: "soon"; days: number }
-  | { kind: "valid"; date: string };
-
-/** How the credential's end of validity reads right now. */
-export function expiryState(expiresAt: string | null, now: number = Date.now()): ExpiryState {
-  if (!expiresAt) {
-    return { kind: "unknown" };
-  }
-  const end = Date.parse(expiresAt);
-  if (Number.isNaN(end)) {
-    return { kind: "unknown" };
-  }
-  if (end <= now) {
-    return { kind: "expired" };
-  }
-  const days = Math.floor((end - now) / DAY_MS);
-  return days < EXPIRY_WARNING_DAYS ? { kind: "soon", days } : { kind: "valid", date: expiresAt };
-}
-
 /** Overall state of the registration for the status badge (a tone of the kit's StatusBadge). */
 export function registrationStatus(view: MicrosoftAppView): {
   key: "ready" | "none" | "unusable";

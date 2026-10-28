@@ -79,4 +79,29 @@ describe("where a notification leads", () => {
     });
     expect(notificationTarget(update, admin)).toBeNull();
   });
+
+  it("leads an expiring app credential to the central app or to the source", () => {
+    const central = {
+      event: "installation.app_secret_expiring",
+      tenantId: null,
+      details: { stage: "soon7", expiresAt: "2026-11-01T00:00:00.000Z" },
+    };
+    expect(notificationTarget(central, { canManage: true, isProviderAdmin: true })).toEqual({
+      to: "/installation/microsoft-app",
+      tenantId: null,
+    });
+    expect(notificationTarget(central, admin)).toBeNull();
+
+    const source = {
+      event: "source.app_secret_expiring",
+      tenantId,
+      details: { sourceId: "src-1", stage: "soon30" },
+    };
+    expect(notificationTarget(source, admin)).toEqual({
+      to: `/tenants/${tenantId}/connections/sources/src-1`,
+      tenantId,
+    });
+    // Tenant pages are admin pages: a viewer gets no target.
+    expect(notificationTarget(source, { canManage: false, isProviderAdmin: false })).toBeNull();
+  });
 });

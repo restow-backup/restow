@@ -370,7 +370,8 @@
       "authorityHost": "Login host",
       "updated": "Last changed",
       "updatedBy": "by {who}",
-      "notSet": "Not set"
+      "notSet": "Not set",
+      "expiryEnvironmentHint": "To be warned before the secret expires, set ENTRA_CLIENT_SECRET_EXPIRES_AT (for example 2027-03-01) in the server environment and restart {appName}."
     },
     "expiry": {
       "expired": "Expired",
@@ -443,7 +444,7 @@
           "create": "Under Certificates & secrets → Client secrets, select New client secret. Choose at most 24 months; Microsoft allows no longer term.",
           "valueTitle": "Copy the Value, not the Secret ID",
           "value": "Right after creating the secret, copy the Value column. Entra shows it only once; the Secret ID next to it is not the secret.",
-          "rotate": "{appName} warns 60 days before the secret expires. To rotate, create a new secret, enter it here, and only then delete the old one in Entra."
+          "rotate": "{appName} warns 30 days before the secret expires, again 7 days before, and once it has expired. To rotate, create a new secret, enter it here, and only then delete the old one in Entra."
         },
         "portal": {
           "certificatesAndSecrets": "Certificates & secrets",
@@ -478,7 +479,7 @@
       "secretKeep": "A secret is stored. Leave the field empty to keep it.",
       "secretAgain": "The Application ID or login host changed. Enter the secret for it.",
       "expiresAt": "Expires on",
-      "expiresAtHint": "As shown in Entra. {appName} warns 60 days before.",
+      "expiresAtHint": "As shown in Entra. {appName} warns 30 days before, again 7 days before, and once it has expired.",
       "certificatePem": "Private key and certificate (PEM)",
       "certificateHint": "An unencrypted RSA key and the matching certificate, one after the other.",
       "certificateKeep": "A certificate is stored ({thumbprint}). Upload or paste a new one to replace it.",

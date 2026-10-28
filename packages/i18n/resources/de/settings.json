@@ -370,7 +370,8 @@
       "authorityHost": "Anmelde-Host",
       "updated": "Zuletzt geändert",
       "updatedBy": "von {who}",
-      "notSet": "Nicht gesetzt"
+      "notSet": "Nicht gesetzt",
+      "expiryEnvironmentHint": "Um vor dem Ablauf des Schlüssels gewarnt zu werden, setzen Sie ENTRA_CLIENT_SECRET_EXPIRES_AT (zum Beispiel 2027-03-01) in der Server-Umgebung und starten {appName} neu."
     },
     "expiry": {
       "expired": "Abgelaufen",
@@ -443,7 +444,7 @@
           "create": "Unter Zertifikate & Geheimnisse → Geheime Clientschlüssel die Option Neuer geheimer Clientschlüssel wählen. Höchstens 24 Monate; längere Laufzeiten lässt Microsoft nicht zu.",
           "valueTitle": "Den Wert kopieren, nicht die Geheime ID",
           "value": "Direkt nach dem Anlegen die Spalte Wert kopieren. Entra zeigt ihn nur einmal; die Geheime ID daneben ist nicht das Geheimnis.",
-          "rotate": "{appName} warnt 60 Tage vor Ablauf. Zum Wechseln einen neuen Schlüssel anlegen, hier eintragen und erst dann den alten in Entra löschen."
+          "rotate": "{appName} warnt 30 Tage vor Ablauf des Schlüssels, erneut 7 Tage vorher und sobald er abgelaufen ist. Zum Wechseln einen neuen Schlüssel anlegen, hier eintragen und erst dann den alten in Entra löschen."
         },
         "portal": {
           "certificatesAndSecrets": "Zertifikate & Geheimnisse",
@@ -478,7 +479,7 @@
       "secretKeep": "Ein Schlüssel ist gespeichert. Lassen Sie das Feld leer, um ihn zu behalten.",
       "secretAgain": "Anwendungs-ID oder Anmelde-Host wurden geändert. Tragen Sie den Schlüssel dafür ein.",
       "expiresAt": "Läuft ab am",
-      "expiresAtHint": "Wie in Entra angezeigt. {appName} warnt 60 Tage vorher.",
+      "expiresAtHint": "Wie in Entra angezeigt. {appName} warnt 30 Tage vorher, erneut 7 Tage vorher und sobald er abgelaufen ist.",
       "certificatePem": "Privater Schlüssel und Zertifikat (PEM)",
       "certificateHint": "Ein unverschlüsselter RSA-Schlüssel und das passende Zertifikat, hintereinander.",
       "certificateKeep": "Ein Zertifikat ist gespeichert ({thumbprint}). Laden Sie ein neues hoch oder fügen Sie es ein, um es zu ersetzen.",

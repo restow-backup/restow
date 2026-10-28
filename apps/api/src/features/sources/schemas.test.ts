@@ -6,6 +6,8 @@ import {
   entraTenantHintSchema,
   hostSchema,
   imapTestSchema,
+  ownAppExpirySchema,
+  ownAppSchema,
   updateSourceSchema,
 } from "./schemas.js";
 
@@ -165,5 +167,42 @@ describe("consentLinkSchema", () => {
     expect(consentLinkSchema.safeParse({ redirectUri: "https://evil.example" }).success).toBe(
       false,
     );
+  });
+});
+
+describe("the own app's secret expiry", () => {
+  const ownApp = {
+    tenantId: "4f87bba3-94be-4e93-b8cc-8aac907aaf54",
+    clientId: "486a2769-5d9c-402a-8a83-c3bc9b980e47",
+    credentialKind: "secret",
+    clientSecret: "s3cret",
+  };
+
+  it("takes a calendar date as midnight UTC, empty or missing as unknown", () => {
+    expect(ownAppSchema.parse({ ...ownApp, secretExpiresAt: "2027-03-01" }).secretExpiresAt).toBe(
+      "2027-03-01T00:00:00.000Z",
+    );
+    expect(ownAppSchema.parse({ ...ownApp, secretExpiresAt: " " }).secretExpiresAt).toBeNull();
+    expect(ownAppSchema.parse(ownApp).secretExpiresAt).toBeNull();
+  });
+
+  it("refuses a date that does not exist, with the reason and not the value", () => {
+    const result = ownAppSchema.safeParse({ ...ownApp, secretExpiresAt: "2027-02-30" });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ path: ["secretExpiresAt"], message: "date" }),
+    ]);
+  });
+
+  it("needs the field on the PATCH: a date or null to clear it, nothing else", () => {
+    expect(ownAppExpirySchema.parse({ secretExpiresAt: "2027-03-01" })).toEqual({
+      secretExpiresAt: "2027-03-01T00:00:00.000Z",
+    });
+    expect(ownAppExpirySchema.parse({ secretExpiresAt: null })).toEqual({ secretExpiresAt: null });
+    expect(ownAppExpirySchema.safeParse({}).success).toBe(false);
+    expect(ownAppExpirySchema.safeParse({ secretExpiresAt: 20270301 }).success).toBe(false);
+    expect(
+      ownAppExpirySchema.safeParse({ secretExpiresAt: "2027-03-01", clientSecret: "x" }).success,
+    ).toBe(false);
   });
 });

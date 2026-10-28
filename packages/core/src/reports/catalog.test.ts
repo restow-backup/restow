@@ -66,6 +66,25 @@ describe("channel columns", () => {
     expect(presetEvents("all")).toEqual([...REPORT_EVENTS]);
   });
 
+  it("puts the expiry reminders into the warnings, the bell and their groups", () => {
+    expect(REPORT_EVENT_INFO["source.app_secret_expiring"]).toEqual({
+      group: "jobs",
+      level: "warning",
+    });
+    expect(REPORT_EVENT_INFO["installation.app_secret_expiring"]).toEqual({
+      group: "system",
+      level: "warning",
+    });
+    for (const event of [
+      "source.app_secret_expiring",
+      "installation.app_secret_expiring",
+    ] as const) {
+      expect(presetEvents("warnings")).toContain(event);
+      expect(presetEvents("errors")).not.toContain(event);
+      expect(DEFAULT_BELL_EVENTS).toContain(event);
+    }
+  });
+
   it("keeps the bell as it was until the tenant chooses", () => {
     expect(bellEventsOf(null)).toEqual([...DEFAULT_BELL_EVENTS]);
     for (const routine of ROUTINE_REPORT_EVENTS) {

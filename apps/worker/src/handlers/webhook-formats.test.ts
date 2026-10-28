@@ -296,6 +296,34 @@ describe("buildChatMessage", () => {
     );
   });
 
+  it("links an expiring own app credential to its source, other source events to the alerts", () => {
+    const expiring = buildChatMessage(
+      "report.alert",
+      envelope("report.alert", {
+        subject: "x",
+        event: "source.app_secret_expiring",
+        level: "error",
+        details: { sourceId: "s-1", stage: "expired" },
+      }),
+      EN,
+    );
+    expect(expiring.severity).toBe("error");
+    expect(expiring.link?.url).toBe(
+      `https://backup.example.com/tenants/${TENANT}/connections/sources/s-1`,
+    );
+    const other = buildChatMessage(
+      "report.alert",
+      envelope("report.alert", {
+        subject: "x",
+        event: "archive.failed",
+        level: "error",
+        details: { sourceId: "s-1" },
+      }),
+      EN,
+    );
+    expect(other.link?.url).toBe(`https://backup.example.com/alerts?forTenant=${TENANT}`);
+  });
+
   it("leaves the link out without a public URL and survives unknown events", () => {
     const msg = buildChatMessage("job.started", envelope("job.started", {}), {
       ...EN,

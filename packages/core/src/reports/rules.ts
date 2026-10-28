@@ -139,6 +139,14 @@ export function subjectKeyOf(event: ReportEvent, details: Record<string, unknown
   if (event === "installation.disk_low" && typeof details.disk === "string") {
     return `disk:${details.disk}`;
   }
+  // An expiry reminder is about one credential's date and stage: the 7-day reminder must not
+  // fall into the throttle of the 30-day one, and a new date is a new subject.
+  if (event === "source.app_secret_expiring" && typeof details.sourceId === "string") {
+    return `source_app:${details.sourceId}:${String(details.expiresAt ?? "")}:${String(details.stage ?? "")}`;
+  }
+  if (event === "installation.app_secret_expiring" && typeof details.expiresAt === "string") {
+    return `entra_app:${details.expiresAt}:${String(details.stage ?? "")}`;
+  }
   // An alert about a VM or container of Proxmox VE is about that guest.
   const guest = details.pveGuestId;
   if (typeof guest === "string" && guest.length > 0) {

@@ -477,6 +477,13 @@
       "when": 1793208910968,
       "tag": "0067_pricing",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1793224330538,
+      "tag": "0068_app_secret_alerts",
+      "breakpoints": true
     }
   ]
 }

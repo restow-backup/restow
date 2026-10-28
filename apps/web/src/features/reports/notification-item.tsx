@@ -3,6 +3,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { RelativeTime } from "@/components/kit";
+import { formatDay } from "@/features/shared/credential-expiry";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,17 @@ export function bellEventKey(item: Pick<BellNotification, "event" | "details">):
       ? "bellEvents.installation.disk_low_repository"
       : "bellEvents.installation.disk_low_database";
   }
+  // An app credential's expiry names its stage (30 days, 7 days, expired; core entra/expiry.ts).
+  if (
+    item.event === "installation.app_secret_expiring" ||
+    item.event === "source.app_secret_expiring"
+  ) {
+    const stage = item.details?.stage;
+    const base = `bellEvents.${item.event}`;
+    return stage === "soon30" || stage === "soon7" || stage === "expired"
+      ? `${base}_${stage}`
+      : base;
+  }
   // An alert of the archive capture names what stopped (apps/worker archive-capture/alerts.ts).
   const reason = item.details?.reason;
   if (
@@ -44,7 +56,8 @@ const LEVEL_DOT: Record<BellNotification["level"], string> = {
 
 /** The line of a notification in the reader's language. */
 export function useNotificationText() {
-  const { t } = useTranslation("reports");
+  const { t, i18n } = useTranslation("reports");
+  const language = i18n.resolvedLanguage ?? i18n.language;
   return (item: BellNotification) =>
     t(bellEventKey(item), {
       defaultValue: item.message,
@@ -52,6 +65,10 @@ export function useNotificationText() {
       rule: typeof item.details?.ruleName === "string" ? item.details.ruleName : "",
       version: typeof item.details?.version === "string" ? item.details.version : "",
       days: typeof item.details?.days === "number" ? item.details.days : "",
+      date:
+        typeof item.details?.expiresAt === "string"
+          ? formatDay(item.details.expiresAt, language)
+          : "",
       free:
         typeof item.details?.freeBytes === "number"
           ? `${(item.details.freeBytes / 1024 ** 3).toFixed(1)} GiB`

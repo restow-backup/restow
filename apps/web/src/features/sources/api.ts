@@ -77,6 +77,20 @@ export function connectOwnApp(sourceId: string, input: OwnAppInput): Promise<Ver
   });
 }
 
+/**
+ * Note when the own app's client secret expires (`YYYY-MM-DD`, null to clear it), without
+ * entering the secret again. Drops the last reminder, so the reminders start over.
+ */
+export function updateOwnAppExpiry(
+  sourceId: string,
+  secretExpiresAt: string | null,
+): Promise<SourceDto> {
+  return apiFetch<SourceDto>(sourcePath(sourceId, "own-app/expiry"), {
+    method: "PATCH",
+    body: { secretExpiresAt },
+  });
+}
+
 /** Connect the tenant the backup app lives in, without an admin-consent round trip. */
 export function connectOwnTenant(sourceId: string): Promise<VerifyResultDto> {
   return apiFetch<VerifyResultDto>(sourcePath(sourceId, "connect-own-tenant"), { method: "POST" });

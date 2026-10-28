@@ -47,6 +47,17 @@ function formatWhen(iso: string | null, language: SupportedLanguage): string | n
   }).format(date);
 }
 
+/** A calendar day (an expiry date is midnight UTC), without a time. */
+function formatDay(iso: string | null, language: SupportedLanguage): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat(language === "de" ? "de-DE" : "en-GB", {
+    dateStyle: "medium",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 /** Bytes as GiB with one decimal, in the reader's number format. */
 function formatGib(bytes: number, language: SupportedLanguage): string {
   const value = new Intl.NumberFormat(language === "de" ? "de-DE" : "en-GB", {
@@ -222,6 +233,42 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     if (location) rows.push([t("reports:mail.location"), location]);
     if (free !== null) rows.push([t("reports:mail.free"), formatGib(free, input.language)]);
     if (total !== null) rows.push([t("reports:mail.total"), formatGib(total, input.language)]);
+  }
+  if (event === "installation.app_secret_expiring" || event === "source.app_secret_expiring") {
+    // The expiry reminder of an app credential (the central app: features/updates/secret-watch.ts;
+    // a source's own app: apps/worker source-app-expiry.ts): when it runs out, how long is left,
+    // which app, and how to renew it without a gap.
+    const expiresAt = formatDay(text(details.expiresAt), input.language);
+    const clientId = text(details.clientId);
+    const kind = text(details.credentialKind);
+    if (expiresAt) rows.push([t("reports:mail.expiresAt"), expiresAt]);
+    if (details.stage === "expired") {
+      rows.push([t("reports:mail.daysLeft"), t("reports:mail.secretExpired")]);
+    } else if (typeof details.days === "number") {
+      rows.push([
+        t("reports:mail.daysLeft"),
+        formatCount(Math.max(0, details.days), input.language),
+      ]);
+    }
+    if (kind === "secret" || kind === "certificate") {
+      rows.push([
+        t("reports:mail.credential"),
+        t(
+          kind === "secret"
+            ? "reports:mail.credentialSecret"
+            : "reports:mail.credentialCertificate",
+        ),
+      ]);
+    }
+    if (clientId) rows.push([t("reports:mail.clientId"), clientId]);
+    rows.push([
+      t("reports:mail.todo"),
+      t(
+        event === "source.app_secret_expiring"
+          ? "reports:mail.secretRenewSource"
+          : "reports:mail.secretRenewCentral",
+      ),
+    ]);
   }
   if (event === "backup.suspicious") {
     // Which restore point, and why it looks like ransomware at work: one line per finding.

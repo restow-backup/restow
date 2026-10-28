@@ -49,6 +49,58 @@ describe("renderAlert", () => {
     expect(german.text).toContain("Frei: 4,0 GiB");
   });
 
+  it("says when an app credential expires, how long is left and how to renew it", () => {
+    const expiring = (
+      event: "installation.app_secret_expiring" | "source.app_secret_expiring",
+      details: Record<string, unknown>,
+      language: "en" | "de" = "en",
+    ) =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "App secrets",
+        payload: {
+          event,
+          occurredAt: "2026-11-24T10:00:00.000Z",
+          details: {
+            clientId: "486a2769-5d9c-402a-8a83-c3bc9b980e47",
+            credentialKind: "secret",
+            expiresAt: "2026-12-01T00:00:00.000Z",
+            ...details,
+          },
+        },
+      });
+
+    const central = expiring("installation.app_secret_expiring", {
+      stage: "soon7",
+      // On 24 Nov a date of 1 Dec is 7 calendar days away (core counts from the day's start).
+      days: 7,
+      objectName: "486a2769-5d9c-402a-8a83-c3bc9b980e47",
+    });
+    expect(central.subject).toBe(
+      "[Contoso] Microsoft 365 app credential expires: 486a2769-5d9c-402a-8a83-c3bc9b980e47",
+    );
+    expect(central.text).toContain("Expires on: 1 Dec 2026");
+    expect(central.text).toContain("Days left: 7");
+    expect(central.text).toContain("Credential: Client secret");
+    expect(central.text).toContain("Application (client) ID: 486a2769-5d9c-402a-8a83-c3bc9b980e47");
+    expect(central.text).toContain("Installation › Microsoft multi-tenant app");
+
+    const source = expiring(
+      "source.app_secret_expiring",
+      { stage: "expired", days: -2, objectName: "Contoso M365", credentialKind: "certificate" },
+      "de",
+    );
+    expect(source.subject).toBe(
+      "[Contoso] Zugangsdaten der eigenen App einer Quelle laufen ab: Contoso M365",
+    );
+    expect(source.text).toContain("Läuft ab am: 01.12.2026");
+    expect(source.text).toContain("Verbleibende Tage: Abgelaufen:");
+    expect(source.text).toContain("Zugangsdaten: Zertifikat");
+    expect(source.text).toContain("unter Quellen bei dieser Quelle");
+    expect(source.html).toContain("Contoso M365");
+  });
+
   it("names the restore point and every finding of a suspicious backup", () => {
     const suspicious = (language: "en" | "de") =>
       renderAlert({

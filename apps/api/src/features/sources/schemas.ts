@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { expiryDateField } from "../../lib/expiry-date.js";
 
 /**
  * Request schemas for the sources feature (same style as apps/api/src/schemas.ts).
@@ -205,7 +206,27 @@ export const ownAppSchema = z
     clientSecret: z.string().max(512).nullable().optional(),
     certificatePem: z.string().max(32_768).nullable().optional(),
     authorityHost: z.string().trim().max(200).nullable().optional(),
+    /**
+     * When the client secret expires, as the Entra portal shows it (`2027-03-01`); empty for
+     * unknown. Drives the reminders 30 and 7 days before and once it has run out (apps/worker
+     * source-app-expiry.ts). Ignored for a certificate, whose own end counts.
+     */
+    secretExpiresAt: expiryDateField(),
   })
   .strict();
+
+/**
+ * PATCH /sources/:id/own-app/expiry: note (or clear with null) the expiry date of the stored
+ * client secret without entering the secret again.
+ */
+export const ownAppExpirySchema = z
+  .object({
+    // Required (null clears it), so an empty body does not silently forget the date.
+    secretExpiresAt: z
+      .union([z.string(), z.null()], { required_error: "required", invalid_type_error: "date" })
+      .pipe(expiryDateField()),
+  })
+  .strict();
+export type OwnAppExpiryInput = z.infer<typeof ownAppExpirySchema>;
 
 export const sourceIdParamSchema = z.object({ id: z.string().uuid() });

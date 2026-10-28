@@ -12,13 +12,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { ReadOnlyGroup } from "@/features/installation/access";
 import { installationSectionTo } from "@/features/installation/paths";
+import { expiryNeedsAction, expiryState } from "@/features/shared/credential-expiry";
+import { ExpiryBadge } from "@/features/shared/credential-expiry-badge";
 import { cn } from "@/lib/utils";
 import type { MicrosoftAppView } from "./api";
 import { EnterStep } from "./app-form";
 import { TestPanel } from "./app-test";
-import { ExpiryBadge, type SetupVariant } from "./components";
+import type { SetupVariant } from "./components";
 import { useMicrosoftApp, useRemoveMicrosoftApp } from "./hooks";
-import { expiryState, microsoftAppErrorKey, registrationStatus } from "./presenters";
+import { microsoftAppErrorKey, registrationStatus } from "./presenters";
 import { CredentialsStep, PermissionsStep, RegisterStep } from "./setup-steps";
 
 /**
@@ -209,8 +211,22 @@ function StatusCard({ view, variant }: { view: MicrosoftAppView; variant: SetupV
         </dl>
       ) : null}
 
-      {expiry.kind === "expired" || expiry.kind === "soon" ? (
-        <Alert variant={expiry.kind === "expired" ? "destructive" : "warning"}>
+      {/* A secret from the environment has no stored date: only the variable lets the check warn. */}
+      {view.source === "environment" && credentialKind === "secret" && expiry.kind === "unknown" ? (
+        <Alert variant="info">
+          <Info />
+          <AlertDescription>{t("microsoftApp.status.expiryEnvironmentHint")}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {expiryNeedsAction(expiry) ? (
+        <Alert
+          variant={
+            expiry.kind === "expired" || (expiry.kind === "soon" && expiry.urgent)
+              ? "destructive"
+              : "warning"
+          }
+        >
           <TriangleAlert />
           <AlertDescription>{t("microsoftApp.expiry.warning")}</AlertDescription>
         </Alert>

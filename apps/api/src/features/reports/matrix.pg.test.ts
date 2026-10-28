@@ -199,6 +199,20 @@ describe.skipIf(!testDatabaseAdminUrl)("the notification matrix against Postgres
     expect((await matrix(true)).events.map((event) => event.name)).toContain("update.available");
   });
 
+  it("shows the source's app expiry to tenant administrators, the central app's only to providers", async () => {
+    const tenantView = (await matrix()).events;
+    expect(tenantView.find((event) => event.name === "source.app_secret_expiring")).toEqual({
+      name: "source.app_secret_expiring",
+      group: "jobs",
+      level: "warning",
+    });
+    expect(tenantView.map((event) => event.name)).not.toContain("installation.app_secret_expiring");
+    const providerView = (await matrix(true)).events;
+    expect(providerView.find((event) => event.name === "installation.app_secret_expiring")).toEqual(
+      { name: "installation.app_secret_expiring", group: "system", level: "warning" },
+    );
+  });
+
   it("stops the posts of successful backups to Discord while failures still arrive", async () => {
     const { emitWebhookEvent } = await import("../../lib/webhooks.js");
     const reached = async (event: "job.completed" | "job.failed", queue: string) => {

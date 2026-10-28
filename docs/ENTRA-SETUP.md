@@ -162,10 +162,23 @@ Token-Client (`packages/core/src/graph/auth/token.ts`) kann beide:
   weil das fast immer die Geheime ID ist. Nie ins Repo, nie in Logs (`docs/… nicht
   verhandelbar`: keine Secrets im Repo, keine Secrets in Logs; Secrets liegen nur
   verschlüsselt in der DB bzw. in der Umgebung).
-- Das Ablaufdatum aus Entra beim Eintragen mit angeben: Restow warnt **60 Tage** vor
-  Ablauf (bei Zertifikaten liest es das Datum selbst aus). Rotation: neues
-  Secret/Zertifikat anlegen, in Restow hinterlegen, dann das alte entfernen — nie erst
-  löschen.
+- Das Ablaufdatum aus Entra beim Eintragen mit angeben (bei Zertifikaten liest Restow das
+  Datum selbst aus, `notAfter`). Liegt das Secret in `ENTRA_CLIENT_SECRET`, das Datum in
+  `ENTRA_CLIENT_SECRET_EXPIRES_AT` ablegen (`JJJJ-MM-TT`, etwa `2027-03-01`); ohne Datum
+  kann Restow nicht warnen, die Seite zeigt dann „unbekannt“ mit diesem Hinweis.
+  Rotation: neues Secret/Zertifikat anlegen, in Restow hinterlegen (mit neuem Datum), dann
+  das alte entfernen — nie erst löschen.
+
+**Ablauf und Erinnerungen.** Restow erinnert **30 Tage** vor Ablauf, erneut **7 Tage** vor
+Ablauf und **nach dem Ablauf**, je Stufe genau einmal pro Ablaufdatum; ein neues Datum
+(Rotation, geändertes Datum, neues Zertifikat) beginnt von vorn. Wer erst kurz vor Ablauf
+ein Datum einträgt, bekommt nur die Stufe, in der es gerade steht, keine nachgeholten.
+Gemeldet wird über das Ereignis *Zugangsdaten der Microsoft-365-App laufen ab*
+(`installation.app_secret_expiring`, nur für Anbieter-Administratoren wählbar) an Glocke,
+E-Mail und Webhooks nach den Benachrichtigungsregeln. Die Badge unter **Installation →
+Microsoft-Multi-Tenant-App** wird ab 30 Tagen gelb und ab 7 Tagen rot. Das Datum liest Restow
+nicht aus Graph: dafür bräuchte die App `Application.Read.All`, das sie bewusst nicht
+anfordert (Teil 2).
 
 Genau **einen** Weg befüllen. Ist `ENTRA_CLIENT_CERT_PATH` gesetzt, nutzt Restow das
 Zertifikat und ignoriert das Secret. In der Weboberfläche wird entweder ein Secret oder ein
@@ -245,10 +258,20 @@ Consent-Link; die Zugangsdaten gehören dem Kunden.
    `Mail.Send` sowie `Sites.ReadWrite.All` (SharePoint). Danach *Administratorzustimmung für … erteilen*. Die Oberfläche zeigt dieselbe Liste
    zum Kopieren.
 3. Unter *Zertifikate & Geheimnisse* ein Clientgeheimnis (den **Wert**, nicht die Geheimnis-ID) oder ein
-   Zertifikat anlegen. Das Ablaufdatum notieren und rechtzeitig ein neues eintragen.
+   Zertifikat anlegen. Das Ablaufdatum notieren (Spalte „Läuft ab“) und rechtzeitig ein neues eintragen.
 4. In Restow in der **Organisation**, zu der der Kunde gehört: Verbindungen → Quelle → *Eigene Graph-App*.
-   Tenant-ID, Anwendungs-ID und das Secret (oder eine PEM-Datei mit privatem Schlüssel und Zertifikat)
-   eintragen.
+   Tenant-ID, Anwendungs-ID und das Secret mit seinem Ablaufdatum (oder eine PEM-Datei mit privatem
+   Schlüssel und Zertifikat) eintragen.
+
+**Ablauf.** Wie bei der zentralen App erinnert Restow 30 Tage vor Ablauf, erneut 7 Tage vorher und nach
+dem Ablauf, einmal je Stufe und Datum, über das Ereignis *Zugangsdaten der eigenen App einer Quelle laufen
+ab* (`source.app_secret_expiring`, in der Gruppe der Jobs, also auch für Mandanten-Administratoren
+wählbar). Beim Zertifikat gilt dessen Ende (`notAfter`). Für ein Secret ohne Datum (etwa bei Quellen, die
+vor 0.4.7 verbunden wurden) gibt es keine Erinnerung: auf der Seite der Quelle unter *Läuft ab* lässt sich
+das Datum nachtragen oder ändern, ohne das Secret erneut einzugeben. Ist es abgelaufen, schlagen alle
+Sicherungen der Quelle fehl, bis neue Zugangsdaten eingetragen sind. Quellen mit einem älteren eigenen
+Secret ohne eigene App (gemeinsame Client-ID) haben kein Ablaufdatum in Restow; sie auf eine eigene App
+oder die zentrale App umstellen.
 
 Restow fordert mit diesen Zugangsdaten ein Token für genau diesen Tenant an; ohne gültiges Token wird nichts
 gebunden. Die Zugangsdaten liegen verschlüsselt im Geheimnisspeicher der Organisation und werden nie wieder

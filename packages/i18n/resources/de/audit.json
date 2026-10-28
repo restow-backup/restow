@@ -384,7 +384,8 @@
         "probed": "IMAP-Server abgefragt"
       },
       "own_app": {
-        "connected": "Eigene Graph-App der Quelle verbunden"
+        "connected": "Eigene Graph-App der Quelle verbunden",
+        "expiry_updated": "Ablaufdatum des Schlüssels der eigenen App der Quelle geändert"
       },
       "own_tenant": {
         "connected": "Eigener Tenant ohne Consent verbunden"

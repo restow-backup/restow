@@ -8,6 +8,7 @@ import {
   consentLinkSchema,
   createSourceSchema,
   imapTestSchema,
+  ownAppExpirySchema,
   ownAppSchema,
   sourceIdParamSchema,
   updateSourceSchema,
@@ -27,6 +28,7 @@ import {
   resolvePublicOrigin,
   testImapConnection,
   testSource,
+  updateOwnAppExpiry,
   updateSource,
   verifySource,
 } from "./service.js";
@@ -50,6 +52,7 @@ import {
  *   DELETE /:id                   delete (and its secret); refused while it holds data
  *   POST   /:id/consent-link      signed admin-consent link
  *   PUT    /:id/own-app           connect through the customer's own Graph app (sealed credential)
+ *   PATCH  /:id/own-app/expiry    note when the own app's client secret expires (no secret needed)
  *   POST   /:id/connect-own-tenant connect the app's own tenant without consent (provider admin)
  *   POST   /:id/verify            verify permissions + test call (m365)
  *   POST   /:id/test              probe the stored connection and record it (imap)
@@ -243,6 +246,13 @@ sourcesRoutes.put("/:id/own-app", tenantAdmin, async (c) => {
   const body = await parseJsonBody(c.req, ownAppSchema);
   return c.json(
     await connectOwnApp(db, providerDb, c.get("tenantId"), sourceId(c), actorOf(c), body),
+  );
+});
+
+sourcesRoutes.patch("/:id/own-app/expiry", tenantAdmin, async (c) => {
+  const body = await parseJsonBody(c.req, ownAppExpirySchema);
+  return c.json(
+    await updateOwnAppExpiry(db, c.get("tenantId"), sourceId(c), actorOf(c), body.secretExpiresAt),
   );
 });
 

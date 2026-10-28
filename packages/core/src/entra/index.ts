@@ -26,6 +26,7 @@ export * from "./certificate.js";
 export * from "./consent.js";
 export * from "./consent-identity.js";
 export * from "./consent-state.js";
+export * from "./expiry.js";
 export * from "./permissions.js";
 export * from "./source-app.js";
 export * from "./verify.js";

@@ -30,8 +30,10 @@ export const REPORT_EVENTS = [
   "endpoint.repository_locked",
   "file_share.storage_quota",
   "file_share.repository_locked",
+  "source.app_secret_expiring",
   "update.available",
   "installation.disk_low",
+  "installation.app_secret_expiring",
 ] as const;
 export type ReportEvent = (typeof REPORT_EVENTS)[number];
 

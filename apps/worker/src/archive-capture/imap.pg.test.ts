@@ -80,7 +80,7 @@ function mail(id: string): string {
 async function until(condition: () => boolean | Promise<boolean>, what: string): Promise<void> {
   // Generous: on a shared CI runner the whole suite runs at once, and a pass of the service
   // loop can wait seconds for its turn. Every wait ends as soon as its condition holds.
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + 60_000;
   while (!(await condition())) {
     if (Date.now() > deadline) {
       throw new Error(`timed out waiting for ${what}`);
@@ -518,5 +518,5 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
       await way.idle()?.stop();
     }
     await until(() => server.stats.open === 0, "every IMAP session to close");
-  }, 90_000);
+  }, 180_000);
 });

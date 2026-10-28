@@ -43,6 +43,12 @@ export interface EntraConfig {
   clientId: string | undefined;
   clientSecret: string | undefined;
   clientCertPath: string | undefined;
+  /**
+   * ENTRA_CLIENT_SECRET_EXPIRES_AT: when ENTRA_CLIENT_SECRET expires (`2027-03-01`), for the
+   * expiry reminders (features/updates/secret-watch.ts); read raw, checked where it is used
+   * (features/sources/entra.ts). Unset means unknown: no reminder.
+   */
+  clientSecretExpiresAt?: string | undefined;
   /** ENTRA_AUTHORITY_HOST, for sovereign clouds. */
   authorityHost: string | undefined;
   ssoClientId: string | undefined;
@@ -324,6 +330,7 @@ export function loadConfig(env: Env = process.env): Config {
       clientId: str(env, "ENTRA_CLIENT_ID"),
       clientSecret: str(env, "ENTRA_CLIENT_SECRET"),
       clientCertPath: str(env, "ENTRA_CLIENT_CERT_PATH"),
+      clientSecretExpiresAt: str(env, "ENTRA_CLIENT_SECRET_EXPIRES_AT"),
       authorityHost: str(env, "ENTRA_AUTHORITY_HOST"),
       ssoClientId: str(env, "ENTRA_SSO_CLIENT_ID"),
       ssoClientSecret: str(env, "ENTRA_SSO_CLIENT_SECRET"),

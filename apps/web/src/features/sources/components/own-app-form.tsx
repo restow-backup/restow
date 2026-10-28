@@ -10,11 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
+import { isCalendarDate } from "@/features/shared/credential-expiry";
 import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { isGuid } from "../forms";
 import { OWN_APP_PERMISSIONS, ownAppTokenHint } from "../own-app-permissions";
-import { sourceErrorKey } from "../presenters";
+import { problemField, sourceErrorKey } from "../presenters";
 import type { SourceDto } from "../types";
 import { useConnectOwnApp } from "../use-sources";
 
@@ -44,7 +45,14 @@ export function OwnAppForm({ source, onConnected, onCancel }: OwnAppFormProps) {
   const [kind, setKind] = React.useState<CredentialKind>(m365?.ownApp?.credentialKind ?? "secret");
   const [secret, setSecret] = React.useState("");
   const [pem, setPem] = React.useState("");
-  const [invalid, setInvalid] = React.useState<"tenantId" | "clientId" | "credential" | null>(null);
+  // The new secret's expiry as Entra shows it; the reminders (30 and 7 days, expired) need it.
+  // Empty on purpose, also when a date is stored: every submit stores a new secret, and the old
+  // secret's date would carry over to it (a repeated reminder, a wrong "expired"). The date of
+  // the current secret is changed on its own on the connection card (own-app-expiry.tsx).
+  const [expiresAt, setExpiresAt] = React.useState("");
+  const [invalid, setInvalid] = React.useState<
+    "tenantId" | "clientId" | "credential" | "expiresAt" | null
+  >(null);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -57,13 +65,20 @@ export function OwnAppForm({ source, onConnected, onCancel }: OwnAppFormProps) {
     if ((kind === "secret" ? secret : pem).trim().length === 0) {
       return setInvalid("credential");
     }
+    const date = expiresAt.trim();
+    if (kind === "secret" && date.length > 0 && !isCalendarDate(date)) {
+      return setInvalid("expiresAt");
+    }
     setInvalid(null);
     connect.mutate(
       {
         tenantId: tenantId.trim(),
         clientId: clientId.trim(),
         credentialKind: kind,
-        ...(kind === "secret" ? { clientSecret: secret } : { certificatePem: pem }),
+        // A certificate carries its own end (notAfter); only a secret takes a date.
+        ...(kind === "secret"
+          ? { clientSecret: secret, secretExpiresAt: date.length > 0 ? date : null }
+          : { certificatePem: pem }),
       },
       {
         onSuccess: () => {
@@ -79,6 +94,8 @@ export function OwnAppForm({ source, onConnected, onCancel }: OwnAppFormProps) {
   const problem = connect.error instanceof ApiError ? connect.error.problem : null;
   const detail = problem?.detail ?? null;
   const tokenHint = ownAppTokenHint(problem?.hint);
+  // The API names the field of a date it refused (`expires_at`); it reads under the field.
+  const dateRefused = problemField(connect.error) === "expires_at";
   const permissionList = OWN_APP_PERMISSIONS.map((entry) => entry.permission).join("\n");
 
   return (
@@ -182,21 +199,41 @@ export function OwnAppForm({ source, onConnected, onCancel }: OwnAppFormProps) {
           ))}
         </fieldset>
         {kind === "secret" ? (
-          <Field
-            id="own-app-secret"
-            label={t("m365.ownApp.clientSecret")}
-            hint={m365?.ownApp ? t("m365.ownApp.replaceHint") : t("m365.ownApp.secretHint")}
-            error={invalid === "credential" ? t("m365.ownApp.credentialRequired") : undefined}
-          >
-            <PasswordInput
+          <div className="space-y-4">
+            <Field
               id="own-app-secret"
-              autoComplete="off"
-              value={secret}
-              aria-invalid={invalid === "credential"}
-              aria-describedby={messageId("own-app-secret")}
-              onChange={(event) => setSecret(event.target.value)}
-            />
-          </Field>
+              label={t("m365.ownApp.clientSecret")}
+              hint={m365?.ownApp ? t("m365.ownApp.replaceHint") : t("m365.ownApp.secretHint")}
+              error={invalid === "credential" ? t("m365.ownApp.credentialRequired") : undefined}
+            >
+              <PasswordInput
+                id="own-app-secret"
+                autoComplete="off"
+                value={secret}
+                aria-invalid={invalid === "credential"}
+                aria-describedby={messageId("own-app-secret")}
+                onChange={(event) => setSecret(event.target.value)}
+              />
+            </Field>
+            <Field
+              id="own-app-expires-at"
+              label={t("m365.ownApp.expiresAt")}
+              hint={t("m365.ownApp.expiresAtHint")}
+              error={
+                invalid === "expiresAt" || dateRefused ? t("m365.ownApp.invalidDate") : undefined
+              }
+              className="max-w-xs"
+            >
+              <Input
+                id="own-app-expires-at"
+                type="date"
+                value={expiresAt}
+                aria-invalid={invalid === "expiresAt" || dateRefused}
+                aria-describedby={messageId("own-app-expires-at")}
+                onChange={(event) => setExpiresAt(event.target.value)}
+              />
+            </Field>
+          </div>
         ) : (
           <Field
             id="own-app-pem"

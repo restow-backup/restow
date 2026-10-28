@@ -76,6 +76,17 @@ describe("environment", () => {
     );
     expect(environmentPartiallyConfigured({})).toBe(false);
   });
+
+  it("reads the optional expiry of the environment secret as midnight UTC", () => {
+    const read = (value: string) =>
+      entraAppEnvironmentFrom({ ENTRA_CLIENT_SECRET_EXPIRES_AT: value }).secretExpiresAt;
+    expect(read(" 2027-03-01 ")).toBe("2027-03-01T00:00:00.000Z");
+    expect(read("2027-03-01T15:30:00Z")).toBe("2027-03-01T00:00:00.000Z");
+    // Unreadable or impossible dates count as unknown, not as an error at start.
+    expect(read("2027-02-30")).toBeUndefined();
+    expect(read("next year")).toBeUndefined();
+    expect(read("")).toBeUndefined();
+  });
 });
 
 describe("EntraAppResolver precedence", () => {
@@ -96,6 +107,20 @@ describe("EntraAppResolver precedence", () => {
     });
     expect(resolution.app.expiresAt).toBeNull();
     expect(counts.loads).toBe(0);
+  });
+
+  it("reports the noted expiry of the environment secret", async () => {
+    const { instance } = resolver({
+      environment: {
+        clientId: CLIENT_ID,
+        clientSecret: "env-secret",
+        secretExpiresAt: "2027-03-01T00:00:00.000Z",
+      },
+    });
+    const resolution = await instance.resolve();
+    expect(resolution.status === "ready" && resolution.app.expiresAt).toBe(
+      "2027-03-01T00:00:00.000Z",
+    );
   });
 
   it("prefers the certificate file over the secret in the environment", async () => {
