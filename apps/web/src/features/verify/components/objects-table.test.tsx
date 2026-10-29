@@ -344,6 +344,22 @@ describe("ObjectsTable", () => {
     expect(active).toContain("The latest backup is 10 days old");
   });
 
+  it("names a disabled or unlicensed account as not backed up, not as removed", () => {
+    const disabled = table([
+      readiness({ object: object({ status: "orphaned", statusReason: "account_disabled" }) }),
+    ]);
+    expect(disabled).toContain("Not backed up: account disabled, backups kept");
+    expect(disabled).not.toContain("Removed from source");
+    const unlicensed = table([
+      readiness({ object: object({ status: "orphaned", statusReason: "no_license" }) }),
+    ]);
+    expect(unlicensed).toContain("Not backed up: no licence, backups kept");
+    // Removed from its source: as before.
+    expect(table([readiness({ object: object({ status: "orphaned" }) })])).toContain(
+      "Removed from source, backups kept",
+    );
+  });
+
   it("shows the same finding text whether or not the server explained the reason", () => {
     const explained = table([
       readiness({

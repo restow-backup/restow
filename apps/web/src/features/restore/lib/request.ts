@@ -4,6 +4,7 @@ import type {
   RestoreMode,
   RestoreOptions,
   RestoreTargetType,
+  SnapshotObject,
 } from "@/features/restore/api";
 import {
   everythingSelection,
@@ -141,6 +142,27 @@ export function originalTargetDescriptionKey(
   return usesRestoreFolder(kind, { target: "original", accountId: "", mode, reason: "" })
     ? "dialog.target.originalDescriptionFolder"
     : "dialog.target.originalDescription";
+}
+
+/**
+ * Why the "original location" card is closed for an orphaned object: removed from its source,
+ * or (with a `statusReason`) a mailbox whose account is disabled or unlicensed, which still
+ * exists and can be restored into once it is enabled or licensed again. Null for any other
+ * object. The wording follows the API's 409 for the same case (restore/service.ts).
+ */
+export function originalUnavailableKey(
+  object: Pick<SnapshotObject, "status" | "statusReason">,
+):
+  | "dialog.target.originalGone"
+  | "dialog.target.originalInactive.account_disabled"
+  | "dialog.target.originalInactive.no_license"
+  | null {
+  if (object.status !== "orphaned") {
+    return null;
+  }
+  return object.statusReason
+    ? `dialog.target.originalInactive.${object.statusReason}`
+    : "dialog.target.originalGone";
 }
 
 function pad(value: number): string {

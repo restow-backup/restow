@@ -32,6 +32,7 @@ import { jobDetailTo } from "@/features/jobs/paths";
 import type {
   CheckedItem,
   LatestBackup,
+  ObjectStatusReason,
   Reason,
   ReportDetail,
   ScrubFinding,
@@ -523,6 +524,41 @@ function RemovedFromSourceNotice({
   );
 }
 
+/**
+ * The mailbox's account is disabled or unlicensed (it still exists): not backed up for now, its
+ * backups kept and resumed once it is enabled or licensed again. Like a removed object, the age
+ * of the kept backup is no finding.
+ */
+function InactiveAccountNotice({
+  statusReason,
+  setAside,
+  format,
+}: {
+  statusReason: ObjectStatusReason;
+  setAside: readonly Reason[];
+  format: VerifyFormat;
+}) {
+  const { t } = format;
+  return (
+    <Alert variant="info" data-slot="inactive-account-notice">
+      <Archive aria-hidden="true" />
+      <AlertTitle>{t(`report.inactive.${statusReason}.title`)}</AlertTitle>
+      <AlertDescription>
+        <p>{t(`report.inactive.${statusReason}.description`)}</p>
+        {setAside.map((reason, index) => {
+          const message = reasonMessage(reason);
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: the reasons have no identity beyond their position
+            <p key={index} className="text-muted-foreground">
+              {t("report.removed.notCounted", { reason: t(message.key, message.values) })}
+            </p>
+          );
+        })}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 function LatestBackupNotice({ latest, format }: { latest: LatestBackup; format: VerifyFormat }) {
   const { t } = format;
   const unverified = latest.verification.state === "unverified";
@@ -654,7 +690,13 @@ export function ReportPage({ reportId }: { reportId: string }) {
       {report.latestBackup ? (
         <LatestBackupNotice latest={report.latestBackup} format={format} />
       ) : null}
-      {report.object.status === "orphaned" ? (
+      {report.object.status === "orphaned" && report.object.statusReason ? (
+        <InactiveAccountNotice
+          statusReason={report.object.statusReason}
+          setAside={setAside}
+          format={format}
+        />
+      ) : report.object.status === "orphaned" ? (
         <RemovedFromSourceNotice setAside={setAside} format={format} />
       ) : null}
 

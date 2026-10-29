@@ -23,6 +23,8 @@
     "active": "Protected",
     "excluded": "Excluded",
     "orphaned": "Orphaned",
+    "inactive_account_disabled": "Not backed up: account disabled",
+    "inactive_no_license": "Not backed up: no licence",
     "not_selected": "Not selected",
     "needs_credential": "Needs attention",
     "no_job": "No backup job",
@@ -32,6 +34,8 @@
     "active": "In scope and in a backup job that backs it up on a schedule.",
     "excluded": "Out of scope by rule or by an individual decision: no new backups run.",
     "orphaned": "No longer in the directory or no longer provisioned. Existing backups stay until retention removes them.",
+    "inactive_account_disabled": "The account is disabled in Microsoft 365 and Exchange Online hosts no mailbox for it. Existing backups are kept. Backups resume automatically when the account is enabled again.",
+    "inactive_no_license": "The account has no Exchange Online licence (or it was removed), so there is no mailbox to back up. Existing backups are kept. Backups resume automatically when a licence is assigned again.",
     "not_selected": "The scope is \"Only selected objects\" and nobody chose this object: no new backups run. Existing backups, if any, stay until retention removes them.",
     "needs_credential": "In scope, but this account has no password of its own set and working yet: no backup can run until one is set under Login and tested.",
     "no_job": "Can be backed up, but is in no backup job: it is backed up on a schedule only once a job covers it.",
@@ -67,6 +71,14 @@
     "failedWhen": "The most recent backup run failed {when}.",
     "limited": "Held back by the service",
     "limitedWhen": "A service held the last backup run back {when}. This is not an error; the next scheduled run tries again.",
+    "notBackedUp": {
+      "account_disabled": "Not backed up: account disabled",
+      "no_license": "Not backed up: no licence"
+    },
+    "notBackedUpHint": {
+      "account_disabled": "The account is disabled, so Microsoft hosts no mailbox to back up. This is not an error. Existing backups are kept, and backups resume automatically when the account is enabled again.",
+      "no_license": "The account has no Exchange Online licence, so Microsoft hosts no mailbox to back up. This is not an error. Existing backups are kept, and backups resume automatically when a licence is assigned again."
+    },
     "openJob": "Open run",
     "snapshots": "{count, plural, one {# snapshot} other {# snapshots}}",
     "now": "Back up now",

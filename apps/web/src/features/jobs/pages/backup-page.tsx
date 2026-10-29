@@ -35,7 +35,12 @@ import { ProgressBar, ProgressSummary } from "@/features/jobs/components/job-pro
 import { SnapshotHistoryDialog } from "@/features/jobs/components/snapshot-history-dialog";
 import { JobStatusBadge, ObjectKindIcon, ReadinessBadge } from "@/features/jobs/components/status";
 import { jobDetailTo } from "@/features/jobs/paths";
-import { isLive, matchesTargetSearch, objectLabel } from "@/features/jobs/presenters";
+import {
+  isLive,
+  isMutedTarget,
+  matchesTargetSearch,
+  objectLabel,
+} from "@/features/jobs/presenters";
 import { type JobFormat, useJobFormat } from "@/features/jobs/use-format";
 import { useLiveBackupTargets, useNow } from "@/features/jobs/use-jobs";
 import { protectedObjectAddress } from "@/lib/protected-object";
@@ -192,7 +197,7 @@ function TargetRow({
   const { t } = format;
   const job = target.lastJob;
   const snapshot = target.lastSnapshot;
-  const excluded = target.blocked === "excluded" || target.blocked === "orphaned";
+  const excluded = isMutedTarget(target);
   const address = protectedObjectAddress(target);
 
   return (
@@ -245,6 +250,7 @@ function TargetRow({
                 queue={job.queue}
                 checkIncomplete={job.checkIncomplete}
                 serviceLimited={job.serviceLimited}
+                notBackedUp={job.notBackedUp}
               />
               <Link
                 to={jobDetailTo(job.id)}

@@ -23,6 +23,8 @@
     "active": "Geschützt",
     "excluded": "Ausgeschlossen",
     "orphaned": "Verwaist",
+    "inactive_account_disabled": "Nicht gesichert: Konto deaktiviert",
+    "inactive_no_license": "Nicht gesichert: keine Lizenz",
     "not_selected": "Nicht ausgewählt",
     "needs_credential": "Braucht Aufmerksamkeit",
     "no_job": "Ohne Backup-Job",
@@ -32,6 +34,8 @@
     "active": "Im Schutzumfang und in einem Backup-Job, der nach Zeitplan sichert.",
     "excluded": "Per Regel oder Einzelentscheidung ausgeschlossen: Es laufen keine neuen Sicherungen.",
     "orphaned": "Nicht mehr im Verzeichnis oder nicht mehr bereitgestellt. Vorhandene Sicherungen bleiben, bis die Aufbewahrung sie entfernt.",
+    "inactive_account_disabled": "Das Konto ist in Microsoft 365 deaktiviert, und Exchange Online stellt dafür kein Postfach bereit. Vorhandene Sicherungen bleiben erhalten. Sobald das Konto wieder aktiviert ist, wird automatisch wieder gesichert.",
+    "inactive_no_license": "Das Konto hat keine Exchange-Online-Lizenz (mehr), deshalb gibt es kein Postfach zu sichern. Vorhandene Sicherungen bleiben erhalten. Sobald wieder eine Lizenz zugewiesen ist, wird automatisch wieder gesichert.",
     "not_selected": "Der Schutzumfang ist \"Nur ausgewählte Objekte\", und niemand hat dieses Objekt ausgewählt: Es laufen keine neuen Sicherungen. Vorhandene Sicherungen bleiben, bis die Aufbewahrung sie entfernt.",
     "needs_credential": "Im Schutzumfang, aber für dieses Konto ist noch kein eigenes, funktionierendes Passwort gesetzt: Erst wenn unter Login eines gesetzt und erfolgreich getestet wurde, kann eine Sicherung laufen.",
     "no_job": "Kann gesichert werden, ist aber in keinem Backup-Job: Nach Zeitplan gesichert wird es erst, wenn ein Job es umfasst.",
@@ -67,6 +71,14 @@
     "failedWhen": "Der letzte Sicherungslauf ist {when} fehlgeschlagen.",
     "limited": "Vom Dienst gebremst",
     "limitedWhen": "Ein Dienst hat den letzten Sicherungslauf {when} gebremst. Das ist kein Fehler; der nächste geplante Lauf versucht es erneut.",
+    "notBackedUp": {
+      "account_disabled": "Nicht gesichert: Konto deaktiviert",
+      "no_license": "Nicht gesichert: keine Lizenz"
+    },
+    "notBackedUpHint": {
+      "account_disabled": "Das Konto ist deaktiviert, deshalb stellt Microsoft kein Postfach zum Sichern bereit. Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und sobald das Konto wieder aktiviert ist, wird automatisch wieder gesichert.",
+      "no_license": "Das Konto hat keine Exchange-Online-Lizenz, deshalb stellt Microsoft kein Postfach zum Sichern bereit. Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und sobald wieder eine Lizenz zugewiesen ist, wird automatisch wieder gesichert."
+    },
     "openJob": "Lauf öffnen",
     "snapshots": "{count, plural, one {# Sicherungsstand} other {# Sicherungsstände}}",
     "now": "Jetzt sichern",

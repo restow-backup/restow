@@ -11,6 +11,8 @@ export type Readiness = "green" | "yellow" | "red";
 export type ObjectState = Readiness | "unverified" | "no_backup";
 export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
+/** Why an `orphaned` Microsoft 365 mailbox is not backed up while its account still exists. */
+export type ObjectStatusReason = "account_disabled" | "no_license";
 export type CheckKind = "verify" | "health_check";
 export type ReportOrigin = "verify" | "scrub" | "unknown";
 export type SampleCategory = "mail" | "file" | "event" | "contact";
@@ -30,6 +32,11 @@ export interface VerifyObject {
    */
   externalId: string;
   status: ObjectStatus;
+  /**
+   * Set on an `orphaned` mailbox whose account is disabled or unlicensed (it still exists, its
+   * backups resume once it is enabled or licensed again); null or absent otherwise.
+   */
+  statusReason?: ObjectStatusReason | null;
   /** The linked directory user's primary address, when known. */
   email: string | null;
   upn: string | null;

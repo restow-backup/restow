@@ -93,6 +93,11 @@ export interface ObjectDto {
   externalId: string;
   status: ProtectedObject["status"];
   /**
+   * Why an orphaned mailbox is not backed up although its account still exists (disabled, no
+   * licence); null otherwise. Rated like any orphaned object: never overdue, age set aside.
+   */
+  statusReason: ProtectedObject["statusReason"];
+  /**
    * The linked directory user's primary address, when known. `externalId` is
    * a stable identifier, not something to show: for a mailbox and a OneDrive
    * it is the owning Entra user's object id or drive id (opaque, GUID-like),
@@ -275,6 +280,7 @@ const objectColumns = {
   displayName: protectedObjects.displayName,
   externalId: protectedObjects.externalId,
   status: protectedObjects.status,
+  statusReason: protectedObjects.statusReason,
   // Every query that selects these columns must also
   // `leftJoin(users, eq(protectedObjects.userId, users.id))` (left, so an
   // object whose user link is gone still comes back, address-less).

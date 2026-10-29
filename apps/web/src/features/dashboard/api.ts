@@ -152,6 +152,8 @@ export interface RecentJob {
    * the object, the next scheduled run tries again. Missing on servers before 0.4.7.
    */
   serviceLimited?: boolean;
+  /** A backup of a disabled or unlicensed account: neutral, never failed. Missing before 0.4.7. */
+  notBackedUp?: "account_disabled" | "no_license" | null;
   /** The causes behind a finished job's failed items, most frequent first. */
   itemCauses?: ItemCauseCount[];
 }

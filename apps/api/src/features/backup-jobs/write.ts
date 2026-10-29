@@ -1909,7 +1909,11 @@ export async function runBackupJob(
           });
           continue;
         }
-        const blocked = backupBlockedReason(object.status, object.sourceStatus);
+        const blocked = backupBlockedReason(
+          object.status,
+          object.sourceStatus,
+          object.statusReason,
+        );
         if (blocked) {
           result.skipped.push({ targetId, name: objectName(object), reason: blocked });
           continue;

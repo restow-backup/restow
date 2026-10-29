@@ -17,6 +17,7 @@ const SKIP_REASONS: readonly SkipReason[] = [
   "already_queued",
   "excluded",
   "orphaned",
+  "inactive",
   "source_pending",
   "source_disabled",
   "revoked",

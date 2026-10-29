@@ -335,6 +335,29 @@ describe("ReportPage failure explanations", () => {
     expect(html).toContain(">Ready<");
   });
 
+  it("names a disabled account as not backed up, its backups kept, not as removed", async () => {
+    const stale = reasons(false)[0];
+    if (!stale) throw new Error("fixture");
+    const base = report(false);
+    const inactive = (statusReason: "account_disabled" | "no_license"): ReportDetail => ({
+      ...base,
+      object: { ...base.object, status: "orphaned", statusReason },
+      readiness: "green",
+      reasons: [stale],
+      counts: { checked: 30, verified: 30, failed: 0 },
+    });
+    const disabled = render(inactive("account_disabled"));
+    expect(disabled).toContain("Not backed up: account disabled");
+    expect(disabled).toContain("once the account is enabled again");
+    expect(disabled).toContain("Not counted: The latest backup is");
+    expect(disabled).not.toContain("Removed from the source");
+    const unlicensed = render(inactive("no_license"));
+    expect(unlicensed).toContain("Not backed up: no licence");
+    expect(unlicensed).toContain("once a licence is assigned again");
+    await i18n.changeLanguage("de");
+    expect(render(inactive("account_disabled"))).toContain("Nicht gesichert: Konto deaktiviert");
+  });
+
   it("says there are no findings for a green report", () => {
     const green: ReportDetail = { ...report(true), readiness: "green", reasons: [] };
     const html = render(green);

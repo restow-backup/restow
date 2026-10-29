@@ -8,6 +8,7 @@ import type {
   DirectorySource,
   ImapProbeResult,
   ObjectStatus,
+  ObjectStatusReason,
   ProtectedObject,
   ProtectionRules,
   RecoveryReadiness,
@@ -65,6 +66,10 @@ export function objectStatusView(object: ProtectedObject): {
   if (object.notSelected) {
     return { variant: "muted", suffix: "not_selected" };
   }
+  // Disabled or unlicensed: neutral, nothing to fix here, backups resume by themselves.
+  if (object.status === "orphaned" && object.statusReason) {
+    return { variant: "muted", suffix: `inactive_${object.statusReason}` };
+  }
   if (object.status === "active" && hasCredentialProblem(object)) {
     return { variant: "warning", suffix: "needs_credential" };
   }
@@ -97,6 +102,7 @@ export function objectSubtitle(object: ProtectedObject): string | null {
 export type BackupState =
   | { kind: "running" }
   | { kind: "limited"; at: string }
+  | { kind: "not_backed_up"; reason: ObjectStatusReason; at: string | null }
   | { kind: "failed"; at: string }
   | { kind: "done"; at: string }
   | { kind: "never" };
@@ -113,6 +119,13 @@ export function backupState(object: ProtectedObject): BackupState {
   const job = object.latestBackupJob;
   if (job && (job.status === "queued" || job.status === "active")) {
     return { kind: "running" };
+  }
+  // The account is disabled or unlicensed: neutral, the newest backup (if any) still stands.
+  const inactive =
+    (job?.status === "failed" ? job.notBackedUp : null) ??
+    (object.status === "orphaned" ? object.statusReason : null);
+  if (inactive) {
+    return { kind: "not_backed_up", reason: inactive, at: object.lastBackupAt };
   }
   if (job?.status === "failed") {
     return job.serviceLimited ? { kind: "limited", at: job.at } : { kind: "failed", at: job.at };
@@ -230,8 +243,10 @@ export function availableActions(object: ProtectedObject): {
   reset: boolean;
   remove: boolean;
 } {
-  const live = object.status !== "orphaned";
   const m365 = object.sourceKind === "m365";
+  // A disabled or unlicensed mailbox is still in the directory: a decision about it holds once
+  // the account is back (the status stays orphaned until then).
+  const live = object.status !== "orphaned" || (m365 && Boolean(object.statusReason));
   return {
     include: live && (m365 ? object.override !== "include" : object.status !== "active"),
     exclude: live && (m365 ? object.override !== "exclude" : object.status !== "excluded"),

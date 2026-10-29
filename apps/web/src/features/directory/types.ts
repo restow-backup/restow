@@ -11,6 +11,12 @@ export type SourceStatus = "pending" | "active" | "error" | "disabled";
 export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 /**
+ * Why an `orphaned` mailbox is not backed up although its user is still in the directory: the
+ * account is disabled, or it has no Exchange Online licence. Its backups are kept, it is never
+ * overdue, and backups resume by themselves once Microsoft hosts the mailbox again.
+ */
+export type ObjectStatusReason = "account_disabled" | "no_license";
+/**
  * `status` as a filter: `not_selected` is not a stored status but a derived
  * one (see {@link ProtectedObject.notSelected}), filtered apart from
  * `excluded` because it is the `selected` mode's default, not a decision.
@@ -141,6 +147,8 @@ export interface ProtectedObject {
   kind: ObjectKind;
   origin: ObjectOrigin;
   status: ObjectStatus;
+  /** Set only on an orphaned mailbox whose account is disabled or unlicensed; absent from an older server. */
+  statusReason?: ObjectStatusReason | null;
   externalId: string;
   displayName: string | null;
   userId: string | null;
@@ -165,6 +173,11 @@ export interface ProtectedObject {
      * down): no failure, the next scheduled run tries again. Absent from an older server.
      */
     serviceLimited?: boolean;
+    /**
+     * A failed run that did not back up because the account is disabled or unlicensed: neutral,
+     * no failure. Absent from an older server.
+     */
+    notBackedUp?: ObjectStatusReason | null;
   } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
   /** The backup job that covers it; null when none does (or an older server). */

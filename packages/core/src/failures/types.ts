@@ -38,6 +38,8 @@ export const FAILURE_CODES = [
   "graph.access_denied",
   "graph.mailbox_not_licensed",
   "graph.user_not_found",
+  // The mailbox's account is disabled or has no Exchange Online licence (failures/limits.ts).
+  "graph.mailbox_inactive",
   "graph.onedrive_unavailable",
   "graph.site_unavailable",
   "graph.group_unavailable",
@@ -112,6 +114,7 @@ export const FAILURE_CODES = [
   "config.source_disabled",
   "config.object_excluded",
   "config.object_orphaned",
+  "config.object_inactive",
   "config.app_not_configured",
   "config.invalid",
   // Servers and clients backed up by the agent (docs/AGENT.md)
@@ -263,6 +266,7 @@ export const FAILURE_STEP_IDS = [
   "check_tenant_id",
   "check_server_clock",
   "assign_license",
+  "enable_account",
   "exclude_object",
   "include_object",
   "assign_onedrive_license",

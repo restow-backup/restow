@@ -162,6 +162,8 @@ export type JobStatusKey =
   | "completedWithFailures"
   | "failed"
   | "limited"
+  | "notBackedUp_account_disabled"
+  | "notBackedUp_no_license"
   | "cancelled";
 
 /**
@@ -189,8 +191,12 @@ export function jobStatusView(job: RecentJob): {
         : { key: "completed", tone: job.queue === "restore" ? "success" : "neutral", live: false };
     case "failed":
       // A backup a service held back is no failure: amber, the next scheduled run tries again.
-      return job.serviceLimited
-        ? { key: "limited", tone: "warning", live: false }
+      if (job.serviceLimited) {
+        return { key: "limited", tone: "warning", live: false };
+      }
+      // A disabled or unlicensed account: not backed up, neutral, no failure.
+      return job.notBackedUp
+        ? { key: `notBackedUp_${job.notBackedUp}`, tone: "muted", live: false }
         : { key: "failed", tone: "destructive", live: false };
     case "cancelled":
       return { key: "cancelled", tone: "muted", live: false };

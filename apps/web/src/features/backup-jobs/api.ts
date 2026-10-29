@@ -402,6 +402,8 @@ export interface JobRun {
    * Missing for the other sources and on servers before 0.4.7.
    */
   serviceLimited?: boolean;
+  /** Mail: a backup of a disabled or unlicensed account, shown neutral, not failed. */
+  notBackedUp?: "account_disabled" | "no_license" | null;
 }
 
 export interface JobRuns {
@@ -412,6 +414,7 @@ export type SkipReason =
   | "already_queued"
   | "excluded"
   | "orphaned"
+  | "inactive"
   | "source_pending"
   | "source_disabled"
   | "revoked"

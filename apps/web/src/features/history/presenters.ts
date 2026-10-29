@@ -32,7 +32,9 @@ export interface StateView {
     | "failed"
     | "cancelled"
     | "incomplete"
-    | "limited";
+    | "limited"
+    | "notBackedUp_account_disabled"
+    | "notBackedUp_no_license";
   tone: StatusTone;
   /** A pulsing dot instead of an icon: something is running right now. */
   live: boolean;
@@ -45,7 +47,8 @@ export interface StateView {
  * neutral information (it is repeated), never "failed".
  */
 export function stateView(
-  run: Pick<Run, "state" | "kind" | "checkIncomplete" | "serviceLimited">,
+  run: Pick<Run, "state" | "kind" | "checkIncomplete" | "serviceLimited"> &
+    Partial<Pick<Run, "notBackedUp">>,
 ): StateView {
   if (run.checkIncomplete && run.state !== "running" && run.state !== "queued") {
     return { key: "incomplete", tone: "info", live: false };
@@ -53,6 +56,11 @@ export function stateView(
   // Held back by Graph or the storage: amber, not red; the next scheduled run tries again.
   if (isHeldBack(run)) {
     return { key: "limited", tone: "warning", live: false };
+  }
+  // The account is disabled or unlicensed: neutral, nothing failed, nothing to fix here.
+  const inactive = notBackedUpOf(run);
+  if (inactive) {
+    return { key: `notBackedUp_${inactive}`, tone: "muted", live: false };
   }
   switch (run.state) {
     case "running":
@@ -80,6 +88,16 @@ export function stateView(
  */
 export function isHeldBack(run: Pick<Run, "state" | "kind" | "serviceLimited">): boolean {
   return run.serviceLimited === true && run.state === "failed" && run.kind === "backup";
+}
+
+/**
+ * Why a failed backup did not back up (`Run.notBackedUp`): the mailbox's account is disabled or
+ * unlicensed. Neutral everywhere (badge, bar, failure box), never red; null for any other run.
+ */
+export function notBackedUpOf(
+  run: Pick<Run, "state" | "kind"> & Partial<Pick<Run, "notBackedUp">>,
+): "account_disabled" | "no_license" | null {
+  return run.state === "failed" && run.kind === "backup" ? (run.notBackedUp ?? null) : null;
 }
 
 export function isRunning(state: RunState): boolean {
@@ -349,6 +367,10 @@ export function eventView(event: Pick<RunEvent, "type" | "params">): EventView {
           key: params.message ? "limitedWithReason" : "limited",
           values: { reason: text(params.message) },
         };
+      }
+      // A disabled or unlicensed account: not backed up, no failure (the server sets the reason).
+      if (params.notBackedUp === "account_disabled" || params.notBackedUp === "no_license") {
+        return { key: `notBackedUp_${params.notBackedUp}`, values: {} };
       }
       return {
         key: params.message ? "failedWithReason" : "failed",

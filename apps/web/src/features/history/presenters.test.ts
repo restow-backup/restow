@@ -312,3 +312,27 @@ describe("remainingSeconds", () => {
     expect(remainingSeconds(undefined, run, at)).toBeNull();
   });
 });
+
+describe("runs of disabled and unlicensed accounts", () => {
+  it("read neutral with the reason, never failed", () => {
+    expect(
+      stateView({
+        state: "failed",
+        kind: "backup",
+        checkIncomplete: false,
+        notBackedUp: "account_disabled",
+      }),
+    ).toEqual({ key: "notBackedUp_account_disabled", tone: "muted", live: false });
+    expect(
+      stateView({ state: "failed", kind: "backup", checkIncomplete: false, notBackedUp: null }).key,
+    ).toBe("failed");
+    expect(
+      eventView({
+        at: "2026-10-28T10:00:00.000Z",
+        type: "failed",
+        params: { notBackedUp: "no_license", limited: false, message: "x" },
+        durationMs: null,
+      } as unknown as RunEvent).key,
+    ).toBe("notBackedUp_no_license");
+  });
+});

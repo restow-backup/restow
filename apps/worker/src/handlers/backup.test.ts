@@ -9,12 +9,14 @@ import {
   ExchangeBackupEngine,
   entraAppEnvironmentFrom,
   FetchGraphClient,
+  GraphError,
   GroupMailboxBackupEngine,
   generateDek,
   type HeadResult,
   ImapBackupEngine,
   Keyring,
   type Logger,
+  MailboxAccessError,
   MemoryProgressSink,
   OneDriveBackupEngine,
   ProgressTracker,
@@ -35,6 +37,7 @@ import {
   type BackupRuntimeState,
   type BackupStore,
   backupRejection,
+  backupRejectionCode,
   createBackupHandler,
   createDefaultBackupEngines,
   enqueueVerifyAfterBackup,
@@ -42,6 +45,7 @@ import {
   graphClientForSource,
   IDLE_RUNTIME_STATE,
   imapAccountFor,
+  mayBeInactiveMailbox,
   PhaseRecorder,
   type StoredBackupResult,
   selectBackupEngine,
@@ -204,6 +208,7 @@ function engine(
 interface FakeStoreOptions {
   source?: Source;
   objectStatus?: "active" | "excluded" | "orphaned";
+  objectStatusReason?: "account_disabled" | "no_license" | null;
   objectSecretRef?: string | null;
   verifyScheduled?: boolean;
   /** The backup job that checks restores of the object (it comes before a schedule). */
@@ -215,10 +220,12 @@ function fakeStore(options: FakeStoreOptions = {}) {
   const results: StoredBackupResult[] = [];
   const queued: Parameters<BackupStore["insertQueuedJob"]>[0][] = [];
   const replacedSecrets: { secretId: string; plaintext: string }[] = [];
+  const markedInactive: { id: string; reason: string }[] = [];
   const store: BackupStore = {
     async loadSource() {
       return {
         objectStatus: options.objectStatus ?? "active",
+        objectStatusReason: options.objectStatusReason ?? null,
         source: options.source ?? m365Source(),
         objectSecretRef: options.objectSecretRef ?? null,
       };
@@ -241,8 +248,12 @@ function fakeStore(options: FakeStoreOptions = {}) {
     async replaceSecret(secretId, plaintext) {
       replacedSecrets.push({ secretId, plaintext });
     },
+    async markInactive(id, reason) {
+      markedInactive.push({ id, reason });
+      return true;
+    },
   };
-  return { store, runtime, results, queued, replacedSecrets };
+  return { store, runtime, results, queued, replacedSecrets, markedInactive };
 }
 
 function workerContext(
@@ -1221,5 +1232,136 @@ describe("backup handler", () => {
     ).rejects.toThrow("Graph 503");
     expect(runtime.map((state) => state.phase)).toEqual(["starting", "download", "download", null]);
     expect(runtime.at(-1)).toEqual(IDLE_RUNTIME_STATE);
+  });
+});
+
+describe("disabled and unlicensed mailboxes", () => {
+  const graphError = (status: number, code: string) =>
+    new GraphError({
+      status,
+      method: "GET",
+      url: "https://graph.microsoft.com/v1.0/users/u/mailFolders/delta",
+      payload: { error: { code, message: "x" } },
+    });
+
+  function failingHandler(
+    error: unknown,
+    check: (() => Promise<"account_disabled" | "no_license" | null>) | null,
+    store = fakeStore(),
+  ) {
+    const engines = new BackupEngineRegistry([
+      [
+        "mailbox",
+        () =>
+          engine("mailbox", async () => {
+            throw error;
+          }),
+      ],
+    ]);
+    const calls: string[] = [];
+    engines.inactiveCheck = check
+      ? async (_deps, object) => {
+          calls.push(object.externalId);
+          return check();
+        }
+      : null;
+    return { handler: createBackupHandler({ engines, store: () => store.store }), store, calls };
+  }
+
+  const run = (handler: ReturnType<typeof createBackupHandler>) =>
+    handler.run(workerContext(storage()), {
+      jobId: JOB,
+      tenantId: TENANT,
+      protectedObjectId: OBJECT,
+    });
+
+  it("marks a confirmed inactive mailbox and ends the run neutral, with the original details", async () => {
+    const { handler, store, calls } = failingHandler(
+      graphError(404, "MailboxNotEnabledForRESTAPI"),
+      async () => "account_disabled",
+    );
+    const error = await run(handler).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(InvalidPayloadError);
+    const failure = (error as InvalidPayloadError).failure;
+    expect(failure?.code).toBe("graph.mailbox_inactive");
+    expect(failure?.params).toMatchObject({
+      reason: "account_disabled",
+      httpStatus: 404,
+      graphCode: "MailboxNotEnabledForRESTAPI",
+    });
+    expect(failure?.technical.errorCode).toBe("MailboxNotEnabledForRESTAPI");
+    expect(calls).toHaveLength(1);
+    expect(store.markedInactive).toEqual([{ id: OBJECT, reason: "account_disabled" }]);
+  });
+
+  it("reads through the engine's mailbox access wrapper", async () => {
+    const inner = graphError(404, "MailboxNotEnabledForRESTAPI");
+    const wrapped = new MailboxAccessError("cannot read folders", {
+      status: 404,
+      code: "MailboxNotEnabledForRESTAPI",
+      cause: inner,
+    });
+    const { handler } = failingHandler(wrapped, async () => "no_license");
+    const error = await run(handler).catch((caught: unknown) => caught);
+    expect((error as InvalidPayloadError).failure?.code).toBe("graph.mailbox_inactive");
+  });
+
+  it("keeps the failure when Microsoft does not confirm, and never checks a permission problem", async () => {
+    const original = graphError(404, "MailboxNotEnabledForRESTAPI");
+    const unconfirmed = failingHandler(original, async () => null);
+    await expect(run(unconfirmed.handler)).rejects.toBe(original);
+    expect(unconfirmed.store.markedInactive).toEqual([]);
+
+    const denied = graphError(403, "ErrorAccessDenied");
+    const forbidden = failingHandler(denied, async () => "account_disabled");
+    await expect(run(forbidden.handler)).rejects.toBe(denied);
+    expect(forbidden.calls).toEqual([]);
+
+    const broken = failingHandler(original, async () => {
+      throw new Error("token endpoint down");
+    });
+    await expect(run(broken.handler)).rejects.toBe(original);
+  });
+
+  it("checks only causes that may mean an inactive account", () => {
+    const cause = (code: string, httpStatus: number) =>
+      ({ code, transient: false, params: { httpStatus }, technical: {} }) as Parameters<
+        typeof mayBeInactiveMailbox
+      >[0];
+    expect(mayBeInactiveMailbox(cause("graph.mailbox_not_licensed", 404))).toBe(true);
+    expect(mayBeInactiveMailbox(cause("graph.user_not_found", 404))).toBe(true);
+    expect(mayBeInactiveMailbox(cause("graph.request_rejected", 400))).toBe(true);
+    expect(mayBeInactiveMailbox(cause("graph.request_rejected", 404))).toBe(true);
+    expect(mayBeInactiveMailbox(cause("graph.request_rejected", 409))).toBe(false);
+    expect(mayBeInactiveMailbox(cause("graph.access_denied", 403))).toBe(false);
+    expect(mayBeInactiveMailbox(cause("graph.permission_missing", 403))).toBe(false);
+    expect(mayBeInactiveMailbox(cause("graph.token_rejected", 401))).toBe(false);
+  });
+
+  it("turns away a mailbox already marked inactive with the neutral cause", async () => {
+    const ok = {
+      objectKind: "mailbox",
+      objectStatus: "orphaned",
+      sourceKind: "m365",
+      sourceStatus: "active",
+    } as const;
+    expect(backupRejection({ ...ok, objectStatusReason: "account_disabled" })).toMatch(
+      /account is disabled/,
+    );
+    expect(backupRejection({ ...ok, objectStatusReason: "no_license" })).toMatch(/licence/);
+    expect(backupRejectionCode({ ...ok, objectStatusReason: "no_license" })).toBe(
+      "config.object_inactive",
+    );
+    expect(backupRejectionCode(ok)).toBe("config.object_orphaned");
+
+    const handler = createBackupHandler({
+      engines: new BackupEngineRegistry([["mailbox", () => engine("mailbox")]]),
+      store: () => fakeStore({ objectStatus: "orphaned", objectStatusReason: "no_license" }).store,
+    });
+    const error = await run(handler).catch((caught: unknown) => caught);
+    expect((error as InvalidPayloadError).failure).toMatchObject({
+      code: "config.object_inactive",
+      params: { reason: "no_license" },
+    });
   });
 });

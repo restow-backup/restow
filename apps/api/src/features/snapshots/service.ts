@@ -155,6 +155,11 @@ export interface SnapshotObjectDto {
   externalId: string;
   displayName: string | null;
   status: ProtectedObject["status"];
+  /**
+   * Why an orphaned mailbox is not backed up although its account still exists (disabled, no
+   * licence); null for every other object and for one removed from the source.
+   */
+  statusReason: ProtectedObject["statusReason"];
   /** m365 or imap: which source backs this object up, for the explorer's grouping. */
   sourceKind: Source["kind"];
   ownerEmail: string | null;
@@ -357,6 +362,7 @@ async function selectObjects(
       externalId: protectedObjects.externalId,
       displayName: protectedObjects.displayName,
       status: protectedObjects.status,
+      statusReason: protectedObjects.statusReason,
       sourceKind: sources.kind,
       ownerEmail: users.email,
       ownerKey: protectedObjects.userId,
@@ -399,6 +405,7 @@ async function selectObjects(
     externalId: row.externalId,
     displayName: row.displayName,
     status: row.status,
+    statusReason: row.status === "orphaned" ? row.statusReason : null,
     sourceKind: row.sourceKind,
     ownerEmail: row.ownerEmail,
     // Sites and group mailboxes belong to no person.
@@ -1925,7 +1932,10 @@ export async function listPeople(
         name: row.name,
         address: first?.ownerEmail ?? null,
         own: row.own,
-        accountDeleted: list.length > 0 && list.every((object) => object.status === "orphaned"),
+        // A disabled or unlicensed account still exists: it is not "deleted".
+        accountDeleted:
+          list.length > 0 &&
+          list.every((object) => object.status === "orphaned" && object.statusReason === null),
         objects: list,
       };
     });

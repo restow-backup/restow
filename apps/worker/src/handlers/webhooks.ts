@@ -45,6 +45,7 @@ import http from "node:http";
 import https from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import {
+  isNotBackedUpFailure,
   isServiceLimitedFailure,
   WEBHOOK_EVENTS,
   type WebhookEvent,
@@ -209,7 +210,10 @@ export function jobWebhookEvent(
   if (job.status !== "failed") {
     return null;
   }
-  return job.queue === "backup" && isServiceLimitedFailure(job.status, job.failure)
+  // A disabled or unlicensed account is no failed backup either (core failures/limits.ts).
+  return job.queue === "backup" &&
+    (isServiceLimitedFailure(job.status, job.failure) ||
+      isNotBackedUpFailure(job.status, job.failure))
     ? null
     : "job.failed";
 }

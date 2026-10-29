@@ -859,6 +859,24 @@ function BackupCell({ object, language }: { object: ProtectedObject; language: s
         </div>
       );
     }
+    case "not_backed_up":
+      // Disabled or unlicensed: neutral, the backups that exist stay; nothing to fix here.
+      return (
+        <div className="space-y-0.5">
+          <HintBadge variant="muted" label={t(`backup.notBackedUp.${state.reason}`)}>
+            {t(`backup.notBackedUpHint.${state.reason}`)}
+          </HintBadge>
+          {state.at ? (
+            <div className="text-xs text-muted-foreground">
+              <time dateTime={state.at} title={formatDateTime(state.at, language) ?? undefined}>
+                {formatRelative(state.at, language)}
+              </time>
+              {" · "}
+              {t("backup.snapshots", { count: object.snapshotCount })}
+            </div>
+          ) : null}
+        </div>
+      );
     case "limited": {
       // Held back by a service: amber, with the cause below, and the next run tries again.
       const failure = backupFailure(object);

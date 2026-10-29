@@ -447,6 +447,27 @@ describe("job events", () => {
     );
   });
 
+  it("raises no job.failed for a mailbox whose account is disabled or unlicensed", () => {
+    const failure = {
+      v: 1 as const,
+      code: "graph.mailbox_inactive",
+      transient: false,
+      params: { reason: "no_license" },
+      technical: { httpStatus: 404 },
+      occurredAt: "2026-09-23T10:05:00.000Z",
+      step: null,
+      retry: null,
+    };
+    expect(jobWebhookEvent({ ...job, status: "failed", failure })).toBeNull();
+    expect(
+      jobWebhookEvent({
+        ...job,
+        status: "failed",
+        failure: { ...failure, code: "graph.user_not_found" },
+      }),
+    ).toBe("job.failed");
+  });
+
   it("raises job.failed for a restore that completed but restored nothing while items failed", () => {
     const restore = { ...job, queue: "restore" as const, status: "completed" as const };
     const nothing = {

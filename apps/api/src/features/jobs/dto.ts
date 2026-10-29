@@ -1,5 +1,5 @@
 import type { ItemFailure, Job, JobProgress, Snapshot } from "@restow/db";
-import { isServiceLimitedBackup } from "../../lib/service-limit.js";
+import { isServiceLimitedBackup, notBackedUpOf } from "../../lib/service-limit.js";
 import { type FailureDto, type FailureGroupDto, failureDto } from "../failures/dto.js";
 import type {
   ObjectVerification,
@@ -75,6 +75,11 @@ export interface JobObjectDto {
   displayName: string | null;
   externalId: string;
   status: "active" | "excluded" | "orphaned";
+  /**
+   * Why an orphaned mailbox is not backed up although its user is still in the directory
+   * (`account_disabled`, `no_license`); null for every other object.
+   */
+  statusReason: "account_disabled" | "no_license" | null;
   /** The linked user's email or UPN; null for IMAP and unlinked objects. */
   ownerEmail: string | null;
 }
@@ -133,6 +138,13 @@ export interface JobDto {
    * run and stays failed.
    */
   serviceLimited: boolean;
+  /**
+   * A failed backup that did not back up because the mailbox's account is disabled or has no
+   * Exchange Online licence (@restow/core `NOT_BACKED_UP_CAUSES`), with that reason: shown
+   * neutral ("not backed up"), neither failed nor held back, and left out of the failed counts.
+   * Null for every other job.
+   */
+  notBackedUp: "account_disabled" | "no_license" | null;
 }
 
 /** How many items failed for one cause code. */
@@ -201,7 +213,13 @@ export interface JobDetailDto extends JobDto {
   result: BackupResultDto | null;
 }
 
-export type BackupBlockedReason = "excluded" | "orphaned" | "source_pending" | "source_disabled";
+export type BackupBlockedReason =
+  | "excluded"
+  | "orphaned"
+  /** Orphaned with a reason: the account is disabled or unlicensed (`statusReason`). */
+  | "inactive"
+  | "source_pending"
+  | "source_disabled";
 export type BackupSkipReason = BackupBlockedReason | "already_queued";
 
 export interface BackupSkipDto {
@@ -241,6 +259,8 @@ export interface BackupTargetDto {
   displayName: string | null;
   externalId: string;
   status: "active" | "excluded" | "orphaned";
+  /** See {@link JobObjectDto.statusReason}. */
+  statusReason: "account_disabled" | "no_license" | null;
   /** The linked user's email or UPN; null for IMAP and unlinked objects. */
   ownerEmail: string | null;
   source: { id: string; name: string; kind: "m365" | "imap"; status: string };
@@ -451,6 +471,7 @@ export function toJobDto(row: JobViewRow, itemCauses: ItemCauseCountDto[] = []):
     checkIncomplete:
       job.queue === "verify" && !running && record(payload?.result)?.incomplete === true,
     serviceLimited: isServiceLimitedBackup(job),
+    notBackedUp: notBackedUpOf(job),
   };
 }
 
@@ -532,12 +553,13 @@ export function verifySummaryOf(
 export function backupBlockedReason(
   objectStatus: JobObjectDto["status"],
   sourceStatus: string,
+  statusReason: JobObjectDto["statusReason"] = null,
 ): BackupBlockedReason | null {
   if (objectStatus === "excluded") {
     return "excluded";
   }
   if (objectStatus === "orphaned") {
-    return "orphaned";
+    return statusReason ? "inactive" : "orphaned";
   }
   if (sourceStatus === "pending") {
     return "source_pending";

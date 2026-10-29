@@ -12,6 +12,8 @@ import { apiFetch } from "@/lib/api";
 
 export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
+/** Why an `orphaned` Microsoft 365 mailbox is not backed up while its account still exists. */
+export type ObjectStatusReason = "account_disabled" | "no_license";
 export type EntryKind = "mail" | "folder" | "file" | "event" | "contact";
 export type RestoreTargetType = "original" | "other" | "download";
 export type RestoreMode = "rename" | "replace" | "skip";
@@ -26,6 +28,12 @@ export interface SnapshotObject {
   externalId: string;
   displayName: string | null;
   status: ObjectStatus;
+  /**
+   * Set on an `orphaned` mailbox whose account still exists but is disabled or unlicensed: not
+   * backed up for now, not removed. Null or absent for every other object (and from an API older
+   * than 0.4.7).
+   */
+  statusReason?: ObjectStatusReason | null;
   sourceKind: SourceKind;
   ownerEmail: string | null;
   /**

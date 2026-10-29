@@ -770,3 +770,50 @@ describe("removalBlock", () => {
     expect(removalBlock(object({ legalHold: true }))).toBe("legal_hold");
   });
 });
+
+describe("disabled and unlicensed mailboxes", () => {
+  const inactive = (
+    reason: "account_disabled" | "no_license",
+    extra: Partial<ProtectedObject> = {},
+  ) => object({ status: "orphaned", statusReason: reason, sourceKind: "m365", ...extra });
+
+  it("reads neutral with the reason, not as orphaned", () => {
+    expect(objectStatusView(inactive("account_disabled"))).toEqual({
+      variant: "muted",
+      suffix: "inactive_account_disabled",
+    });
+    expect(objectStatusView(inactive("no_license")).suffix).toBe("inactive_no_license");
+    expect(objectStatusView(object({ status: "orphaned" })).suffix).toBe("orphaned");
+  });
+
+  it("shows the last backup as not backed up, never as failed", () => {
+    const failed = {
+      id: "job-1",
+      status: "failed" as const,
+      at: "2026-10-28T10:00:00.000Z",
+      failure: null,
+      notBackedUp: "no_license" as const,
+    };
+    expect(
+      backupState(object({ latestBackupJob: failed, lastBackupAt: "2026-10-01T10:00:00.000Z" })),
+    ).toEqual({ kind: "not_backed_up", reason: "no_license", at: "2026-10-01T10:00:00.000Z" });
+    expect(backupState(inactive("account_disabled"))).toMatchObject({
+      kind: "not_backed_up",
+      reason: "account_disabled",
+    });
+    expect(backupState(object({ latestBackupJob: { ...failed, notBackedUp: null } })).kind).toBe(
+      "failed",
+    );
+  });
+
+  it("still lets an admin include or exclude it for when the account is back", () => {
+    expect(availableActions(inactive("account_disabled"))).toMatchObject({
+      include: true,
+      exclude: true,
+    });
+    expect(availableActions(object({ status: "orphaned", sourceKind: "m365" }))).toMatchObject({
+      include: false,
+      exclude: false,
+    });
+  });
+});

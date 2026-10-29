@@ -52,7 +52,9 @@
     "failed": "Failed",
     "cancelled": "Cancelled",
     "incomplete": "Not completed, will be repeated",
-    "limited": "Held back by the service, retried"
+    "limited": "Held back by the service, retried",
+    "notBackedUp_account_disabled": "Not backed up: account disabled",
+    "notBackedUp_no_license": "Not backed up: no licence"
   },
   "attempt": "Attempt {number} of {of}",
   "restoreCheck": {
@@ -231,6 +233,8 @@
     "failedWithReason": "Failed: {reason}",
     "limited": "Held back by the service, retried",
     "limitedWithReason": "Held back by the service: {reason}",
+    "notBackedUp_account_disabled": "Not backed up: the account is disabled",
+    "notBackedUp_no_license": "Not backed up: the account has no licence",
     "cancelled": "Cancelled",
     "agentError": "{message}",
     "agentErrorPath": "{path}: {message}",

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   jsonb,
@@ -245,6 +246,16 @@ export const protectedObjects = pgTable(
      */
     activeSince: timestamp("active_since", { withTimezone: true }),
     /**
+     * Why an `orphaned` Microsoft 365 mailbox is not backed up although its user is still in
+     * the directory (0.4.7): `account_disabled` (sign-in blocked and Exchange reports no
+     * mailbox) or `no_license` (no Exchange Online licence, mailbox inactive). Null for every
+     * other object and for an object removed from the source. Such an object is neutral like
+     * any orphaned one (no backups, no overdue, kept snapshots) and turns `active` again by
+     * itself once the directory sync finds the mailbox. A trigger clears the reason whenever
+     * the status leaves `orphaned` (migration 0069).
+     */
+    statusReason: text("status_reason").$type<ObjectStatusReason>(),
+    /**
      * The sealed per-mailbox IMAP password (`SourceConfig.imapAuthMode ===
      * "per_mailbox"` on the parent source), never the plaintext: the value lives
      * in `secrets`, sealed with the tenant key exactly like `sources.secret_ref`.
@@ -272,10 +283,18 @@ export const protectedObjects = pgTable(
   (t) => [
     uniqueIndex("protected_objects_source_external_uq").on(t.sourceId, t.externalId),
     index("protected_objects_tenant_status_idx").on(t.tenantId, t.status),
+    check(
+      "protected_objects_status_reason_ck",
+      sql`${t.statusReason} IS NULL OR ${t.statusReason} IN ('account_disabled', 'no_license')`,
+    ),
     // A person's objects (the explorer's people, #49) and the ON DELETE SET NULL of `users`.
     index("protected_objects_tenant_user_idx").on(t.tenantId, t.userId),
   ],
 );
+
+/** Why an orphaned object is still in the directory but not backed up (`status_reason`). */
+export const OBJECT_STATUS_REASONS = ["account_disabled", "no_license"] as const;
+export type ObjectStatusReason = (typeof OBJECT_STATUS_REASONS)[number];
 
 export type Source = typeof sources.$inferSelect;
 export type NewSource = typeof sources.$inferInsert;

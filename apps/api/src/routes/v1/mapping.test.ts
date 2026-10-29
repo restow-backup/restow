@@ -37,6 +37,7 @@ function job(overrides: Partial<JobDto> = {}): JobDto {
       displayName: "Ada Lovelace",
       externalId: "ada@contoso.example",
       status: "active",
+      statusReason: null,
       ownerEmail: null,
     },
     scheduleId: null,
@@ -72,6 +73,7 @@ function job(overrides: Partial<JobDto> = {}): JobDto {
     retryable: false,
     checkIncomplete: false,
     serviceLimited: false,
+    notBackedUp: null,
     ...overrides,
   };
 }
@@ -173,6 +175,7 @@ describe("protected objects", () => {
     kind: "onedrive",
     origin: "directory_sync",
     status: "active",
+    statusReason: null,
     externalId: "b!drive",
     displayName: "Ada's OneDrive",
     activeSince: new Date("2026-01-01T00:00:00.000Z"),
@@ -277,6 +280,7 @@ describe("verification report", () => {
       displayName: id,
       externalId: `${id}@contoso.example`,
       status: "active",
+      statusReason: null,
       email: null,
       upn: null,
     },

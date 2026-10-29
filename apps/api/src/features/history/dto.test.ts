@@ -35,6 +35,7 @@ const mailbox: JobObjectDto = {
   displayName: "Alice",
   externalId: "alice@contoso.example",
   status: "active",
+  statusReason: null,
   ownerEmail: null,
 };
 
@@ -482,14 +483,21 @@ describe("batch and timeline", () => {
     );
     // A backup a service held back counts apart, not as failed.
     runs.push({ state: "failed", serviceLimited: true });
-    expect(batchOf(runs)).toEqual({
-      total: 6,
+    // So does one of a disabled or unlicensed account.
+    const inactive = {
+      state: "failed" as const,
+      serviceLimited: false,
+      notBackedUp: "no_license" as const,
+    };
+    expect(batchOf([...runs, inactive])).toEqual({
+      total: 7,
       queued: 1,
       running: 1,
       succeeded: 2,
       partial: 0,
       failed: 1,
       limited: 1,
+      notBackedUp: 1,
       cancelled: 0,
       truncated: false,
     });

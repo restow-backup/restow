@@ -43,7 +43,7 @@ export const objectStatusSchema = component(
   z
     .enum(["active", "excluded", "orphaned"])
     .describe(
-      "`active` is protected, `excluded` was taken out of protection, `orphaned` disappeared from the source (its backups stay restorable).",
+      "`active` is protected, `excluded` was taken out of protection, `orphaned` disappeared from the source or (with a `statusReason`) is a mailbox whose account is disabled or unlicensed; its backups stay restorable either way.",
     ),
 );
 export const sourceKindSchema = component("SourceKind", z.enum(["m365", "imap"]));

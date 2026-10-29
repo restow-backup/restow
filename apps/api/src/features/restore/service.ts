@@ -504,10 +504,19 @@ export async function createRestore(
       });
     }
     if (input.target.type === "original" && object.status === "orphaned") {
+      // A disabled or unlicensed account still exists, but Exchange hosts no mailbox to write to.
+      const inactive = object.statusReason
+        ? { extensions: { statusReason: object.statusReason } }
+        : {};
       throw new ProblemError(409, "Original account gone", {
         type: "urn:restow:problem:restore-original-gone",
         detail:
-          "The original account no longer exists in the source. Restore into another account or download the data.",
+          object.statusReason === "account_disabled"
+            ? "The original account is disabled and Microsoft hosts no mailbox for it. Restore into another account or download the data."
+            : object.statusReason === "no_license"
+              ? "The original account has no Exchange Online licence, so there is no mailbox to restore into. Restore into another account or download the data."
+              : "The original account no longer exists in the source. Restore into another account or download the data.",
+        ...inactive,
       });
     }
     // The worker routes an imported mailbox on the target's kind (options.targetKind).

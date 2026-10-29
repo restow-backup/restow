@@ -479,6 +479,7 @@
       "already_queued": "{count, plural, one {# wartet bereits oder läuft gerade.} other {# warten bereits oder laufen gerade.}}",
       "excluded": "{count, plural, one {# ist von der Sicherung ausgeschlossen.} other {# sind von der Sicherung ausgeschlossen.}}",
       "orphaned": "{count, plural, one {# gibt es in der Quelle nicht mehr.} other {# gibt es in der Quelle nicht mehr.}}",
+      "inactive": "{count, plural, one {# wird nicht gesichert, weil das Konto deaktiviert ist oder keine Lizenz hat.} other {# werden nicht gesichert, weil die Konten deaktiviert sind oder keine Lizenz haben.}}",
       "source_pending": "{count, plural, one {# wartet darauf, dass seine Quelle verbunden wird.} other {# warten darauf, dass ihre Quelle verbunden wird.}}",
       "source_disabled": "{count, plural, one {# hat eine ausgeschaltete Quelle.} other {# haben eine ausgeschaltete Quelle.}}",
       "revoked": "{count, plural, one {# Rechner ist gesperrt.} other {# Rechner sind gesperrt.}}",

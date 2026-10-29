@@ -11,7 +11,13 @@
  * every run, then migrated). Without it the suite is skipped.
  */
 import { randomUUID } from "node:crypto";
-import { noopLogger } from "@restow/core";
+import {
+  DEFAULT_PROTECTION_RULES,
+  type DirectoryUserRecord,
+  noopLogger,
+  planDirectory,
+  type UserProbe,
+} from "@restow/core";
 import {
   auditLog,
   createDb,
@@ -19,14 +25,20 @@ import {
   jobs,
   protectedObjects,
   providers,
+  snapshots,
   sources,
   tenants,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { enqueueFirstBackupsAfterSync, pgFirstBackupStore } from "./directory.js";
+import { alertOverdueBackups } from "../overdue.js";
+import {
+  enqueueFirstBackupsAfterSync,
+  PgDirectoryRepository,
+  pgFirstBackupStore,
+} from "./directory.js";
 import { tenantRunner } from "./framework.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -193,5 +205,102 @@ describe.skipIf(!adminUrl)("pgFirstBackupStore against Postgres", () => {
     );
     // Only Beta's own object, never Alpha's, however similar the external id.
     expect(queued).toEqual([betaObjectId]);
+  });
+
+  it("backs up a mailbox back from disabled at once and does not call it overdue", async () => {
+    const { tenantId, sourceId } = await tenant(db, "Resumed");
+    const run = tenantRunner(db, tenantId);
+    const repository = new PgDirectoryRepository(run, tenantId, sourceId, noopLogger);
+    const alice: DirectoryUserRecord = {
+      entraObjectId: "user-resumed",
+      email: "alice@resumed.example",
+      upn: "alice@resumed.example",
+      mail: "alice@resumed.example",
+      displayName: "Alice",
+      accountEnabled: true,
+      userType: "Member",
+      mailAddresses: null,
+    };
+    const sync = async (user: DirectoryUserRecord, probe: UserProbe) => {
+      const snapshot = await repository.load();
+      const plan = planDirectory({
+        mode: "incremental",
+        users: [user],
+        removedUserIds: [],
+        known: snapshot.known,
+        sharedOrBlockedIds: snapshot.sharedOrBlockedIds,
+        probes: new Map([[user.entraObjectId, probe]]),
+        rules: DEFAULT_PROTECTION_RULES,
+        overrides: {},
+        groupMemberIds: null,
+      });
+      await repository.commit(
+        {
+          plan,
+          deltaLink: "https://graph.microsoft.com/v1.0/users/delta?$deltatoken=r",
+          fullSyncAt: null,
+        },
+        snapshot.version,
+      );
+    };
+
+    await sync(alice, { mailbox: true });
+    const [object] = await db
+      .select({ id: protectedObjects.id })
+      .from(protectedObjects)
+      .where(eq(protectedObjects.sourceId, sourceId));
+    const objectId = object?.id as string;
+    // Backed up three weeks ago, then the account was disabled for two weeks and more.
+    const DAY = 24 * 3_600_000;
+    const lastBackup = new Date(Date.now() - 21 * DAY);
+    await db.insert(snapshots).values({
+      tenantId,
+      protectedObjectId: objectId,
+      sequence: 1,
+      manifestPath: "m/resumed/1",
+      itemCount: 1,
+      byteSize: 1,
+      startedAt: lastBackup,
+      completedAt: lastBackup,
+    });
+    await db
+      .update(protectedObjects)
+      .set({ activeSince: sql`now() - interval '30 days'` })
+      .where(eq(protectedObjects.id, objectId));
+    await sync({ ...alice, accountEnabled: false }, { mailbox: false });
+    const [orphaned] = await db
+      .select({ status: protectedObjects.status, statusReason: protectedObjects.statusReason })
+      .from(protectedObjects)
+      .where(eq(protectedObjects.id, objectId));
+    expect(orphaned).toEqual({ status: "orphaned", statusReason: "account_disabled" });
+
+    // Enabled again: active, and the sync reports it as newly active, resumed from orphaned
+    // (packages/core's syncDirectory, unit tested there).
+    await sync(alice, { mailbox: true });
+    const queued = await run((tx) =>
+      enqueueFirstBackupsAfterSync({
+        tenantId,
+        newlyActive: [{ externalId: "user-resumed", kind: "mailbox", resumed: true }],
+        store: pgFirstBackupStore(tx, tenantId, sourceId, boss),
+        signal: new AbortController().signal,
+        logger: noopLogger,
+      }),
+    );
+    // Queued though it has a snapshot: it does not wait for the tenant's schedule.
+    expect(queued).toEqual([objectId]);
+    const jobRows = await db
+      .select({ status: jobs.status })
+      .from(jobs)
+      .where(and(eq(jobs.tenantId, tenantId), eq(jobs.protectedObjectId, objectId)));
+    expect(jobRows).toEqual([{ status: "queued" }]);
+
+    // The queued backup has not started, so it does not mute the check: the mailbox is judged
+    // from its return to active, not from its three-week-old snapshot.
+    await alertOverdueBackups({ db, providerDb: db, runtime: {} as never }, new Date());
+    const overdue = await db.$client.query(
+      "SELECT 1 FROM notifications WHERE tenant_id = $1 AND event = 'backup.overdue'",
+      [tenantId],
+    );
+    expect(overdue.rows).toEqual([]);
   });
 });

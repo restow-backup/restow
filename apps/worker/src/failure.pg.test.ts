@@ -39,6 +39,7 @@ import {
 import { runMigrations } from "@restow/db/migrate";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { BackupEngineRegistry, createBackupHandler } from "./handlers/backup.js";
 import { runDirectoryJob } from "./handlers/directory.js";
 import {
   type AnyJobHandler,
@@ -349,6 +350,52 @@ describe.skipIf(!adminUrl)("failure records against Postgres", () => {
       pgBossJob(payloadFor(generic), 0, 5),
     );
     expect((await jobRow(generic)).failure).toMatchObject({ code: "config.invalid" });
+  });
+
+  it("ends a backup of a disabled account neutral and marks the mailbox inactive", async () => {
+    const engines = new BackupEngineRegistry([
+      [
+        "mailbox",
+        () => ({
+          kind: "mailbox" as const,
+          run: async () => {
+            throw graphError(404, "MailboxNotEnabledForRESTAPI", "The mailbox is inactive.");
+          },
+        }),
+      ],
+    ]);
+    engines.inactiveCheck = async () => "account_disabled";
+    const jobId = randomUUID();
+    await expect(
+      runJob(runtime(), createBackupHandler({ engines }), pgBossJob(payloadFor(jobId), 0, 5)),
+    ).resolves.toBeUndefined();
+    const row = await jobRow(jobId);
+    expect(row.status).toBe("failed");
+    expect(row.failure).toMatchObject({
+      code: "graph.mailbox_inactive",
+      params: { reason: "account_disabled", httpStatus: 404 },
+      technical: { errorCode: "MailboxNotEnabledForRESTAPI", requestId: "req-1" },
+      retry: null,
+    });
+    const [object] = await db
+      .select({ status: protectedObjects.status, statusReason: protectedObjects.statusReason })
+      .from(protectedObjects)
+      .where(eq(protectedObjects.id, objectId));
+    expect(object).toEqual({ status: "orphaned", statusReason: "account_disabled" });
+    // Nothing is wrong with the source.
+    expect((await sourceRow())?.status).toBe("active");
+
+    // The next run is turned away without asking Microsoft again.
+    const next = randomUUID();
+    engines.inactiveCheck = async () => {
+      throw new Error("must not be asked");
+    };
+    await runJob(runtime(), createBackupHandler({ engines }), pgBossJob(payloadFor(next), 0, 5));
+    expect((await jobRow(next)).failure).toMatchObject({
+      code: "config.object_inactive",
+      params: { reason: "account_disabled" },
+      retry: null,
+    });
   });
 
   it("says a job was interrupted when the worker shut down", async () => {

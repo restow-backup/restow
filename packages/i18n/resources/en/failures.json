@@ -93,6 +93,10 @@
         "title": "The user or mailbox no longer exists",
         "why": "Microsoft reports that this user or mailbox does not exist any more. The user was probably deleted or the mailbox was removed. Backups that already exist stay restorable."
       },
+      "mailbox_inactive": {
+        "title": "Not backed up: {reason, select, account_disabled {the account is disabled} other {the account has no licence}}",
+        "why": "Microsoft reports that it hosts no mailbox for this user, who is still in the directory: {reason, select, account_disabled {the account is disabled.} other {the account has no Exchange Online licence, the licence was removed, or the mailbox is inactive.}} This is not a failed backup. {appName} keeps the existing backups and backs the mailbox up again automatically once Microsoft hosts it again."
+      },
       "onedrive_unavailable": {
         "title": "This user has no OneDrive that {appName} can reach",
         "why": "Microsoft reports that the OneDrive of this user does not exist. Usual reasons: the user has no licence that includes OneDrive, or OneDrive was never provisioned because the user never opened it."
@@ -365,6 +369,10 @@
         "title": "This object no longer exists at the source",
         "why": "The mailbox or drive disappeared from the source directory. Backups that exist stay restorable, new ones are not made."
       },
+      "object_inactive": {
+        "title": "Not backed up while the account is {reason, select, account_disabled {disabled} other {without a licence}}",
+        "why": "{appName} found that Microsoft hosts no mailbox for this account because it is {reason, select, account_disabled {disabled} other {without an Exchange Online licence}}. No new backups are made until that changes. Existing backups stay restorable, and backups resume automatically with the next directory sync after the account is {reason, select, account_disabled {enabled} other {licensed}} again."
+      },
       "app_not_configured": {
         "title": "The Microsoft 365 app of this installation is not configured",
         "why": "The app registration {appName} needs to talk to Microsoft 365 is incomplete or missing (client ID, credentials). No Microsoft 365 run can start until it is set up."
@@ -628,6 +636,7 @@
     "check_tenant_id": "Check the tenant ID or domain of the source. If the organisation was renamed or deleted, create the source again.",
     "check_server_clock": "Check that the clock of the {appName} server is correct (NTP). A clock that is off by more than a few minutes makes Microsoft reject tokens.",
     "assign_license": "Assign an Exchange Online licence to this user in the Microsoft 365 admin centre, or exclude the mailbox from protection.",
+    "enable_account": "If the mailbox should be backed up again, enable the account in the Microsoft 365 admin centre. Backups resume by themselves after the next directory sync.",
     "exclude_object": "If this object does not need protection, exclude it on the Protected objects page.",
     "include_object": "To back it up again, include the object on the Protected objects page.",
     "assign_onedrive_license": "Make sure the user has a licence that includes OneDrive and that OneDrive was provisioned (the user opens OneDrive once). Or exclude the drive from protection.",

@@ -33,3 +33,50 @@ export function isServiceLimitedFailure(
 ): boolean {
   return status === "failed" && isServiceLimitCause(failure?.code);
 }
+
+/**
+ * Runs that ended without a backup because the mailbox's account is disabled or has no
+ * Exchange Online licence (docs/MICROSOFT.md "Deaktivierte und unlizenzierte Konten"): the backup
+ * found Microsoft answering "no mailbox" for a user who is still in the directory
+ * (`graph.mailbox_inactive`), or the object was already marked so and the run was turned away
+ * (`config.object_inactive`). Nothing is broken and nothing is held back: the object is not
+ * backed up until the account is enabled or licensed again, and its backups are kept. Such a
+ * run counts neither as failed nor as held back, ends no warning acknowledgement and raises no
+ * `backup.failed` alert or `job.failed` webhook; the UI shows it neutral ("not backed up").
+ * Kept apart from {@link SERVICE_LIMIT_CAUSES}, which read amber "held back, retried".
+ */
+export const NOT_BACKED_UP_CAUSES = ["graph.mailbox_inactive", "config.object_inactive"] as const;
+
+export type NotBackedUpCause = (typeof NOT_BACKED_UP_CAUSES)[number];
+
+const NOT_BACKED_UP: ReadonlySet<string> = new Set(NOT_BACKED_UP_CAUSES);
+
+/** True when a failure with this cause code means the object is inactive at the source. */
+export function isNotBackedUpCause(code: string | null | undefined): code is NotBackedUpCause {
+  return typeof code === "string" && NOT_BACKED_UP.has(code);
+}
+
+/** True for a failed run that ended because the object is inactive at the source. */
+export function isNotBackedUpFailure(
+  status: string,
+  failure: { readonly code?: string | null } | null | undefined,
+): boolean {
+  return status === "failed" && isNotBackedUpCause(failure?.code);
+}
+
+/**
+ * Why such a run did not back up (`account_disabled`, `no_license`), from its failure
+ * parameters; null for any other run. An unknown or missing reason reads `no_license`.
+ */
+export function notBackedUpReason(
+  status: string,
+  failure:
+    | { readonly code?: string | null; readonly params?: Record<string, unknown> | null }
+    | null
+    | undefined,
+): "account_disabled" | "no_license" | null {
+  if (!isNotBackedUpFailure(status, failure)) {
+    return null;
+  }
+  return failure?.params?.reason === "account_disabled" ? "account_disabled" : "no_license";
+}

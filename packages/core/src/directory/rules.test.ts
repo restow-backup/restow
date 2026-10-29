@@ -4,6 +4,7 @@ import {
   evaluateGroupMailboxProtection,
   evaluateProtection,
   evaluateSiteProtection,
+  inactiveReason,
   isSharedOrBlocked,
   matchesExclusion,
   normalizeOverrides,
@@ -265,5 +266,13 @@ describe("evaluateGroupMailboxProtection", () => {
     expect(normalizeRules({ groups: "bogus" }).groups).toBe("selected");
     expect(normalizeRules({ groups: "all" }).groups).toBe("all");
     expect(normalizeRules(null).groups).toBe("selected");
+  });
+});
+
+describe("inactiveReason", () => {
+  it("names a disabled account, else a missing licence", () => {
+    expect(inactiveReason({ accountEnabled: false })).toBe("account_disabled");
+    expect(inactiveReason({ accountEnabled: true })).toBe("no_license");
+    expect(inactiveReason({ accountEnabled: null })).toBe("no_license");
   });
 });

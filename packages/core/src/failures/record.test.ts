@@ -32,8 +32,11 @@ describe("catalog", () => {
     const used = new Set<string>();
     for (const code of FAILURE_CODES) {
       for (const role of ["imap", "microsoft", null]) {
-        for (const step of FAILURE_CATALOG[code].steps({ role })) {
-          used.add(step.id);
+        // An inactive mailbox's steps depend on why (graph.mailbox_inactive, config.object_inactive).
+        for (const reason of [null, "account_disabled"]) {
+          for (const step of FAILURE_CATALOG[code].steps({ role, reason })) {
+            used.add(step.id);
+          }
         }
       }
     }

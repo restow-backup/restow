@@ -64,12 +64,16 @@ export interface JobStatusDisplay {
  * neutral; only a restore that completed is green (the data is back), which is
  * why the queue is passed when it is known.
  */
+/** Why a backup did not back up: the account is disabled or has no Exchange Online licence. */
+export type NotBackedUpReason = "account_disabled" | "no_license";
+
 export function jobStatusDisplay(
   status: JobStatus,
   failedItems = 0,
   queue?: JobQueue,
   checkIncomplete = false,
   serviceLimited = false,
+  notBackedUp: NotBackedUpReason | null = null,
 ): JobStatusDisplay {
   // A restore check that could not complete proves nothing: neutral, never "Failed" or "Completed".
   if (checkIncomplete && status !== "active") {
@@ -79,6 +83,11 @@ export function jobStatusDisplay(
   // scheduled run tries again. The server sets the flag for backups only.
   if (serviceLimited && status === "failed") {
     return { key: "jobStatus.serviceLimited", values: {}, variant: "warning" };
+  }
+  // A mailbox whose account is disabled or unlicensed (`Job.notBackedUp`): neutral, no failure,
+  // backups resume by themselves once Microsoft hosts the mailbox again.
+  if (notBackedUp && status === "failed") {
+    return { key: `jobStatus.notBackedUp.${notBackedUp}`, values: {}, variant: "muted" };
   }
   if (status === "completed" && failedItems > 0) {
     return {
@@ -297,6 +306,17 @@ export function replaceJobInPages(pages: readonly JobPage[], job: Job): JobPage[
 }
 
 /** Case-insensitive match of a protected object on name, address and source. */
+/**
+ * Whether a backup target is shown muted: it is not backed up by design (excluded, removed from
+ * its source, or its account disabled or unlicensed), not because something went wrong. A
+ * target waiting on its source (pending, disabled) keeps its warning.
+ */
+export function isMutedTarget(target: Pick<BackupTarget, "blocked">): boolean {
+  return (
+    target.blocked === "excluded" || target.blocked === "orphaned" || target.blocked === "inactive"
+  );
+}
+
 export function matchesTargetSearch(
   target: Pick<BackupTarget, "displayName" | "externalId" | "ownerEmail" | "source">,
   query: string,

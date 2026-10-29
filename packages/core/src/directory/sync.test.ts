@@ -201,6 +201,26 @@ describe("syncDirectory", () => {
     expect(graph.callsTo("GET", "deltatoken=USERSDELTA1")).toHaveLength(0);
   });
 
+  it("marks an object back from orphaned (account enabled again) as resumed", async () => {
+    const graph = directoryGraph();
+    const repository = new MemoryDirectoryRepository(protection());
+    const client = graph.client();
+    await syncDirectory({ client, repository });
+    // Disabled or unlicensed since: orphaned with a reason, its old snapshots kept.
+    const known = repository.objects.get("user-1");
+    repository.objects.set("user-1", {
+      ...(known as NonNullable<typeof known>),
+      status: "orphaned",
+      statusReason: "account_disabled",
+    });
+
+    const back = await syncDirectory({ client, repository, full: true });
+
+    expect(repository.objects.get("user-1")?.status).toBe("active");
+    // Only the object coming out of orphaned is resumed; a new or re-included one is not.
+    expect(back.newlyActive).toEqual([{ externalId: "user-1", kind: "mailbox", resumed: true }]);
+  });
+
   it("resolves group membership transitively and excludes non-members", async () => {
     const graph = directoryGraph();
     const repository = new MemoryDirectoryRepository(

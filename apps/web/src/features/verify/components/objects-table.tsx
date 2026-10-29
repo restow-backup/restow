@@ -74,7 +74,7 @@ function ObjectCell({ object, format }: { object: VerifyObject; format: VerifyFo
         {address ? <p className="truncate text-xs text-muted-foreground">{address}</p> : null}
         {object.status === "orphaned" ? (
           <StatusBadge tone="muted" className="mt-1 whitespace-nowrap">
-            {t("table.orphaned")}
+            {object.statusReason ? t(`table.inactive.${object.statusReason}`) : t("table.orphaned")}
           </StatusBadge>
         ) : null}
       </div>

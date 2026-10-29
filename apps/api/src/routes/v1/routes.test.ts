@@ -346,6 +346,7 @@ describe("POST /users/:id/protection", () => {
           kind: "mailbox",
           origin: "directory_sync",
           status: "excluded",
+          statusReason: null,
           externalId: "ada@contoso.example",
           displayName: "Ada",
           userId: USER_A,
@@ -473,6 +474,7 @@ describe("jobs", () => {
     retryable: false,
     checkIncomplete: false,
     serviceLimited: false,
+    notBackedUp: null,
   };
 
   it("starts a backup of everything and reports what was skipped", async () => {

@@ -22,6 +22,7 @@ function run(overrides: Partial<RunDto> = {}): RunDto {
     state: "running",
     checkIncomplete: false,
     serviceLimited: false,
+    notBackedUp: null,
     attempt: null,
     subject: null,
     job: null,

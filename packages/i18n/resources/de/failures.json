@@ -93,6 +93,10 @@
         "title": "Der Benutzer oder das Postfach existiert nicht mehr",
         "why": "Microsoft meldet, dass dieser Benutzer oder dieses Postfach nicht mehr existiert. Der Benutzer wurde vermutlich gelöscht oder das Postfach entfernt. Vorhandene Backups bleiben wiederherstellbar."
       },
+      "mailbox_inactive": {
+        "title": "Nicht gesichert: {reason, select, account_disabled {Das Konto ist deaktiviert} other {Das Konto hat keine Lizenz}}",
+        "why": "Microsoft meldet, dass es für diesen Benutzer, der noch im Verzeichnis steht, kein Postfach bereitstellt: {reason, select, account_disabled {Das Konto ist deaktiviert.} other {Das Konto hat keine Exchange-Online-Lizenz, die Lizenz wurde entfernt, oder das Postfach ist inaktiv.}} Das ist keine fehlgeschlagene Sicherung. {appName} behält die vorhandenen Sicherungen und sichert das Postfach automatisch wieder, sobald Microsoft es wieder bereitstellt."
+      },
       "onedrive_unavailable": {
         "title": "Dieser Benutzer hat kein OneDrive, das {appName} erreichen kann",
         "why": "Microsoft meldet, dass das OneDrive dieses Benutzers nicht existiert. Übliche Gründe: Der Benutzer hat keine Lizenz mit OneDrive, oder OneDrive wurde nie bereitgestellt, weil der Benutzer es nie geöffnet hat."
@@ -365,6 +369,10 @@
         "title": "Dieses Objekt gibt es an der Quelle nicht mehr",
         "why": "Das Postfach oder Laufwerk ist aus dem Verzeichnis der Quelle verschwunden. Vorhandene Backups bleiben wiederherstellbar, neue entstehen nicht."
       },
+      "object_inactive": {
+        "title": "Nicht gesichert, solange das Konto {reason, select, account_disabled {deaktiviert ist} other {keine Lizenz hat}}",
+        "why": "{appName} hat festgestellt, dass Microsoft für dieses Konto kein Postfach bereitstellt, weil es {reason, select, account_disabled {deaktiviert ist} other {keine Exchange-Online-Lizenz hat}}. Bis sich das ändert, entstehen keine neuen Sicherungen. Vorhandene Sicherungen bleiben wiederherstellbar, und nach dem nächsten Verzeichnisabgleich, bei dem das Konto wieder {reason, select, account_disabled {aktiviert} other {lizenziert}} ist, wird automatisch wieder gesichert."
+      },
       "app_not_configured": {
         "title": "Die Microsoft-365-App dieser Installation ist nicht eingerichtet",
         "why": "Die App-Registrierung, die {appName} für die Verbindung zu Microsoft 365 braucht, ist unvollständig oder fehlt (Client-ID, Zugangsdaten). Kein Microsoft-365-Lauf kann starten, bis sie eingerichtet ist."
@@ -628,6 +636,7 @@
     "check_tenant_id": "Prüfen Sie Mandanten-ID oder Domain der Quelle. Wurde die Organisation umbenannt oder gelöscht, legen Sie die Quelle neu an.",
     "check_server_clock": "Prüfen Sie, ob die Uhr des Servers von {appName} stimmt (NTP). Eine Uhr, die um mehr als ein paar Minuten abweicht, lässt Microsoft Tokens ablehnen.",
     "assign_license": "Weisen Sie diesem Benutzer im Microsoft-365-Admin-Center eine Exchange-Online-Lizenz zu, oder nehmen Sie das Postfach vom Schutz aus.",
+    "enable_account": "Wenn das Postfach wieder gesichert werden soll, aktivieren Sie das Konto im Microsoft-365-Admin-Center. Nach dem nächsten Verzeichnisabgleich wird von selbst wieder gesichert.",
     "exclude_object": "Braucht dieses Objekt keinen Schutz, nehmen Sie es auf der Seite Geschützte Objekte aus.",
     "include_object": "Um es wieder zu sichern, nehmen Sie das Objekt auf der Seite Geschützte Objekte wieder auf.",
     "assign_onedrive_license": "Stellen Sie sicher, dass der Benutzer eine Lizenz mit OneDrive hat und OneDrive bereitgestellt wurde (der Benutzer öffnet OneDrive einmal). Oder nehmen Sie das Laufwerk vom Schutz aus.",

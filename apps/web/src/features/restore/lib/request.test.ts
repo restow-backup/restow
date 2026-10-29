@@ -10,6 +10,7 @@ import {
   initialFormState,
   modeApplies,
   originalTargetDescriptionKey,
+  originalUnavailableKey,
   type RestoreFormContext,
   restoreErrorOf,
   restoreModesFor,
@@ -277,5 +278,21 @@ describe("restoreErrorOf", () => {
     );
     expect(restoreErrorOf(problem(403, "about:blank")).key).toBe("common:errors.forbidden");
     expect(restoreErrorOf(new NetworkError(new Error("down"))).key).toBe("common:errors.network");
+  });
+});
+
+describe("originalUnavailableKey", () => {
+  it("names a disabled or unlicensed account, not a removed one", () => {
+    expect(originalUnavailableKey({ status: "active" })).toBeNull();
+    expect(originalUnavailableKey({ status: "orphaned" })).toBe("dialog.target.originalGone");
+    expect(originalUnavailableKey({ status: "orphaned", statusReason: null })).toBe(
+      "dialog.target.originalGone",
+    );
+    expect(originalUnavailableKey({ status: "orphaned", statusReason: "account_disabled" })).toBe(
+      "dialog.target.originalInactive.account_disabled",
+    );
+    expect(originalUnavailableKey({ status: "orphaned", statusReason: "no_license" })).toBe(
+      "dialog.target.originalInactive.no_license",
+    );
   });
 });

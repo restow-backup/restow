@@ -119,6 +119,11 @@ export interface RunDto {
   checkIncomplete: boolean;
   /** A failed run that Graph or the storage held back (jobs DTO `serviceLimited`). */
   serviceLimited: boolean;
+  /**
+   * A failed backup that did not back up because the mailbox's account is disabled or
+   * unlicensed, with that reason (jobs DTO `notBackedUp`): neutral, never failed.
+   */
+  notBackedUp: "account_disabled" | "no_license" | null;
   /** Restore checks that are tried again: which attempt this is. Null for everything else. */
   attempt: RunAttemptDto | null;
   subject: RunSubjectDto | null;
@@ -184,6 +189,8 @@ export interface RunObjectDto {
   state: RunState;
   /** Its run failed only because a service held the backup back (`RunDto.serviceLimited`). */
   serviceLimited: boolean;
+  /** Its run did not back up: the account is disabled or unlicensed (`RunDto.notBackedUp`). */
+  notBackedUp: "account_disabled" | "no_license" | null;
   restoreCheck: RunRestoreCheckDto;
   /** The object of the run that was opened. */
   current: boolean;
@@ -200,6 +207,8 @@ export interface RunBatchDto {
   failed: number;
   /** Failed backups a service held back: no failure, the next scheduled run tries again. */
   limited: number;
+  /** Backups that did not run because the account is disabled or unlicensed: no failure. */
+  notBackedUp: number;
   cancelled: number;
   /** More objects than the list shows. */
   truncated: boolean;
@@ -486,6 +495,7 @@ export function mailRun(input: MailRunInput): RunDto {
     state,
     checkIncomplete: dto.checkIncomplete,
     serviceLimited: dto.serviceLimited,
+    notBackedUp: dto.notBackedUp,
     attempt: mailCheckAttempt(dto.queue, dto.status, dto.failure),
     subject: dto.object
       ? {
@@ -598,6 +608,7 @@ export function endpointRun(input: EndpointRunInput): RunDto {
     state,
     checkIncomplete: incomplete,
     serviceLimited: false,
+    notBackedUp: null,
     attempt: endpointCheckAttempt(run.kind, input.taskParams),
     subject: {
       kind: endpoint.profile,
@@ -704,6 +715,7 @@ export function shareRun(input: ShareRunInput): RunDto {
     state,
     checkIncomplete: false,
     serviceLimited: false,
+    notBackedUp: null,
     attempt: null,
     subject: {
       kind: "file_share",
@@ -748,7 +760,8 @@ export function shareRun(input: ShareRunInput): RunDto {
 
 /** The label of a group of runs by the kind of subject: used to word "3 of 4 mailboxes". */
 export function batchOf(
-  runs: readonly Pick<RunDto, "state" | "serviceLimited">[],
+  runs: readonly (Pick<RunDto, "state" | "serviceLimited"> &
+    Partial<Pick<RunDto, "notBackedUp">>)[],
   options: { truncated?: boolean } = {},
 ): RunBatchDto {
   const batch: RunBatchDto = {
@@ -759,12 +772,20 @@ export function batchOf(
     partial: 0,
     failed: 0,
     limited: 0,
+    notBackedUp: 0,
     cancelled: 0,
     truncated: options.truncated ?? false,
   };
   for (const run of runs) {
     // A backup a service held back counts apart, never as failed (lib/service-limit.ts).
-    batch[run.state === "failed" && run.serviceLimited ? "limited" : run.state]++;
+    // So does one that did not back up because the account is disabled or unlicensed.
+    batch[
+      run.state === "failed" && run.serviceLimited
+        ? "limited"
+        : run.state === "failed" && run.notBackedUp
+          ? "notBackedUp"
+          : run.state
+    ]++;
   }
   return batch;
 }

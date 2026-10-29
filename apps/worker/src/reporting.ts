@@ -25,6 +25,7 @@ import {
   FAILED_JOB_EVENTS,
   guidanceFor,
   isAlertThrottled,
+  isNotBackedUpFailure,
   isReportEvent,
   isServiceLimitedFailure,
   overdueDeadlineOf,
@@ -307,10 +308,13 @@ export function jobFinishedNotification(
   if (
     job.status === "failed" &&
     job.queue === "backup" &&
-    isServiceLimitedFailure(job.status, job.failure)
+    (isServiceLimitedFailure(job.status, job.failure) ||
+      isNotBackedUpFailure(job.status, job.failure))
   ) {
     // Held back by Graph or the storage (throttled, unavailable): no failure of the object; the
     // next run tries again, and the overdue rules speak up if none gets through (core limits.ts).
+    // Not backed up because the account is disabled or unlicensed: nothing to fix in Restow,
+    // the mailbox resumes by itself once Microsoft hosts it again (core limits.ts).
     return null;
   }
   const outcome =

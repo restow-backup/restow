@@ -386,6 +386,8 @@
       "completedWithFailures": "Completed with failures",
       "failed": "Failed",
       "limited": "Held back by the service, retried",
+      "notBackedUp_account_disabled": "Not backed up: account disabled",
+      "notBackedUp_no_license": "Not backed up: no licence",
       "cancelled": "Cancelled"
     },
     "empty": {

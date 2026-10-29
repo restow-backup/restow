@@ -223,6 +223,20 @@ export function isSharedOrBlocked(facts: AccountFacts): boolean {
   );
 }
 
+/**
+ * Why a member's mailbox is not backed up although the user is still in the directory, for a
+ * user Exchange Online reports no mailbox for (the probe or the backup's confirming read; see
+ * docs/MICROSOFT.md "Deaktivierte und unlizenzierte Konten"): `account_disabled` when sign-in is
+ * blocked, else `no_license` (no Exchange Online licence, licence removed, mailbox inactive).
+ * Only ever asked after Microsoft answered "no mailbox": a disabled account whose mailbox
+ * Graph still reads (a shared mailbox, a former employee) stays protected.
+ */
+export function inactiveReason(
+  facts: Pick<AccountFacts, "accountEnabled">,
+): "account_disabled" | "no_license" {
+  return facts.accountEnabled === false ? "account_disabled" : "no_license";
+}
+
 /** True when any of the subject's names is on the exclusion list. */
 export function matchesExclusion(subject: ProtectionSubject, exclude: readonly string[]): boolean {
   if (exclude.length === 0) {

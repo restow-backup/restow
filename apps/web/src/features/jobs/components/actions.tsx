@@ -29,6 +29,7 @@ import { ApiError, errorMessageKey } from "@/lib/api";
 const SKIP_REASONS: ReadonlySet<string> = new Set<BackupSkipReason>([
   "excluded",
   "orphaned",
+  "inactive",
   "source_pending",
   "source_disabled",
   "already_queued",

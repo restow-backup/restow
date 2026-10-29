@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { BackupTarget, Job, JobPage } from "@/features/jobs/api";
 import {
   durationParts,
+  isMutedTarget,
   isWaitingForThrottle,
   jobDurationSeconds,
   jobStatusDisplay,
@@ -250,6 +251,15 @@ describe("backup targets", () => {
     ).toBe(true);
   });
 
+  it("mutes targets not backed up by design, the disabled or unlicensed account included", () => {
+    expect(isMutedTarget(target({ blocked: "excluded" }))).toBe(true);
+    expect(isMutedTarget(target({ blocked: "orphaned" }))).toBe(true);
+    expect(isMutedTarget(target({ blocked: "inactive", status: "orphaned" }))).toBe(true);
+    expect(isMutedTarget(target())).toBe(false);
+    expect(isMutedTarget(target({ blocked: "source_pending" }))).toBe(false);
+    expect(isMutedTarget(target({ blocked: "source_disabled" }))).toBe(false);
+  });
+
   it("shows the newest job of an object and ignores older or foreign ones", () => {
     const current = job({ id: "new", createdAt: "2026-01-02T00:00:00.000Z" });
     const targets = [target({ lastJob: current }), target({ id: "object-2" })];
@@ -310,6 +320,15 @@ describe("jobStatusDisplay", () => {
     // Only a failed run reads held back; without the flag a failure stays red.
     expect(jobStatusDisplay("completed", 0, "backup", false, true).key).toBe("jobStatus.completed");
     expect(jobStatusDisplay("failed", 0, "backup").variant).toBe("destructive");
+  });
+
+  it("shows a backup of a disabled or unlicensed account neutral, never as failed", () => {
+    expect(jobStatusDisplay("failed", 0, "backup", false, false, "account_disabled")).toEqual({
+      key: "jobStatus.notBackedUp.account_disabled",
+      values: {},
+      variant: "muted",
+    });
+    expect(jobStatusDisplay("failed", 0, "backup", false, false, null).variant).toBe("destructive");
   });
 
   it("keeps the other states of a restore as they are", () => {

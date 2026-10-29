@@ -37,6 +37,10 @@
     "completedWithFailures": "{count, plural, one {Abgeschlossen, # Element fehlgeschlagen} other {Abgeschlossen, # Elemente fehlgeschlagen}}",
     "failed": "Fehlgeschlagen",
     "serviceLimited": "Vom Dienst gedrosselt, wird wiederholt",
+    "notBackedUp": {
+      "account_disabled": "Nicht gesichert: Konto deaktiviert",
+      "no_license": "Nicht gesichert: keine Lizenz"
+    },
     "cancelled": "Abgebrochen",
     "checkIncomplete": "Nicht abgeschlossen, wird wiederholt"
   },
@@ -150,6 +154,7 @@
   "blocked": {
     "excluded": "Vom Schutz ausgenommen",
     "orphaned": "Nicht mehr im Quellverzeichnis",
+    "inactive": "Nicht gesichert: Konto deaktiviert oder ohne Lizenz",
     "source_pending": "Quelle noch nicht verbunden",
     "source_disabled": "Quelle deaktiviert",
     "waiting": "Wartet auf den Start",

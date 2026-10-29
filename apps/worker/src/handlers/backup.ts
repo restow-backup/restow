@@ -47,6 +47,8 @@ import {
   buildCause,
   type ChunkDataStats,
   ClientCredentialsTokenProvider,
+  classifyFailure,
+  confirmMailboxInactive,
   ExchangeBackupEngine,
   encryptChunk,
   entraAppCredentialsOf,
@@ -62,6 +64,7 @@ import {
   type ItemFailureRecord,
   JOB_PRIORITY,
   type Logger,
+  type ObjectStatusReason,
   OneDriveBackupEngine,
   type ProgressReporter,
   type ProgressSnapshot,
@@ -127,6 +130,11 @@ const SOURCE_KIND_OF: Record<ProtectedObjectKind, Source["kind"]> = {
 export interface EligibilityInput {
   readonly objectKind: ProtectedObjectKind;
   readonly objectStatus: "active" | "excluded" | "orphaned";
+  /**
+   * Why an orphaned mailbox is not backed up although its user is still in the directory
+   * (`protected_objects.status_reason`); null or absent for an object removed from the source.
+   */
+  readonly objectStatusReason?: ObjectStatusReason | null;
   readonly sourceKind: Source["kind"];
   readonly sourceStatus: Source["status"];
 }
@@ -144,6 +152,12 @@ export function backupRejection(input: EligibilityInput): string | null {
     case "excluded":
       return "the object is excluded from protection";
     case "orphaned":
+      if (input.objectStatusReason === "account_disabled") {
+        return "the mailbox is not backed up: the account is disabled";
+      }
+      if (input.objectStatusReason === "no_license") {
+        return "the mailbox is not backed up: the account has no Exchange Online licence";
+      }
       return "the object no longer exists in the source directory";
     default:
       break;
@@ -171,7 +185,7 @@ export function backupRejectionCode(input: EligibilityInput): FailureCode | null
     return "config.object_excluded";
   }
   if (input.objectStatus === "orphaned") {
-    return "config.object_orphaned";
+    return input.objectStatusReason ? "config.object_inactive" : "config.object_orphaned";
   }
   if (input.sourceStatus === "pending") {
     return "config.source_not_connected";
@@ -440,6 +454,8 @@ export interface QueuedJobRow {
 
 export interface ObjectSource {
   readonly objectStatus: EligibilityInput["objectStatus"];
+  /** See {@link EligibilityInput.objectStatusReason}; absent reads as null. */
+  readonly objectStatusReason?: ObjectStatusReason | null;
   readonly source: Source;
   /**
    * The protected object's own sealed IMAP password (`protected_objects.secret_ref`),
@@ -469,6 +485,13 @@ export interface BackupStore {
   insertQueuedJob(row: QueuedJobRow): Promise<void>;
   /** Re-seal a secret whose plaintext changed (a rotated OAuth2 refresh token). */
   replaceSecret(secretId: string, plaintext: string): Promise<void>;
+  /**
+   * Mark an active mailbox inactive (`orphaned` with a reason) after Microsoft confirmed that its
+   * account is disabled or unlicensed; true when the row changed. Only an `active` object is
+   * changed: one an operator excluded meanwhile, or a sync already orphaned, stays as it is.
+   * Absent in stores that have no objects table (tests): the run still ends neutral.
+   */
+  markInactive?(protectedObjectId: string, reason: ObjectStatusReason): Promise<boolean>;
 }
 
 /**
@@ -505,6 +528,7 @@ export function pgBackupStore(
         tx
           .select({
             objectStatus: protectedObjects.status,
+            objectStatusReason: protectedObjects.statusReason,
             source: sources,
             objectSecretRef: protectedObjects.secretRef,
           })
@@ -608,6 +632,23 @@ export function pgBackupStore(
       );
     },
 
+    async markInactive(protectedObjectId, reason) {
+      const rows = await run((tx) =>
+        tx
+          .update(protectedObjects)
+          .set({ status: "orphaned", statusReason: reason, updatedAt: sql`now()` })
+          .where(
+            and(
+              eq(protectedObjects.tenantId, tenantId),
+              eq(protectedObjects.id, protectedObjectId),
+              eq(protectedObjects.status, "active"),
+            ),
+          )
+          .returning({ id: protectedObjects.id }),
+      );
+      return rows.length > 0;
+    },
+
     async replaceSecret(secretId, plaintext) {
       // Same sealing as the API (apps/api/src/lib/secrets.ts): the tenant's
       // current DEK, bound to the secret's own row id.
@@ -648,9 +689,20 @@ export interface BackupEngineDeps {
  */
 export type BackupEngineFactory = (deps: BackupEngineDeps) => BackupEngine<Database>;
 
+/**
+ * Asks the source, after a failed mailbox backup, whether the mailbox is inactive (account
+ * disabled, no licence) rather than broken; null when the source does not clearly say so.
+ */
+export type InactiveCheck = (
+  deps: BackupEngineDeps,
+  object: ProtectedObjectRef,
+) => Promise<ObjectStatusReason | null>;
+
 /** Engine factories by protected-object kind. Registering a kind twice replaces it. */
 export class BackupEngineRegistry {
   private readonly factories = new Map<ProtectedObjectKind, BackupEngineFactory>();
+  /** The check behind {@link confirmInactiveAfterFailure}; null skips it (tests, other builds). */
+  inactiveCheck: InactiveCheck | null = null;
 
   constructor(entries: Iterable<readonly [ProtectedObjectKind, BackupEngineFactory]> = []) {
     for (const [kind, factory] of entries) {
@@ -940,7 +992,7 @@ export function createDefaultBackupEngines(
     entraApp: options.entraApp ?? processEntraApp,
     tokens: options.tokens ?? new TokenProviderCache(),
   };
-  return new BackupEngineRegistry([
+  const registry = new BackupEngineRegistry([
     ["mailbox", (deps) => new ExchangeBackupEngine({ graph: lazyGraphClient(deps, settings) })],
     [
       "onedrive",
@@ -966,6 +1018,79 @@ export function createDefaultBackupEngines(
         }),
     ],
   ]);
+  registry.inactiveCheck = async (deps, object) => {
+    const graph = await graphClientForSource(deps, settings);
+    return (await confirmMailboxInactive(graph, object.externalId))?.reason ?? null;
+  };
+  return registry;
+}
+
+// ---------------------------------------------------------------------------
+// Disabled and unlicensed mailboxes
+// ---------------------------------------------------------------------------
+
+/**
+ * Failure causes of a mailbox backup that may mean "the account is disabled or unlicensed",
+ * worth one confirming read (core directory/confirm.ts). Never a 401 or 403 cause
+ * (`graph.access_denied`, `graph.permission_missing`, `graph.token_rejected`): those are
+ * permission problems and stay failures. `graph.request_rejected` only with 400 or 404.
+ */
+export function mayBeInactiveMailbox(cause: FailureCause): boolean {
+  if (cause.code === "graph.mailbox_not_licensed" || cause.code === "graph.user_not_found") {
+    return true;
+  }
+  const status = cause.params.httpStatus;
+  return cause.code === "graph.request_rejected" && (status === 400 || status === 404);
+}
+
+/**
+ * After a failed mailbox backup: when the failure may mean an inactive account and Microsoft
+ * confirms it, mark the object inactive and return the neutral rejection to throw instead
+ * (`graph.mailbox_inactive`, final, no retry, the original technical details kept); null
+ * otherwise, and the original error stands. Never throws: a check that fails leaves the run's
+ * own failure in place.
+ */
+export async function confirmInactiveAfterFailure(input: {
+  readonly error: unknown;
+  readonly object: ProtectedObjectRef;
+  readonly check: InactiveCheck | null;
+  readonly deps: BackupEngineDeps;
+  readonly store: BackupStore;
+  readonly logger: Logger;
+}): Promise<InvalidPayloadError | null> {
+  const { error, object, check, deps, store, logger } = input;
+  if (object.kind !== "mailbox" || deps.source.kind !== "m365" || !check) {
+    return null;
+  }
+  const cause = classifyFailure(error);
+  if (!mayBeInactiveMailbox(cause)) {
+    return null;
+  }
+  let reason: ObjectStatusReason | null;
+  try {
+    reason = await check(deps, object);
+  } catch (checkError) {
+    logger.warn("checking whether the mailbox is inactive did not succeed", {
+      error: checkError,
+    });
+    return null;
+  }
+  if (!reason) {
+    return null;
+  }
+  const marked = (await store.markInactive?.(object.id, reason)) ?? false;
+  logger.info("mailbox is inactive at the source, not backed up", { reason, marked });
+  const params = {
+    reason,
+    ...(cause.params.graphCode !== undefined ? { graphCode: cause.params.graphCode } : {}),
+    ...(cause.params.httpStatus !== undefined ? { httpStatus: cause.params.httpStatus } : {}),
+  };
+  return new InvalidPayloadError(
+    reason === "account_disabled"
+      ? "mailbox not backed up: the account is disabled"
+      : "mailbox not backed up: the account has no Exchange Online licence",
+    buildCause("graph.mailbox_inactive", params, cause.technical),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1087,10 +1212,12 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
           bossFor(ctx.db).send(queue, verifyPayload, sendOptions));
       const logger = ctx.logger.child({ protectedObjectId: object.id, kind: object.kind });
 
-      const { source, objectStatus, objectSecretRef } = await store.loadSource(object);
+      const { source, objectStatus, objectStatusReason, objectSecretRef } =
+        await store.loadSource(object);
       const eligibility: EligibilityInput = {
         objectKind: object.kind,
         objectStatus,
+        objectStatusReason: objectStatusReason ?? null,
         sourceKind: source.kind,
         sourceStatus: source.status,
       };
@@ -1099,7 +1226,11 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
         const code = backupRejectionCode(eligibility);
         throw new InvalidPayloadError(
           `backup skipped: ${rejection}`,
-          code ? buildCause(code) : undefined,
+          code === "config.object_inactive"
+            ? buildCause(code, { reason: objectStatusReason ?? "no_license" })
+            : code
+              ? buildCause(code)
+              : undefined,
         );
       }
       const factory = selectBackupEngine(engines, object.kind);
@@ -1110,13 +1241,14 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
         logger,
         ctx.now,
       );
-      const engine = factory({
+      const deps: BackupEngineDeps = {
         ctx,
         source,
         store,
         objectSecretRef,
         throttled: (info) => recorder.throttled(info),
-      });
+      };
+      const engine = factory(deps);
       recorder.phase("starting");
       const full = payload.full === true;
       logger.info("backup starting", { full, attempt: ctx.attempt, sourceId: source.id });
@@ -1124,6 +1256,19 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
       let result: BackupResult;
       try {
         result = await engine.run({ ...ctx, progress: recorder }, object, { full });
+      } catch (error) {
+        // A disabled or unlicensed account is no failed backup (core failures/limits.ts).
+        const inactive = ctx.signal.aborted
+          ? null
+          : await confirmInactiveAfterFailure({
+              error,
+              object,
+              check: engines.inactiveCheck,
+              deps,
+              store,
+              logger,
+            });
+        throw inactive ?? error;
       } finally {
         // Whatever happened, the phase and any throttle wait must not outlive the run.
         await recorder.finish();

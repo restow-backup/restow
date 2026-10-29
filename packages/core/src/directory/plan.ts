@@ -25,6 +25,7 @@ import type { DeltaMode } from "../graph/delta.js";
 import type { UserDeltaEntry } from "../graph/resources/users.js";
 import {
   evaluateProtection,
+  inactiveReason,
   isSharedOrBlocked,
   type ProtectionDecision,
   type ProtectionOverrides,
@@ -36,6 +37,16 @@ import {
 export type DirectoryObjectKind = "mailbox" | "onedrive";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 export type ObjectOrigin = "directory_sync" | "manual";
+/**
+ * Why an `orphaned` mailbox is not backed up although its user is still in the directory
+ * (`protected_objects.status_reason`): sign-in blocked, or no Exchange Online licence. Null on
+ * an orphaned object means "removed from the source".
+ */
+export type ObjectStatusReason = "account_disabled" | "no_license";
+export const OBJECT_STATUS_REASONS: readonly ObjectStatusReason[] = [
+  "account_disabled",
+  "no_license",
+];
 
 /** A user as the sync stores it: the `users` row plus the facts the rules need. */
 export interface DirectoryUserRecord {
@@ -69,6 +80,8 @@ export interface KnownObject {
   readonly externalId: string;
   readonly kind: DirectoryObjectKind;
   readonly status: ObjectStatus;
+  /** Why an orphaned object is not backed up; null or absent when it was removed. */
+  readonly statusReason?: ObjectStatusReason | null;
   readonly origin: ObjectOrigin;
   readonly displayName: string | null;
   /** Null when the link to its user is gone. */
@@ -122,8 +135,16 @@ export interface DirectoryPlan {
   readonly removedUserIds: readonly string[];
   /** Objects to insert or update; unchanged objects are left out. */
   readonly objects: readonly PlannedObject[];
-  /** External ids of directory-sync objects to mark orphaned. */
+  /**
+   * External ids of directory-sync objects to mark orphaned, or whose orphan reason changed
+   * (an object already orphaned is listed again when its reason is not the stored one).
+   */
   readonly orphanExternalIds: readonly string[];
+  /**
+   * The reason of each listed orphan whose user is still in the directory (see
+   * {@link ObjectStatusReason}); an id missing here is orphaned without a reason.
+   */
+  readonly orphanReasons: Readonly<Record<string, ObjectStatusReason>>;
   /** Users that are sign-in disabled members with an address, after this run. */
   readonly sharedOrBlockedIds: readonly string[];
   readonly counts: PlanCounts;
@@ -302,7 +323,8 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
 
   const objects: PlannedObject[] = [];
   const placed = new Set<string>();
-  const orphan = new Set<string>();
+  /** Objects to orphan, with their reason (a reason wins over none for the same object). */
+  const orphan = new Map<string, ObjectStatusReason | null>();
   let guests = 0;
 
   const decide = (subject: ProtectionSubject, externalId: string): ProtectionDecision =>
@@ -313,9 +335,16 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
       groupMemberIds: input.groupMemberIds,
     });
 
-  const markOrphan = (object: KnownObject) => {
-    if (object.status !== "orphaned") {
-      orphan.add(object.externalId);
+  const markOrphan = (object: KnownObject, reason: ObjectStatusReason | null = null) => {
+    const next = orphan.has(object.externalId)
+      ? (reason ?? orphan.get(object.externalId) ?? null)
+      : reason;
+    // An object already orphaned is written again only when its reason changes (disabled
+    // turned unlicensed, the user was deleted, or the first sync after the upgrade).
+    if (object.status !== "orphaned" || (object.statusReason ?? null) !== next) {
+      orphan.set(object.externalId, next);
+    } else {
+      orphan.delete(object.externalId);
     }
   };
 
@@ -340,7 +369,9 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
     const owned = byOwner.get(user.entraObjectId) ?? [];
     if (isGuest(user)) {
       guests += 1;
-      owned.forEach(markOrphan);
+      for (const object of owned) {
+        markOrphan(object);
+      }
       continue;
     }
     const subject = subjectOf(user);
@@ -360,7 +391,18 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
       );
     };
 
-    if (hasMailbox(user, probe)) {
+    // A mailbox known to be inactive stays so while the probe cannot answer: the address
+    // heuristic of `hasMailbox` would otherwise turn it active until the backup fails again.
+    const knownMailbox = owned.find(
+      (object) => object.kind === "mailbox" && object.externalId === user.entraObjectId,
+    );
+    const keptReason =
+      probe?.mailbox === undefined &&
+      knownMailbox?.status === "orphaned" &&
+      knownMailbox.statusReason
+        ? knownMailbox.statusReason
+        : null;
+    if (keptReason === null && hasMailbox(user, probe)) {
       add("mailbox", user.entraObjectId);
     }
     if (typeof probe?.driveId === "string") {
@@ -372,9 +414,13 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
         add("onedrive", current.externalId);
       }
     }
+    // Exchange answered "no mailbox" for a member who is still in the directory: the account is
+    // disabled or has no licence. The mailbox stays neutral (not backed up, kept, not overdue)
+    // and turns active again once a probe finds it (docs/MICROSOFT.md).
+    const mailboxReason = probe?.mailbox === false ? inactiveReason(user) : keptReason;
     for (const object of owned) {
       if (!keep.has(object.externalId)) {
-        markOrphan(object);
+        markOrphan(object, object.kind === "mailbox" ? mailboxReason : null);
       }
     }
   }
@@ -385,7 +431,9 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
     }
     if (full || removed.has(ownerId)) {
       // Gone from the directory (or reported removed): the objects are orphaned.
-      owned.forEach(markOrphan);
+      for (const object of owned) {
+        markOrphan(object);
+      }
       continue;
     }
     // Unchanged user in an incremental run: re-apply the rules from stored facts.
@@ -408,7 +456,9 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
   }
   if (full) {
     // A full enumeration cannot re-attach an object whose user link is gone.
-    unlinked.forEach(markOrphan);
+    for (const object of unlinked) {
+      markOrphan(object);
+    }
   }
   for (const externalId of placed) {
     orphan.delete(externalId);
@@ -432,7 +482,10 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
     users: input.users,
     removedUserIds: [...removed],
     objects,
-    orphanExternalIds: [...orphan],
+    orphanExternalIds: [...orphan.keys()],
+    orphanReasons: Object.fromEntries(
+      [...orphan].filter((entry): entry is [string, ObjectStatusReason] => entry[1] !== null),
+    ),
     sharedOrBlockedIds: [...sharedOrBlocked].sort(),
     counts: {
       users: input.users.length,
@@ -441,7 +494,7 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
       created: countChange("created"),
       updated: countChange("updated"),
       rescoped: countChange("rescoped"),
-      orphaned: orphan.size,
+      orphaned: [...orphan.keys()].filter((id) => knownById.get(id)?.status !== "orphaned").length,
     },
   };
 }

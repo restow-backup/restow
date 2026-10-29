@@ -68,6 +68,36 @@ describe("jobFinishedNotification", () => {
     }
   });
 
+  it("raises nothing for a mailbox not backed up because its account is disabled or unlicensed", () => {
+    for (const code of ["graph.mailbox_inactive", "config.object_inactive"]) {
+      const failure = {
+        v: 1,
+        code,
+        transient: false,
+        params: { reason: "account_disabled" },
+        technical: { httpStatus: 404 },
+        occurredAt: "2026-10-27T07:11:41.290Z",
+        step: null,
+        retry: null,
+      };
+      expect(jobFinishedNotification(TENANT, failedJob(failure), "Alice")).toBeNull();
+    }
+    // A mailbox that is merely orphaned (removed) still reports as before.
+    const orphaned = {
+      v: 1,
+      code: "config.object_orphaned",
+      transient: false,
+      params: {},
+      technical: {},
+      occurredAt: "2026-10-27T07:11:41.290Z",
+      step: null,
+      retry: null,
+    };
+    expect(jobFinishedNotification(TENANT, failedJob(orphaned), "Alice")?.event).toBe(
+      "backup.failed",
+    );
+  });
+
   it("raises backup.failed for a SharePoint site that is gone, with the steps for it", () => {
     const notification = jobFinishedNotification(
       TENANT,

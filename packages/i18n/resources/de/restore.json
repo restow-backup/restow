@@ -24,6 +24,10 @@
       "onedrive": "OneDrive",
       "imap": "E-Mail (IMAP)",
       "gone": "Entfernt",
+      "inactive": {
+        "account_disabled": "Nicht gesichert: Konto deaktiviert",
+        "no_license": "Nicht gesichert: keine Lizenz"
+      },
       "noBackup": "Noch keine Sicherung"
     },
     "deleted": "In der Quelle gelöscht",
@@ -267,6 +271,10 @@
       "originalDescription": "Zurück nach {object}, dorthin, woher die Elemente stammen.",
       "originalDescriptionFolder": "In das Konto {object}, dort in den neuen Ordner „{folder}“ (siehe unten: Beide behalten).",
       "originalGone": "Das ursprüngliche Konto existiert in der Quelle nicht mehr.",
+      "originalInactive": {
+        "account_disabled": "Das Konto ist in Microsoft 365 deaktiviert, es gibt also kein Postfach, in das wiederhergestellt werden kann. Aktivieren Sie es wieder, um dorthin wiederherzustellen.",
+        "no_license": "Das Konto hat keine Exchange-Online-Lizenz, es gibt also kein Postfach, in das wiederhergestellt werden kann. Weisen Sie wieder eine Lizenz zu, um dorthin wiederherzustellen."
+      },
       "demoDownloadOnly": "In dieser Demo ist nur die Wiederherstellung als Download möglich.",
       "other": "Anderes Konto",
       "otherDescription": "In ein anderes Postfach, Laufwerk oder IMAP-Konto dieses Mandanten.",

@@ -942,6 +942,7 @@ async function mailDetail(
                 subject: candidate.subject,
                 state: candidate.state,
                 serviceLimited: candidate.serviceLimited,
+                notBackedUp: candidate.notBackedUp,
                 restoreCheck: waveChecks.get(candidate.id) ?? NO_CHECK,
                 current: candidate.id === row.job.id,
               },
@@ -962,6 +963,7 @@ async function mailDetail(
         subject: run.subject,
         state: run.state,
         serviceLimited: run.serviceLimited,
+        notBackedUp: run.notBackedUp,
         restoreCheck,
         current: true,
       },
@@ -1007,6 +1009,7 @@ async function mailDetail(
         message: run.state === "failed" ? (run.errorMessage ?? null) : null,
         // A backup a service held back reads "held back", not failed (lib/service-limit.ts).
         limited: run.state === "failed" && run.serviceLimited,
+        notBackedUp: run.state === "failed" ? run.notBackedUp : null,
       },
     });
   }
@@ -1122,6 +1125,7 @@ async function endpointDetail(
                   subject: dto.subject,
                   state: dto.state,
                   serviceLimited: dto.serviceLimited,
+                  notBackedUp: dto.notBackedUp,
                   restoreCheck: waveChecks.get(dto.id) ?? NO_CHECK,
                   current: dto.id === row.id,
                 },
@@ -1144,6 +1148,7 @@ async function endpointDetail(
         subject: run.subject,
         state: run.state,
         serviceLimited: run.serviceLimited,
+        notBackedUp: run.notBackedUp,
         restoreCheck,
         current: true,
       },
@@ -1336,6 +1341,7 @@ async function shareDetail(
             subject: run.subject,
             state: run.state,
             serviceLimited: run.serviceLimited,
+            notBackedUp: run.notBackedUp,
             restoreCheck,
             current: true,
           },

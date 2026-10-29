@@ -373,4 +373,109 @@ describe("planDirectory: an incremental run", () => {
     expect(result.objects).toEqual([]);
     expect([...result.orphanExternalIds].sort()).toEqual(["user-1", "user-guest"]);
   });
+
+  describe("disabled and unlicensed mailboxes", () => {
+    const disabled: DirectoryUserRecord = { ...alice, accountEnabled: false };
+    const inactive = (reason: "account_disabled" | "no_license"): KnownObject => ({
+      ...known(alice, "mailbox", "user-1", "orphaned"),
+      statusReason: reason,
+    });
+
+    it("orphans the mailbox of a disabled user Exchange reports no mailbox for, with a reason", () => {
+      const result = plan({
+        mode: "incremental",
+        users: [disabled],
+        known: [known(alice, "mailbox", "user-1")],
+        probes: probes([["user-1", { mailbox: false }]]),
+      });
+      expect(result.orphanExternalIds).toEqual(["user-1"]);
+      expect(result.orphanReasons).toEqual({ "user-1": "account_disabled" });
+      expect(result.counts.orphaned).toBe(1);
+    });
+
+    it("says no licence for an enabled user without a mailbox", () => {
+      const result = plan({
+        mode: "incremental",
+        users: [alice],
+        known: [known(alice, "mailbox", "user-1")],
+        probes: probes([["user-1", { mailbox: false }]]),
+      });
+      expect(result.orphanReasons).toEqual({ "user-1": "no_license" });
+    });
+
+    it("orphans the objects of a removed user without a reason", () => {
+      const result = plan({
+        mode: "incremental",
+        removedUserIds: ["user-1"],
+        known: [inactive("account_disabled")],
+      });
+      expect(result.orphanExternalIds).toEqual(["user-1"]);
+      expect(result.orphanReasons).toEqual({});
+      // Already orphaned: only the reason changes, nothing is newly orphaned.
+      expect(result.counts.orphaned).toBe(0);
+    });
+
+    it("keeps backing up a disabled account whose mailbox Graph still reads", () => {
+      const result = plan({
+        mode: "incremental",
+        users: [disabled, shared],
+        known: [known(alice, "mailbox", "user-1"), known(shared, "mailbox", "user-shared")],
+        probes: probes([
+          ["user-1", { mailbox: true }],
+          ["user-shared", { mailbox: true }],
+        ]),
+      });
+      expect(result.orphanExternalIds).toEqual([]);
+    });
+
+    it("turns an inactive mailbox active again once the probe finds it", () => {
+      const result = plan({
+        mode: "incremental",
+        users: [alice],
+        known: [inactive("no_license")],
+        probes: probes([["user-1", { mailbox: true }]]),
+      });
+      expect(result.orphanExternalIds).toEqual([]);
+      expect(result.objects.map((o) => [o.externalId, o.status, o.change])).toEqual([
+        ["user-1", "active", "updated"],
+      ]);
+    });
+
+    it("updates the reason of a mailbox that is already orphaned", () => {
+      const changed = plan({
+        mode: "incremental",
+        users: [alice],
+        known: [inactive("account_disabled")],
+        probes: probes([["user-1", { mailbox: false }]]),
+      });
+      expect(changed.orphanExternalIds).toEqual(["user-1"]);
+      expect(changed.orphanReasons).toEqual({ "user-1": "no_license" });
+
+      const upgraded = plan({
+        mode: "incremental",
+        users: [disabled],
+        known: [known(alice, "mailbox", "user-1", "orphaned")],
+        probes: probes([["user-1", { mailbox: false }]]),
+      });
+      expect(upgraded.orphanReasons).toEqual({ "user-1": "account_disabled" });
+
+      const same = plan({
+        mode: "incremental",
+        users: [disabled],
+        known: [inactive("account_disabled")],
+        probes: probes([["user-1", { mailbox: false }]]),
+      });
+      expect(same.orphanExternalIds).toEqual([]);
+    });
+
+    it("keeps an inactive mailbox inactive while the probe cannot answer", () => {
+      const result = plan({
+        mode: "incremental",
+        users: [alice],
+        known: [inactive("account_disabled")],
+      });
+      expect(result.objects).toEqual([]);
+      expect(result.orphanExternalIds).toEqual([]);
+    });
+  });
 });

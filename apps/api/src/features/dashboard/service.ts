@@ -216,6 +216,7 @@ async function loadRecentJobs(
         : null,
     failure: job.failure,
     serviceLimited: job.serviceLimited,
+    notBackedUp: job.notBackedUp,
     itemCauses: job.itemCauses,
   }));
   return { items };

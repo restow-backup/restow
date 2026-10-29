@@ -10,7 +10,7 @@ import {
 } from "@restow/db";
 import { type SQL, sql } from "drizzle-orm";
 import { notImported, notImportedRaw, snapshotNotImportedRaw } from "../../lib/imported-objects.js";
-import { notServiceLimitedJob } from "../../lib/service-limit.js";
+import { notCountedFailureJob } from "../../lib/service-limit.js";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { loadRepositoryBytes, totalRepositoryBytes } from "../storage/repository-bytes.js";
 import { MAX_LARGEST_OBJECTS } from "./aggregate.js";
@@ -287,7 +287,7 @@ export async function collectTenantFacts(
       where ${jobs.tenantId} = ${tenantId}
         and ${jobs.queue} = 'backup'
         and ${jobs.status} in ('completed', 'failed', 'cancelled')
-        and ${notServiceLimitedJob()}
+        and ${notCountedFailureJob()}
         and ${FINISHED_AT} >= ${since} and ${FINISHED_AT} < ${end}
       group by 1, 2`,
   );

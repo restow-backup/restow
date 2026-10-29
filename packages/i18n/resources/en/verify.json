@@ -106,6 +106,10 @@
       "active": "Check running"
     },
     "orphaned": "Removed from source, backups kept",
+    "inactive": {
+      "account_disabled": "Not backed up: account disabled, backups kept",
+      "no_license": "Not backed up: no licence, backups kept"
+    },
     "overdue": "Overdue",
     "never": "Never",
     "noBackup": "No backup yet",
@@ -240,6 +244,16 @@
       "title": "Removed from the source",
       "description": "This object no longer exists in its source, so no newer backup will follow. Its rating counts only whether the kept backup restores, not how old it is.",
       "notCounted": "Not counted: {reason}"
+    },
+    "inactive": {
+      "account_disabled": {
+        "title": "Not backed up: account disabled",
+        "description": "The account is disabled in Microsoft 365, so Exchange Online hosts no mailbox to back up. Its backups are kept, and backups resume automatically once the account is enabled again. Its rating counts only whether the kept backup restores, not how old it is."
+      },
+      "no_license": {
+        "title": "Not backed up: no licence",
+        "description": "The account has no Exchange Online licence, so there is no mailbox to back up. Its backups are kept, and backups resume automatically once a licence is assigned again. Its rating counts only whether the kept backup restores, not how old it is."
+      }
     },
     "stats": {
       "checked": "Items checked",

@@ -37,6 +37,10 @@
     "completedWithFailures": "{count, plural, one {Completed, # item failed} other {Completed, # items failed}}",
     "failed": "Failed",
     "serviceLimited": "Held back by the service, retried",
+    "notBackedUp": {
+      "account_disabled": "Not backed up: account disabled",
+      "no_license": "Not backed up: no licence"
+    },
     "cancelled": "Cancelled",
     "checkIncomplete": "Not completed, will be retried"
   },
@@ -150,6 +154,7 @@
   "blocked": {
     "excluded": "Excluded from protection",
     "orphaned": "No longer in the source directory",
+    "inactive": "Not backed up: account disabled or unlicensed",
     "source_pending": "Source not connected yet",
     "source_disabled": "Source disabled",
     "waiting": "Waiting to start",

@@ -7,6 +7,7 @@ import {
   isGraphError,
   isServiceLimitedFailure,
   normalizeAccounts,
+  notBackedUpReason,
   type ProtectionOverride,
   type ProtectionRulesDto,
   parseImapAccountsCsv,
@@ -178,6 +179,13 @@ export interface ProtectedObjectDto {
   kind: ObjectKind;
   origin: ProtectedObject["origin"];
   status: ObjectStatus;
+  /**
+   * Why an `orphaned` mailbox is not backed up although its user is still in the directory:
+   * the account is disabled or has no Exchange Online licence. Its backups are kept, it is never
+   * overdue, and it turns active again by itself. Null for every other object, and for an
+   * object that was removed from the source.
+   */
+  statusReason: "account_disabled" | "no_license" | null;
   externalId: string;
   displayName: string | null;
   userId: string | null;
@@ -209,6 +217,11 @@ export interface ProtectedObjectDto {
      * tries again, so the UI shows it amber, never as "backup failed".
      */
     serviceLimited: boolean;
+    /**
+     * A failed run that did not back up because the account is disabled or unlicensed, with
+     * that reason (@restow/core `notBackedUpReason`): neutral, never "backup failed".
+     */
+    notBackedUp: "account_disabled" | "no_license" | null;
   } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
   /** The backup job that covers it; null when none does. */
@@ -973,6 +986,7 @@ async function toObjectDtos(
       kind: row.object.kind,
       origin: row.object.origin,
       status: row.object.status,
+      statusReason: row.object.status === "orphaned" ? (row.object.statusReason ?? null) : null,
       externalId: row.object.externalId,
       displayName: row.object.displayName,
       userId: row.object.userId,
@@ -1000,6 +1014,10 @@ async function toObjectDtos(
             failure:
               fact.latestJob.status === "completed" ? null : failureDto(fact.latestJob.failure),
             serviceLimited: isServiceLimitedFailure(
+              fact.latestJob.status,
+              fact.latestJob.failure as { code?: string | null } | null,
+            ),
+            notBackedUp: notBackedUpReason(
               fact.latestJob.status,
               fact.latestJob.failure as { code?: string | null } | null,
             ),

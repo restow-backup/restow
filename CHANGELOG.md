@@ -10,6 +10,19 @@ private repository.
 
 ## [Unreleased]
 
+### Fixed
+
+- Microsoft 365: A mailbox whose account is disabled or has no Exchange Online licence
+  (mailbox not provisioned, licence removed, inactive mailbox) no longer fails its backup until
+  the next directory sync ("Microsoft rejected the request"). The backup confirms with
+  Microsoft that the user exists but has no mailbox, marks the mailbox "Not backed up: account
+  disabled" or "Not backed up: no licence" and ends neutral: no failed count, no red readiness
+  because of age, no `backup.failed` alert or `job.failed` webhook, existing backups kept. The
+  directory sync sets the same state. Backups resume by themselves once the account is enabled
+  or licensed again. A 401 or 403 is never read this way; those stay permission failures.
+  Migration 0069 adds `protected_objects.status_reason` (docs/MICROSOFT.md "Deaktivierte und
+  unlizenzierte Konten").
+
 ## [0.4.6] - 2026-10-23
 
 Beta release. Run it alongside your existing backups, not as your only one, until

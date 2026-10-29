@@ -24,6 +24,10 @@
       "onedrive": "OneDrive",
       "imap": "Mail (IMAP)",
       "gone": "Removed",
+      "inactive": {
+        "account_disabled": "Not backed up: account disabled",
+        "no_license": "Not backed up: no licence"
+      },
       "noBackup": "No backup yet"
     },
     "deleted": "Deleted in source",
@@ -267,6 +271,10 @@
       "originalDescription": "Back into {object}, where the items came from.",
       "originalDescriptionFolder": "Into the account {object}, there into the new folder “{folder}” (see below: Keep both).",
       "originalGone": "The original account no longer exists in the source.",
+      "originalInactive": {
+        "account_disabled": "The account is disabled in Microsoft 365, so there is no mailbox to restore into. Enable it again to restore there.",
+        "no_license": "The account has no Exchange Online licence, so there is no mailbox to restore into. Assign a licence again to restore there."
+      },
       "demoDownloadOnly": "This demo only offers restore as a download.",
       "other": "Another account",
       "otherDescription": "Into a different mailbox, drive or IMAP account of this tenant.",

@@ -141,6 +141,8 @@ export function isThrottled(error: unknown): error is GraphError {
 const MAILBOX_UNAVAILABLE_CODES = new Set([
   "MailboxNotEnabledForRESTAPI",
   "MailboxNotHostedInExchangeOnline",
+  "ErrorMailboxNotHostedInExchangeOnline",
+  "MailboxNotSupportedForRESTAPI",
   "ErrorMailboxNotEnabledForRESTAPI",
   "ResourceNotFound",
   "ErrorInvalidUser",

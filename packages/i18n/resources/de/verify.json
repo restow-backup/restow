@@ -106,6 +106,10 @@
       "active": "Prüfung läuft"
     },
     "orphaned": "In der Quelle entfernt, Sicherungen bleiben",
+    "inactive": {
+      "account_disabled": "Nicht gesichert: Konto deaktiviert, Sicherungen bleiben",
+      "no_license": "Nicht gesichert: keine Lizenz, Sicherungen bleiben"
+    },
     "overdue": "Überfällig",
     "never": "Nie",
     "noBackup": "Noch keine Sicherung",
@@ -240,6 +244,16 @@
       "title": "Aus der Quelle entfernt",
       "description": "Dieses Objekt gibt es in seiner Quelle nicht mehr, eine neuere Sicherung folgt also nicht. Für die Bewertung zählt nur, ob sich die aufbewahrte Sicherung wiederherstellen lässt, nicht ihr Alter.",
       "notCounted": "Nicht gewertet: {reason}"
+    },
+    "inactive": {
+      "account_disabled": {
+        "title": "Nicht gesichert: Konto deaktiviert",
+        "description": "Das Konto ist in Microsoft 365 deaktiviert, Exchange Online stellt also kein Postfach zum Sichern bereit. Die Sicherungen bleiben erhalten, und sobald das Konto wieder aktiviert ist, wird automatisch wieder gesichert. Für die Bewertung zählt nur, ob sich die aufbewahrte Sicherung wiederherstellen lässt, nicht ihr Alter."
+      },
+      "no_license": {
+        "title": "Nicht gesichert: keine Lizenz",
+        "description": "Das Konto hat keine Exchange-Online-Lizenz, es gibt also kein Postfach zu sichern. Die Sicherungen bleiben erhalten, und sobald wieder eine Lizenz zugewiesen ist, wird automatisch wieder gesichert. Für die Bewertung zählt nur, ob sich die aufbewahrte Sicherung wiederherstellen lässt, nicht ihr Alter."
+      }
     },
     "stats": {
       "checked": "Geprüfte Elemente",

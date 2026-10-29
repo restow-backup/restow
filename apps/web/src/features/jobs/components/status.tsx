@@ -22,6 +22,7 @@ import type {
 } from "@/features/jobs/api";
 import {
   jobStatusDisplay,
+  type NotBackedUpReason,
   READINESS_VARIANT,
   SNAPSHOT_STATE_VARIANT,
 } from "@/features/jobs/presenters";
@@ -40,6 +41,7 @@ export function JobStatusBadge({
   queue,
   checkIncomplete = false,
   serviceLimited = false,
+  notBackedUp = null,
 }: {
   status: JobStatus;
   failedItems?: number;
@@ -49,9 +51,18 @@ export function JobStatusBadge({
   checkIncomplete?: boolean;
   /** A backup a service held back: amber, never "Failed" (`Job.serviceLimited`). */
   serviceLimited?: boolean;
+  /** A backup of a disabled or unlicensed account: neutral, never "Failed" (`Job.notBackedUp`). */
+  notBackedUp?: NotBackedUpReason | null;
 }) {
   const { t } = useTranslation("backup");
-  const display = jobStatusDisplay(status, failedItems, queue, checkIncomplete, serviceLimited);
+  const display = jobStatusDisplay(
+    status,
+    failedItems,
+    queue,
+    checkIncomplete,
+    serviceLimited,
+    notBackedUp,
+  );
   const incomplete = display.key === "jobStatus.checkIncomplete";
   return (
     <Badge variant={display.variant} data-check={incomplete ? "incomplete" : undefined}>

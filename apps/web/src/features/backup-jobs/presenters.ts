@@ -13,7 +13,7 @@ import {
 
 import type { StatusTone } from "@/components/kit";
 import type { Run } from "@/features/history/api";
-import { isHeldBack } from "@/features/history/presenters";
+import { isHeldBack, notBackedUpOf } from "@/features/history/presenters";
 import { describeCadence } from "@/features/schedules/presenters";
 
 import type {
@@ -391,11 +391,13 @@ export function runOutcomeView(
 
 /**
  * The run the job sheet shows under "Last error": the newest failed one, but never a backup a
- * service held back (`Run.serviceLimited`). That is no error: its amber badge and cause stay in
+ * service held back (`Run.serviceLimited`) or one of a disabled or unlicensed account
+ * (`Run.notBackedUp`). That is no error: its amber badge and cause stay in
  * the runs list, and the next scheduled run tries again.
  */
-export function lastErrorRun<T extends Pick<Run, "state" | "kind" | "serviceLimited">>(
-  runs: readonly T[],
-): T | undefined {
-  return runs.find((run) => run.state === "failed" && !isHeldBack(run));
+export function lastErrorRun<
+  T extends Pick<Run, "state" | "kind" | "serviceLimited"> & Partial<Pick<Run, "notBackedUp">>,
+>(runs: readonly T[]): T | undefined {
+  // Nor a backup of a disabled or unlicensed account: neutral, nothing to fix here.
+  return runs.find((run) => run.state === "failed" && !isHeldBack(run) && !notBackedUpOf(run));
 }

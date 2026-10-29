@@ -74,7 +74,12 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
   `imap` im Speicherformat des IMAP-Backups, siehe docs/IMPORT.md)
 - `protected_object`: Postfach, OneDrive, IMAP-Konto, SharePoint-Website (`site`, ohne
   Nutzer; docs/MICROSOFT.md „SharePoint Online"); Herkunft `directory_sync` oder
-  `manual`; Schutzstatus (aktiv, ausgeschlossen, verwaist)
+  `manual`; Schutzstatus (aktiv, ausgeschlossen, verwaist). Ein verwaistes Microsoft-365-Postfach,
+  dessen Benutzer noch im Verzeichnis steht, trägt seinen Grund in `status_reason`
+  (`account_disabled`, `no_license`; ab 0.4.7, docs/MICROSOFT.md „Deaktivierte und
+  unlizenzierte Konten"): neutral wie jedes verwaiste Objekt, nimmt die Sicherung von selbst
+  wieder auf. Seine Läufe zählen nicht als fehlgeschlagen (`NOT_BACKED_UP_CAUSES`,
+  `apps/api/src/lib/service-limit.ts` `notCountedFailureJob`).
 - Rollen: `provider_admin`, `tenant_admin` (inkl. entra_global_admin via SSO),
   `tenant_restore` (Restore-Operator: durchsucht, stellt wieder her und exportiert alle
   Konten des Mandanten und die Dateien der Sicherungsstände von Servern, Clients und

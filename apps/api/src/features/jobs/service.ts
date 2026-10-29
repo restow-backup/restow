@@ -106,6 +106,7 @@ const objectSelection = {
   displayName: protectedObjects.displayName,
   externalId: protectedObjects.externalId,
   status: protectedObjects.status,
+  statusReason: protectedObjects.statusReason,
   // The linked user's address, so a view can name a mailbox or OneDrive by
   // its owner instead of the opaque Entra/drive id in `externalId` (#55). An
   // SQL expression, not a column, so a job without an object still maps to
@@ -423,6 +424,7 @@ interface BackupCandidate {
   id: string;
   displayName: string | null;
   objectStatus: JobObjectDto["status"];
+  objectStatusReason: JobObjectDto["statusReason"];
   sourceStatus: string;
 }
 
@@ -444,6 +446,7 @@ async function loadBackupCandidates(
       id: protectedObjects.id,
       displayName: protectedObjects.displayName,
       objectStatus: protectedObjects.status,
+      objectStatusReason: protectedObjects.statusReason,
       sourceStatus: sources.status,
     })
     .from(protectedObjects)
@@ -710,7 +713,11 @@ export async function startBackup(
     const queuedIds: string[] = [];
     const skipped: BackupSkipDto[] = [];
     for (const candidate of candidates) {
-      const blocked = backupBlockedReason(candidate.objectStatus, candidate.sourceStatus);
+      const blocked = backupBlockedReason(
+        candidate.objectStatus,
+        candidate.sourceStatus,
+        candidate.objectStatusReason,
+      );
       if (blocked && input.protectedObjectId) {
         throw new ProblemError(409, "Backup not possible", {
           detail: "The object cannot be backed up in its current state.",
@@ -1003,7 +1010,7 @@ export async function listBackupTargets(
       return {
         ...object,
         source,
-        blocked: backupBlockedReason(object.status, source.status),
+        blocked: backupBlockedReason(object.status, source.status, object.statusReason),
         lastSnapshot: snapshot ? toSnapshotDto(snapshot, null) : null,
         lastJob: jobByObject.get(object.id) ?? null,
         latestVerify: verify.get(object.id) ?? null,

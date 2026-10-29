@@ -103,6 +103,11 @@ export interface Job {
    * servers before 0.4.7.
    */
   serviceLimited?: boolean;
+  /**
+   * A failed backup that did not back up because the mailbox's account is disabled or has no
+   * Exchange Online licence: neutral, never failed. Missing on servers before 0.4.7.
+   */
+  notBackedUp?: "account_disabled" | "no_license" | null;
 }
 
 export interface ItemFailure {
@@ -153,7 +158,13 @@ export interface JobDetail extends Job {
   result: BackupResult | null;
 }
 
-export type BackupBlockedReason = "excluded" | "orphaned" | "source_pending" | "source_disabled";
+export type BackupBlockedReason =
+  | "excluded"
+  | "orphaned"
+  /** Orphaned because the account is disabled or unlicensed (`statusReason`). */
+  | "inactive"
+  | "source_pending"
+  | "source_disabled";
 export type BackupSkipReason = BackupBlockedReason | "already_queued";
 
 export interface BackupSkip {

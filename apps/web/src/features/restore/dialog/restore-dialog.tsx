@@ -46,6 +46,7 @@ import {
   initialFormState,
   modeApplies,
   originalTargetDescriptionKey,
+  originalUnavailableKey,
   type RestoreErrorDisplay,
   type RestoreFormContext,
   type RestoreFormErrors,
@@ -220,6 +221,7 @@ function RestoreForm({
     return value ? tAny(value) : undefined;
   };
 
+  const originalGone = originalUnavailableKey(object);
   const targetChoices: Choice<RestoreTargetType>[] = [
     {
       value: "original",
@@ -232,8 +234,8 @@ function RestoreForm({
       disabled: !targetAvailable("original", context),
       disabledHint: demoMode
         ? t("dialog.target.demoDownloadOnly")
-        : object.status === "orphaned"
-          ? t("dialog.target.originalGone")
+        : originalGone
+          ? t(originalGone)
           : undefined,
     },
     {

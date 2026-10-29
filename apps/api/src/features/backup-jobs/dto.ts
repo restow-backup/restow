@@ -323,6 +323,12 @@ export interface JobRunDto {
    * back, not failed. Absent for the other sources.
    */
   serviceLimited?: boolean;
+  /**
+   * Mail: a failed backup that did not back up because the mailbox's account is disabled or
+   * unlicensed, with that reason (lib/service-limit.ts `notBackedUpOf`), shown neutral. Absent
+   * for the other sources.
+   */
+  notBackedUp?: "account_disabled" | "no_license" | null;
 }
 
 export interface BackupJobRunsDto {
@@ -339,6 +345,7 @@ export interface RunBackupJobResult {
       | "already_queued"
       | "excluded"
       | "orphaned"
+      | "inactive"
       | "source_pending"
       | "source_disabled"
       | "revoked"

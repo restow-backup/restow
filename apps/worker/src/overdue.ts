@@ -69,6 +69,11 @@ export interface OverdueCandidate {
   since: Date;
   /** Whether a backup ever succeeded. */
   backedUp: boolean;
+  /**
+   * The newest successful backup when `since` is later than it (a mailbox measured from its
+   * return to `active`); absent, `since` is that backup.
+   */
+  lastSuccessAt?: Date;
   /** Its own bound, when it has one (a mailbox member's own schedule); else its kind's. */
   hours?: number;
 }
@@ -162,7 +167,9 @@ export function overdueNotification(
     details: {
       ...subjectDetails(candidate),
       objectName: candidate.name,
-      lastSuccessAt: candidate.backedUp ? candidate.since.toISOString() : null,
+      lastSuccessAt: candidate.backedUp
+        ? (candidate.lastSuccessAt ?? candidate.since).toISOString()
+        : null,
       boundHours: hours,
       days,
     },
@@ -399,8 +406,11 @@ async function tenantCandidates(
         kind: "object" as const,
         id: object.id,
         name: object.name,
-        since: object.last ?? object.since,
+        // The later of its last snapshot and its return to `active`: a mailbox back from
+        // orphaned (account enabled or licensed again) is not overdue by its old snapshot.
+        since: object.last && object.last > object.since ? object.last : object.since,
         backedUp: object.last !== null,
+        ...(object.last && object.last < object.since ? { lastSuccessAt: object.last } : {}),
         hours: ownHours(object.id),
       })),
       ...machines.map((machine) => ({

@@ -479,6 +479,7 @@
       "already_queued": "{count, plural, one {# is already waiting or running.} other {# are already waiting or running.}}",
       "excluded": "{count, plural, one {# is excluded from backups.} other {# are excluded from backups.}}",
       "orphaned": "{count, plural, one {# no longer exists in the source.} other {# no longer exist in the source.}}",
+      "inactive": "{count, plural, one {# is not backed up because its account is disabled or unlicensed.} other {# are not backed up because their accounts are disabled or unlicensed.}}",
       "source_pending": "{count, plural, one {# waits for its source to be connected.} other {# wait for their source to be connected.}}",
       "source_disabled": "{count, plural, one {# has a source that is switched off.} other {# have a source that is switched off.}}",
       "revoked": "{count, plural, one {# machine is revoked.} other {# machines are revoked.}}",

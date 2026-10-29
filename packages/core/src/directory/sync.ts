@@ -162,6 +162,13 @@ export type SyncWarning =
 export interface NewlyActiveObject {
   readonly externalId: string;
   readonly kind: DirectoryObjectKind | "site" | "group";
+  /**
+   * It was `orphaned` before this run: back in the source (an account enabled or
+   * licensed again, say) and likely holding snapshots from before. Set only then.
+   * The worker backs it up right away though it has snapshots, instead of
+   * leaving it to age from its last one until the tenant's schedule runs.
+   */
+  readonly resumed?: true;
 }
 
 export interface DirectorySyncResult {
@@ -229,6 +236,11 @@ function isOk(status: number): boolean {
   return status >= 200 && status < 300;
 }
 
+/** `{ resumed: true }` when the object comes back from `orphaned`, otherwise nothing. */
+function resumedFrom(prior: string | undefined): { readonly resumed?: true } {
+  return prior === "orphaned" ? { resumed: true } : {};
+}
+
 /** Objects the plan makes `active` that were not `active` in `known` before it. */
 function newlyActiveObjects(
   known: readonly KnownObject[],
@@ -243,17 +255,31 @@ function newlyActiveObjects(
     .filter(
       (object) => object.status === "active" && priorStatus.get(object.externalId) !== "active",
     )
-    .map((object): NewlyActiveObject => ({ externalId: object.externalId, kind: object.kind }));
+    .map(
+      (object): NewlyActiveObject => ({
+        externalId: object.externalId,
+        kind: object.kind,
+        ...resumedFrom(priorStatus.get(object.externalId)),
+      }),
+    );
   const priorSite = new Map(knownSites.map((site) => [site.externalId, site.status]));
   for (const site of sites?.sites ?? []) {
     if (site.status === "active" && priorSite.get(site.externalId) !== "active") {
-      objects.push({ externalId: site.externalId, kind: "site" });
+      objects.push({
+        externalId: site.externalId,
+        kind: "site",
+        ...resumedFrom(priorSite.get(site.externalId)),
+      });
     }
   }
   const priorGroup = new Map(knownGroups.map((group) => [group.externalId, group.status]));
   for (const group of groups?.groups ?? []) {
     if (group.status === "active" && priorGroup.get(group.externalId) !== "active") {
-      objects.push({ externalId: group.externalId, kind: "group" });
+      objects.push({
+        externalId: group.externalId,
+        kind: "group",
+        ...resumedFrom(priorGroup.get(group.externalId)),
+      });
     }
   }
   return objects;
@@ -302,9 +328,9 @@ export async function fetchUsersById(
   return users;
 }
 
-type ProbeKind = "mailbox" | "drive";
+export type ProbeKind = "mailbox" | "drive";
 
-function probeRequest(kind: ProbeKind, userId: string): BatchRequest {
+export function probeRequest(kind: ProbeKind, userId: string): BatchRequest {
   return kind === "mailbox"
     ? { id: `mailbox:${userId}`, method: "GET", url: `${userPath(userId)}/mailboxSettings` }
     : {
@@ -315,7 +341,7 @@ function probeRequest(kind: ProbeKind, userId: string): BatchRequest {
 }
 
 /** True when a mailbox probe answer means "no Exchange Online mailbox". */
-function isNoMailbox(response: BatchResponse, url: string): boolean {
+export function isNoMailbox(response: BatchResponse, url: string): boolean {
   if (response.status === 404) {
     return true;
   }
@@ -708,6 +734,7 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
         externalId: object.externalId,
         kind: object.kind,
         status: object.status,
+        statusReason: null,
         origin: "directory_sync",
         displayName: object.displayName,
         owner: user
@@ -718,7 +745,11 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
     for (const externalId of plan.orphanExternalIds) {
       const existing = this.objects.get(externalId);
       if (existing) {
-        this.objects.set(externalId, { ...existing, status: "orphaned" });
+        this.objects.set(externalId, {
+          ...existing,
+          status: "orphaned",
+          statusReason: plan.orphanReasons[externalId] ?? null,
+        });
       }
     }
     for (const site of commit.sites?.sites ?? []) {

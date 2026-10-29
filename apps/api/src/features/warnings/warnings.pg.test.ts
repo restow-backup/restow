@@ -435,6 +435,13 @@ describe.skipIf(!testDatabaseAdminUrl)("warnings against Postgres", () => {
     expect((await json<WarningDetailDto>(await call(`/warnings/object/${dora}`))).state).toBe(
       "acknowledged",
     );
+    // Not backed up because the account is disabled: no failure either.
+    await backup(dora, "failed", new Date(later.getTime() + 10_000), 0, {
+      failure: cause("graph.mailbox_inactive"),
+    });
+    expect((await json<WarningDetailDto>(await call(`/warnings/object/${dora}`))).state).toBe(
+      "acknowledged",
+    );
     await backup(dora, "failed", new Date(later.getTime() + 30_000), 0, {
       failure: cause("graph.access_denied"),
     });

@@ -37,6 +37,14 @@ function step(id: FailureStepId, target: FailureTarget | null = null): FailureSt
 
 const READ_DETAILS = step("read_technical_details");
 
+/** A mailbox not backed up because its account is disabled or unlicensed: what brings it back. */
+function inactiveSteps(params: FailureParams): readonly FailureStep[] {
+  return [
+    step(params.reason === "account_disabled" ? "enable_account" : "assign_license"),
+    step("sync_directory", "directory"),
+  ];
+}
+
 /** Steps for the network codes, by the kind of host that could not be reached. */
 function networkSteps(kind: "unreachable" | "dns" | "timeout" | "tls") {
   return (params: FailureParams): readonly FailureStep[] => {
@@ -120,6 +128,13 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     transient: false,
     retryable: false,
     steps: () => [step("sync_directory", "directory"), step("exclude_object", "directory")],
+  },
+  // Not a failure of the backup: the account is disabled or unlicensed (failures/limits.ts).
+  "graph.mailbox_inactive": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: (params) => inactiveSteps(params),
   },
   "graph.onedrive_unavailable": {
     category: "microsoft",
@@ -555,6 +570,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     transient: false,
     retryable: false,
     steps: () => [step("sync_directory", "directory")],
+  },
+  "config.object_inactive": {
+    category: "config",
+    transient: false,
+    retryable: false,
+    steps: (params) => inactiveSteps(params),
   },
   "config.app_not_configured": {
     category: "config",

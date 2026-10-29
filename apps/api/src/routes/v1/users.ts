@@ -69,6 +69,13 @@ export const userObjectSchema = component(
     id: uuidSchema,
     kind: objectKindSchema,
     status: objectStatusSchema,
+    statusReason: z
+      .enum(["account_disabled", "no_license"])
+      .nullable()
+      .optional()
+      .describe(
+        "Why an `orphaned` mailbox is not backed up although its user is still in the directory: the account is disabled, or it has no Exchange Online licence. Its backups are kept and backups resume by themselves once the account is enabled or licensed again. Null for every other object.",
+      ),
     externalId: z.string(),
     displayName: z.string().nullable(),
     lastBackupAt: timestampSchema.nullable(),
@@ -166,6 +173,8 @@ export interface UserObjectRow {
   userId: string | null;
   kind: "mailbox" | "onedrive" | "imap" | "site" | "group";
   status: "active" | "excluded" | "orphaned";
+  /** See the `statusReason` of {@link userObjectSchema}; absent reads as null. */
+  statusReason?: "account_disabled" | "no_license" | null;
   externalId: string;
   displayName: string | null;
   sourceKind: "m365" | "imap";
@@ -236,6 +245,7 @@ export function toDirectoryUser(
       id: object.id,
       kind: object.kind,
       status: object.status,
+      statusReason: object.status === "orphaned" ? (object.statusReason ?? null) : null,
       externalId: object.externalId,
       displayName: object.displayName,
       lastBackupAt: objectFacts.snapshot?.completedAt?.toISOString() ?? null,
@@ -311,6 +321,7 @@ export async function loadDirectoryUsers(
             userId: protectedObjects.userId,
             kind: protectedObjects.kind,
             status: protectedObjects.status,
+            statusReason: protectedObjects.statusReason,
             externalId: protectedObjects.externalId,
             displayName: protectedObjects.displayName,
             sourceKind: sql<"m365" | "imap">`${sources.kind}`,

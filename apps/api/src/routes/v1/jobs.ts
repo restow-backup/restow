@@ -188,6 +188,7 @@ export const backupRequestSchema = z.object({
 export const backupSkipReasonSchema = z.enum([
   "excluded",
   "orphaned",
+  "inactive",
   "source_pending",
   "source_disabled",
   "already_queued",

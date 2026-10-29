@@ -51,12 +51,13 @@ import {
   type KnownSite,
   type Logger,
   type NewlyActiveObject,
+  needsFirstBackup,
+  type ObjectStatusReason,
   type PlannedObject,
   protectionVersion,
   readDirectoryState,
   readProtection,
   type SitePlan,
-  selectFirstBackupTargets,
   syncDirectory,
   type ThrottleInfo,
   toRefreshCallback,
@@ -202,6 +203,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
           externalId: protectedObjects.externalId,
           kind: protectedObjects.kind,
           status: protectedObjects.status,
+          statusReason: protectedObjects.statusReason,
           origin: protectedObjects.origin,
           displayName: protectedObjects.displayName,
           ownerId: users.entraObjectId,
@@ -244,6 +246,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
                 externalId: row.externalId,
                 kind: row.kind,
                 status: row.status,
+                statusReason: row.statusReason,
                 origin: row.origin,
                 displayName: row.displayName,
                 owner:
@@ -276,7 +279,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
       }
       const userIds = await this.upsertUsers(tx, commit.plan);
       await this.writeObjects(tx, commit.plan.objects, userIds);
-      await this.orphanObjects(tx, commit.plan.orphanExternalIds);
+      await this.orphanObjects(tx, commit.plan.orphanExternalIds, commit.plan.orphanReasons);
       if (commit.sites) {
         await this.writeSites(tx, commit.sites);
         await this.orphanObjects(tx, commit.sites.orphanExternalIds);
@@ -427,6 +430,8 @@ export class PgDirectoryRepository implements DirectoryRepository {
             externalId: object.externalId,
             displayName: object.displayName,
             activeSince: object.status === "active" ? sql`now()` : null,
+            // Active or excluded: never inactive (the 0069 trigger clears it as well).
+            statusReason: null,
           })),
         )
         .onConflictDoUpdate({
@@ -436,6 +441,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
             kind: sql`excluded.kind`,
             origin: sql`excluded.origin`,
             status: sql`excluded.status`,
+            statusReason: null,
             displayName: sql`excluded.display_name`,
             // Only a transition into `active` moves the clock; staying
             // active (or excluded) across syncs must not push it out.
@@ -457,6 +463,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
           .update(protectedObjects)
           .set({
             status,
+            statusReason: null,
             ...(status === "active"
               ? {
                   activeSince: sql`case
@@ -511,11 +518,37 @@ export class PgDirectoryRepository implements DirectoryRepository {
     );
   }
 
-  private async orphanObjects(tx: TenantTx, externalIds: readonly string[]): Promise<void> {
+  /**
+   * Mark objects orphaned, each with its reason (core directory/plan.ts `orphanReasons`): an
+   * object missing from `reasons` was removed from the source, one listed there is a mailbox
+   * whose account is disabled or unlicensed.
+   */
+  private async orphanObjects(
+    tx: TenantTx,
+    externalIds: readonly string[],
+    reasons: Readonly<Record<string, ObjectStatusReason>> = {},
+  ): Promise<void> {
+    const groups = new Map<ObjectStatusReason | null, string[]>();
+    for (const externalId of externalIds) {
+      const reason = reasons[externalId] ?? null;
+      const list = groups.get(reason) ?? [];
+      list.push(externalId);
+      groups.set(reason, list);
+    }
+    for (const [reason, ids] of groups) {
+      await this.orphanGroup(tx, ids, reason);
+    }
+  }
+
+  private async orphanGroup(
+    tx: TenantTx,
+    externalIds: readonly string[],
+    reason: ObjectStatusReason | null,
+  ): Promise<void> {
     for (const batch of chunks(externalIds)) {
       await tx
         .update(protectedObjects)
-        .set({ status: "orphaned" })
+        .set({ status: "orphaned", statusReason: reason })
         .where(
           and(
             eq(protectedObjects.tenantId, this.tenantId),
@@ -644,11 +677,13 @@ export interface FirstBackupStore {
  * the first time ({@link DirectorySyncResult.newlyActive}): new objects and
  * ones re-included after being excluded or orphaned. Uses the same selection
  * as an admin include or an IMAP account being added
- * (@restow/core's `selectFirstBackupTargets`, unit tested there), so a
+ * (@restow/core's `needsFirstBackup`, unit tested there), so a
  * mailbox or OneDrive the directory just started protecting does not sit
  * idle until the tenant's backup schedule next runs. Idempotent through the
  * backup queue's singleton key (one queued/active job per object), the same
- * guarantee every other caller of this selection relies on.
+ * guarantee every other caller of this selection relies on. An object back
+ * from `orphaned` ({@link NewlyActiveObject.resumed}) is queued even with
+ * snapshots of its own, so it does not age from its last pre-orphan snapshot.
  *
  * `store` is expected to run every method against the same open transaction
  * (see {@link pgFirstBackupStore}), so the pg-boss send, the `jobs` row and
@@ -671,7 +706,19 @@ export async function enqueueFirstBackupsAfterSync(options: {
     return [];
   }
   const candidates = await store.loadCandidates(newlyActive.map((object) => object.externalId));
-  const targets = selectFirstBackupTargets(candidates);
+  // An object back from `orphaned` (account enabled or licensed again) has snapshots from
+  // before, so it never needs a "first" backup; it is backed up now all the same, or it would
+  // age from its last snapshot (overdue, stale readiness) until the tenant's schedule next runs.
+  const resumed = new Set(
+    newlyActive.filter((object) => object.resumed).map((object) => object.externalId),
+  );
+  const targets = candidates
+    .filter(
+      (candidate) =>
+        needsFirstBackup(candidate) ||
+        (resumed.has(candidate.externalId) && !candidate.hasQueuedOrActiveBackup),
+    )
+    .map((candidate) => candidate.protectedObjectId);
   const queued: string[] = [];
   for (const protectedObjectId of targets) {
     if (signal.aborted) {

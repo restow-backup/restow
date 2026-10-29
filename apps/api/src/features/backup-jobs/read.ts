@@ -25,7 +25,7 @@ import {
   tenants,
 } from "@restow/db";
 import { and, asc, desc, eq, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
-import { isServiceLimitedBackup } from "../../lib/service-limit.js";
+import { isServiceLimitedBackup, notBackedUpOf } from "../../lib/service-limit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { coverageOf, mailCoverageOf, runsOnSchedule } from "./coverage.js";
@@ -758,6 +758,7 @@ export async function listJobRuns(
           finishedAt: iso(row.completedAt),
           createdAt: row.createdAt.toISOString(),
           serviceLimited: isServiceLimitedBackup(row),
+          notBackedUp: notBackedUpOf(row),
         });
       }
     } else {

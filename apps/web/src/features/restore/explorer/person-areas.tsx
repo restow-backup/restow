@@ -98,7 +98,12 @@ export function PersonAreas({
             >
               <Icon className="size-4 shrink-0 text-primary" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">{t(`explorer.areas.${link.area}`)}</span>
-              {link.object.status === "orphaned" ? (
+              {link.object.status === "orphaned" && link.object.statusReason ? (
+                // Disabled or unlicensed: the account still exists, backups resume with it.
+                <StatusBadge tone="muted">
+                  {t(`explorer.areas.inactive.${link.object.statusReason}`)}
+                </StatusBadge>
+              ) : link.object.status === "orphaned" ? (
                 <StatusBadge tone="warning">{t("explorer.areas.gone")}</StatusBadge>
               ) : link.object.snapshotCount === 0 ? (
                 <StatusBadge tone="muted">{t("explorer.areas.noBackup")}</StatusBadge>

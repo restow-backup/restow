@@ -51,6 +51,7 @@ function RunBadge({ run }: { run: JobRun }) {
           (JOB_QUEUES as readonly string[]).includes(run.type) ? (run.type as JobQueue) : undefined
         }
         serviceLimited={run.serviceLimited}
+        notBackedUp={run.notBackedUp}
       />
     );
   }

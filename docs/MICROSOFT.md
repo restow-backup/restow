@@ -114,6 +114,46 @@ Schutzumfang" anzeigen, nicht als Fehler).
 - Gelöschte Nutzer: Graph `directory/deletedItems/microsoft.graph.user` 30 Tage; das
   Backup behält Snapshots unabhängig davon (Retention regelt das, nicht Entra).
 
+### Deaktivierte und unlizenzierte Konten
+
+Ab 0.4.7. Ein Postfach, dessen Konto deaktiviert ist (`accountEnabled=false`) oder das keine
+Exchange-Online-Lizenz (mehr) hat (Postfach nicht bereitgestellt, Lizenz entzogen, inaktives
+Postfach), ist kein fehlgeschlagenes Backup. Es bleibt `orphaned` wie ein entferntes Objekt, mit
+einem Grund in `protected_objects.status_reason` (`account_disabled` oder `no_license`,
+Migration 0069): keine neuen Sicherungen, die vorhandenen bleiben, nie überfällig, die Bereitschaft
+ohne das Alter der letzten Sicherung (`readinessWithoutFreshness`), keine `backup.failed`-Meldung.
+Die Oberfläche zeigt neutral „Nicht gesichert: Konto deaktiviert“ bzw. „... keine Lizenz“.
+
+- Entscheidend ist allein die Antwort von Exchange, nicht `accountEnabled`: Ein deaktiviertes
+  Konto, dessen Postfach Graph noch liest (geteiltes Postfach, ausgeschiedene Person), wird
+  weiter gesichert. Ein geteiltes Postfach hat dieselben Merkmale (deaktiviert, ohne Lizenz) und
+  ließe sich sonst nicht unterscheiden.
+- Verzeichnisabgleich: Meldet die Postfach-Probe (`GET /users/{id}/mailboxSettings`) für ein
+  Mitglied „kein Postfach“ (404 oder ein Code aus `MAILBOX_UNAVAILABLE_CODES`, darunter
+  `MailboxNotEnabledForRESTAPI`, `MailboxNotSupportedForRESTAPI`,
+  `ErrorMailboxNotHostedInExchangeOnline`), wird das Postfach mit Grund verwaist: deaktiviert,
+  wenn `accountEnabled=false`, sonst keine Lizenz (`inactiveReason`, core `directory/rules.ts`).
+  Kann die Probe nicht antworten, bleibt ein so markiertes Postfach, wie es ist.
+- Beim Backup (das Fenster bis zum nächsten Abgleich): Scheitert ein Postfach mit
+  `graph.mailbox_not_licensed`, `graph.user_not_found` oder `graph.request_rejected` mit 400/404,
+  fragt der Worker einmal nach (`confirmMailboxInactive`, core `directory/confirm.ts`:
+  Benutzer lesen und Postfach-Probe in einem `$batch`). Nur wenn der Benutzer existiert und
+  Exchange eindeutig „kein Postfach“ sagt, markiert er das Objekt und beendet den Lauf mit
+  `graph.mailbox_inactive` (endgültig, ohne Wiederholung, technische Details des ursprünglichen
+  Fehlers bleiben). Ein späterer Lauf auf das markierte Objekt endet mit `config.object_inactive`.
+- 401 und 403 gelten nie als inaktiv (`ErrorAccessDenied`, `Authorization_RequestDenied`,
+  Application Access Policy, RBAC for Applications): Das sind Berechtigungsprobleme und bleiben
+  Fehler. Ein Benutzer, den es nicht mehr gibt (404 auf `/users/{id}`), ist kein inaktives Konto;
+  ihn verwaist der Abgleich ohne Grund.
+- Wiederaufnahme von selbst: Eine neue Lizenz oder ein wieder aktiviertes Konto ändert
+  `assignedLicenses` bzw. `accountEnabled`, der Benutzer kommt in `users/delta`, die Probe
+  antwortet 200, das Postfach wird `active` (der Trigger der Migration 0069 löscht den Grund)
+  und die erste Sicherung startet gleich nach dem Abgleich. Spätestens der volle Abgleich alle
+  24 Stunden findet es.
+- Zählung: Solche Läufe (`NOT_BACKED_UP_CAUSES` in core `failures/limits.ts`) zählen weder als
+  fehlgeschlagen noch als gebremst (getrennt von `SERVICE_LIMIT_CAUSES`), beenden keine
+  Bestätigung einer Warnung und lösen weder `backup.failed` noch den Webhook `job.failed` aus.
+
 ## Exchange: Wiederherstellen
 
 - Nachricht aus MIME anlegen: `POST /users/{id}/mailFolders/{fid}/messages` mit

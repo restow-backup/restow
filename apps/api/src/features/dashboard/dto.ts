@@ -181,6 +181,8 @@ export interface RecentJobDto {
   failure: FailureDto | null;
   /** A failed backup a service held back: shown held back, not failed (jobs DTO `serviceLimited`). */
   serviceLimited: boolean;
+  /** A failed backup that did not back up: the account is disabled or unlicensed (jobs DTO `notBackedUp`). */
+  notBackedUp: "account_disabled" | "no_license" | null;
   /** The causes behind a finished job's failed items, most frequent first (at most three). */
   itemCauses: { code: string; count: number }[];
 }

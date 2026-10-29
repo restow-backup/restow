@@ -249,6 +249,20 @@ describe.skipIf(!testDatabaseAdminUrl)("the jobs of every tenant at a glance", (
           retry: null,
         },
       },
+      // Not backed up because the account is disabled: no failure either.
+      {
+        ...run(anna, "failed", at(14)),
+        failure: {
+          v: 1 as const,
+          code: "graph.mailbox_inactive",
+          transient: false,
+          params: { reason: "account_disabled" },
+          technical: {},
+          occurredAt: at(14).toISOString(),
+          step: null,
+          retry: null,
+        },
+      },
       run(anna, "queued", at(15)),
       run(ben, "completed", at(10)),
       run(ben, "failed", at(12)),

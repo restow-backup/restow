@@ -4,6 +4,7 @@
  * - rules.ts        protection rules (all / group / exclusion list) and overrides
  * - plan.ts         users/delta planning: row changes of one run (pure)
  * - sync.ts         the sync run against Graph, over a repository seam
+ * - confirm.ts      backup-time check that a mailbox is inactive (disabled, unlicensed)
  * - config.ts       rules, overrides and sync state inside `sources.config`
  * - groups.ts       group search for the rules editor
  * - group-mailboxes.ts  Microsoft 365 group mailboxes from groups/delta (pure planning)
@@ -12,6 +13,7 @@
  */
 
 export * from "./config.js";
+export * from "./confirm.js";
 export * from "./credentials.js";
 export * from "./csv.js";
 export * from "./group-mailboxes.js";
