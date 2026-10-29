@@ -137,6 +137,7 @@ describe("tenant matrix rows", () => {
       storageError: null,
       immutableRepositories: null,
       immutabilityWarnings: null,
+      toConfirm: null,
     });
   });
 

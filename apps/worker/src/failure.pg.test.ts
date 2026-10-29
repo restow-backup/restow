@@ -30,6 +30,7 @@ import {
   type Database,
   itemFailures,
   jobs,
+  notifications,
   protectedObjects,
   providers,
   sources,
@@ -396,6 +397,65 @@ describe.skipIf(!adminUrl)("failure records against Postgres", () => {
       params: { reason: "account_disabled" },
       retry: null,
     });
+  });
+
+  it("ends a backup of a locked OneDrive neutral, marks it locked and tells the admins once", async () => {
+    await db
+      .update(protectedObjects)
+      .set({ kind: "onedrive", externalId: "b!drive-1" })
+      .where(eq(protectedObjects.id, objectId));
+    // The production answer for the OneDrive of a departed, unlicensed user.
+    const locked = new GraphError({
+      status: 423,
+      method: "GET",
+      url: "https://graph.microsoft.com/v1.0/drives/b!drive-1/root/delta",
+      payload: {
+        error: {
+          code: "notAllowed",
+          message:
+            "Access to this site has been blocked. Please contact the administrator to resolve this problem.",
+          innerError: { code: "resourceLocked", "request-id": "req-1" },
+        },
+      },
+    });
+    const engines = new BackupEngineRegistry([
+      [
+        "onedrive",
+        () => ({
+          kind: "onedrive" as const,
+          run: async () => {
+            throw locked;
+          },
+        }),
+      ],
+    ]);
+    engines.lockCheck = async () => true;
+    const jobId = randomUUID();
+    await expect(
+      runJob(runtime(), createBackupHandler({ engines }), pgBossJob(payloadFor(jobId), 0, 5)),
+    ).resolves.toBeUndefined();
+    expect((await jobRow(jobId)).failure).toMatchObject({
+      code: "graph.object_locked",
+      params: { reason: "locked", httpStatus: 423 },
+      technical: { innerErrorCode: "resourceLocked" },
+      retry: null,
+    });
+    const [object] = await db
+      .select({
+        status: protectedObjects.status,
+        statusReason: protectedObjects.statusReason,
+        inactiveNotifiedAt: protectedObjects.inactiveNotifiedAt,
+      })
+      .from(protectedObjects)
+      .where(eq(protectedObjects.id, objectId));
+    expect(object).toMatchObject({ status: "orphaned", statusReason: "locked" });
+    expect(object?.inactiveNotifiedAt).toBeInstanceOf(Date);
+    const raised = await db
+      .select({ event: notifications.event })
+      .from(notifications)
+      .where(eq(notifications.tenantId, tenantId));
+    expect(raised.map((row) => row.event)).toContain("object.inactive");
+    expect(raised.map((row) => row.event)).not.toContain("backup.failed");
   });
 
   it("says a job was interrupted when the worker shut down", async () => {

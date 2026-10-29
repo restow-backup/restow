@@ -121,6 +121,7 @@ export function tenantRow(
       storageError: null,
       immutableRepositories: null,
       immutabilityWarnings: null,
+      toConfirm: null,
     };
   }
   const { summary } = facts;
@@ -163,6 +164,7 @@ export function tenantRow(
     storageError: facts.storageError,
     immutableRepositories: facts.immutableRepositories ?? 0,
     immutabilityWarnings: facts.immutabilityWarnings ?? 0,
+    toConfirm: summary.readiness.toConfirm ?? 0,
   };
 }
 
@@ -225,6 +227,10 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (row.immutabilityWarnings > 0) {
     // Immutability is configured, but an object was found without lock or the renewal fell behind.
     alerts.push(alert("immutability_warning", "warning", row.immutabilityWarnings));
+  }
+  if (row.toConfirm > 0) {
+    // Objects no longer backed up that wait for the tenant's "Yes, intended" (yellow, not red).
+    alerts.push(alert("inactive_to_confirm", "warning", row.toConfirm));
   }
   if (row.needsAttention > 0) {
     // Proven restorable with gaps, or a rating that is overdue: not "secured and checked".

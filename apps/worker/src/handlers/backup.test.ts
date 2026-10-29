@@ -14,6 +14,8 @@ import {
   generateDek,
   type HeadResult,
   ImapBackupEngine,
+  isNotBackedUpCause,
+  isNotBackedUpFailure,
   Keyring,
   type Logger,
   MailboxAccessError,
@@ -208,7 +210,7 @@ function engine(
 interface FakeStoreOptions {
   source?: Source;
   objectStatus?: "active" | "excluded" | "orphaned";
-  objectStatusReason?: "account_disabled" | "no_license" | null;
+  objectStatusReason?: "account_disabled" | "no_license" | "locked" | null;
   objectSecretRef?: string | null;
   verifyScheduled?: boolean;
   /** The backup job that checks restores of the object (it comes before a schedule). */
@@ -1246,7 +1248,7 @@ describe("disabled and unlicensed mailboxes", () => {
 
   function failingHandler(
     error: unknown,
-    check: (() => Promise<"account_disabled" | "no_license" | null>) | null,
+    check: (() => Promise<"account_disabled" | "no_license" | "locked" | null>) | null,
     store = fakeStore(),
   ) {
     const engines = new BackupEngineRegistry([
@@ -1363,5 +1365,116 @@ describe("disabled and unlicensed mailboxes", () => {
       code: "config.object_inactive",
       params: { reason: "no_license" },
     });
+  });
+});
+
+describe("a OneDrive or site Microsoft locked (HTTP 423)", () => {
+  const drive: ProtectedObjectRef = {
+    ...mailbox,
+    kind: "onedrive",
+    externalId: "b!drive-1",
+    displayName: "Alice OneDrive",
+  };
+  // The production answer for the OneDrive of a departed, unlicensed user.
+  const locked = new GraphError({
+    status: 423,
+    method: "GET",
+    url: "https://graph.microsoft.com/v1.0/drives/b!drive-1/root/delta",
+    payload: {
+      error: {
+        code: "notAllowed",
+        message:
+          "Access to this site has been blocked. Please contact the administrator to resolve this problem.",
+        innerError: { code: "resourceLocked" },
+      },
+    },
+  });
+
+  function lockedHandler(error: unknown, check: (() => Promise<boolean | null>) | null) {
+    const store = fakeStore();
+    const engines = new BackupEngineRegistry([
+      [
+        "onedrive",
+        () =>
+          engine("onedrive", async () => {
+            throw error;
+          }),
+      ],
+    ]);
+    const calls: string[] = [];
+    engines.lockCheck = check
+      ? async (_deps, object) => {
+          calls.push(object.externalId);
+          return check();
+        }
+      : null;
+    return { handler: createBackupHandler({ engines, store: () => store.store }), store, calls };
+  }
+
+  const run = (handler: ReturnType<typeof createBackupHandler>) =>
+    handler.run(workerContext(storage(), { object: drive }), {
+      jobId: JOB,
+      tenantId: TENANT,
+      protectedObjectId: OBJECT,
+    });
+
+  it("marks a confirmed lock and ends the run final and neutral, with the original details", async () => {
+    const { handler, store, calls } = lockedHandler(locked, async () => true);
+    const error = await run(handler).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(InvalidPayloadError);
+    const failure = (error as InvalidPayloadError).failure;
+    expect(failure?.code).toBe("graph.object_locked");
+    expect(failure?.params).toMatchObject({ reason: "locked", httpStatus: 423 });
+    expect(failure?.technical.innerErrorCode).toBe("resourceLocked");
+    expect(calls).toEqual(["b!drive-1"]);
+    expect(store.markedInactive).toEqual([{ id: OBJECT, reason: "locked" }]);
+  });
+
+  it("ends a lock the probe does not confirm as a counted failure, never neutral", async () => {
+    // Probe 200 (false), 503/429/403 (null: cannot tell), a thrown check, no check at all.
+    const handlers = [
+      lockedHandler(locked, async () => false),
+      lockedHandler(locked, async () => null),
+      lockedHandler(locked, async () => {
+        throw new Error("token endpoint down");
+      }),
+      lockedHandler(locked, null),
+    ];
+    for (const { handler, store } of handlers) {
+      const error = await run(handler).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(InvalidPayloadError);
+      const failure = (error as InvalidPayloadError).failure;
+      expect(failure?.code).toBe("graph.request_rejected");
+      expect(isNotBackedUpCause(failure?.code)).toBe(false);
+      expect(isNotBackedUpFailure("failed", failure)).toBe(false);
+      expect(failure?.params).toMatchObject({ httpStatus: 423 });
+      expect(failure?.params.reason).toBeUndefined();
+      expect(failure?.technical.innerErrorCode).toBe("resourceLocked");
+      expect(store.markedInactive).toEqual([]);
+    }
+  });
+
+  it("never checks another failure of a OneDrive", async () => {
+    const denied = new GraphError({
+      status: 403,
+      method: "GET",
+      url: "https://graph.microsoft.com/v1.0/drives/b!drive-1/root/delta",
+      payload: { error: { code: "accessDenied", message: "x" } },
+    });
+    const { handler, calls } = lockedHandler(denied, async () => true);
+    await expect(run(handler)).rejects.toBe(denied);
+    expect(calls).toEqual([]);
+  });
+
+  it("turns away an object already marked locked with the neutral cause", async () => {
+    const ok = {
+      objectKind: "onedrive",
+      objectStatus: "orphaned",
+      objectStatusReason: "locked",
+      sourceKind: "m365",
+      sourceStatus: "active",
+    } as const;
+    expect(backupRejection(ok)).toMatch(/locked/);
+    expect(backupRejectionCode(ok)).toBe("config.object_inactive");
   });
 });

@@ -324,6 +324,24 @@ describe("buildChatMessage", () => {
     expect(other.link?.url).toBe(`https://backup.example.com/alerts?forTenant=${TENANT}`);
   });
 
+  it("links objects no longer backed up to the tenant's objects that wait for a decision", () => {
+    for (const event of ["object.inactive", "object.inactive_many"]) {
+      const message = buildChatMessage(
+        "report.alert",
+        envelope("report.alert", {
+          subject: "x",
+          event,
+          level: event === "object.inactive" ? "info" : "warning",
+          details: { protectedObjectId: "po-1", sourceId: "s-1" },
+        }),
+        EN,
+      );
+      expect(message.link?.url).toBe(
+        `https://backup.example.com/tenants/${TENANT}/protection?status=to_confirm`,
+      );
+    }
+  });
+
   it("leaves the link out without a public URL and survives unknown events", () => {
     const msg = buildChatMessage("job.started", envelope("job.started", {}), {
       ...EN,

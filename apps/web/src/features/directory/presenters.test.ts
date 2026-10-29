@@ -16,6 +16,7 @@ import {
   describeSourceProblem,
   HEALTH_VARIANT,
   hasCredentialProblem,
+  inactiveDetail,
   objectErrorKey,
   objectStatusView,
   objectSubtitle,
@@ -506,12 +507,14 @@ describe("availableActions", () => {
       exclude: true,
       reset: false,
       remove: false,
+      confirmInactive: false,
     });
     expect(availableActions(object({ override: "exclude", status: "excluded" }))).toEqual({
       include: true,
       exclude: false,
       reset: true,
       remove: false,
+      confirmInactive: false,
     });
   });
 
@@ -521,6 +524,7 @@ describe("availableActions", () => {
       exclude: false,
       reset: true,
       remove: false,
+      confirmInactive: false,
     });
   });
 
@@ -531,6 +535,7 @@ describe("availableActions", () => {
       exclude: true,
       reset: false,
       remove: true,
+      confirmInactive: false,
     });
     expect(availableActions({ ...imap, snapshotCount: 1 }).remove).toBe(true);
     expect(availableActions({ ...imap, origin: "directory_sync" }).remove).toBe(false);
@@ -814,6 +819,90 @@ describe("disabled and unlicensed mailboxes", () => {
     expect(availableActions(object({ status: "orphaned", sourceKind: "m365" }))).toMatchObject({
       include: false,
       exclude: false,
+    });
+  });
+});
+
+describe("objects no longer backed up: the confirmation", () => {
+  const waiting = (extra: Partial<ProtectedObject> = {}) =>
+    object({
+      status: "orphaned",
+      sourceKind: "m365",
+      inactiveState: "to_confirm",
+      inactiveSince: "2026-10-28T03:00:00.000Z",
+      statusConfirmedAt: null,
+      statusConfirmedBy: null,
+      ...extra,
+    });
+
+  it("reads amber until confirmed, grey after, whatever the reason", () => {
+    expect(objectStatusView(waiting())).toEqual({ variant: "warning", suffix: "to_confirm" });
+    expect(objectStatusView(waiting({ statusReason: "no_license" })).suffix).toBe("to_confirm");
+    expect(
+      objectStatusView(
+        waiting({
+          inactiveState: "confirmed",
+          statusConfirmedAt: "2026-10-29T10:00:00.000Z",
+          statusConfirmedBy: "lead@contoso.example",
+        }),
+      ),
+    ).toEqual({ variant: "muted", suffix: "confirmed" });
+  });
+
+  it("names the reason, the date, the lock's likely cause and who confirmed it", () => {
+    expect(inactiveDetail(waiting())).toEqual({
+      reasonKey: "inactive.reason.removed",
+      since: "2026-10-28T03:00:00.000Z",
+      hintKey: null,
+      confirmed: null,
+    });
+    expect(
+      inactiveDetail(waiting({ statusReason: "locked", lockHint: "no_license" })),
+    ).toMatchObject({
+      reasonKey: "inactive.reason.locked",
+      hintKey: "inactive.lockHint.no_license",
+    });
+    expect(
+      inactiveDetail(
+        waiting({
+          inactiveState: "confirmed",
+          statusConfirmedAt: "2026-10-29T10:00:00.000Z",
+          statusConfirmedBy: "migration",
+        }),
+      )?.confirmed,
+    ).toEqual({
+      by: "migration",
+      at: "2026-10-29T10:00:00.000Z",
+      byMigration: true,
+      byExclusion: false,
+    });
+    expect(
+      inactiveDetail(
+        waiting({
+          inactiveState: "confirmed",
+          statusConfirmedAt: "2026-10-29T10:00:00.000Z",
+          statusConfirmedBy: "excluded",
+        }),
+      )?.confirmed,
+    ).toEqual({
+      by: "excluded",
+      at: "2026-10-29T10:00:00.000Z",
+      byMigration: false,
+      byExclusion: true,
+    });
+    expect(inactiveDetail(object())).toBeNull();
+  });
+
+  it('offers "Yes, intended" only while it waits for it', () => {
+    expect(availableActions(waiting()).confirmInactive).toBe(true);
+    expect(availableActions(waiting({ inactiveState: "confirmed" })).confirmInactive).toBe(false);
+    expect(availableActions(object()).confirmInactive).toBe(false);
+  });
+
+  it("shows a locked OneDrive's last run as not backed up", () => {
+    expect(backupState(waiting({ statusReason: "locked", kind: "onedrive" }))).toMatchObject({
+      kind: "not_backed_up",
+      reason: "locked",
     });
   });
 });

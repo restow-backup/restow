@@ -39,7 +39,8 @@
     "serviceLimited": "Vom Dienst gedrosselt, wird wiederholt",
     "notBackedUp": {
       "account_disabled": "Nicht gesichert: Konto deaktiviert",
-      "no_license": "Nicht gesichert: keine Lizenz"
+      "no_license": "Nicht gesichert: keine Lizenz",
+      "locked": "Nicht gesichert: von Microsoft gesperrt"
     },
     "cancelled": "Abgebrochen",
     "checkIncomplete": "Nicht abgeschlossen, wird wiederholt"

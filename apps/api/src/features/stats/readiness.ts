@@ -40,6 +40,11 @@ import type {
  * `readinessWithoutFreshness`), and it is never overdue, since nothing
  * schedules checks for it any more. Like the status, this applies to earlier
  * moments of the period as well.
+ *
+ * Whether an orphaned object waits for an admin's confirmation (amber "please confirm", which
+ * keeps the live readiness at yellow, verify/summary.ts `toConfirm`) is left out here: like the
+ * status, only the current confirmation is stored, not when it was given, so the timeline cannot
+ * say which earlier moment it applied to.
  */
 
 export interface ReadinessCounts {

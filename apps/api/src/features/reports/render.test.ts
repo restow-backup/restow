@@ -101,6 +101,46 @@ describe("renderAlert", () => {
     expect(source.html).toContain("Contoso M365");
   });
 
+  it("says why an object is no longer backed up and asks to confirm it", () => {
+    const inactive = (language: "en" | "de") =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Everything",
+        payload: {
+          event: "object.inactive",
+          occurredAt: "2026-10-29T10:00:00.000Z",
+          details: {
+            protectedObjectId: "po-1",
+            objectName: "ada@contoso.example",
+            reason: "locked",
+            inactiveSince: "2026-10-29T09:00:00.000Z",
+          },
+        },
+      });
+    const english = inactive("en");
+    expect(english.subject).toBe(
+      "[Contoso] Object no longer backed up, please confirm: ada@contoso.example",
+    );
+    expect(english.text).toContain("Reason: Microsoft locked the OneDrive or site");
+    expect(english.text).toContain('"Yes, intended"');
+    const german = inactive("de");
+    expect(german.text).toContain("Grund: Microsoft hat das OneDrive oder die Website gesperrt");
+    expect(german.text).not.toContain("{appName}");
+
+    const many = renderAlert({
+      language: "en",
+      tenantName: "Contoso",
+      ruleName: "Everything",
+      payload: {
+        event: "object.inactive_many",
+        occurredAt: "2026-10-29T10:00:00.000Z",
+        details: { tenantId: "t1", count: 14, date: "2026-10-29" },
+      },
+    });
+    expect(many.text).toContain("Objects: 14");
+  });
+
   it("names the restore point and every finding of a suspicious backup", () => {
     const suspicious = (language: "en" | "de") =>
       renderAlert({

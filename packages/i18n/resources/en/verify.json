@@ -75,7 +75,8 @@
     "failed": "Not restorable",
     "failedHint": "Latest restore check failed",
     "unproven": "Not proven",
-    "unprovenHint": "Latest backup not verified: {unverified} · No backup yet: {noBackup}"
+    "unprovenHint": "Latest backup not verified: {unverified} · No backup yet: {noBackup}",
+    "toConfirm": "{count, plural, one {# object no longer backed up, please confirm} other {# objects no longer backed up, please confirm}}"
   },
   "table": {
     "title": "Protected objects",
@@ -108,14 +109,17 @@
     "orphaned": "Removed from source, backups kept",
     "inactive": {
       "account_disabled": "Not backed up: account disabled, backups kept",
-      "no_license": "Not backed up: no licence, backups kept"
+      "no_license": "Not backed up: no licence, backups kept",
+      "locked": "Not backed up: locked, backups kept"
     },
     "overdue": "Overdue",
     "never": "Never",
     "noBackup": "No backup yet",
     "empty": "No protected objects yet.",
     "technicalId": "Technical id: {id}",
-    "emptyState": "No object in this state: {state}."
+    "emptyState": "No object in this state: {state}.",
+    "toConfirm": "Please confirm",
+    "confirmed": "Intentionally no longer backed up"
   },
   "snapshot": {
     "column": "Restore check",
@@ -253,6 +257,10 @@
       "no_license": {
         "title": "Not backed up: no licence",
         "description": "The account has no Exchange Online licence, so there is no mailbox to back up. Its backups are kept, and backups resume automatically once a licence is assigned again. Its rating counts only whether the kept backup restores, not how old it is."
+      },
+      "locked": {
+        "title": "Not backed up: locked",
+        "description": "Microsoft locked this OneDrive or site (HTTP 423), usually because the account no longer has a licence. Its backups are kept and rated regardless of their age, and backups resume automatically once the lock is lifted."
       }
     },
     "stats": {

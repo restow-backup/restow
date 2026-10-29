@@ -21,7 +21,11 @@ export function OverallBanner({ summary }: { summary: ReadinessSummary }) {
     );
   }
   const unproven = summary.red + summary.unverified + summary.noBackup;
+  const toConfirm = summary.toConfirm ?? 0;
+  // Unconfirmed objects have their own sentence: the generic yellow one names a warning or an
+  // overdue check, and an object both rated yellow and unconfirmed must not count twice.
   const attention = summary.yellow + summary.overdue;
+  const generic = summary.overall !== "yellow" || attention > 0 || toConfirm === 0;
   const variant =
     summary.overall === "green"
       ? "success"
@@ -39,10 +43,13 @@ export function OverallBanner({ summary }: { summary: ReadinessSummary }) {
       <Icon />
       <AlertTitle>{t(`overall.${summary.overall}.title`)}</AlertTitle>
       <AlertDescription>
-        {t(`overall.${summary.overall}.description`, {
-          count: summary.overall === "red" ? unproven : attention,
-          total: summary.total,
-        })}
+        {generic
+          ? t(`overall.${summary.overall}.description`, {
+              count: summary.overall === "red" ? unproven : attention,
+              total: summary.total,
+            })
+          : null}
+        {toConfirm > 0 ? <p>{t("summary.toConfirm", { count: toConfirm })}</p> : null}
       </AlertDescription>
     </Alert>
   );

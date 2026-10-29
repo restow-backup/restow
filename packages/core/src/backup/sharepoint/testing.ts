@@ -355,7 +355,13 @@ export class FakeSharePoint {
     if (library.refuse !== null) {
       return {
         status: library.refuse,
-        json: graphError(library.refuse === 404 ? "itemNotFound" : "accessDenied"),
+        json: graphError(
+          library.refuse === 404
+            ? "itemNotFound"
+            : library.refuse === 423
+              ? "notAllowed"
+              : "accessDenied",
+        ),
       };
     }
     const token = url.searchParams.get("token");

@@ -152,6 +152,10 @@
       "notification_url_unavailable": {
         "title": "Change notifications need a public HTTPS address",
         "why": "Microsoft delivers change notifications only to an address it can reach over HTTPS on port 443. {appName} has no public URL starting with https://, so the archive checks each Microsoft 365 mailbox regularly for new mail instead (poll-only mode). Nothing is lost, mail only reaches the archive later."
+      },
+      "object_locked": {
+        "title": "Not backed up: Microsoft locked the OneDrive or site",
+        "why": "Microsoft answers every request with HTTP 423 (\"Access to this site has been blocked\"). Microsoft locks the OneDrive of an account without a licence after a while, and an administrator can lock a site. This is not a failed backup. {appName} keeps the existing backups, does not retry every night and backs up again once the directory sync no longer finds the lock."
       }
     },
     "imap": {
@@ -370,8 +374,8 @@
         "why": "The mailbox or drive disappeared from the source directory. Backups that exist stay restorable, new ones are not made."
       },
       "object_inactive": {
-        "title": "Not backed up while the account is {reason, select, account_disabled {disabled} other {without a licence}}",
-        "why": "{appName} found that Microsoft hosts no mailbox for this account because it is {reason, select, account_disabled {disabled} other {without an Exchange Online licence}}. No new backups are made until that changes. Existing backups stay restorable, and backups resume automatically with the next directory sync after the account is {reason, select, account_disabled {enabled} other {licensed}} again."
+        "title": "Not backed up while {reason, select, account_disabled {the account is disabled} locked {Microsoft keeps the object locked} other {the account has no licence}}",
+        "why": "{reason, select, locked {Microsoft locks this OneDrive or site (HTTP 423). No new backups are made until the lock is lifted. Existing backups stay restorable, and backups resume automatically with the next directory sync that finds no lock.} other {{appName} found that Microsoft hosts no mailbox for this account because it is {reason, select, account_disabled {disabled} other {without an Exchange Online licence}}. No new backups are made until that changes. Existing backups stay restorable, and backups resume automatically with the next directory sync after the account is {reason, select, account_disabled {enabled} other {licensed}} again.}}"
       },
       "app_not_configured": {
         "title": "The Microsoft 365 app of this installation is not configured",
@@ -703,7 +707,8 @@
     "check_endpoint_file_access": "Check the permissions of the files named in the run. Databases and other files that change while they are copied are best dumped by a command that runs before the backup.",
     "choose_empty_restore_folder": "Request the restore again and choose a folder that does not exist yet or is empty. A restore never overwrites files.",
     "wait_endpoint_retry": "Nothing to do. The agent tries again at its next scheduled run, or start one with Back up now.",
-    "set_public_https_url": "Set a public URL starting with https:// under Installation › Server & operation (or RESTOW_PUBLIC_URL) that Microsoft can reach on port 443. {appName} then sets up change notifications by itself."
+    "set_public_https_url": "Set a public URL starting with https:// under Installation › Server & operation (or RESTOW_PUBLIC_URL) that Microsoft can reach on port 443. {appName} then sets up change notifications by itself.",
+    "unlock_object": "If the object should be backed up again, assign the user a licence that includes OneDrive, or lift the lock in the SharePoint admin center. Backups resume by themselves after the next directory sync."
   },
   "go": {
     "settings_microsoft": "Open Microsoft 365 settings",

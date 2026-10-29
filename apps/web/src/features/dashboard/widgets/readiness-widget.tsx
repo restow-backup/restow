@@ -150,6 +150,26 @@ function ReadinessBody({
         </Alert>
       ) : null}
 
+      {(data.toConfirm ?? 0) > 0 ? (
+        <Alert variant="warning" data-flag="to-confirm">
+          <TriangleAlert />
+          <AlertTitle>{t("readiness.toConfirm.title", { count: data.toConfirm ?? 0 })}</AlertTitle>
+          <AlertDescription className="gap-2">
+            <p>{t("readiness.toConfirm.description")}</p>
+            {canAdminister ? (
+              <LinkButton
+                to={to(PATHS.protectedObjects)}
+                search={{ status: "to_confirm" }}
+                size="xs"
+                className="mt-1"
+              >
+                {t("readiness.toConfirm.action")}
+              </LinkButton>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {data.overdue > 0 || data.running > 0 ? (
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {data.overdue > 0 ? (

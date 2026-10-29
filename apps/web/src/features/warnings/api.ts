@@ -60,7 +60,17 @@ export interface WarningSummary {
 export interface WarningList {
   items: WarningSummary[];
   /** `failedGuests`: VMs and containers whose newest backup failed (absent from an older server). */
-  counts: { open: number; acknowledged: number; failed: number; failedGuests?: number };
+  /**
+   * `toConfirm`: objects no longer backed up (removed, disabled, unlicensed, locked) that wait for
+   * an admin's "Yes, intended" in the protected objects (absent from an older server).
+   */
+  counts: {
+    open: number;
+    acknowledged: number;
+    failed: number;
+    failedGuests?: number;
+    toConfirm?: number;
+  };
   truncated: boolean;
 }
 

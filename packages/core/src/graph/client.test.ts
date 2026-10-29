@@ -83,6 +83,97 @@ describe("batching", () => {
     expect(new Set(sent.requests.map((r) => r.id)).size).toBe(2);
   });
 
+  it("sends an identical read once and gives the answer to every caller", async () => {
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) => batchEnvelope(call, (sub) => ({ status: 200, body: { url: sub.url } })),
+      },
+    ]);
+    // A delta page that lists the same message twice: same caller id, same request.
+    const responses = await graph.client().batch([
+      { id: "AAMkMsg", method: "GET", url: "/users/u/messages/AAMkMsg/$value" },
+      { id: "other", method: "GET", url: "/users/u/messages/other/$value" },
+      { id: "AAMkMsg", method: "GET", url: "/users/u/messages/AAMkMsg/$value" },
+    ]);
+    expect(responses.map((r) => [r.id, r.status, (r.body as { url: string }).url])).toEqual([
+      ["AAMkMsg", 200, "/users/u/messages/AAMkMsg/$value"],
+      ["other", 200, "/users/u/messages/other/$value"],
+      ["AAMkMsg", 200, "/users/u/messages/AAMkMsg/$value"],
+    ]);
+    const sent = graph.callsTo("POST", "$batch")[0]?.json as { requests: { id: string }[] };
+    expect(sent.requests.map((r) => r.id)).toEqual(["0", "1"]);
+  });
+
+  it("collapses reads whose headers differ only in name case, not in value", async () => {
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) => batchEnvelope(call, () => ({ status: 200, body: {} })),
+      },
+    ]);
+    await graph.client().batch([
+      { id: "a", method: "GET", url: "/x", headers: { Prefer: "IdType=ImmutableId" } },
+      { id: "b", method: "get", url: "/x", headers: { prefer: "IdType=ImmutableId" } },
+      { id: "c", method: "GET", url: "/x", headers: { Prefer: "outlook.body-content-type=text" } },
+    ]);
+    const sent = graph.callsTo("POST", "$batch")[0]?.json as { requests: unknown[] };
+    expect(sent.requests).toHaveLength(2);
+  });
+
+  it("never collapses writes", async () => {
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) => batchEnvelope(call, () => ({ status: 201, body: {} })),
+      },
+    ]);
+    const responses = await graph.client().batch([
+      { id: "s", method: "POST", url: "/subscriptions", body: { resource: "r" } },
+      { id: "s", method: "POST", url: "/subscriptions", body: { resource: "r" } },
+    ]);
+    expect(responses).toHaveLength(2);
+    const sent = graph.callsTo("POST", "$batch")[0]?.json as { requests: { id: string }[] };
+    expect(sent.requests.map((r) => r.id)).toEqual(["0", "1"]);
+  });
+
+  it("retries a collapsed read once and answers all its callers with the retry", async () => {
+    let round = 0;
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) => {
+          round += 1;
+          return batchEnvelope(call, (sub) =>
+            sub.url === "/users/b" && round === 1
+              ? {
+                  status: 429,
+                  headers: { "Retry-After": "0" },
+                  body: graphError("TooManyRequests"),
+                }
+              : { status: 200, body: { round } },
+          );
+        },
+      },
+    ]);
+    const responses = await graph.client().batch([
+      { id: "b", method: "GET", url: "/users/b" },
+      { id: "a", method: "GET", url: "/users/a" },
+      { id: "b", method: "GET", url: "/users/b" },
+    ]);
+    expect(responses.map((r) => [r.id, r.status, (r.body as { round: number }).round])).toEqual([
+      ["b", 200, 2],
+      ["a", 200, 1],
+      ["b", 200, 2],
+    ]);
+    const second = graph.callsTo("POST", "$batch")[1]?.json as { requests: { id: string }[] };
+    expect(second.requests.map((r) => r.id)).toEqual(["0"]);
+  });
+
   it("adds Content-Type to batch sub-requests that carry a body", async () => {
     const graph = createFakeGraph([
       {
@@ -471,6 +562,38 @@ describe("a refused token inside a $batch", () => {
     expect(second?.headers.authorization).toBe("Bearer token-1");
     const resent = must(second?.json as { requests: { url: string }[] } | undefined);
     expect(resent.requests.map((r) => r.url)).toEqual(["/users/b/messages"]);
+  });
+
+  it("re-sends a refused read that several callers share as one sub-request", async () => {
+    let round = 0;
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) => {
+          round += 1;
+          return batchEnvelope(call, () =>
+            round === 1
+              ? { status: 403, body: graphError("ErrorAccessDenied") }
+              : { status: 200, body: {} },
+          );
+        },
+      },
+    ]);
+    const client = graph.client({ refreshAccessToken: () => true });
+    const responses = await client.batch([
+      { id: "m", method: "GET", url: "/users/b/messages/m" },
+      { id: "m", method: "GET", url: "/users/b/messages/m" },
+    ]);
+    expect(responses.map((r) => [r.id, r.status])).toEqual([
+      ["m", 200],
+      ["m", 200],
+    ]);
+    for (const call of graph.callsTo("POST", "$batch")) {
+      expect((call.json as { requests: { id: string }[] }).requests.map((r) => r.id)).toEqual([
+        "0",
+      ]);
+    }
   });
 
   it("returns the refusal when the provider keeps its token, and asks only once", async () => {

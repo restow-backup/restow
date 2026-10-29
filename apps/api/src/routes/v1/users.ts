@@ -1,4 +1,4 @@
-import { countProtectedMailboxes } from "@restow/core";
+import { countProtectedMailboxes, inactiveState } from "@restow/core";
 import { type Database, protectedObjects, sources, type User, users } from "@restow/db";
 import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -70,11 +70,21 @@ export const userObjectSchema = component(
     kind: objectKindSchema,
     status: objectStatusSchema,
     statusReason: z
-      .enum(["account_disabled", "no_license"])
+      .enum(["account_disabled", "no_license", "locked"])
       .nullable()
       .optional()
       .describe(
-        "Why an `orphaned` mailbox is not backed up although its user is still in the directory: the account is disabled, or it has no Exchange Online licence. Its backups are kept and backups resume by themselves once the account is enabled or licensed again. Null for every other object.",
+        "Why an `orphaned` object is not backed up although it is still at the source: the account is disabled, it has no Exchange Online licence, or Microsoft locked the OneDrive or site (HTTP 423). Its backups are kept and backups resume by themselves once the account is enabled or licensed, or the lock is lifted. Null for every other object.",
+      ),
+    inactiveSince: timestampSchema
+      .nullable()
+      .optional()
+      .describe("When an `orphaned` object stopped being backed up. Null for every other object."),
+    statusConfirmedAt: timestampSchema
+      .nullable()
+      .optional()
+      .describe(
+        "When an admin confirmed that an `orphaned` object is intentionally no longer backed up. Null while unconfirmed (the tenant's readiness reads at least yellow then) and for every other object.",
       ),
     externalId: z.string(),
     displayName: z.string().nullable(),
@@ -103,7 +113,9 @@ export const directoryUserSchema = component(
     lastBackupAt: timestampSchema.nullable().describe("Newest restorable backup of any object."),
     recoveryReadiness: readinessSchema
       .nullable()
-      .describe("Worst rating over the user's protected objects; null without any."),
+      .describe(
+        "Worst rating over the user's protected objects; yellow while an object waits for confirmation (no longer backed up, `statusConfirmedAt` null), even one without a backup; null without any.",
+      ),
     objects: z.array(userObjectSchema),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
@@ -174,7 +186,10 @@ export interface UserObjectRow {
   kind: "mailbox" | "onedrive" | "imap" | "site" | "group";
   status: "active" | "excluded" | "orphaned";
   /** See the `statusReason` of {@link userObjectSchema}; absent reads as null. */
-  statusReason?: "account_disabled" | "no_license" | null;
+  statusReason?: "account_disabled" | "no_license" | "locked" | null;
+  /** See {@link userObjectSchema}; absent reads as null. */
+  inactiveSince?: Date | null;
+  statusConfirmedAt?: Date | null;
   externalId: string;
   displayName: string | null;
   sourceKind: "m365" | "imap";
@@ -222,8 +237,16 @@ export function toDirectoryUser(
         state: readiness.state,
         overdue: readiness.overdue,
         checkedAt: entry.facts.verify?.checkedAt ?? null,
+        toConfirm: inactiveState(entry.object) === "to_confirm",
       };
     });
+  // Unconfirmed objects no longer backed up without a backup to rate still wait for a decision:
+  // yellow like the tenant readiness, /v1/status and /v1/verify (verify/summary.ts `toConfirm`).
+  const unratedToConfirm = withFacts.filter(
+    (entry) =>
+      !countsForReadiness(entry.object.status, entry.facts.snapshot !== null) &&
+      inactiveState(entry.object) === "to_confirm",
+  ).length;
   const protectedMailboxes = countProtectedMailboxes(
     objects.map((object) => ({ kind: object.kind, status: object.status, userId: user.id })),
   );
@@ -240,12 +263,16 @@ export function toDirectoryUser(
     lastBackupAt:
       latest(withFacts.map((entry) => entry.facts.snapshot?.completedAt ?? null))?.toISOString() ??
       null,
-    recoveryReadiness: overallReadiness(rated),
+    recoveryReadiness: overallReadiness(rated, unratedToConfirm),
     objects: withFacts.map(({ object, facts: objectFacts }) => ({
       id: object.id,
       kind: object.kind,
       status: object.status,
       statusReason: object.status === "orphaned" ? (object.statusReason ?? null) : null,
+      inactiveSince:
+        object.status === "orphaned" ? (object.inactiveSince?.toISOString() ?? null) : null,
+      statusConfirmedAt:
+        object.status === "orphaned" ? (object.statusConfirmedAt?.toISOString() ?? null) : null,
       externalId: object.externalId,
       displayName: object.displayName,
       lastBackupAt: objectFacts.snapshot?.completedAt?.toISOString() ?? null,
@@ -322,6 +349,8 @@ export async function loadDirectoryUsers(
             kind: protectedObjects.kind,
             status: protectedObjects.status,
             statusReason: protectedObjects.statusReason,
+            inactiveSince: protectedObjects.inactiveSince,
+            statusConfirmedAt: protectedObjects.statusConfirmedAt,
             externalId: protectedObjects.externalId,
             displayName: protectedObjects.displayName,
             sourceKind: sql<"m365" | "imap">`${sources.kind}`,

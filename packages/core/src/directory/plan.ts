@@ -23,6 +23,7 @@
  */
 import type { DeltaMode } from "../graph/delta.js";
 import type { UserDeltaEntry } from "../graph/resources/users.js";
+import type { LockState } from "./locks.js";
 import {
   evaluateProtection,
   inactiveReason,
@@ -38,14 +39,16 @@ export type DirectoryObjectKind = "mailbox" | "onedrive";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 export type ObjectOrigin = "directory_sync" | "manual";
 /**
- * Why an `orphaned` mailbox is not backed up although its user is still in the directory
- * (`protected_objects.status_reason`): sign-in blocked, or no Exchange Online licence. Null on
- * an orphaned object means "removed from the source".
+ * Why an `orphaned` object is not backed up although it is still at the source
+ * (`protected_objects.status_reason`): a mailbox whose sign-in is blocked or that has no Exchange
+ * Online licence, or a OneDrive or site Microsoft locked (HTTP 423, ./locks.ts). Null on an
+ * orphaned object means "removed from the source".
  */
-export type ObjectStatusReason = "account_disabled" | "no_license";
+export type ObjectStatusReason = "account_disabled" | "no_license" | "locked";
 export const OBJECT_STATUS_REASONS: readonly ObjectStatusReason[] = [
   "account_disabled",
   "no_license",
+  "locked",
 ];
 
 /** A user as the sync stores it: the `users` row plus the facts the rules need. */
@@ -94,6 +97,8 @@ export interface UserProbe {
   readonly mailbox?: boolean;
   /** Drive id of the user's OneDrive, or null when none is provisioned. */
   readonly driveId?: string | null;
+  /** The drive probe itself answered the 423 lock (./locks.ts); `driveId` is unknown then. */
+  readonly driveLocked?: boolean;
 }
 
 /**
@@ -294,6 +299,11 @@ export interface PlanInput {
   readonly overrides: ProtectionOverrides;
   /** Transitive members of the rule group; null when unresolved or not in group mode. */
   readonly groupMemberIds: ReadonlySet<string> | null;
+  /**
+   * The re-check of OneDrives known as locked, by drive id (./locks.ts); a drive missing here
+   * is unknown and stays locked. Only `unlocked` (a 200) turns a locked drive active again.
+   */
+  readonly lockState?: ReadonlyMap<string, LockState>;
 }
 
 type Candidate = Omit<PlannedObject, "change">;
@@ -405,12 +415,36 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
     if (keptReason === null && hasMailbox(user, probe)) {
       add("mailbox", user.entraObjectId);
     }
-    if (typeof probe?.driveId === "string") {
+    // A OneDrive Microsoft locked (423, ./locks.ts) is still listed and still answers the
+    // drive probe: it stays orphaned with its reason until its own lock probe answers 200, so a
+    // sync never turns it active blindly for the backup to fail on the lock again. An admin's
+    // exclusion still applies (the normal path below writes it).
+    const lockedDrive = owned.find(
+      (o) =>
+        o.kind === "onedrive" &&
+        o.status === "orphaned" &&
+        o.statusReason === "locked" &&
+        (probe?.driveId === undefined || probe.driveId === o.externalId) &&
+        decide(subject, o.externalId).status === "active",
+    );
+    const lockedNow =
+      lockedDrive !== undefined && input.lockState?.get(lockedDrive.externalId) !== "unlocked";
+    if (lockedDrive && lockedNow) {
+      keep.add(lockedDrive.externalId);
+      markOrphan(lockedDrive, "locked");
+    } else if (lockedDrive && probe?.driveId === undefined) {
+      // Unlocked (the probe read its root), the drive probe itself did not answer: it is back.
+      add("onedrive", lockedDrive.externalId);
+    } else if (typeof probe?.driveId === "string") {
       add("onedrive", probe.driveId);
     } else if (probe?.driveId === undefined) {
       // Not probed or the probe failed: keep the drive we know, never guess a new one.
       const current = owned.find((o) => o.kind === "onedrive" && o.status !== "orphaned");
-      if (current) {
+      if (current && probe?.driveLocked === true) {
+        // The drive probe met the lock itself: neutral at once, before a backup fails on it.
+        keep.add(current.externalId);
+        markOrphan(current, "locked");
+      } else if (current) {
         add("onedrive", current.externalId);
       }
     }
@@ -438,7 +472,14 @@ export function planDirectory(input: PlanInput): DirectoryPlan {
     }
     // Unchanged user in an incremental run: re-apply the rules from stored facts.
     for (const object of owned) {
-      if (object.status === "orphaned" || !object.owner) {
+      // A locked OneDrive whose lock probe now reads the drive comes back (./locks.ts): an
+      // unlocked drive changes nothing users/delta would report, so this is the only place.
+      const unlocked =
+        object.kind === "onedrive" &&
+        object.status === "orphaned" &&
+        object.statusReason === "locked" &&
+        input.lockState?.get(object.externalId) === "unlocked";
+      if ((object.status === "orphaned" && !unlocked) || !object.owner) {
         continue;
       }
       const subject = storedSubject(object.owner, input.sharedOrBlockedIds);

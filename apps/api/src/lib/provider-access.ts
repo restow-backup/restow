@@ -340,6 +340,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/directory/people": view(),
   "GET /api/v1/directory/objects": view(),
   "POST /api/v1/directory/objects/:id/protection": configure(),
+  // "Yes, intended" for an object no longer backed up: a decision about protection, like
+  // excluding it, so the same right.
+  "POST /api/v1/directory/objects/:id/inactive/confirm": configure(),
+  "POST /api/v1/directory/objects/inactive/confirm": configure(),
   "POST /api/v1/directory/objects/:id/credential": configure(),
   "POST /api/v1/directory/objects/:id/credential/test": operate(),
   "DELETE /api/v1/directory/objects/:id": configure(),

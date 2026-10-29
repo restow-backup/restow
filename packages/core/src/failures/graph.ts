@@ -111,6 +111,29 @@ function isDriveLevelPath(url: string): boolean {
   );
 }
 
+/**
+ * True for requests that address a whole SharePoint site, not an item in it: /sites/{id}, its
+ * drive or drives listing, its default library's root and delta feed, its lists listing.
+ */
+function isSiteLevelPath(url: string): boolean {
+  let path = url;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    // A relative path is fine as it is.
+  }
+  const cut = path.search(/[?#]/);
+  const bare = (cut === -1 ? path : path.slice(0, cut)).replace(/^\/v\d+\.\d+/i, "");
+  return /^\/sites\/[^/]+(\/(drives|lists|drive(\/root(\/delta(\([^/]*\))?)?)?))?\/?$/i.test(bare);
+}
+
+/**
+ * Codes of a 423 that locks a whole OneDrive or site: Microsoft answers `notAllowed` with the
+ * inner code `resourceLocked` ("Access to this site has been blocked") for the OneDrive of an
+ * account without a licence and for a site an admin locked (no access).
+ */
+const LOCKED_CODES = new Set(["resourcelocked", "notallowed", "locked"]);
+
 const NOT_ENABLED_CODES = new Set([
   "mailboxnotenabledforrestapi",
   "errormailboxnotenabledforrestapi",
@@ -258,6 +281,17 @@ export function classifyGraphError(error: GraphError): FailureCause {
       { ...base, reason: onPremises ? "not_in_exchange_online" : "not_enabled" },
       technical,
     );
+  }
+  // A locked OneDrive or site (HTTP 423 at drive or site level): the object is not backed up
+  // until it is unlocked or licensed again, like a disabled mailbox (failures/limits.ts); a 423
+  // on one item (a file checked out or in use) stays an item problem.
+  if (
+    error.status === 423 &&
+    hasCode(error, LOCKED_CODES) &&
+    ((resource === "onedrive" && isDriveLevelPath(error.url)) ||
+      (resource === "sharepoint" && isSiteLevelPath(error.url)))
+  ) {
+    return cause("graph.object_locked", false, { ...base, reason: "locked" }, technical);
   }
   if (hasCode(error, THROTTLE_CODES) || error.status === 429) {
     const seconds = retryAfterSeconds(error);

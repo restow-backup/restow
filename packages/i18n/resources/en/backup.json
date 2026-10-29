@@ -39,7 +39,8 @@
     "serviceLimited": "Held back by the service, retried",
     "notBackedUp": {
       "account_disabled": "Not backed up: account disabled",
-      "no_license": "Not backed up: no licence"
+      "no_license": "Not backed up: no licence",
+      "locked": "Not backed up: locked by Microsoft"
     },
     "cancelled": "Cancelled",
     "checkIncomplete": "Not completed, will be retried"

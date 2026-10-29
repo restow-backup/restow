@@ -104,4 +104,12 @@ describe("where a notification leads", () => {
     // Tenant pages are admin pages: a viewer gets no target.
     expect(notificationTarget(source, { canManage: false, isProviderAdmin: false })).toBeNull();
   });
+
+  it("leads objects no longer backed up to the ones that wait for a confirmation", () => {
+    for (const event of ["object.inactive", "object.inactive_many"]) {
+      expect(
+        notificationTarget({ event, tenantId, details: { protectedObjectId: "po-1" } }, admin),
+      ).toEqual({ to: `/tenants/${tenantId}/protection?status=to_confirm`, tenantId });
+    }
+  });
 });

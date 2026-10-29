@@ -69,9 +69,18 @@ export interface WarningListDto {
   /**
    * `failed`: protected objects, machines and file shares whose newest backup failed outright;
    * `failedGuests`: VMs and containers of Proxmox VE in a backup job whose newest backup failed
-   * (their runs are on the guest's page, not in History).
+   * (their runs are on the guest's page, not in History); `toConfirm`: objects Restow stopped
+   * backing up (removed, disabled, unlicensed, locked at the source) that wait for an admin's
+   * "Yes, intended" (directory, @restow/core `inactiveState`). No warning row of their own: the
+   * list keeps its backup-run semantics, the count leads to the protected objects.
    */
-  counts: { open: number; acknowledged: number; failed: number; failedGuests: number };
+  counts: {
+    open: number;
+    acknowledged: number;
+    failed: number;
+    failedGuests: number;
+    toConfirm: number;
+  };
   /** More warnings than the list carries. */
   truncated: boolean;
 }

@@ -99,6 +99,11 @@ export interface ReadinessWidget {
   guestsWithoutJob?: number;
   /** File shares in no backup job that keep a restore point (absent from an older server). */
   sharesWithoutJob?: number;
+  /**
+   * Objects no longer backed up that wait for an admin's confirmation; they keep `overall` from
+   * green (absent from an older server).
+   */
+  toConfirm?: number;
   running: number;
   lastCheckedAt: string | null;
 }
@@ -153,7 +158,7 @@ export interface RecentJob {
    */
   serviceLimited?: boolean;
   /** A backup of a disabled or unlicensed account: neutral, never failed. Missing before 0.4.7. */
-  notBackedUp?: "account_disabled" | "no_license" | null;
+  notBackedUp?: "account_disabled" | "no_license" | "locked" | null;
   /** The causes behind a finished job's failed items, most frequent first. */
   itemCauses?: ItemCauseCount[];
 }
@@ -381,6 +386,8 @@ export interface LoadedTenantRow extends ProviderTenantRowBase {
   fileShares?: number;
   fileSharesWithoutJob?: number;
   fileSharesFailed?: number;
+  /** Objects no longer backed up that wait for a confirmation (absent from an older server). */
+  toConfirm?: number;
   physicalBytes: number;
   storageError: boolean;
 }
@@ -408,6 +415,7 @@ export interface UnavailableTenantRow extends ProviderTenantRowBase {
   fileShares?: null;
   fileSharesWithoutJob?: null;
   fileSharesFailed?: null;
+  toConfirm?: null;
   physicalBytes: null;
   storageError: null;
 }
@@ -430,6 +438,7 @@ export type ProviderAlertKind =
   | "file_share_backup_failed"
   | "file_shares_without_job"
   | "needs_attention"
+  | "inactive_to_confirm"
   | "nothing_protected"
   | "immutability_warning";
 

@@ -266,6 +266,10 @@
       },
       "sync": {
         "requested": "Directory sync started"
+      },
+      "inactive": {
+        "confirmed": "Object no longer backed up confirmed as intended",
+        "bulk_confirmed": "Objects no longer backed up confirmed as intended"
       }
     },
     "export": {

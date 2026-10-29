@@ -68,6 +68,37 @@ describe("planSites", () => {
     expect(plan.discovered).toBe(3);
   });
 
+  it("keeps a listed locked site orphaned until its lock probe answers 200", () => {
+    const locked: KnownSite = { ...known("s1", "orphaned", "Sales"), statusReason: "locked" };
+    const sites = [{ id: "s1", displayName: "Sales", webUrl: null }];
+    for (const lockState of [undefined, new Map([["s1", "locked" as const]])]) {
+      const kept = planSites({ sites, known: [locked], rules: all, overrides: {}, lockState });
+      expect(kept.sites).toEqual([]);
+      expect(kept.orphanExternalIds).toEqual([]);
+    }
+    const unlocked = planSites({
+      sites,
+      known: [locked],
+      rules: all,
+      overrides: {},
+      lockState: new Map([["s1", "unlocked" as const]]),
+    });
+    expect(unlocked.sites).toEqual([
+      expect.objectContaining({ externalId: "s1", status: "active", change: "rescoped" }),
+    ]);
+    // An admin's exclusion still applies to a locked site.
+    const excluded = planSites({
+      sites,
+      known: [locked],
+      rules: all,
+      overrides: { s1: "exclude" },
+    });
+    expect(excluded.sites).toEqual([expect.objectContaining({ status: "excluded" })]);
+    // Gone from the listing: orphaned again, now without the reason.
+    const gone = planSites({ sites: [], known: [locked], rules: all, overrides: {} });
+    expect(gone.orphanExternalIds).toEqual(["s1"]);
+  });
+
   it("keeps known sites when the listing failed and only re-applies the rules", () => {
     const plan = planSites({
       sites: null,

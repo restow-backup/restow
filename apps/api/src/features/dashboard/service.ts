@@ -394,6 +394,7 @@ function buildWidgets(
             withoutJob: readiness.withoutJob,
             guestsWithoutJob: readiness.guestsWithoutJob,
             sharesWithoutJob: readiness.sharesWithoutJob,
+            toConfirm: readiness.toConfirm,
             running: readiness.running,
             lastCheckedAt: readiness.lastCheckedAt,
           };

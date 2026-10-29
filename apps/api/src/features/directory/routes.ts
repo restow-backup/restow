@@ -5,7 +5,9 @@ import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import {
   accountsRequestSchema,
+  bulkConfirmInactiveSchema,
   bulkProtectionSchema,
+  confirmInactiveSchema,
   csvImportSchema,
   groupSearchQuerySchema,
   objectCredentialSchema,
@@ -20,7 +22,9 @@ import {
 } from "./schemas.js";
 import {
   type Actor,
+  bulkConfirmInactive,
   bulkSetProtection,
+  confirmInactiveObject,
   deleteAccount,
   importAccounts,
   importAccountsCsv,
@@ -48,6 +52,8 @@ import {
  *   GET    /people?search=&limit=              people of the directory (for the machine assignment picker)
  *   GET    /objects                            protected objects: filter, search, paginate
  *   POST   /objects/:id/protection             include / exclude / reset one object
+ *   POST   /objects/:id/inactive/confirm       "Yes, intended": one object no longer backed up
+ *   POST   /objects/inactive/confirm           the same for several ({ objectIds } or { filter })
  *   POST   /objects/:id/credential              set/replace an IMAP account's own password
  *   POST   /objects/:id/credential/test         try that account's login now
  *   DELETE /objects/:id                        remove an IMAP account without backups
@@ -134,6 +140,19 @@ directoryRoutes.post("/objects/:id/protection", tenantAdmin, async (c) => {
   const { id } = parseOrProblem(objectParamSchema, c.req.param());
   const input = await parseJsonBody(c.req, protectionOverrideSchema);
   return c.json(await setObjectProtection(db, c.get("tenantId"), id, input, actorOf(c)));
+});
+
+// Objects Restow stopped backing up (removed, disabled, unlicensed, locked at the source): the
+// admin confirms that this is intended; amber turns grey (@restow/core directory/inactive.ts).
+directoryRoutes.post("/objects/inactive/confirm", tenantAdmin, async (c) => {
+  const input = await parseJsonBody(c.req, bulkConfirmInactiveSchema);
+  return c.json(await bulkConfirmInactive(db, c.get("tenantId"), input, actorOf(c)));
+});
+
+directoryRoutes.post("/objects/:id/inactive/confirm", tenantAdmin, async (c) => {
+  const { id } = parseOrProblem(objectParamSchema, c.req.param());
+  const input = parseOrProblem(confirmInactiveSchema, await c.req.json().catch(() => ({})));
+  return c.json(await confirmInactiveObject(db, c.get("tenantId"), id, input, actorOf(c)));
 });
 
 directoryRoutes.post("/objects/:id/credential", tenantAdmin, async (c) => {

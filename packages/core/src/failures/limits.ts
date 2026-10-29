@@ -38,14 +38,21 @@ export function isServiceLimitedFailure(
  * Runs that ended without a backup because the mailbox's account is disabled or has no
  * Exchange Online licence (docs/MICROSOFT.md "Deaktivierte und unlizenzierte Konten"): the backup
  * found Microsoft answering "no mailbox" for a user who is still in the directory
- * (`graph.mailbox_inactive`), or the object was already marked so and the run was turned away
- * (`config.object_inactive`). Nothing is broken and nothing is held back: the object is not
+ * (`graph.mailbox_inactive`), Microsoft locked the OneDrive or site (HTTP 423 resourceLocked,
+ * `graph.object_locked`; it does so for the OneDrive of an unlicensed account; neutral only once
+ * a probe confirmed it, worker backup.ts turns an unconfirmed lock into a counted
+ * `graph.request_rejected`), or the object was
+ * already marked so and the run was turned away (`config.object_inactive`). Nothing is broken and nothing is held back: the object is not
  * backed up until the account is enabled or licensed again, and its backups are kept. Such a
  * run counts neither as failed nor as held back, ends no warning acknowledgement and raises no
  * `backup.failed` alert or `job.failed` webhook; the UI shows it neutral ("not backed up").
  * Kept apart from {@link SERVICE_LIMIT_CAUSES}, which read amber "held back, retried".
  */
-export const NOT_BACKED_UP_CAUSES = ["graph.mailbox_inactive", "config.object_inactive"] as const;
+export const NOT_BACKED_UP_CAUSES = [
+  "graph.mailbox_inactive",
+  "graph.object_locked",
+  "config.object_inactive",
+] as const;
 
 export type NotBackedUpCause = (typeof NOT_BACKED_UP_CAUSES)[number];
 
@@ -64,9 +71,12 @@ export function isNotBackedUpFailure(
   return status === "failed" && isNotBackedUpCause(failure?.code);
 }
 
+/** Why an object is not backed up while still at the source (`protected_objects.status_reason`). */
+export type NotBackedUpReason = "account_disabled" | "no_license" | "locked";
+
 /**
- * Why such a run did not back up (`account_disabled`, `no_license`), from its failure
- * parameters; null for any other run. An unknown or missing reason reads `no_license`.
+ * Why such a run did not back up (`account_disabled`, `no_license`, `locked`), from its failure
+ * code and parameters; null for any other run. An unknown or missing reason reads `no_license`.
  */
 export function notBackedUpReason(
   status: string,
@@ -74,9 +84,13 @@ export function notBackedUpReason(
     | { readonly code?: string | null; readonly params?: Record<string, unknown> | null }
     | null
     | undefined,
-): "account_disabled" | "no_license" | null {
+): NotBackedUpReason | null {
   if (!isNotBackedUpFailure(status, failure)) {
     return null;
   }
-  return failure?.params?.reason === "account_disabled" ? "account_disabled" : "no_license";
+  const reason = failure?.params?.reason;
+  if (failure?.code === "graph.object_locked" || reason === "locked") {
+    return "locked";
+  }
+  return reason === "account_disabled" ? "account_disabled" : "no_license";
 }

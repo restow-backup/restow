@@ -206,6 +206,48 @@ describe("Microsoft Graph answers", () => {
     ).toBe("graph.item_not_found");
   });
 
+  it("423 resourceLocked on a whole OneDrive or site: locked, not a rejected request", () => {
+    const message =
+      "Access to this site has been blocked. Please contact the administrator to resolve this problem.";
+    for (const url of [
+      "/drives/b!x/root/delta",
+      "/drives/b!x/root/delta?token=abc",
+      "/users/a@b.de/drive",
+      "/sites/contoso.sharepoint.com,1,2",
+      "/sites/contoso.sharepoint.com,1,2/drives",
+      "/sites/contoso.sharepoint.com,1,2/drive/root",
+    ]) {
+      expect(
+        classifyFailure(
+          graph(423, "notAllowed", message, url, { inner: { code: "resourceLocked" } }),
+        ),
+      ).toMatchObject({
+        code: "graph.object_locked",
+        transient: false,
+        params: expect.objectContaining({ reason: "locked", httpStatus: 423 }),
+      });
+    }
+    // A single file checked out or in use is no lock of the drive.
+    expect(
+      classifyFailure(
+        graph(
+          423,
+          "notAllowed",
+          "The resource you are attempting to access is locked",
+          "/drives/b!x/items/01A/content",
+          {
+            inner: { code: "resourceLocked" },
+          },
+        ),
+      ).code,
+    ).not.toBe("graph.object_locked");
+    expect(
+      classifyFailure(
+        graph(423, "notAllowed", "locked", "/sites/contoso.sharepoint.com,1,2/lists/L/items/5"),
+      ).code,
+    ).not.toBe("graph.object_locked");
+  });
+
   it("404 on a drive: OneDrive not provisioned", () => {
     const cause = classifyFailure(
       graph(404, "ResourceNotFound", "Resource could not be discovered.", "/users/a@b.de/drive"),

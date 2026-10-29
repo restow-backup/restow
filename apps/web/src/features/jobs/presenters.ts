@@ -65,7 +65,7 @@ export interface JobStatusDisplay {
  * why the queue is passed when it is known.
  */
 /** Why a backup did not back up: the account is disabled or has no Exchange Online licence. */
-export type NotBackedUpReason = "account_disabled" | "no_license";
+export type NotBackedUpReason = "account_disabled" | "no_license" | "locked";
 
 export function jobStatusDisplay(
   status: JobStatus,

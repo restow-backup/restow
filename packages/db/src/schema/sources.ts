@@ -246,15 +246,33 @@ export const protectedObjects = pgTable(
      */
     activeSince: timestamp("active_since", { withTimezone: true }),
     /**
-     * Why an `orphaned` Microsoft 365 mailbox is not backed up although its user is still in
-     * the directory (0.4.7): `account_disabled` (sign-in blocked and Exchange reports no
-     * mailbox) or `no_license` (no Exchange Online licence, mailbox inactive). Null for every
-     * other object and for an object removed from the source. Such an object is neutral like
+     * Why an `orphaned` Microsoft 365 object is not backed up although it is still in the
+     * directory (0.4.7): `account_disabled` (sign-in blocked and Exchange reports no mailbox),
+     * `no_license` (no Exchange Online licence, mailbox inactive) or `locked` (OneDrive or site
+     * answers HTTP 423 resourceLocked, as Microsoft does for unlicensed accounts' OneDrives).
+     * Null for every other object and for an object removed from the source. Such an object is neutral like
      * any orphaned one (no backups, no overdue, kept snapshots) and turns `active` again by
      * itself once the directory sync finds the mailbox. A trigger clears the reason whenever
      * the status leaves `orphaned` (migration 0069).
      */
     statusReason: text("status_reason").$type<ObjectStatusReason>(),
+    /**
+     * Confirmation of an object Restow stopped backing up because the source says it is gone,
+     * disabled, unlicensed or locked (status `orphaned`, with or without `status_reason`).
+     * `inactive_since` is when it last turned `orphaned` (the date the UI shows). Until an admin
+     * confirms it (`status_confirmed_at`/`_by`: an address, `api-key:<id>`, or `migration` for
+     * objects that were orphaned before 0.4.7) it reads amber "please confirm" and keeps the
+     * tenant from green; afterwards grey "intentionally no longer backed up".
+     * `inactive_notified_at` marks the one-time notice as raised (apps/worker
+     * inactive-notices.ts). The 0069 trigger sets `inactive_since` and clears the confirmation
+     * and the notice on every transition into `orphaned`, and clears all four (and
+     * `status_reason`) whenever the status leaves it: re-activation drops a confirmation in
+     * every write path.
+     */
+    inactiveSince: timestamp("inactive_since", { withTimezone: true }),
+    inactiveNotifiedAt: timestamp("inactive_notified_at", { withTimezone: true }),
+    statusConfirmedAt: timestamp("status_confirmed_at", { withTimezone: true }),
+    statusConfirmedBy: text("status_confirmed_by"),
     /**
      * The sealed per-mailbox IMAP password (`SourceConfig.imapAuthMode ===
      * "per_mailbox"` on the parent source), never the plaintext: the value lives
@@ -285,7 +303,12 @@ export const protectedObjects = pgTable(
     index("protected_objects_tenant_status_idx").on(t.tenantId, t.status),
     check(
       "protected_objects_status_reason_ck",
-      sql`${t.statusReason} IS NULL OR ${t.statusReason} IN ('account_disabled', 'no_license')`,
+      sql`${t.statusReason} IS NULL OR ${t.statusReason} IN ('account_disabled', 'no_license', 'locked')`,
+    ),
+    // Who and when come together: a confirmation without its author is no confirmation.
+    check(
+      "protected_objects_status_confirmed_ck",
+      sql`(${t.statusConfirmedAt} IS NULL) = (${t.statusConfirmedBy} IS NULL)`,
     ),
     // A person's objects (the explorer's people, #49) and the ON DELETE SET NULL of `users`.
     index("protected_objects_tenant_user_idx").on(t.tenantId, t.userId),
@@ -293,7 +316,7 @@ export const protectedObjects = pgTable(
 );
 
 /** Why an orphaned object is still in the directory but not backed up (`status_reason`). */
-export const OBJECT_STATUS_REASONS = ["account_disabled", "no_license"] as const;
+export const OBJECT_STATUS_REASONS = ["account_disabled", "no_license", "locked"] as const;
 export type ObjectStatusReason = (typeof OBJECT_STATUS_REASONS)[number];
 
 export type Source = typeof sources.$inferSelect;

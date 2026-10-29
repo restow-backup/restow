@@ -11,17 +11,24 @@ export type SourceStatus = "pending" | "active" | "error" | "disabled";
 export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 /**
- * Why an `orphaned` mailbox is not backed up although its user is still in the directory: the
- * account is disabled, or it has no Exchange Online licence. Its backups are kept, it is never
- * overdue, and backups resume by themselves once Microsoft hosts the mailbox again.
+ * Why an `orphaned` object is not backed up although it is still at the source: the account is
+ * disabled, it has no Exchange Online licence, or Microsoft locked the OneDrive or site (HTTP
+ * 423). Its backups are kept, it is never overdue, and backups resume by themselves once that
+ * changes.
  */
-export type ObjectStatusReason = "account_disabled" | "no_license";
+export type ObjectStatusReason = "account_disabled" | "no_license" | "locked";
+/**
+ * The confirmation of an object Restow stopped backing up (status `orphaned`): `to_confirm`
+ * reads amber "please confirm" and keeps the tenant from green, `confirmed` grey
+ * "intentionally no longer backed up".
+ */
+export type InactiveState = "to_confirm" | "confirmed";
 /**
  * `status` as a filter: `not_selected` is not a stored status but a derived
  * one (see {@link ProtectedObject.notSelected}), filtered apart from
  * `excluded` because it is the `selected` mode's default, not a decision.
  */
-export type ObjectStatusFilter = ObjectStatus | "not_selected";
+export type ObjectStatusFilter = ObjectStatus | "not_selected" | InactiveState;
 export type ObjectOrigin = "directory_sync" | "manual";
 /**
  * How an object stands towards the backup jobs: in a job that runs on a schedule, in one that is
@@ -106,6 +113,8 @@ export interface ObjectCounts {
   site?: number;
   /** Microsoft 365 group mailboxes (absent from an older server). */
   group?: number;
+  /** Objects no longer backed up that nobody confirmed as intended (absent from an older server). */
+  toConfirm?: number;
 }
 
 export interface PendingSync {
@@ -149,6 +158,15 @@ export interface ProtectedObject {
   status: ObjectStatus;
   /** Set only on an orphaned mailbox whose account is disabled or unlicensed; absent from an older server. */
   statusReason?: ObjectStatusReason | null;
+  /** The confirmation of an orphaned object; null otherwise, absent from an older server. */
+  inactiveState?: InactiveState | null;
+  /** When an orphaned object stopped being backed up. */
+  inactiveSince?: string | null;
+  /** Who confirmed it (an address, `api-key:<id>`, or `migration`) and when. */
+  statusConfirmedAt?: string | null;
+  statusConfirmedBy?: string | null;
+  /** For a locked OneDrive: why its owner's account is inactive (the usual cause of the lock). */
+  lockHint?: "account_disabled" | "no_license" | null;
   externalId: string;
   displayName: string | null;
   userId: string | null;
@@ -392,4 +410,16 @@ export interface CsvImportOutcome {
   dryRun: boolean;
   hasHeader: boolean;
   delimiter: "," | ";" | "\t";
+}
+
+/** Confirm "Yes, intended" for objects no longer backed up: checked rows, or a filter. */
+export type ConfirmInactiveInput = ({ objectIds: string[] } | { filter: ObjectsFilter }) & {
+  note?: string;
+};
+
+export interface ConfirmInactiveResult {
+  confirmed: number;
+  /** Named or matched, but not waiting for a confirmation. */
+  skipped: number;
+  objects: ProtectedObject[];
 }

@@ -468,6 +468,69 @@ describe("planDirectory: an incremental run", () => {
       expect(same.orphanExternalIds).toEqual([]);
     });
 
+    it("keeps a locked OneDrive locked until its lock probe answers 200", () => {
+      const locked: KnownObject = {
+        ...known(alice, "onedrive", "drive-1", "orphaned"),
+        statusReason: "locked",
+      };
+      const base = {
+        mode: "incremental" as const,
+        users: [alice],
+        known: [known(alice, "mailbox", "user-1"), locked],
+        probes: probes([["user-1", { mailbox: true, driveId: "drive-1" }]]),
+      };
+      for (const lockState of [undefined, new Map([["drive-1", "locked" as const]])]) {
+        const kept = plan({ ...base, lockState });
+        expect(kept.objects).toEqual([]);
+        expect(kept.orphanExternalIds).toEqual([]);
+      }
+      // The drive probe failed as well: still locked, not "removed".
+      const unknown = plan({ ...base, probes: probes([["user-1", { mailbox: true }]]) });
+      expect(unknown.orphanExternalIds).toEqual([]);
+
+      const unlocked = plan({ ...base, lockState: new Map([["drive-1", "unlocked" as const]]) });
+      expect(unlocked.objects.map((o) => [o.externalId, o.status, o.change])).toEqual([
+        ["drive-1", "active", "updated"],
+      ]);
+      // Gone for good (no drive any more): orphaned without the reason.
+      const gone = plan({
+        ...base,
+        probes: probes([["user-1", { mailbox: true, driveId: null }]]),
+      });
+      expect(gone.orphanExternalIds).toEqual(["drive-1"]);
+      expect(gone.orphanReasons).toEqual({});
+    });
+
+    it("turns a locked OneDrive of an unchanged user active once its lock probe reads it", () => {
+      const locked: KnownObject = {
+        ...known(alice, "onedrive", "drive-1", "orphaned"),
+        statusReason: "locked",
+      };
+      const still = plan({ mode: "incremental", known: [locked] });
+      expect(still.objects).toEqual([]);
+      const back = plan({
+        mode: "incremental",
+        known: [locked],
+        lockState: new Map([["drive-1", "unlocked" as const]]),
+      });
+      expect(back.objects.map((o) => [o.externalId, o.status, o.change])).toEqual([
+        ["drive-1", "active", "rescoped"],
+      ]);
+    });
+
+    it("marks the known drive locked when the drive probe answers the lock", () => {
+      const result = plan({
+        mode: "incremental",
+        users: [alice],
+        known: [known(alice, "mailbox", "user-1"), known(alice, "onedrive", "drive-1")],
+        probes: probes([["user-1", { mailbox: true, driveLocked: true }]]),
+      });
+      expect(result.objects).toEqual([]);
+      expect(result.orphanExternalIds).toEqual(["drive-1"]);
+      expect(result.orphanReasons).toEqual({ "drive-1": "locked" });
+      expect(result.counts.orphaned).toBe(1);
+    });
+
     it("keeps an inactive mailbox inactive while the probe cannot answer", () => {
       const result = plan({
         mode: "incremental",

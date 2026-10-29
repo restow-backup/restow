@@ -377,7 +377,13 @@ describe.skipIf(!testDatabaseAdminUrl)("VMs and containers in the overviews", ()
   it("counts a failed guest backup on the warnings page, apart from the mailboxes and machines", async () => {
     const { listWarnings } = await import("../warnings/service.js");
     const list = await listWarnings(appDb, f.contoso);
-    expect(list.counts).toEqual({ open: 0, acknowledged: 0, failed: 0, failedGuests: 1 });
+    expect(list.counts).toEqual({
+      open: 0,
+      acknowledged: 0,
+      failed: 0,
+      failedGuests: 1,
+      toConfirm: 0,
+    });
     expect((await listWarnings(appDb, f.fabrikam)).counts.failedGuests).toBe(0);
   });
 

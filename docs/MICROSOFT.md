@@ -154,6 +154,42 @@ Die Oberfläche zeigt neutral „Nicht gesichert: Konto deaktiviert“ bzw. „.
   fehlgeschlagen noch als gebremst (getrennt von `SERVICE_LIMIT_CAUSES`), beenden keine
   Bestätigung einer Warnung und lösen weder `backup.failed` noch den Webhook `job.failed` aus.
 
+### Nicht mehr gesichert: Bestätigung
+
+Ab 0.4.7. Hört Restow auf, ein Objekt zu sichern, weil die Quelle es als entfernt, deaktiviert,
+ohne Lizenz oder gesperrt meldet (`orphaned`, mit oder ohne `status_reason`), steht es zuerst
+gelb „Nicht mehr gesichert, bitte bestätigen“, mit Grund und Datum (`inactive_since`). Das gilt
+für Postfächer, OneDrives, SharePoint-Websites und Gruppenpostfächer; IMAP-Konten werden nie
+`orphaned` (keine Synchronisierung, Pflege von Hand).
+
+- Unbestätigt: kein Fehlschlag, kein Rot, nicht überfällig (wie oben), aber „braucht
+  Aufmerksamkeit“: die Bereitschaft des Mandanten ist höchstens gelb (`toConfirm` in der
+  Zusammenfassung, core `directory/inactive.ts`, API `verify/summary.ts`), Warnungen, Dashboard,
+  Anbieter-Alarm `inactive_to_confirm` und `GET /api/v1/status` zählen es. Die eigene Bewertung des
+  Objekts ändert sich nicht: ein roter Prüfbericht bleibt rot.
+- Einmalige Meldung je Objekt und Übergang über die Benachrichtigungsmatrix: `object.inactive`
+  (Hinweis, Stufe `info`). Werden bei einem Mandanten an einem Tag mehr als 10 Objekte oder mehr
+  als 20 % der zuvor gesicherten Objekte (ab zwei Objekten) inaktiv, kommt stattdessen eine
+  Warnung `object.inactive_many`, höchstens eine je Tag (apps/worker `inactive-notices.ts`, nach
+  jedem Verzeichnisabgleich und in derselben Transaktion, in der ein Backup ein Objekt inaktiv
+  markiert). `inactive_notified_at` macht die Meldung idempotent.
+- „Ja, beabsichtigt“: Mandanten-Admins und Anbieter mit Konfigurationsrecht bestätigen einzeln
+  (`POST /api/v1/directory/objects/:id/inactive/confirm`) oder in der Liste für mehrere
+  (`POST /api/v1/directory/objects/inactive/confirm`, `objectIds` oder `filter`, mandantenweit,
+  höchstens 1000), auditiert (`directory.inactive.confirmed`, `directory.inactive.bulk_confirmed`).
+  Danach grau „Absichtlich nicht mehr gesichert, bestätigt von <wer> am <Datum>“
+  (`status_confirmed_at`, `status_confirmed_by`).
+- Wird das Objekt wieder aktiv (Konto aktiviert, Lizenz zugewiesen, Sperre aufgehoben, wieder in
+  der Quelle), löscht der Trigger der Migration 0069 Grund, Datum, Meldung und Bestätigung, und
+  die Sicherung startet direkt nach dem Abgleich. Wird es später erneut inaktiv, wird wieder
+  gefragt.
+- Upgrade: Objekte, die vor 0.4.7 schon `orphaned` waren, gelten als bestätigt
+  (`status_confirmed_by = 'migration'`, Backfill in 0069) und lösen keine Meldung aus.
+- Ausgeschlossene Objekte: Wird ein `excluded` Objekt (Ausschluss durch Administrator oder Regel)
+  `orphaned`, etwa weil das Konto oder die Website gelöscht wurde, hat Restow nie etwas davon
+  gesichert und nichts beendet. Der Trigger setzt es daher gleich auf bestätigt und gemeldet
+  (`status_confirmed_by = 'excluded'`): keine Meldung, kein gelber Zustand, nicht in `toConfirm`.
+
 ## Exchange: Wiederherstellen
 
 - Nachricht aus MIME anlegen: `POST /users/{id}/mailFolders/{fid}/messages` mit
@@ -189,6 +225,26 @@ Die Oberfläche zeigt neutral „Nicht gesichert: Konto deaktiviert“ bzw. „.
   Mandanten mit über 10.000 Personen nie alle auf einmal laden.
 - Freigaben/Berechtigungen werden als Information gesichert, nicht wiederhergestellt
   (v1).
+- Gesperrtes OneDrive (ab 0.4.7): Microsoft sperrt das OneDrive eines Kontos ohne Lizenz nach
+  einiger Zeit. Jeder Zugriff antwortet dann HTTP 423 mit `notAllowed`/`resourceLocked` („Access
+  to this site has been blocked. Please contact the administrator to resolve this problem.“),
+  auch `GET /drives/{id}/root/delta`; das Laufwerk bleibt aber gelistet. Ein 423 mit diesem Code
+  auf Laufwerks- oder Website-Ebene ist `graph.object_locked` (core `failures/graph.ts`), kein
+  `graph.request_rejected`; ein 423 auf einer einzelnen Datei (ausgecheckt, in Benutzung) bleibt ein
+  Elementproblem. Beim Backup bestätigt eine billige Leseanfrage die Sperre
+  (`GET /drives/{id}/root?$select=id`, `confirmObjectLocked`, core `directory/locks.ts`); dann wird
+  das Objekt `orphaned` mit Grund `locked` (gelb bis bestätigt, siehe oben), der Lauf endet
+  neutral und endgültig, und der Planer plant keine Läufe mehr dafür (nur `active` wird geplant).
+  Bestätigt die Leseanfrage die Sperre nicht (200, 429/5xx/403, Fehler, abgebrochener Lauf), bleibt
+  das Objekt aktiv und der Lauf ein gezählter Fehler (`graph.request_rejected`, mit
+  `backup.failed`); neutral ist nur eine bestätigte Sperre, sonst endeten die Läufe jede Nacht
+  still ohne Fehler und ohne gelben Zustand.
+  Der Verzeichnisabgleich schaltet ein gesperrtes Laufwerk nicht blind wieder aktiv: Er fragt für
+  jedes bekannte gesperrte OneDrive dieselbe Leseanfrage (gebündelt per `$batch`) und aktiviert
+  es nur bei 200; jede andere Antwort lässt es gesperrt und meldet `lock_probe_failed`. Antwortet
+  schon die Laufwerks-Probe `/users/{id}/drive` mit der Sperre, wird das bekannte Laufwerk sofort
+  neutral. Hat das Postfach des Besitzers den Grund „keine Lizenz“, zeigt die Oberfläche den
+  Hinweis „Das Konto hat keine Lizenz“.
 - Papierkorb: Elemente im OneDrive-Papierkorb sind über delta nicht erreichbar; ist ok,
   Restow hat sie im letzten Snapshot.
 
@@ -242,6 +298,13 @@ Rest dedupliziert der Pack-Speicher. Versteckte Listen (Systemlisten) und Biblio
 werden übergangen. Eine Bibliothek oder Liste, die Graph verweigert (403/404/423), wird als
 fehlgeschlagenes Element gemeldet und behält ihre letzte Kopie (Liste: als `stale` markiert); der
 Rest der Website wird gesichert. Eine gelöschte Website schlägt mit `graph.site_unavailable` fehl.
+Eine gesperrte Website (ab 0.4.7; ein Administrator hat sie gesperrt, oder sie gehört zu einem
+Konto ohne Lizenz) antwortet auf Website-Ebene (`/sites/{id}`, `/sites/{id}/drives`) oder in jeder
+Bibliothek mit 423 `notAllowed`/`resourceLocked`: Antworten alle Bibliotheken so, endet der Lauf
+ohne Sicherungsstand mit `graph.object_locked` statt alte Kopien zu übernehmen. Danach gilt wie
+beim OneDrive (siehe dort): Bestätigung per `GET /sites/{id}/drive/root?$select=id`, Grund
+`locked`, gelb bis bestätigt, und der Abgleich aktiviert eine weiter gelistete Website erst wieder,
+wenn diese Anfrage 200 antwortet; eine nicht mehr gelistete wird ohne Grund verwaist.
 Throttling wie bei OneDrive: derselbe Graph-Client (Retry-After plus Jitter, 429/503/504 mit
 Backoff), dieselbe Backup-Queue und damit dieselbe Parallelität je Tenant.
 
@@ -794,3 +857,12 @@ zeigt den übersetzten Grund, nie die rohe Serverantwort.
 - Zeitzonen: Graph liefert UTC; Anzeige in Nutzerzeitzone (MailboxSettings).
 - Große Tenants: `users` mit `$filter=accountEnabled eq true` reicht nicht (geteilte
   Postfächer sind disabled). Schutzregeln, nicht Filter.
+- `$batch` mit doppelten Request-IDs: Graph lehnt den ganzen Batch mit 400 ab („Request Id ... has
+  to be unique in a batch“). Bis 0.3.1 nutzte der Ordnerbaum der Postfächer Ordner-IDs als
+  Request-IDs, und Graph listet beim Blättern denselben Ordner manchmal zweimal (behoben in
+  0f67c28, 0.3.2; ein Fehler mit diesem Text vom 10.10.2026 stammt von einem älteren Build). Seitdem
+  vergibt `FetchGraphClient.batch` eigene IDs (die Position) und gibt dem Aufrufer seine zurück;
+  ab 0.4.7 schickt er außerdem eine identische Leseanfrage (Methode, URL, Header, ohne Body) nur
+  einmal und gibt die Antwort jedem Aufrufer, auch in den Wiederholungen nach 429 und nach einem
+  neuen Token (401/403). Schreibende Anfragen (POST/PATCH der Abonnements) werden nie
+  zusammengelegt.

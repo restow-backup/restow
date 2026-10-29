@@ -111,6 +111,8 @@ export interface ReadinessWidget {
   guestsWithoutJob: number;
   /** File shares in no backup job that keep a restore point; they keep `overall` from green too. */
   sharesWithoutJob: number;
+  /** Objects no longer backed up that wait for an admin's confirmation; they keep `overall` from green too. */
+  toConfirm: number;
   running: number;
   lastCheckedAt: string | null;
 }
@@ -182,7 +184,7 @@ export interface RecentJobDto {
   /** A failed backup a service held back: shown held back, not failed (jobs DTO `serviceLimited`). */
   serviceLimited: boolean;
   /** A failed backup that did not back up: the account is disabled or unlicensed (jobs DTO `notBackedUp`). */
-  notBackedUp: "account_disabled" | "no_license" | null;
+  notBackedUp: "account_disabled" | "no_license" | "locked" | null;
   /** The causes behind a finished job's failed items, most frequent first (at most three). */
   itemCauses: { code: string; count: number }[];
 }
@@ -476,6 +478,11 @@ export interface LoadedTenantRowDto extends ProviderTenantRowBase {
   immutableRepositories: number;
   /** Of those, the ones with a warning (an object without lock, a renewal behind). */
   immutabilityWarnings: number;
+  /**
+   * Objects no longer backed up (removed, disabled, unlicensed, locked) that the tenant did not
+   * confirm as intended yet: apart from the rated states, they keep `readiness` from green.
+   */
+  toConfirm: number;
 }
 
 /**
@@ -508,6 +515,7 @@ export interface UnavailableTenantRowDto extends ProviderTenantRowBase {
   storageError: null;
   immutableRepositories: null;
   immutabilityWarnings: null;
+  toConfirm: null;
 }
 
 export type ProviderTenantRowDto = LoadedTenantRowDto | UnavailableTenantRowDto;
@@ -528,6 +536,7 @@ export const PROVIDER_ALERT_KINDS = [
   "file_share_backup_failed",
   "file_shares_without_job",
   "needs_attention",
+  "inactive_to_confirm",
   "nothing_protected",
   "immutability_warning",
 ] as const;

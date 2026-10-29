@@ -28,7 +28,10 @@
     "not_selected": "Not selected",
     "needs_credential": "Needs attention",
     "no_job": "No backup job",
-    "unscheduled": "Job without schedule"
+    "unscheduled": "Job without schedule",
+    "inactive_locked": "Not backed up: locked",
+    "to_confirm": "Not backed up any more, please confirm",
+    "confirmed": "Intentionally no longer backed up"
   },
   "statusHint": {
     "active": "In scope and in a backup job that backs it up on a schedule.",
@@ -39,7 +42,10 @@
     "not_selected": "The scope is \"Only selected objects\" and nobody chose this object: no new backups run. Existing backups, if any, stay until retention removes them.",
     "needs_credential": "In scope, but this account has no password of its own set and working yet: no backup can run until one is set under Login and tested.",
     "no_job": "Can be backed up, but is in no backup job: it is backed up on a schedule only once a job covers it.",
-    "unscheduled": "In a backup job that is paused or runs by hand only: it is not backed up automatically."
+    "unscheduled": "In a backup job that is paused or runs by hand only: it is not backed up automatically.",
+    "inactive_locked": "Microsoft locked this OneDrive or site (HTTP 423), usually because the account no longer has a licence. Existing backups are kept. Once the lock is lifted, backups resume automatically after the next directory sync.",
+    "to_confirm": "{appName} no longer backs up this object because the source reports it as removed, disabled, unlicensed or locked. This is not a failure. Confirm with \"Yes, intended\" that this is wanted; until then readiness stays yellow. Existing backups are kept.",
+    "confirmed": "An administrator confirmed that this object is intentionally no longer backed up. Existing backups are kept. When it becomes active at the source again, {appName} backs it up again by itself and the confirmation is dropped."
   },
   "override": {
     "include": "Always included",
@@ -73,11 +79,13 @@
     "limitedWhen": "A service held the last backup run back {when}. This is not an error; the next scheduled run tries again.",
     "notBackedUp": {
       "account_disabled": "Not backed up: account disabled",
-      "no_license": "Not backed up: no licence"
+      "no_license": "Not backed up: no licence",
+      "locked": "Not backed up: locked"
     },
     "notBackedUpHint": {
       "account_disabled": "The account is disabled, so Microsoft hosts no mailbox to back up. This is not an error. Existing backups are kept, and backups resume automatically when the account is enabled again.",
-      "no_license": "The account has no Exchange Online licence, so Microsoft hosts no mailbox to back up. This is not an error. Existing backups are kept, and backups resume automatically when a licence is assigned again."
+      "no_license": "The account has no Exchange Online licence, so Microsoft hosts no mailbox to back up. This is not an error. Existing backups are kept, and backups resume automatically when a licence is assigned again.",
+      "locked": "Microsoft answers every request for this OneDrive or site with HTTP 423 (locked). This is not an error. Existing backups are kept, and backups resume once the lock is lifted."
     },
     "openJob": "Open run",
     "snapshots": "{count, plural, one {# snapshot} other {# snapshots}}",
@@ -279,7 +287,8 @@
       "sites_permission": "SharePoint sites are not found or backed up: the tenant has not granted the backup app Sites.Read.All or Sites.ReadWrite.All ({status}). Mail and OneDrive are not affected. Run the admin consent for this tenant again once the app registration lists the permission.",
       "sites_unavailable": "SharePoint sites could not be listed ({status}); the sites known so far stay as they are.",
       "groups_permission": "Microsoft 365 groups are not read: the tenant has not granted the backup app Group.Read.All ({status}). Group calendars and conversations are neither found nor backed up; mail, OneDrive and SharePoint are not affected. Run the admin consent for this tenant again.",
-      "groups_unavailable": "Microsoft 365 groups could not be read ({status}); the groups known so far stay as they are."
+      "groups_unavailable": "Microsoft 365 groups could not be read ({status}); the groups known so far stay as they are.",
+      "lock_probe_failed": "Whether {user} is still locked could not be checked ({status}); it stays marked as locked."
     },
     "result": {
       "queued": "Directory sync queued.",
@@ -460,5 +469,36 @@
     "added": "{count, plural, one {{name} is now in the job {job}} other {# objects are now in the job {job}}}",
     "addedNote": "The job's schedule applies from now on.",
     "folders": "{path}"
+  },
+  "inactive": {
+    "reason": {
+      "removed": "No longer in the source",
+      "account_disabled": "Account disabled",
+      "no_license": "Account without licence",
+      "locked": "Locked by Microsoft"
+    },
+    "reasonSince": "{reason}, since {date}",
+    "lockHint": {
+      "no_license": "The account has no licence",
+      "account_disabled": "The account is disabled"
+    },
+    "confirmedBy": "Confirmed by {who} on {date}",
+    "confirmedByMigration": "Already not backed up before the update",
+    "confirmedByExclusion": "Was excluded and never backed up",
+    "confirmAction": "Yes, intended",
+    "confirm": {
+      "title": "Intentionally stop backing up {name}?",
+      "description": "The object stays not backed up and is shown grey instead of yellow. Existing backups are kept. When it becomes active at the source again, {appName} backs it up again by itself."
+    },
+    "bulkConfirm": {
+      "title": "{count, plural, one {Intentionally stop backing up # object?} other {Intentionally stop backing up # objects?}}",
+      "description": "Only objects that are no longer backed up and still wait for a confirmation are confirmed. Existing backups are kept."
+    },
+    "done": {
+      "one": "{name}: confirmed as intended",
+      "bulk": "{count, plural, =0 {No object was waiting for a confirmation} one {# object confirmed as intended} other {# objects confirmed as intended}}"
+    },
+    "banner": "{count, plural, one {# object is no longer backed up and waits for your confirmation.} other {# objects are no longer backed up and wait for your confirmation.}}",
+    "showToConfirm": "Show"
   }
 }

@@ -4,6 +4,8 @@ import {
   type DirectoryLastRun,
   type GroupSummary,
   type ImapAccountInput,
+  type InactiveState,
+  inactiveState,
   isGraphError,
   isServiceLimitedFailure,
   normalizeAccounts,
@@ -35,7 +37,22 @@ import {
   users,
 } from "@restow/db";
 import { productName } from "@restow/i18n";
-import { and, asc, count, desc, eq, ilike, inArray, ne, not, or, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  not,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { config as processConfig } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { deleteSecret, readSecret, replaceSecret, storeSecret } from "../../lib/secrets.js";
@@ -74,7 +91,9 @@ import {
   rulesFromInput,
 } from "./logic.js";
 import {
+  type BulkConfirmInactiveInput,
   type BulkProtectionInput,
+  type ConfirmInactiveInput,
   MAX_BULK_OBJECTS,
   type ObjectCredentialInput,
   type ObjectsFilter,
@@ -101,6 +120,8 @@ export const DIRECTORY_AUDIT_ACTIONS = {
   accountDeleted: "directory.account.deleted",
   credentialSet: "directory.account.credential_set",
   credentialTested: "directory.account.credential_tested",
+  inactiveConfirmed: "directory.inactive.confirmed",
+  inactiveBulkConfirmed: "directory.inactive.bulk_confirmed",
 } as const;
 
 /** Who acts: a signed-in person, or an API key on behalf of an integration. */
@@ -126,6 +147,8 @@ export interface ObjectCounts {
   imap: number;
   site: number;
   group: number;
+  /** Orphaned objects nobody confirmed as intended yet (amber "please confirm"). */
+  toConfirm: number;
 }
 
 export interface PendingSyncDto {
@@ -185,7 +208,23 @@ export interface ProtectedObjectDto {
    * overdue, and it turns active again by itself. Null for every other object, and for an
    * object that was removed from the source.
    */
-  statusReason: "account_disabled" | "no_license" | null;
+  statusReason: "account_disabled" | "no_license" | "locked" | null;
+  /**
+   * An `orphaned` object's confirmation (@restow/core `inactiveState`): `to_confirm` reads amber
+   * "Not backed up any more, please confirm" and keeps the tenant from green, `confirmed` grey
+   * "Intentionally no longer backed up". Null for every other object.
+   */
+  inactiveState: InactiveState | null;
+  /** When the object last stopped being backed up (turned `orphaned`); null otherwise. */
+  inactiveSince: string | null;
+  /** Who confirmed it and when: an address, `api-key:<id>`, or `migration` (before 0.4.7). */
+  statusConfirmedAt: string | null;
+  statusConfirmedBy: string | null;
+  /**
+   * For a OneDrive Microsoft locked: why its owner's account is inactive (no licence, disabled),
+   * when the directory knows it from the owner's mailbox. The usual cause of the lock.
+   */
+  lockHint: "account_disabled" | "no_license" | null;
   externalId: string;
   displayName: string | null;
   userId: string | null;
@@ -221,7 +260,7 @@ export interface ProtectedObjectDto {
      * A failed run that did not back up because the account is disabled or unlicensed, with
      * that reason (@restow/core `notBackedUpReason`): neutral, never "backup failed".
      */
-    notBackedUp: "account_disabled" | "no_license" | null;
+    notBackedUp: "account_disabled" | "no_license" | "locked" | null;
   } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
   /** The backup job that covers it; null when none does. */
@@ -351,6 +390,7 @@ const EMPTY_COUNTS: ObjectCounts = {
   imap: 0,
   site: 0,
   group: 0,
+  toConfirm: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -431,6 +471,10 @@ async function objectCounts(tx: Transaction, tenantId: string): Promise<Map<stri
       kind: protectedObjects.kind,
       status: protectedObjects.status,
       n: count(),
+      unconfirmed:
+        sql<number>`count(*) filter (where ${protectedObjects.statusConfirmedAt} is null)`.mapWith(
+          Number,
+        ),
     })
     .from(protectedObjects)
     .where(eq(protectedObjects.tenantId, tenantId))
@@ -441,6 +485,9 @@ async function objectCounts(tx: Transaction, tenantId: string): Promise<Map<stri
     entry.total += row.n;
     entry[row.status] += row.n;
     entry[row.kind] += row.n;
+    if (row.status === "orphaned") {
+      entry.toConfirm += row.unconfirmed;
+    }
     counts.set(row.sourceId, entry);
   }
   return counts;
@@ -752,6 +799,15 @@ function objectFilters(tenantId: string, query: ObjectsFilter, jobIds?: readonly
   }
   if (query.status === "not_selected") {
     conditions.push(notSelectedSql());
+  } else if (query.status === "to_confirm" || query.status === "confirmed") {
+    conditions.push(
+      and(
+        eq(protectedObjects.status, "orphaned"),
+        query.status === "to_confirm"
+          ? isNull(protectedObjects.statusConfirmedAt)
+          : isNotNull(protectedObjects.statusConfirmedAt),
+      ) as SQL,
+    );
   } else if (query.status === "excluded") {
     // Apart from `not_selected`: that one has its own filter value.
     conditions.push(and(eq(protectedObjects.status, "excluded"), not(notSelectedSql())) as SQL);
@@ -943,6 +999,7 @@ async function toObjectDtos(
     rows.length > 0 ? await loadMailCoverage(tx, tenantId) : { objects: [], links: new Map() };
   const eligible = new Map(coverage.objects.map((object) => [object.id, object]));
   const warnings = await loadMailWarnings(tx, tenantId, { ids: rows.map((row) => row.object.id) });
+  const lockHints = await ownerInactiveReasons(tx, tenantId, rows);
   // One parse of each source's config per page, not per row.
   const configs = new Map<
     string,
@@ -987,6 +1044,18 @@ async function toObjectDtos(
       origin: row.object.origin,
       status: row.object.status,
       statusReason: row.object.status === "orphaned" ? (row.object.statusReason ?? null) : null,
+      inactiveState: inactiveState(row.object),
+      inactiveSince: row.object.status === "orphaned" ? iso(row.object.inactiveSince) : null,
+      statusConfirmedAt:
+        row.object.status === "orphaned" ? iso(row.object.statusConfirmedAt) : null,
+      statusConfirmedBy:
+        row.object.status === "orphaned" ? (row.object.statusConfirmedBy ?? null) : null,
+      lockHint:
+        row.object.status === "orphaned" &&
+        row.object.statusReason === "locked" &&
+        row.object.userId !== null
+          ? (lockHints.get(row.object.userId) ?? null)
+          : null,
       externalId: row.object.externalId,
       displayName: row.object.displayName,
       userId: row.object.userId,
@@ -1048,6 +1117,54 @@ async function toObjectDtos(
       updatedAt: row.object.updatedAt.toISOString(),
     };
   });
+}
+
+/**
+ * Why the owners of locked OneDrives are inactive, by user id: the reason of their mailbox when
+ * that is orphaned as disabled or unlicensed (the directory stores no licences, the mailbox
+ * probe knows). Microsoft locks the OneDrive of an unlicensed account, so that is the hint.
+ */
+async function ownerInactiveReasons(
+  tx: Transaction,
+  tenantId: string,
+  rows: readonly ObjectRow[],
+): Promise<Map<string, "account_disabled" | "no_license">> {
+  const owners = [
+    ...new Set(
+      rows.flatMap((row) =>
+        row.object.status === "orphaned" &&
+        row.object.statusReason === "locked" &&
+        row.object.userId !== null
+          ? [row.object.userId]
+          : [],
+      ),
+    ),
+  ];
+  const hints = new Map<string, "account_disabled" | "no_license">();
+  if (owners.length === 0) {
+    return hints;
+  }
+  const mailboxes = await tx
+    .select({ userId: protectedObjects.userId, reason: protectedObjects.statusReason })
+    .from(protectedObjects)
+    .where(
+      and(
+        eq(protectedObjects.tenantId, tenantId),
+        eq(protectedObjects.kind, "mailbox"),
+        eq(protectedObjects.status, "orphaned"),
+        inArray(protectedObjects.userId, owners),
+        inArray(protectedObjects.statusReason, ["account_disabled", "no_license"]),
+      ),
+    );
+  for (const mailbox of mailboxes) {
+    if (
+      mailbox.userId &&
+      (mailbox.reason === "account_disabled" || mailbox.reason === "no_license")
+    ) {
+      hints.set(mailbox.userId, mailbox.reason);
+    }
+  }
+  return hints;
 }
 
 /** The warning of an object as its row carries it; null without one. */
@@ -1363,6 +1480,151 @@ export async function bulkSetProtection(
     updated: result.updated,
     sync,
   };
+}
+
+export interface ConfirmInactiveResult {
+  /** Objects confirmed by this request. */
+  confirmed: number;
+  /** Named or matched, but not waiting for a confirmation (confirmed before, active again). */
+  skipped: number;
+  objects: ProtectedObjectDto[];
+}
+
+/**
+ * Confirm "Yes, intended" for objects Restow stopped backing up (status `orphaned`, with or
+ * without a reason): they turn from amber "please confirm" to grey "intentionally no longer
+ * backed up, confirmed by <who> on <date>" and stop keeping the tenant from green. Only
+ * unconfirmed orphans change; one audit entry names them. The confirmation lasts until the
+ * object becomes active again, which drops it (migration 0069 trigger).
+ */
+async function confirmInactiveIds(
+  tx: Transaction,
+  tenantId: string,
+  ids: readonly string[],
+  actor: Actor,
+): Promise<string[]> {
+  if (ids.length === 0) {
+    return [];
+  }
+  const rows = await tx
+    .update(protectedObjects)
+    .set({ statusConfirmedAt: sql`now()`, statusConfirmedBy: actor.label, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(protectedObjects.tenantId, tenantId),
+        inArray(protectedObjects.id, [...ids]),
+        eq(protectedObjects.status, "orphaned"),
+        isNull(protectedObjects.statusConfirmedAt),
+      ),
+    )
+    .returning({ id: protectedObjects.id });
+  return rows.map((row) => row.id);
+}
+
+/** Confirm one object that is no longer backed up (POST /objects/:id/inactive/confirm). */
+export async function confirmInactiveObject(
+  db: Database,
+  tenantId: string,
+  objectId: string,
+  input: ConfirmInactiveInput,
+  actor: Actor,
+): Promise<ConfirmInactiveResult> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const row = await loadObjectRow(tx, tenantId, objectId);
+    if (row.object.status !== "orphaned") {
+      throw new ProblemError(409, "The object is backed up", {
+        type: "urn:restow:problem:object-not-inactive",
+        detail: "Only an object that is no longer backed up can be confirmed as intended.",
+        extensions: { status: row.object.status },
+      });
+    }
+    const confirmed = await confirmInactiveIds(tx, tenantId, [objectId], actor);
+    if (confirmed.length > 0) {
+      await audit(tx, {
+        tenantId,
+        actorUserId: actor.userId,
+        actor: actor.label,
+        action: DIRECTORY_AUDIT_ACTIONS.inactiveConfirmed,
+        target: objectId,
+        targetType: row.object.kind,
+        onBehalfOf: row.email,
+        ip: actor.ip,
+        details: {
+          externalId: row.object.externalId,
+          reason: row.object.statusReason ?? "removed",
+          inactiveSince: iso(row.object.inactiveSince),
+          note: input.note ?? null,
+        },
+      });
+    }
+    return {
+      confirmed: confirmed.length,
+      skipped: 1 - confirmed.length,
+      objects: await reloadObjects(tx, tenantId, [objectId]),
+    };
+  });
+}
+
+/**
+ * Confirm several objects at once (POST /objects/inactive/confirm): checked rows of the list, or
+ * every unconfirmed inactive object its filter matches, tenant-wide (`filter.sourceId` narrows).
+ */
+export async function bulkConfirmInactive(
+  db: Database,
+  tenantId: string,
+  input: BulkConfirmInactiveInput,
+  actor: Actor,
+): Promise<ConfirmInactiveResult> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    let ids: string[];
+    if (input.objectIds) {
+      ids = [...new Set(input.objectIds)];
+    } else {
+      // Whatever the list shows, only the objects that wait for a confirmation are confirmed.
+      const filter = { ...(input.filter ?? {}), status: "to_confirm" as const };
+      const where = objectFilters(tenantId, filter, await jobFilterIds(tx, tenantId, filter.job));
+      const rows = await tx
+        .select({ id: protectedObjects.id })
+        .from(protectedObjects)
+        .innerJoin(sources, eq(protectedObjects.sourceId, sources.id))
+        .leftJoin(users, eq(protectedObjects.userId, users.id))
+        .where(where)
+        .limit(MAX_BULK_OBJECTS + 1);
+      if (rows.length > MAX_BULK_OBJECTS) {
+        throw new ProblemError(409, "Too many objects match", {
+          type: "urn:restow:problem:bulk-selection-too-large",
+          detail: `The filter matches more than ${MAX_BULK_OBJECTS} objects; narrow it, or confirm them in smaller batches.`,
+          extensions: { max: MAX_BULK_OBJECTS },
+        });
+      }
+      ids = rows.map((row) => row.id);
+    }
+    const confirmed = await confirmInactiveIds(tx, tenantId, ids, actor);
+    if (confirmed.length > 0) {
+      await audit(tx, {
+        tenantId,
+        actorUserId: actor.userId,
+        actor: actor.label,
+        action: DIRECTORY_AUDIT_ACTIONS.inactiveBulkConfirmed,
+        target: tenantId,
+        targetType: "tenant",
+        ip: actor.ip,
+        details: {
+          selection: input.objectIds ? "ids" : "filter",
+          matched: ids.length,
+          confirmed: confirmed.length,
+          objectIds: confirmed.slice(0, MAX_AUDITED_BULK_IDS),
+          truncated: confirmed.length > MAX_AUDITED_BULK_IDS,
+          note: input.note ?? null,
+        },
+      });
+    }
+    return {
+      confirmed: confirmed.length,
+      skipped: ids.length - confirmed.length,
+      objects: await reloadObjects(tx, tenantId, confirmed),
+    };
+  });
 }
 
 /**

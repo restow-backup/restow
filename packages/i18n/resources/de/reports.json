@@ -423,6 +423,10 @@
     },
     "source": {
       "app_secret_expiring": "Zugangsdaten der eigenen App einer Quelle laufen ab"
+    },
+    "object": {
+      "inactive": "Objekt nicht mehr gesichert, bitte bestätigen",
+      "inactive_many": "Viele Objekte nicht mehr gesichert"
     }
   },
   "eventHints": {
@@ -476,6 +480,10 @@
     },
     "source": {
       "app_secret_expiring": "Warnt, bevor der geheime Clientschlüssel oder das Zertifikat der eigenen App einer Microsoft-365-Quelle abläuft: 30 Tage vorher, erneut 7 Tage vorher und nach dem Ablauf. Nur für Quellen, deren Ablauf bekannt ist (das für den Schlüssel eingetragene Datum oder das Ende des Zertifikats). Nach dem Ablauf schlagen Sicherungen der Quelle fehl, bis ein neuer Schlüssel oder ein neues Zertifikat eingetragen ist."
+    },
+    "object": {
+      "inactive": "Einmal je Objekt, wenn {appName} es nicht mehr sichert, weil die Quelle es nicht mehr kennt, das Konto deaktiviert oder ohne Lizenz ist oder Microsoft das OneDrive oder die Website gesperrt hat. Kein Fehler: Bestätigen Sie unter Schutz, dass das beabsichtigt ist.",
+      "inactive_many": "Eine Warnung statt vieler Hinweise, wenn bei einem Mandanten an einem Tag mehr als 10 Objekte oder mehr als 20 % der gesicherten Objekte nicht mehr gesichert werden, zum Beispiel weil Lizenzen entfernt wurden oder der Abgleich falsch eingegrenzt ist."
     }
   },
   "sections": {
@@ -551,7 +559,17 @@
     "daysLeft": "Verbleibende Tage",
     "secretExpired": "Abgelaufen: Microsoft stellt für diese App keine Token mehr aus. Jede Sicherung, die sie nutzt, schlägt fehl, bis ein neuer Schlüssel oder ein neues Zertifikat eingetragen ist.",
     "secretRenewSource": "Legen Sie im Microsoft Entra Admin Center einen neuen geheimen Clientschlüssel (oder ein Zertifikat) für die App an, tragen Sie ihn unter Quellen bei dieser Quelle mit seinem neuen Ablaufdatum ein und löschen Sie erst dann den alten in Entra.",
-    "secretRenewCentral": "Legen Sie im Microsoft Entra Admin Center einen neuen geheimen Clientschlüssel (oder ein Zertifikat) für die App an, tragen Sie ihn unter Installation › Microsoft-Multi-Tenant-App mit seinem neuen Ablaufdatum ein und löschen Sie erst dann den alten in Entra."
+    "secretRenewCentral": "Legen Sie im Microsoft Entra Admin Center einen neuen geheimen Clientschlüssel (oder ein Zertifikat) für die App an, tragen Sie ihn unter Installation › Microsoft-Multi-Tenant-App mit seinem neuen Ablaufdatum ein und löschen Sie erst dann den alten in Entra.",
+    "inactiveReason": "Grund",
+    "inactiveReasons": {
+      "account_disabled": "Das Konto ist deaktiviert",
+      "no_license": "Das Konto hat keine Lizenz",
+      "locked": "Microsoft hat das OneDrive oder die Website gesperrt",
+      "removed": "Nicht mehr in der Quelle"
+    },
+    "inactiveSince": "Nicht mehr gesichert seit",
+    "inactiveCount": "Objekte",
+    "inactiveConfirm": "Prüfen Sie unter Schutz, ob das beabsichtigt ist, und bestätigen Sie es mit \"Ja, beabsichtigt\". Vorhandene Sicherungen bleiben erhalten. Wird das Objekt an der Quelle wieder aktiv, sichert {appName} es von selbst wieder."
   },
   "summary": {
     "previous": "Vorzeitraum",
@@ -652,6 +670,10 @@
       "app_secret_expiring_soon30": "Zugangsdaten der eigenen App von {object} laufen {days, plural, =0 {heute} one {in # Tag} other {in # Tagen}} ab ({date})",
       "app_secret_expiring_soon7": "Zugangsdaten der eigenen App von {object} laufen {days, plural, =0 {heute} one {in # Tag} other {in # Tagen}} ab ({date}). Bitte jetzt erneuern",
       "app_secret_expiring_expired": "Zugangsdaten der eigenen App von {object} sind abgelaufen ({date}). Sicherungen der Quelle schlagen fehl"
+    },
+    "object": {
+      "inactive": "{object} wird nicht mehr gesichert, bitte bestätigen",
+      "inactive_many": "{count} Objekte werden seit heute nicht mehr gesichert, bitte prüfen und bestätigen"
     }
   },
   "toasts": {

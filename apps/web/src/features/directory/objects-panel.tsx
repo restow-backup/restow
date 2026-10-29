@@ -73,7 +73,12 @@ import {
   togglePage as togglePageSelection,
   toggleRow as toggleRowSelection,
 } from "./bulk-selection";
-import { useBulkSetProtection, useDebouncedValue, useProtectedObjects } from "./hooks";
+import {
+  useBulkSetProtection,
+  useConfirmInactive,
+  useDebouncedValue,
+  useProtectedObjects,
+} from "./hooks";
 import { useObjectActions } from "./object-actions";
 import { BackupCause, CredentialCause } from "./object-causes";
 import {
@@ -82,6 +87,7 @@ import {
   credentialFailure,
   credentialView,
   hasCredentialProblem,
+  inactiveDetail,
   objectStatusView,
   objectSubtitle,
   objectTitle,
@@ -122,13 +128,18 @@ interface ObjectsPanelProps {
 }
 
 /** Combined active/total over every source the panel knows about, for the header count. */
-function protectedTotals(sources: readonly DirectorySource[]): { active: number; total: number } {
+function protectedTotals(sources: readonly DirectorySource[]): {
+  active: number;
+  total: number;
+  toConfirm: number;
+} {
   return sources.reduce(
     (acc, source) => ({
       active: acc.active + source.counts.active,
       total: acc.total + source.counts.total,
+      toConfirm: acc.toConfirm + (source.counts.toConfirm ?? 0),
     }),
-    { active: 0, total: 0 },
+    { active: 0, total: 0, toConfirm: 0 },
   );
 }
 
@@ -143,9 +154,11 @@ export function ObjectsPanel({
   const objects = useProtectedObjects(query);
   const language = i18n.resolvedLanguage ?? i18n.language;
 
-  // Bulk selection applies to one source; a filter or an only source picks it.
+  // Bulk protection applies to one source; a filter or an only source picks it. Confirming
+  // objects no longer backed up works tenant-wide, so the "to confirm" filter selects as well.
   const activeSourceId = search.source ?? (sources.length === 1 ? sources[0]?.id : undefined);
   const activeSource = sources.find((source) => source.id === activeSourceId);
+  const selectable = activeSourceId !== undefined || search.status === "to_confirm";
   const [selection, setSelection] = React.useState<BulkSelectionState>(EMPTY_SELECTION);
   const jobs = useJobsAccess();
   const [adding, setAdding] = React.useState<{ id: string; name: string }[] | null>(null);
@@ -163,13 +176,13 @@ export function ObjectsPanel({
   const columns = React.useMemo(
     () =>
       objectColumns(t, language, {
-        selectable: activeSourceId !== undefined,
+        selectable,
         selection,
         pageIds,
         onToggleRow: (id) => setSelection((current) => toggleRowSelection(current, id)),
         onTogglePage: () => setSelection((current) => togglePageSelection(current, pageIds)),
       }),
-    [t, language, activeSourceId, selection, pageIds],
+    [t, language, selectable, selection, pageIds],
   );
   const table = useReactTable({
     data: objects.data?.items ?? [],
@@ -216,9 +229,39 @@ export function ObjectsPanel({
           </p>
         ) : null}
 
+        {protectedTotal.toConfirm > 0 && search.status !== "to_confirm" ? (
+          <div
+            className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+            data-testid="inactive-to-confirm"
+          >
+            <span className="flex items-start gap-2">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              {t("inactive.banner", { count: protectedTotal.toConfirm })}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                // The count is tenant-wide: drop the other filters, or the list shows only part.
+                onSearchChange({
+                  status: "to_confirm",
+                  q: undefined,
+                  kind: undefined,
+                  source: undefined,
+                  job: undefined,
+                  shared: undefined,
+                  page: 1,
+                })
+              }
+            >
+              {t("inactive.showToConfirm")}
+            </Button>
+          </div>
+        ) : null}
+
         <ObjectFilters search={search} onSearchChange={onSearchChange} sources={sources} />
 
-        {activeSourceId !== undefined ? (
+        {selectable ? (
           <BulkActionBar
             jobs={jobs}
             sourceId={activeSourceId}
@@ -359,7 +402,8 @@ function BulkActionBar({
   filter,
 }: {
   jobs: JobsAccess;
-  sourceId: string;
+  /** The one source protection decisions apply to; absent while only confirming tenant-wide. */
+  sourceId: string | undefined;
   /** Reset only makes sense for an M365 source (IMAP accounts have no rules to fall back to). */
   sourceKind: DirectorySource["kind"] | undefined;
   selection: BulkSelectionState;
@@ -370,8 +414,11 @@ function BulkActionBar({
 }) {
   const { t } = useTranslation("directory");
   const bulk = useBulkSetProtection();
+  const confirmInactive = useConfirmInactive();
   const addToJob = React.useContext(AddToJobContext);
   const canReset = sourceKind === "m365";
+  // "Yes, intended" only where objects wait for it: the "to confirm" filter, or orphans listed.
+  const canConfirm = filter.status === "to_confirm" || filter.status === "orphaned";
 
   if (selectionIsEmpty(selection)) {
     return null;
@@ -381,7 +428,17 @@ function BulkActionBar({
   const offerAllMatching =
     selection.mode === "ids" && isPageFullySelected(selection, pageIds) && total > pageIds.length;
 
+  const applyConfirm = () =>
+    confirmInactive.mutateAsync({ input: bulkTarget(selection, filter) }).then((result) => {
+      toast.success(t("inactive.done.bulk", { count: result.confirmed }));
+      onSelectionChange(EMPTY_SELECTION);
+      return result;
+    });
+
   const applyBulk = (action: BulkAction) => {
+    if (sourceId === undefined) {
+      return Promise.resolve(null);
+    }
     const input: BulkProtectionInput = { action, ...bulkTarget(selection, filter) };
     return bulk.mutateAsync({ sourceId, input }).then((result) => {
       toast.success(t(`bulk.done.${action}`, { count: result.updated }));
@@ -433,45 +490,63 @@ function BulkActionBar({
             {t("rowActions.addSelectionToJob", { count: selection.ids.size })}
           </Button>
         ) : null}
-        <ConfirmDialog
-          trigger={
-            <Button variant="outline" size="sm">
-              <CircleCheck />
-              {t("bulk.include")}
-            </Button>
-          }
-          title={t("bulk.confirm.include.title", { count })}
-          description={t("bulk.confirm.include.description", { count })}
-          confirmLabel={t("bulk.confirm.include.confirm")}
-          onConfirm={() => applyBulk("include")}
-        />
-        <ConfirmDialog
-          trigger={
-            <Button variant="outline" size="sm">
-              <CircleMinus />
-              {t("bulk.exclude")}
-            </Button>
-          }
-          title={t("bulk.confirm.exclude.title", { count })}
-          description={t("bulk.confirm.exclude.description", { count })}
-          confirmLabel={t("bulk.confirm.exclude.confirm")}
-          destructive
-          onConfirm={() => applyBulk("exclude")}
-        />
-        {canReset ? (
+        {canConfirm ? (
           <ConfirmDialog
             trigger={
-              <Button variant="outline" size="sm">
-                <RotateCcw />
-                {t("bulk.reset")}
+              <Button variant="outline" size="sm" data-action="confirmInactive">
+                <ShieldOff />
+                {t("inactive.confirmAction")}
               </Button>
             }
-            title={t("bulk.confirm.reset.title", { count })}
-            description={t("bulk.confirm.reset.description", { count })}
-            confirmLabel={t("bulk.confirm.reset.confirm")}
-            onConfirm={() => applyBulk("reset")}
+            title={t("inactive.bulkConfirm.title", { count })}
+            description={t("inactive.bulkConfirm.description", { count })}
+            confirmLabel={t("inactive.confirmAction")}
+            onConfirm={() => applyConfirm()}
           />
         ) : null}
+        {sourceId === undefined ? null : (
+          <>
+            <ConfirmDialog
+              trigger={
+                <Button variant="outline" size="sm">
+                  <CircleCheck />
+                  {t("bulk.include")}
+                </Button>
+              }
+              title={t("bulk.confirm.include.title", { count })}
+              description={t("bulk.confirm.include.description", { count })}
+              confirmLabel={t("bulk.confirm.include.confirm")}
+              onConfirm={() => applyBulk("include")}
+            />
+            <ConfirmDialog
+              trigger={
+                <Button variant="outline" size="sm">
+                  <CircleMinus />
+                  {t("bulk.exclude")}
+                </Button>
+              }
+              title={t("bulk.confirm.exclude.title", { count })}
+              description={t("bulk.confirm.exclude.description", { count })}
+              confirmLabel={t("bulk.confirm.exclude.confirm")}
+              destructive
+              onConfirm={() => applyBulk("exclude")}
+            />
+            {canReset ? (
+              <ConfirmDialog
+                trigger={
+                  <Button variant="outline" size="sm">
+                    <RotateCcw />
+                    {t("bulk.reset")}
+                  </Button>
+                }
+                title={t("bulk.confirm.reset.title", { count })}
+                description={t("bulk.confirm.reset.description", { count })}
+                confirmLabel={t("bulk.confirm.reset.confirm")}
+                onConfirm={() => applyBulk("reset")}
+              />
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );
@@ -576,14 +651,17 @@ function objectColumns(
       cell: ({ row }) => {
         const view = objectStatusView(row.original);
         return (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge variant={view.variant} tabIndex={0}>
-                {t(`status.${view.suffix}`)}
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs">{t(`statusHint.${view.suffix}`)}</TooltipContent>
-          </Tooltip>
+          <div className="min-w-0 space-y-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant={view.variant} tabIndex={0}>
+                  {t(`status.${view.suffix}`)}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">{t(`statusHint.${view.suffix}`)}</TooltipContent>
+            </Tooltip>
+            <InactiveLine object={row.original} language={language} />
+          </div>
         );
       },
     },
@@ -613,6 +691,38 @@ function objectColumns(
       cell: () => <ObjectActionsCell />,
     },
   ];
+}
+
+/**
+ * Under the status of an object no longer backed up: why and since when (amber, waiting for a
+ * confirmation), or who confirmed it and when (grey). Nothing for any other object.
+ */
+function InactiveLine({ object, language }: { object: ProtectedObject; language: string }) {
+  const { t } = useTranslation("directory");
+  const detail = inactiveDetail(object);
+  if (!detail) {
+    return null;
+  }
+  const reason = t(detail.reasonKey);
+  const since = detail.since ? formatDateTime(detail.since, language) : null;
+  return (
+    <div className="text-xs text-muted-foreground" data-testid="inactive-detail">
+      <div>{since ? t("inactive.reasonSince", { reason, date: since }) : reason}</div>
+      {detail.hintKey ? <div>{t(detail.hintKey)}</div> : null}
+      {detail.confirmed ? (
+        <div>
+          {detail.confirmed.byMigration
+            ? t("inactive.confirmedByMigration")
+            : detail.confirmed.byExclusion
+              ? t("inactive.confirmedByExclusion")
+              : t("inactive.confirmedBy", {
+                  who: detail.confirmed.by,
+                  date: formatDateTime(detail.confirmed.at, language),
+                })}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /** The backup job that covers the object, as a link; a note when it does not run on a schedule. */
@@ -1125,7 +1235,9 @@ function ObjectFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>{t("objects.filters.allStatuses")}</SelectItem>
-            {(["active", "excluded", "not_selected", "orphaned"] as const).map((status) => (
+            {(
+              ["active", "excluded", "not_selected", "orphaned", "to_confirm", "confirmed"] as const
+            ).map((status) => (
               <SelectItem key={status} value={status}>
                 {t(`status.${status}`)}
               </SelectItem>

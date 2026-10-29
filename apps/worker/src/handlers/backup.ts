@@ -49,6 +49,7 @@ import {
   ClientCredentialsTokenProvider,
   classifyFailure,
   confirmMailboxInactive,
+  confirmObjectLocked,
   ExchangeBackupEngine,
   encryptChunk,
   entraAppCredentialsOf,
@@ -95,6 +96,7 @@ import {
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import PgBoss from "pg-boss";
 import { type EntraAppLookup, processEntraApp } from "../entra-app.js";
+import { raiseInactiveNotices } from "../inactive-notices.js";
 import type { TenantTxRunner } from "../progress.js";
 import {
   InvalidPayloadError,
@@ -157,6 +159,9 @@ export function backupRejection(input: EligibilityInput): string | null {
       }
       if (input.objectStatusReason === "no_license") {
         return "the mailbox is not backed up: the account has no Exchange Online licence";
+      }
+      if (input.objectStatusReason === "locked") {
+        return "the object is not backed up: Microsoft locked it (HTTP 423)";
       }
       return "the object no longer exists in the source directory";
     default:
@@ -486,10 +491,12 @@ export interface BackupStore {
   /** Re-seal a secret whose plaintext changed (a rotated OAuth2 refresh token). */
   replaceSecret(secretId: string, plaintext: string): Promise<void>;
   /**
-   * Mark an active mailbox inactive (`orphaned` with a reason) after Microsoft confirmed that its
-   * account is disabled or unlicensed; true when the row changed. Only an `active` object is
-   * changed: one an operator excluded meanwhile, or a sync already orphaned, stays as it is.
-   * Absent in stores that have no objects table (tests): the run still ends neutral.
+   * Mark an active object inactive (`orphaned` with a reason) after Microsoft confirmed that its
+   * account is disabled or unlicensed, or that its OneDrive or site is locked; true when the row
+   * changed. Only an `active` object is changed: one an operator excluded meanwhile, or a sync
+   * already orphaned, stays as it is. The one-time notice (inactive-notices.ts) is raised in the
+   * same transaction. Absent in stores that have no objects table (tests): the run still ends
+   * neutral.
    */
   markInactive?(protectedObjectId: string, reason: ObjectStatusReason): Promise<boolean>;
 }
@@ -633,8 +640,8 @@ export function pgBackupStore(
     },
 
     async markInactive(protectedObjectId, reason) {
-      const rows = await run((tx) =>
-        tx
+      return run(async (tx) => {
+        const rows = await tx
           .update(protectedObjects)
           .set({ status: "orphaned", statusReason: reason, updatedAt: sql`now()` })
           .where(
@@ -644,9 +651,13 @@ export function pgBackupStore(
               eq(protectedObjects.status, "active"),
             ),
           )
-          .returning({ id: protectedObjects.id }),
-      );
-      return rows.length > 0;
+          .returning({ id: protectedObjects.id });
+        if (rows.length > 0) {
+          // Amber "please confirm" from now on: tell the admins once (with the row change).
+          await raiseInactiveNotices(tx, tenantId);
+        }
+        return rows.length > 0;
+      });
     },
 
     async replaceSecret(secretId, plaintext) {
@@ -698,11 +709,22 @@ export type InactiveCheck = (
   object: ProtectedObjectRef,
 ) => Promise<ObjectStatusReason | null>;
 
+/**
+ * Asks the source, after a OneDrive or site backup met a 423 lock, whether the whole object is
+ * locked (core directory/locks.ts): true locked, false readable, null when it does not say.
+ */
+export type LockCheck = (
+  deps: BackupEngineDeps,
+  object: ProtectedObjectRef,
+) => Promise<boolean | null>;
+
 /** Engine factories by protected-object kind. Registering a kind twice replaces it. */
 export class BackupEngineRegistry {
   private readonly factories = new Map<ProtectedObjectKind, BackupEngineFactory>();
   /** The check behind {@link confirmInactiveAfterFailure}; null skips it (tests, other builds). */
   inactiveCheck: InactiveCheck | null = null;
+  /** The lock check behind {@link confirmInactiveAfterFailure}; null skips it. */
+  lockCheck: LockCheck | null = null;
 
   constructor(entries: Iterable<readonly [ProtectedObjectKind, BackupEngineFactory]> = []) {
     for (const [kind, factory] of entries) {
@@ -1022,6 +1044,13 @@ export function createDefaultBackupEngines(
     const graph = await graphClientForSource(deps, settings);
     return (await confirmMailboxInactive(graph, object.externalId))?.reason ?? null;
   };
+  registry.lockCheck = async (deps, object) => {
+    if (object.kind !== "onedrive" && object.kind !== "site") {
+      return null;
+    }
+    const graph = await graphClientForSource(deps, settings);
+    return confirmObjectLocked(graph, object.kind, object.externalId);
+  };
   return registry;
 }
 
@@ -1054,15 +1083,28 @@ export async function confirmInactiveAfterFailure(input: {
   readonly error: unknown;
   readonly object: ProtectedObjectRef;
   readonly check: InactiveCheck | null;
+  readonly lockCheck?: LockCheck | null;
   readonly deps: BackupEngineDeps;
   readonly store: BackupStore;
   readonly logger: Logger;
 }): Promise<InvalidPayloadError | null> {
   const { error, object, check, deps, store, logger } = input;
-  if (object.kind !== "mailbox" || deps.source.kind !== "m365" || !check) {
+  if (deps.source.kind !== "m365") {
     return null;
   }
   const cause = classifyFailure(error);
+  if (
+    (object.kind === "onedrive" || object.kind === "site") &&
+    cause.code === "graph.object_locked"
+  ) {
+    return (
+      (await confirmLockedAfterFailure({ ...input, cause, lockCheck: input.lockCheck ?? null })) ??
+      unconfirmedLockFailure(error)
+    );
+  }
+  if (object.kind !== "mailbox" || !check) {
+    return null;
+  }
   if (!mayBeInactiveMailbox(cause)) {
     return null;
   }
@@ -1090,6 +1132,65 @@ export async function confirmInactiveAfterFailure(input: {
       ? "mailbox not backed up: the account is disabled"
       : "mailbox not backed up: the account has no Exchange Online licence",
     buildCause("graph.mailbox_inactive", params, cause.technical),
+  );
+}
+
+/**
+ * A OneDrive or site whose backup met a drive- or site-level 423 lock (Microsoft locks the
+ * OneDrive of an unlicensed account, an admin can lock a site): when one more cheap read meets
+ * the lock again (core directory/locks.ts), the object is marked `orphaned` with the reason
+ * `locked` (amber until confirmed, no nightly runs any more, the scheduler only plans active
+ * objects) and the run ends final and neutral (`graph.object_locked`, original details kept).
+ * Null when the read gets through, says nothing or fails: the caller then turns the run's own
+ * error into a counted failure ({@link unconfirmedLockFailure}), never a neutral one.
+ */
+async function confirmLockedAfterFailure(input: {
+  readonly object: ProtectedObjectRef;
+  readonly cause: FailureCause;
+  readonly lockCheck: LockCheck | null;
+  readonly deps: BackupEngineDeps;
+  readonly store: BackupStore;
+  readonly logger: Logger;
+}): Promise<InvalidPayloadError | null> {
+  const { object, cause, lockCheck, deps, store, logger } = input;
+  if (!lockCheck) {
+    return null;
+  }
+  let locked: boolean | null;
+  try {
+    locked = await lockCheck(deps, object);
+  } catch (checkError) {
+    logger.warn("checking whether the object is locked did not succeed", { error: checkError });
+    return null;
+  }
+  if (locked !== true) {
+    return null;
+  }
+  const marked = (await store.markInactive?.(object.id, "locked")) ?? false;
+  logger.info("object is locked at the source, not backed up", { marked });
+  return new InvalidPayloadError(
+    `${object.kind === "site" ? "site" : "OneDrive"} not backed up: Microsoft locked it (HTTP 423)`,
+    buildCause("graph.object_locked", { ...cause.params, reason: "locked" }, cause.technical),
+  );
+}
+
+/**
+ * A drive- or site-level 423 the lock probe did not confirm (probe 200, 429/5xx/403, a thrown
+ * check, no check, a cancelled run): `graph.object_locked` is neutral (failures/limits.ts), but
+ * the object stays `active`, so leaving it would end every night neutral with no failure, no
+ * amber state and no notice while backups silently stop. Only a confirmed lock is neutral: this
+ * one becomes `graph.request_rejected` (counted, `backup.failed`, original details kept, the
+ * `locked` reason dropped so nothing reads it as "not backed up"). Null for any other error.
+ */
+export function unconfirmedLockFailure(error: unknown): InvalidPayloadError | null {
+  const cause = classifyFailure(error);
+  if (cause.code !== "graph.object_locked") {
+    return null;
+  }
+  const { reason: _reason, ...params } = cause.params;
+  return new InvalidPayloadError(
+    error instanceof Error ? error.message : "request rejected with HTTP 423 (lock unconfirmed)",
+    buildCause("graph.request_rejected", params, cause.technical),
   );
 }
 
@@ -1258,12 +1359,14 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
         result = await engine.run({ ...ctx, progress: recorder }, object, { full });
       } catch (error) {
         // A disabled or unlicensed account is no failed backup (core failures/limits.ts).
+        // A lock nobody confirmed stays a counted failure, a cancelled run included.
         const inactive = ctx.signal.aborted
-          ? null
+          ? unconfirmedLockFailure(error)
           : await confirmInactiveAfterFailure({
               error,
               object,
               check: engines.inactiveCheck,
+              lockCheck: engines.lockCheck,
               deps,
               store,
               logger,

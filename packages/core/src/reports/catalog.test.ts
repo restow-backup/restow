@@ -85,6 +85,15 @@ describe("channel columns", () => {
     }
   });
 
+  it("raises a notice per object no longer backed up and a warning when many go at once", () => {
+    expect(REPORT_EVENT_INFO["object.inactive"]).toEqual({ group: "jobs", level: "info" });
+    expect(REPORT_EVENT_INFO["object.inactive_many"]).toEqual({ group: "jobs", level: "warning" });
+    expect(presetEvents("warnings")).toContain("object.inactive_many");
+    expect(presetEvents("warnings")).not.toContain("object.inactive");
+    expect(presetEvents("all")).toContain("object.inactive");
+    expect(DEFAULT_BELL_EVENTS).toContain("object.inactive");
+  });
+
   it("keeps the bell as it was until the tenant chooses", () => {
     expect(bellEventsOf(null)).toEqual([...DEFAULT_BELL_EVENTS]);
     for (const routine of ROUTINE_REPORT_EVENTS) {

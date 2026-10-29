@@ -38,6 +38,15 @@ describe("backups that are no failure of the object", () => {
     ).toBeNull();
   });
 
+  it("reads a locked OneDrive or site as not backed up, never as failed", () => {
+    const locked = { code: "graph.object_locked", params: { reason: "locked", httpStatus: 423 } };
+    expect(isNotBackedUpBackup({ queue: "backup", status: "failed", failure: locked })).toBe(true);
+    expect(isServiceLimitedBackup({ queue: "backup", status: "failed", failure: locked })).toBe(
+      false,
+    );
+    expect(notBackedUpOf({ queue: "backup", status: "failed", failure: locked })).toBe("locked");
+  });
+
   it("refuses anything but a table alias in raw SQL", () => {
     expect(() => notCountedFailureJobRaw("j; drop table jobs")).toThrow(/not a table alias/);
     expect(() => notCountedFailureJobRaw("j")).not.toThrow();

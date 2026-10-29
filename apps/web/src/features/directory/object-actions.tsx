@@ -1,4 +1,12 @@
-import { CircleCheck, CircleMinus, KeyRound, PlugZap, RotateCcw, Trash2 } from "lucide-react";
+import {
+  CircleCheck,
+  CircleMinus,
+  KeyRound,
+  PlugZap,
+  RotateCcw,
+  ShieldOff,
+  Trash2,
+} from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -20,6 +28,7 @@ import { errorMessageKey } from "@/lib/api";
 
 import { ConfirmDialog } from "./confirm-dialog";
 import {
+  useConfirmInactive,
   useDeleteAccount,
   useSetObjectCredential,
   useSetProtection,
@@ -199,7 +208,8 @@ export function useObjectActions(object: ProtectedObject): {
   const setProtection = useSetProtection();
   const removeAccount = useDeleteAccount();
   const testCredential = useTestObjectCredential();
-  const [confirm, setConfirm] = React.useState<"exclude" | "remove" | null>(null);
+  const confirmInactive = useConfirmInactive();
+  const [confirm, setConfirm] = React.useState<"exclude" | "remove" | "inactive" | null>(null);
   const [credentialDialogOpen, setCredentialDialogOpen] = React.useState(false);
 
   const available = availableActions(object);
@@ -243,6 +253,17 @@ export function useObjectActions(object: ProtectedObject): {
     }
   };
 
+  // "Yes, intended": the object stays not backed up, amber turns grey (audited on the server).
+  const confirmIntended = async () => {
+    try {
+      await confirmInactive.mutateAsync({ objectId: object.id });
+      toast.success(t("inactive.done.one", { name }));
+      setConfirm(null);
+    } catch (error) {
+      failed(error);
+    }
+  };
+
   const remove = async () => {
     try {
       await removeAccount.mutateAsync(object.id);
@@ -254,6 +275,14 @@ export function useObjectActions(object: ProtectedObject): {
   };
 
   const actions: RowAction[] = [];
+  if (available.confirmInactive) {
+    actions.push({
+      id: "confirmInactive",
+      label: t("inactive.confirmAction"),
+      icon: ShieldOff,
+      onSelect: () => setConfirm("inactive"),
+    });
+  }
   if (available.include) {
     actions.push({
       id: "include",
@@ -306,6 +335,17 @@ export function useObjectActions(object: ProtectedObject): {
 
   const dialogs = (
     <>
+      {available.confirmInactive ? (
+        <ConfirmDialog
+          open={confirm === "inactive"}
+          onOpenChange={(open) => setConfirm(open ? "inactive" : null)}
+          title={t("inactive.confirm.title", { name })}
+          description={t("inactive.confirm.description")}
+          confirmLabel={t("inactive.confirmAction")}
+          pending={confirmInactive.isPending}
+          onConfirm={() => void confirmIntended()}
+        />
+      ) : null}
       <ConfirmDialog
         open={confirm === "exclude"}
         onOpenChange={(open) => setConfirm(open ? "exclude" : null)}

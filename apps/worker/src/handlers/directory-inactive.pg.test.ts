@@ -3,6 +3,9 @@
  * unlicensed accounts"): {@link PgDirectoryRepository} writes the orphan reason the plan gives,
  * reads it back on the next run, and an object the sync finds again turns `active` with the
  * reason cleared (migration 0069's trigger clears it on any write that leaves `orphaned`).
+ * The confirmation lifecycle of the same trigger (amber until confirmed, cleared on the way
+ * back), the one-time notices (inactive-notices.ts) and a locked OneDrive the sync must not
+ * turn active blindly.
  *
  * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server (a database named
  * `restow_worker_directory_inactive_test` is dropped and recreated there, then migrated).
@@ -15,10 +18,19 @@ import {
   planDirectory,
   type UserProbe,
 } from "@restow/core";
-import { createDb, type Database, protectedObjects, providers, sources, tenants } from "@restow/db";
+import {
+  createDb,
+  type Database,
+  notifications,
+  protectedObjects,
+  providers,
+  sources,
+  tenants,
+} from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { raiseInactiveNotices } from "../inactive-notices.js";
 import { PgDirectoryRepository } from "./directory.js";
 import { tenantRunner } from "./framework.js";
 
@@ -96,6 +108,7 @@ describe.skipIf(!adminUrl)("disabled and unlicensed mailboxes against Postgres",
     repository: PgDirectoryRepository,
     user: DirectoryUserRecord,
     probe: UserProbe,
+    lockState?: ReadonlyMap<string, "locked" | "unlocked">,
   ) {
     const snapshot = await repository.load();
     const plan = planDirectory({
@@ -108,6 +121,7 @@ describe.skipIf(!adminUrl)("disabled and unlicensed mailboxes against Postgres",
       rules: DEFAULT_PROTECTION_RULES,
       overrides: {},
       groupMemberIds: null,
+      lockState,
     });
     await repository.commit(
       {
@@ -177,5 +191,214 @@ describe.skipIf(!adminUrl)("disabled and unlicensed mailboxes against Postgres",
         .set({ status: "orphaned", statusReason: "gone" as "no_license" })
         .where(eq(protectedObjects.id, row?.id as string)),
     ).rejects.toThrow();
+  });
+
+  async function objectRow(sourceId: string, externalId: string) {
+    const [row] = await db
+      .select()
+      .from(protectedObjects)
+      .where(
+        and(eq(protectedObjects.sourceId, sourceId), eq(protectedObjects.externalId, externalId)),
+      );
+    return row;
+  }
+
+  async function events(tenantId: string) {
+    return db
+      .select({
+        event: notifications.event,
+        level: notifications.level,
+        details: notifications.details,
+      })
+      .from(notifications)
+      .where(eq(notifications.tenantId, tenantId));
+  }
+
+  it("starts unconfirmed on every transition into orphaned and drops the confirmation on the way back", async () => {
+    const { tenantId, sourceId } = await tenantWithSource();
+    const repository = new PgDirectoryRepository(
+      tenantRunner(db, tenantId),
+      tenantId,
+      sourceId,
+      noopLogger,
+    );
+    await sync(repository, alice, { mailbox: true });
+    expect(await objectRow(sourceId, "user-1")).toMatchObject({
+      inactiveSince: null,
+      statusConfirmedAt: null,
+    });
+    await sync(repository, alice, { mailbox: false });
+    const orphaned = await objectRow(sourceId, "user-1");
+    expect(orphaned?.inactiveSince).toBeInstanceOf(Date);
+    expect(orphaned?.statusConfirmedAt).toBeNull();
+
+    // Confirmed by an admin; a reason change keeps the confirmation and the date.
+    await db
+      .update(protectedObjects)
+      .set({ statusConfirmedAt: sql`now()`, statusConfirmedBy: "admin@contoso.example" })
+      .where(eq(protectedObjects.id, orphaned?.id as string));
+    await sync(repository, { ...alice, accountEnabled: false }, { mailbox: false });
+    const changed = await objectRow(sourceId, "user-1");
+    expect(changed).toMatchObject({
+      statusReason: "account_disabled",
+      statusConfirmedBy: "admin@contoso.example",
+    });
+    expect(changed?.inactiveSince?.getTime()).toBe(orphaned?.inactiveSince?.getTime());
+
+    // Licensed again: active, every inactive column cleared.
+    await sync(repository, alice, { mailbox: true });
+    expect(await objectRow(sourceId, "user-1")).toMatchObject({
+      status: "active",
+      statusReason: null,
+      inactiveSince: null,
+      inactiveNotifiedAt: null,
+      statusConfirmedAt: null,
+      statusConfirmedBy: null,
+    });
+
+    // Inactive again later: asks again.
+    await sync(repository, alice, { mailbox: false });
+    expect(await objectRow(sourceId, "user-1")).toMatchObject({
+      status: "orphaned",
+      statusConfirmedAt: null,
+      inactiveNotifiedAt: null,
+    });
+  });
+
+  it("refuses a confirmation without its author", async () => {
+    const { tenantId, sourceId } = await tenantWithSource();
+    await expect(
+      db.insert(protectedObjects).values({
+        tenantId,
+        sourceId,
+        kind: "mailbox",
+        status: "orphaned",
+        externalId: "user-x",
+        statusConfirmedAt: new Date(),
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("raises one notice per object once, and one warning when many go at once", async () => {
+    const { tenantId, sourceId } = await tenantWithSource();
+    const run = tenantRunner(db, tenantId);
+    // 60 active objects, so 1 of them is far below the share for a mass warning.
+    await db.insert(protectedObjects).values(
+      Array.from({ length: 60 }, (_, index) => ({
+        tenantId,
+        sourceId,
+        kind: "mailbox" as const,
+        status: "active" as const,
+        externalId: `user-${index}`,
+        displayName: `User ${index}`,
+      })),
+    );
+    await db
+      .update(protectedObjects)
+      .set({ status: "orphaned", statusReason: "no_license" })
+      .where(
+        and(eq(protectedObjects.sourceId, sourceId), eq(protectedObjects.externalId, "user-0")),
+      );
+    expect(await run((tx) => raiseInactiveNotices(tx, tenantId))).toBe(1);
+    expect(await run((tx) => raiseInactiveNotices(tx, tenantId))).toBe(0);
+    expect(await events(tenantId)).toEqual([
+      expect.objectContaining({
+        event: "object.inactive",
+        level: "info",
+        details: expect.objectContaining({ reason: "no_license", kind: "mailbox" }),
+      }),
+    ]);
+
+    // Eleven more at once: one warning, no notice per object.
+    await db
+      .update(protectedObjects)
+      .set({ status: "orphaned" })
+      .where(
+        and(
+          eq(protectedObjects.sourceId, sourceId),
+          sql`${protectedObjects.externalId} in (${sql.join(
+            Array.from({ length: 11 }, (_, index) => sql`${`user-${index + 1}`}`),
+            sql`, `,
+          )})`,
+        ),
+      );
+    expect(await run((tx) => raiseInactiveNotices(tx, tenantId))).toBe(11);
+    const raised = await events(tenantId);
+    expect(raised.map((row) => row.event).sort()).toEqual([
+      "object.inactive",
+      "object.inactive_many",
+    ]);
+    expect(raised.find((row) => row.event === "object.inactive_many")).toMatchObject({
+      level: "warning",
+      details: expect.objectContaining({ count: 12 }),
+    });
+    // A confirmed object is never told about (the transition itself starts unconfirmed, so the
+    // confirmation is a second write).
+    const user30 = and(
+      eq(protectedObjects.sourceId, sourceId),
+      eq(protectedObjects.externalId, "user-30"),
+    );
+    await db.update(protectedObjects).set({ status: "orphaned" }).where(user30);
+    await db
+      .update(protectedObjects)
+      .set({ statusConfirmedAt: sql`now()`, statusConfirmedBy: "admin" })
+      .where(user30);
+    expect(await run((tx) => raiseInactiveNotices(tx, tenantId))).toBe(0);
+
+    // An excluded object that leaves the source was never backed up: no notice, no warning.
+    const user40 = and(
+      eq(protectedObjects.sourceId, sourceId),
+      eq(protectedObjects.externalId, "user-40"),
+    );
+    await db.update(protectedObjects).set({ status: "excluded" }).where(user40);
+    await db.update(protectedObjects).set({ status: "orphaned" }).where(user40);
+    expect(await run((tx) => raiseInactiveNotices(tx, tenantId))).toBe(0);
+  });
+
+  it("keeps a locked OneDrive orphaned until its lock probe answers 200, then resumes it", async () => {
+    const { tenantId, sourceId } = await tenantWithSource();
+    const repository = new PgDirectoryRepository(
+      tenantRunner(db, tenantId),
+      tenantId,
+      sourceId,
+      noopLogger,
+    );
+    await sync(repository, alice, { mailbox: true, driveId: "b!drive-1" });
+    // A backup met the lock (backup.ts markInactive).
+    await db
+      .update(protectedObjects)
+      .set({ status: "orphaned", statusReason: "locked" })
+      .where(
+        and(eq(protectedObjects.sourceId, sourceId), eq(protectedObjects.externalId, "b!drive-1")),
+      );
+    expect((await repository.load()).known.find((o) => o.kind === "onedrive")?.statusReason).toBe(
+      "locked",
+    );
+
+    // Still listed by the drive probe, lock probe unknown or locked: stays locked.
+    await sync(repository, alice, { mailbox: true, driveId: "b!drive-1" });
+    await sync(
+      repository,
+      alice,
+      { mailbox: true, driveId: "b!drive-1" },
+      new Map([["b!drive-1", "locked"]]),
+    );
+    expect(await objectRow(sourceId, "b!drive-1")).toMatchObject({
+      status: "orphaned",
+      statusReason: "locked",
+    });
+
+    const plan = await sync(
+      repository,
+      alice,
+      { mailbox: true, driveId: "b!drive-1" },
+      new Map([["b!drive-1", "unlocked"]]),
+    );
+    expect(plan.objects.map((o) => [o.externalId, o.status])).toEqual([["b!drive-1", "active"]]);
+    expect(await objectRow(sourceId, "b!drive-1")).toMatchObject({
+      status: "active",
+      statusReason: null,
+      inactiveSince: null,
+    });
   });
 });

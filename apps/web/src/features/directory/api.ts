@@ -3,6 +3,8 @@ import { apiFetch, unwrapList } from "@/lib/api";
 import type {
   BulkProtectionInput,
   BulkProtectionResult,
+  ConfirmInactiveInput,
+  ConfirmInactiveResult,
   CredentialTestResult,
   CsvImportOutcome,
   DirectorySource,
@@ -119,6 +121,22 @@ export function bulkSetProtection(
   input: BulkProtectionInput,
 ): Promise<BulkProtectionResult> {
   return apiFetch<BulkProtectionResult>(sourcePath(sourceId, "/protection/bulk"), {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** "Yes, intended": one object Restow stopped backing up. */
+export function confirmInactive(objectId: string, note?: string): Promise<ConfirmInactiveResult> {
+  return apiFetch<ConfirmInactiveResult>(
+    `${base}/objects/${encodeURIComponent(objectId)}/inactive/confirm`,
+    { method: "POST", body: note ? { note } : {} },
+  );
+}
+
+/** The same for several objects, tenant-wide (checked rows or the list's filter). */
+export function bulkConfirmInactive(input: ConfirmInactiveInput): Promise<ConfirmInactiveResult> {
+  return apiFetch<ConfirmInactiveResult>(`${base}/objects/inactive/confirm`, {
     method: "POST",
     body: input,
   });

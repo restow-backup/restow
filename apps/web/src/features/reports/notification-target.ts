@@ -64,6 +64,14 @@ export function notificationTarget(
   }
   const tenantId = item.tenantId;
   const at = (to: string): NotificationTarget => ({ to, tenantId });
+  // Objects no longer backed up: the tenant's protected objects that wait for a decision.
+  if (item.event === "object.inactive" || item.event === "object.inactive_many") {
+    return at(
+      tenantId
+        ? `${tenantPagePath(tenantId, "protection")}?status=to_confirm`
+        : "/protected-objects?status=to_confirm",
+    );
+  }
   // A source's own app credential runs out: the source's page, where its date is noted.
   const sourceId = text(details.sourceId);
   if (item.event === "source.app_secret_expiring" && sourceId) {

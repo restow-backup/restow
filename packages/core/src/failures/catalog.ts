@@ -37,8 +37,14 @@ function step(id: FailureStepId, target: FailureTarget | null = null): FailureSt
 
 const READ_DETAILS = step("read_technical_details");
 
-/** A mailbox not backed up because its account is disabled or unlicensed: what brings it back. */
+/**
+ * An object not backed up because its account is disabled or unlicensed, or because Microsoft
+ * locked its OneDrive or site: what brings it back.
+ */
 function inactiveSteps(params: FailureParams): readonly FailureStep[] {
+  if (params.reason === "locked") {
+    return [step("unlock_object"), step("sync_directory", "directory")];
+  }
   return [
     step(params.reason === "account_disabled" ? "enable_account" : "assign_license"),
     step("sync_directory", "directory"),
@@ -135,6 +141,13 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     transient: false,
     retryable: false,
     steps: (params) => inactiveSteps(params),
+  },
+  // Not a failure of the backup either: Microsoft locked the OneDrive or site (HTTP 423).
+  "graph.object_locked": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => inactiveSteps({ reason: "locked" }),
   },
   "graph.onedrive_unavailable": {
     category: "microsoft",

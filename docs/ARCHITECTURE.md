@@ -75,11 +75,22 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
 - `protected_object`: Postfach, OneDrive, IMAP-Konto, SharePoint-Website (`site`, ohne
   Nutzer; docs/MICROSOFT.md „SharePoint Online"); Herkunft `directory_sync` oder
   `manual`; Schutzstatus (aktiv, ausgeschlossen, verwaist). Ein verwaistes Microsoft-365-Postfach,
-  dessen Benutzer noch im Verzeichnis steht, trägt seinen Grund in `status_reason`
-  (`account_disabled`, `no_license`; ab 0.4.7, docs/MICROSOFT.md „Deaktivierte und
-  unlizenzierte Konten"): neutral wie jedes verwaiste Objekt, nimmt die Sicherung von selbst
-  wieder auf. Seine Läufe zählen nicht als fehlgeschlagen (`NOT_BACKED_UP_CAUSES`,
+  das noch an der Quelle steht, trägt seinen Grund in `status_reason`
+  (`account_disabled`, `no_license`, `locked` für ein OneDrive oder eine Website, die Microsoft mit
+  HTTP 423 sperrt; ab 0.4.7, docs/MICROSOFT.md „Deaktivierte und unlizenzierte Konten" und
+  „OneDrive"): neutral wie jedes verwaiste Objekt, nimmt die Sicherung von selbst wieder auf.
+  Seine Läufe zählen nicht als fehlgeschlagen (`NOT_BACKED_UP_CAUSES`,
   `apps/api/src/lib/service-limit.ts` `notCountedFailureJob`).
+- Bestätigung verwaister Objekte (ab 0.4.7, docs/MICROSOFT.md „Nicht mehr gesichert:
+  Bestätigung"): `inactive_since` (seit wann verwaist), `inactive_notified_at` (einmalige Meldung
+  raus), `status_confirmed_at`/`status_confirmed_by` („Ja, beabsichtigt“). Der Trigger
+  `protected_objects_inactive_state` (Migration 0069) setzt beim Übergang nach `orphaned` ein
+  neues Datum und löscht Meldung und Bestätigung (kommt das Objekt aus `excluded`, gilt es als
+  bestätigt und gemeldet, `status_confirmed_by = 'excluded'`: es wurde nie gesichert), beim Verlassen von `orphaned` alle fünf Spalten;
+  so gilt das in jedem Schreibpfad (Abgleich, Backup, API). Unbestätigt (`inactiveState`
+  `to_confirm`, core `directory/inactive.ts`) hält ein Objekt den Mandanten auf mindestens gelb
+  (`toConfirm` in der Bereitschaft), bestätigt ist es neutral. Vor 0.4.7 verwaiste Objekte setzt
+  der Backfill der Migration auf bestätigt (`migration`).
 - Rollen: `provider_admin`, `tenant_admin` (inkl. entra_global_admin via SSO),
   `tenant_restore` (Restore-Operator: durchsucht, stellt wieder her und exportiert alle
   Konten des Mandanten und die Dateien der Sicherungsstände von Servern, Clients und
@@ -548,6 +559,15 @@ abläuft (Bedienung: docs/ENTRA-SETUP.md, Teil 3 und "Alternative: eine eigene A
   Umgebung oder `notAfter` des Zertifikats. Der Stand liegt in `settings.app_secret_alerts`
   (`{ central: { expiresAt, stage, at } }`, Migration `0068_app_secret_alerts`), gelesen mit
   `FOR UPDATE`, damit mehrere API-Instanzen nur einmal melden.
+- `object.inactive` (Gruppe Läufe, Hinweis) und `object.inactive_many` (Gruppe Läufe, Warnung):
+  Restow sichert ein Objekt nicht mehr, weil die Quelle es als entfernt, deaktiviert, ohne Lizenz
+  oder gesperrt meldet. Einmal je Objekt und Übergang (`protected_objects.inactive_notified_at`),
+  geschrieben von `apps/worker/src/inactive-notices.ts` nach jedem Verzeichnisabgleich und in der
+  Transaktion, in der ein Backup ein Objekt inaktiv markiert. Mehr als 10 Objekte oder mehr als
+  20 % der gesicherten Objekte eines Mandanten an einem Tag ergeben eine Warnung statt vieler
+  Hinweise (höchstens eine je Tag, Betreff `inactive_many:<Mandant>:<Tag>`); zwei Ereignisse, weil
+  die Kanäle nach der festen Stufe des Katalogs filtern. Die Glocke führt zu den geschützten
+  Objekten mit dem Filter `to_confirm`.
 - `source.app_secret_expiring` (Gruppe Läufe, Warnung; auch für Mandanten-Admins) für die eigene App
   einer Quelle. Geprüft im Endpoint-Monitor des Workers (`apps/worker/src/source-app-expiry.ts`, alle
   fünf Minuten) über aktive M365-Quellen aktiver Mandanten. Das Datum steht öffentlich in

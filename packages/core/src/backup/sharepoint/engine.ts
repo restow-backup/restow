@@ -377,6 +377,8 @@ class SiteBackupRun {
   private earlierFailures = 0;
   /** A drive run threw: it checkpointed on its way out already. */
   private driveRunFailed = false;
+  /** Libraries that answered a drive-level 423 locked (failures/graph.ts `graph.object_locked`). */
+  private readonly lockedLibraries: GraphError[] = [];
 
   constructor(private readonly input: SiteRunInput) {
     this.previousObjects = input.previous?.objects ?? [];
@@ -415,6 +417,13 @@ class SiteBackupRun {
       for (const drive of drives) {
         this.throwIfAborted();
         await this.backupLibrary(drive, libraryFolders.get(drive) ?? drive.id);
+      }
+      // Every library locked: the site itself is locked (Microsoft blocks all of it), not one
+      // library unreadable. No snapshot of kept copies is committed; the run ends on the lock,
+      // which the worker turns into "not backed up: locked" instead of a failure.
+      const [lock] = this.lockedLibraries;
+      if (lock && this.lockedLibraries.length === drives.length) {
+        throw lock;
       }
       this.sweep(
         LIBRARIES_FOLDER,
@@ -516,6 +525,9 @@ class SiteBackupRun {
       // The library cannot be read (permissions, locked): keep what the last
       // backup had of it and its drive state, so nothing is lost and the next
       // run continues from there.
+      if (classifyFailure(error).code === "graph.object_locked") {
+        this.lockedLibraries.push(error);
+      }
       this.recordFailure(prefix, error);
       if (previousObjects && previousLibrary) {
         this.replaceBelow(prefix, previousObjects);

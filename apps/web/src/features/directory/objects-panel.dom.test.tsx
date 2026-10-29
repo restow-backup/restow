@@ -12,7 +12,7 @@ import { i18n } from "@/i18n";
 import { directoryKeys } from "./api";
 import "./i18n";
 import { ObjectsPanel } from "./objects-panel";
-import { toObjectsQuery } from "./search";
+import { type DirectorySearch, toObjectsQuery } from "./search";
 import type { DirectorySource, ObjectsPage, ProtectedObject } from "./types";
 
 /**
@@ -111,9 +111,14 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-async function mount(page: ObjectsPage) {
+async function mount(
+  page: ObjectsPage,
+  sources: DirectorySource[] = [SOURCE],
+  search: DirectorySearch = {},
+  onSearchChange: (change: Partial<DirectorySearch>) => void = () => {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(directoryKeys.objectsPage("t-1", toObjectsQuery({})), page);
+  client.setQueryData(directoryKeys.objectsPage("t-1", toObjectsQuery(search)), page);
   client.setQueryData(["setup", "state"], {
     configured: true,
     demo: { enabled: false, email: null, password: null },
@@ -128,9 +133,9 @@ async function mount(page: ObjectsPage) {
         <I18nextProvider i18n={i18n}>
           <TooltipProvider delayDuration={200}>
             <ObjectsPanel
-              search={{}}
-              onSearchChange={() => {}}
-              sources={[SOURCE]}
+              search={search}
+              onSearchChange={onSearchChange}
+              sources={sources}
               onShowSources={() => {}}
             />
           </TooltipProvider>
@@ -249,5 +254,76 @@ describe("the context menu of an object", () => {
     expect(entry("newJobFromSelection")?.getAttribute("href")).toBe(
       "/jobs?type=mail&new=1&select=o-1%2Co-2",
     );
+  });
+});
+
+describe("objects no longer backed up", () => {
+  it("reads amber with reason and date, grey with who confirmed it, and leads to the ones waiting", async () => {
+    await mount(
+      {
+        ...PAGE,
+        items: [
+          object({
+            status: "orphaned",
+            kind: "onedrive",
+            displayName: "Departed OneDrive",
+            statusReason: "locked",
+            lockHint: "no_license",
+            inactiveState: "to_confirm",
+            inactiveSince: "2026-10-28T03:00:00.000Z",
+            statusConfirmedAt: null,
+            statusConfirmedBy: null,
+          }),
+          object({
+            id: "o-2",
+            status: "orphaned",
+            displayName: "Gone Mailbox",
+            inactiveState: "confirmed",
+            inactiveSince: "2026-10-01T03:00:00.000Z",
+            statusConfirmedAt: "2026-10-02T09:00:00.000Z",
+            statusConfirmedBy: "lead@contoso.example",
+          }),
+        ],
+      },
+      [{ ...SOURCE, counts: { ...SOURCE.counts, orphaned: 2, toConfirm: 1 } }],
+    );
+    const waiting = row("Departed OneDrive");
+    expect(waiting.textContent).toContain("Not backed up any more, please confirm");
+    expect(waiting.textContent).toContain("Locked by Microsoft, since");
+    expect(waiting.textContent).toContain("The account has no licence");
+    const confirmed = row("Gone Mailbox");
+    expect(confirmed.textContent).toContain("Intentionally no longer backed up");
+    expect(confirmed.textContent).toContain("Confirmed by lead@contoso.example on");
+    expect(document.querySelector('[data-testid="inactive-to-confirm"]')?.textContent).toContain(
+      "1 object is no longer backed up and waits for your confirmation.",
+    );
+
+    await rightClick(waiting);
+    expect(entry("confirmInactive")?.textContent).toContain("Yes, intended");
+  });
+
+  it("jumps from the tenant-wide banner to every waiting object, whatever was filtered", async () => {
+    const changes: Partial<DirectorySearch>[] = [];
+    await mount(
+      { items: [object({ displayName: "Filtered Mailbox" })], total: 1, page: 1, pageSize: 25 },
+      [{ ...SOURCE, counts: { ...SOURCE.counts, orphaned: 3, toConfirm: 3 } }],
+      { kind: "mailbox", source: SOURCE.id, q: "filtered", shared: false, page: 2 },
+      (change) => changes.push(change),
+    );
+    const banner = document.querySelector('[data-testid="inactive-to-confirm"]');
+    const show = banner?.querySelector("button");
+    expect(show).toBeTruthy();
+    await act(async () => {
+      show?.click();
+    });
+    expect(changes.at(-1)).toEqual({
+      status: "to_confirm",
+      q: undefined,
+      kind: undefined,
+      source: undefined,
+      job: undefined,
+      shared: undefined,
+      page: 1,
+    });
   });
 });

@@ -51,6 +51,7 @@ import {
   type KnownGroupMailbox,
   planGroupMailboxes,
 } from "./group-mailboxes.js";
+import { isLockedAnswer, type LockState, type LockTarget, recheckLocked } from "./locks.js";
 import {
   type DirectoryObjectKind,
   type DirectoryPlan,
@@ -152,7 +153,15 @@ export type SyncWarning =
   /** The tenant's Microsoft 365 groups could not be read (mostly: no `Group.Read.All` consent). */
   | (GraphFailure & { readonly kind: "groups_unavailable" })
   | (GraphFailure & {
-      readonly kind: "mailbox_probe_failed" | "drive_probe_failed" | "user_fetch_failed";
+      /**
+       * `lock_probe_failed`: a OneDrive or site known as locked (./locks.ts) could not be checked
+       * again; it stays locked. `userId` carries its external id then, `user` its name.
+       */
+      readonly kind:
+        | "mailbox_probe_failed"
+        | "drive_probe_failed"
+        | "user_fetch_failed"
+        | "lock_probe_failed";
       readonly userId: string;
       /** Address or UPN of the user when known, for a readable message. */
       readonly user: string | null;
@@ -368,7 +377,10 @@ export async function probeUsers(
     ...targets.drive.map((id) => probeRequest("drive", id)),
   ];
   const urls = new Map(requests.map((request) => [request.id, request.url]));
-  const probes = new Map<string, { mailbox?: boolean; driveId?: string | null }>();
+  const probes = new Map<
+    string,
+    { mailbox?: boolean; driveId?: string | null; driveLocked?: boolean }
+  >();
   const probeOf = (userId: string) => {
     const probe = probes.get(userId) ?? {};
     probes.set(userId, probe);
@@ -401,6 +413,12 @@ export async function probeUsers(
           probe.driveId = null;
           continue;
         }
+        if (isLockedAnswer(response, urls.get(response.id) ?? "")) {
+          // Microsoft locked the OneDrive (an unlicensed account, mostly): the drive id stays
+          // unknown, the plan keeps the known drive neutral instead of active (./locks.ts).
+          probe.driveLocked = true;
+          continue;
+        }
       }
       onWarning({
         kind: kind === "mailbox" ? "mailbox_probe_failed" : "drive_probe_failed",
@@ -411,6 +429,74 @@ export async function probeUsers(
     }
   }
   return probes;
+}
+
+/**
+ * Check every OneDrive (and, when sites are planned, every site) the snapshot knows as locked
+ * once more (./locks.ts): one cheap read each, batched. Only a 200 unlocks; an answer that is
+ * neither 200 nor the lock is reported and keeps the lock. A failed batch keeps them all.
+ */
+async function recheckKnownLocks(
+  client: GraphClient,
+  snapshot: DirectorySnapshot,
+  sites: boolean,
+  warn: (warning: SyncWarning) => void,
+  signal: AbortSignal | undefined,
+): Promise<Map<string, LockState>> {
+  const targets: LockTarget[] = [
+    ...snapshot.known
+      .filter(
+        (object) =>
+          object.kind === "onedrive" &&
+          object.status === "orphaned" &&
+          object.statusReason === "locked",
+      )
+      .map((object) => ({
+        kind: "onedrive" as const,
+        externalId: object.externalId,
+        displayName: object.owner?.email ?? object.displayName,
+      })),
+    ...(sites ? (snapshot.knownSites ?? []) : [])
+      .filter((site) => site.status === "orphaned" && site.statusReason === "locked")
+      .map((site) => ({
+        kind: "site" as const,
+        externalId: site.externalId,
+        displayName: site.displayName,
+      })),
+  ];
+  const states = new Map<string, LockState>();
+  for (const chunk of chunkIntoBatches(targets, PROBE_CHUNK)) {
+    throwIfAborted(signal);
+    try {
+      const found = await recheckLocked(client, chunk, ({ target, response }) =>
+        warn({
+          kind: "lock_probe_failed",
+          userId: target.externalId,
+          user: target.displayName ?? null,
+          ...failureOf(response),
+        }),
+      );
+      for (const [externalId, state] of found) {
+        states.set(externalId, state);
+      }
+    } catch (error) {
+      if (!isGraphError(error)) {
+        throw error;
+      }
+      // Unknown for the whole chunk: every lock stays.
+      for (const target of chunk) {
+        warn({
+          kind: "lock_probe_failed",
+          userId: target.externalId,
+          user: target.displayName ?? null,
+          status: error.status,
+          code: error.code ?? null,
+          message: error.message.slice(0, 300),
+        });
+      }
+    }
+  }
+  return states;
 }
 
 /** Enumerate the delta stream fully, honouring a mid-run resync (`reset`). */
@@ -550,6 +636,13 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
 
   progress?.phase("probe");
   const probes = await probeUsers(options.client, users, warn, signal);
+  const lockState = await recheckKnownLocks(
+    options.client,
+    snapshot,
+    options.sites === true,
+    warn,
+    signal,
+  );
 
   let discovered: readonly DiscoveredSite[] | null = null;
   if (options.sites === true) {
@@ -600,6 +693,7 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
       rules,
       overrides,
       groupMemberIds,
+      lockState,
     });
 
     const siteCandidate =
@@ -609,6 +703,7 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
             known: snapshot.knownSites ?? [],
             rules,
             overrides,
+            lockState,
           })
         : undefined;
 
@@ -753,9 +848,11 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
       }
     }
     for (const site of commit.sites?.sites ?? []) {
+      // Like the 0069 trigger: active or excluded again drops the reason.
       this.sites.set(site.externalId, {
         externalId: site.externalId,
         status: site.status,
+        statusReason: null,
         origin: "directory_sync",
         displayName: site.displayName,
       });
@@ -763,7 +860,11 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
     for (const externalId of commit.sites?.orphanExternalIds ?? []) {
       const existing = this.sites.get(externalId);
       if (existing) {
-        this.sites.set(externalId, { ...existing, status: "orphaned" });
+        this.sites.set(externalId, {
+          ...existing,
+          status: "orphaned",
+          statusReason: commit.sites?.orphanReasons?.[externalId] ?? null,
+        });
       }
     }
     for (const group of commit.groups?.groups ?? []) {

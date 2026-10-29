@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { directoryPath } from "@/features/directory/search";
 import { useCauseTitle } from "@/features/failures";
 import { HISTORY_PATH } from "@/features/jobs/paths";
 import { PVE_PATH } from "@/features/pve/paths";
@@ -124,6 +125,21 @@ export function WarningsPage({ state }: { state: "open" | "acknowledged" }) {
               className="text-sm font-medium underline underline-offset-4"
             >
               {t("openGuests")}
+            </Link>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {query.data && (query.data.counts.toConfirm ?? 0) > 0 ? (
+        <Alert variant="warning" data-slot="to-confirm-hint">
+          <TriangleAlert />
+          <AlertDescription>
+            <p>{t("toConfirmHint", { count: query.data.counts.toConfirm ?? 0 })}</p>
+            <Link
+              to={directoryPath() as never}
+              search={{ status: "to_confirm" } as never}
+              className="text-sm font-medium underline underline-offset-4"
+            >
+              {t("openToConfirm")}
             </Link>
           </AlertDescription>
         </Alert>

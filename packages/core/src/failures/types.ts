@@ -40,6 +40,9 @@ export const FAILURE_CODES = [
   "graph.user_not_found",
   // The mailbox's account is disabled or has no Exchange Online licence (failures/limits.ts).
   "graph.mailbox_inactive",
+  // The OneDrive or site is locked (HTTP 423 resourceLocked; Microsoft locks the OneDrive of an
+  // unlicensed account): not a failed backup either (failures/limits.ts).
+  "graph.object_locked",
   "graph.onedrive_unavailable",
   "graph.site_unavailable",
   "graph.group_unavailable",
@@ -270,6 +273,7 @@ export const FAILURE_STEP_IDS = [
   "exclude_object",
   "include_object",
   "assign_onedrive_license",
+  "unlock_object",
   "sync_directory",
   "check_access_policy",
   "wait_automatic",

@@ -22,7 +22,7 @@ import {
   protectedObjects,
   warningAcknowledgements,
 } from "@restow/db";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -228,7 +228,23 @@ export async function listWarnings(
     const failedGuests = guests.guests.filter(
       (guest) => guest.inJob && guest.lastRun?.status === "failed",
     ).length;
-    const counts = { open: 0, acknowledged: 0, failed: 0, failedGuests };
+    const [unconfirmed] = await tx
+      .select({ n: count() })
+      .from(protectedObjects)
+      .where(
+        and(
+          eq(protectedObjects.tenantId, tenantId),
+          eq(protectedObjects.status, "orphaned"),
+          isNull(protectedObjects.statusConfirmedAt),
+        ),
+      );
+    const counts = {
+      open: 0,
+      acknowledged: 0,
+      failed: 0,
+      failedGuests,
+      toConfirm: unconfirmed?.n ?? 0,
+    };
     const wanted: WarningFact[] = [];
     for (const fact of [...mail.values(), ...machines.values(), ...shares.values()]) {
       const state = fact.evaluation.state;

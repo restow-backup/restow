@@ -143,6 +143,11 @@
       "title": "{count, plural, one {# Freigabe in keinem Backup-Job} other {# Freigaben in keinem Backup-Job}}",
       "description": "Diese Freigaben werden nicht mehr gesichert. Ihre bisherigen Sicherungsstände bleiben bewertet, neue entstehen erst, wenn Sie die Freigabe einem Backup-Job zuordnen.",
       "action": "Freigaben öffnen"
+    },
+    "toConfirm": {
+      "title": "{count, plural, one {# Objekt nicht mehr gesichert, bitte bestätigen} other {# Objekte nicht mehr gesichert, bitte bestätigen}}",
+      "description": "Die Quelle meldet diese Objekte als entfernt, deaktiviert, ohne Lizenz oder gesperrt. Das ist kein Fehler, aber bis jemand bestätigt, dass es beabsichtigt ist, bleibt die Bereitschaft gelb.",
+      "action": "Prüfen und bestätigen"
     }
   },
   "lastBackup": {
@@ -388,7 +393,8 @@
       "limited": "Vom Dienst gedrosselt, wird wiederholt",
       "notBackedUp_account_disabled": "Nicht gesichert: Konto deaktiviert",
       "notBackedUp_no_license": "Nicht gesichert: keine Lizenz",
-      "cancelled": "Abgebrochen"
+      "cancelled": "Abgebrochen",
+      "notBackedUp_locked": "Nicht gesichert: von Microsoft gesperrt"
     },
     "empty": {
       "title": "Noch keine Läufe",
@@ -479,7 +485,8 @@
         "file_shares_without_job": "{count, plural, one {# Freigabe ist in keinem Backup-Job und wird nicht gesichert.} other {# Freigaben sind in keinem Backup-Job und werden nicht gesichert.}}",
         "needs_attention": "{count, plural, one {# Objekt braucht Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).} other {# Objekte brauchen Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).}}",
         "nothing_protected": "Der Mandant schützt noch nichts.",
-        "immutability_warning": "{count, plural, one {Unveränderbarkeit ist eingestellt, aber # Repository hat Objekte ohne Sperre oder eine Verlängerung im Rückstand.} other {Unveränderbarkeit ist eingestellt, aber # Repositories haben Objekte ohne Sperre oder eine Verlängerung im Rückstand.}}"
+        "immutability_warning": "{count, plural, one {Unveränderbarkeit ist eingestellt, aber # Repository hat Objekte ohne Sperre oder eine Verlängerung im Rückstand.} other {Unveränderbarkeit ist eingestellt, aber # Repositories haben Objekte ohne Sperre oder eine Verlängerung im Rückstand.}}",
+        "inactive_to_confirm": "{count, plural, one {# Objekt wird nicht mehr gesichert und wartet auf eine Bestätigung.} other {# Objekte werden nicht mehr gesichert und warten auf eine Bestätigung.}}"
       },
       "empty": {
         "title": "Keine Hinweise",

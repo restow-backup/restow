@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  inactiveState,
   readinessWithoutFreshness,
   type ScrubJobPayload,
   type VerifyJobPayload,
@@ -97,6 +98,14 @@ export interface ObjectDto {
    * licence); null otherwise. Rated like any orphaned object: never overdue, age set aside.
    */
   statusReason: ProtectedObject["statusReason"];
+  /**
+   * When an orphaned object stopped being backed up, and who confirmed that this is intended
+   * (@restow/core `inactiveState`; ISO strings on the wire). Unconfirmed: amber, the tenant
+   * reads at least yellow. Null for every other object.
+   */
+  inactiveSince: Date | null;
+  statusConfirmedAt: Date | null;
+  statusConfirmedBy: string | null;
   /**
    * The linked directory user's primary address, when known. `externalId` is
    * a stable identifier, not something to show: for a mailbox and a OneDrive
@@ -281,6 +290,9 @@ const objectColumns = {
   externalId: protectedObjects.externalId,
   status: protectedObjects.status,
   statusReason: protectedObjects.statusReason,
+  inactiveSince: protectedObjects.inactiveSince,
+  statusConfirmedAt: protectedObjects.statusConfirmedAt,
+  statusConfirmedBy: protectedObjects.statusConfirmedBy,
   // Every query that selects these columns must also
   // `leftJoin(users, eq(protectedObjects.userId, users.id))` (left, so an
   // object whose user link is gone still comes back, address-less).
@@ -576,11 +588,17 @@ export async function readinessOverview(
 
     const items: ObjectReadinessDto[] = [];
     const lastLookedAt: (Date | null)[] = [];
+    // Unconfirmed objects no longer backed up that have no backup: nothing to rate, but they wait
+    // for a decision all the same (summary.ts `toConfirm`).
+    let unratedToConfirm = 0;
     for (const { protectedSince, ...object } of objects) {
       const facts = verifications.get(object.id);
       const latestSnapshot = facts?.latestSnapshot ?? null;
       // Excluded objects are not protected; orphaned ones count while their backups exist.
       if (object.status === "excluded" || (object.status === "orphaned" && !latestSnapshot)) {
+        if (inactiveState(object) === "to_confirm") {
+          unratedToConfirm += 1;
+        }
         continue;
       }
       const verification = facts?.verification ?? { state: "no_backup", report: null };
@@ -630,6 +648,7 @@ export async function readinessOverview(
           overdue: item.overdue,
           // When a check last ran, even one that rated an older backup.
           checkedAt: lastLookedAt[index] ?? null,
+          toConfirm: inactiveState(item.object) === "to_confirm",
         })),
         // Servers and clients count like any other protected object.
         ...endpointOverview.rated,
@@ -639,6 +658,7 @@ export async function readinessOverview(
         ...shareOverview.rated,
       ],
       runningByObject.size,
+      unratedToConfirm,
     );
     return {
       summary,

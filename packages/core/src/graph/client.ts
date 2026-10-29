@@ -538,10 +538,29 @@ export class FetchGraphClient implements GraphClient {
   }
 
   async batch(callerRequests: BatchRequest[]): Promise<BatchResponse[]> {
-    // Graph refuses a whole $batch whose request ids repeat (400 "has to be unique
-    // in a batch"). Callers often use resource ids, which can repeat, so the
-    // batch sends its own ids (the position) and hands back the caller's.
-    const requests = callerRequests.map((r, index) => ({ ...r, id: String(index) }));
+    // Graph refuses a whole $batch whose request ids repeat (400 "Request Id ... has to be
+    // unique in a batch"; seen in production up to 2026-10-10 with message/folder ids, fixed
+    // in 0f67c28/v0.3.2). Callers often use resource ids, which can repeat, so the batch
+    // sends its own ids (the slot) and hands back the caller's. On top, an identical read
+    // (same method, URL and headers, no body) is sent once and its answer given to every
+    // caller that asked: a delta page that lists an item twice costs one sub-request, and a
+    // retry or token refresh re-sends slots, never caller entries, so no id can repeat in
+    // any round. Writes (POST/PATCH subscriptions) are never collapsed.
+    const slotKeys = new Map<string, number>();
+    const requests: BatchRequest[] = [];
+    const slotOf: number[] = [];
+    for (const r of callerRequests) {
+      const key = batchDedupeKey(r);
+      let slot = key === undefined ? undefined : slotKeys.get(key);
+      if (slot === undefined) {
+        slot = requests.length;
+        requests.push({ ...r, id: String(slot) });
+        if (key !== undefined) {
+          slotKeys.set(key, slot);
+        }
+      }
+      slotOf.push(slot);
+    }
     const responses = new Map<string, BatchResponse>();
     let pending = requests;
     // Sub-requests refused (401/403) with a token that may predate a granted permission are
@@ -601,11 +620,11 @@ export class FetchGraphClient implements GraphClient {
         await this.waitForRetry(429, attempt, "/$batch", longestRetryAfter);
       }
     }
-    // Keep the caller's order so results line up with the requests.
-    return requests.flatMap((r, index) => {
-      const found = responses.get(r.id);
-      const callerId = callerRequests[index]?.id ?? r.id;
-      return found ? [{ ...found, id: callerId }] : [];
+    // Keep the caller's order so results line up with the requests; a collapsed read
+    // answers each of its callers under that caller's own id.
+    return callerRequests.flatMap((r, index) => {
+      const found = responses.get(String(slotOf[index]));
+      return found ? [{ ...found, id: r.id }] : [];
     });
   }
 
@@ -641,6 +660,22 @@ export class FetchGraphClient implements GraphClient {
 }
 
 /** Graph requires an explicit Content-Type on batch sub-requests that carry a body. */
+/**
+ * Identity of a sub-request that may be answered for several callers at once: only a read
+ * without a body (method, URL, headers with lower-cased names in a fixed order). Undefined
+ * for anything that writes, so two creations are always sent as two.
+ */
+export function batchDedupeKey(r: BatchRequest): string | undefined {
+  const method = r.method.toUpperCase();
+  if (!IDEMPOTENT_METHODS.has(method) || r.body !== undefined) {
+    return undefined;
+  }
+  const headers = Object.entries(lowerCaseKeys(r.headers)).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  return JSON.stringify([method, r.url, headers]);
+}
+
 function toBatchPayload(r: BatchRequest) {
   const headers =
     r.body !== undefined &&

@@ -13,7 +13,7 @@ import { apiFetch } from "@/lib/api";
 export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 /** Why an `orphaned` Microsoft 365 mailbox is not backed up while its account still exists. */
-export type ObjectStatusReason = "account_disabled" | "no_license";
+export type ObjectStatusReason = "account_disabled" | "no_license" | "locked";
 export type EntryKind = "mail" | "folder" | "file" | "event" | "contact";
 export type RestoreTargetType = "original" | "other" | "download";
 export type RestoreMode = "rename" | "replace" | "skip";

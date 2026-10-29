@@ -30,6 +30,24 @@ describe("runs that were not backed up because the account is inactive", () => {
     expect(notBackedUpReason("failed", failure("no_license"))).toBe("no_license");
     expect(notBackedUpReason("failed", failure(undefined))).toBe("no_license");
     expect(notBackedUpReason("failed", { code: "graph.throttled" })).toBeNull();
+    expect(notBackedUpReason("failed", { code: "graph.object_locked" })).toBe("locked");
+    expect(
+      notBackedUpReason("failed", { code: "config.object_inactive", params: { reason: "locked" } }),
+    ).toBe("locked");
+  });
+
+  it("include a locked OneDrive or site, which points at unlocking it", () => {
+    expect(isNotBackedUpFailure("failed", { code: "graph.object_locked" })).toBe(true);
+    expect(
+      catalogEntry("graph.object_locked")
+        ?.steps({})
+        .map((step) => step.id),
+    ).toEqual(["unlock_object", "sync_directory"]);
+    expect(
+      catalogEntry("config.object_inactive")
+        ?.steps({ reason: "locked" })
+        .map((step) => step.id),
+    ).toEqual(["unlock_object", "sync_directory"]);
   });
 
   it("point at what brings the mailbox back", () => {

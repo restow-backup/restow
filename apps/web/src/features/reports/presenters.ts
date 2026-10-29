@@ -89,6 +89,9 @@ export const EVENT_GROUPS: Record<
     "restore.completed",
     "archive.failed",
     "directory.failed",
+    // Objects no longer backed up that wait for a confirmation (one notice, or one warning for many).
+    "object.inactive",
+    "object.inactive_many",
     "endpoint.stale",
     "endpoint.repository_locked",
     "file_share.repository_locked",

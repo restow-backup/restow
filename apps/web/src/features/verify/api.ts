@@ -12,7 +12,7 @@ export type ObjectState = Readiness | "unverified" | "no_backup";
 export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 /** Why an `orphaned` Microsoft 365 mailbox is not backed up while its account still exists. */
-export type ObjectStatusReason = "account_disabled" | "no_license";
+export type ObjectStatusReason = "account_disabled" | "no_license" | "locked";
 export type CheckKind = "verify" | "health_check";
 export type ReportOrigin = "verify" | "scrub" | "unknown";
 export type SampleCategory = "mail" | "file" | "event" | "contact";
@@ -37,6 +37,13 @@ export interface VerifyObject {
    * backups resume once it is enabled or licensed again); null or absent otherwise.
    */
   statusReason?: ObjectStatusReason | null;
+  /**
+   * An orphaned object's confirmation: null while nobody confirmed that it is intentionally no
+   * longer backed up (amber), set once someone did (grey); absent from an older server.
+   */
+  statusConfirmedAt?: string | null;
+  statusConfirmedBy?: string | null;
+  inactiveSince?: string | null;
   /** The linked directory user's primary address, when known. */
   email: string | null;
   upn: string | null;
@@ -124,6 +131,11 @@ export interface ReadinessSummary {
   unverified: number;
   noBackup: number;
   overdue: number;
+  /**
+   * Objects no longer backed up that nobody confirmed as intended yet: they keep `overall` from
+   * green (absent from an older server).
+   */
+  toConfirm?: number;
   overall: Readiness | null;
   lastCheckedAt: string | null;
   running: number;

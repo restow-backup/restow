@@ -30,7 +30,7 @@ export interface ObjectInfo {
   kind: "mailbox" | "onedrive" | "imap" | "site" | "group";
   status: "active" | "excluded" | "orphaned";
   /** Why an orphaned mailbox is not backed up (account disabled, no licence); else null. */
-  statusReason: "account_disabled" | "no_license" | null;
+  statusReason: "account_disabled" | "no_license" | "locked" | null;
   displayName: string | null;
   externalId: string;
   sourceId: string;

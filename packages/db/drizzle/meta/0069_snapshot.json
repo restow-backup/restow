@@ -13382,6 +13382,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "inactive_since": {
+          "name": "inactive_since",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inactive_notified_at": {
+          "name": "inactive_notified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status_confirmed_at": {
+          "name": "status_confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status_confirmed_by": {
+          "name": "status_confirmed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "secret_ref": {
           "name": "secret_ref",
           "type": "uuid",
@@ -13553,7 +13577,11 @@
       "checkConstraints": {
         "protected_objects_status_reason_ck": {
           "name": "protected_objects_status_reason_ck",
-          "value": "\"protected_objects\".\"status_reason\" IS NULL OR \"protected_objects\".\"status_reason\" IN ('account_disabled', 'no_license')"
+          "value": "\"protected_objects\".\"status_reason\" IS NULL OR \"protected_objects\".\"status_reason\" IN ('account_disabled', 'no_license', 'locked')"
+        },
+        "protected_objects_status_confirmed_ck": {
+          "name": "protected_objects_status_confirmed_ck",
+          "value": "(\"protected_objects\".\"status_confirmed_at\" IS NULL) = (\"protected_objects\".\"status_confirmed_by\" IS NULL)"
         }
       },
       "isRLSEnabled": false

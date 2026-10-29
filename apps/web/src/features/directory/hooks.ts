@@ -4,7 +4,9 @@ import * as React from "react";
 import { useSession } from "@/lib/session";
 
 import {
+  bulkConfirmInactive,
   bulkSetProtection,
+  confirmInactive,
   deleteAccount,
   directoryKeys,
   fetchDirectorySources,
@@ -20,6 +22,7 @@ import {
 } from "./api";
 import type {
   BulkProtectionInput,
+  ConfirmInactiveInput,
   DirectorySource,
   ObjectsQuery,
   ProtectionAction,
@@ -135,6 +138,23 @@ export function useBulkSetProtection() {
     mutationFn: ({ sourceId, input }: { sourceId: string; input: BulkProtectionInput }) =>
       bulkSetProtection(sourceId, input),
     onSuccess: () => invalidate(),
+  });
+}
+
+/** "Yes, intended" for one object, or several (`objectId` absent, `input` given). */
+export function useConfirmInactive() {
+  const invalidate = useInvalidateDirectory();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (target: { objectId: string; note?: string } | { input: ConfirmInactiveInput }) =>
+      "objectId" in target
+        ? confirmInactive(target.objectId, target.note)
+        : bulkConfirmInactive(target.input),
+    onSuccess: () => {
+      void invalidate();
+      // Readiness, warnings and the dashboard count the objects that wait for a confirmation.
+      void queryClient.invalidateQueries();
+    },
   });
 }
 

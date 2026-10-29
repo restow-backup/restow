@@ -266,6 +266,10 @@
       },
       "sync": {
         "requested": "Verzeichnisabgleich gestartet"
+      },
+      "inactive": {
+        "confirmed": "Nicht mehr gesichertes Objekt als beabsichtigt bestätigt",
+        "bulk_confirmed": "Nicht mehr gesicherte Objekte als beabsichtigt bestätigt"
       }
     },
     "export": {

@@ -66,6 +66,14 @@ export function objectStatusView(object: ProtectedObject): {
   if (object.notSelected) {
     return { variant: "muted", suffix: "not_selected" };
   }
+  // No longer backed up (removed, disabled, unlicensed, locked at the source): amber until an
+  // admin confirms it is intended, then grey; the reason and date are a line of their own
+  // (inactiveDetail). An older server without the confirmation keeps the earlier display.
+  if (object.status === "orphaned" && object.inactiveState) {
+    return object.inactiveState === "to_confirm"
+      ? { variant: "warning", suffix: "to_confirm" }
+      : { variant: "muted", suffix: "confirmed" };
+  }
   // Disabled or unlicensed: neutral, nothing to fix here, backups resume by themselves.
   if (object.status === "orphaned" && object.statusReason) {
     return { variant: "muted", suffix: `inactive_${object.statusReason}` };
@@ -81,6 +89,37 @@ export function objectStatusView(object: ProtectedObject): {
     return { variant: "warning", suffix: "unscheduled" };
   }
   return { variant: STATUS_VARIANT[object.status], suffix: object.status };
+}
+
+/**
+ * The line under the status of an object no longer backed up: why (`inactive.reason.*`, keyed
+ * by the reason, `removed` when it left the source), since when, a hint at the owner's account
+ * for a locked OneDrive, and who confirmed it when (the upgrade backfill and the exclusion
+ * case are automatic: `migration`, `excluded`). Null for every other object.
+ */
+export function inactiveDetail(object: ProtectedObject): {
+  reasonKey: string;
+  since: string | null;
+  hintKey: string | null;
+  confirmed: { by: string; at: string; byMigration: boolean; byExclusion: boolean } | null;
+} | null {
+  if (object.status !== "orphaned" || !object.inactiveState) {
+    return null;
+  }
+  const by = object.statusConfirmedBy ?? null;
+  const at = object.statusConfirmedAt ?? null;
+  return {
+    reasonKey: `inactive.reason.${object.statusReason ?? "removed"}`,
+    since: object.inactiveSince ?? null,
+    hintKey:
+      object.statusReason === "locked" && object.lockHint
+        ? `inactive.lockHint.${object.lockHint}`
+        : null,
+    confirmed:
+      object.inactiveState === "confirmed" && by && at
+        ? { by, at, byMigration: by === "migration", byExclusion: by === "excluded" }
+        : null,
+  };
 }
 
 export const READINESS_VARIANT: Record<RecoveryReadiness, BadgeVariant> = {
@@ -242,6 +281,8 @@ export function availableActions(object: ProtectedObject): {
   exclude: boolean;
   reset: boolean;
   remove: boolean;
+  /** "Yes, intended": the object is no longer backed up and nobody confirmed that yet. */
+  confirmInactive: boolean;
 } {
   const m365 = object.sourceKind === "m365";
   // A disabled or unlicensed mailbox is still in the directory: a decision about it holds once
@@ -252,6 +293,7 @@ export function availableActions(object: ProtectedObject): {
     exclude: live && (m365 ? object.override !== "exclude" : object.status !== "excluded"),
     reset: m365 && object.override !== null,
     remove: object.origin === "manual",
+    confirmInactive: object.status === "orphaned" && object.inactiveState === "to_confirm",
   };
 }
 

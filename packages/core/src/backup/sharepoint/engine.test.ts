@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JobAbortedError } from "../../engine/chunkstore.js";
 import { SnapshotWriter } from "../../engine/snapshot.js";
 import type { ProtectedObjectRef } from "../../engine/types.js";
+import { classifyFailure } from "../../failures/classify.js";
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { Harness, TENANT } from "../onedrive/testing.js";
 import { SharePointBackupEngine, SiteUnavailableError } from "./engine.js";
@@ -206,6 +207,31 @@ describe("SharePointBackupEngine", () => {
     const manifest = await harness.manifest(second);
     expect(at(manifest, "Lists/Team Tasks/Call customer (1).json").metadata?.stale).toBe("true");
     expect(manifest.objects.map((object) => object.path)).toContain("Lists/Team Tasks/_list.json");
+  });
+
+  it("ends on the lock instead of committing kept copies when every library answers 423", async () => {
+    const { sp, documents, pages } = world();
+    const ids = { snap: 1, pack: 1 };
+    await engine(sp, ids).run(harness.context(), siteObject, {});
+    documents.refuse = 423;
+    pages.refuse = 423;
+    const error = await engine(sp, ids)
+      .run(harness.context({ jobId: "job-2" }), siteObject, {})
+      .then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+    expect(error).toMatchObject({ status: 423 });
+    expect(classifyFailure(error).code).toBe("graph.object_locked");
+  });
+
+  it("keeps one locked library a part failure while the others are readable", async () => {
+    const { sp, documents } = world();
+    const ids = { snap: 1, pack: 1 };
+    await engine(sp, ids).run(harness.context(), siteObject, {});
+    documents.refuse = 423;
+    const second = await engine(sp, ids).run(harness.context({ jobId: "job-2" }), siteObject, {});
+    expect(second.failures.map((failure) => failure.itemRef)).toEqual(["Libraries/Documents"]);
   });
 
   it("fails with SiteUnavailableError when the site is gone", async () => {

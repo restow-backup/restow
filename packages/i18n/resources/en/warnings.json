@@ -127,5 +127,7 @@
     "noFolder": "Top level",
     "receivedAt": "Received {when}",
     "failedAt": "Failed {when}"
-  }
+  },
+  "toConfirmHint": "{count, plural, one {# object is no longer backed up (removed, disabled, unlicensed or locked) and waits for a confirmation.} other {# objects are no longer backed up (removed, disabled, unlicensed or locked) and wait for a confirmation.}} That is not a failure, but readiness stays yellow until it is confirmed.",
+  "openToConfirm": "Check and confirm"
 }

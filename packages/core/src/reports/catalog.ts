@@ -17,6 +17,8 @@ export const REPORT_EVENTS = [
   "restore.completed",
   "archive.failed",
   "directory.failed",
+  "object.inactive",
+  "object.inactive_many",
   "verify.red",
   "verify.yellow",
   "verify.recovered",
@@ -81,6 +83,14 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "restore.completed": { group: "jobs", level: "info", webhookEvent: "job.completed" },
   "archive.failed": { group: "jobs", level: "error", webhookEvent: "job.failed" },
   "directory.failed": { group: "jobs", level: "warning", webhookEvent: "job.failed" },
+  // Restow stopped backing up an object because the source says it is gone, disabled,
+  // unlicensed or locked (core directory/inactive.ts): once per object and transition, until an
+  // admin confirms it ("Yes, intended"). A notice; apps/worker inactive-notices.ts.
+  "object.inactive": { group: "jobs", level: "info" },
+  // The same for many objects of a tenant at once (more than 10, or more than 20% of its active
+  // objects in one sync or day): one warning instead of a notice per object, since a mass change
+  // at the source (licences removed, a wrong sync scope) is worth a look before confirming.
+  "object.inactive_many": { group: "jobs", level: "warning" },
   "verify.red": { group: "recoverability", level: "error" },
   "verify.yellow": { group: "recoverability", level: "warning" },
   "verify.recovered": { group: "recoverability", level: "info" },

@@ -404,6 +404,12 @@ export function buildChatMessage(
         reportEvent === "source.app_secret_expiring" && envelope.tenantId
           ? str(details.sourceId)
           : null;
+      // Objects no longer backed up: the tenant's protected objects that wait for a decision.
+      const toConfirm =
+        (reportEvent === "object.inactive" || reportEvent === "object.inactive_many") &&
+        envelope.tenantId
+          ? `/tenants/${seg(envelope.tenantId)}/protection?status=to_confirm`
+          : null;
       return {
         ...base,
         severity:
@@ -415,17 +421,19 @@ export function buildChatMessage(
         fields: ruleName ? [{ name: t("notifications:chat.fields.rule"), value: ruleName }] : [],
         timestamp: str(data.occurredAt) ?? base.timestamp,
         link: link(
-          jobId
-            ? `/history/${seg(jobId)}`
-            : endpointId
-              ? `/inventory/${seg(endpointId)}`
-              : guestId
-                ? `/virtualization/${seg(guestId)}`
-                : shareId
-                  ? `/file-shares/${seg(shareId)}`
-                  : sourceId && envelope.tenantId
-                    ? `/tenants/${seg(envelope.tenantId)}/connections/sources/${seg(sourceId)}`
-                    : "/alerts",
+          toConfirm
+            ? toConfirm
+            : jobId
+              ? `/history/${seg(jobId)}`
+              : endpointId
+                ? `/inventory/${seg(endpointId)}`
+                : guestId
+                  ? `/virtualization/${seg(guestId)}`
+                  : shareId
+                    ? `/file-shares/${seg(shareId)}`
+                    : sourceId && envelope.tenantId
+                      ? `/tenants/${seg(envelope.tenantId)}/connections/sources/${seg(sourceId)}`
+                      : "/alerts",
         ),
       };
     }

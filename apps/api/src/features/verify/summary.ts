@@ -72,6 +72,13 @@ export interface RatedObject {
    * backup job is counted in `sharesWithoutJob`, not with the machines.
    */
   readonly share?: boolean;
+  /**
+   * An object Restow stopped backing up (removed, disabled, unlicensed, locked at the source)
+   * that no admin confirmed yet (@restow/core `inactiveState` `to_confirm`). Its own rating is
+   * kept (a red check stays red), but it never lets the tenant read as fine (at least yellow)
+   * until someone decides, and it is counted in `toConfirm`.
+   */
+  readonly toConfirm?: boolean;
 }
 
 export interface ReadinessSummaryDto {
@@ -94,6 +101,11 @@ export interface ReadinessSummaryDto {
    * up any more. Like `withoutJob`, any of them keeps the tenant from green.
    */
   sharesWithoutJob: number;
+  /**
+   * Objects no longer backed up that wait for an admin's "Yes, intended", with or without a
+   * backup of their own. Any of them keeps the tenant from green (yellow, never red).
+   */
+  toConfirm: number;
   /** Worst state across all objects; null when the tenant protects nothing yet. */
   overall: Readiness | null;
   /** Newest rating date across all objects. */
@@ -102,22 +114,40 @@ export interface ReadinessSummaryDto {
   running: number;
 }
 
-/** Red if anything cannot be restored or is unproven; yellow if anything needs attention. */
-export function overallReadiness(objects: readonly RatedObject[]): Readiness | null {
+/**
+ * Red if anything cannot be restored or is unproven; yellow if anything needs attention.
+ * `unratedToConfirm` counts objects no longer backed up that wait for a confirmation but have no
+ * backup to rate (so they are no {@link RatedObject}): they make the tenant yellow as well.
+ */
+export function overallReadiness(
+  objects: readonly RatedObject[],
+  unratedToConfirm = 0,
+): Readiness | null {
   if (objects.length === 0) {
-    return null;
+    return unratedToConfirm > 0 ? "yellow" : null;
   }
   const unproven = new Set<ObjectState>(["red", "unverified", "no_backup"]);
   if (objects.some((object) => unproven.has(object.state))) {
     return "red";
   }
-  if (objects.some((object) => object.state === "yellow" || object.overdue || object.withoutJob)) {
+  if (
+    unratedToConfirm > 0 ||
+    objects.some(
+      (object) =>
+        object.state === "yellow" || object.overdue || object.withoutJob || object.toConfirm,
+    )
+  ) {
     return "yellow";
   }
   return "green";
 }
 
-export function summarize(objects: readonly RatedObject[], running: number): ReadinessSummaryDto {
+export function summarize(
+  objects: readonly RatedObject[],
+  running: number,
+  /** Unconfirmed objects no longer backed up that have no backup (see {@link overallReadiness}). */
+  unratedToConfirm = 0,
+): ReadinessSummaryDto {
   const countOf = (state: ObjectState) => objects.filter((object) => object.state === state).length;
   const newest = objects.reduce<Date | null>(
     (latest, object) =>
@@ -141,7 +171,8 @@ export function summarize(objects: readonly RatedObject[], running: number): Rea
     sharesWithoutJob: objects.filter(
       (object) => object.withoutJob === true && object.share === true,
     ).length,
-    overall: overallReadiness(objects),
+    toConfirm: objects.filter((object) => object.toConfirm === true).length + unratedToConfirm,
+    overall: overallReadiness(objects, unratedToConfirm),
     lastCheckedAt: newest?.toISOString() ?? null,
     running,
   };

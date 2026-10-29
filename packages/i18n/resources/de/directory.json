@@ -28,7 +28,10 @@
     "not_selected": "Nicht ausgewählt",
     "needs_credential": "Braucht Aufmerksamkeit",
     "no_job": "Ohne Backup-Job",
-    "unscheduled": "Job ohne Zeitplan"
+    "unscheduled": "Job ohne Zeitplan",
+    "inactive_locked": "Nicht gesichert: gesperrt",
+    "to_confirm": "Nicht mehr gesichert, bitte bestätigen",
+    "confirmed": "Absichtlich nicht mehr gesichert"
   },
   "statusHint": {
     "active": "Im Schutzumfang und in einem Backup-Job, der nach Zeitplan sichert.",
@@ -39,7 +42,10 @@
     "not_selected": "Der Schutzumfang ist \"Nur ausgewählte Objekte\", und niemand hat dieses Objekt ausgewählt: Es laufen keine neuen Sicherungen. Vorhandene Sicherungen bleiben, bis die Aufbewahrung sie entfernt.",
     "needs_credential": "Im Schutzumfang, aber für dieses Konto ist noch kein eigenes, funktionierendes Passwort gesetzt: Erst wenn unter Login eines gesetzt und erfolgreich getestet wurde, kann eine Sicherung laufen.",
     "no_job": "Kann gesichert werden, ist aber in keinem Backup-Job: Nach Zeitplan gesichert wird es erst, wenn ein Job es umfasst.",
-    "unscheduled": "In einem Backup-Job, der pausiert ist oder nur von Hand läuft: Es wird nicht automatisch gesichert."
+    "unscheduled": "In einem Backup-Job, der pausiert ist oder nur von Hand läuft: Es wird nicht automatisch gesichert.",
+    "inactive_locked": "Microsoft hat dieses OneDrive oder diese Website gesperrt (HTTP 423), meist weil das Konto keine Lizenz mehr hat. Vorhandene Sicherungen bleiben erhalten. Sobald die Sperre aufgehoben ist, wird nach dem nächsten Verzeichnisabgleich automatisch wieder gesichert.",
+    "to_confirm": "{appName} sichert dieses Objekt nicht mehr, weil die Quelle es als entfernt, deaktiviert, ohne Lizenz oder gesperrt meldet. Das ist kein Fehler. Bestätigen Sie mit \"Ja, beabsichtigt\", dass das so gewollt ist; bis dahin bleibt die Bereitschaft gelb. Vorhandene Sicherungen bleiben erhalten.",
+    "confirmed": "Ein Administrator hat bestätigt, dass dieses Objekt absichtlich nicht mehr gesichert wird. Vorhandene Sicherungen bleiben erhalten. Wird es an der Quelle wieder aktiv, sichert {appName} es von selbst wieder, und die Bestätigung entfällt."
   },
   "override": {
     "include": "Immer eingeschlossen",
@@ -73,11 +79,13 @@
     "limitedWhen": "Ein Dienst hat den letzten Sicherungslauf {when} gebremst. Das ist kein Fehler; der nächste geplante Lauf versucht es erneut.",
     "notBackedUp": {
       "account_disabled": "Nicht gesichert: Konto deaktiviert",
-      "no_license": "Nicht gesichert: keine Lizenz"
+      "no_license": "Nicht gesichert: keine Lizenz",
+      "locked": "Nicht gesichert: gesperrt"
     },
     "notBackedUpHint": {
       "account_disabled": "Das Konto ist deaktiviert, deshalb stellt Microsoft kein Postfach zum Sichern bereit. Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und sobald das Konto wieder aktiviert ist, wird automatisch wieder gesichert.",
-      "no_license": "Das Konto hat keine Exchange-Online-Lizenz, deshalb stellt Microsoft kein Postfach zum Sichern bereit. Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und sobald wieder eine Lizenz zugewiesen ist, wird automatisch wieder gesichert."
+      "no_license": "Das Konto hat keine Exchange-Online-Lizenz, deshalb stellt Microsoft kein Postfach zum Sichern bereit. Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und sobald wieder eine Lizenz zugewiesen ist, wird automatisch wieder gesichert.",
+      "locked": "Microsoft beantwortet jeden Zugriff auf dieses OneDrive oder diese Website mit HTTP 423 (gesperrt). Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und sobald die Sperre aufgehoben ist, wird wieder gesichert."
     },
     "openJob": "Lauf öffnen",
     "snapshots": "{count, plural, one {# Sicherungsstand} other {# Sicherungsstände}}",
@@ -279,7 +287,8 @@
       "sites_permission": "SharePoint-Websites werden weder gefunden noch gesichert: Der Tenant hat der App der Sicherung Sites.Read.All oder Sites.ReadWrite.All nicht erteilt ({status}). Mail und OneDrive sind nicht betroffen. Führen Sie die Administratorzustimmung für diesen Tenant erneut aus, sobald die App-Registrierung die Berechtigung enthält.",
       "sites_unavailable": "SharePoint-Websites konnten nicht aufgelistet werden ({status}); die bisher bekannten Websites bleiben unverändert.",
       "groups_permission": "Microsoft-365-Gruppen werden nicht gelesen: Der Tenant hat der App der Sicherung Group.Read.All nicht erteilt ({status}). Gruppenkalender und Unterhaltungen werden weder gefunden noch gesichert; Mail, OneDrive und SharePoint sind nicht betroffen. Führen Sie die Administratorzustimmung für diesen Tenant erneut aus.",
-      "groups_unavailable": "Microsoft-365-Gruppen konnten nicht gelesen werden ({status}); die bisher bekannten Gruppen bleiben unverändert."
+      "groups_unavailable": "Microsoft-365-Gruppen konnten nicht gelesen werden ({status}); die bisher bekannten Gruppen bleiben unverändert.",
+      "lock_probe_failed": "Ob {user} noch gesperrt ist, konnte nicht geprüft werden ({status}); es bleibt als gesperrt geführt."
     },
     "result": {
       "queued": "Verzeichnisabgleich eingereiht.",
@@ -460,5 +469,36 @@
     "added": "{count, plural, one {{name} ist jetzt im Job {job}} other {# Objekte sind jetzt im Job {job}}}",
     "addedNote": "Ab jetzt gilt der Zeitplan des Jobs.",
     "folders": "{path}"
+  },
+  "inactive": {
+    "reason": {
+      "removed": "Nicht mehr in der Quelle",
+      "account_disabled": "Konto deaktiviert",
+      "no_license": "Konto ohne Lizenz",
+      "locked": "Von Microsoft gesperrt"
+    },
+    "reasonSince": "{reason}, seit {date}",
+    "lockHint": {
+      "no_license": "Das Konto hat keine Lizenz",
+      "account_disabled": "Das Konto ist deaktiviert"
+    },
+    "confirmedBy": "Bestätigt von {who} am {date}",
+    "confirmedByMigration": "Schon vor dem Update nicht mehr gesichert",
+    "confirmedByExclusion": "War ausgeschlossen und wurde nie gesichert",
+    "confirmAction": "Ja, beabsichtigt",
+    "confirm": {
+      "title": "{name} absichtlich nicht mehr sichern?",
+      "description": "Das Objekt bleibt nicht gesichert und wird grau statt gelb angezeigt. Vorhandene Sicherungen bleiben erhalten. Wird es an der Quelle wieder aktiv, sichert {appName} es von selbst wieder."
+    },
+    "bulkConfirm": {
+      "title": "{count, plural, one {# Objekt absichtlich nicht mehr sichern?} other {# Objekte absichtlich nicht mehr sichern?}}",
+      "description": "Bestätigt werden nur Objekte, die nicht mehr gesichert werden und noch auf eine Bestätigung warten. Vorhandene Sicherungen bleiben erhalten."
+    },
+    "done": {
+      "one": "{name}: als beabsichtigt bestätigt",
+      "bulk": "{count, plural, =0 {Kein Objekt wartete auf eine Bestätigung} one {# Objekt als beabsichtigt bestätigt} other {# Objekte als beabsichtigt bestätigt}}"
+    },
+    "banner": "{count, plural, one {# Objekt wird nicht mehr gesichert und wartet auf Ihre Bestätigung.} other {# Objekte werden nicht mehr gesichert und warten auf Ihre Bestätigung.}}",
+    "showToConfirm": "Anzeigen"
   }
 }

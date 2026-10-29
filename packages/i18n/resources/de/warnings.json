@@ -127,5 +127,7 @@
     "noFolder": "Oberste Ebene",
     "receivedAt": "Empfangen {when}",
     "failedAt": "Fehlgeschlagen {when}"
-  }
+  },
+  "toConfirmHint": "{count, plural, one {# Objekt wird nicht mehr gesichert (entfernt, deaktiviert, ohne Lizenz oder gesperrt) und wartet auf eine Bestätigung.} other {# Objekte werden nicht mehr gesichert (entfernt, deaktiviert, ohne Lizenz oder gesperrt) und warten auf eine Bestätigung.}} Das ist kein Fehler, bis zur Bestätigung bleibt die Bereitschaft aber gelb.",
+  "openToConfirm": "Prüfen und bestätigen"
 }

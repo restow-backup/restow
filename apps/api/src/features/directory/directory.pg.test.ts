@@ -1074,4 +1074,143 @@ describe.skipIf(!testDatabaseAdminUrl)("directory service against Postgres", () 
       expect(row).toBeUndefined();
     });
   });
+
+  describe("objects no longer backed up: the confirmation", () => {
+    /** Orphan objects the way a sync or backup does: the 0069 trigger starts them unconfirmed. */
+    async function orphan(ids: readonly string[], reason: "no_license" | "locked" | null) {
+      for (const id of ids) {
+        await db
+          .update(protectedObjects)
+          .set({ status: "orphaned", statusReason: reason })
+          .where(eq(protectedObjects.id, id));
+      }
+    }
+
+    it("confirms one object, audits it, answers a repeat as a no-op and refuses an active one", async () => {
+      const { objectIds } = await m365Source("Confirm-One", 2);
+      const [gone, active] = objectIds as [string, string];
+      await orphan([gone], "no_license");
+      const before = await service.listObjects(db, tenantId, {
+        status: "to_confirm",
+        page: 1,
+        pageSize: 25,
+        sort: "name",
+        order: "asc",
+      });
+      expect(before.items.map((item) => item.id)).toContain(gone);
+      expect(before.items.find((item) => item.id === gone)).toMatchObject({
+        inactiveState: "to_confirm",
+        statusReason: "no_license",
+        statusConfirmedAt: null,
+      });
+      expect(before.items.find((item) => item.id === gone)?.inactiveSince).not.toBeNull();
+
+      const result = await service.confirmInactiveObject(
+        db,
+        tenantId,
+        gone,
+        { note: "Left the company" },
+        actor("lead@contoso.example"),
+      );
+      expect(result).toMatchObject({ confirmed: 1, skipped: 0 });
+      expect(result.objects[0]).toMatchObject({
+        inactiveState: "confirmed",
+        statusConfirmedBy: "lead@contoso.example",
+      });
+      const audits = await db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.target, gone), eq(auditLog.action, "directory.inactive.confirmed")));
+      expect(audits).toHaveLength(1);
+      expect(audits[0]?.details).toMatchObject({ reason: "no_license", note: "Left the company" });
+
+      const again = await service.confirmInactiveObject(db, tenantId, gone, {}, actor());
+      expect(again).toMatchObject({ confirmed: 0, skipped: 1 });
+      expect(again.objects[0]?.statusConfirmedBy).toBe("lead@contoso.example");
+
+      await expect(
+        service.confirmInactiveObject(db, tenantId, active, {}, actor()),
+      ).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:object-not-inactive",
+      });
+    });
+
+    it("confirms several by id or by filter, only those waiting, with one audit entry", async () => {
+      const { sourceId, objectIds } = await m365Source("Confirm-Bulk", 4);
+      const [a, b, c, active] = objectIds as [string, string, string, string];
+      await orphan([a, b, c], "locked");
+      const byIds = await service.bulkConfirmInactive(
+        db,
+        tenantId,
+        { objectIds: [a, active] },
+        actor("bulk@contoso.example"),
+      );
+      expect(byIds).toMatchObject({ confirmed: 1, skipped: 1 });
+
+      const byFilter = await service.bulkConfirmInactive(
+        db,
+        tenantId,
+        { filter: { sourceId } },
+        actor("bulk@contoso.example"),
+      );
+      expect(byFilter.confirmed).toBe(2);
+      expect(byFilter.objects.map((object) => object.id).sort()).toEqual([b, c].sort());
+      const audits = await db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.tenantId, tenantId),
+            eq(auditLog.action, "directory.inactive.bulk_confirmed"),
+          ),
+        );
+      expect(
+        audits.map((entry) => (entry.details as { confirmed: number }).confirmed).sort(),
+      ).toEqual([1, 2]);
+      const confirmed = await service.listObjects(db, tenantId, {
+        status: "confirmed",
+        sourceId,
+        page: 1,
+        pageSize: 25,
+        sort: "name",
+        order: "asc",
+      });
+      expect(confirmed.total).toBe(3);
+
+      // Back at the source: active, the confirmation gone with it.
+      await db.update(protectedObjects).set({ status: "active" }).where(eq(protectedObjects.id, a));
+      const [row] = await db.select().from(protectedObjects).where(eq(protectedObjects.id, a));
+      expect(row).toMatchObject({ statusConfirmedAt: null, statusConfirmedBy: null });
+    });
+
+    it("counts an excluded object that leaves the source as confirmed: it was never backed up", async () => {
+      const { sourceId, objectIds } = await m365Source("Confirm-Excluded", 2);
+      const [excluded, protectedOne] = objectIds as [string, string];
+      await db
+        .update(protectedObjects)
+        .set({ status: "excluded" })
+        .where(eq(protectedObjects.id, excluded));
+      await orphan([excluded, protectedOne], null);
+      const [row] = await db
+        .select()
+        .from(protectedObjects)
+        .where(eq(protectedObjects.id, excluded));
+      expect(row).toMatchObject({ status: "orphaned", statusConfirmedBy: "excluded" });
+      expect(row?.statusConfirmedAt).toBeInstanceOf(Date);
+      expect(row?.inactiveNotifiedAt).toBeInstanceOf(Date);
+
+      const waiting = await service.listObjects(db, tenantId, {
+        status: "to_confirm",
+        sourceId,
+        page: 1,
+        pageSize: 25,
+        sort: "name",
+        order: "asc",
+      });
+      expect(waiting.items.map((item) => item.id)).toEqual([protectedOne]);
+      const source = (await service.listSources(db, tenantId)).find((item) => item.id === sourceId);
+      expect(source?.counts).toMatchObject({ orphaned: 2, toConfirm: 1 });
+    });
+  });
 });

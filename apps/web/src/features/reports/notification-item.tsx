@@ -65,6 +65,7 @@ export function useNotificationText() {
       rule: typeof item.details?.ruleName === "string" ? item.details.ruleName : "",
       version: typeof item.details?.version === "string" ? item.details.version : "",
       days: typeof item.details?.days === "number" ? item.details.days : "",
+      count: typeof item.details?.count === "number" ? item.details.count : 0,
       date:
         typeof item.details?.expiresAt === "string"
           ? formatDay(item.details.expiresAt, language)

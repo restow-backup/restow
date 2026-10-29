@@ -34,7 +34,8 @@ export interface StateView {
     | "incomplete"
     | "limited"
     | "notBackedUp_account_disabled"
-    | "notBackedUp_no_license";
+    | "notBackedUp_no_license"
+    | "notBackedUp_locked";
   tone: StatusTone;
   /** A pulsing dot instead of an icon: something is running right now. */
   live: boolean;
@@ -96,7 +97,7 @@ export function isHeldBack(run: Pick<Run, "state" | "kind" | "serviceLimited">):
  */
 export function notBackedUpOf(
   run: Pick<Run, "state" | "kind"> & Partial<Pick<Run, "notBackedUp">>,
-): "account_disabled" | "no_license" | null {
+): "account_disabled" | "no_license" | "locked" | null {
   return run.state === "failed" && run.kind === "backup" ? (run.notBackedUp ?? null) : null;
 }
 

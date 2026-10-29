@@ -291,6 +291,25 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     }
     rows.push([t("reports:mail.retention"), t("reports:mail.retentionPaused")]);
   }
+  if (event === "object.inactive" || event === "object.inactive_many") {
+    // Restow stopped backing up objects (apps/worker inactive-notices.ts): why, since when, how
+    // many, and that an admin confirms it under Protection ("Yes, intended").
+    const reason = text(details.reason);
+    if (
+      reason === "account_disabled" ||
+      reason === "no_license" ||
+      reason === "locked" ||
+      reason === "removed"
+    ) {
+      rows.push([t("reports:mail.inactiveReason"), t(`reports:mail.inactiveReasons.${reason}`)]);
+    }
+    const since = formatWhen(text(details.inactiveSince), input.language);
+    if (since) rows.push([t("reports:mail.inactiveSince"), `${since} UTC`]);
+    if (typeof details.count === "number") {
+      rows.push([t("reports:mail.inactiveCount"), formatCount(details.count, input.language)]);
+    }
+    rows.push([t("reports:mail.todo"), t("reports:mail.inactiveConfirm")]);
+  }
   if (event === "archive.failed") {
     // An alert of the archive capture (apps/worker archive-capture/alerts.ts): what stopped,
     // since when, and when something last arrived.

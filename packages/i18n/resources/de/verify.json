@@ -75,7 +75,8 @@
     "failed": "Nicht wiederherstellbar",
     "failedHint": "Letzte Restore-Prüfung fehlgeschlagen",
     "unproven": "Nicht nachgewiesen",
-    "unprovenHint": "Letzte Sicherung nicht geprüft: {unverified} · Noch keine Sicherung: {noBackup}"
+    "unprovenHint": "Letzte Sicherung nicht geprüft: {unverified} · Noch keine Sicherung: {noBackup}",
+    "toConfirm": "{count, plural, one {# Objekt nicht mehr gesichert, bitte bestätigen} other {# Objekte nicht mehr gesichert, bitte bestätigen}}"
   },
   "table": {
     "title": "Geschützte Objekte",
@@ -108,14 +109,17 @@
     "orphaned": "In der Quelle entfernt, Sicherungen bleiben",
     "inactive": {
       "account_disabled": "Nicht gesichert: Konto deaktiviert, Sicherungen bleiben",
-      "no_license": "Nicht gesichert: keine Lizenz, Sicherungen bleiben"
+      "no_license": "Nicht gesichert: keine Lizenz, Sicherungen bleiben",
+      "locked": "Nicht gesichert: gesperrt, Sicherungen bleiben"
     },
     "overdue": "Überfällig",
     "never": "Nie",
     "noBackup": "Noch keine Sicherung",
     "empty": "Noch keine geschützten Objekte.",
     "technicalId": "Technische ID: {id}",
-    "emptyState": "Kein Objekt in diesem Zustand: {state}."
+    "emptyState": "Kein Objekt in diesem Zustand: {state}.",
+    "toConfirm": "Bitte bestätigen",
+    "confirmed": "Absichtlich nicht mehr gesichert"
   },
   "snapshot": {
     "column": "Restore-Prüfung",
@@ -253,6 +257,10 @@
       "no_license": {
         "title": "Nicht gesichert: keine Lizenz",
         "description": "Das Konto hat keine Exchange-Online-Lizenz, es gibt also kein Postfach zu sichern. Die Sicherungen bleiben erhalten, und sobald wieder eine Lizenz zugewiesen ist, wird automatisch wieder gesichert. Für die Bewertung zählt nur, ob sich die aufbewahrte Sicherung wiederherstellen lässt, nicht ihr Alter."
+      },
+      "locked": {
+        "title": "Nicht gesichert: gesperrt",
+        "description": "Microsoft hat dieses OneDrive oder diese Website gesperrt (HTTP 423), meist weil das Konto keine Lizenz mehr hat. Die Sicherungen bleiben erhalten und werden ohne Rücksicht auf ihr Alter bewertet, und sobald die Sperre aufgehoben ist, wird automatisch wieder gesichert."
       }
     },
     "stats": {

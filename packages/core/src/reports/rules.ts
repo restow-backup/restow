@@ -147,6 +147,15 @@ export function subjectKeyOf(event: ReportEvent, details: Record<string, unknown
   if (event === "installation.app_secret_expiring" && typeof details.expiresAt === "string") {
     return `entra_app:${details.expiresAt}:${String(details.stage ?? "")}`;
   }
+  // The notice that an object is no longer backed up has its own subject: a `backup.failed` of
+  // the same object shortly before (the run that met the lock) must not swallow it.
+  if (event === "object.inactive" && typeof details.protectedObjectId === "string") {
+    return `inactive:${details.protectedObjectId}`;
+  }
+  // Many objects inactive at once: one subject per tenant and UTC day.
+  if (event === "object.inactive_many") {
+    return `inactive_many:${String(details.tenantId ?? "")}:${String(details.date ?? "")}`;
+  }
   // An alert about a VM or container of Proxmox VE is about that guest.
   const guest = details.pveGuestId;
   if (typeof guest === "string" && guest.length > 0) {

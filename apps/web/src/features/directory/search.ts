@@ -47,7 +47,14 @@ export interface DirectorySearch {
 }
 
 const KINDS: readonly ObjectKind[] = ["mailbox", "onedrive", "imap", "site", "group"];
-const STATUSES: readonly ObjectStatusFilter[] = ["active", "excluded", "orphaned", "not_selected"];
+const STATUSES: readonly ObjectStatusFilter[] = [
+  "active",
+  "excluded",
+  "orphaned",
+  "not_selected",
+  "to_confirm",
+  "confirmed",
+];
 const COVERAGES: readonly ObjectCoverage[] = ["scheduled", "unscheduled", "none"];
 const SORTS: readonly ObjectSort[] = ["name", "kind", "status", "createdAt", "updatedAt"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

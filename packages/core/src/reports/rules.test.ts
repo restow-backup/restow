@@ -171,6 +171,15 @@ describe("subjectKeyOf", () => {
   });
 });
 
+describe("subjectKeyOf for objects no longer backed up", () => {
+  it("keys the notice by its object and the mass warning by tenant and day", () => {
+    expect(subjectKeyOf("object.inactive", { protectedObjectId: "po-1" })).toBe("inactive:po-1");
+    expect(subjectKeyOf("object.inactive_many", { tenantId: "t1", date: "2026-10-29" })).toBe(
+      "inactive_many:t1:2026-10-29",
+    );
+  });
+});
+
 describe("installation events", () => {
   it("are events about the installation, not a tenant's data, and only those", () => {
     expect(INSTALLATION_REPORT_EVENTS).toEqual([

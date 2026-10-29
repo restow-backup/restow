@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  bulkConfirmInactiveSchema,
   bulkFilterSchema,
   bulkProtectionSchema,
+  confirmInactiveSchema,
   objectsFilterSchema,
   objectsQuerySchema,
   peopleQuerySchema,
@@ -86,5 +88,26 @@ describe("objectsFilterSchema", () => {
   it("keeps the query-string `true`/`false` text shape for the objects list and groups search", () => {
     expect(objectsFilterSchema.safeParse({ sharedOrBlocked: true }).success).toBe(false);
     expect(objectsFilterSchema.parse({ sharedOrBlocked: "true" }).sharedOrBlocked).toBe(true);
+  });
+});
+
+describe("the confirmation of objects no longer backed up", () => {
+  it("filters by to_confirm and confirmed", () => {
+    expect(objectsQuerySchema.parse({ status: "to_confirm" }).status).toBe("to_confirm");
+    expect(objectsQuerySchema.parse({ status: "confirmed" }).status).toBe("confirmed");
+  });
+
+  it("takes an optional note for one object and exactly one selection for several", () => {
+    expect(confirmInactiveSchema.parse({})).toEqual({});
+    expect(confirmInactiveSchema.safeParse({ note: "x".repeat(1001) }).success).toBe(false);
+    const id = "9b2f2c6e-3d1a-4a1b-8e3f-0c1d2e3f4a5b";
+    expect(bulkConfirmInactiveSchema.safeParse({ objectIds: [id] }).success).toBe(true);
+    expect(bulkConfirmInactiveSchema.safeParse({ filter: { kind: "onedrive" } }).success).toBe(
+      true,
+    );
+    expect(bulkConfirmInactiveSchema.safeParse({}).success).toBe(false);
+    expect(bulkConfirmInactiveSchema.safeParse({ objectIds: [id], filter: {} }).success).toBe(
+      false,
+    );
   });
 });

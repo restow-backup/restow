@@ -79,7 +79,7 @@ export interface JobObjectDto {
    * Why an orphaned mailbox is not backed up although its user is still in the directory
    * (`account_disabled`, `no_license`); null for every other object.
    */
-  statusReason: "account_disabled" | "no_license" | null;
+  statusReason: "account_disabled" | "no_license" | "locked" | null;
   /** The linked user's email or UPN; null for IMAP and unlinked objects. */
   ownerEmail: string | null;
 }
@@ -144,7 +144,7 @@ export interface JobDto {
    * neutral ("not backed up"), neither failed nor held back, and left out of the failed counts.
    * Null for every other job.
    */
-  notBackedUp: "account_disabled" | "no_license" | null;
+  notBackedUp: "account_disabled" | "no_license" | "locked" | null;
 }
 
 /** How many items failed for one cause code. */
@@ -260,7 +260,7 @@ export interface BackupTargetDto {
   externalId: string;
   status: "active" | "excluded" | "orphaned";
   /** See {@link JobObjectDto.statusReason}. */
-  statusReason: "account_disabled" | "no_license" | null;
+  statusReason: "account_disabled" | "no_license" | "locked" | null;
   /** The linked user's email or UPN; null for IMAP and unlinked objects. */
   ownerEmail: string | null;
   source: { id: string; name: string; kind: "m365" | "imap"; status: string };

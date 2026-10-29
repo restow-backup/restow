@@ -8,7 +8,9 @@
  * (those are OneDrives, protected through their owner), and decides each
  * site's status from its override and the sites mode of the rules
  * (`evaluateSiteProtection`). A known site the listing no longer has is
- * orphaned; its restore points stay.
+ * orphaned; its restore points stay. A site Microsoft or an admin locked (HTTP 423, ./locks.ts)
+ * stays listed: once a backup marked it `orphaned` with the reason `locked` it stays so until
+ * its lock probe answers 200 (`lockState`), and turns active again then.
  *
  * Listing sites needs `Sites.Read.All`. A tenant that consented before
  * SharePoint support has no such grant: Graph answers 403, the run reports it
@@ -19,6 +21,8 @@
 import type { GraphClient } from "../graph/client.js";
 import { isGraphError } from "../graph/errors.js";
 import { isPersonalSite, listAllSites, type SiteInfo } from "../graph/resources/sites.js";
+import type { LockState } from "./locks.js";
+import type { ObjectStatusReason } from "./plan.js";
 import {
   evaluateSiteProtection,
   type ProtectionOverrides,
@@ -40,6 +44,8 @@ export interface KnownSite {
   readonly status: "active" | "excluded" | "orphaned";
   readonly origin: "directory_sync" | "manual";
   readonly displayName: string | null;
+  /** Why an orphaned site is not backed up (`locked`); null or absent when it was removed. */
+  readonly statusReason?: ObjectStatusReason | null;
 }
 
 /** A site row to insert or update. */
@@ -53,8 +59,10 @@ export interface PlannedSite {
 
 export interface SitePlan {
   readonly sites: readonly PlannedSite[];
-  /** External ids of directory-sync sites to mark orphaned. */
+  /** External ids of directory-sync sites to mark orphaned, or whose orphan reason changed. */
   readonly orphanExternalIds: readonly string[];
+  /** The reason of each listed orphan that is still at the source (`locked`); else removed. */
+  readonly orphanReasons?: Readonly<Record<string, ObjectStatusReason>>;
   /** Sites the listing returned; null when it could not be read. */
   readonly discovered: number | null;
 }
@@ -115,6 +123,8 @@ export interface SitePlanInput {
   readonly known: readonly KnownSite[];
   readonly rules: Pick<ProtectionRules, "sites">;
   readonly overrides: ProtectionOverrides;
+  /** The lock re-check of sites known as locked (./locks.ts); missing means unknown. */
+  readonly lockState?: ReadonlyMap<string, LockState>;
 }
 
 /** The row changes for the sites of one run. Unchanged sites produce no write. */
@@ -143,7 +153,7 @@ export function planSites(input: SitePlanInput): SitePlan {
         });
       }
     }
-    return { sites: planned, orphanExternalIds: [], discovered: null };
+    return { sites: planned, orphanExternalIds: [], orphanReasons: {}, discovered: null };
   }
 
   const listed = new Set<string>();
@@ -151,6 +161,15 @@ export function planSites(input: SitePlanInput): SitePlan {
     listed.add(site.id);
     const decision = decide(site.id);
     const before = known.get(site.id);
+    if (
+      before?.status === "orphaned" &&
+      before.statusReason === "locked" &&
+      decision.status === "active" &&
+      input.lockState?.get(site.id) !== "unlocked"
+    ) {
+      // Still listed, still locked (or the probe could not tell): no write, no backup.
+      continue;
+    }
     if (!before) {
       planned.push({
         externalId: site.id,
@@ -169,8 +188,13 @@ export function planSites(input: SitePlanInput): SitePlan {
       });
     }
   }
+  // Gone from the listing: orphaned, and a locked site that disappeared reads "removed" now.
   const orphanExternalIds = [...known.values()]
-    .filter((site) => !listed.has(site.externalId) && site.status !== "orphaned")
+    .filter(
+      (site) =>
+        !listed.has(site.externalId) &&
+        (site.status !== "orphaned" || (site.statusReason ?? null) !== null),
+    )
     .map((site) => site.externalId);
-  return { sites: planned, orphanExternalIds, discovered: input.sites.length };
+  return { sites: planned, orphanExternalIds, orphanReasons: {}, discovered: input.sites.length };
 }

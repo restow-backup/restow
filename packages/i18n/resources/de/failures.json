@@ -152,6 +152,10 @@
       "notification_url_unavailable": {
         "title": "Änderungsbenachrichtigungen brauchen eine öffentliche HTTPS-Adresse",
         "why": "Microsoft stellt Änderungsbenachrichtigungen nur an eine Adresse zu, die es per HTTPS auf Port 443 erreicht. {appName} hat keine öffentliche URL, die mit https:// beginnt, daher prüft das Archiv jedes Microsoft-365-Postfach stattdessen regelmäßig auf neue Mails (nur Abfrage). Es geht nichts verloren, Mails kommen nur später im Archiv an."
+      },
+      "object_locked": {
+        "title": "Nicht gesichert: Microsoft hat das OneDrive oder die Website gesperrt",
+        "why": "Microsoft beantwortet jeden Zugriff mit HTTP 423 (\"Access to this site has been blocked\"). Das OneDrive eines Kontos ohne Lizenz sperrt Microsoft nach einiger Zeit, eine Website sperrt ein Administrator. Das ist keine fehlgeschlagene Sicherung. {appName} behält die vorhandenen Sicherungen, versucht es nicht jede Nacht erneut und sichert wieder, sobald der Verzeichnisabgleich die Sperre nicht mehr vorfindet."
       }
     },
     "imap": {
@@ -370,8 +374,8 @@
         "why": "Das Postfach oder Laufwerk ist aus dem Verzeichnis der Quelle verschwunden. Vorhandene Backups bleiben wiederherstellbar, neue entstehen nicht."
       },
       "object_inactive": {
-        "title": "Nicht gesichert, solange das Konto {reason, select, account_disabled {deaktiviert ist} other {keine Lizenz hat}}",
-        "why": "{appName} hat festgestellt, dass Microsoft für dieses Konto kein Postfach bereitstellt, weil es {reason, select, account_disabled {deaktiviert ist} other {keine Exchange-Online-Lizenz hat}}. Bis sich das ändert, entstehen keine neuen Sicherungen. Vorhandene Sicherungen bleiben wiederherstellbar, und nach dem nächsten Verzeichnisabgleich, bei dem das Konto wieder {reason, select, account_disabled {aktiviert} other {lizenziert}} ist, wird automatisch wieder gesichert."
+        "title": "Nicht gesichert, solange {reason, select, account_disabled {das Konto deaktiviert ist} locked {Microsoft das Objekt gesperrt hat} other {das Konto keine Lizenz hat}}",
+        "why": "{reason, select, locked {Microsoft sperrt dieses OneDrive oder diese Website (HTTP 423). Bis die Sperre aufgehoben ist, entstehen keine neuen Sicherungen. Vorhandene Sicherungen bleiben wiederherstellbar, und nach dem nächsten Verzeichnisabgleich ohne Sperre wird automatisch wieder gesichert.} other {{appName} hat festgestellt, dass Microsoft für dieses Konto kein Postfach bereitstellt, weil es {reason, select, account_disabled {deaktiviert ist} other {keine Exchange-Online-Lizenz hat}}. Bis sich das ändert, entstehen keine neuen Sicherungen. Vorhandene Sicherungen bleiben wiederherstellbar, und nach dem nächsten Verzeichnisabgleich, bei dem das Konto wieder {reason, select, account_disabled {aktiviert} other {lizenziert}} ist, wird automatisch wieder gesichert.}}"
       },
       "app_not_configured": {
         "title": "Die Microsoft-365-App dieser Installation ist nicht eingerichtet",
@@ -703,7 +707,8 @@
     "check_endpoint_file_access": "Prüfen Sie die Berechtigungen der im Lauf genannten Dateien. Datenbanken und andere Dateien, die sich beim Kopieren ändern, sichert man am besten mit einem Befehl, der vor der Sicherung einen Dump erstellt.",
     "choose_empty_restore_folder": "Fordern Sie die Wiederherstellung erneut an und wählen Sie einen Ordner, der noch nicht existiert oder leer ist. Eine Wiederherstellung überschreibt nie Dateien.",
     "wait_endpoint_retry": "Nichts zu tun. Der Agent versucht es beim nächsten geplanten Lauf erneut, oder starten Sie mit Jetzt sichern einen.",
-    "set_public_https_url": "Hinterlegen Sie unter Installation › Server & Betrieb (oder in RESTOW_PUBLIC_URL) eine öffentliche URL, die mit https:// beginnt und die Microsoft auf Port 443 erreicht. {appName} richtet die Änderungsbenachrichtigungen dann selbst ein."
+    "set_public_https_url": "Hinterlegen Sie unter Installation › Server & Betrieb (oder in RESTOW_PUBLIC_URL) eine öffentliche URL, die mit https:// beginnt und die Microsoft auf Port 443 erreicht. {appName} richtet die Änderungsbenachrichtigungen dann selbst ein.",
+    "unlock_object": "Wenn das Objekt wieder gesichert werden soll, weisen Sie dem Benutzer eine Lizenz mit OneDrive zu oder heben Sie die Sperre im SharePoint Admin Center auf. Nach dem nächsten Verzeichnisabgleich wird von selbst wieder gesichert."
   },
   "go": {
     "settings_microsoft": "Microsoft-365-Einstellungen öffnen",

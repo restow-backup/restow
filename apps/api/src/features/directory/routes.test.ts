@@ -135,3 +135,19 @@ describe("people of the directory: tenant_admin only", () => {
     expect(script.pending()).toBe(0);
   });
 });
+
+describe("confirming objects no longer backed up: tenant_admin only", () => {
+  it.each([
+    [`/directory/objects/${OBJECT}/inactive/confirm`, {}],
+    ["/directory/objects/inactive/confirm", { objectIds: [OBJECT] }],
+  ])("refuses a plain tenant member on %s", async (path, body) => {
+    signedIn(tenantMember);
+    const { app: hono, script } = app([
+      [{ organizationId: ORGANIZATION, role: "member" }],
+      [tenantRow()],
+    ]);
+    const res = await hono.request(path, json(body, "POST"));
+    expect(res.status).toBe(403);
+    expect(script.pending()).toBe(0);
+  });
+});

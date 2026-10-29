@@ -125,6 +125,12 @@ export const readinessSummarySchema = component(
       .describe(
         "File shares in no backup job that keep a restore point: rated by it, but nothing backs them up. Any of them makes `overall` at least yellow.",
       ),
+    toConfirm: z
+      .number()
+      .int()
+      .describe(
+        "Objects no longer backed up (removed, disabled, unlicensed or locked at the source) that no admin confirmed as intended yet. Any of them makes `overall` at least yellow.",
+      ),
     overall: readinessSchema
       .nullable()
       .describe(

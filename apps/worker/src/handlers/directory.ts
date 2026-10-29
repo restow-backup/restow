@@ -79,6 +79,7 @@ import type PgBoss from "pg-boss";
 import { appendAuditEntry } from "../audit.js";
 import { type EntraAppLookup, processEntraApp } from "../entra-app.js";
 import { jobFailureRecord } from "../failure.js";
+import { raiseInactiveNotices } from "../inactive-notices.js";
 import { pgBossExecutor } from "../pg-boss-tx.js";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
 import { sendOptionsFor } from "../queues.js";
@@ -227,6 +228,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
         .map((row) => ({
           externalId: row.externalId,
           status: row.status,
+          statusReason: row.statusReason,
           origin: row.origin,
           displayName: row.displayName,
         }));
@@ -282,7 +284,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
       await this.orphanObjects(tx, commit.plan.orphanExternalIds, commit.plan.orphanReasons);
       if (commit.sites) {
         await this.writeSites(tx, commit.sites);
-        await this.orphanObjects(tx, commit.sites.orphanExternalIds);
+        await this.orphanObjects(tx, commit.sites.orphanExternalIds, commit.sites.orphanReasons);
       }
       if (commit.groups) {
         await this.writeGroups(tx, commit.groups);
@@ -521,7 +523,8 @@ export class PgDirectoryRepository implements DirectoryRepository {
   /**
    * Mark objects orphaned, each with its reason (core directory/plan.ts `orphanReasons`): an
    * object missing from `reasons` was removed from the source, one listed there is a mailbox
-   * whose account is disabled or unlicensed.
+   * whose account is disabled or unlicensed, or a OneDrive Microsoft locked. The 0069 trigger
+   * starts the confirmation of every object that turns orphaned here (amber until confirmed).
    */
   private async orphanObjects(
     tx: TenantTx,
@@ -947,6 +950,17 @@ export async function runDirectoryJob(
       now: ctx.now,
     });
     await recordOutcome(run, ctx.tenantId, source.id, successRun(result, ctx.now()), logger);
+    // Objects this sync stopped backing up (removed, disabled, unlicensed, locked): one notice
+    // each, or one warning when many go at once (inactive-notices.ts). Best effort like the
+    // enqueue below: the sync committed, and the next sync or backup raises what is left.
+    let inactiveNotices = 0;
+    try {
+      inactiveNotices = await run((tx) => raiseInactiveNotices(tx, ctx.tenantId, ctx.now()));
+    } catch (error) {
+      logger.warn("could not raise the notices of objects no longer backed up", {
+        errorMessage: safeErrorMessage(error),
+      });
+    }
     let firstBackupsQueued = 0;
     if (result.newlyActive.length > 0) {
       // Best effort: the sync itself already committed and must not fail (or
@@ -983,6 +997,7 @@ export async function runDirectoryJob(
         warnings: result.warnings.length,
         ...result.counts,
         firstBackupsQueued,
+        inactiveNotices,
         throttleWaits: throttle.waits,
         throttleWaitMs: throttle.totalWaitMs,
       },

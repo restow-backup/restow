@@ -14,7 +14,21 @@ interface GraphSetup {
   mailbox?: Record<string, SubAnswer>;
   /** Drive probe answer overriding `drives`. */
   drive?: Record<string, SubAnswer>;
+  /** Lock probe answer (`/drives/{id}/root`) per drive id; default 423 locked. */
+  lock?: Record<string, SubAnswer>;
 }
+
+const LOCKED: SubAnswer = {
+  status: 423,
+  body: {
+    error: {
+      code: "notAllowed",
+      message:
+        "Access to this site has been blocked. Please contact the administrator to resolve this problem.",
+      innerError: { code: "resourceLocked" },
+    },
+  },
+};
 
 const fullUsers = new Map(
   [...fixture.initialPage1.value, ...fixture.initialPage2.value].map((u) => [u.id, u]),
@@ -53,6 +67,10 @@ function directoryGraph(setup: GraphSetup = {}) {
       url: "/v1.0/$batch",
       respond: (call) =>
         batchEnvelope(call, (sub): SubAnswer => {
+          const lock = sub.url.match(/^\/drives\/([^/?]+)\/root/);
+          if (lock) {
+            return setup.lock?.[decodeURIComponent(lock[1] ?? "")] ?? LOCKED;
+          }
           const match = sub.url.match(/^\/users\/([^/?]+)(\/[a-zA-Z]+)?/);
           const id = decodeURIComponent(match?.[1] ?? "");
           const resource = match?.[2];
@@ -219,6 +237,80 @@ describe("syncDirectory", () => {
     expect(repository.objects.get("user-1")?.status).toBe("active");
     // Only the object coming out of orphaned is resumed; a new or re-included one is not.
     expect(back.newlyActive).toEqual([{ externalId: "user-1", kind: "mailbox", resumed: true }]);
+  });
+
+  describe("a OneDrive Microsoft locked (HTTP 423)", () => {
+    async function lockedDrive(setup: GraphSetup) {
+      const graph = directoryGraph(setup);
+      const repository = new MemoryDirectoryRepository(protection());
+      await syncDirectory({ client: graph.client(), repository });
+      // A backup met the lock and marked the drive (worker backup.ts).
+      const drive = repository.objects.get("drive-1");
+      repository.objects.set("drive-1", {
+        ...(drive as NonNullable<typeof drive>),
+        status: "orphaned",
+        statusReason: "locked",
+      });
+      return { graph, repository };
+    }
+
+    it("stays locked while its lock probe answers 423, with one probe per locked drive", async () => {
+      const { graph, repository } = await lockedDrive({});
+      const result = await syncDirectory({ client: graph.client(), repository, full: true });
+      expect(repository.objects.get("drive-1")).toMatchObject({
+        status: "orphaned",
+        statusReason: "locked",
+      });
+      expect(result.newlyActive).toEqual([]);
+      const lockProbes = graph
+        .callsTo("POST", "/$batch")
+        .flatMap((call) => (call.json as { requests: { url: string }[] }).requests)
+        .filter((sub) => sub.url.startsWith("/drives/"));
+      expect(lockProbes.map((sub) => sub.url)).toEqual(["/drives/drive-1/root?$select=id"]);
+    });
+
+    it("stays locked and warns when the lock probe cannot answer", async () => {
+      const { graph, repository } = await lockedDrive({
+        lock: { "drive-1": { status: 503, body: graphError("serviceNotAvailable") } },
+      });
+      const result = await syncDirectory({
+        client: graph.client({ maxRetries: 0 }),
+        repository,
+        full: true,
+      });
+      expect(repository.objects.get("drive-1")?.statusReason).toBe("locked");
+      expect(result.warnings).toEqual([
+        expect.objectContaining({ kind: "lock_probe_failed", userId: "drive-1", status: 503 }),
+      ]);
+    });
+
+    it("turns active again and resumes once the lock probe answers 200", async () => {
+      const { graph, repository } = await lockedDrive({
+        lock: { "drive-1": { status: 200, body: { id: "root" } } },
+      });
+      const result = await syncDirectory({ client: graph.client(), repository, full: true });
+      expect(repository.objects.get("drive-1")).toMatchObject({
+        status: "active",
+        statusReason: null,
+      });
+      expect(result.newlyActive).toEqual([
+        { externalId: "drive-1", kind: "onedrive", resumed: true },
+      ]);
+    });
+
+    it("marks an active drive locked when the drive probe itself answers the lock", async () => {
+      const graph = directoryGraph();
+      const repository = new MemoryDirectoryRepository(protection());
+      await syncDirectory({ client: graph.client(), repository });
+      const locked = directoryGraph({ drive: { "user-1": LOCKED } });
+      const result = await syncDirectory({ client: locked.client(), repository, full: true });
+      expect(repository.objects.get("drive-1")).toMatchObject({
+        status: "orphaned",
+        statusReason: "locked",
+      });
+      expect(result.counts.orphaned).toBe(1);
+      expect(result.warnings).toEqual([]);
+    });
   });
 
   it("resolves group membership transitively and excludes non-members", async () => {

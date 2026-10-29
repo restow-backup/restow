@@ -22,6 +22,34 @@ private repository.
   or licensed again. A 401 or 403 is never read this way; those stay permission failures.
   Migration 0069 adds `protected_objects.status_reason` (docs/MICROSOFT.md "Deaktivierte und
   unlizenzierte Konten").
+- Microsoft 365: A OneDrive or SharePoint site that Microsoft locked (HTTP 423 `resourceLocked`,
+  "Access to this site has been blocked"; Microsoft does this to the OneDrive of an unlicensed
+  account) no longer fails every night as "Microsoft rejected the request". The backup confirms
+  the lock with one cheap read, marks the object "Not backed up: locked" (`graph.object_locked`,
+  neutral, no retries) and the scheduler stops planning it. The directory sync never turns it
+  active again just because the drive is still listed: it reads each locked drive or site once
+  more and resumes the backup only when that read succeeds. A 423 on a single file stays an item
+  problem.
+- Microsoft 365: Every `$batch` now sends an identical read only once and gives the answer to
+  every caller, on top of the unique request ids of 0.3.2, so a delta page or a retry that names
+  the same message twice can never repeat an id ("Request Id ... has to be unique in a batch").
+
+### Added
+
+- Objects that are no longer backed up because the source says they are gone, disabled,
+  unlicensed or locked first read amber "Not backed up any more, please confirm" with reason and
+  date. No failure, no red, not overdue, but they keep warnings, dashboard and readiness at
+  yellow until an admin confirms "Yes, intended" (per object or for several in the list, audited;
+  tenant administrators and provider teams with configure rights). Confirmed objects read grey
+  "Intentionally no longer backed up, confirmed by ... on ...". When the object becomes active
+  again, the confirmation is dropped and backups resume. New notification events
+  `object.inactive` (one notice per object) and `object.inactive_many` (one warning when more
+  than 10 objects or more than 20% of a tenant's objects stop being backed up within a day).
+  New routes `POST /api/v1/directory/objects/:id/inactive/confirm` and
+  `POST /api/v1/directory/objects/inactive/confirm`. Migration 0069 also adds
+  `inactive_since`, `inactive_notified_at`, `status_confirmed_at` and `status_confirmed_by`;
+  objects already orphaned before the update count as confirmed, so no long amber list appears
+  (docs/MICROSOFT.md "Nicht mehr gesichert: Bestätigung").
 
 ## [0.4.6] - 2026-10-23
 

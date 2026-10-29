@@ -92,3 +92,20 @@ describe("verifyBlockedReason", () => {
     expect(verifyBlockedReason({ status: "excluded", hasSnapshot: true })).toBe("excluded");
   });
 });
+
+describe("objects no longer backed up that wait for a confirmation", () => {
+  it("keep the tenant from green, never make it red, and are counted", () => {
+    const waiting: RatedObject = { ...rated("green"), toConfirm: true };
+    expect(overallReadiness([rated("green"), waiting])).toBe("yellow");
+    expect(overallReadiness([rated("green"), rated("red"), waiting])).toBe("red");
+    const summary = summarize([rated("green"), waiting], 0, 2);
+    expect(summary).toMatchObject({ toConfirm: 3, overall: "yellow", green: 2 });
+  });
+
+  it("make a tenant yellow even when none of them has a backup to rate", () => {
+    expect(overallReadiness([rated("green")], 1)).toBe("yellow");
+    expect(overallReadiness([], 1)).toBe("yellow");
+    expect(overallReadiness([], 0)).toBeNull();
+    expect(summarize([rated("green")], 0).toConfirm).toBe(0);
+  });
+});

@@ -143,6 +143,11 @@
       "title": "{count, plural, one {# file share in no backup job} other {# file shares in no backup job}}",
       "description": "These file shares are no longer backed up. Their existing restore points keep their rating; new ones are only made once you add the share to a backup job.",
       "action": "Open file shares"
+    },
+    "toConfirm": {
+      "title": "{count, plural, one {# object no longer backed up, please confirm} other {# objects no longer backed up, please confirm}}",
+      "description": "The source reports these objects as removed, disabled, unlicensed or locked. That is not a failure, but readiness stays yellow until someone confirms that it is intended.",
+      "action": "Check and confirm"
     }
   },
   "lastBackup": {
@@ -388,7 +393,8 @@
       "limited": "Held back by the service, retried",
       "notBackedUp_account_disabled": "Not backed up: account disabled",
       "notBackedUp_no_license": "Not backed up: no licence",
-      "cancelled": "Cancelled"
+      "cancelled": "Cancelled",
+      "notBackedUp_locked": "Not backed up: locked by Microsoft"
     },
     "empty": {
       "title": "No runs yet",
@@ -479,7 +485,8 @@
         "file_shares_without_job": "{count, plural, one {# file share is in no backup job and is not backed up.} other {# file shares are in no backup job and are not backed up.}}",
         "needs_attention": "{count, plural, one {# object needs attention (gaps or an overdue restore check).} other {# objects need attention (gaps or an overdue restore check).}}",
         "nothing_protected": "The tenant protects nothing yet.",
-        "immutability_warning": "{count, plural, one {Immutability is set, but # repository has objects without lock or a renewal that fell behind.} other {Immutability is set, but # repositories have objects without lock or a renewal that fell behind.}}"
+        "immutability_warning": "{count, plural, one {Immutability is set, but # repository has objects without lock or a renewal that fell behind.} other {Immutability is set, but # repositories have objects without lock or a renewal that fell behind.}}",
+        "inactive_to_confirm": "{count, plural, one {# object is no longer backed up and waits for a confirmation.} other {# objects are no longer backed up and wait for a confirmation.}}"
       },
       "empty": {
         "title": "No alerts",

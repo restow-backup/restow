@@ -13,9 +13,18 @@ export const objectStatusSchema = z.enum(["active", "excluded", "orphaned"]);
  * Status as a filter: `not_selected` is not a stored value but a derived one
  * (an `excluded` object of a `selected`-mode source with no `exclude`
  * override) — the default of that mode, not a decision, so it filters apart
- * from `excluded`. See `isNotSelected` in ./logic.js.
+ * from `excluded`. See `isNotSelected` in ./logic.js. `to_confirm` and
+ * `confirmed` split `orphaned` by the admin's confirmation (@restow/core
+ * `inactiveState`): amber "please confirm", grey "intentionally not backed up".
  */
-export const objectStatusFilterSchema = z.enum(["active", "excluded", "orphaned", "not_selected"]);
+export const objectStatusFilterSchema = z.enum([
+  "active",
+  "excluded",
+  "orphaned",
+  "not_selected",
+  "to_confirm",
+  "confirmed",
+]);
 export const objectSortSchema = z.enum(["name", "kind", "status", "createdAt", "updatedAt"]);
 /**
  * How an object stands towards the backup jobs: in a job that runs on a schedule, in one that is
@@ -154,6 +163,29 @@ export const bulkProtectionSchema = z
     path: ["objectIds"],
   });
 export type BulkProtectionInput = z.infer<typeof bulkProtectionSchema>;
+
+/**
+ * Body of the confirmation that an object Restow stopped backing up is intended ("Yes,
+ * intended"): one object (POST /objects/:id/inactive/confirm, body optional) or several (POST
+ * /objects/inactive/confirm), by id or by the list's filter, tenant-wide.
+ */
+export const confirmInactiveSchema = z.object({
+  /** Why it is intended (offboarding, licence removed on purpose); written to the audit log. */
+  note: z.string().trim().min(1).max(1000).optional(),
+});
+export type ConfirmInactiveInput = z.infer<typeof confirmInactiveSchema>;
+
+export const bulkConfirmInactiveSchema = confirmInactiveSchema
+  .extend({
+    objectIds: z.array(z.string().uuid()).min(1).max(MAX_BULK_OBJECTS).optional(),
+    /** Every unconfirmed inactive object the filter matches; capped at {@link MAX_BULK_OBJECTS}. */
+    filter: bulkFilterSchema.optional(),
+  })
+  .refine((body) => (body.objectIds === undefined) !== (body.filter === undefined), {
+    message: "Give either objectIds or a filter, not both.",
+    path: ["objectIds"],
+  });
+export type BulkConfirmInactiveInput = z.infer<typeof bulkConfirmInactiveSchema>;
 
 export const csvImportSchema = z.object({
   /**

@@ -16,6 +16,8 @@ export const REPORT_EVENTS = [
   "restore.completed",
   "archive.failed",
   "directory.failed",
+  "object.inactive",
+  "object.inactive_many",
   "verify.red",
   "verify.yellow",
   "verify.recovered",
