@@ -9,7 +9,7 @@ control, and every week reads a sample of each backup back through the restore
 path and compares it with the recorded hashes. A backup only counts as
 restorable once it has been read back.
 
-**Status: beta (0.4.6).** Run it alongside your
+**Status: beta (0.4.7).** Run it alongside your
 existing backups, not as your only one, until you have verified restores
 against your own data. Microsoft 365 backup and restore have been tested
 against a simulated Graph API, never against a real Microsoft 365 tenant. What
@@ -262,8 +262,8 @@ the cosign signatures of the two images and starts the stack. Download it,
 check it, then run it:
 
 ```sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.6/install.sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.6/install.sh.sha256
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.7/install.sh
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.7/install.sh.sha256
 sha256sum -c install.sh.sha256
 sudo bash install.sh
 ```
@@ -292,10 +292,10 @@ the script is the one the release workflow published, verify the signed
 checksum list with [cosign](https://docs.sigstore.dev/cosign/) first:
 
 ```sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.6/SHA256SUMS
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.6/SHA256SUMS.sigstore.json
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.7/SHA256SUMS
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.7/SHA256SUMS.sigstore.json
 cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
-  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.4.6 \
+  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.4.7 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum -c --ignore-missing SHA256SUMS
 ```
@@ -338,7 +338,7 @@ installation without its `.env`. It never updates an installation (see
 As a shortcut, the script also runs straight from the download:
 
 ```sh
-curl -fsSL https://github.com/restow-backup/restow/releases/download/v0.4.6/install.sh | sudo bash
+curl -fsSL https://github.com/restow-backup/restow/releases/download/v0.4.7/install.sh | sudo bash
 ```
 
 That runs whatever arrives without your own check of the script first. It still
@@ -403,12 +403,12 @@ step 2.
 
 1. **Get the release stack.** It runs the published, signed images and builds
    nothing. Download `docker-compose.yml` and `env.example` from the
-   [release assets](https://github.com/restow-backup/restow/releases/tag/v0.4.6)
+   [release assets](https://github.com/restow-backup/restow/releases/tag/v0.4.7)
    into an empty directory and run `cp env.example .env`, or clone the tag and
    work in `deploy/release/`:
 
    ```sh
-   git clone --branch v0.4.6 https://github.com/restow-backup/restow.git
+   git clone --branch v0.4.7 https://github.com/restow-backup/restow.git
    cd restow/deploy/release
    cp .env.example .env
    ```
@@ -416,11 +416,11 @@ step 2.
 2. **Fill in `.env`.** Every variable is explained on
    [docs.restowbackup.com](https://docs.restowbackup.com); everything below
    "Optional" can stay empty. At minimum the two images of one build, either the
-   full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.4.6`,
-   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.4.6`; Business and
+   full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.4.7`,
+   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.4.7`; Business and
    Service Provider stay locked until a license key is installed) or the
-   Community build (`ghcr.io/restow-backup/restow-community:0.4.6`,
-   `ghcr.io/restow-backup/restow-web-community:0.4.6`; the Apache-2.0 core
+   Community build (`ghcr.io/restow-backup/restow-community:0.4.7`,
+   `ghcr.io/restow-backup/restow-web-community:0.4.7`; the Apache-2.0 core
    alone), then `POSTGRES_PASSWORD`, the three database connection strings
    (`DATABASE_MIGRATION_URL`, `DATABASE_URL`, `DATABASE_PROVIDER_URL`),
    `RESTOW_MASTER_KEY`, `BETTER_AUTH_SECRET`, `RESTOW_PUBLIC_URL` and

@@ -10,50 +10,466 @@ private repository.
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-10-29
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.7 makes Microsoft 365 backups steadier. Mailboxes of disabled or unlicensed accounts
+and OneDrives and sites that Microsoft locked are marked "Not backed up" with the reason instead
+of failing every night, and every object Restow stops backing up waits amber for an admin's
+confirmation. Backups that Microsoft Graph or the storage held back no longer count as failed, a
+permission granted to the app takes effect without a new client secret, and one queued backup
+can no longer block the backup queue of every tenant. Reminders go out before the client secret
+or certificate of an app registration expires, and many errors of mailbox, OneDrive,
+SharePoint and IMAP backups and restores now cost an area or an item instead of the whole run.
+Proxmox VE VMs and containers can be excluded from backup on purpose, and the inventory shows
+what a guest's first and follow-up backups store as text (#58). The recommended job can switch
+the mail archive on, and the owner of the installation can enter monthly prices that each
+tenant's overview turns into an estimate for the provider. Four database migrations (Upgrade
+Notes).
+
+### Breaking Changes
+
+`status: "orphaned"` now also covers objects that are still at the source but are no longer
+backed up (account disabled, no licence, or locked by Microsoft): before, it meant removed from
+the source. This applies in `GET /api/v1/objects`, `GET /api/v1/users`, the `object.status` of
+`GET /api/v1/jobs` and `objects.orphaned` of `GET /api/v1/status`. The new `statusReason`
+(`account_disabled`, `no_license`, `locked`, null for an object removed from the source) of
+`GET /api/v1/objects`, of the `object` of `GET /api/v1/jobs` and of the objects of
+`GET /api/v1/users` tells them apart. An integration that treats `orphaned` as a deleted
+account should check `statusReason` before it acts.
+
+Nothing else changes in a breaking way. The integration API contract moves to 1.7.0, additively.
+In `GET /api/v1/users` the objects also carry `inactiveSince` and `statusConfirmedAt`, and a
+user's `recoveryReadiness` reads at least yellow (never green) while one of its objects waits
+for a confirmation (yellow instead of null when such an object has no backup to rate). The
+readiness summary of `GET /api/v1/status` and `GET /api/v1/verify/latest` reports `toConfirm`;
+`GET /api/v1/status` leaves excluded Proxmox VE guests out of `guests.total` and
+`guests.withoutJob` and reports them as `guests.excluded`. `POST /api/v1/jobs/backup` can skip
+an object with the reason `inactive`, the `job.completed` and `job.failed` webhooks of a
+completed restore carry `data.job.result`, and alerts (`report.alert`) can name the new events
+`object.inactive`, `object.inactive_many`, `source.app_secret_expiring` and
+`installation.app_secret_expiring`; clients that handle skip reasons or event names exhaustively
+should accept the new values. Some values follow new rules: backups held back by a service and
+objects no longer backed up raise no `job.failed`, objects removed from their source are rated
+without the age of their last backup, and `objects.failed` of `GET /api/v1/status` leaves out
+objects whose latest backup was held back by a service or ended neutral for an object no longer
+backed up; the run before it counts instead (Changed, Fixed, Upgrade Notes).
+
+### Added
+
+- Microsoft 365: objects that are no longer backed up because the source says they are gone,
+  disabled, unlicensed or locked first read amber "Not backed up any more, please confirm" with
+  reason and date (docs/MICROSOFT.md "Nicht mehr gesichert: Bestätigung"). No failure, no red,
+  not overdue, but they keep the warnings, the dashboard and the tenant's readiness at least at
+  yellow (never green), are counted in the integration API's `readiness.toConfirm`, and
+  providers see `inactive_to_confirm` among a tenant's alerts, until an admin confirms "Yes,
+  intended": per object, or for several in the list by selection or by the list's filter (at
+  most 1000). Through the API (`POST /api/v1/directory/objects/:id/inactive/confirm`,
+  `POST /api/v1/directory/objects/inactive/confirm`) a confirmation can carry an optional note
+  (up to 1000 characters) for the audit log; the interface does not ask for one. Tenant
+  administrators and provider teams with configure rights may confirm; each
+  confirmation is audited (`directory.inactive.confirmed`, `directory.inactive.bulk_confirmed`).
+  Confirmed objects read grey "Intentionally no longer backed up", with who confirmed it and
+  when. When the object becomes active again, the confirmation is dropped and backups resume;
+  if it stops again later, Restow asks again. An excluded object that disappears from the
+  source was never backed up and counts as confirmed. The list of protected objects filters by
+  `to_confirm` and `confirmed`. Migration 0069 stores the state.
+- Notification events `object.inactive` (a notice, once per object and transition, in the bell
+  by default) and `object.inactive_many` (one warning per tenant and day instead of the
+  notices, when more than 10 objects, or more than 20% of the tenant's objects backed up before
+  and at least two, stop being backed up within a day; part of the "Errors and warnings"
+  choice). Both link to the protected objects waiting for a confirmation. Neither has an event
+  of its own in the webhook stream (`job.*`); a webhook gets them as `report.alert` once they
+  are ticked in the matrix.
+- Microsoft 365: reminders before the client secret or certificate of the central app
+  registration expires (docs/ENTRA-SETUP.md, Teil 3, "Ablauf und Erinnerungen"): 30 days
+  before, again 7 days before and once it has expired, each stage once per expiry date. A new
+  date or another registration starts over; a date first seen late raises only the stage it is
+  in, not the earlier ones. The api checks every 15 minutes (the first time two minutes after it
+  starts; not in the public demo) and raises the new installation event
+  `installation.app_secret_expiring` (a warning, an error once expired) for the provider
+  administrators: in the bell, and in the mails and webhooks of every rule that lists it. The
+  date is the one entered under Installation › Microsoft multi-tenant app,
+  `ENTRA_CLIENT_SECRET_EXPIRES_AT` for a secret from the environment, or the certificate's own
+  end (`notAfter`). Restow does not read it from Microsoft Graph, which would need
+  `Application.Read.All`. The last reminder is kept in `settings.app_secret_alerts` (migration
+  0068) and claimed under a row lock, so neither a restart nor a second api replica repeats it.
+- Microsoft 365: the same reminders for a source connected through its own app registration
+  (docs/ENTRA-SETUP.md "Alternative: eine eigene App pro Quelle"), as the new event
+  `source.app_secret_expiring` among the job events, so tenant administrators can choose it as
+  well. The worker checks every Microsoft 365 source of an active tenant that is not disabled
+  (also one in error) every five minutes; a certificate counts by its own end, a client secret
+  by the date noted for it. "Own Graph app" takes the secret's expiry date ("Secret expires
+  on", optional, as Entra shows it under Certificates & secrets), and the source's connection
+  card shows "Expires" with the expiry badge and, within 30 days or once expired, what to do.
+  For a secret the date can be noted, changed or removed there without entering the secret
+  again ("Note expiry date", "Change expiry date"; `PATCH /api/v1/sources/:id/own-app/expiry`,
+  audited as `source.own_app.expiry_updated`, for tenant administrators and provider roles that
+  may configure). A new secret, a new certificate or a changed date starts the reminders over;
+  saving the same date again does not.
+- Both expiry events name their stage in the bell ("expires in 5 days", "Renew it now", "has
+  expired") and lead to the source's page or to Installation › Microsoft multi-tenant app. The
+  alert mail lists the expiry date, the days left, the kind of credential, the application
+  (client) ID and how to renew it without a gap (create the new secret, enter it with its new
+  date, only then delete the old one in Entra); chat webhooks of `source.app_secret_expiring`
+  link to the source's page. Both events are part of the "Errors and warnings" choice and of
+  the bell's default, and each stage passes a rule's throttle on its own.
+- Restores that did not restore anything: a completed restore with failed items and none
+  restored reads "Nothing restored" (red) and raises `restore.failed` and the `job.failed`
+  webhook, with "Nothing was restored: N items failed." as its error; one that skipped every
+  item reads "Everything skipped" (amber) and stays `restore.completed`, saying so instead of
+  claiming it restored something (info, not success, in chat channels). The `job.completed`
+  and `job.failed` webhooks of a completed restore carry its counters in `data.job.result`
+  (`restored`, `skipped`, `failures`, `unverified`).
+- Proxmox VE: an admin can exclude a VM or container from backup on purpose (docs/PVE.md
+  "Excluding a guest"), for test VMs or guests backed up elsewhere: "Exclude from backup" on
+  the guest's page, or for a selection of a node's guests in the inventory; "Include again" on
+  the page and in the guest's inventory row takes it back. Tenant administrators and the
+  administrators of the provider team may do so. No job backs an excluded guest up, not even
+  the job for all guests, and the recommended job leaves it out; its own job stays recorded,
+  so including it again restores what it had. Excluding withdraws its queued backups (one
+  already handed to the node gets a cancel request, a running one ends as it would); a backup
+  queued in the same moment is withdrawn at the node's next heartbeat, before the node gets it,
+  and shows in History as a cancelled run with "The guest was excluded from backup before it
+  started." "Back up now" and putting the guest into a job are refused (409
+  `urn:restow:problem:pve-guest-excluded`) until it is included again; taking it out of its
+  job stays possible. Its restore points stay restorable, retention treats them as before and
+  the weekly restore check of its newest restore point goes on; the job's monthly restore test
+  and boot tests no longer cover it. New route `PUT /api/v1/pve/guests/:id/excluded`
+  (`{ "excluded": true }` or `false`), audited as `pve.guest.excluded` with the number of queued
+  backups withdrawn before reaching the node (one already handed to the node is not counted);
+  excluding a guest twice changes nothing. `GET /api/v1/pve` reports `excludedAt` and
+  `excludedBy` per guest (migration 0066).
+- Proxmox VE: excluded guests count nowhere as unprotected: not in the overviews, the recovery
+  readiness, the warnings, `backup.overdue`, the statistics, the job counts of the all-tenants
+  view or the provider view, and they never keep a tenant from green. The guest counts report
+  them as `excluded`; their restore points stay in the count of restore points and their
+  earlier runs in the history. In VMs & containers an excluded guest reads "Excluded" (grey,
+  never a problem, whatever its earlier runs said), matches only the new state filter
+  "Excluded" and sorts after every problem. The inventory shows "Excluded: N" per node, the
+  guest's detail panel says "Excluded from backup" under its job, which cannot be changed
+  there, and the job dialog no longer offers excluded guests.
+- Recommended job with the mail archive (docs/ARCHIVE.md "Archiv im Mail-Job"): while the
+  installation offers capture from the mailbox (`archive.mailboxCapture`) and the tenant has
+  mailboxes or accounts an archive can capture, "Create recommended job" and "Protect
+  everything without a job" make the new mail job over all objects back up and archive. A mail
+  job over all objects that exists and does not archive yet is switched to archiving instead
+  ("Switch archiving on in …"); its schedules stay, and the change is audited as
+  `backup_job.updated` with `changes.archive`, like an edit in the job editor. The click uses
+  the default capture ways, which need nothing set up in the tenant: Microsoft Graph for
+  Microsoft 365 mailboxes, IMAP sync for the other accounts. Journaling and forwarding stay a
+  choice in the editor. Without the capture the recommended job is made as before.
+- The recommended job never changes a mail job over selected objects; its preview names them
+  ("Archiving stays as it is in …"). A mail job over all objects whose capture ways were
+  chosen by hand (Microsoft Graph or the IMAP sync switched off, for example journaling only)
+  is left as it is, and the preview says so. A new job over all objects is made only when it
+  covers something that is in no job yet. The dialog says when the job over all objects archives
+  already, the confirmation names the jobs in which archiving was switched on apart from the
+  jobs set up, and the preview of a paused job names no schedule.
+- The list of mail jobs shows "Switch archiving on" while the installation offers the capture
+  and the recommendation would switch an archive on in the mail job over all objects (not for
+  tenants with only OneDrives, SharePoint sites or groups, nor for jobs whose capture ways were
+  chosen by hand).
+- Installation › Prices: a monthly price per mailbox and per GB or TB of stored backups, in
+  EUR, CHF, USD or GBP (docs/ARCHITECTURE.md "Mandantenmodell"). Mailboxes are counted as in
+  the mailbox usage (a OneDrive does not count twice); storage is the tenant's stored backups,
+  deduplicated and compressed, in decimal units (1 GB = 10^9 bytes, 1 TB = 10^12 bytes). Prices
+  take at most four decimals; a price left empty is not shown. Provider admins with every
+  tenant read them, only the owner changes them, audited as `settings.pricing.updated` with the
+  values before and after (`GET` and `PUT /api/v1/settings/pricing`). Tenant users never see
+  them.
+- Each tenant's overview shows provider admins with every tenant a card "Price per month": what
+  the tenant comes to at these prices, one line for the mailboxes and one for the storage, with
+  a link to the prices. It appears once a price is set. Restow bills nothing and limits nothing.
+
+### Changed
+
+- Backups that Microsoft Graph or the storage held back no longer count as failed. A Mail &
+  SaaS backup that ends, after all its retries, with `graph.throttled`,
+  `graph.service_unavailable` or `storage.rate_limited` reads "Held back by the service,
+  retried" in amber instead of "Failed" in red (in the objects list "Held back by the service")
+  in every view: History, the all-tenants job
+  overview, the objects list, the runs of a job, the job page, the recent jobs on the dashboard
+  and the run details. It is left out of the failed counts of the statistics and the
+  dashboard, does not make the job failing (the run before it stands), does not make a warning
+  red or end its acknowledgement, and raises no `backup.failed` alert and no `job.failed`
+  webhook. The next scheduled run tries again; an object held back for longer is caught by the
+  overdue and readiness rules, which look at the age of the newest backup. A restore, export,
+  import or check that a service held back has no next run and stays a failure, with
+  `restore.failed` and the like.
+- Microsoft Graph: a background job honours a Retry-After of up to 5 minutes (before, waits
+  were capped at about a minute, and Exchange refuses a retry before its mailbox concurrency
+  penalty is over); a cancelled or expired job still stops at once. Requests from the
+  interface keep the one-minute cap.
+- Overdue backups (`backup.overdue`): a mailbox member with a schedule of its own is judged by
+  that schedule or by the tenant's mail jobs (the most relaxed one), whichever allows longer,
+  for that member only; a weekly member
+  of a daily job is no longer overdue two days after its backup. An object whose backup has
+  started and is still running (up to 21 days, a large first backup) is not overdue; a backup
+  that only waits in the queue does not hold the alert back.
+- The expiry badge of the central app (Installation › Microsoft multi-tenant app) turns amber
+  30 days before the end instead of 60 and red from 7 days, counted in whole calendar days
+  (UTC); a source's own app shows the same badge. For a secret from the environment without
+  `ENTRA_CLIENT_SECRET_EXPIRES_AT` the page says how to set it. The setup texts and
+  docs/MICROSOFT.md say 30 days, 7 days and expired instead of 60 days.
+- The job page names the phases of a SharePoint site backup ("Reading the site", "Lists") and
+  of the discovery of sites and group mailboxes. The retention notes read "the newest restore
+  point of each object is always kept" in the singular.
+- Proxmox VE inventory (#58): the size of a guest's first backup ("First backup on <date>:
+  <size> stored") and what a follow-up backup adds on average ("Average per follow-up backup:
+  +<size> (last N backups)") are shown as text in the guest's row, not only in its tooltip, so
+  they can be read and copied.
+- Dependencies: better-auth 1.7.14, mailparser 3.14.1, nodemailer 10.3.1, smtp-server 3.21.3,
+  msgreader 1.29.0, Biome 2.6.4, Vitest 5.0.5, Vite 8.3.5, React 19.3.1 and, in the release
+  pipelines, docker/login-action 4.7.0 (Dependabot #82 to #85). pg-boss 10.4.2 carries a patch
+  of Restow's (Fixed, Upgrade Notes). zod 4 (Dependabot #86) is not part of this release.
+
 ### Fixed
 
+- Microsoft 365: a mailbox whose account is disabled or has no Exchange Online licence
+  (mailbox not provisioned, licence removed, inactive mailbox) no longer fails its backup until
+  the next directory sync ("Microsoft rejected the request"). The backup confirms with
+  Microsoft that the user exists but has no mailbox, marks the mailbox "Not backed up: account
+  disabled" or "Not backed up: no licence" and ends neutral (`graph.mailbox_inactive`): no
+  failed count, no red readiness because of age, not overdue, no `backup.failed` alert or
+  `job.failed` webhook, existing backups kept. The directory sync sets the same state from its
+  mailbox probe. Only Exchange's answer counts: a disabled account whose mailbox Microsoft
+  still serves (a shared mailbox, a former employee) is backed up as before. A 401 or 403 is
+  never read this way; those stay permission failures. Backups resume right after the
+  directory sync that finds the account enabled or licensed again, and the mailbox is not
+  reported overdue because of its old backup. A restore into the original mailbox is refused
+  with the reason (docs/MICROSOFT.md "Deaktivierte und unlizenzierte Konten").
+- Microsoft 365: a OneDrive or SharePoint site that Microsoft locked (HTTP 423
+  `resourceLocked`, "Access to this site has been blocked"; Microsoft does this to the OneDrive
+  of an unlicensed account) no longer fails every night as "Microsoft rejected the request".
+  The backup confirms the lock with one cheap read, marks the object "Not backed up: locked"
+  (`graph.object_locked`, neutral, no retries) and the scheduler stops planning it. The
+  directory sync's drive probe recognises the same lock and marks a known OneDrive "Not backed
+  up: locked" at once, before a backup meets it. A 423 that
+  this read does not confirm stays a counted failure with its `backup.failed` alert. A site
+  whose libraries all answer 423 ends without a restore point instead of carrying old copies
+  forward. The directory sync never turns a locked object active again just because it is
+  still listed: it reads each locked drive or site once more and resumes the backup only when
+  that read succeeds; otherwise it keeps the lock and reports that the check failed. A 423 on a
+  single file stays an item problem (docs/MICROSOFT.md "OneDrive: Sichern und
+  Wiederherstellen").
+- Job queue: one queued backup of an object whose backup was still running (the next
+  scheduled run, "Back up now") blocked the backup queue of every tenant until that backup
+  ended, because pg-boss kept offering it first and handed out nothing. Such a job now waits
+  for its object's running backup and lets every other backup pass (pg-boss 10.4.2 with
+  patches/pg-boss@10.4.2.patch).
+- Microsoft 365: a permission an administrator grants to the app after Restow fetched its
+  token now takes effect without a new client secret. A token carries the app's permissions as
+  they were when it was issued, and Restow kept it until shortly before it expired (up to about
+  an hour), so a permission granted in between was refused until then or until a new secret
+  was entered. When Graph answers 401 or 403, Restow now fetches a new token once and sends the
+  request again, at most once a minute per tenant or source, so a run of refusals (an item the
+  app may not read) does not fetch a token each time. Every request refused with the same old
+  token is sent again with the new one, not only the first, and refused sub-requests of a
+  `$batch` are sent again once as well; a wall clock that stepped back (NTP, VM resume) no
+  longer holds back the refresh. A request refused again with the new token fails as before.
+  This applies to backups, restores, the directory sync, the archive capture, the group search,
+  the connection test and the consent check. A token endpoint that cannot be reached is asked
+  twice more (after 1 and 4 seconds, 60 seconds per request) and then fails the run, which
+  resumes from its checkpoint, instead of recording every item as failed; the test of an app
+  registration still reports it at once.
+- Microsoft 365: every `$batch` now sends an identical read only once and gives the answer to
+  every caller, also in the retries after 429 and a new token, on top of the unique request
+  ids of 0.3.2, so a delta page or a retry that names the same message twice can never repeat
+  an id ("Request Id ... has to be unique in a batch"). Writes are never merged.
+- Microsoft Graph: a connection broken before Graph answered (reset, refused, a temporary DNS
+  failure, a timeout) is retried with backoff for requests that only read, `$batch` of reads
+  included, and is not reported as throttling.
+- Mailbox backup: a 403 for calendars or contacts (permission missing, an access policy that
+  covers mail only) fails that area and keeps the mail of the run, instead of discarding the
+  snapshot. A 401 in the middle of a run checkpoints and resumes, instead of abandoning a
+  partial first backup. A well-known folder Graph refuses to resolve (400, 403) is treated as
+  absent and logged, instead of failing the mailbox before a single folder was read. A stored
+  delta link Graph rejects as an invalid sync state (400) leads to a full resync, instead of
+  failing on every run. A message Exchange cannot convert to MIME (conversion error, or a
+  plain 500 after one more try) is stored as JSON with its attachments, like an oversized one.
+  A subfolder deleted while its parent was listed no longer fails the run; it is recorded as a
+  failure of the parent, and what the snapshot holds below the parent stays until the parent
+  is gone.
+- SharePoint: a library or list Graph will not give (400, 501, or a lasting 500 for a list
+  template or a library's permissions) is reported as an item failure and keeps its last copy;
+  the rest of the site gets its snapshot, instead of the whole site failing; a 500 or 502 for
+  a library's contents still fails the job, which resumes from its checkpoint. A resumed site
+  counts the item failures of the libraries an earlier attempt finished. A library that is
+  gone no longer reads "this user has no OneDrive".
+- OneDrive and SharePoint: an item that failed and came through later in the same run (listed
+  twice in a delta feed, retried) no longer stays among the failures. Files a host sends
+  compressed are no longer taken for truncated downloads. A OneDrive whose drive Graph no
+  longer finds (user deleted, retention over) fails as "OneDrive unavailable"
+  (`graph.onedrive_unavailable`), permanent and not retried, instead of as an item. Cancelling
+  a job during a throttling wait no longer records items as failed.
+- Recovery readiness: an object removed from its source (a mailbox deleted in Microsoft 365,
+  for example) no longer turns red because its last backup grows old. Nothing backs it up any
+  more, and retention always keeps its newest restore point, so it is rated by whether that
+  backup restores, without the age reasons ("The latest backup is N days old"), and is never
+  overdue. A kept backup that does not restore stays red. The same rating applies in the
+  statistics, the objects list, the tenant's overall readiness, the integration API
+  (`GET /api/v1/status`, `/objects`, `/users`, `/verify/latest`, where `report.reasons` leaves
+  the age out), the `verify.completed` notification and the rating a new check stores. The
+  table says "Removed from source, backups kept" instead of "Removed from source"; the report
+  page opens with a note "Removed from the source" and lists the age of the kept backup as "Not
+  counted: ..." instead of among the findings. An object whose newest backup was never checked
+  gets one more check from the weekly verify planner and from a job's verify; after that
+  nothing is planned for it.
+- IMAP backup: a login the server refuses for now (too many connections for the account, an
+  authentication backend that is down, [UNAVAILABLE], [INUSE] or [LIMIT]) is the new transient
+  cause `imap.server_limit`, retried by itself, instead of a wrong password; the connection
+  test of an IMAP source says "The server temporarily refused the login". [LIMIT], [OVERQUOTA]
+  or a quota text on a read is no longer reported as a full mailbox but as `imap.server_limit`
+  too: such a download cap fails the folder as a whole and the next run resumes, instead of one
+  failure per message (a cap the server reports on a read without such a code or text still
+  costs one failure per message). Messages deleted or moved during the backup are not counted as
+  failures. A run whose connection dropped too often fails as `imap.connection_lost`
+  (transient) instead of "cause not identified".
+- IMAP archive capture: a message the server refuses or does not deliver no longer holds back
+  its folder or the whole pass; the other messages are captured, and after three passes the
+  capture gives up on it. A refused folder costs only that folder for this pass. Folders a
+  pass did not reach keep their state, so older mail is no longer skipped after an interrupted
+  pass. A limit of the account stops the pass with its state kept. A watch refused with a NO
+  on EXAMINE or IDLE is retried after minutes (doubling up to an hour), instead of being taken
+  for a server without IDLE for a day.
+- Restore: an IMAP restore whose connection drops fails and is retried on a fresh connection,
+  where the Message-ID check skips what was already appended, instead of ending "completed"
+  with every remaining item failed. A retried SharePoint list restore in "keep both" mode no
+  longer adds the items the interrupted attempt added, and a retried contacts restore in that
+  mode no longer creates contacts twice. A restore into a mailbox given by address resolves
+  the same mailbox the API accepted (through the directory user's address, never an orphaned
+  or imported mailbox), so a duplicate address no longer picks another one.
+- Jobs: the time limit of a job counts from when the queue handed it out, also while it waits
+  for a free slot of its tenant; a job that waited out its time stops before it starts, so no
+  retry runs beside a late attempt. A cancel that lands while the attempt starts or fails is
+  kept (it was overwritten by "active" or "failed" and retried). A job the reconciler ends for
+  good raises the `job.failed` webhook, the bell and the notification rules like any other,
+  and its checkpoint is cleared.
+- Public demo: the seed no longer fails when Restow queued an object's first backup itself
+  after the seed had listed the objects. "Back up now" then answered `already_queued`, the
+  seed counted the object as failed, the nightly reset left `web` down and the demo kept
+  showing its "being reset" page. The seed now waits for the backup that is already queued.
 - "Remove from Restow" no longer says file restore stops offering the backups of a removed
   machine: since 0.4.6 its page offers their restore until they are deleted.
 - The licence page no longer lists sign-in with Microsoft among what Business unlocks; it is
   still experimental and off by default.
-- Microsoft 365: A mailbox whose account is disabled or has no Exchange Online licence
-  (mailbox not provisioned, licence removed, inactive mailbox) no longer fails its backup until
-  the next directory sync ("Microsoft rejected the request"). The backup confirms with
-  Microsoft that the user exists but has no mailbox, marks the mailbox "Not backed up: account
-  disabled" or "Not backed up: no licence" and ends neutral: no failed count, no red readiness
-  because of age, no `backup.failed` alert or `job.failed` webhook, existing backups kept. The
-  directory sync sets the same state. Backups resume by themselves once the account is enabled
-  or licensed again. A 401 or 403 is never read this way; those stay permission failures.
-  Migration 0069 adds `protected_objects.status_reason` (docs/MICROSOFT.md "Deaktivierte und
-  unlizenzierte Konten").
-- Microsoft 365: A OneDrive or SharePoint site that Microsoft locked (HTTP 423 `resourceLocked`,
-  "Access to this site has been blocked"; Microsoft does this to the OneDrive of an unlicensed
-  account) no longer fails every night as "Microsoft rejected the request". The backup confirms
-  the lock with one cheap read, marks the object "Not backed up: locked" (`graph.object_locked`,
-  neutral, no retries) and the scheduler stops planning it. The directory sync never turns it
-  active again just because the drive is still listed: it reads each locked drive or site once
-  more and resumes the backup only when that read succeeds. A 423 on a single file stays an item
-  problem.
-- Microsoft 365: Every `$batch` now sends an identical read only once and gives the answer to
-  every caller, on top of the unique request ids of 0.3.2, so a delta page or a retry that names
-  the same message twice can never repeat an id ("Request Id ... has to be unique in a batch").
 
-### Added
+### Security
 
-- Objects that are no longer backed up because the source says they are gone, disabled,
-  unlicensed or locked first read amber "Not backed up any more, please confirm" with reason and
-  date. No failure, no red, not overdue, but they keep warnings, dashboard and readiness at
-  yellow until an admin confirms "Yes, intended" (per object or for several in the list, audited;
-  tenant administrators and provider teams with configure rights). Confirmed objects read grey
-  "Intentionally no longer backed up, confirmed by ... on ...". When the object becomes active
-  again, the confirmation is dropped and backups resume. New notification events
-  `object.inactive` (one notice per object) and `object.inactive_many` (one warning when more
-  than 10 objects or more than 20% of a tenant's objects stop being backed up within a day).
-  New routes `POST /api/v1/directory/objects/:id/inactive/confirm` and
-  `POST /api/v1/directory/objects/inactive/confirm`. Migration 0069 also adds
-  `inactive_since`, `inactive_notified_at`, `status_confirmed_at` and `status_confirmed_by`;
-  objects already orphaned before the update count as confirmed, so no long amber list appears
-  (docs/MICROSOFT.md "Nicht mehr gesichert: Bestätigung").
+- ip-address 10.7.5 (from 10.7.2), a transitive dependency through socks, resolves a moderate
+  advisory reported by Dependabot. socks comes with the IMAP library imapflow and is used only
+  for connections through a SOCKS proxy, which Restow does not configure.
+
+### Upgrade Notes
+
+New images and four database migrations; no new required environment variable, and the
+`docker-compose.yml` of 0.4.0 stays.
+
+- Four database migrations run at the api's start; none of them rewrites a table:
+  - 0066 adds two nullable columns to `pve_guests` (`excluded_at`, `excluded_by`).
+  - 0067 adds the column `settings.pricing` (`jsonb`, default `{}`, no price set).
+  - 0068 adds the column `settings.app_secret_alerts` (`jsonb`, default `{}`).
+  - 0069 adds five nullable columns to `protected_objects` (`status_reason`, `inactive_since`,
+    `inactive_notified_at`, `status_confirmed_at`, `status_confirmed_by`), two check
+    constraints and a trigger that keeps them in step with the object's status; it updates
+    only the orphaned rows.
+- New optional environment variable `ENTRA_CLIENT_SECRET_EXPIRES_AT` (`YYYY-MM-DD`, as Entra
+  shows it): a central app whose secret comes from the environment gets expiry reminders only
+  with it in `.env` and the api restarted. A certificate needs none; an unreadable value counts
+  as unknown.
+- Sources connected through their own app before 0.4.7 have no expiry date, so no reminder:
+  for a client secret, note the date on the source's page under "Expires"; a certificate gets
+  its date when it is entered again.
+- Webhooks and notification recipients get the new events (`object.inactive`,
+  `object.inactive_many`, `source.app_secret_expiring`, `installation.app_secret_expiring`)
+  only once they are ticked in the notification matrix (docs/ARCHITECTURE.md
+  "Benachrichtigungsmatrix: welcher Kanal welches Ereignis bekommt"); a bell column that was
+  never changed shows them.
+- Objects already orphaned before the update count as confirmed (`migration`) and raise no
+  notice, so no long amber list appears. Disabled and unlicensed mailboxes, and OneDrives and
+  sites that Microsoft locked, that failed every night are recognised by the first directory
+  sync or backup after the update (a locked site by its first backup): expect one
+  `object.inactive` notice for each object (an unlicensed user often has two, mailbox and
+  OneDrive), or one `object.inactive_many` warning for a tenant with many, and confirm them
+  under protected objects once they are intended.
+- Webhooks and alerts: a backup that Graph or the storage held back (`graph.throttled`,
+  `graph.service_unavailable`, `storage.rate_limited`) and a backup that ends neutral for an
+  object no longer backed up (`graph.mailbox_inactive`, `graph.object_locked`,
+  `config.object_inactive`) raise no `backup.failed` alert and no `job.failed` webhook; the
+  overdue rules speak up when no backup gets through. A restore that completed without
+  restoring anything while items failed now raises `restore.failed` and `job.failed`, with
+  `data.job.status` still `completed`. A job the reconciler ends for good raises `job.failed`.
+- Integrations: `GET /api/v1/jobs` keeps the status `failed` for these held-back and neutral
+  backups; read `failure.code` (and the object's `statusReason`) and treat them like the
+  object's state, not as a failure.
+- The counting reads the cause stored with each run, so earlier runs that ended with
+  `graph.throttled`, `graph.service_unavailable` or `storage.rate_limited` also read "Held back
+  by the service, retried" after the update and leave the failed counts of past periods in the
+  statistics and the dashboard. Objects removed from their source are rated without the age of
+  their last backup from the update on, without a new check; those whose newest backup was
+  never checked are checked once by the next planned check.
+- Proxmox VE: no guest is excluded by the update; guests in no job keep counting as "in no
+  backup job" until an admin excludes them. restow-pve needs no update in this release (no
+  change to the agents or the Proxmox VE plugin); the server withdraws the backups of an
+  excluded guest before a node gets them.
+- Prices are empty after the update; the price card appears only once the owner enters a price
+  under Installation › Prices. Existing mail jobs change only when an administrator applies
+  the recommended job, and only where the installation offers `archive.mailboxCapture`.
+- Building from source: pg-boss 10.4.2 is patched through `pnpm.patchedDependencies`
+  (patches/pg-boss@10.4.2.patch), which `pnpm install` applies; keep the `patches` folder. The
+  images carry the patch.
+- Rollback to 0.4.6 after the migrations was not tested: take a database backup before the
+  update and restore it to go back.
+
+### Known Issues
+
+- The detection of disabled, unlicensed and locked objects was tested against a simulated
+  Graph API. An answer of Microsoft that Restow does not recognise as "no mailbox" or as a lock
+  stays a counted failure, as before.
+- `GET /api/v1/jobs` has no field that sets a held-back or neutral backup apart from a failed
+  one; integrations that open tickets from it can read `failure.code`.
+- Notification mail sent through a Microsoft 365 app registration does not fetch a new token
+  after a refusal: a `Mail.Send` permission granted later takes effect once the cached token
+  expires.
+- The expiry date of a client secret is not read from Microsoft: without a date entered (under
+  Installation, in `ENTRA_CLIENT_SECRET_EXPIRES_AT` or on the source) there is no reminder.
+  Sources with an older own secret without an own app (shared client ID) have no date in
+  Restow; switch them to an own app or the central app (docs/ENTRA-SETUP.md "Alternative: eine
+  eigene App pro Quelle").
+- On the Recovery readiness reports list, a filter on the rating matches the stored rating. A
+  report stored before the update, or while the object was still at its source, counts the
+  backup's age, so such a report of an object removed from its source can be listed under red
+  while it reads green. Checks from 0.4.7 on store the rating without the age. The readiness
+  history of earlier days does not show the yellow of unconfirmed objects: only the current
+  confirmation is stored, not when it was given.
+- A message the IMAP archive capture gives up on (after three passes), messages the backfill
+  could not read and a well-known mail folder Graph refused to resolve are named in the worker
+  log only, not in the interface.
+- Excluding a selection of Proxmox VE guests in the inventory sends one request per guest
+  (there is no bulk route); when one fails, the guests before it stay excluded and the list
+  refreshes.
+- Group calendars and conversations were tested against a simulated Graph API, never against a
+  real Microsoft 365 tenant (as in 0.4.5).
+- IMAP sources with OAuth2 still cannot be created in the API or the interface.
+- The known issues of 0.4.4 still apply.
+
+### Verification
+
+Before the tag, on the release branch (0.4.6 plus the 0.4.7 work): lint and typecheck of all
+workspaces, the unit and Postgres suites of every package on Postgres 16 (with the Postgres
+guard), among them migrations 0066 to 0069 with the trigger and backfill of 0069, the directory
+sync and backup tests of disabled, unlicensed and locked objects, the `$batch` and token tests,
+the job queue with the pg-boss patch, the guest exclusion, the prices and the recommended job
+with the archive; restic-backed tests with restic 0.19, the web DOM tests, the v1 OpenAPI test,
+the tests of the CI scripts and the third-party notices. The handling of locked OneDrives and
+sites and of disabled and unlicensed accounts was not run against a real Microsoft 365 tenant
+before the tag, beyond the production error data that led to it; the guest exclusion was not
+run against a real Proxmox VE node.
 
 ## [0.4.6] - 2026-10-23
 
@@ -184,12 +600,12 @@ only on 0.4.5 and later (ee/licensing/KEY-FORMAT.md).
   With `RESTOW_RUN_AS_COMMUNITY=1` it starts as Community instead (the modules stay off, no
   data is changed). Never for beta licences, development builds, installations without a key
   or the demo.
-- The licence page shows which updates the key includes ("all 1.x (beta license)" or the end
-  of the update period) and, from 30 days before the end, a short notice on the same page.
-  A new key replaces the active one even while it is in force, of the same edition (a
-  renewal) or another; earlier keys stay in the history, and every installation or replacement is
-  audited with the key's update terms and whether they cover the running version. A key that
-  does not cover the running version is refused (`outside_update_period`).
+- The licence page shows which updates the key includes ("all 1.x (beta license)" or the end of
+  the update period) and, from 30 days before the end, a short notice on the same page. A new
+  key replaces the active one even while it is in force, of the same edition (a renewal) or
+  another; earlier keys stay in the history, and every installation or replacement is audited
+  with the key's update terms and whether they cover the running version. A key that does not
+  cover the running version is refused (`outside_update_period`).
 - Public demo, fast nightly reset (deploy/demo/README.md "Fast reset"): after a full seed
   `deploy/demo/reset.sh` saves a template (a `pg_dump` of the demo database, its roles and a tar
   of every volume the seed writes) keyed by the release, the image ids and `.env`, and restores
