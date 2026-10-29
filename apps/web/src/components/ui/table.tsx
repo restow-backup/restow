@@ -136,6 +136,9 @@ function Table({ className, containerClassName, scrollLabel, ...props }: TablePr
       style={inset > 0 ? { scrollPaddingLeft: inset } : undefined}
       className={cn(
         "group/scroll relative w-full overflow-x-auto overscroll-x-contain",
+        // A table with a pinned column takes the surface its pinned cells paint: otherwise, placed
+        // on the page, its other cells let the page show through and every row looks two-toned.
+        "has-[[data-pinned]]:rounded-[inherit] has-[[data-pinned]]:bg-[color:var(--table-surface,var(--card))]",
         "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset",
         "data-[more=true]:[-webkit-mask-image:linear-gradient(to_right,#000_calc(100%_-_2rem),transparent)] data-[more=true]:[mask-image:linear-gradient(to_right,#000_calc(100%_-_2rem),transparent)]",
         containerClassName,

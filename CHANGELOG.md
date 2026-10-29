@@ -36,6 +36,9 @@ private repository.
   column. Checking a row also no longer moves the rows under the pointer (the actions bar used
   to appear above the table), and no longer rebuilds every cell of the table, which dropped
   keyboard focus and closed open tooltips and menus on each check.
+- Tables with a pinned column on the page background (protected objects among them) no longer
+  look two-toned: the pinned name column was white while the other cells let the page show
+  through. The table takes the pinned column's surface.
 
 ## [0.4.7] - 2026-10-29
 
