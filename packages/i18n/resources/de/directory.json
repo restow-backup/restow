@@ -50,8 +50,19 @@
   "override": {
     "include": "Immer eingeschlossen",
     "exclude": "Immer ausgeschlossen",
-    "includeHint": "Ein Admin hat entschieden, dieses Objekt unabhängig von den Regeln zu schützen.",
-    "excludeHint": "Ein Admin hat entschieden, dieses Objekt unabhängig von den Regeln auszulassen."
+    "includeHint": "Ein Administrator hat entschieden, dieses Objekt unabhängig von den Regeln zu schützen.",
+    "excludeHint": "Ein Administrator hat entschieden, dieses Objekt unabhängig von den Regeln auszulassen."
+  },
+  "scope": {
+    "included": "Eingeschlossen",
+    "excluded": "Ausgeschlossen",
+    "byRule": "per Regel",
+    "manual": "manuell",
+    "none": "Gerade nicht gesichert",
+    "ruleHint": "Die Schutzregeln der Quelle entscheiden, ob dieses Objekt gesichert wird.",
+    "imapHint": "IMAP-Konten haben keine Regeln: Ein Administrator hat das Konto hinzugefügt oder ausgeschlossen.",
+    "inactiveHint": "Wird gerade nicht gesichert; den Grund nennt der Status.",
+    "pendingHint": "Diese Entscheidung gilt wieder, sobald das Objekt gesichert werden kann."
   },
   "sharedOrBlocked": {
     "label": "Geteilt oder gesperrt",
@@ -163,6 +174,7 @@
       "name": "Name",
       "kind": "Typ",
       "status": "Status",
+      "scope": "Sicherung",
       "lastBackup": "Letzte Sicherung",
       "readiness": "Wiederherstellbarkeit",
       "credential": "Anmeldung",
@@ -228,6 +240,12 @@
     "selectAllMatching": "Alle {count, plural, one {# passenden Objekt} other {# passenden Objekte}} auswählen",
     "clear": "Auswahl aufheben",
     "selectPage": "Alle Zeilen dieser Seite auswählen",
+    "selectRow": "{name} auswählen",
+    "panelLabel": "Aktionen für die Auswahl",
+    "more": "Weitere Aktionen",
+    "cleared": "Auswahl aufgehoben",
+    "jumpToActions": "Zu den Aktionen für die Auswahl",
+    "escapeHint": "Esc hebt die Auswahl auf",
     "include": "Einschließen",
     "exclude": "Ausschließen",
     "reset": "Wieder den Regeln folgen",

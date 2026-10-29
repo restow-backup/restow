@@ -55,10 +55,14 @@ const PIN_WIDTH =
 /**
  * Edge shadow of the last pinned column: a soft gradient to the right of the
  * cell, visible once the container is scrolled (`data-scrolled` on
- * `table-container`). It fades with `motion-safe` only.
+ * `table-container`). It fades with `motion-safe` only. It reaches 1px over
+ * the row borders so the shadow has no gaps, except below the last body or
+ * footer row: there it would stick out of the table, give the scroll container
+ * 1px of vertical scroll, and that pixel catches the first upward swipe over
+ * the table at the end of the page (the page does not move).
  */
 const PIN_EDGE =
-  "after:pointer-events-none after:absolute after:-top-px after:-bottom-px after:left-full after:w-3 after:bg-linear-to-r after:from-black/10 after:to-transparent after:opacity-0 after:content-[''] dark:after:from-black/40 motion-safe:after:transition-opacity group-data-[scrolled=true]/scroll:after:opacity-100";
+  "after:pointer-events-none after:absolute after:-top-px after:-bottom-px [:is(tbody,tfoot)>tr:last-child>&]:after:bottom-0 after:left-full after:w-3 after:bg-linear-to-r after:from-black/10 after:to-transparent after:opacity-0 after:content-[''] dark:after:from-black/40 motion-safe:after:transition-opacity group-data-[scrolled=true]/scroll:after:opacity-100";
 
 /**
  * Classes and inline style of a pinned header or body cell. On phones only

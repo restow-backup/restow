@@ -6,6 +6,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { ReadOnlyGroup } from "@/components/kit/read-only-group";
+import { SectionAsideProvider } from "@/components/layout/section-aside";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { i18n } from "@/i18n";
 
@@ -109,13 +111,22 @@ afterEach(() => {
   root = null;
   host = null;
   document.body.innerHTML = "";
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
+
+interface MountOptions {
+  /** Wraps the panel, e.g. in the tenant page's section aside or a read-only group. */
+  wrap?: (panel: React.ReactNode) => React.ReactNode;
+  fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+}
 
 async function mount(
   page: ObjectsPage,
   sources: DirectorySource[] = [SOURCE],
   search: DirectorySearch = {},
   onSearchChange: (change: Partial<DirectorySearch>) => void = () => {},
+  options: MountOptions = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(directoryKeys.objectsPage("t-1", toObjectsQuery(search)), page);
@@ -123,7 +134,8 @@ async function mount(
     configured: true,
     demo: { enabled: false, email: null, password: null },
   });
-  vi.stubGlobal("fetch", async () => new Response("{}", { status: 404 }));
+  vi.stubGlobal("fetch", options.fetch ?? (async () => new Response("{}", { status: 404 })));
+  const wrap = options.wrap ?? ((panel: React.ReactNode) => panel);
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -132,12 +144,14 @@ async function mount(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
           <TooltipProvider delayDuration={200}>
-            <ObjectsPanel
-              search={search}
-              onSearchChange={onSearchChange}
-              sources={sources}
-              onShowSources={() => {}}
-            />
+            {wrap(
+              <ObjectsPanel
+                search={search}
+                onSearchChange={onSearchChange}
+                sources={sources}
+                onShowSources={() => {}}
+              />,
+            )}
           </TooltipProvider>
         </I18nextProvider>
       </QueryClientProvider>,
@@ -325,5 +339,308 @@ describe("objects no longer backed up", () => {
       shared: undefined,
       page: 1,
     });
+  });
+});
+
+const panel = () => document.querySelector<HTMLElement>('[data-slot="selection-panel"]');
+const announcement = () =>
+  document.querySelector<HTMLElement>('[data-slot="selection-status"]')?.textContent;
+const checkbox = (name: string) =>
+  row(name).querySelector<HTMLElement>("[data-select-row]") as HTMLElement;
+const action = (id: string) => panel()?.querySelector<HTMLElement>(`[data-action="${id}"]`) ?? null;
+
+async function check(name: string) {
+  await act(async () => {
+    checkbox(name).click();
+  });
+}
+
+async function press(target: Element, key: string) {
+  await act(async () => {
+    target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  });
+}
+
+/** Lets the timers of a focus return (and Radix's own) run. */
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+}
+
+function wide(matches: boolean) {
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (query) =>
+      ({
+        matches,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList,
+  );
+}
+
+describe("the selection panel", () => {
+  it("appears with the first checked object after the list, says how many, and goes with the last", async () => {
+    wide(false);
+    await mount(PAGE);
+    expect(panel()).toBeNull();
+    expect(announcement()).toBe("");
+
+    await check("Alice Example");
+    const shown = panel();
+    expect(shown?.dataset.variant).toBe("bar");
+    expect(shown?.getAttribute("role")).toBe("region");
+    expect(shown?.getAttribute("aria-label")).toBe("Actions for the selection");
+    expect(shown?.querySelector('[data-slot="selection-count"]')?.textContent).toContain(
+      "1 selected",
+    );
+    expect(announcement()).toBe("1 selected");
+    // Out of the list's flow: nothing above the rows moved, the bar follows the table.
+    const table = document.querySelector("table") as HTMLElement;
+    expect(
+      table.compareDocumentPosition(shown as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    for (const id of ["include", "exclude", "moreSelectionActions", "clearSelection"]) {
+      expect(action(id), id).not.toBeNull();
+    }
+
+    await check("Bob OneDrive");
+    expect(announcement()).toBe("2 selected");
+    await check("Alice Example");
+    await check("Bob OneDrive");
+    expect(panel()).toBeNull();
+    expect(announcement()).toBe("Selection cleared");
+  });
+
+  it("keeps the checkbox, and its focus, when a row is checked: the cells are not rebuilt", async () => {
+    wide(false);
+    await mount(PAGE);
+    const box = checkbox("Alice Example");
+    const name = row("Bob OneDrive").querySelector('[data-column="name"]')?.firstElementChild;
+    expect(box.getAttribute("aria-label")).toBe("Select Alice Example");
+    box.focus();
+    await check("Alice Example");
+    expect(checkbox("Alice Example")).toBe(box);
+    expect(box.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(box);
+    expect(row("Bob OneDrive").querySelector('[data-column="name"]')?.firstElementChild).toBe(name);
+  });
+
+  it("clears the selection on Escape in the panel or in the list, and returns focus to the row last checked", async () => {
+    wide(false);
+    await mount(PAGE);
+    await check("Alice Example");
+    await check("Bob OneDrive");
+    const include = action("include") as HTMLElement;
+    include.focus();
+    await press(include, "Escape");
+    expect(panel()).toBeNull();
+    await settle();
+    expect(document.activeElement).toBe(checkbox("Bob OneDrive"));
+
+    await check("Alice Example");
+    expect(panel()).not.toBeNull();
+    await press(checkbox("Alice Example"), "Escape");
+    expect(panel()).toBeNull();
+  });
+
+  it("clears the selection with its own button", async () => {
+    wide(false);
+    await mount(PAGE);
+    await check("Alice Example");
+    await act(async () => {
+      action("clearSelection")?.click();
+    });
+    expect(panel()).toBeNull();
+    expect(checkbox("Alice Example").getAttribute("aria-checked")).toBe("false");
+    await settle();
+    expect(document.activeElement).toBe(checkbox("Alice Example"));
+  });
+
+  it("keeps the selection when Escape closes a confirmation opened from it", async () => {
+    wide(false);
+    await mount(PAGE);
+    await check("Alice Example");
+    await act(async () => {
+      action("exclude")?.click();
+    });
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("Exclude 1 object from backup?");
+    await press(dialog as HTMLElement, "Escape");
+    await settle();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(panel()).not.toBeNull();
+    expect(announcement()).toBe("1 selected");
+  });
+
+  it("applies a confirmed decision to every checked object and clears the selection", async () => {
+    wide(false);
+    const calls: { url: string; body: unknown }[] = [];
+    await mount(PAGE, [SOURCE], {}, () => {}, {
+      fetch: async (url, init) => {
+        if (String(url).includes("/protection/bulk")) {
+          calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+          return Response.json({
+            sourceId: "s-1",
+            action: "include",
+            matched: 2,
+            updated: 2,
+            sync: null,
+          });
+        }
+        return new Response("{}", { status: 404 });
+      },
+    });
+    await check("Alice Example");
+    await check("Bob OneDrive");
+    await act(async () => {
+      action("include")?.click();
+    });
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("Include 2 objects?");
+    await act(async () => {
+      dialog?.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
+    });
+    await settle();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toContain("/directory/sources/s-1/protection/bulk");
+    expect(calls[0]?.body).toEqual({ action: "include", objectIds: ["o-1", "o-2"] });
+    expect(panel()).toBeNull();
+    expect(announcement()).toBe("Selection cleared");
+    expect(document.activeElement).toBe(checkbox("Bob OneDrive"));
+  });
+
+  it("offers the rest in a menu that does not lock the page", async () => {
+    wide(false);
+    await mount(PAGE);
+    await check("Alice Example");
+    const more = action("moreSelectionActions") as HTMLElement;
+    expect(more.getAttribute("aria-label")).toBe("More actions");
+    await act(async () => {
+      more.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    });
+    const menu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(menu).not.toBeNull();
+    expect(menu?.querySelector('[data-action="reset"]')?.textContent).toBe(
+      "Follow the rules again",
+    );
+    expect(menu?.querySelector('[data-action="newJobFromSelection"]')?.getAttribute("href")).toBe(
+      "/jobs?type=mail&new=1&select=o-1",
+    );
+    // Not modal: no scroll lock on the page while it is open.
+    expect(document.body.hasAttribute("data-scroll-locked")).toBe(false);
+    expect(document.body.style.overflow).not.toBe("hidden");
+  });
+
+  it("docks in the section column on a wide screen, with a way to it before the list", async () => {
+    wide(true);
+    const slot = document.createElement("div");
+    slot.dataset.slot = "section-aside";
+    document.body.appendChild(slot);
+    await mount(PAGE, [SOURCE], {}, () => {}, {
+      wrap: (content) => <SectionAsideProvider slot={slot}>{content}</SectionAsideProvider>,
+    });
+    expect(slot.childElementCount).toBe(0);
+    await check("Alice Example");
+    const docked = panel();
+    expect(docked?.dataset.variant).toBe("column");
+    expect(slot.contains(docked)).toBe(true);
+    expect(docked?.textContent).toContain("Esc clears the selection");
+    expect(action("include")?.textContent).toBe("Include");
+    expect(action("reset")?.textContent).toBe("Follow the rules again");
+    // Focus stays on the checkbox; a button right before the table leads to the panel's first
+    // action (not to its clear button, where a second Enter would drop the selection).
+    const jump = document.querySelector<HTMLElement>('[data-action="jumpToSelectionActions"]');
+    expect(jump?.textContent).toBe("Go to the actions for the selection");
+    const table = document.querySelector("table") as HTMLElement;
+    expect(
+      (jump?.compareDocumentPosition(table) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await act(async () => {
+      jump?.click();
+    });
+    expect(document.activeElement?.getAttribute("data-action")).toBe("include");
+    expect(docked?.contains(document.activeElement)).toBe(true);
+    await press(document.activeElement as HTMLElement, "Escape");
+    expect(slot.childElementCount).toBe(0);
+  });
+
+  it("stays closed in the section column for a viewer who may only look", async () => {
+    wide(true);
+    const slot = document.createElement("div");
+    document.body.appendChild(slot);
+    await mount(PAGE, [SOURCE], {}, () => {}, {
+      wrap: (content) => (
+        <SectionAsideProvider slot={slot}>
+          <ReadOnlyGroup closed>{content}</ReadOnlyGroup>
+        </SectionAsideProvider>
+      ),
+    });
+    await check("Alice Example");
+    const docked = panel();
+    expect(slot.contains(docked)).toBe(true);
+    expect(docked?.closest("fieldset")?.disabled).toBe(true);
+  });
+
+  it("offers only the confirmation and the jobs tenant-wide, where no source is chosen", async () => {
+    wide(false);
+    await mount(
+      {
+        ...PAGE,
+        items: [
+          object({ status: "orphaned", inactiveState: "to_confirm", displayName: "Gone One" }),
+        ],
+        total: 1,
+      },
+      [SOURCE, { ...SOURCE, id: "s-2", name: "Fabrikam" }],
+      { status: "to_confirm" },
+    );
+    await check("Gone One");
+    expect(action("include")).toBeNull();
+    expect(action("exclude")).toBeNull();
+    const more = action("moreSelectionActions") as HTMLElement;
+    await act(async () => {
+      more.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    });
+    const menu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(menu?.querySelector('[data-action="confirmInactive"]')?.textContent).toBe(
+      "Yes, intended",
+    );
+    expect(menu?.querySelector('[data-action="newJobFromSelection"]')).not.toBeNull();
+    expect(menu?.querySelector('[data-action="addSelectionToJob"]')).not.toBeNull();
+    expect(menu?.querySelector('[data-action="reset"]')).toBeNull();
+  });
+
+  it("reaches past the page once all of it is checked, and then offers no job", async () => {
+    wide(false);
+    await mount({ ...PAGE, total: 60 });
+    await check("Alice Example");
+    expect(document.querySelector('[data-action="selectAllMatching"]')).toBeNull();
+    await check("Bob OneDrive");
+    const more = action("moreSelectionActions") as HTMLElement;
+    await act(async () => {
+      more.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    });
+    const all = document.querySelector<HTMLElement>(
+      '[role="menu"] [data-action="selectAllMatching"]',
+    );
+    expect(all?.textContent).toBe("Select all 60 matching objects");
+    await act(async () => {
+      all?.click();
+    });
+    expect(panel()?.querySelector('[data-slot="selection-count"]')?.textContent).toContain(
+      "60 selected",
+    );
+    expect(announcement()).toBe("60 selected");
+    await act(async () => {
+      action("moreSelectionActions")?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    // A job is made of explicit objects: "all matching" has none to hand over.
+    const menu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(menu?.querySelector('[data-action="newJobFromSelection"]')).toBeNull();
+    expect(menu?.querySelector('[data-action="reset"]')).not.toBeNull();
   });
 });

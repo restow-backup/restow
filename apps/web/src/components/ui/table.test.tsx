@@ -58,6 +58,14 @@ describe("pinnedCell", () => {
     expect(pinnedCell({ left: 0 }, "cell").className).not.toContain("after:");
   });
 
+  it("keeps the edge shadow inside the table below the last row", () => {
+    // 1px past the last row would let the container scroll 1px vertically, and that pixel
+    // swallows the first upward swipe over the table at the end of the page.
+    const { className } = pinnedCell({ left: 0, edge: true }, "cell");
+    expect(className).toContain("after:-bottom-px");
+    expect(className).toContain("[:is(tbody,tfoot)>tr:last-child>&]:after:bottom-0");
+  });
+
   it("shows the first column's shadow on phones only while a second one pins", () => {
     expect(pinnedCell({ left: 0, edge: "narrow" }, "cell").className).toContain("sm:after:hidden");
     expect(pinnedCell({ left: 160, edge: true }, "cell").className).toContain(

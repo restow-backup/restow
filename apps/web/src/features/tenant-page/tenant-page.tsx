@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { EmbeddedPage } from "@/components/kit/page-context";
 import { ReadOnlyGroup } from "@/components/kit/read-only-group";
+import { SectionAsideProvider } from "@/components/layout/section-aside";
 import { SectionNav, type SectionNavItem } from "@/components/layout/section-nav";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -70,6 +71,8 @@ function OpenTenantPage({
   const session = useSession();
   const scope = useWordingScope();
   const block = useTenantWriteBlock();
+  // The free space at the bottom of the section column, for a section's panel (section-aside.tsx).
+  const [aside, setAside] = React.useState<HTMLElement | null>(null);
   // Searched only so that the address's parameters keep reaching the sections.
   useSearch({ strict: false });
 
@@ -131,6 +134,7 @@ function OpenTenantPage({
           label={t("tenantpage:sections.label", { scope })}
           selectLabel={t("tenantpage:sections.select")}
           selectId="tenant-section-select"
+          asideRef={setAside}
         />
         <div
           className="min-w-0 space-y-6"
@@ -145,14 +149,16 @@ function OpenTenantPage({
             <LockedSection spec={spec} />
           ) : (
             <EmbeddedPage>
-              <ReadOnlyGroup closed={closed} className="space-y-6">
-                <spec.component
-                  key={`${tenant.id}:${spec.id}`}
-                  tenant={tenant}
-                  readOnly={closed}
-                  sub={sub}
-                />
-              </ReadOnlyGroup>
+              <SectionAsideProvider slot={aside}>
+                <ReadOnlyGroup closed={closed} className="space-y-6">
+                  <spec.component
+                    key={`${tenant.id}:${spec.id}`}
+                    tenant={tenant}
+                    readOnly={closed}
+                    sub={sub}
+                  />
+                </ReadOnlyGroup>
+              </SectionAsideProvider>
             </EmbeddedPage>
           )}
         </div>

@@ -416,6 +416,19 @@
     scroll-padding-top: calc(var(--shell-header-height) + 0.5rem);
   }
 
+  /*
+   * While the selection bar sticks to the bottom of the viewport (objects list, below the large
+   * breakpoint), focused elements scroll above it rather than behind it (WCAG 2.4.11). The bar
+   * has two rows on a phone and one from `sm` on (features/directory/selection-panel.tsx).
+   */
+  html:has([data-slot="selection-panel"][data-variant="bar"]) {
+    scroll-padding-bottom: 6.5rem;
+
+    @media (width >= 40rem) {
+      scroll-padding-bottom: 4.5rem;
+    }
+  }
+
   body {
     min-height: 100vh;
     background-color: var(--background);

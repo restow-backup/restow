@@ -79,7 +79,6 @@ import {
   toggle,
   toSelectedEntry,
 } from "@/features/restore/lib/selection";
-import { useMediaQuery } from "@/features/restore/lib/use-media-query";
 import {
   snapshotOfVersion,
   storedVersionEntry,
@@ -98,6 +97,7 @@ import { RestorePointImmutabilityBadge } from "@/features/storage/components/res
 import { RestorePointSuspicion, useOpenSuspicions } from "@/features/suspicion";
 import { formatInteger } from "@/lib/format";
 import { useSession } from "@/lib/session";
+import { useMediaQuery } from "@/lib/use-media-query";
 
 /**
  * `localStorage` wrapped for `react-resizable-panels`' `useDefaultLayout`, so

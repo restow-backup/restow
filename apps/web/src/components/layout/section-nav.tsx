@@ -1,5 +1,6 @@
 import { Link, type LinkProps, useNavigate } from "@tanstack/react-router";
 import { Lock, type LucideIcon } from "lucide-react";
+import * as React from "react";
 
 import { Label } from "@/components/ui/label";
 import {
@@ -13,6 +14,11 @@ import { cn } from "@/lib/utils";
 
 /** The router marks active links itself; exact only, so it never contradicts ours. */
 const EXACT_MATCH = { exact: true, includeSearch: true } as const;
+
+/** The aside slot's distance to the bottom of the viewport while it sticks (`bottom-6`). */
+const ASIDE_BOTTOM_PX = 24;
+/** The links keep at least this much height beside a panel, however short the viewport. */
+const MIN_LINKS_PX = 120;
 
 /** Where a locked section leads, and why it is locked (already translated). */
 export interface SectionNavLock {
@@ -41,6 +47,11 @@ interface SectionNavProps {
   selectLabel: string;
   /** Unique id of the select (a page can show one sub-navigation only, but ids must not collide with tests). */
   selectId: string;
+  /**
+   * Receives the slot at the bottom of the column (see `section-aside.tsx`), where a section can
+   * show a small panel in the free space below the links. Without it the column has no slot.
+   */
+  asideRef?: (slot: HTMLElement | null) => void;
 }
 
 /**
@@ -61,59 +72,136 @@ export function SectionNav(props: SectionNavProps) {
   );
 }
 
-function ColumnNav({ items, activeId, label }: SectionNavProps) {
+/*
+ * The column is as high as the grid row beside it. The links stick below the shell header; the
+ * aside slot sits at the bottom of the column (`mt-auto`) and sticks to the bottom of the
+ * viewport while the row runs past it, so a panel in it is in view at once, in the space the
+ * links leave free. While the slot holds a panel, the links get only the room between their top
+ * (stuck or not yet) and the panel, and scroll inside it on a short viewport: they never run
+ * under the panel, and the column never makes the page longer than the content does. An empty
+ * slot takes no space and changes nothing. The slot is outside the `<nav>`: what it holds is not
+ * navigation.
+ */
+function ColumnNav({ items, activeId, label, asideRef }: SectionNavProps) {
+  const listRef = React.useRef<HTMLUListElement>(null);
+  const [slot, setSlot] = React.useState<HTMLElement | null>(null);
+  const slotRef = React.useCallback(
+    (element: HTMLElement | null) => {
+      setSlot(element);
+      asideRef?.(element);
+    },
+    [asideRef],
+  );
+  React.useEffect(() => {
+    const list = listRef.current;
+    if (!slot || !list || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    let frame = 0;
+    const fit = () => {
+      frame = 0;
+      // The slot's height includes its top padding, the gap to the links.
+      const room = slot.offsetHeight;
+      if (room === 0) {
+        list.style.removeProperty("max-height");
+        return;
+      }
+      const top = list.getBoundingClientRect().top;
+      const free = window.innerHeight - top - room - ASIDE_BOTTOM_PX;
+      list.style.maxHeight = `${Math.max(MIN_LINKS_PX, Math.floor(free))}px`;
+      markClipped();
+    };
+    // Links cut off below fade out, so the list shows that it scrolls.
+    const markClipped = () => {
+      const clipped = list.scrollHeight - list.scrollTop - list.clientHeight > 1;
+      list.toggleAttribute("data-clipped", clipped);
+    };
+    const schedule = () => {
+      if (frame === 0) {
+        frame = window.requestAnimationFrame(fit);
+      }
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(slot);
+    window.addEventListener("scroll", schedule, { passive: true });
+    list.addEventListener("scroll", markClipped, { passive: true });
+    window.addEventListener("resize", schedule);
+    fit();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", schedule);
+      list.removeEventListener("scroll", markClipped);
+      list.removeAttribute("data-clipped");
+      window.removeEventListener("resize", schedule);
+      window.cancelAnimationFrame(frame);
+      list.style.removeProperty("max-height");
+    };
+  }, [slot]);
+
   return (
-    <nav aria-label={label} className="hidden lg:block">
-      <ul className="sticky top-[calc(var(--shell-header-height)+1.5rem)] space-y-0.5">
-        {items.map((item) => {
-          const Icon = item.icon;
-          const active = item.id === activeId;
-          const base =
-            "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 [&>svg]:size-4 [&>svg]:shrink-0";
-          if (item.locked) {
+    <div className="hidden lg:flex lg:flex-col" data-slot="section-column">
+      <nav aria-label={label} className="sticky top-[calc(var(--shell-header-height)+1.5rem)]">
+        <ul
+          ref={listRef}
+          className="-m-1 space-y-0.5 overflow-y-auto p-1 data-[clipped]:[mask-image:linear-gradient(to_bottom,black_calc(100%-2.5rem),transparent)]"
+        >
+          {items.map((item) => {
+            const Icon = item.icon;
+            const active = item.id === activeId;
+            const base =
+              "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 [&>svg]:size-4 [&>svg]:shrink-0";
+            if (item.locked) {
+              return (
+                <li key={item.id}>
+                  <Link
+                    to={item.locked.to as LinkProps["to"]}
+                    search={item.locked.search as never}
+                    data-locked="true"
+                    aria-current={active ? "page" : undefined}
+                    title={`${item.label} — ${item.locked.hint}`}
+                    className={cn(
+                      base,
+                      "text-muted-foreground/70 hover:bg-sidebar-hover",
+                      active && "bg-sidebar-hover",
+                    )}
+                  >
+                    <Icon aria-hidden="true" />
+                    <span className="flex-1">{item.label}</span>
+                    <Lock aria-hidden="true" className="ml-auto size-3.5" />
+                    <span className="sr-only">{`, ${item.locked.hint}`}</span>
+                  </Link>
+                </li>
+              );
+            }
             return (
               <li key={item.id}>
                 <Link
-                  to={item.locked.to as LinkProps["to"]}
-                  search={item.locked.search as never}
-                  data-locked="true"
+                  to={item.to as LinkProps["to"]}
+                  activeOptions={EXACT_MATCH}
                   aria-current={active ? "page" : undefined}
-                  title={`${item.label} — ${item.locked.hint}`}
                   className={cn(
                     base,
-                    "text-muted-foreground/70 hover:bg-sidebar-hover",
-                    active && "bg-sidebar-hover",
+                    "text-muted-foreground hover:bg-sidebar-hover hover:text-foreground",
+                    active &&
+                      "bg-sidebar-accent font-medium text-sidebar-accent-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                   )}
                 >
                   <Icon aria-hidden="true" />
                   <span className="flex-1">{item.label}</span>
-                  <Lock aria-hidden="true" className="ml-auto size-3.5" />
-                  <span className="sr-only">{`, ${item.locked.hint}`}</span>
                 </Link>
               </li>
             );
-          }
-          return (
-            <li key={item.id}>
-              <Link
-                to={item.to as LinkProps["to"]}
-                activeOptions={EXACT_MATCH}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  base,
-                  "text-muted-foreground hover:bg-sidebar-hover hover:text-foreground",
-                  active &&
-                    "bg-sidebar-accent font-medium text-sidebar-accent-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                )}
-              >
-                <Icon aria-hidden="true" />
-                <span className="flex-1">{item.label}</span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+          })}
+        </ul>
+      </nav>
+      {asideRef ? (
+        <div
+          ref={slotRef}
+          data-slot="section-aside"
+          className="sticky bottom-6 z-10 mt-auto shrink-0 pt-4 empty:hidden"
+        />
+      ) : null}
+    </div>
   );
 }
 

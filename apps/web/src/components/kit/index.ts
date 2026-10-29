@@ -65,7 +65,7 @@ export {
   usePublishedTitle,
 } from "./page-context.js";
 export { type PageTab, PageTabs, type PageTabsProps } from "./page-tabs.js";
-export { ReadOnlyGroup } from "./read-only-group.js";
+export { ReadOnlyGroup, useReadOnlyGroup } from "./read-only-group.js";
 export { RefreshButton, type RefreshButtonProps } from "./refresh-button.js";
 export {
   absoluteLabel,

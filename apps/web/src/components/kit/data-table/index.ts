@@ -15,6 +15,7 @@ export { DataTableLoadMore, DataTablePagination, DEFAULT_PAGE_SIZES } from "./pa
 export {
   isContextMenuKey,
   type RowAction,
+  RowActionItems,
   type RowActionsColumnOptions,
   type RowActionsDefinition,
   RowActionsMenu,

@@ -275,6 +275,42 @@ export function credentialProbeFailureKey(probe: Extract<ImapProbeResult, { ok: 
   return `credential.probeReasons.${probe.reason}`;
 }
 
+/** Whether an object is in the backup scope, and who decided it (the "Backup" column). */
+export interface ProtectionScope {
+  decision: "included" | "excluded";
+  /** `rule`: the source's protection rules; `manual`: an admin's decision about this object. */
+  by: "rule" | "manual";
+}
+
+/**
+ * What the "Backup" column shows: included or excluded, and whether the source's rules decided
+ * it or an admin did. An admin's decision is an M365 override ("Always included/excluded"); an
+ * IMAP source has no rules, so every IMAP account is in or out because an admin added or
+ * excluded it (the decision sits in its status, never in an override). An object no longer
+ * backed up (removed, disabled, unlicensed, locked) is neither: the status says why, and it is
+ * backed up again by itself once that changes. Only its override, which applies again then,
+ * is shown. Null means "not decided now". Right after "Follow the rules again" the stored status
+ * is the old decision until the directory sync evaluates the rules again; it reads "by rule".
+ */
+export function protectionScope(object: ProtectedObject): ProtectionScope | null {
+  const m365 = object.sourceKind === "m365";
+  if (object.status === "orphaned") {
+    if (m365 && object.override) {
+      return {
+        decision: object.override === "include" ? "included" : "excluded",
+        by: "manual",
+      };
+    }
+    return null;
+  }
+  const decision = object.status === "active" ? "included" : "excluded";
+  if (!m365) {
+    return { decision, by: "manual" };
+  }
+  // The status is what the server applies; an override that says otherwise is not synced yet.
+  return { decision, by: object.override ? "manual" : "rule" };
+}
+
 /** Which protection actions make sense for an object. */
 export function availableActions(object: ProtectedObject): {
   include: boolean;

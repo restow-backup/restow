@@ -16,17 +16,23 @@ import {
   ListChecks,
   ListPlus,
   Mail,
-  RotateCcw,
   Search,
-  ShieldOff,
   TriangleAlert,
   UsersRound,
   X,
 } from "lucide-react";
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { ErrorState } from "@/components/error-state";
-import { ConfirmDialog, type RowAction, RowActionsMenu, RowContextMenu } from "@/components/kit";
+import {
+  ReadOnlyGroup,
+  type RowAction,
+  RowActionsMenu,
+  RowContextMenu,
+  useReadOnlyGroup,
+} from "@/components/kit";
+import { useSectionAside } from "@/components/layout/section-aside";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,7 +45,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "@/components/ui/sonner";
 import {
   Table,
   TableBody,
@@ -57,28 +62,22 @@ import { AddToJobDialog } from "@/features/endpoints/components/add-to-job-dialo
 import { explorerAt } from "@/features/restore/navigation";
 import { WarningSheet } from "@/features/warnings";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
 
 import {
   type BulkSelectionState,
-  bulkTarget,
   clearSelection,
   EMPTY_SELECTION,
   isPageFullySelected,
   isPagePartiallySelected,
   isSelected as objectIsSelected,
-  selectAllMatching,
   selectionCount,
   isEmpty as selectionIsEmpty,
   togglePage as togglePageSelection,
   toggleRow as toggleRowSelection,
 } from "./bulk-selection";
-import {
-  useBulkSetProtection,
-  useConfirmInactive,
-  useDebouncedValue,
-  useProtectedObjects,
-} from "./hooks";
+import { useDebouncedValue, useProtectedObjects } from "./hooks";
 import { useObjectActions } from "./object-actions";
 import { BackupCause, CredentialCause } from "./object-causes";
 import {
@@ -92,22 +91,16 @@ import {
   objectSubtitle,
   objectTitle,
   pageCount,
+  protectionScope,
   readinessView,
 } from "./presenters";
 import { type DirectorySearch, hasObjectFilters, PAGE_SIZES, toObjectsQuery } from "./search";
-import type {
-  BulkProtectionInput,
-  DirectorySource,
-  ObjectKind,
-  ObjectSort,
-  ObjectsFilter,
-  ProtectedObject,
-} from "./types";
+import { clearOnEscape, SelectionPanel, selectionJobActions } from "./selection-panel";
+import type { DirectorySource, ObjectKind, ObjectSort, ProtectedObject } from "./types";
 
 const ALL = "all";
-/** Bulk actions apply to one source; picking exactly one is what enables them. */
-const BULK_ACTIONS = ["include", "exclude", "reset"] as const;
-type BulkAction = (typeof BULK_ACTIONS)[number];
+/** From here on the tenant page shows its section column, where the selection panel docks. */
+const WIDE = "(min-width: 64rem)";
 
 const KIND_ICON: Record<ObjectKind, typeof Mail> = {
   mailbox: Mail,
@@ -173,16 +166,26 @@ export function ObjectsPanel({
   }
 
   const pageIds = React.useMemo(() => (objects.data?.items ?? []).map((o) => o.id), [objects.data]);
+  // The row last checked or unchecked, where focus returns once the selection is gone.
+  const lastToggled = React.useRef<string | null>(null);
+  const toggleRow = React.useCallback((id: string) => {
+    lastToggled.current = id;
+    setSelection((current) => toggleRowSelection(current, id));
+  }, []);
+  const togglePage = React.useCallback(() => {
+    lastToggled.current = null;
+    setSelection((current) => togglePageSelection(current, pageIds));
+  }, [pageIds]);
+  const selectionCells = React.useMemo(
+    () => ({ selection, pageIds, toggleRow, togglePage }),
+    [selection, pageIds, toggleRow, togglePage],
+  );
+  // Stable across checks and refetches: the cells read the selection from context. Columns made
+  // anew would be new component types to React (flexRender renders a function as one), and every
+  // cell would be remounted on each check, losing focus, open tooltips and menus.
   const columns = React.useMemo(
-    () =>
-      objectColumns(t, language, {
-        selectable,
-        selection,
-        pageIds,
-        onToggleRow: (id) => setSelection((current) => toggleRowSelection(current, id)),
-        onTogglePage: () => setSelection((current) => togglePageSelection(current, pageIds)),
-      }),
-    [t, language, selectable, selection, pageIds],
+    () => objectColumns(t, language, selectable),
+    [t, language, selectable],
   );
   const table = useReactTable({
     data: objects.data?.items ?? [],
@@ -198,6 +201,70 @@ export function ObjectsPanel({
   const pages = pageCount(total, query.pageSize);
   const filtered = hasObjectFilters(search);
   const protectedTotal = protectedTotals(sources);
+
+  // The selection panel: docked in the free space of the tenant page's section column on wide
+  // screens (a portal into its slot), a bar at the bottom of the viewport otherwise. Out of the
+  // list's flow either way, so checking a row never moves the rows.
+  const aside = useSectionAside();
+  const wide = useMediaQuery(WIDE);
+  const readOnly = useReadOnlyGroup();
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const tableRef = React.useRef<HTMLDivElement>(null);
+  const hasSelection = selectable && !selectionIsEmpty(selection);
+  const docked = hasSelection && aside !== null && wide;
+  const clear = React.useCallback(() => setSelection(clearSelection()), []);
+
+  // One live region stays mounted and only its text changes; it says the count, and that the
+  // selection is gone once it was there (a region that appears with its text is often skipped).
+  const hadSelection = React.useRef(false);
+  if (hasSelection) {
+    hadSelection.current = true;
+  }
+  const announcement = hasSelection
+    ? t("bulk.selected", { count: selectionCount(selection, total) })
+    : hadSelection.current
+      ? t("bulk.cleared")
+      : "";
+
+  // When the selection ends with focus in the panel (cleared there, Escape, a confirmed action),
+  // the focused control is gone with it: back to the row last checked, else the page checkbox.
+  const hadSelectionBefore = React.useRef(false);
+  React.useEffect(() => {
+    const ended = hadSelectionBefore.current && !hasSelection;
+    hadSelectionBefore.current = hasSelection;
+    if (!ended) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body) {
+        return;
+      }
+      const table = tableRef.current;
+      const id = lastToggled.current;
+      const target =
+        (id ? table?.querySelector<HTMLElement>(`[data-select-row="${CSS.escape(id)}"]`) : null) ??
+        table?.querySelector<HTMLElement>("[data-select-page]");
+      target?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [hasSelection]);
+
+  const panel = hasSelection ? (
+    <SelectionPanel
+      ref={panelRef}
+      variant={docked ? "column" : "bar"}
+      jobs={jobs}
+      sourceId={activeSourceId}
+      sourceKind={activeSource?.kind}
+      selection={selection}
+      onSelectionChange={setSelection}
+      pageIds={pageIds}
+      total={total}
+      filter={query}
+      onAddToJob={setAdding}
+    />
+  ) : null;
 
   // Objects can disappear while a later page is open; land on the last page that exists.
   React.useEffect(() => {
@@ -261,17 +328,39 @@ export function ObjectsPanel({
 
         <ObjectFilters search={search} onSearchChange={onSearchChange} sources={sources} />
 
-        {selectable ? (
-          <BulkActionBar
-            jobs={jobs}
-            sourceId={activeSourceId}
-            sourceKind={activeSource?.kind}
-            selection={selection}
-            onSelectionChange={setSelection}
-            pageIds={pageIds}
-            total={total}
-            filter={query}
-          />
+        <p className="sr-only" aria-live="polite" aria-atomic="true" data-slot="selection-status">
+          {announcement}
+        </p>
+
+        {docked ? (
+          // The docked panel comes before the list in the document: a way to it, right before
+          // the table (a few steps back from a checked row), onto its first action.
+          <Button
+            variant="outline"
+            size="sm"
+            className="sr-only focus-visible:not-sr-only"
+            data-action="jumpToSelectionActions"
+            onClick={() => {
+              // The first action that takes the focus (a closed one does not), the clear button last.
+              const root = panelRef.current;
+              const candidates = root
+                ? [
+                    ...root.querySelectorAll<HTMLElement>(
+                      "button[data-action]:not([data-action=clearSelection]):not([disabled])",
+                    ),
+                    ...root.querySelectorAll<HTMLElement>("button[data-action=clearSelection]"),
+                  ]
+                : [];
+              for (const candidate of candidates) {
+                candidate.focus();
+                if (document.activeElement === candidate) {
+                  return;
+                }
+              }
+            }}
+          >
+            {t("bulk.jumpToActions")}
+          </Button>
         ) : null}
 
         {objects.isError && !objects.data ? (
@@ -282,91 +371,104 @@ export function ObjectsPanel({
             retrying={objects.isFetching}
           />
         ) : (
-          <div className="rounded-lg border border-border">
-            <Table
-              aria-busy={objects.isFetching || undefined}
-              className="min-w-[56rem]"
-              scrollLabel={t("title")}
-            >
-              <TableHeader>
-                {table.getHeaderGroups().map((group) => (
-                  <TableRow key={group.id} className="hover:bg-transparent">
-                    {group.headers.map((header) => {
-                      const id = header.column.id as ObjectSort;
-                      const label = flexRender(header.column.columnDef.header, header.getContext());
-                      return (
-                        <TableHead
-                          key={header.id}
-                          pin={columnPin(header.column.id)}
-                          className={columnClass(header.column.id)}
-                          aria-sort={
-                            !SORTABLE.has(id)
-                              ? undefined
-                              : query.sort !== id
-                                ? "none"
-                                : query.order === "asc"
-                                  ? "ascending"
-                                  : "descending"
+          <div ref={tableRef} className="rounded-lg border border-border">
+            <SelectionContext.Provider value={selectionCells}>
+              <Table
+                // Escape in the list clears the selection, as it does in the panel.
+                onKeyDown={hasSelection ? (event) => clearOnEscape(event, clear) : undefined}
+                aria-busy={objects.isFetching || undefined}
+                className="md:min-w-[56rem]"
+                scrollLabel={t("title")}
+              >
+                <TableHeader>
+                  {table.getHeaderGroups().map((group) => (
+                    <TableRow key={group.id} className="hover:bg-transparent">
+                      {group.headers.map((header) => {
+                        const id = header.column.id as ObjectSort;
+                        const label = flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        );
+                        return (
+                          <TableHead
+                            key={header.id}
+                            pin={columnPin(header.column.id)}
+                            className={columnClass(header.column.id)}
+                            aria-sort={
+                              !SORTABLE.has(id)
+                                ? undefined
+                                : query.sort !== id
+                                  ? "none"
+                                  : query.order === "asc"
+                                    ? "ascending"
+                                    : "descending"
+                            }
+                          >
+                            {SORTABLE.has(id) ? (
+                              <SortButton
+                                column={id}
+                                label={t(`objects.columns.${id}`)}
+                                query={query}
+                                onSearchChange={onSearchChange}
+                              >
+                                {label}
+                              </SortButton>
+                            ) : (
+                              label
+                            )}
+                          </TableHead>
+                        );
+                      })}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {objects.isPending ? (
+                    <LoadingRows columnIds={columns.map((column) => column.id ?? "")} />
+                  ) : table.getRowModel().rows.length === 0 ? (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={columns.length} className="py-12">
+                        <EmptyObjects
+                          filtered={filtered}
+                          hasSources={sources.length > 0}
+                          onReset={() =>
+                            onSearchChange({
+                              q: undefined,
+                              kind: undefined,
+                              status: undefined,
+                              job: undefined,
+                              source: undefined,
+                              shared: undefined,
+                            })
                           }
-                        >
-                          {SORTABLE.has(id) ? (
-                            <SortButton
-                              column={id}
-                              label={t(`objects.columns.${id}`)}
-                              query={query}
-                              onSearchChange={onSearchChange}
-                            >
-                              {label}
-                            </SortButton>
-                          ) : (
-                            label
-                          )}
-                        </TableHead>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {objects.isPending ? (
-                  <LoadingRows columnIds={columns.map((column) => column.id ?? "")} />
-                ) : table.getRowModel().rows.length === 0 ? (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={columns.length} className="py-12">
-                      <EmptyObjects
-                        filtered={filtered}
-                        hasSources={sources.length > 0}
-                        onReset={() =>
-                          onSearchChange({
-                            q: undefined,
-                            kind: undefined,
-                            status: undefined,
-                            job: undefined,
-                            source: undefined,
-                            shared: undefined,
-                          })
-                        }
-                        onShowSources={onShowSources}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  table.getRowModel().rows.map((row) => (
-                    <ObjectRow key={row.id} object={row.original} selection={selection} jobs={jobs}>
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell
-                          key={cell.id}
-                          pin={columnPin(cell.column.id)}
-                          className={columnClass(cell.column.id)}
-                        >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      ))}
-                    </ObjectRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                          onShowSources={onShowSources}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    table.getRowModel().rows.map((row) => (
+                      <ObjectRow
+                        key={row.id}
+                        object={row.original}
+                        selection={selection}
+                        jobs={jobs}
+                      >
+                        {row.getVisibleCells().map((cell) => (
+                          <TableCell
+                            key={cell.id}
+                            pin={columnPin(cell.column.id)}
+                            className={columnClass(cell.column.id)}
+                            data-column={cell.column.id}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableCell>
+                        ))}
+                      </ObjectRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </SelectionContext.Provider>
           </div>
         )}
 
@@ -379,176 +481,12 @@ export function ObjectsPanel({
             onSearchChange={onSearchChange}
           />
         ) : null}
+
+        {docked && aside
+          ? createPortal(<ReadOnlyGroup closed={readOnly}>{panel}</ReadOnlyGroup>, aside)
+          : panel}
       </div>
     </AddToJobContext.Provider>
-  );
-}
-
-/**
- * Above the table once at least one row is checked: how many, a way to reach
- * past the page ("select all N matching"), and the three bulk decisions —
- * each behind a confirmation that states the count and the effect, exactly
- * like the per-row actions, just applied to many objects through the same
- * per-object logic on the server.
- */
-function BulkActionBar({
-  jobs,
-  sourceId,
-  sourceKind,
-  selection,
-  onSelectionChange,
-  pageIds,
-  total,
-  filter,
-}: {
-  jobs: JobsAccess;
-  /** The one source protection decisions apply to; absent while only confirming tenant-wide. */
-  sourceId: string | undefined;
-  /** Reset only makes sense for an M365 source (IMAP accounts have no rules to fall back to). */
-  sourceKind: DirectorySource["kind"] | undefined;
-  selection: BulkSelectionState;
-  onSelectionChange: (next: BulkSelectionState) => void;
-  pageIds: readonly string[];
-  total: number;
-  filter: ObjectsFilter;
-}) {
-  const { t } = useTranslation("directory");
-  const bulk = useBulkSetProtection();
-  const confirmInactive = useConfirmInactive();
-  const addToJob = React.useContext(AddToJobContext);
-  const canReset = sourceKind === "m365";
-  // "Yes, intended" only where objects wait for it: the "to confirm" filter, or orphans listed.
-  const canConfirm = filter.status === "to_confirm" || filter.status === "orphaned";
-
-  if (selectionIsEmpty(selection)) {
-    return null;
-  }
-
-  const count = selectionCount(selection, total);
-  const offerAllMatching =
-    selection.mode === "ids" && isPageFullySelected(selection, pageIds) && total > pageIds.length;
-
-  const applyConfirm = () =>
-    confirmInactive.mutateAsync({ input: bulkTarget(selection, filter) }).then((result) => {
-      toast.success(t("inactive.done.bulk", { count: result.confirmed }));
-      onSelectionChange(EMPTY_SELECTION);
-      return result;
-    });
-
-  const applyBulk = (action: BulkAction) => {
-    if (sourceId === undefined) {
-      return Promise.resolve(null);
-    }
-    const input: BulkProtectionInput = { action, ...bulkTarget(selection, filter) };
-    return bulk.mutateAsync({ sourceId, input }).then((result) => {
-      toast.success(t(`bulk.done.${action}`, { count: result.updated }));
-      onSelectionChange(EMPTY_SELECTION);
-      return result;
-    });
-  };
-
-  return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        <span className="font-medium">{t("bulk.selected", { count })}</span>
-        {offerAllMatching ? (
-          <Button
-            variant="link"
-            size="sm"
-            className="h-auto p-0"
-            onClick={() => onSelectionChange(selectAllMatching())}
-          >
-            {t("bulk.selectAllMatching", { count: total })}
-          </Button>
-        ) : null}
-        <Button
-          variant="link"
-          size="sm"
-          className="h-auto p-0 text-muted-foreground"
-          onClick={() => onSelectionChange(clearSelection())}
-        >
-          {t("bulk.clear")}
-        </Button>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {selection.mode === "ids" && !jobs.closed ? (
-          <Button variant="outline" size="sm" asChild data-action="newJobFromSelection">
-            <Link {...linkProps(newJobTo("mail", [...selection.ids]))}>
-              <ListPlus aria-hidden="true" />
-              {t("rowActions.newJobFromSelection", { count: selection.ids.size })}
-            </Link>
-          </Button>
-        ) : null}
-        {selection.mode === "ids" && !jobs.closed && addToJob ? (
-          <Button
-            variant="outline"
-            size="sm"
-            data-action="addSelectionToJob"
-            onClick={() => addToJob([...selection.ids].map((id) => ({ id, name: "" })))}
-          >
-            <ListChecks aria-hidden="true" />
-            {t("rowActions.addSelectionToJob", { count: selection.ids.size })}
-          </Button>
-        ) : null}
-        {canConfirm ? (
-          <ConfirmDialog
-            trigger={
-              <Button variant="outline" size="sm" data-action="confirmInactive">
-                <ShieldOff />
-                {t("inactive.confirmAction")}
-              </Button>
-            }
-            title={t("inactive.bulkConfirm.title", { count })}
-            description={t("inactive.bulkConfirm.description", { count })}
-            confirmLabel={t("inactive.confirmAction")}
-            onConfirm={() => applyConfirm()}
-          />
-        ) : null}
-        {sourceId === undefined ? null : (
-          <>
-            <ConfirmDialog
-              trigger={
-                <Button variant="outline" size="sm">
-                  <CircleCheck />
-                  {t("bulk.include")}
-                </Button>
-              }
-              title={t("bulk.confirm.include.title", { count })}
-              description={t("bulk.confirm.include.description", { count })}
-              confirmLabel={t("bulk.confirm.include.confirm")}
-              onConfirm={() => applyBulk("include")}
-            />
-            <ConfirmDialog
-              trigger={
-                <Button variant="outline" size="sm">
-                  <CircleMinus />
-                  {t("bulk.exclude")}
-                </Button>
-              }
-              title={t("bulk.confirm.exclude.title", { count })}
-              description={t("bulk.confirm.exclude.description", { count })}
-              confirmLabel={t("bulk.confirm.exclude.confirm")}
-              destructive
-              onConfirm={() => applyBulk("exclude")}
-            />
-            {canReset ? (
-              <ConfirmDialog
-                trigger={
-                  <Button variant="outline" size="sm">
-                    <RotateCcw />
-                    {t("bulk.reset")}
-                  </Button>
-                }
-                title={t("bulk.confirm.reset.title", { count })}
-                description={t("bulk.confirm.reset.description", { count })}
-                confirmLabel={t("bulk.confirm.reset.confirm")}
-                onConfirm={() => applyBulk("reset")}
-              />
-            ) : null}
-          </>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -560,7 +498,7 @@ function columnPin(columnId: string): TablePin | undefined {
   return columnId === "name" ? { left: 0, width: 260, edge: true } : undefined;
 }
 
-/** Narrow screens keep name, status and actions; the rest appears from md/lg on. */
+/** Narrow screens keep name, status, backup scope and actions; the rest appears from md/lg on. */
 function columnClass(columnId: string): string | undefined {
   switch (columnId) {
     case "select":
@@ -579,44 +517,58 @@ function columnClass(columnId: string): string | undefined {
   }
 }
 
-interface SelectionColumnState {
-  selectable: boolean;
+/** The selection, for the checkbox cells (columns stay stable while it changes). */
+const SelectionContext = React.createContext<{
   selection: BulkSelectionState;
   pageIds: readonly string[];
-  onToggleRow: (id: string) => void;
-  onTogglePage: () => void;
+  toggleRow: (id: string) => void;
+  togglePage: () => void;
+}>({ selection: EMPTY_SELECTION, pageIds: [], toggleRow: () => {}, togglePage: () => {} });
+
+function SelectPageHeader() {
+  const { t } = useTranslation("directory");
+  const { selection, pageIds, togglePage } = React.useContext(SelectionContext);
+  return (
+    <Checkbox
+      checked={
+        isPageFullySelected(selection, pageIds)
+          ? true
+          : isPagePartiallySelected(selection, pageIds)
+            ? "indeterminate"
+            : false
+      }
+      onCheckedChange={togglePage}
+      disabled={pageIds.length === 0}
+      aria-label={t("bulk.selectPage")}
+      data-select-page=""
+    />
+  );
+}
+
+function SelectRowCell({ object }: { object: ProtectedObject }) {
+  const { t } = useTranslation("directory");
+  const { selection, toggleRow } = React.useContext(SelectionContext);
+  return (
+    <Checkbox
+      checked={objectIsSelected(selection, object.id)}
+      onCheckedChange={() => toggleRow(object.id)}
+      aria-label={t("bulk.selectRow", { name: objectTitle(object) })}
+      data-select-row={object.id}
+    />
+  );
 }
 
 function objectColumns(
   t: TFunction<"directory">,
   language: string,
-  selectionState: SelectionColumnState,
+  selectable: boolean,
 ): ColumnDef<ProtectedObject>[] {
-  const selectColumn: ColumnDef<ProtectedObject>[] = selectionState.selectable
+  const selectColumn: ColumnDef<ProtectedObject>[] = selectable
     ? [
         {
           id: "select",
-          header: () => (
-            <Checkbox
-              checked={
-                isPageFullySelected(selectionState.selection, selectionState.pageIds)
-                  ? true
-                  : isPagePartiallySelected(selectionState.selection, selectionState.pageIds)
-                    ? "indeterminate"
-                    : false
-              }
-              onCheckedChange={selectionState.onTogglePage}
-              disabled={selectionState.pageIds.length === 0}
-              aria-label={t("bulk.selectPage")}
-            />
-          ),
-          cell: ({ row }) => (
-            <Checkbox
-              checked={objectIsSelected(selectionState.selection, row.original.id)}
-              onCheckedChange={() => selectionState.onToggleRow(row.original.id)}
-              aria-label={t("actions.menu", { name: objectTitle(row.original) })}
-            />
-          ),
+          header: () => <SelectPageHeader />,
+          cell: ({ row }) => <SelectRowCell object={row.original} />,
         },
       ]
     : [];
@@ -664,6 +616,11 @@ function objectColumns(
           </div>
         );
       },
+    },
+    {
+      id: "scope",
+      header: t("objects.columns.scope"),
+      cell: ({ row }) => <ScopeCell object={row.original} />,
     },
     {
       id: "job",
@@ -838,34 +795,8 @@ function ObjectRow({
   }
   const selected = objectIsSelected(selection, object.id);
   const several = selected && selection.mode === "ids" && selection.ids.size > 1;
-  const contextActions = (): RowAction[] => {
-    if (!several) {
-      return actions;
-    }
-    const chosen = [...selection.ids].map((id) => ({ id, name: "" }));
-    return [
-      {
-        id: "newJobFromSelection",
-        label: t("rowActions.newJobFromSelection", { count: selection.ids.size }),
-        icon: ListPlus,
-        disabled: jobs.closed,
-        reason: jobs.reason,
-        link: newJobTo("mail", [...selection.ids]),
-      },
-      ...(addToJob
-        ? [
-            {
-              id: "addSelectionToJob",
-              label: t("rowActions.addSelectionToJob", { count: selection.ids.size }),
-              icon: ListChecks,
-              disabled: jobs.closed,
-              reason: jobs.reason,
-              onSelect: () => addToJob(chosen),
-            },
-          ]
-        : []),
-    ];
-  };
+  const contextActions = (): RowAction[] =>
+    several ? selectionJobActions(selection.ids, jobs, addToJob, t) : actions;
   const value = { actions, name };
   return (
     <RowActionsContext.Provider value={value}>
@@ -896,24 +827,69 @@ function NameCell({ object }: { object: ProtectedObject }) {
     <div className="min-w-0 space-y-1">
       <div className="truncate font-medium">{objectTitle(object)}</div>
       {subtitle ? <div className="truncate text-xs text-muted-foreground">{subtitle}</div> : null}
-      {object.sharedOrBlocked || object.override ? (
+      {object.sharedOrBlocked ? (
         <div className="flex flex-wrap gap-1">
-          {object.sharedOrBlocked ? (
-            <HintBadge variant="outline" label={t("sharedOrBlocked.label")}>
-              {t("sharedOrBlocked.hint")}
-            </HintBadge>
-          ) : null}
-          {object.override ? (
-            <HintBadge
-              variant="secondary"
-              label={t(`override.${object.override}`)}
-              icon={object.override === "exclude" ? ShieldOff : undefined}
-            >
-              {t(`override.${object.override}Hint`)}
-            </HintBadge>
-          ) : null}
+          <HintBadge variant="outline" label={t("sharedOrBlocked.label")}>
+            {t("sharedOrBlocked.hint")}
+          </HintBadge>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Whether the object is in the backup scope ("Included" / "Excluded") and who decided it below:
+ * the source's rules, or an admin ("manual": an M365 override, or any IMAP account, which has no
+ * rules). An object no longer backed up shows a dash: its status says why. Its override, which
+ * applies again once it is back, is shown quietly.
+ */
+function ScopeCell({ object }: { object: ProtectedObject }) {
+  const { t } = useTranslation("directory");
+  const scope = protectionScope(object);
+  if (!scope) {
+    return (
+      <div data-scope="none">
+        <HintBadge
+          variant="ghost"
+          className="text-muted-foreground"
+          label={
+            <>
+              <span aria-hidden="true">–</span>
+              <span className="sr-only">{t("scope.none")}</span>
+            </>
+          }
+        >
+          {t("scope.inactiveHint")}
+        </HintBadge>
+      </div>
+    );
+  }
+  const included = scope.decision === "included";
+  const waiting = object.status === "orphaned";
+  return (
+    <div className="space-y-0.5" data-scope={scope.decision} data-scope-by={scope.by}>
+      <HintBadge
+        variant={included && !waiting ? "outline" : "muted"}
+        label={t(`scope.${scope.decision}`)}
+        icon={included ? CircleCheck : CircleMinus}
+        contentClassName="space-y-1"
+      >
+        {object.sourceKind !== "m365" ? (
+          <p>{t("scope.imapHint")}</p>
+        ) : object.override ? (
+          <p>
+            <span className="font-medium">{t(`override.${object.override}`)}:</span>{" "}
+            {t(`override.${object.override}Hint`)}
+          </p>
+        ) : (
+          <p>{t("scope.ruleHint")}</p>
+        )}
+        {waiting ? <p>{t("scope.pendingHint")}</p> : null}
+      </HintBadge>
+      <div className="text-xs text-muted-foreground">
+        {t(scope.by === "rule" ? "scope.byRule" : "scope.manual")}
+      </div>
     </div>
   );
 }
@@ -922,22 +898,26 @@ function HintBadge({
   variant,
   label,
   icon: Icon,
+  className,
+  contentClassName,
   children,
 }: {
   variant: NonNullable<BadgeProps["variant"]>;
-  label: string;
+  label: React.ReactNode;
   icon?: typeof Mail;
+  className?: string;
+  contentClassName?: string;
   children: React.ReactNode;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Badge variant={variant} tabIndex={0}>
+        <Badge variant={variant} tabIndex={0} className={className}>
           {Icon ? <Icon aria-hidden="true" /> : null}
           {label}
         </Badge>
       </TooltipTrigger>
-      <TooltipContent className="max-w-xs">{children}</TooltipContent>
+      <TooltipContent className={cn("max-w-xs", contentClassName)}>{children}</TooltipContent>
     </Tooltip>
   );
 }

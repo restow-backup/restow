@@ -23,6 +23,7 @@ import {
   objectTitle,
   pageCount,
   parseExclusionText,
+  protectionScope,
   READINESS_VARIANT,
   readinessView,
   removalBlock,
@@ -541,6 +542,63 @@ describe("availableActions", () => {
     expect(availableActions({ ...imap, origin: "directory_sync" }).remove).toBe(false);
     expect(availableActions({ ...imap, status: "excluded" }).include).toBe(true);
   });
+});
+
+describe("protectionScope", () => {
+  const cases: [string, Partial<ProtectedObject>, ReturnType<typeof protectionScope>][] = [
+    ["an M365 object the rules include", {}, { decision: "included", by: "rule" }],
+    [
+      "an M365 object the rules leave out (exclusion list, shared mailbox, not in the group)",
+      { status: "excluded" },
+      { decision: "excluded", by: "rule" },
+    ],
+    [
+      "the selected mode's default",
+      { status: "excluded", notSelected: true },
+      { decision: "excluded", by: "rule" },
+    ],
+    ["always included", { override: "include" }, { decision: "included", by: "manual" }],
+    [
+      "always excluded",
+      { status: "excluded", override: "exclude" },
+      { decision: "excluded", by: "manual" },
+    ],
+    [
+      "an override the sync has not applied yet: the status counts",
+      { status: "excluded", override: "include" },
+      { decision: "excluded", by: "manual" },
+    ],
+    [
+      "an IMAP account an admin added",
+      { sourceKind: "imap", kind: "imap", origin: "manual" },
+      { decision: "included", by: "manual" },
+    ],
+    [
+      "an IMAP account an admin excluded",
+      { sourceKind: "imap", kind: "imap", status: "excluded" },
+      { decision: "excluded", by: "manual" },
+    ],
+    [
+      "an object no longer backed up, without a decision",
+      { status: "orphaned", statusReason: "account_disabled", inactiveState: "to_confirm" },
+      null,
+    ],
+    [
+      "an object no longer backed up, with a decision that applies again once it is back",
+      { status: "orphaned", statusReason: "no_license", override: "exclude" },
+      { decision: "excluded", by: "manual" },
+    ],
+    [
+      "an IMAP account no longer backed up",
+      { sourceKind: "imap", kind: "imap", status: "orphaned" },
+      null,
+    ],
+  ];
+  for (const [name, overrides, expected] of cases) {
+    it(`reads ${name}`, () => {
+      expect(protectionScope(object(overrides))).toEqual(expected);
+    });
+  }
 });
 
 describe("parseExclusionText", () => {

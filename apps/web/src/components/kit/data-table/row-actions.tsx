@@ -76,8 +76,18 @@ function splitActions(actions: readonly RowAction[]) {
   };
 }
 
-/** The entries of a row's menu, for the "…" menu or the context menu. */
-function ActionItems({ actions, kind }: { actions: readonly RowAction[]; kind: MenuKind }) {
+/**
+ * The entries of a row's menu, for the "…" menu or the context menu. Exported for menus of
+ * their own that offer row actions (the actions for a selection), so every such menu renders an
+ * entry the same way: icon, the reason a closed entry is closed, links, destructive entries last.
+ */
+export function RowActionItems({
+  actions,
+  kind = "dropdown",
+}: {
+  actions: readonly RowAction[];
+  kind?: MenuKind;
+}) {
   const reasonPrefix = React.useId();
   const { regular, destructive } = splitActions(actions);
   const Item = kind === "dropdown" ? DropdownMenuItem : ContextMenuItem;
@@ -167,7 +177,7 @@ export function RowActionsMenu({ actions, name, describedBy }: RowActionsMenuPro
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-44">
-        <ActionItems actions={actions} kind="dropdown" />
+        <RowActionItems actions={actions} kind="dropdown" />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -331,7 +341,7 @@ export function RowContextMenu({ actions, label, children, enabled = true }: Row
         }}
       >
         {label ? <ContextMenuLabel className="sr-only">{label}</ContextMenuLabel> : null}
-        <ActionItems actions={entries} kind="context" />
+        <RowActionItems actions={entries} kind="context" />
       </ContextMenuContent>
     </ContextMenu>
   );

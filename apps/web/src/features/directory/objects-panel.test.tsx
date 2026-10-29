@@ -123,6 +123,21 @@ function render(page: ObjectsPage, sources: readonly DirectorySource[]): string 
   );
 }
 
+/** The cells of one column, by the `data-column` every body cell carries. */
+function cellsOf(html: string, column: string): string[] {
+  return [...html.matchAll(new RegExp(`<td[^>]*data-column="${column}"[^>]*>.*?</td>`, "g"))].map(
+    (match) => match[0],
+  );
+}
+
+function cellOf(html: string, column: string, index = 0): string {
+  const cell = cellsOf(html, column)[index];
+  if (!cell) {
+    throw new Error(`no ${column} cell ${index}`);
+  }
+  return cell;
+}
+
 describe("ObjectsPanel", () => {
   it("shows 'Not selected' rather than 'Excluded' for a selected-mode default", () => {
     const html = render(
@@ -134,8 +149,83 @@ describe("ObjectsPanel", () => {
       },
       [source()],
     );
-    expect(html).toContain("Not selected");
-    expect(html).not.toContain(">Excluded<");
+    const status = cellOf(html, "status");
+    expect(status).toContain("Not selected");
+    expect(status).not.toContain(">Excluded<");
+    // The backup column says what that means for the backup, and that the rules decided it.
+    const scope = cellOf(html, "scope");
+    expect(scope).toContain("Excluded");
+    expect(scope).toContain("by rule");
+  });
+
+  it("says in the backup column whether an object is included or excluded, and who decided", () => {
+    const html = render(
+      {
+        items: [
+          object(),
+          object({ id: "o-2", override: "exclude", status: "excluded" }),
+          object({ id: "o-3", override: "include" }),
+        ],
+        total: 3,
+        page: 1,
+        pageSize: 25,
+      },
+      [source()],
+    );
+    const cells = cellsOf(html, "scope");
+    expect(cells).toHaveLength(3);
+    expect(cells[0]).toMatch(/data-scope="included" data-scope-by="rule"/);
+    expect(cells[0]).toContain("Included");
+    expect(cells[0]).toContain("by rule");
+    expect(cells[1]).toMatch(/data-scope="excluded" data-scope-by="manual"/);
+    expect(cells[1]).toContain("manual");
+    expect(cells[2]).toMatch(/data-scope="included" data-scope-by="manual"/);
+    // The column replaces the badge the name used to carry.
+    expect(html).not.toContain("Always excluded</span>");
+    // Shown at every width: a phone, too, tells an override from a rule.
+    expect(cellOf(html, "scope", 0)).not.toContain("hidden md:table-cell");
+  });
+
+  it("shows a dash in the backup column for an object no longer backed up", async () => {
+    await i18n.changeLanguage("de");
+    const html = render(
+      {
+        items: [object({ status: "orphaned", statusReason: "account_disabled" })],
+        total: 1,
+        page: 1,
+        pageSize: 25,
+      },
+      [source()],
+    );
+    const scope = cellOf(html, "scope");
+    expect(scope).toContain('data-scope="none"');
+    expect(scope).toContain("Gerade nicht gesichert");
+  });
+
+  it("labels the backup column and its values in German", async () => {
+    await i18n.changeLanguage("de");
+    const html = render(
+      {
+        items: [object({ sourceKind: "imap", kind: "imap", origin: "manual" })],
+        total: 1,
+        page: 1,
+        pageSize: 25,
+      },
+      [source({ kind: "imap" })],
+    );
+    expect(html).toContain(">Sicherung<");
+    const scope = cellOf(html, "scope");
+    expect(scope).toContain("Eingeschlossen");
+    expect(scope).toContain("manuell");
+  });
+
+  it("renders no selection panel and an empty announcement while nothing is checked", () => {
+    const html = render({ items: [object()], total: 1, page: 1, pageSize: 25 }, [source()]);
+    expect(html).not.toContain('data-slot="selection-panel"');
+    const status = html.match(/<p([^>]*data-slot="selection-status"[^>]*)>(.*?)<\/p>/);
+    expect(status?.[1]).toContain('aria-live="polite"');
+    expect(status?.[2]).toBe("");
+    expect(html).toContain('aria-label="Select Alice Example"');
   });
 
   it("shows a protected-of-total count from the sources it knows about", () => {

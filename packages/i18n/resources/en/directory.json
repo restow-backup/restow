@@ -53,6 +53,17 @@
     "includeHint": "An admin decided to protect this object regardless of the rules.",
     "excludeHint": "An admin decided to leave this object out regardless of the rules."
   },
+  "scope": {
+    "included": "Included",
+    "excluded": "Excluded",
+    "byRule": "by rule",
+    "manual": "manual",
+    "none": "Not backed up right now",
+    "ruleHint": "The source's protection rules decide whether this object is backed up.",
+    "imapHint": "IMAP accounts have no rules: an admin added or excluded this account.",
+    "inactiveHint": "Not being backed up right now; the status says why.",
+    "pendingHint": "This decision applies again once the object can be backed up."
+  },
   "sharedOrBlocked": {
     "label": "Shared or blocked",
     "hint": "Sign-in is disabled for this account: a shared or resource mailbox, or a blocked user. Microsoft Graph does not tell them apart."
@@ -163,6 +174,7 @@
       "name": "Name",
       "kind": "Type",
       "status": "Status",
+      "scope": "Backup",
       "lastBackup": "Last backup",
       "readiness": "Readiness",
       "credential": "Login",
@@ -228,6 +240,12 @@
     "selectAllMatching": "Select all {count, plural, one {# matching object} other {# matching objects}}",
     "clear": "Clear selection",
     "selectPage": "Select all rows on this page",
+    "selectRow": "Select {name}",
+    "panelLabel": "Actions for the selection",
+    "more": "More actions",
+    "cleared": "Selection cleared",
+    "jumpToActions": "Go to the actions for the selection",
+    "escapeHint": "Esc clears the selection",
     "include": "Include",
     "exclude": "Exclude",
     "reset": "Follow the rules again",

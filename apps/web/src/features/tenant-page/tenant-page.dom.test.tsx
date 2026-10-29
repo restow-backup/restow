@@ -129,6 +129,16 @@ describe("opening a tenant's page", () => {
     expect(section()?.dataset.id).toBe("connections");
   });
 
+  it("keeps an empty slot for a section's panel below the sub-navigation, outside the nav", async () => {
+    await open("/tenants/mueller/connections");
+    const slot = document.querySelector<HTMLElement>('[data-slot="section-aside"]');
+    expect(slot).not.toBeNull();
+    expect(slot?.childElementCount).toBe(0);
+    expect(slot?.closest("nav")).toBeNull();
+    const column = slot?.closest('[data-slot="section-column"]');
+    expect(column?.querySelector('nav[aria-label="Sections of this tenant"]')).not.toBeNull();
+  });
+
   it("makes the tenant of the address the active one, and shows its section only then", async () => {
     const setActiveTenant = vi.fn();
     // The active tenant differs from the address: the page switches, and waits.

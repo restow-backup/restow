@@ -10,6 +10,33 @@ private repository.
 
 ## [Unreleased]
 
+### Added
+
+- Protected objects: a "Backup" column says for each object whether it is included in or
+  excluded from the backup, and below it whether the source's rules decided that ("by rule") or
+  an admin did ("manual": "Always included" or "Always excluded", and every IMAP account). It
+  replaces the small override badge under the name. An object that is no longer backed up shows
+  a dash: its status says why.
+
+### Changed
+
+- Protected objects: the actions for checked objects no longer sit in a bar above the table.
+  From the large breakpoint on they appear in a panel in the free space at the bottom of the
+  tenant's section column, as soon as one object is checked; on smaller screens in a bar at
+  the bottom of the screen. The panel offers the same actions with the same confirmations
+  (include, exclude, follow the rules again, "Yes, intended", a new job or an existing job with
+  the selection, select all matching), announces the count to screen readers, and Escape clears
+  the selection. Row checkboxes are named "Select <name>" instead of "Actions for <name>".
+
+### Fixed
+
+- Protected objects: after checking a row near the end of the list, the first swipe up over the
+  table did nothing. The pinned name column's shadow reached 1px below the table, which let the
+  table scroll 1px vertically and swallow the gesture; this affected every table with a pinned
+  column. Checking a row also no longer moves the rows under the pointer (the actions bar used
+  to appear above the table), and no longer rebuilds every cell of the table, which dropped
+  keyboard focus and closed open tooltips and menus on each check.
+
 ## [0.4.7] - 2026-10-29
 
 Beta release. Run it alongside your existing backups, not as your only one, until
