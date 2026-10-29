@@ -31,6 +31,7 @@ import {
 import {
   idParamSchema,
   objectKindSchema,
+  objectStatusReasonSchema,
   objectStatusSchema,
   pageQuerySchema,
   pageSchema,
@@ -69,13 +70,7 @@ export const userObjectSchema = component(
     id: uuidSchema,
     kind: objectKindSchema,
     status: objectStatusSchema,
-    statusReason: z
-      .enum(["account_disabled", "no_license", "locked"])
-      .nullable()
-      .optional()
-      .describe(
-        "Why an `orphaned` object is not backed up although it is still at the source: the account is disabled, it has no Exchange Online licence, or Microsoft locked the OneDrive or site (HTTP 423). Its backups are kept and backups resume by themselves once the account is enabled or licensed, or the lock is lifted. Null for every other object.",
-      ),
+    statusReason: objectStatusReasonSchema.optional(),
     inactiveSince: timestampSchema
       .nullable()
       .optional()

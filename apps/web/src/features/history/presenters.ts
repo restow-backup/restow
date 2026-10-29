@@ -369,8 +369,12 @@ export function eventView(event: Pick<RunEvent, "type" | "params">): EventView {
           values: { reason: text(params.message) },
         };
       }
-      // A disabled or unlicensed account: not backed up, no failure (the server sets the reason).
-      if (params.notBackedUp === "account_disabled" || params.notBackedUp === "no_license") {
+      // A disabled, unlicensed or locked object: not backed up, no failure (the server sets the reason).
+      if (
+        params.notBackedUp === "account_disabled" ||
+        params.notBackedUp === "no_license" ||
+        params.notBackedUp === "locked"
+      ) {
         return { key: `notBackedUp_${params.notBackedUp}`, values: {} };
       }
       return {

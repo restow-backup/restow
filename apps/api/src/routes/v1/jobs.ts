@@ -27,6 +27,7 @@ import {
   jobStatusSchema,
   jobTypeSchema,
   objectKindSchema,
+  objectStatusReasonSchema,
   objectStatusSchema,
   pageQuerySchema,
   pageSchema,
@@ -67,6 +68,7 @@ export const jobSchema = component(
         displayName: z.string().nullable(),
         externalId: z.string(),
         status: objectStatusSchema,
+        statusReason: objectStatusReasonSchema,
       })
       .nullable(),
     full: z.boolean().describe("Backup jobs: a full re-enumeration instead of a delta run."),
@@ -233,6 +235,7 @@ export function toV1Job(job: JobDto): V1JobDto {
           displayName: job.object.displayName,
           externalId: job.object.externalId,
           status: job.object.status,
+          statusReason: job.object.status === "orphaned" ? (job.object.statusReason ?? null) : null,
         }
       : null,
     full: job.full,

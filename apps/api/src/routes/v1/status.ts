@@ -100,12 +100,20 @@ export const guestCountsSchema = component(
     total: z
       .number()
       .int()
-      .describe("VMs and containers Proxmox VE can back up (present, no VM template)."),
+      .describe(
+        "VMs and containers Proxmox VE can back up (present, no VM template), without the excluded ones.",
+      ),
     protected: z.number().int().describe("Guests in an enabled backup job."),
     withoutJob: z
       .number()
       .int()
       .describe("Guests in no enabled backup job: nothing backs them up."),
+    excluded: z
+      .number()
+      .int()
+      .describe(
+        "Guests an administrator excluded from backup on purpose; counted in no other figure.",
+      ),
     failedLastBackup: z
       .number()
       .int()

@@ -46,6 +46,13 @@ export const objectStatusSchema = component(
       "`active` is protected, `excluded` was taken out of protection, `orphaned` is no longer backed up: it disappeared from the source or (with a `statusReason`) its account is disabled or unlicensed, or Microsoft locked it; its backups stay restorable either way, and an admin confirms that it is intended.",
     ),
 );
+/** Why an `orphaned` object is not backed up although it is still at the source. */
+export const objectStatusReasonSchema = z
+  .enum(["account_disabled", "no_license", "locked"])
+  .nullable()
+  .describe(
+    "Why an `orphaned` object is not backed up although it is still at the source: the account is disabled, it has no Exchange Online licence, or Microsoft locked the OneDrive or site (HTTP 423). Its backups are kept and backups resume by themselves once the account is enabled or licensed, or the lock is lifted. Null for every other object.",
+  );
 export const sourceKindSchema = component("SourceKind", z.enum(["m365", "imap"]));
 
 export const jobTypeSchema = component(
