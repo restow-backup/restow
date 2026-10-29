@@ -364,6 +364,15 @@ backed up; the run before it counts instead (Changed, Fixed, Upgrade Notes).
 - ip-address 10.7.5 (from 10.7.2), a transitive dependency through socks, resolves a moderate
   advisory reported by Dependabot. socks comes with the IMAP library imapflow and is used only
   for connections through a SOCKS proxy, which Restow does not configure.
+- seroval 1.7.5 (from 1.6.7, through the TanStack router) resolves GHSA-7rv5-mrxv-xcr9,
+  GHSA-wp97-x4hv-qvhp and further advisories of its deserializer; zod 4.6.7 (from 4.6.5, an
+  override for the copy better-auth uses) resolves GHSA-mrhx-c7xc-m3w5 there.
+- GHSA-mrhx-c7xc-m3w5 (memory use when validating a large array) also names zod 3, which
+  Restow's own request validation uses and for which no fixed 3.x exists. The audit of CI
+  ignores this one advisory (`pnpm.auditConfig` in package.json) until 0.4.8 moves Restow to
+  zod 4. The request body limit of the api (1 MB on most routes,
+  `apps/api/src/middleware/body-limit.ts`) bounds it: a 1 MB array that fails element by
+  element costs about 150 MB and a second of the api for that request.
 
 ### Upgrade Notes
 

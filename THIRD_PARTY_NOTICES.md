@@ -3366,13 +3366,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
 - License text: [text 7](#text-7)
 
-### seroval 1.6.7
+### seroval 1.7.5
 
 - License: MIT
 - Copyright: no copyright line in the package; author in package.json: Alexis Munsayac
 - License text: [text 36](#text-36)
 
-### seroval-plugins 1.6.7
+### seroval-plugins 1.7.5
 
 - License: MIT
 - Copyright: no copyright line in the package; author in package.json: Alexis Munsayac
@@ -3735,7 +3735,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2025 Colin McDonnell`
 - License text: [text 1](#text-1)
 
-### zod 4.6.5
+### zod 4.6.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2025 Colin McDonnell`

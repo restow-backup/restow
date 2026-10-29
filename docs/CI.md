@@ -72,6 +72,10 @@ bot pull request is closed. Updated by hand: the images pinned by digest in `ci.
 (gitleaks, actionlint), the Go and restic pins in `agent/tools.env`, and
 `scripts/smoke/e2e` (playwright-core must match the pinned Playwright image).
 
+The audit ignores only the advisories listed in `pnpm.auditConfig.ignoreGhsas` of the
+root `package.json`, each with its reason in the CHANGELOG section that added it (today
+GHSA-mrhx-c7xc-m3w5 for zod 3, until the move to zod 4).
+
 ## Two build targets
 
 Every release has two builds of the same commit, each with an application image and a
