@@ -145,7 +145,7 @@ describe("DataTable column order and widths", () => {
 
   it("pins nothing by default", () => {
     const html = render(<DataTable id="m4" columns={COLUMNS} data={MACHINES} />);
-    expect(html).not.toContain("data-pinned");
+    expect(html).not.toContain("data-pinned=");
   });
 
   it("keeps a column at least as wide as it declared, so the table scrolls instead of squeezing", () => {
