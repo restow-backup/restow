@@ -7,9 +7,9 @@ import { PVE_NAMESPACE } from "./i18n.js";
 
 /**
  * What a guest's backups hold, next to its disk size (#58, #61): everything the
- * newest restore point contains, what the last run added to the repository, and
- * in the tooltip how large the first backup was and what a follow-up backup adds
- * on average. A container's disk size is
+ * newest restore point contains, what the last run added to the repository, how
+ * large the first backup was and what a follow-up backup adds on average (shown,
+ * not only in a tooltip, so it can be read and copied). A container's disk size is
  * what is allocated; the backup holds what is in use, unchanged data only once.
  */
 export function BackupSizeCell({ guest }: { guest: Pick<PveGuest, "backups"> }) {
@@ -42,6 +42,19 @@ export function BackupSizeCell({ guest }: { guest: Pick<PveGuest, "backups"> }) 
       {last.added !== null ? (
         <div className="text-xs text-muted-foreground tabular-nums">
           {t("guests.backupAdded", { size: formatBytes(last.added, language) })}
+        </div>
+      ) : null}
+      {firstLine ? (
+        <div className="text-xs text-muted-foreground tabular-nums" data-slot="pve-backup-first">
+          {firstLine}
+        </div>
+      ) : null}
+      {followUpLine ? (
+        <div
+          className="text-xs text-muted-foreground tabular-nums"
+          data-slot="pve-backup-follow-up"
+        >
+          {followUpLine}
         </div>
       ) : null}
     </div>

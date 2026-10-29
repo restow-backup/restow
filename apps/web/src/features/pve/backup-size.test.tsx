@@ -66,6 +66,16 @@ describe("BackupSizeCell", () => {
     expect(out).toContain("First backup on");
   });
 
+  it("shows the first backup and the average follow-up as text, not only in the tooltip", () => {
+    const out = html(
+      <BackupSizeCell guest={guest({ ...sizes(), followUp: { added: 180 * MiB, points: 7 } })} />,
+    );
+    expect(out).toMatch(/data-slot="pve-backup-first">First backup on [^<]+: 3\.1 GB stored</);
+    expect(out).toMatch(
+      /data-slot="pve-backup-follow-up">Average per follow-up backup: \+180 MB \(last 7 backups\)</,
+    );
+  });
+
   it("says so when there is no backup yet, also on servers before 0.3.5", () => {
     expect(html(<BackupSizeCell guest={guest(undefined)} />)).toContain("No backup yet");
     expect(html(<BackupSizeCell guest={guest({ first: null, last: null })} />)).toContain(
