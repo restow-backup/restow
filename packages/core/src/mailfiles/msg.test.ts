@@ -425,14 +425,15 @@ describe("readMsg with unusable input", { timeout: 60_000 }, () => {
   });
 
   it("stops msgreader in its child process when the structure check is out of the way", async () => {
-    // Same file, structure check off: the reader loops until the process is killed.
+    // Same file, structure check off: msgreader before 1.29 loops until the process is killed;
+    // 1.29 detects the loop itself and reports the file as damaged.
     const started = Date.now();
     const result = await readMsg(fixture("corrupt-endless-loop.msg"), {
       timeoutMs: 400,
       structureCheck: false,
     });
     expect(result).toMatchObject({ ok: false, code: "unreadable" });
-    expect((result as { reason: string }).reason).toContain("reasonable time");
+    expect((result as { reason: string }).reason).toMatch(/reasonable time|is damaged/);
     expect(Date.now() - started).toBeLessThan(10_000);
     // The reader is usable afterwards.
     expect((await readMsg(fixture("outlook-attachments-headers.msg"))).ok).toBe(true);

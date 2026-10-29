@@ -117,8 +117,10 @@ describe("a hostile MSG file", { timeout: 120_000 }, () => {
   });
 
   it("cannot take the process down when the structure check does not catch it: the child process runs out of memory alone, and the caller never stalls", async () => {
-    // The directory chain that points back to itself: on the main thread msgreader grows an
-    // array without end until the whole process dies (about four gigabytes, 19 seconds).
+    // The directory chain that points back to itself: on the main thread msgreader before 1.29
+    // grows an array without end until the whole process dies (about four gigabytes, 19
+    // seconds). msgreader 1.29 detects the cycle itself and reports the file as damaged; either
+    // way the read fails fast and this process survives.
     const bytes = HOSTILE[0]?.build() as Buffer;
     let ticks = 0;
     const timer = setInterval(() => ticks++, 10);
@@ -130,7 +132,7 @@ describe("a hostile MSG file", { timeout: 120_000 }, () => {
     });
     clearInterval(timer);
     expect(result).toMatchObject({ ok: false, code: "unreadable" });
-    expect(reasonOf(result)).toContain("more memory");
+    expect(reasonOf(result)).toMatch(/more memory|is damaged/);
     expect(Date.now() - started).toBeLessThan(30_000);
     // This process is still here, its event loop kept running, and the reader still works.
     expect(ticks).toBeGreaterThan(5);

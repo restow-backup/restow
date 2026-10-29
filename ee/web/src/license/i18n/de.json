@@ -25,7 +25,7 @@
     "getKey": "Einen Lizenzschlüssel für Business oder Service Provider erhalten Sie beim Hersteller; geben Sie dabei die Installations-ID unten an.",
     "getKeyLink": "Editionen vergleichen und Schlüssel anfordern",
     "unlocks": {
-      "business": "Business schaltet unter anderem das Audit-Log, zeitgesteuerte Berichte, den Journal-Empfang des Archivs, rechtliche Aufbewahrungen und die Anmeldung mit Microsoft frei.",
+      "business": "Business schaltet unter anderem das Audit-Log, zeitgesteuerte Berichte, den Journal-Empfang des Archivs und rechtliche Aufbewahrungen frei.",
       "service_provider": "Service Provider schaltet zusätzlich weitere Mandanten, die Ansicht über alle Mandanten, die Provider-API und Mitglieder mit gewählten Mandanten frei."
     }
   },

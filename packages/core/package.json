@@ -31,12 +31,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1149.0",
-    "@kenjiuno/msgreader": "^1.28.0",
+    "@aws-sdk/client-s3": "^3.1156.0",
+    "@kenjiuno/msgreader": "^1.29.0",
     "archiver": "^8.0.0",
     "imapflow": "^1.0.171",
-    "mailparser": "^3.9.38",
-    "nodemailer": "^10.1.0",
+    "mailparser": "^3.12.4",
+    "nodemailer": "^10.2.1",
     "yauzl": "^3.4.0"
   },
   "devDependencies": {

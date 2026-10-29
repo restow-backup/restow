@@ -997,7 +997,7 @@
       "mode": {
         "expire": {
           "label": "Aus der Liste entfernen, Sicherungen bis zum Ablauf behalten",
-          "description": "Die Sicherungen bleiben gespeichert, bis die Aufbewahrung des Rechners die neueste von ihnen hätte gehen lassen, dann werden sie gelöscht. Die Dateiwiederherstellung bietet sie nicht mehr an: Wenn Sie noch eine brauchen könnten, lassen Sie sich zuerst das Repository-Passwort anzeigen und bewahren Sie es auf."
+          "description": "Die Sicherungen bleiben gespeichert, bis die Aufbewahrung des Rechners die neueste von ihnen hätte gehen lassen, dann werden sie gelöscht. Bis dahin bietet die Seite des entfernten Rechners ihre Wiederherstellung weiter an."
         },
         "delete": {
           "label": "Rechner und seine Sicherungen löschen",

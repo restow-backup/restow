@@ -12,6 +12,10 @@ private repository.
 
 ### Fixed
 
+- "Remove from Restow" no longer says file restore stops offering the backups of a removed
+  machine: since 0.4.6 its page offers their restore until they are deleted.
+- The licence page no longer lists sign-in with Microsoft among what Business unlocks; it is
+  still experimental and off by default.
 - Microsoft 365: A mailbox whose account is disabled or has no Exchange Online licence
   (mailbox not provisioned, licence removed, inactive mailbox) no longer fails its backup until
   the next directory sync ("Microsoft rejected the request"). The backup confirms with
@@ -112,12 +116,17 @@ None.
 - Update restow-pve on every Proxmox VE node (the server offers it after its own update; nodes
   update themselves when idle) before relying on container restores or boot tests. Until then,
   container restores keep failing as before; VMs are not affected.
-- Container restore points that read "Did not boot" or a failed restore check from before
-  0.4.3: run "Boot test now" or "Check now" once the node is updated.
+- Container restore points whose boot test reads "Did not boot" from before 0.4.6, or whose
+  restore check failed before 0.4.3: run "Boot test now" or "Check now" once the node is
+  updated.
 
 ### Known Issues
 
-- The known issues of 0.4.5 still apply.
+- Group calendars and conversations were tested against a simulated Graph API, never against a
+  real Microsoft 365 tenant (as in 0.4.5).
+- IMAP sources with OAuth2 still cannot be created in the API or the interface.
+- The known issues of 0.4.4 still apply. Restoring from machines removed from Restow, a known
+  issue of 0.4.5, is fixed in this release.
 
 ### Verification
 
@@ -177,8 +186,8 @@ only on 0.4.5 and later (ee/licensing/KEY-FORMAT.md).
   or the demo.
 - The licence page shows which updates the key includes ("all 1.x (beta license)" or the end
   of the update period) and, from 30 days before the end, a short notice on the same page.
-  A new key of the same edition replaces the active one even while it is in force (a
-  renewal); earlier keys stay in the history, and every installation or replacement is
+  A new key replaces the active one even while it is in force, of the same edition (a
+  renewal) or another; earlier keys stay in the history, and every installation or replacement is
   audited with the key's update terms and whether they cover the running version. A key that
   does not cover the running version is refused (`outside_update_period`).
 - Public demo, fast nightly reset (deploy/demo/README.md "Fast reset"): after a full seed

@@ -231,8 +231,9 @@ function parseParts(raw: Buffer): Promise<ParsedParts> {
         params: contentType?.params ?? {},
       });
       const content = attachment.content as Readable;
-      content.on("end", () => attachment.release());
-      content.on("error", () => attachment.release());
+      // mailparser sets release to null once called; an error after the end is harmless.
+      content.on("end", () => attachment.release?.());
+      content.on("error", () => attachment.release?.());
       content.resume();
     });
     parser.on("end", () => resolve(parsed));

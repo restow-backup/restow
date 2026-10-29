@@ -728,103 +728,103 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 ## Packages (493)
 
-### @aws-sdk/checksums 3.1001.3
+### @aws-sdk/checksums 3.1001.7
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 19](#text-19)
 
-### @aws-sdk/client-s3 3.1152.0
+### @aws-sdk/client-s3 3.1159.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 48](#text-48)
 
-### @aws-sdk/core 3.978.3
+### @aws-sdk/core 3.978.7
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 65](#text-65)
 
-### @aws-sdk/credential-provider-env 3.972.74
+### @aws-sdk/credential-provider-env 3.972.78
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 9](#text-9)
 
-### @aws-sdk/credential-provider-http 3.972.76
+### @aws-sdk/credential-provider-http 3.972.80
 
 - License: Apache-2.0
 - Copyright: no copyright line in the package; author in package.json: AWS SDK for JavaScript Team
 - License text: [text 2](#text-2) (the package ships no license file; this is the text most packages with this license use)
 
-### @aws-sdk/credential-provider-ini 3.973.19
+### @aws-sdk/credential-provider-ini 3.973.23
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 9](#text-9)
 
-### @aws-sdk/credential-provider-login 3.972.81
+### @aws-sdk/credential-provider-login 3.972.85
 
 - License: Apache-2.0
 - Copyright: no copyright line in the package; author in package.json: AWS SDK for JavaScript Team
 - License text: [text 2](#text-2) (the package ships no license file; this is the text most packages with this license use)
 
-### @aws-sdk/credential-provider-node 3.972.86
+### @aws-sdk/credential-provider-node 3.972.90
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 9](#text-9)
 
-### @aws-sdk/credential-provider-process 3.972.74
+### @aws-sdk/credential-provider-process 3.972.78
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 24](#text-24)
 
-### @aws-sdk/credential-provider-sso 3.973.18
+### @aws-sdk/credential-provider-sso 3.973.22
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 24](#text-24)
 
-### @aws-sdk/credential-provider-web-identity 3.972.80
+### @aws-sdk/credential-provider-web-identity 3.972.84
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 24](#text-24)
 
-### @aws-sdk/middleware-sdk-s3 3.972.79
+### @aws-sdk/middleware-sdk-s3 3.972.83
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 19](#text-19)
 
-### @aws-sdk/nested-clients 3.997.48
+### @aws-sdk/nested-clients 3.997.52
 
 - License: Apache-2.0
 - Copyright: no copyright line in the package; author in package.json: AWS SDK for JavaScript Team
 - License text: [text 2](#text-2) (the package ships no license file; this is the text most packages with this license use)
 
-### @aws-sdk/signature-v4-multi-region 3.996.48
+### @aws-sdk/signature-v4-multi-region 3.996.50
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 19](#text-19)
 
-### @aws-sdk/token-providers 3.1150.0
+### @aws-sdk/token-providers 3.1159.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 9](#text-9)
 
-### @aws-sdk/types 3.974.6
+### @aws-sdk/types 3.975.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 9](#text-9)
 
-### @aws-sdk/xml-builder 3.972.41
+### @aws-sdk/xml-builder 3.972.42
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
@@ -842,49 +842,49 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-present Sebastian McKenzie and other contributors`
 - License text: [text 25](#text-25)
 
-### @better-auth/core 1.7.8
+### @better-auth/core 1.7.14
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 13](#text-13)
 
-### @better-auth/drizzle-adapter 1.7.8
+### @better-auth/drizzle-adapter 1.7.14
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 13](#text-13)
 
-### @better-auth/kysely-adapter 1.7.8
+### @better-auth/kysely-adapter 1.7.14
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 13](#text-13)
 
-### @better-auth/memory-adapter 1.7.8
+### @better-auth/memory-adapter 1.7.14
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 13](#text-13)
 
-### @better-auth/mongo-adapter 1.7.8
+### @better-auth/mongo-adapter 1.7.14
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 13](#text-13)
 
-### @better-auth/passkey 1.7.8
+### @better-auth/passkey 1.7.14
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 13](#text-13)
 
-### @better-auth/prisma-adapter 1.7.8
+### @better-auth/prisma-adapter 1.7.14
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 13](#text-13)
 
-### @better-auth/telemetry 1.7.8
+### @better-auth/telemetry 1.7.14
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
@@ -896,7 +896,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: no copyright line in the package; author in package.json: Bereket Engida
 - License text: [text 1](#text-1) (the package ships no license file; this is the text most packages with this license use)
 
-### @better-fetch/fetch 1.3.2
+### @better-auth/utils 0.5.1
+
+- License: MIT
+- Copyright: `Copyright (c) 2024 - present, Bereket Engida`
+- License text: [text 1](#text-1)
+
+### @better-fetch/fetch 1.3.3
 
 - License: MIT
 - Copyright: `Copyright (c) Bereket Engida`
@@ -1034,7 +1040,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2019, kenjiuno`
 - License text: [text 33](#text-33)
 
-### @kenjiuno/msgreader 1.28.0
+### @kenjiuno/msgreader 1.29.0
 
 - License: Apache-2.0
 - Copyright:
@@ -1075,12 +1081,6 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - License: MIT
 - Copyright: `Copyright (c) 2022 Paul Miller (https://paulmillr.com)`
 - License text: [text 23](#text-23)
-
-### @opentelemetry/semantic-conventions 1.43.0
-
-- License: Apache-2.0
-- Copyright: no copyright line in the package; author in package.json: OpenTelemetry Authors
-- License text: [text 2](#text-2)
 
 ### @oxc-project/types 0.154.0
 
@@ -1654,7 +1654,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2020 Matthew Miller`
 - License text: [text 35](#text-35)
 
-### @smithy/core 3.36.0
+### @smithy/core 3.37.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
@@ -1672,7 +1672,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 9](#text-9)
 
-### @smithy/node-http-handler 4.12.1
+### @smithy/node-http-handler 4.13.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
@@ -1714,19 +1714,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/query-core 5.104.2
+### @tanstack/query-core 5.105.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/react-query 5.104.2
+### @tanstack/react-query 5.105.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/react-router 1.170.44
+### @tanstack/react-router 1.170.46
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
@@ -1744,7 +1744,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2016 Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/router-core 1.171.37
+### @tanstack/router-core 1.171.39
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
@@ -1882,13 +1882,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Microsoft Corporation.`
 - License text: [text 4](#text-4)
 
-### @vitest/mocker 5.0.4
+### @vitest/mocker 5.0.5
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
 - License text: [text 1](#text-1)
 
-### @vitest/spy 5.0.4
+### @vitest/spy 5.0.5
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
@@ -1900,7 +1900,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ`
 - License text: [text 1](#text-1), [text 34](#text-34)
 
-### @zone-eu/mailsplit 5.4.21
+### @zone-eu/mailsplit 5.4.29
 
 - License: (MIT OR EUPL-1.1+)
 - Copyright: `Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ`
@@ -2013,13 +2013,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014 Jameson Little`
 - License text: [text 5](#text-5)
 
-### better-auth 1.7.8
+### better-auth 1.7.14
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 13](#text-13)
 
-### better-call 1.4.2
+### better-call 1.4.4
 
 - License: MIT
 - Copyright: `Copyright (c) 2025 Bereket Engida`
@@ -2103,7 +2103,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2022 Paco Coursey`
 - License text: [text 1](#text-1)
 
-### cn 0.4.0
+### cn 0.5.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2026 shadcn`
@@ -2591,7 +2591,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2011-present i18next`
 - License text: [text 3](#text-3)
 
-### i18next-icu 2.5.0
+### i18next-icu 2.6.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2018-present i18next`
@@ -2645,7 +2645,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2023, Oath Inc.`
 - License text: [text 85](#text-85)
 
-### ip-address 10.7.2
+### ip-address 10.7.5
 
 - License: MIT
 - Copyright: `Copyright (C) 2011 by Beau Gunderson`
@@ -2747,7 +2747,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-2017 Andris Reinman`
 - License text: [text 10](#text-10)
 
-### libbase64 1.3.3
+### libbase64 1.4.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2017 Andris Reinman`
@@ -2759,7 +2759,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-2016 Andris Reinman`
 - License text: [text 10](#text-10)
 
-### libmime 5.4.8
+### libmime 5.6.3
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2016 Andris Reinman`
@@ -2771,7 +2771,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-2022 Andris Reinman`
 - License text: [text 10](#text-10)
 
-### libqp 2.1.2
+### libqp 3.0.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2022 Andris Reinman`
@@ -2801,7 +2801,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2015 Andres Suarez <zertosh@gmail.com>`
 - License text: [text 5](#text-5)
 
-### lucide-react 1.57.0
+### lucide-react 1.64.0
 
 - License: ISC
 - Copyright:
@@ -2821,7 +2821,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright 2018 Rich Harris`
 - License text: [text 8](#text-8)
 
-### mailparser 3.9.39
+### mailparser 3.14.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 - 2025 Andris Reinman`
@@ -2863,7 +2863,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright 2020 Andrey Sitnik <andrey@sitnik.es>`
 - License text: [text 16](#text-16)
 
-### nodemailer 10.1.1
+### nodemailer 10.3.1
 
 - License: MIT-0
 - Copyright: `Copyright (c) 2011-2023 Andris Reinman`
@@ -3139,7 +3139,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### react 19.3.0
+### react 19.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) Meta Platforms, Inc. and affiliates.`
@@ -3151,7 +3151,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-2026 Giampaolo Bellavite <io@gpbl.dev> and contributors`
 - License text: [text 3](#text-3)
 
-### react-dom 19.3.0
+### react-dom 19.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) Meta Platforms, Inc. and affiliates.`
@@ -3175,7 +3175,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Facebook, Inc. and its affiliates.`
 - License text: [text 1](#text-1)
 
-### react-is 19.3.0
+### react-is 19.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) Meta Platforms, Inc. and affiliates.`
@@ -3199,7 +3199,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: no copyright line in the package; author in package.json: Anton Korzunov
 - License text: [text 1](#text-1) (the package ships no license file; this is the text most packages with this license use)
 
-### react-resizable-panels 4.14.5
+### react-resizable-panels 4.15.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2018 Brian Vaughn`
@@ -3396,7 +3396,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2013-2017 Josh Glazebrook`
 - License text: [text 16](#text-16)
 
-### smtp-server 3.19.22
+### smtp-server 3.21.3
 
 - License: MIT-0
 - Copyright: `Copyright (c) 2015-2025 Andris Reinman`
@@ -3660,13 +3660,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: no copyright line in the package; author in package.json: Formidable
 - License text: [text 1](#text-1), [text 6](#text-6) (the package ships no license file; this is the text most packages with this license use)
 
-### vite 8.3.4
+### vite 8.3.5
 
 - License: MIT
 - Copyright: `Copyright (c) 2019-present, VoidZero Inc. and Vite contributors`
 - License text: [text 56](#text-56) (the part of the file that reprints the licenses of the package's own bundled dependencies is left out)
 
-### vitest 5.0.4
+### vitest 5.0.5
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
@@ -3745,7 +3745,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 ### Text 1
 
-Used by 206 entries.
+Used by 207 entries.
 
 ```text
 MIT License
@@ -3771,7 +3771,7 @@ SOFTWARE.
 
 ### Text 2
 
-Used by 40 entries.
+Used by 39 entries.
 
 ```text
                                  Apache License

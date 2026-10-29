@@ -153,7 +153,7 @@ describe("the registration in use", () => {
     };
   }
 
-  function useResolver(): void {
+  function installResolver(): void {
     setEntraAppResolver(
       new EntraAppResolver({
         environment: {},
@@ -189,7 +189,7 @@ describe("the registration in use", () => {
   });
 
   it("refuses with the 503 problem while nothing is configured", async () => {
-    useResolver();
+    installResolver();
     const error = await requireEntraApp().catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ProblemError);
     expect((error as ProblemError).status).toBe(503);
@@ -201,7 +201,7 @@ describe("the registration in use", () => {
   it("uses a saved change for the next token without a restart", async () => {
     const used = stubTokenEndpoint();
     save("first-secret", "2026-09-20T08:00:00.000Z");
-    useResolver();
+    installResolver();
     const provider = tokenProviderFor("contoso.onmicrosoft.com");
     expect(await provider.getToken()).toBe("token-for-first-secret");
     expect(await provider.getToken()).toBe("token-for-first-secret");
@@ -224,7 +224,7 @@ describe("the registration in use", () => {
   it("fetches a fresh token after invalidate", async () => {
     const used = stubTokenEndpoint();
     save("only-secret", "2026-09-20T08:00:00.000Z");
-    useResolver();
+    installResolver();
     const provider = tokenProviderFor("fabrikam.onmicrosoft.com");
     await provider.getToken();
     provider.invalidate();

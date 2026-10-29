@@ -313,7 +313,7 @@ describe("isImmutableCacheControl / isNoCacheControl", () => {
     assert.equal(isImmutableCacheControl("public, max-age=31536000"), false);
   });
 
-  it("rejects an absent header", () => {
+  it("rejects an absent header as immutable", () => {
     assert.equal(isImmutableCacheControl(null), false);
   });
 
@@ -321,7 +321,7 @@ describe("isImmutableCacheControl / isNoCacheControl", () => {
     assert.equal(isNoCacheControl("no-cache"), true);
   });
 
-  it("rejects an absent header", () => {
+  it("rejects an absent header as no-cache", () => {
     assert.equal(isNoCacheControl(null), false);
   });
 });

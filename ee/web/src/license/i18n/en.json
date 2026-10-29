@@ -25,7 +25,7 @@
     "getKey": "A license key for Business or Service Provider is issued by the vendor; give the installation ID below when you ask for one.",
     "getKeyLink": "Compare editions and request a key",
     "unlocks": {
-      "business": "Business unlocks, among others, the audit log, scheduled reports, journal receiving for the archive, legal holds and sign-in with Microsoft.",
+      "business": "Business unlocks, among others, the audit log, scheduled reports, journal receiving for the archive and legal holds.",
       "service_provider": "Service Provider also unlocks further tenants, the view across all tenants, the provider API and members limited to chosen tenants."
     }
   },

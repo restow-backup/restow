@@ -997,7 +997,7 @@
       "mode": {
         "expire": {
           "label": "Remove from the list, keep the backups until they expire",
-          "description": "The backups stay stored until the machine's retention would have let the newest of them go, then they are deleted. File restore no longer offers them: if you may still need one, show and keep the repository password first."
+          "description": "The backups stay stored until the machine's retention would have let the newest of them go, then they are deleted. Until then the page of the removed machine still offers their restore."
         },
         "delete": {
           "label": "Delete the machine and its backups",
