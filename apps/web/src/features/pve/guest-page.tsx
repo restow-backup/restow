@@ -10,6 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -142,8 +143,12 @@ function RestoreDialog({
               onChange={(e) => setVmid(e.target.value)}
             />
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={start} onChange={(e) => setStart(e.target.checked)} />
+          <label htmlFor="pve-restore-start" className="flex items-center gap-2 text-sm">
+            <Checkbox
+              id="pve-restore-start"
+              checked={start}
+              onCheckedChange={(checked) => setStart(checked === true)}
+            />
             {t("restore.start")}
           </label>
           {mutation.isError ? (
@@ -611,13 +616,13 @@ function RestowServerSection({ guest }: { guest: PveGuest }) {
     <div className="space-y-2" data-slot="pve-guest-restow-server">
       <RestowServerNote guest={guest} />
       {guest.restowServer === "detected" ? null : (
-        <label className="flex max-w-prose items-start gap-2 text-sm">
-          <input
-            type="checkbox"
+        <label htmlFor="pve-guest-self-flag" className="flex max-w-prose items-start gap-2 text-sm">
+          <Checkbox
+            id="pve-guest-self-flag"
             className="mt-0.5"
             checked={guest.restowServerFlagged ?? false}
             disabled={flag.isPending}
-            onChange={(e) => flag.mutate(e.target.checked)}
+            onCheckedChange={(checked) => flag.mutate(checked === true)}
           />
           <span>
             {t("selfBackup.flag")}
@@ -688,13 +693,17 @@ function ExclusionSection({ guest, canManage }: { guest: PveGuest; canManage: bo
     return null;
   }
   return (
-    <label className="flex max-w-prose items-start gap-2 text-sm" data-slot="pve-guest-exclude">
-      <input
-        type="checkbox"
+    <label
+      htmlFor="pve-guest-exclude"
+      className="flex max-w-prose items-start gap-2 text-sm"
+      data-slot="pve-guest-exclude"
+    >
+      <Checkbox
+        id="pve-guest-exclude"
         className="mt-0.5"
         checked={false}
         disabled={change.isPending}
-        onChange={(e) => change.mutate(e.target.checked)}
+        onCheckedChange={(checked) => change.mutate(checked === true)}
       />
       <span>
         {t("exclusion.exclude")}

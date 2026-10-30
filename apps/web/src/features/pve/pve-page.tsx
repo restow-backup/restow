@@ -4,8 +4,9 @@ import { Plus, Server, X } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { ConfirmDialog, PageHeader, RefreshButton } from "@/components/kit";
+import { ConfirmDialog, NativeSelect, PageHeader, RefreshButton } from "@/components/kit";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -230,11 +231,11 @@ export function JobDialog({
               </div>
             </div>
             <div className="min-w-0 space-y-4" data-slot="pve-job-column-settings">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <label htmlFor="pve-job-all-guests" className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  id="pve-job-all-guests"
                   checked={scopeAll}
-                  onChange={(e) => setScopeAll(e.target.checked)}
+                  onCheckedChange={(checked) => setScopeAll(checked === true)}
                 />
                 {t("jobs.allGuests")}
               </label>
@@ -248,11 +249,12 @@ export function JobDialog({
                 {number("keepWeekly")}
                 {number("keepMonthly")}
               </div>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <label htmlFor="pve-job-restore-test" className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  id="pve-job-restore-test"
+                  className="mt-0.5"
                   checked={testEnabled}
-                  onChange={(e) => setTestEnabled(e.target.checked)}
+                  onCheckedChange={(checked) => setTestEnabled(checked === true)}
                 />
                 {t("jobs.restoreTest")}
               </label>
@@ -268,16 +270,15 @@ export function JobDialog({
               ) : null}
               <div className="space-y-1" data-slot="pve-job-boot-test">
                 <Label htmlFor="pve-job-boot-test">{t("jobs.bootTest")}</Label>
-                <select
+                <NativeSelect
                   id="pve-job-boot-test"
-                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
                   value={bootSchedule}
                   onChange={(e) => setBootSchedule(e.target.value as PveBootTestSchedule)}
                 >
                   <option value="off">{t("jobs.bootTestOff")}</option>
                   <option value="weekly">{t("jobs.bootTestWeekly")}</option>
                   <option value="after_backup">{t("jobs.bootTestAfterBackup")}</option>
-                </select>
+                </NativeSelect>
                 <p className="text-xs text-muted-foreground">{t("jobs.bootTestHint")}</p>
               </div>
               {bootSchedule !== "off" ? (
@@ -305,15 +306,18 @@ export function JobDialog({
                           guest.jobId && guest.jobId !== job?.id ? guest.jobName : null;
                         return (
                           <li key={guest.id}>
-                            <label className="flex items-start gap-2 text-sm">
-                              <input
-                                type="checkbox"
+                            <label
+                              htmlFor={`pve-job-guest-${guest.id}`}
+                              className="flex items-start gap-2 text-sm"
+                            >
+                              <Checkbox
+                                id={`pve-job-guest-${guest.id}`}
                                 className="mt-0.5"
                                 checked={chosen.has(guest.id)}
-                                onChange={(e) =>
+                                onCheckedChange={(checked) =>
                                   setChosen((current) => {
                                     const next = new Set(current);
-                                    if (e.target.checked) next.add(guest.id);
+                                    if (checked === true) next.add(guest.id);
                                     else next.delete(guest.id);
                                     return next;
                                   })
@@ -343,12 +347,15 @@ export function JobDialog({
                   {chosenSelf.map((guest) => (
                     <RestowServerNote key={guest.id} guest={guest} />
                   ))}
-                  <label className="flex items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
+                  <label
+                    htmlFor="pve-job-self-confirmed"
+                    className="flex items-start gap-2 text-sm"
+                  >
+                    <Checkbox
+                      id="pve-job-self-confirmed"
                       className="mt-0.5"
                       checked={selfConfirmed}
-                      onChange={(e) => setSelfConfirmed(e.target.checked)}
+                      onCheckedChange={(checked) => setSelfConfirmed(checked === true)}
                     />
                     {t("selfBackup.confirmInJob")}
                   </label>

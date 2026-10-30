@@ -1,12 +1,13 @@
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { Building, RefreshCw } from "lucide-react";
+import { Building } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { RefreshButton } from "@/components/kit";
 import { PageHeader } from "@/components/page-header";
 import { RequireRole } from "@/components/require-role";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BackupAllButton } from "@/features/jobs/components/actions";
@@ -92,15 +93,11 @@ function DirectoryContent() {
         title={t("title")}
         description={tenantName ? t("tenantScope", { tenant: tenantName }) : t("subtitle")}
       >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void sources.refetch()}
-          disabled={sources.isFetching}
-        >
-          <RefreshCw className={sources.isFetching ? "animate-spin" : undefined} />
-          {tc("actions.refresh")}
-        </Button>
+        <RefreshButton
+          label={tc("actions.refresh")}
+          fetching={sources.isFetching}
+          onRefresh={() => void sources.refetch()}
+        />
         {/* Backing up lives here since the final menu (0.1.0): all at once,
             or per object with live state on the backup page. */}
         <Link

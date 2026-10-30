@@ -232,6 +232,7 @@
   },
   "pending": {
     "title": "Pending enrollments",
+    "loadError": "The pending enrollments could not be loaded.",
     "description": "Install commands that were created but no machine has used yet. Each works once and expires after 24 hours. A command cannot be shown again; create a new one if it is lost.",
     "unnamed": "Unnamed",
     "created": "Created",

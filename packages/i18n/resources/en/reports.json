@@ -597,6 +597,7 @@
     "title": "Notifications",
     "markAll": "Mark all read",
     "empty": "Nothing new.",
+    "loadError": "Notifications could not be loaded. This does not mean that nothing happened.",
     "unread": "unread",
     "manage": "Alerts",
     "showAll": "Show all",

@@ -80,7 +80,7 @@ export function SourceStep({ config, origin, onChange }: SourceStepProps) {
               <p className="text-muted-foreground">
                 {t("source.folder.disabled.description", { path: config.folder.path })}
               </p>
-              <pre className="overflow-x-auto rounded-md bg-muted px-2.5 py-2 font-mono text-[11px] text-foreground">
+              <pre className="overflow-x-auto rounded-md bg-muted px-2.5 py-2 font-mono text-xs text-foreground">
                 {t("source.folder.mountExample", { path: config.folder.path })}
               </pre>
             </div>

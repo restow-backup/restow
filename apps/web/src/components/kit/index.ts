@@ -51,6 +51,7 @@ export {
   KpiTile,
   type KpiTileProps,
 } from "./kpi-tile.js";
+export { NativeSelect } from "./native-select.js";
 export {
   DEFAULT_PAGE_WIDTH,
   documentTitle,

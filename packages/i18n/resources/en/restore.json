@@ -53,6 +53,7 @@
         "group": "Microsoft 365 groups",
         "imap": "IMAP accounts"
       },
+      "loadError": "The accounts could not be loaded",
       "empty": "No matching account",
       "emptyDescription": "Try a different search or a different type.",
       "lastBackup": "Last backup",

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
 import {
@@ -277,24 +278,26 @@ export function InstallDialog({
               </div>
               {planned ? (
                 <div className="flex flex-wrap items-end gap-3" data-slot="install-at">
-                  <label className="grid gap-1 text-sm">
+                  <label htmlFor="install-at-date" className="grid gap-1 text-sm">
                     <span className="font-medium">{t("install.when.date")}</span>
-                    <input
+                    <Input
+                      id="install-at-date"
                       type="date"
                       required
-                      className="h-9 rounded-md border bg-background px-2 text-sm"
+                      className="w-auto"
                       value={at.date}
                       onChange={(event) =>
                         setAt((current) => ({ ...current, date: event.target.value }))
                       }
                     />
                   </label>
-                  <label className="grid gap-1 text-sm">
+                  <label htmlFor="install-at-time" className="grid gap-1 text-sm">
                     <span className="font-medium">{t("install.when.time")}</span>
-                    <input
+                    <Input
+                      id="install-at-time"
                       type="time"
                       required
-                      className="h-9 rounded-md border bg-background px-2 text-sm"
+                      className="w-auto"
                       value={at.time}
                       onChange={(event) =>
                         setAt((current) => ({ ...current, time: event.target.value }))

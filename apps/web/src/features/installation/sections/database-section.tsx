@@ -201,7 +201,7 @@ function StepIcon({ status }: { status: MoveStep["status"] }) {
     case "done":
       return <CircleCheck className="size-4 text-foreground" aria-hidden="true" />;
     case "running":
-      return <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />;
+      return <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />;
     case "failed":
       return <CircleX className="size-4 text-destructive-text" aria-hidden="true" />;
     default:
@@ -456,7 +456,7 @@ function MoveFormCard({ view }: { view: DatabaseView }) {
               variant="outline"
               disabled={blocked || unavailable || running || dir.trim() === "" || check.isPending}
             >
-              {check.isPending ? <LoaderCircle className="animate-spin" /> : <Search />}
+              {check.isPending ? <LoaderCircle className="motion-safe:animate-spin" /> : <Search />}
               {t("database.form.check")}
             </Button>
             <Button

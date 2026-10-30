@@ -411,6 +411,17 @@ describe("the sum across the tenants", () => {
     expect(shown?.textContent).not.toContain("Own GmbH");
   });
 
+  it("says so when the prices could not be read, and offers a retry", async () => {
+    const { requests } = api(problem("urn:restow:problem:internal", 500));
+    mounted = mount(<AllTenantsPriceCard onOpenTenant={vi.fn()} />, { session: sessionAs({}) });
+    await flush(5);
+    const shown = mounted.container.querySelector('[data-widget="allTenantsPrice"]');
+    expect(shown?.getAttribute("data-state")).toBe("error");
+    expect(shown?.textContent).toContain("The prices of all tenants could not be loaded.");
+    expect(shown?.querySelector("button")).not.toBeNull();
+    expect(requests.length).toBeGreaterThan(0);
+  });
+
   it("is not there without a price, nor for a tenant user", async () => {
     expect(await all(noPriceEstimate())).toBeNull();
     await unmountCard();
@@ -442,6 +453,16 @@ describe("the price settings", () => {
     ]);
     // The estimate is derived from the prices: it is read again, not served from the cache.
     expect(requests.filter((request) => request.path.endsWith("/estimate")).length).toBe(2);
+  });
+
+  it("stacks the currency field under its label instead of beside it", async () => {
+    api(estimateFixture(), { "GET /settings/pricing": () => json(PRICING) });
+    mounted = mount(<PricingSection />, { session: sessionAs({}) });
+    await flush(5);
+    const select = mounted.container.querySelector<HTMLSelectElement>("select[id$='-currency']");
+    expect(select).not.toBeNull();
+    // An inline select would sit on the label's line; the label stays above the field.
+    expect(select?.classList.contains("block")).toBe(true);
   });
 
   it("is read-only below the owner", async () => {

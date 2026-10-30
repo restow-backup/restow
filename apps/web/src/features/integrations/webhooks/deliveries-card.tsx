@@ -1,8 +1,9 @@
-import { ChevronRight, Download, RefreshCw } from "lucide-react";
+import { ChevronRight, Download } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
+import { RefreshButton } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -108,19 +109,11 @@ export function DeliveriesCard({ webhookId, webhookActive }: DeliveriesCardProps
             <Download aria-hidden="true" />
             {t("deliveries.export.action")}
           </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => void query.refetch()}
-            disabled={query.isFetching}
-            aria-label={tc("actions.refresh")}
-            title={tc("actions.refresh")}
-          >
-            <RefreshCw
-              className={query.isFetching ? "animate-spin" : undefined}
-              aria-hidden="true"
-            />
-          </Button>
+          <RefreshButton
+            label={tc("actions.refresh")}
+            fetching={query.isFetching}
+            onRefresh={() => void query.refetch()}
+          />
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

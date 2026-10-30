@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { FileSearch, ShieldCheck } from "lucide-react";
 import * as React from "react";
 
-import { RelativeTime, StatusBadge } from "@/components/kit";
+import { DataTableLoadMore, RelativeTime, StatusBadge } from "@/components/kit";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -43,6 +43,9 @@ import type { VerifyFormat } from "@/features/verify/use-verify";
 
 /** The reasons that only say how old the latest backup is (core verify/readiness.ts). */
 const FRESHNESS_REASONS: ReadonlySet<string> = new Set(["snapshot_outdated", "snapshot_stale"]);
+
+/** How many rows the table shows before "Load more": a large tenant lists thousands of objects. */
+export const OBJECTS_PAGE_SIZE = 50;
 
 /*
  * This table stays on the plain kit `Table` primitive rather than the kit
@@ -302,6 +305,11 @@ export function ObjectsTable({
     return state ? sorted.filter((row) => rowRating(row).state === state) : sorted;
   }, [rows, state]);
 
+  // Rows are shown in pages of OBJECTS_PAGE_SIZE; a new filter starts on the first page again.
+  const [paging, setPaging] = React.useState({ state, shown: OBJECTS_PAGE_SIZE });
+  const shown = paging.state === state ? paging.shown : OBJECTS_PAGE_SIZE;
+  const page = visible.slice(0, shown);
+
   return (
     <Card className="pb-0">
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
@@ -335,7 +343,7 @@ export function ObjectsTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visible.map((row) =>
+              {page.map((row) =>
                 row.type === "endpoint" ? (
                   <EndpointReadinessRowView key={`endpoint-${row.id}`} row={row.endpoint} />
                 ) : row.type === "guest" ? (
@@ -357,6 +365,17 @@ export function ObjectsTable({
           </Table>
         )}
       </CardContent>
+      {visible.length > OBJECTS_PAGE_SIZE ? (
+        // The footer carries its own padding: the card has none at the bottom so the table can
+        // run to its edge, and the last row (or the button) must not touch it.
+        <div className="border-t px-6 py-4">
+          <DataTableLoadMore
+            count={page.length}
+            hasMore={page.length < visible.length}
+            onLoadMore={() => setPaging({ state, shown: shown + OBJECTS_PAGE_SIZE })}
+          />
+        </div>
+      ) : null}
     </Card>
   );
 }

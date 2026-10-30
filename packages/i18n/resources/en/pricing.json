@@ -34,6 +34,7 @@
     "unavailable": "Figures not available yet",
     "top": "Highest amounts",
     "more": "+{count} more",
-    "missing": "{count, plural, one {The figures of # tenant are not available yet.} other {The figures of # tenants are not available yet.}} The total is incomplete."
+    "missing": "{count, plural, one {The figures of # tenant are not available yet.} other {The figures of # tenants are not available yet.}} The total is incomplete.",
+    "loadError": "The prices of all tenants could not be loaded."
   }
 }

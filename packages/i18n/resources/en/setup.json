@@ -68,7 +68,7 @@
       },
       "gobd": {
         "title": "Archive and GoBD",
-        "body": "The archive features are designed for GoBD-compliant use. Whether your whole procedure is compliant, including process documentation, retention periods, access rights, organizational measures and the storage behind the archive, is your responsibility. {appName} does not give legal or tax advice."
+        "body": "The archive features are designed for GoBD-compliant use. Whether your whole procedure is compliant, including process documentation, retention periods, access rights, organisational measures and the storage behind the archive, is your responsibility. {appName} does not give legal or tax advice."
       },
       "warranty": {
         "title": "No warranty",

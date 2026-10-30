@@ -3,6 +3,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
+import { IconButton } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Breadcrumb,
@@ -353,15 +354,12 @@ export function SelectedEntries({
                 {formatBytes(entry.size, language)}
               </span>
             ) : null}
-            <Button
-              variant="ghost"
+            <IconButton
+              icon={X}
               size="icon-sm"
               onClick={() => onRemove(entry.path)}
-              aria-label={t("folder.selected.remove", { name: entry.name })}
-              title={t("folder.selected.remove", { name: entry.name })}
-            >
-              <X />
-            </Button>
+              label={t("folder.selected.remove", { name: entry.name })}
+            />
           </li>
         ))}
       </ul>

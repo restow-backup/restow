@@ -236,9 +236,7 @@ function EventLabel({ row }: { row: MatrixRow }) {
       <span className="text-sm" title={t(`reports:eventHints.${row.name}`)}>
         {t(`reports:events.${row.name}`)}
       </span>
-      <Badge variant={LEVEL_VARIANT[row.level]} className="text-[11px]">
-        {t(`matrix.levels.${row.level}`)}
-      </Badge>
+      <Badge variant={LEVEL_VARIANT[row.level]}>{t(`matrix.levels.${row.level}`)}</Badge>
     </span>
   );
 }

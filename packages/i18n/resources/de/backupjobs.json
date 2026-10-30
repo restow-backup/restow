@@ -1374,6 +1374,7 @@
     "verifySchedule": "Restore-Prüfungen",
     "runs": "Letzte Läufe",
     "noRuns": "Noch kein Lauf.",
+    "runsLoadError": "Die Läufe konnten nicht geladen werden. Das heißt nicht, dass der Auftrag nicht gelaufen ist.",
     "openPage": "Seite des Jobs öffnen",
     "openGuests": "Seine VMs & Container öffnen",
     "pveFailed": "{count, plural, one {Die Sicherung von # Gast ist in dieser Runde fehlgeschlagen.} other {Die Sicherungen von # Gästen sind in dieser Runde fehlgeschlagen.}}",

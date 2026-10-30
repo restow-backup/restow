@@ -4,7 +4,7 @@ import { ChevronRight, Container } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { RelativeTime } from "@/components/kit";
+import { NativeSelect, RelativeTime } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -319,8 +319,8 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                 <span className="font-medium">
                   {t("inventory.actions.selected", { count: chosen.length })}
                 </span>
-                <select
-                  className="h-8 rounded-md border bg-background px-2 text-sm"
+                <NativeSelect
+                  className="h-8 w-auto"
                   aria-label={t("inventory.actions.addToJob")}
                   value=""
                   disabled={busy}
@@ -334,7 +334,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                     </option>
                   ))}
                   <option value={NEW_JOB}>{t("inventory.actions.newJob")}</option>
-                </select>
+                </NativeSelect>
                 <Button
                   type="button"
                   size="sm"
@@ -447,8 +447,8 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                       </TableCell>
                       <TableCell>
                         {canBackUp ? (
-                          <select
-                            className="h-8 max-w-48 rounded-md border bg-background px-2 text-sm"
+                          <NativeSelect
+                            className="h-8 max-w-48"
                             aria-label={t("inventory.actions.jobOf", { name: label })}
                             value={guest.jobId ?? ""}
                             disabled={busy}
@@ -469,7 +469,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                               </option>
                             ))}
                             <option value={NEW_JOB}>{t("inventory.actions.newJob")}</option>
-                          </select>
+                          </NativeSelect>
                         ) : (
                           (guest.jobName ?? t("guests.noJob"))
                         )}

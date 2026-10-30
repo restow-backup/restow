@@ -1,6 +1,7 @@
 import { Coins } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { ErrorState } from "@/components/kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSession } from "@/lib/session";
 
@@ -29,7 +30,22 @@ export function AllTenantsPriceCard({
   const session = useSession();
   const query = usePricingEstimate({ enabled: session.isProviderAdmin });
   const estimate = query.data;
-  // Nothing while it loads or when it failed: a summary on top of the page, not worth a gap.
+  if (session.isProviderAdmin && query.isError && !estimate) {
+    // A failed read says so, like the tenant's card: a missing card would pass for "no price set".
+    return (
+      <Card className="gap-3" data-widget="allTenantsPrice" data-state="error">
+        <CardContent>
+          <ErrorState
+            title={t("all.loadError")}
+            error={query.error}
+            onRetry={() => void query.refetch()}
+            retrying={query.isFetching}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+  // Nothing while it loads: a summary on top of the page, not worth a gap.
   if (!session.isProviderAdmin || !estimate?.hasPrices) {
     return null;
   }

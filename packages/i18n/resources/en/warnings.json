@@ -1,6 +1,6 @@
 {
   "nav": "Warnings",
-  "navBadge": "{count, plural, one {# open warning} other {# open warnings}}",
+  "navBadge": "{count, plural, one {# item needs attention} other {# items need attention}}",
   "title": "Warnings",
   "description": "Backups that went through but could not back up some items: which ones, why and what to do. Acknowledged warnings no longer count until a new problem appears.",
   "tabs": {

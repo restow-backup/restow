@@ -156,7 +156,7 @@ export function FolderPicker({ shareId, mode, value, onChange, className }: Fold
       )}
       {listing.isFetching && !listing.isPending ? (
         <p className="flex items-center gap-1 px-3 py-1 text-xs text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+          <Loader2 className="size-3 motion-safe:animate-spin" aria-hidden="true" />
           {t("picker.reading")}
         </p>
       ) : null}

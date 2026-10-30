@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { ErrorState } from "@/components/kit";
+import { ErrorState, NativeSelect } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,9 +23,6 @@ import {
 } from "./api.js";
 import { formatMoney, parsePrice, priceText, tenantsWithOwnPrices } from "./presenters.js";
 import { usePricingEstimate } from "./use-estimate.js";
-
-const SELECT =
-  "h-9 rounded-md border bg-background px-2 text-sm disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * The provider's prices (installation section, 0.4.7): per month, per gigabyte or terabyte of
@@ -217,8 +214,8 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
               aria-invalid={storagePrice === undefined}
               onChange={(event) => setStorage(event.target.value)}
             />
-            <select
-              className={SELECT}
+            <NativeSelect
+              className="w-auto"
               aria-label={t("pricing.unit")}
               value={unit}
               disabled={disabled}
@@ -226,7 +223,7 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
             >
               <option value="GB">{t("pricing.perGb")}</option>
               <option value="TB">{t("pricing.perTb")}</option>
-            </select>
+            </NativeSelect>
           </div>
           <p className="text-xs text-muted-foreground">{t("pricing.storageHint")}</p>
         </div>
@@ -236,9 +233,9 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
           <label htmlFor={`${id}-currency`} className="text-sm font-medium">
             {t("pricing.currency")}
           </label>
-          <select
+          <NativeSelect
             id={`${id}-currency`}
-            className={`${SELECT} block`}
+            className="block w-auto"
             value={currency}
             disabled={disabled}
             onChange={(event) => setCurrency(event.target.value)}
@@ -248,7 +245,7 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
                 {code}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         {canChange ? (
           <Button type="submit" disabled={!valid || !changed || save.isPending}>

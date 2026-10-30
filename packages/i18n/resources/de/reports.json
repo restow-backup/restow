@@ -597,6 +597,7 @@
     "title": "Benachrichtigungen",
     "markAll": "Alle gelesen",
     "empty": "Nichts Neues.",
+    "loadError": "Die Benachrichtigungen konnten nicht geladen werden. Das heißt nicht, dass nichts passiert ist.",
     "unread": "ungelesen",
     "manage": "Alarme",
     "showAll": "Alle anzeigen",

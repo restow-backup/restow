@@ -4,7 +4,13 @@ import { ExternalLink, ShieldCheck, X } from "lucide-react";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { DetailFact, DetailSection, LogBlock as KitLogBlock, RelativeTime } from "@/components/kit";
+import {
+  DetailFact,
+  DetailSection,
+  LogBlock as KitLogBlock,
+  NativeSelect,
+  RelativeTime,
+} from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -431,8 +437,7 @@ export function GuestSheet({
               </Section>
 
               <Section title={t("guests.job")} slot="pve-sheet-job">
-                <select
-                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                <NativeSelect
                   aria-label={t("guests.job")}
                   value={guest.jobId ?? ""}
                   disabled={
@@ -446,7 +451,7 @@ export function GuestSheet({
                       {job.name}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
                 {guest.excludedAt ? (
                   <p className="mt-1 text-xs text-muted-foreground" data-slot="pve-sheet-excluded">
                     {t("exclusion.title")}
