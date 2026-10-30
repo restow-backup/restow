@@ -335,6 +335,33 @@ describe("ReportPage failure explanations", () => {
     expect(html).toContain(">Ready<");
   });
 
+  it("names the backup age of an active object in no backup job as a note, not a finding", async () => {
+    const stale = reasons(false)[0];
+    if (!stale) throw new Error("fixture");
+    const base = report(false);
+    // The server moved the age to the reasons set aside; the rating is without it.
+    const noJob: ReportDetail = {
+      ...base,
+      object: { ...base.object, status: "active" },
+      readiness: "green",
+      reasons: [],
+      setAsideReasons: [stale],
+      counts: { checked: 30, verified: 30, failed: 0 },
+    };
+    const html = render(noJob);
+    expect(html).toContain("In no backup job");
+    expect(html).toContain("Not counted: The latest backup is");
+    expect(html).toContain("No findings");
+    expect(html).not.toContain("Removed from the source");
+    // An active object whose age counts has no such note.
+    expect(render({ ...base, object: { ...base.object, status: "active" } })).not.toContain(
+      "In no backup job",
+    );
+    await i18n.changeLanguage("de");
+    expect(render(noJob)).toContain("In keinem Backup-Job");
+    await i18n.changeLanguage("en");
+  });
+
   it("names a disabled account as not backed up, its backups kept, not as removed", async () => {
     const stale = reasons(false)[0];
     if (!stale) throw new Error("fixture");

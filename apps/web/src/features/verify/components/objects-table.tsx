@@ -62,7 +62,16 @@ const FRESHNESS_REASONS: ReadonlySet<string> = new Set(["snapshot_outdated", "sn
  * the row.
  */
 
-function ObjectCell({ object, format }: { object: VerifyObject; format: VerifyFormat }) {
+function ObjectCell({
+  object,
+  inJob,
+  format,
+}: {
+  object: VerifyObject;
+  /** False: an active object in no enabled backup job (absent from an older server: in a job). */
+  inJob: boolean;
+  format: VerifyFormat;
+}) {
   const { t } = format;
   const label = objectLabel(object, t);
   const address = objectAddress(object);
@@ -72,6 +81,17 @@ function ObjectCell({ object, format }: { object: VerifyObject; format: VerifyFo
       <div className="min-w-0" title={t("table.technicalId", { id: object.externalId })}>
         <p className="truncate font-medium">{label}</p>
         {address ? <p className="truncate text-xs text-muted-foreground">{address}</p> : null}
+        {inJob ? null : (
+          // Nothing backs it up (no enabled backup job covers it): rated by whether its newest
+          // backup restores, not by its age, like a guest or share in no job.
+          <StatusBadge
+            tone="warning"
+            className="mt-1 whitespace-nowrap"
+            title={t("table.noJobHint")}
+          >
+            {t("table.noJob")}
+          </StatusBadge>
+        )}
         {object.status === "orphaned" ? (
           // Amber until someone confirms it is intended, grey after (an older server: grey).
           <StatusBadge
@@ -139,11 +159,12 @@ function ResultCell({
             checked: format.integer(report.counts.checked),
           })
         : null;
-  // An orphaned object (removed from its source, backups kept) is rated without the age of its
-  // last backup (the server's readinessWithoutFreshness): the age is no reason to show under its
-  // badge, which would otherwise put "backup too old" next to a green rating.
+  // An orphaned object (removed from its source, backups kept) and an active one in no backup
+  // job are rated without the age of their last backup (the server's readinessWithoutFreshness):
+  // the age is no reason to show under the badge, which would otherwise put "backup too old"
+  // next to a green rating.
   const shownReasons =
-    item.object.status === "orphaned"
+    item.object.status === "orphaned" || item.inJob === false
       ? report.reasons.filter((entry) => !FRESHNESS_REASONS.has(entry.code))
       : report.reasons;
   const firstReason = shownReasons[0];
@@ -357,7 +378,7 @@ function ObjectRow({
   return (
     <TableRow>
       <TableCell pin={PIN_FIRST} className="max-w-md pl-6">
-        <ObjectCell object={item.object} format={format} />
+        <ObjectCell object={item.object} inJob={item.inJob !== false} format={format} />
       </TableCell>
       <TableCell className="whitespace-nowrap">
         <div className="flex flex-wrap items-center gap-1.5">

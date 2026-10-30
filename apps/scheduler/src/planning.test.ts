@@ -384,6 +384,74 @@ describe("backup jobs", () => {
     expect(own.map((item) => item.protectedObjectId)).toEqual(["mb-1"]);
   });
 
+  it("checks the last backup of an active object in no job once, from a job's restore check only", () => {
+    const orphans: TenantTargets = {
+      ...targets,
+      protectedObjects: [
+        ...targets.protectedObjects,
+        // Taken out of its job, its newest backup never checked.
+        {
+          id: "mb-removed",
+          sourceId: "src-m365",
+          kind: "mailbox",
+          status: "active",
+          unverifiedBackup: true,
+          withoutJob: true,
+        },
+        // Taken out of its job, already checked: nothing more to prove.
+        {
+          id: "mb-checked",
+          sourceId: "src-m365",
+          kind: "mailbox",
+          status: "active",
+          unverifiedBackup: false,
+          withoutJob: true,
+        },
+        // In a job whose newest backup is unchecked: the job's own schedule handles it.
+        {
+          id: "mb-injob",
+          sourceId: "src-m365",
+          kind: "mailbox",
+          status: "active",
+          unverifiedBackup: true,
+          withoutJob: false,
+        },
+      ],
+      jobMembers: [
+        { jobId: "job-2", protectedObjectId: "mb-injob", overrides: {} },
+        { jobId: "job-2", protectedObjectId: "mb-1", overrides: {} },
+      ],
+    };
+    const selected = job({ id: "job-2", scopeMode: "selected" });
+    const verify = expandJobUnit(
+      { level: "job", what: "verify", job: selected },
+      orphans,
+      newJobId,
+    );
+    const ids = verify.map((item) => item.protectedObjectId).sort();
+    expect(ids).toEqual(["mb-1", "mb-injob", "mb-removed"]);
+    // It belongs to no job: the restore check names none.
+    expect(
+      verify.find((item) => item.protectedObjectId === "mb-removed")?.payload,
+    ).not.toHaveProperty("backupJobId");
+    expect(verify.find((item) => item.protectedObjectId === "mb-1")?.payload).toMatchObject({
+      backupJobId: "job-2",
+    });
+    // Backups never include it, and a member's own timer does not plan it either.
+    expect(
+      expandJobUnit({ level: "job", what: "backup", job: selected }, orphans, newJobId).map(
+        (item) => item.protectedObjectId,
+      ),
+    ).not.toContain("mb-removed");
+    // An object in no job is checked by the schedules of the legacy kind as well, once: it is
+    // among the active objects already, not planned a second time as one awaiting its last check.
+    expect(
+      expandSchedule(schedule({ kind: "verify" }), orphans, newJobId).filter(
+        (item) => item.protectedObjectId === "mb-removed",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("knows which timer and schedule a unit runs on", () => {
     const base = job({ nextRunAt: new Date("2026-03-01T09:00:00Z") });
     const unit = { level: "job", what: "backup", job: base } as const;

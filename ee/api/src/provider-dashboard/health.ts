@@ -99,6 +99,7 @@ export function tenantRow(
       loaded: false,
       readiness: null,
       protectedObjects: null,
+      objectsWithoutJob: null,
       ready: null,
       needsAttention: null,
       notRestorable: null,
@@ -133,6 +134,7 @@ export function tenantRow(
     loaded: true,
     readiness: summary.readiness.overall,
     protectedObjects: summary.objects.active,
+    objectsWithoutJob: summary.readiness.objectsWithoutJob,
     ready: summary.readiness.green,
     needsAttention: summary.readiness.yellow,
     notRestorable: summary.readiness.red,
@@ -217,6 +219,9 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   }
   if (row.machinesWithoutJob > 0) {
     alerts.push(alert("machines_without_job", "warning", row.machinesWithoutJob));
+  }
+  if (row.objectsWithoutJob > 0) {
+    alerts.push(alert("objects_without_job", "warning", row.objectsWithoutJob));
   }
   if (row.guestsWithoutJob > 0) {
     alerts.push(alert("guests_without_job", "warning", row.guestsWithoutJob));

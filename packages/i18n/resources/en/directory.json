@@ -27,7 +27,7 @@
     "inactive_no_license": "Not backed up: no licence",
     "not_selected": "Not selected",
     "needs_credential": "Needs attention",
-    "no_job": "No backup job",
+    "no_job": "In no backup job",
     "unscheduled": "Job without schedule",
     "inactive_locked": "Not backed up: locked",
     "to_confirm": "Not backed up any more, please confirm",
@@ -78,7 +78,8 @@
     "checked": "Checked {when}",
     "unverifiedHint": "Backups exist, but no restore check has confirmed them yet. An unverified backup does not count as protected.",
     "noneHint": "There is nothing to verify until the first backup completed.",
-    "needsCredentialHint": "This account has no password of its own set and working right now, so it is not currently protected, whatever an earlier restore point once proved."
+    "needsCredentialHint": "This account has no password of its own set and working right now, so it is not currently protected, whatever an earlier restore point once proved.",
+    "noJob": "In no backup job"
   },
   "backup": {
     "never": "No backup yet",

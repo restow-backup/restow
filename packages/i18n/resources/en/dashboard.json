@@ -134,6 +134,11 @@
       "description": "These machines are no longer backed up. Their existing restore points keep their rating; new ones are only made once you add the machine to a backup job.",
       "action": "Open machines"
     },
+    "objectsWithoutJob": {
+      "title": "{count, plural, one {# mailbox or drive in no backup job} other {# mailboxes and drives in no backup job}}",
+      "description": "Nothing backs these objects up any more. Their existing backups keep their rating; new ones are only made once a backup job covers the object.",
+      "action": "Open protected objects"
+    },
     "guestsWithoutJob": {
       "title": "{count, plural, one {# guest in no backup job} other {# guests in no backup job}}",
       "description": "These VMs and containers are no longer backed up. Their existing restore points keep their rating; new ones are only made once you add the guest to a backup job.",
@@ -191,6 +196,7 @@
     "withGuests": "{count, plural, one {including # VM or container} other {including # VMs and containers}}",
     "noBackup": "{count, plural, one {# without a backup} other {# without a backup}}",
     "withoutJob": "{count, plural, one {# machine in no backup job} other {# machines in no backup job}}",
+    "objectsWithoutJob": "{count, plural, one {# object in no backup job} other {# objects in no backup job}}",
     "guestsWithoutJob": "{count, plural, one {# guest in no backup job} other {# guests in no backup job}}",
     "withShares": "{count, plural, one {including # file share} other {including # file shares}}",
     "sharesWithoutJob": "{count, plural, one {# file share in no backup job} other {# file shares in no backup job}}",
@@ -479,6 +485,7 @@
         "stale_backup": "No successful backup for more than {count} hours (twice the longest gap of the schedules). Last:",
         "machine_backup_failed": "{count, plural, one {The last backup of # machine failed.} other {The last backup of # machines failed.}}",
         "machines_without_job": "{count, plural, one {# machine is in no backup job and is not backed up.} other {# machines are in no backup job and are not backed up.}}",
+        "objects_without_job": "{count, plural, one {# mailbox, drive or account is in no backup job and is not backed up.} other {# mailboxes, drives or accounts are in no backup job and are not backed up.}}",
         "guest_backup_failed": "{count, plural, one {The last backup of # guest (VM or container) failed.} other {The last backup of # guests (VMs or containers) failed.}}",
         "guests_without_job": "{count, plural, one {# guest (VM or container) is in no backup job and is not backed up.} other {# guests (VMs or containers) are in no backup job and are not backed up.}}",
         "file_share_backup_failed": "{count, plural, one {The last backup of # file share failed.} other {The last backup of # file shares failed.}}",

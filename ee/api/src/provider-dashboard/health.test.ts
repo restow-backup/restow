@@ -38,6 +38,8 @@ function summary(overrides: Partial<TenantSummaryDto> = {}): TenantSummaryDto {
       unverified: 0,
       noBackup: 0,
       overdue: 0,
+      withoutJob: 0,
+      objectsWithoutJob: 0,
       overall: "green",
       lastCheckedAt: "2026-09-22T03:00:00.000Z",
       running: 0,
@@ -115,6 +117,7 @@ describe("tenant matrix rows", () => {
       // Unknown, never an invented zero.
       readiness: null,
       protectedObjects: null,
+      objectsWithoutJob: null,
       ready: null,
       needsAttention: null,
       notRestorable: null,
@@ -212,6 +215,36 @@ describe("VMs and containers of Proxmox VE in the matrix", () => {
 });
 
 describe("file shares in the matrix", () => {
+  it("counts the mailboxes, OneDrives and IMAP accounts in no job, and says so as an alert", () => {
+    const result = tenantRow(
+      tenant("Contoso"),
+      {
+        summary: summary({
+          readiness: {
+            ...summary().readiness,
+            green: 3,
+            yellow: 0,
+            withoutJob: 1,
+            objectsWithoutJob: 1,
+            overall: "yellow",
+          },
+        }),
+        ...HEALTHY,
+      },
+      { mailboxes: 3, cap: null },
+    );
+    expect(result).toMatchObject({
+      readiness: "yellow",
+      objectsWithoutJob: 1,
+      protectedObjects: 4,
+    });
+    expect(
+      alertsFor(result, NOW).map((alert) => [alert.kind, alert.severity, alert.count]),
+    ).toEqual([["objects_without_job", "warning", 1]]);
+    // Nothing without a job: no alert.
+    expect(alertsFor(row("Fabrikam"), NOW)).toEqual([]);
+  });
+
   it("counts the shares: in a job, in none, failed, and their newest backup", () => {
     const result = tenantRow(
       tenant("Contoso"),

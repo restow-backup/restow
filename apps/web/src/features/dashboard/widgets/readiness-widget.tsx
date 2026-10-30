@@ -44,6 +44,9 @@ function ReadinessBody({
   protectAction?: React.ReactNode;
 }) {
   const { t } = useTranslation("dashboard");
+  // `withoutJob` counts the machines and the mail objects; the objects have their own sentence.
+  const objectsWithoutJob = data.objectsWithoutJob ?? 0;
+  const machinesWithoutJob = Math.max(0, data.withoutJob - objectsWithoutJob);
 
   return (
     <div className="space-y-4">
@@ -97,10 +100,26 @@ function ReadinessBody({
           </AlertDescription>
         </Alert>
       ) : null}
-      {data.withoutJob > 0 ? (
+      {objectsWithoutJob > 0 ? (
+        <Alert variant="warning" data-flag="objects-without-job">
+          <TriangleAlert />
+          <AlertTitle>
+            {t("readiness.objectsWithoutJob.title", { count: objectsWithoutJob })}
+          </AlertTitle>
+          <AlertDescription className="gap-2">
+            <p>{t("readiness.objectsWithoutJob.description")}</p>
+            {canAdminister ? (
+              <LinkButton to={to(PATHS.protectedObjects)} size="xs" className="mt-1">
+                {t("readiness.objectsWithoutJob.action")}
+              </LinkButton>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {machinesWithoutJob > 0 ? (
         <Alert variant="warning" data-flag="without-job">
           <TriangleAlert />
-          <AlertTitle>{t("readiness.withoutJob.title", { count: data.withoutJob })}</AlertTitle>
+          <AlertTitle>{t("readiness.withoutJob.title", { count: machinesWithoutJob })}</AlertTitle>
           <AlertDescription className="gap-2">
             <p>{t("readiness.withoutJob.description")}</p>
             {canAdminister ? (

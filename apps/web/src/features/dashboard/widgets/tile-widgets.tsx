@@ -44,6 +44,7 @@ export function protectedHealthy(data: ObjectsData): boolean {
     data.failed === 0 &&
     data.withItemFailures === 0 &&
     data.machines.failedLastBackup === 0 &&
+    (data.withoutJob ?? 0) === 0 &&
     data.machines.withoutJob === 0 &&
     guests.failedLastBackup === 0 &&
     guests.withoutJob === 0 &&
@@ -159,6 +160,11 @@ export function ProtectedObjectsWidget({
                 {data.noBackup > 0 ? (
                   <StatusBadge tone="warning">
                     {t("protectedObjects.noBackup", { count: data.noBackup })}
+                  </StatusBadge>
+                ) : null}
+                {(data.withoutJob ?? 0) > 0 ? (
+                  <StatusBadge tone="warning">
+                    {t("protectedObjects.objectsWithoutJob", { count: data.withoutJob ?? 0 })}
                   </StatusBadge>
                 ) : null}
                 {data.machines.withoutJob > 0 ? (

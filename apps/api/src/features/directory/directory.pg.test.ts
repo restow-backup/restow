@@ -13,6 +13,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   auditLog,
+  backupJobMembers,
+  backupJobs,
   createDb,
   type Database,
   jobs,
@@ -514,26 +516,81 @@ describe.skipIf(!testDatabaseAdminUrl)("directory service against Postgres", () 
       });
     }
 
-    it("rates an orphaned object without the age of its last backup, an active one with it", async () => {
-      const { sourceId, objectIds } = await m365Source("Orphaned-Readiness", 2);
-      const [orphaned, active] = objectIds as [string, string];
+    it("rates an orphaned object without the age of its last backup, an active one in a job with it", async () => {
+      const { sourceId, objectIds } = await m365Source("Orphaned-Readiness", 3);
+      const [orphaned, active, loose] = objectIds as [string, string, string];
       await outdatedBackup(orphaned);
       await outdatedBackup(active);
+      await outdatedBackup(loose);
       await db
         .update(protectedObjects)
         .set({ status: "orphaned" })
         .where(eq(protectedObjects.id, orphaned));
+      // `active` is named by an enabled job; `loose` by none.
+      const [job] = await db
+        .insert(backupJobs)
+        .values({
+          tenantId,
+          kind: "mail",
+          name: "Orphaned-Readiness",
+          scopeMode: "selected",
+          enabled: true,
+        })
+        .returning();
+      await db
+        .insert(backupJobMembers)
+        .values({ tenantId, jobId: job?.id as string, protectedObjectId: active });
 
-      const page = await service.listObjects(db, tenantId, {
-        sourceId,
-        page: 1,
-        pageSize: 25,
-        sort: "name",
-        order: "asc",
-      });
-      const byId = new Map(page.items.map((item) => [item.id, item]));
-      expect(byId.get(orphaned)?.readiness?.rating).toBe("green");
-      expect(byId.get(active)?.readiness?.rating).toBe("red");
+      try {
+        const page = await service.listObjects(db, tenantId, {
+          sourceId,
+          page: 1,
+          pageSize: 25,
+          sort: "name",
+          order: "asc",
+        });
+        const byId = new Map(page.items.map((item) => [item.id, item]));
+        expect(byId.get(orphaned)?.readiness?.rating).toBe("green");
+        expect(byId.get(active)?.readiness?.rating).toBe("red");
+        expect(byId.get(active)?.withoutJob).toBe(false);
+        // In no job: nothing backs it up, so the age of its backup is no fault.
+        expect(byId.get(loose)?.readiness?.rating).toBe("green");
+        expect(byId.get(loose)).toMatchObject({ withoutJob: true, coverage: "none" });
+        // A job that is switched off covers nothing either.
+        await db
+          .update(backupJobs)
+          .set({ enabled: false })
+          .where(eq(backupJobs.id, job?.id as string));
+        const paused = await service.listObjects(db, tenantId, {
+          sourceId,
+          page: 1,
+          pageSize: 25,
+          sort: "name",
+          order: "asc",
+        });
+        const pausedActive = paused.items.find((item) => item.id === active);
+        expect(pausedActive).toMatchObject({ withoutJob: true, coverage: "unscheduled" });
+        expect(pausedActive?.readiness?.rating).toBe("green");
+        // The job filter goes by the coverage, as the status badge does: the member of the
+        // disabled job is "unscheduled" there (its readiness column says "in no backup job").
+        const idsOf = async (job: "none" | "unscheduled" | "scheduled") =>
+          (
+            await service.listObjects(db, tenantId, {
+              sourceId,
+              job,
+              page: 1,
+              pageSize: 25,
+              sort: "name",
+              order: "asc",
+            })
+          ).items
+            .map((item) => item.id)
+            .sort();
+        expect(await idsOf("none")).toEqual([loose]);
+        expect(await idsOf("unscheduled")).toEqual([active]);
+      } finally {
+        await db.delete(backupJobs).where(eq(backupJobs.id, job?.id as string));
+      }
     });
 
     it("marks a latest backup a service held back, and only that one", async () => {

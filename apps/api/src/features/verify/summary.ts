@@ -58,10 +58,17 @@ export interface RatedObject {
   readonly overdue: boolean;
   readonly checkedAt: Date | null;
   /**
-   * A machine in no backup job: nothing backs it up any more, whatever its old backups score.
-   * It never lets the tenant read as fine (at least yellow) and is counted on its own.
+   * A machine or a mail object in no backup job: nothing backs it up any more, whatever its old
+   * backups score. It never lets the tenant read as fine (at least yellow) and is counted on its
+   * own.
    */
   readonly withoutJob?: boolean;
+  /**
+   * A mailbox, OneDrive, site, group or IMAP account (a protected object of a source, backed up
+   * by the mail jobs): one in no enabled mail job is counted in `withoutJob` and in
+   * `objectsWithoutJob`, so a view can tell it from the machines.
+   */
+  readonly mail?: boolean;
   /**
    * A VM or container of Proxmox VE (features/pve/protection.ts): rated like any object, but one
    * in no backup job is counted in `guestsWithoutJob`, not with the machines.
@@ -89,8 +96,18 @@ export interface ReadinessSummaryDto {
   unverified: number;
   noBackup: number;
   overdue: number;
-  /** Machines in no backup job: they are rated by their old backups, but nothing backs them up. */
+  /**
+   * Machines and protected objects (mailboxes, OneDrives, sites, groups, IMAP accounts) in no
+   * backup job: they are rated by their old backups, but nothing backs them up. Any of them
+   * keeps the tenant from green. The guests and shares are counted in their own figures.
+   */
   withoutJob: number;
+  /**
+   * The part of `withoutJob` that are protected objects of a source: Microsoft 365 and IMAP
+   * objects that no enabled mail job covers and that keep a restore point (an object without any
+   * backup stays "no backup").
+   */
+  objectsWithoutJob: number;
   /**
    * VMs and containers in no backup job that keep a restore point: rated by it, but nothing backs
    * them up any more. Like `withoutJob`, any of them keeps the tenant from green.
@@ -164,6 +181,9 @@ export function summarize(
     overdue: objects.filter((object) => object.overdue).length,
     withoutJob: objects.filter(
       (object) => object.withoutJob === true && object.guest !== true && object.share !== true,
+    ).length,
+    objectsWithoutJob: objects.filter(
+      (object) => object.withoutJob === true && object.mail === true,
     ).length,
     guestsWithoutJob: objects.filter(
       (object) => object.withoutJob === true && object.guest === true,

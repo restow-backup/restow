@@ -15,7 +15,7 @@ import { createDb, deriveAuthLogin, grantQueueAccess, type RoleLogin } from "@re
 import { runMigrations } from "@restow/db/migrate";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { expandJobUnit } from "./planning.js";
+import { type BackupJobRow, expandJobUnit } from "./planning.js";
 import { JOB_QUEUES, pgBossQueueOptions } from "./queues.js";
 import { SchedulerLoop } from "./scheduler.js";
 import { ScheduleStore } from "./store.js";
@@ -549,8 +549,82 @@ describe.skipIf(!adminUrl)("backup jobs planned by the scheduler", () => {
     expect(flag.get(pending)).toBe(true);
     expect(flag.get(checked)).toBe(false);
     expect(flag.get(empty)).toBe(false);
-    // Only orphans are read: an active object's checks come by the schedule anyway.
-    expect(flag.get(active)).toBe(false);
+    // An active object is read as well, but only an orphan or one in no job awaits it: in no
+    // enabled job, nothing but this check would ever prove its last backup.
+    expect(flag.get(active)).toBe(true);
+    expect(targets.protectedObjects.find((row) => row.id === active)?.withoutJob).toBe(true);
+    expect(targets.protectedObjects.find((row) => row.id === pending)?.withoutJob).toBe(false);
+  });
+
+  it("checks the last backup of an object taken out of its job, once, from any job's restore check", async () => {
+    clock = new Date("2026-03-04T10:00:00Z");
+    const acme = await tenant("no-job-checks");
+    const m365 = await source(acme);
+    const snapshot = async (objectId: string) =>
+      (
+        await owner.$client.query<{ id: string }>(
+          `INSERT INTO snapshots (tenant_id, protected_object_id, sequence, completed_at, manifest_path)
+           VALUES ($1, $2, 1, now(), $3) RETURNING id`,
+          [acme, objectId, `manifests/${objectId}/1`],
+        )
+      ).rows[0]?.id ?? "";
+    const inJob = await mailbox(acme, m365, "injob");
+    const removed = await mailbox(acme, m365, "removed");
+    const ofDisabled = await mailbox(acme, m365, "ofdisabled");
+    const checked = await mailbox(acme, m365, "checked");
+    for (const id of [inJob, removed, ofDisabled, checked]) {
+      await snapshot(id);
+    }
+    await owner.$client.query(
+      `INSERT INTO verify_reports (tenant_id, protected_object_id, snapshot_id, recovery_readiness)
+       SELECT tenant_id, protected_object_id, id, 'green' FROM snapshots WHERE protected_object_id = $1`,
+      [checked],
+    );
+    const live = await job(acme, {
+      name: "Selected",
+      schedule: every(480),
+      verify: { kind: "cron", cron: "0 3 * * 0", timeZone: "UTC" },
+      nextRunAt: new Date("2026-03-04T12:00:00Z"),
+      verifyNextRunAt: new Date("2026-03-04T09:00:00Z"),
+    });
+    const off = await job(acme, { name: "Off", schedule: every(480), enabled: false });
+    await member(acme, live, inJob);
+    await member(acme, off, ofDisabled);
+
+    const targets = await store().loadTargets(acme);
+    const withoutJob = targets.protectedObjects
+      .filter((row) => row.withoutJob)
+      .map((row) => row.id)
+      .sort();
+    expect(withoutJob).toEqual([removed, ofDisabled, checked].sort());
+
+    const unit = {
+      level: "job" as const,
+      what: "verify" as const,
+      job: {
+        id: live,
+        tenantId: acme,
+        scopeMode: "selected",
+        schedule: every(480),
+        verifySchedule: { kind: "cron", cron: "0 3 * * 0", timeZone: "UTC" },
+        nextRunAt: new Date("2026-03-04T12:00:00Z"),
+        lastRunAt: null,
+        verifyNextRunAt: new Date("2026-03-04T09:00:00Z"),
+        verifyLastRunAt: null,
+      } as BackupJobRow,
+    };
+    const planned = expandJobUnit(unit, targets, () => "00000000-0000-4000-8000-0000000000bb");
+    // The job's own object, plus the two objects in no job whose last backup was never checked;
+    // the one that was checked gets nothing.
+    expect(planned.map((item) => item.protectedObjectId).sort()).toEqual(
+      [inJob, removed, ofDisabled].sort(),
+    );
+    const own = planned.find((item) => item.protectedObjectId === removed);
+    expect(own?.queue).toBe("verify");
+    expect(own?.payload).not.toHaveProperty("backupJobId");
+    expect(planned.find((item) => item.protectedObjectId === inJob)?.payload).toMatchObject({
+      backupJobId: live,
+    });
   });
 
   it("reads only the member rows of the tenant it plans for", async () => {

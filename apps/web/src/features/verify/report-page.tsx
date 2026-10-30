@@ -525,6 +525,33 @@ function RemovedFromSourceNotice({
 }
 
 /**
+ * An active object that no enabled backup job covers: nothing backs it up any more, so the age of
+ * its last backup is no finding (the server moved it to the reasons set aside) and is named here
+ * as a note instead.
+ */
+function NoJobNotice({ setAside, format }: { setAside: readonly Reason[]; format: VerifyFormat }) {
+  const { t } = format;
+  return (
+    <Alert variant="info" data-slot="no-job-notice">
+      <Archive aria-hidden="true" />
+      <AlertTitle>{t("report.noJob.title")}</AlertTitle>
+      <AlertDescription>
+        <p>{t("report.noJob.description")}</p>
+        {setAside.map((reason, index) => {
+          const message = reasonMessage(reason);
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: the reasons have no identity beyond their position
+            <p key={index} className="text-muted-foreground">
+              {t("report.removed.notCounted", { reason: t(message.key, message.values) })}
+            </p>
+          );
+        })}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/**
  * The mailbox's account is disabled or unlicensed (it still exists): not backed up for now, its
  * backups kept and resumed once it is enabled or licensed again. Like a removed object, the age
  * of the kept backup is no finding.
@@ -698,6 +725,8 @@ export function ReportPage({ reportId }: { reportId: string }) {
         />
       ) : report.object.status === "orphaned" ? (
         <RemovedFromSourceNotice setAside={setAside} format={format} />
+      ) : report.object.status === "active" && setAside.length > 0 ? (
+        <NoJobNotice setAside={setAside} format={format} />
       ) : null}
 
       <Card>

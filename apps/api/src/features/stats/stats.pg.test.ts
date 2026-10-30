@@ -20,6 +20,7 @@
 import { randomUUID } from "node:crypto";
 import {
   auditLog,
+  backupJobs,
   createDb,
   type Database,
   itemFailures,
@@ -131,6 +132,13 @@ async function seed(db: Database): Promise<Fixture> {
   const adatum = await tenant("Adatum");
   const northwind = await tenant("Northwind");
   const leaving = await tenant("Leaving", "deleting");
+  // Every tenant backs up everything with one enabled job: an object in no job is rated without
+  // the age of its backup (verify/no-job.pg.test.ts), which these figures are not about.
+  for (const owner of [contoso, fabrikam, northwind, leaving]) {
+    await db
+      .insert(backupJobs)
+      .values({ tenantId: owner.id, kind: "mail", name: "All", scopeMode: "all", enabled: true });
+  }
 
   // --- People and sessions ------------------------------------------------
   const person = async (

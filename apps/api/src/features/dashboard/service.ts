@@ -392,6 +392,7 @@ function buildWidgets(
             noBackup: readiness.noBackup,
             overdue: readiness.overdue,
             withoutJob: readiness.withoutJob,
+            objectsWithoutJob: readiness.objectsWithoutJob,
             guestsWithoutJob: readiness.guestsWithoutJob,
             sharesWithoutJob: readiness.sharesWithoutJob,
             toConfirm: readiness.toConfirm,
@@ -409,6 +410,7 @@ function buildWidgets(
             const shares = value(sources.shares).counts;
             return {
               ...value(summary).objects,
+              withoutJob: value(summary).readiness.objectsWithoutJob,
               machines: {
                 protected: machines.protected,
                 withoutJob: machines.withoutJob,

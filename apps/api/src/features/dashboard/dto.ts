@@ -68,6 +68,11 @@ export interface LastBackupWidget {
  * a machine in a backup job is protected like a mailbox, one in no job is not.
  */
 export type ProtectedObjectsWidget = TenantSummaryDto["objects"] & {
+  /**
+   * Mailboxes, OneDrives, sites, groups and IMAP accounts in no enabled backup job that keep a
+   * backup: nothing backs them up any more, whatever their old backups score.
+   */
+  withoutJob: number;
   machines: { protected: number; withoutJob: number; failedLastBackup: number };
   /**
    * VMs and containers of Proxmox VE: in an enabled job (protected), in none, with a failed newest
@@ -105,8 +110,10 @@ export interface ReadinessWidget {
   unverified: number;
   noBackup: number;
   overdue: number;
-  /** Machines in no backup job; any of them keeps `overall` from green. */
+  /** Machines and mail objects in no backup job; any of them keeps `overall` from green. */
   withoutJob: number;
+  /** The mailboxes, OneDrives, sites, groups and IMAP accounts among `withoutJob`. */
+  objectsWithoutJob: number;
   /** VMs and containers in no backup job that keep a restore point; they keep `overall` from green too. */
   guestsWithoutJob: number;
   /** File shares in no backup job that keep a restore point; they keep `overall` from green too. */
@@ -434,6 +441,11 @@ export interface LoadedTenantRowDto extends ProviderTenantRowBase {
   /** Worst rating over the tenant's objects; null without protected objects. */
   readiness: Readiness | null;
   protectedObjects: number;
+  /**
+   * Mailboxes, OneDrives, sites, groups and IMAP accounts in no enabled backup job that keep a
+   * backup: nothing backs them up any more. Also counted in `protectedObjects`.
+   */
+  objectsWithoutJob: number;
   /** Objects by state, as the recovery-readiness page rates them (they add up to the objects rated). */
   ready: number;
   needsAttention: number;
@@ -493,6 +505,7 @@ export interface UnavailableTenantRowDto extends ProviderTenantRowBase {
   loaded: false;
   readiness: null;
   protectedObjects: null;
+  objectsWithoutJob: null;
   ready: null;
   needsAttention: null;
   notRestorable: null;
@@ -531,6 +544,7 @@ export const PROVIDER_ALERT_KINDS = [
   "stale_backup",
   "machine_backup_failed",
   "machines_without_job",
+  "objects_without_job",
   "guest_backup_failed",
   "guests_without_job",
   "file_share_backup_failed",

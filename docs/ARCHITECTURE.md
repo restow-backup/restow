@@ -522,7 +522,12 @@ Regeln je Mandant in `report_rules`, zwei Auslöser:
   keine erfolgreiche Sicherung eines Postfachs, OneDrives, IMAP-Kontos, Rechners oder Gasts
   (VM oder Container von Proxmox VE) länger als die Zeitpläne seiner aktivierten Backup-Jobs
   vorsehen (doppelter längster Abstand, ohne Zeitplan zwei Tage), einmal je Gegenstand und
-  Strecke. Eine Ereignisregel mit `backup.overdue` kann eine eigene Frist setzen
+  Strecke. Ein Postfach, OneDrive oder IMAP-Konto, das kein aktivierter Mail-Job mehr umfasst
+  (aus einem Job mit benannten Objekten genommen, oder nur von einem deaktivierten Job genannt;
+  `mailObjectsInNoJob` in `packages/core/src/backup-jobs/scope.ts`), meldet nie
+  `backup.overdue`: Es steht als „In keinem Backup-Job“ in der Wiederherstellbarkeit, wird nach
+  seiner letzten Sicherung ohne deren Alter bewertet (wie ein aus der Quelle entferntes Objekt)
+  und hält den Mandanten vom Grün fern. Eine Ereignisregel mit `backup.overdue` kann eine eigene Frist setzen
   (`report_rules.overdue_after_hours`, 24 bis 720 Stunden, Migration
   `0031_report_rule_overdue_deadline`): Diese Regel bekommt ihre Alarme dann nach ihrer Frist,
   einmal je Gegenstand und Strecke, und nicht mehr mit dem Alarm an der Grenze der Zeitpläne;

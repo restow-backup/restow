@@ -57,6 +57,11 @@ export interface ProtectedObjectsWidget {
   /** Objects whose warning an administrator acknowledged (absent from an older server). */
   acknowledgedWarnings?: number;
   runningBackups: number;
+  /**
+   * Mailboxes, OneDrives, sites, groups and IMAP accounts in no enabled backup job that keep a
+   * backup: nothing backs them up any more (absent from an older server).
+   */
+  withoutJob?: number;
   /** Servers and clients: in a backup job (protected), in none, and with a failed newest backup. */
   machines: { protected: number; withoutJob: number; failedLastBackup: number };
   /**
@@ -93,8 +98,10 @@ export interface ReadinessWidget {
   unverified: number;
   noBackup: number;
   overdue: number;
-  /** Machines in no backup job; any of them keeps `overall` from green. */
+  /** Machines and mail objects in no backup job; any of them keeps `overall` from green. */
   withoutJob: number;
+  /** The mailboxes, OneDrives, sites, groups and IMAP accounts among `withoutJob` (absent from an older server). */
+  objectsWithoutJob?: number;
   /** VMs and containers in no backup job that keep a restore point (absent from an older server). */
   guestsWithoutJob?: number;
   /** File shares in no backup job that keep a restore point (absent from an older server). */
@@ -363,6 +370,8 @@ export interface LoadedTenantRow extends ProviderTenantRowBase {
   loaded: true;
   readiness: Readiness | null;
   protectedObjects: number;
+  /** Mailboxes, OneDrives, sites, groups and IMAP accounts in no backup job (absent from an older server). */
+  objectsWithoutJob?: number;
   /** Objects by state, as Recovery readiness rates them. */
   ready: number;
   needsAttention: number;
@@ -397,6 +406,7 @@ export interface UnavailableTenantRow extends ProviderTenantRowBase {
   loaded: false;
   readiness: null;
   protectedObjects: null;
+  objectsWithoutJob?: null;
   ready: null;
   needsAttention: null;
   notRestorable: null;
@@ -433,6 +443,7 @@ export type ProviderAlertKind =
   | "stale_backup"
   | "machine_backup_failed"
   | "machines_without_job"
+  | "objects_without_job"
   | "guest_backup_failed"
   | "guests_without_job"
   | "file_share_backup_failed"

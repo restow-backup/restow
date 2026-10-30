@@ -203,6 +203,11 @@ export interface ProtectedObject {
   /** Null when it may not be backed up at all (excluded, orphaned, source not working). */
   coverage?: ObjectCoverage | null;
   /**
+   * An active object that no enabled mail job covers ("In no backup job"): its readiness is the
+   * rating of its newest backup without that backup's age (absent from an older server).
+   */
+  withoutJob?: boolean;
+  /**
    * The newest finished backup went through but left items behind (apps/api features/warnings):
    * `open` is a warning, `acknowledged` was looked at and accepted for its causes. Null (or absent,
    * from an older server) when the newest backup is complete, failed outright or missing.

@@ -268,6 +268,48 @@ describe("protected objects", () => {
     expect(readinessOf(damaged, NOW, "orphaned")).toMatchObject({ state: "red", overdue: false });
   });
 
+  it("rates an object in no backup job without the age of its backup, and never as overdue", () => {
+    const facts = (reasons: unknown) => ({
+      ...NO_FACTS,
+      snapshot: { id: "s", sequence: 1, completedAt: NOW, itemCount: 1, byteSize: 1 },
+      verify: {
+        rating: "red" as const,
+        kind: "verify" as const,
+        checkedAt: new Date("2026-09-01T00:00:00.000Z"),
+        reasons,
+      },
+    });
+    const outdated = facts([{ code: "snapshot_outdated", severity: "red", ageHours: 378 }]);
+    expect(readinessOf(outdated, NOW, "active", true)).toMatchObject({
+      state: "green",
+      rating: "green",
+      overdue: false,
+      inJob: false,
+    });
+    // In a job, the age counts and the check is overdue.
+    expect(readinessOf(outdated, NOW, "active", false)).toMatchObject({
+      state: "red",
+      overdue: true,
+      inJob: true,
+    });
+    expect(readinessOf(outdated, NOW)).toMatchObject({ inJob: true });
+    // A backup that does not restore stays red without a job.
+    const damaged = facts([{ code: "items_mismatched", severity: "red", count: 2 }]);
+    expect(readinessOf(damaged, NOW, "active", true)).toMatchObject({
+      state: "red",
+      overdue: false,
+      inJob: false,
+    });
+    // Without any backup it stays "no backup".
+    expect(readinessOf(NO_FACTS, NOW, "active", true)).toMatchObject({
+      state: "no_backup",
+      rating: null,
+      inJob: false,
+    });
+    // An excluded object is not "in no job": its own status says why.
+    expect(readinessOf(outdated, NOW, "excluded", true)).toMatchObject({ inJob: true });
+  });
+
   it("rates excluded objects not at all and orphaned ones while backups exist", () => {
     expect(countsForReadiness("excluded", true)).toBe(false);
     expect(countsForReadiness("orphaned", false)).toBe(false);
@@ -321,6 +363,7 @@ describe("verification report", () => {
       noBackup: 0,
       overdue: 0,
       withoutJob: 0,
+      objectsWithoutJob: 0,
       guestsWithoutJob: 0,
       sharesWithoutJob: 0,
       toConfirm: 0,

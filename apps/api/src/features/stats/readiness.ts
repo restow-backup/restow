@@ -241,9 +241,13 @@ export class ReadinessTimeline {
         newestCheck: latestReportBefore(this.checksByObject.get(object.id), moment),
       });
       const retained = object.status === "orphaned";
+      // An active object in no enabled job: rated like an orphan, without the age of its last
+      // backup and never overdue (verify/service.ts readinessOverview).
+      const withoutJob = object.status === "active" && object.withoutJob === true;
+      const unaged = retained || withoutJob;
       const report = verification.report;
       const state: ObjectState =
-        retained && report
+        unaged && report
           ? readinessWithoutFreshness(parseReasons(report.reasons))
           : verification.state;
       states.set(object.id, state);
@@ -257,7 +261,14 @@ export class ReadinessTimeline {
       }
       // Overdue by the report behind the state, as the verify page rates it; never for an orphan.
       const checkedAt = report?.checkedAt ?? null;
-      rated.push({ state, overdue: retained ? false : isOverdue(checkedAt, moment), checkedAt });
+      rated.push({
+        state,
+        overdue: unaged ? false : isOverdue(checkedAt, moment),
+        checkedAt,
+        // With a backup to rate; one without any stays "no backup".
+        withoutJob: withoutJob && snapshot !== null,
+        mail: true,
+      });
     }
     return { counts, total: rated.length, overall: overallReadiness(rated), states, rated };
   }

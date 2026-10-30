@@ -1,4 +1,4 @@
-import { mailJobObjectIds } from "@restow/core";
+import { mailJobObjectIds, mailObjectsInNoJob } from "@restow/core";
 import { type BackupJob, type BackupJobMember, backupJobs } from "@restow/db";
 import { and, eq } from "drizzle-orm";
 
@@ -76,19 +76,50 @@ export function coverageOf(
   return link ? (link.scheduled ? "scheduled" : "unscheduled") : "none";
 }
 
-/** The tenant's mail objects with the job of each, inside the caller's transaction. */
+/**
+ * The tenant's mail objects with the job of each, and the ones in no backup job: eligible and
+ * covered by no ENABLED mail job (@restow/core `mailObjectsInNoJob`, the one rule of the
+ * readiness overview, the directory, the dashboard, the integration API and the provider view).
+ * A job that is paused or runs by hand only still counts as a job there when it is enabled; a
+ * disabled one does not. Inside the caller's transaction.
+ */
 export async function loadMailCoverage(
   tx: Transaction,
   tenantId: string,
-): Promise<{ objects: ObjectInfo[]; links: Map<string, ObjectJobLink> }> {
+): Promise<{
+  objects: ObjectInfo[];
+  links: Map<string, ObjectJobLink>;
+  withoutJob: Set<string>;
+}> {
   const jobs = await tx
     .select()
     .from(backupJobs)
     .where(and(eq(backupJobs.tenantId, tenantId), eq(backupJobs.kind, "mail")));
   const objects = await loadObjectInfos(tx, tenantId);
   if (jobs.length === 0) {
-    return { objects, links: new Map() };
+    return {
+      objects,
+      links: new Map(),
+      withoutJob: new Set(objects.filter((object) => object.eligible).map((o) => o.id)),
+    };
   }
   const members = await loadAllMembers(tx, tenantId);
-  return { objects, links: mailCoverageOf(jobs, members, objects) };
+  return {
+    objects,
+    links: mailCoverageOf(jobs, members, objects),
+    withoutJob: mailObjectsInNoJob(
+      jobs,
+      members.flatMap((member) =>
+        member.protectedObjectId === null
+          ? []
+          : [{ jobId: member.jobId, protectedObjectId: member.protectedObjectId }],
+      ),
+      objects,
+    ),
+  };
+}
+
+/** The mail objects in no backup job (see {@link loadMailCoverage}). */
+export async function loadMailWithoutJob(tx: Transaction, tenantId: string): Promise<Set<string>> {
+  return (await loadMailCoverage(tx, tenantId)).withoutJob;
 }

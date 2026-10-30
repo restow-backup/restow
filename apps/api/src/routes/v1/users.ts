@@ -2,6 +2,7 @@ import { countProtectedMailboxes, inactiveState } from "@restow/core";
 import { type Database, protectedObjects, sources, type User, users } from "@restow/db";
 import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { loadMailWithoutJob } from "../../features/backup-jobs/coverage.js";
 import {
   type SyncQueueResult,
   setUserProtection,
@@ -222,17 +223,27 @@ export function toDirectoryUser(
   objects: readonly UserObjectRow[],
   facts: ReadonlyMap<string, ObjectFacts>,
   now: Date,
+  /** The objects in no enabled backup job (@restow/core `mailObjectsInNoJob`). */
+  noJob: ReadonlySet<string> = new Set(),
 ): DirectoryUserDto {
   const withFacts = objects.map((object) => ({ object, facts: facts.get(object.id) ?? NO_FACTS }));
   const rated = withFacts
     .filter((entry) => countsForReadiness(entry.object.status, entry.facts.snapshot !== null))
     .map((entry) => {
-      const readiness = readinessOf(entry.facts, now, entry.object.status);
+      const readiness = readinessOf(
+        entry.facts,
+        now,
+        entry.object.status,
+        noJob.has(entry.object.id),
+      );
       return {
         state: readiness.state,
         overdue: readiness.overdue,
         checkedAt: entry.facts.verify?.checkedAt ?? null,
         toConfirm: inactiveState(entry.object) === "to_confirm",
+        // In no job with a backup to rate; one without any backup stays "no backup".
+        withoutJob: !readiness.inJob && entry.facts.snapshot !== null,
+        mail: true,
       };
     });
   // Unconfirmed objects no longer backed up without a backup to rate still wait for a decision:
@@ -271,7 +282,7 @@ export function toDirectoryUser(
       externalId: object.externalId,
       displayName: object.displayName,
       lastBackupAt: objectFacts.snapshot?.completedAt?.toISOString() ?? null,
-      readiness: readinessOf(objectFacts, now, object.status),
+      readiness: readinessOf(objectFacts, now, object.status, noJob.has(object.id)),
     })),
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
@@ -365,6 +376,7 @@ export async function loadDirectoryUsers(
     tenantId,
     objects.map((object) => object.id),
   );
+  const noJob = objects.length > 0 ? await loadMailWithoutJob(tx, tenantId) : new Set<string>();
   const byUser = new Map<string, UserObjectRow[]>();
   for (const object of objects) {
     if (object.userId) {
@@ -372,7 +384,7 @@ export async function loadDirectoryUsers(
     }
   }
   return {
-    items: page.map((user) => toDirectoryUser(user, byUser.get(user.id) ?? [], facts, now)),
+    items: page.map((user) => toDirectoryUser(user, byUser.get(user.id) ?? [], facts, now, noJob)),
     hasMore: rows.length > limit,
   };
 }

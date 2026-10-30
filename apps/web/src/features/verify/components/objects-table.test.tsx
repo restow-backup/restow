@@ -344,6 +344,33 @@ describe("ObjectsTable", () => {
     expect(active).toContain("The latest backup is 10 days old");
   });
 
+  it("says an active object in no backup job is in none, and shows no backup-age reason for it", () => {
+    const outdated = {
+      code: "snapshot_outdated",
+      severity: "red" as const,
+      count: null,
+      ageHours: 378,
+      failure: null,
+    };
+    const report = {
+      id: "r1",
+      kind: "verify" as const,
+      origin: "verify" as const,
+      reasons: [outdated],
+      counts: { checked: 30, verified: 30, failed: 0 },
+    };
+    const noJob = table([readiness({ inJob: false, report })]);
+    expect(noJob).toContain("In no backup job");
+    expect(noJob).toContain("30 of 30 items restored byte-exact");
+    expect(noJob).not.toContain("The latest backup is 15 days old");
+    // In a job (or from an older server that does not say): no badge, and the age stays a finding.
+    for (const inJob of [true, undefined]) {
+      const inAJob = table([readiness({ inJob, state: "red", readiness: "red", report })]);
+      expect(inAJob).not.toContain("In no backup job");
+      expect(inAJob).toContain("The latest backup is 15 days old");
+    }
+  });
+
   it("names a disabled or unlicensed account as not backed up, not as removed", () => {
     const disabled = table([
       readiness({ object: object({ status: "orphaned", statusReason: "account_disabled" }) }),

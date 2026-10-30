@@ -200,6 +200,42 @@ describe("ReadinessTimeline", () => {
     expect(orphanOnly.at(day(25)).overall).toBe("green");
   });
 
+  it("rates an active object in no backup job like an orphan: without the age, never overdue, not green overall", () => {
+    const outdated = {
+      ...check("lost", 1, 3, "red"),
+      reasons: [{ code: "snapshot_outdated", severity: "red", ageHours: 378 }],
+    };
+    const withoutJob = { ...object("lost", 1), withoutJob: true };
+    const timeline = new ReadinessTimeline(
+      [withoutJob, object("anna", 1)],
+      [snapshot("lost", 1, 2), snapshot("anna", 1, 2)],
+      [outdated, { ...check("anna", 1, 3, "green") }],
+    );
+    const moment = timeline.at(day(25));
+    // Rated by whether its backup restores; the other object is overdue by its old check.
+    expect(moment.states.get("lost")).toBe("green");
+    expect(moment.rated.map((rated) => rated.overdue)).toEqual([false, true]);
+    expect(moment.rated.map((rated) => rated.withoutJob)).toEqual([true, false]);
+    // Alone it is green by its rating but never green overall: nothing backs it up.
+    const alone = new ReadinessTimeline([withoutJob], [snapshot("lost", 1, 2)], [outdated]);
+    expect(alone.at(day(25)).states.get("lost")).toBe("green");
+    expect(alone.at(day(25)).overall).toBe("yellow");
+    // A backup that does not restore stays red without a job.
+    const damaged = {
+      ...check("lost", 1, 3, "red"),
+      reasons: [{ code: "items_missing", severity: "red", count: 1 }],
+    };
+    const broken = new ReadinessTimeline([withoutJob], [snapshot("lost", 1, 2)], [damaged]);
+    expect(broken.at(day(25)).overall).toBe("red");
+    // Without any backup it stays "no backup" and is not counted as without a job.
+    const nothing = new ReadinessTimeline([withoutJob], [], []);
+    expect(nothing.at(day(25)).states.get("lost")).toBe("no_backup");
+    expect(nothing.at(day(25)).rated.map((rated) => rated.withoutJob)).toEqual([false]);
+    // An object that was not in the list of the job-less ones is rated as before.
+    const inJob = new ReadinessTimeline([object("lost", 1)], [snapshot("lost", 1, 2)], [outdated]);
+    expect(inJob.at(day(25)).states.get("lost")).toBe("red");
+  });
+
   it("rates a tenant yellow when every backup is fine but its check is overdue", () => {
     const fine = new ReadinessTimeline(
       [object("anna", 1)],

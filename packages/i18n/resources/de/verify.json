@@ -115,6 +115,8 @@
     "overdue": "Überfällig",
     "never": "Nie",
     "noBackup": "Noch keine Sicherung",
+    "noJob": "In keinem Backup-Job",
+    "noJobHint": "Kein aktiver Backup-Job umfasst dieses Objekt, es wird also nicht gesichert. Bewertet wird nur, ob sich die neueste Sicherung wiederherstellen lässt, nicht, wie alt sie ist.",
     "empty": "Noch keine geschützten Objekte.",
     "technicalId": "Technische ID: {id}",
     "emptyState": "Kein Objekt in diesem Zustand: {state}.",
@@ -248,6 +250,10 @@
       "title": "Aus der Quelle entfernt",
       "description": "Dieses Objekt gibt es in seiner Quelle nicht mehr, eine neuere Sicherung folgt also nicht. Für die Bewertung zählt nur, ob sich die aufbewahrte Sicherung wiederherstellen lässt, nicht ihr Alter.",
       "notCounted": "Nicht gewertet: {reason}"
+    },
+    "noJob": {
+      "title": "In keinem Backup-Job",
+      "description": "Kein aktiver Backup-Job umfasst dieses Objekt, eine neuere Sicherung folgt also erst, wenn ein Job es umfasst. Für die Bewertung zählt nur, ob sich die aufbewahrte Sicherung wiederherstellen lässt, nicht ihr Alter."
     },
     "inactive": {
       "account_disabled": {

@@ -22,6 +22,7 @@ import { assertDemoJobNotInFlight } from "../../lib/demo-limits.js";
 import { isImportedObject, notImported } from "../../lib/imported-objects.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { loadMailWithoutJob } from "../backup-jobs/coverage.js";
 import { type EndpointReadinessRowDto, loadEndpointOverview } from "../endpoints/overview.js";
 import { loadShareProtection, type ShareReadinessRowDto } from "../file-shares/protection.js";
 import { decodeCursor, encodeCursor, type Page } from "../jobs/pagination.js";
@@ -162,6 +163,13 @@ export interface ObjectReadinessDto {
   running: RunningCheckDto | null;
   /** The newest completed backup the state is about (always set by the service). */
   latestSnapshotId?: string | null;
+  /**
+   * False for an active object that no enabled mail job covers (@restow/core
+   * `mailObjectsInNoJob`; the guests' and shares' `inJob`): nothing backs it up any more. It is
+   * rated without the age of its last backup, is never overdue, and keeps the tenant from green.
+   * Always set by the service; true for every other object.
+   */
+  inJob?: boolean;
   /**
    * While the newest backup is unverified: the newest check of an older
    * backup, what was proven before (always set by the service; null otherwise).
@@ -309,17 +317,26 @@ const FRESHNESS_REASONS: ReadonlySet<string> = new Set(["snapshot_outdated", "sn
 const isFreshnessReason = (code: string) => FRESHNESS_REASONS.has(code);
 
 /**
- * A report's reasons as the rating sees them. An orphaned object (removed from its source,
- * backups kept) is rated without the age of its last backup (readinessWithoutFreshness), so
- * the age reasons move aside: listing "backup 10 days old" as a finding next to a green
- * rating would contradict it. Every other object keeps every reason.
+ * Whether an object is rated without the age of its last backup (readinessWithoutFreshness): one
+ * removed from its source (orphaned, backups kept), and an active one in no enabled backup job
+ * (`withoutJob`): no new backup will come for either, so only whether the last one restores
+ * counts.
+ */
+function ratedWithoutAge(status: ObjectDto["status"], withoutJob: boolean): boolean {
+  return status === "orphaned" || withoutJob;
+}
+
+/**
+ * A report's reasons as the rating sees them. An object rated without the age of its last
+ * backup ({@link ratedWithoutAge}) has the age reasons moved aside: listing "backup 10 days old"
+ * as a finding next to a green rating would contradict it. Every other object keeps every reason.
  */
 function ratedReasons(
   report: Pick<ReportFact, "reasons" | "checkedAt">,
-  status: ObjectDto["status"],
+  withoutAge: boolean,
 ): { reasons: ReasonDto[]; setAsideReasons: ReasonDto[] } {
   const all = parseReasons(report.reasons, report.checkedAt);
-  if (status !== "orphaned") {
+  if (!withoutAge) {
     return { reasons: all, setAsideReasons: [] };
   }
   return {
@@ -328,12 +345,12 @@ function ratedReasons(
   };
 }
 
-function toLatestReport(report: ReportFact, status: ObjectDto["status"]): LatestReportDto {
+function toLatestReport(report: ReportFact, withoutAge: boolean): LatestReportDto {
   return {
     id: report.id,
     kind: report.kind,
     origin: originOf(report.origin),
-    ...ratedReasons(report, status),
+    ...ratedReasons(report, withoutAge),
     counts: parseCountSummary(report.counts),
   };
 }
@@ -566,6 +583,8 @@ export async function readinessOverview(
       .orderBy(desc(jobs.createdAt));
     const storage = await loadStorageIntegrity(tx, tenantId);
     const scheduled = await loadSchedules(tx, tenantId);
+    // Active objects no enabled mail job covers: nothing backs them up (like a guest in no job).
+    const noJob = await loadMailWithoutJob(tx, tenantId);
 
     const runningByObject = new Map<string, RunningCheckDto>();
     const runningFirstBackupIds = new Set<string>();
@@ -609,18 +628,31 @@ export async function readinessOverview(
       // is no failure): no new backup can come, and the weekly verify planner checks it only once
       // more, when its newest backup has no report yet, so an old check is no neglect.
       const retained = object.status === "orphaned";
+      // An active object in no enabled job is no different in what matters here: its last backup
+      // is all there will be (until a job takes it up again), so it is rated by whether that
+      // restores, not by its age. It is not "retained" (an orphan's never-overdue and the
+      // one-time last check), but it keeps the tenant from green (summary `withoutJob`), and is
+      // never overdue either once it has a backup: no backup is due, none is missing.
+      const withoutJob = object.status === "active" && noJob.has(object.id);
+      const withoutAge = ratedWithoutAge(object.status, withoutJob);
       const rating =
-        retained && report ? readinessWithoutFreshness(parseReasons(report.reasons)) : null;
+        withoutAge && report ? readinessWithoutFreshness(parseReasons(report.reasons)) : null;
       // A fresh "no_backup" object is not a problem yet, only once it missed
       // its first chance (isFirstBackupOverdue); every other state keeps the
       // ordinary "the last check is stale" rule. Either way, an object whose
       // first backup is already queued or running is not overdue: it is
       // being worked on, not neglected.
+      // An object in no job that has a backup is never overdue: no backup is due for it. One
+      // without any backup keeps the first-backup rule ("No backup yet" turns overdue after the
+      // grace period), although the worker raises no `backup.overdue` for it: that alert is for a
+      // job that failed to deliver, and none is due here. The readiness stays red either way.
       const overdue = retained
         ? false
         : verification.state === "no_backup"
           ? isFirstBackupOverdue(protectedSince, now) && !runningFirstBackupIds.has(object.id)
-          : isOverdue(checkedAt, now);
+          : withoutJob
+            ? false
+            : isOverdue(checkedAt, now);
       items.push({
         object,
         state: rating ?? verification.state,
@@ -628,12 +660,13 @@ export async function readinessOverview(
         checkedAt: checkedAt?.toISOString() ?? null,
         overdue,
         latestSnapshotAt: latestSnapshot?.completedAt?.toISOString() ?? null,
-        report: report ? toLatestReport(report, object.status) : null,
+        report: report ? toLatestReport(report, withoutAge) : null,
         running: runningByObject.get(object.id) ?? null,
         latestSnapshotId: latestSnapshot?.id ?? null,
         previousCheck: facts?.verification.previous
           ? toPreviousCheck(facts.verification.previous)
           : null,
+        inJob: !withoutJob,
       });
       lastLookedAt.push(facts?.newest?.checkedAt ?? null);
     }
@@ -649,6 +682,10 @@ export async function readinessOverview(
           // When a check last ran, even one that rated an older backup.
           checkedAt: lastLookedAt[index] ?? null,
           toConfirm: inactiveState(item.object) === "to_confirm",
+          // A mailbox, OneDrive or IMAP account in no enabled job (not an object without any
+          // backup: that one stays "no backup").
+          withoutJob: item.inJob === false && item.latestSnapshotId !== null,
+          mail: true,
         })),
         // Servers and clients count like any other protected object.
         ...endpointOverview.rated,
@@ -686,17 +723,18 @@ export async function readinessOverview(
 
 type ReportRow = ReportFact & { object: ObjectDto };
 
-function toReportSummary(row: ReportRow): ReportSummaryDto {
-  const { reasons, setAsideReasons } = ratedReasons(row, row.object.status);
+function toReportSummary(row: ReportRow, noJob: ReadonlySet<string>): ReportSummaryDto {
+  const withoutAge = ratedWithoutAge(row.object.status, noJob.has(row.object.id));
+  const { reasons, setAsideReasons } = ratedReasons(row, withoutAge);
   return {
     id: row.id,
     object: row.object,
     kind: row.kind,
     origin: originOf(row.origin),
-    // The stored rating counts the backup's age; an orphaned object's is rated without it, as
-    // in the overview (a filter on `readiness` still matches the stored rating).
-    readiness:
-      row.object.status === "orphaned" ? readinessWithoutFreshness(reasons) : row.readiness,
+    // The stored rating counts the backup's age; an orphaned object's, and that of an object in
+    // no backup job, is rated without it, as in the overview (a filter on `readiness` still
+    // matches the stored rating).
+    readiness: withoutAge ? readinessWithoutFreshness(reasons) : row.readiness,
     checkedAt: row.checkedAt.toISOString(),
     jobId: row.jobId,
     snapshotId: row.snapshotId,
@@ -762,8 +800,9 @@ export async function listReports(
       .limit(query.limit + 1);
     const items = rows.slice(0, query.limit);
     const last = items[items.length - 1];
+    const noJob = items.length > 0 ? await loadMailWithoutJob(tx, tenantId) : new Set<string>();
     return {
-      items: items.map(toReportSummary),
+      items: items.map((row) => toReportSummary(row, noJob)),
       next:
         rows.length > query.limit && last
           ? encodeCursor({ createdAt: last.checkedAt.toISOString(), id: last.id })
@@ -807,8 +846,9 @@ export async function getReport(
       },
     });
     const verifications = await loadObjectVerifications(tx, tenantId, [row.objectId]);
+    const noJob = await loadMailWithoutJob(tx, tenantId);
     return {
-      ...toReportSummary(row),
+      ...toReportSummary(row, noJob),
       details: parseDetails(row.details, row.checkedAt),
       latestBackup: latestBackupBeside(row, verifications.get(row.objectId)),
     };
