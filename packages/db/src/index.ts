@@ -13,10 +13,14 @@ const { Pool } = pg;
  * `set_config('app.tenant_id', <uuid>, true)` (see sql/rls.sql), the
  * installation pool (DATABASE_PROVIDER_URL) is kept for the lookups made before
  * a tenant is known. The connection string is supplied by the caller (from the
- * environment, never hardcoded).
+ * environment, never hardcoded). `options.max` sizes the pool (pool-size.ts);
+ * without it node-postgres's default of 10 applies.
  */
-export function createDb(connectionString: string) {
-  const pool = new Pool({ connectionString });
+export function createDb(connectionString: string, options: { readonly max?: number } = {}) {
+  const pool = new Pool({
+    connectionString,
+    ...(options.max === undefined ? {} : { max: options.max }),
+  });
   return drizzle(pool, { schema });
 }
 
@@ -44,6 +48,8 @@ export * from "./installation-secrets.js";
 export * from "./job-start-pause.js";
 // The manifest index as versions: mirroring a snapshot, retention, the 0.3.5 conversion, reading.
 export * from "./manifest-versions.js";
+// How many connections each pool may open (RESTOW_DB_POOL_MAX and its siblings).
+export * from "./pool-size.js";
 // The lock that keeps the server's own work on one endpoint repository from overlapping.
 export * from "./repository-lock.js";
 // Services that need a manual restart, and why (the Updates tab shows them).

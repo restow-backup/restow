@@ -12,6 +12,20 @@ private repository.
 
 ### Added
 
+- Database pools: the size of the Postgres pools is set by `RESTOW_DB_POOL_MAX` (application
+  pool of api, worker and scheduler), `RESTOW_DB_PROVIDER_POOL_MAX` (installation pool) and
+  `RESTOW_DB_BOSS_POOL_MAX` (pg-boss's own pool in worker and scheduler). Each defaults to
+  10, the old fixed value, so nothing changes for an installation that sets nothing. A value
+  that is not a whole number from 1 to 500 stops the process at start with a message naming
+  the variable (the api reports it and exits instead of failing with a stack trace). The
+  worker warns at start when `RESTOW_DB_POOL_MAX` is smaller than
+  `WORKER_CONCURRENCY` + 2, because its jobs would then wait for a connection. Listed in both
+  `.env.example` files.
+- docs/SIZING.md: a sizing guide for large installations. It covers the backup concurrency
+  settings, Microsoft Graph throttling per tenant, the database pools, Postgres settings
+  (`max_connections` above the sum of all pools), CPU, RAM, disk and bandwidth, first-backup
+  estimates and a worked example for 2,000 seats, with recommended server sizes. It says
+  what comes from the code and what is estimated: nothing in it was load-tested.
 - Protected objects: the "..." menu of a row has "Back up now". It backs up exactly that object,
   the same way as on the backup page, and gives the same notices (queued, already queued,
   failed). It is closed with the reason for an IMAP account without a password, a source that is

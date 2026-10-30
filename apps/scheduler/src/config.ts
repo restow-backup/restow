@@ -7,6 +7,7 @@
 // No secret is ever written to disk or logged from here.
 
 import { DEFAULT_SCHEDULE_TIMEZONE } from "@restow/core";
+import { type DbPoolSizes, dbPoolSizesFromEnv } from "@restow/db";
 import { isValidTimeZone } from "./cron.js";
 
 const DEFAULT_TICK_INTERVAL_MS = 30_000;
@@ -42,6 +43,8 @@ export interface SchedulerConfig {
    * has an active source (the daily and weekly runs happen at local night time).
    */
   readonly defaultTimezone: string;
+  /** Connections per Postgres pool (RESTOW_DB_*_POOL_MAX; docs/SIZING.md). */
+  readonly dbPool: DbPoolSizes;
 }
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
@@ -76,6 +79,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): SchedulerConfi
     batchSize: parsePositiveInt(env.SCHEDULER_BATCH_SIZE, DEFAULT_BATCH_SIZE),
     deferMs: parsePositiveInt(env.SCHEDULER_DEFER_MS, DEFAULT_DEFER_MS),
     defaultTimezone: parseTimeZone(env.SCHEDULER_DEFAULT_TIMEZONE),
+    dbPool: dbPoolSizesFromEnv(env),
   };
 }
 

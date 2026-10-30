@@ -820,6 +820,21 @@ describe("worker configuration", () => {
     expect(config.storage.localPath).toBe("/data/chunks");
   });
 
+  it("keeps 10 connections per pool by default and reads RESTOW_DB_*_POOL_MAX", () => {
+    expect(loadConfig(base).dbPool).toEqual({ app: 10, installation: 10, queue: 10 });
+    const sized = loadConfig({
+      ...base,
+      WORKER_CONCURRENCY: "24",
+      RESTOW_DB_POOL_MAX: "40",
+      RESTOW_DB_BOSS_POOL_MAX: "16",
+    });
+    expect(sized.dbPool).toEqual({ app: 40, installation: 10, queue: 16 });
+    expect(() => loadConfig({ ...base, RESTOW_DB_POOL_MAX: "0" })).toThrow(/RESTOW_DB_POOL_MAX/);
+    expect(() => loadConfig({ ...base, RESTOW_DB_PROVIDER_POOL_MAX: "x" })).toThrow(
+      /RESTOW_DB_PROVIDER_POOL_MAX/,
+    );
+  });
+
   it("builds local targets with an optional copy and refuses s3 without a bucket", () => {
     const targets = createStorageTargets({
       ...loadConfig({ ...base, STORAGE_LOCAL_PATH: "/tmp/a", STORAGE_COPY_LOCAL_PATH: "/tmp/b" })

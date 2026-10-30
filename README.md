@@ -580,8 +580,8 @@ are for maintainers and contributors: the design documents
 [MICROSOFT](docs/MICROSOFT.md), [IMAP](docs/IMAP.md), [ARCHIVE](docs/ARCHIVE.md),
 [IMPORT](docs/IMPORT.md), [AGENT](docs/AGENT.md), [ENTRA-SETUP](docs/ENTRA-SETUP.md)
 and [TESTING](docs/TESTING.md) are written in German; [STORAGE](docs/STORAGE.md),
-[UPDATING](docs/UPDATING.md) and [CI](docs/CI.md) are in English. Code, commits,
-this README, the changelog and the public documentation are in English.
+[SIZING](docs/SIZING.md), [UPDATING](docs/UPDATING.md) and [CI](docs/CI.md) are in English.
+Code, commits, this README, the changelog and the public documentation are in English.
 
 ## Contributing and security
 

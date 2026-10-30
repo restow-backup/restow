@@ -1,4 +1,5 @@
 import { docsTroubleshootingUrl, mailfiles } from "@restow/core";
+import { type DbPoolSizes, dbPoolSizesFromEnv } from "@restow/db";
 import { configureProductName, normalizeProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
 import { trustedProxyEntries } from "./lib/forwarded.js";
 
@@ -100,6 +101,10 @@ export interface Config {
    * code. Unset, db.ts derives it from the two above (packages/db roles.ts).
    */
   databaseAuthUrl?: string;
+  /** Connections per Postgres pool (`RESTOW_DB_POOL_MAX`, `RESTOW_DB_PROVIDER_POOL_MAX`; docs/SIZING.md). */
+  dbPool: DbPoolSizes;
+  /** Set when a RESTOW_DB_*_POOL_MAX value is invalid; server.ts reports it and exits. */
+  dbPoolError?: string;
   betterAuthSecret: string;
   /**
    * `RESTOW_SETUP_TOKEN`: the one-time setup token the wizard asks for
@@ -312,6 +317,15 @@ function toMailTransport(value: string | undefined): MailTransport | undefined {
 
 /** Build the configuration from an environment map (defaults to `process.env`). */
 export function loadConfig(env: Env = process.env): Config {
+  // Like every other startup problem of the api, a bad pool size is reported by server.ts
+  // (not thrown at import time, where it would show as a raw stack trace).
+  let dbPool: DbPoolSizes = dbPoolSizesFromEnv({});
+  let dbPoolError: string | undefined;
+  try {
+    dbPool = dbPoolSizesFromEnv(env);
+  } catch (error) {
+    dbPoolError = error instanceof Error ? error.message : String(error);
+  }
   return {
     nodeEnv: str(env, "NODE_ENV") ?? "development",
     port: int(env, "PORT") ?? 3000,
@@ -323,6 +337,8 @@ export function loadConfig(env: Env = process.env): Config {
     databaseUrl: str(env, "DATABASE_URL") ?? "",
     databaseProviderUrl: str(env, "DATABASE_PROVIDER_URL") ?? "",
     databaseAuthUrl: str(env, "DATABASE_AUTH_URL")?.trim() || undefined,
+    dbPool,
+    dbPoolError,
     betterAuthSecret: str(env, "BETTER_AUTH_SECRET") ?? "",
     setupToken: str(env, "RESTOW_SETUP_TOKEN")?.trim() || undefined,
     masterKey: str(env, "RESTOW_MASTER_KEY"),

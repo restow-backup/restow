@@ -44,14 +44,14 @@ import { config } from "./config.js";
  */
 const UNCONFIGURED_URL = "postgres://unconfigured@127.0.0.1:1/unconfigured";
 
-function pool(url: string): Database {
-  return createDb(url || UNCONFIGURED_URL);
+function pool(url: string, max?: number): Database {
+  return createDb(url || UNCONFIGURED_URL, { max });
 }
 
-export const db: Database = pool(config.databaseUrl);
+export const db: Database = pool(config.databaseUrl, config.dbPool.app);
 
 /** The installation pool; see the module comment for what may use it. */
-export const providerDb: Database = pool(config.databaseProviderUrl);
+export const providerDb: Database = pool(config.databaseProviderUrl, config.dbPool.installation);
 
 /** Why the auth pool's connection string could not be built, if it could not. */
 let authUrlProblem: unknown = null;

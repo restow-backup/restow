@@ -15,6 +15,11 @@ import { config, demoConfigConflict, missingRequiredConfig } from "./config.js";
  * decorative (packages/db/src/roles.ts), so it is checked before serving.
  */
 
+if (config.dbPoolError) {
+  console.error(config.dbPoolError);
+  process.exit(1);
+}
+
 const missing = missingRequiredConfig(config);
 if (missing.length > 0) {
   // Names only — never the values.

@@ -38,8 +38,8 @@ async function main(): Promise<void> {
     defaultTimezone: config.defaultTimezone,
   });
 
-  const db = createDb(config.databaseUrl);
-  const providerDb = createDb(config.databaseProviderUrl);
+  const db = createDb(config.databaseUrl, { max: config.dbPool.app });
+  const providerDb = createDb(config.databaseProviderUrl, { max: config.dbPool.installation });
   const roles = await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
   // This process has just started, so the restart requests recorded for its role are
   // followed (packages/db restart-requests.ts); cleared before it does any work of its own.
@@ -52,7 +52,10 @@ async function main(): Promise<void> {
   }
 
   // pg-boss owns its schema as the installation role (like the worker's instance).
-  const boss = new PgBoss({ connectionString: config.databaseProviderUrl });
+  const boss = new PgBoss({
+    connectionString: config.databaseProviderUrl,
+    max: config.dbPool.queue,
+  });
   boss.on("error", (err) => logger.error("pg-boss error", { err: errorMessage(err) }));
   // The worker sets up the same schema and queues at the same time on a fresh
   // installation; a conflict between the two is retried, not fatal.

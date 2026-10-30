@@ -29,6 +29,10 @@ import { pathToFileURL } from "node:url";
  *   STORAGE_COPY_LOCAL_PATH      optional second target (a mounted NFS share)
  *   WORKER_CONCURRENCY           parallel jobs per queue in this process (default 2)
  *   WORKER_TENANT_CONCURRENCY    parallel jobs per tenant in this process (default 2)
+ *   RESTOW_DB_POOL_MAX           connections of the application pool (default 10); raise it with
+ *                                WORKER_CONCURRENCY (the start warns when it is too small)
+ *   RESTOW_DB_PROVIDER_POOL_MAX  connections of the installation pool (default 10)
+ *   RESTOW_DB_BOSS_POOL_MAX      connections of pg-boss's own pool (default 10)
  *   WORKER_POLL_SECONDS          pg-boss polling interval (default 2)
  *   WORKER_SHUTDOWN_TIMEOUT_MS   how long shutdown waits for jobs to checkpoint (default 50000;
  *                                stays below the 60 s the updater and compose allow)
@@ -84,12 +88,15 @@ import {
   assertDatabaseRoles,
   clearRestartRequests,
   createDb,
+  type DbPoolSizes,
+  dbPoolSizesFromEnv,
   grantQueueAccess,
   heartbeatStore,
   readJobStartPause,
   retryConcurrentSetup,
   ServiceHeartbeatReporter,
   safeErrorMessage,
+  workerPoolWarning,
 } from "@restow/db";
 import { configureProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
 import PgBoss from "pg-boss";
@@ -141,6 +148,8 @@ export interface WorkerConfig {
   readonly logLevel: "debug" | "info" | "warn" | "error";
   readonly concurrency: number;
   readonly tenantConcurrency: number;
+  /** Connections per Postgres pool (RESTOW_DB_*_POOL_MAX; docs/SIZING.md). */
+  readonly dbPool: DbPoolSizes;
   readonly pollSeconds: number;
   readonly shutdownTimeoutMs: number;
   readonly cancelPollMs: number;
@@ -203,6 +212,7 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
     logLevel: parseLogLevel(str(env, "LOG_LEVEL")),
     concurrency: positiveInt(env, "WORKER_CONCURRENCY", 2),
     tenantConcurrency: positiveInt(env, "WORKER_TENANT_CONCURRENCY", 2),
+    dbPool: dbPoolSizesFromEnv(env),
     pollSeconds: positiveInt(env, "WORKER_POLL_SECONDS", 2),
     shutdownTimeoutMs: positiveInt(env, "WORKER_SHUTDOWN_TIMEOUT_MS", 50_000),
     cancelPollMs: positiveInt(env, "WORKER_CANCEL_POLL_MS", 15_000),
@@ -266,8 +276,8 @@ async function main(): Promise<void> {
   // points (extensions.ts) before anything below reads them.
   await import("./ee.js");
   const registry = new HandlerRegistry([...handlers, ...extensionHandlers()]);
-  const db = createDb(config.databaseUrl);
-  const providerDb = createDb(config.databaseProviderUrl);
+  const db = createDb(config.databaseUrl, { max: config.dbPool.app });
+  const providerDb = createDb(config.databaseProviderUrl, { max: config.dbPool.installation });
   const roles = await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
   // This process has just started, so the restart requests recorded for its role are
   // followed (packages/db restart-requests.ts); cleared before it does any work of its own.
@@ -382,7 +392,10 @@ async function main(): Promise<void> {
   // pg-boss owns its schema as the installation role; jobs are enqueued by the
   // API and the scheduler on the application role, which may insert into it
   // and nothing else (packages/db roles.ts `grantQueueAccess`, below).
-  const boss = new PgBoss({ connectionString: config.databaseProviderUrl });
+  const boss = new PgBoss({
+    connectionString: config.databaseProviderUrl,
+    max: config.dbPool.queue,
+  });
   boss.on("error", (error) => {
     logger.error("pg-boss error", { errorMessage: error.message });
   });
@@ -417,7 +430,15 @@ async function main(): Promise<void> {
     defaultCopies: defaultStorage.copies.length,
     concurrency: config.concurrency,
     tenantConcurrency: config.tenantConcurrency,
+    dbPool: config.dbPool,
   });
+  const poolWarning = workerPoolWarning({
+    concurrency: config.concurrency,
+    poolMax: config.dbPool.app,
+  });
+  if (poolWarning) {
+    logger.warn(poolWarning, { concurrency: config.concurrency, dbPoolMax: config.dbPool.app });
+  }
 
   for (const handler of registry.list()) {
     const slots = handler.concurrency ?? config.concurrency;
