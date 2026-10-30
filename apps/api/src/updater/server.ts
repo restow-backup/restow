@@ -179,10 +179,10 @@ export function buildServer(deps: ServerDeps): Hono {
     }
   };
 
-  const invalid = (issues: readonly { path: (string | number)[]; message: string }[]) => {
+  const invalid = (issues: readonly { path: readonly PropertyKey[]; message: string }[]) => {
     const summary = issues
       .slice(0, 5)
-      .map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
+      .map((issue) => `${issue.path.map(String).join(".") || "body"}: ${issue.message}`)
       .join("; ");
     return fail("invalid_request", `The request is not valid: ${summary}`);
   };

@@ -38,13 +38,13 @@ describe("param schemas", () => {
   it("requires a UUID tenant id", () => {
     expect(tenantIdParamSchema.safeParse({ tenantId: "not-a-uuid" }).success).toBe(false);
     expect(
-      tenantIdParamSchema.safeParse({ tenantId: "11111111-1111-1111-1111-111111111111" }).success,
+      tenantIdParamSchema.safeParse({ tenantId: "11111111-1111-4111-8111-111111111111" }).success,
     ).toBe(true);
   });
 
   it("requires a tenant id and a non-empty user id", () => {
     const ok = accountUserParamSchema.safeParse({
-      tenantId: "11111111-1111-1111-1111-111111111111",
+      tenantId: "11111111-1111-4111-8111-111111111111",
       userId: "user-1",
     });
     expect(ok.success).toBe(true);

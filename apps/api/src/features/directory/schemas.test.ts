@@ -47,21 +47,21 @@ describe("bulkFilterSchema", () => {
       search: "alice",
       kind: "mailbox",
       status: "not_selected",
-      sourceId: "11111111-1111-1111-1111-111111111111",
+      sourceId: "11111111-1111-4111-8111-111111111111",
       sharedOrBlocked: false,
     });
     expect(parsed).toEqual({
       search: "alice",
       kind: "mailbox",
       status: "not_selected",
-      sourceId: "11111111-1111-1111-1111-111111111111",
+      sourceId: "11111111-1111-4111-8111-111111111111",
       sharedOrBlocked: false,
     });
   });
 });
 
 describe("bulkProtectionSchema", () => {
-  const objectIds = ["11111111-1111-1111-1111-111111111111"];
+  const objectIds = ["11111111-1111-4111-8111-111111111111"];
 
   it("accepts a bulk request whose filter carries a real boolean `sharedOrBlocked`", () => {
     // Before HIGH-1 was fixed, the bulk endpoint reused `objectsFilterSchema`

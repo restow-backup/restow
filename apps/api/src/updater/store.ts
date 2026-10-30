@@ -45,7 +45,7 @@ const capturedKeySchema = z.object({
  */
 export const runContextSchema = z.object({
   /** `.env` before the update (RESTOW_IMAGE, RESTOW_WEB_IMAGE), for an exact rollback. */
-  previousEnv: z.record(capturedKeySchema).nullable().default(null),
+  previousEnv: z.record(z.string(), capturedKeySchema).nullable().default(null),
   previousImages: z
     .object({ app: z.string().nullable(), web: z.string().nullable() })
     .nullable()
@@ -85,7 +85,7 @@ export const moveContextSchema = z.object({
   /** Applied migrations before the move; the copy and the moved database must show the same. */
   baselineMigrations: z.number().int().nonnegative(),
   /** The database location lines of `.env` before the switch. */
-  previousEnv: z.record(capturedKeySchema).nullable().default(null),
+  previousEnv: z.record(z.string(), capturedKeySchema).nullable().default(null),
   appStopped: z.boolean().default(false),
   databaseStopped: z.boolean().default(false),
   copyStarted: z.boolean().default(false),

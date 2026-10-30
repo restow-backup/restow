@@ -114,11 +114,7 @@ function emptyToNull(value: string | null | undefined): string | null {
 export const smtpInputSchema = z
   .object({
     host: z.string().trim().refine(isValidHost, "host"),
-    port: z
-      .number({ required_error: "port", invalid_type_error: "port" })
-      .int("port")
-      .min(1, "port")
-      .max(65535, "port"),
+    port: z.number({ error: "port" }).int("port").min(1, "port").max(65535, "port"),
     security: z.enum(SMTP_SECURITY),
     from: z.string().trim().email("email").max(320, "email"),
     /** Omit (or send empty) for a relay without authentication. */
@@ -131,7 +127,8 @@ export const smtpInputSchema = z
       .string()
       .max(1024, "required")
       .optional()
-      .transform((value) => (value && value.length > 0 ? value : undefined)),
+      .transform((value) => (value && value.length > 0 ? value : undefined))
+      .optional(),
   })
   .strict();
 export type SmtpInput = z.infer<typeof smtpInputSchema>;
@@ -146,7 +143,8 @@ function optionalSecret(max: number, reason: string) {
     .string()
     .max(max, reason)
     .optional()
-    .transform((value) => (value && value.trim().length > 0 ? value : undefined));
+    .transform((value) => (value && value.trim().length > 0 ? value : undefined))
+    .optional();
 }
 
 /**

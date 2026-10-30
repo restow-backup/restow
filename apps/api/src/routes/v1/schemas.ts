@@ -98,12 +98,12 @@ export const failureSchema = component(
     transient: z.boolean().describe("Waiting alone may help; the run is retried automatically."),
     retryable: z.boolean().describe("A manual retry makes sense once the cause is fixed."),
     params: z
-      .record(z.union([z.string(), z.number(), z.boolean(), z.null()]))
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
       .describe(
         "Facts of this failure: the missing permission, the host, the seconds to wait, ...",
       ),
     technical: z
-      .record(z.union([z.string(), z.number()]))
+      .record(z.string(), z.union([z.string(), z.number()]))
       .describe(
         "Redacted details for a support case: HTTP status, Graph error code, request-id, client-request-id, server time, endpoint.",
       ),

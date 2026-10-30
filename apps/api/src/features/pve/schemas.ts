@@ -120,7 +120,7 @@ export const taskResultSchema = z.object({
   status: z.enum(["done", "failed"]),
   error: nodeErrorText.optional(),
   result: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .nullish()
     .transform((v) => v ?? undefined),
 });
@@ -218,7 +218,7 @@ export const finishSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
   error: nodeErrorText.optional(),
   stats: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .nullish()
     .transform((v) => v ?? undefined),
 });

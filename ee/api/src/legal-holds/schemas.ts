@@ -5,7 +5,7 @@ export const createLegalHoldSchema = z
   .object({
     reason: z.string().trim().min(1).max(2000),
     protectedObjectId: z.string().uuid().nullable().optional(),
-    scope: z.record(z.unknown()).nullable().optional(),
+    scope: z.record(z.string(), z.unknown()).nullable().optional(),
   })
   .strict();
 export type CreateLegalHoldInput = z.infer<typeof createLegalHoldSchema>;

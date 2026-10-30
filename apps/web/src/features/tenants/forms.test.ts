@@ -23,11 +23,11 @@ import type { TenantCustomer } from "./types";
 /** The reason code shown per field: the first issue wins, as in `zodResolver`. */
 function reasons(result: {
   success: boolean;
-  error?: { issues: { path: (string | number)[]; message: string }[] };
+  error?: { issues: { path: PropertyKey[]; message: string }[] };
 }) {
   const shown: Record<string, string> = {};
   for (const issue of result.error?.issues ?? []) {
-    const field = issue.path.join(".");
+    const field = issue.path.map(String).join(".");
     shown[field] ??= issue.message;
   }
   return shown;

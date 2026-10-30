@@ -27,6 +27,10 @@ private repository.
   (include, exclude, follow the rules again, "Yes, intended", a new job or an existing job with
   the selection, select all matching), announces the count to screen readers, and Escape clears
   the selection. Row checkboxes are named "Select <name>" instead of "Actions for <name>".
+- The api and the web UI validate with zod 4 (Dependabot #86). Nothing changes for clients: the
+  problem answers keep their `issues` (codes, fields and messages as before), and the generated
+  OpenAPI document of `/api/v1` is identical. Identifiers must now be RFC 9562 UUIDs (version 1 to
+  8), which every id Restow creates is.
 
 ### Fixed
 
@@ -39,6 +43,13 @@ private repository.
 - Tables with a pinned column on the page background (protected objects among them) no longer
   look two-toned: the pinned name column was white while the other cells let the page show
   through. The table takes the pinned column's surface.
+
+### Security
+
+- zod 4.6.7 (from 3.25) validates the requests of the api and the web UI. It resolves
+  GHSA-mrhx-c7xc-m3w5 (memory use when validating a large array) for Restow's own code too, so the
+  audit of CI no longer ignores any advisory: `pnpm.auditConfig` and the zod override are gone from
+  the root `package.json`.
 
 ## [0.4.7] - 2026-10-29
 

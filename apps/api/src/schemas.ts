@@ -1,6 +1,7 @@
 import { canonicalTimeZone, normalizeTenantReference } from "@restow/core";
 import { z } from "zod";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/password-policy.js";
+import { safeParseLegacy } from "./lib/zod-issues.js";
 import { ProblemError } from "./problem.js";
 
 /**
@@ -158,11 +159,11 @@ export type SetupRequest = z.infer<typeof setupRequestSchema>;
 
 /** Parse `data`, or throw a 422 problem carrying the validation issues. */
 export function parseOrProblem<S extends z.ZodTypeAny>(schema: S, data: unknown): z.infer<S> {
-  const result = schema.safeParse(data);
+  const result = safeParseLegacy(schema, data);
   if (!result.success) {
     throw new ProblemError(422, "Validation failed", {
       detail: "The request did not match the expected schema.",
-      extensions: { issues: result.error.issues },
+      extensions: { issues: result.issues },
     });
   }
   return result.data;

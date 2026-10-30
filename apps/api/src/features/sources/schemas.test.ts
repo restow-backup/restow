@@ -130,7 +130,7 @@ describe("updateSourceSchema", () => {
 
 describe("imapTestSchema and defaults", () => {
   const { kind: _kind, name: _name, ...connection } = imap;
-  const sourceId = "7d8e9f00-1111-2222-3333-444455556666";
+  const sourceId = "7d8e9f00-1111-4222-8333-444455556666";
 
   it("takes a typed password for an inline test", () => {
     expect(imapTestSchema.safeParse(connection).success).toBe(true);

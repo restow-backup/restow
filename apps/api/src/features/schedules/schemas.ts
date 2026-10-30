@@ -63,7 +63,8 @@ const cronField = z
   .max(120)
   .nullable()
   .optional()
-  .transform((value) => (value === undefined ? undefined : value || null));
+  .transform((value) => (value === undefined ? undefined : value || null))
+  .optional();
 
 const timezoneField = z.string().trim().min(1).max(64);
 

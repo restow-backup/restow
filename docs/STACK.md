@@ -130,7 +130,7 @@ Alternative: clsx plus tailwind-merge 3 behalten; dann müsste jede neu hinzugef
 Komponente von Hand auf `@/lib/utils` umgestellt werden. Risiko: das Paket ist jung
 (0.x); die Version ist über das Lockfile fest, ein Wechsel zurück betrifft nur
 `lib/utils.ts` und die Importzeile der Komponenten.
-Formulare: react-hook-form (ab 7.89) + zod (ab 3.25). Das shadcn-`form` baut nur auf
+Formulare: react-hook-form (ab 7.89) + zod (ab 4.6). Das shadcn-`form` baut nur auf
 react-hook-form auf; die Verbindung zu zod übernimmt ein kleiner eigener Resolver in
 `apps/web/src/lib/form.ts`, der die Fehler der Schemas auf i18n-Schlüssel abbildet, damit
 zods englische Standardtexte nie in der Oberfläche landen. Die Registry schlägt dafür
