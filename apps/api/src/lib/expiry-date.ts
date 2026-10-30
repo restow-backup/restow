@@ -11,7 +11,7 @@ import { z } from "zod";
  */
 export function expiryDateField() {
   return z
-    .string({ invalid_type_error: "date" })
+    .string({ error: "date" })
     .trim()
     .nullish()
     .transform((value) => (value && value.length > 0 ? value : null))

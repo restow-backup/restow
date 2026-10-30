@@ -431,8 +431,8 @@ const finishSchema = z.object({
   code: z.string().max(64).optional(),
   message: z.string().max(8000).optional(),
   snapshotId: resticId.optional(),
-  stats: z.record(z.unknown()).default({}),
-  restore: z.record(z.unknown()).optional(),
+  stats: z.record(z.string(), z.unknown()).default({}),
+  restore: z.record(z.string(), z.unknown()).optional(),
   logTail: z.string().max(64_000).default(""),
 });
 

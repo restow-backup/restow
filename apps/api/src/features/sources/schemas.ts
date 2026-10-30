@@ -223,8 +223,10 @@ export const ownAppExpirySchema = z
   .object({
     // Required (null clears it), so an empty body does not silently forget the date.
     secretExpiresAt: z
-      .union([z.string(), z.null()], { required_error: "required", invalid_type_error: "date" })
-      .pipe(expiryDateField()),
+      .union([z.string(), z.null()], {
+        error: (issue) => (issue.input === undefined ? "required" : "date"),
+      })
+      .pipe(expiryDateField() as z.ZodType<string | null, string | null>),
   })
   .strict();
 export type OwnAppExpiryInput = z.infer<typeof ownAppExpirySchema>;

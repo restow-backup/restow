@@ -65,26 +65,28 @@ export function expiryDate(value: string): string | null {
 export const saveMicrosoftAppSchema = z
   .object({
     clientId: z
-      .string({ required_error: "required", invalid_type_error: "guid" })
+      .string({ error: (issue) => (issue.input === undefined ? "required" : "guid") })
       .trim()
       .min(1, "required")
       .refine(isGuid, "guid")
       .transform((value) => value.toLowerCase()),
     clientSecret: z
-      .string({ invalid_type_error: "required" })
+      .string({ error: "required" })
       .max(CLIENT_SECRET_MAX_LENGTH, "tooLong")
       .optional()
-      .transform((value) => (value && value.trim().length > 0 ? value.trim() : undefined)),
+      .transform((value) => (value && value.trim().length > 0 ? value.trim() : undefined))
+      .optional(),
     certificatePem: z
-      .string({ invalid_type_error: "required" })
+      .string({ error: "required" })
       .max(CERTIFICATE_PEM_MAX_LENGTH, "tooLong")
       .optional()
-      .transform((value) => (value && value.trim().length > 0 ? value.trim() : undefined)),
+      .transform((value) => (value && value.trim().length > 0 ? value.trim() : undefined))
+      .optional(),
     /** When the secret expires (from the Entra portal); only kept for a secret. */
     secretExpiresAt: expiryDateField(),
     /** The app's own directory: tenant id (GUID) or a verified domain. */
     homeTenantId: z
-      .string({ invalid_type_error: "tenantId" })
+      .string({ error: "tenantId" })
       .trim()
       .max(253, "tenantId")
       .nullish()
@@ -93,7 +95,7 @@ export const saveMicrosoftAppSchema = z
       .transform((value) => value?.toLowerCase() ?? null),
     /** Login host for sovereign clouds; empty for the public cloud. */
     authorityHost: z
-      .string({ invalid_type_error: "authorityHost" })
+      .string({ error: "authorityHost" })
       .trim()
       .max(255, "authorityHost")
       .nullish()
@@ -133,7 +135,7 @@ export type SaveMicrosoftAppInput = z.infer<typeof saveMicrosoftAppSchema>;
 export const testMicrosoftAppSchema = z
   .object({
     tenantId: z
-      .string({ invalid_type_error: "tenantId" })
+      .string({ error: "tenantId" })
       .trim()
       .max(253, "tenantId")
       .nullish()

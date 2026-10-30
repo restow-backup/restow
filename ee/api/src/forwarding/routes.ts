@@ -6,6 +6,7 @@ import { db, providerDb } from "../../../../apps/api/src/db.js";
 import type { SessionRouteContribution } from "../../../../apps/api/src/extensions.js";
 import type { ArchiveActor } from "../../../../apps/api/src/features/archive/service.js";
 import { clientIp } from "../../../../apps/api/src/lib/request.js";
+import { safeParseLegacy } from "../../../../apps/api/src/lib/zod-issues.js";
 import { requireTenant, type TenantEnv } from "../../../../apps/api/src/middleware/session.js";
 import { ProblemError } from "../../../../apps/api/src/problem.js";
 import { capabilityGuard } from "../license/gate.js";
@@ -52,9 +53,9 @@ export function buildForwardingRoutes(deps: ForwardingRoutesDeps): Hono<TenantEn
   const routes = new Hono<TenantEnv>();
 
   routes.get("/", deps.requireAdmin, async (c) => {
-    const parsed = querySchema.safeParse(c.req.query());
+    const parsed = safeParseLegacy(querySchema, c.req.query());
     if (!parsed.success) {
-      throw new ProblemError(400, "Invalid query", { detail: parsed.error.issues[0]?.message });
+      throw new ProblemError(400, "Invalid query", { detail: parsed.issues[0]?.message });
     }
     const { wanted, cursor, limit } = parsed.data;
     return c.json(

@@ -123,7 +123,7 @@ export function buildMounterServer(deps: MounterServerDeps): Hono {
     if (!parsed.success) {
       const summary = parsed.error.issues
         .slice(0, 5)
-        .map((issue: z.ZodIssue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
+        .map((issue) => `${issue.path.map(String).join(".") || "body"}: ${issue.message}`)
         .join("; ");
       return { response: fail("invalid_request", `The request is not valid: ${summary}`) };
     }

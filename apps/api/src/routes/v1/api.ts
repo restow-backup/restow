@@ -77,8 +77,8 @@ export const WRITE_ERRORS = [400, 404, 409, 422, 503] as const;
 type Infer<S> = S extends z.ZodTypeAny ? z.infer<S> : undefined;
 
 export interface RouteDefinition<
-  P extends z.AnyZodObject | undefined,
-  Q extends z.AnyZodObject | undefined,
+  P extends z.ZodObject | undefined,
+  Q extends z.ZodObject | undefined,
   B extends z.ZodTypeAny | undefined,
   R extends z.ZodTypeAny | undefined,
 > extends Omit<OperationSpec, "audience" | "scope" | "params" | "query" | "body" | "response"> {
@@ -152,8 +152,8 @@ export async function readJsonBody(c: Context): Promise<unknown> {
 // ---------------------------------------------------------------------------
 
 type AnyDefinition = RouteDefinition<
-  z.AnyZodObject | undefined,
-  z.AnyZodObject | undefined,
+  z.ZodObject | undefined,
+  z.ZodObject | undefined,
   z.ZodTypeAny | undefined,
   z.ZodTypeAny | undefined
 >;
@@ -186,8 +186,8 @@ export class IntegrationApi {
 
   /** An operation on one tenant: the key's own, or the one a provider key names. */
   tenant<
-    P extends z.AnyZodObject | undefined = undefined,
-    Q extends z.AnyZodObject | undefined = undefined,
+    P extends z.ZodObject | undefined = undefined,
+    Q extends z.ZodObject | undefined = undefined,
     B extends z.ZodTypeAny | undefined = undefined,
     R extends z.ZodTypeAny | undefined = undefined,
   >(
@@ -209,8 +209,8 @@ export class IntegrationApi {
 
   /** A cross-tenant operation for provider keys (while `apiKeys.provider` is on). */
   provider<
-    P extends z.AnyZodObject | undefined = undefined,
-    Q extends z.AnyZodObject | undefined = undefined,
+    P extends z.ZodObject | undefined = undefined,
+    Q extends z.ZodObject | undefined = undefined,
     B extends z.ZodTypeAny | undefined = undefined,
     R extends z.ZodTypeAny | undefined = undefined,
   >(

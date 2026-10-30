@@ -136,7 +136,7 @@ const iso = z.string().datetime({ offset: true });
 /** Text for the client: a code and parameters, translated there (never prose). */
 export const messageSchema = z.object({
   code: z.string(),
-  params: z.record(z.union([z.string(), z.number()])).default({}),
+  params: z.record(z.string(), z.union([z.string(), z.number()])).default({}),
 });
 export type UpdateMessage = z.infer<typeof messageSchema>;
 
@@ -146,7 +146,9 @@ export const stepStateSchema = z.object({
   startedAt: iso.nullable().default(null),
   finishedAt: iso.nullable().default(null),
   /** Short, non-sensitive facts of the step (`{ image: "...", digest: "sha256:..." }`). */
-  detail: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).default({}),
+  detail: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
+    .default({}),
 });
 export type StepState = z.infer<typeof stepStateSchema>;
 
@@ -304,7 +306,7 @@ export const journalEventSchema = z.object({
   actor: actorSchema,
   /** The target version. */
   target: z.string(),
-  details: z.record(z.unknown()).default({}),
+  details: z.record(z.string(), z.unknown()).default({}),
 });
 export type JournalEvent = z.infer<typeof journalEventSchema>;
 

@@ -76,7 +76,8 @@ export const dataFoldersSchema = z
   .max(50)
   .nullish()
   .catch(undefined)
-  .transform((value) => value ?? undefined);
+  .transform((value) => value ?? undefined)
+  .optional();
 
 export const enrollSchema = z.object({
   token: shortText(200),
@@ -112,7 +113,8 @@ export const heartbeatSchema = z.object({
     .max(200)
     .optional()
     .catch(undefined)
-    .transform((names) => names?.filter((name) => HOOK_SCRIPT_NAME.test(name)).slice(0, 50)),
+    .transform((names) => names?.filter((name) => HOOK_SCRIPT_NAME.test(name)).slice(0, 50))
+    .optional(),
   machine: machineFactsSchema,
   dataFolders: dataFoldersSchema,
   /**

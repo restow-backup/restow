@@ -342,18 +342,26 @@ export const recommendedScopeSchema = z
     },
   );
 /** The same as a query (`?mail=1&endpointIds=a,b&guestIds=c&everything=1`), for the preview. */
-export const recommendedQuerySchema = z
-  .object({
-    mail: flagQuery,
-    endpointIds: idListQuery,
-    guestIds: idListQuery,
-    everything: flagQuery,
-    kinds: z
-      .string()
-      .optional()
-      .transform((value) => (value ? value.split(",").map((part) => part.trim()) : [])),
-  })
-  .pipe(recommendedScopeSchema);
+const recommendedQueryFields = z.object({
+  mail: flagQuery,
+  endpointIds: idListQuery,
+  guestIds: idListQuery,
+  everything: flagQuery,
+  kinds: z
+    .string()
+    .optional()
+    .transform((value) => (value ? value.split(",").map((part) => part.trim()) : [])),
+});
+/**
+ * The query fields all arrive (as booleans and lists), so the scope schema's defaults never
+ * apply; the cast tells zod 4's stricter `pipe` typing that its optional inputs are satisfied.
+ */
+export const recommendedQuerySchema = recommendedQueryFields.pipe(
+  recommendedScopeSchema as z.ZodType<
+    z.output<typeof recommendedScopeSchema>,
+    z.output<typeof recommendedQueryFields>
+  >,
+);
 
 export const candidatesQuerySchema = z.object({
   kind: jobKindSchema,

@@ -726,7 +726,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2018 The Go Authors. All rights reserved.`
 - License text: [text 15](#text-15)
 
-## Packages (493)
+## Packages (492)
 
 ### @aws-sdk/checksums 3.1001.7
 
@@ -3729,12 +3729,6 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014 Chris Talkington, contributors.`
 - License text: [text 17](#text-17)
 
-### zod 3.25.76
-
-- License: MIT
-- Copyright: `Copyright (c) 2025 Colin McDonnell`
-- License text: [text 1](#text-1)
-
 ### zod 4.6.7
 
 - License: MIT
@@ -3745,7 +3739,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 ### Text 1
 
-Used by 207 entries.
+Used by 206 entries.
 
 ```text
 MIT License
