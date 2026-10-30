@@ -167,7 +167,16 @@ describe("JournalSection setup help", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(slot("journal-first-report")?.querySelector('[data-state="arrived"]')).not.toBeNull();
+    // The query hands its new answer to React on a timer of its own (setTimeout 0): let the
+    // clock run on in small steps until the page shows it, instead of hoping it fell inside
+    // the 5 seconds above.
+    const arrived = () => slot("journal-first-report")?.querySelector('[data-state="arrived"]');
+    for (let step = 0; step < 50 && !arrived(); step++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+    }
+    expect(arrived()).not.toBeNull();
     const done = setupCalls().length;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15_000);
