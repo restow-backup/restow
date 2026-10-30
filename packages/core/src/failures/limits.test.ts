@@ -36,6 +36,22 @@ describe("runs that were not backed up because the account is inactive", () => {
     ).toBe("locked");
   });
 
+  it("read login_refused for an IMAP account that was confirmed as shut down", () => {
+    const failure = { code: "config.object_inactive", params: { reason: "login_refused" } };
+    expect(notBackedUpReason("failed", failure)).toBe("login_refused");
+    expect(isNotBackedUpFailure("failed", failure)).toBe(true);
+    expect(
+      catalogEntry("config.object_inactive")
+        ?.steps({ reason: "login_refused" })
+        .map((step) => step.id),
+    ).toEqual(["check_app_password", "set_object_password"]);
+    expect(
+      catalogEntry("config.object_inactive")
+        ?.steps({ reason: "no_license" })
+        .map((step) => step.id),
+    ).toEqual(["assign_license", "sync_directory"]);
+  });
+
   it("include a locked OneDrive or site, which points at unlocking it", () => {
     expect(isNotBackedUpFailure("failed", { code: "graph.object_locked" })).toBe(true);
     expect(

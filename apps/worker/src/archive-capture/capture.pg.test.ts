@@ -17,6 +17,7 @@ import {
   type ArchiveJobPayload,
   archive,
   generateDek,
+  ImapAuthError,
   Keyring,
   LocalStorageBackend,
   MemoryChunkIndex,
@@ -529,6 +530,134 @@ describe.skipIf(!adminUrl)("archive capture (Postgres)", () => {
     [stream] = await streams();
     expect(stream?.consecutiveFailures).toBe(2);
     expect(stream?.status).toBe("error");
+  });
+
+  describe("the login state of IMAP accounts", () => {
+    const refusing = (): CaptureWay => ({
+      ...fakeWay(new Map()),
+      async ensure() {
+        throw new ImapAuthError("login refused", "NO [AUTHENTICATIONFAILED] Invalid credentials");
+      },
+    });
+
+    async function loginRow(objectId: string) {
+      const [row] = await db
+        .select({
+          runs: protectedObjects.loginFailedRuns,
+          since: protectedObjects.loginFailedSince,
+          questionAt: protectedObjects.loginQuestionAt,
+          status: protectedObjects.status,
+        })
+        .from(protectedObjects)
+        .where(eq(protectedObjects.id, objectId));
+      return row;
+    }
+
+    async function pass(way: CaptureWay) {
+      const { instance } = service({ imap_sync: way });
+      await db.update(archiveCaptureStreams).set({ nextDueAt: new Date(0) });
+      await instance.tick();
+      await instance.settle();
+    }
+
+    it("counts a refused login of a pass, once per spacing window, and ends the streak on a pass that logs in", async () => {
+      const object = await imapObject("refused@example.net");
+      await member(object);
+      await pass(refusing());
+      expect(await loginRow(object)).toMatchObject({ runs: 1, questionAt: null });
+      // The next pass minutes later is the same run (6 h spacing).
+      await pass(refusing());
+      expect(await loginRow(object)).toMatchObject({ runs: 1 });
+      expect((await streams())[0]?.consecutiveFailures).toBe(2);
+
+      await pass(fakeWay(new Map()));
+      expect(await loginRow(object)).toMatchObject({ runs: 0, since: null });
+    });
+
+    it("counts neither a pass that fails for another reason nor a Graph stream", async () => {
+      const object = await imapObject("network@example.net");
+      await member(object);
+      await pass({
+        ...fakeWay(new Map()),
+        async ensure() {
+          throw new Error("connect ECONNREFUSED");
+        },
+      });
+      expect(await loginRow(object)).toMatchObject({ runs: 0 });
+
+      await db.execute(sql`delete from archive_capture_streams`);
+      const [mailbox] = await db
+        .insert(protectedObjects)
+        .values({
+          tenantId,
+          sourceId: m365SourceId,
+          kind: "mailbox",
+          externalId: "graph-user@contoso.example",
+        })
+        .returning();
+      await member(mailbox?.id ?? "");
+      const { instance } = service({
+        graph_sync: { ...refusing(), way: "graph_sync" },
+        imap_sync: fakeWay(new Map()),
+      });
+      await instance.tick();
+      await instance.settle();
+      expect((await streams()).find((row) => row.way === "graph_sync")?.consecutiveFailures).toBe(
+        1,
+      );
+      expect(await loginRow(mailbox?.id ?? "")).toMatchObject({ runs: 0 });
+    });
+
+    it("leaves a disabled stream's outcome alone: no success, no failure", async () => {
+      const object = await imapObject("disabled@example.net");
+      await member(object);
+      await db
+        .update(protectedObjects)
+        .set({ loginFailedRuns: 2, loginFailedSince: new Date(Date.now() - 100_000) })
+        .where(eq(protectedObjects.id, object));
+      await pass(fakeWay(new Map()));
+      // A live pass logged in and reset the streak; disable the job and run the release pass.
+      await db
+        .update(protectedObjects)
+        .set({ loginFailedRuns: 2, loginFailedSince: new Date(Date.now() - 100_000) })
+        .where(eq(protectedObjects.id, object));
+      await db.update(backupJobs).set({ archive: false }).where(eq(backupJobs.id, jobId));
+      await reconcileCaptureStreams(db);
+      await pass(refusing());
+      expect((await streams())[0]?.status).toBe("disabled");
+      expect(await loginRow(object)).toMatchObject({ runs: 2 });
+    });
+
+    it("disables the stream of an account shut down by the answer, with no new error, and revives it after the login works again", async () => {
+      const object = await imapObject("shutdown@example.net");
+      await member(object);
+      await pass(fakeWay(new Map()));
+      expect((await streams())[0]?.status).toBe("backfilling");
+
+      await db
+        .update(protectedObjects)
+        .set({
+          status: "orphaned",
+          statusReason: "login_refused",
+          statusConfirmedAt: new Date(),
+          statusConfirmedBy: "admin@example.net",
+        })
+        .where(eq(protectedObjects.id, object));
+      await reconcileCaptureStreams(db);
+      expect((await streams())[0]?.status).toBe("disabled");
+      await pass(refusing());
+      const [stream] = await streams();
+      expect(stream).toMatchObject({ status: "disabled", consecutiveFailures: 0 });
+      expect(stream?.state).not.toHaveProperty("_errorSince");
+      expect(await loginRow(object)).toMatchObject({ runs: 0, status: "orphaned" });
+
+      await db
+        .update(protectedObjects)
+        .set({ status: "active", activeSince: new Date() })
+        .where(eq(protectedObjects.id, object));
+      await reconcileCaptureStreams(db);
+      expect((await streams())[0]?.status).not.toBe("disabled");
+    });
   });
 
   it("runs the backfill job: captured late, stream live; skipped while the gate is closed", async () => {

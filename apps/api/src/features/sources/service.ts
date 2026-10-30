@@ -48,6 +48,7 @@ import { deleteSecret, readSecret, replaceSecret, storeSecret } from "../../lib/
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { enqueueDirectorySync } from "../directory/enqueue.js";
+import { enqueueLoginProbes, resetLoginState } from "../directory/login-state.js";
 import { DIRECTORY_AUDIT_ACTIONS } from "../directory/service.js";
 import { causeToRecord, type FailureDto, failureDto } from "../failures/dto.js";
 import { causeOfImapProbe } from "../failures/probe.js";
@@ -890,7 +891,8 @@ export async function updateSource(
   patch: UpdateSourceInput,
   actor: Actor,
 ): Promise<SourceDto> {
-  return withTenantTx(db, tenantId, async (tx) => {
+  let loginProbeIds: string[] = [];
+  const dto = await withTenantTx(db, tenantId, async (tx) => {
     const current = await requireSource(tx, tenantId, id);
     if (current.kind === "import") {
       throw importSourceLocked();
@@ -1132,6 +1134,15 @@ export async function updateSource(
     if (!row) {
       throw notFound();
     }
+    if (current.kind === "imap" && connectionChanged) {
+      // A new password, login or server starts a new streak of refused logins for every account
+      // of the source, and lets the shut-down ones resume at once (docs/IMAP.md). While the
+      // source awaits its test (`pending`) or is paused nothing is queued: the worker would
+      // refuse every job; the login-probe planner takes the due accounts once the source is
+      // `active` or `error`.
+      const probeIds = await resetLoginState(tx, tenantId, { sourceId: id });
+      loginProbeIds = row.status === "pending" || row.status === "disabled" ? [] : probeIds;
+    }
     await audit(tx, {
       tenantId,
       actor: actor.email,
@@ -1144,6 +1155,8 @@ export async function updateSource(
     });
     return toDto(row);
   });
+  await enqueueLoginProbes(db, tenantId, loginProbeIds);
+  return dto;
 }
 
 export async function deleteSource(

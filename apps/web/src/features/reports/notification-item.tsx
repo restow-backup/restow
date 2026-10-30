@@ -37,6 +37,16 @@ export function bellEventKey(item: Pick<BellNotification, "event" | "details">):
       ? `${base}_${stage}`
       : base;
   }
+  // The login question of an IMAP account ("was this account shut down?") rides on the
+  // `object.inactive` events with `details.question` (apps/worker inactive-notices.ts).
+  if (
+    (item.event === "object.inactive" || item.event === "object.inactive_many") &&
+    item.details?.question === "login"
+  ) {
+    return item.event === "object.inactive"
+      ? "bellEvents.object.login_question"
+      : "bellEvents.object.login_question_many";
+  }
   // An alert of the archive capture names what stopped (apps/worker archive-capture/alerts.ts).
   const reason = item.details?.reason;
   if (

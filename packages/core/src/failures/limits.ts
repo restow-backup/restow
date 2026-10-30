@@ -42,8 +42,11 @@ export function isServiceLimitedFailure(
  * `graph.object_locked`; it does so for the OneDrive of an unlicensed account; neutral only once
  * a probe confirmed it, worker backup.ts turns an unconfirmed lock into a counted
  * `graph.request_rejected`), or the object was
- * already marked so and the run was turned away (`config.object_inactive`). Nothing is broken and nothing is held back: the object is not
- * backed up until the account is enabled or licensed again, and its backups are kept. Such a
+ * already marked so and the run was turned away (`config.object_inactive`; for an IMAP account
+ * the reason is `login_refused`: the admin confirmed it was shut down and the weekly login probe
+ * was refused again, docs/IMAP.md). Nothing is broken and nothing is held back: the object is
+ * not backed up until the account is enabled, licensed or accepts the login again, and its
+ * backups are kept. Such a
  * run counts neither as failed nor as held back, ends no warning acknowledgement and raises no
  * `backup.failed` alert or `job.failed` webhook; the UI shows it neutral ("not backed up").
  * Kept apart from {@link SERVICE_LIMIT_CAUSES}, which read amber "held back, retried".
@@ -72,11 +75,12 @@ export function isNotBackedUpFailure(
 }
 
 /** Why an object is not backed up while still at the source (`protected_objects.status_reason`). */
-export type NotBackedUpReason = "account_disabled" | "no_license" | "locked";
+export type NotBackedUpReason = "account_disabled" | "no_license" | "locked" | "login_refused";
 
 /**
- * Why such a run did not back up (`account_disabled`, `no_license`, `locked`), from its failure
- * code and parameters; null for any other run. An unknown or missing reason reads `no_license`.
+ * Why such a run did not back up (`account_disabled`, `no_license`, `locked`, `login_refused`),
+ * from its failure code and parameters; null for any other run. An unknown or missing reason
+ * reads `no_license`.
  */
 export function notBackedUpReason(
   status: string,
@@ -91,6 +95,9 @@ export function notBackedUpReason(
   const reason = failure?.params?.reason;
   if (failure?.code === "graph.object_locked" || reason === "locked") {
     return "locked";
+  }
+  if (reason === "login_refused") {
+    return "login_refused";
   }
   return reason === "account_disabled" ? "account_disabled" : "no_license";
 }

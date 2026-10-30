@@ -10,6 +10,7 @@ import {
   confirmInactive,
   deleteAccount,
   directoryKeys,
+  dismissLoginQuestion,
   fetchDirectorySources,
   fetchObjects,
   fetchPeople,
@@ -154,6 +155,19 @@ export function useConfirmInactive() {
     onSuccess: () => {
       void invalidate();
       // Readiness, warnings and the dashboard count the objects that wait for a confirmation.
+      void queryClient.invalidateQueries();
+    },
+  });
+}
+
+/** "No, fix the login" for one IMAP account whose login question is open. */
+export function useDismissLoginQuestion() {
+  const invalidate = useInvalidateDirectory();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (objectId: string) => dismissLoginQuestion(objectId),
+    onSuccess: () => {
+      void invalidate();
       void queryClient.invalidateQueries();
     },
   });

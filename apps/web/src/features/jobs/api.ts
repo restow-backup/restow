@@ -107,7 +107,7 @@ export interface Job {
    * A failed backup that did not back up because the mailbox's account is disabled or has no
    * Exchange Online licence: neutral, never failed. Missing on servers before 0.4.7.
    */
-  notBackedUp?: "account_disabled" | "no_license" | "locked" | null;
+  notBackedUp?: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
 }
 
 export interface ItemFailure {

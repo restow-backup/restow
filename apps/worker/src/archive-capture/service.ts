@@ -26,6 +26,7 @@ import {
   type ArchiveJobPayload,
   type archive,
   JOB_PRIORITY,
+  LOGIN_ARCHIVE_FAILURE_MIN_SPACING_HOURS,
   type Logger,
   recordFailure,
   type StorageTargets,
@@ -44,6 +45,7 @@ import {
   withTenantTx,
 } from "../handlers/framework.js";
 import { archiveRetentionPolicyFor } from "../handlers/import-archive.js";
+import { recordLoginFailure, recordLoginSuccess } from "../imap-login-state.js";
 import { alreadyCapturedFor, appendCapturedMail } from "./append.js";
 import { reconcileCaptureStreams } from "./reconcile.js";
 import { CAPTURE_WAYS } from "./registry.js";
@@ -591,6 +593,47 @@ export class ArchiveCaptureService {
     if (!written) {
       this.deps.logger.warn("archive capture lease was lost before the pass ended", {
         streamId: stream.id,
+      });
+    }
+    await this.recordLogin(stream, outcome);
+  }
+
+  /**
+   * Every pass of every way ends in {@link complete}: the one place that learns whether an IMAP
+   * account's login was refused (`imap.auth_failed`) or worked, for the question "was this
+   * account shut down?" (../imap-login-state.ts). Every non-disabled IMAP pass logs in (the
+   * activation and the catch-up both open a session); a disabled stream logs in nowhere.
+   * A pass counts with the longer archive spacing, so passes every few hours do not run the
+   * counter faster than the nightly backup. IDLE needs no hook: a failed IDLE login marks the stream due and the next pass reports it.
+   * Best effort: it never fails the pass.
+   */
+  private async recordLogin(stream: CaptureStream, outcome: StreamOutcome): Promise<void> {
+    if (stream.way !== "imap_sync") {
+      return;
+    }
+    const refused = outcome.failure?.code === "imap.auth_failed";
+    const worked = outcome.failure === null && outcome.status !== "disabled";
+    if (!refused && !worked) {
+      return;
+    }
+    try {
+      await withTenantTx(this.deps.db, stream.tenantId, async (tx) => {
+        if (refused) {
+          await recordLoginFailure(
+            tx,
+            stream.tenantId,
+            stream.protectedObjectId,
+            this.now(),
+            LOGIN_ARCHIVE_FAILURE_MIN_SPACING_HOURS,
+          );
+        } else {
+          await recordLoginSuccess(tx, stream.tenantId, stream.protectedObjectId);
+        }
+      });
+    } catch (error) {
+      this.deps.logger.warn("could not record the login state of the IMAP account", {
+        streamId: stream.id,
+        errorMessage: safeErrorMessage(error),
       });
     }
   }

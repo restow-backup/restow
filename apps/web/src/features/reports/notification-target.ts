@@ -66,10 +66,12 @@ export function notificationTarget(
   const at = (to: string): NotificationTarget => ({ to, tenantId });
   // Objects no longer backed up: the tenant's protected objects that wait for a decision.
   if (item.event === "object.inactive" || item.event === "object.inactive_many") {
+    // The login question of an IMAP account waits under its own filter.
+    const status = details.question === "login" ? "login_question" : "to_confirm";
     return at(
       tenantId
-        ? `${tenantPagePath(tenantId, "protection")}?status=to_confirm`
-        : "/protected-objects?status=to_confirm",
+        ? `${tenantPagePath(tenantId, "protection")}?status=${status}`
+        : `/protected-objects?status=${status}`,
     );
   }
   // A source's own app credential runs out: the source's page, where its date is noted.

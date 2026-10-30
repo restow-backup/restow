@@ -344,6 +344,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // excluding it, so the same right.
   "POST /api/v1/directory/objects/:id/inactive/confirm": configure(),
   "POST /api/v1/directory/objects/inactive/confirm": configure(),
+  "POST /api/v1/directory/objects/:id/login-question/dismiss": configure(),
   "POST /api/v1/directory/objects/:id/credential": configure(),
   "POST /api/v1/directory/objects/:id/credential/test": operate(),
   "DELETE /api/v1/directory/objects/:id": configure(),

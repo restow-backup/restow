@@ -12,7 +12,7 @@ export type ObjectState = Readiness | "unverified" | "no_backup";
 export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 /** Why an `orphaned` Microsoft 365 mailbox is not backed up while its account still exists. */
-export type ObjectStatusReason = "account_disabled" | "no_license" | "locked";
+export type ObjectStatusReason = "account_disabled" | "no_license" | "locked" | "login_refused";
 export type CheckKind = "verify" | "health_check";
 export type ReportOrigin = "verify" | "scrub" | "unknown";
 export type SampleCategory = "mail" | "file" | "event" | "contact";

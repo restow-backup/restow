@@ -152,9 +152,11 @@ export function subjectKeyOf(event: ReportEvent, details: Record<string, unknown
   if (event === "object.inactive" && typeof details.protectedObjectId === "string") {
     return `inactive:${details.protectedObjectId}`;
   }
-  // Many objects inactive at once: one subject per tenant and UTC day.
+  // Many objects inactive at once: one subject per tenant and UTC day. The warning about many
+  // refused IMAP logins (`question: "login"`) is its own subject, so one never swallows the other.
   if (event === "object.inactive_many") {
-    return `inactive_many:${String(details.tenantId ?? "")}:${String(details.date ?? "")}`;
+    const question = details.question === "login" ? ":login" : "";
+    return `inactive_many:${String(details.tenantId ?? "")}:${String(details.date ?? "")}${question}`;
   }
   // An alert about a VM or container of Proxmox VE is about that guest.
   const guest = details.pveGuestId;

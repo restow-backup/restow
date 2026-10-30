@@ -249,7 +249,17 @@ async function seed(db: Database): Promise<Fixture> {
   // Fabrikam
   const fabrikamImap = await source(fabrikam, "imap", "error");
   const first = await object(fabrikam, fabrikamImap, "imap", "sales@fabrikam.test");
-  await object(fabrikam, fabrikamImap, "imap", "support@fabrikam.test");
+  const support = await object(fabrikam, fabrikamImap, "imap", "support@fabrikam.test");
+  // Its login keeps being refused and the question "was this account shut down?" is open.
+  await db
+    .update(protectedObjects)
+    .set({
+      loginFailedRuns: 3,
+      loginFailedSince: ago(3 * DAY),
+      loginFailedAt: ago(DAY),
+      loginQuestionAt: ago(HOUR),
+    })
+    .where(eq(protectedObjects.id, support));
   await snapshot(fabrikam, first, ago(3 * DAY));
   await job(fabrikam, first, "failed", ago(2 * HOUR));
   await db.insert(storageTargets).values({
@@ -433,6 +443,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         mailboxes: 2,
         storageError: false,
         physicalBytes: 1500,
+        loginQuestions: 0,
       });
       expect(fabrikam).toMatchObject({
         loaded: true,
@@ -443,6 +454,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         mailboxes: 2,
         mailboxCap: 1,
         storageError: true,
+        loginQuestions: 1,
       });
       expect(view.kpis).toEqual({
         tenants: 2,
@@ -466,8 +478,20 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
           "Fabrikam:storage_error",
           "Fabrikam:over_cap",
           "Contoso:failed_jobs",
+          "Fabrikam:login_question",
         ]),
       );
+      // "Answer needed" is asked of the tenant, not a failure: yellow, never critical.
+      expect(view.alerts.find((alert) => alert.kind === "login_question")).toMatchObject({
+        tenantName: "Fabrikam",
+        severity: "warning",
+        count: 1,
+      });
+      expect(
+        view.alerts.some(
+          (alert) => alert.tenantName === "Contoso" && alert.kind === "login_question",
+        ),
+      ).toBe(false);
       expect(view.alerts[0]?.severity).toBe("destructive");
     });
 

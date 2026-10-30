@@ -110,7 +110,8 @@
     "inactive": {
       "account_disabled": "Not backed up: account disabled, backups kept",
       "no_license": "Not backed up: no licence, backups kept",
-      "locked": "Not backed up: locked, backups kept"
+      "locked": "Not backed up: locked, backups kept",
+      "login_refused": "Not backed up: account shut down, backups kept"
     },
     "overdue": "Overdue",
     "never": "Never",
@@ -267,6 +268,10 @@
       "locked": {
         "title": "Not backed up: locked",
         "description": "Microsoft locked this OneDrive or site (HTTP 423), usually because the account no longer has a licence. Its backups are kept and rated regardless of their age, and backups resume automatically once the lock is lifted."
+      },
+      "login_refused": {
+        "title": "Not backed up: account shut down",
+        "description": "The login of this IMAP account is refused and an administrator confirmed that it was shut down. Its backups are kept and rated regardless of their age. The login is checked once a week, and backups resume automatically as soon as it works again."
       }
     },
     "stats": {

@@ -193,12 +193,23 @@ export function renderAlert(input: AlertInput): RenderedMessage {
   const event = text(input.payload.event) ?? "";
   const details = (input.payload.details ?? {}) as Record<string, unknown>;
   // A red rating because the newest backup is too old is not a failed restore check.
+  // The question "was this IMAP account shut down?" is not "no longer backed up": the account is
+  // still active and backed up while its login fails.
+  const loginQuestion =
+    (event === "object.inactive" || event === "object.inactive_many") &&
+    details.question === "login";
   const eventLabel =
     event === "verify.red" && details.redReason === "outdated"
       ? t("reports:mail.verifyRedOutdated")
-      : isReportEvent(event)
-        ? t(`reports:events.${event as ReportEvent}`)
-        : event;
+      : loginQuestion
+        ? t(
+            event === "object.inactive_many"
+              ? "reports:mail.loginQuestionLabelMany"
+              : "reports:mail.loginQuestionLabel",
+          )
+        : isReportEvent(event)
+          ? t(`reports:events.${event as ReportEvent}`)
+          : event;
   const target =
     text(details.objectName) ??
     (text(details.queue) ? t(`reports:queues.${details.queue as string}`) : input.tenantName);
@@ -294,21 +305,44 @@ export function renderAlert(input: AlertInput): RenderedMessage {
   if (event === "object.inactive" || event === "object.inactive_many") {
     // Restow stopped backing up objects (apps/worker inactive-notices.ts): why, since when, how
     // many, and that an admin confirms it under Protection ("Yes, intended").
+    // The question has no reason row: nobody confirmed anything yet, the account is still active.
     const reason = text(details.reason);
     if (
-      reason === "account_disabled" ||
-      reason === "no_license" ||
-      reason === "locked" ||
-      reason === "removed"
+      !loginQuestion &&
+      (reason === "account_disabled" ||
+        reason === "no_license" ||
+        reason === "locked" ||
+        reason === "login_refused" ||
+        reason === "removed")
     ) {
       rows.push([t("reports:mail.inactiveReason"), t(`reports:mail.inactiveReasons.${reason}`)]);
     }
-    const since = formatWhen(text(details.inactiveSince), input.language);
-    if (since) rows.push([t("reports:mail.inactiveSince"), `${since} UTC`]);
+    // The login question of an IMAP account (`question: "login"`): since when the login is
+    // refused, and what to do: answer under Protection, after checking the source's password
+    // when it fails for the whole source.
+    const since = formatWhen(
+      text(loginQuestion ? details.failedSince : details.inactiveSince),
+      input.language,
+    );
+    if (since) {
+      rows.push([
+        t(loginQuestion ? "reports:mail.loginRefusedSince" : "reports:mail.inactiveSince"),
+        `${since} UTC`,
+      ]);
+    }
     if (typeof details.count === "number") {
       rows.push([t("reports:mail.inactiveCount"), formatCount(details.count, input.language)]);
     }
-    rows.push([t("reports:mail.todo"), t("reports:mail.inactiveConfirm")]);
+    rows.push([
+      t("reports:mail.todo"),
+      t(
+        loginQuestion
+          ? details.scope === "source" || event === "object.inactive_many"
+            ? "reports:mail.loginQuestionSourceFirst"
+            : "reports:mail.loginQuestionConfirm"
+          : "reports:mail.inactiveConfirm",
+      ),
+    ]);
   }
   if (event === "archive.failed") {
     // An alert of the archive capture (apps/worker archive-capture/alerts.ts): what stopped,

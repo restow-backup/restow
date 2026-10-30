@@ -408,7 +408,10 @@ export function buildChatMessage(
       const toConfirm =
         (reportEvent === "object.inactive" || reportEvent === "object.inactive_many") &&
         envelope.tenantId
-          ? `/tenants/${seg(envelope.tenantId)}/protection?status=to_confirm`
+          ? `/tenants/${seg(envelope.tenantId)}/protection?status=${
+              // The login question of an IMAP account waits for an answer under its own filter.
+              details.question === "login" ? "login_question" : "to_confirm"
+            }`
           : null;
       return {
         ...base,

@@ -81,6 +81,17 @@ describe("decideOverride", () => {
       needsSync: false,
     });
     expect(decideOverride("include", "orphaned", "imap").status).toBe("orphaned");
+    expect(decideOverride("include", "orphaned", "imap", "no_license").status).toBe("orphaned");
+  });
+
+  it("lets an admin exclude or include an IMAP account that was confirmed as shut down", () => {
+    const decide = (action: "include" | "exclude" | "reset") =>
+      decideOverride(action, "orphaned", "imap", "login_refused");
+    expect(decide("exclude")).toEqual({ status: "excluded", override: null, needsSync: false });
+    expect(decide("include")).toEqual({ status: "active", override: null, needsSync: false });
+    expect(decide("reset").status).toBe("active");
+    // Nothing else changes: the reason belongs to IMAP accounts alone.
+    expect(decideOverride("include", "orphaned", "m365", "login_refused").status).toBe("orphaned");
   });
 });
 

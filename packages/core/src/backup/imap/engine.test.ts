@@ -605,6 +605,35 @@ describe("ImapBackupEngine", () => {
     expect(cursor.cursor).toBeNull();
   });
 
+  describe("probeLogin", () => {
+    it("logs in and out without opening a folder", async () => {
+      seedMailbox();
+      await engine().probeLogin(context(), protectedObject);
+      expect(server.stats.connects).toBe(1);
+      expect(snapshots.rows.size).toBe(0);
+    });
+
+    it("throws ImapAuthError for a refused login, classified imap.auth_failed", async () => {
+      server.faults.rejectAuth = true;
+      const error = await engine()
+        .probeLogin(context(), protectedObject)
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ImapAuthError);
+      expect(classifyFailure(error).code).toBe("imap.auth_failed");
+    });
+
+    it("keeps the transport rule and the missing-secret rule of a backup run", async () => {
+      const insecure = engine({ resolveAccount: async () => ({ ...account, security: "none" }) });
+      await expect(insecure.probeLogin(context(), protectedObject)).rejects.toBeInstanceOf(
+        ImapConfigError,
+      );
+      expect(server.stats.connects).toBe(0);
+      await expect(
+        engine().probeLogin(context({ secrets: {} }), protectedObject),
+      ).rejects.toBeInstanceOf(ImapConfigError);
+    });
+  });
+
   it("fails when the secret is missing", async () => {
     seedMailbox();
     await expect(

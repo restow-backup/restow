@@ -31,7 +31,9 @@
     "unscheduled": "Job ohne Zeitplan",
     "inactive_locked": "Nicht gesichert: gesperrt",
     "to_confirm": "Nicht mehr gesichert, bitte bestätigen",
-    "confirmed": "Absichtlich nicht mehr gesichert"
+    "confirmed": "Absichtlich nicht mehr gesichert",
+    "login_refused": "Absichtlich nicht mehr gesichert",
+    "login_question": "Anmeldung abgelehnt: Antwort offen"
   },
   "statusHint": {
     "active": "Im Schutzumfang und in einem Backup-Job, der nach Zeitplan sichert.",
@@ -45,7 +47,8 @@
     "unscheduled": "In einem Backup-Job, der pausiert ist oder nur von Hand läuft: Es wird nicht automatisch gesichert.",
     "inactive_locked": "Microsoft hat dieses OneDrive oder diese Website gesperrt (HTTP 423), meist weil das Konto keine Lizenz mehr hat. Vorhandene Sicherungen bleiben erhalten. Sobald die Sperre aufgehoben ist, wird nach dem nächsten Verzeichnisabgleich automatisch wieder gesichert.",
     "to_confirm": "{appName} sichert dieses Objekt nicht mehr, weil die Quelle es als entfernt, deaktiviert, ohne Lizenz oder gesperrt meldet. Das ist kein Fehler. Bestätigen Sie mit \"Ja, beabsichtigt\", dass das so gewollt ist; bis dahin bleibt die Bereitschaft gelb. Vorhandene Sicherungen bleiben erhalten.",
-    "confirmed": "Ein Administrator hat bestätigt, dass dieses Objekt absichtlich nicht mehr gesichert wird. Vorhandene Sicherungen bleiben erhalten. Wird es an der Quelle wieder aktiv, sichert {appName} es von selbst wieder, und die Bestätigung entfällt."
+    "confirmed": "Ein Administrator hat bestätigt, dass dieses Objekt absichtlich nicht mehr gesichert wird. Vorhandene Sicherungen bleiben erhalten. Wird es an der Quelle wieder aktiv, sichert {appName} es von selbst wieder, und die Bestätigung entfällt.",
+    "login_refused": "Ein Administrator hat bestätigt, dass dieses IMAP-Konto abgeschaltet wurde: Die Anmeldung wird abgelehnt. Vorhandene Sicherungen bleiben erhalten. {appName} prüft die Anmeldung einmal pro Woche und sichert das Konto von selbst wieder, sobald sie gelingt."
   },
   "override": {
     "include": "Immer eingeschlossen",
@@ -92,12 +95,14 @@
     "notBackedUp": {
       "account_disabled": "Nicht gesichert: Konto deaktiviert",
       "no_license": "Nicht gesichert: keine Lizenz",
-      "locked": "Nicht gesichert: gesperrt"
+      "locked": "Nicht gesichert: gesperrt",
+      "login_refused": "Nicht gesichert: Konto abgeschaltet"
     },
     "notBackedUpHint": {
       "account_disabled": "Das Konto ist deaktiviert, deshalb stellt Microsoft kein Postfach zum Sichern bereit. Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und sobald das Konto wieder aktiviert ist, wird automatisch wieder gesichert.",
       "no_license": "Das Konto hat keine Exchange-Online-Lizenz, deshalb stellt Microsoft kein Postfach zum Sichern bereit. Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und sobald wieder eine Lizenz zugewiesen ist, wird automatisch wieder gesichert.",
-      "locked": "Microsoft beantwortet jeden Zugriff auf dieses OneDrive oder diese Website mit HTTP 423 (gesperrt). Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und sobald die Sperre aufgehoben ist, wird wieder gesichert."
+      "locked": "Microsoft beantwortet jeden Zugriff auf dieses OneDrive oder diese Website mit HTTP 423 (gesperrt). Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und sobald die Sperre aufgehoben ist, wird wieder gesichert.",
+      "login_refused": "Die Anmeldung dieses IMAP-Kontos wird abgelehnt, und ein Administrator hat bestätigt, dass es abgeschaltet wurde. Das ist kein Fehler. Vorhandene Sicherungen bleiben erhalten, und die Sicherung läuft von selbst wieder, sobald die Anmeldung gelingt (Prüfung einmal pro Woche)."
     },
     "openJob": "Lauf öffnen",
     "snapshots": "{count, plural, one {# Sicherungsstand} other {# Sicherungsstände}}",
@@ -496,9 +501,22 @@
       "removed": "Nicht mehr in der Quelle",
       "account_disabled": "Konto deaktiviert",
       "no_license": "Konto ohne Lizenz",
-      "locked": "Von Microsoft gesperrt"
+      "locked": "Von Microsoft gesperrt",
+      "login_refused": "Konto abgeschaltet (Anmeldung abgelehnt)"
     },
     "reasonSince": "{reason}, seit {date}",
+    "loginQuestion": {
+      "text": "Anmeldung seit {date} abgelehnt. Wurde dieses Konto abgeschaltet?",
+      "yes": "Ja, abgeschaltet",
+      "yesAfterNo": "Doch abgeschaltet",
+      "no": "Nein, Anmeldung korrigieren",
+      "sourceWide": "Bei fast allen Konten dieser Quelle wird die Anmeldung abgelehnt. Prüfen Sie zuerst das Passwort der Quelle.",
+      "banner": "{count, plural, one {# Konto: Die Anmeldung wird abgelehnt. Wurde es abgeschaltet?} other {# Konten: Die Anmeldung wird abgelehnt. Wurden sie abgeschaltet?}}",
+      "doneYes": "{name}: als abgeschaltet bestätigt",
+      "doneBulk": "{count, plural, =0 {Kein Konto wartete auf eine Antwort} one {# Konto als abgeschaltet bestätigt} other {# Konten als abgeschaltet bestätigt}}",
+      "doneNo": "{name}: Das Konto bleibt geschützt. Korrigieren Sie die Anmeldung, damit wieder gesichert werden kann.",
+      "checkSource": "Prüfen Sie das Passwort oder App-Passwort der Quelle {source}."
+    },
     "lockHint": {
       "no_license": "Das Konto hat keine Lizenz",
       "account_disabled": "Das Konto ist deaktiviert"
@@ -514,6 +532,14 @@
     "bulkConfirm": {
       "title": "{count, plural, one {# Objekt absichtlich nicht mehr sichern?} other {# Objekte absichtlich nicht mehr sichern?}}",
       "description": "Bestätigt werden nur Objekte, die nicht mehr gesichert werden und noch auf eine Bestätigung warten. Vorhandene Sicherungen bleiben erhalten."
+    },
+    "loginConfirm": {
+      "title": "{name} als abgeschaltet bestätigen?",
+      "description": "Das Konto wird nicht mehr gesichert und grau statt rot angezeigt. Vorhandene Sicherungen bleiben erhalten. {appName} prüft die Anmeldung weiterhin einmal pro Woche; sobald sie wieder gelingt, sichert {appName} das Konto von selbst wieder."
+    },
+    "loginBulkConfirm": {
+      "title": "{count, plural, one {# Konto als abgeschaltet bestätigen?} other {# Konten als abgeschaltet bestätigen?}}",
+      "description": "{count, plural, one {Das Konto wird} other {Die # Konten werden}} nicht mehr gesichert und grau statt rot angezeigt. Quellen: {sources}. Vorhandene Sicherungen bleiben erhalten. {appName} prüft die Anmeldungen weiterhin einmal pro Woche und sichert die Konten von selbst wieder, sobald sie gelingen."
     },
     "done": {
       "one": "{name}: als beabsichtigt bestätigt",

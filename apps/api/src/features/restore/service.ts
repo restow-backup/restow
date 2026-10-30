@@ -515,7 +515,9 @@ export async function createRestore(
             ? "The original account is disabled and Microsoft hosts no mailbox for it. Restore into another account or download the data."
             : object.statusReason === "no_license"
               ? "The original account has no Exchange Online licence, so there is no mailbox to restore into. Restore into another account or download the data."
-              : "The original account no longer exists in the source. Restore into another account or download the data.",
+              : object.statusReason === "login_refused"
+                ? "The original account is shut down: its login is refused and an administrator confirmed it. Restore into another account or download the data."
+                : "The original account no longer exists in the source. Restore into another account or download the data.",
         ...inactive,
       });
     }

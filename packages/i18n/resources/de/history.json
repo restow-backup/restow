@@ -55,7 +55,8 @@
     "limited": "Vom Dienst gedrosselt, wird wiederholt",
     "notBackedUp_account_disabled": "Nicht gesichert: Konto deaktiviert",
     "notBackedUp_no_license": "Nicht gesichert: keine Lizenz",
-    "notBackedUp_locked": "Nicht gesichert: gesperrt"
+    "notBackedUp_locked": "Nicht gesichert: gesperrt",
+    "notBackedUp_login_refused": "Nicht gesichert: Konto abgeschaltet"
   },
   "attempt": "Versuch {number} von {of}",
   "restoreCheck": {
@@ -246,7 +247,8 @@
     "restore_check_passed": "Restore-Prüfung bestanden",
     "restore_check_warning": "Restore-Prüfung mit Warnungen",
     "restore_check_failed": "Restore-Prüfung fehlgeschlagen",
-    "notBackedUp_locked": "Nicht gesichert: Microsoft hat das OneDrive oder die Website gesperrt"
+    "notBackedUp_locked": "Nicht gesichert: Microsoft hat das OneDrive oder die Website gesperrt",
+    "notBackedUp_login_refused": "Nicht gesichert: Die Anmeldung wird abgelehnt, das Konto wurde als abgeschaltet bestätigt"
   },
   "drawer": {
     "title": "Lauf",

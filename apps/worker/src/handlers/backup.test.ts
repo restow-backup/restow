@@ -210,7 +210,13 @@ function engine(
 interface FakeStoreOptions {
   source?: Source;
   objectStatus?: "active" | "excluded" | "orphaned";
-  objectStatusReason?: "account_disabled" | "no_license" | "locked" | null;
+  objectStatusReason?:
+    | "account_disabled"
+    | "no_license"
+    | "locked"
+    | "login_refused"
+    | "login_refused"
+    | null;
   objectSecretRef?: string | null;
   verifyScheduled?: boolean;
   /** The backup job that checks restores of the object (it comes before a schedule). */
@@ -223,6 +229,7 @@ function fakeStore(options: FakeStoreOptions = {}) {
   const queued: Parameters<BackupStore["insertQueuedJob"]>[0][] = [];
   const replacedSecrets: { secretId: string; plaintext: string }[] = [];
   const markedInactive: { id: string; reason: string }[] = [];
+  const logins: string[] = [];
   const store: BackupStore = {
     async loadSource() {
       return {
@@ -254,8 +261,21 @@ function fakeStore(options: FakeStoreOptions = {}) {
       markedInactive.push({ id, reason });
       return true;
     },
+    async recordLoginFailure(id) {
+      logins.push(`failure:${id}`);
+    },
+    async recordLoginSuccess(id) {
+      logins.push(`success:${id}`);
+    },
+    async reactivateAfterLogin(id) {
+      logins.push(`reactivated:${id}`);
+      return true;
+    },
+    async postponeLoginProbe(id, days) {
+      logins.push(`postponed:${id}:${days}`);
+    },
   };
-  return { store, runtime, results, queued, replacedSecrets, markedInactive };
+  return { store, runtime, results, queued, replacedSecrets, markedInactive, logins };
 }
 
 function workerContext(
@@ -1248,7 +1268,9 @@ describe("disabled and unlicensed mailboxes", () => {
 
   function failingHandler(
     error: unknown,
-    check: (() => Promise<"account_disabled" | "no_license" | "locked" | null>) | null,
+    check:
+      | (() => Promise<"account_disabled" | "no_license" | "locked" | "login_refused" | null>)
+      | null,
     store = fakeStore(),
   ) {
     const engines = new BackupEngineRegistry([
@@ -1476,5 +1498,382 @@ describe("a OneDrive or site Microsoft locked (HTTP 423)", () => {
     } as const;
     expect(backupRejection(ok)).toMatch(/locked/);
     expect(backupRejectionCode(ok)).toBe("config.object_inactive");
+  });
+});
+
+describe("an IMAP account whose login is refused", () => {
+  const imapObject: ProtectedObjectRef = {
+    ...mailbox,
+    kind: "imap",
+    externalId: "bob@example.test",
+    displayName: "Bob",
+  };
+  const authError = () =>
+    Object.assign(new Error("Command failed"), {
+      authenticationFailed: true,
+      serverResponseCode: "AUTHENTICATIONFAILED",
+      response: "Invalid credentials (Failure)",
+    });
+
+  const result: BackupResult = {
+    snapshotId: "snap-imap",
+    sequence: 1,
+    objectsWritten: 0,
+    objectsTotal: 0,
+    bytes: 0,
+    failures: [],
+  };
+
+  function imapHandler(options: {
+    store: ReturnType<typeof fakeStore>;
+    run?: BackupEngine["run"];
+    probe?: (() => Promise<void>) | null;
+    storageTarget?: MemoryStorage;
+  }) {
+    const target = options.storageTarget ?? new MemoryStorage();
+    const engines = new BackupEngineRegistry([
+      [
+        "imap",
+        () =>
+          engine(
+            "imap",
+            options.run ??
+              (async (engineCtx, object) => {
+                const record = await engineCtx.snapshots.create({
+                  id: "snap-imap",
+                  protectedObjectId: object.id,
+                  jobId: engineCtx.jobId,
+                  sequence: 1,
+                  startedAt: engineCtx.now(),
+                });
+                await target.put("manifest", Buffer.from("m"));
+                await engineCtx.snapshots.complete(record.id, {
+                  manifestPath: "manifest",
+                  itemCount: 0,
+                  byteSize: 0,
+                  completedAt: engineCtx.now(),
+                });
+                return result;
+              }),
+          ),
+      ],
+    ]);
+    const probeCalls: string[] = [];
+    engines.loginProbe =
+      options.probe === null
+        ? null
+        : async (_deps, object) => {
+            probeCalls.push(object.externalId);
+            await options.probe?.();
+          };
+    const ctx = workerContext({ primary: target, copies: [] }, { object: imapObject });
+    return {
+      probeCalls,
+      run: () =>
+        createBackupHandler({ engines, store: () => options.store.store }).run(ctx, {
+          jobId: JOB,
+          tenantId: TENANT,
+          protectedObjectId: OBJECT,
+        }),
+    };
+  }
+
+  const shutDown = () =>
+    fakeStore({
+      source: imapSource(),
+      objectStatus: "orphaned",
+      objectStatusReason: "login_refused",
+    });
+
+  describe("eligibility", () => {
+    const ok = {
+      objectKind: "imap",
+      objectStatus: "orphaned",
+      objectStatusReason: "login_refused",
+      sourceKind: "imap",
+      sourceStatus: "active",
+    } as const;
+
+    it("lets a shut-down account through to the probe, and keeps the source checks", () => {
+      expect(backupRejection(ok)).toBeNull();
+      expect(backupRejection({ ...ok, sourceStatus: "error" })).toBeNull();
+      expect(backupRejection({ ...ok, sourceStatus: "disabled" })).toMatch(/disabled/);
+      expect(backupRejection({ ...ok, sourceStatus: "pending" })).toMatch(/not connected/);
+      expect(backupRejectionCode({ ...ok, sourceStatus: "disabled" })).toBe(
+        "config.source_disabled",
+      );
+      expect(backupRejectionCode({ ...ok, sourceStatus: "pending" })).toBe(
+        "config.source_not_connected",
+      );
+    });
+
+    it("still turns away an IMAP account that is orphaned for another reason", () => {
+      expect(backupRejection({ ...ok, objectStatusReason: null })).toMatch(/no longer exists/);
+    });
+
+    it("never probes a disabled source", async () => {
+      const store = fakeStore({
+        source: imapSource({ status: "disabled" }),
+        objectStatus: "orphaned",
+        objectStatusReason: "login_refused",
+      });
+      const { run, probeCalls } = imapHandler({ store });
+      const error = await run().catch((caught: unknown) => caught);
+      expect((error as InvalidPayloadError).failure?.code).toBe("config.source_disabled");
+      expect(probeCalls).toEqual([]);
+      expect(store.logins).toEqual([]);
+    });
+  });
+
+  describe("the probe of a shut-down account", () => {
+    it("ends neutral and final when the login is still refused, and probes again in a week", async () => {
+      const store = shutDown();
+      const { run, probeCalls } = imapHandler({
+        store,
+        probe: async () => {
+          throw authError();
+        },
+      });
+      const error = await run().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(InvalidPayloadError);
+      const failure = (error as InvalidPayloadError).failure;
+      expect(failure).toMatchObject({
+        code: "config.object_inactive",
+        params: { reason: "login_refused" },
+      });
+      expect(isNotBackedUpFailure("failed", failure)).toBe(true);
+      expect(probeCalls).toEqual(["bob@example.test"]);
+      expect(store.logins).toEqual([`failure:${OBJECT}`, `postponed:${OBJECT}:7`]);
+    });
+
+    it("postpones the next probe by a week even when counting the refusal wrote nothing", async () => {
+      const store = shutDown();
+      store.store.recordLoginFailure = async () => {
+        throw new Error("database down");
+      };
+      const { run } = imapHandler({
+        store,
+        probe: async () => {
+          throw authError();
+        },
+      });
+      const error = await run().catch((caught: unknown) => caught);
+      expect((error as InvalidPayloadError).failure?.code).toBe("config.object_inactive");
+      expect(store.logins).toEqual([`postponed:${OBJECT}:7`]);
+    });
+
+    it("does not back up an account that was excluded while the probe ran", async () => {
+      const store = shutDown();
+      store.store.reactivateAfterLogin = async () => false;
+      const loadSource = store.store.loadSource.bind(store.store);
+      let loads = 0;
+      store.store.loadSource = async (object) => {
+        const loaded = await loadSource(object);
+        return ++loads > 1 ? { ...loaded, objectStatus: "excluded" } : loaded;
+      };
+      let ran = 0;
+      const { run } = imapHandler({
+        store,
+        probe: async () => undefined,
+        run: async () => {
+          ran++;
+          return result;
+        },
+      });
+      const error = await run().catch((caught: unknown) => caught);
+      expect((error as InvalidPayloadError).failure).toMatchObject({
+        code: "config.object_inactive",
+        params: { reason: "login_refused" },
+      });
+      expect(ran).toBe(0);
+    });
+
+    it("backs up an account that is active again although this run did not reactivate it", async () => {
+      const store = shutDown();
+      store.store.reactivateAfterLogin = async () => false;
+      const loadSource = store.store.loadSource.bind(store.store);
+      let loads = 0;
+      store.store.loadSource = async (object) => {
+        const loaded = await loadSource(object);
+        return ++loads > 1
+          ? { ...loaded, objectStatus: "active", objectStatusReason: null }
+          : loaded;
+      };
+      let ran = 0;
+      const target = new MemoryStorage();
+      const { run } = imapHandler({
+        store,
+        storageTarget: target,
+        probe: async () => undefined,
+        run: async (engineCtx, object) => {
+          ran++;
+          const record = await engineCtx.snapshots.create({
+            id: "snap-imap",
+            protectedObjectId: object.id,
+            jobId: engineCtx.jobId,
+            sequence: 1,
+            startedAt: engineCtx.now(),
+          });
+          await target.put("manifest", Buffer.from("m"));
+          await engineCtx.snapshots.complete(record.id, {
+            manifestPath: "manifest",
+            itemCount: 0,
+            byteSize: 0,
+            completedAt: engineCtx.now(),
+          });
+          return result;
+        },
+      });
+      await run();
+      expect(ran).toBe(1);
+    });
+
+    it("reactivates the account when the login works, then backs it up in the same run", async () => {
+      const store = shutDown();
+      let ran = 0;
+      const target = new MemoryStorage();
+      const { run } = imapHandler({
+        store,
+        storageTarget: target,
+        probe: async () => undefined,
+        run: async (engineCtx, object) => {
+          ran++;
+          const record = await engineCtx.snapshots.create({
+            id: "snap-imap",
+            protectedObjectId: object.id,
+            jobId: engineCtx.jobId,
+            sequence: 1,
+            startedAt: engineCtx.now(),
+          });
+          await target.put("manifest", Buffer.from("m"));
+          await engineCtx.snapshots.complete(record.id, {
+            manifestPath: "manifest",
+            itemCount: 0,
+            byteSize: 0,
+            completedAt: engineCtx.now(),
+          });
+          return result;
+        },
+      });
+      const outcome = await run();
+      expect(ran).toBe(1);
+      expect(outcome?.summary).toMatchObject({ snapshotId: "snap-imap" });
+      expect(store.logins).toEqual([`reactivated:${OBJECT}`, `success:${OBJECT}`]);
+    });
+
+    it("never reactivates on a doubtful answer, and postpones the next probe by a day", async () => {
+      for (const failing of [
+        () => Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+        () =>
+          Object.assign(new Error("Command failed"), {
+            authenticationFailed: true,
+            serverResponseCode: "UNAVAILABLE",
+            response: "Temporary authentication failure.",
+          }),
+        () => new Error("no secret"),
+      ]) {
+        const store = shutDown();
+        const { run } = imapHandler({
+          store,
+          probe: async () => {
+            throw failing();
+          },
+        });
+        const error = await run().catch((caught: unknown) => caught);
+        expect((error as InvalidPayloadError).failure).toMatchObject({
+          code: "config.object_inactive",
+          params: { reason: "login_refused" },
+        });
+        expect(store.logins).toEqual([`postponed:${OBJECT}:1`]);
+      }
+    });
+
+    it("ends neutral and postpones when this build has no login probe", async () => {
+      const store = shutDown();
+      const { run } = imapHandler({ store, probe: null });
+      const error = await run().catch((caught: unknown) => caught);
+      expect((error as InvalidPayloadError).failure?.code).toBe("config.object_inactive");
+      expect(store.logins).toEqual([`postponed:${OBJECT}:1`]);
+    });
+  });
+
+  describe("an active account", () => {
+    it("counts a refused login of a failed run and keeps the run's own error", async () => {
+      const store = fakeStore({ source: imapSource() });
+      const original = authError();
+      const { run } = imapHandler({
+        store,
+        run: async () => {
+          throw original;
+        },
+      });
+      await expect(run()).rejects.toBe(original);
+      expect(store.logins).toEqual([`failure:${OBJECT}`]);
+    });
+
+    it("does not count a failure that is not a refused login", async () => {
+      const store = fakeStore({ source: imapSource() });
+      const original = new Error("socket hang up");
+      const { run } = imapHandler({
+        store,
+        run: async () => {
+          throw original;
+        },
+      });
+      await expect(run()).rejects.toBe(original);
+      expect(store.logins).toEqual([]);
+    });
+
+    it("does not let a failing record mask the run's error", async () => {
+      const store = fakeStore({ source: imapSource() });
+      store.store.recordLoginFailure = async () => {
+        throw new Error("database down");
+      };
+      const original = authError();
+      const { run } = imapHandler({
+        store,
+        run: async () => {
+          throw original;
+        },
+      });
+      await expect(run()).rejects.toBe(original);
+    });
+
+    it("resets the streak after a run whose login worked", async () => {
+      const store = fakeStore({ source: imapSource() });
+      const { run } = imapHandler({ store });
+      await run();
+      expect(store.logins).toEqual([`success:${OBJECT}`]);
+    });
+
+    it("counts nothing for a Microsoft 365 mailbox", async () => {
+      const primary = new MemoryStorage();
+      const store = fakeStore();
+      const original = authError();
+      const handler = createBackupHandler({
+        engines: new BackupEngineRegistry([
+          [
+            "mailbox",
+            () =>
+              engine("mailbox", async () => {
+                throw original;
+              }),
+          ],
+        ]),
+        store: () => store.store,
+      });
+      await expect(
+        handler.run(workerContext({ primary, copies: [] }), {
+          jobId: JOB,
+          tenantId: TENANT,
+          protectedObjectId: OBJECT,
+        }),
+      ).rejects.toBe(original);
+      expect(store.logins).toEqual([]);
+    });
+  });
+
+  it("ships a login probe next to the IMAP engine", () => {
+    expect(createDefaultBackupEngines({ env: {} }).loginProbe).toBeTypeOf("function");
   });
 });

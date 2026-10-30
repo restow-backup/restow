@@ -79,6 +79,12 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
   (`account_disabled`, `no_license`, `locked` für ein OneDrive oder eine Website, die Microsoft mit
   HTTP 423 sperrt; ab 0.4.7, docs/MICROSOFT.md „Deaktivierte und unlizenzierte Konten" und
   „OneDrive"): neutral wie jedes verwaiste Objekt, nimmt die Sicherung von selbst wieder auf.
+  Ein IMAP-Konto trägt `login_refused` (ab 0.4.8), wenn ein Administrator die Frage „Wurde dieses
+  Konto abgeschaltet?“ nach wiederholt abgelehnter Anmeldung mit Ja beantwortet hat (docs/IMAP.md
+  „Anmeldung abgelehnt: Konto abgeschaltet?"): sechs Spalten `login_*` zählen die Fehlschläge, die
+  Prüfung `protected_objects_login_refused_ck` (Migration 0070) lässt den Grund nur mit Art `imap`,
+  Status `orphaned` und Bestätigung zu, der Planer `apps/scheduler/src/login-probes.ts` stellt alle
+  7 Tage die Anmeldeprobe als Sicherungslauf ein (`login_probe_due_at`).
   Seine Läufe zählen nicht als fehlgeschlagen (`NOT_BACKED_UP_CAUSES`,
   `apps/api/src/lib/service-limit.ts` `notCountedFailureJob`).
 - Bestätigung verwaister Objekte (ab 0.4.7, docs/MICROSOFT.md „Nicht mehr gesichert:
@@ -86,7 +92,10 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
   raus), `status_confirmed_at`/`status_confirmed_by` („Ja, beabsichtigt“). Der Trigger
   `protected_objects_inactive_state` (Migration 0069) setzt beim Übergang nach `orphaned` ein
   neues Datum und löscht Meldung und Bestätigung (kommt das Objekt aus `excluded`, gilt es als
-  bestätigt und gemeldet, `status_confirmed_by = 'excluded'`: es wurde nie gesichert), beim Verlassen von `orphaned` alle fünf Spalten;
+  bestätigt und gemeldet, `status_confirmed_by = 'excluded'`: es wurde nie gesichert; mit dem Grund
+  `login_refused` behält es die Bestätigung des Administrators, die die Antwort mitbrachte, und
+  plant die erste Probe in 7 Tagen, Migration 0070), beim Verlassen von `orphaned` alle fünf Spalten
+  (und bei jedem Statuswechsel, der nicht in `login_refused` endet, auch die sechs `login_*`-Spalten);
   so gilt das in jedem Schreibpfad (Abgleich, Backup, API). Unbestätigt (`inactiveState`
   `to_confirm`, core `directory/inactive.ts`) hält ein Objekt den Mandanten auf mindestens gelb
   (`toConfirm` in der Bereitschaft), bestätigt ist es neutral. Vor 0.4.7 verwaiste Objekte setzt
@@ -572,7 +581,10 @@ abläuft (Bedienung: docs/ENTRA-SETUP.md, Teil 3 und "Alternative: eine eigene A
   20 % der gesicherten Objekte eines Mandanten an einem Tag ergeben eine Warnung statt vieler
   Hinweise (höchstens eine je Tag, Betreff `inactive_many:<Mandant>:<Tag>`); zwei Ereignisse, weil
   die Kanäle nach der festen Stufe des Katalogs filtern. Die Glocke führt zu den geschützten
-  Objekten mit dem Filter `to_confirm`.
+  Objekten mit dem Filter `to_confirm`. Dieselben zwei Ereignisse tragen ab 0.4.8 die Frage nach
+  einem IMAP-Konto mit wiederholt abgelehnter Anmeldung (`details.question = "login"`, einmal je
+  Serie von Fehlschlägen, Betreff der Sammelwarnung `inactive_many:<Mandant>:<Tag>:login`);
+  `details.kind` bleibt die Art des Objekts, der Filter heißt `login_question`.
 - `source.app_secret_expiring` (Gruppe Läufe, Warnung; auch für Mandanten-Admins) für die eigene App
   einer Quelle. Geprüft im Endpoint-Monitor des Workers (`apps/worker/src/source-app-expiry.ts`, alle
   fünf Minuten) über aktive M365-Quellen aktiver Mandanten. Das Datum steht öffentlich in

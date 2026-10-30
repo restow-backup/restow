@@ -270,6 +270,11 @@
       "inactive": {
         "confirmed": "Nicht mehr gesichertes Objekt als beabsichtigt bestätigt",
         "bulk_confirmed": "Nicht mehr gesicherte Objekte als beabsichtigt bestätigt"
+      },
+      "login": {
+        "question_raised": "Frage gestellt: Wurde das IMAP-Konto abgeschaltet?",
+        "dismissed": "Anmeldefrage mit Nein beantwortet",
+        "restored": "Abgeschaltetes IMAP-Konto wird wieder gesichert"
       }
     },
     "export": {

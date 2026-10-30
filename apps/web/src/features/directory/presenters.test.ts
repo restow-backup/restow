@@ -17,6 +17,8 @@ import {
   HEALTH_VARIANT,
   hasCredentialProblem,
   inactiveDetail,
+  loginQuestionOf,
+  loginQuestionSources,
   objectErrorKey,
   objectStatusView,
   objectSubtitle,
@@ -526,6 +528,7 @@ describe("availableActions", () => {
       reset: false,
       remove: false,
       confirmInactive: false,
+      answerLoginQuestion: false,
     });
     expect(availableActions(object({ override: "exclude", status: "excluded" }))).toEqual({
       include: true,
@@ -533,6 +536,7 @@ describe("availableActions", () => {
       reset: true,
       remove: false,
       confirmInactive: false,
+      answerLoginQuestion: false,
     });
   });
 
@@ -543,6 +547,7 @@ describe("availableActions", () => {
       reset: true,
       remove: false,
       confirmInactive: false,
+      answerLoginQuestion: false,
     });
   });
 
@@ -554,6 +559,7 @@ describe("availableActions", () => {
       reset: false,
       remove: true,
       confirmInactive: false,
+      answerLoginQuestion: false,
     });
     expect(availableActions({ ...imap, snapshotCount: 1 }).remove).toBe(true);
     expect(availableActions({ ...imap, origin: "directory_sync" }).remove).toBe(false);
@@ -979,5 +985,157 @@ describe("objects no longer backed up: the confirmation", () => {
       kind: "not_backed_up",
       reason: "locked",
     });
+  });
+});
+
+describe("an IMAP account whose login is refused", () => {
+  const imap = (overrides: Partial<ProtectedObject> = {}) =>
+    object({ kind: "imap", sourceKind: "imap", origin: "manual", ...overrides });
+  const asked = {
+    askedAt: "2026-10-28T02:00:00.000Z",
+    failedSince: "2026-10-25T02:00:00.000Z",
+    runs: 3,
+    dismissedAt: null,
+    sourceWide: false,
+  };
+  const shutDown = (overrides: Partial<ProtectedObject> = {}) =>
+    imap({
+      status: "orphaned",
+      statusReason: "login_refused",
+      inactiveState: "confirmed",
+      inactiveSince: "2026-10-28T10:00:00.000Z",
+      statusConfirmedAt: "2026-10-28T10:00:00.000Z",
+      statusConfirmedBy: "admin@contoso.example",
+      ...overrides,
+    });
+
+  it("asks the question of an active account, open until it is answered", () => {
+    expect(loginQuestionOf(imap({ loginQuestion: asked }))).toEqual({
+      state: "open",
+      question: asked,
+    });
+    const dismissed = { ...asked, dismissedAt: "2026-10-29T08:00:00.000Z" };
+    expect(loginQuestionOf(imap({ loginQuestion: dismissed }))?.state).toBe("dismissed");
+    expect(loginQuestionOf(imap())).toBeNull();
+    expect(loginQuestionOf(imap({ loginQuestion: asked, status: "orphaned" }))).toBeNull();
+    expect(loginQuestionOf(object({ loginQuestion: asked }))).toBeNull();
+  });
+
+  it('offers "Yes, shut down" while the question is open or was answered "No"', () => {
+    expect(availableActions(imap({ loginQuestion: asked })).answerLoginQuestion).toBe(true);
+    expect(
+      availableActions(
+        imap({ loginQuestion: { ...asked, dismissedAt: "2026-10-29T08:00:00.000Z" } }),
+      ).answerLoginQuestion,
+    ).toBe(true);
+    expect(availableActions(imap()).answerLoginQuestion).toBe(false);
+  });
+
+  it("keeps the amber 'needs attention' badge of a per_mailbox account with a failing login next to the question", () => {
+    const failing = imap({
+      loginQuestion: asked,
+      credential: {
+        authMode: "per_mailbox",
+        hasPassword: true,
+        status: "failed",
+        checkedAt: null,
+        error: null,
+        errorReason: null,
+        failure: null,
+      },
+    });
+    expect(objectStatusView(failing)).toEqual({ variant: "warning", suffix: "needs_credential" });
+    expect(loginQuestionOf(failing)?.state).toBe("open");
+  });
+
+  it("keeps its own wording for a shut-down account that arrives without inactiveState", () => {
+    // An older or odd payload: there is no `inactive_login_refused` string to fall back to.
+    expect(objectStatusView(shutDown({ inactiveState: undefined }))).toEqual({
+      variant: "muted",
+      suffix: "login_refused",
+    });
+  });
+
+  it("names the sources of the open questions from the per-source counts", () => {
+    const source = (id: string, name: string, active: number, loginQuestions?: number) => ({
+      id,
+      name,
+      counts: {
+        total: active,
+        active,
+        excluded: 0,
+        orphaned: 0,
+        mailbox: 0,
+        onedrive: 0,
+        imap: active,
+        loginQuestions,
+      },
+    });
+    const sources = [
+      source("a", "Hoster A", 10, 9),
+      source("b", "Hoster B", 40, 3),
+      source("c", "Hoster C", 5, 0),
+      source("d", "Old server", 5),
+    ];
+    expect(loginQuestionSources(sources)).toEqual({
+      names: ["Hoster A", "Hoster B"],
+      sourceWide: true,
+    });
+    // Narrowed to a source where only a few accounts ask: no source-wide warning.
+    expect(loginQuestionSources(sources, "b")).toEqual({ names: ["Hoster B"], sourceWide: false });
+    expect(loginQuestionSources(sources, "c")).toEqual({ names: [], sourceWide: false });
+    // A single failing account is never source-wide.
+    expect(loginQuestionSources([source("e", "Solo", 1, 1)])).toEqual({
+      names: ["Solo"],
+      sourceWide: false,
+    });
+  });
+
+  it("reads grey once the answer was Yes, with a hint of its own, and never as a failure", () => {
+    expect(objectStatusView(shutDown())).toEqual({ variant: "muted", suffix: "login_refused" });
+    // The confirmed grey wins over a failed login test of the same account.
+    expect(
+      objectStatusView(
+        shutDown({
+          credential: {
+            authMode: "per_mailbox",
+            hasPassword: true,
+            status: "failed",
+            checkedAt: null,
+            error: null,
+            errorReason: null,
+            failure: null,
+          },
+        }),
+      ),
+    ).toEqual({ variant: "muted", suffix: "login_refused" });
+    expect(inactiveDetail(shutDown())?.reasonKey).toBe("inactive.reason.login_refused");
+    expect(backupState(shutDown({ lastBackupAt: "2026-10-20T00:00:00.000Z" }))).toEqual({
+      kind: "not_backed_up",
+      reason: "login_refused",
+      at: "2026-10-20T00:00:00.000Z",
+    });
+    expect(
+      backupState(
+        shutDown({
+          latestBackupJob: {
+            id: "j",
+            status: "failed",
+            at: "2026-10-29T00:00:00.000Z",
+            failure: null,
+            notBackedUp: "login_refused",
+          },
+        }),
+      ),
+    ).toMatchObject({ kind: "not_backed_up", reason: "login_refused" });
+  });
+
+  it("lets an admin exclude or include a shut-down account, but not any other orphaned IMAP account", () => {
+    expect(availableActions(shutDown())).toMatchObject({ include: true, exclude: true });
+    expect(
+      availableActions(shutDown({ statusReason: null, inactiveState: "to_confirm" })),
+    ).toMatchObject({ include: false, exclude: false });
+    // A confirmation is for the account no longer backed up, never for a shut-down one again.
+    expect(availableActions(shutDown()).confirmInactive).toBe(false);
   });
 });

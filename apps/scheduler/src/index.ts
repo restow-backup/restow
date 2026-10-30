@@ -24,6 +24,7 @@ import { ENDPOINT_QUEUE_OPTIONS, EndpointJobPlanner } from "./endpoints.js";
 import { FILE_SHARE_QUEUE_OPTIONS, FileShareJobPlanner } from "./file-shares.js";
 import { LeaderElection } from "./leader.js";
 import { errorMessage, logger } from "./logger.js";
+import { LoginProbePlanner } from "./login-probes.js";
 import { JOB_QUEUES, pgBossQueueOptions } from "./queues.js";
 import { ReportRuleStore } from "./reports.js";
 import { SchedulerLoop } from "./scheduler.js";
@@ -103,6 +104,11 @@ async function main(): Promise<void> {
     endpoints: new EndpointJobPlanner({ installation: providerDb.$client }, boss),
     // Backups, copies and maintenance of file shares, queued for the worker.
     fileShares: new FileShareJobPlanner({ installation: providerDb.$client }, boss),
+    // The weekly login probe of IMAP accounts an admin confirmed as shut down.
+    loginProbes: new LoginProbePlanner(
+      { tenant: db.$client, installation: providerDb.$client },
+      boss,
+    ),
     // Read leadership lazily; `election` is initialised just below and the tick
     // that calls this only runs after startup completes.
     isLeader: () => election.isLeader(),

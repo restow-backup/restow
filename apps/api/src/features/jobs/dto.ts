@@ -79,7 +79,7 @@ export interface JobObjectDto {
    * Why an orphaned mailbox is not backed up although its user is still in the directory
    * (`account_disabled`, `no_license`); null for every other object.
    */
-  statusReason: "account_disabled" | "no_license" | "locked" | null;
+  statusReason: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   /** The linked user's email or UPN; null for IMAP and unlinked objects. */
   ownerEmail: string | null;
 }
@@ -144,7 +144,7 @@ export interface JobDto {
    * neutral ("not backed up"), neither failed nor held back, and left out of the failed counts.
    * Null for every other job.
    */
-  notBackedUp: "account_disabled" | "no_license" | "locked" | null;
+  notBackedUp: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
 }
 
 /** How many items failed for one cause code. */
@@ -260,7 +260,7 @@ export interface BackupTargetDto {
   externalId: string;
   status: "active" | "excluded" | "orphaned";
   /** See {@link JobObjectDto.statusReason}. */
-  statusReason: "account_disabled" | "no_license" | "locked" | null;
+  statusReason: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   /** The linked user's email or UPN; null for IMAP and unlinked objects. */
   ownerEmail: string | null;
   source: { id: string; name: string; kind: "m365" | "imap"; status: string };
@@ -548,7 +548,7 @@ export function verifySummaryOf(
 
 /**
  * Why an object cannot be backed up right now (mirrors the worker's own
- * check, so the API answers before a job is created that would only fail).
+ * check, `backupRejection`, so the API answers before a job is created that would only fail).
  */
 export function backupBlockedReason(
   objectStatus: JobObjectDto["status"],
@@ -558,9 +558,11 @@ export function backupBlockedReason(
   if (objectStatus === "excluded") {
     return "excluded";
   }
-  if (objectStatus === "orphaned") {
+  if (objectStatus === "orphaned" && statusReason !== "login_refused") {
     return statusReason ? "inactive" : "orphaned";
   }
+  // An IMAP account an admin confirmed as shut down (`login_refused`) is not blocked: "Back up
+  // now" runs its login probe at once and backs the account up when the login works again.
   if (sourceStatus === "pending") {
     return "source_pending";
   }

@@ -400,7 +400,8 @@
       "notBackedUp_account_disabled": "Nicht gesichert: Konto deaktiviert",
       "notBackedUp_no_license": "Nicht gesichert: keine Lizenz",
       "cancelled": "Abgebrochen",
-      "notBackedUp_locked": "Nicht gesichert: von Microsoft gesperrt"
+      "notBackedUp_locked": "Nicht gesichert: von Microsoft gesperrt",
+      "notBackedUp_login_refused": "Nicht gesichert: Konto abgeschaltet"
     },
     "empty": {
       "title": "Noch keine Läufe",
@@ -493,7 +494,8 @@
         "needs_attention": "{count, plural, one {# Objekt braucht Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).} other {# Objekte brauchen Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).}}",
         "nothing_protected": "Der Mandant schützt noch nichts.",
         "immutability_warning": "{count, plural, one {Unveränderbarkeit ist eingestellt, aber # Repository hat Objekte ohne Sperre oder eine Verlängerung im Rückstand.} other {Unveränderbarkeit ist eingestellt, aber # Repositories haben Objekte ohne Sperre oder eine Verlängerung im Rückstand.}}",
-        "inactive_to_confirm": "{count, plural, one {# Objekt wird nicht mehr gesichert und wartet auf eine Bestätigung.} other {# Objekte werden nicht mehr gesichert und warten auf eine Bestätigung.}}"
+        "inactive_to_confirm": "{count, plural, one {# Objekt wird nicht mehr gesichert und wartet auf eine Bestätigung.} other {# Objekte werden nicht mehr gesichert und warten auf eine Bestätigung.}}",
+        "login_question": "{count, plural, one {# IMAP-Konto: Die Anmeldung wird abgelehnt, es fehlt die Antwort, ob es abgeschaltet wurde.} other {# IMAP-Konten: Die Anmeldung wird abgelehnt, es fehlt die Antwort, ob sie abgeschaltet wurden.}}"
       },
       "empty": {
         "title": "Keine Hinweise",

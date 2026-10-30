@@ -482,8 +482,8 @@
       "app_secret_expiring": "Warns before the client secret or certificate of a Microsoft 365 source's own app expires: 30 days before, again 7 days before, and once it has expired. Only for sources whose expiry is known (the date noted for the secret, or the certificate's own end). Once it has expired, backups of the source fail until a new secret or certificate is entered."
     },
     "object": {
-      "inactive": "Once per object when {appName} stops backing it up because the source no longer has it, the account is disabled or unlicensed, or Microsoft locked the OneDrive or site. Not a failure: confirm under Protection that this is intended.",
-      "inactive_many": "One warning instead of many notices when more than 10 objects, or more than 20% of a tenant's protected objects, stop being backed up within a day, for example because licences were removed or the sync scope is wrong."
+      "inactive": "Once per object when {appName} stops backing it up because the source no longer has it, the account is disabled or unlicensed, or Microsoft locked the OneDrive or site. Also once per IMAP account when its login has been refused for several days and an answer is needed whether the account was shut down. Not a failure: confirm or answer under Protection.",
+      "inactive_many": "One warning instead of many notices when more than 10 objects, or more than 20% of a tenant's protected objects, stop being backed up within a day, for example because licences were removed or the sync scope is wrong. The same for IMAP accounts whose login questions are raised at once, for example after the source's password changed."
     }
   },
   "sections": {
@@ -565,11 +565,17 @@
       "account_disabled": "The account is disabled",
       "no_license": "The account has no licence",
       "locked": "Microsoft locked the OneDrive or site",
+      "login_refused": "The login is refused and the account was confirmed as shut down",
       "removed": "No longer in the source"
     },
     "inactiveSince": "Not backed up since",
+    "loginQuestionLabel": "IMAP account: login refused, answer needed",
+    "loginQuestionLabelMany": "Many IMAP accounts: login refused, answer needed",
+    "loginRefusedSince": "Login refused since",
     "inactiveCount": "Objects",
-    "inactiveConfirm": "Check under Protection whether this is intended and confirm it with \"Yes, intended\". Existing backups are kept. When the object becomes active at the source again, {appName} backs it up again by itself."
+    "inactiveConfirm": "Check under Protection whether this is intended and confirm it with \"Yes, intended\". Existing backups are kept. When the object becomes active at the source again, {appName} backs it up again by itself.",
+    "loginQuestionConfirm": "Answer under Protection whether this account was shut down. \"Yes, shut down\" stops the backups and shows the account grey; \"No, fix the login\" keeps it protected. Existing backups are kept either way.",
+    "loginQuestionSourceFirst": "The login is refused for several accounts of the same source. Check the source's password first, then answer under Protection whether the accounts were shut down. Existing backups are kept either way."
   },
   "summary": {
     "previous": "previous period",
@@ -673,7 +679,9 @@
     },
     "object": {
       "inactive": "{object} is not backed up any more, please confirm",
-      "inactive_many": "{count} objects are not backed up any more since today, please check and confirm"
+      "inactive_many": "{count} objects are not backed up any more since today, please check and confirm",
+      "login_question": "{object}: the login is refused for several days, was the account shut down?",
+      "login_question_many": "{count} IMAP accounts: the login is refused for several days, please check the source's password and answer whether they were shut down"
     }
   },
   "toasts": {

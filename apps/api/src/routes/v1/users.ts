@@ -182,7 +182,7 @@ export interface UserObjectRow {
   kind: "mailbox" | "onedrive" | "imap" | "site" | "group";
   status: "active" | "excluded" | "orphaned";
   /** See the `statusReason` of {@link userObjectSchema}; absent reads as null. */
-  statusReason?: "account_disabled" | "no_license" | "locked" | null;
+  statusReason?: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   /** See {@link userObjectSchema}; absent reads as null. */
   inactiveSince?: Date | null;
   statusConfirmedAt?: Date | null;

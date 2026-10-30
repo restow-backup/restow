@@ -77,6 +77,11 @@ export interface SelectionPanelProps {
   filter: ObjectsFilter;
   /** Opens "Add to job" for the checked objects (closed jobs are handled by `jobs`). */
   onAddToJob: AddToJob;
+  /**
+   * While the list shows the open login questions: the sources of the checked accounts and
+   * whether the login fails for a whole source, which the confirmation names before a bulk "Yes".
+   */
+  loginQuestion?: { sourceNames: readonly string[]; sourceWide: boolean } | null;
 }
 
 type AddToJob = (objects: { id: string; name: string }[]) => void;
@@ -137,6 +142,7 @@ export const SelectionPanel = React.forwardRef<HTMLDivElement, SelectionPanelPro
       total,
       filter,
       onAddToJob,
+      loginQuestion = null,
     },
     ref,
   ) {
@@ -147,8 +153,11 @@ export const SelectionPanel = React.forwardRef<HTMLDivElement, SelectionPanelPro
     const moreRef = React.useRef<HTMLButtonElement>(null);
 
     const canReset = sourceKind === "m365";
-    // "Yes, intended" only where objects wait for it: the "to confirm" filter, or orphans listed.
-    const canConfirm = filter.status === "to_confirm" || filter.status === "orphaned";
+    // "Yes, intended" only where objects wait for it: the "to confirm" filter, or orphans listed;
+    // "Yes, shut down" for the open login questions.
+    const answeringLogins = filter.status === "login_question";
+    const canConfirm =
+      filter.status === "to_confirm" || filter.status === "orphaned" || answeringLogins;
     const canDecide = sourceId !== undefined;
     const count = selectionCount(selection, total);
     const offerAllMatching =
@@ -157,7 +166,11 @@ export const SelectionPanel = React.forwardRef<HTMLDivElement, SelectionPanelPro
 
     const applyConfirm = () =>
       confirmInactive.mutateAsync({ input: bulkTarget(selection, filter) }).then((result) => {
-        toast.success(t("inactive.done.bulk", { count: result.confirmed }));
+        toast.success(
+          answeringLogins
+            ? t("inactive.loginQuestion.doneBulk", { count: result.confirmed })
+            : t("inactive.done.bulk", { count: result.confirmed }),
+        );
         onSelectionChange(EMPTY_SELECTION);
         return result;
       });
@@ -198,12 +211,27 @@ export const SelectionPanel = React.forwardRef<HTMLDivElement, SelectionPanelPro
         confirmLabel: t("bulk.confirm.reset.confirm"),
         onConfirm: () => applyBulk("reset"),
       },
-      confirm: {
-        title: t("inactive.bulkConfirm.title", { count }),
-        description: t("inactive.bulkConfirm.description", { count }),
-        confirmLabel: t("inactive.confirmAction"),
-        onConfirm: () => applyConfirm(),
-      },
+      confirm: answeringLogins
+        ? {
+            title: t("inactive.loginBulkConfirm.title", { count }),
+            description: [
+              t("inactive.loginBulkConfirm.description", {
+                count,
+                sources: (loginQuestion?.sourceNames ?? []).join(", ") || "–",
+              }),
+              loginQuestion?.sourceWide ? t("inactive.loginQuestion.sourceWide") : null,
+            ]
+              .filter(Boolean)
+              .join(" "),
+            confirmLabel: t("inactive.loginQuestion.yes"),
+            onConfirm: () => applyConfirm(),
+          }
+        : {
+            title: t("inactive.bulkConfirm.title", { count }),
+            description: t("inactive.bulkConfirm.description", { count }),
+            confirmLabel: t("inactive.confirmAction"),
+            onConfirm: () => applyConfirm(),
+          },
     } satisfies Record<PanelDialog, React.ComponentProps<typeof ConfirmDialog>>;
 
     const actionButton = (id: PanelDialog, icon: LucideIcon, label: string) => {
@@ -279,7 +307,13 @@ export const SelectionPanel = React.forwardRef<HTMLDivElement, SelectionPanelPro
             {canDecide ? actionButton("include", CircleCheck, t("bulk.include")) : null}
             {canDecide ? actionButton("exclude", CircleMinus, t("bulk.exclude")) : null}
             {canDecide && canReset ? actionButton("reset", RotateCcw, t("bulk.reset")) : null}
-            {canConfirm ? actionButton("confirm", ShieldOff, t("inactive.confirmAction")) : null}
+            {canConfirm
+              ? actionButton(
+                  "confirm",
+                  ShieldOff,
+                  answeringLogins ? t("inactive.loginQuestion.yes") : t("inactive.confirmAction"),
+                )
+              : null}
             {jobEntries.length > 0 ? (
               <MoreMenu
                 ref={moreRef}
@@ -321,7 +355,9 @@ export const SelectionPanel = React.forwardRef<HTMLDivElement, SelectionPanelPro
         ? [
             {
               id: "confirmInactive",
-              label: t("inactive.confirmAction"),
+              label: answeringLogins
+                ? t("inactive.loginQuestion.yes")
+                : t("inactive.confirmAction"),
               icon: ShieldOff,
               onSelect: () => setDialog("confirm"),
             },

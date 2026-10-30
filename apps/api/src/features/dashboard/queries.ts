@@ -777,6 +777,8 @@ export interface TenantHealthExtras {
   /** Repositories with S3 Object Lock, and those of them with a warning. */
   immutableRepositories: number;
   immutabilityWarnings: number;
+  /** IMAP accounts whose login question waits for an answer (@restow/core `loginQuestionState`). */
+  loginQuestions: number;
 }
 
 /** Failed jobs in the last two 24-hour windows and whether the primary target fails its probe. */
@@ -858,6 +860,18 @@ export async function loadTenantHealthExtras(
       .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.role, "primary")))
       .limit(1);
     const immutability = await immutabilityOverview(tx, tenantId, now);
+    const [questions] = await tx
+      .select({ n: count() })
+      .from(protectedObjects)
+      .where(
+        and(
+          eq(protectedObjects.tenantId, tenantId),
+          eq(protectedObjects.kind, "imap"),
+          eq(protectedObjects.status, "active"),
+          isNotNull(protectedObjects.loginQuestionAt),
+          isNull(protectedObjects.loginQuestionDismissedAt),
+        ),
+      );
     return {
       failures24h:
         (failed?.last ?? 0) + machineLast + (guestRuns?.last ?? 0) + (shareRuns?.last ?? 0),
@@ -870,6 +884,7 @@ export async function loadTenantHealthExtras(
       storageError: target?.status === "error",
       immutableRepositories: immutability.objectLock,
       immutabilityWarnings: immutability.warnings,
+      loginQuestions: Number(questions?.n ?? 0),
     };
   });
 }

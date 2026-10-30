@@ -16,6 +16,8 @@ export const objectStatusSchema = z.enum(["active", "excluded", "orphaned"]);
  * from `excluded`. See `isNotSelected` in ./logic.js. `to_confirm` and
  * `confirmed` split `orphaned` by the admin's confirmation (@restow/core
  * `inactiveState`): amber "please confirm", grey "intentionally not backed up".
+ * `login_question` is an active IMAP account whose login question ("was this account shut
+ * down?") waits for an answer.
  */
 export const objectStatusFilterSchema = z.enum([
   "active",
@@ -24,6 +26,7 @@ export const objectStatusFilterSchema = z.enum([
   "not_selected",
   "to_confirm",
   "confirmed",
+  "login_question",
 ]);
 export const objectSortSchema = z.enum(["name", "kind", "status", "createdAt", "updatedAt"]);
 /**
@@ -174,6 +177,13 @@ export const confirmInactiveSchema = z.object({
   note: z.string().trim().min(1).max(1000).optional(),
 });
 export type ConfirmInactiveInput = z.infer<typeof confirmInactiveSchema>;
+
+/** Body of the answer "No, fix the login" to the login question of an IMAP account. */
+export const dismissLoginQuestionSchema = z.object({
+  /** Written to the audit log. */
+  note: z.string().trim().min(1).max(1000).optional(),
+});
+export type DismissLoginQuestionInput = z.infer<typeof dismissLoginQuestionSchema>;
 
 export const bulkConfirmInactiveSchema = confirmInactiveSchema
   .extend({

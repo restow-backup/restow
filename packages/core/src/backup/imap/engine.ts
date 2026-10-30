@@ -139,6 +139,38 @@ export class ImapBackupEngine implements BackupEngine {
     this.limits = { ...DEFAULT_IMAP_LIMITS, ...options.limits };
   }
 
+  /**
+   * Log in once and log out again: the weekly probe of an account an admin confirmed as shut
+   * down (docs/IMAP.md). It takes the same way as a backup run (account resolution, the
+   * transport rule, the credential source with OAuth2 token rotation, the connector) and opens
+   * no folder. Throws what the connect throws: an {@link ImapAuthError} for a refused login.
+   */
+  async probeLogin(ctx: JobContext, protectedObject: ProtectedObjectRef): Promise<void> {
+    const logger = ctx.logger.child({
+      engine: "imap",
+      protectedObjectId: protectedObject.id,
+      account: protectedObject.externalId,
+    });
+    const account = await this.options.resolveAccount(ctx, protectedObject);
+    assertTransport(account, this.options.allowInsecure === true);
+    const credentials = new CredentialSource({
+      secrets: ctx.secrets,
+      account,
+      fetch: this.options.fetch,
+      onRefreshTokenRotated: this.options.onRefreshTokenRotated,
+      logger,
+    });
+    const session = await this.connector.connect(account, await credentials.resolve(), {
+      logger,
+      signal: ctx.signal,
+    });
+    try {
+      await session.logout();
+    } catch (error) {
+      logger.debug("imap logout failed", { error });
+    }
+  }
+
   async run(
     ctx: JobContext,
     protectedObject: ProtectedObjectRef,

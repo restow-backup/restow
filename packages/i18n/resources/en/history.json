@@ -55,7 +55,8 @@
     "limited": "Held back by the service, retried",
     "notBackedUp_account_disabled": "Not backed up: account disabled",
     "notBackedUp_no_license": "Not backed up: no licence",
-    "notBackedUp_locked": "Not backed up: locked"
+    "notBackedUp_locked": "Not backed up: locked",
+    "notBackedUp_login_refused": "Not backed up: account shut down"
   },
   "attempt": "Attempt {number} of {of}",
   "restoreCheck": {
@@ -246,7 +247,8 @@
     "restore_check_passed": "Restore check passed",
     "restore_check_warning": "Restore check with warnings",
     "restore_check_failed": "Restore check failed",
-    "notBackedUp_locked": "Not backed up: Microsoft locked the OneDrive or site"
+    "notBackedUp_locked": "Not backed up: Microsoft locked the OneDrive or site",
+    "notBackedUp_login_refused": "Not backed up: the login is refused, the account was confirmed as shut down"
   },
   "drawer": {
     "title": "Run",

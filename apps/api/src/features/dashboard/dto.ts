@@ -191,7 +191,7 @@ export interface RecentJobDto {
   /** A failed backup a service held back: shown held back, not failed (jobs DTO `serviceLimited`). */
   serviceLimited: boolean;
   /** A failed backup that did not back up: the account is disabled or unlicensed (jobs DTO `notBackedUp`). */
-  notBackedUp: "account_disabled" | "no_license" | "locked" | null;
+  notBackedUp: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   /** The causes behind a finished job's failed items, most frequent first (at most three). */
   itemCauses: { code: string; count: number }[];
 }
@@ -495,6 +495,13 @@ export interface LoadedTenantRowDto extends ProviderTenantRowBase {
    * confirm as intended yet: apart from the rated states, they keep `readiness` from green.
    */
   toConfirm: number;
+  /**
+   * IMAP accounts whose login keeps being refused and whose question "was this account shut
+   * down?" waits for an answer: the provider sees "answer needed" for the tenant until an admin
+   * answers (docs/IMAP.md). The accounts are active and failing, so `failures24h` and the
+   * readiness already show them; this says what the tenant has to do.
+   */
+  loginQuestions: number;
 }
 
 /**
@@ -529,6 +536,7 @@ export interface UnavailableTenantRowDto extends ProviderTenantRowBase {
   immutableRepositories: null;
   immutabilityWarnings: null;
   toConfirm: null;
+  loginQuestions: null;
 }
 
 export type ProviderTenantRowDto = LoadedTenantRowDto | UnavailableTenantRowDto;
@@ -551,6 +559,7 @@ export const PROVIDER_ALERT_KINDS = [
   "file_shares_without_job",
   "needs_attention",
   "inactive_to_confirm",
+  "login_question",
   "nothing_protected",
   "immutability_warning",
 ] as const;

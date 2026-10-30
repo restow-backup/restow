@@ -178,6 +178,16 @@ describe("subjectKeyOf for objects no longer backed up", () => {
       "inactive_many:t1:2026-10-29",
     );
   });
+
+  it("keeps the warning about many refused IMAP logins apart from the one about inactive objects", () => {
+    const day = { tenantId: "t1", date: "2026-10-29" };
+    expect(subjectKeyOf("object.inactive_many", { ...day, question: "login" })).toBe(
+      "inactive_many:t1:2026-10-29:login",
+    );
+    expect(subjectKeyOf("object.inactive_many", { ...day, question: "login" })).not.toBe(
+      subjectKeyOf("object.inactive_many", day),
+    );
+  });
 });
 
 describe("installation events", () => {

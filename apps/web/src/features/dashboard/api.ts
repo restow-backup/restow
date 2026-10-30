@@ -165,7 +165,7 @@ export interface RecentJob {
    */
   serviceLimited?: boolean;
   /** A backup of a disabled or unlicensed account: neutral, never failed. Missing before 0.4.7. */
-  notBackedUp?: "account_disabled" | "no_license" | "locked" | null;
+  notBackedUp?: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   /** The causes behind a finished job's failed items, most frequent first. */
   itemCauses?: ItemCauseCount[];
 }
@@ -397,6 +397,8 @@ export interface LoadedTenantRow extends ProviderTenantRowBase {
   fileSharesFailed?: number;
   /** Objects no longer backed up that wait for a confirmation (absent from an older server). */
   toConfirm?: number;
+  /** IMAP accounts whose login question waits for an answer (absent from an older server). */
+  loginQuestions?: number;
   physicalBytes: number;
   storageError: boolean;
 }
@@ -426,6 +428,7 @@ export interface UnavailableTenantRow extends ProviderTenantRowBase {
   fileSharesWithoutJob?: null;
   fileSharesFailed?: null;
   toConfirm?: null;
+  loginQuestions?: null;
   physicalBytes: null;
   storageError: null;
 }
@@ -450,6 +453,7 @@ export type ProviderAlertKind =
   | "file_shares_without_job"
   | "needs_attention"
   | "inactive_to_confirm"
+  | "login_question"
   | "nothing_protected"
   | "immutability_warning";
 

@@ -142,6 +142,14 @@ export function bulkConfirmInactive(input: ConfirmInactiveInput): Promise<Confir
   });
 }
 
+/** "No, fix the login": the answer to the login question of an IMAP account. */
+export function dismissLoginQuestion(objectId: string, note?: string): Promise<ProtectedObject> {
+  return apiFetch<ProtectedObject>(
+    `${base}/objects/${encodeURIComponent(objectId)}/login-question/dismiss`,
+    { method: "POST", body: note ? { note } : {} },
+  );
+}
+
 export function deleteAccount(objectId: string): Promise<void> {
   return apiFetch<void>(`${base}/objects/${encodeURIComponent(objectId)}`, { method: "DELETE" });
 }

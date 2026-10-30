@@ -87,6 +87,8 @@ import {
   credentialView,
   hasCredentialProblem,
   inactiveDetail,
+  loginQuestionOf,
+  loginQuestionSources,
   objectStatusView,
   objectSubtitle,
   objectTitle,
@@ -131,14 +133,16 @@ function protectedTotals(sources: readonly DirectorySource[]): {
   active: number;
   total: number;
   toConfirm: number;
+  loginQuestions: number;
 } {
   return sources.reduce(
     (acc, source) => ({
       active: acc.active + source.counts.active,
       total: acc.total + source.counts.total,
       toConfirm: acc.toConfirm + (source.counts.toConfirm ?? 0),
+      loginQuestions: acc.loginQuestions + (source.counts.loginQuestions ?? 0),
     }),
-    { active: 0, total: 0, toConfirm: 0 },
+    { active: 0, total: 0, toConfirm: 0, loginQuestions: 0 },
   );
 }
 
@@ -157,7 +161,10 @@ export function ObjectsPanel({
   // objects no longer backed up works tenant-wide, so the "to confirm" filter selects as well.
   const activeSourceId = search.source ?? (sources.length === 1 ? sources[0]?.id : undefined);
   const activeSource = sources.find((source) => source.id === activeSourceId);
-  const selectable = activeSourceId !== undefined || search.status === "to_confirm";
+  const selectable =
+    activeSourceId !== undefined ||
+    search.status === "to_confirm" ||
+    search.status === "login_question";
   const [selection, setSelection] = React.useState<BulkSelectionState>(EMPTY_SELECTION);
   const jobs = useJobsAccess();
   const [adding, setAdding] = React.useState<{ id: string; name: string }[] | null>(null);
@@ -207,6 +214,31 @@ export function ObjectsPanel({
   const pages = pageCount(total, query.pageSize);
   const filtered = hasObjectFilters(search);
   const protectedTotal = protectedTotals(sources);
+  // The sources of the accounts whose login question the bulk "Yes, shut down" would answer, and
+  // whether the login fails for the whole of one of them (then the source's password comes first).
+  const loginQuestionInfo = React.useMemo(() => {
+    if (search.status !== "login_question") {
+      return null;
+    }
+    const pageItems = (objects.data?.items ?? []).filter(
+      (object) =>
+        object.loginQuestion && (selection.mode === "allMatching" || selection.ids.has(object.id)),
+    );
+    const onPage = {
+      sourceNames: [...new Set(pageItems.map((object) => object.sourceName))],
+      sourceWide: pageItems.some((object) => object.loginQuestion?.sourceWide),
+    };
+    if (selection.mode !== "allMatching") {
+      return onPage;
+    }
+    // "All matching" spans pages: the page shows only some of the accounts, so the sources come
+    // from the per-source counts (a superset when other filters narrow the list further).
+    const all = loginQuestionSources(sources, search.source);
+    return {
+      sourceNames: [...new Set([...all.names, ...onPage.sourceNames])],
+      sourceWide: all.sourceWide || onPage.sourceWide,
+    };
+  }, [search.status, search.source, selection, objects.data, sources]);
 
   // The selection panel: docked in the free space of the tenant page's section column on wide
   // screens (a portal into its slot), a bar at the bottom of the viewport otherwise. Out of the
@@ -268,6 +300,7 @@ export function ObjectsPanel({
       pageIds={pageIds}
       total={total}
       filter={query}
+      loginQuestion={loginQuestionInfo}
       onAddToJob={setAdding}
     />
   ) : null;
@@ -318,6 +351,36 @@ export function ObjectsPanel({
                 // The count is tenant-wide: drop the other filters, or the list shows only part.
                 onSearchChange({
                   status: "to_confirm",
+                  q: undefined,
+                  kind: undefined,
+                  source: undefined,
+                  job: undefined,
+                  shared: undefined,
+                  page: 1,
+                })
+              }
+            >
+              {t("inactive.showToConfirm")}
+            </Button>
+          </div>
+        ) : null}
+
+        {protectedTotal.loginQuestions > 0 && search.status !== "login_question" ? (
+          <div
+            className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+            data-testid="login-questions"
+          >
+            <span className="flex items-start gap-2">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              {t("inactive.loginQuestion.banner", { count: protectedTotal.loginQuestions })}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                // The count is tenant-wide: drop the other filters, or the list shows only part.
+                onSearchChange({
+                  status: "login_question",
                   q: undefined,
                   kind: undefined,
                   source: undefined,
@@ -620,6 +683,7 @@ function objectColumns(
               <TooltipContent className="max-w-xs">{t(`statusHint.${view.suffix}`)}</TooltipContent>
             </Tooltip>
             <InactiveLine object={row.original} language={language} />
+            <LoginQuestionLine object={row.original} language={language} />
           </div>
         );
       },
@@ -685,6 +749,58 @@ function InactiveLine({ object, language }: { object: ProtectedObject; language:
                 })}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Under the status of an active IMAP account whose password login keeps being refused: the
+ * question "was this account shut down?" with its two answers (amber), and when the login fails
+ * for the whole source, the hint to check the source's password first. The answers are the row
+ * actions of the "…" menu (`useObjectActions`), so the line and the menu do the same. After "No"
+ * the line is gone; the menu keeps "Actually shut down". Nothing for any other object.
+ */
+function LoginQuestionLine({ object, language }: { object: ProtectedObject; language: string }) {
+  const { t } = useTranslation("directory");
+  const row = React.useContext(RowActionsContext);
+  const asked = loginQuestionOf(object);
+  if (asked?.state !== "open") {
+    return null;
+  }
+  const yes = row?.actions.find((action) => action.id === "loginQuestionYes");
+  const no = row?.actions.find((action) => action.id === "loginQuestionNo");
+  return (
+    <div className="space-y-1 text-xs text-warning-text" data-testid="login-question">
+      <div>
+        {t("inactive.loginQuestion.text", {
+          date: formatDateTime(asked.question.failedSince ?? asked.question.askedAt, language),
+        })}
+      </div>
+      {asked.question.sourceWide ? (
+        <div className="text-muted-foreground">{t("inactive.loginQuestion.sourceWide")}</div>
+      ) : null}
+      <div className="flex flex-wrap gap-1.5">
+        {yes ? (
+          <Button
+            variant="outline"
+            size="xs"
+            data-action="loginQuestionYes"
+            onClick={() => yes.onSelect?.()}
+          >
+            {t("inactive.loginQuestion.yes")}
+          </Button>
+        ) : null}
+        {no ? (
+          <Button
+            variant="outline"
+            size="xs"
+            data-action="loginQuestionNo"
+            onClick={() => no.onSelect?.()}
+          >
+            {t("inactive.loginQuestion.no")}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1235,7 +1351,15 @@ function ObjectFilters({
           <SelectContent>
             <SelectItem value={ALL}>{t("objects.filters.allStatuses")}</SelectItem>
             {(
-              ["active", "excluded", "not_selected", "orphaned", "to_confirm", "confirmed"] as const
+              [
+                "active",
+                "excluded",
+                "not_selected",
+                "orphaned",
+                "to_confirm",
+                "confirmed",
+                "login_question",
+              ] as const
             ).map((status) => (
               <SelectItem key={status} value={status}>
                 {t(`status.${status}`)}

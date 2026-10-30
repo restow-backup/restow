@@ -43,6 +43,8 @@ literally (use `{appName}`).
 | Backups the storage itself refuses to delete or change before a date (S3 Object Lock, docs/STORAGE.md) | immutable backups (immutability) | unveränderbare Backups (Unveränderbarkeit) | WORM-Backups, Immutable, unlöschbar |
 | Restow itself not deleting backup files of a directory before a period has passed; no immutability | deletion delay | Löschverzögerung | Sperre, Unveränderbarkeit (for a directory) |
 | A Proxmox VE server with the node helper | node | Knoten | Host, Hypervisor (for a node) |
+| An IMAP account whose login the server keeps refusing, until an administrator answers whether it was shut down (docs/IMAP.md) | login refused | Anmeldung abgelehnt | Login-Fehler, gesperrt |
+| An IMAP account an administrator confirmed as shut down; its login is still checked once a week | account shut down | Konto abgeschaltet | gelöscht, deaktiviert (that is Microsoft 365) |
 
 Repository: maintainer decision 2026-10-10, replacing "storage location" /
 "Speicherort". German uses the neuter ("das Repository", "des Repositorys") and the

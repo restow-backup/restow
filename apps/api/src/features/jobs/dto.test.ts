@@ -370,6 +370,17 @@ describe("backupBlockedReason", () => {
     expect(backupBlockedReason("active", "disabled")).toBe("source_disabled");
   });
 
+  it('lets "Back up now" probe an IMAP account that was confirmed as shut down', () => {
+    expect(backupBlockedReason("orphaned", "active", "login_refused")).toBeNull();
+    expect(backupBlockedReason("orphaned", "error", "login_refused")).toBeNull();
+    // The source checks still apply: a probe never runs against a source that is off.
+    expect(backupBlockedReason("orphaned", "disabled", "login_refused")).toBe("source_disabled");
+    expect(backupBlockedReason("orphaned", "pending", "login_refused")).toBe("source_pending");
+    // Every other orphan stays blocked, with or without a reason.
+    expect(backupBlockedReason("orphaned", "active", "no_license")).toBe("inactive");
+    expect(backupBlockedReason("orphaned", "active", null)).toBe("orphaned");
+  });
+
   it("lets active objects of working or failing sources run", () => {
     expect(backupBlockedReason("active", "active")).toBeNull();
     expect(backupBlockedReason("active", "error")).toBeNull();

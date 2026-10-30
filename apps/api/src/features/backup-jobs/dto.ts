@@ -328,7 +328,7 @@ export interface JobRunDto {
    * unlicensed, with that reason (lib/service-limit.ts `notBackedUpOf`), shown neutral. Absent
    * for the other sources.
    */
-  notBackedUp?: "account_disabled" | "no_license" | "locked" | null;
+  notBackedUp?: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
 }
 
 export interface BackupJobRunsDto {

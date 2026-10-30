@@ -35,7 +35,8 @@ export interface StateView {
     | "limited"
     | "notBackedUp_account_disabled"
     | "notBackedUp_no_license"
-    | "notBackedUp_locked";
+    | "notBackedUp_locked"
+    | "notBackedUp_login_refused";
   tone: StatusTone;
   /** A pulsing dot instead of an icon: something is running right now. */
   live: boolean;
@@ -97,7 +98,7 @@ export function isHeldBack(run: Pick<Run, "state" | "kind" | "serviceLimited">):
  */
 export function notBackedUpOf(
   run: Pick<Run, "state" | "kind"> & Partial<Pick<Run, "notBackedUp">>,
-): "account_disabled" | "no_license" | "locked" | null {
+): "account_disabled" | "no_license" | "locked" | "login_refused" | null {
   return run.state === "failed" && run.kind === "backup" ? (run.notBackedUp ?? null) : null;
 }
 
@@ -373,7 +374,8 @@ export function eventView(event: Pick<RunEvent, "type" | "params">): EventView {
       if (
         params.notBackedUp === "account_disabled" ||
         params.notBackedUp === "no_license" ||
-        params.notBackedUp === "locked"
+        params.notBackedUp === "locked" ||
+        params.notBackedUp === "login_refused"
       ) {
         return { key: `notBackedUp_${params.notBackedUp}`, values: {} };
       }

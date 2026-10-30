@@ -350,6 +350,7 @@ describe("POST /users/:id/protection", () => {
           origin: "directory_sync",
           status: "excluded",
           statusReason: null,
+          loginQuestion: null,
           inactiveState: null,
           inactiveSince: null,
           statusConfirmedAt: null,

@@ -112,4 +112,15 @@ describe("where a notification leads", () => {
       ).toEqual({ to: `/tenants/${tenantId}/protection?status=to_confirm`, tenantId });
     }
   });
+
+  it("leads the login question of an IMAP account to the accounts that wait for an answer", () => {
+    for (const event of ["object.inactive", "object.inactive_many"]) {
+      expect(
+        notificationTarget(
+          { event, tenantId, details: { protectedObjectId: "po-1", question: "login" } },
+          admin,
+        ),
+      ).toEqual({ to: `/tenants/${tenantId}/protection?status=login_question`, tenantId });
+    }
+  });
 });
