@@ -12,6 +12,12 @@ private repository.
 
 ### Added
 
+- Protected objects: the "..." menu of a row has "Back up now". It backs up exactly that object, the
+  same way as on the backup page, and gives the same notices (queued, already queued, failed). It
+  is closed with the reason for an IMAP account without a password, a source that is disabled or
+  not connected yet, and an object that is already queued or running; objects that are excluded
+  or no longer backed up do not offer it. Who may use it is decided by the server, as on the
+  backup page.
 - Protected objects: a "Backup" column says for each object whether it is included in or
   excluded from the backup, and below it whether the source's rules decided that ("by rule") or
   an admin did ("manual": "Always included" or "Always excluded", and every IMAP account). It
