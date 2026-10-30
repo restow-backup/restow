@@ -2,6 +2,7 @@ import {
   CircleCheck,
   CircleMinus,
   KeyRound,
+  Play,
   PlugZap,
   RotateCcw,
   ShieldOff,
@@ -24,10 +25,14 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/sonner";
+import { useActionFeedback } from "@/features/jobs/components/actions";
+import "@/features/jobs/i18n";
+import { isLive } from "@/features/jobs/presenters";
 import { errorMessageKey } from "@/lib/api";
 
 import { ConfirmDialog } from "./confirm-dialog";
 import {
+  useBackupObject,
   useConfirmInactive,
   useDeleteAccount,
   useSetObjectCredential,
@@ -44,7 +49,7 @@ import {
   removalBlock,
   syncResultKey,
 } from "./presenters";
-import type { ProtectedObject, ProtectionAction } from "./types";
+import type { ProtectedObject, ProtectionAction, SourceStatus } from "./types";
 
 /**
  * What to show instead of the plain "Remove" confirmation when the account
@@ -189,6 +194,71 @@ export function SetCredentialDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * Why "Back up now" cannot run for an object, as an i18n key of the `backup` namespace (the same
+ * texts as the backup page), or null when it can. Excluded and orphaned objects have no entry at
+ * all (see {@link useBackupNowAction}).
+ */
+export function backupNowBlockKey(
+  object: ProtectedObject,
+  sourceStatus: SourceStatus | undefined,
+): string | null {
+  if (sourceStatus === "pending") {
+    return "blocked.source_pending";
+  }
+  if (sourceStatus === "disabled") {
+    return "blocked.source_disabled";
+  }
+  if (object.credential?.authMode === "per_mailbox" && !object.credential.hasPassword) {
+    return "noPassword";
+  }
+  const job = object.latestBackupJob;
+  if (job && isLive(job.status)) {
+    return job.status === "active" ? "blocked.running" : "blocked.waiting";
+  }
+  return null;
+}
+
+/**
+ * "Back up now" in the row menu: backs up exactly this object through the call of the backup
+ * page and reports as it does. Null for objects that are not backed up (excluded, not selected,
+ * orphaned); closed with a reason while the source cannot run, an IMAP account has no password or
+ * a backup of it is already queued or running. Like the backup page, it has no role or demo gate
+ * of its own: the API (technician level, allowed in the demo) refuses what the viewer may not do.
+ */
+export function useBackupNowAction(
+  object: ProtectedObject,
+  sourceStatus: SourceStatus | undefined,
+): RowAction | null {
+  const { t } = useTranslation("directory");
+  const { t: tb } = useTranslation("backup");
+  const backup = useBackupObject();
+  const feedback = useActionFeedback();
+  if (object.status !== "active" || object.notSelected) {
+    return null;
+  }
+  const blockKey = backupNowBlockKey(object, sourceStatus);
+  const reason =
+    blockKey === "noPassword"
+      ? t("rowActions.backupNowNoPassword")
+      : blockKey
+        ? tb(blockKey)
+        : undefined;
+  const name = objectTitle(object);
+  return {
+    id: "backupNow",
+    label: t("rowActions.backupNow"),
+    icon: Play,
+    disabled: reason !== undefined || backup.isPending,
+    reason,
+    onSelect: () =>
+      backup.mutate(object.id, {
+        onSuccess: (result) => feedback.queued(result, name),
+        onError: (error) => feedback.failed(error),
+      }),
+  };
 }
 
 /**

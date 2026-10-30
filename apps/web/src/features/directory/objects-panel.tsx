@@ -78,7 +78,7 @@ import {
   toggleRow as toggleRowSelection,
 } from "./bulk-selection";
 import { useDebouncedValue, useProtectedObjects } from "./hooks";
-import { useObjectActions } from "./object-actions";
+import { useBackupNowAction, useObjectActions } from "./object-actions";
 import { BackupCause, CredentialCause } from "./object-causes";
 import {
   backupFailure,
@@ -96,7 +96,13 @@ import {
 } from "./presenters";
 import { type DirectorySearch, hasObjectFilters, PAGE_SIZES, toObjectsQuery } from "./search";
 import { clearOnEscape, SelectionPanel, selectionJobActions } from "./selection-panel";
-import type { DirectorySource, ObjectKind, ObjectSort, ProtectedObject } from "./types";
+import type {
+  DirectorySource,
+  ObjectKind,
+  ObjectSort,
+  ProtectedObject,
+  SourceStatus,
+} from "./types";
 
 const ALL = "all";
 /** From here on the tenant page shows its section column, where the selection panel docks. */
@@ -452,6 +458,7 @@ export function ObjectsPanel({
                         object={row.original}
                         selection={selection}
                         jobs={jobs}
+                        sourceStatus={sources.find((s) => s.id === row.original.sourceId)?.status}
                       >
                         {row.getVisibleCells().map((cell) => (
                           <TableCell
@@ -770,11 +777,13 @@ function ObjectRow({
   object,
   selection,
   jobs,
+  sourceStatus,
   children,
 }: {
   object: ProtectedObject;
   selection: BulkSelectionState;
   jobs: JobsAccess;
+  sourceStatus?: SourceStatus;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation("directory");
@@ -792,6 +801,10 @@ function ObjectRow({
       reason: jobs.reason,
       onSelect: () => addToJob([{ id: object.id, name }]),
     });
+  }
+  const backupNow = useBackupNowAction(object, sourceStatus);
+  if (backupNow) {
+    actions.splice(1, 0, backupNow);
   }
   const selected = objectIsSelected(selection, object.id);
   const several = selected && selection.mode === "ids" && selection.ids.size > 1;

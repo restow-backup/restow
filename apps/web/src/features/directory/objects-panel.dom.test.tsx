@@ -8,6 +8,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ReadOnlyGroup } from "@/components/kit/read-only-group";
 import { SectionAsideProvider } from "@/components/layout/section-aside";
+import { toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { i18n } from "@/i18n";
 
@@ -119,6 +120,8 @@ interface MountOptions {
   /** Wraps the panel, e.g. in the tenant page's section aside or a read-only group. */
   wrap?: (panel: React.ReactNode) => React.ReactNode;
   fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  /** Mounts as the public demo. */
+  demo?: boolean;
 }
 
 async function mount(
@@ -132,7 +135,7 @@ async function mount(
   client.setQueryData(directoryKeys.objectsPage("t-1", toObjectsQuery(search)), page);
   client.setQueryData(["setup", "state"], {
     configured: true,
-    demo: { enabled: false, email: null, password: null },
+    demo: { enabled: options.demo === true, email: null, password: null },
   });
   vi.stubGlobal("fetch", options.fetch ?? (async () => new Response("{}", { status: 404 })));
   const wrap = options.wrap ?? ((panel: React.ReactNode) => panel);
@@ -642,5 +645,173 @@ describe("the selection panel", () => {
     const menu = document.querySelector<HTMLElement>('[role="menu"]');
     expect(menu?.querySelector('[data-action="newJobFromSelection"]')).toBeNull();
     expect(menu?.querySelector('[data-action="reset"]')).not.toBeNull();
+  });
+});
+
+describe("Back up now in the menu of an object", () => {
+  const backupNow = () => entry("backupNow");
+
+  it("starts a backup of exactly this object and says so", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    await mount(PAGE, [SOURCE], {}, () => {}, {
+      fetch: async (url, init) => {
+        if (!String(url).includes("/jobs/backup")) {
+          return new Response("{}", { status: 404 });
+        }
+        calls.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null });
+        return new Response(
+          JSON.stringify({ queued: [{ jobId: "j-1", protectedObjectId: "o-1" }], skipped: [] }),
+          { status: 202, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+    await rightClick(row("Alice Example").querySelectorAll("td")[2] as HTMLElement);
+    expect(backupNow()?.textContent).toContain("Back up now");
+    expect(backupNow()?.hasAttribute("data-disabled")).toBe(false);
+    await act(async () => {
+      backupNow()?.click();
+    });
+    await settle();
+    const post = calls.find((call) => call.url.includes("/jobs/backup"));
+    expect(post?.body).toEqual({ protectedObjectId: "o-1", full: false });
+  });
+
+  it("is not offered for excluded and no longer backed up objects", async () => {
+    await mount({
+      ...PAGE,
+      items: [
+        object({ status: "excluded", displayName: "Excluded Mailbox" }),
+        object({ id: "o-2", status: "orphaned", displayName: "Gone Mailbox" }),
+      ],
+    });
+    await rightClick(row("Excluded Mailbox").querySelectorAll("td")[2] as HTMLElement);
+    expect(backupNow()).toBeNull();
+    await rightClick(row("Gone Mailbox").querySelectorAll("td")[2] as HTMLElement);
+    expect(backupNow()).toBeNull();
+  });
+
+  it("is closed with the reason for a disabled source", async () => {
+    await mount(PAGE, [{ ...SOURCE, status: "disabled" }]);
+    await rightClick(row("Alice Example").querySelectorAll("td")[2] as HTMLElement);
+    expect(backupNow()?.hasAttribute("data-disabled")).toBe(true);
+    expect(backupNow()?.textContent).toContain("Source disabled");
+  });
+
+  it("is closed for an IMAP account without a password and for a backup already queued", async () => {
+    await mount({
+      ...PAGE,
+      items: [
+        object({
+          kind: "imap",
+          sourceKind: "imap",
+          displayName: "Imap Account",
+          credential: {
+            authMode: "per_mailbox",
+            hasPassword: false,
+            status: null,
+            checkedAt: null,
+            error: null,
+            errorReason: null,
+            failure: null,
+          },
+        }),
+        object({
+          id: "o-2",
+          displayName: "Busy Mailbox",
+          latestBackupJob: {
+            id: "j-9",
+            status: "queued",
+            at: "2026-10-29T02:00:00.000Z",
+            failure: null,
+          },
+        }),
+      ],
+    });
+    await rightClick(row("Imap Account").querySelectorAll("td")[2] as HTMLElement);
+    expect(backupNow()?.hasAttribute("data-disabled")).toBe(true);
+    expect(backupNow()?.textContent).toContain("no password");
+    await rightClick(row("Busy Mailbox").querySelectorAll("td")[2] as HTMLElement);
+    expect(backupNow()?.hasAttribute("data-disabled")).toBe(true);
+    expect(backupNow()?.textContent).toContain("Waiting to start");
+  });
+
+  it("stays open in the demo, as on the backup page", async () => {
+    await mount(PAGE, [SOURCE], {}, () => {}, { demo: true });
+    await rightClick(row("Alice Example").querySelectorAll("td")[2] as HTMLElement);
+    expect(backupNow()?.hasAttribute("data-disabled")).toBe(false);
+  });
+
+  it("is closed with the reason for a source that is not connected yet", async () => {
+    await mount(PAGE, [{ ...SOURCE, status: "pending" }]);
+    await rightClick(row("Alice Example").querySelectorAll("td")[2] as HTMLElement);
+    expect(backupNow()?.hasAttribute("data-disabled")).toBe(true);
+    expect(backupNow()?.textContent).toContain("Source not connected yet");
+  });
+
+  describe("feedback and refresh", () => {
+    const run = async (respond: () => Response) => {
+      let objectsFetched = 0;
+      await mount(PAGE, [SOURCE], {}, () => {}, {
+        fetch: async (url) => {
+          if (String(url).includes("/jobs/backup")) {
+            return respond();
+          }
+          if (String(url).includes("/directory/objects")) {
+            objectsFetched += 1;
+            return new Response(JSON.stringify(PAGE), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          return new Response("{}", { status: 404 });
+        },
+      });
+      await rightClick(row("Alice Example").querySelectorAll("td")[2] as HTMLElement);
+      await act(async () => {
+        backupNow()?.click();
+      });
+      await settle();
+      return () => objectsFetched;
+    };
+
+    it("says it was queued and refreshes the rows", async () => {
+      const success = vi.spyOn(toast, "success").mockImplementation(() => "");
+      const fetched = await run(
+        () =>
+          new Response(
+            JSON.stringify({ queued: [{ jobId: "j-1", protectedObjectId: "o-1" }], skipped: [] }),
+            { status: 202, headers: { "content-type": "application/json" } },
+          ),
+      );
+      expect(success).toHaveBeenCalledWith("Backup queued for Alice Example.", expect.anything());
+      expect(fetched()).toBeGreaterThan(0);
+    });
+
+    it("says it is already queued on a 409", async () => {
+      const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+      await run(
+        () =>
+          new Response(JSON.stringify({ status: 409, reason: "already_queued" }), {
+            status: 409,
+            headers: { "content-type": "application/problem+json" },
+          }),
+      );
+      expect(error).toHaveBeenCalledWith(
+        "A backup of this object is already queued or running.",
+        expect.anything(),
+      );
+    });
+
+    it("says it failed on a server error", async () => {
+      const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+      await run(
+        () =>
+          new Response(JSON.stringify({ status: 500 }), {
+            status: 500,
+            headers: { "content-type": "application/problem+json" },
+          }),
+      );
+      expect(error).toHaveBeenCalledWith("The action could not be completed.", expect.anything());
+    });
   });
 });

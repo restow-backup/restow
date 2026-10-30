@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
+import { jobKeys, startBackup } from "@/features/jobs/api";
 import { useSession } from "@/lib/session";
 
 import {
@@ -222,4 +223,21 @@ export function useDebouncedValue<T>(value: T, delayMs = 300): T {
     return () => clearTimeout(timer);
   }, [value, delayMs]);
   return debounced;
+}
+
+/**
+ * "Back up now" for one protected object: the same call as the backup page (POST /jobs/backup
+ * with the object's id). Refreshes the rows (the object's latest backup) and the jobs.
+ */
+export function useBackupObject() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useDirectoryTenant();
+  return useMutation({
+    mutationFn: (objectId: string) => startBackup({ protectedObjectId: objectId, full: false }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: directoryKeys.objects(tenantId) }),
+        queryClient.invalidateQueries({ queryKey: jobKeys.all(tenantId) }),
+      ]),
+  });
 }

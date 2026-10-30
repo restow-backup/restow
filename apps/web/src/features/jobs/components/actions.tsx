@@ -48,7 +48,7 @@ function refusalKey(error: unknown): string | null {
 }
 
 /** Toasts for the outcome of a job action, in operator language. */
-function useActionFeedback() {
+export function useActionFeedback() {
   const { t } = useTranslation("backup");
   const { t: tc } = useTranslation();
 
