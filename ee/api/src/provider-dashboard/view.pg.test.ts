@@ -71,6 +71,7 @@ const ALL_WIDGETS: TenantWidgetId[] = [
   "setup",
   "lastBackup",
   "readiness",
+  "running",
   "protectedObjects",
   "storage",
   "mailboxUsage",
