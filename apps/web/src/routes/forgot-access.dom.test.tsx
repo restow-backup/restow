@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
@@ -59,7 +60,9 @@ async function mount(node: React.ReactNode): Promise<HTMLElement> {
   await act(async () => {
     root?.render(
       <I18nextProvider i18n={i18n}>
-        <ThemeProvider>{node}</ThemeProvider>
+        <ThemeProvider>
+          <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>
+        </ThemeProvider>
       </I18nextProvider>,
     );
   });

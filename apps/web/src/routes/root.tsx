@@ -1,16 +1,36 @@
-import { type ErrorComponentProps, Outlet } from "@tanstack/react-router";
+import { type ErrorComponentProps, Outlet, useRouterState } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 
 import { StandaloneErrorPage } from "@/components/layout/standalone-error";
 import { Toaster } from "@/components/ui/sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Wordmark } from "@/components/wordmark";
+import { phoneGateFor } from "@/lib/device";
+import { useIsDemo, useIsPhone } from "@/lib/use-phone";
+import { PhoneBlockPage } from "@/routes/phone-blocked";
 
-/** Root layout: the outermost frame shared by every route. */
+/**
+ * Root layout: the outermost frame shared by every route. On a phone the
+ * block page takes the place of the route (lib/device.ts): here and not as a
+ * redirect, so the address stays for the computer it is copied to, and one
+ * place covers the sign-in, the setup and the app alike.
+ */
 export function RootLayout() {
+  const phone = useIsPhone();
+  const demo = useIsDemo();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const redirect = useRouterState({
+    select: (state) => (state.location.search as { redirect?: unknown }).redirect,
+  });
+  const gate = phoneGateFor({
+    pathname,
+    redirect: typeof redirect === "string" ? redirect : null,
+    phone,
+    demo,
+  });
   return (
     <div className="min-h-svh bg-background text-foreground antialiased">
-      <Outlet />
+      {gate ? <PhoneBlockPage gate={gate} /> : <Outlet />}
       <Toaster />
     </div>
   );

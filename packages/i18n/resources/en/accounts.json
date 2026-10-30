@@ -81,7 +81,9 @@
     "done": {
       "title": "Password set",
       "description": "You can now sign in. You will be asked to set up an authenticator app right after.",
-      "signIn": "Sign in"
+      "phoneDescription": "Sign in on a computer. You will be asked to set up an authenticator app right after.",
+      "signIn": "Sign in",
+      "phoneSignIn": "Sign in on a computer."
     },
     "linkStatus": {
       "used": {
