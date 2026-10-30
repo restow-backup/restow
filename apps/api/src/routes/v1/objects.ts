@@ -8,6 +8,7 @@ import {
 } from "@restow/db";
 import { and, asc, count, eq, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
+import { loadMailWithoutJob } from "../../features/backup-jobs/coverage.js";
 import { failureDto } from "../../features/failures/dto.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { type IntegrationApi, READ_ERRORS, type V1Deps } from "./api.js";
@@ -125,6 +126,8 @@ export function toProtectedObjectDto(
   row: ObjectRow,
   facts: ObjectFacts,
   now: Date,
+  /** The objects in no enabled backup job (@restow/core `mailObjectsInNoJob`). */
+  noJob: ReadonlySet<string> = new Set(),
 ): ProtectedObjectDto {
   const { object } = row;
   const { snapshot, job } = facts;
@@ -160,7 +163,7 @@ export function toProtectedObjectDto(
           failure: job.status === "completed" ? null : failureDto(job.failure),
         }
       : null,
-    readiness: readinessOf(facts, now, object.status),
+    readiness: readinessOf(facts, now, object.status, noJob.has(object.id)),
     createdAt: object.createdAt.toISOString(),
     updatedAt: object.updatedAt.toISOString(),
   };
@@ -228,9 +231,10 @@ export async function listProtectedObjects(
       tenantId,
       page.rows.map((row) => row.object.id),
     );
+    const noJob = page.rows.length > 0 ? await loadMailWithoutJob(tx, tenantId) : new Set<string>();
     return {
       items: page.rows.map((row) =>
-        toProtectedObjectDto(row, facts.get(row.object.id) ?? NO_FACTS, now),
+        toProtectedObjectDto(row, facts.get(row.object.id) ?? NO_FACTS, now, noJob),
       ),
       next: page.next,
       total: total?.n ?? 0,

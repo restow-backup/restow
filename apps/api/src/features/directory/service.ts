@@ -272,6 +272,12 @@ export interface ProtectedObjectDto {
    */
   coverage: ObjectCoverage | null;
   /**
+   * An active object that no ENABLED mail job covers ("In no backup job"): nothing backs it up,
+   * whether no job names it or only a disabled one. Its readiness is the rating of its newest
+   * backup without that backup's age, it is never overdue and keeps the tenant from green.
+   */
+  withoutJob: boolean;
+  /**
    * The newest finished backup went through but left items behind (features/warnings): `open`
    * counts as a warning, `acknowledged` was looked at and accepted for these causes. Null when
    * the newest backup is complete, failed outright (see `latestBackupJob`) or missing.
@@ -893,7 +899,10 @@ async function backupFacts(
   tx: Transaction,
   tenantId: string,
   objectIds: string[],
-  /** The objects removed from their source (status `orphaned`), rated without freshness. */
+  /**
+   * The objects rated without the age of their last backup: those removed from their source
+   * (status `orphaned`) and the active ones in no enabled backup job.
+   */
   orphanedIds: ReadonlySet<string> = new Set(),
 ): Promise<Map<string, BackupFacts>> {
   const facts = new Map<string, BackupFacts>();
@@ -989,14 +998,20 @@ async function toObjectDtos(
   tenantId: string,
   rows: readonly ObjectRow[],
 ): Promise<ProtectedObjectDto[]> {
+  const coverage =
+    rows.length > 0
+      ? await loadMailCoverage(tx, tenantId)
+      : { objects: [], links: new Map(), withoutJob: new Set<string>() };
   const facts = await backupFacts(
     tx,
     tenantId,
     rows.map((row) => row.object.id),
-    new Set(rows.filter((row) => row.object.status === "orphaned").map((row) => row.object.id)),
+    new Set(
+      rows
+        .filter((row) => row.object.status === "orphaned" || coverage.withoutJob.has(row.object.id))
+        .map((row) => row.object.id),
+    ),
   );
-  const coverage =
-    rows.length > 0 ? await loadMailCoverage(tx, tenantId) : { objects: [], links: new Map() };
   const eligible = new Map(coverage.objects.map((object) => [object.id, object]));
   const warnings = await loadMailWarnings(tx, tenantId, { ids: rows.map((row) => row.object.id) });
   const lockHints = await ownerInactiveReasons(tx, tenantId, rows);
@@ -1096,6 +1111,7 @@ async function toObjectDtos(
         ? { rating: fact.readiness.rating, checkedAt: fact.readiness.checkedAt.toISOString() }
         : null,
       job: coverage.links.get(row.object.id) ?? null,
+      withoutJob: row.object.status === "active" && coverage.withoutJob.has(row.object.id),
       coverage: coverageOf(
         eligible.get(row.object.id) ?? { id: row.object.id, eligible: false },
         coverage.links,

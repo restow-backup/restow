@@ -121,6 +121,12 @@ export interface ObjectReadiness {
   running: RunningCheck | null;
   latestSnapshotId: string | null;
   previousCheck: PreviousCheck | null;
+  /**
+   * False for an active object that no enabled mail job covers: nothing backs it up any more. The
+   * server then rates it without the age of its last backup and never as overdue; the table says
+   * "In no backup job". Absent from an older server (reads as in a job).
+   */
+  inJob?: boolean;
 }
 
 export interface ReadinessSummary {
@@ -136,6 +142,13 @@ export interface ReadinessSummary {
    * green (absent from an older server).
    */
   toConfirm?: number;
+  /**
+   * Machines and protected objects in no backup job: any of them keeps `overall` from green
+   * (absent from an older server).
+   */
+  withoutJob?: number;
+  /** The mailboxes, OneDrives, sites, groups and IMAP accounts among `withoutJob`. */
+  objectsWithoutJob?: number;
   overall: Readiness | null;
   lastCheckedAt: string | null;
   running: number;

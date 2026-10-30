@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   type BackupJobPayload,
   type FirstBackupCandidate,
+  readinessWithoutFreshness,
   selectFirstBackupTargets,
   UNKNOWN_WARNING_CAUSE,
   type VerifyJobPayload,
@@ -37,7 +38,9 @@ import { audit } from "../../lib/audit.js";
 import { assertDemoJobNotInFlight, isDemoJobInFlight } from "../../lib/demo-limits.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { loadMailWithoutJob } from "../backup-jobs/coverage.js";
 import { type FailureGroupDto, failureDto } from "../failures/dto.js";
+import { parseReasons } from "../verify/details.js";
 import {
   loadObjectVerifications,
   loadSnapshotVerifications,
@@ -865,19 +868,33 @@ export async function retryJob(
 /**
  * The rating of each object's newest backup (the verify feature's rule): an
  * object whose newest backup was not checked yet has none, whatever an older
- * backup scored.
+ * backup scored. An object removed from its source and one in no enabled backup job
+ * (`statuses`) are rated without the age of that backup, as the readiness overview rates them.
  */
 async function latestVerifyByObject(
   tx: Transaction,
   tenantId: string,
   objectIds: readonly string[],
+  statuses: ReadonlyMap<string, JobObjectDto["status"]>,
 ): Promise<Map<string, VerifySummaryDto>> {
   const verifications = await loadObjectVerifications(tx, tenantId, objectIds);
+  const noJob = verifications.size > 0 ? await loadMailWithoutJob(tx, tenantId) : new Set<string>();
   const result = new Map<string, VerifySummaryDto>();
   for (const [objectId, facts] of verifications) {
     const summary = verifySummaryOf(facts.verification);
     if (summary) {
-      result.set(objectId, summary);
+      const withoutAge = statuses.get(objectId) === "orphaned" || noJob.has(objectId);
+      result.set(
+        objectId,
+        withoutAge && facts.verification.report
+          ? {
+              ...summary,
+              recoveryReadiness: readinessWithoutFreshness(
+                parseReasons(facts.verification.report.reasons),
+              ),
+            }
+          : summary,
+      );
     }
   }
   return result;
@@ -916,7 +933,12 @@ export async function listSnapshots(
       .where(and(...filters))
       .orderBy(desc(snapshots.sequence))
       .limit(options.limit);
-    const verify = await latestVerifyByObject(tx, tenantId, [protectedObjectId]);
+    const verify = await latestVerifyByObject(
+      tx,
+      tenantId,
+      [protectedObjectId],
+      new Map([[protectedObjectId, object.status]]),
+    );
     const verifications = await loadSnapshotVerifications(
       tx,
       tenantId,
@@ -995,7 +1017,12 @@ export async function listBackupTargets(
         ),
       )
       .orderBy(jobs.protectedObjectId, desc(jobs.createdAt), desc(jobs.id));
-    const verify = await latestVerifyByObject(tx, tenantId, ids);
+    const verify = await latestVerifyByObject(
+      tx,
+      tenantId,
+      ids,
+      new Map(objects.map(({ object }) => [object.id, object.status])),
+    );
 
     const snapshotByObject = new Map(lastSnapshots.map((row) => [row.protectedObjectId, row]));
     const lastJobDtos = await toJobDtos(tx, tenantId, lastJobs);

@@ -24,6 +24,8 @@ import {
   type ExistingSchedule,
   type JobSchedule,
   jobScheduleFromCadence,
+  mailObjectEligible,
+  mailObjectsInNoJob,
   missingRecommendedSchedules,
   nextRunAt,
   recommendedSchedules,
@@ -286,22 +288,25 @@ export class ScheduleStore {
     try {
       await client.query("BEGIN");
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
-      const objects = await client.query<TenantTargets["protectedObjects"][number]>(
-        // For an orphan (planning.ts awaitsLastCheck): whether its newest restorable backup
-        // has no check of its own, the verify feature's "unverified" rule.
-        `SELECT po.id, po.source_id AS "sourceId", po.kind, po.status,
-                (po.status = 'orphaned' AND EXISTS (
+      // Whether the newest restorable backup of an object has no check of its own, the verify
+      // feature's "unverified" rule (planning.ts awaitsLastCheck). It is read for orphans in
+      // this query, and for the active objects in no job in a second one below, so the
+      // snapshots lookup does not run for every active object on every tick.
+      const unverifiedSql = (alias: string) => `EXISTS (
                   SELECT 1 FROM (
                     SELECT s.id FROM snapshots s
-                     WHERE s.tenant_id = po.tenant_id AND s.protected_object_id = po.id
+                     WHERE s.tenant_id = ${alias}.tenant_id AND s.protected_object_id = ${alias}.id
                        AND s.status = 'active' AND s.manifest_path IS NOT NULL
                      ORDER BY s.sequence DESC LIMIT 1
                   ) newest
                   WHERE NOT EXISTS (
                     SELECT 1 FROM verify_reports r
-                     WHERE r.tenant_id = po.tenant_id AND r.snapshot_id = newest.id
+                     WHERE r.tenant_id = ${alias}.tenant_id AND r.snapshot_id = newest.id
                   )
-                )) AS "unverifiedBackup"
+                )`;
+      const objects = await client.query<TenantTargets["protectedObjects"][number]>(
+        `SELECT po.id, po.source_id AS "sourceId", po.kind, po.status,
+                (po.status = 'orphaned' AND ${unverifiedSql("po")}) AS "unverifiedBackup"
            FROM protected_objects po
           WHERE po.tenant_id = $1`,
         [tenantId],
@@ -320,9 +325,52 @@ export class ScheduleStore {
           WHERE tenant_id = $1 AND protected_object_id IS NOT NULL`,
         [tenantId],
       );
+      const mailJobs = await client.query<{
+        id: string;
+        scopeMode: "all" | "selected";
+        enabled: boolean;
+      }>(
+        `SELECT id, scope_mode AS "scopeMode", enabled
+           FROM backup_jobs
+          WHERE tenant_id = $1 AND kind = 'mail'`,
+        [tenantId],
+      );
+      // The objects no enabled mail job covers (core `mailObjectsInNoJob`, the rule of every
+      // readiness view): their last backup still wants its restore check.
+      const sourceOf = new Map(sources.rows.map((source) => [source.id, source]));
+      const withoutJob = mailObjectsInNoJob(
+        mailJobs.rows,
+        jobMembers.rows.map((row) => ({
+          jobId: row.job_id,
+          protectedObjectId: row.protected_object_id,
+        })),
+        objects.rows.map((object) => {
+          const source = sourceOf.get(object.sourceId);
+          return { id: object.id, eligible: source ? mailObjectEligible(object, source) : false };
+        }),
+      );
+      const activeWithoutJob = objects.rows
+        .filter((object) => object.status === "active" && withoutJob.has(object.id))
+        .map((object) => object.id);
+      const unverified = new Set<string>(
+        activeWithoutJob.length === 0
+          ? []
+          : (
+              await client.query<{ id: string }>(
+                `SELECT po.id
+                   FROM protected_objects po
+                  WHERE po.tenant_id = $1 AND po.id = ANY($2::uuid[]) AND ${unverifiedSql("po")}`,
+                [tenantId, activeWithoutJob],
+              )
+            ).rows.map((row) => row.id),
+      );
       await client.query("COMMIT");
       return {
-        protectedObjects: objects.rows,
+        protectedObjects: objects.rows.map((object) => ({
+          ...object,
+          unverifiedBackup: object.unverifiedBackup === true || unverified.has(object.id),
+          withoutJob: withoutJob.has(object.id),
+        })),
         sources: sources.rows,
         jobMembers: jobMembers.rows.map((row) => ({
           jobId: row.job_id,

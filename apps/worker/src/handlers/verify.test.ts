@@ -28,6 +28,8 @@ import {
   type VerifyOutcome,
 } from "@restow/core";
 import {
+  backupJobMembers,
+  backupJobs,
   createDb,
   type Database,
   jobs,
@@ -427,6 +429,7 @@ type StoredReport = NewVerifyReport & { id: string };
 function memoryStore(
   damaged: ReadonlySet<string> = new Set(),
   status: { current: "active" | "excluded" | "orphaned" } = { current: "active" },
+  inNoJob: { current: boolean } = { current: false },
 ) {
   const reports: StoredReport[] = [];
   const raised: NewNotification[] = [];
@@ -445,6 +448,7 @@ function memoryStore(
         : last.recoveryReadiness;
     },
     objectStatus: async () => status.current,
+    withoutJob: async () => inNoJob.current,
     packFindings: async () => ({
       damaged: new Set(damaged),
       unreadable: new Set<string>(),
@@ -621,6 +625,31 @@ describe("verify handler on the memory engine", () => {
     expect(raised.map((notification) => notification.event)).toEqual([VERIFY_EVENTS.red]);
     expect(result?.summary).toMatchObject({ readiness: "green", previous: "green" });
     expect(events[1]).toMatchObject({ readiness: "green", previous: "green" });
+  });
+
+  it("rates an object in no backup job without the age of its last backup, and raises nothing for it", async () => {
+    const engine = memoryEngine();
+    await writeMailboxSnapshot(engine);
+    const later = { ...engine.ctx, now: () => new Date(NOW.getTime() + 30 * 86_400_000) };
+    const inNoJob = { current: false };
+    const { store, reports, raised } = memoryStore(new Set(), { current: "active" }, inNoJob);
+    const events: VerifyCompletedEvent[] = [];
+    const handler = handlerWith(store, events);
+
+    // In its job, the age makes it red, and that is announced.
+    await handler.run(later, payload);
+    expect(reports.map((report) => report.recoveryReadiness)).toEqual(["red"]);
+    expect(raised.map((notification) => notification.event)).toEqual([VERIFY_EVENTS.red]);
+
+    // Taken out of its job: the same backup restores, so it is green, the report still says how
+    // old it is, and the earlier red that came only from the age raises no "recovered".
+    inNoJob.current = true;
+    const result = await handler.run(later, payload);
+    expect(reports.map((report) => report.recoveryReadiness)).toEqual(["red", "green"]);
+    const details = reports[1]?.details as VerifyOutcome["details"];
+    expect(details.reasons.map((reason) => reason.code)).toContain("snapshot_outdated");
+    expect(raised.map((notification) => notification.event)).toEqual([VERIFY_EVENTS.red]);
+    expect(result?.summary).toMatchObject({ readiness: "green", previous: "green" });
   });
 
   it("rates nothing when the storage does not answer, retries, and completes the last attempt without a rating", async () => {
@@ -926,6 +955,29 @@ describe.skipIf(!adminUrl)("verify handler against Postgres", () => {
     });
     expect(await store.previousReadiness(object.id)).toBe("red");
     expect(await store.previousReadiness(object.id, { withoutFreshness: true })).toBe("green");
+  });
+
+  it("knows whether an active object is covered by an enabled mail job", async () => {
+    const store = pgVerifyStore(db, tenantId);
+    // No job at all: nothing backs it up.
+    expect(await store.withoutJob?.(object.id)).toBe(true);
+    expect(await store.withoutJob?.(randomUUID())).toBe(false);
+    // A disabled job that names it covers nothing.
+    const [disabled] = await db
+      .insert(backupJobs)
+      .values({ tenantId, kind: "mail", name: "Off", scopeMode: "selected", enabled: false })
+      .returning();
+    await db
+      .insert(backupJobMembers)
+      .values({ tenantId, jobId: disabled?.id as string, protectedObjectId: object.id });
+    expect(await store.withoutJob?.(object.id)).toBe(true);
+    // An enabled one that names it does.
+    await db
+      .update(backupJobs)
+      .set({ enabled: true })
+      .where(eq(backupJobs.id, disabled?.id as string));
+    expect(await store.withoutJob?.(object.id)).toBe(false);
+    await db.delete(backupJobs).where(eq(backupJobs.id, disabled?.id as string));
   });
 
   it("refuses to record a run of another tenant", async () => {

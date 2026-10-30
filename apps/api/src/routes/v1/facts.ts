@@ -155,25 +155,34 @@ export const objectReadinessSchema = component(
       .describe("`verify` is a sampled test restore, `health_check` a full reconciliation."),
     checkedAt: timestampSchema.nullable(),
     overdue: z.boolean().describe("The latest rating is older than the weekly verify interval."),
+    inJob: z
+      .boolean()
+      .describe(
+        "False for an active object that no enabled backup job covers: nothing backs it up any more. It is then rated by whether its newest backup restores, not by that backup's age, and is never `overdue`; the tenant's overall readiness is at least yellow. An object without any backup stays `no_backup`.",
+      ),
   }),
 );
 export type ObjectReadinessDto = z.infer<typeof objectReadinessSchema>;
 
 /**
  * The readiness of one object, as the verify feature rates it (verify/service.ts
- * readinessOverview): an orphaned object (removed from its source, backups kept) is rated by
- * whether its last backup restores, without the age of that backup, and is never overdue, since
- * nothing schedules checks for it any more.
+ * readinessOverview): an orphaned object (removed from its source, backups kept) is rated by whether
+ * its last backup restores, without the age of that backup, and is never overdue, since nothing
+ * schedules checks for it any more. So is an active object in no enabled backup job
+ * (`withoutJob`, @restow/core `mailObjectsInNoJob`): no new backup is due, so the age of the last
+ * one is no fault (the tenant is still kept from green, see summary `withoutJob`).
  */
 export function readinessOf(
   facts: ObjectFacts,
   now: Date,
   status: "active" | "excluded" | "orphaned" = "active",
+  withoutJob = false,
 ): ObjectReadinessDto {
   const checkedAt = facts.verify?.checkedAt ?? null;
   const retained = status === "orphaned";
+  const withoutAge = retained || (withoutJob && status === "active");
   const rating = facts.verify
-    ? retained
+    ? withoutAge
       ? readinessWithoutFreshness(parseReasons(facts.verify.reasons))
       : facts.verify.rating
     : null;
@@ -182,7 +191,8 @@ export function readinessOf(
     rating,
     kind: facts.verify?.kind ?? null,
     checkedAt: checkedAt?.toISOString() ?? null,
-    overdue: retained ? false : isOverdue(checkedAt, now),
+    overdue: withoutAge ? false : isOverdue(checkedAt, now),
+    inJob: !(withoutJob && status === "active"),
   };
 }
 

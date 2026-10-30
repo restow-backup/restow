@@ -81,7 +81,9 @@ export function objectStatusView(object: ProtectedObject): {
   if (object.status === "active" && hasCredentialProblem(object)) {
     return { variant: "warning", suffix: "needs_credential" };
   }
-  // In scope is not protected: only a job that runs on a schedule backs it up.
+  // In scope is not protected: only a job that runs on a schedule backs it up. A member of a
+  // disabled job is in a job, though not backed up (`unscheduled` below, the same as the job
+  // filter); only its readiness column says "In no backup job" (`withoutJob`).
   if (object.status === "active" && object.coverage === "none") {
     return { variant: "warning", suffix: "no_job" };
   }

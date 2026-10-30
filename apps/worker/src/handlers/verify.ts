@@ -21,7 +21,10 @@
  *
  * An object removed from its source (status `orphaned`, its backups kept) is
  * rated without the age of its last backup (core `readinessWithoutFreshness`):
- * that backup is all there will be, so only whether it restores counts. The
+ * that backup is all there will be, so only whether it restores counts. So is an
+ * active object that no enabled mail job covers (core `mailObjectsInNoJob`):
+ * nothing backs it up any more, and the readiness views say "In no backup job"
+ * instead of "the backup is too old". The
  * report keeps every reason in `details` (the report still says how old the
  * backup is), but its rating, the notification and `verify.completed` carry
  * the rating the Verify page, the statistics and the integration API show.
@@ -42,6 +45,8 @@
 import {
   DEFAULT_SAMPLE_SIZE,
   type FailureCause,
+  mailObjectEligible,
+  mailObjectsInNoJob,
   type ProtectedObjectRef,
   type RecoveryReadiness,
   type RestoreProbe,
@@ -53,6 +58,8 @@ import {
   verifyProtectedObject,
 } from "@restow/core";
 import {
+  backupJobMembers,
+  backupJobs,
   type Database,
   jobs,
   type NewNotification,
@@ -60,6 +67,7 @@ import {
   type ProtectedObject,
   protectedObjects,
   safeErrorMessage,
+  sources,
   verifyReports,
 } from "@restow/db";
 import { and, desc, eq, sql } from "drizzle-orm";
@@ -355,6 +363,11 @@ export interface VerifyStore {
   ): Promise<RecoveryReadiness | null>;
   /** The object's protection status; null when the row is gone. */
   objectStatus(protectedObjectId: string): Promise<ProtectedObject["status"] | null>;
+  /**
+   * Whether the object is active but covered by no enabled mail job (core `mailObjectsInNoJob`);
+   * absent reads as false.
+   */
+  withoutJob?(protectedObjectId: string): Promise<boolean>;
   /** Storage keys of the packs known damaged or unreadable (scrub.ts `loadPackFindings`). */
   packFindings(): Promise<PackFindings>;
   /**
@@ -409,6 +422,61 @@ export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
           .limit(1),
       );
       return row?.status ?? null;
+    },
+
+    async withoutJob(protectedObjectId) {
+      return run(async (tx) => {
+        const [row] = await tx
+          .select({
+            status: protectedObjects.status,
+            sourceKind: sources.kind,
+            sourceStatus: sources.status,
+          })
+          .from(protectedObjects)
+          .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
+          .where(
+            and(
+              eq(protectedObjects.tenantId, tenantId),
+              eq(protectedObjects.id, protectedObjectId),
+            ),
+          )
+          .limit(1);
+        if (!row) {
+          return false;
+        }
+        const mailJobs = await tx
+          .select({
+            id: backupJobs.id,
+            scopeMode: backupJobs.scopeMode,
+            enabled: backupJobs.enabled,
+          })
+          .from(backupJobs)
+          .where(and(eq(backupJobs.tenantId, tenantId), eq(backupJobs.kind, "mail")));
+        const members =
+          mailJobs.length === 0
+            ? []
+            : await tx
+                .select({
+                  jobId: backupJobMembers.jobId,
+                  protectedObjectId: backupJobMembers.protectedObjectId,
+                })
+                .from(backupJobMembers)
+                .where(eq(backupJobMembers.tenantId, tenantId));
+        return mailObjectsInNoJob(
+          mailJobs,
+          members.flatMap((member) =>
+            member.protectedObjectId === null
+              ? []
+              : [{ jobId: member.jobId, protectedObjectId: member.protectedObjectId }],
+          ),
+          [
+            {
+              id: protectedObjectId,
+              eligible: mailObjectEligible(row, { kind: row.sourceKind, status: row.sourceStatus }),
+            },
+          ],
+        ).has(protectedObjectId);
+      });
     },
 
     packFindings: () => loadPackFindings(run, tenantId),
@@ -500,8 +568,11 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
       const kind = verifyKindOf(payload);
       const sampleSize = normalizeSampleSize(payload.sampleSize);
       const store = storeFor(ctx);
-      // Removed from its source: rated by whether its last backup restores, not by its age.
-      const retained = (await store.objectStatus(object.id)) === "orphaned";
+      // Removed from its source, or in no enabled backup job: rated by whether its last backup
+      // restores, not by its age.
+      const retained =
+        (await store.objectStatus(object.id)) === "orphaned" ||
+        (await store.withoutJob?.(object.id)) === true;
       const [previous, findings] = await Promise.all([
         store.previousReadiness(object.id, { withoutFreshness: retained }),
         store.packFindings(),

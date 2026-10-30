@@ -93,6 +93,37 @@ describe("verifyBlockedReason", () => {
   });
 });
 
+describe("mail objects in no backup job", () => {
+  const noJob = (state: RatedObject["state"] = "green"): RatedObject => ({
+    ...rated(state),
+    withoutJob: true,
+    mail: true,
+  });
+
+  it("keep the tenant from green and are counted apart from machines, guests and shares", () => {
+    expect(overallReadiness([rated("green"), noJob()])).toBe("yellow");
+    // A backup that does not restore still makes the tenant red.
+    expect(overallReadiness([rated("green"), noJob("red")])).toBe("red");
+    const machine: RatedObject = { ...rated("green"), withoutJob: true };
+    const guest: RatedObject = { ...rated("green"), withoutJob: true, guest: true };
+    const share: RatedObject = { ...rated("green"), withoutJob: true, share: true };
+    const summary = summarize([rated("green"), noJob(), noJob(), machine, guest, share], 0);
+    expect(summary).toMatchObject({
+      total: 6,
+      withoutJob: 3,
+      objectsWithoutJob: 2,
+      guestsWithoutJob: 1,
+      sharesWithoutJob: 1,
+      overall: "yellow",
+    });
+  });
+
+  it("count nothing for an object in a job", () => {
+    const summary = summarize([{ ...rated("green"), mail: true }], 0);
+    expect(summary).toMatchObject({ withoutJob: 0, objectsWithoutJob: 0, overall: "green" });
+  });
+});
+
 describe("objects no longer backed up that wait for a confirmation", () => {
   it("keep the tenant from green, never make it red, and are counted", () => {
     const waiting: RatedObject = { ...rated("green"), toConfirm: true };

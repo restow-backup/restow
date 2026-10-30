@@ -14,6 +14,7 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  backupJobs,
   createDb,
   type Database,
   jobs,
@@ -106,6 +107,11 @@ async function createFixture(db: Database): Promise<Fixture> {
       .values({ tenantId, kind: "m365", name: "Contoso M365", status: "active" })
       .returning(),
   );
+  // Everything is in an enabled mail job: an object in no job is rated without the age of its
+  // backup (no-job.pg.test.ts), which these tests are not about.
+  await db
+    .insert(backupJobs)
+    .values({ tenantId, kind: "mail", name: "All", scopeMode: "all", enabled: true });
   const object = async (
     kind: "mailbox" | "onedrive",
     externalId: string,

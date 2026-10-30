@@ -115,6 +115,8 @@
     "overdue": "Overdue",
     "never": "Never",
     "noBackup": "No backup yet",
+    "noJob": "In no backup job",
+    "noJobHint": "No enabled backup job covers this object, so nothing backs it up. It is rated by whether its newest backup restores, not by how old it is.",
     "empty": "No protected objects yet.",
     "technicalId": "Technical id: {id}",
     "emptyState": "No object in this state: {state}.",
@@ -248,6 +250,10 @@
       "title": "Removed from the source",
       "description": "This object no longer exists in its source, so no newer backup will follow. Its rating counts only whether the kept backup restores, not how old it is.",
       "notCounted": "Not counted: {reason}"
+    },
+    "noJob": {
+      "title": "In no backup job",
+      "description": "No enabled backup job covers this object, so no newer backup will follow until one does. Its rating counts only whether the kept backup restores, not how old it is."
     },
     "inactive": {
       "account_disabled": {

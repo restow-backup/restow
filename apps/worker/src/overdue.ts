@@ -12,7 +12,12 @@
  * (`pveStaleBackupHours`), and for file shares by the share jobs (docs/FILESHARES.md 13). An object counts from its newest committed backup, or from when its
  * protection started if it never had one. A guest counts while it is in an enabled PVE job, or
  * once it had a successful backup (it left its job: nothing backs it up any more); a guest the
- * inventory found that nobody ever put into a job is not overdue.
+ * inventory found that nobody ever put into a job is not overdue. A mailbox, OneDrive, site or
+ * IMAP account in no enabled mail job (@restow/core `mailObjectsInNoJob`: taken out of a
+ * `selected` job, or covered by a disabled one only) is never overdue: nothing is due for it, and
+ * the readiness views say "In no backup job" instead. That holds for one that never had a
+ * backup too: no alert is raised, while the readiness views keep showing it as "No backup yet"
+ * (red, overdue after the first-backup grace).
  *
  * Each object is announced once per stretch: an alert is not raised again for an object that
  * was already announced after its newest successful backup. A new backup ends the stretch.
@@ -26,6 +31,8 @@
  */
 import {
   type JobSchedule,
+  mailObjectEligible,
+  mailObjectsInNoJob,
   overdueDeadlineOf,
   pveGuestCounted,
   pveJobOfGuest,
@@ -234,6 +241,9 @@ async function tenantCandidates(
   const objects = await db
     .select({
       id: protectedObjects.id,
+      status: protectedObjects.status,
+      sourceKind: sources.kind,
+      sourceStatus: sources.status,
       name: sql<string>`coalesce(nullif(trim(${protectedObjects.displayName}), ''), ${protectedObjects.externalId})`,
       since:
         sql<Date>`coalesce(${protectedObjects.activeSince}, ${protectedObjects.createdAt})`.mapWith(
@@ -246,6 +256,7 @@ async function tenantCandidates(
       ),
     })
     .from(protectedObjects)
+    .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
     .where(
       and(
         eq(protectedObjects.tenantId, tenantId),
@@ -267,6 +278,37 @@ async function tenantCandidates(
                 ).toISOString()}::timestamptz)`,
       ),
     );
+  // Objects no enabled mail job covers are not overdue: nothing is due for them. The scope of a
+  // job is read against every member row, as the scheduler and the readiness views read it.
+  const mailJobs = await db
+    .select({ id: backupJobs.id, scopeMode: backupJobs.scopeMode, enabled: backupJobs.enabled })
+    .from(backupJobs)
+    .where(and(eq(backupJobs.tenantId, tenantId), eq(backupJobs.kind, "mail")));
+  const mailMembers =
+    mailJobs.length === 0
+      ? []
+      : await db
+          .select({
+            jobId: backupJobMembers.jobId,
+            protectedObjectId: backupJobMembers.protectedObjectId,
+          })
+          .from(backupJobMembers)
+          .where(eq(backupJobMembers.tenantId, tenantId));
+  const withoutJob = mailObjectsInNoJob(
+    mailJobs,
+    mailMembers.flatMap((member) =>
+      member.protectedObjectId === null
+        ? []
+        : [{ jobId: member.jobId, protectedObjectId: member.protectedObjectId }],
+    ),
+    objects.map((object) => ({
+      id: object.id,
+      eligible: mailObjectEligible(object, {
+        kind: object.sourceKind,
+        status: object.sourceStatus,
+      }),
+    })),
+  );
   const machines = await db
     .select({
       id: endpoints.id,
@@ -402,17 +444,19 @@ async function tenantCandidates(
       ),
     },
     candidates: [
-      ...objects.map((object) => ({
-        kind: "object" as const,
-        id: object.id,
-        name: object.name,
-        // The later of its last snapshot and its return to `active`: a mailbox back from
-        // orphaned (account enabled or licensed again) is not overdue by its old snapshot.
-        since: object.last && object.last > object.since ? object.last : object.since,
-        backedUp: object.last !== null,
-        ...(object.last && object.last < object.since ? { lastSuccessAt: object.last } : {}),
-        hours: ownHours(object.id),
-      })),
+      ...objects
+        .filter((object) => !withoutJob.has(object.id))
+        .map((object) => ({
+          kind: "object" as const,
+          id: object.id,
+          name: object.name,
+          // The later of its last snapshot and its return to `active`: a mailbox back from
+          // orphaned (account enabled or licensed again) is not overdue by its old snapshot.
+          since: object.last && object.last > object.since ? object.last : object.since,
+          backedUp: object.last !== null,
+          ...(object.last && object.last < object.since ? { lastSuccessAt: object.last } : {}),
+          hours: ownHours(object.id),
+        })),
       ...machines.map((machine) => ({
         kind: "endpoint" as const,
         id: machine.id,

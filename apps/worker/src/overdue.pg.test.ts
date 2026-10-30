@@ -57,7 +57,7 @@ describe.skipIf(!adminUrl)("backup.overdue against Postgres", () => {
     contoso = created[0]?.id ?? "";
     const fabrikam = created[1]?.id ?? "";
 
-    // An IMAP account backed up 30 hours ago; no mail job, so its bound is two days.
+    // An IMAP account backed up 30 hours ago; the job has no schedule, so its bound is two days.
     const [source] = await q<{ id: string }>(
       "INSERT INTO sources (tenant_id, kind, name, status) VALUES ($1, 'imap', 'IMAP', 'active') RETURNING id",
       [contoso],
@@ -68,6 +68,13 @@ describe.skipIf(!adminUrl)("backup.overdue against Postgres", () => {
       [contoso, source?.id, ago(30 * 24 * HOUR)],
     );
     mailbox = object?.id ?? "";
+    // In an enabled mail job over everything, without a schedule: an object in no job is never
+    // overdue, so the account must be in one to be judged by the two days.
+    await q(
+      `INSERT INTO backup_jobs (tenant_id, kind, name, scope_mode, schedule, enabled)
+       VALUES ($1, 'mail', 'All', 'all', NULL, true)`,
+      [contoso],
+    );
     await q(
       `INSERT INTO snapshots (tenant_id, protected_object_id, sequence, manifest_path, item_count, byte_size, started_at, completed_at)
        VALUES ($1, $2, 1, 'm/1', 1, 1, $3, $3)`,
@@ -272,5 +279,64 @@ describe.skipIf(!adminUrl)("backup.overdue against Postgres", () => {
     expect([...byObject.values()]).toEqual([48, 48, 48]);
     expect(byObject.has(weekly)).toBe(false);
     expect(byObject.has(running)).toBe(false);
+  });
+
+  it("never alerts for an object that no enabled mail job covers", async () => {
+    const [provider] = await q<{ id: string }>("SELECT provider_id AS id FROM tenants LIMIT 1");
+    const [acme] = await q<{ id: string }>(
+      "INSERT INTO tenants (provider_id, name, slug) VALUES ($1, 'Acme', 'acme') RETURNING id",
+      [provider?.id],
+    );
+    const tenant = acme?.id ?? "";
+    const [source] = await q<{ id: string }>(
+      "INSERT INTO sources (tenant_id, kind, name, status) VALUES ($1, 'm365', 'M365', 'active') RETURNING id",
+      [tenant],
+    );
+    // Every mailbox was last backed up ten days ago: long past any bound.
+    const box = async (name: string) => {
+      const [row] = await q<{ id: string }>(
+        `INSERT INTO protected_objects (tenant_id, source_id, kind, external_id, display_name, status, created_at)
+         VALUES ($1, $2, 'mailbox', $3, $3, 'active', $4) RETURNING id`,
+        [tenant, source?.id, `${name}@acme.example`, ago(60 * 24 * HOUR)],
+      );
+      await q(
+        `INSERT INTO snapshots (tenant_id, protected_object_id, sequence, manifest_path, item_count, byte_size, started_at, completed_at)
+         VALUES ($1, $2, 1, $3, 1, 1, $4, $4)`,
+        [tenant, row?.id, `m/${name}`, ago(10 * 24 * HOUR)],
+      );
+      return row?.id ?? "";
+    };
+    const inJob = await box("injob");
+    const removed = await box("removed");
+    const ofDisabledJob = await box("ofdisabled");
+    // A selected job names only `injob`; `removed` was taken out of it, and a disabled selected
+    // job names `ofdisabled`.
+    const [selected] = await q<{ id: string }>(
+      `INSERT INTO backup_jobs (tenant_id, kind, name, scope_mode, schedule, enabled)
+       VALUES ($1, 'mail', 'Selected', 'selected', '{"kind":"cron","cron":"0 22 * * *","timeZone":"UTC"}', true)
+       RETURNING id`,
+      [tenant],
+    );
+    const [disabled] = await q<{ id: string }>(
+      `INSERT INTO backup_jobs (tenant_id, kind, name, scope_mode, schedule, enabled)
+       VALUES ($1, 'mail', 'Disabled', 'selected', '{"kind":"cron","cron":"0 22 * * *","timeZone":"UTC"}', false)
+       RETURNING id`,
+      [tenant],
+    );
+    await q(
+      `INSERT INTO backup_job_members (tenant_id, job_id, protected_object_id, overrides)
+       VALUES ($1, $2, $3, '{}'), ($1, $4, $5, '{}')`,
+      [tenant, selected?.id, inJob, disabled?.id, ofDisabledJob],
+    );
+
+    await alertOverdueBackups(deps, NOW);
+    const raised = await q<{ details: Record<string, unknown> }>(
+      "SELECT details FROM notifications WHERE event = 'backup.overdue' AND tenant_id = $1",
+      [tenant],
+    );
+    // Only the mailbox a job still backs up is overdue.
+    expect(raised.map((row) => row.details.protectedObjectId)).toEqual([inJob]);
+    expect(raised.map((row) => row.details.protectedObjectId)).not.toContain(removed);
+    expect(raised.map((row) => row.details.protectedObjectId)).not.toContain(ofDisabledJob);
   });
 });

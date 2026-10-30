@@ -27,6 +27,21 @@ private repository.
   (include, exclude, follow the rules again, "Yes, intended", a new job or an existing job with
   the selection, select all matching), announces the count to screen readers, and Escape clears
   the selection. Row checkboxes are named "Select <name>" instead of "Actions for <name>".
+- Recovery readiness: a mailbox, OneDrive, SharePoint site, group or IMAP account that no enabled
+  backup job covers any more (taken out of a job that names its objects, or named by a disabled job
+  only) is no longer rated red with "The latest backup is too old". Like a VM or a file share in no
+  job it reads "In no backup job" in the readiness table, the protected objects, the dashboard and
+  the reports: it is rated by whether its newest backup restores, not by that backup's age, it is
+  never overdue (no `backup.overdue` alert), and it keeps the tenant from green (yellow, red when
+  that backup does not restore). Its last backup still gets one restore check if it never had one,
+  planned from an enabled job's job-level restore check schedule; a tenant whose enabled jobs have
+  none keeps the object "unverified" until a check is started by hand. An object without any
+  backup keeps "No backup yet" (red), and no `backup.overdue` alert is raised for it. The dashboard and the
+  provider view count these objects apart from the machines. The integration API contract moves
+  to 1.8.0: new are `inJob` on the readiness of an object (`GET /api/v1/objects`, `/users`,
+  `/verify/latest`) and `objectsWithoutJob` in the readiness summary. The value of `withoutJob`
+  in the readiness summary changes: it counted servers and clients only, and now counts these
+  objects too (`objectsWithoutJob` says how many of them they are).
 
 ### Fixed
 

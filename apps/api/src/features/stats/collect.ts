@@ -12,6 +12,7 @@ import { type SQL, sql } from "drizzle-orm";
 import { notImported, notImportedRaw, snapshotNotImportedRaw } from "../../lib/imported-objects.js";
 import { notCountedFailureJob } from "../../lib/service-limit.js";
 import type { Transaction } from "../../lib/tenant-context.js";
+import { loadMailWithoutJob } from "../backup-jobs/coverage.js";
 import { loadRepositoryBytes, totalRepositoryBytes } from "../storage/repository-bytes.js";
 import { MAX_LARGEST_OBJECTS } from "./aggregate.js";
 import type { TenantRefDto } from "./dto.js";
@@ -392,6 +393,8 @@ export async function collectTenantFacts(
       from ${protectedObjects}
       where ${protectedObjects.tenantId} = ${tenantId} and ${notImported()}`,
   );
+  // The objects no enabled mail job covers: rated by their last backup without its age.
+  const noJob = await loadMailWithoutJob(tx, tenantId);
 
   const largest = await rows(
     tx,
@@ -447,6 +450,7 @@ export async function collectTenantFacts(
       kind: row.kind as ProtectedObjectKind,
       status: row.status as ProtectedObjectStatus,
       createdAt: toDate(row.created_at),
+      withoutJob: noJob.has(String(row.id)),
     })),
     snapshots: ratedSnapshots,
     reports: ratedReports,

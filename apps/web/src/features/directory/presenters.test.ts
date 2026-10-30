@@ -222,6 +222,23 @@ describe("objectStatusView and the backup jobs", () => {
       "excluded",
     );
   });
+
+  it("keeps the member of a disabled job as a job without schedule, whatever its readiness says", () => {
+    // The readiness column calls it "In no backup job" (`withoutJob`); the status, like the job
+    // filter, goes by the coverage: the job exists, it just does not run.
+    expect(objectStatusView(object({ coverage: "unscheduled", withoutJob: true }))).toEqual({
+      variant: "warning",
+      suffix: "unscheduled",
+    });
+    expect(objectStatusView(object({ coverage: "none", withoutJob: true })).suffix).toBe("no_job");
+    expect(objectStatusView(object({ coverage: "scheduled", withoutJob: false })).suffix).toBe(
+      "active",
+    );
+    // An excluded object is not "in no job".
+    expect(objectStatusView(object({ status: "excluded", withoutJob: true })).suffix).toBe(
+      "excluded",
+    );
+  });
 });
 
 describe("objectStatusView", () => {

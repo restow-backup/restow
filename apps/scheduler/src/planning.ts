@@ -42,9 +42,15 @@ export interface TenantTargets {
     readonly status: "active" | "excluded" | "orphaned";
     /**
      * The object's newest restorable backup has no check of its own yet. Read for orphaned
-     * objects only (see `awaitsLastCheck`); absent, the planner treats it as checked.
+     * objects and active ones in no job only (see `awaitsLastCheck`); absent, the planner treats
+     * it as checked.
      */
     readonly unverifiedBackup?: boolean;
+    /**
+     * An active object that no enabled mail job covers (core `mailObjectsInNoJob`): nothing
+     * backs it up any more, but its last backup still wants its restore proof. Absent: false.
+     */
+    readonly withoutJob?: boolean;
   }[];
   readonly sources: readonly {
     readonly id: string;
@@ -119,14 +125,18 @@ function sourceUsable(source: TenantTargets["sources"][number]): boolean {
 }
 
 /**
- * An object removed from its source (orphaned, its backups kept) whose newest backup was never
- * checked: no backup will follow, but that last one still needs its restore proof, or it stays
- * "unverified" (red) for good, since an orphan is never overdue and no check would come by
- * itself. A verify reads the storage only, not the source, so the source need not be usable.
- * Once a check rated that backup, nothing is planned for the object any more.
+ * An object removed from its source (orphaned, its backups kept), or an active one that no
+ * enabled job covers any more, whose newest backup was never checked: no backup will follow, but
+ * that last one still needs its restore proof, or it stays "unverified" (red) for good, since
+ * such an object is never overdue and no check would come by itself. A verify reads the storage
+ * only, not the source, so the source need not be usable. Once a check rated that backup,
+ * nothing is planned for the object any more.
  */
 function awaitsLastCheck(object: TenantTargets["protectedObjects"][number]): boolean {
-  return object.status === "orphaned" && object.unverifiedBackup === true;
+  return (
+    object.unverifiedBackup === true &&
+    (object.status === "orphaned" || (object.status === "active" && object.withoutJob === true))
+  );
 }
 
 /**
@@ -183,6 +193,7 @@ export function expandSchedule(
         ...objects,
         ...targets.protectedObjects.filter(
           (object) =>
+            object.status === "orphaned" &&
             awaitsLastCheck(object) &&
             (schedule.protectedObjectId === null || object.id === schedule.protectedObjectId),
         ),
@@ -364,7 +375,7 @@ export function expandJobUnit(
     ids = covered.filter((id) => !own.has(id));
   }
   const base = { tenantId: unit.job.tenantId, backupJobId: unit.job.id };
-  return ids.map((protectedObjectId) =>
+  const jobs = ids.map((protectedObjectId) =>
     unit.what === "backup"
       ? planned("backup", { ...base, jobId: newJobId(), protectedObjectId }, protectedObjectId)
       : planned(
@@ -373,4 +384,32 @@ export function expandJobUnit(
           protectedObjectId,
         ),
   );
+  if (unit.what !== "verify" || unit.level !== "job") {
+    return jobs;
+  }
+  // An active object in no enabled job (taken out of its job, or its job is off) is in no job's
+  // scope, so no job's verify would ever give its last backup the check it lacks. Any job's
+  // verify does that once; it belongs to no job, and the singleton key keeps two jobs' passes
+  // from queueing it twice. Limit: it is planned from an ENABLED job's job-level verify schedule
+  // only (a member's own verify schedule does not count). A tenant whose enabled mail jobs have
+  // none, or that has no enabled mail job at all, gets no such check: the object stays
+  // "unverified" until a verify is started by hand.
+  const unscoped = targets.protectedObjects.filter(
+    (object) => object.status === "active" && awaitsLastCheck(object) && !ids.includes(object.id),
+  );
+  return [
+    ...jobs,
+    ...unscoped.map((object) =>
+      planned(
+        "verify",
+        {
+          tenantId: unit.job.tenantId,
+          jobId: newJobId(),
+          protectedObjectId: object.id,
+          kind: "verify",
+        },
+        object.id,
+      ),
+    ),
+  ];
 }

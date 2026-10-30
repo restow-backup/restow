@@ -52,6 +52,13 @@ export interface ReadinessObject {
   readonly kind: ProtectedObjectKind;
   readonly status: ProtectedObjectStatus;
   readonly createdAt: Date;
+  /**
+   * An active object that no enabled mail job covers (@restow/core `mailObjectsInNoJob`): rated
+   * like an orphaned one, by whether its newest backup restores and not by its age, and never
+   * overdue; it keeps the moment from green. Like the status, only the current state is stored,
+   * so it applies to earlier moments as well. Absent reads as in a job.
+   */
+  readonly withoutJob?: boolean;
 }
 
 /** A completed backup (snapshot) of an object, as far as readiness needs it. */

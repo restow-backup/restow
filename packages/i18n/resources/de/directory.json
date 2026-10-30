@@ -27,7 +27,7 @@
     "inactive_no_license": "Nicht gesichert: keine Lizenz",
     "not_selected": "Nicht ausgewählt",
     "needs_credential": "Braucht Aufmerksamkeit",
-    "no_job": "Ohne Backup-Job",
+    "no_job": "In keinem Backup-Job",
     "unscheduled": "Job ohne Zeitplan",
     "inactive_locked": "Nicht gesichert: gesperrt",
     "to_confirm": "Nicht mehr gesichert, bitte bestätigen",
@@ -78,7 +78,8 @@
     "checked": "Geprüft {when}",
     "unverifiedHint": "Es gibt Sicherungen, aber noch keine Restore-Prüfung hat sie bestätigt. Eine nicht nachgewiesene Sicherung gilt nicht als Schutz.",
     "noneHint": "Geprüft werden kann erst, wenn die erste Sicherung abgeschlossen ist.",
-    "needsCredentialHint": "Für dieses Konto ist gerade kein eigenes, funktionierendes Passwort gesetzt: Es ist derzeit nicht geschützt, unabhängig davon, was ein früherer Sicherungsstand einmal bestätigt hat."
+    "needsCredentialHint": "Für dieses Konto ist gerade kein eigenes, funktionierendes Passwort gesetzt: Es ist derzeit nicht geschützt, unabhängig davon, was ein früherer Sicherungsstand einmal bestätigt hat.",
+    "noJob": "In keinem Backup-Job"
   },
   "backup": {
     "never": "Noch keine Sicherung",

@@ -1091,9 +1091,15 @@ function ReadinessCell({ object, language }: { object: ProtectedObject; language
         ? t("readiness.unverifiedHint")
         : t("readiness.noneHint");
   return (
-    <HintBadge variant={view.variant} label={t(view.key)}>
-      {hint}
-    </HintBadge>
+    <div className="min-w-0 space-y-0.5">
+      <HintBadge variant={view.variant} label={t(view.key)}>
+        {hint}
+      </HintBadge>
+      {/* Rated by whether its newest backup restores, not by its age: nothing backs it up. */}
+      {object.withoutJob === true && object.status === "active" ? (
+        <p className="text-xs text-muted-foreground">{t("readiness.noJob")}</p>
+      ) : null}
+    </div>
   );
 }
 

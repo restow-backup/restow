@@ -544,6 +544,65 @@ describe("machines on the status tab", () => {
   });
 });
 
+describe("mailboxes and drives in no backup job", () => {
+  it("names them apart from the machines on the readiness card", () => {
+    const html = render(
+      <ReadinessWidget
+        view={ready({
+          ...data.readiness,
+          withoutJob: 3,
+          objectsWithoutJob: 2,
+          overall: "yellow" as const,
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(html);
+    expect(html).toContain('data-flag="objects-without-job"');
+    expect(html).toContain("2 mailboxes and drives in no backup job");
+    // `withoutJob` counts both: the machines are what is left of it.
+    expect(html).toContain("1 machine in no backup job");
+    const onlyObjects = render(
+      <ReadinessWidget
+        view={ready({
+          ...data.readiness,
+          withoutJob: 1,
+          objectsWithoutJob: 1,
+          overall: "yellow" as const,
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expect(onlyObjects).toContain("1 mailbox or drive in no backup job");
+    expect(onlyObjects).not.toContain('data-flag="without-job"');
+    // A server that does not count them apart: everything reads as machines, as before.
+    const older = render(
+      <ReadinessWidget
+        view={ready({ ...data.readiness, withoutJob: 2, overall: "yellow" as const })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expect(older).not.toContain('data-flag="objects-without-job"');
+    expect(older).toContain("2 machines in no backup job");
+  });
+
+  it("counts them on the protected objects tile, and does not call the tile healthy", () => {
+    const html = render(
+      <ProtectedObjectsWidget
+        view={ready({ ...data.protectedObjects, withoutJob: 2, noBackup: 0, failed: 0 })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(html);
+    expect(html).toContain("2 objects in no backup job");
+    expect(html).not.toContain("No failures in the latest runs");
+  });
+});
+
 describe("protect everything without a job (#52)", () => {
   it("offers the page's action while machines or guests are in no job, and not otherwise", () => {
     const action = <button type="button">Protect everything without a job</button>;

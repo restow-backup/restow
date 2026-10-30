@@ -111,7 +111,13 @@ export const readinessSummarySchema = component(
       .number()
       .int()
       .describe(
-        "Servers and clients in no backup job: rated by their old backups, but nothing backs them up. Any of them makes `overall` at least yellow.",
+        "Servers and clients, and Microsoft 365 and IMAP objects (mailboxes, OneDrives, sites, groups), in no enabled backup job: rated by their old backups, but nothing backs them up. Any of them makes `overall` at least yellow. `objectsWithoutJob` counts the objects among them. Up to contract 1.7.0 this counted servers and clients only.",
+      ),
+    objectsWithoutJob: z
+      .number()
+      .int()
+      .describe(
+        "Microsoft 365 and IMAP objects (mailboxes, OneDrives, sites, groups) that no enabled backup job covers and that keep a backup: rated by whether their newest backup restores, not by its age, and never overdue, but nothing backs them up. Included in `withoutJob`. An object without any backup stays `no_backup`.",
       ),
     guestsWithoutJob: z
       .number()
@@ -182,6 +188,11 @@ export const objectVerifySchema = component(
         .describe("The rating of the newest backup; null while it is unverified."),
       checkedAt: timestampSchema.nullable().describe("When the rating was established."),
       overdue: z.boolean(),
+      inJob: z
+        .boolean()
+        .describe(
+          "False for an active object that no enabled backup job covers: nothing backs it up any more. It is then rated without the age of its newest backup and never `overdue`, but keeps the tenant from green.",
+        ),
       latestSnapshotId: uuidSchema.nullable().describe("The newest completed backup."),
       latestSnapshotAt: timestampSchema.nullable(),
       report: z
@@ -232,6 +243,7 @@ function toObjectVerify(entry: ReadinessOverviewDto["objects"][number]): ObjectV
     rating: entry.readiness,
     checkedAt: entry.checkedAt,
     overdue: entry.overdue,
+    inJob: entry.inJob ?? true,
     latestSnapshotId: entry.latestSnapshotId ?? null,
     latestSnapshotAt: entry.latestSnapshotAt,
     report: entry.report
