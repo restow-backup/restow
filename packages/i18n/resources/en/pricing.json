@@ -1,0 +1,39 @@
+{
+  "card": {
+    "title": "Price per month",
+    "perMonth": "/ month",
+    "mailboxes": "{count, plural, one {# mailbox} other {# mailboxes}} × {price} = {amount}",
+    "storage": "{quantity} {unit} × {price} = {amount}",
+    "custom": "Custom price",
+    "unavailable": "Figures not available yet",
+    "none": "No price is set for this tenant yet.",
+    "link": "Adjust prices",
+    "edit": "Prices for this tenant",
+    "loadError": "The price could not be loaded."
+  },
+  "editor": {
+    "title": "Prices for {name}",
+    "description": "Prices of this tenant that differ from the installation's, in {currency}. Leave a field empty to use the installation price.",
+    "descriptionBare": "Prices of this tenant that differ from the installation's. Leave a field empty to use the installation price.",
+    "mailbox": "Price per mailbox",
+    "storage": "Price per {unit}",
+    "installationPrice": "Installation price: {price}",
+    "installationNone": "Installation price: none",
+    "useInstallation": "Use installation price",
+    "useInstallationFor": "{field}: use installation price",
+    "custom": "Custom price",
+    "save": "Save",
+    "saved": "Prices for {name} saved.",
+    "loadError": "The prices could not be loaded.",
+    "unavailable": "Prices of their own for a tenant come with Service Provider.",
+    "invalid": "Please enter a price such as 2.50 (at most four decimals) or leave the field empty."
+  },
+  "all": {
+    "title": "Price per month, all tenants",
+    "description": "The sum over all tenants at your prices. Nothing is billed.",
+    "unavailable": "Figures not available yet",
+    "top": "Highest amounts",
+    "more": "+{count} more",
+    "missing": "{count, plural, one {The figures of # tenant are not available yet.} other {The figures of # tenants are not available yet.}} The total is incomplete."
+  }
+}

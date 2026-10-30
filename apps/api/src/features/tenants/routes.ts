@@ -1,6 +1,7 @@
 import type { Tenant } from "@restow/db";
 import { type Context, Hono } from "hono";
 import { db, providerDb } from "../../db.js";
+import { requireFeature } from "../../lib/features.js";
 import { providerMayEnterTenant } from "../../lib/provider-access.js";
 import { clientIp } from "../../lib/request.js";
 import { decideTenantAccess } from "../../middleware/rbac.js";
@@ -12,6 +13,12 @@ import {
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem, readJsonBody } from "../../schemas.js";
+import {
+  getTenantPricing,
+  TENANT_PRICING_FEATURE,
+  tenantPricingSchema,
+  updateTenantPricing,
+} from "../settings/tenant-pricing.js";
 import { createInternalTenant, markTenantInternal } from "./internal.js";
 import {
   addMemberSchema,
@@ -64,6 +71,13 @@ import {
  * Both POSTs need the administrator role of the provider team with every
  * tenant (lib/provider-access.ts), are audited, and need no `tenants.additional`
  * for the installation's first tenant, like any first tenant.
+ *
+ * A tenant's own prices (0.4.8, settings/tenant-pricing.ts):
+ *
+ *   GET    /:id/pricing    the installation's prices, the tenant's own and what applies
+ *   PUT    /:id/pricing    body `{ mailboxPrice?, storagePrice? }`, a number sets and null removes
+ *                          the tenant's own price; the owner only, audited, refused (403
+ *                          feature-unavailable) while `tenants.additional` is closed
  */
 
 export const tenantsRoutes = new Hono<SessionEnv>();
@@ -181,6 +195,23 @@ tenantsRoutes.put("/:id/notification-recipients", requireSession, async (c) => {
   const tenant = await tenantForAdmin(c);
   const recipients = await parseJsonBody(c.req, replaceNotificationRecipientsSchema);
   return c.json(await replaceTenantNotificationRecipients(db, tenant.id, recipients, actorOf(c)));
+});
+
+// --- The tenant's own prices (settings/tenant-pricing.ts) ----------------------
+// Every provider admin reads them, the owner changes them, and only while the installation
+// offers several tenants (the gate `tenants.additional`); tenant users never see them.
+
+tenantsRoutes.get("/:id/pricing", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  return c.json(await getTenantPricing(db, providerDb, id));
+});
+
+tenantsRoutes.put("/:id/pricing", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  // The gate comes first: with it closed the answer is the same whatever the body says.
+  await requireFeature(TENANT_PRICING_FEATURE, providerDb);
+  const input = await parseJsonBody(c.req, tenantPricingSchema);
+  return c.json(await updateTenantPricing(db, providerDb, id, input, actorOf(c)));
 });
 
 // --- Members (provider admin or the tenant's admins) --------------------------

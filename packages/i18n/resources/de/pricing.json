@@ -1,0 +1,39 @@
+{
+  "card": {
+    "title": "Preis je Monat",
+    "perMonth": "/ Monat",
+    "mailboxes": "{count, plural, one {# Postfach} other {# Postfächer}} × {price} = {amount}",
+    "storage": "{quantity} {unit} × {price} = {amount}",
+    "custom": "Eigener Preis",
+    "unavailable": "Zahlen noch nicht verfügbar",
+    "none": "Für diesen Mandanten ist noch kein Preis festgelegt.",
+    "link": "Preise anpassen",
+    "edit": "Preise für diesen Mandanten",
+    "loadError": "Der Preis konnte nicht geladen werden."
+  },
+  "editor": {
+    "title": "Preise für {name}",
+    "description": "Preise dieses Mandanten, die von denen der Installation abweichen, in {currency}. Ein leeres Feld übernimmt den Preis der Installation.",
+    "descriptionBare": "Preise dieses Mandanten, die von denen der Installation abweichen. Ein leeres Feld übernimmt den Preis der Installation.",
+    "mailbox": "Preis je Postfach",
+    "storage": "Preis je {unit}",
+    "installationPrice": "Preis der Installation: {price}",
+    "installationNone": "Preis der Installation: keiner",
+    "useInstallation": "Preis der Installation übernehmen",
+    "useInstallationFor": "{field}: Preis der Installation übernehmen",
+    "custom": "Eigener Preis",
+    "save": "Speichern",
+    "saved": "Preise für {name} gespeichert.",
+    "loadError": "Die Preise konnten nicht geladen werden.",
+    "unavailable": "Eigene Preise je Mandant gehören zu Service Provider.",
+    "invalid": "Bitte einen Preis wie 2,50 eingeben (höchstens vier Nachkommastellen) oder das Feld leer lassen."
+  },
+  "all": {
+    "title": "Preis je Monat, alle Mandanten",
+    "description": "Die Summe über alle Mandanten zu Ihren Preisen. Abgerechnet wird damit nichts.",
+    "unavailable": "Zahlen noch nicht verfügbar",
+    "top": "Höchste Beträge",
+    "more": "+{count} weitere",
+    "missing": "{count, plural, one {Die Zahlen von # Mandant sind noch nicht verfügbar.} other {Die Zahlen von # Mandanten sind noch nicht verfügbar.}} Die Summe ist unvollständig."
+  }
+}

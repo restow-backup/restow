@@ -39,7 +39,7 @@
     "ransomware": "Wie Sicherungsstände auf Anzeichen von Ransomware geprüft werden, und die Schwellenwerte jedes Signals, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "agentPolicy": "Sicherungsfenster, verpasste Sicherungen, Bandbreite, Netzteil und Wiederholungen der Server und Clients, und was Mandanten ändern dürfen.",
     "proxmox": "Wie die Sicherungsstände von VMs und Containern geprüft werden, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
-    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Die Übersicht jedes Mandanten zeigt, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts."
+    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts."
   },
   "access": {
     "owner": "Sie können diese Einstellungen ansehen. Zum Ändern brauchen Sie die Rolle Inhaber im Provider-Team.",
@@ -593,7 +593,7 @@
   },
   "pricing": {
     "title": "Preise je Monat",
-    "description": "Nur eine Übersicht für Sie: Die Übersicht jedes Mandanten zeigt in einer Kachel, was er zu diesen Preisen ausmacht. {appName} rechnet nichts ab und begrenzt nichts. Leer lassen blendet einen Preis aus.",
+    "description": "Nur eine Übersicht für Sie: Das Dashboard und die Übersicht jedes Mandanten zeigen in einer Kachel, was er zu diesen Preisen ausmacht. {appName} rechnet nichts ab und begrenzt nichts. Leer lassen blendet einen Preis aus.",
     "loadError": "Die Preise konnten nicht geladen werden.",
     "mailbox": "Preis je Postfach",
     "mailboxHint": "Je geschütztem Postfach oder IMAP-Konto; ein OneDrive zählt nicht doppelt (wie bei der Postfach-Zählung).",
@@ -607,6 +607,14 @@
     "save": "Speichern",
     "saved": "Preise gespeichert.",
     "ownerOnly": "Ändern kann die Preise nur der Eigentümer der Installation.",
-    "invalid": "Bitte einen Preis wie 2,50 eingeben (höchstens vier Nachkommastellen) oder das Feld leer lassen."
+    "invalid": "Bitte einen Preis wie 2,50 eingeben (höchstens vier Nachkommastellen) oder das Feld leer lassen.",
+    "overrides": {
+      "title": "Mandanten mit eigenen Preisen",
+      "empty": "Noch kein Mandant hat eigene Preise.",
+      "hint": "Die Preise eines einzelnen Mandanten legen Sie auf der Preiskachel in dessen Übersicht fest. Das kann nur der Eigentümer; jeder andere Mandant nutzt die Preise oben.",
+      "mailbox": "{price} je Postfach",
+      "storage": "{price} je {unit}",
+      "loadError": "Die Liste der Mandanten mit eigenen Preisen konnte nicht geladen werden."
+    }
   }
 }

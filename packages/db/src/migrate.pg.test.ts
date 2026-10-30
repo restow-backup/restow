@@ -395,6 +395,16 @@ describe.skipIf(!adminUrl)("migrations on a fresh and on a 0.300.x database", ()
         "protected_objects_login_question_ck",
         "protected_objects_login_refused_ck",
       ]);
+      // 0071: a tenant's own prices start empty and never null (every tenant takes the installation's).
+      const { rows: tenantPricing } = await pool.query<{
+        is_nullable: string;
+        column_default: string;
+      }>(
+        `SELECT is_nullable, column_default FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'tenants'
+            AND column_name = 'pricing' AND data_type = 'jsonb'`,
+      );
+      expect(tenantPricing).toEqual([{ is_nullable: "NO", column_default: "'{}'::jsonb" }]);
     } finally {
       await pool.end();
     }

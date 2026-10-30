@@ -436,6 +436,9 @@
       "customer": {
         "updated": "Stammdaten des Mandanten geändert"
       },
+      "pricing": {
+        "updated": "Eigene Preise des Mandanten geändert"
+      },
       "contacts": {
         "updated": "Ansprechpartner des Mandanten geändert"
       },

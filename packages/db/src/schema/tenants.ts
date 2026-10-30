@@ -35,6 +35,16 @@ export const tenantLanguageEnum = pgEnum("tenant_language", ["de", "en"]);
 export const tenantKindEnum = pgEnum("tenant_kind", ["customer", "internal"]);
 
 /**
+ * One customer's own prices (0.4.8), per month, in the installation's currency and storage unit
+ * (settings.pricing). A price that is absent takes the installation's; a number, also 0, is this
+ * customer's price. Nothing bills them, they only feed the provider's price cards.
+ */
+export interface TenantPricing {
+  mailboxPrice?: number;
+  storagePrice?: number;
+}
+
+/**
  * A tenant is a customer organisation. Every tenant-scoped table
  * carries `tenant_id` and is isolated by Row Level Security (see sql/rls.sql).
  * Provider admins switch tenants explicitly; queries are never cross-tenant.
@@ -106,6 +116,10 @@ export const tenants = pgTable(
     // the tenant's bell shows. Null until an administrator chooses, which means every event but
     // the routine ones (`DEFAULT_BELL_EVENTS`), what the bell showed before it had a column.
     bellEvents: text("bell_events").array(),
+    // This customer's own prices (0.4.8, TenantPricing): a key that is present overrides the
+    // installation's price (settings.pricing), `{}` takes both. Only read and changed while the
+    // gate tenants.additional is open (apps/api features/settings/tenant-pricing.ts).
+    pricing: jsonb("pricing").$type<TenantPricing>().notNull().default({}),
     ...timestamps(),
   },
   (t) => [

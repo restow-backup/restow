@@ -11,6 +11,10 @@ import { ProblemError } from "../../problem.js";
  * with the tenant's figures in one small card, so the provider can keep an eye on it. Every
  * provider admin reads them (GET /api/v1/settings/pricing), the owner changes them (PUT, audited
  * in the installation chain, lib/provider-access.ts). Tenant users never see them.
+ *
+ * Since 0.4.8 a tenant can have prices of its own where the installation offers several tenants
+ * (tenant-pricing.ts), and one estimate answers for both the dashboard and the tenant page
+ * (pricing-estimate.ts).
  */
 
 export const PRICING_AUDIT_ACTIONS = { updated: "settings.pricing.updated" } as const;
@@ -20,14 +24,15 @@ export const DEFAULT_CURRENCY = "EUR";
 /** The currencies offered; the figures are formatted with the browser's Intl. */
 export const PRICING_CURRENCIES = ["EUR", "CHF", "USD", "GBP"] as const;
 
-const price = z.number().min(0).max(1_000_000).multipleOf(0.0001).nullable();
+/** One price: null clears it. The limits also hold for a tenant's own price (tenant-pricing.ts). */
+export const priceSchema = z.number().min(0).max(1_000_000).multipleOf(0.0001).nullable();
 
 export const pricingSchema = z
   .object({
     currency: z.enum(PRICING_CURRENCIES).optional(),
-    storagePrice: price.optional(),
+    storagePrice: priceSchema.optional(),
     storageUnit: z.enum(["GB", "TB"]).optional(),
-    mailboxPrice: price.optional(),
+    mailboxPrice: priceSchema.optional(),
   })
   .strict();
 

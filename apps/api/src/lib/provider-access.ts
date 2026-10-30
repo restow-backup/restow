@@ -196,6 +196,11 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PATCH /api/v1/tenants/:id/customer": configure(byParam("id")),
   "PUT /api/v1/tenants/:id/contacts": configure(byParam("id")),
   "PUT /api/v1/tenants/:id/notification-recipients": configure(byParam("id")),
+  // A tenant's own prices (settings/tenant-pricing.ts): business figures of the provider, read by
+  // its admins for the tenants they may enter, changed by the owner (and only while the gate
+  // `tenants.additional` is open).
+  "GET /api/v1/tenants/:id/pricing": view(byParam("id")),
+  "PUT /api/v1/tenants/:id/pricing": own(byParam("id")),
   "GET /api/v1/tenants/:id/members": view(TENANT),
   "POST /api/v1/tenants/:id/members": configure(TENANT),
   "PATCH /api/v1/tenants/:id/members/:userId": configure(TENANT),
@@ -250,6 +255,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // figures of the provider, read by its admins, changed by the owner.
   "GET /api/v1/settings/pricing": view(PROVIDER),
   "PUT /api/v1/settings/pricing": own(),
+  // The estimate of the price cards, per tenant: a member limited to some tenants gets those
+  // (the handler narrows it, like the tenant list).
+  "GET /api/v1/settings/pricing/estimate": view(LIST),
   // The installation's agent policy (docs/AGENT.md, "Richtlinien"): it reaches every tenant's
   // machines, so changing it needs an administrator with every tenant.
   "GET /api/v1/settings/agent-policy": view(PROVIDER),
