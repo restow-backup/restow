@@ -65,9 +65,7 @@ private repository.
   refused, and carries on into the backup, with the account active again, when it works. A new
   password (single, CSV import or the source's), "Test login", "Back up now" and "Include"
   resume the account at once (while the source awaits its test or is paused, the scheduler's
-  check follows as soon as it is usable, so no job is refused);
-  "Exclude" stops the probes.
-
+  check follows as soon as it is usable, so no job is refused); "Exclude" stops the probes.
 - Start page: the new widget "Running now" ("Läuft gerade") shows what is being copied or
   backed up this moment: every run that goes on (Microsoft 365 mailboxes, OneDrives,
   SharePoint sites, groups, IMAP accounts, machines with the agent, Proxmox VE guests and file
