@@ -364,6 +364,51 @@ async function press(target: Element, key: string) {
   });
 }
 
+/**
+ * Waits until `condition` holds: a request, its refetch and the dialog it opens can take longer
+ * than one tick when the whole suite runs at once.
+ */
+async function waitUntil(condition: () => boolean, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) {
+      return;
+    }
+    await settle();
+  }
+}
+
+/**
+ * Opens the selection's "More actions" menu. Right after a selection change the panel re-renders
+ * and Radix can drop the first pointerdown, so it tries again until the menu is open.
+ */
+async function openMoreActions() {
+  for (let attempt = 0; attempt < 20 && !document.querySelector('[role="menu"]'); attempt++) {
+    await act(async () => {
+      action("moreSelectionActions")?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    await settle();
+  }
+}
+
+/**
+ * Opens the selection's "More actions" menu and clicks `item` in it. Right after a selection
+ * change the panel re-renders and Radix can drop the first pointerdown, so it opens again until
+ * the item is there.
+ */
+async function chooseMoreAction(item: string) {
+  const selector = `[role="menu"] [data-action="${item}"]`;
+  for (let attempt = 0; attempt < 20 && !document.querySelector(selector); attempt++) {
+    await openMoreActions();
+    await settle();
+  }
+  await act(async () => {
+    document.querySelector<HTMLElement>(selector)?.click();
+  });
+}
+
 /** Lets the timers of a focus return (and Radix's own) run. */
 async function settle() {
   await act(async () => {
@@ -520,9 +565,7 @@ describe("the selection panel", () => {
     await check("Alice Example");
     const more = action("moreSelectionActions") as HTMLElement;
     expect(more.getAttribute("aria-label")).toBe("More actions");
-    await act(async () => {
-      more.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
-    });
+    await openMoreActions();
     const menu = document.querySelector<HTMLElement>('[role="menu"]');
     expect(menu).not.toBeNull();
     expect(menu?.querySelector('[data-action="reset"]')?.textContent).toBe(
@@ -602,10 +645,7 @@ describe("the selection panel", () => {
     await check("Gone One");
     expect(action("include")).toBeNull();
     expect(action("exclude")).toBeNull();
-    const more = action("moreSelectionActions") as HTMLElement;
-    await act(async () => {
-      more.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
-    });
+    await openMoreActions();
     const menu = document.querySelector<HTMLElement>('[role="menu"]');
     expect(menu?.querySelector('[data-action="confirmInactive"]')?.textContent).toBe(
       "Yes, intended",
@@ -621,10 +661,7 @@ describe("the selection panel", () => {
     await check("Alice Example");
     expect(document.querySelector('[data-action="selectAllMatching"]')).toBeNull();
     await check("Bob OneDrive");
-    const more = action("moreSelectionActions") as HTMLElement;
-    await act(async () => {
-      more.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
-    });
+    await openMoreActions();
     const all = document.querySelector<HTMLElement>(
       '[role="menu"] [data-action="selectAllMatching"]',
     );
@@ -636,11 +673,7 @@ describe("the selection panel", () => {
       "60 selected",
     );
     expect(announcement()).toBe("60 selected");
-    await act(async () => {
-      action("moreSelectionActions")?.dispatchEvent(
-        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
-      );
-    });
+    await openMoreActions();
     // A job is made of explicit objects: "all matching" has none to hand over.
     const menu = document.querySelector<HTMLElement>('[role="menu"]');
     expect(menu?.querySelector('[data-action="newJobFromSelection"]')).toBeNull();
@@ -938,16 +971,23 @@ describe("an IMAP account whose login is refused", () => {
   });
 
   // The list as the server returns it once the question is answered "No": the line is gone.
-  const answeredList =
-    (shared = false) =>
-    async (url: string, init?: RequestInit) => {
+  // The list answers with the question until "No" was sent, and as answered after it: a refetch
+  // right after mounting must still show the question.
+  const answeredList = (shared = false) => {
+    let dismissed = false;
+    return async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/login-question/dismiss")) {
+        dismissed = true;
+      }
       if (/\/directory\/objects\?/.test(String(url))) {
         return new Response(
           JSON.stringify(
             page([
               imap({
                 ...(shared ? { credential: sharedCredential } : {}),
-                loginQuestion: { ...QUESTION, dismissedAt: "2026-10-29T08:00:00.000Z" },
+                ...(dismissed
+                  ? { loginQuestion: { ...QUESTION, dismissedAt: "2026-10-29T08:00:00.000Z" } }
+                  : {}),
               }),
             ]),
           ),
@@ -956,6 +996,7 @@ describe("an IMAP account whose login is refused", () => {
       }
       return fetcher(url, init);
     };
+  };
   const sharedCredential = {
     authMode: "shared" as const,
     hasPassword: false,
@@ -974,7 +1015,12 @@ describe("an IMAP account whose login is refused", () => {
     await act(async () => {
       button(row("Bob Mail"), "loginQuestionNo")?.click();
     });
-    await settle();
+    await waitUntil(
+      () =>
+        (document.querySelector('[role="dialog"]')?.textContent ?? "").includes(
+          "Set the password for Bob Mail",
+        ) && row("Bob Mail").querySelector('[data-testid="login-question"]') === null,
+    );
     const dismiss = calls.find((call) => call.url.endsWith("/objects/i-1/login-question/dismiss"));
     expect(dismiss?.body).toEqual({});
     expect(success).toHaveBeenCalledWith(
@@ -1072,11 +1118,7 @@ describe("an IMAP account whose login is refused", () => {
     wide(false);
     await check("Bob Mail");
     await check("Carla Mail");
-    await act(async () => {
-      action("moreSelectionActions")?.dispatchEvent(
-        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
-      );
-    });
+    await openMoreActions();
     const yes = document.querySelector<HTMLElement>(
       '[role="menu"] [data-action="confirmInactive"]',
     );
@@ -1137,24 +1179,9 @@ describe("an IMAP account whose login is refused", () => {
     wide(false);
     await check("Bob Mail");
     await check("Carla Mail");
-    await act(async () => {
-      action("moreSelectionActions")?.dispatchEvent(
-        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
-      );
-    });
-    await act(async () => {
-      document
-        .querySelector<HTMLElement>('[role="menu"] [data-action="selectAllMatching"]')
-        ?.click();
-    });
-    await act(async () => {
-      action("moreSelectionActions")?.dispatchEvent(
-        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
-      );
-    });
-    await act(async () => {
-      document.querySelector<HTMLElement>('[role="menu"] [data-action="confirmInactive"]')?.click();
-    });
+    await chooseMoreAction("selectAllMatching");
+    await chooseMoreAction("confirmInactive");
+    await waitUntil(() => document.querySelector('[role="alertdialog"]') !== null);
     const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
     expect(dialog?.textContent).toContain("Confirm that 43 accounts were shut down?");
     expect(dialog?.textContent).toContain("Sources: Mail server, Other host.");
