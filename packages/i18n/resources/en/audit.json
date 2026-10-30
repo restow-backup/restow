@@ -436,6 +436,9 @@
       "customer": {
         "updated": "Tenant master data changed"
       },
+      "pricing": {
+        "updated": "Tenant prices changed"
+      },
       "contacts": {
         "updated": "Tenant contacts changed"
       },

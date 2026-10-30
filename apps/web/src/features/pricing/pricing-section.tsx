@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -10,32 +11,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { providerMay } from "@/lib/provider-role";
 import { useSession } from "@/lib/session";
+import { tenantPageTo } from "@/lib/tenant-paths";
 
-import { fetchPricing, PRICING_CURRENCIES, type Pricing, pricingKey, savePricing } from "./api.js";
+import {
+  fetchPricing,
+  PRICING_CURRENCIES,
+  type Pricing,
+  type PricingEstimate,
+  pricingKey,
+  savePricing,
+} from "./api.js";
+import { formatMoney, parsePrice, priceText, tenantsWithOwnPrices } from "./presenters.js";
+import { usePricingEstimate } from "./use-estimate.js";
 
 const SELECT =
   "h-9 rounded-md border bg-background px-2 text-sm disabled:cursor-not-allowed disabled:opacity-50";
-
-/** A price as typed ("2,50", "0.02", empty = none); undefined when it is no price. */
-export function parsePrice(text: string): number | null | undefined {
-  const trimmed = text.trim().replace(",", ".");
-  if (trimmed === "") {
-    return null;
-  }
-  if (!/^\d+(\.\d{1,4})?$/.test(trimmed)) {
-    return undefined;
-  }
-  const value = Number(trimmed);
-  return Number.isFinite(value) && value <= 1_000_000 ? value : undefined;
-}
-
-function priceText(value: number | null, language: string): string {
-  return value === null
-    ? ""
-    : new Intl.NumberFormat(language, { maximumFractionDigits: 4, useGrouping: false }).format(
-        value,
-      );
-}
 
 /**
  * The provider's prices (installation section, 0.4.7): per month, per gigabyte or terabyte of
@@ -63,10 +53,90 @@ export function PricingSection() {
         ) : !query.data ? (
           <Skeleton className="h-24 w-full" />
         ) : (
-          <PricingForm pricing={query.data} />
+          <div className="space-y-6">
+            <PricingForm pricing={query.data} />
+            <TenantsWithOwnPrices />
+          </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Where tenants may have prices of their own (Service Provider, 0.4.8): which tenants do, from
+ * the server's estimate, and where to set them (the price card of the tenant's overview, for the
+ * owner). Nothing where the installation has a single tenant.
+ */
+function TenantsWithOwnPrices() {
+  const { t, i18n } = useTranslation("installation");
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const session = useSession();
+  const query = usePricingEstimate({ enabled: session.isProviderAdmin });
+  if (query.isError && !query.data) {
+    return (
+      <p className="text-sm text-muted-foreground" role="alert">
+        {t("pricing.overrides.loadError")}
+      </p>
+    );
+  }
+  const estimate = query.data;
+  if (!estimate?.perTenantOverrides) {
+    return null;
+  }
+  return (
+    <section
+      className="space-y-2 border-t pt-4"
+      aria-labelledby="tenants-own-prices"
+      data-slot="tenants-own-prices"
+    >
+      <h3 id="tenants-own-prices" className="text-sm font-medium">
+        {t("pricing.overrides.title")}
+      </h3>
+      <OwnPriceList estimate={estimate} language={language} />
+      <p className="text-xs text-muted-foreground">{t("pricing.overrides.hint")}</p>
+    </section>
+  );
+}
+
+function OwnPriceList({ estimate, language }: { estimate: PricingEstimate; language: string }) {
+  const { t } = useTranslation("installation");
+  const tenants = tenantsWithOwnPrices(estimate);
+  if (tenants.length === 0) {
+    return <p className="text-sm text-muted-foreground">{t("pricing.overrides.empty")}</p>;
+  }
+  const money = (value: number) => formatMoney(value, estimate.currency, language);
+  return (
+    <ul className="divide-y text-sm">
+      {tenants.map((tenant) => (
+        <li
+          key={tenant.tenantId}
+          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2"
+        >
+          <Link
+            to={tenantPageTo(tenant.tenantId, "overview")}
+            className="rounded-sm text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {tenant.name}
+          </Link>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {[
+              tenant.overridden.mailbox && tenant.mailboxPrice !== null
+                ? t("pricing.overrides.mailbox", { price: money(tenant.mailboxPrice) })
+                : null,
+              tenant.overridden.storage && tenant.storagePrice !== null
+                ? t("pricing.overrides.storage", {
+                    price: money(tenant.storagePrice),
+                    unit: estimate.storageUnit,
+                  })
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -99,6 +169,9 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
       }),
     onSuccess: (data) => {
       queryClient.setQueryData(pricingKey, data);
+      // Every figure derived from the prices (the cards, the sum, the list of own prices) is
+      // stale now; the pricing itself was just set.
+      void queryClient.invalidateQueries({ queryKey: [...pricingKey, "estimate"] });
       toast.success(t("pricing.saved"));
     },
     onError: (error) => toast.error((error as Error).message),

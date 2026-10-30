@@ -92,6 +92,40 @@ private repository.
   each tenant in its own transaction, a few at a time, and keeps an answer for 8 seconds for all
   viewers. Provider admins only; a member of the provider team limited to some tenants sees
   those only.
+- Prices per tenant (Service Provider): the owner can give a tenant its own price per mailbox,
+  its own price per GB or TB, or both, in a dialog opened from the tenant's price card ("Prices
+  for this tenant"). A field left empty ("Use installation price") takes the installation's
+  price again; the currency and the unit stay the installation's. Without a key for several
+  tenants (the feature `tenants.additional`) the dialog is not offered, the change is refused
+  with the feature-unavailable problem and stored prices are ignored, so the installation's
+  prices apply everywhere; they apply again when the feature is back. `GET` (provider admins
+  within their tenants) and `PUT` (owner only; body `mailboxPrice` and `storagePrice`, a number
+  from 0 to 1,000,000 with at most four decimals, or `null` to remove) on
+  `/api/v1/tenants/:id/pricing` answer the stored prices, the installation's and the ones that
+  apply. Every accepted change is audited as `tenant.pricing.updated` in the tenant's chain with
+  the stored prices before and after. Installation › Prices lists the tenants with their own
+  prices, with a link to each, and says where to set them.
+- `GET /api/v1/settings/pricing/estimate` (every provider admin; one with only some tenants
+  gets those) is the one source of every price card: per tenant the protected mailboxes (the
+  counting rule of `GET /api/v1/usage`), the stored bytes (the dashboard storage widget's
+  figure, chunk store plus repositories), the price that applies, the amounts and the total,
+  and over all customer tenants a total and the number of tenants whose figures could not be
+  read. `?tenant=<id>` answers for one tenant. A tenant without any price is not read at all;
+  the figures are kept for 30 seconds, prices are always read fresh. Tenants being deleted are
+  left out. Amounts are not rounded.
+- Dashboard › Status: for a provider admin whose installation has a price (the tenant's own
+  counts), the row of "Readiness" and "Last successful backup" gets a third card, "Price per
+  month", always beside the last backup, never below it. On a wide page all three stand in one
+  row; where the last backup's list would not fit a third of it, readiness takes the row above
+  and the two cards share the row below; on a phone they stack. It shows the total per
+  month, one line per price (quantity × price = amount), "Custom price" where the tenant has its
+  own, the way to the prices and, for the owner, to this tenant's prices. Figures that are not
+  available yet read "Figures not available yet" instead of the card disappearing. Without a
+  price, and for everybody else, the row is unchanged.
+- Dashboard under "All tenants": a card above "Running now" with the monthly total over all
+  customers at their prices, the five tenants with the highest amounts (a click switches into
+  the tenant), "+N more", and a note when the figures of some tenants are not available. The
+  own organisation is not counted. Only for provider admins, only once a price is set.
 
 ### Changed
 
@@ -132,6 +166,12 @@ private repository.
   run probes the login and backs the account up when it works. Restoring "to the original
   account" says the account is shut down; restoring into another account or downloading works as
   before.
+- The price card of the tenant's overview takes its figures from the server's estimate instead
+  of adding them up in the browser, so it shows what the dashboard shows. It marks a price of
+  the tenant's own ("Custom price"), reads "Figures not available yet" instead of disappearing
+  while a figure is missing, and gives the owner the way to this tenant's prices. Where tenants
+  may have prices of their own, the owner also sees the card on a tenant without any price, to
+  set the first one.
 
 ### Fixed
 
@@ -154,11 +194,14 @@ private repository.
 
 ### Upgrade Notes
 
-- One database migration (0070) runs at the api's start: six columns on `protected_objects`
+- Two database migrations run at the api's start. 0070 adds six columns to `protected_objects`
   (`login_failed_runs` default 0, five nullable timestamps), three check constraints (among
-  them the one that guards the reason `login_refused`) and the trigger of 0069 extended. No row
+  them the one that guards the reason `login_refused`) and extends the trigger of 0069. No row
   is rewritten, nothing is asked after the update: the first question comes after 3 counted
   refusals over 24 hours, that is on the third night of failing logins at the earliest.
+  0071 adds the column `tenants.pricing` (`jsonb`, default `{}` and not null: no price of its
+  own) for the prices per tenant; it does not rewrite the table, and every tenant keeps the
+  installation's prices until the owner sets its own.
 
 ## [0.4.7] - 2026-10-29
 

@@ -105,6 +105,20 @@ export function toStorageTarget(target: StorageTarget): StorageTargetDto {
   };
 }
 
+/**
+ * Everything a tenant stores: the sealed packs of its chunk store and the restic repositories of
+ * machines, file shares and containers. This is the dashboard's "physical bytes", and what the
+ * price estimate multiplies with the storage price. Call inside the tenant's pinned transaction.
+ */
+export async function loadPhysicalBytes(tx: Transaction, tenantId: string): Promise<number> {
+  const [physical] = await tx
+    .select({ bytes: sql<number>`coalesce(sum(${packs.size}), 0)`.mapWith(Number) })
+    .from(packs)
+    .where(eq(packs.tenantId, tenantId));
+  const repositories = totalRepositoryBytes(await loadRepositoryBytes(tx, tenantId));
+  return (physical?.bytes ?? 0) + repositories;
+}
+
 /** Logical and physical bytes of a tenant, inside the caller's tenant transaction. */
 export async function loadStorageTotals(tx: Transaction, tenantId: string): Promise<StorageTotals> {
   const latest = tx
@@ -124,14 +138,9 @@ export async function loadStorageTotals(tx: Transaction, tenantId: string): Prom
   const [logical] = await tx
     .select({ bytes: sql<number>`coalesce(sum(${latest.byteSize}), 0)`.mapWith(Number) })
     .from(latest);
-  const [physical] = await tx
-    .select({ bytes: sql<number>`coalesce(sum(${packs.size}), 0)`.mapWith(Number) })
-    .from(packs)
-    .where(eq(packs.tenantId, tenantId));
-  const repositories = totalRepositoryBytes(await loadRepositoryBytes(tx, tenantId));
   return {
     logicalBytes: logical?.bytes ?? 0,
-    physicalBytes: (physical?.bytes ?? 0) + repositories,
+    physicalBytes: await loadPhysicalBytes(tx, tenantId),
   };
 }
 

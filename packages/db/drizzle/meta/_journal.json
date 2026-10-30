@@ -498,6 +498,13 @@
       "when": 1793324132340,
       "tag": "0070_imap_login_refused",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1793358775422,
+      "tag": "0071_tenant_pricing",
+      "breakpoints": true
     }
   ]
 }

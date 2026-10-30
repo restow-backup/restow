@@ -14,6 +14,7 @@ import {
 import { useSwitchTenant } from "@/components/tenant-switcher";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { AllTenantsPriceCard } from "@/features/pricing/all-tenants-price-card";
 import { STATS_VIEW, StatsPage } from "@/features/stats";
 import { OwnOrganisationPrompt } from "@/features/tenants/components/own-organisation-prompt";
 import { type ReadinessState, verifyLink } from "@/features/verify/search";
@@ -132,6 +133,7 @@ function StatusView({ allTenants }: { allTenants: boolean }) {
   } else {
     body = allTenants ? (
       <div className="space-y-6">
+        <AllTenantsPriceCard onOpenTenant={openTenant} />
         <AllTenantsRunningWidget onOpenTenant={openTenant} />
         <ExtensionSlot
           name="dashboard.provider"

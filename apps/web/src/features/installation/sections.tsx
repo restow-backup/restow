@@ -121,7 +121,7 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     component: PveSettingsSection,
   },
   {
-    // The provider's prices behind the tenant overview's price card (0.4.7): nothing bills them.
+    // The provider's prices behind the price cards (0.4.7, per tenant 0.4.8): nothing bills them.
     id: "pricing",
     labelKey: "installation:sections.pricing",
     descriptionKey: "installation:descriptions.pricing",

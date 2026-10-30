@@ -146,13 +146,6 @@
       "title": "Delete tenant",
       "description": "Deleting the tenant removes its backups, its archive and its keys for good. This cannot be undone.",
       "internal": "This is your own organisation. It cannot be deleted while it is marked as such."
-    },
-    "price": {
-      "title": "Price per month",
-      "perMonth": "{amount} / month",
-      "mailboxes": "{count, plural, one {# mailbox} other {# mailboxes}} × {price} = {amount}",
-      "storage": "{quantity} {unit} × {price} = {amount}",
-      "link": "Adjust prices"
     }
   },
   "agents": {

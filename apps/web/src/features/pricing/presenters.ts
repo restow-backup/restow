@@ -1,4 +1,4 @@
-import type { Pricing } from "./api.js";
+import type { EstimateTenant, PricingEstimate } from "./api.js";
 
 const UNIT_BYTES = { GB: 1e9, TB: 1e12 } as const;
 
@@ -9,51 +9,78 @@ export interface PriceLine {
   amount: number;
 }
 
-export interface PriceEstimate {
-  mailboxes: PriceLine | null;
-  storage: (PriceLine & { unit: "GB" | "TB" }) | null;
-  total: number;
-}
+/** What a price card shows for one tenant. */
+export type TenantPriceView =
+  /** No price applies to the tenant: nothing to show (the installation has none, nor the tenant). */
+  | { kind: "none" }
+  /** A price applies, but the figures to multiply it with could not be read (yet). */
+  | { kind: "unavailable"; custom: boolean }
+  | {
+      kind: "ready";
+      total: number;
+      mailboxes: PriceLine | null;
+      storage: (PriceLine & { unit: "GB" | "TB" }) | null;
+      /** The tenant's own price applies to at least one line. */
+      custom: boolean;
+    };
 
 /**
- * What a tenant comes to per month at the provider's prices: its protected mailboxes times the
- * mailbox price, its stored bytes (decimal GB or TB) times the storage price. A price that is not
- * set, or a figure that is unknown, leaves its line out; null when no line remains.
+ * What a tenant comes to per month, from the server's estimate (apps/api settings/
+ * pricing-estimate.ts is the one place that multiplies): a line per price that applies, the
+ * total, and whether the tenant's own price is in it. "None" is a tenant without any price, which
+ * is not the same as figures that are not available yet.
  */
-export function priceEstimate(
-  pricing: Pricing | undefined,
-  mailboxes: number | null,
-  storedBytes: number | null,
-): PriceEstimate | null {
-  if (!pricing) {
-    return null;
+export function tenantPriceView(estimate: PricingEstimate, tenantId: string): TenantPriceView {
+  const entry = estimate.tenants.find((tenant) => tenant.tenantId === tenantId);
+  if (!entry || (entry.mailboxPrice === null && entry.storagePrice === null)) {
+    return { kind: "none" };
+  }
+  const custom = entry.overridden.mailbox || entry.overridden.storage;
+  if (entry.amount.total === null) {
+    return { kind: "unavailable", custom };
   }
   const mailboxLine =
-    pricing.mailboxPrice !== null && mailboxes !== null
+    entry.mailboxPrice !== null && entry.mailboxes !== null && entry.amount.mailboxes !== null
       ? {
-          quantity: mailboxes,
-          price: pricing.mailboxPrice,
-          amount: mailboxes * pricing.mailboxPrice,
+          quantity: entry.mailboxes,
+          price: entry.mailboxPrice,
+          amount: entry.amount.mailboxes,
         }
       : null;
-  const quantity = storedBytes !== null ? storedBytes / UNIT_BYTES[pricing.storageUnit] : null;
   const storageLine =
-    pricing.storagePrice !== null && quantity !== null
+    entry.storagePrice !== null && entry.storedBytes !== null && entry.amount.storage !== null
       ? {
-          quantity,
-          price: pricing.storagePrice,
-          amount: quantity * pricing.storagePrice,
-          unit: pricing.storageUnit,
+          quantity: entry.storedBytes / UNIT_BYTES[estimate.storageUnit],
+          price: entry.storagePrice,
+          amount: entry.amount.storage,
+          unit: estimate.storageUnit,
         }
       : null;
-  if (!mailboxLine && !storageLine) {
-    return null;
-  }
   return {
+    kind: "ready",
+    total: entry.amount.total,
     mailboxes: mailboxLine,
     storage: storageLine,
-    total: (mailboxLine?.amount ?? 0) + (storageLine?.amount ?? 0),
+    custom,
   };
+}
+
+/** The customers with an amount, the highest first: the top of the list and how many are left. */
+export function topTenants(
+  estimate: PricingEstimate,
+  limit: number,
+): { top: EstimateTenant[]; more: number } {
+  const ranked = estimate.tenants
+    .filter((tenant) => tenant.kind !== "internal" && tenant.amount.total !== null)
+    .sort((a, b) => (b.amount.total ?? 0) - (a.amount.total ?? 0) || a.name.localeCompare(b.name));
+  return { top: ranked.slice(0, limit), more: Math.max(0, ranked.length - limit) };
+}
+
+/** The tenants with a price of their own, in the order the server lists them (by name). */
+export function tenantsWithOwnPrices(estimate: PricingEstimate): EstimateTenant[] {
+  return estimate.tenants.filter(
+    (tenant) => tenant.overridden.mailbox || tenant.overridden.storage,
+  );
 }
 
 /** A price or an amount in the provider's currency, in the UI language. */
@@ -64,4 +91,33 @@ export function formatMoney(value: number, currency: string, language: string): 
     // A storage price per GB is often a fraction of a cent.
     maximumFractionDigits: value !== 0 && Math.abs(value) < 0.1 ? 4 : 2,
   }).format(value);
+}
+
+/** A stored amount in its unit: whole numbers from a hundred up, else two decimals. */
+export function formatQuantity(value: number, language: string): string {
+  return new Intl.NumberFormat(language, { maximumFractionDigits: value >= 100 ? 0 : 2 }).format(
+    value,
+  );
+}
+
+/** A price as typed ("2,50", "0.02", empty = none); undefined when it is no price. */
+export function parsePrice(text: string): number | null | undefined {
+  const trimmed = text.trim().replace(",", ".");
+  if (trimmed === "") {
+    return null;
+  }
+  if (!/^\d+(\.\d{1,4})?$/.test(trimmed)) {
+    return undefined;
+  }
+  const value = Number(trimmed);
+  return Number.isFinite(value) && value <= 1_000_000 ? value : undefined;
+}
+
+/** A price as the field shows it; empty for none. */
+export function priceText(value: number | null, language: string): string {
+  return value === null
+    ? ""
+    : new Intl.NumberFormat(language, { maximumFractionDigits: 4, useGrouping: false }).format(
+        value,
+      );
 }

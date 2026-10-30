@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-
+import type { PricingEstimate } from "@/features/pricing/api";
+import { estimateFixture, estimateTenant, noPriceEstimate } from "@/features/pricing/testing";
 import {
   enableActEnvironment,
   flush,
@@ -119,6 +120,9 @@ function providerDashboard(): Dashboard {
   };
 }
 
+/** What the price estimate answers; no price by default. */
+let estimate: PricingEstimate = noPriceEstimate();
+
 let mounted: Mounted | null = null;
 const urls: string[] = [];
 let seenSlot: SlotProps["dashboard.provider"] | null = null;
@@ -131,6 +135,7 @@ beforeEach(() => {
   urls.length = 0;
   seenSlot = null;
   allRunning = { generatedAt: new Date().toISOString(), tenants: [], next: null, unavailable: 0 };
+  estimate = noPriceEstimate();
   router.search = {};
   router.navigate.mockReset();
   registerWebExtension({
@@ -160,6 +165,9 @@ async function open(session: Parameters<typeof sessionAs>[0]) {
     if (url.endsWith("/tenant-running")) {
       return json(allRunning);
     }
+    if (url.includes("/settings/pricing/estimate")) {
+      return json(estimate);
+    }
     return json(url.includes("provider=only") ? providerDashboard() : tenantDashboard());
   });
   mounted = mount(<DashboardPage />, {
@@ -181,8 +189,12 @@ const text = (element: Element) => (element.textContent ?? "").replace(/\s+/g, "
 describe("the overview of a tenant", () => {
   it("shows only that tenant, with no Provider/Tenant tabs and no setup card", async () => {
     const { page } = await open({ scope: "tenant" });
-    expect(urls).toHaveLength(1);
-    expect(urls[0]).toMatch(/\/dashboard$/);
+    // The dashboard, and the price estimate of the tenant (a provider admin's, for the price card).
+    expect(urls).toHaveLength(2);
+    expect(urls.filter((url) => /\/dashboard$/.test(url))).toHaveLength(1);
+    expect(
+      urls.filter((url) => /\/settings\/pricing\/estimate\?tenant=mueller$/.test(url)),
+    ).toHaveLength(1);
     expect(text(page)).toContain("Showing Müller GmbH");
     // The tabs of the old overview.
     expect(page.querySelector('[aria-label="View"][role="tablist"]')).toBeNull();
@@ -193,6 +205,18 @@ describe("the overview of a tenant", () => {
     expect(text(page)).not.toContain("Show steps");
     expect(page.querySelector('[data-widget="readiness"]')).not.toBeNull();
     expect(page.querySelector('[data-slot="provider-test"]')).toBeNull();
+    // No price, no price card: the status row is readiness alone here.
+    expect(page.querySelector('[data-widget="price"]')).toBeNull();
+  });
+
+  it("shows the tenant's price next to the last backup once a price is set", async () => {
+    estimate = estimateFixture({
+      tenants: [estimateTenant({ tenantId: "mueller", name: "Müller GmbH" })],
+    });
+    const { page } = await open({ scope: "tenant" });
+    const price = page.querySelector('[data-widget="price"]') as Element;
+    expect(text(price)).toContain("Price per month");
+    expect(text(price)).toContain("€36.80 / month");
   });
 
   it("links every readiness row that has objects to the table of those objects", async () => {
@@ -315,6 +339,37 @@ describe("the overview under All tenants", () => {
     expect(text(widget)).toContain("Nothing is running right now");
     expect(text(widget)).toContain("The next scheduled backup starts");
     expect(text(widget)).toContain("Nordlicht AG");
+  });
+
+  it("shows the monthly total above what runs, with the top tenants and a way into each", async () => {
+    estimate = estimateFixture({
+      tenants: [
+        estimateTenant({ tenantId: "mueller", name: "Müller GmbH" }),
+        estimateTenant({
+          tenantId: "nord",
+          name: "Nordlicht AG",
+          amount: { mailboxes: 10, storage: null, total: 10 },
+        }),
+      ],
+      total: 46.8,
+    });
+    const { page, setActiveTenant } = await open({ scope: "all" });
+    const card = page.querySelector('[data-widget="allTenantsPrice"]') as Element;
+    expect(text(card)).toContain("€46.80 / month");
+    expect(urls.some((url) => /\/settings\/pricing\/estimate$/.test(url))).toBe(true);
+    const running = page.querySelector('[data-widget="running"]') as Element;
+    expect(card.compareDocumentPosition(running) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await act(async () => {
+      [...card.querySelectorAll("li button")]
+        .find((button) => button.textContent === "Nordlicht AG")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(setActiveTenant).toHaveBeenCalledWith("nord");
+  });
+
+  it("shows no price card without a price", async () => {
+    const { page } = await open({ scope: "all" });
+    expect(page.querySelector('[data-widget="allTenantsPrice"]')).toBeNull();
   });
 
   it("does not ask for the provider view while the session is on one tenant", async () => {

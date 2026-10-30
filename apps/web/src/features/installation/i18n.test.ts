@@ -223,6 +223,8 @@ describe("installation translations", () => {
       entries: 1840,
       location: "restow_pgdata",
       zone: "Europe/Berlin",
+      price: "€2.50",
+      unit: "GB",
     };
     for (const language of ["en", "de"]) {
       await i18n.changeLanguage(language);

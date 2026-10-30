@@ -1,5 +1,5 @@
 import { type Context, Hono } from "hono";
-import { providerDb } from "../../db.js";
+import { db, providerDb } from "../../db.js";
 import { acceptDisclaimer } from "../../lib/disclaimer.js";
 import { requestLanguage } from "../../lib/language.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
@@ -27,6 +27,11 @@ import {
 import { browserOrigin } from "./origin.js";
 import { getPasskeyImpact } from "./passkey-impact.js";
 import { getPricing, pricingSchema, updatePricing } from "./pricing.js";
+import {
+  estimateFiguresCache,
+  loadPricingEstimate,
+  pricingEstimateQuerySchema,
+} from "./pricing-estimate.js";
 import {
   mailNotNeededSchema,
   mailTestSchema,
@@ -81,6 +86,9 @@ import {
  *   GET    /pricing               the provider's prices per GB/TB of backups and per mailbox
  *                                  (the tenant overview's price card; nothing bills them)
  *   PUT    /pricing               change them (what is left out stays; null clears a price)
+ *   GET    /pricing/estimate      the monthly estimate per tenant at those prices (and the
+ *                                  tenants' own, tenants/:id/pricing), ?tenant=<id> for one tenant;
+ *                                  a member limited to some tenants gets those
  *   GET    /agent-policy          the installation's agent policy, its locks, the defaults
  *   PUT    /agent-policy          replace it; every machine whose effective policy changes gets
  *                                  a new configuration version (all tenants)
@@ -225,6 +233,21 @@ settingsRoutes.get("/pricing", async (c) => {
 settingsRoutes.put("/pricing", async (c) => {
   const input = await parseJsonBody(c.req, pricingSchema);
   return c.json(await updatePricing(providerDb, input, actorOf(c)));
+});
+
+// The estimate behind every price card (settings/pricing-estimate.ts). A member of the provider
+// team limited to some tenants gets those tenants only (lib/provider-access.ts).
+settingsRoutes.get("/pricing/estimate", async (c) => {
+  const { tenant } = parseOrProblem(pricingEstimateQuerySchema, c.req.query());
+  return c.json(
+    await loadPricingEstimate(
+      { db, providerDb, cache: estimateFiguresCache },
+      c.get("providerAccess"),
+      {
+        tenantId: tenant,
+      },
+    ),
+  );
 });
 
 // Agent policies (docs/AGENT.md, "Richtlinien"): every provider admin reads the installation's
