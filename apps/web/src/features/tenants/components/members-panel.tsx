@@ -3,6 +3,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
+import { IconButton } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -240,15 +241,12 @@ function MemberTable({ tenantId, members, readOnly, onRemove }: MemberTableProps
               </TableCell>
               <TableCell className="text-right">
                 {locked ? null : (
-                  <Button
-                    variant="ghost"
+                  <IconButton
+                    icon={UserMinus}
                     size="icon-sm"
                     onClick={() => onRemove(member)}
-                    aria-label={t("members.removeOf", { name: displayName(member) })}
-                    title={t("members.removeOf", { name: displayName(member) })}
-                  >
-                    <UserMinus />
-                  </Button>
+                    label={t("members.removeOf", { name: displayName(member) })}
+                  />
                 )}
               </TableCell>
             </TableRow>
@@ -320,15 +318,12 @@ function InvitationTable({ invitations, readOnly, onCancel }: InvitationTablePro
                       />
                     )}
                     {readOnly ? null : (
-                      <Button
-                        variant="ghost"
+                      <IconButton
+                        icon={MailX}
                         size="icon-sm"
                         onClick={() => onCancel(invitation)}
-                        aria-label={t("members.invitations.cancelFor", { email: invitation.email })}
-                        title={t("members.invitations.cancelFor", { email: invitation.email })}
-                      >
-                        <MailX />
-                      </Button>
+                        label={t("members.invitations.cancelFor", { email: invitation.email })}
+                      />
                     )}
                   </div>
                 </TableCell>

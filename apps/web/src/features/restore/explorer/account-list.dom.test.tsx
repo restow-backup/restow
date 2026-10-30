@@ -9,6 +9,7 @@ import {
   json,
   type Mounted,
   mount,
+  problem,
   sessionAs,
   waitFor,
 } from "@/features/updates/testing";
@@ -162,6 +163,36 @@ describe("the people list", () => {
       (node) => node.textContent === "Protected",
     );
     expect(badge?.getAttribute("data-tone")).toBe("neutral");
+  });
+
+  it("says that the accounts could not be loaded instead of showing an empty list", async () => {
+    let failing = true;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (failing) {
+        return problem("urn:restow:problem:internal", 500);
+      }
+      return json({
+        section: url.searchParams.get("section"),
+        items: url.searchParams.get("section") === "people" ? [CARLA] : [],
+        total: url.searchParams.get("section") === "people" ? 1 : 0,
+        next: null,
+      });
+    });
+    mounted = mount(<AccountList value={null} onChange={() => {}} />, { session: SESSION });
+    await waitFor(() => document.querySelector('[role="alert"]') !== null, { what: "the error" });
+    const alert = document.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("The accounts could not be loaded");
+    // A failed read is not "no matching account".
+    expect(mounted.container.textContent).not.toContain("No matching account");
+
+    failing = false;
+    const retry = [...(alert?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "Retry",
+    );
+    await act(async () => retry?.click());
+    await waitFor(() => slots("account-person").length === 1, { what: "the people after retry" });
+    expect(document.querySelector('[role="alert"]')).toBeNull();
   });
 
   it("opens a person on their first area", async () => {

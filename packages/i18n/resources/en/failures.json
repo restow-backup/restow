@@ -405,7 +405,7 @@
     "export": {
       "quota_exceeded": {
         "title": "The export is larger than the space for exports",
-        "why": "The finished exports of this organization may use only a limited amount of storage together, and this export would go beyond it. The file that was written so far was deleted, nothing else was changed."
+        "why": "The finished exports of this organisation may use only a limited amount of storage together, and this export would go beyond it. The file that was written so far was deleted, nothing else was changed."
       }
     },
     "job": {

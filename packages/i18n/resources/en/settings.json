@@ -290,7 +290,7 @@
       },
       "google": {
         "title": "Guide: service account in Google Workspace",
-        "description": "In the Google Cloud console (a project of your organization) and in the Google Admin console, with the Super Admin role.",
+        "description": "In the Google Cloud console (a project of your organisation) and in the Google Admin console, with the Super Admin role.",
         "openCloudConsole": "Open the Google Cloud console",
         "openAdminConsole": "Open the Google Admin console",
         "api": {

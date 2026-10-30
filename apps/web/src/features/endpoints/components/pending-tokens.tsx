@@ -1,7 +1,7 @@
 import { KeyRound, Trash2 } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { ConfirmDialog, RelativeTime, StatusBadge } from "@/components/kit";
+import { ConfirmDialog, ErrorState, RelativeTime, StatusBadge } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,6 +37,7 @@ export function tokensOfProfile(
  * commands only; a switch adds the used, expired and revoked ones for a look
  * back. With no valid command the card is not shown at all (and the switch
  * with it): there is nothing to act on, and the audit log keeps the history.
+ * A list that could not be read shows an error instead.
  */
 export function PendingTokens({ profile }: { profile?: EndpointProfile }) {
   const { t } = useTranslation("endpoints");
@@ -46,6 +47,22 @@ export function PendingTokens({ profile }: { profile?: EndpointProfile }) {
   const [showAll, setShowAll] = React.useState(false);
   const everything = useEnrollmentTokens({ state: "all", enabled: showAll });
   const pending = pendingTokens(tokens.data, profile);
+  // An open install command is a way into the tenant: when the list cannot be read, say so
+  // instead of leaving out the card as if nothing were open.
+  if (tokens.isError && !tokens.data) {
+    return (
+      <Card data-slot="pending-enrollments" data-state="error">
+        <CardContent>
+          <ErrorState
+            title={t("pending.loadError")}
+            error={tokens.error}
+            onRetry={() => void tokens.refetch()}
+            retrying={tokens.isFetching}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
   if (pending.length === 0) {
     return null;
   }

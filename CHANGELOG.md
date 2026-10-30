@@ -73,6 +73,38 @@ private repository.
   page is a design decision, not an access control: the check runs in the browser and the API
   is unchanged. Restow also no longer offers itself for installation on a phone's home screen
   (the web manifest opens in the browser, the touch icon is gone).
+- Warnings: the number on the "Warnings" menu entry counts everything the page asks to look at,
+  not only the open warnings: also failed backups (machines, mail, file shares, VMs and
+  containers) and objects that wait for a confirmation. It reads "n items need attention". The
+  three hints above the list lead to their cause with a button, like the hints on the start
+  page.
+- Controls follow the shared parts: the refresh buttons of Protected objects, Exports, Imports,
+  Restore jobs, Manage tenants and the webhook deliveries are the shared icon button (named and
+  with a tooltip, busy while it loads); the drop-down lists, check boxes and date and time
+  fields of the Proxmox VE job and guest pages, the file share restore and add dialogs, the
+  update planning and the price settings have the border, the dark fill and the focus ring of
+  the other fields. Icon-only buttons that only had a browser tooltip (remove a file, copy a
+  link, remove a member, cancel an invitation, clear the selection) show their name on focus
+  too. Every spinning icon stands still when the system asks for reduced motion.
+- Texts: the red count on the bell uses the destructive text colour of the theme (readable in
+  dark mode); the command of the "Lost your authenticator app" help, the mount example of the
+  import wizard and the level badge of the notification matrix are no longer set in 11 px
+  type; and the English texts say "organisation" throughout (five places used the American
+  spelling).
+
+### Fixed
+
+- Recovery readiness: the table listed every object at once, so a tenant with thousands of
+  mailboxes built thousands of rows, and its last row ran into the edge of the card. It shows
+  50 rows, then "Load more" under the table (with the count shown); changing the state filter
+  starts on the first page again.
+- A card that fails to load no longer leaves a gap that reads as "nothing to report": the sum
+  over all tenants on the start page of a provider admin and the pending enrollments of the
+  machines page now say that they could not be loaded and offer a retry. The same holds for the
+  account list of the restore explorer, the bell and the last runs in the panel of a job: a
+  failed read no longer reads as "No matching account", "Nothing new" or "No run yet".
+- Prices: the currency field sits under its label again instead of beside it.
+
 
 ## [0.4.8] - 2026-10-30
 

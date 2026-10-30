@@ -1,6 +1,6 @@
 {
   "nav": "Warnungen",
-  "navBadge": "{count, plural, one {# offene Warnung} other {# offene Warnungen}}",
+  "navBadge": "{count, plural, one {# Punkt braucht Aufmerksamkeit} other {# Punkte brauchen Aufmerksamkeit}}",
   "title": "Warnungen",
   "description": "Sicherungen, die durchgelaufen sind, aber einzelne Elemente nicht sichern konnten: welche, warum und was zu tun ist. Bestätigte Warnungen zählen nicht mehr, bis ein neues Problem auftritt.",
   "tabs": {

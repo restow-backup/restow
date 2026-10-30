@@ -297,7 +297,7 @@ function SyncState({ source }: { source: DirectorySource }) {
       <div className="flex flex-wrap gap-1.5">
         {pending ? (
           <Badge variant="secondary">
-            <RefreshCw className="animate-spin" aria-hidden="true" />
+            <RefreshCw className="motion-safe:animate-spin" aria-hidden="true" />
             {pending.status === "active" ? t("sync.running") : t("sync.queued")}
           </Badge>
         ) : null}

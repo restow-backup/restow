@@ -13,7 +13,7 @@ import {
   type WarningRef,
   warningKeys,
 } from "./api";
-import { mayAcknowledge } from "./presenters";
+import { attentionCount, mayAcknowledge } from "./presenters";
 
 /** The active tenant, whether tenant-scoped queries may run, and whether the viewer may acknowledge. */
 export function useWarningsScope() {
@@ -35,14 +35,15 @@ export function useWarnings(state: "open" | "acknowledged") {
 }
 
 /**
- * The menu entry's count: the open warnings of the active tenant, from the same cached query the
- * page reads (nothing under "All tenants", where no tenant is active).
+ * The menu entry's count: what the page of the active tenant asks to look at (open warnings,
+ * failed backups, objects to confirm), from the same cached query the page reads (nothing under
+ * "All tenants", where no tenant is active).
  */
 export function useOpenWarningsBadge(): NavBadge | null {
   const { t } = useTranslation("warnings");
   const { data } = useWarnings("open");
-  const open = data?.counts.open ?? 0;
-  return open > 0 ? { count: open, label: t("navBadge", { count: open }) } : null;
+  const count = data ? attentionCount(data.counts) : 0;
+  return count > 0 ? { count, label: t("navBadge", { count }) } : null;
 }
 
 export function useWarning(ref: WarningRef | null) {

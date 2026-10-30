@@ -77,7 +77,7 @@ export function StorageCard({
       <CardContent className="space-y-3 text-sm">
         {storage.running ? (
           <p className="flex items-center gap-2 text-muted-foreground" aria-live="polite">
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />
             {t(`storage.running.${storage.running.status}`, {
               mode: t(`storage.mode.${storage.running.mode}`),
             })}

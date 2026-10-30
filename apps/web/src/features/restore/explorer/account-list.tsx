@@ -11,7 +11,7 @@ import {
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { EmptyState, RelativeTime, StatusBadge } from "@/components/kit";
+import { EmptyState, ErrorState, RelativeTime, StatusBadge } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -103,6 +103,9 @@ export function AccountList({ value, onChange, suspicious = NONE }: AccountListP
   const peopleTotal = peopleQuery.data?.pages[0]?.total ?? 0;
   const sitesTotal = sitesQuery.data?.pages[0]?.total ?? 0;
   const loading = (showPeople && peopleQuery.isPending) || (showSites && sitesQuery.isPending);
+  // A failed read must not pass for a tenant without accounts: the restore starts here. Entries
+  // that did load stay visible; the error shows only while nothing else can be listed.
+  const failed = (showPeople && peopleQuery.isError) || (showSites && sitesQuery.isError);
 
   const activePerson = value
     ? (people.find((person) => person.objects.some((object) => object.id === value)) ?? null)
@@ -187,6 +190,22 @@ export function AccountList({ value, onChange, suspicious = NONE }: AccountListP
             <div className="space-y-2 p-2" aria-busy="true">
               <Skeleton className="h-12 w-full" />
               <Skeleton className="h-12 w-full" />
+            </div>
+          ) : people.length === 0 && sites.length === 0 && failed ? (
+            <div className="p-2">
+              <ErrorState
+                title={t("explorer.accounts.loadError")}
+                error={peopleQuery.error ?? sitesQuery.error}
+                onRetry={() => {
+                  if (peopleQuery.isError) {
+                    void peopleQuery.refetch();
+                  }
+                  if (sitesQuery.isError) {
+                    void sitesQuery.refetch();
+                  }
+                }}
+                retrying={peopleQuery.isFetching || sitesQuery.isFetching}
+              />
             </div>
           ) : people.length === 0 && sites.length === 0 ? (
             <CommandEmpty>

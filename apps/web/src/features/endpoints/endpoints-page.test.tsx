@@ -322,6 +322,15 @@ describe("EndpointsPage", () => {
     expect(rows[1]?.querySelector("button")).toBeNull();
   });
 
+  it("says so when the pending enrollments cannot be read, instead of hiding the card", async () => {
+    fetchTokens.mockRejectedValue(new ApiError(500, null, "boom"));
+    await open("servers");
+    const section = document.querySelector('[data-slot="pending-enrollments"]');
+    expect(section?.getAttribute("data-state")).toBe("error");
+    expect(section?.textContent).toContain("The pending enrollments could not be loaded.");
+    expect(section?.querySelector("button")?.textContent).toContain("Retry");
+  });
+
   it("hides the pending section when no enrollment is open", async () => {
     fetchTokens.mockResolvedValue([token({ state: "used" })]);
     await open("servers");

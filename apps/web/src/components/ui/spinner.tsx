@@ -12,7 +12,7 @@ function Spinner({ className, label }: { className?: string; label?: string }) {
   return (
     <output data-slot="spinner" aria-live="polite" className="inline-flex items-center gap-2">
       <Loader2Icon
-        className={cn("size-4 animate-spin text-muted-foreground", className)}
+        className={cn("size-4 motion-safe:animate-spin text-muted-foreground", className)}
         aria-hidden="true"
       />
       {label ? (

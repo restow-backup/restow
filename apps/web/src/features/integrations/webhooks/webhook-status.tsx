@@ -13,7 +13,9 @@ export function WebhookHealthBadge({ webhook }: { webhook: Pick<Webhook, "active
   const health = webhookHealth(webhook);
   return (
     <Badge variant={HEALTH_VARIANT[health]}>
-      {health === "retrying" ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+      {health === "retrying" ? (
+        <Loader2 className="motion-safe:animate-spin" aria-hidden="true" />
+      ) : null}
       {t(`webhooks.health.${health}`)}
     </Badge>
   );
@@ -23,7 +25,9 @@ export function DeliveryStatusBadge({ status }: { status: DeliveryStatus }) {
   const { t } = useTranslation("integrations");
   return (
     <Badge variant={DELIVERY_STATUS_VARIANT[status]}>
-      {status === "pending" ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+      {status === "pending" ? (
+        <Loader2 className="motion-safe:animate-spin" aria-hidden="true" />
+      ) : null}
       {t(`deliveries.status.${status}`)}
     </Badge>
   );

@@ -174,6 +174,24 @@ describe("the list of mail jobs", () => {
     expect(pinned[0]?.textContent).toContain("All mailboxes, daily");
   });
 
+  it("says that the runs of a job could not be loaded instead of 'No run yet'", async () => {
+    opened = await openJobs(
+      "/jobs?type=mail",
+      mailRoutes({
+        routes: { "GET /history": () => problem("urn:restow:problem:internal", 500) },
+      }),
+    );
+    await flush(5);
+    const row = [...document.querySelectorAll("tr")].find((tr) =>
+      tr.textContent?.includes("OneDrive, nightly"),
+    );
+    await click(row?.querySelector("td:nth-child(4)"));
+    await flush(3);
+    const sheet = slot("job-sheet");
+    expect(sheet?.textContent).toContain("The runs could not be loaded");
+    expect(sheet?.textContent).not.toContain("No run yet");
+  });
+
   it("opens a job's detail panel by a click on its row, its name or its state, named in the address", async () => {
     opened = await openJobs(
       "/jobs?type=mail",

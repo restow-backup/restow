@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { CheckCheck, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -23,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { LinkButton } from "@/features/dashboard/components/link-button";
 import { directoryPath } from "@/features/directory/search";
 import { useCauseTitle } from "@/features/failures";
 import { HISTORY_PATH } from "@/features/jobs/paths";
@@ -106,12 +106,9 @@ export function WarningsPage({ state }: { state: "open" | "acknowledged" }) {
           <TriangleAlert />
           <AlertDescription>
             <p>{t("failedHint", { count: query.data.counts.failed })}</p>
-            <Link
-              to={HISTORY_PATH as never}
-              className="text-sm font-medium underline underline-offset-4"
-            >
+            <LinkButton to={HISTORY_PATH as never} size="xs" className="mt-1">
               {t("openHistory")}
-            </Link>
+            </LinkButton>
           </AlertDescription>
         </Alert>
       ) : null}
@@ -120,12 +117,9 @@ export function WarningsPage({ state }: { state: "open" | "acknowledged" }) {
           <TriangleAlert />
           <AlertDescription>
             <p>{t("failedGuestsHint", { count: query.data.counts.failedGuests ?? 0 })}</p>
-            <Link
-              to={PVE_PATH as never}
-              className="text-sm font-medium underline underline-offset-4"
-            >
+            <LinkButton to={PVE_PATH as never} size="xs" className="mt-1">
               {t("openGuests")}
-            </Link>
+            </LinkButton>
           </AlertDescription>
         </Alert>
       ) : null}
@@ -134,13 +128,14 @@ export function WarningsPage({ state }: { state: "open" | "acknowledged" }) {
           <TriangleAlert />
           <AlertDescription>
             <p>{t("toConfirmHint", { count: query.data.counts.toConfirm ?? 0 })}</p>
-            <Link
+            <LinkButton
               to={directoryPath() as never}
-              search={{ status: "to_confirm" } as never}
-              className="text-sm font-medium underline underline-offset-4"
+              search={{ status: "to_confirm" }}
+              size="xs"
+              className="mt-1"
             >
               {t("openToConfirm")}
-            </Link>
+            </LinkButton>
           </AlertDescription>
         </Alert>
       ) : null}

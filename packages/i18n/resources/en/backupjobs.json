@@ -1374,6 +1374,7 @@
     "verifySchedule": "Restore checks",
     "runs": "Last runs",
     "noRuns": "No run yet.",
+    "runsLoadError": "The runs could not be loaded. This does not mean that the job has not run.",
     "openPage": "Open job page",
     "openGuests": "Open its VMs & containers",
     "pveFailed": "{count, plural, one {The backup of # guest failed in this round.} other {The backups of # guests failed in this round.}}",

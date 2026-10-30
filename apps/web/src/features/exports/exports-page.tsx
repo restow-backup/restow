@@ -1,20 +1,14 @@
 import { Link } from "@tanstack/react-router";
-import {
-  Archive as ArchiveIcon,
-  ArchiveRestore,
-  ChevronRight,
-  FileDown,
-  RefreshCw,
-} from "lucide-react";
+import { Archive as ArchiveIcon, ArchiveRestore, ChevronRight, FileDown } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
-import { EmptyState } from "@/components/kit";
+import { EmptyState, RefreshButton } from "@/components/kit";
 import { OlderEntries } from "@/components/kit/older-entries";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -91,15 +85,11 @@ export function ExportsPage() {
             : t("list.subtitle")
         }
       >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void exports.refetch()}
-          disabled={exports.isFetching}
-        >
-          <RefreshCw className={exports.isFetching ? "animate-spin" : undefined} />
-          {tCommon("actions.refresh")}
-        </Button>
+        <RefreshButton
+          label={tCommon("actions.refresh")}
+          fetching={exports.isFetching}
+          onRefresh={() => void exports.refetch()}
+        />
       </PageHeader>
 
       {exports.isPending ? (

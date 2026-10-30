@@ -1,13 +1,14 @@
 import { Link } from "@tanstack/react-router";
-import { ArchiveRestore, ChevronRight, RefreshCw, Server } from "lucide-react";
+import { ArchiveRestore, ChevronRight, Server } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
+import { RefreshButton } from "@/components/kit";
 import { OlderEntries } from "@/components/kit/older-entries";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -56,15 +57,11 @@ export function RestoreJobsPage() {
           <Server />
           {t("jobs.machineRestores")}
         </Link>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void jobs.refetch()}
-          disabled={jobs.isFetching}
-        >
-          <RefreshCw className={jobs.isFetching ? "animate-spin" : undefined} />
-          {tCommon("actions.refresh")}
-        </Button>
+        <RefreshButton
+          label={tCommon("actions.refresh")}
+          fetching={jobs.isFetching}
+          onRefresh={() => void jobs.refetch()}
+        />
         <Link to={restoreTo(RESTORE_PATHS.explorer)} className={buttonVariants({ size: "sm" })}>
           <ArchiveRestore />
           {t("jobs.newRestore")}

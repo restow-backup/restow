@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { CircleCheck, Repeat, TriangleAlert } from "lucide-react";
 import * as React from "react";
 
+import { NativeSelect } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -289,9 +290,8 @@ export function ShareRestoreDialog({
               <div className="grid gap-3" data-slot="other-share">
                 <div className="grid gap-1.5">
                   <Label htmlFor="restore-target-share">{t("restore.targetShare")}</Label>
-                  <select
+                  <NativeSelect
                     id="restore-target-share"
-                    className="h-9 rounded-md border bg-background px-2 text-sm"
                     value={target?.id ?? ""}
                     onChange={(event) => setTargetId(event.target.value)}
                     disabled={confirming}
@@ -301,7 +301,7 @@ export function ShareRestoreDialog({
                         {item.name} ({item.location})
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </div>
                 <div className="grid gap-1.5">
                   <Label htmlFor="restore-folder">{t("restore.folder")}</Label>

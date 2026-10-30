@@ -12,8 +12,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-
-import { ConfirmDialog, type RowAction, RowActionItems } from "@/components/kit";
+import { ConfirmDialog, IconButton, type RowAction, RowActionItems } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -267,17 +266,14 @@ export const SelectionPanel = React.forwardRef<HTMLDivElement, SelectionPanelPro
     } as const;
 
     const clearButton = (
-      <Button
-        variant="ghost"
+      <IconButton
+        icon={X}
         size="icon-sm"
         className="shrink-0"
-        aria-label={t("bulk.clear")}
-        title={t("bulk.clear")}
+        label={t("bulk.clear")}
         data-action="clearSelection"
         onClick={clear}
-      >
-        <X aria-hidden="true" />
-      </Button>
+      />
     );
 
     if (variant === "column") {
