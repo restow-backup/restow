@@ -32,4 +32,4 @@ export function createTenantRunningRoutes(deps: TenantRunningRoutesDeps): Hono<S
   return routes;
 }
 
-export const tenantRunningRoutes = createTenantRunningRoutes({ db, providerDb });
+export const runningRoutes = createTenantRunningRoutes({ db, providerDb });
