@@ -65,4 +65,15 @@ describe("loadConfig", () => {
     expect(config.tickIntervalMs).toBe(30_000);
     expect(config.leaderRetryIntervalMs).toBe(15_000);
   });
+
+  it("keeps the default pool sizes and reads RESTOW_DB_*_POOL_MAX", () => {
+    expect(loadConfig({ ...urls }).dbPool).toEqual({ app: 10, installation: 10, queue: 10 });
+    expect(
+      loadConfig({ ...urls, RESTOW_DB_POOL_MAX: "20", RESTOW_DB_BOSS_POOL_MAX: "4" }).dbPool,
+    ).toEqual({ app: 20, installation: 10, queue: 4 });
+  });
+
+  it("refuses an invalid pool size", () => {
+    expect(() => loadConfig({ ...urls, RESTOW_DB_POOL_MAX: "0" })).toThrow(/RESTOW_DB_POOL_MAX/);
+  });
 });

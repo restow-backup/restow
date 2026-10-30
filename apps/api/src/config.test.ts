@@ -246,3 +246,20 @@ describe("loadConfig, export section", () => {
     }
   });
 });
+
+describe("database pool sizes", () => {
+  it("keep the default of 10 connections", () => {
+    expect(loadConfig({}).dbPool).toEqual({ app: 10, installation: 10, queue: 10 });
+  });
+
+  it("are read from RESTOW_DB_POOL_MAX and RESTOW_DB_PROVIDER_POOL_MAX", () => {
+    const config = loadConfig({ RESTOW_DB_POOL_MAX: "30", RESTOW_DB_PROVIDER_POOL_MAX: "8" });
+    expect(config.dbPool).toMatchObject({ app: 30, installation: 8 });
+  });
+
+  it("report a value that is not a whole number from 1 to 500 without throwing", () => {
+    const config = loadConfig({ RESTOW_DB_POOL_MAX: "lots" });
+    expect(config.dbPoolError).toMatch(/RESTOW_DB_POOL_MAX/);
+    expect(config.dbPool.app).toBe(10);
+  });
+});

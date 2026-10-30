@@ -35,6 +35,7 @@ function fixtureConfig(overrides: Partial<Config> = {}): Config {
     operatingMode: "public",
     databaseUrl: "postgres://restow:unused@127.0.0.1:1/restow",
     databaseProviderUrl: "postgres://restow:unused@127.0.0.1:1/restow",
+    dbPool: { app: 10, installation: 10, queue: 10 },
     betterAuthSecret: "fixture-secret",
     setupToken: undefined,
     masterKey: undefined,

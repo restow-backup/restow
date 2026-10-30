@@ -103,5 +103,9 @@ previews and journal reports are parsed in separate helper processes of up to 51
 process of up to 3 GB for a single large message), `IMPORT_PARSE_WORKERS` in the worker and
 `PREVIEW_PARSE_WORKERS` in the api at a time (2 each by default; set 1 on a small host).
 
+For many objects or tenants, the backup concurrency, the database pools and the Postgres
+settings are in [docs/SIZING.md](../../docs/SIZING.md) (`WORKER_CONCURRENCY`,
+`WORKER_TENANT_CONCURRENCY`, `RESTOW_DB_POOL_MAX`; the defaults suit a small installation).
+
 The release pipeline runs its smoke checks against exactly this compose file, for both
 builds (`scripts/smoke`, [docs/CI.md](../../docs/CI.md)).
