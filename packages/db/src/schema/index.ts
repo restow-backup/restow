@@ -47,6 +47,7 @@ export * from "./schedules.js";
 export * from "./secrets.js";
 export * from "./sources.js";
 export * from "./storage.js";
+export * from "./storage-samples.js";
 export * from "./suspicions.js";
 export * from "./system.js";
 export * from "./tenants.js";

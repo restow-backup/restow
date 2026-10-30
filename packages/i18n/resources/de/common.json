@@ -255,11 +255,6 @@
   "keys": {
     "ctrl": "Strg"
   },
-  "soon": {
-    "resources": {
-      "description": "Zeigt Auslastung und Wachstum je Mandant und je Repository, mit einer klaren Prognose wie „voll in etwa N Tagen“."
-    }
-  },
   "chooseTenant": {
     "title": "Mandant wählen",
     "description": "Diese Seite gilt je Mandant. Wählen Sie einen Mandanten, dann geht es hier mit ihm weiter.",

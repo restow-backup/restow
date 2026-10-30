@@ -583,6 +583,39 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
     expect(own.rowCount).toBe(1);
   });
 
+  it("keeps the daily size samples inside the tenant", async () => {
+    const insert = (client: pg.PoolClient, tenantId: string, day: string) =>
+      client.query(
+        `INSERT INTO storage_samples (tenant_id, source_kind, source_id, day, bytes)
+         VALUES ($1, 'chunk_store', NULL, $2, 4096)`,
+        [tenantId, day],
+      );
+
+    await inTransaction(app, contoso, (client) => insert(client, contoso, "2026-10-29"));
+    // A transaction pinned to another tenant cannot write a row for this one ...
+    await expect(
+      inTransaction(app, fabrikam, (client) => insert(client, contoso, "2026-10-30")),
+    ).rejects.toThrow(/row-level security/);
+    // ... nor read it, and the installation role (the sampler's retention) sees every tenant's.
+    const seen = await inTransaction(app, fabrikam, (client) =>
+      client.query("SELECT id FROM storage_samples"),
+    );
+    expect(seen.rowCount).toBe(0);
+    const own = await inTransaction(app, contoso, (client) =>
+      client.query("SELECT bytes::int AS bytes FROM storage_samples"),
+    );
+    expect(own.rows).toEqual([{ bytes: 4096 }]);
+    const all = await provider.query("SELECT id FROM storage_samples");
+    expect(all.rowCount).toBe(1);
+    // The chunk store (no source) is one value for the unique key: a second row for the day fails.
+    await expect(
+      inTransaction(app, contoso, (client) => insert(client, contoso, "2026-10-29")),
+    ).rejects.toThrow(/storage_samples_source_day_uq/);
+    // Old rows leave through the installation role, across tenants.
+    const removed = await provider.query("DELETE FROM storage_samples WHERE day < '2026-10-30'");
+    expect(removed.rowCount).toBe(1);
+  });
+
   it("lets the installation role see every tenant", async () => {
     const { rows } = await provider.query<{ id: string }>("SELECT id FROM tenants ORDER BY slug");
     expect(rows.map((row) => row.id)).toEqual([contoso, fabrikam]);

@@ -1,4 +1,4 @@
-import { type InstallationDefaultStorage, installationDefaultStorage } from "@restow/core";
+import type { InstallationDefaultStorage } from "@restow/core";
 import { type Database, safeErrorMessage } from "@restow/db";
 import { featureHook } from "../../extensions.js";
 import { requireFeature } from "../../lib/features.js";
@@ -19,12 +19,7 @@ import {
   type TenantUsageDto,
   totalMailboxes,
 } from "../usage/service.js";
-import {
-  capacityPath,
-  type FilesystemSpace,
-  type FilesystemSpaceReader,
-  statfsSpace,
-} from "./capacity.js";
+import type { FilesystemSpace, FilesystemSpaceReader } from "./capacity.js";
 import {
   type DashboardDto,
   type EndpointsWidget,
@@ -40,7 +35,7 @@ import {
   type WidgetResult,
 } from "./dto.js";
 import { loadEndpointsWidget } from "./endpoints.js";
-import { runsFull, STORAGE_DEFAULT_DAYS, storageBuckets, storageForecast } from "./growth.js";
+import { STORAGE_DEFAULT_DAYS } from "./growth.js";
 import {
   BACKUP_TREND_DAYS,
   HISTORY_DAYS,
@@ -54,7 +49,6 @@ import {
   loadTenantTrends,
   type StaleThresholds,
   type StorageHistory,
-  soleTenantOnDefault,
   type TenantFacts,
   type TenantTrends,
 } from "./queries.js";
@@ -62,6 +56,7 @@ import { summarizeRetention } from "./retention.js";
 import type { DashboardQuery } from "./schemas.js";
 import { dayKeys, fillDays } from "./series.js";
 import { buildSetupChecklist, type SetupFacts } from "./setup.js";
+import { buildStorageGrowth, defaultLocation, resolveStorageLimit } from "./storage-growth.js";
 import { loadSystemDiskWarning } from "./system-disk.js";
 import "./hooks.js";
 import type { SettledSource } from "./hooks.js";
@@ -276,36 +271,15 @@ interface StorageCapacity extends FilesystemSpace {
   otherData: boolean;
 }
 
-/** The installation default's primary location, or null when there is no usable default. */
-async function defaultLocation(deps: DashboardDeps) {
-  if (deps.installationDefault) {
-    return (await deps.installationDefault())?.primary ?? null;
-  }
-  try {
-    return installationDefaultStorage(deps.env).primary;
-  } catch {
-    return null;
-  }
-}
-
-/** The free space of the tenant's repository (capacity.ts), or null where it is not known. */
+/** The free space of the tenant's repository (storage-growth.ts), or null where it is not known. */
 async function loadStorageCapacity(
   deps: DashboardDeps,
   tenantId: string,
 ): Promise<StorageCapacity | null> {
-  const facts = await loadStorageCapacityFacts(deps.db, tenantId);
-  const path = facts.ownTarget
-    ? capacityPath(facts, null, false)
-    : capacityPath(
-        facts,
-        await defaultLocation(deps),
-        await soleTenantOnDefault(deps.providerDb, tenantId),
-      );
-  if (!path) {
-    return null;
-  }
-  const space = await (deps.filesystemSpace ?? statfsSpace)(path);
-  return space ? { ...space, otherData: facts.otherData } : null;
+  const limit = await resolveStorageLimit(deps, tenantId);
+  return limit.kind === "filesystem" && limit.space
+    ? { ...limit.space, otherData: limit.otherData }
+    : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -482,30 +456,13 @@ function buildWidgets(
         }));
         break;
       case "storageGrowth":
-        widgets.storageGrowth = widget([sources.storageHistory], () => {
-          const { window, baseline, written } = value(sources.storageHistory);
-          const buckets = storageBuckets(window, baseline, written);
-          const forecast = storageForecast(window, buckets, forecastDays);
-          const space = sources.capacity.ok ? sources.capacity.value : null;
-          const today = buckets.at(-1)?.date;
-          return {
-            days: window.days,
-            requestedDays: window.requestedDays,
-            granularity: window.granularity,
-            series: buckets.map(({ date, bytes }) => ({ date, bytes })),
-            growthBytes: (buckets.at(-1)?.bytes ?? baseline) - baseline,
-            forecast,
-            capacity:
-              space && today
-                ? {
-                    source: "filesystem" as const,
-                    freeBytes: space.freeBytes,
-                    totalBytes: space.totalBytes,
-                    runsFull: space.otherData ? null : runsFull(today, space.freeBytes, forecast),
-                  }
-                : null,
-          };
-        });
+        widgets.storageGrowth = widget([sources.storageHistory], () =>
+          buildStorageGrowth(
+            value(sources.storageHistory),
+            forecastDays,
+            sources.capacity.ok ? sources.capacity.value : null,
+          ),
+        );
         break;
       case "retention":
         widgets.retention = widget([facts], () => {

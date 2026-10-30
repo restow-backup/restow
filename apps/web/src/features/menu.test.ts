@@ -77,7 +77,7 @@ describe("the menu per edition", () => {
       // decision 2026-10-10); integrations, members and the rest are sections only.
       tenants: ["organisation-settings", "repositories", "tenants (locked)"],
       // Members (the provider team, id `team`) is in every edition (0.3.0).
-      installation: ["settings", "team", "audit (locked)", "license", "resources (soon 0.5.0)"],
+      installation: ["settings", "team", "audit (locked)", "license", "resources"],
     });
   });
 
@@ -87,7 +87,7 @@ describe("the menu per edition", () => {
       mail: MAIL,
       endpoints: ENDPOINTS,
       tenants: ["organisation-settings", "repositories", "tenants (locked)"],
-      installation: ["settings", "team", "audit", "license", "resources (soon 0.5.0)"],
+      installation: ["settings", "team", "audit", "license", "resources"],
     });
   });
 
@@ -98,14 +98,7 @@ describe("the menu per edition", () => {
       endpoints: ENDPOINTS,
       tenants: ["tenant-settings", "repositories", "tenants"],
       // The statistics of all tenants open the pinned Installation section (0.3.0).
-      installation: [
-        "stats-all-tenants",
-        "settings",
-        "team",
-        "audit",
-        "license",
-        "resources (soon 0.5.0)",
-      ],
+      installation: ["stats-all-tenants", "settings", "team", "audit", "license", "resources"],
     });
   });
 
@@ -300,12 +293,22 @@ describe("the menu per edition", () => {
     expect(navGroupOf({ id: "archive", group: archive?.group })).toBe("mail");
   });
 
-  it("puts each upcoming entry at the address its feature will have", () => {
-    const soon = items.filter((item) => item.soon);
-    // The job definitions shipped with 0.2.0: Jobs carry no "Soon" badge any more.
-    expect(soon.map((item) => [item.id, item.path, item.search ?? null, item.soon])).toEqual([
-      ["resources", "/resources", null, "0.5.0"],
-    ]);
+  it("has no upcoming entry any more: capacity planning shipped with 0.5.0", () => {
+    // The job definitions shipped with 0.2.0, capacity planning with 0.5.0: no entry carries a
+    // "Soon" badge now; the mechanism stays for the next one.
+    expect(items.filter((item) => item.soon)).toEqual([]);
+    const resources = items.find((item) => item.id === "resources");
+    expect(resources).toMatchObject({
+      path: "/resources",
+      group: "installation",
+      roles: ["provider_admin"],
+    });
+    // Only provider admins have the entry, in every edition.
+    for (const role of ["tenant_admin", "tenant_restore", "tenant_user"]) {
+      for (const ctx of [COMMUNITY, BUSINESS, SERVICE_PROVIDER]) {
+        expect(Object.values(menu(role, ctx)).flat(), role).not.toContain("resources");
+      }
+    }
   });
 
   it("opens the jobs of each kind from the entry of its section, in the order the plan has them", () => {
