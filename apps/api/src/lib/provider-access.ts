@@ -422,6 +422,11 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // tenants the member's team role covers; one tenant's jobs read-only, by its id.
   "GET /api/v1/tenant-jobs": view(LIST),
   "GET /api/v1/tenant-jobs/:tenantId": view(byParam("tenantId")),
+  // Capacity planning (features/capacity): utilisation, growth and the estimate per tenant,
+  // narrowed by the handler to the tenants the member's team role covers; one tenant's
+  // repositories by its id.
+  "GET /api/v1/capacity": view(LIST),
+  "GET /api/v1/capacity/:tenantId": view(byParam("tenantId")),
   // What runs right now, for the "All tenants" start page: narrowed by the handler to the
   // tenants the member's team role covers, like the tenant list.
   "GET /api/v1/tenant-running": view(LIST),

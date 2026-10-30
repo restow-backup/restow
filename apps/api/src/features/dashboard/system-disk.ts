@@ -1,6 +1,7 @@
-import { type StorageLocation, validateStorageLocation } from "@restow/core";
+import type { StorageLocation } from "@restow/core";
 import { type Database, settings } from "@restow/db";
 import { onSystemDisk, type SystemDiskDeps } from "../storage/system-disk.js";
+import { primaryLocation } from "./capacity.js";
 import type { SystemDiskWarningDto } from "./dto.js";
 import type { StorageCapacityFacts } from "./queries.js";
 
@@ -50,20 +51,6 @@ export function freeSpaceTrend(
   const fullOn =
     bytesPerDay < 0 ? new Date(last.t + (last.free / -bytesPerDay) * DAY_MS).toISOString() : null;
   return { bytesPerDay, fullOn, basisHours: Math.round((last.t - first.t) / (60 * 60 * 1000)) };
-}
-
-/** The tenant's effective primary when it is a directory: its own, else the installation default. */
-function primaryLocation(
-  facts: Pick<StorageCapacityFacts, "ownTarget">,
-  installationDefault: StorageLocation | null,
-): StorageLocation | null {
-  if (facts.ownTarget) {
-    const validated = validateStorageLocation(facts.ownTarget.kind, facts.ownTarget.config, {
-      allowInsecureEndpoint: true,
-    });
-    return validated.ok ? validated.location : null;
-  }
-  return installationDefault;
 }
 
 export async function loadSystemDiskWarning(input: {

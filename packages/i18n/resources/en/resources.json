@@ -1,0 +1,160 @@
+{
+  "description": "Utilisation and growth per tenant and per repository, with a plain forecast such as “full in about 120 days”. The forecast is an estimate from the history, not a promise.",
+  "scopeTenant": "This installation shows the capacity of its one tenant. The comparison of all tenants comes with Service Provider.",
+  "estimateNote": "Every date on this page is an estimate: a straight line through the history, which real growth only follows roughly. It appears only where a limit is known.",
+  "updated": "Updated {time}",
+  "loadError": "The capacity figures could not be loaded.",
+  "kpi": {
+    "label": "Key figures",
+    "stored": {
+      "label": "Stored in total",
+      "hint": "{count, plural, one {Over # tenant} other {Over # tenants}}, chunk store and repositories of machines, file shares and containers."
+    },
+    "growth": {
+      "label": "Growth per day",
+      "value": "{bytes} per day",
+      "valueLess": "{bytes} less per day",
+      "none": "Not enough history yet",
+      "hint": "Sum of the 30-day figures, with the 7-day figure for younger tenants. {count} of {total} tenants have one."
+    },
+    "systemDisk": {
+      "label": "System disk",
+      "value": "{free} free",
+      "hint": "Of {total}.",
+      "shrinking": "Shrinks by {bytes} per day.",
+      "fullAround": "Full around {date} (estimate).",
+      "trendPending": "The trend appears after six hours of measurements.",
+      "notWatched": "Not measured",
+      "notWatchedHint": "The server's system disk is not watched on this installation."
+    },
+    "earliest": {
+      "label": "Runs full first",
+      "value": "In about {span}",
+      "hint": "{name}, around {date} (estimate).",
+      "hintDisk": "System disk, around {date} (estimate).",
+      "none": "No date",
+      "noneHint": "No repository with a known limit is heading for its limit within ten years."
+    },
+    "quota": {
+      "label": "Tenants near their quota",
+      "value": "{count}",
+      "hint": "{count, plural, one {# tenant runs full} other {# tenants run full}} within {days} days at the estimate.",
+      "hintNone": "No tenant runs full within {days} days at the estimate."
+    }
+  },
+  "span": {
+    "days": "{count, plural, one {# day} other {# days}}",
+    "months": "{count, plural, one {# month} other {# months}}",
+    "years": "{count, plural, one {# year} other {# years}}"
+  },
+  "filter": {
+    "label": "Show",
+    "all": "All tenants",
+    "attention": "Near quota or full",
+    "shown": "{shown} of {total} tenants"
+  },
+  "table": {
+    "label": "Capacity per tenant",
+    "sortBy": "Sort by {column}",
+    "open": "Show the repositories of {name}",
+    "columns": {
+      "tenant": "Tenant",
+      "stored": "Stored",
+      "growth": "Growth per day",
+      "free": "Free space",
+      "full": "Full (estimate)",
+      "quota": "Quota"
+    },
+    "internal": "Own organisation",
+    "customer": "Tenant",
+    "unavailable": "Figures not available"
+  },
+  "growth": {
+    "headline": "{bytes} per day",
+    "headlineLess": "{bytes} less per day",
+    "flat": "No growth",
+    "over": "over {days} days",
+    "none": "Not enough history",
+    "horizon": "{days} days",
+    "basis": {
+      "samples": "From the daily measurements of the last {days} days: chunk store and repositories.",
+      "packs": "From the dates of the stored mail data, as net growth. Repositories of machines, file shares and containers are not counted until a week of daily measurements exists.",
+      "none": "Nothing is stored yet, or the history is too short."
+    }
+  },
+  "free": {
+    "of": "{free} of {total}",
+    "none": "Not shown"
+  },
+  "full": {
+    "inDays": "In about {span}",
+    "around": "Around {date}",
+    "between": "Between {earliest} and {latest}",
+    "from": "From {date}, at the slowest growth not within ten years",
+    "estimate": "Estimate",
+    "noDate": "Not within ten years at this growth",
+    "noHistory": "Not enough history",
+    "s3": "S3: no limit known",
+    "sharedDefault": "Shared default repository",
+    "unknownLimit": "Limit unknown",
+    "otherData": "No date yet: machines, file shares or containers write there as well, and a week of daily measurements is still missing",
+    "unavailable": "Figures not available"
+  },
+  "quota": {
+    "none": "No quota",
+    "ok": "Within the budget",
+    "near": "Near the budget",
+    "exceeded": "Budget used up",
+    "percent": "{percent} % of {budget}",
+    "scope": {
+      "endpoints": "Machines",
+      "file_shares": "File shares"
+    }
+  },
+  "detail": {
+    "loading": "Loading the repositories of {name}",
+    "error": "The repositories could not be loaded.",
+    "growth": "Growth per day",
+    "forecast": "Estimate",
+    "forecastLine": "A straight line through the last {days} days: {bytes} per day.",
+    "forecastBand": "A straight line through the last {days} days: {bytes} per day, between {slowest} and {fastest} per day in the slowest and the fastest week.",
+    "noForecast": "No estimate yet: there is not enough history.",
+    "limit": "Limit",
+    "limitFilesystem": "{free} free on the repository's filesystem, {total} in total.",
+    "limitS3": "An S3 bucket shows no limit, so no date is estimated.",
+    "limitShared": "This tenant stores on the installation's default repository, which other tenants use as well. Its free space is the server's, so no date is estimated here.",
+    "limitUnknown": "The free space of this repository could not be read.",
+    "repositories": "Repositories",
+    "targets": "Chunk store",
+    "defaultRepository": "Installation default repository",
+    "machines": "Servers and clients",
+    "fileShares": "File shares",
+    "guests": "VMs and containers",
+    "primary": "Primary",
+    "copy": "Copy",
+    "kind": {
+      "local": "Local",
+      "s3": "S3",
+      "installation_default": "Installation default"
+    },
+    "status": {
+      "ok": "Reachable",
+      "error": "Fails its check",
+      "unverified": "Not checked yet"
+    },
+    "used": "{bytes} used",
+    "notMeasured": "Not measured yet",
+    "budget": "Budget {bytes}",
+    "noBudget": "No budget",
+    "growthPending": "Growth appears after a week of daily measurements.",
+    "omitted": "{count, plural, one {# more repository is not listed.} other {# more repositories are not listed.}}",
+    "none": "None",
+    "repositoriesNote": "Machines, file shares and containers each keep a repository of their own; their growth is measured from the day this version was installed."
+  },
+  "empty": {
+    "none": "No tenants yet",
+    "noneDescription": "The capacity appears once a tenant stores backups.",
+    "filtered": "No tenant is near its quota or heading for its limit",
+    "filteredDescription": "Nothing needs attention at the estimated growth."
+  }
+}

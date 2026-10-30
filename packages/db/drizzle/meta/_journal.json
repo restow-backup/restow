@@ -505,6 +505,13 @@
       "when": 1793358775422,
       "tag": "0071_tenant_pricing",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1793397706070,
+      "tag": "0072_storage_samples",
+      "breakpoints": true
     }
   ]
 }

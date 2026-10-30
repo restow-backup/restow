@@ -246,6 +246,33 @@ The daily retention run removes what is left of failed or cancelled exports and 
 staging or export area that no database row knows any more. Do not keep files of your
 own under these prefixes.
 
+## Capacity planning
+
+Installation > Capacity planning (`/resources`, provider admins) shows what each tenant stores,
+how fast that grows and, where a limit is known, when the repository runs full. `GET
+/api/v1/capacity` answers it; the list of every tenant needs the gate `dashboard.allTenants`, a
+member of the provider team limited to some tenants gets those, and an installation without the
+gate shows its one tenant.
+
+- **Stored** is the start page's physical figure: the sealed packs of the chunk store plus the
+  restic repositories of machines, file shares and containers.
+- **Growth** per day over 7, 30 and 90 days comes from `storage_samples`: once a day and tenant
+  the worker writes the bytes of the chunk store and of every restic repository (an entry of the
+  endpoint monitor, `apps/worker/src/storage-samples.ts`; one row per source and UTC day, kept
+  400 days). A restic repository keeps no history of its size, so its growth is known from the
+  day the samples start. Until a tenant has a week of samples its growth is read from the pack
+  dates, as the start page's chart does: net growth of the chunk store only. A horizon the
+  history does not reach back to has no figure.
+- **Full on** is the estimate of the start page's chart (`dashboard/growth.ts`): a straight line
+  through the history, from 90 days on a band between the slowest and the fastest week, and the
+  repository's free space divided by it. It is given for a local repository the tenant has to
+  itself (its own, or the installation default while it is the only tenant on it), never for S3
+  (the S3 API shows no limit) nor for the shared default (that disk is the server's), and, while
+  only the pack dates are known, not while machines, file shares or containers write to the same
+  repository. Ten years or more is no day. The page words it as an estimate and never in green.
+- **Quota** is what exists: the budgets of the machines (see "Other data on a target, and its
+  budgets") and of the file shares (`docs/FILESHARES.md`). The chunk store has none.
+
 ## Immutable backups
 
 Backup data that someone who controls Restow cannot delete or alter before a date: an

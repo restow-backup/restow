@@ -18,6 +18,8 @@ import {
 } from "./features/archive-capture/routes.js";
 import { mountPath as backupJobsMountPath } from "./features/backup-jobs/meta.js";
 import { backupJobsRoutes } from "./features/backup-jobs/routes.js";
+import { mountPath as capacityMountPath } from "./features/capacity/meta.js";
+import { capacityRoutes } from "./features/capacity/routes.js";
 import { mountPath as dashboardMountPath } from "./features/dashboard/meta.js";
 import { dashboardRoutes } from "./features/dashboard/routes.js";
 import { mountPath as directoryMountPath } from "./features/directory/meta.js";
@@ -257,6 +259,7 @@ export function buildApp() {
   app.route(`${API_V1}${webhooksMountPath}`, webhooksRoutes);
   app.route(`${API_V1}${usageMountPath}`, usageRoutes);
   app.route(`${API_V1}${tenantJobsMountPath}`, tenantJobsRoutes);
+  app.route(`${API_V1}${capacityMountPath}`, capacityRoutes);
   app.route(`${API_V1}${runningMountPath}`, runningRoutes);
   app.route(`${API_V1}${settingsMountPath}`, settingsRoutes);
   app.route(`${API_V1}${endpointsMountPath}`, endpointsRoutes);

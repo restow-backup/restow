@@ -10,6 +10,56 @@ private repository.
 
 ## [Unreleased]
 
+### Added
+
+- Installation › Capacity planning (`/resources`, formerly announced as "Soon"): utilisation and
+  growth per tenant and per repository, with a plain forecast such as "full in about 120 days".
+  Provider admins only; a member of the provider team limited to some tenants sees those. Key
+  figures on top: what is stored in total, the growth per day, the free space of the server's
+  system disk with the day it runs out at its trend, the repository that runs full first, and
+  the tenants near their quota. The table below has one row per tenant with what it stores (the
+  chunk store plus the restic repositories of machines, file shares and containers, as on the
+  start page), its growth per day over 7, 30 and 90 days, the free space of its repository, the
+  day it runs full and its quota. It sorts by the day it runs full (soonest first when the page
+  opens), by growth, by what is stored and by name, and the filter "Near quota or full" keeps
+  the tenants whose machine or file share quota is near or used up or whose repository runs full
+  within 90 days. A row opens in place and shows how the figures come about (what the growth is
+  read from, the estimate, the limit) and the tenant's repositories: the chunk store's targets
+  (primary and copies, with their kind, status and bytes) and each machine, file share and VM or
+  container with its bytes, its budget, its quota level and its growth.
+- The forecast is never shown as a fact, and never in green. It is the estimate of the start
+  page's storage growth chart (a straight line through the history, from 90 days of history on a
+  band between the slowest and the fastest week) and says "about" and "estimate". A day appears
+  only where a limit is known: a local repository that the tenant has to itself. Where there is
+  none the cell says why: "S3: no limit known", "Shared default repository", "Not enough
+  history", "Limit unknown", or that machines, file shares or containers write there as well and
+  a week of daily measurements is still missing. The free space of a repository is the
+  provider's disk and appears on this page only.
+- Daily size samples: once a day and tenant the worker writes down the bytes of the chunk store
+  (the sum of its packs) and of every restic repository (`repository_bytes` of each machine,
+  file share and container) to the new table `storage_samples` (migration 0072, Row Level
+  Security like the other tenant tables, kept 400 days; the endpoint monitor does it with its
+  five-minute pass, a tenant at most once per UTC day). A restic repository keeps no history of
+  its size, so its growth is known from the day this version is installed; the growth of the
+  chunk store no longer shrinks afterwards when packs are pruned. Until a tenant has a week of
+  samples, its growth is read from the dates of its packs (the chunk store's net growth, as the
+  start page does), and the day it runs full is then not given while machines, file shares or
+  containers write to the same repository. Nothing existing is rewritten by the migration.
+- The api answers `GET /api/v1/capacity` (the tenants with the installation's figures) and
+  `GET /api/v1/capacity/:tenantId` (one tenant's repositories) for provider admins. The list of
+  every tenant needs `dashboard.allTenants`, like the provider view of the start page; without
+  it the answer is the installation's one tenant (the oldest the viewer may enter) and the page
+  says that the comparison comes with Service Provider. A tenant's figures are read in its own
+  transaction, a few tenants at a time, and kept for 30 seconds for every viewer.
+
+### Changed
+
+- The storage growth chart of the start page and the capacity page share one module for what
+  they have in common (the figures of a series, the estimate, the day a repository runs full and
+  what limits a repository). The chart looks as before.
+- The menu entry "Capacity planning" no longer carries the "Soon" badge; the placeholder page is
+  gone.
+
 ## [0.4.8] - 2026-10-30
 
 Beta release. Run it alongside your existing backups, not as your only one, until

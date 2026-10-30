@@ -1,0 +1,160 @@
+{
+  "description": "Auslastung und Wachstum je Mandant und je Repository, mit einer einfachen Prognose wie „voll in etwa 120 Tagen“. Die Prognose ist eine Schätzung aus dem bisherigen Verlauf, keine Zusage.",
+  "scopeTenant": "Diese Installation zeigt die Kapazität ihres einen Mandanten. Der Vergleich aller Mandanten gehört zu Service Provider.",
+  "estimateNote": "Jedes Datum auf dieser Seite ist eine Schätzung: eine Gerade durch den bisherigen Verlauf, der das tatsächliche Wachstum nur ungefähr folgt. Es erscheint nur dort, wo eine Grenze bekannt ist.",
+  "updated": "Stand: {time}",
+  "loadError": "Die Kapazitätswerte konnten nicht geladen werden.",
+  "kpi": {
+    "label": "Kennzahlen",
+    "stored": {
+      "label": "Insgesamt gespeichert",
+      "hint": "{count, plural, one {Über # Mandant} other {Über # Mandanten}}, Chunk-Store und Repositories von Maschinen, Dateifreigaben und Containern."
+    },
+    "growth": {
+      "label": "Wachstum pro Tag",
+      "value": "{bytes} pro Tag",
+      "valueLess": "{bytes} weniger pro Tag",
+      "none": "Noch zu wenig Verlauf",
+      "hint": "Summe der 30-Tage-Werte, bei jüngeren Mandanten mit dem 7-Tage-Wert. {count} von {total} Mandanten haben einen."
+    },
+    "systemDisk": {
+      "label": "Systemplatte",
+      "value": "{free} frei",
+      "hint": "Von {total}.",
+      "shrinking": "Schrumpft um {bytes} pro Tag.",
+      "fullAround": "Voll etwa am {date} (Schätzung).",
+      "trendPending": "Der Trend erscheint nach sechs Stunden Messung.",
+      "notWatched": "Nicht gemessen",
+      "notWatchedHint": "Die Systemplatte des Servers wird in dieser Installation nicht überwacht."
+    },
+    "earliest": {
+      "label": "Zuerst voll",
+      "value": "In etwa {span}",
+      "hint": "{name}, etwa am {date} (Schätzung).",
+      "hintDisk": "Systemplatte, etwa am {date} (Schätzung).",
+      "none": "Kein Datum",
+      "noneHint": "Kein Repository mit bekannter Grenze erreicht seine Grenze in den nächsten zehn Jahren."
+    },
+    "quota": {
+      "label": "Mandanten nahe am Kontingent",
+      "value": "{count}",
+      "hint": "{count, plural, one {# Mandant ist} other {# Mandanten sind}} bei der Schätzung innerhalb von {days} Tagen voll.",
+      "hintNone": "Kein Mandant ist bei der Schätzung innerhalb von {days} Tagen voll."
+    }
+  },
+  "span": {
+    "days": "{count, plural, one {# Tag} other {# Tagen}}",
+    "months": "{count, plural, one {# Monat} other {# Monaten}}",
+    "years": "{count, plural, one {# Jahr} other {# Jahren}}"
+  },
+  "filter": {
+    "label": "Anzeigen",
+    "all": "Alle Mandanten",
+    "attention": "Nahe am Kontingent oder voll",
+    "shown": "{shown} von {total} Mandanten"
+  },
+  "table": {
+    "label": "Kapazität je Mandant",
+    "sortBy": "Nach {column} sortieren",
+    "open": "Repositories von {name} anzeigen",
+    "columns": {
+      "tenant": "Mandant",
+      "stored": "Gespeichert",
+      "growth": "Wachstum pro Tag",
+      "free": "Freier Platz",
+      "full": "Voll (Schätzung)",
+      "quota": "Kontingent"
+    },
+    "internal": "Eigene Organisation",
+    "customer": "Mandant",
+    "unavailable": "Werte nicht verfügbar"
+  },
+  "growth": {
+    "headline": "{bytes} pro Tag",
+    "headlineLess": "{bytes} weniger pro Tag",
+    "flat": "Kein Wachstum",
+    "over": "über {days} Tage",
+    "none": "Zu wenig Verlauf",
+    "horizon": "{days} Tage",
+    "basis": {
+      "samples": "Aus den täglichen Messungen der letzten {days} Tage: Chunk-Store und Repositories.",
+      "packs": "Aus den Schreibzeitpunkten der gespeicherten Mail-Daten, als Netto-Wachstum. Repositories von Maschinen, Dateifreigaben und Containern zählen erst, wenn eine Woche tägliche Messungen vorliegt.",
+      "none": "Es ist noch nichts gespeichert, oder der Verlauf ist zu kurz."
+    }
+  },
+  "free": {
+    "of": "{free} von {total}",
+    "none": "Nicht angezeigt"
+  },
+  "full": {
+    "inDays": "In etwa {span}",
+    "around": "Etwa am {date}",
+    "between": "Zwischen dem {earliest} und dem {latest}",
+    "from": "Ab dem {date}, bei dem langsamsten Wachstum nicht innerhalb von zehn Jahren",
+    "estimate": "Schätzung",
+    "noDate": "Bei diesem Wachstum nicht innerhalb von zehn Jahren",
+    "noHistory": "Zu wenig Verlauf",
+    "s3": "S3: keine Grenze bekannt",
+    "sharedDefault": "Gemeinsames Standard-Repository",
+    "unknownLimit": "Grenze unbekannt",
+    "otherData": "Noch kein Datum: Maschinen, Dateifreigaben oder Container schreiben ebenfalls dorthin, und es fehlt noch eine Woche tägliche Messungen",
+    "unavailable": "Werte nicht verfügbar"
+  },
+  "quota": {
+    "none": "Kein Kontingent",
+    "ok": "Im Rahmen",
+    "near": "Nahe am Kontingent",
+    "exceeded": "Kontingent ausgeschöpft",
+    "percent": "{percent} % von {budget}",
+    "scope": {
+      "endpoints": "Maschinen",
+      "file_shares": "Dateifreigaben"
+    }
+  },
+  "detail": {
+    "loading": "Die Repositories von {name} werden geladen",
+    "error": "Die Repositories konnten nicht geladen werden.",
+    "growth": "Wachstum pro Tag",
+    "forecast": "Schätzung",
+    "forecastLine": "Eine Gerade durch die letzten {days} Tage: {bytes} pro Tag.",
+    "forecastBand": "Eine Gerade durch die letzten {days} Tage: {bytes} pro Tag, zwischen {slowest} und {fastest} pro Tag in der langsamsten und der schnellsten Woche.",
+    "noForecast": "Noch keine Schätzung: Es gibt zu wenig Verlauf.",
+    "limit": "Grenze",
+    "limitFilesystem": "{free} frei auf dem Dateisystem des Repositorys, {total} insgesamt.",
+    "limitS3": "Ein S3-Bucket zeigt keine Grenze, daher wird kein Datum geschätzt.",
+    "limitShared": "Dieser Mandant speichert im Standard-Repository der Installation, das auch andere Mandanten nutzen. Dessen freier Platz gehört dem Server, daher wird hier kein Datum geschätzt.",
+    "limitUnknown": "Der freie Platz dieses Repositorys konnte nicht gelesen werden.",
+    "repositories": "Repositories",
+    "targets": "Chunk-Store",
+    "defaultRepository": "Standard-Repository der Installation",
+    "machines": "Server und Clients",
+    "fileShares": "Dateifreigaben",
+    "guests": "VMs und Container",
+    "primary": "Primär",
+    "copy": "Kopie",
+    "kind": {
+      "local": "Lokal",
+      "s3": "S3",
+      "installation_default": "Installationsstandard"
+    },
+    "status": {
+      "ok": "Erreichbar",
+      "error": "Prüfung schlägt fehl",
+      "unverified": "Noch nicht geprüft"
+    },
+    "used": "{bytes} belegt",
+    "notMeasured": "Noch nicht gemessen",
+    "budget": "Kontingent {bytes}",
+    "noBudget": "Kein Kontingent",
+    "growthPending": "Das Wachstum erscheint nach einer Woche täglicher Messungen.",
+    "omitted": "{count, plural, one {# weiteres Repository ist nicht aufgeführt.} other {# weitere Repositories sind nicht aufgeführt.}}",
+    "none": "Keine",
+    "repositoriesNote": "Maschinen, Dateifreigaben und Container führen je ein eigenes Repository; ihr Wachstum wird ab dem Tag gemessen, an dem diese Version installiert wurde."
+  },
+  "empty": {
+    "none": "Noch keine Mandanten",
+    "noneDescription": "Die Kapazität erscheint, sobald ein Mandant Sicherungen speichert.",
+    "filtered": "Kein Mandant ist nahe am Kontingent oder auf dem Weg an seine Grenze",
+    "filteredDescription": "Beim geschätzten Wachstum braucht nichts Aufmerksamkeit."
+  }
+}

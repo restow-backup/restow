@@ -241,11 +241,6 @@
   "keys": {
     "ctrl": "Ctrl"
   },
-  "soon": {
-    "resources": {
-      "description": "Shows utilisation and growth per tenant and per repository, with a plain forecast such as “full in about N days”."
-    }
-  },
   "chooseTenant": {
     "title": "Choose a tenant",
     "description": "This page works on one tenant at a time. Choose a tenant and it continues here with that tenant.",

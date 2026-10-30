@@ -3,6 +3,7 @@ import {
   type Bucket,
   bucketsOf,
   type Granularity,
+  parseDay,
   truncate,
   utcDay,
 } from "../stats/period.js";
@@ -30,6 +31,11 @@ import { leastSquaresSlope } from "./series.js";
  * from three months of history on it is a band between the slowest and the
  * fastest growth seen in that history rather than one line: a straight line
  * over a year reads more exact than it is.
+ *
+ * Two sources feed the same functions: the pack dates (the dashboard's chart, net
+ * growth of the chunk store) and the daily size samples of the capacity page
+ * (`historyFromTotals`, which also count the restic repositories and are not
+ * shrunk by pruning afterwards).
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -274,4 +280,87 @@ export function runsFull(
     earliest: forecast.band ? fullOn(today, freeBytes, forecast.band.fastestBytesPerDay) : null,
     latest: forecast.band ? fullOn(today, freeBytes, forecast.band.slowestBytesPerDay) : null,
   };
+}
+
+/** What `storageBuckets` and `storageForecast` are fed with, whatever the source of the history. */
+export interface StorageSeries {
+  window: StorageWindow;
+  /** Bytes stored before the window started. */
+  baseline: number;
+  /** Bytes written per bucket of the window (only buckets with writes), keyed as `bucketKey`. */
+  written: { bucket: string; bytes: number }[];
+}
+
+/** The bytes stored at the end of one UTC day (`YYYY-MM-DD`), as measured. */
+export interface DayTotal {
+  readonly date: string;
+  readonly bytes: number;
+}
+
+/**
+ * The series of a window from measured daily totals (the size samples): what was stored before
+ * the window (the last total before it, else the first total, so the window starts at the first
+ * measurement and not at zero) and the change per bucket, a bucket without a measurement
+ * carrying the total of the one before. Unlike written packs a measured total can fall (pruning),
+ * so a bucket's change can be negative. `totals` are ordered by date, one per day.
+ */
+export function historyFromTotals(
+  now: Date,
+  requestedDays: number,
+  totals: readonly DayTotal[],
+): StorageSeries {
+  const first = totals[0];
+  const window = storageWindow(now, requestedDays, first ? parseDay(first.date) : null);
+  if (!first) {
+    return { window, baseline: 0, written: [] };
+  }
+  const startKey = utcDay(window.start);
+  let level = first.bytes;
+  let next = 0;
+  while (next < totals.length && (totals[next]?.date ?? "") < startKey) {
+    level = totals[next]?.bytes ?? level;
+    next++;
+  }
+  const baseline = level;
+  const written: StorageSeries["written"] = [];
+  for (const bucket of window.buckets) {
+    const lastDay = utcDay(new Date(bucket.end.getTime() - DAY_MS));
+    let reached = level;
+    while (next < totals.length && (totals[next]?.date ?? "") <= lastDay) {
+      reached = totals[next]?.bytes ?? reached;
+      next++;
+    }
+    if (reached !== level) {
+      written.push({ bucket: bucketKey(bucket.start, window.granularity), bytes: reached - level });
+      level = reached;
+    }
+  }
+  return { window, baseline, written };
+}
+
+/**
+ * Growth per day over the last `horizonDays` days, from measured totals ordered by date: the
+ * newest total against the newest one on or before `today - horizonDays`, over the days between
+ * the two. Null when the history does not reach back that far (a rate over a shorter stretch
+ * would be given the wrong name) or has no newest total. Negative when the total fell.
+ */
+export function growthPerDay(
+  totals: readonly DayTotal[],
+  today: string,
+  horizonDays: number,
+): number | null {
+  const todayMs = parseDay(today)?.getTime();
+  const latest = [...totals].reverse().find((total) => total.date <= today);
+  if (todayMs === undefined || !latest) {
+    return null;
+  }
+  const referenceKey = utcDay(new Date(todayMs - horizonDays * DAY_MS));
+  const reference = [...totals].reverse().find((total) => total.date <= referenceKey);
+  const latestMs = parseDay(latest.date)?.getTime();
+  const referenceMs = reference ? parseDay(reference.date)?.getTime() : undefined;
+  if (!reference || latestMs === undefined || referenceMs === undefined) {
+    return null;
+  }
+  const days = Math.round((latestMs - referenceMs) / DAY_MS);
+  return days > 0 ? (latest.bytes - reference.bytes) / days : null;
 }
