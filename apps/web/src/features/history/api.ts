@@ -272,10 +272,30 @@ export interface MachineLive {
   nextRunAt: string | null;
 }
 
+/** A run of a Proxmox VE guest that is going on (apps/api features/running/dto.ts). */
+export interface PveRunning {
+  id: string;
+  kind: "backup" | "restore" | "restore_test" | "verify" | "boot_test";
+  guest: { id: string; vmid: number; name: string | null; kind: "vm" | "ct" };
+  jobName: string | null;
+  startedAt: string;
+  cancelling: boolean;
+  /** What the node reported last; null before its first report (or from an older node). */
+  progress: {
+    bytesDone: number;
+    bytesTotal: number | null;
+    bytesUploaded: number | null;
+    bytesPerSecond: number | null;
+    at: string;
+  } | null;
+}
+
 export interface LiveSnapshot {
   runs: Run[];
   definitions: BackupJobLive[];
   machines: MachineLive[];
+  /** The Proxmox VE runs that go on now (absent from an older server). */
+  pveRuns?: PveRunning[];
   serverTime: string;
 }
 
@@ -295,6 +315,12 @@ export const historyKeys = {
   /** The newest runs of one backup job, for its detail panel on the job lists (0.4.5). */
   jobRuns: (tenantId: TenantKey, jobId: string) =>
     ["tenant", tenantId, "history", "job-runs", jobId] as const,
+  /**
+   * The Proxmox VE runs that go on now, as the live channel last described them, keyed by id.
+   * Missing until the channel's snapshot arrived: that is how a page tells "nothing runs" from
+   * "not heard yet".
+   */
+  livePve: (tenantId: TenantKey) => ["tenant", tenantId, "history", "live-pve"] as const,
   /** Every backup job as the live channel last described it, keyed by id (the sidebar's counts). */
   liveDefinitions: (tenantId: TenantKey) =>
     ["tenant", tenantId, "history", "live-definitions"] as const,

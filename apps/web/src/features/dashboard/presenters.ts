@@ -24,6 +24,7 @@ import type {
 
 /** Widgets only tenant admins and provider admins get (mirrors the server's audience). */
 export const ADMIN_WIDGETS: ReadonlySet<WidgetId> = new Set([
+  "running",
   "mailboxUsage",
   "endpoints",
   "recentJobs",

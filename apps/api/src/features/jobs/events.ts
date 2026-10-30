@@ -32,7 +32,7 @@ export const RECONNECT_MS = 3000;
 export const LIVE_LOOKBACK_MS = 60_000;
 
 /**
- * `snapshot`, `run`, `definition`, `machine` and `gone` belong to the live channel
+ * `snapshot`, `run`, `definition`, `machine`, `pve_run` and `gone` belong to the live channel
  * (features/history/live.ts), which reuses this loop and these helpers.
  */
 export type JobEventName =
@@ -44,6 +44,7 @@ export type JobEventName =
   | "run"
   | "definition"
   | "machine"
+  | "pve_run"
   | "gone";
 
 /** One SSE message (the shape Hono's `writeSSE` takes). */

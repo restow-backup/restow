@@ -54,6 +54,33 @@ private repository.
   check follows as soon as it is usable, so no job is refused);
   "Exclude" stops the probes.
 
+- Start page: the new widget "Running now" ("Läuft gerade") shows what is being copied or
+  backed up this moment: every run that goes on (Microsoft 365 mailboxes, OneDrives,
+  SharePoint sites, groups, IMAP accounts, machines with the agent, Proxmox VE guests and file
+  shares, and their restores and restore checks) with its object, its kind, how long it has
+  gone on, the items and bytes so far, its speed and a small line of that speed over the last
+  five minutes. One graph above the runs adds the speeds up (the graphs have a text for screen
+  readers: the figures now, on average and at most). The widget moves with the live channel,
+  without a request of its own: the channel now also carries the runs of Proxmox VE guests
+  (the event `pve_run`, in the snapshot as `pveRuns`, read every second poll with the node's
+  last progress report). The graphs are buffered in the browser: a run that carries no
+  measurements adds one point for each new report, dated by the report, not one for every look
+  of the page. A Proxmox VE node that stops reporting loses its speed after 20 seconds in the
+  row, the total and the graph, though its run stays listed; with no speed reported at all the
+  graph says "No throughput reported yet" instead of drawing a flat line. The widget lists 50
+  runs per tenant and says when more go on, in the live view too (only backups, restores and
+  restore checks count: an active export or maintenance job neither uses up the limit nor
+  makes a tenant look busy). While the live connection is off or lost the widget keeps the
+  last known state and says so; before the channel has spoken it shows the state of the page's
+  own request. With nothing running it says "Nothing is running right now" and when the next
+  planned backup starts. Only administrators see it (`running` in `GET /api/v1/dashboard`).
+- Start page, "All tenants": the same widget lists what runs in every tenant, with the tenant of
+  each run (a click switches into it) and the next planned start over all of them. It asks the
+  new `GET /api/v1/tenant-running` every 10 seconds while the tab is in front; the server reads
+  each tenant in its own transaction, a few at a time, and keeps an answer for 8 seconds for all
+  viewers. Provider admins only; a member of the provider team limited to some tenants sees
+  those only.
+
 ### Changed
 
 - Protected objects: the actions for checked objects no longer sit in a bar above the table.

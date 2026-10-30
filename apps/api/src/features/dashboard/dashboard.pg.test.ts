@@ -29,6 +29,10 @@ import {
   packs,
   protectedObjects,
   providers,
+  pveClusters,
+  pveGuests,
+  pveJobs,
+  pveRuns,
   retentionPolicies,
   schedules,
   settings,
@@ -39,7 +43,7 @@ import {
   users,
   verifyReports,
 } from "@restow/db";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { registerApiExtension, resetExtensionsForTesting } from "../../extensions.js";
@@ -78,6 +82,7 @@ const ALL_WIDGETS: TenantWidgetId[] = [
   "setup",
   "lastBackup",
   "readiness",
+  "running",
   "protectedObjects",
   "storage",
   "mailboxUsage",
@@ -89,7 +94,7 @@ const ALL_WIDGETS: TenantWidgetId[] = [
   "recentJobs",
 ];
 const MEMBER_WIDGETS = ALL_WIDGETS.filter(
-  (id) => id !== "mailboxUsage" && id !== "endpoints" && id !== "recentJobs",
+  (id) => id !== "mailboxUsage" && id !== "endpoints" && id !== "recentJobs" && id !== "running",
 );
 
 function one<T>(rows: readonly T[]): T {
@@ -1270,6 +1275,136 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         object: { kind: "mailbox", displayName: "Anna Example" },
         progress: { total: 10, done: 10, failed: 0 },
       });
+    });
+  });
+
+  describe("what runs right now", () => {
+    beforeEach(() => setProviderView(false));
+
+    it("lists the runs that go on, mail and Proxmox VE, and the next planned start", async () => {
+      const [mailbox] = await owner
+        .select({ id: protectedObjects.id })
+        .from(protectedObjects)
+        .where(and(eq(protectedObjects.tenantId, f.contoso), eq(protectedObjects.kind, "mailbox")));
+      const startedAt = ago(5 * 60_000);
+      const active = one(
+        await owner
+          .insert(jobs)
+          .values({
+            tenantId: f.contoso,
+            queue: "backup",
+            status: "active",
+            protectedObjectId: mailbox?.id as string,
+            startedAt,
+            createdAt: startedAt,
+          })
+          .returning(),
+      );
+      await owner.insert(jobProgress).values({
+        tenantId: f.contoso,
+        jobId: active.id,
+        total: 10,
+        done: 4,
+        bytes: 1000,
+        bytesProcessed: 4096,
+      });
+      // A run of Proxmox VE in Contoso, one that ended there, and one in another tenant.
+      const pve = async (tenantId: string, name: string) => {
+        const cluster = one(
+          await owner
+            .insert(pveClusters)
+            .values({ tenantId, name, fingerprint: randomUUID(), storageId: "restow" })
+            .returning(),
+        ).id;
+        const job = one(
+          await owner
+            .insert(pveJobs)
+            .values({
+              tenantId,
+              name: `${name} job`,
+              scopeAll: true,
+              nextRunAt: new Date(NOW.getTime() + 3 * HOUR),
+            })
+            .returning(),
+        ).id;
+        const guest = one(
+          await owner
+            .insert(pveGuests)
+            .values({ tenantId, clusterId: cluster, vmid: 100, kind: "vm", name, jobId: job })
+            .returning(),
+        ).id;
+        return { cluster, guest };
+      };
+      const own = await pve(f.contoso, "web");
+      const other = await pve(f.fabrikam, "foreign");
+      const run = (tenantId: string, ids: { cluster: string; guest: string }, status: string) => ({
+        tenantId,
+        clusterId: ids.cluster,
+        guestId: ids.guest,
+        kind: "backup" as const,
+        status: status as "running" | "succeeded",
+        startedAt,
+        finishedAt: status === "running" ? null : ago(60_000),
+        progress:
+          status === "running"
+            ? {
+                bytesDone: 2048,
+                bytesTotal: 8192,
+                bytesUploaded: 100,
+                bytesPerSecond: 64,
+                at: ago(10_000).toISOString(),
+              }
+            : null,
+      });
+      await owner
+        .insert(pveRuns)
+        .values([
+          run(f.contoso, own, "running"),
+          run(f.contoso, own, "succeeded"),
+          run(f.fabrikam, other, "running"),
+        ]);
+      try {
+        const { body } = await dashboard(f.contoso, "tenant_admin");
+        const running = ok(body.widgets.running);
+        expect(running.runs.map((entry) => entry.id)).toEqual([active.id]);
+        expect(running.runs[0]).toMatchObject({
+          source: "mail",
+          kind: "backup",
+          state: "running",
+          subject: { kind: "mailbox", name: "Anna Example" },
+          progress: { itemsDone: 4, itemsTotal: 10, bytesProcessed: 4096 },
+        });
+        // Only the guest's run that is going on, with the node's last figures; never fabrikam's.
+        expect(running.pve).toHaveLength(1);
+        expect(running.pve[0]).toMatchObject({
+          kind: "backup",
+          guest: { vmid: 100, name: "web", kind: "vm" },
+          jobName: "web job",
+          cancelling: false,
+          progress: { bytesDone: 2048, bytesTotal: 8192, bytesPerSecond: 64 },
+        });
+        expect(running.truncated).toBe(false);
+        expect(running.nextRunAt).toBe(new Date(NOW.getTime() + 3 * HOUR).toISOString());
+
+        const foreign = ok((await dashboard(f.fabrikam, "tenant_admin")).body.widgets.running);
+        expect(foreign.runs).toEqual([]);
+        expect(foreign.pve.map((entry) => entry.guest.name)).toEqual(["foreign"]);
+      } finally {
+        await owner.delete(pveRuns).where(inArray(pveRuns.tenantId, [f.contoso, f.fabrikam]));
+        await owner.delete(pveGuests).where(inArray(pveGuests.tenantId, [f.contoso, f.fabrikam]));
+        await owner.delete(pveJobs).where(inArray(pveJobs.tenantId, [f.contoso, f.fabrikam]));
+        await owner
+          .delete(pveClusters)
+          .where(inArray(pveClusters.tenantId, [f.contoso, f.fabrikam]));
+        await owner.delete(jobs).where(eq(jobs.id, active.id));
+      }
+    });
+
+    it("says nothing runs when nothing does, and leaves the widget out for plain members", async () => {
+      const { body } = await dashboard(f.contoso, "tenant_admin");
+      expect(ok(body.widgets.running)).toMatchObject({ runs: [], pve: [], truncated: false });
+      const member = (await dashboard(f.contoso, "tenant_user")).body;
+      expect(member.widgets.running).toBeUndefined();
     });
   });
 

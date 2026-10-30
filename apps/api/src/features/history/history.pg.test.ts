@@ -807,6 +807,8 @@ describe.skipIf(!testDatabaseAdminUrl)("history against Postgres", () => {
     expect(snapshot.runs.length).toBeGreaterThan(2);
     expect(snapshot.machines).toHaveLength(1);
     expect(snapshot.definitions).toHaveLength(2);
+    // No Proxmox VE guest is backed up here: the snapshot says so, which is not "not heard yet".
+    expect(snapshot.pveRuns).toEqual([]);
     expect((await step()).messages).toEqual([]);
 
     // The worker publishes progress: ben's backup is at 60 items now.

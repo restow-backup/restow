@@ -15,6 +15,7 @@ import { LastBackupWidget } from "./widgets/last-backup-widget.js";
 import { ReadinessWidget } from "./widgets/readiness-widget.js";
 import { RecentJobsWidget } from "./widgets/recent-jobs-widget.js";
 import { RetentionWidget } from "./widgets/retention-widget.js";
+import { RunningNowWidget } from "./widgets/running-widget.js";
 import {
   MailboxUsageWidget,
   ProtectedObjectsWidget,
@@ -110,6 +111,17 @@ export const SECTIONS: readonly Section[] = [
             canAdminister={c.canAdminister}
           />
         ),
+      },
+    ],
+  },
+  {
+    id: "running",
+    columns: () => "",
+    entries: [
+      {
+        key: "running",
+        source: "running",
+        render: (c) => <RunningNowWidget view={c.view("running")} {...state(c)} />,
       },
     ],
   },

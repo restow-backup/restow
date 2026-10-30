@@ -11,6 +11,7 @@ import { loadShareCounts, type ShareProtection } from "../file-shares/protection
 import { listJobsQuerySchema } from "../jobs/schemas.js";
 import { listJobs } from "../jobs/service.js";
 import { type GuestProtection, loadGuestCounts } from "../pve/protection.js";
+import { loadRunning } from "../running/read.js";
 import type { SystemDiskDeps } from "../storage/system-disk.js";
 import {
   countTenantMailboxes,
@@ -31,6 +32,7 @@ import {
   type ProviderViewDto,
   type RecentJobDto,
   type RecentJobsWidget,
+  type RunningWidget,
   type SystemDiskWarningDto,
   TENANT_WIDGET_IDS,
   type TenantWidgetId,
@@ -125,6 +127,8 @@ export const WIDGET_AUDIENCE: Readonly<Record<TenantWidgetId, "everyone" | "admi
   setup: "everyone",
   lastBackup: "everyone",
   readiness: "everyone",
+  // The runs name mailboxes, machines and guests: for the people who administer them.
+  running: "admins",
   protectedObjects: "everyone",
   storage: "everyone",
   mailboxUsage: "admins",
@@ -324,6 +328,7 @@ interface Sources {
   stale: Settled<StaleThresholds>;
   guests: Settled<Pick<GuestProtection, "counts" | "staleAfterHours">>;
   shares: Settled<Pick<ShareProtection, "counts" | "staleAfterHours">>;
+  running: Settled<RunningWidget>;
 }
 
 function buildWidgets(
@@ -400,6 +405,9 @@ function buildWidgets(
             lastCheckedAt: readiness.lastCheckedAt,
           };
         });
+        break;
+      case "running":
+        widgets.running = widget([sources.running], () => value(sources.running));
         break;
       case "protectedObjects":
         widgets.protectedObjects = widget(
@@ -572,6 +580,7 @@ export async function loadDashboard(
     stale,
     guests,
     shares,
+    running,
   ] = await Promise.all([
     load("summary", needs("lastBackup", "readiness", "protectedObjects", "storage"), () =>
       loadTenantSummary(deps.db, tenantId, now),
@@ -625,6 +634,8 @@ export async function loadDashboard(
     load("shares", needs("lastBackup", "protectedObjects"), () =>
       loadShareCounts(deps.db, tenantId, now),
     ),
+    // What runs right now (the live channel keeps it current once the page is open).
+    load("running", needs("running"), () => loadRunning(deps.db, tenantId, now)),
   ]);
 
   let provider: DashboardDto["provider"] = null;
@@ -661,6 +672,7 @@ export async function loadDashboard(
         stale,
         guests,
         shares,
+        running,
       },
       viewer,
       now,

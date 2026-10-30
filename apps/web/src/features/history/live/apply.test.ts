@@ -16,6 +16,7 @@ import {
   historyKeys,
   type LiveSnapshot,
   type MachineLive,
+  type PveRunning,
   type Run,
   type RunDetail,
 } from "../api";
@@ -26,6 +27,7 @@ import {
   endpointStatusOf,
   LIVE_KEEP_MS,
   type LiveContext,
+  type LivePveRuns,
   type LiveRuns,
   mergeLiveRuns,
   newKnown,
@@ -697,6 +699,101 @@ describe("the snapshot", () => {
     expect(refetched).toEqual([]);
     expect([...context.known.definitions]).toEqual(["job-1"]);
     expect([...context.known.machines]).toEqual(["m1"]);
+  });
+});
+
+function pveRun(overrides: Partial<PveRunning> = {}): PveRunning {
+  return {
+    id: "pve-1",
+    kind: "backup",
+    guest: { id: "g1", vmid: 100, name: "web01", kind: "vm" },
+    jobName: "Every guest",
+    startedAt: "2026-10-02T10:00:00.000Z",
+    cancelling: false,
+    progress: {
+      bytesDone: 100,
+      bytesTotal: 400,
+      bytesUploaded: null,
+      bytesPerSecond: 10,
+      at: "2026-10-02T10:04:00.000Z",
+    },
+    ...overrides,
+  };
+}
+
+const livePve = () => client.getQueryData<LivePveRuns>(historyKeys.livePve(TENANT));
+
+describe("the Proxmox VE runs", () => {
+  it("are unknown until the snapshot arrives, then exactly those the snapshot names", () => {
+    expect(livePve()).toBeUndefined();
+    const snapshot: LiveSnapshot = {
+      runs: [],
+      definitions: [],
+      machines: [],
+      pveRuns: [pveRun({ id: "a" }), pveRun({ id: "b" })],
+      serverTime: "2026-10-02T10:05:00.000Z",
+    };
+    applyEvent(context, { event: "snapshot", data: JSON.stringify(snapshot), id: null });
+    expect(Object.keys(livePve() ?? {}).sort()).toEqual(["a", "b"]);
+    // A new connection starts over: what the snapshot does not name is gone.
+    applyEvent(context, {
+      event: "snapshot",
+      data: JSON.stringify({ ...snapshot, pveRuns: [pveRun({ id: "c" })] }),
+      id: null,
+    });
+    expect(Object.keys(livePve() ?? {})).toEqual(["c"]);
+  });
+
+  it("know nothing of a snapshot from a server without them, but are known to be none", () => {
+    const snapshot = {
+      runs: [],
+      definitions: [],
+      machines: [],
+      serverTime: "2026-10-02T10:05:00.000Z",
+    };
+    applyEvent(context, { event: "snapshot", data: JSON.stringify(snapshot), id: null });
+    expect(livePve()).toEqual({});
+  });
+
+  it("follow the node's reports, and drop a run when the channel says it ended", () => {
+    applyEvent(context, { event: "pve_run", data: JSON.stringify(pveRun()), id: null });
+    applyEvent(context, {
+      event: "pve_run",
+      data: JSON.stringify(
+        pveRun({
+          progress: {
+            bytesDone: 300,
+            bytesTotal: 400,
+            bytesUploaded: null,
+            bytesPerSecond: 20,
+            at: "2026-10-02T10:04:30.000Z",
+          },
+        }),
+      ),
+      id: null,
+    });
+    expect(livePve()?.["pve-1"]?.progress?.bytesDone).toBe(300);
+    expect(refetched).toEqual([]);
+
+    applyEvent(context, {
+      event: "gone",
+      data: JSON.stringify({ kind: "pve_run", id: "pve-1" }),
+      id: null,
+    });
+    expect(livePve()).toEqual({});
+    // The end moves the overview (its last backup, the readiness).
+    expect(refetchedKey(["tenant", TENANT, "dashboard"])).toBe(true);
+  });
+
+  it("ignore the end of a run they never knew, and a report without an id", () => {
+    applyEvent(context, { event: "pve_run", data: "{}", id: null });
+    expect(livePve()).toBeUndefined();
+    applyEvent(context, {
+      event: "gone",
+      data: JSON.stringify({ kind: "pve_run", id: "unknown" }),
+      id: null,
+    });
+    expect(livePve()).toBeUndefined();
   });
 });
 

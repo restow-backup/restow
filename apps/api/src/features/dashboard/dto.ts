@@ -1,6 +1,7 @@
 import type { Role } from "../../middleware/rbac.js";
 import type { TenantSummaryDto } from "../../routes/v1/status.js";
 import type { FailureDto } from "../failures/dto.js";
+import type { RunningNowDto } from "../running/dto.js";
 
 /**
  * GET /api/v1/dashboard response. One document serves the whole start page:
@@ -14,6 +15,7 @@ export const TENANT_WIDGET_IDS = [
   "setup",
   "lastBackup",
   "readiness",
+  "running",
   "protectedObjects",
   "storage",
   "mailboxUsage",
@@ -123,6 +125,14 @@ export interface ReadinessWidget {
   running: number;
   lastCheckedAt: string | null;
 }
+
+/**
+ * What is being copied or backed up right now: every run that goes on (mail, machines, Proxmox
+ * VE guests, file shares) with its progress and newest measurements, and the next planned start.
+ * The page keeps it current from the live channel; this is its first state and the one it falls
+ * back to while the channel is off. Admins only: the runs name mailboxes, machines and guests.
+ */
+export type RunningWidget = RunningNowDto;
 
 /** Where the tenant's chunk store lives and whether the last probe of it succeeded. */
 export interface StorageTargetHealth {
@@ -406,6 +416,7 @@ export interface TenantWidgetsDto {
   setup?: WidgetResult<SetupWidget>;
   lastBackup?: WidgetResult<LastBackupWidget>;
   readiness?: WidgetResult<ReadinessWidget>;
+  running?: WidgetResult<RunningWidget>;
   protectedObjects?: WidgetResult<ProtectedObjectsWidget>;
   storage?: WidgetResult<StorageWidget>;
   mailboxUsage?: WidgetResult<MailboxUsageWidget>;

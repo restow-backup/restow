@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { JobDto } from "../jobs/dto.js";
 import { POLL_INTERVAL_MS, runStreamLoop, type SseMessage } from "../jobs/events.js";
+import type { PveRunningDto } from "../running/dto.js";
 import type { RunDto } from "./dto.js";
 import {
   type BackupJobLiveDto,
@@ -11,6 +12,7 @@ import {
   liveWindowStart,
   MACHINES_EVERY,
   type MachineLiveDto,
+  PVE_EVERY,
 } from "./live.js";
 
 function run(overrides: Partial<RunDto> = {}): RunDto {
@@ -43,6 +45,25 @@ function run(overrides: Partial<RunDto> = {}): RunDto {
     cancellable: true,
     cancelling: false,
     cancelledBy: null,
+    ...overrides,
+  };
+}
+
+function pveRun(overrides: Partial<PveRunningDto> = {}): PveRunningDto {
+  return {
+    id: "pve-1",
+    kind: "backup",
+    guest: { id: "g1", vmid: 100, name: "web", kind: "vm" },
+    jobName: "Every guest",
+    startedAt: "2026-10-02T10:00:00.000Z",
+    cancelling: false,
+    progress: {
+      bytesDone: 1000,
+      bytesTotal: 4000,
+      bytesUploaded: 200,
+      bytesPerSecond: 50,
+      at: "2026-10-02T10:00:05.000Z",
+    },
     ...overrides,
   };
 }
@@ -94,14 +115,16 @@ function sources(initial: {
   jobs?: JobDto[];
   definitions?: BackupJobLiveDto[];
   machines?: MachineLiveDto[];
+  pveRuns?: PveRunningDto[];
 }) {
   const state = {
     runs: initial.runs ?? [],
     jobs: initial.jobs ?? [],
     definitions: initial.definitions ?? [],
     machines: initial.machines ?? [],
+    pveRuns: initial.pveRuns ?? [],
   };
-  const reads = { runs: 0, definitions: 0, machines: 0 };
+  const reads = { runs: 0, definitions: 0, machines: 0, pveRuns: 0 };
   const live: LiveSources = {
     runs: async () => {
       reads.runs++;
@@ -114,6 +137,10 @@ function sources(initial: {
     machines: async () => {
       reads.machines++;
       return state.machines;
+    },
+    pveRuns: async () => {
+      reads.pveRuns++;
+      return state.pveRuns;
     },
   };
   return { state, reads, live };
@@ -242,6 +269,52 @@ describe("the live step", () => {
     expect(names(seen)).toEqual(["machine", "gone"]);
     expect(JSON.parse(seen[0]?.data ?? "{}")).toMatchObject({ id: "m1", connection: "offline" });
     expect(JSON.parse(seen[1]?.data ?? "{}")).toEqual({ kind: "machine", id: "m2" });
+  });
+
+  it("carries the Proxmox VE runs in the snapshot and announces their progress and their end", async () => {
+    const s = sources({ pveRuns: [pveRun()] });
+    const step = createLiveStep(s.live);
+    const first = await step();
+    expect(JSON.parse(first.messages[0]?.data ?? "{}").pveRuns).toEqual([pveRun()]);
+
+    // The node reports further progress: that run, and only that one, is sent again.
+    s.state.pveRuns = [
+      pveRun({
+        progress: {
+          bytesDone: 2500,
+          bytesTotal: 4000,
+          bytesUploaded: 300,
+          bytesPerSecond: 90,
+          at: "2026-10-02T10:00:10.000Z",
+        },
+      }),
+    ];
+    let seen: SseMessage[] = [];
+    for (let tick = 1; tick <= PVE_EVERY && seen.length === 0; tick++) {
+      seen = [...(await step()).messages];
+    }
+    expect(names(seen)).toEqual(["pve_run"]);
+    expect(JSON.parse(seen[0]?.data ?? "{}").progress.bytesDone).toBe(2500);
+
+    // The run ends: it is no longer running, and the stream says so by id.
+    s.state.pveRuns = [];
+    seen = [];
+    for (let tick = 1; tick <= PVE_EVERY && seen.length === 0; tick++) {
+      seen = [...(await step()).messages];
+    }
+    expect(names(seen)).toEqual(["gone"]);
+    expect(JSON.parse(seen[0]?.data ?? "{}")).toEqual({ kind: "pve_run", id: "pve-1" });
+  });
+
+  it("reads the Proxmox VE runs on their own cadence", async () => {
+    const s = sources({ pveRuns: [pveRun()] });
+    const step = createLiveStep(s.live);
+    await step();
+    const polls = PVE_EVERY * 3;
+    for (let tick = 1; tick < polls; tick++) {
+      await step();
+    }
+    expect(s.reads.pveRuns).toBe(1 + Math.floor((polls - 1) / PVE_EVERY));
   });
 
   it("re-reads the backup jobs right after a run changed its state", async () => {

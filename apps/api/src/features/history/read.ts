@@ -547,6 +547,9 @@ export async function listHistory(
 // The live window
 // ---------------------------------------------------------------------------
 
+/** The kinds of run "Running now" lists. */
+const RUNNING_CATEGORIES: readonly RunCategory[] = ["backup", "restore", "restore_check"];
+
 /** Runs the live channel follows at most at once. */
 export const LIVE_RUN_LIMIT = 200;
 
@@ -595,6 +598,59 @@ export async function liveRuns(
       const job = hydrated.jobs.get(ref.id);
       return job ? [job] : [];
     }),
+  };
+}
+
+/**
+ * The runs that are going on this moment (a mail run that is active, a machine's run that is
+ * running, a file share's run that has started), newest first, as DTOs with their progress,
+ * throughput and newest measurements: what the start page's "Running now" shows. Only backups,
+ * restores and restore checks count (the queues and kinds of those categories): an export,
+ * an import or a maintenance job is not what the widget lists, and must neither use up the
+ * limit nor make a tenant look busy. At most `limit` are returned; `truncated` says that more
+ * were running. Runs that wait are not running and are left out.
+ */
+export async function activeRuns(
+  tx: Transaction,
+  tenantId: string,
+  limit: number,
+): Promise<{ runs: RunDto[]; truncated: boolean }> {
+  const queues = RUNNING_CATEGORIES.flatMap((category) => QUEUES_OF_CATEGORY[category]);
+  const endpointKinds = RUNNING_CATEGORIES.flatMap(
+    (category) => ENDPOINT_KINDS_OF_CATEGORY[category],
+  );
+  const shareKinds = RUNNING_CATEGORIES.flatMap((category) => SHARE_KINDS_OF_CATEGORY[category]);
+  const result = await tx.execute(sql`
+    select source, id from (
+      select 'mail'::text as source, j.id as id, coalesce(j.started_at, j.created_at) as started
+        from jobs j
+       where j.tenant_id = ${tenantId} and j.status = 'active'
+         and j.queue in (${list(queues)})
+      union all
+      select 'endpoint'::text, r.id, r.started_at
+        from endpoint_runs r
+       where r.tenant_id = ${tenantId} and r.status = 'running'
+         and r.kind in (${list(endpointKinds)})
+      union all
+      select 'file_share'::text, s.id, coalesce(s.started_at, s.queued_at)
+        from file_share_runs s
+       where s.tenant_id = ${tenantId} and s.status in ('starting', 'running')
+         and s.kind in (${list(shareKinds)})
+    ) running
+    order by started desc, id desc
+    limit ${limit + 1}`);
+  const rows = result.rows as unknown as RunRef[];
+  const refs = rows.slice(0, limit);
+  const hydrated = await hydrateRuns(tx, tenantId, refs, {
+    sampleCount: LIST_SAMPLE_COUNT,
+    samples: "running",
+  });
+  return {
+    runs: refs.flatMap((ref) => {
+      const run = hydrated.runs.get(ref.id);
+      return run ? [run] : [];
+    }),
+    truncated: rows.length > limit,
   };
 }
 
