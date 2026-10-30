@@ -309,13 +309,20 @@ describe.skipIf(!canRun)("the repository of a container is checked before a back
     expect((await send("GET", "/locks/")).status).toBe(200);
     expect((await send("DELETE", `/locks/${sha("lock-1")}`)).status).toBe(200);
     expect(await exists(join(repositoryDir(), "locks", sha("lock-1")))).toBe(false);
-    const denied = (await audits("pve.node.denied")).slice(deniedBefore);
-    expect(denied.map((entry) => entry.details)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ action: "write", type: "data", reason: "not_allowed" }),
-        expect.objectContaining({ action: "write", type: "locks", reason: "not_allowed" }),
-      ]),
-    );
+    // The refusals are audited without holding up the answer to restic, so they may land a
+    // moment after it.
+    await expect
+      .poll(
+        async () =>
+          (await audits("pve.node.denied")).slice(deniedBefore).map((entry) => entry.details),
+        { timeout: 5_000, interval: 50 },
+      )
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ action: "write", type: "data", reason: "not_allowed" }),
+          expect.objectContaining({ action: "write", type: "locks", reason: "not_allowed" }),
+        ]),
+      );
 
     // Also once the run has ended (the node reported the end before restic let go).
     await ok(await call(`/runs/${runId}/finish`, { status: "failed", error: "stopped" }), 204);
