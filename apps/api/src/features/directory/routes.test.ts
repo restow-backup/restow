@@ -140,6 +140,8 @@ describe("confirming objects no longer backed up: tenant_admin only", () => {
   it.each([
     [`/directory/objects/${OBJECT}/inactive/confirm`, {}],
     ["/directory/objects/inactive/confirm", { objectIds: [OBJECT] }],
+    // "No, fix the login" is an answer to the same question: the same role.
+    [`/directory/objects/${OBJECT}/login-question/dismiss`, {}],
   ])("refuses a plain tenant member on %s", async (path, body) => {
     signedIn(tenantMember);
     const { app: hono, script } = app([

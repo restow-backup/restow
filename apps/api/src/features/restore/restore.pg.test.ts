@@ -335,6 +335,46 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
     expect(download.impersonated).toBe(true);
   });
 
+  it("names a shut-down IMAP account when refusing its original target", async () => {
+    // The fixture has no IMAP snapshot: bob's restore point stands in for the account's.
+    await db
+      .update(protectedObjects)
+      .set({
+        kind: "imap",
+        status: "orphaned",
+        statusReason: "login_refused",
+        statusConfirmedAt: new Date(),
+        statusConfirmedBy: "admin@contoso.test",
+        loginProbeDueAt: new Date(),
+      })
+      .where(eq(protectedObjects.id, f.bobMailbox));
+    try {
+      await expect(
+        service.createRestore(
+          db,
+          f.tenantId,
+          actor(f.admin),
+          request({
+            snapshotId: f.bobSnapshot,
+            selection: [{ path: "mail/Inbox" }],
+            target: { type: "original" },
+            reason: "Offboarding export",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:restore-original-gone",
+        detail: expect.stringContaining("shut down"),
+        extensions: { statusReason: "login_refused" },
+      });
+    } finally {
+      await db
+        .update(protectedObjects)
+        .set({ kind: "mailbox", status: "active" })
+        .where(eq(protectedObjects.id, f.bobMailbox));
+    }
+  });
+
   it("reads results, per-item outcomes and download availability back", async () => {
     const created = await service.createRestore(
       db,

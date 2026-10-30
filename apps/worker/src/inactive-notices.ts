@@ -14,6 +14,10 @@
  * change at the source (licences removed, a wrong sync scope) deserves a look before anyone
  * confirms it; at most one such warning per tenant and day.
  *
+ * The same two events also carry the login question of an IMAP account whose login keeps being
+ * refused (`details.question = "login"`, core directory/login-refused.ts): see
+ * {@link raiseLoginQuestionNotices}. `details.kind` stays the object kind in both.
+ *
  * Called after a directory sync committed (handlers/directory.ts) and after a backup marked an
  * object inactive (handlers/backup.ts `markInactive`). Rows another transaction holds are
  * skipped (`SKIP LOCKED`) and picked up by the next call.
@@ -55,7 +59,9 @@ export function inactiveNotification(
         ? "the account has no licence"
         : reason === "locked"
           ? "Microsoft locked it"
-          : "it is no longer in the source";
+          : reason === "login_refused"
+            ? "its login was refused and an administrator confirmed it was shut down"
+            : "it is no longer in the source";
   return {
     tenantId,
     level: "info",
@@ -162,6 +168,8 @@ export async function raiseInactiveNotices(
           eq(notifications.tenantId, tenantId),
           eq(notifications.event, "object.inactive_many"),
           gte(notifications.createdAt, since),
+          // A login-question warning of the same day is a different warning.
+          sql`${notifications.details}->>'question' IS DISTINCT FROM 'login'`,
         ),
       )
       .limit(1);
@@ -188,4 +196,135 @@ export async function raiseInactiveNotices(
       ),
     );
   return due.length;
+}
+
+// ---------------------------------------------------------------------------
+// The login question of an IMAP account (docs/IMAP.md)
+// ---------------------------------------------------------------------------
+
+/** One IMAP account that just got its login question. */
+export interface LoginQuestionNoticeRow extends InactiveNoticeRow {
+  /** First counted refused login of the streak. */
+  readonly failedSince: Date | null;
+  /** Counted refused logins so far. */
+  readonly runs: number;
+  /** The login fails for (almost) the whole source: check the source's password first. */
+  readonly sourceWide: boolean;
+}
+
+/** The notice of one account's login question; the bell and mail texts select on `question`. */
+export function loginQuestionNotification(
+  tenantId: string,
+  row: LoginQuestionNoticeRow,
+  now: Date,
+): NewNotification {
+  const name = row.email ?? row.displayName ?? row.externalId;
+  return {
+    tenantId,
+    level: "info",
+    event: "object.inactive",
+    message: row.sourceWide
+      ? `${name}: the login has been refused for several days, as for most accounts of this source. Check the password of the source first. If the account was shut down, please answer under Protection.`
+      : `${name}: the login has been refused for several days. Was this account shut down? Please answer under Protection.`,
+    details: {
+      protectedObjectId: row.id,
+      sourceId: row.sourceId,
+      kind: row.kind,
+      objectName: name,
+      question: "login",
+      reason: "login_refused",
+      failedSince: (row.failedSince ?? now).toISOString(),
+      runs: row.runs,
+      ...(row.sourceWide ? { scope: "source" } : {}),
+    },
+  };
+}
+
+/** The one warning for many login questions of a tenant on one day. */
+export function loginQuestionManyNotification(
+  tenantId: string,
+  rows: readonly LoginQuestionNoticeRow[],
+  recent: number,
+  now: Date,
+): NewNotification {
+  const total = Math.max(recent, rows.length);
+  return {
+    tenantId,
+    level: "warning",
+    event: "object.inactive_many",
+    message: `${total} accounts have had their login refused for several days. Check the password of the source first, then answer under Protection whether the accounts were shut down.`,
+    details: {
+      tenantId,
+      count: total,
+      question: "login",
+      date: now.toISOString().slice(0, 10),
+      sourceIds: [...new Set(rows.map((row) => row.sourceId))],
+      protectedObjectIds: rows.slice(0, MAX_LISTED_OBJECTS).map((row) => row.id),
+    },
+  };
+}
+
+/**
+ * Tell the admins about accounts that just got their login question, inside the transaction
+ * that raised it (`recordLoginFailure` in imap-login-state.ts): exactly once per streak, since
+ * the question is raised once. Below the mass limit one `object.inactive` per account; above it
+ * one `object.inactive_many` warning per tenant and day (counted apart from the 0069 kind by
+ * `details.question`).
+ */
+export async function raiseLoginQuestionNotices(
+  tx: TenantTx,
+  tenantId: string,
+  rows: readonly LoginQuestionNoticeRow[],
+  now: Date = new Date(),
+): Promise<void> {
+  if (rows.length === 0) {
+    return;
+  }
+  const since = new Date(now.getTime() - DAY_MS);
+  const [recentRow] = await tx
+    .select({ n: count() })
+    .from(protectedObjects)
+    .where(
+      and(
+        eq(protectedObjects.tenantId, tenantId),
+        eq(protectedObjects.kind, "imap"),
+        eq(protectedObjects.status, "active"),
+        isNull(protectedObjects.loginQuestionDismissedAt),
+        gte(protectedObjects.loginQuestionAt, since),
+      ),
+    );
+  const [activeRow] = await tx
+    .select({ n: count() })
+    .from(protectedObjects)
+    .where(
+      and(
+        eq(protectedObjects.tenantId, tenantId),
+        eq(protectedObjects.kind, "imap"),
+        eq(protectedObjects.status, "active"),
+      ),
+    );
+  const recent = Math.max(Number(recentRow?.n ?? 0), rows.length);
+  if (!isManyInactive(recent, Number(activeRow?.n ?? 0))) {
+    await raiseEvents(
+      tx,
+      rows.map((row) => loginQuestionNotification(tenantId, row, now)),
+      now,
+    );
+    return;
+  }
+  const [already] = await tx
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.tenantId, tenantId),
+        eq(notifications.event, "object.inactive_many"),
+        gte(notifications.createdAt, since),
+        sql`${notifications.details}->>'question' = 'login'`,
+      ),
+    )
+    .limit(1);
+  if (!already) {
+    await raiseEvents(tx, [loginQuestionManyNotification(tenantId, rows, recent, now)], now);
+  }
 }

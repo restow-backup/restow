@@ -64,6 +64,20 @@ describe("v1 users: recoveryReadiness and the confirmation", () => {
     ).toBe("green");
   });
 
+  it("reads a shut-down IMAP account like any confirmed orphan: it is confirmed by the answer", () => {
+    const shutDown = object({
+      id: "imap-1",
+      kind: "imap",
+      sourceKind: "imap",
+      statusReason: "login_refused",
+      statusConfirmedAt: new Date("2026-10-29T10:00:00Z"),
+    });
+    expect(readinessOf(shutDown, greenFacts)).toBe("green");
+    expect(readinessOf(shutDown, NO_FACTS)).toBeNull();
+    const dto = toDirectoryUser(user, [shutDown], new Map([[shutDown.id, greenFacts]]), NOW);
+    expect(dto.objects[0]).toMatchObject({ status: "orphaned", statusReason: "login_refused" });
+  });
+
   it("reads yellow, not null, for an unconfirmed orphan without a backup", () => {
     const mailbox = object({ id: "mb-1", kind: "mailbox", statusReason: "no_license" });
     expect(readinessOf(mailbox, NO_FACTS)).toBe("yellow");

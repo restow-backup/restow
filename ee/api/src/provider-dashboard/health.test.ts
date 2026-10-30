@@ -141,6 +141,7 @@ describe("tenant matrix rows", () => {
       immutableRepositories: null,
       immutabilityWarnings: null,
       toConfirm: null,
+      loginQuestions: null,
     });
   });
 
@@ -243,6 +244,32 @@ describe("file shares in the matrix", () => {
     ).toEqual([["objects_without_job", "warning", 1]]);
     // Nothing without a job: no alert.
     expect(alertsFor(row("Fabrikam"), NOW)).toEqual([]);
+  });
+
+  it('raises "answer needed" for a tenant while login questions of IMAP accounts are open', () => {
+    const result = tenantRow(
+      tenant("Contoso"),
+      { summary: summary(), ...HEALTHY, loginQuestions: 2 },
+      { mailboxes: 3, cap: null },
+    );
+    expect(result).toMatchObject({ loaded: true, loginQuestions: 2 });
+    expect(
+      alertsFor(result, NOW).map((alert) => [alert.kind, alert.severity, alert.count]),
+    ).toEqual([["login_question", "warning", 2]]);
+    // Answered (or none asked): no alert, and a tenant whose facts carry none reads zero.
+    const quiet = tenantRow(
+      tenant("Fabrikam"),
+      { summary: summary(), ...HEALTHY },
+      { mailboxes: 3, cap: null },
+    );
+    expect(quiet).toMatchObject({ loginQuestions: 0 });
+    expect(alertsFor(quiet, NOW).map((alert) => alert.kind)).not.toContain("login_question");
+    // The unavailable tenant has no figure and raises only its own alert.
+    expect(
+      alertsFor(tenantRow(tenant("Broken"), null, { mailboxes: 1, cap: null }), NOW).map(
+        (alert) => alert.kind,
+      ),
+    ).toEqual(["unavailable"]);
   });
 
   it("counts the shares: in a job, in none, failed, and their newest backup", () => {

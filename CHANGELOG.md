@@ -16,13 +16,43 @@ private repository.
   the same way as on the backup page, and gives the same notices (queued, already queued,
   failed). It is closed with the reason for an IMAP account without a password, a source that is
   disabled or not connected yet, and an object that is already queued or running; objects that
-  are excluded or no longer backed up do not offer it. Who may use it is decided by the server,
-  as on the backup page.
+  are excluded or no longer backed up do not offer it (a shut-down IMAP account does, see
+  below). Who may use it is decided by the server, as on the backup page.
 - Protected objects: a "Backup" column says for each object whether it is included in or
   excluded from the backup, and below it whether the source's rules decided that ("by rule") or
   an admin did ("manual": "Always included" or "Always excluded", and every IMAP account). It
   replaces the small override badge under the name. An object that is no longer backed up shows
   a dash: its status says why.
+- IMAP: an account whose password login keeps being refused no longer fails every night without
+  a word. After 3 counted refusals over at least 24 hours (at least 6 hours apart for backup
+  runs, so retries count as one, and at least 20 hours apart for archive capture passes, which
+  would otherwise outrun the nightly backup) the account asks "Login refused since <date>. Was
+  this account shut down?" (docs/IMAP.md "Anmeldung abgelehnt: Konto abgeschaltet?"). The
+  account stays active and red until an admin answers. "Yes, shut down" turns it grey
+  "Intentionally no longer backed up" (never overdue, no `backup.failed`, no `job.failed`,
+  backups kept); "No, fix the login" keeps it protected, opens the password dialog (or points at
+  the source) and is not asked again until a login works, a password or the source's login
+  changes, or 90 days pass. Only the answer sets the state: a database check allows the new
+  reason `login_refused` for an IMAP account that is orphaned and confirmed, and nowhere else.
+  Counted are refused password logins only, from backups, archive capture and the probe; server
+  limits, network errors, a missing password and OAuth2 sources (Microsoft, Google) are not. The
+  question appears at the account, in a banner and under the filter "Login refused: answer
+  needed" (`?status=login_question`), as the events `object.inactive` and `object.inactive_many`
+  with `details.question = "login"` (one mass warning instead of many notices above 10 accounts
+  or 20% a day) and, for providers, as the alert `login_question` ("answer needed") per tenant
+  while questions are open. A bulk "Yes" in the list shows the sources and warns when the login
+  fails for almost the whole source (check its password first). Audit:
+  `directory.login.question_raised`, `directory.login.dismissed` and `directory.login.restored`;
+  the answer "Yes" is the existing `directory.inactive.confirmed` with `details.via =
+  "login_question"`.
+- IMAP: a shut-down account resumes by itself. The scheduler checks its login once a week,
+  independent of the job schedules (also for accounts only in an archive job or in no job). The
+  probe is a normal backup run that logs in first: it ends neutral when the login is still
+  refused, and carries on into the backup, with the account active again, when it works. A new
+  password (single, CSV import or the source's), "Test login", "Back up now" and "Include"
+  resume the account at once (while the source awaits its test or is paused, the scheduler's
+  check follows as soon as it is usable, so no job is refused);
+  "Exclude" stops the probes.
 
 ### Changed
 
@@ -53,6 +83,16 @@ private repository.
   `objectsWithoutJob` in the readiness summary. The value of `withoutJob` in the readiness
   summary changes: it counted servers and clients only, and now counts these objects too
   (`objectsWithoutJob` says how many of them they are).
+- The integration API contract moves to 1.9.0, additively: `statusReason` of `GET
+  /api/v1/objects`, `/users` and `/jobs` can also be `login_refused` (an IMAP account whose
+  login is refused and that an admin confirmed as shut down; clients that handle `statusReason`
+  exhaustively should accept it), and `GET /api/v1/objects` carries `loginQuestionAt` (null
+  while no question is open). `objects.orphaned` of `GET /api/v1/status` includes such accounts,
+  `readiness.toConfirm` does not (they are confirmed). No API key can answer the question.
+- "Back up now" (the row menu and the backup page) is allowed for a shut-down IMAP account: the
+  run probes the login and backs the account up when it works. Restoring "to the original
+  account" says the account is shut down; restoring into another account or downloading works as
+  before.
 
 ### Fixed
 
@@ -72,6 +112,14 @@ private repository.
   GHSA-mrhx-c7xc-m3w5 (memory use when validating a large array) for Restow's own code too, so
   the audit of CI no longer ignores any advisory: `pnpm.auditConfig` and the zod override are
   gone from the root `package.json`.
+
+### Upgrade Notes
+
+- One database migration (0070) runs at the api's start: six columns on `protected_objects`
+  (`login_failed_runs` default 0, five nullable timestamps), three check constraints (among
+  them the one that guards the reason `login_refused`) and the trigger of 0069 extended. No row
+  is rewritten, nothing is asked after the update: the first question comes after 3 counted
+  refusals over 24 hours, that is on the third night of failing logins at the earliest.
 
 ## [0.4.7] - 2026-10-29
 

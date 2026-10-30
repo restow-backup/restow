@@ -267,9 +267,22 @@ describe("the v1 OpenAPI document", () => {
     }
   });
 
+  it("documents the shut-down IMAP account: statusReason login_refused and loginQuestionAt", async () => {
+    const schemas = ((await load()).components as { schemas: Record<string, JsonSchema> }).schemas;
+    const object = schemas.ProtectedObject as { properties: Record<string, JsonSchema> };
+    // The reason enum is shared by objects, users and jobs; widening it is the whole change.
+    expect(JSON.stringify(object.properties.statusReason)).toContain("login_refused");
+    expect(Object.keys(object.properties)).toContain("loginQuestionAt");
+    expect(JSON.stringify(object.properties.loginQuestionAt)).toContain("date-time");
+    // The users' objects take the reason too, and carry no new field.
+    const userObject = schemas.UserObject;
+    expect(JSON.stringify(userObject)).toContain("login_refused");
+    expect(JSON.stringify(userObject)).not.toContain("loginQuestionAt");
+  });
+
   it("carries the contract version and the running build", async () => {
     const info = (await load()).info as JsonSchema;
-    expect(info.version).toBe("1.8.0");
+    expect(info.version).toBe("1.9.0");
     expect(info["x-restow-build"]).toBe("1.4.0");
   });
 });

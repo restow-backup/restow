@@ -9,6 +9,7 @@ import {
   bulkProtectionSchema,
   confirmInactiveSchema,
   csvImportSchema,
+  dismissLoginQuestionSchema,
   groupSearchQuerySchema,
   objectCredentialSchema,
   objectParamSchema,
@@ -26,6 +27,7 @@ import {
   bulkSetProtection,
   confirmInactiveObject,
   deleteAccount,
+  dismissLoginQuestion,
   importAccounts,
   importAccountsCsv,
   listObjects,
@@ -54,6 +56,8 @@ import {
  *   POST   /objects/:id/protection             include / exclude / reset one object
  *   POST   /objects/:id/inactive/confirm       "Yes, intended": one object no longer backed up
  *   POST   /objects/inactive/confirm           the same for several ({ objectIds } or { filter })
+ *                                              (an IMAP account with an open login question: "Yes, shut down")
+ *   POST   /objects/:id/login-question/dismiss "No, fix the login": the question stays answered
  *   POST   /objects/:id/credential              set/replace an IMAP account's own password
  *   POST   /objects/:id/credential/test         try that account's login now
  *   DELETE /objects/:id                        remove an IMAP account without backups
@@ -153,6 +157,13 @@ directoryRoutes.post("/objects/:id/inactive/confirm", tenantAdmin, async (c) => 
   const { id } = parseOrProblem(objectParamSchema, c.req.param());
   const input = parseOrProblem(confirmInactiveSchema, await c.req.json().catch(() => ({})));
   return c.json(await confirmInactiveObject(db, c.get("tenantId"), id, input, actorOf(c)));
+});
+
+// "No" to the question whether an IMAP account whose login keeps being refused was shut down.
+directoryRoutes.post("/objects/:id/login-question/dismiss", tenantAdmin, async (c) => {
+  const { id } = parseOrProblem(objectParamSchema, c.req.param());
+  const input = parseOrProblem(dismissLoginQuestionSchema, await c.req.json().catch(() => ({})));
+  return c.json(await dismissLoginQuestion(db, c.get("tenantId"), id, input, actorOf(c)));
 });
 
 directoryRoutes.post("/objects/:id/credential", tenantAdmin, async (c) => {

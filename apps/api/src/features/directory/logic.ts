@@ -43,15 +43,25 @@ export interface OverrideDecision {
  * evaluate (group membership lives in Entra); an IMAP account has no rules,
  * so a reset simply protects it again. An orphaned object keeps its status:
  * the mailbox or drive is gone, and a recorded override waits for its return.
+ *
+ * The one exception is an IMAP account an admin confirmed as shut down (`statusReason`
+ * `login_refused`, docs/IMAP.md): nothing else can bring it back or take it out, so the admin
+ * may exclude it (the weekly login probe stops) or include it (the backup resumes at once).
  */
 export function decideOverride(
   action: ProtectionOverrideInput["action"],
   current: ObjectStatus,
   sourceKind: SourceKind,
+  statusReason: string | null = null,
 ): OverrideDecision {
   if (sourceKind === "imap" || sourceKind === "import") {
     const status = action === "exclude" ? "excluded" : "active";
-    return { status: current === "orphaned" ? current : status, override: null, needsSync: false };
+    const shutDown = sourceKind === "imap" && statusReason === "login_refused";
+    return {
+      status: current === "orphaned" && !shutDown ? current : status,
+      override: null,
+      needsSync: false,
+    };
   }
   if (action === "reset") {
     return { status: current, override: null, needsSync: current !== "orphaned" };

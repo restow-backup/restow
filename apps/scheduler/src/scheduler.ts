@@ -19,6 +19,7 @@ import type PgBoss from "pg-boss";
 import type { EndpointJobPlanner } from "./endpoints.js";
 import type { FileShareJobPlanner } from "./file-shares.js";
 import { errorMessage, logger } from "./logger.js";
+import type { LoginProbePlanner } from "./login-probes.js";
 import {
   computeNextRunAt,
   computeUnitNextRunAt,
@@ -58,6 +59,8 @@ export interface SchedulerLoopDeps {
   readonly endpoints?: EndpointJobPlanner;
   /** File share backups, copies and maintenance (./file-shares.ts); omitted, none. */
   readonly fileShares?: FileShareJobPlanner;
+  /** Weekly login probes of shut-down IMAP accounts (./login-probes.ts); omitted, none. */
+  readonly loginProbes?: LoginProbePlanner;
   /** Injectable clock and job id source (tests pin them). */
   readonly now?: () => Date;
   readonly newJobId?: () => string;
@@ -159,6 +162,12 @@ export class SchedulerLoop {
             planned.catalog)
         ) {
           logger.info("file share jobs queued", { ...planned, at: now.toISOString() });
+        }
+      }
+      if (this.deps.loginProbes && !this.stopped && this.deps.isLeader()) {
+        const probes = await this.deps.loginProbes.plan(now);
+        if (probes) {
+          logger.info("login probes queued", { probes, at: now.toISOString() });
         }
       }
       if (

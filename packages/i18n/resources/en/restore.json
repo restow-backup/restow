@@ -27,7 +27,8 @@
       "inactive": {
         "account_disabled": "Not backed up: account disabled",
         "no_license": "Not backed up: no licence",
-        "locked": "Not backed up: locked"
+        "locked": "Not backed up: locked",
+        "login_refused": "Not backed up: account shut down"
       },
       "noBackup": "No backup yet"
     },
@@ -275,7 +276,8 @@
       "originalInactive": {
         "account_disabled": "The account is disabled in Microsoft 365, so there is no mailbox to restore into. Enable it again to restore there.",
         "no_license": "The account has no Exchange Online licence, so there is no mailbox to restore into. Assign a licence again to restore there.",
-        "locked": "Microsoft locked the OneDrive or site, so nothing can be restored into it. Lift the lock or assign a licence again to restore there."
+        "locked": "Microsoft locked the OneDrive or site, so nothing can be restored into it. Lift the lock or assign a licence again to restore there.",
+        "login_refused": "The login of this IMAP account is refused and an administrator confirmed that it was shut down, so nothing can be restored into it. Restore into another account or download the data."
       },
       "demoDownloadOnly": "This demo only offers restore as a download.",
       "other": "Another account",

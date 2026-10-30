@@ -403,7 +403,7 @@ export interface JobRun {
    */
   serviceLimited?: boolean;
   /** Mail: a backup of a disabled or unlicensed account, shown neutral, not failed. */
-  notBackedUp?: "account_disabled" | "no_license" | "locked" | null;
+  notBackedUp?: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
 }
 
 export interface JobRuns {

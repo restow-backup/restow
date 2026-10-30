@@ -98,6 +98,20 @@ describe("jobFinishedNotification", () => {
     );
   });
 
+  it("raises nothing for the probe of an IMAP account that was confirmed as shut down", () => {
+    const failure = {
+      v: 1,
+      code: "config.object_inactive",
+      transient: false,
+      params: { reason: "login_refused" },
+      technical: {},
+      occurredAt: "2026-10-27T07:11:41.290Z",
+      step: null,
+      retry: null,
+    };
+    expect(jobFinishedNotification(TENANT, failedJob(failure), "Bob")).toBeNull();
+  });
+
   it("raises backup.failed for a SharePoint site that is gone, with the steps for it", () => {
     const notification = jobFinishedNotification(
       TENANT,

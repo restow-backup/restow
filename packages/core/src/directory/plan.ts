@@ -41,14 +41,17 @@ export type ObjectOrigin = "directory_sync" | "manual";
 /**
  * Why an `orphaned` object is not backed up although it is still at the source
  * (`protected_objects.status_reason`): a mailbox whose sign-in is blocked or that has no Exchange
- * Online licence, or a OneDrive or site Microsoft locked (HTTP 423, ./locks.ts). Null on an
- * orphaned object means "removed from the source".
+ * Online licence, or a OneDrive or site Microsoft locked (HTTP 423, ./locks.ts), or an IMAP
+ * account whose login was refused and whose admin confirmed it was shut down (`login_refused`,
+ * ./login-refused.ts; only IMAP rows, which the directory sync never loads). Null on an orphaned
+ * object means "removed from the source".
  */
-export type ObjectStatusReason = "account_disabled" | "no_license" | "locked";
+export type ObjectStatusReason = "account_disabled" | "no_license" | "locked" | "login_refused";
 export const OBJECT_STATUS_REASONS: readonly ObjectStatusReason[] = [
   "account_disabled",
   "no_license",
   "locked",
+  "login_refused",
 ];
 
 /** A user as the sync stores it: the `users` row plus the facts the rules need. */

@@ -482,8 +482,8 @@
       "app_secret_expiring": "Warnt, bevor der geheime Clientschlüssel oder das Zertifikat der eigenen App einer Microsoft-365-Quelle abläuft: 30 Tage vorher, erneut 7 Tage vorher und nach dem Ablauf. Nur für Quellen, deren Ablauf bekannt ist (das für den Schlüssel eingetragene Datum oder das Ende des Zertifikats). Nach dem Ablauf schlagen Sicherungen der Quelle fehl, bis ein neuer Schlüssel oder ein neues Zertifikat eingetragen ist."
     },
     "object": {
-      "inactive": "Einmal je Objekt, wenn {appName} es nicht mehr sichert, weil die Quelle es nicht mehr kennt, das Konto deaktiviert oder ohne Lizenz ist oder Microsoft das OneDrive oder die Website gesperrt hat. Kein Fehler: Bestätigen Sie unter Schutz, dass das beabsichtigt ist.",
-      "inactive_many": "Eine Warnung statt vieler Hinweise, wenn bei einem Mandanten an einem Tag mehr als 10 Objekte oder mehr als 20 % der gesicherten Objekte nicht mehr gesichert werden, zum Beispiel weil Lizenzen entfernt wurden oder der Abgleich falsch eingegrenzt ist."
+      "inactive": "Einmal je Objekt, wenn {appName} es nicht mehr sichert, weil die Quelle es nicht mehr kennt, das Konto deaktiviert oder ohne Lizenz ist oder Microsoft das OneDrive oder die Website gesperrt hat. Außerdem einmal je IMAP-Konto, wenn die Anmeldung seit mehreren Tagen abgelehnt wird und eine Antwort fehlt, ob das Konto abgeschaltet wurde. Kein Fehler: Bestätigen oder beantworten Sie es unter Schutz.",
+      "inactive_many": "Eine Warnung statt vieler Hinweise, wenn bei einem Mandanten an einem Tag mehr als 10 Objekte oder mehr als 20 % der gesicherten Objekte nicht mehr gesichert werden, zum Beispiel weil Lizenzen entfernt wurden oder der Abgleich falsch eingegrenzt ist. Ebenso bei IMAP-Konten, deren Anmeldefragen gleichzeitig entstehen, etwa nach einer Passwortänderung der Quelle."
     }
   },
   "sections": {
@@ -565,11 +565,17 @@
       "account_disabled": "Das Konto ist deaktiviert",
       "no_license": "Das Konto hat keine Lizenz",
       "locked": "Microsoft hat das OneDrive oder die Website gesperrt",
+      "login_refused": "Die Anmeldung wird abgelehnt, das Konto wurde als abgeschaltet bestätigt",
       "removed": "Nicht mehr in der Quelle"
     },
     "inactiveSince": "Nicht mehr gesichert seit",
+    "loginQuestionLabel": "IMAP-Konto: Anmeldung abgelehnt, Antwort nötig",
+    "loginQuestionLabelMany": "Viele IMAP-Konten: Anmeldung abgelehnt, Antwort nötig",
+    "loginRefusedSince": "Anmeldung abgelehnt seit",
     "inactiveCount": "Objekte",
-    "inactiveConfirm": "Prüfen Sie unter Schutz, ob das beabsichtigt ist, und bestätigen Sie es mit \"Ja, beabsichtigt\". Vorhandene Sicherungen bleiben erhalten. Wird das Objekt an der Quelle wieder aktiv, sichert {appName} es von selbst wieder."
+    "inactiveConfirm": "Prüfen Sie unter Schutz, ob das beabsichtigt ist, und bestätigen Sie es mit \"Ja, beabsichtigt\". Vorhandene Sicherungen bleiben erhalten. Wird das Objekt an der Quelle wieder aktiv, sichert {appName} es von selbst wieder.",
+    "loginQuestionConfirm": "Beantworten Sie unter Schutz, ob dieses Konto abgeschaltet wurde. Mit \"Ja, abgeschaltet\" werden keine Sicherungen mehr erstellt und das Konto wird grau angezeigt; mit \"Nein, Anmeldung korrigieren\" bleibt es geschützt. Vorhandene Sicherungen bleiben in beiden Fällen erhalten.",
+    "loginQuestionSourceFirst": "Die Anmeldung wird bei mehreren Konten derselben Quelle abgelehnt. Prüfen Sie zuerst das Passwort der Quelle und beantworten Sie dann unter Schutz, ob die Konten abgeschaltet wurden. Vorhandene Sicherungen bleiben in beiden Fällen erhalten."
   },
   "summary": {
     "previous": "Vorzeitraum",
@@ -673,7 +679,9 @@
     },
     "object": {
       "inactive": "{object} wird nicht mehr gesichert, bitte bestätigen",
-      "inactive_many": "{count} Objekte werden seit heute nicht mehr gesichert, bitte prüfen und bestätigen"
+      "inactive_many": "{count} Objekte werden seit heute nicht mehr gesichert, bitte prüfen und bestätigen",
+      "login_question": "{object}: Die Anmeldung wird seit mehreren Tagen abgelehnt, wurde das Konto abgeschaltet?",
+      "login_question_many": "{count} IMAP-Konten: Die Anmeldung wird seit mehreren Tagen abgelehnt, bitte Passwort der Quelle prüfen und beantworten, ob sie abgeschaltet wurden"
     }
   },
   "toasts": {

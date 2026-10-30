@@ -447,6 +447,20 @@ describe("job events", () => {
     );
   });
 
+  it("raises no job.failed for the probe of an IMAP account confirmed as shut down", () => {
+    const failure = {
+      v: 1 as const,
+      code: "config.object_inactive",
+      transient: false,
+      params: { reason: "login_refused" },
+      technical: {},
+      occurredAt: "2026-09-23T10:05:00.000Z",
+      step: null,
+      retry: null,
+    };
+    expect(jobWebhookEvent({ ...job, status: "failed", failure })).toBeNull();
+  });
+
   it("raises no job.failed for a mailbox whose account is disabled or unlicensed", () => {
     const failure = {
       v: 1 as const,

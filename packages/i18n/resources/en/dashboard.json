@@ -400,7 +400,8 @@
       "notBackedUp_account_disabled": "Not backed up: account disabled",
       "notBackedUp_no_license": "Not backed up: no licence",
       "cancelled": "Cancelled",
-      "notBackedUp_locked": "Not backed up: locked by Microsoft"
+      "notBackedUp_locked": "Not backed up: locked by Microsoft",
+      "notBackedUp_login_refused": "Not backed up: account shut down"
     },
     "empty": {
       "title": "No runs yet",
@@ -493,7 +494,8 @@
         "needs_attention": "{count, plural, one {# object needs attention (gaps or an overdue restore check).} other {# objects need attention (gaps or an overdue restore check).}}",
         "nothing_protected": "The tenant protects nothing yet.",
         "immutability_warning": "{count, plural, one {Immutability is set, but # repository has objects without lock or a renewal that fell behind.} other {Immutability is set, but # repositories have objects without lock or a renewal that fell behind.}}",
-        "inactive_to_confirm": "{count, plural, one {# object is no longer backed up and waits for a confirmation.} other {# objects are no longer backed up and wait for a confirmation.}}"
+        "inactive_to_confirm": "{count, plural, one {# object is no longer backed up and waits for a confirmation.} other {# objects are no longer backed up and wait for a confirmation.}}",
+        "login_question": "{count, plural, one {# IMAP account: the login is refused, an answer is needed whether it was shut down.} other {# IMAP accounts: the login is refused, an answer is needed whether they were shut down.}}"
       },
       "empty": {
         "title": "No alerts",

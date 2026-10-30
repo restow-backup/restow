@@ -144,6 +144,76 @@ Ablauf für einen typischen Hoster ohne Master-User (Hetzner, IONOS, all-inkl):
    Backup-Lauf ansteht. Ein Postfach ohne Passwort oder mit fehlgeschlagenem Test
    zeigt "Nicht geschützt" bzw. den Grund des letzten Tests, nie grün.
 
+## Anmeldung abgelehnt: Konto abgeschaltet?
+
+Ab 0.4.8. Wird die Anmeldung eines IMAP-Kontos wiederholt abgelehnt, ist das meist eine
+Konfiguration, die der Administrator ändern kann (Passwort, App-Passwort). Es kann aber auch heißen,
+dass der Hoster das Konto abgeschaltet hat. Restow entscheidet das nie allein: Das Konto bleibt
+`active` und rot, bis ein Administrator antwortet.
+
+**Was gezählt wird.** Nur eine abgelehnte Passwort-Anmeldung (`imap.auth_failed`) eines aktiven
+Kontos, aus einem Sicherungslauf, einem Pass der Archiv-Erfassung oder der wöchentlichen Probe.
+Ein Fehlschlag zählt nur, wenn der zuletzt gezählte mindestens 6 Stunden zurückliegt (bei einem Pass
+der Archiv-Erfassung mindestens 20 Stunden, weil diese Pässe alle paar Stunden laufen): Wiederholungen
+desselben Laufs und „Jetzt sichern“ ergeben einen Lauf, Archiv-Pässe höchstens einen je Tag. Nicht gezählt werden
+vorübergehende Absagen des Servers (`imap.server_limit`: zu viele Verbindungen, Authentifizierung
+gerade nicht erreichbar), Netz- und TLS-Fehler, ein fehlendes Passwort (`imap.credential_missing`),
+`imap.oauth_failed` und alle OAuth2-Quellen (Microsoft, Google): dort heißt ein Fehler
+„neu autorisieren“. Eine gelungene Anmeldung setzt die Zählung zurück.
+
+**Die Frage.** Nach 3 gezählten Fehlschlägen über mindestens 24 Stunden (bei nächtlicher Sicherung
+in der dritten Nacht) steht am Konto die Frage „Anmeldung seit <Datum> abgelehnt. Wurde dieses Konto
+abgeschaltet?“, einmal je Serie von Fehlschlägen. Sie erscheint
+- am Konto (Schutz › Objekte, unter dem Status, mit den Knöpfen „Ja, abgeschaltet“ und „Nein,
+  Anmeldung korrigieren“), in einem Hinweis oben auf der Seite und im Filter „Anmeldung abgelehnt:
+  Antwort offen“ (`?status=login_question`);
+- als Meldung in der Glocke und in den anderen Kanälen, über die Ereignisse `object.inactive` und
+  `object.inactive_many` mit `details.question = "login"` (keine neuen Ereignisse; die
+  Benachrichtigungsmatrix bleibt, wie sie ist). Fallen bei einem Mandanten an einem Tag viele Konten
+  zugleich auf (mehr als 10 oder mehr als 20 %), kommt eine Sammelwarnung statt vieler Hinweise;
+- für Anbieter als Hinweis „Antwort nötig“ (`login_question`) beim Mandanten in der Anbieteransicht
+  des Dashboards, solange Fragen offen sind.
+
+Betrifft die Ablehnung fast alle Konten einer Quelle (mindestens zwei und die Hälfte der aktiven),
+steht bei der Frage „Prüfen Sie zuerst das Passwort der Quelle“: Das gemeinsame Passwort oder das
+Master-Konto hat sich dann wahrscheinlich geändert.
+
+**Ja, abgeschaltet.** Nur diese Antwort ändert den Zustand: Das Konto wird `orphaned` mit dem Grund
+`login_refused`, sofort bestätigt (von dem, der geantwortet hat), grau „Absichtlich nicht mehr
+gesichert“, nie überfällig, ohne `backup.failed` und ohne `job.failed`. Vorhandene Sicherungen
+bleiben erhalten und bewertet; sie werden nicht gelöscht. Eine Prüfung der Datenbank
+(`protected_objects_login_refused_ck`, Migration 0070) macht den Grund ohne diese Bestätigung
+unmöglich: Weder Worker noch Scheduler noch ein Abgleich können ihn setzen. Die Antwort wird
+auditiert (`directory.inactive.confirmed`, `details.via = "login_question"`).
+
+**Nein, Anmeldung korrigieren.** Das Konto bleibt geschützt und rot; Restow fragt nicht wieder, bis
+eine Anmeldung gelingt, ein Passwort gesetzt oder die Anmeldung der Quelle geändert wird oder
+90 Tage vergehen und die Anmeldung noch immer abgelehnt wird. Bei einem Konto mit eigenem Passwort
+(`per_mailbox`) öffnet sich „Passwort setzen“, sonst steht ein Hinweis auf die Quelle. Wer es sich
+anders überlegt, wählt im Menü „Doch abgeschaltet“. Auditiert als `directory.login.dismissed`.
+
+**Wöchentliche Anmeldeprobe.** Für ein abgeschaltetes Konto stellt der Scheduler (`login-probes.ts`,
+unabhängig von den Zeitplänen der Jobs, auch für Konten nur in einem Archiv-Job oder in keinem Job)
+einmal je 7 Tage einen normalen Sicherungslauf ein. Der Lauf meldet sich zuerst an:
+- Gelingt es, ist das Konto wieder `active` (mit neuem Beginn der Überfälligkeitsuhr; Grund, Datum
+  und Bestätigung entfallen) und die Sicherung läuft im selben Lauf weiter. Auditiert als
+  `directory.login.restored`.
+- Wird es wieder abgelehnt, endet der Lauf neutral („Nicht gesichert: Konto abgeschaltet“) und die
+  nächste Probe ist in 7 Tagen. Bei einem unklaren Fehler (Netz, Serverlimit) wird nichts geändert
+  und morgen erneut geprüft.
+Pro abgeschaltetem Konto ist das eine Anmeldung je Woche; Hoster, die fehlgeschlagene Anmeldungen
+sperren, merken sich diese eine.
+
+**Sofort fortsetzen.** Ein neues Passwort (einzeln, per CSV-Import oder an der Quelle),
+„Anmeldung testen“ mit Erfolg, „Jetzt sichern“ und „Doch wieder sichern“ (Einschließen) setzen die
+Sicherung eines abgeschalteten Kontos sofort fort, ohne auf die Wochenprobe zu warten. Ein
+Administrator kann ein abgeschaltetes Konto auch ausschließen, um die Probe zu beenden.
+
+**Was sich nicht ändert.** Die Zählung gilt nur für IMAP-Konten. Bei Microsoft 365 erkennt Restow
+selbst, dass ein Konto deaktiviert oder ohne Lizenz ist, und lässt es danach bestätigen
+(docs/MICROSOFT.md „Nicht mehr gesichert: Bestätigung“); bei IMAP bestätigt die Antwort den
+Zustand, den sie auslöst.
+
 ## Archivierung
 
 Ab 0.4.4 archiviert Restow IMAP-Konten fortlaufend (Edition Business und Service Provider,

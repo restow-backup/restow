@@ -9,6 +9,10 @@
  *     Neutral, counts for nothing.
  *   - null: any other object (active, excluded), shown as usual.
  *
+ * An IMAP account reaches the same state through the admin's answer to the login question
+ * (reason `login_refused`, ./login-refused.ts): it is always `confirmed`, the confirmation author
+ * is the admin who answered.
+ *
  * Postgres keeps the lifecycle (migration 0069 trigger): every transition into `orphaned` starts
  * unconfirmed (except from `excluded`, which counts as confirmed: it was never backed up),
  * every transition out of it drops the confirmation, so an object that comes back

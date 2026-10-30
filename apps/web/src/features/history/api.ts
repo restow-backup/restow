@@ -93,7 +93,7 @@ export interface Run {
    * A failed backup that did not back up because the mailbox's account is disabled or has no
    * Exchange Online licence: neutral, never failed. Missing on servers before 0.4.7.
    */
-  notBackedUp?: "account_disabled" | "no_license" | "locked" | null;
+  notBackedUp?: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   attempt: RunAttempt | null;
   subject: RunSubject | null;
   job: { id: string; name: string } | null;
@@ -142,7 +142,7 @@ export interface RunObject {
   /** Its backup a service held back (`Run.serviceLimited`); missing on servers before 0.4.7. */
   serviceLimited?: boolean;
   /** Its backup did not run: account disabled or unlicensed (`Run.notBackedUp`). */
-  notBackedUp?: "account_disabled" | "no_license" | "locked" | null;
+  notBackedUp?: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   restoreCheck: RunRestoreCheck;
   current: boolean;
 }

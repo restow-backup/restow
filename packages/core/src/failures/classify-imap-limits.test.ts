@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { ImapSessionError } from "../backup/imap/types.js";
+import { isLoginRefusalCause } from "../directory/login-refused.js";
 import { classifyFailure } from "./classify.js";
 
 function imapflowError(props: Record<string, unknown>): Error {
@@ -49,6 +50,18 @@ describe("IMAP limits", () => {
       }),
     );
     expect(cause.code).toBe("imap.auth_failed");
+    expect(isLoginRefusalCause(cause)).toBe(true);
+  });
+
+  it("a temporary refusal is not a login refusal for the question", () => {
+    const cause = classifyFailure(
+      imapflowError({
+        authenticationFailed: true,
+        serverResponseCode: "UNAVAILABLE",
+        response: "Temporary authentication failure.",
+      }),
+    );
+    expect(isLoginRefusalCause(cause)).toBe(false);
   });
 
   it("OVERQUOTA or LIMIT on a read is a server limit, not a full mailbox", () => {

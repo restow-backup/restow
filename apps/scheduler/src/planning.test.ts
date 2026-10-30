@@ -384,6 +384,28 @@ describe("backup jobs", () => {
     expect(own.map((item) => item.protectedObjectId)).toEqual(["mb-1"]);
   });
 
+  it("never backs up a shut-down IMAP account: the weekly login probe is the login-probe planner's", () => {
+    const shutDown: TenantTargets = {
+      ...targets,
+      protectedObjects: [
+        ...targets.protectedObjects,
+        { id: "imap-shut", sourceId: "src-imap", kind: "imap", status: "orphaned" },
+      ],
+      jobMembers: [],
+    };
+    const backedUp = (planned: readonly { protectedObjectId: string | null }[]) =>
+      planned.map((item) => item.protectedObjectId);
+    expect(
+      backedUp(expandSchedule(schedule({ kind: "backup" }), shutDown, newJobId)),
+    ).not.toContain("imap-shut");
+    expect(
+      backedUp(expandSchedule(schedule({ protectedObjectId: "imap-shut" }), shutDown, newJobId)),
+    ).toEqual([]);
+    expect(
+      backedUp(expandJobUnit({ level: "job", what: "backup", job: job() }, shutDown, newJobId)),
+    ).not.toContain("imap-shut");
+  });
+
   it("checks the last backup of an active object in no job once, from a job's restore check only", () => {
     const orphans: TenantTargets = {
       ...targets,

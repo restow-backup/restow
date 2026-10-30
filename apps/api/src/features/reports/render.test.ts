@@ -141,6 +141,54 @@ describe("renderAlert", () => {
     expect(many.text).toContain("Objects: 14");
   });
 
+  it("asks the login question of an IMAP account without claiming a confirmation", () => {
+    const question = (
+      language: "en" | "de",
+      event: "object.inactive" | "object.inactive_many",
+      extra: Record<string, unknown> = {},
+    ) =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Everything",
+        payload: {
+          event,
+          occurredAt: "2026-10-29T10:00:00.000Z",
+          details: {
+            objectName: "bob@example.test",
+            question: "login",
+            reason: "login_refused",
+            failedSince: "2026-10-26T02:00:00.000Z",
+            ...extra,
+          },
+        },
+      });
+    const single = question("en", "object.inactive");
+    expect(single.subject).toBe(
+      "[Contoso] IMAP account: login refused, answer needed: bob@example.test",
+    );
+    expect(single.text).toContain("Login refused since: ");
+    expect(single.text).toContain("Answer under Protection whether this account was shut down");
+    expect(single.text).not.toContain("confirmed as shut down");
+    expect(single.text).not.toContain("Reason:");
+    expect(single.text).not.toContain("no longer backed up");
+
+    const sourceWide = question("en", "object.inactive", { scope: "source" });
+    expect(sourceWide.text).toContain("Check the source's password first");
+
+    const many = question("en", "object.inactive_many", { count: 12 });
+    expect(many.subject).toContain("Many IMAP accounts: login refused, answer needed");
+    expect(many.text).toContain("Check the source's password first");
+    expect(many.text).toContain("Objects: 12");
+    expect(many.text).not.toContain("confirmed as shut down");
+
+    const german = question("de", "object.inactive");
+    expect(german.subject).toContain("IMAP-Konto: Anmeldung abgelehnt, Antwort nötig");
+    expect(german.text).toContain("Anmeldung abgelehnt seit");
+    expect(german.text).not.toContain("als abgeschaltet bestätigt");
+    expect(german.text).not.toContain("{appName}");
+  });
+
   it("names the restore point and every finding of a suspicious backup", () => {
     const suspicious = (language: "en" | "de") =>
       renderAlert({

@@ -123,7 +123,7 @@ export interface RunDto {
    * A failed backup that did not back up because the mailbox's account is disabled or
    * unlicensed, with that reason (jobs DTO `notBackedUp`): neutral, never failed.
    */
-  notBackedUp: "account_disabled" | "no_license" | "locked" | null;
+  notBackedUp: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   /** Restore checks that are tried again: which attempt this is. Null for everything else. */
   attempt: RunAttemptDto | null;
   subject: RunSubjectDto | null;
@@ -190,7 +190,7 @@ export interface RunObjectDto {
   /** Its run failed only because a service held the backup back (`RunDto.serviceLimited`). */
   serviceLimited: boolean;
   /** Its run did not back up: the account is disabled or unlicensed (`RunDto.notBackedUp`). */
-  notBackedUp: "account_disabled" | "no_license" | "locked" | null;
+  notBackedUp: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   restoreCheck: RunRestoreCheckDto;
   /** The object of the run that was opened. */
   current: boolean;

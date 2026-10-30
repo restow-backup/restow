@@ -1,6 +1,7 @@
 import {
   CircleCheck,
   CircleMinus,
+  CircleX,
   KeyRound,
   Play,
   PlugZap,
@@ -35,6 +36,7 @@ import {
   useBackupObject,
   useConfirmInactive,
   useDeleteAccount,
+  useDismissLoginQuestion,
   useSetObjectCredential,
   useSetProtection,
   useTestObjectCredential,
@@ -44,6 +46,7 @@ import {
   canSetCredential,
   canTestCredentialLogin,
   credentialProbeFailureKey,
+  loginQuestionOf,
   objectErrorKey,
   objectTitle,
   removalBlock,
@@ -224,7 +227,7 @@ export function backupNowBlockKey(
 /**
  * "Back up now" in the row menu: backs up exactly this object through the call of the backup
  * page and reports as it does. Null for objects that are not backed up (excluded, not selected,
- * orphaned); closed with a reason while the source cannot run, an IMAP account has no password or
+ * orphaned, except an IMAP account confirmed as shut down); closed with a reason while the source cannot run, an IMAP account has no password or
  * a backup of it is already queued or running. Like the backup page, it has no role or demo gate
  * of its own: the API (technician level, allowed in the demo) refuses what the viewer may not do.
  */
@@ -236,7 +239,10 @@ export function useBackupNowAction(
   const { t: tb } = useTranslation("backup");
   const backup = useBackupObject();
   const feedback = useActionFeedback();
-  if (object.status !== "active" || object.notSelected) {
+  // An IMAP account confirmed as shut down offers it too: the run probes its login first and
+  // backs the account up when the login works again.
+  const shutDown = object.status === "orphaned" && object.statusReason === "login_refused";
+  if ((object.status !== "active" && !shutDown) || object.notSelected) {
     return null;
   }
   const blockKey = backupNowBlockKey(object, sourceStatus);
@@ -279,7 +285,10 @@ export function useObjectActions(object: ProtectedObject): {
   const removeAccount = useDeleteAccount();
   const testCredential = useTestObjectCredential();
   const confirmInactive = useConfirmInactive();
-  const [confirm, setConfirm] = React.useState<"exclude" | "remove" | "inactive" | null>(null);
+  const dismissQuestion = useDismissLoginQuestion();
+  const [confirm, setConfirm] = React.useState<
+    "exclude" | "remove" | "inactive" | "loginShutDown" | null
+  >(null);
   const [credentialDialogOpen, setCredentialDialogOpen] = React.useState(false);
 
   const available = availableActions(object);
@@ -334,6 +343,35 @@ export function useObjectActions(object: ProtectedObject): {
     }
   };
 
+  // "Yes, shut down": the account turns grey; the login is still checked once a week.
+  const confirmShutDown = async () => {
+    try {
+      await confirmInactive.mutateAsync({ objectId: object.id });
+      toast.success(t("inactive.loginQuestion.doneYes", { name }));
+      setConfirm(null);
+    } catch (error) {
+      failed(error);
+    }
+  };
+
+  // "No, fix the login": the question stays answered; a per-mailbox account gets its password
+  // dialog, any other points at the source (its app password or master login).
+  const answerNo = async () => {
+    try {
+      await dismissQuestion.mutateAsync(object.id);
+      if (canSetCredential(object)) {
+        toast.success(t("inactive.loginQuestion.doneNo", { name }));
+        setCredentialDialogOpen(true);
+      } else {
+        toast.success(t("inactive.loginQuestion.doneNo", { name }), {
+          description: t("inactive.loginQuestion.checkSource", { source: object.sourceName }),
+        });
+      }
+    } catch (error) {
+      failed(error);
+    }
+  };
+
   const remove = async () => {
     try {
       await removeAccount.mutateAsync(object.id);
@@ -345,6 +383,26 @@ export function useObjectActions(object: ProtectedObject): {
   };
 
   const actions: RowAction[] = [];
+  const asked = loginQuestionOf(object);
+  if (available.answerLoginQuestion && asked) {
+    actions.push({
+      id: "loginQuestionYes",
+      label:
+        asked.state === "open"
+          ? t("inactive.loginQuestion.yes")
+          : t("inactive.loginQuestion.yesAfterNo"),
+      icon: ShieldOff,
+      onSelect: () => setConfirm("loginShutDown"),
+    });
+    if (asked.state === "open") {
+      actions.push({
+        id: "loginQuestionNo",
+        label: t("inactive.loginQuestion.no"),
+        icon: CircleX,
+        onSelect: () => void answerNo(),
+      });
+    }
+  }
   if (available.confirmInactive) {
     actions.push({
       id: "confirmInactive",
@@ -414,6 +472,17 @@ export function useObjectActions(object: ProtectedObject): {
           confirmLabel={t("inactive.confirmAction")}
           pending={confirmInactive.isPending}
           onConfirm={() => void confirmIntended()}
+        />
+      ) : null}
+      {available.answerLoginQuestion ? (
+        <ConfirmDialog
+          open={confirm === "loginShutDown"}
+          onOpenChange={(open) => setConfirm(open ? "loginShutDown" : null)}
+          title={t("inactive.loginConfirm.title", { name })}
+          description={t("inactive.loginConfirm.description")}
+          confirmLabel={t("inactive.loginQuestion.yes")}
+          pending={confirmInactive.isPending}
+          onConfirm={() => void confirmShutDown()}
         />
       ) : null}
       <ConfirmDialog

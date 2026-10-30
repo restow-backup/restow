@@ -7,6 +7,7 @@ import type {
   CredentialStatus,
   DirectorySource,
   ImapProbeResult,
+  LoginQuestion,
   ObjectStatus,
   ObjectStatusReason,
   ProtectedObject,
@@ -70,13 +71,27 @@ export function objectStatusView(object: ProtectedObject): {
   // admin confirms it is intended, then grey; the reason and date are a line of their own
   // (inactiveDetail). An older server without the confirmation keeps the earlier display.
   if (object.status === "orphaned" && object.inactiveState) {
-    return object.inactiveState === "to_confirm"
-      ? { variant: "warning", suffix: "to_confirm" }
-      : { variant: "muted", suffix: "confirmed" };
+    if (object.inactiveState === "to_confirm") {
+      return { variant: "warning", suffix: "to_confirm" };
+    }
+    // An IMAP account an admin confirmed as shut down: the same grey, with a hint of its own
+    // that says the login is checked once a week and the backup resumes by itself.
+    return {
+      variant: "muted",
+      suffix: object.statusReason === "login_refused" ? "login_refused" : "confirmed",
+    };
   }
   // Disabled or unlicensed: neutral, nothing to fix here, backups resume by themselves.
   if (object.status === "orphaned" && object.statusReason) {
-    return { variant: "muted", suffix: `inactive_${object.statusReason}` };
+    // A shut-down IMAP account from a payload without `inactiveState` keeps its own wording
+    // (there is no `inactive_login_refused` string).
+    return {
+      variant: "muted",
+      suffix:
+        object.statusReason === "login_refused"
+          ? "login_refused"
+          : `inactive_${object.statusReason}`,
+    };
   }
   if (object.status === "active" && hasCredentialProblem(object)) {
     return { variant: "warning", suffix: "needs_credential" };
@@ -313,6 +328,21 @@ export function protectionScope(object: ProtectedObject): ProtectionScope | null
   return { decision, by: object.override ? "manual" : "rule" };
 }
 
+/**
+ * The open login question of an active IMAP account ("was this account shut down?"): the
+ * question line and the answers show while it waits (`open`); after "No" only the menu entry
+ * "Actually shut down" stays (`dismissed`). Null for every other object.
+ */
+export function loginQuestionOf(
+  object: Pick<ProtectedObject, "kind" | "status" | "loginQuestion">,
+): { state: "open" | "dismissed"; question: LoginQuestion } | null {
+  const question = object.loginQuestion;
+  if (object.kind !== "imap" || object.status !== "active" || !question) {
+    return null;
+  }
+  return { state: question.dismissedAt ? "dismissed" : "open", question };
+}
+
 /** Which protection actions make sense for an object. */
 export function availableActions(object: ProtectedObject): {
   include: boolean;
@@ -321,17 +351,25 @@ export function availableActions(object: ProtectedObject): {
   remove: boolean;
   /** "Yes, intended": the object is no longer backed up and nobody confirmed that yet. */
   confirmInactive: boolean;
+  /** "Yes, shut down": the login question of an IMAP account (open, or answered "No" before). */
+  answerLoginQuestion: boolean;
 } {
   const m365 = object.sourceKind === "m365";
   // A disabled or unlicensed mailbox is still in the directory: a decision about it holds once
-  // the account is back (the status stays orphaned until then).
-  const live = object.status !== "orphaned" || (m365 && Boolean(object.statusReason));
+  // the account is back (the status stays orphaned until then). An IMAP account an admin
+  // confirmed as shut down (`login_refused`) can be excluded (the weekly login probe stops) or
+  // included again (it resumes at once): nothing else would bring it back or take it out.
+  const live =
+    object.status !== "orphaned" ||
+    (m365 && Boolean(object.statusReason)) ||
+    (!m365 && object.statusReason === "login_refused");
   return {
     include: live && (m365 ? object.override !== "include" : object.status !== "active"),
     exclude: live && (m365 ? object.override !== "exclude" : object.status !== "excluded"),
     reset: m365 && object.override !== null,
     remove: object.origin === "manual",
     confirmInactive: object.status === "orphaned" && object.inactiveState === "to_confirm",
+    answerLoginQuestion: loginQuestionOf(object) !== null,
   };
 }
 
@@ -499,4 +537,28 @@ export function objectErrorKey(error: unknown): string {
     }
   }
   return `common:${errorMessageKey(error)}`;
+}
+
+/**
+ * The sources whose login questions a bulk "Yes, shut down" over "all matching" would answer,
+ * taken from the per-source counts because the list shows only one page: the sources that have
+ * open questions (limited to `sourceId` when the list is narrowed to one), and whether the login
+ * fails for most of one of them (at least two accounts and half of its active ones), where the
+ * source's password comes first. Mirrors `isSourceWideLoginFailure` in @restow/core.
+ */
+export function loginQuestionSources(
+  sources: readonly Pick<DirectorySource, "id" | "name" | "counts">[],
+  sourceId?: string,
+): { names: string[]; sourceWide: boolean } {
+  const asking = sources.filter(
+    (source) =>
+      (source.counts.loginQuestions ?? 0) > 0 && (sourceId === undefined || source.id === sourceId),
+  );
+  return {
+    names: asking.map((source) => source.name),
+    sourceWide: asking.some((source) => {
+      const failing = source.counts.loginQuestions ?? 0;
+      return failing >= 2 && failing >= 0.5 * source.counts.active;
+    }),
+  };
 }

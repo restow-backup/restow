@@ -38,10 +38,14 @@ function step(id: FailureStepId, target: FailureTarget | null = null): FailureSt
 const READ_DETAILS = step("read_technical_details");
 
 /**
- * An object not backed up because its account is disabled or unlicensed, or because Microsoft
- * locked its OneDrive or site: what brings it back.
+ * An object not backed up because its account is disabled or unlicensed, because Microsoft
+ * locked its OneDrive or site, or because an IMAP login stays refused and an admin confirmed the
+ * account was shut down: what brings it back.
  */
 function inactiveSteps(params: FailureParams): readonly FailureStep[] {
+  if (params.reason === "login_refused") {
+    return [step("check_app_password", "source"), step("set_object_password", "directory")];
+  }
   if (params.reason === "locked") {
     return [step("unlock_object"), step("sync_directory", "directory")];
   }

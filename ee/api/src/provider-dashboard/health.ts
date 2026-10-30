@@ -43,6 +43,8 @@ export interface TenantHealthFacts {
   /** Repositories with S3 Object Lock, and those with a warning (absent: none). */
   immutableRepositories?: number;
   immutabilityWarnings?: number;
+  /** IMAP accounts whose login question waits for an answer (absent: none). */
+  loginQuestions?: number;
   /** The tenant's servers and clients (GET /status `endpoints`); absent, the tenant has none. */
   machines?: Pick<
     EndpointCountsDto,
@@ -123,6 +125,7 @@ export function tenantRow(
       immutableRepositories: null,
       immutabilityWarnings: null,
       toConfirm: null,
+      loginQuestions: null,
     };
   }
   const { summary } = facts;
@@ -167,6 +170,7 @@ export function tenantRow(
     immutableRepositories: facts.immutableRepositories ?? 0,
     immutabilityWarnings: facts.immutabilityWarnings ?? 0,
     toConfirm: summary.readiness.toConfirm ?? 0,
+    loginQuestions: facts.loginQuestions ?? 0,
   };
 }
 
@@ -236,6 +240,11 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (row.toConfirm > 0) {
     // Objects no longer backed up that wait for the tenant's "Yes, intended" (yellow, not red).
     alerts.push(alert("inactive_to_confirm", "warning", row.toConfirm));
+  }
+  if (row.loginQuestions > 0) {
+    // IMAP accounts whose login is refused and whose question "was this account shut down?"
+    // waits for the tenant's answer (yellow: the failing accounts are red on their own).
+    alerts.push(alert("login_question", "warning", row.loginQuestions));
   }
   if (row.needsAttention > 0) {
     // Proven restorable with gaps, or a rating that is overdue: not "secured and checked".

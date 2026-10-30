@@ -249,7 +249,9 @@ export const protectedObjects = pgTable(
      * Why an `orphaned` Microsoft 365 object is not backed up although it is still in the
      * directory (0.4.7): `account_disabled` (sign-in blocked and Exchange reports no mailbox),
      * `no_license` (no Exchange Online licence, mailbox inactive) or `locked` (OneDrive or site
-     * answers HTTP 423 resourceLocked, as Microsoft does for unlicensed accounts' OneDrives).
+     * answers HTTP 423 resourceLocked, as Microsoft does for unlicensed accounts' OneDrives) or,
+     * for an IMAP account only, `login_refused` (the login was refused and the admin confirmed
+     * the account was shut down, 0.4.8).
      * Null for every other object and for an object removed from the source. Such an object is neutral like
      * any orphaned one (no backups, no overdue, kept snapshots) and turns `active` again by
      * itself once the directory sync finds the mailbox. A trigger clears the reason whenever
@@ -273,6 +275,25 @@ export const protectedObjects = pgTable(
     inactiveNotifiedAt: timestamp("inactive_notified_at", { withTimezone: true }),
     statusConfirmedAt: timestamp("status_confirmed_at", { withTimezone: true }),
     statusConfirmedBy: text("status_confirmed_by"),
+    /**
+     * IMAP accounts whose login is refused (0.4.8, migration 0070). The object stays `active`
+     * and red while the worker counts refused password logins: `login_failed_runs` counted
+     * failures (at least 6 h apart for a backup run, 20 h for an archive pass) since `login_failed_since`, the last one at
+     * `login_failed_at`. After 3 counted failures over 24 h `login_question_at` opens the
+     * question "was this account shut down?"; `login_question_dismissed_at` is the admin's
+     * answer "No" (asked again after 90 days or a new streak). Only the admin's "Yes" sets
+     * `status = 'orphaned'`, `status_reason = 'login_refused'` (confirmed at once, guarded by a
+     * check). For such an account `login_probe_due_at` is when the scheduler's login-probe
+     * planner queues the next probe (answer + 7 days, a refused probe + 7 days, a new
+     * password: now). The 0070 trigger clears all six on every status change that does not end
+     * in `login_refused`. Always zero/null for every other object.
+     */
+    loginFailedRuns: integer("login_failed_runs").notNull().default(0),
+    loginFailedSince: timestamp("login_failed_since", { withTimezone: true }),
+    loginFailedAt: timestamp("login_failed_at", { withTimezone: true }),
+    loginQuestionAt: timestamp("login_question_at", { withTimezone: true }),
+    loginQuestionDismissedAt: timestamp("login_question_dismissed_at", { withTimezone: true }),
+    loginProbeDueAt: timestamp("login_probe_due_at", { withTimezone: true }),
     /**
      * The sealed per-mailbox IMAP password (`SourceConfig.imapAuthMode ===
      * "per_mailbox"` on the parent source), never the plaintext: the value lives
@@ -303,8 +324,23 @@ export const protectedObjects = pgTable(
     index("protected_objects_tenant_status_idx").on(t.tenantId, t.status),
     check(
       "protected_objects_status_reason_ck",
-      sql`${t.statusReason} IS NULL OR ${t.statusReason} IN ('account_disabled', 'no_license', 'locked')`,
+      sql`${t.statusReason} IS NULL OR ${t.statusReason} IN ('account_disabled', 'no_license', 'locked', 'login_refused')`,
     ),
+    // `login_refused` exists only on an IMAP account an admin confirmed as shut down: no worker,
+    // scheduler or sync can set it without the confirmation author. The confirmation that
+    // the trigger writes by itself ('excluded' for a row that was never backed up, 'migration')
+    // is no answer, and the row always has its next probe date: the planner selects on it, so a
+    // NULL would strand the account for good.
+    check(
+      "protected_objects_login_refused_ck",
+      sql`${t.statusReason} IS DISTINCT FROM 'login_refused' OR (${t.kind} = 'imap' AND ${t.status} = 'orphaned' AND ${t.statusConfirmedAt} IS NOT NULL AND ${t.statusConfirmedBy} NOT IN ('excluded', 'migration') AND ${t.loginProbeDueAt} IS NOT NULL)`,
+    ),
+    // A "No" answers a question that was asked.
+    check(
+      "protected_objects_login_question_ck",
+      sql`${t.loginQuestionDismissedAt} IS NULL OR ${t.loginQuestionAt} IS NOT NULL`,
+    ),
+    check("protected_objects_login_failed_runs_ck", sql`${t.loginFailedRuns} >= 0`),
     // Who and when come together: a confirmation without its author is no confirmation.
     check(
       "protected_objects_status_confirmed_ck",
@@ -316,7 +352,12 @@ export const protectedObjects = pgTable(
 );
 
 /** Why an orphaned object is still in the directory but not backed up (`status_reason`). */
-export const OBJECT_STATUS_REASONS = ["account_disabled", "no_license", "locked"] as const;
+export const OBJECT_STATUS_REASONS = [
+  "account_disabled",
+  "no_license",
+  "locked",
+  "login_refused",
+] as const;
 export type ObjectStatusReason = (typeof OBJECT_STATUS_REASONS)[number];
 
 export type Source = typeof sources.$inferSelect;

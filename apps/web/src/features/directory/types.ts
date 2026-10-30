@@ -12,11 +12,12 @@ export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 /**
  * Why an `orphaned` object is not backed up although it is still at the source: the account is
- * disabled, it has no Exchange Online licence, or Microsoft locked the OneDrive or site (HTTP
- * 423). Its backups are kept, it is never overdue, and backups resume by themselves once that
- * changes.
+ * disabled, it has no Exchange Online licence, Microsoft locked the OneDrive or site (HTTP 423),
+ * or (`login_refused`, IMAP only) the login stays refused and an admin confirmed the account
+ * was shut down. Its backups are kept, it is never overdue, and backups resume by themselves
+ * once that changes (for IMAP: the weekly login probe works again).
  */
-export type ObjectStatusReason = "account_disabled" | "no_license" | "locked";
+export type ObjectStatusReason = "account_disabled" | "no_license" | "locked" | "login_refused";
 /**
  * The confirmation of an object Restow stopped backing up (status `orphaned`): `to_confirm`
  * reads amber "please confirm" and keeps the tenant from green, `confirmed` grey
@@ -28,7 +29,12 @@ export type InactiveState = "to_confirm" | "confirmed";
  * one (see {@link ProtectedObject.notSelected}), filtered apart from
  * `excluded` because it is the `selected` mode's default, not a decision.
  */
-export type ObjectStatusFilter = ObjectStatus | "not_selected" | InactiveState;
+export type ObjectStatusFilter =
+  | ObjectStatus
+  | "not_selected"
+  | InactiveState
+  /** An active IMAP account whose login question ("was this account shut down?") waits for an answer. */
+  | "login_question";
 export type ObjectOrigin = "directory_sync" | "manual";
 /**
  * How an object stands towards the backup jobs: in a job that runs on a schedule, in one that is
@@ -115,6 +121,8 @@ export interface ObjectCounts {
   group?: number;
   /** Objects no longer backed up that nobody confirmed as intended (absent from an older server). */
   toConfirm?: number;
+  /** IMAP accounts whose login question waits for an answer (absent from an older server). */
+  loginQuestions?: number;
 }
 
 export interface PendingSync {
@@ -158,6 +166,12 @@ export interface ProtectedObject {
   status: ObjectStatus;
   /** Set only on an orphaned mailbox whose account is disabled or unlicensed; absent from an older server. */
   statusReason?: ObjectStatusReason | null;
+  /**
+   * The open question "was this account shut down?" of an active IMAP account whose password
+   * login keeps being refused; `dismissedAt` is set once an admin answered "No". Null otherwise,
+   * absent from an older server.
+   */
+  loginQuestion?: LoginQuestion | null;
   /** The confirmation of an orphaned object; null otherwise, absent from an older server. */
   inactiveState?: InactiveState | null;
   /** When an orphaned object stopped being backed up. */
@@ -233,6 +247,15 @@ export interface ProtectedObject {
   } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface LoginQuestion {
+  askedAt: string;
+  failedSince: string | null;
+  runs: number;
+  dismissedAt: string | null;
+  /** The login fails for (almost) the whole source: check the source's password first. */
+  sourceWide: boolean;
 }
 
 export interface ObjectWarning {

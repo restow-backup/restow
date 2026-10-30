@@ -270,6 +270,11 @@
       "inactive": {
         "confirmed": "Object no longer backed up confirmed as intended",
         "bulk_confirmed": "Objects no longer backed up confirmed as intended"
+      },
+      "login": {
+        "question_raised": "Question raised: was the IMAP account shut down?",
+        "dismissed": "Login question answered with No",
+        "restored": "Shut-down IMAP account backed up again"
       }
     },
     "export": {

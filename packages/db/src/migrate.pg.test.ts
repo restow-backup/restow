@@ -368,6 +368,33 @@ describe.skipIf(!adminUrl)("migrations on a fresh and on a 0.300.x database", ()
             AND column_name = 'app_secret_alerts' AND data_type = 'jsonb'`,
       );
       expect(alerts).toEqual([{ is_nullable: "NO", column_default: "'{}'::jsonb" }]);
+      // 0070: the login-refused columns start at zero / null, and the reason is guarded by a check.
+      const { rows: login } = await pool.query<{ column_name: string; column_default: string }>(
+        `SELECT column_name, column_default FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'protected_objects'
+            AND column_name LIKE 'login\\_%' ORDER BY column_name`,
+      );
+      expect(login.map((column) => column.column_name)).toEqual([
+        "login_failed_at",
+        "login_failed_runs",
+        "login_failed_since",
+        "login_probe_due_at",
+        "login_question_at",
+        "login_question_dismissed_at",
+      ]);
+      expect(login.find((column) => column.column_name === "login_failed_runs")).toMatchObject({
+        column_default: "0",
+      });
+      const { rows: checks } = await pool.query<{ conname: string }>(
+        `SELECT conname FROM pg_constraint
+          WHERE conrelid = 'protected_objects'::regclass AND conname LIKE 'protected_objects_login%'
+          ORDER BY conname`,
+      );
+      expect(checks.map((check) => check.conname)).toEqual([
+        "protected_objects_login_failed_runs_ck",
+        "protected_objects_login_question_ck",
+        "protected_objects_login_refused_ck",
+      ]);
     } finally {
       await pool.end();
     }

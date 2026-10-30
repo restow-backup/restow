@@ -180,6 +180,12 @@ describe("protected objects", () => {
     inactiveNotifiedAt: null,
     statusConfirmedAt: null,
     statusConfirmedBy: null,
+    loginFailedRuns: 0,
+    loginFailedSince: null,
+    loginFailedAt: null,
+    loginQuestionAt: null,
+    loginQuestionDismissedAt: null,
+    loginProbeDueAt: null,
     externalId: "b!drive",
     displayName: "Ada's OneDrive",
     activeSince: new Date("2026-01-01T00:00:00.000Z"),
@@ -197,6 +203,30 @@ describe("protected objects", () => {
     email: null,
     upn: null,
   };
+
+  it("names the open login question of an IMAP account, and only an open one", () => {
+    const asked = new Date("2026-10-28T02:00:00.000Z");
+    const imap = (changes: Partial<ProtectedObject>) =>
+      toProtectedObjectDto(
+        { ...row, object: { ...object, kind: "imap", ...changes } },
+        NO_FACTS,
+        NOW,
+      );
+    expect(imap({ loginQuestionAt: asked }).loginQuestionAt).toBe(asked.toISOString());
+    expect(imap({}).loginQuestionAt).toBeNull();
+    expect(imap({ loginQuestionAt: asked, loginQuestionDismissedAt: asked }).loginQuestionAt).toBe(
+      null,
+    );
+    expect(imap({ loginQuestionAt: asked, status: "orphaned" }).loginQuestionAt).toBeNull();
+    const shutDown = imap({
+      status: "orphaned",
+      statusReason: "login_refused",
+      statusConfirmedAt: asked,
+      statusConfirmedBy: "admin@example.test",
+    });
+    expect(protectedObjectSchema.parse(shutDown)).toEqual(shutDown);
+    expect(shutDown.statusReason).toBe("login_refused");
+  });
 
   it("rates an object without any backup as no_backup and without size", () => {
     const dto = toProtectedObjectDto(row, NO_FACTS, NOW);

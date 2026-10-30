@@ -46,7 +46,7 @@ export function notBackedUpOf(job: {
     | { readonly code?: string | null; readonly params?: Record<string, unknown> | null }
     | null
     | undefined;
-}): "account_disabled" | "no_license" | "locked" | null {
+}): "account_disabled" | "no_license" | "locked" | "login_refused" | null {
   return job.queue === SERVICE_LIMITED_QUEUE ? notBackedUpReason(job.status, job.failure) : null;
 }
 

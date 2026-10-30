@@ -8,6 +8,8 @@ import {
   inactiveState,
   isGraphError,
   isServiceLimitedFailure,
+  isSourceWideLoginFailure,
+  loginQuestionState,
   normalizeAccounts,
   notBackedUpReason,
   type ProtectionOverride,
@@ -90,10 +92,12 @@ import {
   modeForKind,
   rulesFromInput,
 } from "./logic.js";
+import { enqueueLoginProbes, markLoginWorked, resetLoginState } from "./login-state.js";
 import {
   type BulkConfirmInactiveInput,
   type BulkProtectionInput,
   type ConfirmInactiveInput,
+  type DismissLoginQuestionInput,
   MAX_BULK_OBJECTS,
   type ObjectCredentialInput,
   type ObjectsFilter,
@@ -122,6 +126,12 @@ export const DIRECTORY_AUDIT_ACTIONS = {
   credentialTested: "directory.account.credential_tested",
   inactiveConfirmed: "directory.inactive.confirmed",
   inactiveBulkConfirmed: "directory.inactive.bulk_confirmed",
+  /** The worker raised the login question of an IMAP account (system actor). */
+  loginQuestionRaised: "directory.login.question_raised",
+  /** An admin answered "No" to the login question. */
+  loginDismissed: "directory.login.dismissed",
+  /** A shut-down IMAP account's login works again: by the probe (system) or a test login. */
+  loginRestored: "directory.login.restored",
 } as const;
 
 /** Who acts: a signed-in person, or an API key on behalf of an integration. */
@@ -149,6 +159,12 @@ export interface ObjectCounts {
   group: number;
   /** Orphaned objects nobody confirmed as intended yet (amber "please confirm"). */
   toConfirm: number;
+  /**
+   * Active IMAP accounts whose login question waits for an answer ("was this account shut
+   * down?"). Not part of `toConfirm`: that count keeps meaning "orphaned and unconfirmed", which
+   * feeds the readiness and the warnings.
+   */
+  loginQuestions: number;
 }
 
 export interface PendingSyncDto {
@@ -208,7 +224,21 @@ export interface ProtectedObjectDto {
    * overdue, and it turns active again by itself. Null for every other object, and for an
    * object that was removed from the source.
    */
-  statusReason: "account_disabled" | "no_license" | "locked" | null;
+  statusReason: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
+  /**
+   * The open question "was this account shut down?" of an active IMAP account whose password
+   * login keeps being refused (@restow/core `loginQuestionState`, docs/IMAP.md): `dismissedAt` is
+   * set once an admin answered "No" (the question comes back after 90 days or a new streak),
+   * `sourceWide` says that the login fails for (almost) the whole source, which points at the
+   * source's password first. Null for every other object.
+   */
+  loginQuestion: {
+    askedAt: string;
+    failedSince: string | null;
+    runs: number;
+    dismissedAt: string | null;
+    sourceWide: boolean;
+  } | null;
   /**
    * An `orphaned` object's confirmation (@restow/core `inactiveState`): `to_confirm` reads amber
    * "Not backed up any more, please confirm" and keeps the tenant from green, `confirmed` grey
@@ -260,7 +290,7 @@ export interface ProtectedObjectDto {
      * A failed run that did not back up because the account is disabled or unlicensed, with
      * that reason (@restow/core `notBackedUpReason`): neutral, never "backup failed".
      */
-    notBackedUp: "account_disabled" | "no_license" | "locked" | null;
+    notBackedUp: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
   /** The backup job that covers it; null when none does. */
@@ -397,6 +427,7 @@ const EMPTY_COUNTS: ObjectCounts = {
   site: 0,
   group: 0,
   toConfirm: 0,
+  loginQuestions: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -481,6 +512,10 @@ async function objectCounts(tx: Transaction, tenantId: string): Promise<Map<stri
         sql<number>`count(*) filter (where ${protectedObjects.statusConfirmedAt} is null)`.mapWith(
           Number,
         ),
+      loginQuestions:
+        sql<number>`count(*) filter (where ${protectedObjects.loginQuestionAt} is not null and ${protectedObjects.loginQuestionDismissedAt} is null)`.mapWith(
+          Number,
+        ),
     })
     .from(protectedObjects)
     .where(eq(protectedObjects.tenantId, tenantId))
@@ -493,6 +528,9 @@ async function objectCounts(tx: Transaction, tenantId: string): Promise<Map<stri
     entry[row.kind] += row.n;
     if (row.status === "orphaned") {
       entry.toConfirm += row.unconfirmed;
+    }
+    if (row.status === "active") {
+      entry.loginQuestions += row.loginQuestions;
     }
     counts.set(row.sourceId, entry);
   }
@@ -805,6 +843,15 @@ function objectFilters(tenantId: string, query: ObjectsFilter, jobIds?: readonly
   }
   if (query.status === "not_selected") {
     conditions.push(notSelectedSql());
+  } else if (query.status === "login_question") {
+    // An IMAP account whose login question waits for an answer (a "No" takes it out).
+    conditions.push(
+      and(
+        eq(protectedObjects.status, "active"),
+        isNotNull(protectedObjects.loginQuestionAt),
+        isNull(protectedObjects.loginQuestionDismissedAt),
+      ) as SQL,
+    );
   } else if (query.status === "to_confirm" || query.status === "confirmed") {
     conditions.push(
       and(
@@ -1015,6 +1062,7 @@ async function toObjectDtos(
   const eligible = new Map(coverage.objects.map((object) => [object.id, object]));
   const warnings = await loadMailWarnings(tx, tenantId, { ids: rows.map((row) => row.object.id) });
   const lockHints = await ownerInactiveReasons(tx, tenantId, rows);
+  const sourceWide = await sourceWideLoginFailures(tx, tenantId, rows);
   // One parse of each source's config per page, not per row.
   const configs = new Map<
     string,
@@ -1059,6 +1107,18 @@ async function toObjectDtos(
       origin: row.object.origin,
       status: row.object.status,
       statusReason: row.object.status === "orphaned" ? (row.object.statusReason ?? null) : null,
+      loginQuestion:
+        row.object.kind === "imap" &&
+        loginQuestionState(row.object) !== null &&
+        row.object.loginQuestionAt
+          ? {
+              askedAt: row.object.loginQuestionAt.toISOString(),
+              failedSince: iso(row.object.loginFailedSince),
+              runs: row.object.loginFailedRuns,
+              dismissedAt: iso(row.object.loginQuestionDismissedAt),
+              sourceWide: sourceWide.has(row.object.sourceId),
+            }
+          : null,
       inactiveState: inactiveState(row.object),
       inactiveSince: row.object.status === "orphaned" ? iso(row.object.inactiveSince) : null,
       statusConfirmedAt:
@@ -1133,6 +1193,50 @@ async function toObjectDtos(
       updatedAt: row.object.updatedAt.toISOString(),
     };
   });
+}
+
+/**
+ * The sources among the rows' whose accounts fail to log in almost all at once (core
+ * `isSourceWideLoginFailure`): at least two accounts with a refused-login streak and half of the
+ * source's active accounts. Only sources of rows that carry a question are looked at.
+ */
+async function sourceWideLoginFailures(
+  tx: Transaction,
+  tenantId: string,
+  rows: readonly ObjectRow[],
+): Promise<Set<string>> {
+  const sourceIds = [
+    ...new Set(
+      rows
+        .filter((row) => row.object.kind === "imap" && loginQuestionState(row.object) !== null)
+        .map((row) => row.object.sourceId),
+    ),
+  ];
+  if (sourceIds.length === 0) {
+    return new Set();
+  }
+  const totals = await tx
+    .select({
+      sourceId: protectedObjects.sourceId,
+      active: count(),
+      failing: sql<number>`count(*) filter (where ${protectedObjects.loginFailedRuns} > 0)`.mapWith(
+        Number,
+      ),
+    })
+    .from(protectedObjects)
+    .where(
+      and(
+        eq(protectedObjects.tenantId, tenantId),
+        inArray(protectedObjects.sourceId, sourceIds),
+        eq(protectedObjects.status, "active"),
+      ),
+    )
+    .groupBy(protectedObjects.sourceId);
+  return new Set(
+    totals
+      .filter((total) => isSourceWideLoginFailure(total.failing, total.active))
+      .map((total) => total.sourceId),
+  );
 }
 
 /**
@@ -1254,6 +1358,12 @@ interface ApplyProtectionOutcome {
   readonly needsSync: boolean;
   /** True when this decision is what made the object `active` (it was not before). */
   readonly becameActive: boolean;
+  /**
+   * True when the object was an IMAP account confirmed as shut down (`login_refused`) and the
+   * decision made it active again: its backup resumes at once, with the usual first-backup rule
+   * not applying (it has snapshots), so the caller queues one itself.
+   */
+  readonly resumed: boolean;
 }
 
 /**
@@ -1268,7 +1378,12 @@ async function applyProtection(
   input: ProtectionOverrideInput,
   actor: Actor,
 ): Promise<ApplyProtectionOutcome> {
-  const decision = decideOverride(input.action, row.object.status, row.sourceKind);
+  const decision = decideOverride(
+    input.action,
+    row.object.status,
+    row.sourceKind,
+    row.object.statusReason,
+  );
   if (row.sourceKind === "m365") {
     // The lock also makes a running sync re-plan (its commit sees a new version).
     const source = await loadSource(tx, tenantId, row.object.sourceId, { lock: true });
@@ -1308,6 +1423,10 @@ async function applyProtection(
   return {
     needsSync: decision.needsSync,
     becameActive: decision.status === "active" && row.object.status !== "active",
+    resumed:
+      decision.status === "active" &&
+      row.object.status === "orphaned" &&
+      row.object.statusReason === "login_refused",
   };
 }
 
@@ -1365,6 +1484,9 @@ export async function setObjectProtection(
     : null;
   if (result.becameActive) {
     await enqueueFirstBackups(db, tenantId, [objectId]);
+    if (result.resumed) {
+      await enqueueLoginProbes(db, tenantId, [objectId]);
+    }
   }
   return { object: result.object, sync };
 }
@@ -1437,7 +1559,14 @@ export async function bulkSetProtection(
     }
     const ids = await resolveBulkObjectIds(tx, tenantId, sourceId, input);
     if (ids.length === 0) {
-      return { matched: 0, updated: 0, needsSync: false, sourceId, becameActiveIds: [] };
+      return {
+        matched: 0,
+        updated: 0,
+        needsSync: false,
+        sourceId,
+        becameActiveIds: [],
+        resumedIds: [],
+      };
     }
     const rows = await baseObjectQuery(tx).where(
       and(
@@ -1448,6 +1577,7 @@ export async function bulkSetProtection(
     );
     let needsSync = false;
     const becameActiveIds: string[] = [];
+    const resumedIds: string[] = [];
     for (const row of rows) {
       const outcome = await applyProtection(
         tx,
@@ -1461,6 +1591,9 @@ export async function bulkSetProtection(
       }
       if (outcome.becameActive) {
         becameActiveIds.push(row.object.id);
+      }
+      if (outcome.resumed) {
+        resumedIds.push(row.object.id);
       }
     }
     await audit(tx, {
@@ -1481,7 +1614,14 @@ export async function bulkSetProtection(
         truncated: rows.length > MAX_AUDITED_BULK_IDS,
       },
     });
-    return { matched: ids.length, updated: rows.length, needsSync, sourceId, becameActiveIds };
+    return {
+      matched: ids.length,
+      updated: rows.length,
+      needsSync,
+      sourceId,
+      becameActiveIds,
+      resumedIds,
+    };
   });
   const sync = result.needsSync
     ? await syncSources(db, tenantId, new Set([result.sourceId]))
@@ -1489,6 +1629,7 @@ export async function bulkSetProtection(
   if (result.becameActiveIds.length > 0) {
     await enqueueFirstBackups(db, tenantId, result.becameActiveIds);
   }
+  await enqueueLoginProbes(db, tenantId, result.resumedIds);
   return {
     sourceId: result.sourceId,
     action: input.action,
@@ -1537,7 +1678,65 @@ async function confirmInactiveIds(
   return rows.map((row) => row.id);
 }
 
-/** Confirm one object that is no longer backed up (POST /objects/:id/inactive/confirm). */
+/** An IMAP account the answer "Yes, shut down" just turned `login_refused`. */
+interface LoginShutDown {
+  readonly id: string;
+  readonly failedSince: Date | null;
+  readonly runs: number;
+}
+
+/**
+ * The answer "Yes, shut down" to the login question: ONE statement turns each active IMAP account
+ * that still has an open (or dismissed) question into `orphaned` with the reason `login_refused`,
+ * confirmed by the admin at once (migration 0070: the check `protected_objects_login_refused_ck`
+ * keeps every other writer from setting that reason, the trigger keeps the confirmation and plans
+ * the first probe a week out). A login that worked meanwhile (the worker reset
+ * `login_question_at`) or an account excluded meanwhile makes the row skipped. No follow-up
+ * backup is queued: the first probe is due at `login_probe_due_at`.
+ */
+async function confirmLoginQuestionIds(
+  tx: Transaction,
+  tenantId: string,
+  ids: readonly string[],
+  actor: Actor,
+): Promise<LoginShutDown[]> {
+  if (ids.length === 0) {
+    return [];
+  }
+  const rows = await tx
+    .update(protectedObjects)
+    .set({
+      status: "orphaned",
+      statusReason: "login_refused",
+      statusConfirmedAt: sql`now()`,
+      statusConfirmedBy: actor.label,
+      loginQuestionAt: null,
+      loginQuestionDismissedAt: null,
+      loginProbeDueAt: sql`now() + interval '7 days'`,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(protectedObjects.tenantId, tenantId),
+        inArray(protectedObjects.id, [...ids]),
+        eq(protectedObjects.kind, "imap"),
+        eq(protectedObjects.status, "active"),
+        isNotNull(protectedObjects.loginQuestionAt),
+      ),
+    )
+    .returning({
+      id: protectedObjects.id,
+      failedSince: protectedObjects.loginFailedSince,
+      runs: protectedObjects.loginFailedRuns,
+    });
+  return rows;
+}
+
+/**
+ * Confirm one object that is no longer backed up (POST /objects/:id/inactive/confirm). An
+ * `active` IMAP account with a login question is accepted too, open or dismissed: "Yes, shut
+ * down" is what turns it `orphaned` (see {@link confirmLoginQuestionIds}).
+ */
 export async function confirmInactiveObject(
   db: Database,
   tenantId: string,
@@ -1547,6 +1746,42 @@ export async function confirmInactiveObject(
 ): Promise<ConfirmInactiveResult> {
   return withTenantTx(db, tenantId, async (tx) => {
     const row = await loadObjectRow(tx, tenantId, objectId);
+    if (row.object.status === "active" && row.object.kind === "imap") {
+      if (!row.object.loginQuestionAt) {
+        throw new ProblemError(409, "The login works", {
+          type: "urn:restow:problem:login-not-refused",
+          detail:
+            "Only an IMAP account whose login keeps being refused and that has an open question can be confirmed as shut down.",
+          extensions: { status: row.object.status },
+        });
+      }
+      const shutDown = await confirmLoginQuestionIds(tx, tenantId, [objectId], actor);
+      if (shutDown.length > 0) {
+        await audit(tx, {
+          tenantId,
+          actorUserId: actor.userId,
+          actor: actor.label,
+          action: DIRECTORY_AUDIT_ACTIONS.inactiveConfirmed,
+          target: objectId,
+          targetType: row.object.kind,
+          onBehalfOf: row.email,
+          ip: actor.ip,
+          details: {
+            externalId: row.object.externalId,
+            reason: "login_refused",
+            via: "login_question",
+            failedSince: iso(row.object.loginFailedSince),
+            runs: row.object.loginFailedRuns,
+            note: input.note ?? null,
+          },
+        });
+      }
+      return {
+        confirmed: shutDown.length,
+        skipped: 1 - shutDown.length,
+        objects: await reloadObjects(tx, tenantId, [objectId]),
+      };
+    }
     if (row.object.status !== "orphaned") {
       throw new ProblemError(409, "The object is backed up", {
         type: "urn:restow:problem:object-not-inactive",
@@ -1581,6 +1816,75 @@ export async function confirmInactiveObject(
   });
 }
 
+/** The answer "No, fix the login" (POST /objects/:id/login-question/dismiss). */
+export async function dismissLoginQuestion(
+  db: Database,
+  tenantId: string,
+  objectId: string,
+  input: DismissLoginQuestionInput,
+  actor: Actor,
+): Promise<ProtectedObjectDto> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const row = await loadObjectRow(tx, tenantId, objectId);
+    const open =
+      row.object.kind === "imap" &&
+      row.object.status === "active" &&
+      loginQuestionState(row.object) === "open";
+    if (!open) {
+      throw new ProblemError(409, "No open question", {
+        type: "urn:restow:problem:no-login-question",
+        detail: "This IMAP account has no open question about its refused login.",
+        extensions: { status: row.object.status },
+      });
+    }
+    // The read took no lock: the worker (a login worked), an admin's "Yes" or an exclude may have
+    // closed the question meanwhile. The guard keeps `protected_objects_login_question_ck` intact
+    // and turns that race into the same 409 instead of a 500.
+    const dismissed = await tx
+      .update(protectedObjects)
+      .set({ loginQuestionDismissedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(protectedObjects.tenantId, tenantId),
+          eq(protectedObjects.id, objectId),
+          eq(protectedObjects.kind, "imap"),
+          eq(protectedObjects.status, "active"),
+          isNotNull(protectedObjects.loginQuestionAt),
+          isNull(protectedObjects.loginQuestionDismissedAt),
+        ),
+      )
+      .returning({ id: protectedObjects.id });
+    if (dismissed.length === 0) {
+      throw new ProblemError(409, "No open question", {
+        type: "urn:restow:problem:no-login-question",
+        detail: "This IMAP account has no open question about its refused login.",
+        extensions: { status: row.object.status },
+      });
+    }
+    await audit(tx, {
+      tenantId,
+      actorUserId: actor.userId,
+      actor: actor.label,
+      action: DIRECTORY_AUDIT_ACTIONS.loginDismissed,
+      target: objectId,
+      targetType: row.object.kind,
+      onBehalfOf: row.email,
+      ip: actor.ip,
+      details: {
+        externalId: row.object.externalId,
+        failedSince: iso(row.object.loginFailedSince),
+        runs: row.object.loginFailedRuns,
+        note: input.note ?? null,
+      },
+    });
+    const [object] = await reloadObjects(tx, tenantId, [objectId]);
+    if (!object) {
+      throw new ProblemError(404, "Protected object not found");
+    }
+    return object;
+  });
+}
+
 /**
  * Confirm several objects at once (POST /objects/inactive/confirm): checked rows of the list, or
  * every unconfirmed inactive object its filter matches, tenant-wide (`filter.sourceId` narrows).
@@ -1596,8 +1900,15 @@ export async function bulkConfirmInactive(
     if (input.objectIds) {
       ids = [...new Set(input.objectIds)];
     } else {
-      // Whatever the list shows, only the objects that wait for a confirmation are confirmed.
-      const filter = { ...(input.filter ?? {}), status: "to_confirm" as const };
+      // Whatever the list shows, only the objects that wait for an answer are confirmed: the
+      // login questions when the list shows them, the unconfirmed inactive objects otherwise.
+      const filter = {
+        ...(input.filter ?? {}),
+        status:
+          input.filter?.status === "login_question"
+            ? ("login_question" as const)
+            : ("to_confirm" as const),
+      };
       const where = objectFilters(tenantId, filter, await jobFilterIds(tx, tenantId, filter.job));
       const rows = await tx
         .select({ id: protectedObjects.id })
@@ -1615,7 +1926,16 @@ export async function bulkConfirmInactive(
       }
       ids = rows.map((row) => row.id);
     }
-    const confirmed = await confirmInactiveIds(tx, tenantId, ids, actor);
+    // Explicit ids may mix both kinds: Microsoft 365 objects that wait for a confirmation and
+    // IMAP accounts with a login question. Each statement takes what it applies to.
+    const shutDown = await confirmLoginQuestionIds(tx, tenantId, ids, actor);
+    const confirmedInactive = await confirmInactiveIds(
+      tx,
+      tenantId,
+      ids.filter((id) => !shutDown.some((entry) => entry.id === id)),
+      actor,
+    );
+    const confirmed = [...confirmedInactive, ...shutDown.map((entry) => entry.id)];
     if (confirmed.length > 0) {
       await audit(tx, {
         tenantId,
@@ -1632,6 +1952,26 @@ export async function bulkConfirmInactive(
           objectIds: confirmed.slice(0, MAX_AUDITED_BULK_IDS),
           truncated: confirmed.length > MAX_AUDITED_BULK_IDS,
           note: input.note ?? null,
+          // The IMAP accounts among them, shut down by the answer to the login question. The
+          // arrays belong to `loginRefusedObjectIds`, not to `objectIds`. `reason` and `via`
+          // describe the whole entry, so they appear only when every confirmed object was one.
+          ...(shutDown.length > 0
+            ? {
+                ...(confirmedInactive.length === 0
+                  ? { reason: "login_refused", via: "login_question" }
+                  : {}),
+                loginRefused: shutDown.length,
+                loginRefusedObjectIds: shutDown
+                  .slice(0, MAX_AUDITED_BULK_IDS)
+                  .map((entry) => entry.id),
+                loginRefusedFailedSince: shutDown
+                  .slice(0, MAX_AUDITED_BULK_IDS)
+                  .map((entry) => iso(entry.failedSince)),
+                loginRefusedRuns: shutDown
+                  .slice(0, MAX_AUDITED_BULK_IDS)
+                  .map((entry) => entry.runs),
+              }
+            : {}),
         },
       });
     }
@@ -1668,6 +2008,7 @@ export async function setUserProtection(
     );
     const needSync = new Set<string>();
     const becameActiveIds: string[] = [];
+    const resumedIds: string[] = [];
     for (const row of rows) {
       const outcome = await applyProtection(tx, tenantId, row, input, actor);
       if (outcome.needsSync) {
@@ -1676,18 +2017,22 @@ export async function setUserProtection(
       if (outcome.becameActive) {
         becameActiveIds.push(row.object.id);
       }
+      if (outcome.resumed) {
+        resumedIds.push(row.object.id);
+      }
     }
     const objects = await reloadObjects(
       tx,
       tenantId,
       rows.map((row) => row.object.id),
     );
-    return { objects, needSync, becameActiveIds };
+    return { objects, needSync, becameActiveIds, resumedIds };
   });
   const sync = result.needSync.size > 0 ? await syncSources(db, tenantId, result.needSync) : null;
   if (result.becameActiveIds.length > 0) {
     await enqueueFirstBackups(db, tenantId, result.becameActiveIds);
   }
+  await enqueueLoginProbes(db, tenantId, result.resumedIds);
   return {
     userId,
     action: input.action,
@@ -1784,6 +2129,7 @@ async function storeAccounts(
 ): Promise<ImportOutcome> {
   const { accounts } = input;
   const newlyActiveIds: string[] = [];
+  const loginProbeIds: string[] = [];
   const result = await withTenantTx(db, tenantId, async (tx) => {
     const source = await loadSource(tx, tenantId, sourceId);
     requireImap(source);
@@ -1904,6 +2250,11 @@ async function storeAccounts(
             credentialFailure: null,
           })
           .where(eq(protectedObjects.id, objectId));
+        if (existingRow) {
+          // A new password for a listed account starts a new login streak and lets a shut-down
+          // account resume at once (docs/IMAP.md).
+          loginProbeIds.push(...(await resetLoginState(tx, tenantId, { objectIds: [objectId] })));
+        }
       }
     }
     await audit(tx, {
@@ -1925,6 +2276,7 @@ async function storeAccounts(
   if (newlyActiveIds.length > 0) {
     await enqueueFirstBackups(db, tenantId, newlyActiveIds);
   }
+  await enqueueLoginProbes(db, tenantId, loginProbeIds);
   return result;
 }
 
@@ -2118,6 +2470,7 @@ export async function setObjectCredential(
   input: ObjectCredentialInput,
   actor: Actor,
 ): Promise<ProtectedObjectDto> {
+  let loginProbeIds: string[] = [];
   const object = await withTenantTx(db, tenantId, async (tx) => {
     const row = await loadObjectRow(tx, tenantId, objectId);
     requirePerMailboxObject(row);
@@ -2143,6 +2496,9 @@ export async function setObjectCredential(
         credentialFailure: null,
       })
       .where(and(eq(protectedObjects.tenantId, tenantId), eq(protectedObjects.id, objectId)));
+    // A new password starts a new login streak (an open question goes away) and lets a
+    // shut-down account resume at once instead of at the next weekly probe.
+    loginProbeIds = await resetLoginState(tx, tenantId, { objectIds: [objectId] });
     await audit(tx, {
       tenantId,
       actorUserId: actor.userId,
@@ -2164,6 +2520,7 @@ export async function setObjectCredential(
   // (see storeAccounts); once one is set here, that first backup is due. A
   // no-op for an object that already has a snapshot or is mid-run.
   await enqueueFirstBackups(db, tenantId, [objectId]);
+  await enqueueLoginProbes(db, tenantId, loginProbeIds);
   return object;
 }
 
@@ -2201,7 +2558,8 @@ export async function testObjectCredential(
   );
   const probe = await probeImapConnection(probeInput, { allowPrivateNetworks });
 
-  return withTenantTx(db, tenantId, async (tx) => {
+  let restored = false;
+  const tested = await withTenantTx(db, tenantId, async (tx) => {
     await tx
       .update(protectedObjects)
       .set({
@@ -2229,10 +2587,37 @@ export async function testObjectCredential(
         reason: probe.ok ? null : probe.reason,
       },
     });
+    // A login that works ends a streak of refused logins and its question; for an account an
+    // admin confirmed as shut down it is the answer to the weekly probe, by hand. A failed test
+    // is not a run: it counts for nothing.
+    if (probe.ok) {
+      restored = (await markLoginWorked(tx, tenantId, objectId)).restored;
+      if (restored) {
+        await audit(tx, {
+          tenantId,
+          actorUserId: actor.userId,
+          actor: actor.label,
+          action: DIRECTORY_AUDIT_ACTIONS.loginRestored,
+          target: objectId,
+          targetType: "imap",
+          ip: actor.ip,
+          details: {
+            externalId: row.object.externalId,
+            sourceId: row.object.sourceId,
+            via: "test_login",
+          },
+        });
+      }
+    }
     const [object] = await reloadObjects(tx, tenantId, [objectId]);
     if (!object) {
       throw new ProblemError(404, "Protected object not found");
     }
     return { object, probe };
   });
+  if (restored) {
+    // Back from the shut-down state: back it up now.
+    await enqueueLoginProbes(db, tenantId, [objectId]);
+  }
+  return tested;
 }

@@ -63,7 +63,9 @@ import {
   ImapBackupEngine,
   type ItemFailureDetails,
   type ItemFailureRecord,
+  isLoginRefusalCause,
   JOB_PRIORITY,
+  LOGIN_PROBE_INTERVAL_HOURS,
   type Logger,
   type ObjectStatusReason,
   OneDriveBackupEngine,
@@ -96,6 +98,12 @@ import {
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import PgBoss from "pg-boss";
 import { type EntraAppLookup, processEntraApp } from "../entra-app.js";
+import {
+  postponeLoginProbe,
+  reactivateAfterLogin,
+  recordLoginFailure,
+  recordLoginSuccess,
+} from "../imap-login-state.js";
 import { raiseInactiveNotices } from "../inactive-notices.js";
 import type { TenantTxRunner } from "../progress.js";
 import {
@@ -135,6 +143,8 @@ export interface EligibilityInput {
   /**
    * Why an orphaned mailbox is not backed up although its user is still in the directory
    * (`protected_objects.status_reason`); null or absent for an object removed from the source.
+   * `login_refused` (an IMAP account an admin confirmed as shut down) is not a rejection: the
+   * run probes the login first.
    */
   readonly objectStatusReason?: ObjectStatusReason | null;
   readonly sourceKind: Source["kind"];
@@ -154,6 +164,12 @@ export function backupRejection(input: EligibilityInput): string | null {
     case "excluded":
       return "the object is excluded from protection";
     case "orphaned":
+      if (input.objectStatusReason === "login_refused") {
+        // A shut-down IMAP account is not rejected: the run probes its login (probeLoginRefused)
+        // and goes on when it works again. The source checks below still apply, so a probe never
+        // runs against a disabled or unconnected source.
+        break;
+      }
       if (input.objectStatusReason === "account_disabled") {
         return "the mailbox is not backed up: the account is disabled";
       }
@@ -189,7 +205,7 @@ export function backupRejectionCode(input: EligibilityInput): FailureCode | null
   if (input.objectStatus === "excluded") {
     return "config.object_excluded";
   }
-  if (input.objectStatus === "orphaned") {
+  if (input.objectStatus === "orphaned" && input.objectStatusReason !== "login_refused") {
     return input.objectStatusReason ? "config.object_inactive" : "config.object_orphaned";
   }
   if (input.sourceStatus === "pending") {
@@ -499,6 +515,18 @@ export interface BackupStore {
    * neutral.
    */
   markInactive?(protectedObjectId: string, reason: ObjectStatusReason): Promise<boolean>;
+  /**
+   * A password login of an IMAP account was refused (a failed run, or the probe of a shut-down
+   * account): counts it, and opens the question "was this account shut down?" after enough
+   * (imap-login-state.ts). Optional like {@link markInactive}.
+   */
+  recordLoginFailure?(protectedObjectId: string): Promise<void>;
+  /** A login worked: the streak and an open question of the account are over. */
+  recordLoginSuccess?(protectedObjectId: string): Promise<void>;
+  /** The probe of a shut-down account worked: it is active again; true when the row changed. */
+  reactivateAfterLogin?(protectedObjectId: string): Promise<boolean>;
+  /** The probe of a shut-down account could not tell: the next one is due in `days` days. */
+  postponeLoginProbe?(protectedObjectId: string, days: number): Promise<void>;
 }
 
 /**
@@ -660,6 +688,22 @@ export function pgBackupStore(
       });
     },
 
+    async recordLoginFailure(protectedObjectId) {
+      await run((tx) => recordLoginFailure(tx, tenantId, protectedObjectId));
+    },
+
+    async recordLoginSuccess(protectedObjectId) {
+      await run((tx) => recordLoginSuccess(tx, tenantId, protectedObjectId));
+    },
+
+    async reactivateAfterLogin(protectedObjectId) {
+      return run((tx) => reactivateAfterLogin(tx, tenantId, protectedObjectId));
+    },
+
+    async postponeLoginProbe(protectedObjectId, days) {
+      await run((tx) => postponeLoginProbe(tx, tenantId, protectedObjectId, days));
+    },
+
     async replaceSecret(secretId, plaintext) {
       // Same sealing as the API (apps/api/src/lib/secrets.ts): the tenant's
       // current DEK, bound to the secret's own row id.
@@ -718,6 +762,12 @@ export type LockCheck = (
   object: ProtectedObjectRef,
 ) => Promise<boolean | null>;
 
+/**
+ * Logs in to an IMAP account once and out again (the weekly probe of an account an admin
+ * confirmed as shut down). Throws what the login throws.
+ */
+export type LoginProbe = (deps: BackupEngineDeps, object: ProtectedObjectRef) => Promise<void>;
+
 /** Engine factories by protected-object kind. Registering a kind twice replaces it. */
 export class BackupEngineRegistry {
   private readonly factories = new Map<ProtectedObjectKind, BackupEngineFactory>();
@@ -725,6 +775,8 @@ export class BackupEngineRegistry {
   inactiveCheck: InactiveCheck | null = null;
   /** The lock check behind {@link confirmInactiveAfterFailure}; null skips it. */
   lockCheck: LockCheck | null = null;
+  /** The login probe behind {@link probeLoginRefused}; null ends such a run neutral, unprobed. */
+  loginProbe: LoginProbe | null = null;
 
   constructor(entries: Iterable<readonly [ProtectedObjectKind, BackupEngineFactory]> = []) {
     for (const [kind, factory] of entries) {
@@ -994,6 +1046,16 @@ export function imapAccountFor(
   };
 }
 
+/** The IMAP engine of one job: the account from the source, the transport rule, token rotation. */
+function imapEngineFor(deps: BackupEngineDeps, env: Env): ImapBackupEngine {
+  return new ImapBackupEngine({
+    resolveAccount: async (_ctx, object) =>
+      imapAccountFor(deps.source, object, deps.objectSecretRef, env),
+    allowInsecure: env.IMAP_ALLOW_INSECURE?.trim().toLowerCase() === "true",
+    onRefreshTokenRotated: (secretId, secretJson) => deps.store.replaceSecret(secretId, secretJson),
+  });
+}
+
 export interface DefaultEngineOptions {
   readonly env?: Env;
   readonly entraApp?: EntraAppLookup;
@@ -1028,22 +1090,14 @@ export function createDefaultBackupEngines(
       "group",
       (deps) => new GroupMailboxBackupEngine<Database>({ graph: lazyGraphClient(deps, settings) }),
     ],
-    [
-      "imap",
-      (deps) =>
-        new ImapBackupEngine({
-          resolveAccount: async (_ctx, object) =>
-            imapAccountFor(deps.source, object, deps.objectSecretRef, settings.env),
-          allowInsecure: settings.env.IMAP_ALLOW_INSECURE?.trim().toLowerCase() === "true",
-          onRefreshTokenRotated: (secretId, secretJson) =>
-            deps.store.replaceSecret(secretId, secretJson),
-        }),
-    ],
+    ["imap", (deps) => imapEngineFor(deps, settings.env)],
   ]);
   registry.inactiveCheck = async (deps, object) => {
     const graph = await graphClientForSource(deps, settings);
     return (await confirmMailboxInactive(graph, object.externalId))?.reason ?? null;
   };
+  registry.loginProbe = (deps, object) =>
+    imapEngineFor(deps, settings.env).probeLogin(deps.ctx, object);
   registry.lockCheck = async (deps, object) => {
     if (object.kind !== "onedrive" && object.kind !== "site") {
       return null;
@@ -1175,6 +1229,30 @@ async function confirmLockedAfterFailure(input: {
 }
 
 /**
+ * After a failed IMAP run: a refused password login counts towards the question "was this
+ * account shut down?" (imap-login-state.ts). Best effort: a failure to record must not mask the
+ * run's own error.
+ */
+async function countRefusedLogin(input: {
+  readonly error: unknown;
+  readonly object: ProtectedObjectRef;
+  readonly store: BackupStore;
+  readonly logger: Logger;
+}): Promise<void> {
+  const { error, object, store, logger } = input;
+  if (object.kind !== "imap" || !isLoginRefusalCause(classifyFailure(error))) {
+    return;
+  }
+  try {
+    await store.recordLoginFailure?.(object.id);
+  } catch (recordError) {
+    logger.warn("could not record the refused login", {
+      errorMessage: safeErrorMessage(recordError),
+    });
+  }
+}
+
+/**
  * A drive- or site-level 423 the lock probe did not confirm (probe 200, 429/5xx/403, a thrown
  * check, no check, a cancelled run): `graph.object_locked` is neutral (failures/limits.ts), but
  * the object stays `active`, so leaving it would end every night neutral with no failure, no
@@ -1192,6 +1270,95 @@ export function unconfirmedLockFailure(error: unknown): InvalidPayloadError | nu
     error instanceof Error ? error.message : "request rejected with HTTP 423 (lock unconfirmed)",
     buildCause("graph.request_rejected", params, cause.technical),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Shut-down IMAP accounts: the login probe
+// ---------------------------------------------------------------------------
+
+/**
+ * The first step of a backup run for an IMAP account an admin confirmed as shut down
+ * (`orphaned` + `login_refused`, docs/IMAP.md): log in once, through the engine's own account,
+ * transport rule and token handling, before anything else.
+ *
+ *   - The login works: the account is active again (`active_since` starts now) and the run goes
+ *     on into the normal backup. Returns.
+ *   - The login is refused (`imap.auth_failed`): the next probe is a week out and the run ends
+ *     neutral and final (`config.object_inactive`, reason `login_refused`: no `backup.failed`,
+ *     no `job.failed`).
+ *   - Anything else (network, server limit, configuration, no probe in this build): the run ends
+ *     the same way, the next probe is a day out, and the account stays as it is. A doubtful
+ *     answer never reactivates.
+ *
+ * A cancelled run rethrows its own error and moves nothing.
+ */
+export async function probeLoginRefused(input: {
+  readonly deps: BackupEngineDeps;
+  readonly probe: LoginProbe | null;
+  readonly object: ProtectedObjectRef;
+  readonly store: BackupStore;
+  readonly logger: Logger;
+}): Promise<void> {
+  const { deps, probe, object, store, logger } = input;
+  const neutral = (message: string, technical?: FailureCause["technical"]) =>
+    new InvalidPayloadError(
+      message,
+      buildCause("config.object_inactive", { reason: "login_refused" }, technical),
+    );
+  try {
+    if (!probe) {
+      throw new Error("this build has no login probe");
+    }
+    await probe(deps, object);
+  } catch (error) {
+    if (deps.ctx.signal.aborted) {
+      throw error;
+    }
+    const cause = classifyFailure(error);
+    // The run ends neutral either way; a bookkeeping failure only means the planner asks again
+    // sooner (the due date did not move), so it never replaces the run's own outcome.
+    const remember = async (write: (() => Promise<void>) | undefined) => {
+      try {
+        await write?.();
+      } catch (writeError) {
+        logger.warn("could not record the outcome of the login probe", {
+          errorMessage: safeErrorMessage(writeError),
+        });
+      }
+    };
+    if (isLoginRefusalCause(cause)) {
+      await remember(() => store.recordLoginFailure?.(object.id) ?? Promise.resolve());
+      // recordLoginFailure moves the due date only for a password login of a row that is still
+      // shut down; a source switched to OAuth2 meanwhile, or a write that failed, would leave it
+      // in the past and the planner would probe every hour. This update has no such filter.
+      await remember(
+        () =>
+          store.postponeLoginProbe?.(object.id, LOGIN_PROBE_INTERVAL_HOURS / 24) ??
+          Promise.resolve(),
+      );
+      logger.info("login of the shut-down account is still refused; probing again in a week");
+      throw neutral("login still refused: the account stays shut down", cause.technical);
+    }
+    await remember(() => store.postponeLoginProbe?.(object.id, 1) ?? Promise.resolve());
+    logger.warn("could not check the login of the shut-down account; probing again tomorrow", {
+      code: cause.code,
+    });
+    throw neutral("could not check the login of the shut-down account", cause.technical);
+  }
+  const restored = (await store.reactivateAfterLogin?.(object.id)) ?? false;
+  if (!restored) {
+    // Nothing changed: an admin excluded the account, or reactivated it, since the run read its
+    // status (or the store cannot reactivate). Back it up only when it is active now; an
+    // excluded account must not get a snapshot.
+    const current = await store.loadSource(object);
+    if (current.objectStatus !== "active") {
+      logger.info("the shut-down account is no longer shut down, but not active either", {
+        status: current.objectStatus,
+      });
+      throw neutral("login works, but the account is not active: nothing to back up");
+    }
+  }
+  logger.info("login of the shut-down account works again, backing it up", { restored });
 }
 
 // ---------------------------------------------------------------------------
@@ -1349,6 +1516,9 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
         objectSecretRef,
         throttled: (info) => recorder.throttled(info),
       };
+      if (objectStatus === "orphaned" && objectStatusReason === "login_refused") {
+        await probeLoginRefused({ deps, probe: engines.loginProbe, object, store, logger });
+      }
       const engine = factory(deps);
       recorder.phase("starting");
       const full = payload.full === true;
@@ -1371,10 +1541,23 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
               store,
               logger,
             });
+        if (!inactive && !ctx.signal.aborted) {
+          await countRefusedLogin({ error, object, store, logger });
+        }
         throw inactive ?? error;
       } finally {
         // Whatever happened, the phase and any throttle wait must not outlive the run.
         await recorder.finish();
+      }
+      if (object.kind === "imap") {
+        // The login worked: a streak of refused logins, and its question, are over.
+        try {
+          await store.recordLoginSuccess?.(object.id);
+        } catch (error) {
+          logger.warn("could not record the successful login", {
+            errorMessage: safeErrorMessage(error),
+          });
+        }
       }
 
       // Engines report item failures as they go; one that only returns them

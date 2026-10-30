@@ -157,6 +157,7 @@ export function originalUnavailableKey(
   | "dialog.target.originalInactive.account_disabled"
   | "dialog.target.originalInactive.no_license"
   | "dialog.target.originalInactive.locked"
+  | "dialog.target.originalInactive.login_refused"
   | null {
   if (object.status !== "orphaned") {
     return null;

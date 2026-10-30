@@ -159,8 +159,10 @@ Die Oberfläche zeigt neutral „Nicht gesichert: Konto deaktiviert“ bzw. „.
 Ab 0.4.7. Hört Restow auf, ein Objekt zu sichern, weil die Quelle es als entfernt, deaktiviert,
 ohne Lizenz oder gesperrt meldet (`orphaned`, mit oder ohne `status_reason`), steht es zuerst
 gelb „Nicht mehr gesichert, bitte bestätigen“, mit Grund und Datum (`inactive_since`). Das gilt
-für Postfächer, OneDrives, SharePoint-Websites und Gruppenpostfächer; IMAP-Konten werden nie
-`orphaned` (keine Synchronisierung, Pflege von Hand).
+für Postfächer, OneDrives, SharePoint-Websites und Gruppenpostfächer. IMAP-Konten werden nur durch
+die Antwort eines Administrators `orphaned`, mit dem Grund `login_refused` und schon bestätigt
+(docs/IMAP.md „Anmeldung abgelehnt: Konto abgeschaltet?“): Bei Microsoft 365 erkennt Restow den
+Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort.
 
 - Unbestätigt: kein Fehlschlag, kein Rot, nicht überfällig (wie oben), aber „braucht
   Aufmerksamkeit“: die Bereitschaft des Mandanten ist höchstens gelb (`toConfirm` in der

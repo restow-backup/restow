@@ -90,6 +90,11 @@ export const protectedObjectSchema = component(
     kind: objectKindSchema,
     status: objectStatusSchema,
     statusReason: objectStatusReasonSchema,
+    loginQuestionAt: timestampSchema
+      .nullable()
+      .describe(
+        "IMAP only: when an admin was asked whether the account was shut down because its login keeps being refused; null while no such question is open (or it was answered).",
+      ),
     origin: z.enum(["directory_sync", "manual"]),
     externalId: z.string().describe("Mailbox address, drive id or IMAP login."),
     displayName: z.string().nullable(),
@@ -136,6 +141,10 @@ export function toProtectedObjectDto(
     kind: object.kind,
     status: object.status,
     statusReason: object.status === "orphaned" ? (object.statusReason ?? null) : null,
+    loginQuestionAt:
+      object.status === "active" && object.loginQuestionAt && !object.loginQuestionDismissedAt
+        ? object.loginQuestionAt.toISOString()
+        : null,
     origin: object.origin,
     externalId: object.externalId,
     displayName: object.displayName,

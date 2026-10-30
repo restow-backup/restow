@@ -54,6 +54,7 @@ const STATUSES: readonly ObjectStatusFilter[] = [
   "not_selected",
   "to_confirm",
   "confirmed",
+  "login_question",
 ];
 const COVERAGES: readonly ObjectCoverage[] = ["scheduled", "unscheduled", "none"];
 const SORTS: readonly ObjectSort[] = ["name", "kind", "status", "createdAt", "updatedAt"];

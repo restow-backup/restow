@@ -165,6 +165,7 @@ export type JobStatusKey =
   | "notBackedUp_account_disabled"
   | "notBackedUp_no_license"
   | "notBackedUp_locked"
+  | "notBackedUp_login_refused"
   | "cancelled";
 
 /**

@@ -131,6 +131,18 @@ describe("bellEventKey", () => {
     );
   });
 
+  it("words the login question of an IMAP account apart from an object no longer backed up", () => {
+    expect(bellEventKey({ event: "object.inactive", details: { question: "login" } })).toBe(
+      "bellEvents.object.login_question",
+    );
+    expect(bellEventKey({ event: "object.inactive_many", details: { question: "login" } })).toBe(
+      "bellEvents.object.login_question_many",
+    );
+    expect(bellEventKey({ event: "object.inactive", details: { kind: "imap" } })).toBe(
+      "bellEvents.object.inactive",
+    );
+  });
+
   it("names what stopped in the archive capture, and a failed archive job as before", () => {
     expect(bellEventKey({ event: "archive.failed", details: { reason: "forward_stale" } })).toBe(
       "bellEvents.archive.forward_stale",

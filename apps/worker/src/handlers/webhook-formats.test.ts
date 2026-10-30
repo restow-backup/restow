@@ -342,6 +342,24 @@ describe("buildChatMessage", () => {
     }
   });
 
+  it("links the login question of an IMAP account to the objects that wait for an answer", () => {
+    for (const event of ["object.inactive", "object.inactive_many"]) {
+      const message = buildChatMessage(
+        "report.alert",
+        envelope("report.alert", {
+          subject: "x",
+          event,
+          level: "info",
+          details: { protectedObjectId: "po-1", sourceId: "s-1", question: "login" },
+        }),
+        EN,
+      );
+      expect(message.link?.url).toBe(
+        `https://backup.example.com/tenants/${TENANT}/protection?status=login_question`,
+      );
+    }
+  });
+
   it("leaves the link out without a public URL and survives unknown events", () => {
     const msg = buildChatMessage("job.started", envelope("job.started", {}), {
       ...EN,
