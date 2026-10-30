@@ -10,22 +10,54 @@ private repository.
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-10-30
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.8 shows on the start page what runs right now and what each tenant comes to. The new
+widget "Running now" lists every backup, restore and restore check of the moment with its speed,
+live, for one tenant and across all tenants. A provider admin sees the monthly price beside the
+last successful backup and the total over all tenants, and with the Service Provider edition the
+owner can give a tenant prices of its own. An IMAP account whose login keeps being refused no
+longer fails every night without a word: it asks the admin whether it was shut down, and once
+the admin says so it is no longer backed up, its login is tried once a week and it resumes by
+itself when a login works again. Mailboxes, OneDrives, sites, groups and IMAP accounts that no
+enabled job covers any more read "In no backup job" instead of "The latest backup is too old".
+The protected objects get "Back up now" in the row menu, a "Backup" column, a panel for the
+checked objects and the end of a scroll bug. zod 4 closes the last advisory the dependency audit
+ignored, and a sizing guide with adjustable database pools helps with large installations. Two
+database migrations (Upgrade Notes).
+
+### Breaking Changes
+
+`withoutJob` in the readiness summary (`readiness` of `GET /api/v1/status`, and
+`GET /api/v1/verify/latest`) changes its meaning: it counted servers and clients in no backup
+job, and now also counts the mailboxes, OneDrives, SharePoint sites, groups and IMAP accounts
+that no enabled backup job covers any more but that keep a backup. The new `objectsWithoutJob`
+says how many of them it holds. An integration that reads `withoutJob` as machines only should
+subtract `objectsWithoutJob`. Such objects are no longer rated by the age of their last backup,
+are never overdue and raise no `backup.overdue` alert. The new `inJob` on an object's readiness
+(`GET /api/v1/objects`, `/users`, `/verify/latest`) is false for every active object that no
+enabled job covers; `withoutJob` counts only those of them that keep a backup, while one without
+any backup stays `no_backup` and can still turn overdue.
+
+Nothing else changes in a breaking way. The integration API contract moves from 1.7.0 to 1.9.0,
+otherwise additively: `statusReason` of `GET /api/v1/objects`, `/users` and `/jobs` can also be
+`login_refused`, and `GET /api/v1/objects` carries `loginQuestionAt`; clients that handle
+`statusReason` exhaustively should accept the new value. `objects.orphaned` of `GET
+/api/v1/status` includes the IMAP accounts confirmed as shut down. The events `object.inactive`
+and `object.inactive_many` can carry `details.question = "login"`, and provider alerts know
+`objects_without_job` and `login_question`. With zod 4 the api accepts identifiers only as RFC
+9562 UUIDs (version 1 to 8): an id of another shape, which no Restow object has, is refused as
+an invalid request instead of not being found. The problem answers and the generated OpenAPI
+document of `/api/v1` are not changed by zod 4; the document changes only by the additions
+above.
+
 ### Added
 
-- Database pools: the size of the Postgres pools is set by `RESTOW_DB_POOL_MAX` (application
-  pool of api, worker and scheduler), `RESTOW_DB_PROVIDER_POOL_MAX` (installation pool) and
-  `RESTOW_DB_BOSS_POOL_MAX` (pg-boss's own pool in worker and scheduler). Each defaults to
-  10, the old fixed value, so nothing changes for an installation that sets nothing. A value
-  that is not a whole number from 1 to 500 stops the process at start with a message naming
-  the variable (the api reports it and exits instead of failing with a stack trace). The
-  worker warns at start when `RESTOW_DB_POOL_MAX` is smaller than
-  `WORKER_CONCURRENCY` + 2, because its jobs would then wait for a connection. Listed in both
-  `.env.example` files.
-- docs/SIZING.md: a sizing guide for large installations. It covers the backup concurrency
-  settings, Microsoft Graph throttling per tenant, the database pools, Postgres settings
-  (`max_connections` above the sum of all pools), CPU, RAM, disk and bandwidth, first-backup
-  estimates and a worked example for 2,000 seats, with recommended server sizes. It says
-  what comes from the code and what is estimated: nothing in it was load-tested.
 - Protected objects: the "..." menu of a row has "Back up now". It backs up exactly that object,
   the same way as on the backup page, and gives the same notices (queued, already queued,
   failed). It is closed with the reason for an IMAP account without a password, a source that is
@@ -48,8 +80,9 @@ private repository.
   the source) and is not asked again until a login works, a password or the source's login
   changes, or 90 days pass. Only the answer sets the state: a database check allows the new
   reason `login_refused` for an IMAP account that is orphaned and confirmed, and nowhere else.
-  Counted are refused password logins only, from backups, archive capture and the probe; server
-  limits, network errors, a missing password and OAuth2 sources (Microsoft, Google) are not. The
+  Counted are refused password logins of active accounts only, from backups and archive capture
+  (a refused weekly probe of a shut-down account only sets the next probe); server limits,
+  network errors, a missing password and OAuth2 sources (Microsoft, Google) are not. The
   question appears at the account, in a banner and under the filter "Login refused: answer
   needed" (`?status=login_question`), as the events `object.inactive` and `object.inactive_many`
   with `details.question = "login"` (one mass warning instead of many notices above 10 accounts
@@ -92,6 +125,19 @@ private repository.
   each tenant in its own transaction, a few at a time, and keeps an answer for 8 seconds for all
   viewers. Provider admins only; a member of the provider team limited to some tenants sees
   those only.
+- Dashboard › Status: for a provider admin whose installation has a price (the tenant's own
+  counts), the row of "Readiness" and "Last successful backup" gets a third card, "Price per
+  month", always beside the last backup, never below it. On a wide page all three stand in one
+  row; where the last backup's list would not fit a third of it, readiness takes the row above
+  and the two cards share the row below; on a phone they stack. It shows the total per
+  month, one line per price (quantity × price = amount), "Custom price" where the tenant has its
+  own, the way to the prices and, for the owner, to this tenant's prices. Figures that are not
+  available yet read "Figures not available yet" instead of the card disappearing. Without a
+  price, and for everybody else, the row is unchanged.
+- Dashboard under "All tenants": a card above "Running now" with the monthly total over all
+  customers at their prices, the five tenants with the highest amounts (a click switches into
+  the tenant), "+N more", and a note when the figures of some tenants are not available. The
+  own organisation is not counted. Only for provider admins, only once a price is set.
 - Prices per tenant (Service Provider): the owner can give a tenant its own price per mailbox,
   its own price per GB or TB, or both, in a dialog opened from the tenant's price card ("Prices
   for this tenant"). A field left empty ("Use installation price") takes the installation's
@@ -113,19 +159,20 @@ private repository.
   read. `?tenant=<id>` answers for one tenant. A tenant without any price is not read at all;
   the figures are kept for 30 seconds, prices are always read fresh. Tenants being deleted are
   left out. Amounts are not rounded.
-- Dashboard › Status: for a provider admin whose installation has a price (the tenant's own
-  counts), the row of "Readiness" and "Last successful backup" gets a third card, "Price per
-  month", always beside the last backup, never below it. On a wide page all three stand in one
-  row; where the last backup's list would not fit a third of it, readiness takes the row above
-  and the two cards share the row below; on a phone they stack. It shows the total per
-  month, one line per price (quantity × price = amount), "Custom price" where the tenant has its
-  own, the way to the prices and, for the owner, to this tenant's prices. Figures that are not
-  available yet read "Figures not available yet" instead of the card disappearing. Without a
-  price, and for everybody else, the row is unchanged.
-- Dashboard under "All tenants": a card above "Running now" with the monthly total over all
-  customers at their prices, the five tenants with the highest amounts (a click switches into
-  the tenant), "+N more", and a note when the figures of some tenants are not available. The
-  own organisation is not counted. Only for provider admins, only once a price is set.
+- Database pools: the size of the Postgres pools is set by `RESTOW_DB_POOL_MAX` (application
+  pool of api, worker and scheduler), `RESTOW_DB_PROVIDER_POOL_MAX` (installation pool) and
+  `RESTOW_DB_BOSS_POOL_MAX` (pg-boss's own pool in worker and scheduler). Each defaults to
+  10, the old fixed value, so nothing changes for an installation that sets nothing. A value
+  that is not a whole number from 1 to 500 stops the process at start with a message naming
+  the variable (the api reports it and exits instead of failing with a stack trace). The
+  worker warns at start when `RESTOW_DB_POOL_MAX` is smaller than
+  `WORKER_CONCURRENCY` + 2, because its jobs would then wait for a connection. Listed in both
+  `.env.example` files.
+- docs/SIZING.md: a sizing guide for large installations. It covers the backup concurrency
+  settings, Microsoft Graph throttling per tenant, the database pools, Postgres settings
+  (`max_connections` above the sum of all pools), CPU, RAM, disk and bandwidth, first-backup
+  estimates and a worked example for 2,000 seats, with recommended server sizes. It says
+  what comes from the code and what is estimated: nothing in it was load-tested.
 
 ### Changed
 
@@ -147,8 +194,9 @@ private repository.
   objects, the dashboard and the reports: it is rated by whether its newest backup restores, not
   by that backup's age, it is never overdue (no `backup.overdue` alert), and it keeps the tenant
   from green (yellow, red when that backup does not restore). Its last backup still gets one
-  restore check if it never had one, planned from an enabled job's job-level restore check
-  schedule; a tenant whose enabled jobs have none keeps the object "unverified" until a check is
+  restore check if it never had one, planned from the job-level restore check schedule of an
+  enabled mail job (a mailbox's own schedule does not count); a tenant whose enabled mail jobs
+  have none, or that has no enabled mail job, keeps the object "unverified" until a check is
   started by hand. An object without any backup keeps "No backup yet" (red), and no
   `backup.overdue` alert is raised for it. The dashboard and the provider view count these
   objects apart from the machines. The integration API contract moves to 1.8.0: new are `inJob`
@@ -194,14 +242,91 @@ private repository.
 
 ### Upgrade Notes
 
-- Two database migrations run at the api's start. 0070 adds six columns to `protected_objects`
-  (`login_failed_runs` default 0, five nullable timestamps), three check constraints (among
-  them the one that guards the reason `login_refused`) and extends the trigger of 0069. No row
-  is rewritten, nothing is asked after the update: the first question comes after 3 counted
-  refusals over 24 hours, that is on the third night of failing logins at the earliest.
-  0071 adds the column `tenants.pricing` (`jsonb`, default `{}` and not null: no price of its
-  own) for the prices per tenant; it does not rewrite the table, and every tenant keeps the
-  installation's prices until the owner sets its own.
+New images and two database migrations; no new required environment variable, and the
+`docker-compose.yml` of 0.4.0 stays.
+
+- Two database migrations run at the api's start; neither rewrites a table:
+  - 0070 adds six columns to `protected_objects` (`login_failed_runs`, default 0, and five
+    nullable timestamps) and three check constraints (among them the one that allows the reason
+    `login_refused` only for an IMAP account an admin confirmed as shut down, orphaned and with
+    a next probe date), widens the reason check of 0069 by `login_refused` and replaces the
+    trigger function of 0069. The checks are validated against every row of `protected_objects`,
+    which reads the table a few times under its lock on a large installation; nothing is
+    rewritten.
+  - 0071 adds the column `tenants.pricing` (`jsonb`, default `{}`: no price of its own); every
+    tenant keeps the installation's prices until the owner sets its own.
+- Nothing is asked right after the update, and refusals from before it are not counted: an IMAP
+  account asks whether it was shut down after 3 counted login refusals over at least 24 hours,
+  so on the third night of failing logins with a nightly job, about a day after the first one
+  with a job that runs several times a day. Expect one `object.inactive` notice per account (or
+  one `object.inactive_many` warning for many) for accounts whose password has really stopped
+  working, and answer them under protected objects. Webhooks and recipients get these notices
+  only where the events are ticked in the notification matrix, as in 0.4.7.
+- Mailboxes, OneDrives, sites, groups and IMAP accounts that no enabled job covers any more
+  (taken out of a job that names its objects, or named only by a disabled job) and that keep a
+  backup read "In no backup job" instead of red "The latest backup is too old" from the update
+  on. They are rated by whether their newest backup restores (green or red), never by its age;
+  one whose newest backup was never checked reads "unverified" until a restore check runs
+  (Changed). The tenant stays yellow while any of them keeps a backup. To clear it, put the
+  object back into an enabled job, enable its job, or exclude it. `withoutJob` of the readiness
+  summary grows by these objects (Breaking Changes).
+- New optional environment variables `RESTOW_DB_POOL_MAX`, `RESTOW_DB_PROVIDER_POOL_MAX` and
+  `RESTOW_DB_BOSS_POOL_MAX` (default 10, as before; a whole number from 1 to 500). Raise them
+  only together with Postgres' `max_connections` (docs/SIZING.md); a value out of range stops
+  the process at start with a message naming it. The worker warns at start when
+  `RESTOW_DB_POOL_MAX` is smaller than `WORKER_CONCURRENCY` + 2.
+- Integrations: the contract moves from 1.7.0 to 1.9.0 (Breaking Changes). The weekly login
+  probe of a shut-down IMAP account, and "Back up now" while its login is still refused, appear
+  in `GET /api/v1/jobs` as `failed` with `failure.code` `config.object_inactive` (the object's
+  `statusReason` is `login_refused`); they raise no `backup.failed` alert and no `job.failed`
+  webhook. Treat them like the object's state, not as a failure.
+- Providers: the provider view can show two new tenant alerts without any action:
+  `objects_without_job` at once for each tenant with objects in no enabled job, and
+  `login_question` while IMAP login questions wait for an answer.
+- Prices per tenant need the Service Provider edition (`tenants.additional`); without it the
+  dialog is not offered and the installation's prices apply everywhere.
+- restow-pve and the agents need no update in this release (no change to the agents or the
+  Proxmox VE plugin).
+- Rollback to 0.4.7 after the migrations was not tested: take a database backup before the
+  update and restore it to go back.
+
+### Known Issues
+
+- docs/SIZING.md was not load-tested: its figures come from the code's limits and from
+  estimates, and it says which is which.
+- "Running now" names as the next planned start the earliest start of any enabled job, a copy
+  job's included, so it can name a copy job instead of a backup.
+- For a provider admin on an installation with a price, the status row of the start page grows
+  from two cards to three on the first load of a session once the prices are read. A later
+  switch of tenant keeps the row, except where the installation has no price and only some
+  tenants have their own: then the price card comes and goes with the tenant.
+- Protected objects on a phone: the "Backup" column is reached by scrolling the table sideways,
+  and at the very end of the page the bar for checked objects stops a little above the bottom
+  edge.
+- The question "Was this account shut down?" was tested against a test IMAP server, not against
+  the login refusals of real mail providers: a refusal a server words as a temporary error is
+  not counted. OAuth2 IMAP sources are never asked.
+- The rating of objects in no backup job also applies to earlier days: only the current job
+  coverage is stored, so the readiness history rates such an object as "In no backup job" for
+  days when a job still covered it. On the Recovery readiness reports list a filter on the
+  rating matches the stored rating, which counted the backup's age, so a report of such an
+  object can be listed under red while it reads green (as in 0.4.7 for objects removed from
+  their source).
+- The known issues of 0.4.7 still apply.
+
+### Verification
+
+Before the tag, on the release branch (0.4.7 plus the 0.4.8 work): lint and typecheck of all
+workspaces, the unit and Postgres suites of every package on Postgres 16 (with the Postgres
+guard), among them migrations 0070 and 0071, the login-refusal counting, question, probe and
+resume of IMAP accounts, the readiness of objects in no job, the running widget's api and live
+channel, the price estimate and the prices per tenant with their audit, owner and edition rules;
+restic-backed tests with restic 0.19, the web DOM tests, the v1 OpenAPI test (the document
+generated under zod 4 was also compared once with the one before it: identical), the tests of
+the CI scripts and the third-party notices. The start page widgets, the price cards and the
+protected objects were checked in a browser against mocked answers (light and dark, desktop and
+phone). The IMAP question was not run against a real mail provider before the tag, and the
+sizing guide was not load-tested.
 
 ## [0.4.7] - 2026-10-29
 
