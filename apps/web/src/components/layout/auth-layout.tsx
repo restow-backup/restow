@@ -20,6 +20,8 @@ interface AuthLayoutProps {
   width?: keyof typeof WIDTHS;
   /** `center` for short content; `top` for long, growing content such as the wizard. */
   align?: "center" | "top";
+  /** Header switches at 44 px instead of 36 px, for a page shown only on touch devices. */
+  touchTargets?: boolean;
 }
 
 /**
@@ -28,13 +30,18 @@ interface AuthLayoutProps {
  * with language and theme on top, the content on a quiet background below.
  * One layout, so these pages read as one product.
  */
-export function AuthLayout({ children, width = "md", align = "center" }: AuthLayoutProps) {
+export function AuthLayout({
+  children,
+  width = "md",
+  align = "center",
+  touchTargets = false,
+}: AuthLayoutProps) {
   return (
     <div className="flex min-h-svh flex-col bg-muted/40">
       <SkipLink />
       <header className="flex h-(--topbar-height) shrink-0 items-center justify-between px-4 sm:px-6">
         <Wordmark />
-        <div className="flex items-center gap-1">
+        <div className={cn("flex items-center gap-1", touchTargets && "[&_button]:size-11")}>
           <LanguageSwitcher />
           <ThemeToggle />
         </div>

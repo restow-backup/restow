@@ -81,7 +81,9 @@
     "done": {
       "title": "Passwort gesetzt",
       "description": "Die Anmeldung ist jetzt möglich. Direkt danach wird eine Authenticator-App eingerichtet.",
-      "signIn": "Anmelden"
+      "phoneDescription": "Melden Sie sich am Computer an. Direkt danach wird eine Authenticator-App eingerichtet.",
+      "signIn": "Anmelden",
+      "phoneSignIn": "Melden Sie sich am Computer an."
     },
     "linkStatus": {
       "used": {

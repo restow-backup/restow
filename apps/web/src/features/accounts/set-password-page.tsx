@@ -27,6 +27,8 @@ import { HOME_PATH, LOGIN_PATH } from "@/lib/entry";
 import { validationKey, zodResolver } from "@/lib/form";
 import { PASSWORD_MIN_LENGTH } from "@/lib/password";
 import { holdPasswordForEnrolment } from "@/lib/password-handoff";
+import { useFocusOnMount } from "@/lib/use-focus-on-mount";
+import { usePhoneBlocked } from "@/lib/use-phone";
 
 import { type SetPasswordFormValues, setPasswordFormSchema } from "./forms";
 import { useRedeemSetPasswordToken, useSetPasswordTokenStatus } from "./hooks";
@@ -38,7 +40,8 @@ import type { AccountLinkStatus } from "./types";
  * account a tenant admin just created (or reused) for them. No session
  * exists yet — the link's token is the only credential. Once the password is
  * set they sign in normally, where the existing mandatory authenticator
- * enrolment takes over.
+ * enrolment takes over. The page works on a phone, because the link comes by
+ * mail; there the sign-in is left for a computer (lib/device.ts).
  */
 export function SetPasswordPage({ token }: { token: string }) {
   const { t } = useTranslation("accounts");
@@ -134,6 +137,7 @@ function SetPasswordForm({ token, emailHint, redeem, onDone }: SetPasswordFormPr
 
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const phone = usePhoneBlocked();
   const onSubmit = form.handleSubmit(async (values) => {
     let email: string;
     try {
@@ -146,8 +150,9 @@ function SetPasswordForm({ token, emailHint, redeem, onDone }: SetPasswordFormPr
     // it on the login page and then again for the authenticator app (which
     // starts with it, lib/password-handoff.ts). Anything unusual (an account
     // that already has an authenticator app or a passkey, a refusal) ends on
-    // the "Password set" card with its sign-in button, as before.
-    if (await signInWithNewPassword(email, values.password)) {
+    // the "Password set" card with its sign-in button, as before. On a phone the app
+    // is closed (lib/device.ts), so there is no sign-in: the card says to use a computer.
+    if (!phone && (await signInWithNewPassword(email, values.password))) {
       queryClient.removeQueries({ queryKey: queryKeys.authSession });
       queryClient.removeQueries({ queryKey: queryKeys.me });
       await navigate({ to: HOME_PATH, replace: true });
@@ -220,21 +225,33 @@ function SetPasswordForm({ token, emailHint, redeem, onDone }: SetPasswordFormPr
 function SetPasswordDone() {
   const { t } = useTranslation("accounts");
   const navigate = useNavigate();
+  const phone = usePhoneBlocked();
+  // The form is gone; focus on the title makes a screen reader announce the outcome.
+  const title = useFocusOnMount<HTMLDivElement>();
   return (
     <Card>
       <CardHeader className="flex flex-col items-center text-center">
         <div className="mb-2 flex size-12 items-center justify-center rounded-full bg-muted text-foreground">
           <CheckCircle2 aria-hidden="true" className="size-5" />
         </div>
-        <CardTitle className="text-xl">{t("setPassword.done.title")}</CardTitle>
-        <CardDescription>{t("setPassword.done.description")}</CardDescription>
+        <CardTitle ref={title} tabIndex={-1} className="text-xl outline-none">
+          {t("setPassword.done.title")}
+        </CardTitle>
+        <CardDescription>
+          {phone ? t("setPassword.done.phoneDescription") : t("setPassword.done.description")}
+        </CardDescription>
       </CardHeader>
-      <CardFooter>
-        <Button className="w-full" onClick={() => void navigate({ to: LOGIN_PATH, replace: true })}>
-          <ShieldCheck />
-          {t("setPassword.done.signIn")}
-        </Button>
-      </CardFooter>
+      {phone ? null : (
+        <CardFooter>
+          <Button
+            className="w-full"
+            onClick={() => void navigate({ to: LOGIN_PATH, replace: true })}
+          >
+            <ShieldCheck />
+            {t("setPassword.done.signIn")}
+          </Button>
+        </CardFooter>
+      )}
     </Card>
   );
 }
@@ -248,6 +265,7 @@ interface LinkNotUsableProps {
 function LinkNotUsable({ status, emailHint }: LinkNotUsableProps) {
   const { t } = useTranslation("accounts");
   const navigate = useNavigate();
+  const phone = usePhoneBlocked();
   const Icon = status === "used" ? MailX : MailQuestion;
   return (
     <Card>
@@ -265,15 +283,20 @@ function LinkNotUsable({ status, emailHint }: LinkNotUsableProps) {
       {status === "used" ? (
         // A password was already set with this link: signing in is the one
         // action that could actually help, so it gets a real call to action
-        // instead of leaving the person stranded on a dead-end card.
-        <CardFooter>
-          <Button
-            className="w-full"
-            onClick={() => void navigate({ to: LOGIN_PATH, replace: true })}
-          >
-            <ShieldCheck />
-            {t("setPassword.done.signIn")}
-          </Button>
+        // instead of leaving the person stranded on a dead-end card. A phone
+        // has no sign-in (lib/device.ts), so it is told where to go instead.
+        <CardFooter className={phone ? "justify-center text-center text-sm" : undefined}>
+          {phone ? (
+            t("setPassword.done.phoneSignIn")
+          ) : (
+            <Button
+              className="w-full"
+              onClick={() => void navigate({ to: LOGIN_PATH, replace: true })}
+            >
+              <ShieldCheck />
+              {t("setPassword.done.signIn")}
+            </Button>
+          )}
         </CardFooter>
       ) : null}
     </Card>

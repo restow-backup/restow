@@ -10,6 +10,23 @@ private repository.
 
 ## [Unreleased]
 
+### Changed
+
+- Phones are no longer a supported surface. On a smartphone (a touch device without hover whose
+  smaller screen side is under 600 pixels) every page shows a block page instead of the app:
+  the sign-in, the setup, the authenticator enrolment and the app itself. It says that Restow
+  is too sensitive to administer from a phone and offers a button that copies the address, so
+  it can be opened on a computer; there is no "continue anyway". Two pages keep working on a
+  phone because people open them from a mail: the page of a reset mail and the page of the
+  link to set a password. After setting or resetting the password they show "Password set" and
+  "Sign in on a computer" instead of signing in, so the app is not entered on a phone. A
+  customer invitation needs a sign-in and cannot work on a phone; it shows its own text, "Open
+  this invitation on a computer", and copies the invitation link. Tablets, narrow desktop
+  windows and the public demo are not affected, and neither is the layout for them. The block
+  page is a design decision, not an access control: the check runs in the browser and the API
+  is unchanged. Restow also no longer offers itself for installation on a phone's home screen
+  (the web manifest opens in the browser, the touch icon is gone).
+
 ## [0.4.8] - 2026-10-30
 
 Beta release. Run it alongside your existing backups, not as your only one, until

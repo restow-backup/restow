@@ -13,6 +13,10 @@ export const AUTHENTICATOR_SETUP_PATH = "/authenticator-setup" as const;
 export const ACCOUNT_PATH = "/account" as const;
 /** Choosing a new password with the link from a reset mail (public, no session). */
 export const RESET_PASSWORD_PATH = "/reset-password" as const;
+/** Choosing a password with the link a provisioned person got by mail: `<base>/<token>` (public, no session). */
+export const SET_PASSWORD_BASE_PATH = "/accounts/set-password" as const;
+/** Accepting a customer invitation: `<base>/<invitation id>` (needs a sign-in). */
+export const INVITATIONS_BASE_PATH = "/invitations" as const;
 
 export type EntryRedirect = typeof SETUP_PATH | typeof HOME_PATH;
 

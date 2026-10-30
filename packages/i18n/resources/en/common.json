@@ -188,6 +188,20 @@
     "title": "Page not found",
     "description": "There is nothing at this address. The link is outdated or the page has moved."
   },
+  "phoneBlock": {
+    "title": "{appName} is not available on phones",
+    "why": "{appName} manages backup data and who can reach it. That is too sensitive to administer from a phone, so the app stays closed on phones.",
+    "what": "Open this page on a computer. Copy the link and send it to yourself, for example by mail.",
+    "copyLink": "Copy link",
+    "copied": "Link copied",
+    "copyFailed": "Could not copy. Select the address above and copy it by hand.",
+    "mailLinks": "Links in mails to set or reset a password also work on a phone.",
+    "invitation": {
+      "title": "Open this invitation on a computer",
+      "why": "Accepting an invitation needs a sign-in, and {appName} is not available on phones.",
+      "what": "Copy the link and open it on a computer."
+    }
+  },
   "validation": {
     "required": "This field is required.",
     "email": "Please enter a valid email address.",
