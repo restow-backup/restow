@@ -155,6 +155,72 @@
       "action": "Prüfen und bestätigen"
     }
   },
+  "running": {
+    "title": "Läuft gerade",
+    "description": "Was gerade kopiert oder gesichert wird.",
+    "descriptionAll": "Was gerade kopiert oder gesichert wird, in allen Mandanten.",
+    "all": "Verlauf",
+    "count": "{count, plural, one {# Lauf aktiv} other {# Läufe aktiv}}",
+    "tenantsBusy": "{count, plural, one {in # Mandant} other {in # Mandanten}}",
+    "more": "Alle {count} anzeigen",
+    "fewer": "Weniger anzeigen",
+    "truncated": "Es laufen mehr Läufe, als hier aufgelistet sind.",
+    "unavailable": "{count, plural, one {# Mandant konnte nicht gelesen werden.} other {# Mandanten konnten nicht gelesen werden.}}",
+    "empty": {
+      "title": "Gerade läuft nichts",
+      "next": "Die nächste geplante Sicherung beginnt",
+      "nextDue": "Die nächste geplante Sicherung ist jetzt fällig.",
+      "nextNone": "Es ist keine Sicherung geplant."
+    },
+    "status": {
+      "live": "Live",
+      "connecting": "Live-Aktualisierung wird verbunden …",
+      "reconnecting": "Keine Verbindung, neuer Versuch läuft. Zu sehen ist der letzte bekannte Stand, {time}.",
+      "off": "Die Live-Aktualisierung ist aus. Zu sehen ist der letzte bekannte Stand, {time}.",
+      "polling": "Wird alle {seconds} s aktualisiert.",
+      "refreshFailed": "Die letzte Aktualisierung ist fehlgeschlagen. Zu sehen ist der letzte bekannte Stand, {time}."
+    },
+    "total": {
+      "title": "Gesamtdurchsatz",
+      "series": "Durchsatz",
+      "label": "Gesamtdurchsatz in den letzten {minutes} Minuten",
+      "summary": "Gesamtdurchsatz von {count, plural, one {# Lauf} other {# Läufen}} in den letzten {minutes} Minuten: aktuell {current}, im Mittel {average}, höchstens {peak}.",
+      "now": "aktuell {rate}",
+      "none": "Noch kein Durchsatz gemeldet."
+    },
+    "category": {
+      "backup": "Sicherung",
+      "restore": "Wiederherstellung",
+      "check": "Restore-Prüfung"
+    },
+    "object": {
+      "mailbox": "Postfach",
+      "onedrive": "OneDrive",
+      "site": "SharePoint-Website",
+      "group": "Microsoft-365-Gruppe",
+      "imap": "IMAP-Konto",
+      "server": "Server",
+      "client": "Client",
+      "file_share": "Dateifreigabe",
+      "vm": "Virtuelle Maschine",
+      "ct": "Container",
+      "tenant": "Ganzer Mandant"
+    },
+    "row": {
+      "items": "{done} von {total} Elementen",
+      "itemsDone": "{done} Elemente",
+      "bytes": "{done} von {total}",
+      "bytesDone": "{done} gelesen",
+      "percent": "{percent} %",
+      "elapsed": "Läuft seit {time}",
+      "rate": "{rate}/s",
+      "noRate": "Kein Durchsatz gemeldet",
+      "progress": "Fortschritt von {name}",
+      "cancelling": "Wird beendet",
+      "throttled": "Wartet auf Microsoft",
+      "openTenant": "{tenant} öffnen"
+    }
+  },
   "lastBackup": {
     "title": "Letzte erfolgreiche Sicherung",
     "description": "Der neueste erfolgreiche Lauf je Datentyp. Als veraltet gilt, was mehr als doppelt so lange zurückliegt wie der längste geplante Abstand der Backup-Jobs.",

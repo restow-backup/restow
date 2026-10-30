@@ -280,12 +280,18 @@ diese Schlüssel zuerst und öffnet damit das Manifest.
 - Ein Live-Kanal je Browser-Tab: `GET /api/v1/live` (SSE, nur Session, Mandantenadministratoren) liefert Läufe beider
   Quellen als eine Form (`RunDto`, `apps/api/src/features/history`), die Job-Definitionen mit letztem und nächstem Lauf
   und den Verbindungszustand der Maschinen. Der Server fragt alle 2 s die Datenbank und sendet nur Änderungen
-  (Ereignisse `snapshot`, `run`, `definition`, `machine`, `gone`; alle 15 s ein Kommentar als Keep-alive). Der Client
+  (Ereignisse `snapshot`, `run`, `definition`, `machine`, `pve_run`, `gone`; alle 15 s ein Kommentar als Keep-alive).
+  Die laufenden Läufe von Proxmox-VE-Gästen (eigene Tabelle `pve_runs`, letzter Fortschrittsbericht des Knotens)
+  kommen als `pve_run` (jede zweite Abfrage, Snapshot-Feld `pveRuns`). Der Client
   schreibt sie in den React-Query-Cache (`apps/web/src/features/history/live`), hält den Kanal auch im
   Hintergrund-Tab offen und schließt ihn erst nach 10 Minuten dort oder sofort, wenn der Browser den Tab einfriert
   (Page Lifecycle `freeze`); zurück im Vordergrund liest er nur nach, was der neue Snapshot nicht abdeckt. Solange der
   Kanal nicht steht, pollen die Seiten weiter. Die Einträge „Jobs“ der Seitenleiste zählen laufende und wartende
-  Backups aus demselben Kanal (ohne eigenen Request; ohne Kanal aus der Job-Liste). `/api/v1/jobs/events` bleibt unverändert. Der Verlauf (`/api/v1/history`,
+  Backups aus demselben Kanal (ohne eigenen Request; ohne Kanal aus der Job-Liste). Das Dashboard-Widget „Läuft gerade“
+  (`running` in `GET /api/v1/dashboard`, nur Administratoren) zeigt dieselben Läufe samt Durchsatz-Verlauf: erster Stand
+  aus der Dashboard-Antwort, danach aus dem Kanal; ohne Kanal bleibt der letzte Stand mit Hinweis stehen. Je Mandant werden 50 Läufe gelistet (nur Backup, Restore und Restore-Prüfung; der Kanal liefert bis zu 51 PVE-Läufe, der 51. zeigt, dass weitere laufen); die Kurven nehmen je neuem Bericht einen Punkt. Unter „Alle
+  Mandanten“ gibt es keinen Kanal: `GET /api/v1/tenant-running` (Provider-Admins, auf die Mandanten der Teamrolle
+  beschränkt, je Mandant eine eigene Transaktion, 8 s Zwischenspeicher) wird alle 10 s abgefragt. `/api/v1/jobs/events` bleibt unverändert. Der Verlauf (`/api/v1/history`,
   `/history/:id`) ist ein Lesemodell über `jobs` und `endpoint_runs`, ohne eigene Tabelle.
 - Throttling: Der Graph-Client (`packages/core/src/graph/client.ts`) befolgt 429, 503 und 504
   mit `Retry-After` (sonst Backoff mit Jitter), fasst Anfragen in `$batch` zu je 20 zusammen und

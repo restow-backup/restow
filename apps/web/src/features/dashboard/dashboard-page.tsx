@@ -26,6 +26,7 @@ import { widgetView } from "./presenters.js";
 import { useRememberedChoice } from "./ranges.js";
 import { useDashboard } from "./use-dashboard.js";
 import { DashboardWidgets } from "./widget-registry.js";
+import { AllTenantsRunningWidget } from "./widgets/running-widget.js";
 import { TREND_WINDOWS, type TrendWindow } from "./widgets/trend-widgets.js";
 
 /** The backup runs windows as remembered choices. */
@@ -130,17 +131,20 @@ function StatusView({ allTenants }: { allTenants: boolean }) {
     );
   } else {
     body = allTenants ? (
-      <ExtensionSlot
-        name="dashboard.provider"
-        props={{
-          view: widgetView(data?.provider ?? undefined, loading),
-          onRetry: refresh,
-          retrying,
-          onOpenTenant: openTenant,
-          onTenantDetails: tenantDetails,
-          onOpenReadiness: openReadiness,
-        }}
-      />
+      <div className="space-y-6">
+        <AllTenantsRunningWidget onOpenTenant={openTenant} />
+        <ExtensionSlot
+          name="dashboard.provider"
+          props={{
+            view: widgetView(data?.provider ?? undefined, loading),
+            onRetry: refresh,
+            retrying,
+            onOpenTenant: openTenant,
+            onTenantDetails: tenantDetails,
+            onOpenReadiness: openReadiness,
+          }}
+        />
+      </div>
     ) : (
       <DashboardWidgets
         widgets={data?.widgets}

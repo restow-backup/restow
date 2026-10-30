@@ -10,9 +10,17 @@ describe("which widgets a viewer gets", () => {
   it("leaves out only the admin widgets for plain members", () => {
     expect(widgetsFor(false)).toEqual(
       TENANT_WIDGET_IDS.filter(
-        (id) => id !== "mailboxUsage" && id !== "endpoints" && id !== "recentJobs",
+        (id) =>
+          id !== "mailboxUsage" && id !== "endpoints" && id !== "recentJobs" && id !== "running",
       ),
     );
+  });
+
+  it("gives the running widget to administrators only, after the readiness", () => {
+    expect(WIDGET_AUDIENCE.running).toBe("admins");
+    expect(widgetsFor(false)).not.toContain("running");
+    const order = widgetsFor(true);
+    expect(order.indexOf("running")).toBe(order.indexOf("readiness") + 1);
   });
 
   it("keeps the endpoints widget for admins, after the figures and before the trends", () => {

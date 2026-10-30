@@ -1,10 +1,13 @@
 import en from "@restow/i18n/resources/en/dashboard.json" with { type: "json" };
+import { QueryClientProvider } from "@tanstack/react-query";
 import type * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { newQueryClient, sessionAs } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
+import { StaticSessionProvider } from "@/lib/session";
 
 import type { StorageCapacity, TenantWidgets, WidgetData, WidgetResult } from "./api.js";
 import { WidgetUnavailableError, type WidgetView } from "./presenters.js";
@@ -60,7 +63,14 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 });
 
 function render(node: React.ReactNode): string {
-  return renderToStaticMarkup(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>);
+  // The running widget reads the live channel's cache and the session.
+  return renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={newQueryClient()}>
+        <StaticSessionProvider value={sessionAs({})}>{node}</StaticSessionProvider>
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
 }
 
 /** Top-level groups of the namespace; a key path in the markup means a missing translation. */
@@ -143,6 +153,13 @@ const data: WidgetData = {
     withoutJob: 0,
     running: 1,
     lastCheckedAt: new Date(Date.now() - 7_200_000).toISOString(),
+  },
+  running: {
+    generatedAt: new Date().toISOString(),
+    runs: [],
+    pve: [],
+    truncated: false,
+    nextRunAt: null,
   },
   protectedObjects: {
     total: 7,
@@ -1374,6 +1391,8 @@ describe("widget registry", () => {
 
   it("expects the admin widgets only for admins while loading", () => {
     expect(expectedWidgets(true)).toContain("recentJobs");
+    expect(expectedWidgets(true)).toContain("running");
+    expect(expectedWidgets(false)).not.toContain("running");
     expect(expectedWidgets(true)).toContain("mailboxUsage");
     expect(expectedWidgets(true)).toContain("endpoints");
     expect(expectedWidgets(false)).not.toContain("recentJobs");
@@ -1387,6 +1406,7 @@ describe("widget registry", () => {
     const all: (keyof WidgetData)[] = [
       "lastBackup",
       "readiness",
+      "running",
       "protectedObjects",
       "storage",
       "mailboxUsage",

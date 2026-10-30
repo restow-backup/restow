@@ -1,4 +1,5 @@
 import type { Failure, ItemCauseCount } from "@/features/failures/api";
+import type { PveRunning, Run } from "@/features/history/api";
 import type { Role } from "@/lib/api";
 import { apiFetch } from "@/lib/api";
 
@@ -331,11 +332,46 @@ export interface EndpointsWidget {
   lastSuccessAt: string | null;
 }
 
+/**
+ * What is being copied or backed up right now in one tenant: every run that goes on with its
+ * progress and newest measurements, and the next planned start (apps/api features/running).
+ * The page keeps it current from the live channel; this is its first state, and the one it
+ * shows while the channel is off.
+ */
+export interface RunningWidget {
+  generatedAt: string;
+  /** Mail, machine and file share runs, the same shape History and the live channel carry. */
+  runs: Run[];
+  /** Runs of Proxmox VE guests. */
+  pve: PveRunning[];
+  /** More runs were going on than listed. */
+  truncated: boolean;
+  /** The earliest planned start of an enabled job; null when none is scheduled. */
+  nextRunAt: string | null;
+}
+
+/** One tenant of GET /tenant-running ("All tenants"): its runs, as `RunningWidget` lists them. */
+export interface TenantRunning extends Omit<RunningWidget, "generatedAt"> {
+  tenantId: string;
+  name: string;
+}
+
+export interface AllTenantsRunning {
+  generatedAt: string;
+  /** Only the tenants that have something running. */
+  tenants: TenantRunning[];
+  /** The earliest planned start over the tenants the viewer may enter. */
+  next: { at: string; tenantId: string; name: string } | null;
+  /** Tenants whose runs could not be read this time. */
+  unavailable: number;
+}
+
 /** Every widget the page knows, by id. */
 export interface WidgetData {
   setup: SetupWidget;
   lastBackup: LastBackupWidget;
   readiness: ReadinessWidget;
+  running: RunningWidget;
   protectedObjects: ProtectedObjectsWidget;
   storage: StorageWidget;
   mailboxUsage: MailboxUsageWidget;
@@ -518,6 +554,8 @@ export const dashboardKeys = {
     ["tenant", tenantId, "dashboard", { mode, ...params }] as const,
   /** The sidebar's Start checklist: the setup widget alone. */
   setup: (tenantId: string | null) => ["tenant", tenantId, "dashboard", "setup"] as const,
+  /** What runs in every tenant ("All tenants"); not under "dashboard", the live channel's refetches leave it be. */
+  allRunning: (tenantId: string | null) => ["tenant", tenantId, "all-running"] as const,
 };
 
 /**
@@ -535,6 +573,11 @@ export function fetchDashboard(
   }
   const query = new URLSearchParams(params).toString();
   return apiFetch<Dashboard>(query ? `/dashboard?${query}` : "/dashboard");
+}
+
+/** What runs right now in every tenant the viewer may enter (provider admins). */
+export function fetchAllTenantsRunning(): Promise<AllTenantsRunning> {
+  return apiFetch<AllTenantsRunning>("/tenant-running");
 }
 
 /** The setup checklist alone (`widgets=setup`), which is all the sidebar's Start entry needs. */

@@ -21,6 +21,7 @@ import {
   historyKeys,
   type LiveSnapshot,
   type MachineLive,
+  type PveRunning,
   type Run,
   type RunCategory,
   type RunDetail,
@@ -37,6 +38,7 @@ import { mergeSamples } from "../samples";
  *                 hold the run, its detail, and the machine it ran on
  *   `definition`  the backup jobs' lists and details: state, last and next run, restore checks
  *   `machine`     the machines' lists and details: connection, next run
+ *   `pve_run`     the Proxmox VE runs that go on now (the start page's "Running now")
  *   `job`         the older shape of a mail run, for the protected-objects table
  *
  * A change the cache cannot take in place (a run no list holds yet, a job somebody edited, a new
@@ -439,8 +441,34 @@ export function applyDefinition(context: LiveContext, live: BackupJobLive): void
   }
 }
 
-export function applyGone(context: LiveContext, kind: "definition" | "machine", id: string): void {
+/** The Proxmox VE runs that go on now, by id. */
+export type LivePveRuns = Record<string, PveRunning>;
+
+export function applyPveRun(context: LiveContext, run: PveRunning): void {
+  context.client.setQueryData<LivePveRuns>(historyKeys.livePve(context.tenantId), (current) => ({
+    ...current,
+    [run.id]: run,
+  }));
+}
+
+export function applyGone(
+  context: LiveContext,
+  kind: "definition" | "machine" | "pve_run",
+  id: string,
+): void {
   const { client, tenantId, refetch, known } = context;
+  if (kind === "pve_run") {
+    client.setQueryData<LivePveRuns>(historyKeys.livePve(tenantId), (current) => {
+      if (!current || !(id in current)) {
+        return current;
+      }
+      const { [id]: _ended, ...rest } = current;
+      return rest;
+    });
+    // The run's end moves the overview (its last backup, the readiness).
+    refetch(["tenant", tenantId, "dashboard"]);
+    return;
+  }
   if (kind === "definition") {
     known.definitions.delete(id);
     rememberDefinitions(context, (current) => {
@@ -519,6 +547,11 @@ export function applySnapshot(context: LiveContext, snapshot: LiveSnapshot): voi
     Object.fromEntries(snapshot.definitions.map((job) => [job.id, job])),
   );
   known.machines = new Set(snapshot.machines.map((machine) => machine.id));
+  // An older server sends none: the page then has the snapshot of its own request to go by.
+  client.setQueryData<LivePveRuns>(
+    historyKeys.livePve(tenantId),
+    Object.fromEntries((snapshot.pveRuns ?? []).map((run) => [run.id, run])),
+  );
   for (const definition of snapshot.definitions) {
     applyDefinitionQuietly(context, definition);
   }
@@ -589,9 +622,17 @@ export function applyEvent(context: LiveContext, event: ServerEvent): void {
       if (live?.id) applyMachine(context, live);
       return;
     }
+    case "pve_run": {
+      const run = parse<PveRunning>(event.data);
+      if (run?.id) applyPveRun(context, run);
+      return;
+    }
     case "gone": {
       const gone = parse<{ kind?: string; id?: string }>(event.data);
-      if (gone?.id && (gone.kind === "definition" || gone.kind === "machine")) {
+      if (
+        gone?.id &&
+        (gone.kind === "definition" || gone.kind === "machine" || gone.kind === "pve_run")
+      ) {
         applyGone(context, gone.kind, gone.id);
       }
       return;

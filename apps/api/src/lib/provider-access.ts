@@ -414,6 +414,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // tenants the member's team role covers; one tenant's jobs read-only, by its id.
   "GET /api/v1/tenant-jobs": view(LIST),
   "GET /api/v1/tenant-jobs/:tenantId": view(byParam("tenantId")),
+  // What runs right now, for the "All tenants" start page: narrowed by the handler to the
+  // tenants the member's team role covers, like the tenant list.
+  "GET /api/v1/tenant-running": view(LIST),
   // History: the runs of the tenant, mail and agent together, and the live channel that keeps
   // them current. Reading is for every provider admin, like the runs under /jobs.
   "GET /api/v1/history": view(),

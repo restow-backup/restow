@@ -155,6 +155,72 @@
       "action": "Check and confirm"
     }
   },
+  "running": {
+    "title": "Running now",
+    "description": "What is being copied or backed up this moment.",
+    "descriptionAll": "What is being copied or backed up this moment, in all tenants.",
+    "all": "History",
+    "count": "{count, plural, one {# run in progress} other {# runs in progress}}",
+    "tenantsBusy": "{count, plural, one {in # tenant} other {in # tenants}}",
+    "more": "Show all {count}",
+    "fewer": "Show fewer",
+    "truncated": "More runs are going on than listed here.",
+    "unavailable": "{count, plural, one {# tenant could not be read.} other {# tenants could not be read.}}",
+    "empty": {
+      "title": "Nothing is running right now",
+      "next": "The next scheduled backup starts",
+      "nextDue": "The next scheduled backup is due now.",
+      "nextNone": "No backup is scheduled."
+    },
+    "status": {
+      "live": "Live",
+      "connecting": "Connecting live updates …",
+      "reconnecting": "Not connected, retrying. Showing the last known state, {time}.",
+      "off": "Live updates are off. Showing the last known state, {time}.",
+      "polling": "Refreshes every {seconds} s.",
+      "refreshFailed": "The last refresh failed. Showing the last known state, {time}."
+    },
+    "total": {
+      "title": "Total throughput",
+      "series": "Throughput",
+      "label": "Total throughput over the last {minutes} minutes",
+      "summary": "Total throughput of {count, plural, one {# run} other {# runs}} over the last {minutes} minutes: now {current}, on average {average}, at most {peak}.",
+      "now": "now {rate}",
+      "none": "No throughput reported yet."
+    },
+    "category": {
+      "backup": "Backup",
+      "restore": "Restore",
+      "check": "Restore check"
+    },
+    "object": {
+      "mailbox": "Mailbox",
+      "onedrive": "OneDrive",
+      "site": "SharePoint site",
+      "group": "Microsoft 365 group",
+      "imap": "IMAP account",
+      "server": "Server",
+      "client": "Client",
+      "file_share": "File share",
+      "vm": "Virtual machine",
+      "ct": "Container",
+      "tenant": "Whole tenant"
+    },
+    "row": {
+      "items": "{done} of {total} items",
+      "itemsDone": "{done} items",
+      "bytes": "{done} of {total}",
+      "bytesDone": "{done} read",
+      "percent": "{percent} %",
+      "elapsed": "Running for {time}",
+      "rate": "{rate}/s",
+      "noRate": "No throughput reported",
+      "progress": "Progress of {name}",
+      "cancelling": "Stopping",
+      "throttled": "Waiting for Microsoft",
+      "openTenant": "Open {tenant}"
+    }
+  },
   "lastBackup": {
     "title": "Last successful backup",
     "description": "The newest successful run per data type. It counts as stale once it is more than twice the longest planned gap of the backup jobs old.",

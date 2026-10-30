@@ -5,7 +5,14 @@ import { openEventStream } from "@/features/jobs/sse";
 import { sessionScope, useSession } from "@/lib/session";
 
 import { historyKeys, type Run } from "../api";
-import { applyEvent, createRefetcher, type LiveContext, type LiveRuns, newKnown } from "./apply";
+import {
+  applyEvent,
+  createRefetcher,
+  type LiveContext,
+  type LivePveRuns,
+  type LiveRuns,
+  newKnown,
+} from "./apply";
 import {
   acquireChannel,
   type ChannelDeps,
@@ -151,6 +158,24 @@ export function useLiveRuns(): LiveRuns {
     gcTime: Number.POSITIVE_INFINITY,
   });
   return query.data ?? NO_RUNS;
+}
+
+/**
+ * The Proxmox VE runs that go on now, by id, as the channel describes them; null until the
+ * channel's snapshot arrived (or where there is no channel), so a page does not take "not heard
+ * yet" for "nothing runs".
+ */
+export function useLivePveRuns(): LivePveRuns | null {
+  const { activeTenant } = useSession();
+  const tenantId = activeTenant?.id ?? null;
+  const query = useQuery<LivePveRuns | null>({
+    queryKey: historyKeys.livePve(tenantId),
+    queryFn: () => null,
+    enabled: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: Number.POSITIVE_INFINITY,
+  });
+  return query.data ?? null;
 }
 
 /** One run's live state; undefined while the channel has not named it. */

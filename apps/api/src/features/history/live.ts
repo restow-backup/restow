@@ -13,6 +13,8 @@ import {
   type SseMessage,
   type StreamStep,
 } from "../jobs/events.js";
+import { type PveRunningDto, RUNNING_LIMIT } from "../running/dto.js";
+import { pveRunningRuns } from "../running/read.js";
 import type { RunDto, RunState } from "./dto.js";
 import { liveRuns } from "./read.js";
 
@@ -27,14 +29,16 @@ import { liveRuns } from "./read.js";
  *                (progress, throughput, the newest measurements)        `run`
  *   definitions  each backup job's state, last and next run, restore check   `definition`
  *   machines     each machine's connection state and its next run          `machine`
+ *   pve runs     the runs of Proxmox VE guests that go on now, with the node's
+ *                last progress report (they live in a table of their own)  `pve_run`
  *
  * plus the legacy `jobs` and `job` events, the mail runs in the shape `/api/v1/jobs/events` has
  * always sent, for the pages that were written against them. The first message is a `snapshot`
  * of all three families, so a client that (re)connects needs no other request. Runs are read
- * every poll; machines every third and definitions every fifth (or right after a run changed
- * its state, the moment a job's "last run" can have moved). A definition or machine that
- * disappeared is announced with `gone`. A comment line keeps the connection open between
- * messages (events.ts).
+ * every poll; machines every third, Proxmox VE runs every second and definitions every fifth
+ * (or right after a run changed its state, the moment a job's "last run" can have moved). A
+ * definition or machine that disappeared is announced with `gone`. A comment line keeps the
+ * connection open between messages (events.ts).
  *
  * Everything here is pure except {@link databaseSources}, so the shaping, the change detection
  * and the cadence are tested without a database or a socket.
@@ -42,6 +46,8 @@ import { liveRuns } from "./read.js";
 
 /** Machines are re-read every this many polls. */
 export const MACHINES_EVERY = 3;
+/** Proxmox VE runs are re-read every this many polls (a node reports every few seconds). */
+export const PVE_EVERY = 2;
 /** Definitions are re-read every this many polls (and after any run changed its state). */
 export const DEFINITIONS_EVERY = 5;
 
@@ -88,6 +94,12 @@ export interface LiveSnapshot {
   runs: RunDto[];
   definitions: BackupJobLiveDto[];
   machines: MachineLiveDto[];
+  /**
+   * The Proxmox VE runs that go on now (the start page's "Running now"), newest first, at most
+   * {@link RUNNING_LIMIT} + 1: the page lists {@link RUNNING_LIMIT} and, with one more, says that
+   * more are going on.
+   */
+  pveRuns: PveRunningDto[];
   /** The server's clock, so the client can tell how far its own is off before it ticks countdowns. */
   serverTime: string;
 }
@@ -109,7 +121,11 @@ export function machineMessage(machine: MachineLiveDto): SseMessage {
   return { event: "machine", data: JSON.stringify(machine) };
 }
 
-export function goneMessage(kind: "definition" | "machine", id: string): SseMessage {
+export function pveRunMessage(run: PveRunningDto): SseMessage {
+  return { event: "pve_run", data: JSON.stringify(run) };
+}
+
+export function goneMessage(kind: "definition" | "machine" | "pve_run", id: string): SseMessage {
   return { event: "gone", data: JSON.stringify({ kind, id }) };
 }
 
@@ -159,10 +175,12 @@ export interface LiveSources {
   runs(): Promise<{ runs: RunDto[]; jobs: JobDto[] }>;
   definitions(): Promise<BackupJobLiveDto[]>;
   machines(): Promise<MachineLiveDto[]>;
+  pveRuns(): Promise<PveRunningDto[]>;
 }
 
 export interface LiveStepOptions {
   readonly machinesEvery?: number;
+  readonly pveEvery?: number;
   readonly definitionsEvery?: number;
   readonly now?: () => Date;
 }
@@ -176,27 +194,31 @@ export function createLiveStep(
   options: LiveStepOptions = {},
 ): () => Promise<StreamStep> {
   const machinesEvery = options.machinesEvery ?? MACHINES_EVERY;
+  const pveEvery = options.pveEvery ?? PVE_EVERY;
   const definitionsEvery = options.definitionsEvery ?? DEFINITIONS_EVERY;
   const now = options.now ?? (() => new Date());
   const runs = new KeyedTracker<RunDto>((run) => run.id);
   const legacy = new KeyedTracker<JobDto>((job) => job.id);
   const definitions = new KeyedTracker<BackupJobLiveDto>((item) => item.id);
   const machines = new KeyedTracker<MachineLiveDto>((item) => item.id);
+  const pveRuns = new KeyedTracker<PveRunningDto>((item) => item.id);
   const states = new Map<string, RunState>();
   let tick = 0;
 
   return async () => {
     const current = tick++;
     if (current === 0) {
-      const [live, defs, macs] = await Promise.all([
+      const [live, defs, macs, pve] = await Promise.all([
         sources.runs(),
         sources.definitions(),
         sources.machines(),
+        sources.pveRuns(),
       ]);
       runs.prime(live.runs);
       legacy.prime(live.jobs);
       definitions.prime(defs);
       machines.prime(macs);
+      pveRuns.prime(pve);
       for (const run of live.runs) {
         states.set(run.id, run.state);
       }
@@ -206,6 +228,7 @@ export function createLiveStep(
             runs: live.runs,
             definitions: defs,
             machines: macs,
+            pveRuns: pve,
             serverTime: now().toISOString(),
           }),
           jobsMessage(live.jobs),
@@ -232,6 +255,11 @@ export function createLiveStep(
       for (const machine of changed) messages.push(machineMessage(machine));
       for (const id of gone) messages.push(goneMessage("machine", id));
     }
+    if (current % pveEvery === 0) {
+      const { changed, gone } = pveRuns.changes(await sources.pveRuns());
+      for (const run of changed) messages.push(pveRunMessage(run));
+      for (const id of gone) messages.push(goneMessage("pve_run", id));
+    }
     if (stateChanged || current % definitionsEvery === 0) {
       const { changed, gone } = definitions.changes(await sources.definitions());
       for (const definition of changed) messages.push(definitionMessage(definition));
@@ -255,6 +283,9 @@ export function databaseSources(db: Database, tenantId: string, since: Date): Li
       const { items } = await listBackupJobs(db, tenantId, {}, { revealHooks: false });
       return items.map(liveDefinition);
     },
+    // One run more than the page lists: that extra one is how the page knows that some are left out.
+    pveRuns: () =>
+      withTenantTx(db, tenantId, (tx) => pveRunningRuns(tx, tenantId, RUNNING_LIMIT + 1)),
     machines: () =>
       withTenantTx(db, tenantId, async (tx) => {
         const rows = await tx

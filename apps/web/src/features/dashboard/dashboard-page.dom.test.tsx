@@ -15,7 +15,7 @@ import type { SlotProps } from "@/lib/extensions";
 import { registerWebExtension, resetWebExtensionsForTesting } from "@/lib/extensions";
 import type { SessionTenant } from "@/lib/session";
 
-import type { Dashboard } from "./api";
+import type { AllTenantsRunning, Dashboard } from "./api";
 import { DashboardPage } from "./dashboard-page";
 
 /**
@@ -104,6 +104,13 @@ function tenantDashboard(): Dashboard {
   };
 }
 
+let allRunning: AllTenantsRunning = {
+  generatedAt: new Date().toISOString(),
+  tenants: [],
+  next: null,
+  unavailable: 0,
+};
+
 function providerDashboard(): Dashboard {
   return {
     ...tenantDashboard(),
@@ -123,6 +130,7 @@ beforeAll(async () => {
 beforeEach(() => {
   urls.length = 0;
   seenSlot = null;
+  allRunning = { generatedAt: new Date().toISOString(), tenants: [], next: null, unavailable: 0 };
   router.search = {};
   router.navigate.mockReset();
   registerWebExtension({
@@ -149,6 +157,9 @@ async function open(session: Parameters<typeof sessionAs>[0]) {
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
     const url = String(input);
     urls.push(url);
+    if (url.endsWith("/tenant-running")) {
+      return json(allRunning);
+    }
     return json(url.includes("provider=only") ? providerDashboard() : tenantDashboard());
   });
   mounted = mount(<DashboardPage />, {
@@ -204,8 +215,9 @@ describe("the overview of a tenant", () => {
 describe("the overview under All tenants", () => {
   it("asks for the provider view alone and hands it to the module that draws it", async () => {
     const { page } = await open({ scope: "all" });
-    expect(urls).toHaveLength(1);
-    expect(urls[0]).toMatch(/\/dashboard\?provider=only$/);
+    const dashboards = urls.filter((url) => url.includes("/dashboard"));
+    expect(dashboards).toHaveLength(1);
+    expect(dashboards[0]).toMatch(/\/dashboard\?provider=only$/);
     expect(page.querySelector('[data-slot="provider-test"]')?.getAttribute("data-kind")).toBe(
       "ready",
     );
@@ -235,8 +247,80 @@ describe("the overview under All tenants", () => {
     expect(router.navigate).toHaveBeenCalledWith({ to: "/tenants/mueller/overview" });
   });
 
+  it("shows what runs in every tenant above the provider view, with the tenant of each run", async () => {
+    allRunning = {
+      generatedAt: new Date().toISOString(),
+      tenants: [
+        {
+          tenantId: "mueller",
+          name: "Müller GmbH",
+          runs: [],
+          pve: [
+            {
+              id: "pve-1",
+              kind: "backup",
+              guest: { id: "g1", vmid: 100, name: "web01", kind: "vm" },
+              jobName: "Every guest",
+              startedAt: new Date(Date.now() - 90_000).toISOString(),
+              cancelling: false,
+              progress: {
+                bytesDone: 3_000_000,
+                bytesTotal: 6_000_000,
+                bytesUploaded: null,
+                bytesPerSecond: 1_000_000,
+                at: new Date().toISOString(),
+              },
+            },
+          ],
+          truncated: false,
+          nextRunAt: null,
+        },
+      ],
+      next: null,
+      unavailable: 0,
+    };
+    const { page, setActiveTenant } = await open({ scope: "all" });
+    const widget = page.querySelector('[data-widget="running"]');
+    expect(widget).not.toBeNull();
+    expect(text(widget as Element)).toContain("Running now");
+    expect(text(widget as Element)).toContain("web01");
+    expect(text(widget as Element)).toContain("Müller GmbH");
+    expect(text(widget as Element)).toContain("1 run in progress");
+    // The widget comes before the provider view.
+    const following = (widget as Element).compareDocumentPosition(
+      page.querySelector('[data-slot="provider-test"]') as Element,
+    );
+    expect(following & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await act(async () => {
+      (widget as Element)
+        .querySelector<HTMLButtonElement>('button[aria-label="Open Müller GmbH"]')
+        ?.click();
+    });
+    expect(setActiveTenant).toHaveBeenCalledWith("mueller");
+  });
+
+  it("says nothing runs, and when the next start is, when no tenant has a run", async () => {
+    allRunning = {
+      generatedAt: new Date().toISOString(),
+      tenants: [],
+      next: {
+        at: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+        tenantId: "nord",
+        name: "Nordlicht AG",
+      },
+      unavailable: 0,
+    };
+    const { page } = await open({ scope: "all" });
+    const widget = page.querySelector('[data-widget="running"]') as Element;
+    expect(text(widget)).toContain("Nothing is running right now");
+    expect(text(widget)).toContain("The next scheduled backup starts");
+    expect(text(widget)).toContain("Nordlicht AG");
+  });
+
   it("does not ask for the provider view while the session is on one tenant", async () => {
     await open({ scope: "tenant" });
     expect(urls.some((url) => url.includes("provider"))).toBe(false);
+    // And no other tenant's runs are asked for.
+    expect(urls.some((url) => url.includes("tenant-running"))).toBe(false);
   });
 });
