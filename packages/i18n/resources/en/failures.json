@@ -343,9 +343,13 @@
         "title": "The latest backup is getting old",
         "why": "The newest backup is {ageHours, plural, one {# hour} other {# hours}} old, which is more than a schedule normally leaves."
       },
+      "snapshot_empty": {
+        "title": "Empty: nothing to restore",
+        "why": "The latest backup holds only default folders or system pages and 0 bytes of content. This is no failure. An admin can confirm the object as empty, and it no longer counts as needing attention. Once a later backup holds content, it is rated like any other object again."
+      },
       "nothing_to_verify": {
-        "title": "The backup contains nothing that could be verified",
-        "why": "The latest backup holds no items that a restore check can read back, so the rating rests on nothing yet."
+        "title": "The backup holds nothing a check can read back",
+        "why": "The latest backup holds data, but only of a type a restore check cannot read back, so the rating rests on nothing yet."
       },
       "restore_test_unconfirmed": {
         "title": "The target did not confirm the test restore",

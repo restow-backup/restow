@@ -39,6 +39,8 @@ export const STATE_BADGE: Record<ObjectState, StatusTone> = {
   red: "destructive",
   unverified: "destructive",
   no_backup: "destructive",
+  // Confirmed as empty: nothing to restore, nothing needs attention.
+  empty: "muted",
 };
 
 /**
@@ -95,6 +97,7 @@ const URGENCY: Record<ObjectState, number> = {
   no_backup: 2,
   yellow: 3,
   green: 4,
+  empty: 5,
 };
 
 /**
@@ -141,6 +144,9 @@ export function objectLabel(
 export function needsAttention(item: Pick<ObjectReadiness, "state" | "overdue">): boolean {
   if (item.state === "no_backup") {
     return item.overdue;
+  }
+  if (item.state === "empty") {
+    return false;
   }
   return item.state !== "green" || item.overdue;
 }
@@ -261,19 +267,59 @@ const KNOWN_REASONS = new Set([
   "test_restore_failed",
   "snapshot_outdated",
   "snapshot_stale",
+  "snapshot_empty",
   "nothing_to_verify",
   "test_restore_unconfirmed",
 ]);
 
-/** The translation of a stored finding; codes from a newer worker get a generic text. */
-export function reasonMessage(reason: Omit<Reason, "failure">): Message {
+/** The finding of a check that found the object empty (core verify/readiness.ts). */
+export const EMPTY_REASON = "snapshot_empty";
+
+/** Whether a rating rests on "empty" alone: only such an object can be confirmed as empty. */
+export function isEmptyFinding(reasons: readonly Pick<Reason, "code">[]): boolean {
+  return reasons.length > 0 && reasons.every((reason) => reason.code === EMPTY_REASON);
+}
+
+/**
+ * An object whose newest check found it empty and that nobody confirmed as empty yet: yellow,
+ * and the row offers "Confirm as empty". The reasons are those the rating counts (an orphaned
+ * object's, or one in no job, without the backup's age, as the server sends them).
+ */
+export function isEmptyUnconfirmed(
+  item: Pick<ObjectReadiness, "state" | "report" | "emptyConfirmation">,
+): boolean {
+  return (
+    item.state === "yellow" &&
+    !item.emptyConfirmation &&
+    item.report?.origin === "verify" &&
+    isEmptyFinding(item.report.reasons)
+  );
+}
+
+/**
+ * The translation of a stored finding; codes from a newer worker get a generic text.
+ * `formatBytes` words the bytes a finding names (`nothing_to_verify`); a finding written before
+ * 0.4.9 names none and keeps its earlier text.
+ */
+export function reasonMessage(
+  reason: Omit<Reason, "failure">,
+  formatBytes: (bytes: number) => string = (bytes) => `${bytes} B`,
+): Message {
   if (!KNOWN_REASONS.has(reason.code)) {
     return { key: "reason.unknown", values: { code: reason.code } };
+  }
+  if (reason.code === "nothing_to_verify" && typeof reason.bytes !== "number") {
+    return { key: "reason.nothing_to_verify_unsized" };
   }
   const hours = reason.ageHours ?? 0;
   return {
     key: `reason.${reason.code}`,
-    values: { count: reason.count ?? 0, hours, days: Math.floor(hours / 24) },
+    values: {
+      count: reason.count ?? 0,
+      hours,
+      days: Math.floor(hours / 24),
+      ...(typeof reason.bytes === "number" ? { size: formatBytes(reason.bytes) } : {}),
+    },
   };
 }
 

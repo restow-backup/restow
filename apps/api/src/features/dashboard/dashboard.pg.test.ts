@@ -1527,8 +1527,16 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
     it("sums a year up per month in the database and dates each month with its last day", async () => {
       const growth = await growthOf(initech, "?widgets=storageGrowth&storageDays=365");
       expect(growth).toMatchObject({ days: 365, requestedDays: 365, granularity: "month" });
-      // The cut month a year ago, eleven whole ones and this month so far: 13 rows, not 365.
-      expect(growth.series).toHaveLength(13);
+      // The cut month a year ago, the whole ones between and this month so far: 13 rows, not
+      // 365. When the window starts on the first of a month that month is whole and the cut
+      // month falls away (12 rows, as on the last day of a 31-day month).
+      const start = new Date(Date.parse(`${dayKey(NOW)}T00:00:00.000Z`) - 364 * DAY);
+      const months =
+        (NOW.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+        NOW.getUTCMonth() -
+        start.getUTCMonth() +
+        1;
+      expect(growth.series).toHaveLength(months);
       expect(growth.series.at(-1)?.date).toBe(dayKey(NOW));
       const [total] = await owner
         .select({ bytes: sql<number>`sum(${packs.size})`.mapWith(Number) })

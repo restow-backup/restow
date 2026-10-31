@@ -269,6 +269,8 @@ describe("rating unreadable packs", () => {
     hasSnapshot: true,
     manifestReadable: true,
     checked: 20,
+    contentBytes: 20_000,
+    contentObjects: 20,
     outcomes: { verified: 20, mismatch: 0, missing: 0, unreadable: 0 },
     damagedPacks: 0,
     testRestore: null,

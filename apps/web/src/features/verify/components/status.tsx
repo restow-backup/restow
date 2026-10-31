@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  CircleDashed,
   Cloud,
   Globe,
   Inbox,
@@ -16,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { StatusBadge } from "@/components/kit";
 import type { ObjectKind, ObjectState, Reason, StorageState } from "@/features/verify/api";
 import { reasonMessage, STORAGE_BADGE, stateBadgeView } from "@/features/verify/presenters";
+import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const STATE_ICON = {
@@ -24,6 +26,7 @@ const STATE_ICON = {
   red: ShieldX,
   unverified: ShieldQuestion,
   no_backup: ShieldQuestion,
+  empty: CircleDashed,
 } as const;
 
 /**
@@ -114,11 +117,12 @@ export function ReasonList({
   reasons: readonly Reason[];
   className?: string;
 }) {
-  const { t } = useTranslation("verify");
+  const { t, i18n } = useTranslation("verify");
+  const language = i18n.resolvedLanguage ?? i18n.language;
   return (
     <ul className={cn("space-y-2", className)}>
       {reasons.map((reason) => {
-        const { key, values } = reasonMessage(reason);
+        const { key, values } = reasonMessage(reason, (bytes) => formatBytes(bytes, language));
         const Icon = reason.severity === "red" ? XCircle : AlertTriangle;
         return (
           <li

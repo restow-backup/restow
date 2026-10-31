@@ -8,8 +8,10 @@
  *           several checks over more than a day), a failed test restore,
  *           or a latest backup so old that recent data is not recoverable
  *   yellow  restorable, but something needs attention: the latest backup is
- *           getting old, the storage check could not read a pack of it yet, the snapshot holds nothing that could be verified, or
- *           a test restore landed without the target confirming it
+ *           getting old, the storage check could not read a pack of it yet, the
+ *           snapshot is empty (only default folders or system pages, 0 bytes) or
+ *           holds data of no type a check can read back, or a test restore
+ *           landed without the target confirming it
  *   green   every sampled item came back byte-exact from a current backup
  *
  * The verdict is the worst severity among the reasons. Reasons are machine
@@ -30,6 +32,7 @@ export type ReadinessReasonCode =
   | "test_restore_failed"
   | "snapshot_outdated"
   | "snapshot_stale"
+  | "snapshot_empty"
   | "nothing_to_verify"
   | "test_restore_unconfirmed";
 
@@ -42,6 +45,8 @@ export type ReadinessReason = {
   count?: number;
   /** Age of the latest snapshot in hours, for the freshness reasons. */
   ageHours?: number;
+  /** Bytes of content the snapshot holds, for `nothing_to_verify`. */
+  bytes?: number;
 };
 
 export type ReadinessPolicy = {
@@ -63,6 +68,15 @@ export type ReadinessFacts = {
   manifestReadable: boolean;
   /** Objects that were read back. */
   checked: number;
+  /**
+   * What the snapshot holds besides folders and placeholders (packages, shortcuts): the bytes
+   * and the number of such objects. Zero bytes with nothing read back is an empty object (an
+   * empty mailbox or OneDrive, a site with system pages only), not a gap of the check.
+   */
+  contentBytes: number;
+  contentObjects: number;
+  /** Every object the snapshot lists (folders included), for the text of an empty one. */
+  itemCount?: number;
   outcomes: Readonly<Record<ItemCheckStatus, number>>;
   /** Packs of the snapshot that the latest scrub reported corrupt and could not repair. */
   damagedPacks: number;
@@ -147,7 +161,15 @@ export function assessReadiness(
     reasons.push(freshness);
   }
   if (facts.manifestReadable && facts.checked === 0) {
-    reasons.push({ code: "nothing_to_verify", severity: "yellow" });
+    reasons.push(
+      facts.contentBytes === 0
+        ? {
+            code: "snapshot_empty",
+            severity: "yellow",
+            count: facts.itemCount ?? facts.contentObjects,
+          }
+        : { code: "nothing_to_verify", severity: "yellow", bytes: facts.contentBytes },
+    );
   }
   add("test_restore_unconfirmed", "yellow", facts.testRestore?.unconfirmed ?? 0);
   add("storage_unreadable", "yellow", facts.unreadablePacks ?? 0);
@@ -180,4 +202,16 @@ export function readinessWithoutFreshness(
     }
   }
   return worst;
+}
+
+/** The reason of a check that found the object empty (only default folders, 0 bytes). */
+export const EMPTY_REASON = "snapshot_empty";
+
+/**
+ * Whether a report says no more than "this object is empty": its rating rests on the empty
+ * reason alone. Only such a report can be confirmed as empty by an admin, and a confirmation
+ * counts only while the newest report still says so (any other finding, or content, ends it).
+ */
+export function isEmptyFinding(reasons: readonly { readonly code: string }[]): boolean {
+  return reasons.length > 0 && reasons.every((reason) => reason.code === EMPTY_REASON);
 }

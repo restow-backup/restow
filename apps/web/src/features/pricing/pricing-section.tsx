@@ -19,6 +19,8 @@ import {
   type Pricing,
   type PricingEstimate,
   pricingKey,
+  STORAGE_BILLING,
+  type StorageBilling,
   savePricing,
 } from "./api.js";
 import { formatMoney, parsePrice, priceText, tenantsWithOwnPrices } from "./presenters.js";
@@ -156,6 +158,7 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
   const id = React.useId();
   const [currency, setCurrency] = React.useState(pricing.currency);
   const [unit, setUnit] = React.useState(pricing.storageUnit);
+  const [billing, setBilling] = React.useState<StorageBilling>(pricing.storageBilling ?? "exact");
   const [storage, setStorage] = React.useState(priceText(pricing.storagePrice, language));
   const [mailbox, setMailbox] = React.useState(priceText(pricing.mailboxPrice, language));
   const storagePrice = parsePrice(storage);
@@ -164,6 +167,7 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
   const changed =
     currency !== pricing.currency ||
     unit !== pricing.storageUnit ||
+    billing !== (pricing.storageBilling ?? "exact") ||
     storagePrice !== pricing.storagePrice ||
     mailboxPrice !== pricing.mailboxPrice;
   const save = useMutation({
@@ -171,6 +175,7 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
       savePricing({
         currency,
         storageUnit: unit,
+        storageBilling: billing,
         storagePrice: storagePrice ?? null,
         mailboxPrice: mailboxPrice ?? null,
       }),
@@ -237,10 +242,29 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
           </div>
           <p className="text-xs text-muted-foreground">{t("pricing.storageHint")}</p>
         </div>
+        <div className="space-y-1.5 sm:col-start-2">
+          <label htmlFor={`${id}-billing`} className="block text-sm font-medium">
+            {t("pricing.billing.label")}
+          </label>
+          <NativeSelect
+            id={`${id}-billing`}
+            className="block w-full"
+            value={billing}
+            disabled={disabled}
+            onChange={(event) => setBilling(event.target.value as StorageBilling)}
+          >
+            {STORAGE_BILLING.map((value) => (
+              <option key={value} value={value}>
+                {t(`pricing.billing.${value}`)}
+              </option>
+            ))}
+          </NativeSelect>
+          <p className="text-xs text-muted-foreground">{t("pricing.billing.hint")}</p>
+        </div>
       </div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1.5">
-          <label htmlFor={`${id}-currency`} className="text-sm font-medium">
+          <label htmlFor={`${id}-currency`} className="block text-sm font-medium">
             {t("pricing.currency")}
           </label>
           <NativeSelect

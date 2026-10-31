@@ -52,6 +52,7 @@ describe("pricing translations", () => {
       count: 2,
       price: "€2.50",
       quantity: "340",
+      stored: "1,240",
       unit: "GB",
       name: "Acme",
       currency: "EUR",

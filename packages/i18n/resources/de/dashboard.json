@@ -107,7 +107,8 @@
       "yellow": "Braucht Aufmerksamkeit",
       "red": "Nicht wiederherstellbar",
       "unverified": "Nicht nachgewiesen",
-      "noBackup": "Noch keine Sicherung"
+      "noBackup": "Noch keine Sicherung",
+      "empty": "Als leer bestätigt"
     },
     "unverified": {
       "title": "{count, plural, one {# Sicherung noch nicht geprüft} other {# Sicherungen noch nicht geprüft}}",

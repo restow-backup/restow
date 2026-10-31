@@ -8,14 +8,16 @@ import { apiFetch } from "@/lib/api";
  */
 
 export type Readiness = "green" | "yellow" | "red";
-export type ObjectState = Readiness | "unverified" | "no_backup";
+/** `empty`: the newest check found nothing to restore and an admin confirmed that (grey). */
+export type ObjectState = Readiness | "unverified" | "no_backup" | "empty";
 export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site" | "group";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 /** Why an `orphaned` Microsoft 365 mailbox is not backed up while its account still exists. */
 export type ObjectStatusReason = "account_disabled" | "no_license" | "locked" | "login_refused";
 export type CheckKind = "verify" | "health_check";
 export type ReportOrigin = "verify" | "scrub" | "unknown";
-export type SampleCategory = "mail" | "file" | "event" | "contact";
+/** `site`: a SharePoint site's own JSON objects (site.json, list schemas, list items). */
+export type SampleCategory = "mail" | "file" | "event" | "contact" | "site";
 /** `recheck` reads only the packs the latest check found damaged or could not read. */
 export type ScrubMode = "sample" | "full" | "recheck";
 
@@ -54,6 +56,8 @@ export interface Reason {
   severity: "yellow" | "red";
   count: number | null;
   ageHours: number | null;
+  /** Bytes of content the backup holds (`nothing_to_verify`); absent from older servers. */
+  bytes?: number | null;
   /**
    * The reason explained: why it is not green, what happened and what to do
    * (a `verify.*` cause with steps). Null for a code this server does not
@@ -127,7 +131,30 @@ export interface ObjectReadiness {
    * "In no backup job". Absent from an older server (reads as in a job).
    */
   inJob?: boolean;
+  /** Who confirmed the object as empty; set exactly while `state` is `empty` (servers from 0.4.9). */
+  emptyConfirmation?: EmptyConfirmation | null;
+  /** Items and content bytes of the checked backup; null for checks before 0.4.9. */
+  contentStats?: { items: number; bytes: number } | null;
 }
+
+export interface EmptyConfirmation {
+  confirmedAt: string;
+  confirmedBy: string;
+  note: string | null;
+  snapshotId: string | null;
+}
+
+export type EmptySkipReason = "not_empty" | "no_report" | "not_found" | "excluded";
+
+export interface ConfirmEmptyResult {
+  confirmed: { protectedObjectId: string; displayName: string | null }[];
+  skipped: { protectedObjectId: string; displayName: string | null; reason: EmptySkipReason }[];
+}
+
+export type ConfirmEmptyRequest = (
+  | { objectIds: string[] }
+  | { filter: { state: "empty_unconfirmed" } }
+) & { note?: string | null };
 
 export interface ReadinessSummary {
   total: number;
@@ -136,6 +163,8 @@ export interface ReadinessSummary {
   red: number;
   unverified: number;
   noBackup: number;
+  /** Objects confirmed as empty (neutral; absent from servers before 0.4.9). */
+  empty?: number;
   overdue: number;
   /**
    * Objects no longer backed up that nobody confirmed as intended yet: they keep `overall` from
@@ -487,6 +516,46 @@ export function fetchReport(reportId: string): Promise<ReportDetail> {
 
 export function startVerify(request: RunVerifyRequest): Promise<RunVerifyResult> {
   return apiFetch<RunVerifyResult>("/verify", { method: "POST", body: request });
+}
+
+export function confirmEmpty(request: ConfirmEmptyRequest): Promise<ConfirmEmptyResult> {
+  return apiFetch<ConfirmEmptyResult>("/verify/empty-confirmations", {
+    method: "POST",
+    body: request,
+  });
+}
+
+/** Objects one request to /verify/empty-confirmations confirms at most (the API's limit). */
+export const EMPTY_CONFIRM_BATCH = 200;
+
+/**
+ * Confirm the chosen objects as empty, in requests of at most {@link EMPTY_CONFIRM_BATCH} ids one
+ * after the other, and merge the answers: a selection of more than 200 objects is confirmed
+ * whole. By id, not with the filter, so only the objects the admin saw and chose are confirmed,
+ * never one that turned empty after the page loaded. A request that fails stops the rest; the
+ * objects of the earlier requests stay confirmed.
+ */
+export async function confirmEmptyObjects(
+  objectIds: readonly string[],
+  note?: string | null,
+): Promise<ConfirmEmptyResult> {
+  const ids = [...new Set(objectIds)];
+  const result: ConfirmEmptyResult = { confirmed: [], skipped: [] };
+  for (let start = 0; start < ids.length; start += EMPTY_CONFIRM_BATCH) {
+    const part = await confirmEmpty({
+      objectIds: ids.slice(start, start + EMPTY_CONFIRM_BATCH),
+      ...(note === undefined ? {} : { note }),
+    });
+    result.confirmed.push(...part.confirmed);
+    result.skipped.push(...part.skipped);
+  }
+  return result;
+}
+
+export function revokeEmpty(objectId: string): Promise<void> {
+  return apiFetch<void>(`/verify/empty-confirmations/${encodeURIComponent(objectId)}`, {
+    method: "DELETE",
+  });
 }
 
 export function startScrub(mode: ScrubMode): Promise<{ jobId: string; mode: ScrubMode }> {

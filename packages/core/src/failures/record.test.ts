@@ -158,6 +158,7 @@ describe("readiness reasons", () => {
       ["test_restore_failed", "verify.restore_test_failed"],
       ["snapshot_outdated", "verify.snapshot_outdated"],
       ["snapshot_stale", "verify.snapshot_stale"],
+      ["snapshot_empty", "verify.snapshot_empty"],
       ["nothing_to_verify", "verify.nothing_to_verify"],
       ["test_restore_unconfirmed", "verify.restore_test_unconfirmed"],
     ];
@@ -169,6 +170,9 @@ describe("readiness reasons", () => {
     expect(causeOfReadinessReason({ code: "from_the_future" })).toBeNull();
     expect(causeOfReadinessReason({ code: "items_mismatched", count: 3 })?.params).toEqual({
       count: 3,
+    });
+    expect(causeOfReadinessReason({ code: "nothing_to_verify", bytes: 2048 })?.params).toEqual({
+      bytes: 2048,
     });
   });
 });

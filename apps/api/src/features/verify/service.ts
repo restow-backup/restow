@@ -30,7 +30,9 @@ import { sendJob } from "../jobs/queue.js";
 import { type GuestReadinessRowDto, loadGuestProtection } from "../pve/protection.js";
 import { PVE_VERIFY_EVERY_DAYS, verifyAfterBackup } from "../pve/settings.js";
 import {
+  type ContentStatsDto,
   type CountSummaryDto,
+  parseContentStats,
   parseCountSummary,
   parseDetails,
   parseReasons,
@@ -40,6 +42,7 @@ import {
   type ReportDetailsDto,
   type ScrubReportDto,
 } from "./details.js";
+import { confirmationApplies, type EmptyConfirmationDto, loadEmptyConfirmations } from "./empty.js";
 import type {
   ListReportsQuery,
   RunScrubInput,
@@ -175,6 +178,16 @@ export interface ObjectReadinessDto {
    * backup, what was proven before (always set by the service; null otherwise).
    */
   previousCheck?: PreviousCheckDto | null;
+  /**
+   * Who confirmed the object as empty (empty.ts), while that counts: set exactly when `state` is
+   * `empty`. Always set by the service; null otherwise.
+   */
+  emptyConfirmation?: EmptyConfirmationDto | null;
+  /**
+   * Items and content bytes of the backup the rating checked (0.4.9); null without a check, for
+   * a storage finding, and for a check before 0.4.9. Always set by the service.
+   */
+  contentStats?: ContentStatsDto | null;
 }
 
 export type ScrubModeDto = "sample" | "full" | "recheck";
@@ -585,6 +598,8 @@ export async function readinessOverview(
     const scheduled = await loadSchedules(tx, tenantId);
     // Active objects no enabled mail job covers: nothing backs them up (like a guest in no job).
     const noJob = await loadMailWithoutJob(tx, tenantId);
+    // Objects an admin confirmed as empty; each counts only while its newest check says so.
+    const emptyConfirmations = await loadEmptyConfirmations(tx, tenantId);
 
     const runningByObject = new Map<string, RunningCheckDto>();
     const runningFirstBackupIds = new Set<string>();
@@ -637,6 +652,10 @@ export async function readinessOverview(
       const withoutAge = ratedWithoutAge(object.status, withoutJob);
       const rating =
         withoutAge && report ? readinessWithoutFreshness(parseReasons(report.reasons)) : null;
+      // Confirmed as empty, and the newest check still finds nothing to restore: neutral grey,
+      // never overdue (there is nothing whose check could be due), counted for no attention.
+      const confirmation = emptyConfirmations.get(object.id) ?? null;
+      const confirmedEmpty = confirmationApplies(confirmation, report, withoutAge);
       // A fresh "no_backup" object is not a problem yet, only once it missed
       // its first chance (isFirstBackupOverdue); every other state keeps the
       // ordinary "the last check is stale" rule. Either way, an object whose
@@ -646,16 +665,17 @@ export async function readinessOverview(
       // without any backup keeps the first-backup rule ("No backup yet" turns overdue after the
       // grace period), although the worker raises no `backup.overdue` for it: that alert is for a
       // job that failed to deliver, and none is due here. The readiness stays red either way.
-      const overdue = retained
-        ? false
-        : verification.state === "no_backup"
-          ? isFirstBackupOverdue(protectedSince, now) && !runningFirstBackupIds.has(object.id)
-          : withoutJob
-            ? false
-            : isOverdue(checkedAt, now);
+      const overdue =
+        retained || confirmedEmpty
+          ? false
+          : verification.state === "no_backup"
+            ? isFirstBackupOverdue(protectedSince, now) && !runningFirstBackupIds.has(object.id)
+            : withoutJob
+              ? false
+              : isOverdue(checkedAt, now);
       items.push({
         object,
-        state: rating ?? verification.state,
+        state: confirmedEmpty ? "empty" : (rating ?? verification.state),
         readiness: rating ?? report?.readiness ?? null,
         checkedAt: checkedAt?.toISOString() ?? null,
         overdue,
@@ -667,6 +687,9 @@ export async function readinessOverview(
           ? toPreviousCheck(facts.verification.previous)
           : null,
         inJob: !withoutJob,
+        emptyConfirmation: confirmedEmpty ? confirmation : null,
+        contentStats:
+          report && report.origin !== "scrub" ? parseContentStats(report.content) : null,
       });
       lastLookedAt.push(facts?.newest?.checkedAt ?? null);
     }

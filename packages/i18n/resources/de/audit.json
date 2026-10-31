@@ -470,7 +470,9 @@
       "report": {
         "viewed": "Prüfbericht angesehen"
       },
-      "requested": "Restore-Prüfung gestartet"
+      "requested": "Restore-Prüfung gestartet",
+      "empty_confirmed": "Als leer bestätigt",
+      "empty_confirmation_revoked": "Bestätigung als leer zurückgenommen"
     },
     "webhook": {
       "created": "Webhook angelegt",

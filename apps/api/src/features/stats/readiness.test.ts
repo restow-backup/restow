@@ -236,6 +236,37 @@ describe("ReadinessTimeline", () => {
     expect(inJob.at(day(25)).states.get("lost")).toBe("red");
   });
 
+  it("rates an object confirmed as empty neutral from the confirmation on, counted with green", () => {
+    const emptyCheck = {
+      ...check("drive", 1, 3, "yellow"),
+      reasons: [{ code: "snapshot_empty", severity: "yellow", count: 4 }],
+    };
+    const confirmed = { ...object("drive", 1), emptyConfirmedAt: day(10) };
+    const timeline = new ReadinessTimeline([confirmed], [snapshot("drive", 1, 2)], [emptyCheck]);
+    // Before the confirmation it needed attention; after it, nothing does, overdue or not.
+    expect(timeline.at(day(5)).states.get("drive")).toBe("yellow");
+    expect(timeline.at(day(5)).overall).toBe("yellow");
+    const after = timeline.at(day(25));
+    expect(after.states.get("drive")).toBe("empty");
+    expect(after.counts).toEqual({ green: 1, yellow: 0, red: 0, unverified: 0 });
+    expect(after.rated.map((rated) => rated.overdue)).toEqual([false]);
+    expect(after.overall).toBe("green");
+    // A check that says anything else sets the confirmation aside.
+    const stale = {
+      ...check("drive", 1, 20, "yellow"),
+      reasons: [
+        { code: "snapshot_empty", severity: "yellow", count: 4 },
+        { code: "storage_unreadable", severity: "yellow", count: 1 },
+      ],
+    };
+    const aside = new ReadinessTimeline(
+      [confirmed],
+      [snapshot("drive", 1, 2)],
+      [emptyCheck, stale],
+    );
+    expect(aside.at(day(25)).states.get("drive")).toBe("yellow");
+  });
+
   it("rates a tenant yellow when every backup is fine but its check is overdue", () => {
     const fine = new ReadinessTimeline(
       [object("anna", 1)],

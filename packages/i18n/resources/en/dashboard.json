@@ -107,7 +107,8 @@
       "yellow": "Needs attention",
       "red": "Not restorable",
       "unverified": "Unverified",
-      "noBackup": "No backup yet"
+      "noBackup": "No backup yet",
+      "empty": "Confirmed empty"
     },
     "unverified": {
       "title": "{count, plural, one {# backup not verified yet} other {# backups not verified yet}}",

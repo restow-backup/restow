@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import type * as React from "react";
+import { act } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   buttonByText,
@@ -145,6 +146,27 @@ describe("the price card", () => {
     const shown = await showCard();
     expect(shown?.textContent).toContain("€30.00 / month");
     expect(shown?.textContent).toContain("1.5 TB × €20.00 = €30.00");
+  });
+
+  it("shows what is stored and what is billed when the installation bills in started TB", async () => {
+    api(
+      estimateFixture({
+        storageUnit: "TB",
+        storageBilling: "block_1tb",
+        global: { mailboxPrice: null, storagePrice: 15 },
+        tenants: [
+          estimateTenant({
+            mailboxPrice: null,
+            storagePrice: 15,
+            storedBytes: 1.24e12,
+            billedBytes: 2e12,
+            amount: { mailboxes: null, storage: 30, total: 30 },
+          }),
+        ],
+      }),
+    );
+    const shown = await showCard();
+    expect(shown?.textContent).toContain("1,240 GB, billed as 2 TB × €15.00 = €30.00");
   });
 
   it("marks a price of the tenant's own", async () => {
@@ -497,10 +519,45 @@ describe("the price settings", () => {
     await click(buttonByText(mounted.container, "Save"));
     await flush(5);
     expect(requests.filter((request) => request.method === "PUT").map((r) => r.body)).toEqual([
-      { currency: "EUR", storageUnit: "GB", storagePrice: null, mailboxPrice: 2.5 },
+      {
+        currency: "EUR",
+        storageUnit: "GB",
+        storageBilling: "exact",
+        storagePrice: null,
+        mailboxPrice: 2.5,
+      },
     ]);
     // The estimate is derived from the prices: it is read again, not served from the cache.
     expect(requests.filter((request) => request.path.endsWith("/estimate")).length).toBe(2);
+  });
+
+  it("lets the owner bill the storage in started blocks", async () => {
+    const { mock, requests } = routedFetch({
+      "GET /settings/pricing": () => json(PRICING),
+      "GET /settings/pricing/estimate": () => json(noPriceEstimate({ perTenantOverrides: false })),
+      "PUT /settings/pricing": (request) => json({ ...PRICING, ...(request.body as object) }),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<PricingSection />, { session: sessionAs({}) });
+    await flush(5);
+    const select = mounted.container.querySelector<HTMLSelectElement>(
+      'select[id$="-billing"]',
+    ) as HTMLSelectElement;
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      "exact amount",
+      "started blocks of 100 GB",
+      "started TB",
+    ]);
+    expect(mounted.container.textContent).toContain("Started blocks round the stored amount up");
+    await act(async () => {
+      select.value = "block_1tb";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await click(buttonByText(mounted.container, "Save"));
+    await flush(5);
+    expect(requests.filter((request) => request.method === "PUT").map((r) => r.body)).toEqual([
+      expect.objectContaining({ storageBilling: "block_1tb" }),
+    ]);
   });
 
   it("stacks the currency field under its label instead of beside it", async () => {
@@ -511,6 +568,8 @@ describe("the price settings", () => {
     expect(select).not.toBeNull();
     // An inline select would sit on the label's line; the label stays above the field.
     expect(select?.classList.contains("block")).toBe(true);
+    const label = mounted.container.querySelector("label[for$='-currency']");
+    expect(label?.classList.contains("block")).toBe(true);
   });
 
   it("is read-only below the owner", async () => {

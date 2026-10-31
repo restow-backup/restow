@@ -346,6 +346,7 @@ const STATE_TONE: Record<ObjectState, Tone> = {
   red: "destructive",
   unverified: "warning",
   no_backup: "neutral",
+  empty: "neutral",
 };
 
 const READINESS_TONE: Record<NonNullable<TenantRowDto["readiness"]>, Tone> = {

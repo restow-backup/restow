@@ -145,7 +145,8 @@
       "yellow": "Achtung",
       "red": "Nicht wiederherstellbar",
       "unverified": "Nicht nachgewiesen",
-      "no_backup": "Noch keine Sicherung"
+      "no_backup": "Noch keine Sicherung",
+      "empty": "Als leer bestätigt"
     },
     "readiness": {
       "green": "Bereit",

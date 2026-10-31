@@ -125,7 +125,7 @@ export function readinessTone(readiness: Readiness | null): StatusTone {
   return readiness ? READINESS_TONE[readiness] : "muted";
 }
 
-export type ReadinessSegmentKey = "green" | "yellow" | "red" | "unverified" | "noBackup";
+export type ReadinessSegmentKey = "green" | "yellow" | "red" | "unverified" | "noBackup" | "empty";
 
 export interface ReadinessSegment {
   key: ReadinessSegmentKey;

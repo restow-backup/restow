@@ -321,7 +321,7 @@ describe("SharePointRestoreEngine", () => {
     expect(JSON.parse(item?.data.toString("utf8") ?? "{}").fields.Title).toBe("Send offer");
   });
 
-  it("reads sample files of a site restore point back in the restore check", async () => {
+  it("reads the files, the site description and the lists of a site back in the restore check", async () => {
     await backedUp(harness);
     const outcome = await verifyProtectedObject(harness.context({ jobId: "verify" }), siteObject, {
       kind: "verify",
@@ -329,7 +329,8 @@ describe("SharePointRestoreEngine", () => {
       seed: 7,
     });
     expect(outcome.readiness).toBe("green");
-    expect(outcome.checked).toBe(3);
+    // Three library files, plus site.json, the list's schema and its two items (0.4.9).
+    expect(outcome.checked).toBe(7);
     expect(outcome.mismatched).toBe(0);
   });
 });

@@ -17,8 +17,41 @@ describe("tenantPriceView", () => {
       kind: "ready",
       total: 36.8,
       mailboxes: { quantity: 12, price: 2.5, amount: 30 },
-      storage: { quantity: 340, price: 0.02, amount: 6.8, unit: "GB" },
+      storage: { quantity: 340, price: 0.02, amount: 6.8, unit: "GB", billed: null },
       custom: false,
+    });
+  });
+
+  it("names the stored GB and the billed quantity when the installation bills in blocks", () => {
+    const estimate = estimateFixture({
+      storageUnit: "GB",
+      storageBilling: "block_100gb",
+      tenants: [
+        estimateTenant({
+          storedBytes: 340e9,
+          billedBytes: 400e9,
+          amount: { mailboxes: 30, storage: 8, total: 38 },
+        }),
+      ],
+    });
+    expect(tenantPriceView(estimate, ACME)).toMatchObject({
+      storage: { billed: { storedGb: 340, quantity: 400 }, amount: 8 },
+    });
+    // Nothing stored is billed as nothing.
+    const none = estimateFixture({
+      storageUnit: "TB",
+      storageBilling: "block_1tb",
+      tenants: [
+        estimateTenant({
+          storedBytes: 0,
+          billedBytes: 0,
+          storagePrice: 15,
+          amount: { mailboxes: 30, storage: 0, total: 30 },
+        }),
+      ],
+    });
+    expect(tenantPriceView(none, ACME)).toMatchObject({
+      storage: { billed: { storedGb: 0, quantity: 0 }, amount: 0 },
     });
   });
 

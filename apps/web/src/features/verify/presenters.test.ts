@@ -12,6 +12,8 @@ import type {
 import {
   findingBlocks,
   gcMessage,
+  isEmptyFinding,
+  isEmptyUnconfirmed,
   isWaitingForFirstBackup,
   needsAttention,
   objectAddress,
@@ -411,14 +413,95 @@ describe("reasonMessage", () => {
       "test_restore_failed",
       "snapshot_outdated",
       "snapshot_stale",
+      "snapshot_empty",
       "nothing_to_verify",
       "test_restore_unconfirmed",
     ];
     for (const code of codes) {
-      const { key } = reasonMessage({ code, severity: "red", count: 1, ageHours: 1 });
-      expect(typeof lookup(enVerify, key)).toBe("string");
-      expect(typeof lookup(deVerify, key)).toBe("string");
+      for (const bytes of [undefined, 2048]) {
+        const { key } = reasonMessage({ code, severity: "red", count: 1, ageHours: 1, bytes });
+        expect(typeof lookup(enVerify, key), `${code} ${bytes}`).toBe("string");
+        expect(typeof lookup(deVerify, key), `${code} ${bytes}`).toBe("string");
+      }
     }
+  });
+
+  it("words an empty object and the bytes no check can read back", () => {
+    expect(
+      reasonMessage({ code: "snapshot_empty", severity: "yellow", count: 6, ageHours: null }),
+    ).toMatchObject({ key: "reason.snapshot_empty", values: { count: 6 } });
+    expect(
+      reasonMessage(
+        {
+          code: "nothing_to_verify",
+          severity: "yellow",
+          count: null,
+          ageHours: null,
+          bytes: 33_000,
+        },
+        (bytes) => `${bytes / 1000} kB`,
+      ),
+    ).toMatchObject({ key: "reason.nothing_to_verify", values: { size: "33 kB" } });
+    // A report written before 0.4.9 names no bytes: it keeps its earlier text.
+    expect(
+      reasonMessage({ code: "nothing_to_verify", severity: "yellow", count: null, ageHours: null }),
+    ).toEqual({ key: "reason.nothing_to_verify_unsized" });
+  });
+});
+
+describe("empty objects", () => {
+  const emptyReason: Reason = {
+    code: "snapshot_empty",
+    severity: "yellow",
+    count: 3,
+    ageHours: null,
+    failure: null,
+  };
+  const report = (reasons: Reason[], origin: "verify" | "scrub" = "verify") => ({
+    id: "r",
+    kind: "verify" as const,
+    origin,
+    reasons,
+    counts: null,
+  });
+
+  it("knows an empty finding by the empty reason alone", () => {
+    expect(isEmptyFinding([emptyReason])).toBe(true);
+    expect(isEmptyFinding([])).toBe(false);
+    expect(isEmptyFinding([emptyReason, { ...emptyReason, code: "snapshot_stale" }])).toBe(false);
+  });
+
+  it("offers the confirmation only for a yellow empty object nobody confirmed", () => {
+    const base = {
+      state: "yellow" as const,
+      report: report([emptyReason]),
+      emptyConfirmation: null,
+    };
+    expect(isEmptyUnconfirmed(base)).toBe(true);
+    expect(
+      isEmptyUnconfirmed({
+        ...base,
+        emptyConfirmation: {
+          confirmedAt: "2026-10-01T00:00:00Z",
+          confirmedBy: "a",
+          note: null,
+          snapshotId: null,
+        },
+      }),
+    ).toBe(false);
+    expect(isEmptyUnconfirmed({ ...base, state: "empty" })).toBe(false);
+    expect(isEmptyUnconfirmed({ ...base, report: report([emptyReason], "scrub") })).toBe(false);
+    expect(isEmptyUnconfirmed({ ...base, report: null })).toBe(false);
+  });
+
+  it("rates a confirmed empty object neutral, last in the order, needing no attention", () => {
+    expect(stateBadgeView({ state: "empty", overdue: false })).toEqual({
+      tone: "muted",
+      key: "state.empty",
+    });
+    expect(needsAttention({ state: "empty", overdue: true })).toBe(false);
+    expect(typeof lookup(enVerify, "state.empty")).toBe("string");
+    expect(typeof lookup(deVerify, "state.empty")).toBe("string");
   });
 });
 

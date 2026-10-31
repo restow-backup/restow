@@ -1,5 +1,6 @@
 import type { Database } from "@restow/db";
 import { z } from "zod";
+import type { ReasonDto } from "../../features/verify/details.js";
 import { MAX_SAMPLE_SIZE } from "../../features/verify/schemas.js";
 import {
   type ReadinessOverviewDto,
@@ -7,6 +8,7 @@ import {
   readinessOverview,
   runVerify,
 } from "../../features/verify/service.js";
+import type { ReadinessSummaryDto } from "../../features/verify/summary.js";
 import { asPersonActor, type KeyActor } from "./actor.js";
 import { type IntegrationApi, READ_ERRORS, type V1Deps, WRITE_ERRORS } from "./api.js";
 import { readRecorder, V1_AUDIT_ACTIONS } from "./audit.js";
@@ -232,22 +234,47 @@ export type VerifyLatestDto = z.infer<typeof verifyLatestSchema>;
 // Mapping
 // ---------------------------------------------------------------------------
 
+/**
+ * The summary as v1 counts it. An object an admin confirmed as empty (verify/empty.ts) is neutral
+ * on the readiness page (`empty`); v1 knows no such state and counts it as green: nothing about it
+ * needs attention, and `overall` already leaves it out.
+ */
+export function toV1ReadinessSummary(
+  summary: ReadinessSummaryDto,
+): z.infer<typeof readinessSummarySchema> {
+  const { empty, ...rest } = summary;
+  return { ...rest, green: rest.green + empty };
+}
+
+/** The reasons as v1 describes them (no `bytes`, which v1 does not list). */
+function toV1Reasons(reasons: readonly ReasonDto[]): z.infer<typeof reasonSchema>[] {
+  return reasons.map(({ code, severity, count, ageHours, failure }) => ({
+    code,
+    severity,
+    count,
+    ageHours,
+    failure,
+  }));
+}
+
 function toObjectVerify(entry: ReadinessOverviewDto["objects"][number]): ObjectVerifyDto {
+  // Confirmed as empty: green in v1 (see toV1ReadinessSummary).
+  const state = entry.state === "empty" ? "green" : entry.state;
   return {
     protectedObjectId: entry.object.id,
     kind: entry.object.kind,
     displayName: entry.object.displayName,
     externalId: entry.object.externalId,
     status: entry.object.status,
-    state: entry.state,
-    rating: entry.readiness,
+    state,
+    rating: entry.state === "empty" ? "green" : entry.readiness,
     checkedAt: entry.checkedAt,
     overdue: entry.overdue,
     inJob: entry.inJob ?? true,
     latestSnapshotId: entry.latestSnapshotId ?? null,
     latestSnapshotAt: entry.latestSnapshotAt,
     report: entry.report
-      ? { id: entry.report.id, kind: entry.report.kind, reasons: entry.report.reasons }
+      ? { id: entry.report.id, kind: entry.report.kind, reasons: toV1Reasons(entry.report.reasons) }
       : null,
     previousCheck: entry.previousCheck
       ? {
@@ -275,7 +302,7 @@ export function pageOverview(
   const page = ordered.slice(0, limit);
   const last = page.at(-1);
   return {
-    summary: overview.summary,
+    summary: toV1ReadinessSummary(overview.summary),
     storageIntegrity: {
       state: overview.storage.state,
       lastCheckedAt: overview.storage.latest?.completedAt ?? null,

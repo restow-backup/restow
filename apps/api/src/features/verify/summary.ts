@@ -15,8 +15,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * - `green` / `yellow` / `red`  the rating of the newest backup
  * - `unverified`                 a backup exists, but no check of the newest one ran yet
  * - `no_backup`                  nothing to restore yet
+ * - `empty`                      the newest check found nothing to restore (only default folders
+ *                                or system pages, 0 bytes) and an admin confirmed that
+ *                                (empty.ts): neutral, never counted as needing attention
  */
-export type ObjectState = Readiness | "unverified" | "no_backup";
+export type ObjectState = CheckedState | "empty";
+
+/** The states a backup's checks alone decide (an `empty` confirmation comes on top). */
+export type CheckedState = Readiness | "unverified" | "no_backup";
 
 /**
  * The state from a rating and whether a backup exists. `readiness` must be
@@ -24,7 +30,7 @@ export type ObjectState = Readiness | "unverified" | "no_backup";
  * an older snapshot says nothing about a newer one. verification-state.ts
  * decides which report that is (`objectVerificationOf`).
  */
-export function objectStateOf(readiness: Readiness | null, hasSnapshot: boolean): ObjectState {
+export function objectStateOf(readiness: Readiness | null, hasSnapshot: boolean): CheckedState {
   if (readiness) {
     return readiness;
   }
@@ -95,6 +101,11 @@ export interface ReadinessSummaryDto {
   red: number;
   unverified: number;
   noBackup: number;
+  /**
+   * Objects an admin confirmed as empty (their newest check found nothing to restore): neutral,
+   * neither green nor yellow, and they never keep the tenant from green.
+   */
+  empty: number;
   overdue: number;
   /**
    * Machines and protected objects (mailboxes, OneDrives, sites, groups, IMAP accounts) in no
@@ -132,7 +143,8 @@ export interface ReadinessSummaryDto {
 }
 
 /**
- * Red if anything cannot be restored or is unproven; yellow if anything needs attention.
+ * Red if anything cannot be restored or is unproven; yellow if anything needs attention. An
+ * object confirmed as empty (`empty`) counts for neither.
  * `unratedToConfirm` counts objects no longer backed up that wait for a confirmation but have no
  * backup to rate (so they are no {@link RatedObject}): they make the tenant yellow as well.
  */
@@ -178,6 +190,7 @@ export function summarize(
     red: countOf("red"),
     unverified: countOf("unverified"),
     noBackup: countOf("no_backup"),
+    empty: countOf("empty"),
     overdue: objects.filter((object) => object.overdue).length,
     withoutJob: objects.filter(
       (object) => object.withoutJob === true && object.guest !== true && object.share !== true,

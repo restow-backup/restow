@@ -45,6 +45,7 @@
 import {
   DEFAULT_SAMPLE_SIZE,
   type FailureCause,
+  isEmptyFinding,
   mailObjectEligible,
   mailObjectsInNoJob,
   type ProtectedObjectRef,
@@ -61,6 +62,7 @@ import {
   backupJobMembers,
   backupJobs,
   type Database,
+  emptyConfirmations,
   jobs,
   type NewNotification,
   type NewVerifyReport,
@@ -308,11 +310,32 @@ export function verifyReportRow(record: VerifyRecord): NewVerifyReport {
   };
 }
 
-/** The notification a recorded run raises, or null when the rating did not change. */
+/**
+ * Whether a run found content: something was read back, or the backup holds bytes. Such a run
+ * ends a confirmation as empty (apps/api verify/empty.ts); a report before 0.4.9 without the
+ * content figures counts by what it read back only.
+ */
+export function outcomeHasContent(outcome: Pick<VerifyOutcome, "checked" | "details">): boolean {
+  return outcome.checked > 0 || (outcome.details.snapshot?.contentBytes ?? 0) > 0;
+}
+
+/**
+ * The notification a recorded run raises, or null when the rating did not change. An object an
+ * admin confirmed as empty that is still empty raises no "needs attention": the confirmation
+ * already said it is fine.
+ */
 export function verifyRecordNotification(
   record: VerifyRecord,
   reportId: string,
+  options: { readonly confirmedEmpty?: boolean } = {},
 ): NewNotification | null {
+  if (
+    options.confirmedEmpty &&
+    record.outcome.readiness === "yellow" &&
+    isEmptyFinding(record.outcome.details.reasons)
+  ) {
+    return null;
+  }
   return readinessNotification({
     tenantId: record.tenantId,
     object: record.object,
@@ -500,7 +523,32 @@ export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
             payload: sql`coalesce(${jobs.payload}, '{}'::jsonb) || ${JSON.stringify({ result: stored })}::jsonb`,
           })
           .where(and(eq(jobs.tenantId, tenantId), eq(jobs.id, record.jobId)));
-        const notification = verifyRecordNotification(record, report.id);
+        // A run that found content ends a confirmation as empty, with this report; one that
+        // still finds the object empty keeps it (and raises no "needs attention" for it).
+        const content = outcomeHasContent(record.outcome);
+        const confirmation = content
+          ? await tx
+              .delete(emptyConfirmations)
+              .where(
+                and(
+                  eq(emptyConfirmations.tenantId, tenantId),
+                  eq(emptyConfirmations.protectedObjectId, record.object.id),
+                ),
+              )
+              .returning({ id: emptyConfirmations.id })
+          : await tx
+              .select({ id: emptyConfirmations.id })
+              .from(emptyConfirmations)
+              .where(
+                and(
+                  eq(emptyConfirmations.tenantId, tenantId),
+                  eq(emptyConfirmations.protectedObjectId, record.object.id),
+                ),
+              )
+              .limit(1);
+        const notification = verifyRecordNotification(record, report.id, {
+          confirmedEmpty: !content && confirmation.length > 0,
+        });
         // Every recorded check is also `verify.completed`, a routine event for the channels
         // that want it (the bell only when its column has it on).
         await raiseEvents(tx, [

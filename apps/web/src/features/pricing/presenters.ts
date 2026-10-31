@@ -9,6 +9,16 @@ export interface PriceLine {
   amount: number;
 }
 
+/**
+ * The storage line. Billed in blocks (100 GB, 1 TB), it says what is stored, in GB, and what the
+ * price applies to, in the price's unit: "1,240 GB, billed as 2 TB × 15.00 € = 30.00 €".
+ */
+export interface StorageLine extends PriceLine {
+  unit: "GB" | "TB";
+  /** Set when the installation bills in blocks: the stored GB and the billed quantity. */
+  billed: { storedGb: number; quantity: number } | null;
+}
+
 /** What a price card shows for one tenant. */
 export type TenantPriceView =
   /** No price applies to the tenant: nothing to show (the installation has none, nor the tenant). */
@@ -19,7 +29,7 @@ export type TenantPriceView =
       kind: "ready";
       total: number;
       mailboxes: PriceLine | null;
-      storage: (PriceLine & { unit: "GB" | "TB" }) | null;
+      storage: StorageLine | null;
       /** The tenant's own price applies to at least one line. */
       custom: boolean;
     };
@@ -47,13 +57,21 @@ export function tenantPriceView(estimate: PricingEstimate, tenantId: string): Te
           amount: entry.amount.mailboxes,
         }
       : null;
-  const storageLine =
+  const blocks = (estimate.storageBilling ?? "exact") !== "exact";
+  const storageLine: StorageLine | null =
     entry.storagePrice !== null && entry.storedBytes !== null && entry.amount.storage !== null
       ? {
           quantity: entry.storedBytes / UNIT_BYTES[estimate.storageUnit],
           price: entry.storagePrice,
           amount: entry.amount.storage,
           unit: estimate.storageUnit,
+          billed: blocks
+            ? {
+                storedGb: entry.storedBytes / UNIT_BYTES.GB,
+                quantity:
+                  (entry.billedBytes ?? entry.storedBytes) / UNIT_BYTES[estimate.storageUnit],
+              }
+            : null,
         }
       : null;
   return {

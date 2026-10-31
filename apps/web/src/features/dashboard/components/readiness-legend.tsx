@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { StatusTone } from "@/components/kit";
-import { type ReadinessState, verifyLink } from "@/features/verify/search";
+import { type TableFilter, verifyLink } from "@/features/verify/search";
 import { formatInteger } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ReadinessSegmentKey } from "../presenters.js";
@@ -26,6 +26,8 @@ export interface ReadinessCounts {
   red: number;
   unverified: number;
   noBackup: number;
+  /** Confirmed as empty (one tenant's view only; absent from an older server). */
+  empty?: number;
 }
 
 /**
@@ -35,7 +37,7 @@ export interface ReadinessCounts {
  */
 export const READINESS_LEGEND: readonly {
   key: ReadinessSegmentKey;
-  state: ReadinessState;
+  state: TableFilter;
   tone: StatusTone;
 }[] = [
   { key: "green", state: "green", tone: "success" },
@@ -43,11 +45,13 @@ export const READINESS_LEGEND: readonly {
   { key: "red", state: "red", tone: "destructive" },
   { key: "unverified", state: "unverified", tone: "warning" },
   { key: "noBackup", state: "no_backup", tone: "destructive" },
+  // Neutral: confirmed as empty. Listed only while there are some.
+  { key: "empty", state: "empty", tone: "muted" },
 ];
 
 /** The count of a legend row. */
 export function legendCount(counts: ReadinessCounts, key: ReadinessSegmentKey): number {
-  return counts[key];
+  return counts[key] ?? 0;
 }
 
 /**
@@ -72,48 +76,50 @@ export function ReadinessLegend({
       aria-label={t("readiness.legend")}
       className="grid grid-cols-1 gap-x-6 gap-y-0.5 text-sm sm:grid-cols-2"
     >
-      {READINESS_LEGEND.map(({ key, state, tone }) => {
-        const count = legendCount(counts, key);
-        const label = t(`readiness.segments.${key}`);
-        const row = (
-          <>
-            <span
-              aria-hidden="true"
-              className={cn("size-2 shrink-0 rounded-full", SEGMENT_FILL[tone])}
-            />
-            <span className="min-w-0 flex-1 truncate">{label}</span>
-            <span className="font-medium tabular-nums">{formatInteger(count, language)}</span>
-          </>
-        );
-        return (
-          <li key={key} data-segment={key} data-state={state}>
-            {linkable && count > 0 ? (
-              <Link
-                {...verifyLink(state, scope === "all" ? "all" : undefined)}
-                title={t("readiness.open", { count, label })}
-                className="group -mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 outline-none transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              >
-                {row}
-                <ChevronRight
-                  aria-hidden="true"
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                />
-              </Link>
-            ) : (
+      {READINESS_LEGEND.filter(({ key }) => key !== "empty" || legendCount(counts, key) > 0).map(
+        ({ key, state, tone }) => {
+          const count = legendCount(counts, key);
+          const label = t(`readiness.segments.${key}`);
+          const row = (
+            <>
               <span
-                className={cn(
-                  "-mx-2 flex items-center gap-2 px-2 py-1.5",
-                  count === 0 && "text-muted-foreground",
-                )}
-              >
-                {row}
-                {/* Keeps the figures of linked and plain rows in one column. */}
-                <span aria-hidden="true" className="size-3.5 shrink-0" />
-              </span>
-            )}
-          </li>
-        );
-      })}
+                aria-hidden="true"
+                className={cn("size-2 shrink-0 rounded-full", SEGMENT_FILL[tone])}
+              />
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <span className="font-medium tabular-nums">{formatInteger(count, language)}</span>
+            </>
+          );
+          return (
+            <li key={key} data-segment={key} data-state={state}>
+              {linkable && count > 0 ? (
+                <Link
+                  {...verifyLink(state, scope === "all" ? "all" : undefined)}
+                  title={t("readiness.open", { count, label })}
+                  className="group -mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 outline-none transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                >
+                  {row}
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                </Link>
+              ) : (
+                <span
+                  className={cn(
+                    "-mx-2 flex items-center gap-2 px-2 py-1.5",
+                    count === 0 && "text-muted-foreground",
+                  )}
+                >
+                  {row}
+                  {/* Keeps the figures of linked and plain rows in one column. */}
+                  <span aria-hidden="true" className="size-3.5 shrink-0" />
+                </span>
+              )}
+            </li>
+          );
+        },
+      )}
     </ul>
   );
 }
@@ -127,6 +133,7 @@ export function ReadinessBar({ counts }: { counts: ReadinessCounts }) {
       ["unverified", counts.unverified, "warning"],
       ["yellow", counts.yellow, "warning"],
       ["green", counts.green, "success"],
+      ["empty", counts.empty ?? 0, "muted"],
     ] as const
   ).filter(([, count]) => count > 0);
   return (

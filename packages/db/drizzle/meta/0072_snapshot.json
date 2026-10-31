@@ -1,5 +1,5 @@
 {
-  "id": "bd1586d0-69f3-4f45-9e97-389fa1a338a6",
+  "id": "b828a957-aa9e-4e9e-8569-0cdf1ace0e27",
   "prevId": "009906a3-6d15-4da6-acbe-095e2252c347",
   "version": "7",
   "dialect": "postgresql",
@@ -4179,6 +4179,172 @@
         "backup_jobs_copy_distinct_ck": {
           "name": "backup_jobs_copy_distinct_ck",
           "value": "\"backup_jobs\".\"source_file_share_id\" <> \"backup_jobs\".\"target_file_share_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.empty_confirmations": {
+      "name": "empty_confirmations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "protected_object_id": {
+          "name": "protected_object_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snapshot_id": {
+          "name": "snapshot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_by_user_id": {
+          "name": "confirmed_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_by": {
+          "name": "confirmed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "empty_confirmations_tenant_idx": {
+          "name": "empty_confirmations_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "empty_confirmations_object_uq": {
+          "name": "empty_confirmations_object_uq",
+          "columns": [
+            {
+              "expression": "protected_object_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "empty_confirmations_tenant_id_tenants_id_fk": {
+          "name": "empty_confirmations_tenant_id_tenants_id_fk",
+          "tableFrom": "empty_confirmations",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "empty_confirmations_protected_object_id_protected_objects_id_fk": {
+          "name": "empty_confirmations_protected_object_id_protected_objects_id_fk",
+          "tableFrom": "empty_confirmations",
+          "tableTo": "protected_objects",
+          "columnsFrom": [
+            "protected_object_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "empty_confirmations_snapshot_id_snapshots_id_fk": {
+          "name": "empty_confirmations_snapshot_id_snapshots_id_fk",
+          "tableFrom": "empty_confirmations",
+          "tableTo": "snapshots",
+          "columnsFrom": [
+            "snapshot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "empty_confirmations_confirmed_by_user_id_user_id_fk": {
+          "name": "empty_confirmations_confirmed_by_user_id_user_id_fk",
+          "tableFrom": "empty_confirmations",
+          "tableTo": "user",
+          "columnsFrom": [
+            "confirmed_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "empty_confirmations_note_ck": {
+          "name": "empty_confirmations_note_ck",
+          "value": "\"empty_confirmations\".\"note\" IS NULL OR char_length(\"empty_confirmations\".\"note\") <= 1000"
         }
       },
       "isRLSEnabled": false
@@ -14355,117 +14521,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.storage_samples": {
-      "name": "storage_samples",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_kind": {
-          "name": "source_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "day": {
-          "name": "day",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bytes": {
-          "name": "bytes",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "storage_samples_day_idx": {
-          "name": "storage_samples_day_idx",
-          "columns": [
-            {
-              "expression": "day",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "storage_samples_tenant_id_tenants_id_fk": {
-          "name": "storage_samples_tenant_id_tenants_id_fk",
-          "tableFrom": "storage_samples",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "storage_samples_source_day_uq": {
-          "name": "storage_samples_source_day_uq",
-          "nullsNotDistinct": true,
-          "columns": [
-            "tenant_id",
-            "source_kind",
-            "source_id",
-            "day"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "storage_samples_kind_ck": {
-          "name": "storage_samples_kind_ck",
-          "value": "\"storage_samples\".\"source_kind\" IN ('chunk_store', 'endpoint', 'file_share', 'pve_guest')"
-        },
-        "storage_samples_source_ck": {
-          "name": "storage_samples_source_ck",
-          "value": "(\"storage_samples\".\"source_kind\" = 'chunk_store') = (\"storage_samples\".\"source_id\" IS NULL)"
-        },
-        "storage_samples_bytes_ck": {
-          "name": "storage_samples_bytes_ck",
-          "value": "\"storage_samples\".\"bytes\" >= 0"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.restore_point_suspicions": {

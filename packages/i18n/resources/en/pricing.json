@@ -4,6 +4,7 @@
     "perMonth": "/ month",
     "mailboxes": "{count, plural, one {# mailbox} other {# mailboxes}} × {price} = {amount}",
     "storage": "{quantity} {unit} × {price} = {amount}",
+    "storageBilled": "{stored} GB, billed as {quantity} {unit} × {price} = {amount}",
     "custom": "Custom price",
     "unavailable": "Figures not available yet",
     "none": "No price is set for this tenant yet.",

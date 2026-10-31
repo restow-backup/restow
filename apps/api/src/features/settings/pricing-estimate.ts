@@ -16,7 +16,7 @@ import { loadPhysicalBytes } from "../../routes/v1/storage.js";
 import { TenantFiguresCache } from "../tenant-jobs/figures-cache.js";
 import { TENANT_READS_AT_ONCE } from "../tenant-jobs/service.js";
 import { countTenantMailboxes } from "../usage/service.js";
-import { getPricing, type PricingDto } from "./pricing.js";
+import { billedBytes, getPricing, type PricingDto, type StorageBilling } from "./pricing.js";
 import {
   effectivePrice,
   resolveTenantOverrides,
@@ -36,7 +36,9 @@ import {
  *                 open (tenant-pricing.ts), else the installation's (pricing.ts)
  *
  * The amount of a line is the quantity times its price, in the decimal unit of the storage price
- * (1 GB = 10^9 bytes, 1 TB = 10^12 bytes). Nothing bills any of it.
+ * (1 GB = 10^9 bytes, 1 TB = 10^12 bytes). The stored bytes are counted as the installation says
+ * (pricing.ts `storageBilling`, 0.4.9): exactly, or rounded up to the next full 100 GB or TB; the
+ * entry carries both, the stored and the billed bytes. Nothing bills any of it.
  *
  * Tenants being deleted are left out, and so is every tenant outside the reach of a member of the
  * provider team who is limited to some tenants (the handler passes the member's access, as
@@ -82,6 +84,11 @@ export interface EstimateTenantDto {
   mailboxes: number | null;
   /** Everything stored, in bytes; null when the figure is not available (or no price needed it). */
   storedBytes: number | null;
+  /**
+   * The bytes the storage price applies to: `storedBytes` rounded up to full blocks of the
+   * installation's `storageBilling` (the same for `exact`); null like `storedBytes`.
+   */
+  billedBytes: number | null;
   /** The price per mailbox that applies to this tenant; null = none set. */
   mailboxPrice: number | null;
   /** The price per `storageUnit` that applies to this tenant; null = none set. */
@@ -95,6 +102,8 @@ export interface EstimateTenantDto {
 export interface PricingEstimateDto {
   currency: string;
   storageUnit: "GB" | "TB";
+  /** How the stored bytes are counted: exactly, or rounded up to full 100 GB or TB. */
+  storageBilling: StorageBilling;
   /** The installation's prices. */
   global: { mailboxPrice: number | null; storagePrice: number | null };
   /** Whether tenants may have prices of their own (the gate `tenants.additional` is open). */
@@ -114,6 +123,8 @@ export function estimateAmount(input: {
   mailboxPrice: number | null;
   storagePrice: number | null;
   storageUnit: "GB" | "TB";
+  /** Exact when left out. */
+  storageBilling?: StorageBilling;
 }): EstimateAmountDto {
   const { figures, mailboxPrice, storagePrice, storageUnit } = input;
   const priced = mailboxPrice !== null || storagePrice !== null;
@@ -121,8 +132,8 @@ export function estimateAmount(input: {
     return { mailboxes: null, storage: null, total: null };
   }
   const mailboxes = mailboxPrice !== null ? figures.mailboxes * mailboxPrice : null;
-  const storage =
-    storagePrice !== null ? (figures.storedBytes / UNIT_BYTES[storageUnit]) * storagePrice : null;
+  const billed = billedBytes(figures.storedBytes, input.storageBilling ?? "exact");
+  const storage = storagePrice !== null ? (billed / UNIT_BYTES[storageUnit]) * storagePrice : null;
   return { mailboxes, storage, total: (mailboxes ?? 0) + (storage ?? 0) };
 }
 
@@ -137,7 +148,8 @@ interface TenantRow {
 export function estimateTenant(input: {
   row: Pick<TenantRow, "id" | "name" | "kind">;
   overrides: TenantPriceOverridesDto;
-  pricing: Pick<PricingDto, "mailboxPrice" | "storagePrice" | "storageUnit">;
+  pricing: Pick<PricingDto, "mailboxPrice" | "storagePrice" | "storageUnit"> &
+    Partial<Pick<PricingDto, "storageBilling">>;
   figures: TenantFigures | null;
 }): EstimateTenantDto {
   const { row, overrides, pricing, figures } = input;
@@ -149,6 +161,9 @@ export function estimateTenant(input: {
     kind: row.kind,
     mailboxes: figures?.mailboxes ?? null,
     storedBytes: figures?.storedBytes ?? null,
+    billedBytes: figures
+      ? billedBytes(figures.storedBytes, pricing.storageBilling ?? "exact")
+      : null,
     mailboxPrice,
     storagePrice,
     overridden: {
@@ -160,6 +175,7 @@ export function estimateTenant(input: {
       mailboxPrice,
       storagePrice,
       storageUnit: pricing.storageUnit,
+      storageBilling: pricing.storageBilling ?? "exact",
     }),
   };
 }
@@ -260,6 +276,7 @@ export async function loadPricingEstimate(
   return {
     currency: pricing.currency,
     storageUnit: pricing.storageUnit,
+    storageBilling: pricing.storageBilling,
     global: { mailboxPrice: pricing.mailboxPrice, storagePrice: pricing.storagePrice },
     perTenantOverrides: overridesEnabled,
     hasPrices:

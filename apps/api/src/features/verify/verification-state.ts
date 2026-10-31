@@ -2,7 +2,7 @@ import { snapshots, verifyReports } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import type { DbExecutor } from "../../lib/tenant-context.js";
 import type { Readiness } from "./details.js";
-import type { ObjectState } from "./summary.js";
+import type { CheckedState } from "./summary.js";
 
 /**
  * When is a backup proven restorable? The one rule every view shares.
@@ -105,7 +105,7 @@ export function snapshotVerificationOf(
 
 /** How one protected object stands, with the reports behind it. */
 export interface ObjectVerification<T extends RatedReport> {
-  state: ObjectState;
+  state: CheckedState;
   /** The report behind `state`; null for `unverified` and `no_backup`. */
   report: T | null;
   /**
@@ -154,6 +154,8 @@ export interface ReportFact extends RatedReport {
   jobId: string | null;
   reasons: unknown;
   counts: unknown;
+  /** `details->'snapshot'`: the checked backup's item count and content bytes (0.4.9). */
+  content: unknown;
 }
 
 export const reportFactColumns = {
@@ -167,6 +169,7 @@ export const reportFactColumns = {
   origin: sql<string | null>`${verifyReports.details}->>'origin'`,
   reasons: sql<unknown>`${verifyReports.details}->'reasons'`,
   counts: sql<unknown>`${verifyReports.details}->'counts'`,
+  content: sql<unknown>`${verifyReports.details}->'snapshot'`,
 };
 
 /** Newest first; ties (same instant) by insertion. */

@@ -98,6 +98,8 @@ export interface ReadinessWidget {
   red: number;
   unverified: number;
   noBackup: number;
+  /** Objects confirmed as empty: neutral, never needing attention (absent from an older server). */
+  empty?: number;
   overdue: number;
   /** Machines and mail objects in no backup job; any of them keeps `overall` from green. */
   withoutJob: number;

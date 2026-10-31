@@ -41,6 +41,7 @@ import type {
 import { buildCause, classifyFailure } from "../failures/classify.js";
 import type { FailureCause } from "../failures/types.js";
 import type { SnapshotManifest } from "../manifest.js";
+import { objectTypeOf } from "../restore/conventions.js";
 import {
   checkObject,
   type InconclusiveRead,
@@ -61,6 +62,7 @@ import {
 } from "./report.js";
 import {
   emptyCounts,
+  PROBE_CATEGORIES,
   planFull,
   planSample,
   quotaFor,
@@ -125,13 +127,35 @@ export async function damagedPacksOfSnapshot(
   return [...found].sort();
 }
 
+/** Object types that structure a snapshot but hold no content of their own. */
+const STRUCTURE_TYPES: ReadonlySet<string> = new Set(["folder", "package", "shortcut"]);
+
+/** What a snapshot holds besides folders and placeholders: bytes and objects. */
+export function contentOf(manifest: Pick<SnapshotManifest, "objects">): {
+  bytes: number;
+  objects: number;
+} {
+  let bytes = 0;
+  let objects = 0;
+  for (const object of manifest.objects) {
+    if (STRUCTURE_TYPES.has(objectTypeOf(object))) {
+      continue;
+    }
+    objects += 1;
+    bytes += Math.max(0, object.size);
+  }
+  return { bytes, objects };
+}
+
 function snapshotRef(record: SnapshotRecord, manifest: SnapshotManifest | null): ReportSnapshotRef {
+  const content = manifest ? contentOf(manifest) : null;
   return {
     id: record.id,
     sequence: record.sequence,
     completedAt: record.completedAt?.toISOString() ?? null,
     itemCount: manifest?.objects.length ?? record.itemCount,
     packCount: manifest?.packs?.length ?? 0,
+    ...(content ? { contentBytes: content.bytes, contentObjects: content.objects } : {}),
   };
 }
 
@@ -204,9 +228,13 @@ async function runProbe(
   plan: SamplePlan,
   checks: readonly ItemCheck[],
 ): Promise<TestRestoreOutcome | null> {
-  // Only items whose bytes are intact go to the target; the others already failed.
+  // Only items whose bytes are intact go to the target; the others already failed. Site
+  // metadata, list schemas and list items are read back only: a target cannot take them.
   const intact = new Set(checks.filter((check) => check.status === "verified").map((c) => c.path));
-  const sample = plan.items.map((item) => item.object).filter((object) => intact.has(object.path));
+  const sample = plan.items
+    .filter((item) => PROBE_CATEGORIES.has(item.category))
+    .map((item) => item.object)
+    .filter((object) => intact.has(object.path));
   if (sample.length === 0) {
     return null;
   }
@@ -338,6 +366,7 @@ export async function verifyProtectedObject(
   const testRestore = probed;
 
   const counts = tally(plan, checks);
+  const content = manifest ? contentOf(manifest) : { bytes: 0, objects: 0 };
   const now = ctx.now();
   const assessment = assessReadiness(
     {
@@ -345,6 +374,9 @@ export async function verifyProtectedObject(
       snapshotCompletedAt: record?.completedAt ?? null,
       manifestReadable: manifest !== null,
       checked: counts.checked,
+      contentBytes: content.bytes,
+      contentObjects: content.objects,
+      itemCount: manifest?.objects.length ?? 0,
       outcomes: counts,
       damagedPacks: damagedPacks.length,
       unreadablePacks: unreadablePacks.filter((pack) => !pack.persistent).length,

@@ -9,7 +9,7 @@ import { toast } from "@/components/ui/sonner";
 import { GuestChecksCallout, PveChecksFooter } from "@/features/pve/readiness-checks";
 import type { ObjectReadiness, RunVerifyResult } from "@/features/verify/api";
 import { AllTenantsReadiness } from "@/features/verify/components/all-tenants";
-import { ObjectsTable } from "@/features/verify/components/objects-table";
+import { ConfirmEmptyDialog, ObjectsTable } from "@/features/verify/components/objects-table";
 import { StorageCard } from "@/features/verify/components/storage-card";
 import { OverallBanner, SummaryTiles } from "@/features/verify/components/summary";
 import { UnverifiedCallout } from "@/features/verify/components/unverified-callout";
@@ -21,9 +21,16 @@ import {
   startErrorMessage,
   unverifiedRunMessage,
 } from "@/features/verify/presenters";
-import { parseVerifySearch, type ReadinessState, verifyLink } from "@/features/verify/search";
 import {
+  isReadinessState,
+  parseVerifySearch,
+  type TableFilter,
+  verifyLink,
+} from "@/features/verify/search";
+import {
+  useConfirmEmpty,
   useReadinessOverview,
+  useRevokeEmpty,
   useStartVerify,
   useVerifyFormat,
 } from "@/features/verify/use-verify";
@@ -76,7 +83,7 @@ export function VerifyPage() {
 
   // The state is part of the address; the scope stays while the session is under "All tenants".
   const setState = React.useCallback(
-    (state: ReadinessState | undefined) =>
+    (state: TableFilter | undefined) =>
       void navigate({
         ...verifyLink(state, inAllTenants || wantsAll ? "all" : undefined),
         replace: true,
@@ -85,7 +92,13 @@ export function VerifyPage() {
   );
 
   if (inAllTenants || wantsAll) {
-    return <AllTenantsReadiness state={search.state} onStateChange={setState} />;
+    // The tenants are listed by readiness state; the empty filters are one tenant's table only.
+    return (
+      <AllTenantsReadiness
+        state={isReadinessState(search.state) ? search.state : undefined}
+        onStateChange={setState}
+      />
+    );
   }
   return <TenantReadiness state={search.state} onStateChange={setState} />;
 }
@@ -94,14 +107,44 @@ function TenantReadiness({
   state,
   onStateChange,
 }: {
-  state: ReadinessState | undefined;
-  onStateChange: (state: ReadinessState | undefined) => void;
+  state: TableFilter | undefined;
+  onStateChange: (state: TableFilter | undefined) => void;
 }) {
   const format = useVerifyFormat();
   const { t } = format;
   const { activeTenant } = useSession();
   const overview = useReadinessOverview();
   const start = useStartVerify();
+  const confirmEmpty = useConfirmEmpty();
+  const revokeEmpty = useRevokeEmpty();
+  // The objects "Confirm as empty" asks about; null while the dialog is closed.
+  const [askEmpty, setAskEmpty] = React.useState<readonly string[] | null>(null);
+
+  const confirmEmptyNow = (objectIds: readonly string[]) =>
+    confirmEmpty.mutateAsync({ objectIds }).then((result) => {
+      if (result.skipped.length > 0) {
+        toast.info(
+          t("toast.emptyConfirmedWithSkipped", {
+            count: result.confirmed.length,
+            skipped: result.skipped.length,
+          }),
+        );
+      } else {
+        toast.success(t("toast.emptyConfirmed", { count: result.confirmed.length }));
+      }
+      return result;
+    });
+
+  const revokeEmptyNow = (item: ObjectReadiness) =>
+    revokeEmpty.mutate(item.object.id, {
+      onSuccess: () => toast.success(t("toast.emptyRevoked", { name: objectName(item.object) })),
+      onError: (error) => {
+        const message = startErrorMessage(error);
+        toast.error(t("toast.emptyRevokeFailed"), {
+          description: t(message.key, message.values),
+        });
+      },
+    });
   const [starting, setStarting] = React.useState<Starting | null>(null);
 
   const showStartError = (error: unknown) => {
@@ -207,6 +250,21 @@ function TenantReadiness({
             onCheck={checkOne}
             state={state}
             onStateChange={onStateChange}
+            empty={{
+              ask: (objectIds) => setAskEmpty(objectIds),
+              revoke: revokeEmptyNow,
+              revoking: revokeEmpty.isPending ? (revokeEmpty.variables ?? null) : null,
+            }}
+          />
+          <ConfirmEmptyDialog
+            objectIds={askEmpty}
+            onOpenChange={(open) => {
+              if (!open) {
+                setAskEmpty(null);
+              }
+            }}
+            onConfirm={(objectIds) => confirmEmptyNow(objectIds).then(() => setAskEmpty(null))}
+            format={format}
           />
           <p className="text-xs text-muted-foreground">
             {data.summary.lastCheckedAt ? (

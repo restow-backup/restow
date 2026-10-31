@@ -602,6 +602,13 @@
     "unit": "Einheit",
     "perGb": "je GB",
     "perTb": "je TB",
+    "billing": {
+      "label": "Speicher abrechnen in",
+      "exact": "genau",
+      "block_100gb": "angefangene 100 GB",
+      "block_1tb": "angefangene TB",
+      "hint": "Angefangene Blöcke runden die gespeicherte Menge auf volle 100 GB bzw. 1 TB auf, bevor der Speicherpreis gilt; auch für Mandanten mit eigenen Preisen."
+    },
     "currency": "Währung",
     "none": "kein Preis",
     "save": "Speichern",

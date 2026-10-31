@@ -14,6 +14,7 @@ import { notCountedFailureJob } from "../../lib/service-limit.js";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { loadMailWithoutJob } from "../backup-jobs/coverage.js";
 import { loadRepositoryBytes, totalRepositoryBytes } from "../storage/repository-bytes.js";
+import { loadEmptyConfirmations } from "../verify/empty.js";
 import { MAX_LARGEST_OBJECTS } from "./aggregate.js";
 import type { TenantRefDto } from "./dto.js";
 import { collectEndpointFacts } from "./endpoint-facts.js";
@@ -395,6 +396,8 @@ export async function collectTenantFacts(
   );
   // The objects no enabled mail job covers: rated by their last backup without its age.
   const noJob = await loadMailWithoutJob(tx, tenantId);
+  // The objects an admin confirmed as empty, since when (readiness.ts).
+  const emptyConfirmed = await loadEmptyConfirmations(tx, tenantId);
 
   const largest = await rows(
     tx,
@@ -451,6 +454,10 @@ export async function collectTenantFacts(
       status: row.status as ProtectedObjectStatus,
       createdAt: toDate(row.created_at),
       withoutJob: noJob.has(String(row.id)),
+      emptyConfirmedAt: (() => {
+        const confirmation = emptyConfirmed.get(String(row.id));
+        return confirmation ? new Date(confirmation.confirmedAt) : null;
+      })(),
     })),
     snapshots: ratedSnapshots,
     reports: ratedReports,

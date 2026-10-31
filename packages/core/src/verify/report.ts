@@ -31,6 +31,12 @@ export type ReportSnapshotRef = {
    * collection may have moved the chunks into other packs since.
    */
   packCount: number;
+  /**
+   * Bytes and objects of content (everything but folders and placeholders) the snapshot holds.
+   * Absent in reports before 0.4.9 and when the manifest could not be read.
+   */
+  contentBytes?: number;
+  contentObjects?: number;
 };
 
 export type VerifyCounts = {

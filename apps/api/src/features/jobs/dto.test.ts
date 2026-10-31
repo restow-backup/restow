@@ -351,6 +351,7 @@ describe("verifySummaryOf", () => {
           origin: "verify",
           reasons: [],
           counts: null,
+          content: null,
         },
       }),
     ).toEqual({ kind: "health_check", recoveryReadiness: "yellow", checkedAt: AT.toISOString() });

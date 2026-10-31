@@ -7,8 +7,16 @@ export interface Pricing {
   storagePrice: number | null;
   /** Decimal units: 1 GB = 10^9 bytes, 1 TB = 10^12 bytes. */
   storageUnit: "GB" | "TB";
+  /**
+   * How the stored bytes are counted before the storage price applies: exactly, or rounded up to
+   * the next full 100 GB or TB (servers from 0.4.9; absent reads as exact).
+   */
+  storageBilling?: StorageBilling;
   mailboxPrice: number | null;
 }
+
+export const STORAGE_BILLING = ["exact", "block_100gb", "block_1tb"] as const;
+export type StorageBilling = (typeof STORAGE_BILLING)[number];
 
 export const PRICING_CURRENCIES = ["EUR", "CHF", "USD", "GBP"] as const;
 
@@ -35,6 +43,11 @@ export interface EstimateTenant {
   mailboxes: number | null;
   /** Everything stored, in bytes; null = not available (or not read). */
   storedBytes: number | null;
+  /**
+   * The bytes the storage price applies to: rounded up to full blocks when the installation bills
+   * so (servers from 0.4.9; absent: the stored bytes).
+   */
+  billedBytes?: number | null;
   /** The price that applies: the tenant's own one, else the installation's. */
   mailboxPrice: number | null;
   /** Per `storageUnit` of the estimate. */
@@ -46,6 +59,8 @@ export interface EstimateTenant {
 export interface PricingEstimate {
   currency: string;
   storageUnit: "GB" | "TB";
+  /** How the stored bytes are counted (servers from 0.4.9; absent reads as exact). */
+  storageBilling?: StorageBilling;
   global: { mailboxPrice: number | null; storagePrice: number | null };
   /** Tenants may have prices of their own (the gate `tenants.additional` is open). */
   perTenantOverrides: boolean;

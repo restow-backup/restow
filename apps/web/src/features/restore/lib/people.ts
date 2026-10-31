@@ -36,6 +36,7 @@ const STATE_RANK: Readonly<Record<ObjectState, number>> = {
   unverified: 2,
   green: 3,
   no_backup: 4,
+  empty: 5,
 };
 
 /** The least proven readiness among the person's objects that have a restore point. */

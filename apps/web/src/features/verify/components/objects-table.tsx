@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { FileSearch, ShieldCheck } from "lucide-react";
+import { CircleDashed, FileSearch, ShieldCheck, Undo2 } from "lucide-react";
 import * as React from "react";
 
-import { DataTableLoadMore, RelativeTime, StatusBadge } from "@/components/kit";
+import { ConfirmDialog, DataTableLoadMore, RelativeTime, StatusBadge } from "@/components/kit";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   PIN_FIRST,
   Table,
@@ -28,6 +29,8 @@ import { countsOfSummary, StateChips } from "@/features/verify/components/state-
 import { ObjectKindIcon, StateBadge } from "@/features/verify/components/status";
 import { verifyReportTo } from "@/features/verify/paths";
 import {
+  EMPTY_REASON,
+  isEmptyUnconfirmed,
   objectAddress,
   objectLabel,
   objectName,
@@ -38,7 +41,7 @@ import {
   sortRowsByUrgency,
   storageFindingKey,
 } from "@/features/verify/presenters";
-import type { ReadinessState } from "@/features/verify/search";
+import type { EmptyFilter, TableFilter } from "@/features/verify/search";
 import type { VerifyFormat } from "@/features/verify/use-verify";
 
 /** The reasons that only say how old the latest backup is (core verify/readiness.ts). */
@@ -68,11 +71,14 @@ export const OBJECTS_PAGE_SIZE = 50;
 function ObjectCell({
   object,
   inJob,
+  emptyConfirmation,
   format,
 }: {
   object: VerifyObject;
   /** False: an active object in no enabled backup job (absent from an older server: in a job). */
   inJob: boolean;
+  /** Set while the object counts as confirmed empty. */
+  emptyConfirmation?: ObjectReadiness["emptyConfirmation"];
   format: VerifyFormat;
 }) {
   const { t } = format;
@@ -103,6 +109,20 @@ function ObjectCell({
           >
             {object.statusConfirmedAt === null ? `${t("table.toConfirm")}: ` : null}
             {object.statusReason ? t(`table.inactive.${object.statusReason}`) : t("table.orphaned")}
+          </StatusBadge>
+        ) : null}
+        {emptyConfirmation ? (
+          // Grey like an intentionally inactive object: seen, decided, nothing to do.
+          <StatusBadge
+            tone="muted"
+            className="mt-1"
+            title={emptyConfirmation.note ?? undefined}
+            data-slot="empty-confirmed"
+          >
+            {t("table.emptyConfirmed", {
+              who: emptyConfirmation.confirmedBy,
+              date: format.dateTime(emptyConfirmation.confirmedAt) ?? "",
+            })}
           </StatusBadge>
         ) : null}
       </div>
@@ -171,7 +191,24 @@ function ResultCell({
       ? report.reasons.filter((entry) => !FRESHNESS_REASONS.has(entry.code))
       : report.reasons;
   const firstReason = shownReasons[0];
-  const reason = firstReason ? reasonMessage(firstReason) : null;
+  if (firstReason?.code === EMPTY_REASON) {
+    // Nothing to restore: no "0 of 0 verified", one quiet line with what the backup holds.
+    const stats = item.contentStats;
+    const text = t("reason.snapshot_empty", {
+      count: stats?.items ?? firstReason.count ?? 0,
+    });
+    return (
+      <p
+        className="line-clamp-2 text-xs text-muted-foreground"
+        title={text}
+        data-slot="empty-result"
+      >
+        <CircleDashed aria-hidden="true" className="mr-1 inline size-3 align-[-2px]" />
+        {text}
+      </p>
+    );
+  }
+  const reason = firstReason ? reasonMessage(firstReason, format.bytes) : null;
   const reasonText = reason ? t(reason.key, reason.values) : null;
   return (
     <div className="min-w-0 space-y-0.5">
@@ -194,17 +231,42 @@ function ActionsCell({
   format,
   starting,
   onCheck,
+  empty,
 }: {
   item: ObjectReadiness;
   format: VerifyFormat;
   starting: boolean;
   onCheck: (item: ObjectReadiness) => void;
+  empty?: EmptyActions;
 }) {
   const { t } = format;
   const name = objectName(item.object);
   const unverified = item.state === "unverified";
   return (
     <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+      {empty && isEmptyUnconfirmed(item) ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => empty.ask([item.object.id])}
+          aria-label={t("actions.confirmEmptyFor", { name })}
+        >
+          <CircleDashed aria-hidden="true" />
+          {t("actions.confirmEmpty")}
+        </Button>
+      ) : null}
+      {empty && item.state === "empty" ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          loading={empty.revoking === item.object.id}
+          onClick={() => empty.revoke(item)}
+          aria-label={t("actions.revokeEmptyFor", { name })}
+        >
+          {empty.revoking === item.object.id ? null : <Undo2 aria-hidden="true" />}
+          {t("actions.revokeEmpty")}
+        </Button>
+      ) : null}
       {item.running ? (
         // The wrapping div already says whitespace-nowrap; the tone/label are the point here.
         <StatusBadge tone="info" live aria-live="polite">
@@ -246,18 +308,81 @@ function ActionsCell({
   );
 }
 
-/** How many rows are in each state, for the chips. */
+/** How many rows are in each state, for the chips (confirmed empty ones count in `emptyCounts`). */
 export function stateCounts(rows: readonly ReadinessRow[]) {
   const counts = { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 };
   for (const row of rows) {
     const { state } = rowRating(row);
     if (state === "no_backup") {
       counts.noBackup += 1;
-    } else {
+    } else if (state !== "empty") {
       counts[state] += 1;
     }
   }
   return countsOfSummary(counts);
+}
+
+/** The objects found empty and not confirmed yet, and the ones confirmed as empty. */
+export function emptyCounts(rows: readonly ReadinessRow[]): Record<EmptyFilter, number> {
+  const counts = { empty_unconfirmed: 0, empty: 0 };
+  for (const row of rows) {
+    if (row.type !== "object") {
+      continue;
+    }
+    if (row.item.state === "empty") {
+      counts.empty += 1;
+    } else if (isEmptyUnconfirmed(row.item)) {
+      counts.empty_unconfirmed += 1;
+    }
+  }
+  return counts;
+}
+
+/** Whether a row is shown under a filter. */
+export function matchesFilter(row: ReadinessRow, filter: TableFilter): boolean {
+  if (filter === "empty_unconfirmed") {
+    return row.type === "object" && isEmptyUnconfirmed(row.item);
+  }
+  return rowRating(row).state === filter;
+}
+
+/** "Confirm as empty" and its revocation, wired by the page; absent, the table offers neither. */
+export interface EmptyActions {
+  /** Ask before confirming these objects as empty (one row, or the selection). */
+  ask: (objectIds: string[]) => void;
+  revoke: (item: ObjectReadiness) => void;
+  /** The object whose confirmation is being revoked right now. */
+  revoking: string | null;
+}
+
+/**
+ * The question before "Confirm as empty", for one object or a selection: what it means and that
+ * it ends by itself once a later check finds content.
+ */
+export function ConfirmEmptyDialog({
+  objectIds,
+  onOpenChange,
+  onConfirm,
+  format,
+}: {
+  /** The objects to confirm; null while the dialog is closed. */
+  objectIds: readonly string[] | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (objectIds: readonly string[]) => Promise<unknown>;
+  format: VerifyFormat;
+}) {
+  const { t } = format;
+  const count = objectIds?.length ?? 0;
+  return (
+    <ConfirmDialog
+      open={objectIds !== null}
+      onOpenChange={onOpenChange}
+      title={t("confirmEmpty.title", { count })}
+      description={t("confirmEmpty.description", { count })}
+      confirmLabel={t("confirmEmpty.confirm")}
+      onConfirm={() => (objectIds ? onConfirm(objectIds) : undefined)}
+    />
+  );
 }
 
 /**
@@ -277,6 +402,7 @@ export function ObjectsTable({
   onCheck,
   state,
   onStateChange,
+  empty,
 }: {
   items: readonly ObjectReadiness[];
   /** Servers and clients; they are rated like the objects and listed with them. */
@@ -290,9 +416,11 @@ export function ObjectsTable({
   /** The tenant's next scheduled backup run, shown while an object waits for its first one. */
   nextBackupAt: string | null;
   onCheck: (item: ObjectReadiness) => void;
-  /** The state the table is filtered to (the address's `state`); undefined shows every object. */
-  state?: ReadinessState;
-  onStateChange: (state: ReadinessState | undefined) => void;
+  /** The filter of the table (the address's `state`); undefined shows every object. */
+  state?: TableFilter;
+  onStateChange: (state: TableFilter | undefined) => void;
+  /** "Confirm as empty" (rows, selection) and its revocation; absent, neither is offered. */
+  empty?: EmptyActions;
 }) {
   const { t } = format;
   const rows = React.useMemo(
@@ -300,10 +428,30 @@ export function ObjectsTable({
     [items, endpoints, guests, shares],
   );
   const counts = React.useMemo(() => stateCounts(rows), [rows]);
+  const empties = React.useMemo(() => emptyCounts(rows), [rows]);
   const visible = React.useMemo(() => {
     const sorted = sortRowsByUrgency(rows);
-    return state ? sorted.filter((row) => rowRating(row).state === state) : sorted;
+    return state ? sorted.filter((row) => matchesFilter(row, state)) : sorted;
   }, [rows, state]);
+
+  // Under "Empty (not confirmed)" the rows can be selected and confirmed together.
+  const selecting = state === "empty_unconfirmed" && empty !== undefined;
+  const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
+  const selectable = React.useMemo(
+    () => (selecting ? visible.flatMap((row) => (row.type === "object" ? [row.id] : [])) : []),
+    [selecting, visible],
+  );
+  const chosen = selectable.filter((id) => selected.has(id));
+  const toggle = (id: string, on: boolean) =>
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (on) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
 
   // Rows are shown in pages of OBJECTS_PAGE_SIZE; a new filter starts on the first page again.
   const [paging, setPaging] = React.useState({ state, shown: OBJECTS_PAGE_SIZE });
@@ -319,12 +467,59 @@ export function ObjectsTable({
         </div>
       </CardHeader>
       <div className="px-6 pb-4">
-        <StateChips counts={counts} total={rows.length} value={state} onChange={onStateChange} />
+        <StateChips<TableFilter>
+          counts={counts}
+          total={rows.length}
+          value={state}
+          onChange={onStateChange}
+          emptyCounts={empties}
+        />
       </div>
+      {selecting && selectable.length > 0 ? (
+        <div
+          className="flex flex-wrap items-center gap-3 border-t bg-muted/40 px-6 py-3 text-sm"
+          data-slot="empty-selection"
+        >
+          <span className="flex items-center gap-2">
+            <Checkbox
+              checked={
+                chosen.length === 0
+                  ? false
+                  : chosen.length === selectable.length
+                    ? true
+                    : "indeterminate"
+              }
+              onCheckedChange={(value) =>
+                setSelected(value === true ? new Set(selectable) : new Set())
+              }
+              aria-label={t("selection.all")}
+            />
+            {t("selection.count", {
+              count: chosen.length,
+              total: format.integer(selectable.length),
+            })}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={chosen.length === 0}
+            onClick={() => empty?.ask(chosen)}
+          >
+            <CircleDashed aria-hidden="true" />
+            {t("actions.confirmEmptySelected", { count: chosen.length })}
+          </Button>
+        </div>
+      ) : null}
       <CardContent className="p-0">
         {visible.length === 0 ? (
           <p className="px-6 pb-6 text-sm text-muted-foreground">
-            {state ? t("table.emptyState", { state: t(`state.${state}`) }) : t("table.empty")}
+            {state
+              ? t("table.emptyState", {
+                  state: t(
+                    state === "empty_unconfirmed" ? "chips.empty_unconfirmed" : `state.${state}`,
+                  ),
+                })
+              : t("table.empty")}
           </p>
         ) : (
           <Table className="min-w-[52rem]" scrollLabel={t("table.title")}>
@@ -358,6 +553,15 @@ export function ObjectsTable({
                     nextBackupAt={nextBackupAt}
                     starting={startingObjectId === row.item.object.id}
                     onCheck={onCheck}
+                    empty={empty}
+                    selection={
+                      selecting
+                        ? {
+                            checked: selected.has(row.id),
+                            onChange: (on: boolean) => toggle(row.id, on),
+                          }
+                        : undefined
+                    }
                   />
                 ),
               )}
@@ -386,18 +590,38 @@ function ObjectRow({
   nextBackupAt,
   starting,
   onCheck,
+  empty,
+  selection,
 }: {
   item: ObjectReadiness;
   format: VerifyFormat;
   nextBackupAt: string | null;
   starting: boolean;
   onCheck: (item: ObjectReadiness) => void;
+  empty?: EmptyActions;
+  /** Set while the table offers a selection (`empty_unconfirmed`). */
+  selection?: { checked: boolean; onChange: (checked: boolean) => void };
 }) {
   const { t } = format;
   return (
-    <TableRow>
+    <TableRow data-state={selection?.checked ? "selected" : undefined}>
       <TableCell pin={PIN_FIRST} className="max-w-md pl-6">
-        <ObjectCell object={item.object} inJob={item.inJob !== false} format={format} />
+        <div className="flex min-w-0 items-start gap-3">
+          {selection ? (
+            <Checkbox
+              className="mt-0.5"
+              checked={selection.checked}
+              onCheckedChange={(value) => selection.onChange(value === true)}
+              aria-label={t("selection.one", { name: objectName(item.object) })}
+            />
+          ) : null}
+          <ObjectCell
+            object={item.object}
+            inJob={item.inJob !== false}
+            emptyConfirmation={item.emptyConfirmation}
+            format={format}
+          />
+        </div>
       </TableCell>
       <TableCell className="whitespace-nowrap">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -424,7 +648,13 @@ function ObjectRow({
         />
       </TableCell>
       <TableCell className="pr-6">
-        <ActionsCell item={item} format={format} starting={starting} onCheck={onCheck} />
+        <ActionsCell
+          item={item}
+          format={format}
+          starting={starting}
+          onCheck={onCheck}
+          empty={empty}
+        />
       </TableCell>
     </TableRow>
   );

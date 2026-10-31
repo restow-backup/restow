@@ -358,6 +358,23 @@ describe.skipIf(!testDatabaseAdminUrl)("a tenant's own prices and the estimate",
     await setGlobal({ storagePrice: 0.5, storageUnit: "GB" });
   });
 
+  it("rounds the stored bytes up to full blocks when the installation bills so", async () => {
+    expect((await setGlobal({ storageBilling: "block_100gb" })).status).toBe(200);
+    const body = await estimate();
+    expect(body.storageBilling).toBe("block_100gb");
+    // 4 GB stored: billed as one block of 100 GB at 0.50 per GB; nothing stored stays nothing.
+    expect(entryOf(body, alpha)).toMatchObject({
+      storedBytes: 4_000_000_000,
+      billedBytes: 100_000_000_000,
+      amount: { storage: 50 },
+    });
+    expect(entryOf(body, beta)).toMatchObject({ storedBytes: 0, billedBytes: 0 });
+    expect(entryOf(body, beta).amount.storage).toBe(0);
+    expect((await setGlobal({ storageBilling: "block_9tb" })).status).toBe(422);
+    await setGlobal({ storageBilling: "exact" });
+    expect(entryOf(await estimate(), alpha).billedBytes).toBe(4_000_000_000);
+  });
+
   it("answers for one tenant, 404 for an unknown one and 422 for a malformed id", async () => {
     const body = await estimate(ownerCookie, `?tenant=${alpha}`);
     expect(body.tenants.map((entry) => entry.tenantId)).toEqual([alpha]);
