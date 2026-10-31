@@ -131,7 +131,10 @@ private repository.
   watch of an IMAP account began during the account's pass, when new mail was announced by IDLE
   or by a change notification during a pass, and on a resync asked for meanwhile. The account
   then showed "polled" and new mail waited for the next scheduled pass, up to half an hour for a
-  watched account. The end of a pass now keeps such a request (the earlier of the two times).
+  watched account. A resync asked for during a pass lost its request as well, so the next pass
+  was an ordinary one instead of the full rescan. The end of a pass (and a checkpoint during it)
+  now keeps both: the earlier of the two due times and a resync request that is newer than the
+  one the pass started with.
   This was the cause of the IMAP test that failed now and then ("shows a watched account as
   IDLE"); with a pass slowed down on purpose it failed every time before and passes now.
 

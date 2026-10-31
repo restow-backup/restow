@@ -250,7 +250,7 @@ describe.skipIf(!adminUrl)("archive capture alerts (Postgres)", () => {
     expect((await stateOf())._errorSince).toBeUndefined();
   });
 
-  it("keeps a stream made due while its pass ran due, instead of the pass's own next time", async () => {
+  it("keeps a stream made due and a resync asked for while its pass ran, instead of what the pass writes", async () => {
     const objectId = await imapObject(`due-${randomUUID()}@example.net`);
     const id = await stream(objectId, { folders: {} }, "live");
     const store = new PgStreamStore(db);
@@ -289,6 +289,16 @@ describe.skipIf(!adminUrl)("archive capture alerts (Postgres)", () => {
       failure: null,
     });
 
+    const resyncOf = async () =>
+      (
+        (
+          await db
+            .select({ state: archiveCaptureStreams.state })
+            .from(archiveCaptureStreams)
+            .where(eq(archiveCaptureStreams.id, id))
+        )[0]?.state as Record<string, unknown> | undefined
+      )?.resyncRequestedAt;
+
     // The IDLE manager takes the account over while the pass runs: its request stays.
     await claim();
     await store.markDue([id]);
@@ -296,6 +306,27 @@ describe.skipIf(!adminUrl)("archive capture alerts (Postgres)", () => {
     expect(await store.complete("w2", id, pass(later()))).toBe(true);
     expect(await dueOf()).toEqual(marked);
     expect((await dueOf())?.getTime()).toBeLessThanOrEqual(Date.now());
+
+    // A resync asked for while the pass runs (as the api does it) survives a checkpoint and
+    // the end of the pass, whose state was read before it.
+    await claim();
+    await db.execute(sql`
+      update archive_capture_streams
+         set dirty_since = coalesce(dirty_since, now()), next_due_at = now(),
+             state = state || jsonb_build_object('resyncRequestedAt', now()::text)
+       where id = ${id}::uuid
+    `);
+    const asked = await resyncOf();
+    expect(typeof asked).toBe("string");
+    expect(await store.checkpoint("w2", id, { folders: {} })).toBe(true);
+    expect(await resyncOf()).toBe(asked);
+    expect(await store.complete("w2", id, pass(later()))).toBe(true);
+    expect(await resyncOf()).toBe(asked);
+
+    // The next pass takes the request (claimed with it) and does not get it back.
+    await claim();
+    expect(await store.complete("w2", id, pass(later()))).toBe(true);
+    expect(await resyncOf()).toBeUndefined();
 
     // Nobody asked for it meanwhile: the pass's own next time.
     await claim();

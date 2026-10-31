@@ -76,13 +76,15 @@ export interface StreamOutcome {
 
 export class PgStreamStore {
   /**
-   * The due time each stream had when this store claimed it, exactly as Postgres holds it
-   * (text, to the microsecond). `complete()` compares it with the row: a different value
-   * means something made the stream due while the pass ran (an IDLE or change
-   * notification, a resync, the IDLE manager taking the account over), and that is kept
-   * instead of being overwritten by the pass's own next time.
+   * What each stream held when this store claimed it, exactly as Postgres holds it (text,
+   * the due time to the microsecond): its due time and its resync request. `complete()`
+   * and `checkpoint()` compare them with the row. A different due time means something
+   * made the stream due while the pass ran (an IDLE or change notification, a resync, the
+   * IDLE manager taking the account over); a different resync request means a resync was
+   * asked for meanwhile. Both are kept instead of being overwritten by what the pass
+   * writes, which it built from the row as it was claimed.
    */
-  private readonly claimedDue = new Map<string, string>();
+  private readonly claimed = new Map<string, { due: string | null; resync: string | null }>();
 
   /** `db`: the installation pool. */
   constructor(private readonly db: Database) {}
@@ -132,13 +134,15 @@ export class PgStreamStore {
           limit ${options.limit}
           for update skip locked
        )
-      returning ${STREAM_COLUMNS}, s.next_due_at::text as claimed_due
+      returning ${STREAM_COLUMNS}, s.next_due_at::text as claimed_due,
+                s.state->>'resyncRequestedAt' as claimed_resync
     `);
-    const rows = result.rows as unknown as (StreamRow & { claimed_due: string | null })[];
+    const rows = result.rows as unknown as (StreamRow & {
+      claimed_due: string | null;
+      claimed_resync: string | null;
+    })[];
     for (const row of rows) {
-      if (row.claimed_due !== null) {
-        this.claimedDue.set(row.id, row.claimed_due);
-      }
+      this.claimed.set(row.id, { due: row.claimed_due, resync: row.claimed_resync });
     }
     return rows.map(streamFromRow);
   }
@@ -165,7 +169,9 @@ export class PgStreamStore {
   /** Persist a mid-pass state while `owner` holds the lease. */
   async checkpoint(owner: string, id: string, state: ArchiveStreamState): Promise<boolean> {
     const result = await this.db.execute(sql`
-      update archive_capture_streams set state = ${JSON.stringify(state)}::jsonb, updated_at = now()
+      update archive_capture_streams
+         set state = ${JSON.stringify(state)}::jsonb || ${this.resyncAskedMeanwhile(id)},
+             updated_at = now()
        where id = ${id}::uuid and lease_owner = ${owner}
     `);
     return (result.rowCount ?? 0) > 0;
@@ -197,18 +203,19 @@ export class PgStreamStore {
   /** Write a pass's outcome and release the lease; false when the lease was lost. */
   async complete(owner: string, id: string, outcome: StreamOutcome): Promise<boolean> {
     const ok = outcome.failure === null;
-    const claimedDue = this.claimedDue.get(id) ?? null;
-    this.claimedDue.delete(id);
+    const keepResync = this.resyncAskedMeanwhile(id);
+    const claimedDue = this.claimed.get(id)?.due ?? null;
+    this.claimed.delete(id);
     const next = outcome.nextDueAt?.toISOString() ?? null;
     const result = await this.db.execute(sql`
       update archive_capture_streams set
         -- _errorSince: when the stream went into error (kept while it stays there, removed
         -- by the next pass that is not one); the capture alerts (./alerts.ts) read it.
         state = case when ${outcome.status} = 'error'
-                     then ${JSON.stringify(outcome.state)}::jsonb || jsonb_build_object('_errorSince',
+                     then ${JSON.stringify(outcome.state)}::jsonb || ${keepResync} || jsonb_build_object('_errorSince',
                             coalesce(state->>'_errorSince', to_char(now() at time zone 'UTC',
                                      'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
-                     else ${JSON.stringify(outcome.state)}::jsonb - '_errorSince' end,
+                     else (${JSON.stringify(outcome.state)}::jsonb || ${keepResync}) - '_errorSince' end,
         -- A stream disabled or paused meanwhile (reconcile, an administrator) stays so.
         status = case when status in ('disabled', 'paused') then status
                       else ${outcome.status}::archive_stream_status end,
@@ -235,9 +242,22 @@ export class PgStreamStore {
     return (result.rowCount ?? 0) > 0;
   }
 
+  /**
+   * The resync request the row holds when it is not the one the stream was claimed with
+   * (asked for while the pass ran), to be merged into the state the pass writes; an empty
+   * object otherwise. Reads the row's current value inside the UPDATE.
+   */
+  private resyncAskedMeanwhile(id: string) {
+    const claimedResync = this.claimed.get(id)?.resync ?? null;
+    return sql`(case when state->>'resyncRequestedAt' is not null
+                      and state->>'resyncRequestedAt' is distinct from ${claimedResync}::text
+                     then jsonb_build_object('resyncRequestedAt', state->'resyncRequestedAt')
+                     else '{}'::jsonb end)`;
+  }
+
   /** Give a lease back without writing anything else (an aborted pass). */
   async release(owner: string, id: string): Promise<void> {
-    this.claimedDue.delete(id);
+    this.claimed.delete(id);
     await this.db.execute(sql`
       update archive_capture_streams set lease_owner = null, lease_until = null
        where id = ${id}::uuid and lease_owner = ${owner}
