@@ -169,7 +169,7 @@
       },
       "servers": {
         "title": "No servers yet",
-        "description": "Add a Linux or macOS server: {appName} creates a one-time command that installs the backup agent and connects the server. It is backed up once you add it to a backup job."
+        "description": "Add a Linux, macOS or Windows server: {appName} creates a one-time command that installs the backup agent and connects the server. It is backed up once you add it to a backup job."
       },
       "clients": {
         "title": "No clients yet",
@@ -267,12 +267,16 @@
     "os": {
       "legend": "Operating system",
       "planned": "Planned",
+      "preview": "Preview",
       "hint": {
         "linux": "With systemd, on x86-64 or ARM64",
         "darwin": "Intel or Apple silicon",
-        "windows": "On the roadmap, not available yet"
+        "windows": "Windows 10/11 and Server 2016 or later, x64 only"
       },
-      "windowsNote": "Windows is on the roadmap and cannot be chosen yet. This release backs up Linux and macOS machines."
+      "windowsPreview": {
+        "title": "Windows is a preview",
+        "description": "The Windows agent backs files up from a shadow copy (VSS) and restores them. In this release it is a preview: x64 only (no Windows on ARM), restow-agent.exe and restic.exe carry no Authenticode signature (Microsoft Defender, Smart App Control or ASR rules may block them), and there is no restore of the whole machine. Restoring a machine means: reinstall Windows, then bring the files back."
+      }
     },
     "label": {
       "field": "Name (optional)",
@@ -291,11 +295,13 @@
     "command": {
       "heading": {
         "linux": "Run this on the Linux machine",
-        "darwin": "Run this on the Mac"
+        "darwin": "Run this on the Mac",
+        "windows": "Run this in PowerShell as administrator"
       },
       "intro": {
         "linux": "Open a terminal on the {kind} and paste the command. It needs root rights (sudo) and curl, and asks for the token below.",
-        "darwin": "Open Terminal on the {kind} and paste the command. It needs an administrator account (sudo) and asks for the token below."
+        "darwin": "Open Terminal on the {kind} and paste the command. It needs an administrator account (sudo) and asks for the token below.",
+        "windows": "On the {kind}, open PowerShell as administrator (right-click, Run as administrator) and paste the command. It asks for the token below."
       },
       "kind": {
         "server": "server",
@@ -307,6 +313,17 @@
       "validity": "Valid for 24 hours and single use.",
       "expiresAt": "Expires {time}",
       "secretNote": "The token is a one-time secret. It is not part of the command, so it ends up neither in the shell history nor in the process list of the machine. It is shown only now and cannot be shown again once you close this window."
+    },
+    "windows": {
+      "admin": "The command switches TLS 1.2 on first (Windows Server 2016 offers only TLS 1.0 otherwise) and needs Windows PowerShell 5.1, which every supported Windows includes.",
+      "file": {
+        "heading": "Without iex: download, check and run the script",
+        "intro": "If security rules (AMSI, ASR, EDR) flag the pattern iex (irm ...), download {url} as a file, compare its SHA-256 checksum (Get-FileHash .\\windows.ps1) with this value, then run it in PowerShell as administrator:",
+        "copyHash": "Copy the SHA-256 of windows.ps1",
+        "noHash": "This installation ships no windows.ps1; there is no checksum to show.",
+        "copyRun": "Copy the command that runs the file"
+      },
+      "fingerprint": "Fingerprint of the release key: {fingerprint}. The script shows it before it installs anything."
     },
     "warnings": {
       "insecure": {
@@ -355,23 +372,27 @@
       "steps": {
         "download": {
           "linux": "Downloads restow-agent and restic from this server, not from the internet.",
-          "darwin": "Downloads restow-agent and restic from this server, not from the internet."
+          "darwin": "Downloads restow-agent and restic from this server, not from the internet.",
+          "windows": "Downloads restow-agent.exe and restic.exe from this server, not from the internet."
         },
         "verify": {
           "linux": "Checks the maintainer's signature over the release and the SHA-256 checksum of both programs before it runs anything.",
-          "darwin": "Checks the maintainer's signature over the release and the SHA-256 checksum of both programs before it runs anything."
+          "darwin": "Checks the maintainer's signature over the release and the SHA-256 checksum of both programs before it runs anything.",
+          "windows": "Checks the maintainer's signature over the release with its own Ed25519 check written in PowerShell, and the SHA-256 checksum of both programs, before it runs anything."
         },
         "service": {
           "linux": "Installs both into /opt/restow-agent, a folder only root can change, and registers the agent as a system service (systemd unit restow-agent).",
-          "darwin": "Installs both into /Library/Application Support/Restow, a folder only root can change, and registers the agent as a system service (LaunchDaemon com.restowbackup.agent)."
+          "darwin": "Installs both into /Library/Application Support/Restow, a folder only root can change, and registers the agent as a system service (LaunchDaemon com.restowbackup.agent).",
+          "windows": "Installs both into C:\\Program Files\\Restow\\bin, a folder only SYSTEM and administrators can change, and registers the Windows service RestowAgent (LocalSystem)."
         },
         "enroll": {
           "linux": "Enrolls the machine with the one-time token. The agent only connects out to {appName}; no port is opened on the machine.",
-          "darwin": "Enrolls the machine with the one-time token. The agent only connects out to {appName}; no port is opened on the machine."
+          "darwin": "Enrolls the machine with the one-time token. The agent only connects out to {appName}; no port is opened on the machine.",
+          "windows": "Enrolls the machine with the one-time token. The agent only connects out to {appName}; no port is opened on the machine."
         }
       },
       "repair": "Running the command again repairs the installation instead of installing it twice.",
-      "hooks": "Commands before and after the backup (hooks) stay off on the machine unless you allow them there: add -s -- --hooks=scripts (only scripts in /etc/restow-agent/hooks.d) or -s -- --hooks=any after sudo sh."
+      "hooks": "{os, select, windows {Commands before and after the backup (hooks) stay off on the machine unless you allow them there: call the script with -Hooks scripts (only .ps1 and .exe files in C:\\ProgramData\\Restow\\state\\hooks.d) or -Hooks any, or run restow-agent.exe hooks scripts as administrator afterwards.} other {Commands before and after the backup (hooks) stay off on the machine unless you allow them there: add -s -- --hooks=scripts (only scripts in /etc/restow-agent/hooks.d) or -s -- --hooks=any after sudo sh.}}"
     },
     "uninstall": {
       "heading": "Remove the agent later",
@@ -384,7 +405,7 @@
     },
     "unattended": {
       "heading": "Unattended installation (RMM, scripts)",
-      "intro": "Without a terminal to type into, the installer reads the token from a file. Put the token into {tokenFile} (mode 0600, owned by root), then run:",
+      "intro": "{os, select, windows {Without anyone to type, the installer reads the token from a file. Put the token into {tokenFile} (the folder is open to SYSTEM and administrators only; a 32-bit RMM process writes it through C:\\Windows\\Sysnative\\config\\systemprofile), then run the command. It pins the fingerprint of the release key; compare it once with the release notes on GitHub.} other {Without a terminal to type into, the installer reads the token from a file. Put the token into {tokenFile} (mode 0600, owned by root), then run:}}",
       "copy": "Copy the unattended install command",
       "cleanup": "Delete the token file after the installation. The token is single use and expires after 24 hours."
     }
@@ -565,7 +586,15 @@
       "filesNew": "New files",
       "filesChanged": "Changed files",
       "filesUnmodified": "Unchanged files",
-      "dataAdded": "Data added to storage"
+      "dataAdded": "Data added to storage",
+      "consistency": "Consistency"
+    },
+    "consistency": {
+      "used": "{method, select, vss {Shadow copy (file consistent)} none {File system snapshot (file consistent)} other {File system snapshot {method} (file consistent)}}",
+      "partial": "{method, select, vss {Partly without a shadow copy} other {Partly without a file system snapshot}}",
+      "partialWith": "{method, select, vss {Partly without a shadow copy: {live}} other {Partly without a file system snapshot: {live}}}",
+      "unavailable": "{method, select, vss {Without a shadow copy (shadow copy not available)} other {Without a file system snapshot (not available)}}",
+      "off": "{method, select, vss {Without a shadow copy (switched off for this machine)} other {Without a file system snapshot, read from the live file system}}"
     },
     "progress": {
       "heading": "Progress",
@@ -718,14 +747,20 @@
     "moreItems": "{count, plural, one {and # more} other {and # more}}",
     "target": {
       "label": "Target folder (optional)",
-      "placeholder": "/srv/restore",
-      "hint": "An absolute path on the machine (Linux or macOS), for example /srv/restore-2026. The folder must not exist yet or must be empty, and the folder above it must exist; otherwise the run stops without writing anything. Without one, the agent creates a new folder named Restow-Restore followed by the date and time, inside the first folder that is backed up.",
+      "placeholder": "{os, select, windows {D:\\Restore} other {/srv/restore}}",
+      "hint": "{os, select, windows {A local folder on the machine, for example D:\\Restore. It must not exist yet or must be empty, and the folder above it must exist; network drives, removable media, FAT drives, Windows, the program folders and C:\\ProgramData\\Restow are refused. The files keep their original permissions. Without one, the agent creates a new folder named Restow-Restore followed by the date and time on the system drive (C:\\Restow-Restore-...). Existing files are never overwritten.} other {An absolute path on the machine (Linux or macOS), for example /srv/restore-2026. The folder must not exist yet or must be empty, and the folder above it must exist; otherwise the run stops without writing anything. Without one, the agent creates a new folder named Restow-Restore followed by the date and time, inside the first folder that is backed up.}}",
       "errors": {
-        "notAbsolute": "Enter an absolute path starting with /, for example /srv/restore-2026. Windows paths are not supported.",
+        "notAbsolute": "{os, select, windows {Enter a folder with a drive letter, for example D:\\Restore.} other {Enter an absolute path starting with /, for example /srv/restore-2026. Windows paths are for Windows machines only.}}",
         "controlCharacters": "The path contains control characters.",
         "tooLong": "The path is too long.",
-        "root": "The root folder / cannot be the target. Enter a folder below it.",
-        "notPlain": "Enter the path without “.”, “..”, double or trailing slashes."
+        "root": "{os, select, windows {A whole drive cannot be the target. Enter a folder on it.} other {The root folder / cannot be the target. Enter a folder below it.}}",
+        "notPlain": "{os, select, windows {Enter the path without “.”, “..”, double or trailing backslashes.} other {Enter the path without “.”, “..”, double or trailing slashes.}}",
+        "networkPath": "Network paths (\\\\server\\share) cannot be the target. The agent runs as SYSTEM and reaches no shares; choose a local folder.",
+        "forwardSlash": "Use backslashes (\\), for example D:\\Restore.",
+        "invalidCharacter": "The path contains a character Windows does not allow in folder names (<>:\"|?*).",
+        "trailingDotOrSpace": "A folder name ends in a dot or a space, which Windows would trim. Remove it.",
+        "reservedName": "The path contains a name Windows reserves (for example CON, NUL, COM1).",
+        "systemFolder": "Restores never go into Windows, the program folders, C:\\ProgramData\\Restow or System Volume Information. Choose another folder."
       }
     },
     "neverOverwrites": "A restore never overwrites existing files. Everything is written into a new folder, so files that are on the machine now stay untouched.",
@@ -808,7 +843,9 @@
       "bandwidthHint": "Empty means unlimited. 1000 kbit/s is about 1 Mbit/s. It applies outside every time window.",
       "unlimited": "Unlimited",
       "acPower": "Only back up on AC power",
-      "acPowerHint": "A laptop on battery skips the backup until it is plugged in."
+      "acPowerHint": "A laptop on battery skips the backup until it is plugged in.",
+      "vss": "Shadow copy (VSS)",
+      "vssHint": "Backs up from a shadow copy, so open and locked files can be read and all files are from the same moment (file consistent). What happens when it fails is set by the agent policy (back up without the snapshot, or stop)."
     },
     "hooks": {
       "title": "Commands before and after the backup",
@@ -1027,7 +1064,7 @@
     "repositoryUnavailable": "The backup data of this machine could not be opened in the repository. Check that the repository is reachable.",
     "resticFailed": "Reading the backup data failed. The details are in the server log.",
     "resticUnavailable": "The restic program is not available on the server, so snapshots cannot be read.",
-    "unsupportedOs": "This operating system is not supported yet. This release backs up Linux and macOS machines.",
+    "unsupportedOs": "This operating system is not supported. {appName} backs up Linux, macOS and Windows on x64 (amd64); Windows on ARM is not supported in this release.",
     "revoked": "This machine is revoked and takes no changes or tasks.",
     "nothingToTest": "There is no successful backup to test yet.",
     "instanceUnknown": "The address of this installation is not known. Set the public URL in the settings and try again.",
@@ -1089,6 +1126,9 @@
     "unknown": "Error code {code}",
     "detail": "Technical message from the agent",
     "agent_stopped": "The agent stopped reporting while the run was in progress",
+    "snapshot_failed": "The shadow copy of a drive failed",
+    "snapshot_unavailable": "Without a shadow copy: file system snapshots cannot be used on the machine",
+    "snapshot_cleanup_failed": "A shadow copy was left behind after the backup",
     "cancelled": "Cancelled in the web app"
   },
   "agentUpdates": {
@@ -1252,6 +1292,18 @@
       "label": "Retries",
       "hint": "0 to {max}.",
       "value": "{count, plural, one {# retry} other {# retries}}"
+    },
+    "snapshotOnFailure": {
+      "title": "When the file system snapshot fails",
+      "description": "Applies to the shadow copy (VSS) of Windows machines and to file system snapshots on Linux and macOS. A shadow copy makes a backup file consistent, not application consistent; back databases up with a command before the backup as well.",
+      "modes": {
+        "continue": "Back up without the snapshot (partial)",
+        "fail": "Stop the backup"
+      },
+      "hints": {
+        "continue": "The volumes concerned are read directly; the run ends as partial and says why.",
+        "fail": "The run ends as failed; the automatic retries apply."
+      }
     },
     "problems": {
       "days": "Choose at least one day.",

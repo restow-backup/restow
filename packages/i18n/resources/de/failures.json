@@ -435,6 +435,14 @@
         "title": "Ein Befehl vor oder nach der Sicherung wurde nicht ausgeführt",
         "why": "Die Einstellungen dieses Rechners nennen einen Befehl vor oder nach der Sicherung, aber der Rechner lässt Befehle aus {appName} nicht zu: Sie laufen als root, deshalb muss ein Administrator des Rechners sie dort erlauben. Die Sicherung lief ohne den Befehl; was er vorbereitet (zum Beispiel ein Datenbank-Dump), fehlt womöglich oder ist veraltet."
       },
+      "snapshot_failed": {
+        "title": "Die Schattenkopie eines Laufwerks ist fehlgeschlagen",
+        "why": "Der Agent konnte für {has_path, select, yes {{path}} other {ein Laufwerk}} keinen Dateisystem-Snapshot (unter Windows: Schattenkopie, VSS) anlegen. Je nach Richtlinie wurde das Laufwerk ohne Snapshot direkt gelesen (die Sicherung ist dann teilweise: Dateien, die sich währenddessen änderten, können inkonsistent sein) oder die Sicherung abgebrochen. Häufige Ursachen sind ein VSS-Writer in falschem Zustand oder eine andere Sicherung, die gerade eine Schattenkopie anlegt."
+      },
+      "snapshot_unavailable": {
+        "title": "Dateisystem-Snapshots sind auf diesem Rechner nicht nutzbar",
+        "why": "Der Agent konnte überhaupt keinen Dateisystem-Snapshot anlegen (unter Windows: Schattenkopie, VSS), zum Beispiel weil der Dienst \"Volumeschattenkopie\" deaktiviert ist oder der Agent ohne Administratorrechte läuft. Je nach Richtlinie wurde ohne Snapshot direkt vom Dateisystem gesichert (teilweise Sicherung) oder gar nicht."
+      },
       "timeout": {
         "title": "Der Lauf hat zu lange gedauert",
         "why": "Der Lauf wurde nicht innerhalb der Zeit fertig, die der Agent erlaubt. Was schon hochgeladen wurde, bleibt erhalten, sodass der nächste Lauf zügig dort weitermacht, wo dieser aufgehört hat."
@@ -703,6 +711,8 @@
     "check_endpoint_paths": "Prüfen Sie, ob die Ordner aus den Einstellungen des Rechners auf ihm existieren, oder ändern Sie die Ordner.",
     "check_endpoint_hooks": "Führen Sie die Befehle vor und nach der Sicherung aus den Einstellungen von Hand auf dem Rechner als Administrator aus und beheben Sie, was fehlschlägt.",
     "allow_endpoint_hooks": "Erlauben Sie Hooks auf dem Rechner als Administrator: `sudo restow-agent hooks scripts` (nur Skripte in /etc/restow-agent/hooks.d) oder `sudo restow-agent hooks any` (beliebige Befehle). Oder entfernen Sie die Befehle aus den Einstellungen.",
+    "check_endpoint_snapshot": "Prüfen Sie auf dem Rechner als Administrator den Zustand der Schattenkopie: `vssadmin list writers` (alle Writer sollten \"Stabil\" und ohne Fehler sein) und die Ereignisanzeige unter Windows-Protokolle > Anwendung, Quelle VSS. Läuft gleichzeitig eine andere Sicherung, verschieben Sie eine der beiden.",
+    "check_endpoint_snapshot_service": "Prüfen Sie auf dem Rechner, ob der Dienst \"Volumeschattenkopie\" (VSS) nicht deaktiviert ist (Starttyp \"Manuell\") und ob der Agent als Dienst RestowAgent läuft. Soll ohne Schattenkopie gesichert werden, schalten Sie sie in den Einstellungen des Rechners ab.",
     "check_endpoint_agent": "Prüfen Sie, ob der Agent-Dienst auf dem Rechner läuft und der Rechner den Server per HTTPS erreicht.",
     "check_endpoint_file_access": "Prüfen Sie die Berechtigungen der im Lauf genannten Dateien. Datenbanken und andere Dateien, die sich beim Kopieren ändern, sichert man am besten mit einem Befehl, der vor der Sicherung einen Dump erstellt.",
     "choose_empty_restore_folder": "Fordern Sie die Wiederherstellung erneut an und wählen Sie einen Ordner, der noch nicht existiert oder leer ist. Eine Wiederherstellung überschreibt nie Dateien.",

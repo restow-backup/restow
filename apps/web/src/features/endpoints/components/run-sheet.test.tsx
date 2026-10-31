@@ -60,6 +60,33 @@ describe("RunDetailView", () => {
     expect(html).toContain("Secrets are never part of it.");
   });
 
+  it("says how consistent the files are: shadow copy, partly without, without", () => {
+    const base = run().stats ?? {};
+    const used = render_(
+      run({ stats: { ...base, consistency: { method: "vss", state: "used" } } }),
+    );
+    expect(used).toContain("Consistency");
+    expect(used).toContain("Shadow copy (file consistent)");
+    const partial = render_(
+      run({
+        status: "partial",
+        stats: {
+          ...base,
+          consistency: { method: "vss", state: "partial", liveFilesystems: ["D:\\"] },
+        },
+      }),
+    );
+    expect(partial).toContain("Partly without a shadow copy: D:\\");
+    const failed = render_(
+      run({ status: "failed", stats: { consistency: { method: "vss", state: "unavailable" } } }),
+    );
+    expect(failed).toContain("Without a shadow copy (shadow copy not available)");
+    const linux = render_(run({ stats: { ...base, consistency: { state: "off" } } }));
+    expect(linux).toContain("Without a file system snapshot, read from the live file system");
+    // A run of an agent before 0.5.0 says nothing about it.
+    expect(render_(run())).not.toContain("Consistency");
+  });
+
   it("lists the files a partial run could not read, and says what partial means", () => {
     const html = render_(
       run({

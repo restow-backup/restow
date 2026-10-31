@@ -16,6 +16,9 @@
  *     it; only a lock of the installation overrides that choice.
  *   - `onlyOnAcPower`: scheduled backups only on AC power.
  *   - `retries`: automatic retries after a failed backup (0 to 10, default 5).
+ *   - `snapshotOnFailure` (0.5.0): what a backup does when its file system snapshot fails (Windows
+ *     shadow copy; LVM, btrfs and APFS use the same setting): `continue`, the default, backs up
+ *     from the live file system and ends partial; `fail` stops the backup.
  *
  * The defaults are exactly what the agent did before policies existed, so an installation that
  * sets nothing behaves as before, and the configuration of its machines does not change.
@@ -29,6 +32,7 @@ export const AGENT_POLICY_KEYS = [
   "bandwidthKbps",
   "onlyOnAcPower",
   "retries",
+  "snapshotOnFailure",
 ] as const;
 export type AgentPolicyKey = (typeof AGENT_POLICY_KEYS)[number];
 
@@ -41,10 +45,15 @@ export const JOB_POLICY_KEYS = [
   "catchUp",
   "onlyOnAcPower",
   "retries",
+  "snapshotOnFailure",
 ] as const satisfies readonly AgentPolicyKey[];
 export type JobPolicyKey = (typeof JOB_POLICY_KEYS)[number];
 
 export const CATCH_UP_MODES = ["asap", "next_window"] as const;
+
+/** What a backup does when its file system snapshot fails. */
+export const SNAPSHOT_ON_FAILURE = ["continue", "fail"] as const;
+export type SnapshotOnFailure = (typeof SNAPSHOT_ON_FAILURE)[number];
 export type CatchUpMode = (typeof CATCH_UP_MODES)[number];
 
 /** A weekly range in which backups may start (the reading rules of bandwidth windows). */
@@ -72,6 +81,7 @@ export interface AgentPolicyValues {
   bandwidthKbps: number | null;
   onlyOnAcPower: boolean;
   retries: number;
+  snapshotOnFailure: SnapshotOnFailure;
 }
 
 /** One level: a key that is present is set here, one that is absent inherits. */
@@ -96,6 +106,7 @@ export const DEFAULT_AGENT_POLICY: Readonly<AgentPolicyValues> = Object.freeze({
   bandwidthKbps: null,
   onlyOnAcPower: false,
   retries: 5,
+  snapshotOnFailure: "continue",
 });
 
 export const EMPTY_GLOBAL_AGENT_POLICY: GlobalAgentPolicy = Object.freeze({
@@ -159,6 +170,7 @@ export function resolveAgentPolicy(
     bandwidthKbps: one("bandwidthKbps"),
     onlyOnAcPower: one("onlyOnAcPower"),
     retries: one("retries"),
+    snapshotOnFailure: one("snapshotOnFailure"),
   };
 }
 
@@ -176,6 +188,8 @@ export interface EndpointPolicy {
   bandwidthLocked: boolean;
   onlyOnAcPower: boolean;
   onlyOnAcPowerLocked: boolean;
+  /** Absent in a policy stored before 0.5.0: `continue`. */
+  snapshotOnFailure?: SnapshotOnFailure;
 }
 
 /**
@@ -194,6 +208,8 @@ export function endpointPolicyOf(resolved: ResolvedAgentPolicy): EndpointPolicy 
     bandwidthLocked: resolved.bandwidthKbps.locked,
     onlyOnAcPower: resolved.onlyOnAcPower.value,
     onlyOnAcPowerLocked: resolved.onlyOnAcPower.locked,
+    // Only when it differs from the default, so a policy without it stays byte for byte as it was.
+    ...(resolved.snapshotOnFailure.value === "fail" ? { snapshotOnFailure: "fail" as const } : {}),
   };
   const isDefault =
     policy.backupWindow === null &&
@@ -204,7 +220,8 @@ export function endpointPolicyOf(resolved: ResolvedAgentPolicy): EndpointPolicy 
     policy.bandwidthKbps === null &&
     !policy.bandwidthLocked &&
     policy.onlyOnAcPower === false &&
-    !policy.onlyOnAcPowerLocked;
+    !policy.onlyOnAcPowerLocked &&
+    policy.snapshotOnFailure === undefined;
   return isDefault ? undefined : policy;
 }
 
@@ -222,6 +239,8 @@ export interface AgentPolicyWire {
   backupWindow?: BackupWindow & { timeZone: string };
   catchUp: { enabled: boolean; mode: CatchUpMode; maxAgeHours?: number };
   maxRetries: number;
+  /** Only `fail` is sent; absent means `continue` (and an agent before 0.5.0 ignores it). */
+  snapshotOnFailure?: "fail";
 }
 
 export function agentPolicyWire(policy: EndpointPolicy, zone: string): AgentPolicyWire {
@@ -233,6 +252,7 @@ export function agentPolicyWire(policy: EndpointPolicy, zone: string): AgentPoli
       ...(policy.catchUp.maxAgeHours ? { maxAgeHours: policy.catchUp.maxAgeHours } : {}),
     },
     maxRetries: policy.retries,
+    ...(policy.snapshotOnFailure === "fail" ? { snapshotOnFailure: "fail" as const } : {}),
   };
 }
 
@@ -328,6 +348,7 @@ export type AgentPolicyIssueCode =
   | "catch_up_max_age"
   | "bandwidth"
   | "retries"
+  | "snapshot_on_failure"
   | "locked"
   | "unknown_key";
 
@@ -399,6 +420,11 @@ export function agentPolicyIssues(
         break;
       case "onlyOnAcPower":
         if (typeof value !== "boolean") issues.push({ code: "unknown_key", key });
+        break;
+      case "snapshotOnFailure":
+        if (!(SNAPSHOT_ON_FAILURE as readonly unknown[]).includes(value)) {
+          issues.push({ code: "snapshot_on_failure", key });
+        }
         break;
       case "retries":
         if (

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +7,7 @@ import type { Endpoint, EndpointRun, EndpointTask } from "@restow/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FailureTracker } from "./agent-auth.js";
 import { agentFactsOf, configResponse, trimLogTail } from "./agent-service.js";
-import { installCommands } from "./commands.js";
+import { installCommands, psQuote, releaseKeyFingerprint } from "./commands.js";
 
 /** Stands in for a maintainer's SSHSIG signature (the server never checks it, the agent does). */
 const SIGNATURE = "-----BEGIN SSH SIGNATURE-----\nU1NIU0lH\n-----END SSH SIGNATURE-----\n";
@@ -96,6 +97,56 @@ describe("install commands", () => {
     expect(commands.tokenFile).toBe("/var/root/restow-enrollment.token");
     expect(commands.uninstallAgent).toBe(
       "sudo '/Library/Application Support/Restow/bin/restow-agent' uninstall",
+    );
+  });
+
+  it("gives Windows the PowerShell commands, the token file of SYSTEM and the key pin", () => {
+    const fingerprint = `SHA256:${"A".repeat(43)}`;
+    const commands = installCommands("windows", "https://x.example/", {
+      releaseKeyFingerprint: fingerprint,
+    });
+    const fetch = "irm -UseBasicParsing 'https://x.example/install/windows.ps1'";
+    const tls = "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'";
+    expect(commands.install).toBe(`${tls}; iex (${fetch})`);
+    expect(commands.installUnattended).toBe(
+      `$env:RESTOW_TOKEN_FILE = 'C:\\Windows\\System32\\config\\systemprofile\\restow-enrollment.token'; $env:RESTOW_RELEASE_KEY_FINGERPRINT = '${fingerprint}'; ${tls}; iex (${fetch})`,
+    );
+    expect(commands.uninstallScript).toBe(
+      `${tls}; & ([scriptblock]::Create((${fetch}))) -Uninstall`,
+    );
+    expect(commands.uninstallAgent).toBe(
+      "& 'C:\\Program Files\\Restow\\bin\\restow-agent.exe' uninstall",
+    );
+    expect(commands.hooksAny).toBe(
+      "& 'C:\\Program Files\\Restow\\bin\\restow-agent.exe' hooks any",
+    );
+    // Without a key (a development build) nothing is pinned; a malformed fingerprint is never written.
+    expect(installCommands("windows", "https://x.example").installUnattended).not.toContain(
+      "FINGERPRINT",
+    );
+    expect(
+      installCommands("windows", "https://x.example", { releaseKeyFingerprint: "SHA256:'x" })
+        .installUnattended,
+    ).not.toContain("FINGERPRINT");
+    expect(psQuote("it's")).toBe("'it''s'");
+  });
+
+  it("computes the release key fingerprint as ssh-keygen -l prints it", () => {
+    // The SHA-256 of the key blob, base64 without padding (computed independently with Python).
+    const key =
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl restow";
+    const fingerprint = releaseKeyFingerprint(key);
+    expect(fingerprint).toBe("SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU");
+    expect(releaseKeyFingerprint("garbage")).toBeNull();
+    // The project's release key: the fingerprint agent/README.md and the release notes name.
+    const projectKey = readFileSync(
+      join(import.meta.dirname, "../../../../../agent/release-signing.pub"),
+      "utf8",
+    )
+      .split("\n")
+      .find((line) => line.startsWith("ssh-ed25519 "));
+    expect(releaseKeyFingerprint(projectKey ?? "")).toBe(
+      "SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o",
     );
   });
 
@@ -794,22 +845,23 @@ describe("request schemas", () => {
     ).toBe(false);
     expect(browseQuerySchema.parse({ snapshotId }).path).toBe("/");
     expect(browseQuerySchema.safeParse({ snapshotId: "latest" }).success).toBe(false);
-    // A restore folder is a plain absolute path, never one that climbs out or is the root.
-    for (const targetDir of [
-      "/",
-      "relative",
-      "/srv/../etc",
-      "/srv/./x",
-      "/srv//x",
-      "/srv/x/",
-      "C:\\Restore",
-    ]) {
+    // The schema refuses control characters and overlong folders; the rules of the machine's
+    // system (Unix or Windows) are checked by the service (@restow/core restoreTargetIssue).
+    for (const targetDir of ["/srv/\nx", "x".repeat(1025)]) {
       expect(
         createTaskSchema.safeParse({ kind: "restore", snapshotId, paths: ["/etc"], targetDir })
           .success,
         targetDir,
       ).toBe(false);
     }
+    expect(
+      createTaskSchema.safeParse({
+        kind: "restore",
+        snapshotId,
+        paths: ["/C/Users/anna"],
+        targetDir: "D:\\Restore",
+      }).success,
+    ).toBe(true);
     expect(
       createTaskSchema.safeParse({
         kind: "restore",

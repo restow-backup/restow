@@ -252,7 +252,7 @@ describe("EndpointsPage", () => {
     await page.click(page.byText("button", "New server"));
     await page.settle();
     expect(page.text()).toContain("Operating system");
-    expect(page.text()).toContain("Planned");
+    expect(page.text()).toContain("Preview");
   });
 
   it("shows why the list could not be loaded, with a retry", async () => {

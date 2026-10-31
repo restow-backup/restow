@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
 import {
   type DirectoryPosition,
@@ -18,8 +19,10 @@ import {
   resolveSelection,
   resticListDirectory,
   resticSnapshots,
+  restoreTargetIssue,
   SelectionError,
   type SnapshotFlagReason,
+  SUPPORTED_ENDPOINT_OS,
   streamSnapshotZip,
 } from "@restow/core";
 import {
@@ -51,13 +54,17 @@ import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { isMissingQueueSchema, jobQueue } from "../jobs/queue.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
 import { bandwidthWindowsProblem } from "./bandwidth.js";
-import { installCommands } from "./commands.js";
+import { installCommands, releaseKeyFingerprint } from "./commands.js";
 import { dataFoldersOf, machineOf } from "./data-folders.js";
 import {
+  announcedAgentVersion,
   compareAgentVersions,
   isAgentVersion,
   isSafeOrigin,
   latestAgentRelease,
+  readInstallScript,
+  readReleaseKey,
+  renderInstallScript,
 } from "./distribution.js";
 import {
   type BrowseDto,
@@ -318,10 +325,33 @@ export interface DetailOptions {
 
 /** The commands of a system, or null when the address cannot go into a command. */
 function commandsFor(os: Endpoint["os"], instanceUrl: string) {
-  if (os === "windows" || !isSafeOrigin(instanceUrl.replace(/\/+$/, ""))) {
+  if (!isSafeOrigin(instanceUrl.replace(/\/+$/, ""))) {
     return null;
   }
   return installCommands(os, instanceUrl);
+}
+
+/**
+ * What the Windows dialog shows beside the commands (docs/WINDOWS-AGENT.md, 14.1): the fingerprint
+ * of the release signing key (pinned in the unattended command) and the SHA-256 of windows.ps1 as
+ * this instance serves it, for the way "download, compare, run with -File".
+ */
+async function windowsInstallFacts(
+  instance: string,
+): Promise<{ releaseKeyFingerprint: string | null; scriptSha256: string | null }> {
+  const key = await readReleaseKey();
+  const fingerprint = key ? releaseKeyFingerprint(key) : null;
+  let scriptSha256: string | null = null;
+  const template = await readInstallScript("windows.ps1");
+  if (template !== null) {
+    try {
+      const body = renderInstallScript(template, instance, await announcedAgentVersion(), key);
+      scriptSha256 = createHash("sha256").update(body, "utf8").digest("hex");
+    } catch {
+      scriptSha256 = null;
+    }
+  }
+  return { releaseKeyFingerprint: fingerprint, scriptSha256 };
 }
 
 export async function getEndpoint(
@@ -545,13 +575,9 @@ export async function createEnrollmentToken(
   if (!isSupportedEndpointOs(input.os)) {
     throw new ProblemError(422, "Operating system not supported", {
       type: UNSUPPORTED_OS_PROBLEM,
-      detail:
-        "Windows endpoints are not supported yet. This release backs up Linux and macOS machines.",
-      extensions: { supported: ["linux", "darwin"] },
+      detail: `The operating system "${input.os.slice(0, 40)}" is not supported. This release backs up Linux, macOS and Windows (amd64) machines.`,
+      extensions: { supported: [...SUPPORTED_ENDPOINT_OS] },
     });
-  }
-  if (input.os === "windows") {
-    throw new ProblemError(422, "Operating system not supported", { type: UNSUPPORTED_OS_PROBLEM });
   }
   if (!instance.url || !isSafeOrigin(instance.url)) {
     throw new ProblemError(503, "Instance address unknown", {
@@ -594,6 +620,7 @@ export async function createEnrollmentToken(
     });
     return created;
   });
+  const windows = input.os === "windows" ? await windowsInstallFacts(instance.url) : null;
   const warnings: CreatedTokenDto["warnings"] = [];
   if (isInsecureTransport(instance.url)) {
     warnings.push("insecure_transport");
@@ -606,7 +633,10 @@ export async function createEnrollmentToken(
     token: token.value,
     os: input.os,
     instanceUrl: instance.url,
-    commands: installCommands(input.os, instance.url),
+    commands: installCommands(input.os, instance.url, {
+      releaseKeyFingerprint: windows?.releaseKeyFingerprint ?? null,
+    }),
+    ...(windows ? { windows } : {}),
     warnings,
   };
 }
@@ -733,6 +763,9 @@ export function assertHooksAllowed(
   }
 }
 
+/** Configuration keys a machine keeps for itself, also in a backup job. */
+const MACHINE_OWN_KEYS: ReadonlySet<string> = new Set(["onlyOnAcPower", "useVss"]);
+
 /** Apply a validated change to a configuration; returns the new one and which keys changed. */
 export function applyConfigChange(
   current: EndpointConfig,
@@ -787,6 +820,10 @@ export function applyConfigChange(
   if (change.onlyOnAcPower !== undefined && change.onlyOnAcPower !== current.onlyOnAcPower) {
     config.onlyOnAcPower = change.onlyOnAcPower;
     changed.push("onlyOnAcPower");
+  }
+  if (change.useVss !== undefined && change.useVss !== current.useVss) {
+    config.useVss = change.useVss;
+    changed.push("useVss");
   }
   return { config, changed };
 }
@@ -907,8 +944,15 @@ export async function updateEndpoint(
     const managed = await jobWithOverridesOf(tx, tenantId, id);
     if (change.config) {
       const applied = applyConfigChange(endpoint.config, change.config);
-      if (managed && applied.changed.some((key) => key !== "onlyOnAcPower")) {
+      // The machine's own switches (AC power, shadow copy) stay with the machine in a job.
+      if (managed && applied.changed.some((key) => !MACHINE_OWN_KEYS.has(key))) {
         throw configManagedByJob(managed.job);
+      }
+      if (applied.changed.includes("useVss") && endpoint.os !== "windows") {
+        throw new ProblemError(422, "Validation failed", {
+          detail: "The shadow copy (useVss) is a setting of Windows machines only.",
+          extensions: { errors: [{ path: "config.useVss", code: "windows_only" }] },
+        });
       }
       // Backups run only in a job (release 0.2.1): a machine in none may stop its schedule (`none`)
       // but not start one. Its folders and the rest stay changeable; they take effect in a job.
@@ -1065,6 +1109,19 @@ export async function createTask(
     if (input.kind === "restore" && !FULL_SNAPSHOT_ID.test(input.snapshotId)) {
       throw new ProblemError(422, "Validation failed", {
         detail: "A restore names a snapshot by its full id.",
+      });
+    }
+    const targetIssue =
+      input.kind === "restore" && input.targetDir
+        ? restoreTargetIssue(endpoint.os, input.targetDir)
+        : null;
+    if (targetIssue) {
+      throw new ProblemError(422, "Validation failed", {
+        detail:
+          endpoint.os === "windows"
+            ? `The restore folder is not usable on Windows (${targetIssue}): use a local folder such as D:\\Restore, outside Windows, Program Files and the agent's own data.`
+            : `The restore folder is not usable (${targetIssue}): use an absolute path below / without ".", ".." or double slashes.`,
+        extensions: { errors: [{ path: "targetDir", code: targetIssue }] },
       });
     }
     if (input.kind === "backup_now" && !(await jobWithOverridesOf(tx, tenantId, id))) {

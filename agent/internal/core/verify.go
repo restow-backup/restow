@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -57,7 +58,7 @@ func (a *Agent) doVerify(rc *runContext, p api.VerifySampleParams) runOutcome {
 	}
 	includes := make([]string, 0, len(p.Files))
 	for _, f := range p.Files {
-		if !strings.HasPrefix(f.Path, "/") || strings.ContainsRune(f.Path, 0) || filepath.Clean(f.Path) != f.Path {
+		if !strings.HasPrefix(f.Path, "/") || strings.ContainsRune(f.Path, 0) || path.Clean(f.Path) != f.Path {
 			out.fail("invalid_task", "Invalid file path %q in the restore test.", f.Path)
 			rl.Errorf("%s", out.Errors[0].Message)
 			return out

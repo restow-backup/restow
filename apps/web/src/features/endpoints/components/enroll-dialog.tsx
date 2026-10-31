@@ -59,9 +59,14 @@ const OS_OPTIONS: readonly { os: EndpointOs; icon: LucideIcon }[] = [
   { os: "windows", icon: Monitor },
 ];
 
-/** Whether the operating system can be chosen; Windows is planned, not offered. */
+/** Whether the operating system can be chosen (every one from 0.5.0; Windows as a preview). */
 export function isSelectableOs(os: EndpointOs): os is EnrollOs {
-  return os === "linux" || os === "darwin";
+  return os === "linux" || os === "darwin" || os === "windows";
+}
+
+/** Systems offered as a preview (0.5.0: Windows, amd64 only, unsigned binaries). */
+export function isPreviewOs(os: EndpointOs): boolean {
+  return os === "windows";
 }
 
 /** The system a new machine of this profile most likely runs; the admin still chooses. */
@@ -123,6 +128,7 @@ function OsChoice({
 }) {
   const { t } = useTranslation("endpoints");
   const planned = !isSelectableOs(os);
+  const preview = isPreviewOs(os);
   const id = `enroll-os-${os}`;
   return (
     <Label
@@ -141,6 +147,11 @@ function OsChoice({
           {planned ? (
             <StatusBadge tone="muted" className="whitespace-nowrap">
               {t("enroll.os.planned")}
+            </StatusBadge>
+          ) : null}
+          {preview ? (
+            <StatusBadge tone="info" className="whitespace-nowrap" data-slot="enroll-preview">
+              {t("enroll.os.preview")}
             </StatusBadge>
           ) : null}
         </span>
@@ -166,7 +177,9 @@ function ChooseStep(props: EnrollViewProps) {
         <RadioGroup
           value={props.os}
           onValueChange={(value) => {
-            if (value === "linux" || value === "darwin") props.onOsChange(value);
+            if (value === "linux" || value === "darwin" || value === "windows") {
+              props.onOsChange(value);
+            }
           }}
           className="grid gap-2 sm:grid-cols-3"
           aria-label={t("enroll.os.legend")}
@@ -175,7 +188,15 @@ function ChooseStep(props: EnrollViewProps) {
             <OsChoice key={os} os={os} icon={icon} selected={props.os === os} />
           ))}
         </RadioGroup>
-        <p className="text-xs text-muted-foreground">{t("enroll.os.windowsNote")}</p>
+        {props.os === "windows" ? (
+          <Alert variant="info" data-slot="enroll-windows-preview">
+            <TriangleAlert />
+            <AlertTitle>{t("enroll.os.windowsPreview.title")}</AlertTitle>
+            <AlertDescription>
+              <p>{t("enroll.os.windowsPreview.description")}</p>
+            </AlertDescription>
+          </Alert>
+        ) : null}
       </fieldset>
 
       <div className="grid gap-1.5">
@@ -365,6 +386,48 @@ function ConnectionStatus({
   );
 }
 
+/**
+ * Windows (preview): the way without `iex` (download, compare the SHA-256, run with -File) and the
+ * fingerprint of the release key the unattended command pins.
+ */
+function WindowsFacts({ created }: { created: CreatedToken }) {
+  const { t } = useTranslation("endpoints");
+  const facts = created.windows;
+  const fileCommand = "powershell -NoProfile -ExecutionPolicy Bypass -File .\\windows.ps1";
+  return (
+    <div className="grid gap-2" data-slot="enroll-windows-facts">
+      <p className="text-xs text-muted-foreground">{t("enroll.windows.admin")}</p>
+      <Collapsible className="rounded-md border">
+        <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+          {t("enroll.windows.file.heading")}
+          <ChevronDown
+            aria-hidden="true"
+            className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180"
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="grid gap-2 border-t px-3 py-3">
+          <p className="text-sm text-muted-foreground">
+            {t("enroll.windows.file.intro", {
+              url: `${created.instanceUrl.replace(/\/+$/, "")}/install/windows.ps1`,
+            })}
+          </p>
+          {facts?.scriptSha256 ? (
+            <CommandBox command={facts.scriptSha256} label={t("enroll.windows.file.copyHash")} />
+          ) : (
+            <p className="text-xs text-muted-foreground">{t("enroll.windows.file.noHash")}</p>
+          )}
+          <CommandBox command={fileCommand} label={t("enroll.windows.file.copyRun")} />
+        </CollapsibleContent>
+      </Collapsible>
+      {facts?.releaseKeyFingerprint ? (
+        <p className="text-xs text-muted-foreground" data-slot="enroll-key-fingerprint">
+          {t("enroll.windows.fingerprint", { fingerprint: facts.releaseKeyFingerprint })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function CommandStep(props: EnrollViewProps & { created: CreatedToken }) {
   const { t } = useTranslation("endpoints");
   const { created } = props;
@@ -387,6 +450,7 @@ function CommandStep(props: EnrollViewProps & { created: CreatedToken }) {
         <div className={cn(inactive && "opacity-60")}>
           <CommandBox command={created.commands.install} label={t("enroll.command.copy")} />
         </div>
+        {created.os === "windows" ? <WindowsFacts created={created} /> : null}
         <p className="text-sm text-muted-foreground">{t("enroll.command.tokenIntro")}</p>
         <div className={cn(inactive && "opacity-60")} data-slot="enroll-token">
           <CommandBox command={created.token} label={t("enroll.command.copyToken")} />
@@ -426,7 +490,7 @@ function CommandStep(props: EnrollViewProps & { created: CreatedToken }) {
         </ul>
         <p className="text-sm text-muted-foreground">{t("enroll.script.repair")}</p>
         <p className="text-sm text-muted-foreground" data-slot="enroll-hooks">
-          {t("enroll.script.hooks")}
+          {t("enroll.script.hooks", { os: created.os })}
         </p>
       </section>
 
@@ -440,7 +504,10 @@ function CommandStep(props: EnrollViewProps & { created: CreatedToken }) {
         </CollapsibleTrigger>
         <CollapsibleContent className="grid gap-3 border-t px-3 py-3">
           <p className="text-sm text-muted-foreground">
-            {t("enroll.unattended.intro", { tokenFile: created.commands.tokenFile })}
+            {t("enroll.unattended.intro", {
+              os: created.os,
+              tokenFile: created.commands.tokenFile,
+            })}
           </p>
           <CommandBox
             command={created.commands.installUnattended}
@@ -493,9 +560,9 @@ function CommandStep(props: EnrollViewProps & { created: CreatedToken }) {
 }
 
 /**
- * The install wizard as a dialog: first the system (Linux and macOS; Windows
- * is shown as planned), then the one-time command with everything an admin
- * should know before running it, then the live state of the enrollment.
+ * The install wizard as a dialog: first the system (Linux, macOS, and Windows
+ * as a preview), then the one-time command with everything an admin should
+ * know before running it, then the live state of the enrollment.
  *
  * The command holds a secret shown once, so it lives only in this component's
  * state: it is never put in a URL or written to storage, and closing the

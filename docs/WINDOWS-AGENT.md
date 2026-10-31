@@ -56,7 +56,8 @@ Harte Randbedingungen, die für alles Folgende gelten:
 - **Schattenkopie** immer, wenn `useVss` gesetzt ist (Standard für Windows). Fehlerpolitik
   als neue, betriebssystemneutrale Richtlinie `snapshotOnFailure`: `continue` (Standard, ohne
   Schattenkopie weiter, Lauf `partial`) oder `fail`. Neue Fehlercodes `snapshot_failed`,
-  `snapshot_unavailable`, `snapshot_cleanup_failed`, Statistik `stats.snapshot`. Dieselben
+  `snapshot_unavailable`, `snapshot_cleanup_failed`, Berichtsfeld `consistency` (ersetzt das
+  zuerst geplante `stats.snapshot`, Entscheidung 1). Dieselben
   Namen nutzen APFS (macOS) und LVM/btrfs (Linux) im selben Release.
 - **Wichtigster restic-Befund:** Schlägt das Anlegen einer Schattenkopie fehl, liest restic
   die Dateien dieses Volumes still vom Live-Dateisystem und **endet trotzdem mit Exit-Code
@@ -1429,7 +1430,8 @@ Feld nicht und läuft auf Linux/macOS ohnehin ohne Snapshot).
   - `{ code: "snapshot_failed", path: "C:\\", message: "<restics Text, geschwärzt>" }` je Volume.
   - `{ code: "snapshot_unavailable", message: "…" }` einmal.
   - `{ code: "snapshot_cleanup_failed", path: "C:\\", message: "…" }`.
-- **Statistik:** `stats.snapshot = { method: "vss" | "apfs" | "lvm" | "btrfs", state:
+- **Statistik** (umgesetzt als Berichtsfeld `consistency`, Form in Entscheidung 1):
+  `stats.snapshot = { method: "vss" | "apfs" | "lvm" | "btrfs", state:
   "used" | "partial" | "unavailable" | "off" }`. `used`: angefordert, kein Fehler
   (übersprungene Volumes zählen nicht); `partial`: mindestens ein Volume ohne; `unavailable`:
   ganz ohne; `off`: nicht angefordert.
@@ -1977,7 +1979,18 @@ Der Maintainer hat alle Punkte entschieden; die Begründungen der Empfehlungen g
    `failed`. Dasselbe Feld nutzen Linux und macOS; der Bericht trägt dafür ein gemeinsames
    Feld `consistency`, in dem die Angaben aus 17.5 (`stats.snapshot`: Verfahren und
    Zustand) aufgehen. Die genaue Form legen beide Zweige gemeinsam fest, der zuerst
-   zusammengeführte setzt sie.
+   zusammengeführte setzt sie. **Gesetzt mit M3 dieses Zweigs** (Vorschlag aus
+   docs/BAREMETAL.md 2.1 und 17.5 hier zusammengeführt): oberstes Feld des
+   `FinishRequest`, `consistency: { method?: "vss" | "lvm" | "btrfs" | "apfs" | "mixed",
+   state: "used" | "partial" | "unavailable" | "off", liveFilesystems?: string[] }`
+   (höchstens 32 Einträge). `method` fehlt, wenn das System kein Verfahren hat; `off` heißt
+   "nicht angefordert" (auch Windows mit `useVss: false`); `liveFilesystems` nennt die Volumes
+   oder Dateisysteme, die trotz Anforderung live gelesen wurden (fehlgeschlagen, vom Anbieter
+   nicht unterstützt, vorab ausgeschlossen). Gesendet für jeden Backup-Lauf, der restic
+   erreicht hat, und für einen fehlgeschlagenen, wenn der Snapshot der Grund ist. Der Server
+   prüft es (`@restow/core` `parseRunConsistency`) und legt es als `stats.consistency` in
+   `endpoint_runs.stats` ab (JSONB, keine Migration). `stats.snapshot` gibt es damit nicht.
+   BAREMETALs `kind: "live"` heißt hier `state: "off"` ohne `method`.
 
 2. **Windows on ARM: entschieden, abgelehnt in 0.5.0.** Nur `windows-amd64`. Installer und
    Server lehnen arm64 mit klarer Meldung ab; `agent/build.sh` kennt kein `windows-arm64`
@@ -2146,11 +2159,64 @@ Fehlerpolitik, Server, Oberfläche und i18n folgen im nächsten Schritt.
   PowerShell vorhanden, Nachladen nicht erlaubt). Der Algorithmus ist über den Go-Zwilling
   geprüft, die PowerShell-Fassung erst im Windows-Job.
 
-**Noch offen (nächster Schritt):** Sicherung mit Schattenkopie und `snapshotOnFailure`
-(17), Pfadabbildung und Ausschlüsse (16), `sysinfo_windows.go` (Version und Produkttyp aus
-der Registry; heute steht dort "Windows"), Annahme von `windows`/`amd64` am Server und
-Ablehnung von `arm64` (19.2), Enroll-Dialog, Oberfläche, i18n, Doku-Abschnitte zu Sicherung
-und Restore-Anzeige.
+**M3, Schattenkopie, Server und Oberfläche (umgesetzt):**
+
+- Agent (17): `restic/snapshot.go` (ohne Tag, getestet) erkennt restics Einträge
+  `failed to create snapshot for [...]` (fehlgeschlagen bzw. mit `Snapshots are not supported
+  for volume` übersprungen), `failed to delete VSS snapshot` (Aufräumen),
+  `failed to get volume from mount point`/`failed to parse vss.exclude-volumes` (Warnung) und
+  bewertet einen Exit 1 vor der ersten `status`-Zeile (`SnapshotFault`: sicher bei `VSS error`,
+  `VSS_E_`, `VssApi.dll`, `CoInitializeEx`, `CoInitializeSecurity`, `can't use VSS`, sonst
+  möglich). `backupArgs` ergänzt `--use-fs-snapshot -o vss.timeout=5m [-o
+  vss.exclude-volumes=E:\;F:\] --exclude-cloud-files --iexclude-file`; Laufwerksbuchstaben gehen
+  groß an restic. `core/snapshot.go` (Politik, `consistency`, Fehlertexte, ohne Tag),
+  `core/snapshot_windows.go` (Plan: `useVss`, Rechte über `TokenElevated`, Volume je Quelle über
+  `GetVolumePathNameW`, `GetDriveTypeW`, `GetVolumeInformationW`; feste Ausschlüsse,
+  `C:\ProgramData\Restow`), `core/snapshot_other.go` (Linux/macOS: kein Snapshot, `useVss`
+  wird wie bisher protokolliert). Unter `fail` bricht der Agent restic über
+  `context.WithCancelCause` mit eigener Ursache ab, das zählt weder als Unterbrechung noch als
+  `restic_error`. Unter `continue` startet er bei "VSS nicht nutzbar" restic ein zweites Mal
+  ohne `--use-fs-snapshot`; bei einem unbekannten Exit 1 nur dann `snapshot_unavailable`, wenn
+  der zweite Lauf nicht mit derselben Meldung scheitert.
+- Pfade (16): Quellen der anderen Pfadform werden übersprungen und einmal protokolliert
+  (`ownFormSources`), `snapshotPathOf` (`C:\Users` -> `/C/Users`) für die Ransomware-Auswertung,
+  `verify.go` prüft Snapshot-Pfade mit `path.Clean`, Restore unter Windows mit `--iinclude` und
+  `[` als `[[]` (`includeFor`).
+- Server: `SUPPORTED_ENDPOINT_OS` mit `windows`, `isSupportedEndpointTarget` (Windows nur
+  amd64, eigener Problemtext für Windows on ARM), `DEFAULT_EXCLUDES.windows` nach 16.2,
+  Richtlinie `snapshotOnFailure` (Schema, Sperre, Draht nur `fail`), `useVss` am Rechner (nur
+  Windows, auch in einem Job änderbar), Restore-Ziel je Betriebssystem
+  (`@restow/core` `restoreTargetIssue`), PowerShell-Befehle (`commands.ts`, `psQuote`, Pin des
+  Fingerabdrucks im unbeaufsichtigten Befehl), `windows: { releaseKeyFingerprint, scriptSha256 }`
+  in der Antwort auf ein neues Token, Fehlercodes und Katalog (`endpoint.snapshot_failed`
+  vorübergehend, `endpoint.snapshot_unavailable`, Schritte `check_endpoint_snapshot`,
+  `check_endpoint_snapshot_service`), `consistency` beim Abschluss, manueller
+  Update-Befehl für Windows.
+- Oberfläche: Enroll-Dialog mit Windows ("Vorschau", Hinweis zur Vorschau, PowerShell-Befehl,
+  Datei-Weg mit SHA-256, Fingerabdruck), Restore-Dialog mit Windows-Regeln, Platzhalter
+  `D:\Wiederherstellung` und Anzeige `C:\...`, Schalter "Schattenkopie (VSS)" in den
+  Einstellungen eines Windows-Rechners, Richtlinien-Editoren mit "Wenn der
+  Dateisystem-Snapshot scheitert", Lauf-Details mit "Konsistenz", Texte de/en.
+
+**Abweichungen vom Entwurf in M3 und warum:**
+
+- Berichtsfeld `consistency` statt `stats.snapshot` (Entscheidung 1, Form oben): Ein
+  fehlgeschlagener Lauf hat keine `stats`, braucht die Angabe aber gerade dann.
+- `fail` mit einem *unbekannten* Exit 1 vor dem ersten Fortschritt (17.3, letzte Zeile)
+  startet keinen zweiten Lauf ohne Schattenkopie: Gelänge er, entstünde eine Sicherung ohne
+  Snapshot, die `fail` ausschließt. Der Lauf endet als gewöhnlicher `restic_exit_1`.
+- Ein Job, in dem für einen Rechner keine Quelle seiner Pfadform übrig bleibt, endet mit
+  `no_paths` (Text nennt die Pfadform), nicht mit `invalid_task`: `no_paths` hat schon
+  Erklärung und Schritte, und die Ursache ist dieselbe.
+- Die Rechteprüfung des Plans nutzt `TokenElevated` (SYSTEM und erhöhte Konsole sind erhöht),
+  keine eigene Prüfung der Dienst-Privilegien; ohne Rechte gilt `snapshot_unavailable`.
+- Die Prüfung der Sicherungsordner je Betriebssystem bei Rechner und Job (19.1
+  `endpoint-paths.ts`, Warnung "passt nicht zu allen Mitgliedern"), Windows-`dataFolders`
+  (16.1), `sysinfo_windows.go` mit Version und Produkttyp samt Hinweis für
+  Domänencontroller, der Snapshot-Browser und ZIP-Download mit `C:\`-Anzeige, die
+  Hook-Hilfetexte je Betriebssystem außerhalb des Enroll-Dialogs und der Windows-Demorechner
+  sind nicht umgesetzt. Sie gehen nach 0.5.x (Abschnitt 23 erlaubt das); die bekannte Grenze
+  "weitere Laufwerke werden nicht gemeldet" steht in agent/README.md und im CHANGELOG.
 
 **Nur auf einer echten Windows-Maschine zu prüfen (zusätzlich zu 22.3), nicht in dieser
 Umgebung geprüft.** Nichts davon ist hier gelaufen; alles Windows-Spezifische ist nur für
@@ -2229,3 +2295,62 @@ Umgebung geprüft.** Nichts davon ist hier gelaufen; alles Windows-Spezifische i
     wieder `LocalSystem`, keine Abhängigkeit, das Ereignis zum Abgleich der Dienstdefinition
     genau einmal, beim nächsten Start nicht wieder. Lässt Windows eine Einstellung nicht zu,
     meldet der Agent das als Fehler mit dem Namen der Einstellung.
+
+Dazu aus M3 (Schattenkopie, Server, Oberfläche). Auch hiervon ist nichts auf Windows gelaufen;
+geprüft sind die reinen Funktionen und die Politik mit einem falschen restic unter Linux.
+
+23. Schattenkopie gelingt: Sicherung von `C:\Users` mit geöffneter Excel-Datei, Outlook (PST)
+    und SQL Server Express; der Lauf zeigt "Schattenkopie (dateikonsistent)",
+    `stats.consistency = { method: "vss", state: "used" }`; die Dateien sind im Snapshot;
+    `vssadmin list shadows` vorher und nachher gleich. Restore der `.mdf`/`.ldf` und Anhängen
+    an SQL Server gelingt (Punkt 6 aus 22.3).
+24. Erkennung der restic-Texte am echten restic.exe: `-o vss.provider` lässt der Agent nicht
+    setzen, darum für den Test restic.exe von Hand mit
+    `-o vss.provider={00000000-0000-0000-0000-000000000001}` aufrufen und prüfen, dass die
+    Zeile wörtlich `failed to create snapshot for [c:\]: invalid VSS provider ...` lautet, mit
+    `item` `c:\` und Exit 0; dasselbe beim Abschluss eines Agentenlaufs (z. B. durch einen
+    gleichzeitig laufenden zweiten Sicherungsanbieter, `VSS_E_SNAPSHOT_SET_IN_PROGRESS`):
+    `continue` ergibt `partial` mit `snapshot_failed` (Pfad `C:\`), `fail` bricht restic
+    innerhalb von Sekunden über CTRL_BREAK ab (Exit 130, keine Sperre im Repository, keine
+    Schattenkopie bleibt liegen), Lauf `failed`.
+25. VSS nicht nutzbar: Dienst "Volumeschattenkopie" deaktivieren. Prüfen, mit welchem Text und
+    Exit-Code restic dann endet (die Erwartung `VSS error`/`CoInitializeSecurity` vor der ersten
+    `status`-Zeile ist aus dem Quelltext abgeleitet, nicht beobachtet); `continue`: zwei
+    restic-Läufe im Log, Lauf `partial`, `snapshot_unavailable`, "Ohne Schattenkopie
+    (Schattenkopie nicht verfügbar)"; `fail`: ein restic-Lauf, `failed`. Ebenso aus einer nicht
+    erhöhten Konsole (`backup-now` lehnt dort schon ab; sonst Hinweis im Log).
+26. Vorab ausgeschlossene Volumes: exFAT-USB-Stick und eine FAT32-Partition als Quelle;
+    `-o vss.exclude-volumes=E:\` steht in der restic-Zeile, Hinweis im Log, Lauf `succeeded`
+    (`state: "used"`, `liveFilesystems: ["E:\\"]`), auch mit `fail`. Ob restic die Form
+    `E:\` in `vss.exclude-volumes` annimmt oder `E:` verlangt, ist hier nicht geprüft.
+27. Vom Anbieter nicht unterstütztes Volume (eingehängte VHD, ReFS auf älterem Server): nur
+    Hinweis im Log, kein Fehler, auch mit `fail`.
+28. Eingehängter Ordner (Volume unter `C:\mnt\daten`): `GetVolumePathNameW` liefert den
+    Einhängepunkt, restic macht eine eigene Schattenkopie; prüfen, dass `liveFilesystems` und
+    die Lauf-Fehler den Einhängepunkt sinnvoll nennen.
+29. `--exclude-cloud-files` mit OneDrive (Nur-Online-Dateien): nichts wird heruntergeladen,
+    lokal vorhandene Dateien sind im Snapshot; `--iexclude-file`: `c:\windows\temp` wird von
+    `C:\Windows\Temp` getroffen; `pagefile.sys`, `hiberfil.sys`, `$Recycle.Bin` und
+    `C:\ProgramData\Restow` fehlen im Snapshot.
+30. Gemischter Job (ein Linux-Rechner und ein Windows-Rechner, Pfade `/etc` und `C:\Users`):
+    beide sichern, jeder protokolliert die Pfade des anderen Systems einmal; ein Job nur mit
+    `/etc` endet auf dem Windows-Rechner mit `no_paths`.
+31. Snapshot-Pfade: Laufwerksbuchstabe groß (`/C/Users/...` auch wenn der Job `c:\users`
+    nennt); Stichprobe (`verify_sample`) und Ransomware-Auswertung finden die Dateien (kein
+    "außerhalb der Quellen"); Einzeldatei-Restore einer Datei mit `[` im Namen über
+    `--iinclude` und `[[]`.
+32. Oberfläche gegen einen echten Windows-Rechner: Enroll-Dialog-Befehl in PowerShell 5.1
+    eingefügt läuft; der unbeaufsichtigte Befehl mit dem vorbelegten Fingerabdruck gelingt;
+    der angezeigte SHA-256 von `windows.ps1` stimmt mit `Get-FileHash` der per Browser oder
+    `Invoke-WebRequest -OutFile` geladenen Datei überein (Zeilenenden und Kodierung, wie der
+    Server die Datei ausliefert); Schalter "Schattenkopie (VSS)" aus ergibt "Ohne
+    Schattenkopie (für diesen Rechner abgeschaltet)"; Restore-Dialog nimmt `D:\R` an und
+    lehnt `C:\Windows\R` und `\\nas\x` ab, wie der Agent.
+33. Windows on ARM: Enroll mit `arch=arm64` ergibt den Text "Windows on ARM is not supported"
+    (der Installer bricht vorher ab, Punkt 16).
+
+Maintainer-Schritt je Prerelease (Entscheidung 4): nach `agent-sums` die SHA-256 von
+`restow-agent.exe` und `restic.exe` aus dessen Hinweisen bei Microsoft einreichen
+("Submit a file for malware analysis", Rolle Softwareentwickler), das Ergebnis abwarten und
+erst dann signieren; ein frisches Windows 11 mit Standardeinstellungen lädt und startet beide
+ohne Meldung (Punkt 2 aus 22.3). Bis dahin bleibt Windows "Vorschau" (Entscheidung 6).

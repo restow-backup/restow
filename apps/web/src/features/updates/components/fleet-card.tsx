@@ -124,6 +124,10 @@ export function manualCommand(
   if (member.kind === "pve_node") {
     return { command: commands.pve_node, legacy: false };
   }
+  if (member.os === "windows") {
+    // Windows agents start with 0.5.0, which has the `update` command.
+    return commands.windows ? { command: commands.windows, legacy: false } : null;
+  }
   if (member.os !== "darwin" && member.os !== "linux") {
     return null;
   }

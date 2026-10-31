@@ -29,7 +29,8 @@ Known Issues.
   Graph is the only Microsoft interface Restow uses; Exchange Web Services, which
   Microsoft switched off for Exchange Online on 1 October 2026, are not.
 - **Endpoint backup** of servers and clients with the Restow agent and restic:
-  Linux and macOS agents (Windows is planned), installed root-owned and updated
+  Linux and macOS agents and a Windows agent as a preview (x64, shadow copies),
+  installed so only root or administrators can change them, and updated
   only with releases the maintainer signed, append-only so an agent can add
   backups but never delete or overwrite one, with retention decided by the
   server and a storage budget per machine and per tenant. Hooks run only where

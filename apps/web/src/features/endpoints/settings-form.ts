@@ -44,6 +44,8 @@ export interface SettingsDraft {
   /** The time windows of the limit, one row each, read in the zone of the schedule. */
   bandwidthWindows: WindowDraft[];
   onlyOnAcPower: boolean;
+  /** The shadow copy (VSS) of a Windows machine; sent only for Windows machines. */
+  useVss: boolean;
   keepDaily: string;
   keepWeekly: string;
   keepMonthly: string;
@@ -137,6 +139,7 @@ export function draftFromDetail(
     bandwidthKbps: config.bandwidthKbps === 0 ? "" : numberText(config.bandwidthKbps),
     bandwidthWindows: windowDraftsOf(config.bandwidthWindows),
     onlyOnAcPower: config.onlyOnAcPower,
+    useVss: config.useVss,
     keepDaily: String(settings.retention.keepDaily),
     keepWeekly: String(settings.retention.keepWeekly),
     keepMonthly: String(settings.retention.keepMonthly),
@@ -395,7 +398,8 @@ function retentionOf(draft: SettingsDraft): Retention {
  * a changed hook sends both. Call `checkDraft` first: this assumes valid input.
  */
 export function buildPatch(
-  detail: Pick<EndpointDetail, "displayName" | "config" | "settings" | "profile">,
+  detail: Pick<EndpointDetail, "displayName" | "config" | "settings" | "profile"> &
+    Partial<Pick<EndpointDetail, "os">>,
   draft: SettingsDraft,
 ): UpdateEndpointInput | null {
   const patch: UpdateEndpointInput = {};
@@ -447,6 +451,11 @@ export function buildPatch(
     changed.onlyOnAcPower = draft.onlyOnAcPower;
   }
 
+  // The shadow copy is a switch of Windows machines; the server refuses it for any other system.
+  if (detail.os === "windows" && draft.useVss !== config.useVss) {
+    changed.useVss = draft.useVss;
+  }
+
   if (Object.keys(changed).length > 0) {
     patch.config = changed;
   }
@@ -491,7 +500,8 @@ export function buildPatch(
 
 /** Which sections of the form differ from the server (for the "unsaved changes" hint). */
 export function changedSections(
-  detail: Pick<EndpointDetail, "displayName" | "config" | "settings" | "profile">,
+  detail: Pick<EndpointDetail, "displayName" | "config" | "settings" | "profile"> &
+    Partial<Pick<EndpointDetail, "os">>,
   draft: SettingsDraft,
 ): string[] {
   const patch = buildPatch(detail, draft);

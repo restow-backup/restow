@@ -114,6 +114,8 @@ export type AgentPolicyLevel = {
   bandwidthKbps?: number | null;
   onlyOnAcPower?: boolean;
   retries?: number;
+  /** What a backup does when its file system snapshot fails (0.5.0); absent inherits, default continue. */
+  snapshotOnFailure?: "continue" | "fail";
 };
 
 /** The job's level of the agent policy (its upload limit is the job's own field). */
@@ -122,7 +124,14 @@ export type BackupJobAgentPolicy = Omit<AgentPolicyLevel, "bandwidthKbps">;
 /** The installation's agent policy: its settings, and the ones no tenant or job may change. */
 export type GlobalAgentPolicyRecord = {
   settings?: AgentPolicyLevel;
-  locks?: ("backupWindow" | "catchUp" | "bandwidthKbps" | "onlyOnAcPower" | "retries")[];
+  locks?: (
+    | "backupWindow"
+    | "catchUp"
+    | "bandwidthKbps"
+    | "onlyOnAcPower"
+    | "retries"
+    | "snapshotOnFailure"
+  )[];
 };
 
 /** What a file share job does (docs/FILESHARES.md 7.5); every field has a documented default. */

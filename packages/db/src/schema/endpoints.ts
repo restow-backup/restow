@@ -163,6 +163,8 @@ export type EndpointConfigPolicy = {
   bandwidthLocked: boolean;
   onlyOnAcPower: boolean;
   onlyOnAcPowerLocked: boolean;
+  /** Only `fail` is stored (0.5.0); absent means `continue`. */
+  snapshotOnFailure?: "continue" | "fail";
 };
 
 /** Retention of one endpoint's repository (`restic forget --keep-*`). */
@@ -413,6 +415,11 @@ export type EndpointRunStats = {
   totalBytesProcessed?: number;
   /** What the backup changed (agent 0.4.0 and newer): @restow/core `ActivityReport`. */
   activity?: Record<string, unknown>;
+  /**
+   * Whether a file system snapshot was used (agent 0.5.0 and newer): @restow/core
+   * `RunConsistency`. Kept for a failed run too, when the snapshot is why it failed.
+   */
+  consistency?: { method?: string; state: string; liveFilesystems?: string[] };
 };
 
 export type EndpointRunProgress = {

@@ -20,11 +20,11 @@ small Go program (standard library only, no third-party Go dependencies) that dr
   files. The server later asks the agent to restore those files from the snapshot and
   compares the hashes.
 
-Supported in 0.1.0: **Linux** (systemd, x86_64 and aarch64) and **macOS** (13 Ventura or
-newer, Intel and Apple Silicon). **Windows (amd64) is a preview in 0.5.0 and not usable
-yet**: the service, the protected state, the trust check, hooks, the self-update and the
-installer exist, but backups with shadow copies are still missing and the server does not
-enroll Windows machines yet (see "Known limits" and docs/WINDOWS-AGENT.md).
+Supported: **Linux** (systemd, x86_64 and aarch64), **macOS** (13 Ventura or newer, Intel
+and Apple Silicon) and, as a **preview in 0.5.0**, **Windows** 10/11 and Server 2016 or
+newer on x64 (amd64): a Windows service under LocalSystem that backs up from a volume shadow
+copy (VSS). No Windows on ARM, no Authenticode signature (see "Known limits" and
+docs/WINDOWS-AGENT.md).
 
 ## Installing
 
@@ -227,7 +227,32 @@ host name recorded at enrollment and the tag `restow-agent`.
 - `onlyOnAcPower` is checked before a scheduled start and, if the device is on battery,
   the backup waits (see the limits below). An administrator's "Back up now" is not held
   back. A running backup is not stopped when the charger is unplugged.
-- `useVss` is a Windows option and has no effect on Linux and macOS (it is logged).
+- `useVss` (Windows; on by default, switched per machine in the Restow UI) backs up from a
+  volume shadow copy: restic `--use-fs-snapshot -o vss.timeout=5m`, with removable drives,
+  FAT and exFAT volumes passed as `-o vss.exclude-volumes` (read live, noted in the run
+  log). The result is file consistent, not application consistent (restic asks for a copy
+  backup without writer components; use a pre hook such as `sqlcmd -Q "BACKUP DATABASE
+  ..."` for databases). On Linux and macOS `useVss` has no effect (it is logged).
+- **When the snapshot fails** the policy `snapshotOnFailure` decides (the same setting for
+  VSS, LVM, btrfs and APFS). restic ends with exit code 0 when a shadow copy fails and reads
+  that volume live; the agent tells from restic's error entries (`failed to create snapshot
+  for [c:\]: ...`). `continue` (default): the run ends `partial` with `snapshot_failed` for
+  each such volume; when VSS cannot be used at all (service disabled, COM, no rights,
+  restic's `VSS error` before any progress) the agent runs restic once more without
+  `--use-fs-snapshot` and reports `snapshot_unavailable`. `fail`: the agent stops restic
+  (CTRL_BREAK) at the first failed volume, or does not back up at all; the run ends
+  `failed`. A volume the provider does not support (`Snapshots are not supported for
+  volume`) is only a note in the run log, under both policies. A shadow copy restic could
+  not delete is reported as `snapshot_cleanup_failed`, which does not change the status.
+  Every backup report carries `consistency: { method, state, liveFilesystems }` (`state`
+  is `used`, `partial`, `unavailable` or `off`).
+- On Windows the agent also excludes `pagefile.sys`, `hiberfil.sys`, `swapfile.sys`,
+  `System Volume Information`, `$Recycle.Bin` and its own `C:\ProgramData\Restow`,
+  compares exclusion patterns without case (`--iexclude-file`), skips online-only cloud
+  files (`--exclude-cloud-files`, so OneDrive does not download anything) and writes the
+  drive letter of every source in capitals (restic stores `C:\Users` as `/C/Users`).
+  Paths of the other system in a mixed job (`/etc` on Windows, `C:\Users` on Linux) are
+  skipped with one log line.
 - A backup is limited to 72 hours; a wedged restic is then stopped and the run fails.
 
 **Restore task.** Restores into `targetDir`, or by default into
@@ -693,18 +718,27 @@ carries all of them.
 - **No mTLS yet.** v1 authenticates each agent with a per-agent secret over HTTPS. A
   stolen secret (root on the endpoint) allows writing new backups to that endpoint's
   repository and reading it; it does not allow deleting anything.
-- **No LVM, ZFS or btrfs snapshots yet.** Consistency on Linux and macOS comes from the
-  optional pre/post hooks (database dumps, `fsfreeze`, and so on). Files that change while
-  they are read can end up inconsistent in the snapshot. On macOS there is no APFS
-  snapshot integration either.
+- **No LVM, ZFS or btrfs snapshots for ordinary backups yet.** Consistency on Linux and
+  macOS comes from the optional pre/post hooks (database dumps, `fsfreeze`, and so on).
+  Files that change while they are read can end up inconsistent in the snapshot.
+- **Windows shadow copies are file consistent, not application consistent.** Open
+  databases (SQL Server, Exchange) are crash consistent and their logs are not truncated;
+  use a pre hook for an application-consistent dump. Files listed under
+  `HKLM\SYSTEM\CurrentControlSet\Control\BackupRestore\FilesNotToSnapshot` (by default
+  Outlook OST files) are missing from the snapshot.
 - **File-based only.** No disk images, no bare-metal restore. Restoring a whole machine
   means reinstalling the operating system and restoring the files.
-- **Windows is a preview in 0.5.0 and not usable yet.** The platform parts exist (service,
-  DPAPI and DACLs, trust check, lock, hooks, self-update, installer), but backups with shadow
-  copies come next and the server does not enroll Windows machines yet. The plan is
-  docs/WINDOWS-AGENT.md. No Windows on ARM (installer and, later, server refuse it). No
-  Authenticode: Defender may flag a new build until Microsoft has cleared it, and Smart App
-  Control (fresh Windows 11) blocks the agent, which the installer detects. Hooks under
+- **Windows is a preview in 0.5.0.** Backups with shadow copies, restores and the service
+  work as described in docs/WINDOWS-AGENT.md, but are tested on real machines only by the
+  maintainer's checklist there. No Windows on ARM (installer and server refuse it). No
+  Authenticode for `restow-agent.exe`, `restic.exe` or `windows.ps1`: Defender may flag a new
+  build until Microsoft has cleared it (the maintainer submits every prerelease), ASR rules
+  may block it, and Smart App Control (fresh Windows 11) blocks the agent, which the
+  installer detects. No alternate data streams (so no Mark of the Web after a restore), no
+  EFS files of other users (read errors), online-only cloud files are left out, junctions are
+  backed up as links, no system state or registry, no bare-metal restore: restoring a
+  Windows machine means reinstalling Windows, then restoring the files. Further data drives
+  (`D:\`) are not reported as data folders yet. Hooks under
   Windows: only `.ps1` and `.exe` in the `scripts` policy, no grace period on a timeout. The
   proxy is a fixed URL without credentials (no WPAD/PAC, no NTLM or Kerberos). After an
   uninstall through the agent itself, `restow-agent.exe` stays until the next restart

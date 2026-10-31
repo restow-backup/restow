@@ -444,6 +444,9 @@ const RUN_ERROR_CODES = [
   "missing",
   "not_regular",
   "read_error",
+  "snapshot_failed",
+  "snapshot_unavailable",
+  "snapshot_cleanup_failed",
 ] as const;
 
 export interface RunErrorView {

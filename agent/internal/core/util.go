@@ -55,6 +55,47 @@ func kbpsToKiB(kbps int64) int {
 	return kib
 }
 
+// ownFormSources splits configured paths into those written the way this
+// system writes paths and those of other systems: a backup job with Linux
+// and Windows machines carries /etc and C:\Users side by side
+// (docs/WINDOWS-AGENT.md, 16.1). On Windows a drive path (X:\ or X:/) or a
+// UNC path is the own form, elsewhere a path starting with /. Anything else
+// (a relative path) stays with the own ones, where it counts as missing.
+func ownFormSources(paths []string, windows bool) (own, foreign []string) {
+	for _, p := range paths {
+		t := strings.TrimSpace(p)
+		drive := len(t) >= 3 && t[1] == ':' && (t[2] == '\\' || t[2] == '/') &&
+			((t[0] >= 'a' && t[0] <= 'z') || (t[0] >= 'A' && t[0] <= 'Z'))
+		var isForeign bool
+		if windows {
+			isForeign = strings.HasPrefix(t, "/")
+		} else {
+			isForeign = drive || strings.HasPrefix(t, `\\`)
+		}
+		if isForeign {
+			foreign = append(foreign, t)
+		} else {
+			own = append(own, p)
+		}
+	}
+	return own, foreign
+}
+
+// snapshotPathOf is the path restic stores a source under: the source
+// itself with forward slashes on Unix; on Windows C:\Users becomes
+// /C/Users, with the drive letter in capitals as the agent hands it to
+// restic (docs/WINDOWS-AGENT.md, 16.4).
+func snapshotPathOf(osPath string, windows bool) string {
+	if !windows {
+		return filepath.ToSlash(osPath)
+	}
+	p := strings.ReplaceAll(osPath, `\`, "/")
+	if len(p) >= 2 && p[1] == ':' {
+		p = "/" + strings.ToUpper(p[:1]) + p[2:]
+	}
+	return p
+}
+
 // sourceNote describes a configured path that is backed up under another name.
 type sourceNote struct{ Configured, Resolved string }
 

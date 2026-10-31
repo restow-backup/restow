@@ -626,6 +626,21 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("allow_endpoint_hooks")],
   },
+  // The file system snapshot (Windows: shadow copy) of a volume failed: often a writer in a
+  // bad state or another backup taking a shadow copy at the same time, so a later run may work.
+  "endpoint.snapshot_failed": {
+    category: "endpoint",
+    transient: true,
+    retryable: true,
+    steps: () => [step("check_endpoint_snapshot"), step("wait_endpoint_retry")],
+  },
+  // No file system snapshot at all: the service is off, rights or COM are missing.
+  "endpoint.snapshot_unavailable": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_endpoint_snapshot_service"), READ_DETAILS],
+  },
   "endpoint.post_hook_failed": {
     category: "endpoint",
     transient: false,

@@ -82,6 +82,35 @@ describe("explaining the agent's run errors", () => {
     expect(failureOfRun([{ message: "no code at all" }])?.code).toBe("endpoint.restic_failed");
   });
 
+  it("explains the file system snapshot codes", () => {
+    const failed = classifyRunError({
+      code: "snapshot_failed",
+      path: "C:\\",
+      message: "The shadow copy of C:\\ could not be created (VSS_E_SNAPSHOT_SET_IN_PROGRESS).",
+    });
+    expect(failed.code).toBe("endpoint.snapshot_failed");
+    expect(failed.transient).toBe(true);
+    expect(failed.params.path).toBe("C:\\");
+    const unavailable = classifyRunError({ code: "snapshot_unavailable", message: "VSS error" });
+    expect(unavailable.code).toBe("endpoint.snapshot_unavailable");
+    expect(unavailable.transient).toBe(false);
+    // "No snapshot at all" decides before the files restic could not read.
+    expect(
+      failureOfRun([
+        { code: "archival", message: "open C:\\x.pst: in use" },
+        { code: "snapshot_unavailable", message: "VSS error" },
+      ])?.code,
+    ).toBe("endpoint.snapshot_unavailable");
+    // A shadow copy left behind is never the explanation.
+    expect(
+      failureOfRun([
+        { code: "snapshot_cleanup_failed", path: "C:\\", message: "not deleted" },
+        { code: "read_error", message: "a" },
+      ])?.code,
+    ).toBe("endpoint.read_error");
+    expect(failureOfRun([{ code: "snapshot_cleanup_failed", message: "not deleted" }])).toBeNull();
+  });
+
   it("knows the causes the server derives itself", () => {
     expect(agentStoppedCause().code).toBe("endpoint.agent_stopped");
     expect(silentCause(2.6).params).toEqual({ ageHours: 3 });

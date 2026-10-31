@@ -169,7 +169,7 @@
       },
       "servers": {
         "title": "Noch keine Server",
-        "description": "Fügen Sie einen Linux- oder macOS-Server hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agenten installiert und den Server verbindet. Gesichert wird er, sobald Sie ihn einem Backup-Job hinzufügen."
+        "description": "Fügen Sie einen Linux-, macOS- oder Windows-Server hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agenten installiert und den Server verbindet. Gesichert wird er, sobald Sie ihn einem Backup-Job hinzufügen."
       },
       "clients": {
         "title": "Noch keine Clients",
@@ -267,12 +267,16 @@
     "os": {
       "legend": "Betriebssystem",
       "planned": "Geplant",
+      "preview": "Vorschau",
       "hint": {
         "linux": "Mit systemd, auf x86-64 oder ARM64",
         "darwin": "Intel oder Apple Silicon",
-        "windows": "Auf der Roadmap, noch nicht verfügbar"
+        "windows": "Windows 10/11 und Server 2016 oder neuer, nur x64"
       },
-      "windowsNote": "Windows steht auf der Roadmap und lässt sich noch nicht wählen. Diese Version sichert Linux- und macOS-Rechner."
+      "windowsPreview": {
+        "title": "Windows ist eine Vorschau",
+        "description": "Der Windows-Agent sichert Dateien mit Schattenkopie (VSS) und stellt sie wieder her. In dieser Version ist er eine Vorschau: nur x64 (kein Windows on ARM), restow-agent.exe und restic.exe sind nicht mit Authenticode signiert (Microsoft Defender, Smart App Control oder ASR-Regeln können sie blockieren), und eine Wiederherstellung des ganzen Rechners gibt es nicht. Wiederherstellung heißt: Windows neu installieren, dann die Dateien zurückholen."
+      }
     },
     "label": {
       "field": "Name (optional)",
@@ -291,11 +295,13 @@
     "command": {
       "heading": {
         "linux": "Auf dem Linux-Rechner ausführen",
-        "darwin": "Auf dem Mac ausführen"
+        "darwin": "Auf dem Mac ausführen",
+        "windows": "In PowerShell als Administrator ausführen"
       },
       "intro": {
         "linux": "Öffnen Sie ein Terminal auf dem {kind} und fügen Sie den Befehl ein. Er braucht Root-Rechte (sudo) und curl und fragt nach dem Token unten.",
-        "darwin": "Öffnen Sie das Terminal auf dem {kind} und fügen Sie den Befehl ein. Er braucht ein Administratorkonto (sudo) und fragt nach dem Token unten."
+        "darwin": "Öffnen Sie das Terminal auf dem {kind} und fügen Sie den Befehl ein. Er braucht ein Administratorkonto (sudo) und fragt nach dem Token unten.",
+        "windows": "Öffnen Sie auf dem {kind} eine PowerShell als Administrator (Rechtsklick, Als Administrator ausführen) und fügen Sie den Befehl ein. Er fragt nach dem Token unten."
       },
       "kind": {
         "server": "Server",
@@ -307,6 +313,17 @@
       "validity": "24 Stunden gültig und nur einmal verwendbar.",
       "expiresAt": "Läuft ab: {time}",
       "secretNote": "Das Token ist ein einmaliges Geheimnis. Es steht nicht im Befehl und landet deshalb weder in der Shell-Historie noch in der Prozessliste des Rechners. Es wird nur jetzt angezeigt und lässt sich nach dem Schließen dieses Fensters nicht mehr anzeigen."
+    },
+    "windows": {
+      "admin": "Der Befehl schaltet zuerst TLS 1.2 ein (Windows Server 2016 bietet sonst nur TLS 1.0 an) und braucht Windows PowerShell 5.1, das in jedem unterstützten Windows enthalten ist.",
+      "file": {
+        "heading": "Ohne iex: Skript laden, prüfen und starten",
+        "intro": "Melden Sicherheitsregeln (AMSI, ASR, EDR) das Muster iex (irm ...), laden Sie {url} als Datei herunter, vergleichen Sie ihre SHA-256-Prüfsumme (Get-FileHash .\\windows.ps1) mit diesem Wert und starten Sie sie dann in einer PowerShell als Administrator:",
+        "copyHash": "SHA-256 von windows.ps1 kopieren",
+        "noHash": "Diese Installation liefert kein windows.ps1 aus; die Prüfsumme lässt sich nicht angeben.",
+        "copyRun": "Befehl zum Starten der Datei kopieren"
+      },
+      "fingerprint": "Fingerabdruck des Release-Schlüssels: {fingerprint}. Das Skript zeigt ihn vor der Installation an."
     },
     "warnings": {
       "insecure": {
@@ -355,23 +372,27 @@
       "steps": {
         "download": {
           "linux": "Lädt restow-agent und restic von diesem Server herunter, nicht aus dem Internet.",
-          "darwin": "Lädt restow-agent und restic von diesem Server herunter, nicht aus dem Internet."
+          "darwin": "Lädt restow-agent und restic von diesem Server herunter, nicht aus dem Internet.",
+          "windows": "Lädt restow-agent.exe und restic.exe von diesem Server herunter, nicht aus dem Internet."
         },
         "verify": {
           "linux": "Prüft die Signatur des Maintainers über das Release und die SHA-256-Prüfsumme beider Programme, bevor es irgendetwas ausführt.",
-          "darwin": "Prüft die Signatur des Maintainers über das Release und die SHA-256-Prüfsumme beider Programme, bevor es irgendetwas ausführt."
+          "darwin": "Prüft die Signatur des Maintainers über das Release und die SHA-256-Prüfsumme beider Programme, bevor es irgendetwas ausführt.",
+          "windows": "Prüft die Signatur des Maintainers über das Release mit einer eigenen Ed25519-Prüfung in PowerShell und die SHA-256-Prüfsumme beider Programme, bevor es irgendetwas ausführt."
         },
         "service": {
           "linux": "Installiert beide nach /opt/restow-agent, einen Ordner, den nur root ändern kann, und richtet den Agenten als Systemdienst ein (systemd-Unit restow-agent).",
-          "darwin": "Installiert beide nach /Library/Application Support/Restow, einen Ordner, den nur root ändern kann, und richtet den Agenten als Systemdienst ein (LaunchDaemon com.restowbackup.agent)."
+          "darwin": "Installiert beide nach /Library/Application Support/Restow, einen Ordner, den nur root ändern kann, und richtet den Agenten als Systemdienst ein (LaunchDaemon com.restowbackup.agent).",
+          "windows": "Installiert beide nach C:\\Program Files\\Restow\\bin, einen Ordner, den nur SYSTEM und Administratoren ändern können, und richtet den Windows-Dienst RestowAgent (LocalSystem) ein."
         },
         "enroll": {
           "linux": "Meldet den Rechner mit dem einmaligen Token an. Der Agent verbindet sich nur ausgehend mit {appName}; auf dem Rechner wird kein Port geöffnet.",
-          "darwin": "Meldet den Rechner mit dem einmaligen Token an. Der Agent verbindet sich nur ausgehend mit {appName}; auf dem Rechner wird kein Port geöffnet."
+          "darwin": "Meldet den Rechner mit dem einmaligen Token an. Der Agent verbindet sich nur ausgehend mit {appName}; auf dem Rechner wird kein Port geöffnet.",
+          "windows": "Meldet den Rechner mit dem einmaligen Token an. Der Agent verbindet sich nur ausgehend mit {appName}; auf dem Rechner wird kein Port geöffnet."
         }
       },
       "repair": "Wird der Befehl erneut ausgeführt, repariert er die Installation, statt sie doppelt anzulegen.",
-      "hooks": "Befehle vor und nach der Sicherung (Hooks) bleiben auf dem Rechner aus, solange Sie sie dort nicht erlauben: Hängen Sie -s -- --hooks=scripts (nur Skripte in /etc/restow-agent/hooks.d) oder -s -- --hooks=any an sudo sh an."
+      "hooks": "{os, select, windows {Befehle vor und nach der Sicherung (Hooks) bleiben auf dem Rechner aus, solange Sie sie dort nicht erlauben: Rufen Sie das Skript mit -Hooks scripts (nur .ps1- und .exe-Dateien in C:\\ProgramData\\Restow\\state\\hooks.d) oder -Hooks any auf, oder führen Sie danach als Administrator restow-agent.exe hooks scripts aus.} other {Befehle vor und nach der Sicherung (Hooks) bleiben auf dem Rechner aus, solange Sie sie dort nicht erlauben: Hängen Sie -s -- --hooks=scripts (nur Skripte in /etc/restow-agent/hooks.d) oder -s -- --hooks=any an sudo sh an.}}"
     },
     "uninstall": {
       "heading": "Agent später entfernen",
@@ -384,7 +405,7 @@
     },
     "unattended": {
       "heading": "Unbeaufsichtigte Installation (RMM, Skripte)",
-      "intro": "Ohne Terminal für die Eingabe liest das Skript das Token aus einer Datei. Legen Sie das Token in {tokenFile} ab (Modus 0600, Eigentümer root) und führen Sie dann aus:",
+      "intro": "{os, select, windows {Ohne Eingabe liest das Skript das Token aus einer Datei. Legen Sie das Token in {tokenFile} ab (der Ordner ist nur für SYSTEM und Administratoren zugänglich; ein 32-Bit-RMM-Prozess schreibt über C:\\Windows\\Sysnative\\config\\systemprofile) und führen Sie dann aus. Der Befehl hält den Fingerabdruck des Release-Schlüssels fest; gleichen Sie ihn einmal mit den Release-Notizen auf GitHub ab.} other {Ohne Terminal für die Eingabe liest das Skript das Token aus einer Datei. Legen Sie das Token in {tokenFile} ab (Modus 0600, Eigentümer root) und führen Sie dann aus:}}",
       "copy": "Befehl für die unbeaufsichtigte Installation kopieren",
       "cleanup": "Löschen Sie die Token-Datei nach der Installation. Das Token gilt einmal und läuft nach 24 Stunden ab."
     }
@@ -565,7 +586,15 @@
       "filesNew": "Neue Dateien",
       "filesChanged": "Geänderte Dateien",
       "filesUnmodified": "Unveränderte Dateien",
-      "dataAdded": "Neu gespeicherte Daten"
+      "dataAdded": "Neu gespeicherte Daten",
+      "consistency": "Konsistenz"
+    },
+    "consistency": {
+      "used": "{method, select, vss {Schattenkopie (dateikonsistent)} none {Dateisystem-Snapshot (dateikonsistent)} other {Dateisystem-Snapshot {method} (dateikonsistent)}}",
+      "partial": "{method, select, vss {Teilweise ohne Schattenkopie} other {Teilweise ohne Dateisystem-Snapshot}}",
+      "partialWith": "{method, select, vss {Teilweise ohne Schattenkopie: {live}} other {Teilweise ohne Dateisystem-Snapshot: {live}}}",
+      "unavailable": "{method, select, vss {Ohne Schattenkopie (Schattenkopie nicht verfügbar)} other {Ohne Dateisystem-Snapshot (nicht verfügbar)}}",
+      "off": "{method, select, vss {Ohne Schattenkopie (für diesen Rechner abgeschaltet)} other {Ohne Dateisystem-Snapshot, direkt vom Dateisystem gelesen}}"
     },
     "progress": {
       "heading": "Fortschritt",
@@ -718,14 +747,20 @@
     "moreItems": "{count, plural, one {und # weiteres} other {und # weitere}}",
     "target": {
       "label": "Zielordner (optional)",
-      "placeholder": "/srv/restore",
-      "hint": "Ein absoluter Pfad auf dem Rechner (Linux oder macOS), zum Beispiel /srv/restore-2026. Der Ordner darf noch nicht existieren oder muss leer sein, und der Ordner darüber muss vorhanden sein; sonst bricht der Lauf ab, ohne etwas zu schreiben. Ohne Angabe legt der Agent einen neuen Ordner namens Restow-Restore mit Datum und Uhrzeit im ersten gesicherten Ordner an.",
+      "placeholder": "{os, select, windows {D:\\Wiederherstellung} other {/srv/restore}}",
+      "hint": "{os, select, windows {Ein lokaler Ordner auf dem Rechner, zum Beispiel D:\\Wiederherstellung. Er darf noch nicht existieren oder muss leer sein, und der Ordner darüber muss vorhanden sein; Netzlaufwerke, Wechseldatenträger, FAT-Laufwerke sowie Windows, die Programmordner und C:\\ProgramData\\Restow sind gesperrt. Die Dateien behalten ihre ursprünglichen Berechtigungen. Ohne Angabe legt der Agent einen neuen Ordner Restow-Restore mit Datum und Uhrzeit auf dem Systemlaufwerk an (C:\\Restow-Restore-...). Bestehende Dateien werden nie überschrieben.} other {Ein absoluter Pfad auf dem Rechner (Linux oder macOS), zum Beispiel /srv/restore-2026. Der Ordner darf noch nicht existieren oder muss leer sein, und der Ordner darüber muss vorhanden sein; sonst bricht der Lauf ab, ohne etwas zu schreiben. Ohne Angabe legt der Agent einen neuen Ordner namens Restow-Restore mit Datum und Uhrzeit im ersten gesicherten Ordner an.}}",
       "errors": {
-        "notAbsolute": "Geben Sie einen absoluten Pfad an, der mit / beginnt, zum Beispiel /srv/restore-2026. Windows-Pfade werden nicht unterstützt.",
+        "notAbsolute": "{os, select, windows {Geben Sie einen Ordner mit Laufwerksbuchstaben an, zum Beispiel D:\\Wiederherstellung.} other {Geben Sie einen absoluten Pfad an, der mit / beginnt, zum Beispiel /srv/restore-2026. Windows-Pfade gelten nur für Windows-Rechner.}}",
         "controlCharacters": "Der Pfad enthält Steuerzeichen.",
         "tooLong": "Der Pfad ist zu lang.",
-        "root": "Das Wurzelverzeichnis / ist als Ziel nicht erlaubt. Geben Sie einen Ordner darunter an.",
-        "notPlain": "Geben Sie den Pfad ohne „.“, „..“, doppelte oder abschließende Schrägstriche an."
+        "root": "{os, select, windows {Ein ganzes Laufwerk ist als Ziel nicht erlaubt. Geben Sie einen Ordner darauf an.} other {Das Wurzelverzeichnis / ist als Ziel nicht erlaubt. Geben Sie einen Ordner darunter an.}}",
+        "notPlain": "{os, select, windows {Geben Sie den Pfad ohne „.“, „..“, doppelte oder abschließende umgekehrte Schrägstriche an.} other {Geben Sie den Pfad ohne „.“, „..“, doppelte oder abschließende Schrägstriche an.}}",
+        "networkPath": "Netzwerkpfade (\\\\Server\\Freigabe) sind als Ziel nicht erlaubt. Der Agent läuft als SYSTEM und erreicht keine Freigaben; wählen Sie einen lokalen Ordner.",
+        "forwardSlash": "Verwenden Sie umgekehrte Schrägstriche (\\), zum Beispiel D:\\Wiederherstellung.",
+        "invalidCharacter": "Der Pfad enthält ein Zeichen, das Windows in Ordnernamen nicht erlaubt (<>:\"|?*).",
+        "trailingDotOrSpace": "Ein Ordnername endet auf einen Punkt oder ein Leerzeichen; Windows würde ihn kürzen. Entfernen Sie das Zeichen.",
+        "reservedName": "Der Pfad enthält einen von Windows reservierten Namen (zum Beispiel CON, NUL, COM1).",
+        "systemFolder": "In Windows, die Programmordner, C:\\ProgramData\\Restow und System Volume Information wird nicht wiederhergestellt. Wählen Sie einen anderen Ordner."
       }
     },
     "neverOverwrites": "Eine Wiederherstellung überschreibt nie vorhandene Dateien. Alles wird in einen neuen Ordner geschrieben, die Dateien, die jetzt auf dem Rechner liegen, bleiben unberührt.",
@@ -808,7 +843,9 @@
       "bandwidthHint": "Leer heißt unbegrenzt. 1000 kbit/s sind etwa 1 Mbit/s. Es gilt außerhalb aller Zeitfenster.",
       "unlimited": "Unbegrenzt",
       "acPower": "Nur am Netzstrom sichern",
-      "acPowerHint": "Ein Laptop im Akkubetrieb überspringt die Sicherung, bis er am Strom hängt."
+      "acPowerHint": "Ein Laptop im Akkubetrieb überspringt die Sicherung, bis er am Strom hängt.",
+      "vss": "Schattenkopie (VSS)",
+      "vssHint": "Sichert aus einer Schattenkopie, damit geöffnete und gesperrte Dateien lesbar sind und alle Dateien vom selben Zeitpunkt stammen (dateikonsistent). Was geschieht, wenn sie scheitert, legt die Richtlinie der Agenten fest (ohne Snapshot weiter sichern oder abbrechen)."
     },
     "hooks": {
       "title": "Befehle vor und nach der Sicherung",
@@ -1027,7 +1064,7 @@
     "repositoryUnavailable": "Die Sicherungsdaten dieses Rechners konnten im Repository nicht geöffnet werden. Prüfen Sie, ob das Repository erreichbar ist.",
     "resticFailed": "Das Lesen der Sicherungsdaten ist fehlgeschlagen. Die Einzelheiten stehen im Server-Log.",
     "resticUnavailable": "Das Programm restic ist auf dem Server nicht verfügbar, daher lassen sich Snapshots nicht lesen.",
-    "unsupportedOs": "Dieses Betriebssystem wird noch nicht unterstützt. Diese Version sichert Linux- und macOS-Rechner.",
+    "unsupportedOs": "Dieses Betriebssystem wird nicht unterstützt. {appName} sichert Linux, macOS und Windows auf x64 (amd64); Windows on ARM wird in dieser Version nicht unterstützt.",
     "revoked": "Dieser Rechner ist gesperrt und nimmt keine Änderungen oder Aufgaben an.",
     "nothingToTest": "Es gibt noch keine erfolgreiche Sicherung, die getestet werden könnte.",
     "instanceUnknown": "Die Adresse dieser Installation ist unbekannt. Setzen Sie die öffentliche URL in den Einstellungen und versuchen Sie es erneut.",
@@ -1089,6 +1126,9 @@
     "unknown": "Fehlercode {code}",
     "detail": "Technische Meldung des Agents",
     "agent_stopped": "Der Agent hat sich während des Laufs nicht mehr gemeldet",
+    "snapshot_failed": "Die Schattenkopie eines Laufwerks ist fehlgeschlagen",
+    "snapshot_unavailable": "Ohne Schattenkopie: Dateisystem-Snapshots sind auf dem Rechner nicht nutzbar",
+    "snapshot_cleanup_failed": "Eine Schattenkopie blieb nach der Sicherung liegen",
     "cancelled": "In der Oberfläche abgebrochen"
   },
   "agentUpdates": {
@@ -1252,6 +1292,18 @@
       "label": "Wiederholungen",
       "hint": "0 bis {max}.",
       "value": "{count, plural, one {# Wiederholung} other {# Wiederholungen}}"
+    },
+    "snapshotOnFailure": {
+      "title": "Wenn der Dateisystem-Snapshot scheitert",
+      "description": "Gilt für die Schattenkopie (VSS) von Windows-Rechnern und für Dateisystem-Snapshots unter Linux und macOS. Eine Schattenkopie macht eine Sicherung dateikonsistent, nicht anwendungskonsistent; Datenbanken sichern Sie zusätzlich mit einem Befehl vor der Sicherung.",
+      "modes": {
+        "continue": "Ohne Snapshot weiter sichern (Teilerfolg)",
+        "fail": "Sicherung abbrechen"
+      },
+      "hints": {
+        "continue": "Betroffene Laufwerke werden direkt gelesen; der Lauf endet als teilweise erfolgreich und nennt den Grund.",
+        "fail": "Der Lauf endet als fehlgeschlagen; die automatischen Wiederholungen greifen."
+      }
     },
     "problems": {
       "days": "Wählen Sie mindestens einen Tag.",

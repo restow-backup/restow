@@ -106,7 +106,11 @@ func (a *Agent) doBackup(rc *runContext) runOutcome {
 	out := runOutcome{Status: api.StatusFailed}
 	rl, cfg := rc.rl, rc.cfg
 
-	sources, missing, resolved := splitSources(cfg.Paths)
+	ownPaths, foreign := ownFormSources(cfg.Paths, runtime.GOOS == "windows")
+	if len(foreign) > 0 {
+		rl.Infof("Paths for other operating systems are skipped on this machine: %s.", strings.Join(foreign, ", "))
+	}
+	sources, missing, resolved := splitSources(ownPaths)
 	for _, m := range missing {
 		rl.Warnf("Path %s does not exist on this machine and is skipped.", m)
 	}
@@ -116,6 +120,8 @@ func (a *Agent) doBackup(rc *runContext) runOutcome {
 	if len(sources) == 0 {
 		if len(cfg.Paths) == 0 {
 			out.fail("no_paths", "No backup paths are configured for this endpoint. Set them in the Restow UI (Endpoints, Settings).")
+		} else if len(ownPaths) == 0 {
+			out.fail("no_paths", "None of the configured backup paths is a path of this operating system: %s. Add folders for this machine to its backup job.", strings.Join(foreign, ", "))
 		} else {
 			out.fail("no_paths", "None of the configured backup paths exists on this machine: %s.", strings.Join(cfg.Paths, ", "))
 		}
@@ -228,13 +234,44 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 		sizeLimit = cfg.ExcludeLargerThanBytes
 		rl.Infof("Files larger than %s are not backed up (size limit of the backup job).", formatBytes(uint64(sizeLimit)))
 	}
-	if cfg.UseVSS {
-		rl.Infof("Volume Shadow Copy (useVss) is a Windows feature and has no effect on this system.")
-	}
-
 	excludes := append([]string(nil), cfg.Excludes...)
 	// Never back up the agent's own working files or earlier restores.
 	excludes = append(excludes, a.d.Layout.CacheDir(), a.d.Layout.TmpDir(), "Restow-Restore-*")
+
+	opts := restic.BackupOptions{
+		Paths: sources, Excludes: excludes, Host: a.d.State.Hostname, Tags: []string{snapshotTag},
+		LimitUploadKiB: limit, ExcludeLargerThanBytes: sizeLimit,
+	}
+	platformBackupOptions(&opts, a.d.Layout)
+	if opts.ExcludeCloudFiles {
+		rl.Infof("Online-only cloud files (OneDrive and similar) are not backed up and not downloaded (--exclude-cloud-files).")
+	}
+
+	// The file system snapshot and its policy (docs/WINDOWS-AGENT.md, 17).
+	plan := planSnapshotFn(cfg, sources)
+	failPolicy := snapshotFailPolicy(cfg)
+	for _, n := range plan.notes {
+		rl.Infof("%s", n)
+	}
+	if plan.unavailable != "" {
+		if failPolicy {
+			e := snapshotUnavailableError(plan.unavailable, false)
+			rl.Errorf("%s", e.Message)
+			out.Errors = append(out.Errors, e)
+			out.Consistency = consistencyOf(plan, restic.SnapshotOutcome{}, true)
+			return out
+		}
+		e := snapshotUnavailableError(plan.unavailable, true)
+		rl.Warnf("%s", e.Message)
+		out.Errors = append(out.Errors, e)
+	}
+	if plan.requested {
+		opts.UseFSSnapshot = true
+		opts.VSSTimeout = vssTimeout
+		opts.VSSExcludeVolumes = plan.excluded
+		rl.Infof("Backing up from a shadow copy (Volume Shadow Copy); if it fails, the backup %s.",
+			map[bool]string{true: "stops (policy)", false: "continues from the live file system and ends partial (policy)"}[failPolicy])
+	}
 
 	reporter := newProgressReporter(a.d.Server, rc.runID, a.o.ProgressInterval, func(err error) {
 		a.log.Debug("progress report not delivered", "error", err)
@@ -242,18 +279,63 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	reporter.Start(rc.ctx)
 	rctx, rcancel, timedOut := rc.resticContext()
 	defer rcancel()
-	res, err := rc.runner.Backup(rctx, restic.BackupOptions{
-		Paths: sources, Excludes: excludes, Host: a.d.State.Hostname, Tags: []string{snapshotTag},
-		LimitUploadKiB: limit, ExcludeLargerThanBytes: sizeLimit,
-		OnProgress: func(p restic.Progress) {
-			reporter.Update(p)
-			a.log.Debug("backup progress", "files", p.FilesDone, "bytes", formatBytes(p.BytesDone), "percent", int(p.Percent*100))
-		},
-	})
+	// Under the policy fail the agent stops restic at the first volume whose
+	// snapshot failed, with its own cause (else it would read as interrupted).
+	sctx, scancel := context.WithCancelCause(rctx)
+	defer scancel(nil)
+	if plan.requested && failPolicy {
+		opts.OnSnapshotFailed = func(v restic.VolumeFailure) { scancel(errSnapshotFailed) }
+	}
+	opts.OnProgress = func(p restic.Progress) {
+		reporter.Update(p)
+		a.log.Debug("backup progress", "files", p.FilesDone, "bytes", formatBytes(p.BytesDone), "percent", int(p.Percent*100))
+	}
+	res, err := rc.runner.Backup(sctx, opts)
+	snapUnavailable := plan.unavailable != ""
+
+	// The snapshot cannot be used at all: under continue the backup runs
+	// again without it (both runs count against the maximum run time).
+	var re *restic.Error
+	if err != nil && plan.requested && rc.ctx.Err() == nil && !timedOut() && errors.As(err, &re) && re.Snapshot != restic.SnapshotFaultNone {
+		reason := re.Message
+		if reason == "" {
+			reason = "restic could not start the shadow copy"
+		}
+		switch {
+		case failPolicy && re.SnapshotUnavailable():
+			reporter.Stop()
+			e := snapshotUnavailableError(reason, false)
+			rl.Errorf("%s See %s.", e.Message, snapshotLogHint)
+			out.Errors = append(out.Errors, e)
+			out.Consistency = consistencyOf(plan, restic.SnapshotOutcome{}, true)
+			return out
+		case failPolicy:
+			// Not known to be the snapshot: an ordinary failure below.
+		default:
+			rl.Warnf("restic could not use the shadow copy (%s); backing up again without it. See %s.", reason, snapshotLogHint)
+			first := re
+			opts.UseFSSnapshot, opts.OnSnapshotFailed = false, nil
+			res, err = rc.runner.Backup(sctx, opts)
+			var second *restic.Error
+			sameFailure := err != nil && errors.As(err, &second) && second.ExitCode == first.ExitCode &&
+				second.Fatal == first.Fatal && second.Message == first.Message
+			if first.SnapshotUnavailable() || !sameFailure {
+				snapUnavailable = true
+				out.Errors = append(out.Errors, snapshotUnavailableError(reason, true))
+			}
+		}
+	}
 	reporter.Stop()
 
-	if err != nil {
-		var re *restic.Error
+	var snap restic.SnapshotOutcome
+	if res != nil {
+		snap = res.Snapshot
+	} else if errors.As(err, &re) && re.SnapshotOutcome != nil {
+		snap = *re.SnapshotOutcome
+	}
+	logSnapshotOutcome(rl, snap)
+
+	if err != nil || context.Cause(sctx) == errSnapshotFailed {
 		switch {
 		case rc.ctx.Err() != nil:
 			rc.stoppedOutcome(&out)
@@ -262,6 +344,17 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 			out.Errors = append(out.Errors, api.RunError{Code: "timeout",
 				Message: fmt.Sprintf("The backup did not finish within %s and was stopped. Check the network connection and the size of the backup set.", maxRunTime)})
 			rl.Errorf("%s", out.Errors[len(out.Errors)-1].Message)
+		case context.Cause(sctx) == errSnapshotFailed:
+			// Stopped under the policy fail. Should restic have finished first,
+			// its snapshot is reported with the failed run.
+			out.Status = api.StatusFailed
+			out.Errors = append(out.Errors, snapshotFailedErrors(snap, true)...)
+			out.Errors = append(out.Errors, snapshotCleanupErrors(snap)...)
+			out.Consistency = consistencyOf(plan, snap, false)
+			if err == nil && res != nil {
+				out.SnapshotID = res.SnapshotID
+			}
+			rl.Errorf("The backup was stopped because a shadow copy failed (policy for a failed file system snapshot: stop the backup).")
 		case errors.As(err, &re):
 			msg := re.Error()
 			if hint := re.Hint(); hint != "" {
@@ -275,16 +368,18 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 		}
 		return out
 	}
-
 	for _, w := range res.Warnings {
 		rl.Warnf("%s", w)
 	}
+	out.Consistency = consistencyOf(plan, snap, snapUnavailable)
+	snapErrors := append(snapshotFailedErrors(snap, false), snapshotCleanupErrors(snap)...)
 	s := res.Summary
 	out.SnapshotID = res.SnapshotID
 	out.Stats = &api.Stats{
 		FilesNew: s.FilesNew, FilesChanged: s.FilesChanged, FilesUnmodified: s.FilesUnmodified, DataAdded: s.DataAdded,
 		DataAddedPacked: s.DataAddedPacked, TotalFilesProcessed: s.TotalFilesProcessed, TotalBytesProcessed: s.TotalBytesProcessed,
 	}
+	out.Errors = append(out.Errors, snapErrors...)
 	for _, e := range res.Errors {
 		out.Errors = append(out.Errors, api.RunError{Path: e.Path, Message: e.Message, Code: e.During})
 	}
@@ -300,10 +395,15 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	rl.Infof("Snapshot %s saved: %d new, %d changed, %d unchanged files; %s processed, %s added to the repository.",
 		shortID(res.SnapshotID), s.FilesNew, s.FilesChanged, s.FilesUnmodified,
 		formatBytes(s.TotalBytesProcessed), formatBytes(s.DataAdded))
-	if res.Partial {
+	switch {
+	case res.Partial:
 		out.Status = api.StatusPartial
 		rl.Warnf("Some files could not be read (%d errors); the snapshot is incomplete. Details are listed in the errors of this run.", res.ErrorCount)
-	} else {
+	case snapUnavailable || len(snap.FailedVolumes) > 0:
+		// Backed up, but not (all) from a snapshot: what the policy continue means.
+		out.Status = api.StatusPartial
+		rl.Warnf("The backup was made without a shadow copy of every volume; files that changed during it may be inconsistent.")
+	default:
 		out.Status = api.StatusSucceeded
 	}
 	out.Summary = fmt.Sprintf("snapshot %s, %d new, %d changed files", shortID(res.SnapshotID), s.FilesNew, s.FilesChanged)

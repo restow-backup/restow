@@ -16,9 +16,11 @@ import {
   hashSecret,
   isInterruptedOnly,
   isSupportedEndpointOs,
+  isSupportedEndpointTarget,
   isValidTimeZone,
   judgeAgentRestoreTest,
   parseActivityReport,
+  parseRunConsistency,
   policyBandwidthDefault,
   policyOnlyOnAcPower,
   RESTIC_VERSION,
@@ -28,6 +30,7 @@ import {
   resticInit,
   restoreTestAlreadyWaiting,
   restoreTestRetry,
+  SUPPORTED_ENDPOINT_OS,
   sealEndpointPassword,
   toFailureRecord,
 } from "@restow/core";
@@ -237,11 +240,17 @@ export async function enrollEndpoint(
   if (!isSupportedEndpointOs(input.os)) {
     throw new ProblemError(422, "Operating system not supported", {
       type: UNSUPPORTED_OS_PROBLEM,
+      detail: `The operating system "${input.os.slice(0, 40)}" is not supported. This release backs up Linux, macOS and Windows (amd64) machines.`,
+      extensions: { supported: [...SUPPORTED_ENDPOINT_OS] },
+    });
+  }
+  if (!isSupportedEndpointTarget(input.os, input.arch)) {
+    // Windows on ARM: restic ships no Windows arm64 build, and its shadow copy code refuses arm64.
+    throw new ProblemError(422, "Operating system not supported", {
+      type: UNSUPPORTED_OS_PROBLEM,
       detail:
-        input.os === "windows"
-          ? "Windows endpoints are not supported yet. This release backs up Linux and macOS machines."
-          : `The operating system "${input.os.slice(0, 40)}" is not supported. This release backs up Linux and macOS machines.`,
-      extensions: { supported: ["linux", "darwin"] },
+        "Windows on ARM is not supported in this release. Restow backs up Windows on x64 (amd64) machines.",
+      extensions: { supported: [...SUPPORTED_ENDPOINT_OS], os: input.os, arch: input.arch },
     });
   }
   const os = input.os;
@@ -833,17 +842,25 @@ export function failureRecordOf(
 
 /**
  * The run's statistics with the agent's activity report (docs/RANSOMWARE.md) beside them, checked
- * and bounded; a report without statistics (a failed run) is not kept.
+ * and bounded; a report without statistics (a failed run) is not kept. The consistency report
+ * (whether a file system snapshot was used, agents from 0.5.0) is kept for a failed run too: the
+ * snapshot may be why it failed.
  */
 export function statsWithActivity(
   stats: FinishRunInput["stats"],
   activity: unknown,
+  consistency?: unknown,
 ): EndpointRunStats | null {
+  const snapshot = parseRunConsistency(consistency);
   if (!stats) {
-    return null;
+    return snapshot ? { consistency: snapshot } : null;
   }
   const report = parseActivityReport(activity);
-  return report ? { ...stats, activity: { ...report } } : stats;
+  return {
+    ...stats,
+    ...(report ? { activity: { ...report } } : {}),
+    ...(snapshot ? { consistency: snapshot } : {}),
+  };
 }
 
 export interface FinishedRun {
@@ -888,7 +905,7 @@ export async function finishRun(
         status,
         finishedAt: finishedAt.getTime() < run.startedAt.getTime() ? now : finishedAt,
         snapshotId: input.snapshotId ?? null,
-        stats: statsWithActivity(input.stats, input.activity),
+        stats: statsWithActivity(input.stats, input.activity, input.consistency),
         errors,
         // What went wrong, explained: the headline, the reason and what to do, in the viewer's language.
         failure,

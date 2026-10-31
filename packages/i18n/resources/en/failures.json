@@ -435,6 +435,14 @@
         "title": "A command before or after the backup was not run",
         "why": "The settings of this machine name a command to run before or after the backup, but the machine does not allow commands from {appName}: they run as root, so an administrator of the machine has to allow them there. The backup ran without the command; what it prepares (for example a database dump) may be missing or out of date."
       },
+      "snapshot_failed": {
+        "title": "The shadow copy of a drive failed",
+        "why": "The agent could not create a file system snapshot (on Windows: shadow copy, VSS) of {has_path, select, yes {{path}} other {a drive}}. Depending on the policy, the drive was read directly without a snapshot (the backup is then partial: files that changed meanwhile may be inconsistent) or the backup was stopped. Common causes are a VSS writer in a bad state or another backup taking a shadow copy at the same time."
+      },
+      "snapshot_unavailable": {
+        "title": "File system snapshots cannot be used on this machine",
+        "why": "The agent could not create any file system snapshot (on Windows: shadow copy, VSS), for example because the Volume Shadow Copy service is disabled or the agent runs without administrator rights. Depending on the policy, the backup ran directly from the file system without a snapshot (a partial backup) or not at all."
+      },
       "timeout": {
         "title": "The run took too long",
         "why": "The run did not finish within the time the agent allows. What was already uploaded is kept, so the next run continues quickly where this one stopped."
@@ -703,6 +711,8 @@
     "check_endpoint_paths": "Check that the folders in the machine's settings exist on the machine, or change the folders.",
     "check_endpoint_hooks": "Run the before and after commands from the settings by hand on the machine as administrator and fix what fails.",
     "allow_endpoint_hooks": "On the machine, allow hooks as administrator: `sudo restow-agent hooks scripts` (only scripts in /etc/restow-agent/hooks.d) or `sudo restow-agent hooks any` (any command). Or remove the commands from the settings.",
+    "check_endpoint_snapshot": "On the machine, check the state of the shadow copy as administrator: `vssadmin list writers` (every writer should be \"Stable\" with no error) and the Event Viewer under Windows Logs > Application, source VSS. If another backup runs at the same time, move one of them.",
+    "check_endpoint_snapshot_service": "On the machine, check that the Volume Shadow Copy (VSS) service is not disabled (startup type \"Manual\") and that the agent runs as the RestowAgent service. To back up without a shadow copy, switch it off in the machine's settings.",
     "check_endpoint_agent": "Check that the agent service is running on the machine and that the machine can reach the server over HTTPS.",
     "check_endpoint_file_access": "Check the permissions of the files named in the run. Databases and other files that change while they are copied are best dumped by a command that runs before the backup.",
     "choose_empty_restore_folder": "Request the restore again and choose a folder that does not exist yet or is empty. A restore never overwrites files.",

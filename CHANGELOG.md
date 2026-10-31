@@ -29,8 +29,7 @@ private repository.
   CTRL_BREAK, hooks run in Windows PowerShell with an exit code you can rely on; the
   self-update replaces the running `restow-agent.exe` by renaming it to `.prev`; restores go
   to `C:\Restow-Restore-<time>` unless a target is given, never into Windows, Program Files or
-  the agent's own folders. Not usable yet: the server still refuses to enroll Windows machines,
-  and backups with shadow copies come with the next step.
+  the agent's own folders.
 - `GET /install/windows.ps1`: the installer for Windows PowerShell 5.1. It checks the release
   signature itself, with its own Ed25519 check written in PowerShell (no other tool needed),
   before anything is run, shows the fingerprint of the release key and takes a pin
@@ -39,6 +38,31 @@ private repository.
   someone else prepared them, starts itself again as 64-bit from a 32-bit host and refuses
   Windows on ARM and Smart App Control. `-Uninstall` removes everything. `restow-agent.exe` and
   the script carry no Authenticode signature in this preview.
+- Windows agent (preview) with shadow copies: Windows machines on x64 can be enrolled (the
+  dialog offers Windows labelled "Preview" and shows the PowerShell command, the fingerprint of
+  the release key and the SHA-256 of `windows.ps1` for the way without `iex`). Backups run from
+  a volume shadow copy (VSS) through restic's `--use-fs-snapshot`, with removable, FAT and exFAT
+  volumes read live. The shadow copy is a switch in the machine's settings, on by default.
+  Windows on ARM is refused by the installer and the server.
+- Agent policy "When the file system snapshot fails" (`snapshotOnFailure`), on the levels of the
+  installation, the tenant and the job and lockable like the others: back up without the
+  snapshot and end partial with a clear run error (the default), or stop the backup. The same
+  setting will serve LVM, btrfs and APFS snapshots. Every backup report carries a new field
+  `consistency` (method, state, the volumes read live), and the run shows it as "Shadow copy
+  (file consistent)", "Partly without a shadow copy" or "Without a shadow copy". New run errors
+  `snapshot_failed`, `snapshot_unavailable` and `snapshot_cleanup_failed`, with explanations
+  and steps in German and English. restic ends with exit code 0 when a shadow copy fails; the
+  agent reads restic's own error entries, and when VSS cannot be used at all it backs up a
+  second time without it.
+- Restores onto Windows machines: the dialog takes `D:\Restore` and checks the Windows rules
+  before the request is sent (local drive, no network path, not in Windows, Program Files or
+  the agent's data), the API checks them again, and snapshot paths read `C:\Users\...`.
+  Mixed backup jobs: each agent takes only the folders written for its system and logs the
+  others once.
+- Windows defaults: the browser, thumbnail and Windows caches and the data of Defender, Search
+  and error reporting are excluded; the agent itself always leaves out the paging and
+  hibernation files, System Volume Information, the recycle bin and its own folder, compares
+  patterns without case and does not download online-only OneDrive files.
 - CI: a job on a Windows runner runs gofmt, `go vet` and the agent's unit tests natively, and
   the agent job vets every package for Windows and checks that `restic.exe` still prints the
   snapshot error texts the agent will recognise. The release runs `restow-agent.exe` and
@@ -60,6 +84,23 @@ private repository.
   modules (79 or 80 per target; three only in `restic.exe`, FUSE and xattr only on Linux and
   macOS), and `scripts/restic-licenses.mjs check` compares each restic binary with the modules
   listed for its target.
+
+### Known limits
+
+- Windows is a preview: x64 only, no Authenticode signature on `restow-agent.exe`,
+  `restic.exe` or `windows.ps1` (Defender, Smart App Control and ASR rules may block them;
+  each prerelease is submitted to Microsoft by hand), and it is tested on real machines only
+  through the maintainer checklist in docs/WINDOWS-AGENT.md.
+- A shadow copy makes a backup file consistent, not application consistent: SQL Server or
+  Exchange files are crash consistent; use a pre hook for a dump.
+- No alternate data streams (no Mark of the Web after a restore), no EFS files of other users,
+  online-only cloud files are left out, junctions are backed up as links, no system state or
+  registry, no bare-metal restore for Windows, and further data drives are not reported as
+  data folders yet.
+
+For existing installations there is nothing to do: no migration; agents before 0.5.0 ignore
+`snapshotOnFailure`, and the release key keeps the fingerprint
+`SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
 
 ## [0.4.8] - 2026-10-30
 

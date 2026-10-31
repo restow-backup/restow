@@ -227,6 +227,9 @@ export const finishRunSchema = z.object({
   // report of the ransomware signals (docs/RANSOMWARE.md), checked and bounded where it is used
   // (@restow/core parseActivityReport). An older agent sends none; a malformed one is dropped.
   activity: z.unknown().optional(),
+  // Whether a file system snapshot was used (agents from 0.5.0 on): checked and bounded where it is
+  // kept (@restow/core parseRunConsistency); an older agent sends none, a malformed one is dropped.
+  consistency: z.unknown().optional(),
 });
 
 export const runIdParamSchema = z.object({ runId: uuid });
@@ -317,6 +320,8 @@ export const updateEndpointSchema = z
         // Time windows with a limit of their own (only for a machine in no job); null or [] removes them.
         bandwidthWindows: bandwidthWindowsSchema.nullable().optional(),
         onlyOnAcPower: z.boolean().optional(),
+        // The shadow copy of a Windows machine (VSS); refused for other systems.
+        useVss: z.boolean().optional(),
       })
       .optional(),
     settings: z
@@ -420,25 +425,16 @@ export const createDownloadSchema = z.object({
 export const downloadParamSchema = z.object({ id: uuid, downloadId: uuid });
 
 /**
- * A restore folder on a Linux or macOS machine: absolute and in plain form
- * (no "." or ".." segment, no double or trailing slash), never the root. The
- * agent checks the same and more (who may change the folders above it).
+ * A restore folder: its length and no control characters here; the rules of the machine's system
+ * (@restow/core restoreTargetIssue: Unix `/...`, Windows `X:\...`) are checked by the service,
+ * which knows the machine. The agent checks the same and more (who may change the folders above
+ * it).
  */
 export const restoreTargetSchema = z
   .string()
   .max(1024)
   // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
-  .refine((value) => !/[\u0000-\u001f]/.test(value), "contains control characters")
-  .refine((value) => value.startsWith("/") && value !== "/", "must be an absolute path below /")
-  .refine(
-    (value) =>
-      !value.endsWith("/") &&
-      value
-        .slice(1)
-        .split("/")
-        .every((segment) => segment !== "" && segment !== "." && segment !== ".."),
-    'must be a plain path without ".", ".." or double slashes',
-  );
+  .refine((value) => !/[\u0000-\u001f]/.test(value), "contains control characters");
 
 export const createTaskSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("backup_now") }),
@@ -486,6 +482,7 @@ export const agentPolicyLevelSchema = z
     bandwidthKbps: z.number().int().min(1).max(10_000_000).nullable().optional(),
     onlyOnAcPower: z.boolean().optional(),
     retries: z.number().int().min(0).max(10).optional(),
+    snapshotOnFailure: z.enum(["continue", "fail"]).optional(),
   })
   .strict();
 
@@ -497,8 +494,17 @@ export const globalAgentPolicySchema = z
   .object({
     settings: agentPolicyLevelSchema,
     locks: z
-      .array(z.enum(["backupWindow", "catchUp", "bandwidthKbps", "onlyOnAcPower", "retries"]))
-      .max(5),
+      .array(
+        z.enum([
+          "backupWindow",
+          "catchUp",
+          "bandwidthKbps",
+          "onlyOnAcPower",
+          "retries",
+          "snapshotOnFailure",
+        ]),
+      )
+      .max(6),
   })
   .strict();
 

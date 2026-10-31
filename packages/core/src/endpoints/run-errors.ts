@@ -8,6 +8,17 @@
  *                 a reboot, a stopped service) and resumes by itself. It is
  *                 not a failed backup: no alert, no `job.failed` webhook, no
  *                 "last backup failed" on the machine.
+ *
+ * The file system snapshot (Windows: shadow copy, VSS; the same codes serve LVM, btrfs and
+ * APFS, docs/AGENT.md):
+ *
+ *   snapshot_failed          the snapshot of one volume (`path`) failed; under the policy
+ *                            `continue` that volume was read live and the run is partial,
+ *                            under `fail` the backup was stopped.
+ *   snapshot_unavailable     no snapshot could be taken at all (service, rights); under
+ *                            `continue` the backup ran without one.
+ *   snapshot_cleanup_failed  a snapshot was not deleted after the run: a note, not a
+ *                            reason for `partial`, and never the explanation of a run.
  */
 export const ENDPOINT_RUN_ERROR_CODES = [
   "interrupted",
@@ -23,7 +34,13 @@ export const ENDPOINT_RUN_ERROR_CODES = [
   "not_regular",
   "read_error",
   "agent_stopped",
+  "snapshot_failed",
+  "snapshot_unavailable",
+  "snapshot_cleanup_failed",
 ] as const;
+
+/** A note about a snapshot left behind: never the explanation of a run. */
+export const SNAPSHOT_CLEANUP_RUN_CODE = "snapshot_cleanup_failed";
 
 export const INTERRUPTED_RUN_CODE = "interrupted";
 

@@ -57,6 +57,8 @@ type runOutcome struct {
 	RestoreTest *api.RestoreTest
 	// Activity is what a backup changed (the ransomware signals).
 	Activity *activity.Report
+	// Consistency is whether a file system snapshot was used (backups).
+	Consistency *api.Consistency
 }
 
 func (o *runOutcome) fail(code, format string, args ...any) {
@@ -126,7 +128,7 @@ func (a *Agent) endRun(rc *runContext, out runOutcome) {
 	fin := api.FinishRequest{
 		Status: out.Status, FinishedAt: finished, SnapshotID: out.SnapshotID, Stats: out.Stats,
 		Sample: out.Sample, Errors: capErrors(out.Errors, out.Unlisted), LogTail: rc.rl.Tail(), RestoreTest: out.RestoreTest,
-		Activity: out.Activity,
+		Activity: out.Activity, Consistency: out.Consistency,
 	}
 	timeout := 4 * time.Minute
 	base := rc.ctx

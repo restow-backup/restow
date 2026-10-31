@@ -445,6 +445,10 @@ function hookCommands(detail: EndpointDetail): string[] {
   if (detail.commands) {
     return [detail.commands.hooksScripts, detail.commands.hooksAny];
   }
+  if (detail.os === "windows") {
+    const agent = "& 'C:\\Program Files\\Restow\\bin\\restow-agent.exe'";
+    return [`${agent} hooks scripts`, `${agent} hooks any`];
+  }
   return ["sudo restow-agent hooks scripts", "sudo restow-agent hooks any"];
 }
 
@@ -760,6 +764,25 @@ export function SettingsTab({ detail }: { detail: EndpointDetail }) {
                   disabled={disabled}
                 />
               </div>
+              {detail.os === "windows" ? (
+                <div
+                  className="flex items-start justify-between gap-4 rounded-md border p-3"
+                  data-slot="settings-vss"
+                >
+                  <div className="space-y-0.5">
+                    <label htmlFor="settings-vss" className="text-sm font-medium">
+                      {t("settings.limits.vss")}
+                    </label>
+                    <p className="text-xs text-muted-foreground">{t("settings.limits.vssHint")}</p>
+                  </div>
+                  <Switch
+                    id="settings-vss"
+                    checked={draft.useVss}
+                    onCheckedChange={(checked) => set("useVss", checked)}
+                    disabled={disabled}
+                  />
+                </div>
+              ) : null}
             </Section>
 
             <HooksSection

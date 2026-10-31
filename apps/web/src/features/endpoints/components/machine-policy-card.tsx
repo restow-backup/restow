@@ -32,6 +32,10 @@ export function MachinePolicyCard({ detail }: { detail: EndpointDetail }) {
           <dl className="grid gap-3 text-sm">
             {AGENT_POLICY_KEYS.map((key: AgentPolicyKey) => {
               const setting = view.effective[key];
+              // A server before 0.5.0 does not know every setting.
+              if (!setting) {
+                return null;
+              }
               return (
                 <div
                   key={key}

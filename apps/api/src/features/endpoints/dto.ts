@@ -347,7 +347,7 @@ export interface EnrollmentTokenDto {
 export interface CreatedTokenDto extends EnrollmentTokenDto {
   /** The token, shown exactly once. */
   token: string;
-  os: "linux" | "darwin";
+  os: "linux" | "darwin" | "windows";
   instanceUrl: string;
   /** The install command asks for the token on the terminal; `installUnattended` reads it from a file. */
   commands: {
@@ -360,6 +360,12 @@ export interface CreatedTokenDto extends EnrollmentTokenDto {
     hooksScripts: string;
     hooksAny: string;
   };
+  /**
+   * Windows (0.5.0, preview): the fingerprint of the release signing key the unattended command
+   * pins, and the SHA-256 of windows.ps1 as this instance serves it (for "download, compare, run");
+   * null when the installation ships no key or no script.
+   */
+  windows?: { releaseKeyFingerprint: string | null; scriptSha256: string | null };
   /** Things the operator should know before running the command. */
   warnings: ("insecure_transport" | "instance_url_not_configured")[];
 }

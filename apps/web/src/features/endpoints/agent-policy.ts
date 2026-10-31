@@ -14,14 +14,28 @@ export const AGENT_POLICY_KEYS = [
   "bandwidthKbps",
   "onlyOnAcPower",
   "retries",
+  "snapshotOnFailure",
 ] as const;
 export type AgentPolicyKey = (typeof AGENT_POLICY_KEYS)[number];
 
 /** What a job may override: its upload limit is the job's own field. */
-export const JOB_POLICY_KEYS = ["backupWindow", "catchUp", "onlyOnAcPower", "retries"] as const;
+export const JOB_POLICY_KEYS = [
+  "backupWindow",
+  "catchUp",
+  "onlyOnAcPower",
+  "retries",
+  "snapshotOnFailure",
+] as const;
 export type JobPolicyKey = (typeof JOB_POLICY_KEYS)[number];
 
 export type CatchUpMode = "asap" | "next_window";
+
+/**
+ * What a backup does when its file system snapshot fails (Windows shadow copy; LVM, btrfs and
+ * APFS use the same setting): `continue` backs up from the live file system and ends partial,
+ * `fail` stops the backup.
+ */
+export type SnapshotOnFailure = "continue" | "fail";
 
 export interface BackupWindow {
   /** Days the window starts on: 1 = Monday ... 7 = Sunday. */
@@ -43,6 +57,7 @@ export interface AgentPolicyValues {
   bandwidthKbps: number | null;
   onlyOnAcPower: boolean;
   retries: number;
+  snapshotOnFailure: SnapshotOnFailure;
 }
 
 /** One level: a key that is present is set at this level. */
@@ -69,6 +84,7 @@ export const DEFAULT_AGENT_POLICY: AgentPolicyValues = {
   bandwidthKbps: null,
   onlyOnAcPower: false,
   retries: 5,
+  snapshotOnFailure: "continue",
 };
 
 export interface GlobalAgentPolicyView {
@@ -103,7 +119,7 @@ export function resolveOnTop(
   const result = { ...above } as Record<AgentPolicyKey, ResolvedSetting<unknown>>;
   for (const key of AGENT_POLICY_KEYS) {
     const value = level[key];
-    if (!above[key].locked && value !== undefined) {
+    if (!above[key]?.locked && value !== undefined) {
       result[key] = { value, source, locked: false };
     }
   }

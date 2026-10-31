@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FailureExplanation } from "@/features/failures";
 import { cn } from "@/lib/utils";
 
-import type { RunDetail, RunProgress } from "../api.js";
+import type { RunConsistency, RunDetail, RunProgress } from "../api.js";
 import { type EndpointFormat, useEndpointFormat, useRun } from "../hooks.js";
 import {
   formatDuration,
@@ -107,6 +107,31 @@ export function RunProgressView({
  * explained in neutral words, never as a failure; `willRetry` is false on a
  * revoked machine, which runs no more tests.
  */
+/**
+ * The consistency of a backup in words: "Shadow copy (file consistent)", "Partly without a shadow
+ * copy: D:\", "Without a shadow copy". Never "consistent" alone: a shadow copy without writer
+ * components makes open databases crash consistent, not application consistent.
+ */
+export function consistencyText(
+  consistency: RunConsistency,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  const method = consistency.method ?? "none";
+  const live = (consistency.liveFilesystems ?? []).join(", ");
+  switch (consistency.state) {
+    case "used":
+      return t("runs.consistency.used", { method });
+    case "partial":
+      return live
+        ? t("runs.consistency.partialWith", { method, live })
+        : t("runs.consistency.partial", { method });
+    case "unavailable":
+      return t("runs.consistency.unavailable", { method });
+    default:
+      return t("runs.consistency.off", { method });
+  }
+}
+
 export function RunDetailView({
   run,
   subjectName,
@@ -179,6 +204,13 @@ export function RunDetailView({
             ) : null}
             {stats.dataAdded !== undefined ? (
               <Fact label={t("runs.facts.dataAdded")}>{format.bytes(stats.dataAdded)}</Fact>
+            ) : null}
+            {stats.consistency ? (
+              <Fact label={t("runs.facts.consistency")}>
+                <span data-slot="run-consistency" data-state={stats.consistency.state}>
+                  {consistencyText(stats.consistency, t)}
+                </span>
+              </Fact>
             ) : null}
           </>
         ) : null}

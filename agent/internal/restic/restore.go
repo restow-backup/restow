@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 )
 
@@ -40,9 +41,9 @@ func (r *Runner) Restore(ctx context.Context, o RestoreOptions) (*RestoreResult,
 		if !strings.HasPrefix(inc, "/") || strings.ContainsRune(inc, 0) {
 			return nil, fmt.Errorf("restore: invalid snapshot path %q (must start with /)", inc)
 		}
-		pat := EscapeIncludePath(inc)
+		opt, pat := includeFor(inc, runtime.GOOS == "windows")
 		total += len(pat)
-		args = append(args, "--include", pat)
+		args = append(args, opt, pat)
 	}
 	if total > maxIncludeArgBytes {
 		return nil, fmt.Errorf("restore: the selection is too large (%d bytes of paths); restore a parent folder or fewer items", total)

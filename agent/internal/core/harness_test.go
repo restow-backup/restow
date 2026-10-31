@@ -48,7 +48,35 @@ backup)
     pid=$!
     wait
   fi
+  vss=""
+  case " $* " in *" --use-fs-snapshot "*) vss=1 ;; esac
   case "$FAKE_BACKUP" in
+  vss-failed)
+    # restic 0.19.1 on Windows: the shadow copy of c:\ failed, the volume was read live, exit 0.
+    if [ -n "$vss" ]; then
+      printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: VSS_E_SNAPSHOT_SET_IN_PROGRESS"},"during":"archival","item":"c:\\"}' >&2
+    fi ;;
+  vss-cleanup)
+    if [ -n "$vss" ]; then
+      printf '%s\n' '{"message_type":"error","error":{"message":"failed to delete VSS snapshot: VSS error: busy"},"during":"archival","item":"c:\\"}' >&2
+    fi ;;
+  vss-failed-wait)
+    if [ -n "$vss" ]; then
+      trap 'kill $pid 2>/dev/null; echo interrupted >&2; exit 130' INT
+      printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: timeout"},"during":"archival","item":"c:\\"}' >&2
+      sleep 30 &
+      pid=$!
+      wait
+    fi ;;
+  vss-unusable)
+    if [ -n "$vss" ]; then
+      printf '%s\n' '{"message_type":"exit_error","code":1,"message":"Fatal: VSS error: CoInitializeSecurity failed: E_ACCESSDENIED"}' >&2
+      exit 1
+    fi ;;
+  odd-once)
+    if [ -n "$vss" ]; then echo 'Fatal: something odd' >&2; exit 1; fi ;;
+  odd-always)
+    echo 'Fatal: something odd' >&2; exit 1 ;;
   fail) echo 'Fatal: unable to open repository at rest:https://x: dial tcp: connection refused' >&2; exit 1 ;;
   partial)
     # restic 0.19 writes the error of each file and its final warning to stderr.
