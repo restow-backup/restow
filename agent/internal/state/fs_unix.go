@@ -17,6 +17,9 @@ func ensureDir(dir string) error {
 	return os.Chmod(dir, 0o700)
 }
 
+// createTemp creates the temporary file a new state is written to.
+func createTemp(dir string) (*os.File, error) { return os.CreateTemp(dir, ".state-*.tmp") }
+
 func syncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {

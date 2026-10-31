@@ -13,6 +13,8 @@ package winapi
 const (
 	ErrorFileNotFound              = 2
 	ErrorAccessDenied              = 5
+	ErrorInvalidOwner              = 1307
+	ErrorFileExists                = 80
 	ErrorSharingViolation          = 32
 	ErrorLockViolation             = 33
 	ErrorCallNotImplemented        = 120

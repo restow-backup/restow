@@ -117,7 +117,7 @@ func (s *State) Save(path string) error {
 	if err := ensureDir(dir); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".state-*.tmp")
+	tmp, err := createTemp(dir)
 	if err != nil {
 		return err
 	}

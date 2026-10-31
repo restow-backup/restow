@@ -2096,7 +2096,10 @@ Fehlerpolitik, Server, Oberfläche und i18n folgen im nächsten Schritt.
   `paths/winpath.go` (ohne Tag) prüft die Pfadform.
 - State und DPAPI (7): `state.json` mit `protected` (`dpapi-machine`), Klartext wird unter
   Windows abgelehnt; Ordner mit DACL beim Anlegen, zu offene Datei-DACL wird zurückgesetzt
-  und gemeldet. `internal/atomicfile` ersetzt Dateien mit POSIX-Umbenennen, sonst
+  und gemeldet. Geschützte Ordner und die temporäre State-Datei werden mit dem Besitzer
+  Administratoren angelegt (`O:BA` vor der DACL): Sonst gehören sie dem Konto, das sie
+  anlegt, etwa dem Administrator, der den Installer (und damit `enroll`) ausführt, und der
+  Dienst als SYSTEM lehnt sie ab (auf dem Windows-Runner der CI nachgewiesen). `internal/atomicfile` ersetzt Dateien mit POSIX-Umbenennen, sonst
   `MoveFileExW`, und Wiederholung
   (State, Status, Outbox, Hinweise beim Update); die Log-Rotation schreibt bei gesperrter
   Datei weiter.

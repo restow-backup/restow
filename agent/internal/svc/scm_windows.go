@@ -299,7 +299,9 @@ func (m *scm) UninstallFromInside() error {
 // Refresh brings an installed service in line with what this version
 // configures for exe; without a service it does nothing.
 func (m *scm) Refresh(exe string) (bool, error) {
-	mgr, svc, err := m.open(winapi.ServiceQueryConfig | winapi.ServiceChangeConfig)
+	// SERVICE_START as well: failure actions with SC_ACTION_RESTART (applyOptionalConfig)
+	// are refused with "access denied" without it (ChangeServiceConfig2W, Remarks).
+	mgr, svc, err := m.open(winapi.ServiceQueryConfig | winapi.ServiceChangeConfig | winapi.ServiceStart)
 	if err != nil {
 		if winapi.IsErrno(err, winapi.ErrorServiceDoesNotExist) {
 			return false, nil

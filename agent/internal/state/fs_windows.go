@@ -3,6 +3,8 @@
 package state
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +33,33 @@ func ensureDir(dir string) error {
 }
 
 func syncDir(string) error { return nil }
+
+// createTemp creates the temporary file a new state is written to, owned by
+// Administrators and with the state file's DACL from the start (the rename keeps
+// both), so checkFile accepts it whoever wrote it: the service as SYSTEM or the
+// administrator who runs the installer. A development layout run without elevation
+// cannot set that owner and gets a plain temporary file.
+func createTemp(dir string) (*os.File, error) {
+	for range 16 {
+		var b [8]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			return nil, err
+		}
+		name := filepath.Join(dir, ".state-"+hex.EncodeToString(b[:])+".tmp")
+		h, err := winapi.CreateFileSDDL(name, paths.OwnerAdministrators+stateFileSDDL)
+		if err == nil {
+			return os.NewFile(uintptr(h), name), nil
+		}
+		if winapi.IsErrno(err, winapi.ErrorFileExists) || winapi.IsErrno(err, winapi.ErrorAlreadyExists) {
+			continue
+		}
+		if paths.DevLayout() && winapi.IsErrno(err, winapi.ErrorInvalidOwner) {
+			return os.CreateTemp(dir, ".state-*.tmp")
+		}
+		return nil, &os.PathError{Op: "create", Path: name, Err: err}
+	}
+	return nil, fmt.Errorf("cannot find a free name for a temporary state file in %s", dir)
+}
 
 // checkFile enforces the protection of the state file: a regular file (no
 // link), owned by SYSTEM or Administrators, no access at all for anyone else.

@@ -179,7 +179,7 @@ func EnsureRootDir(dir string) (string, error) {
 // owned by a trusted principal and resets its DACL to sddl (like chmod on
 // Unix). A folder owned by someone else is refused: they may have prepared it.
 func EnsureProtectedDir(dir, sddl string) error {
-	err := winapi.CreateDirectorySDDL(dir, sddl)
+	err := winapi.CreateDirectorySDDL(dir, OwnerAdministrators+sddl)
 	if err == nil {
 		return nil
 	}

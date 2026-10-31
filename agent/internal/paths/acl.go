@@ -333,6 +333,14 @@ func describeRights(mask uint32) string {
 	return strings.Join(out, ", ")
 }
 
+// OwnerAdministrators is put in front of a DACL when a folder or file is created: the
+// owner is then BUILTIN\Administrators, whoever creates it. Without it the owner is
+// the creating account, e.g. the administrator who runs the installer (which enrolls),
+// and the service, running as SYSTEM, refuses a state folder or file owned by that
+// account. SYSTEM and an elevated administrator may both set it (Administrators is an
+// owner group in their tokens).
+const OwnerAdministrators = "O:BA"
+
 // ProtectedSDDL is the DACL of the agent's private folders: SYSTEM and
 // Administrators only, nothing inherited from above.
 const ProtectedSDDL = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
