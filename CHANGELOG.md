@@ -17,26 +17,64 @@ you have verified restores against your own data.
 
 ### Summary
 
-Restow 0.4.9 is a patch release of 0.4.8: bug fixes and one security fix, no new feature and no
-database migration. The security fix closes a leak in the audit log, where a tenant's
-administrator could read the prices the provider had set for their tenant (Security). The other
-fixes are about screens that said "nothing here" when they had only failed to load, the Recovery
-readiness table that built every row at once on a large tenant, and the currency field of the
-price settings.
+Restow 0.4.9 is a patch release of 0.4.8: bug fixes, one security fix, two small additions and
+one database migration (0072, a new table). The security fix closes a leak in the audit log,
+where a tenant's administrator could read the prices the provider had set for their tenant
+(Security). Empty objects no longer swell "needs attention": the restore check reads a
+SharePoint site's own content back (site.json, list schemas and list items), it calls an
+empty mailbox, OneDrive or site "empty" instead of "nothing to verify", and an admin can
+confirm an empty object as empty, after which it reads grey. Prices can bill the storage in
+started blocks of 100 GB or 1 TB. The other fixes are about screens that said "nothing here"
+when they had only failed to load, the Recovery readiness table that built every row at once on
+a large tenant, and the currency field of the price settings.
 
 ### Breaking Changes
 
-None. The integration API contract stays at 1.9.0. The one difference to see is the audit log:
-anyone who is not a provider admin gets the entry `tenant.pricing.updated` with `details` set
-to `null`, and no `mailboxPrice` or `storagePrice` in the details of any other entry (Security).
+None. The integration API contract stays at 1.9.0: no field is added or removed. The
+differences to see:
+
+- The audit log: anyone who is not a provider admin gets the entry `tenant.pricing.updated` with
+  `details` set to `null`, and no `mailboxPrice` or `storagePrice` in the details of any other
+  entry (Security).
+- Readiness values in `GET /verify/latest` and `GET /status`: an object an admin confirmed as
+  empty reads `state: "green"` and `rating: "green"` there, and the summary counts it in
+  `green`, no longer in `yellow`; `overall` no longer turns yellow for it. A report's `reasons`
+  can carry the new code `snapshot_empty` (an empty object) where it said `nothing_to_verify`
+  before. Per-object readiness in the user and object routes is unchanged (still yellow).
 
 ### Added
 
-Nothing.
+- Recovery readiness, "Confirm as empty": an object whose newest restore check found it empty
+  (only default folders or system pages, 0 bytes) can be confirmed as empty by a tenant admin,
+  one row at a time or as a selection under the new filter "Empty (not confirmed)", after a
+  confirmation dialog. It then reads grey "Confirmed empty by <who> on <date>", counts for no
+  "needs attention" (tenant rating, dashboard, statistics, provider view, alerts) and is never
+  overdue. The confirmation ends by itself with the first check that finds content (the worker
+  removes it with that report) and counts only while the newest check says "empty" and nothing
+  else; it can be revoked. API: `POST /api/v1/verify/empty-confirmations` (`{ objectIds }`, at
+  most 200, or `{ filter: { state: "empty_unconfirmed" } }`, with an optional `note`; objects
+  that are not empty come back in `skipped` with the reason) and `DELETE
+  /api/v1/verify/empty-confirmations/:objectId`, both audited (`verify.empty_confirmed`,
+  `verify.empty_confirmation_revoked`).
+- Prices, "Bill storage in": exactly (as before, the default), started blocks of 100 GB or
+  started TB. The stored bytes are rounded up to the next full block (decimal units, 0 stays
+  0) before the storage price applies, whatever its unit, for tenants with prices of their own
+  as well. The cards say both, for example "1,240 GB, billed as 2 TB × €15.00 = €30.00", and
+  the estimate carries `billedBytes` next to `storedBytes`. Kept with the installation's prices
+  (owner only, audited as before).
 
 ### Changed
 
-Nothing beyond the fixes below.
+- Restore check of SharePoint sites: a site's own JSON objects (site.json, the list schemas and
+  the list items) are read back and compared with their checksums like any other object (a new
+  sample category "Site content", a quarter of the sample size, at least one). A site that holds
+  only these now reads green after its next check instead of yellow "nothing to verify". They
+  are never handed to a test restore.
+- The wording of an empty object: a check that finds only default folders or system pages
+  (0 bytes) now says "Empty: only default folders and system pages, 0 bytes (n items). Nothing
+  to restore." (new reason `snapshot_empty`, still yellow until confirmed). "Nothing to verify"
+  stays for a backup that holds data of a type a check cannot read back, and names its size.
+  Reports written before keep their earlier text.
 
 ### Fixed
 
@@ -78,8 +116,15 @@ Nothing beyond the fixes below.
 
 ### Upgrade Notes
 
-New images; no database migration, no new or changed environment variable, and the
+New images and one database migration; no new or changed environment variable, and the
 `docker-compose.yml` of 0.4.0 stays. Pull the images of 0.4.9 and restart as for any update.
+
+- Migration 0072 adds the table `empty_confirmations` (with Row Level Security like every
+  tenant table). It rewrites nothing and takes no lock on an existing table.
+- Sites that read yellow "nothing to verify" turn green after their next restore check (the
+  weekly one, or "Check now"). Empty mailboxes, OneDrives and sites read yellow "Empty" after
+  their next check and stay yellow until someone confirms them as empty.
+- Prices stay billed exactly until the owner picks blocks.
 
 - restow-pve and the agents need no update in this release (no change to the agents or the
   Proxmox VE plugin).
@@ -93,8 +138,15 @@ New images; no database migration, no new or changed environment variable, and t
 
 ### Verification
 
-Before the tag, on the release branch (0.4.8 plus the fixes above, taken from the 0.5.0 work):
-lint, build of the libraries and typecheck of all workspaces; the unit tests of the audit log's
+Before the tag, on the release branch (0.4.8 plus the fixes and additions above): lint, build
+of the libraries and typecheck of all workspaces; the core tests of the sampling (site content,
+quota), the readiness rating (empty, nothing to verify) and the verify engine (site read back,
+nothing of a site to the test restore); the migration and Row Level Security tests with 0072;
+the Postgres tests of "Confirm as empty" (skip reasons, bulk limit, audit, tenant boundary,
+rating, overdue, the integration API's values, the read-time guard) and of the worker ending a
+confirmation; the unit and Postgres tests of billing in blocks (0 bytes, exactly 100 GB,
+100.000000001 GB) and the web tests of the objects table, its selection, the price card and
+the price settings; the unit tests of the audit log's
 price redaction and the Postgres test through the real application (a tenant's administrator
 and the provider admin on `/audit`, `/audit/:id` and the JSON and CSV export,
 including the hash check; the Postgres test fails with the fix taken out); the route test and
