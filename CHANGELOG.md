@@ -72,9 +72,9 @@ Nothing beyond the fixes below.
   endpoints and both export formats. The entry itself and its hash check stay: the hash is
   checked against the stored entry before the details are taken out, so the chain still reads as
   valid, and the stored entries are not changed. Provider admins see everything as before. Tests
-  state it for a provider admin, a tenant's administrator and a tenant's end user, and the other
-  routes that serve a price (settings, estimate, a tenant's own prices, usage) are tested to
-  refuse everybody but the provider team.
+  state it for the provider admin and a tenant's administrator (list, one entry, JSON and CSV
+  export, hash check); the other routes that serve a price (settings, estimate, a tenant's own
+  prices, usage) are tested to refuse a tenant's administrator and end user.
 
 ### Upgrade Notes
 
@@ -95,8 +95,8 @@ New images; no database migration, no new or changed environment variable, and t
 
 Before the tag, on the release branch (0.4.8 plus the fixes above, taken from the 0.5.0 work):
 lint, build of the libraries and typecheck of all workspaces; the unit tests of the audit log's
-price redaction and the Postgres test through the real application (a tenant's administrator,
-its end user and the provider admin on `/audit`, `/audit/:id` and the JSON and CSV export,
+price redaction and the Postgres test through the real application (a tenant's administrator
+and the provider admin on `/audit`, `/audit/:id` and the JSON and CSV export,
 including the hash check; the Postgres test fails with the fix taken out); the route test and
 the Postgres test of who may read or change a price; the web DOM tests of the price cards and
 settings, the bell, the restore explorer's account list, the job panel, the pending enrollments
