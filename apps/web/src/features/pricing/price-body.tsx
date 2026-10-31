@@ -74,13 +74,21 @@ export function PriceBody({
             </span>
           ) : null}
           {view.storage ? (
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {t("card.storage", {
-                quantity: formatQuantity(view.storage.quantity, language),
-                unit: view.storage.unit,
-                price: money(view.storage.price),
-                amount: money(view.storage.amount),
-              })}
+            <span className="text-xs text-muted-foreground tabular-nums" data-slot="storage-line">
+              {view.storage.billed
+                ? t("card.storageBilled", {
+                    stored: formatQuantity(view.storage.billed.storedGb, language),
+                    quantity: formatQuantity(view.storage.billed.quantity, language),
+                    unit: view.storage.unit,
+                    price: money(view.storage.price),
+                    amount: money(view.storage.amount),
+                  })
+                : t("card.storage", {
+                    quantity: formatQuantity(view.storage.quantity, language),
+                    unit: view.storage.unit,
+                    price: money(view.storage.price),
+                    amount: money(view.storage.amount),
+                  })}
             </span>
           ) : null}
         </>

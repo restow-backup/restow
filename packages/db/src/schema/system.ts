@@ -257,6 +257,11 @@ export interface PricingSettings {
   storagePrice?: number | null;
   /** The unit `storagePrice` is per: decimal GB (10^9 bytes) or TB (10^12 bytes). */
   storageUnit?: "GB" | "TB";
+  /**
+   * How the stored bytes are counted before the price applies (0.4.9): exactly, or rounded up to
+   * the next full 100 GB or TB (decimal units). `exact` when left out.
+   */
+  storageBilling?: "exact" | "block_100gb" | "block_1tb";
   mailboxPrice?: number | null;
 }
 

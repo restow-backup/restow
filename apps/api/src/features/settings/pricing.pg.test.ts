@@ -27,8 +27,10 @@ describe("resolvePricing", () => {
       currency: "EUR",
       storagePrice: null,
       storageUnit: "GB",
+      storageBilling: "exact",
       mailboxPrice: null,
     });
+    expect(resolvePricing({ storageBilling: "block_9tb" as never }).storageBilling).toBe("exact");
     expect(
       resolvePricing({ currency: "XYZ", storagePrice: -1, mailboxPrice: Number.NaN }),
     ).toMatchObject({ currency: "EUR", storagePrice: null, mailboxPrice: null });
@@ -84,16 +86,22 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider's prices against Postgres",
       currency: "CHF",
       storagePrice: 25,
       storageUnit: "TB",
+      storageBilling: "exact",
       mailboxPrice: 2.5,
     });
     const cleared = await pricing.updatePricing(providerDb, { mailboxPrice: null }, actor);
     expect(cleared.mailboxPrice).toBeNull();
     expect(await pricing.getPricing(providerDb)).toEqual(cleared);
+    // Billing in blocks is kept with the prices and changes nothing else.
+    const blocks = await pricing.updatePricing(providerDb, { storageBilling: "block_1tb" }, actor);
+    expect(blocks).toEqual({ ...cleared, storageBilling: "block_1tb" });
+    expect(await pricing.getPricing(providerDb)).toEqual(blocks);
     const entries = await db
       .select()
       .from(auditLog)
       .where(eq(auditLog.action, "settings.pricing.updated"));
-    expect(entries).toHaveLength(3);
+    expect(entries).toHaveLength(4);
+    expect(entries.at(-1)?.details).toMatchObject({ after: { storageBilling: "block_1tb" } });
     expect(entries.every((entry) => entry.tenantId === null)).toBe(true);
   });
 });

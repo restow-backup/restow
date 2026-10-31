@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { billedBytes, pricingSchema } from "./pricing.js";
 import { estimateAmount, estimateTenant, pricingEstimateQuerySchema } from "./pricing-estimate.js";
 import {
   effectivePrice,
@@ -43,6 +44,75 @@ describe("estimateAmount", () => {
         storageUnit: "GB",
       }),
     ).toEqual({ mailboxes: 0, storage: null, total: 0 });
+  });
+});
+
+describe("storage billing in blocks", () => {
+  const GB = 1e9;
+
+  it("rounds the stored bytes up to full 100 GB or TB, and leaves 0 at 0", () => {
+    expect(billedBytes(0, "block_100gb")).toBe(0);
+    expect(billedBytes(0, "block_1tb")).toBe(0);
+    expect(billedBytes(1, "block_100gb")).toBe(100 * GB);
+    expect(billedBytes(100 * GB, "block_100gb")).toBe(100 * GB);
+    expect(billedBytes(100.000000001 * GB, "block_100gb")).toBe(200 * GB);
+    expect(billedBytes(1240 * GB, "block_1tb")).toBe(2000 * GB);
+    expect(billedBytes(1000 * GB, "block_1tb")).toBe(1000 * GB);
+    expect(billedBytes(1240 * GB, "exact")).toBe(1240 * GB);
+  });
+
+  it("prices the billed amount in the unit of the price, whatever the block", () => {
+    const figures = { mailboxes: 0, storedBytes: 1240 * GB };
+    expect(
+      estimateAmount({
+        figures,
+        mailboxPrice: null,
+        storagePrice: 15,
+        storageUnit: "TB",
+        storageBilling: "block_1tb",
+      }),
+    ).toEqual({ mailboxes: null, storage: 30, total: 30 });
+    expect(
+      estimateAmount({
+        figures,
+        mailboxPrice: null,
+        storagePrice: 0.01,
+        storageUnit: "GB",
+        storageBilling: "block_100gb",
+      }).storage,
+    ).toBeCloseTo(13, 10);
+    expect(
+      estimateAmount({
+        figures: { mailboxes: 0, storedBytes: 0 },
+        mailboxPrice: null,
+        storagePrice: 15,
+        storageUnit: "TB",
+        storageBilling: "block_1tb",
+      }),
+    ).toEqual({ mailboxes: null, storage: 0, total: 0 });
+  });
+
+  it("carries the billed bytes next to the stored ones, for a tenant's own price as well", () => {
+    const entry = estimateTenant({
+      row: { id: "t1", name: "Alpha", kind: "customer" },
+      overrides: { mailboxPrice: null, storagePrice: 20 },
+      pricing: {
+        mailboxPrice: null,
+        storagePrice: 15,
+        storageUnit: "TB",
+        storageBilling: "block_1tb",
+      },
+      figures: { mailboxes: 0, storedBytes: 1240 * GB },
+    });
+    expect(entry).toMatchObject({ storedBytes: 1240 * GB, billedBytes: 2000 * GB });
+    expect(entry.amount.storage).toBe(40);
+  });
+
+  it("accepts the three ways and nothing else", () => {
+    for (const storageBilling of ["exact", "block_100gb", "block_1tb"]) {
+      expect(pricingSchema.safeParse({ storageBilling }).success).toBe(true);
+    }
+    expect(pricingSchema.safeParse({ storageBilling: "block_1gb" }).success).toBe(false);
   });
 });
 
@@ -128,6 +198,7 @@ describe("tenant prices", () => {
       currency: "EUR",
       storagePrice: 0.1,
       storageUnit: "GB" as const,
+      storageBilling: "exact" as const,
       mailboxPrice: 2,
     };
     const stored = { mailboxPrice: 1 };

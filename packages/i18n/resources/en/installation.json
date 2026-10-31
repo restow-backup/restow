@@ -602,6 +602,13 @@
     "unit": "Unit",
     "perGb": "per GB",
     "perTb": "per TB",
+    "billing": {
+      "label": "Bill storage in",
+      "exact": "exact amount",
+      "block_100gb": "started blocks of 100 GB",
+      "block_1tb": "started TB",
+      "hint": "Started blocks round the stored amount up to full 100 GB or 1 TB before the storage price applies, for tenants with prices of their own as well."
+    },
     "currency": "Currency",
     "none": "no price",
     "save": "Save",

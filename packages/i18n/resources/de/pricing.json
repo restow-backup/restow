@@ -4,6 +4,7 @@
     "perMonth": "/ Monat",
     "mailboxes": "{count, plural, one {# Postfach} other {# Postfächer}} × {price} = {amount}",
     "storage": "{quantity} {unit} × {price} = {amount}",
+    "storageBilled": "{stored} GB, abgerechnet als {quantity} {unit} × {price} = {amount}",
     "custom": "Eigener Preis",
     "unavailable": "Zahlen noch nicht verfügbar",
     "none": "Für diesen Mandanten ist noch kein Preis festgelegt.",

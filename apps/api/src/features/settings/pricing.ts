@@ -24,6 +24,30 @@ export const DEFAULT_CURRENCY = "EUR";
 /** The currencies offered; the figures are formatted with the browser's Intl. */
 export const PRICING_CURRENCIES = ["EUR", "CHF", "USD", "GBP"] as const;
 
+/**
+ * How the stored bytes are counted (0.4.9): `exact`, or rounded up to the next full block of
+ * 100 GB or 1 TB (decimal units) before the storage price applies, whatever its unit. It applies
+ * to tenants with prices of their own as well.
+ */
+export const STORAGE_BILLING = ["exact", "block_100gb", "block_1tb"] as const;
+export type StorageBilling = (typeof STORAGE_BILLING)[number];
+
+/** The bytes of one block; null for `exact`. */
+export const BILLING_BLOCK_BYTES: Readonly<Record<StorageBilling, number | null>> = {
+  exact: null,
+  block_100gb: 100e9,
+  block_1tb: 1e12,
+};
+
+/** The bytes a price applies to: the stored bytes, rounded up to full blocks; 0 stays 0. */
+export function billedBytes(storedBytes: number, billing: StorageBilling): number {
+  const block = BILLING_BLOCK_BYTES[billing];
+  if (block === null || storedBytes <= 0) {
+    return Math.max(0, storedBytes);
+  }
+  return Math.ceil(storedBytes / block) * block;
+}
+
 /** One price: null clears it. The limits also hold for a tenant's own price (tenant-pricing.ts). */
 export const priceSchema = z.number().min(0).max(1_000_000).multipleOf(0.0001).nullable();
 
@@ -32,6 +56,7 @@ export const pricingSchema = z
     currency: z.enum(PRICING_CURRENCIES).optional(),
     storagePrice: priceSchema.optional(),
     storageUnit: z.enum(["GB", "TB"]).optional(),
+    storageBilling: z.enum(STORAGE_BILLING).optional(),
     mailboxPrice: priceSchema.optional(),
   })
   .strict();
@@ -40,6 +65,8 @@ export interface PricingDto {
   currency: string;
   storagePrice: number | null;
   storageUnit: "GB" | "TB";
+  /** How the stored bytes are counted before the storage price applies. */
+  storageBilling: StorageBilling;
   mailboxPrice: number | null;
 }
 
@@ -54,6 +81,9 @@ export function resolvePricing(stored: PricingSettings | null | undefined): Pric
         : DEFAULT_CURRENCY,
     storagePrice: number(stored?.storagePrice),
     storageUnit: stored?.storageUnit === "TB" ? "TB" : "GB",
+    storageBilling: (STORAGE_BILLING as readonly string[]).includes(stored?.storageBilling ?? "")
+      ? (stored?.storageBilling as StorageBilling)
+      : "exact",
     mailboxPrice: number(stored?.mailboxPrice),
   };
 }
