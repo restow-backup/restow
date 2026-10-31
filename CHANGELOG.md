@@ -10,6 +10,101 @@ private repository.
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-10-31
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.9 is a patch release of 0.4.8: bug fixes and one security fix, no new feature and no
+database migration. The security fix closes a leak in the audit log, where a tenant's
+administrator could read the prices the provider had set for their tenant (Security). The other
+fixes are about screens that said "nothing here" when they had only failed to load, the Recovery
+readiness table that built every row at once on a large tenant, and the currency field of the
+price settings.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.9.0. The one difference to see is the audit log:
+anyone who is not a provider admin gets the entry `tenant.pricing.updated` with `details` set
+to `null`, and no `mailboxPrice` or `storagePrice` in the details of any other entry (Security).
+
+### Added
+
+Nothing.
+
+### Changed
+
+Nothing beyond the fixes below.
+
+### Fixed
+
+- Recovery readiness: the table listed every object at once, so a tenant with thousands of
+  mailboxes built thousands of rows, and its last row ran into the edge of the card. It shows 50
+  rows, then "Load more" under the table (with the count shown); changing the state filter
+  starts on the first page again.
+- A card that fails to load no longer leaves a gap that reads as "nothing to report": the sum
+  over all tenants on the start page of a provider admin and the pending enrollments of the
+  machines page now say that they could not be loaded and offer a retry. The same holds for the
+  account list of the restore explorer, the bell and the last runs in the panel of a job: a
+  failed read no longer reads as "No matching account", "Nothing new" or "No run yet".
+- Prices: the currency field sits under its label, not beside it (the label is a block of its
+  own now).
+- The price settings section asks for nothing and shows nothing when it is mounted for anyone
+  who is not a provider admin.
+
+### Security
+
+- Audit log, prices: the audit entry of a changed tenant price (`tenant.pricing.updated`,
+  written since 0.4.8, when per-tenant prices came in) carries the tenant's stored mailbox and
+  storage price before and after the change. The entries of a tenant's chain are readable by
+  that tenant's administrator, and nothing took the details out: they were shown in the audit
+  log viewer, in `GET /api/v1/audit` and `GET /api/v1/audit/:id`, and in the JSON and CSV
+  export. So a tenant's administrator could read the prices the provider had set for their own
+  tenant, which are the provider's business figures and meant for the provider team only. Only
+  the prices of the reader's own tenant were exposed: no other tenant's prices, and not the
+  installation's prices (their entry, `settings.pricing.updated`, is in the provider's chain).
+  Only 0.4.8 is affected, and only where an owner had given a tenant prices of its own (Service
+  Provider edition); 0.4.7 has no per-tenant prices.
+- Anyone but a provider admin now gets that entry without its details, and no price figure
+  (`mailboxPrice`, `storagePrice`) in the details of any other entry, in the viewer, both
+  endpoints and both export formats. The entry itself and its hash check stay: the hash is
+  checked against the stored entry before the details are taken out, so the chain still reads as
+  valid, and the stored entries are not changed. Provider admins see everything as before. Tests
+  state it for a provider admin, a tenant's administrator and a tenant's end user, and the other
+  routes that serve a price (settings, estimate, a tenant's own prices, usage) are tested to
+  refuse everybody but the provider team.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.4.0 stays. Pull the images of 0.4.9 and restart as for any update.
+
+- restow-pve and the agents need no update in this release (no change to the agents or the
+  Proxmox VE plugin).
+- Nothing has to be rotated or rewritten: the fix changes what the api hands out, not what is
+  stored. If you gave tenants prices of their own under 0.4.8 and want to treat them as seen by
+  that tenant's administrators until now, that is the extent of the exposure (Security).
+
+### Known Issues
+
+- The known issues of 0.4.8 still apply.
+
+### Verification
+
+Before the tag, on the release branch (0.4.8 plus the fixes above, taken from the 0.5.0 work):
+lint, build of the libraries and typecheck of all workspaces; the unit tests of the audit log's
+price redaction and the Postgres test through the real application (a tenant's administrator,
+its end user and the provider admin on `/audit`, `/audit/:id` and the JSON and CSV export,
+including the hash check; the Postgres test fails with the fix taken out); the route test and
+the Postgres test of who may read or change a price; the web DOM tests of the price cards and
+settings, the bell, the restore explorer's account list, the job panel, the pending enrollments
+and the Recovery readiness paging; the i18n tests; the install script's test
+(`deploy/install/test.sh`, 679 checks), the release check (`scripts/ci/check-release.mjs --tag
+v0.4.9`) and the third-party notices (unchanged). The full suites of every package were not
+rerun for the patch.
+
 ## [0.4.8] - 2026-10-30
 
 Beta release. Run it alongside your existing backups, not as your only one, until
