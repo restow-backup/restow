@@ -75,6 +75,15 @@ export interface StreamOutcome {
 }
 
 export class PgStreamStore {
+  /**
+   * The due time each stream had when this store claimed it, exactly as Postgres holds it
+   * (text, to the microsecond). `complete()` compares it with the row: a different value
+   * means something made the stream due while the pass ran (an IDLE or change
+   * notification, a resync, the IDLE manager taking the account over), and that is kept
+   * instead of being overwritten by the pass's own next time.
+   */
+  private readonly claimedDue = new Map<string, string>();
+
   /** `db`: the installation pool. */
   constructor(private readonly db: Database) {}
 
@@ -123,9 +132,15 @@ export class PgStreamStore {
           limit ${options.limit}
           for update skip locked
        )
-      returning ${STREAM_COLUMNS}
+      returning ${STREAM_COLUMNS}, s.next_due_at::text as claimed_due
     `);
-    return (result.rows as unknown as StreamRow[]).map(streamFromRow);
+    const rows = result.rows as unknown as (StreamRow & { claimed_due: string | null })[];
+    for (const row of rows) {
+      if (row.claimed_due !== null) {
+        this.claimedDue.set(row.id, row.claimed_due);
+      }
+    }
+    return rows.map(streamFromRow);
   }
 
   /** Extend the leases `owner` holds; returns the ids it no longer holds. */
@@ -182,6 +197,9 @@ export class PgStreamStore {
   /** Write a pass's outcome and release the lease; false when the lease was lost. */
   async complete(owner: string, id: string, outcome: StreamOutcome): Promise<boolean> {
     const ok = outcome.failure === null;
+    const claimedDue = this.claimedDue.get(id) ?? null;
+    this.claimedDue.delete(id);
+    const next = outcome.nextDueAt?.toISOString() ?? null;
     const result = await this.db.execute(sql`
       update archive_capture_streams set
         -- _errorSince: when the stream went into error (kept while it stays there, removed
@@ -194,7 +212,13 @@ export class PgStreamStore {
         -- A stream disabled or paused meanwhile (reconcile, an administrator) stays so.
         status = case when status in ('disabled', 'paused') then status
                       else ${outcome.status}::archive_stream_status end,
-        next_due_at = ${outcome.nextDueAt?.toISOString() ?? null}::timestamptz,
+        -- Made due while the pass ran (the row no longer holds the due time it was claimed
+        -- with): the earlier of the two, so that request is not lost until the pass's own
+        -- next time (up to the safety pass of a watched account, half an hour later).
+        next_due_at = case when ${claimedDue}::timestamptz is not null
+                            and next_due_at is distinct from ${claimedDue}::timestamptz
+                           then least(next_due_at, ${next}::timestamptz)
+                           else ${next}::timestamptz end,
         activated_at = coalesce(activated_at, ${outcome.activatedAt?.toISOString() ?? null}::timestamptz),
         backfill_job_id = coalesce(${outcome.backfillJobId ?? null}::uuid, backfill_job_id),
         dirty_since = case when ${ok} and dirty_since <= ${outcome.passStartedAt.toISOString()}::timestamptz
@@ -213,6 +237,7 @@ export class PgStreamStore {
 
   /** Give a lease back without writing anything else (an aborted pass). */
   async release(owner: string, id: string): Promise<void> {
+    this.claimedDue.delete(id);
     await this.db.execute(sql`
       update archive_capture_streams set lease_owner = null, lease_until = null
        where id = ${id}::uuid and lease_owner = ${owner}

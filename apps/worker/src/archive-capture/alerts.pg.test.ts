@@ -250,6 +250,60 @@ describe.skipIf(!adminUrl)("archive capture alerts (Postgres)", () => {
     expect((await stateOf())._errorSince).toBeUndefined();
   });
 
+  it("keeps a stream made due while its pass ran due, instead of the pass's own next time", async () => {
+    const objectId = await imapObject(`due-${randomUUID()}@example.net`);
+    const id = await stream(objectId, { folders: {} }, "live");
+    const store = new PgStreamStore(db);
+    const dueOf = async () =>
+      (
+        await db
+          .select({ nextDueAt: archiveCaptureStreams.nextDueAt })
+          .from(archiveCaptureStreams)
+          .where(eq(archiveCaptureStreams.id, id))
+      )[0]?.nextDueAt ?? null;
+    // Due long ago, so this stream is the one claimed first.
+    const claim = async () => {
+      await db
+        .update(archiveCaptureStreams)
+        .set({
+          nextDueAt: new Date("2000-01-01T00:00:00.000Z"),
+          leaseOwner: null,
+          leaseUntil: null,
+        })
+        .where(eq(archiveCaptureStreams.id, id));
+      const claimed = await store.claimDue({
+        owner: "w2",
+        limit: 1,
+        leaseMs: HOUR,
+        ways: ["imap_sync"],
+      });
+      expect(claimed.map((row) => row.id)).toEqual([id]);
+    };
+    const later = () => new Date(Date.now() + 30 * 60_000);
+    const pass = (nextDueAt: Date) => ({
+      state: { folders: {} },
+      status: "live" as const,
+      nextDueAt,
+      passStartedAt: new Date(),
+      captured: 0,
+      failure: null,
+    });
+
+    // The IDLE manager takes the account over while the pass runs: its request stays.
+    await claim();
+    await store.markDue([id]);
+    const marked = await dueOf();
+    expect(await store.complete("w2", id, pass(later()))).toBe(true);
+    expect(await dueOf()).toEqual(marked);
+    expect((await dueOf())?.getTime()).toBeLessThanOrEqual(Date.now());
+
+    // Nobody asked for it meanwhile: the pass's own next time.
+    await claim();
+    const next = later();
+    expect(await store.complete("w2", id, pass(next))).toBe(true);
+    expect(await dueOf()).toEqual(next);
+  });
+
   it("raises forwarding silent for 24 hours after it received, once per address and stretch", async () => {
     const quiet = await imapObject(`quiet-${randomUUID()}@example.net`);
     const busy = await imapObject(`busy-${randomUUID()}@example.net`);

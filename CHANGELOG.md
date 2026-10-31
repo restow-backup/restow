@@ -124,6 +124,17 @@ private repository.
   reload. In the sidebar footer the version of a provider administrator stays "Version x.y.z"
   and carries the dot, instead of turning into the button "Update to x.y.z available".
 
+### Fixed
+
+- Mail archive: a request to look at a mailbox now, made while a pass over it was still running,
+  was overwritten by the pass's own next time when the pass ended. It happened when the IDLE
+  watch of an IMAP account began during the account's pass, when new mail was announced by IDLE
+  or by a change notification during a pass, and on a resync asked for meanwhile. The account
+  then showed "polled" and new mail waited for the next scheduled pass, up to half an hour for a
+  watched account. The end of a pass now keeps such a request (the earlier of the two times).
+  This was the cause of the IMAP test that failed now and then ("shows a watched account as
+  IDLE"); with a pass slowed down on purpose it failed every time before and passes now.
+
 ## [0.4.9] - 2026-10-31
 
 Beta release. Run it alongside your existing backups, not as your only one, until
