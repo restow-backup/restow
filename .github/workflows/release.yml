@@ -4,8 +4,12 @@ name: Release
 # package.json and have a finished CHANGELOG.md section with a real date. Then:
 #
 #   verify -> ci (the full CI on the tagged commit)
-#          -> agent (the endpoint agent for every target; its SHA256SUMS goes
-#                    to a DRAFT GitHub release as agent-SHA256SUMS)
+#          -> agent (builds the endpoint agent for every target and keeps the
+#                    build as a workflow artifact; it does not touch the release)
+#          -> agent-windows-check (on a Windows runner: the Windows files match
+#                    their SHA256SUMS and report the release versions)
+#          -> agent-sums (puts the build's SHA256SUMS on a DRAFT GitHub release
+#                    as agent-SHA256SUMS and asks the maintainer to sign it)
 #          -> agent-signature (waits in the environment agent-release-signing
 #                    until the maintainer signed agent-SHA256SUMS offline with
 #                    scripts/release/sign-agent.sh; checks the signature
@@ -231,7 +235,7 @@ jobs:
       contents: read
 
   agent:
-    name: Agent release (draft)
+    name: Agent release (build)
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -980,10 +984,10 @@ jobs:
             flags+=(--prerelease)
           fi
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            # The draft of the agent job (or a re-run of a release that got this far): fill and publish it.
+            # The draft of the agent-sums job (or a re-run of a release that got this far): fill and publish it.
             gh release upload "$GITHUB_REF_NAME" --clobber assets/*
             gh release edit "$GITHUB_REF_NAME" --title "Restow $VERSION" --notes-file notes.md --draft=false "${flags[@]}"
           else
-            echo "::error::There is no draft release $GITHUB_REF_NAME with the signed agent; the agent job did not run."
+            echo "::error::There is no draft release $GITHUB_REF_NAME with the signed agent; the agent-sums job did not run."
             exit 1
           fi

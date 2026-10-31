@@ -178,7 +178,7 @@ sign() {
     die "agent/release-signing.pub at $tag is still the placeholder; commit the public key first"
 
   draft=$(gh release view "$tag" -R "$repo" --json isDraft --jq .isDraft 2>/dev/null) ||
-    die "there is no release $tag in $repo yet; wait until the agent job of the release workflow created the draft"
+    die "there is no release $tag in $repo yet; wait until the agent-sums job of the release workflow created the draft"
   [ "$draft" = true ] || die "the release $tag is already published; a published release is never signed again"
 
   gh release download "$tag" -R "$repo" --dir "$work" --pattern agent-SHA256SUMS ||
