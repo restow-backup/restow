@@ -391,6 +391,7 @@ describe("verification report", () => {
       red: 0,
       unverified: 0,
       noBackup: 0,
+      empty: 0,
       overdue: 0,
       withoutJob: 0,
       objectsWithoutJob: 0,
@@ -420,6 +421,40 @@ describe("verification report", () => {
     const second = pageOverview(overview, 2, cursor?.id ?? null);
     expect(second.items.map((item) => item.protectedObjectId)).toEqual([ids[0]]);
     expect(second.next).toBeNull();
+  });
+
+  it("serves an object confirmed as empty as green, and v1 reasons without bytes", () => {
+    const empty = objectEntry(ids[0] as string);
+    const withEmpty: ReadinessOverviewDto = {
+      ...overview,
+      summary: { ...overview.summary, green: 2, empty: 1 },
+      objects: [
+        {
+          ...empty,
+          state: "empty",
+          readiness: "yellow",
+          report: {
+            ...(empty.report as NonNullable<typeof empty.report>),
+            reasons: [
+              {
+                code: "snapshot_empty",
+                severity: "yellow",
+                count: 9,
+                ageHours: null,
+                bytes: null,
+                failure: null,
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const page = pageOverview(withEmpty, 10, null);
+    expect(verifyLatestSchema.parse(page)).toEqual(page);
+    expect(page.summary).not.toHaveProperty("empty");
+    expect(page.summary.green).toBe(3);
+    expect(page.items[0]).toMatchObject({ state: "green", rating: "green" });
+    expect(page.items[0]?.report?.reasons[0]).not.toHaveProperty("bytes");
   });
 });
 

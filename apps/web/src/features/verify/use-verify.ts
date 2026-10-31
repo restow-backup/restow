@@ -4,12 +4,15 @@ import { useTranslation } from "react-i18next";
 
 import { useLiveOpen } from "@/features/history/live/provider";
 import {
+  type ConfirmEmptyRequest,
+  confirmEmpty,
   fetchReadinessOverview,
   fetchReport,
   fetchReports,
   type ReadinessOverview,
   type ReportPage,
   type RunVerifyRequest,
+  revokeEmpty,
   type ScrubMode,
   startScrub,
   startVerify,
@@ -91,6 +94,26 @@ export function useStartVerify() {
   return useMutation({
     mutationFn: (request: RunVerifyRequest) => startVerify(request),
     onSettled: () => queryClient.invalidateQueries({ queryKey: verifyKeys.all(tenantId) }),
+  });
+}
+
+/** Confirm objects as empty (one, or a selection); the overview reads them grey afterwards. */
+export function useConfirmEmpty() {
+  const { tenantId } = useTenantScope();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: ConfirmEmptyRequest) => confirmEmpty(request),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: verifyKeys.overview(tenantId) }),
+  });
+}
+
+/** Take a confirmation as empty back (by object id). */
+export function useRevokeEmpty() {
+  const { tenantId } = useTenantScope();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (objectId: string) => revokeEmpty(objectId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: verifyKeys.overview(tenantId) }),
   });
 }
 

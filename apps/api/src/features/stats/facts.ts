@@ -59,6 +59,12 @@ export interface ReadinessObject {
    * so it applies to earlier moments as well. Absent reads as in a job.
    */
   readonly withoutJob?: boolean;
+  /**
+   * When an admin confirmed the object as empty (verify/empty.ts); absent or null without a
+   * confirmation. A confirmation ends with the first check that finds content, so the one stored
+   * held for every check since it was given that still found the object empty.
+   */
+  readonly emptyConfirmedAt?: Date | null;
 }
 
 /** A completed backup (snapshot) of an object, as far as readiness needs it. */

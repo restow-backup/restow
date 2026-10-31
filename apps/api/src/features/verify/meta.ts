@@ -7,5 +7,7 @@
  *   GET  /verify/reports/:id   one report with its item list (audited read)
  *   POST /verify               check now: { protectedObjectId?, kind?, sampleSize? }
  *   POST /verify/scrub         storage check now: { mode: "sample" | "full" }
+ *   POST   /verify/empty-confirmations            confirm as empty: { objectIds | filter, note? }
+ *   DELETE /verify/empty-confirmations/:objectId  revoke a confirmation as empty
  */
 export const mountPath = "/verify";

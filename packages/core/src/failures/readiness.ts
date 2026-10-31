@@ -22,6 +22,7 @@ const REASON_CODES: Readonly<Record<ReadinessReasonCode, FailureCode>> = {
   test_restore_failed: "verify.restore_test_failed",
   snapshot_outdated: "verify.snapshot_outdated",
   snapshot_stale: "verify.snapshot_stale",
+  snapshot_empty: "verify.snapshot_empty",
   nothing_to_verify: "verify.nothing_to_verify",
   test_restore_unconfirmed: "verify.restore_test_unconfirmed",
 };
@@ -31,6 +32,7 @@ export function causeOfReadinessReason(reason: {
   code: string;
   count?: number | null;
   ageHours?: number | null;
+  bytes?: number | null;
 }): FailureCause | null {
   const code = (REASON_CODES as Readonly<Record<string, FailureCode | undefined>>)[reason.code];
   if (!code) {
@@ -42,6 +44,9 @@ export function causeOfReadinessReason(reason: {
   }
   if (typeof reason.ageHours === "number") {
     params.ageHours = reason.ageHours;
+  }
+  if (typeof reason.bytes === "number") {
+    params.bytes = reason.bytes;
   }
   return buildCause(code, params);
 }

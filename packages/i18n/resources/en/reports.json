@@ -145,7 +145,8 @@
       "yellow": "Attention",
       "red": "Not restorable",
       "unverified": "Unverified",
-      "no_backup": "No backup yet"
+      "no_backup": "No backup yet",
+      "empty": "Confirmed empty"
     },
     "readiness": {
       "green": "Ready",

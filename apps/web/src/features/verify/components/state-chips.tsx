@@ -1,7 +1,13 @@
 import { useTranslation } from "react-i18next";
 
 import { READINESS_LEGEND, SEGMENT_FILL } from "@/features/dashboard/components/readiness-legend";
-import { READINESS_STATES, type ReadinessState } from "@/features/verify/search";
+import {
+  EMPTY_FILTERS,
+  type EmptyFilter,
+  READINESS_STATES,
+  type ReadinessState,
+  type TableFilter,
+} from "@/features/verify/search";
 import { formatInteger } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -42,19 +48,31 @@ export function countsOfSummary(summary: {
   };
 }
 
-export function StateChips({
+/** Tone of the dot of the empty filters: yellow while unconfirmed, grey once confirmed. */
+const EMPTY_TONE: Record<EmptyFilter, "warning" | "muted"> = {
+  empty_unconfirmed: "warning",
+  empty: "muted",
+};
+
+export function StateChips<T extends ReadinessState | TableFilter = ReadinessState>({
   counts,
   total,
   value,
   onChange,
+  emptyCounts,
   className,
 }: {
   counts: StateCounts;
   /** The number behind "All". */
   total: number;
   /** The state the table is filtered to; undefined shows everything. */
-  value: ReadinessState | undefined;
-  onChange: (state: ReadinessState | undefined) => void;
+  value: T | undefined;
+  onChange: (state: T | undefined) => void;
+  /**
+   * One tenant's table only: the objects found empty and not confirmed yet, and the ones
+   * confirmed as empty. Each chip shows while it has objects or is chosen.
+   */
+  emptyCounts?: Readonly<Record<EmptyFilter, number>>;
   className?: string;
 }) {
   const { t, i18n } = useTranslation("verify");
@@ -76,7 +94,7 @@ export function StateChips({
           <Chip
             key={state}
             pressed={value === state}
-            onClick={() => onChange(value === state ? undefined : state)}
+            onClick={() => onChange((value === state ? undefined : state) as T | undefined)}
             data-state={state}
           >
             <span
@@ -88,6 +106,25 @@ export function StateChips({
           </Chip>
         );
       })}
+      {emptyCounts
+        ? EMPTY_FILTERS.filter((filter) => emptyCounts[filter] > 0 || value === filter).map(
+            (filter) => (
+              <Chip
+                key={filter}
+                pressed={value === filter}
+                onClick={() => onChange((value === filter ? undefined : filter) as T | undefined)}
+                data-state={filter}
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn("size-2 shrink-0 rounded-full", SEGMENT_FILL[EMPTY_TONE[filter]])}
+                />
+                {t(`chips.${filter}`)}
+                <Figure>{count(emptyCounts[filter])}</Figure>
+              </Chip>
+            ),
+          )
+        : null}
     </fieldset>
   );
 }

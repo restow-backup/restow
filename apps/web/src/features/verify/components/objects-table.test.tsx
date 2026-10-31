@@ -3,12 +3,12 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { count, render } from "@/components/kit/test-utils";
 import type { EndpointReadinessRow, ObjectReadiness, VerifyObject } from "@/features/verify/api";
-import type { ReadinessState } from "@/features/verify/search";
+import type { ReadinessState, TableFilter } from "@/features/verify/search";
 import { useVerifyFormat } from "@/features/verify/use-verify";
 import { i18n } from "@/i18n";
 
 import "../i18n.js";
-import { OBJECTS_PAGE_SIZE, ObjectsTable } from "./objects-table";
+import { type EmptyActions, OBJECTS_PAGE_SIZE, ObjectsTable } from "./objects-table";
 
 // The table's "report"/"view report" links become plain anchors, the same
 // way the dashboard widget tests do it, so the table renders outside a
@@ -560,6 +560,114 @@ describe("ObjectsTable", () => {
       expect(rows(html)).toBe(OBJECTS_PAGE_SIZE + 1);
       expect(html).not.toContain("Load more");
       expect(html).not.toContain("entries shown");
+    });
+  });
+
+  describe("empty objects", () => {
+    const emptyReport = {
+      id: "r9",
+      kind: "verify" as const,
+      origin: "verify" as const,
+      reasons: [
+        {
+          code: "snapshot_empty",
+          severity: "yellow" as const,
+          count: 6,
+          ageHours: null,
+          failure: null,
+        },
+      ],
+      counts: { checked: 0, verified: 0, failed: 0 },
+    };
+    const unconfirmed = readiness({
+      object: object({ id: "e1", displayName: "Empty drive", kind: "onedrive" }),
+      state: "yellow",
+      readiness: "yellow",
+      report: emptyReport,
+      contentStats: { items: 6, bytes: 0 },
+      emptyConfirmation: null,
+    });
+    const confirmed = readiness({
+      object: object({ id: "e2", displayName: "Empty site", kind: "site" }),
+      state: "empty",
+      readiness: "yellow",
+      report: { ...emptyReport, id: "r10" },
+      contentStats: { items: 2, bytes: 0 },
+      emptyConfirmation: {
+        confirmedAt: "2026-10-01T09:00:00.000Z",
+        confirmedBy: "admin@contoso.test",
+        note: null,
+        snapshotId: "s1",
+      },
+    });
+    const actions: EmptyActions = { ask: () => {}, revoke: () => {}, revoking: null };
+
+    function emptyTable(items: readonly ObjectReadiness[], state?: TableFilter, wired = true) {
+      return render(
+        withFormat((format) => (
+          <ObjectsTable
+            items={items}
+            format={format}
+            startingObjectId={null}
+            nextBackupAt={null}
+            onCheck={() => {}}
+            state={state}
+            onStateChange={() => {}}
+            empty={wired ? actions : undefined}
+          />
+        )),
+      );
+    }
+
+    it("says what an empty object holds in one quiet line, not 0 of 0 verified", () => {
+      const html = emptyTable([unconfirmed]);
+      const line = /<p[^>]*data-slot="empty-result"[^>]*>[\s\S]*?<\/p>/.exec(html)?.[0] ?? "";
+      expect(line).toContain("text-muted-foreground");
+      expect(line).toContain("Empty: only default folders and system pages, 0 bytes (6 items).");
+      expect(html).not.toContain("0 of 0");
+    });
+
+    it("offers 'Confirm as empty' only for an empty object nobody confirmed, and only when wired", () => {
+      expect(emptyTable([unconfirmed])).toContain("Confirm as empty");
+      expect(emptyTable([readiness()])).not.toContain("Confirm as empty");
+      expect(emptyTable([unconfirmed], undefined, false)).not.toContain("Confirm as empty");
+      expect(emptyTable([confirmed])).not.toContain(">Confirm as empty<");
+    });
+
+    it("shows a confirmed object grey, with who confirmed it and when, and a way back", () => {
+      const html = emptyTable([confirmed]);
+      const badges = html.match(/<span data-slot="badge"[^>]*>[\s\S]*?<\/span>/g) ?? [];
+      const state = badges.find((tag) => tag.includes("Confirmed empty") && !tag.includes(" by "));
+      expect(state).toContain('data-tone="muted"');
+      expect(html).toContain("Confirmed empty by admin@contoso.test on");
+      expect(html).toContain("Revoke");
+      expect(html).not.toContain('data-tone="warning"');
+    });
+
+    it("counts both kinds in chips of their own and filters by them", () => {
+      const html = emptyTable([unconfirmed, confirmed, readiness()]);
+      expect(chipFigure(html, "empty_unconfirmed")).toBe("1");
+      expect(chipFigure(html, "empty")).toBe("1");
+      // A confirmed empty object is no yellow one.
+      expect(chipFigure(html, "yellow")).toBe("1");
+      const filtered = emptyTable([unconfirmed, confirmed, readiness()], "empty_unconfirmed");
+      expect(filtered).toContain("Empty drive");
+      expect(filtered).not.toContain("Empty site");
+    });
+
+    it("lets the empty ones be selected and confirmed together under their filter", () => {
+      const html = emptyTable([unconfirmed, confirmed], "empty_unconfirmed");
+      expect(html).toContain('data-slot="empty-selection"');
+      expect(html).toContain("0 of 1 selected");
+      expect(html).toContain("Select Empty drive");
+      expect(html).toContain("Confirm 0 objects as empty");
+      expect(emptyTable([unconfirmed])).not.toContain('data-slot="empty-selection"');
+    });
+
+    it("hides the empty chips while there is nothing empty", () => {
+      const html = emptyTable([readiness()]);
+      expect(chipFigure(html, "empty")).toBeNull();
+      expect(chipFigure(html, "empty_unconfirmed")).toBeNull();
     });
   });
 

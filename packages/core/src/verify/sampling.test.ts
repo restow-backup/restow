@@ -43,13 +43,24 @@ describe("sampleCategoryOf", () => {
     expect(sampleCategoryOf(object("Notebooks/Work", "package"))).toBeNull();
     expect(sampleCategoryOf(object("mail/Inbox/1/att", "attachment"))).toBeNull();
   });
+
+  it("reads a site's own JSON objects back as site content, never empty or chunkless ones", () => {
+    expect(sampleCategoryOf(object("site.json", "site-info", 3800))).toBe("site");
+    expect(sampleCategoryOf(object("Lists/Tasks/_list.json", "list-schema"))).toBe("site");
+    expect(sampleCategoryOf(object("Lists/Tasks/Item (1).json", "list-item"))).toBe("site");
+    expect(sampleCategoryOf(object("site.json", "site-info", 0))).toBeNull();
+    expect(
+      sampleCategoryOf({ ...object("Lists/Tasks/Item (2).json", "list-item"), chunks: [] }),
+    ).toBeNull();
+    expect(sampleCategoryOf(object("Lists/Tasks", "folder", 0))).toBeNull();
+  });
 });
 
 describe("quotaFor", () => {
-  it("draws 20 mails and 20 files by default and a quarter of that for calendar and contacts", () => {
-    expect(quotaFor()).toEqual({ mail: 20, file: 20, event: 5, contact: 5 });
+  it("draws 20 mails and 20 files by default and a quarter of that for calendar, contacts and sites", () => {
+    expect(quotaFor()).toEqual({ mail: 20, file: 20, event: 5, contact: 5, site: 5 });
     expect(quotaFor(DEFAULT_SAMPLE_SIZE)).toEqual(quotaFor());
-    expect(quotaFor(1)).toEqual({ mail: 1, file: 1, event: 1, contact: 1 });
+    expect(quotaFor(1)).toEqual({ mail: 1, file: 1, event: 1, contact: 1, site: 1 });
     expect(quotaFor(0).mail).toBe(1);
   });
 });
@@ -63,7 +74,25 @@ describe("planSample", () => {
     expect(byCategory("file")).toBe(20);
     expect(byCategory("event")).toBe(5);
     expect(byCategory("contact")).toBe(2);
-    expect(plan.eligible).toEqual({ mail: 120, file: 45, event: 30, contact: 2 });
+    expect(plan.eligible).toEqual({ mail: 120, file: 45, event: 30, contact: 2, site: 0 });
+  });
+
+  it("draws a site's JSON objects at the secondary share, at least one", () => {
+    const site = [
+      object("site.json", "site-info", 3800),
+      object("Libraries/Documents", "folder", 0),
+      object("Lists/Tasks", "folder", 0),
+      object("Lists/Tasks/_list.json", "list-schema", 2000),
+      ...Array.from({ length: 12 }, (_, i) =>
+        object(`Lists/Tasks/Item (${i}).json`, "list-item", 500),
+      ),
+    ];
+    const plan = planSample(site, quotaFor(), seededRandom(3));
+    expect(plan.eligible).toEqual({ mail: 0, file: 0, event: 0, contact: 0, site: 14 });
+    expect(plan.items.every((item) => item.category === "site")).toBe(true);
+    expect(plan.items).toHaveLength(5);
+    const only = planSample(site.slice(0, 2), quotaFor(1), seededRandom(3));
+    expect(only.items.map((item) => item.object.path)).toEqual(["site.json"]);
   });
 
   it("takes everything when a category holds fewer objects than the quota", () => {
@@ -94,7 +123,7 @@ describe("planSample", () => {
   it("returns an empty plan for a snapshot without content", () => {
     const plan = planSample([object("mail", "folder", 0)], quotaFor(), seededRandom(1));
     expect(plan.items).toHaveLength(0);
-    expect(plan.eligible).toEqual({ mail: 0, file: 0, event: 0, contact: 0 });
+    expect(plan.eligible).toEqual({ mail: 0, file: 0, event: 0, contact: 0, site: 0 });
   });
 });
 

@@ -441,6 +441,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/verify/reports/:id": view(),
   "POST /api/v1/verify": operate(),
   "POST /api/v1/verify/scrub": operate(),
+  // Confirming an empty object as empty is triage, like acknowledging a warning.
+  "POST /api/v1/verify/empty-confirmations": operate(),
+  "DELETE /api/v1/verify/empty-confirmations/:objectId": operate(),
 
   // --- Backed-up content and restore --------------------------------------------
   "GET /api/v1/snapshots": view(),

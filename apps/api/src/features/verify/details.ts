@@ -14,7 +14,8 @@ import { causeToFailureDto, type FailureDto, failureDto } from "../failures/dto.
 const readinessSchema = z.enum(["green", "yellow", "red"]);
 export type Readiness = z.infer<typeof readinessSchema>;
 
-const CATEGORIES = ["mail", "file", "event", "contact"] as const;
+/** `site`: a SharePoint site's own JSON objects (site.json, list schemas, list items), 0.4.9. */
+const CATEGORIES = ["mail", "file", "event", "contact", "site"] as const;
 export type SampleCategory = (typeof CATEGORIES)[number];
 
 const count = z.number().int().nonnegative().catch(0);
@@ -27,8 +28,10 @@ const categoryCounts = z
     file: count,
     event: count,
     contact: count,
+    // Reports before 0.4.9 have no site category.
+    site: count.default(0),
   })
-  .catch({ mail: 0, file: 0, event: 0, contact: 0 });
+  .catch({ mail: 0, file: 0, event: 0, contact: 0, site: 0 });
 
 function listOf<T extends z.ZodTypeAny>(item: T) {
   // Keep every valid entry, drop the ones that do not parse.
@@ -53,6 +56,7 @@ const reasonSchema = z.object({
   severity: z.enum(["yellow", "red"]),
   count: z.number().int().nonnegative().nullable().optional().catch(null),
   ageHours: z.number().nonnegative().nullable().optional().catch(null),
+  bytes: z.number().nonnegative().nullable().optional().catch(null),
 });
 
 export interface ReasonDto {
@@ -60,6 +64,8 @@ export interface ReasonDto {
   severity: "yellow" | "red";
   count: number | null;
   ageHours: number | null;
+  /** Bytes of content the backup holds (`nothing_to_verify`, 0.4.9); null otherwise. */
+  bytes: number | null;
   /**
    * The reason explained: why it is not green, what happened and what to do
    * (a `verify.*` cause with steps). Null for a reason code this version does
@@ -79,12 +85,14 @@ export function parseReasons(value: unknown, at: Date = UNKNOWN_TIME): ReasonDto
         code: reason.code,
         count: reason.count ?? null,
         ageHours: reason.ageHours ?? null,
+        bytes: reason.bytes ?? null,
       });
       return {
         code: reason.code,
         severity: reason.severity,
         count: reason.count ?? null,
         ageHours: reason.ageHours ?? null,
+        bytes: reason.bytes ?? null,
         failure: cause ? causeToFailureDto(cause, at) : null,
       };
     });
@@ -123,8 +131,8 @@ const countsSchema = z
     bytesRead: count,
   })
   .catch({
-    eligible: { mail: 0, file: 0, event: 0, contact: 0 },
-    sampled: { mail: 0, file: 0, event: 0, contact: 0 },
+    eligible: { mail: 0, file: 0, event: 0, contact: 0, site: 0 },
+    sampled: { mail: 0, file: 0, event: 0, contact: 0, site: 0 },
     checked: 0,
     verified: 0,
     mismatch: 0,
@@ -159,9 +167,27 @@ const snapshotSchema = z
     completedAt: nullableString,
     itemCount: count,
     packCount: count,
+    /** Bytes and objects of content (no folders); absent before 0.4.9. */
+    contentBytes: count.nullable().optional().catch(null),
+    contentObjects: count.nullable().optional().catch(null),
   })
   .nullable()
   .catch(null);
+
+/** Items and content bytes of the checked backup, from a report's `details.snapshot`. */
+export interface ContentStatsDto {
+  items: number;
+  bytes: number;
+}
+
+/** The content figures of a stored snapshot reference; null for reports before 0.4.9. */
+export function parseContentStats(value: unknown): ContentStatsDto | null {
+  const snapshot = snapshotSchema.parse(value);
+  if (!snapshot || typeof snapshot.contentBytes !== "number") {
+    return null;
+  }
+  return { items: snapshot.itemCount, bytes: snapshot.contentBytes };
+}
 
 const testRestoreSchemaAt = (at: string) =>
   z

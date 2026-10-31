@@ -70,7 +70,7 @@ const TEST_STATUS_BADGE = {
   failed: "destructive",
 } as const satisfies Record<string, NonNullable<BadgeProps["variant"]>>;
 
-const CATEGORIES = ["mail", "file", "event", "contact"] as const;
+const CATEGORIES = ["mail", "file", "event", "contact", "site"] as const;
 
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -511,7 +511,7 @@ function RemovedFromSourceNotice({
       <AlertDescription>
         <p>{t("report.removed.description")}</p>
         {setAside.map((reason, index) => {
-          const message = reasonMessage(reason);
+          const message = reasonMessage(reason, format.bytes);
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: the reasons have no identity beyond their position
             <p key={index} className="text-muted-foreground">
@@ -538,7 +538,7 @@ function NoJobNotice({ setAside, format }: { setAside: readonly Reason[]; format
       <AlertDescription>
         <p>{t("report.noJob.description")}</p>
         {setAside.map((reason, index) => {
-          const message = reasonMessage(reason);
+          const message = reasonMessage(reason, format.bytes);
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: the reasons have no identity beyond their position
             <p key={index} className="text-muted-foreground">
@@ -573,7 +573,7 @@ function InactiveAccountNotice({
       <AlertDescription>
         <p>{t(`report.inactive.${statusReason}.description`)}</p>
         {setAside.map((reason, index) => {
-          const message = reasonMessage(reason);
+          const message = reasonMessage(reason, format.bytes);
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: the reasons have no identity beyond their position
             <p key={index} className="text-muted-foreground">

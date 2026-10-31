@@ -6,7 +6,7 @@ import { withTenantTx } from "../../lib/tenant-context.js";
 import { isTenantAdmin, type Role } from "../../middleware/rbac.js";
 import type { TenantContext } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { loadTenantSummary, type TenantSummaryDto } from "../../routes/v1/status.js";
+import { loadTenantSummaryWithReadiness, type TenantSummaryDto } from "../../routes/v1/status.js";
 import { loadShareCounts, type ShareProtection } from "../file-shares/protection.js";
 import { listJobsQuerySchema } from "../jobs/schemas.js";
 import { listJobs } from "../jobs/service.js";
@@ -19,6 +19,7 @@ import {
   type TenantUsageDto,
   totalMailboxes,
 } from "../usage/service.js";
+import type { ReadinessSummaryDto } from "../verify/summary.js";
 import {
   capacityPath,
   type FilesystemSpace,
@@ -312,8 +313,14 @@ async function loadStorageCapacity(
 // Widgets
 // ---------------------------------------------------------------------------
 
+/**
+ * The tenant summary with the readiness counted as the readiness page counts it (objects
+ * confirmed as empty apart, where v1 counts them as green).
+ */
+type DashboardSummary = Omit<TenantSummaryDto, "readiness"> & { readiness: ReadinessSummaryDto };
+
 interface Sources {
-  summary: Settled<TenantSummaryDto>;
+  summary: Settled<DashboardSummary>;
   facts: Settled<TenantFacts>;
   mail: Settled<SetupFacts["mail"]>;
   trends: Settled<TenantTrends>;
@@ -395,6 +402,7 @@ function buildWidgets(
             red: readiness.red,
             unverified: readiness.unverified,
             noBackup: readiness.noBackup,
+            empty: readiness.empty,
             overdue: readiness.overdue,
             withoutJob: readiness.withoutJob,
             objectsWithoutJob: readiness.objectsWithoutJob,
@@ -582,9 +590,14 @@ export async function loadDashboard(
     shares,
     running,
   ] = await Promise.all([
-    load("summary", needs("lastBackup", "readiness", "protectedObjects", "storage"), () =>
-      loadTenantSummary(deps.db, tenantId, now),
-    ),
+    load("summary", needs("lastBackup", "readiness", "protectedObjects", "storage"), async () => {
+      const { summary: tenantSummary, readiness } = await loadTenantSummaryWithReadiness(
+        deps.db,
+        tenantId,
+        now,
+      );
+      return { ...tenantSummary, readiness };
+    }),
     load("facts", needs("setup", "lastBackup", "storage", "retention"), async () => {
       // The installation's own test of the default storage counts for every tenant on the default.
       // It lives in the installation chain; if that cannot be read the storage reads as untested

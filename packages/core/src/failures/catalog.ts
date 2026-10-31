@@ -542,6 +542,14 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: false,
     steps: () => [step("run_backup_again", "jobs")],
   },
+  // Nothing to restore (only default folders or system pages, 0 bytes): no failure. An admin
+  // confirms it as empty, or the next backup that holds content ends it.
+  "verify.snapshot_empty": {
+    category: "verify",
+    transient: false,
+    retryable: false,
+    steps: () => [step("run_backup_again", "jobs")],
+  },
   "verify.nothing_to_verify": {
     category: "verify",
     transient: false,

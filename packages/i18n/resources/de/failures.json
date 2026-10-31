@@ -343,9 +343,13 @@
         "title": "Das letzte Backup wird alt",
         "why": "Das neueste Backup ist {ageHours, plural, one {# Stunde} other {# Stunden}} alt, mehr als ein Zeitplan normalerweise zulässt."
       },
+      "snapshot_empty": {
+        "title": "Leer: Es gibt nichts wiederherzustellen",
+        "why": "Das letzte Backup enthält nur Standardordner bzw. Systemseiten und 0 Bytes Inhalt. Das ist kein Fehler. Ein Administrator kann das Objekt als leer bestätigen, dann zählt es nicht mehr als „Achtung“. Sobald ein späteres Backup Inhalt enthält, wird es wieder wie jedes andere Objekt bewertet."
+      },
       "nothing_to_verify": {
-        "title": "Das Backup enthält nichts, was sich prüfen ließe",
-        "why": "Das letzte Backup enthält keine Elemente, die eine Restore-Prüfung zurücklesen kann. Die Bewertung beruht daher noch auf nichts."
+        "title": "Das Backup enthält nichts, was eine Prüfung zurücklesen kann",
+        "why": "Das letzte Backup enthält Daten, aber nur von einer Art, die eine Restore-Prüfung nicht zurücklesen kann. Die Bewertung beruht daher noch auf nichts."
       },
       "restore_test_unconfirmed": {
         "title": "Das Ziel hat die Test-Wiederherstellung nicht bestätigt",

@@ -53,6 +53,18 @@ describe("overallReadiness", () => {
     expect(overallReadiness([rated("green"), rated("green", true)])).toBe("yellow");
   });
 
+  it("leaves objects confirmed as empty out of the rating, and counts them on their own", () => {
+    expect(overallReadiness([rated("green"), rated("empty")])).toBe("green");
+    expect(overallReadiness([rated("empty")])).toBe("green");
+    expect(summarize([rated("green"), rated("empty"), rated("yellow")], 0)).toMatchObject({
+      total: 3,
+      green: 1,
+      yellow: 1,
+      empty: 1,
+      overall: "yellow",
+    });
+  });
+
   it("is green only when everything is green and current, and null for nothing", () => {
     expect(overallReadiness([rated("green"), rated("green")])).toBe("green");
     expect(overallReadiness([])).toBeNull();

@@ -43,3 +43,22 @@ export const listReportsQuerySchema = z.object({
 export type ListReportsQuery = z.infer<typeof listReportsQuerySchema>;
 
 export const reportIdParamSchema = z.object({ id: z.string().uuid() });
+
+/** Confirm as empty (empty.ts): listed objects, or every empty one not confirmed yet. */
+export const emptyConfirmSchema = z.union([
+  z
+    .object({
+      objectIds: z.array(z.string().uuid()).min(1).max(200),
+      note: z.string().max(1000).nullable().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      filter: z.object({ state: z.literal("empty_unconfirmed") }).strict(),
+      note: z.string().max(1000).nullable().optional(),
+    })
+    .strict(),
+]);
+export type EmptyConfirmBody = z.infer<typeof emptyConfirmSchema>;
+
+export const objectIdParamSchema = z.object({ objectId: z.string().uuid() });

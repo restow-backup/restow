@@ -3,8 +3,11 @@ import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { confirmEmpty, revokeEmptyConfirmation } from "./empty.js";
 import {
+  emptyConfirmSchema,
   listReportsQuerySchema,
+  objectIdParamSchema,
   reportIdParamSchema,
   runScrubSchema,
   runVerifySchema,
@@ -54,4 +57,16 @@ verifyRoutes.post("/", async (c) => {
 verifyRoutes.post("/scrub", async (c) => {
   const input = await parseJsonBody(c.req, runScrubSchema);
   return c.json(await runScrubNow(db, c.get("tenantId"), input, actorOf(c)), 202);
+});
+
+/** Confirm objects as empty (empty.ts): `{ objectIds }` (at most 200) or `{ filter }`, `note`. */
+verifyRoutes.post("/empty-confirmations", async (c) => {
+  const input = await parseJsonBody(c.req, emptyConfirmSchema);
+  return c.json(await confirmEmpty(db, c.get("tenantId"), input, actorOf(c)));
+});
+
+verifyRoutes.delete("/empty-confirmations/:objectId", async (c) => {
+  const { objectId } = parseOrProblem(objectIdParamSchema, c.req.param());
+  await revokeEmptyConfirmation(db, c.get("tenantId"), objectId, actorOf(c));
+  return c.body(null, 204);
 });

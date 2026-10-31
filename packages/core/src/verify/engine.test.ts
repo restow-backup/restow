@@ -20,6 +20,7 @@ import {
   type MemoryStorage,
   mailboxItems,
   type StoreFixture,
+  siteItems,
   writeSnapshot,
 } from "./testing.js";
 
@@ -55,8 +56,20 @@ describe("verifyProtectedObject", () => {
 
     expect(outcome.readiness).toBe("green");
     expect(outcome.details.reasons).toEqual([]);
-    expect(outcome.details.counts.sampled).toEqual({ mail: 20, file: 0, event: 3, contact: 3 });
-    expect(outcome.details.counts.eligible).toEqual({ mail: 30, file: 0, event: 3, contact: 3 });
+    expect(outcome.details.counts.sampled).toEqual({
+      mail: 20,
+      file: 0,
+      event: 3,
+      contact: 3,
+      site: 0,
+    });
+    expect(outcome.details.counts.eligible).toEqual({
+      mail: 30,
+      file: 0,
+      event: 3,
+      contact: 3,
+      site: 0,
+    });
     expect(outcome.checked).toBe(26);
     expect(outcome.details.counts.verified).toBe(26);
     expect(outcome.details.items.every((item) => item.objectHash === "matched")).toBe(true);
@@ -228,12 +241,48 @@ describe("verifyProtectedObject", () => {
     expect(outdated.details.reasons[0]).toMatchObject({ code: "snapshot_outdated", ageHours: 192 });
   });
 
-  it("turns yellow when the snapshot holds nothing that can be verified", async () => {
+  it("calls a snapshot of default folders only empty (yellow), not unverifiable", async () => {
     const fixture = createStoreFixture();
-    await writeSnapshot(fixture, [{ path: "mail/Inbox", type: "folder", size: 0 }]);
+    await writeSnapshot(fixture, [
+      { path: "mail/Inbox", type: "folder", size: 0 },
+      { path: "mail/Sent Items", type: "folder", size: 0 },
+    ]);
     const outcome = await verify(fixture);
     expect(outcome.readiness).toBe("yellow");
-    expect(outcome.details.reasons).toEqual([{ code: "nothing_to_verify", severity: "yellow" }]);
+    expect(outcome.details.reasons).toEqual([
+      { code: "snapshot_empty", severity: "yellow", count: 2 },
+    ]);
+    expect(outcome.details.snapshot).toMatchObject({
+      itemCount: 2,
+      contentBytes: 0,
+      contentObjects: 0,
+    });
+  });
+
+  it("keeps nothing_to_verify for data of a type a check cannot read back", async () => {
+    const fixture = createStoreFixture();
+    await writeSnapshot(fixture, [
+      { path: "mail/Inbox", type: "folder", size: 0 },
+      { path: "other/blob", type: "something-new", size: 1200, seed: 3 },
+    ]);
+    const outcome = await verify(fixture);
+    expect(outcome.readiness).toBe("yellow");
+    expect(outcome.details.reasons).toEqual([
+      { code: "nothing_to_verify", severity: "yellow", bytes: 1200 },
+    ]);
+    expect(outcome.details.snapshot).toMatchObject({ contentBytes: 1200, contentObjects: 1 });
+  });
+
+  it("verifies a site that holds only its site.json and an empty library (green)", async () => {
+    const fixture = createStoreFixture();
+    await writeSnapshot(fixture, siteItems());
+    const outcome = await verify(fixture);
+    expect(outcome.readiness).toBe("green");
+    expect(outcome.checked).toBe(1);
+    expect(outcome.details.items.map((item) => [item.path, item.category, item.status])).toEqual([
+      ["site.json", "site", "verified"],
+    ]);
+    expect(outcome.details.counts.eligible.site).toBe(1);
   });
 
   it("marks the object red when the scrub found one of its packs corrupt", async () => {
@@ -494,6 +543,30 @@ describe("test restore probe", () => {
         probe: restoreEngineProbe(engine(new Error("socket hang up")), "verify@example.org"),
       }),
     ).rejects.toBeInstanceOf(VerifyIncompleteError);
+  });
+
+  it("never sends site metadata, list schemas or list items to the test target", async () => {
+    const fixture = createStoreFixture();
+    await writeSnapshot(fixture, [...siteItems(2), ...mailboxItems(2, 0).slice(1)]);
+    const { engine, requests } = fakeEngine(() => "confirmed");
+    const outcome = await verify(fixture, {
+      probe: restoreEngineProbe(engine, "verify@example.org"),
+    });
+    expect(outcome.details.counts.sampled.site).toBe(4);
+    expect(outcome.readiness).toBe("green");
+    expect(requests[0]?.selection.paths).toEqual(["mail/Inbox/0.eml", "mail/Inbox/1.eml"]);
+  });
+
+  it("runs no test restore for a site whose sample is site content only", async () => {
+    const fixture = createStoreFixture();
+    await writeSnapshot(fixture, siteItems(1));
+    const { engine, requests } = fakeEngine(() => "failed");
+    const outcome = await verify(fixture, {
+      probe: restoreEngineProbe(engine, "verify@example.org"),
+    });
+    expect(requests).toHaveLength(0);
+    expect(outcome.details.testRestore).toBeNull();
+    expect(outcome.readiness).toBe("green");
   });
 
   it("does not send damaged items to the test target", async () => {

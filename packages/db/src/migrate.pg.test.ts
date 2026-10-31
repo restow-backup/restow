@@ -405,6 +405,23 @@ describe.skipIf(!adminUrl)("migrations on a fresh and on a 0.300.x database", ()
             AND column_name = 'pricing' AND data_type = 'jsonb'`,
       );
       expect(tenantPricing).toEqual([{ is_nullable: "NO", column_default: "'{}'::jsonb" }]);
+      // 0072: the objects confirmed as empty, one row per object, under Row Level Security.
+      const { rows: empty } = await pool.query<{ relrowsecurity: boolean; indexes: string[] }>(
+        `SELECT c.relrowsecurity,
+                array(SELECT indexname::text FROM pg_indexes
+                       WHERE tablename = 'empty_confirmations' ORDER BY indexname) AS indexes
+           FROM pg_class c WHERE c.relname = 'empty_confirmations'`,
+      );
+      expect(empty).toEqual([
+        {
+          relrowsecurity: true,
+          indexes: [
+            "empty_confirmations_object_uq",
+            "empty_confirmations_pkey",
+            "empty_confirmations_tenant_idx",
+          ],
+        },
+      ]);
     } finally {
       await pool.end();
     }

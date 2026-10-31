@@ -9,12 +9,20 @@
  * Only objects that hold content are eligible: folders, placeholders
  * (OneNote packages, shortcuts), historical file versions and attachments of
  * split messages are either empty or verified through their parent.
+ *
+ * A SharePoint site also records its own metadata (`site.json`), its lists'
+ * schemas and their items as JSON objects with chunks of their own: they are
+ * read back like any other object (category `site`, a small share like the
+ * calendar items), so a site whose content is only that is verified too. They
+ * are never handed to a test restore (engine.ts): site metadata and list
+ * schemas are recorded as information, not restored.
  */
+import { SITE_OBJECT_TYPES } from "../backup/sharepoint/layout.js";
 import type { ManifestObject } from "../manifest.js";
 import { objectTypeOf } from "../restore/conventions.js";
 import { pickRandom, type RandomSource } from "./random.js";
 
-export const SAMPLE_CATEGORIES = ["mail", "file", "event", "contact"] as const;
+export const SAMPLE_CATEGORIES = ["mail", "file", "event", "contact", "site"] as const;
 
 export type SampleCategory = (typeof SAMPLE_CATEGORIES)[number];
 
@@ -27,13 +35,27 @@ export type CategoryCounts = Record<SampleCategory, number>;
 /** docs/TESTING.md: 20 mails and 20 files per weekly run. */
 export const DEFAULT_SAMPLE_SIZE = 20;
 
-/** Calendar and contact items are drawn at this fraction of the main quota. */
+/** Calendar, contact and site items are drawn at this fraction of the main quota. */
 const SECONDARY_SHARE = 0.25;
+
+/** The JSON objects a SharePoint site records besides its libraries' files. */
+const SITE_TYPES: ReadonlySet<string> = new Set(Object.values(SITE_OBJECT_TYPES));
+
+/** Categories a test restore can put into a target; site objects are read back only. */
+export const PROBE_CATEGORIES: ReadonlySet<SampleCategory> = new Set([
+  "mail",
+  "file",
+  "event",
+  "contact",
+]);
 
 /** The sampling category of a manifest object, or null when it carries no content of its own. */
 export function sampleCategoryOf(object: ManifestObject): SampleCategory | null {
   if (object.chunks.length === 0 || object.size <= 0) {
     return null;
+  }
+  if (object.type !== undefined && SITE_TYPES.has(object.type)) {
+    return "site";
   }
   switch (objectTypeOf(object)) {
     case "mail":
@@ -49,15 +71,18 @@ export function sampleCategoryOf(object: ManifestObject): SampleCategory | null 
   }
 }
 
-/** The quota for a requested sample size: full size for mails and files, a quarter for the rest. */
+/**
+ * The quota for a requested sample size: full size for mails and files, a quarter (at least
+ * one) for the rest, so a site that holds nothing but `site.json` still has that read back.
+ */
 export function quotaFor(sampleSize: number = DEFAULT_SAMPLE_SIZE): SampleQuota {
   const main = Math.max(1, Math.floor(sampleSize));
   const secondary = Math.max(1, Math.ceil(main * SECONDARY_SHARE));
-  return { mail: main, file: main, event: secondary, contact: secondary };
+  return { mail: main, file: main, event: secondary, contact: secondary, site: secondary };
 }
 
 export function emptyCounts(): CategoryCounts {
-  return { mail: 0, file: 0, event: 0, contact: 0 };
+  return { mail: 0, file: 0, event: 0, contact: 0, site: 0 };
 }
 
 export interface SampledObject {
@@ -81,6 +106,7 @@ export function eligibleObjects(
     file: [],
     event: [],
     contact: [],
+    site: [],
   };
   for (const object of objects) {
     const category = sampleCategoryOf(object);

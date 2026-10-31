@@ -470,7 +470,9 @@
       "report": {
         "viewed": "Restore check report viewed"
       },
-      "requested": "Restore check started"
+      "requested": "Restore check started",
+      "empty_confirmed": "Confirmed as empty",
+      "empty_confirmation_revoked": "Confirmation as empty revoked"
     },
     "webhook": {
       "created": "Webhook created",

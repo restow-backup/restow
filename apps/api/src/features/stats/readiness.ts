@@ -1,5 +1,6 @@
 import { readinessWithoutFreshness } from "@restow/core";
 import { parseReasons } from "../verify/details.js";
+import { restsOnEmpty } from "../verify/empty.js";
 import {
   isOverdue,
   type ObjectState,
@@ -45,6 +46,11 @@ import type {
  * keeps the live readiness at yellow, verify/summary.ts `toConfirm`) is left out here: like the
  * status, only the current confirmation is stored, not when it was given, so the timeline cannot
  * say which earlier moment it applied to.
+ *
+ * An object an admin confirmed as empty (verify/empty.ts) is `empty` from the moment of the
+ * confirmation while the check that rates it still finds nothing but "empty", as on the
+ * readiness page: never overdue, never needing attention. The counts have no column for it, so
+ * it is counted with green (nothing about it needs attention, and there is nothing to lose).
  */
 
 export interface ReadinessCounts {
@@ -246,8 +252,16 @@ export class ReadinessTimeline {
       const withoutJob = object.status === "active" && object.withoutJob === true;
       const unaged = retained || withoutJob;
       const report = verification.report;
-      const state: ObjectState =
-        unaged && report
+      const confirmedAt = object.emptyConfirmedAt ?? null;
+      const empty =
+        confirmedAt !== null &&
+        confirmedAt.getTime() < moment.getTime() &&
+        report !== null &&
+        !isStorageFinding(report) &&
+        restsOnEmpty(parseReasons(report.reasons), unaged);
+      const state: ObjectState = empty
+        ? "empty"
+        : unaged && report
           ? readinessWithoutFreshness(parseReasons(report.reasons))
           : verification.state;
       states.set(object.id, state);
@@ -256,6 +270,8 @@ export class ReadinessTimeline {
       }
       if (state === "no_backup" || state === "unverified") {
         counts.unverified += 1;
+      } else if (state === "empty") {
+        counts.green += 1;
       } else {
         counts[state] += 1;
       }
@@ -263,7 +279,7 @@ export class ReadinessTimeline {
       const checkedAt = report?.checkedAt ?? null;
       rated.push({
         state,
-        overdue: unaged ? false : isOverdue(checkedAt, moment),
+        overdue: unaged || empty ? false : isOverdue(checkedAt, moment),
         checkedAt,
         // With a backup to rate; one without any stays "no backup".
         withoutJob: withoutJob && snapshot !== null,

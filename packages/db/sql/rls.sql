@@ -140,6 +140,8 @@ DECLARE
     'pve_snapshots',
     'pve_downloads',
     'warning_acknowledgements',
+    -- Objects an admin confirmed as empty (0.4.9).
+    'empty_confirmations',
     'file_shares',
     'file_share_runs',
     'file_share_run_items',

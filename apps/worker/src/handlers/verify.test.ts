@@ -53,6 +53,7 @@ import {
   createVerifyHandler,
   MAX_SAMPLE_SIZE,
   normalizeSampleSize,
+  outcomeHasContent,
   pgVerifyStore,
   readinessNotification,
   redReasonOf,
@@ -208,8 +209,8 @@ function outcome(overrides: Partial<VerifyOutcome> = {}): VerifyOutcome {
       snapshot: null,
       reasons: [{ code: "items_missing", severity: "red", count: 2 }],
       counts: {
-        eligible: { mail: 30, file: 0, event: 3, contact: 3 },
-        sampled: { mail: 20, file: 0, event: 3, contact: 3 },
+        eligible: { mail: 30, file: 0, event: 3, contact: 3, site: 0 },
+        sampled: { mail: 20, file: 0, event: 3, contact: 3, site: 0 },
         checked: 26,
         bytesRead: 1024,
         verified: 23,
@@ -286,6 +287,42 @@ describe("verifyReportRow / verifyRecordNotification", () => {
       reportId: "r1",
       reasons: ["items_missing"],
     });
+  });
+
+  it("raises no 'needs attention' for an object confirmed as empty that is still empty", () => {
+    const empty = outcome({
+      readiness: "yellow",
+      checked: 0,
+      mismatched: 0,
+      missing: 0,
+    });
+    empty.details.reasons = [{ code: "snapshot_empty", severity: "yellow", count: 4 }];
+    expect(verifyRecordNotification(record({ outcome: empty }), "r1")?.event).toBe(
+      VERIFY_EVENTS.yellow,
+    );
+    expect(
+      verifyRecordNotification(record({ outcome: empty }), "r1", { confirmedEmpty: true }),
+    ).toBeNull();
+    // Any other finding still counts, confirmation or not.
+    expect(verifyRecordNotification(record(), "r1", { confirmedEmpty: true })?.event).toBe(
+      VERIFY_EVENTS.red,
+    );
+  });
+
+  it("tells a run that found content from an empty one", () => {
+    expect(outcomeHasContent(outcome())).toBe(true);
+    const empty = outcome({ checked: 0 });
+    expect(outcomeHasContent(empty)).toBe(false);
+    empty.details.snapshot = {
+      id: "s",
+      sequence: 1,
+      completedAt: null,
+      itemCount: 3,
+      packCount: 0,
+      contentBytes: 2048,
+      contentObjects: 1,
+    };
+    expect(outcomeHasContent(empty)).toBe(true);
   });
 });
 

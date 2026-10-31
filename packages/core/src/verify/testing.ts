@@ -252,3 +252,28 @@ export function mailboxItems(mails: number, extras = 3): FixtureItem[] {
   }
   return items;
 }
+
+/**
+ * A SharePoint site that holds nothing but its own metadata and an empty library: the shape of
+ * the "2 items, 3.8 KB" sites seen in production (`site.json` plus one library folder). With
+ * `lists`, a list with its schema and that many items as well.
+ */
+export function siteItems(lists = 0): FixtureItem[] {
+  const items: FixtureItem[] = [
+    { path: "site.json", type: "site-info", size: 3800, seed: 900 },
+    { path: "Libraries/Documents", type: "folder", size: 0 },
+  ];
+  if (lists > 0) {
+    items.push({ path: "Lists/Tasks", type: "folder", size: 0 });
+    items.push({ path: "Lists/Tasks/_list.json", type: "list-schema", size: 2100, seed: 901 });
+    for (let i = 0; i < lists; i++) {
+      items.push({
+        path: `Lists/Tasks/Item ${i} (${i + 1}).json`,
+        type: "list-item",
+        size: 700 + i,
+        seed: 910 + i,
+      });
+    }
+  }
+  return items;
+}

@@ -9,7 +9,8 @@
     "red": "Not restorable",
     "unverified": "Unverified",
     "no_backup": "No backup yet",
-    "waitingForFirstBackup": "Waiting for first backup"
+    "waitingForFirstBackup": "Waiting for first backup",
+    "empty": "Confirmed empty"
   },
   "kind": {
     "mailbox": "Mailbox",
@@ -27,7 +28,8 @@
     "mail": "Mails",
     "file": "Files",
     "event": "Calendar items",
-    "contact": "Contacts"
+    "contact": "Contacts",
+    "site": "Site content"
   },
   "actions": {
     "checkAll": "Check all now",
@@ -42,7 +44,12 @@
     "back": "Back to recovery readiness",
     "verifyNow": "Check now",
     "verifyNowFor": "Check now: the latest backup of {name}",
-    "viewPreviousReportFor": "Report of the previous backup's check for {name}"
+    "viewPreviousReportFor": "Report of the previous backup's check for {name}",
+    "confirmEmpty": "Confirm as empty",
+    "confirmEmptyFor": "Confirm {name} as empty",
+    "confirmEmptySelected": "Confirm {count, plural, one {# object} other {# objects}} as empty",
+    "revokeEmpty": "Revoke",
+    "revokeEmptyFor": "Revoke the confirmation as empty of {name}"
   },
   "overall": {
     "green": {
@@ -122,7 +129,8 @@
     "technicalId": "Technical id: {id}",
     "emptyState": "No object in this state: {state}.",
     "toConfirm": "Please confirm",
-    "confirmed": "Intentionally no longer backed up"
+    "confirmed": "Intentionally no longer backed up",
+    "emptyConfirmed": "Confirmed empty by {who} on {date}"
   },
   "snapshot": {
     "column": "Restore check",
@@ -149,7 +157,9 @@
     "test_restore_failed": "{count, plural, one {# item} other {# items}} could not be restored into the test target.",
     "snapshot_outdated": "The latest backup is {days, plural, one {# day} other {# days}} old; newer data could not be restored.",
     "snapshot_stale": "The latest backup is {hours, plural, one {# hour} other {# hours}} old.",
-    "nothing_to_verify": "The latest backup contains nothing that could be verified.",
+    "snapshot_empty": "Empty: only default folders and system pages, 0 bytes ({count, plural, one {# item} other {# items}}). Nothing to restore.",
+    "nothing_to_verify": "The latest backup holds data ({size}) of a type a check cannot read back.",
+    "nothing_to_verify_unsized": "The latest backup contains nothing that could be verified.",
     "test_restore_unconfirmed": "The test target did not confirm {count, plural, one {# restored item} other {# restored items}}.",
     "unknown": "Finding \"{code}\" was reported by a newer version and cannot be described here."
   },
@@ -390,7 +400,11 @@
     },
     "scrubFailed": "The storage check could not be started",
     "unverifiedQueued": "{count, plural, one {# restore check started for an unverified backup} other {# restore checks started for unverified backups}}",
-    "nothingUnverified": "No check was started: every latest backup is verified or is being checked already."
+    "nothingUnverified": "No check was started: every latest backup is verified or is being checked already.",
+    "emptyConfirmed": "{count, plural, one {# object} other {# objects}} confirmed as empty.",
+    "emptyConfirmedWithSkipped": "{count, plural, one {# object} other {# objects}} confirmed as empty, {skipped} skipped: the newest check found content there or has not run yet.",
+    "emptyRevoked": "Confirmation as empty of {name} revoked.",
+    "emptyRevokeFailed": "The confirmation could not be revoked."
   },
   "error": {
     "overview": "Recovery readiness could not be loaded",
@@ -398,7 +412,19 @@
   },
   "chips": {
     "label": "Filter by state",
-    "all": "All"
+    "all": "All",
+    "empty_unconfirmed": "Empty (not confirmed)",
+    "empty": "Confirmed empty"
+  },
+  "selection": {
+    "all": "Select all",
+    "one": "Select {name}",
+    "count": "{count} of {total} selected"
+  },
+  "confirmEmpty": {
+    "title": "Confirm {count, plural, one {object} other {# objects}} as empty?",
+    "description": "The newest restore check found only default folders or system pages with 0 bytes in {count, plural, one {this object} other {these objects}}. Once confirmed as empty, {count, plural, one {it no longer counts as needing attention and shows} other {they no longer count as needing attention and show}} in grey. As soon as a later check finds content, the confirmation ends by itself.",
+    "confirm": "Confirm as empty"
   },
   "allScope": "Which tenants have backups that cannot be restored today?",
   "allSubtitle": "Across all tenants: the tenants that have objects in each state. Choose a tenant to see its objects.",

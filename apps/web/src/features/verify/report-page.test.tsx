@@ -159,8 +159,8 @@ function report(explained: boolean): ReportDetail {
       },
       manifestFailure: explained ? manifestCause : null,
       counts: {
-        eligible: { mail: 300, file: 100, event: 0, contact: 0 },
-        sampled: { mail: 20, file: 10, event: 0, contact: 0 },
+        eligible: { mail: 300, file: 100, event: 0, contact: 0, site: 0 },
+        sampled: { mail: 20, file: 10, event: 0, contact: 0, site: 0 },
         checked: 30,
         verified: 27,
         mismatch: 1,

@@ -111,6 +111,8 @@ export interface ReadinessWidget {
   /** A backup exists but its newest snapshot was never read back: not proven restorable. */
   unverified: number;
   noBackup: number;
+  /** Objects an admin confirmed as empty: neutral, counted in `total` but never as needing attention. */
+  empty: number;
   overdue: number;
   /** Machines and mail objects in no backup job; any of them keeps `overall` from green. */
   withoutJob: number;

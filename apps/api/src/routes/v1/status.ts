@@ -4,6 +4,7 @@ import { z } from "zod";
 import { loadShareCounts } from "../../features/file-shares/protection.js";
 import { loadGuestCounts } from "../../features/pve/protection.js";
 import { readinessOverview } from "../../features/verify/service.js";
+import type { ReadinessSummaryDto } from "../../features/verify/summary.js";
 import { loadMailWarnings, warningCounts } from "../../features/warnings/state.js";
 import { notImported } from "../../lib/imported-objects.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
@@ -13,7 +14,7 @@ import { component } from "./components.js";
 import { endpointCountsSchema, loadEndpointCounts } from "./endpoints.js";
 import { readinessSchema, timestampSchema, toIso, uuidSchema } from "./schemas.js";
 import { loadStorageTotals, storageTotalsSchema } from "./storage.js";
-import { readinessSummarySchema } from "./verify.js";
+import { readinessSummarySchema, toV1ReadinessSummary } from "./verify.js";
 import { versionInfoSchema } from "./version.js";
 
 /**
@@ -224,6 +225,19 @@ export async function loadTenantSummary(
   tenantId: string,
   now: Date,
 ): Promise<TenantSummaryDto> {
+  return (await loadTenantSummaryWithReadiness(db, tenantId, now)).summary;
+}
+
+/**
+ * The tenant's summary as v1 serves it, and the readiness summary as the readiness page counts
+ * it (with the objects confirmed as empty on their own, which v1 counts as green): the dashboard
+ * shows the latter.
+ */
+export async function loadTenantSummaryWithReadiness(
+  db: Database,
+  tenantId: string,
+  now: Date,
+): Promise<{ summary: TenantSummaryDto; readiness: ReadinessSummaryDto }> {
   const facts = await withTenantTx(db, tenantId, async (tx) => {
     const byStatus = await tx
       .select({ status: protectedObjects.status, n: count() })
@@ -278,7 +292,7 @@ export async function loadTenantSummary(
   });
   const overview = await readinessOverview(db, tenantId, now);
 
-  return {
+  const summary: TenantSummaryDto = {
     lastSuccess: lastSuccessOf(facts.lastByKind, facts.archiveCapture),
     objects: {
       ...countByStatus(facts.byStatus),
@@ -289,10 +303,11 @@ export async function loadTenantSummary(
     },
     storage: facts.storage,
     recoveryReadiness: overview.summary.overall,
-    readiness: overview.summary,
+    readiness: toV1ReadinessSummary(overview.summary),
     lastVerifyAt: overview.summary.lastCheckedAt,
     archive: { chain: ARCHIVE_CHAIN_STATE, lastCaptureAt: facts.archiveCapture },
   };
+  return { summary, readiness: overview.summary };
 }
 
 // ---------------------------------------------------------------------------

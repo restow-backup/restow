@@ -9,7 +9,8 @@
     "red": "Nicht wiederherstellbar",
     "unverified": "Nicht nachgewiesen",
     "no_backup": "Noch keine Sicherung",
-    "waitingForFirstBackup": "Wartet auf erste Sicherung"
+    "waitingForFirstBackup": "Wartet auf erste Sicherung",
+    "empty": "Als leer bestätigt"
   },
   "kind": {
     "mailbox": "Postfach",
@@ -27,7 +28,8 @@
     "mail": "Mails",
     "file": "Dateien",
     "event": "Termine",
-    "contact": "Kontakte"
+    "contact": "Kontakte",
+    "site": "Site-Inhalte"
   },
   "actions": {
     "checkAll": "Alle jetzt prüfen",
@@ -42,7 +44,12 @@
     "back": "Zurück zur Wiederherstellbarkeit",
     "verifyNow": "Jetzt prüfen",
     "verifyNowFor": "Jetzt prüfen: die letzte Sicherung von {name}",
-    "viewPreviousReportFor": "Bericht zur Prüfung der vorherigen Sicherung von {name}"
+    "viewPreviousReportFor": "Bericht zur Prüfung der vorherigen Sicherung von {name}",
+    "confirmEmpty": "Als leer bestätigen",
+    "confirmEmptyFor": "{name} als leer bestätigen",
+    "confirmEmptySelected": "{count, plural, one {# Objekt} other {# Objekte}} als leer bestätigen",
+    "revokeEmpty": "Zurücknehmen",
+    "revokeEmptyFor": "Bestätigung als leer für {name} zurücknehmen"
   },
   "overall": {
     "green": {
@@ -122,7 +129,8 @@
     "technicalId": "Technische ID: {id}",
     "emptyState": "Kein Objekt in diesem Zustand: {state}.",
     "toConfirm": "Bitte bestätigen",
-    "confirmed": "Absichtlich nicht mehr gesichert"
+    "confirmed": "Absichtlich nicht mehr gesichert",
+    "emptyConfirmed": "Als leer bestätigt von {who} am {date}"
   },
   "snapshot": {
     "column": "Restore-Prüfung",
@@ -149,7 +157,9 @@
     "test_restore_failed": "{count, plural, one {# Element konnte} other {# Elemente konnten}} nicht in das Prüfziel wiederhergestellt werden.",
     "snapshot_outdated": "Die letzte Sicherung ist {days, plural, one {# Tag} other {# Tage}} alt; neuere Daten ließen sich nicht wiederherstellen.",
     "snapshot_stale": "Die letzte Sicherung ist {hours, plural, one {# Stunde} other {# Stunden}} alt.",
-    "nothing_to_verify": "Die letzte Sicherung enthält nichts, was geprüft werden könnte.",
+    "snapshot_empty": "Leer: nur Standardordner bzw. Systemseiten, 0 Bytes ({count, plural, one {# Element} other {# Elemente}}). Es gibt nichts wiederherzustellen.",
+    "nothing_to_verify": "Die letzte Sicherung enthält Daten ({size}) einer Art, die eine Prüfung nicht zurücklesen kann.",
+    "nothing_to_verify_unsized": "Die letzte Sicherung enthält nichts, was geprüft werden könnte.",
     "test_restore_unconfirmed": "Das Prüfziel hat {count, plural, one {# wiederhergestelltes Element} other {# wiederhergestellte Elemente}} nicht bestätigt.",
     "unknown": "Der Befund „{code}“ stammt von einer neueren Version und kann hier nicht beschrieben werden."
   },
@@ -390,7 +400,11 @@
     },
     "scrubFailed": "Die Speicherprüfung konnte nicht gestartet werden",
     "unverifiedQueued": "{count, plural, one {# Restore-Prüfung für eine ungeprüfte Sicherung gestartet} other {# Restore-Prüfungen für ungeprüfte Sicherungen gestartet}}",
-    "nothingUnverified": "Es wurde keine Prüfung gestartet: Jede letzte Sicherung ist geprüft oder wird bereits geprüft."
+    "nothingUnverified": "Es wurde keine Prüfung gestartet: Jede letzte Sicherung ist geprüft oder wird bereits geprüft.",
+    "emptyConfirmed": "{count, plural, one {# Objekt} other {# Objekte}} als leer bestätigt.",
+    "emptyConfirmedWithSkipped": "{count, plural, one {# Objekt} other {# Objekte}} als leer bestätigt, {skipped} übersprungen: Die neueste Prüfung fand dort Inhalt oder lief noch nicht.",
+    "emptyRevoked": "Bestätigung als leer für {name} zurückgenommen.",
+    "emptyRevokeFailed": "Die Bestätigung konnte nicht zurückgenommen werden."
   },
   "error": {
     "overview": "Die Wiederherstellbarkeit konnte nicht geladen werden",
@@ -398,7 +412,19 @@
   },
   "chips": {
     "label": "Nach Zustand filtern",
-    "all": "Alle"
+    "all": "Alle",
+    "empty_unconfirmed": "Leer (nicht bestätigt)",
+    "empty": "Als leer bestätigt"
+  },
+  "selection": {
+    "all": "Alle auswählen",
+    "one": "{name} auswählen",
+    "count": "{count} von {total} ausgewählt"
+  },
+  "confirmEmpty": {
+    "title": "{count, plural, one {Objekt} other {# Objekte}} als leer bestätigen?",
+    "description": "Die neueste Restore-Prüfung hat {count, plural, one {in diesem Objekt} other {in diesen Objekten}} nur Standardordner bzw. Systemseiten mit 0 Bytes gefunden. Als leer bestätigt, {count, plural, one {zählt es nicht mehr als „Achtung“ und erscheint} other {zählen sie nicht mehr als „Achtung“ und erscheinen}} grau. Sobald eine spätere Prüfung Inhalt findet, endet die Bestätigung von selbst.",
+    "confirm": "Als leer bestätigen"
   },
   "allScope": "Bei welchen Mandanten lässt sich heute etwas nicht wiederherstellen?",
   "allSubtitle": "Über alle Mandanten: die Mandanten, die Objekte im jeweiligen Zustand haben. Ein Mandant öffnet seine Objekte.",

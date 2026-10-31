@@ -683,6 +683,48 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
     expect(await reportsOf(contoso)).toEqual([{ snapshot_id: null }]);
   });
 
+  it("keeps an object's confirmation as empty inside the tenant", async () => {
+    const [object] = (
+      await owner.query<{ id: string }>(
+        `INSERT INTO protected_objects (tenant_id, source_id, kind, external_id)
+         SELECT tenant_id, id, 'onedrive', 'empty-drive' FROM sources WHERE tenant_id = $1
+         RETURNING id`,
+        [contoso],
+      )
+    ).rows;
+    await inTransaction(app, contoso, (client) =>
+      client.query(
+        `INSERT INTO empty_confirmations (tenant_id, protected_object_id, confirmed_by)
+         VALUES ($1, $2, 'admin@contoso.test')`,
+        [contoso, object?.id],
+      ),
+    );
+    const confirmationsOf = (tenantId: string) =>
+      inTransaction(app, tenantId, async (client) => {
+        const { rows } = await client.query<{ confirmed_by: string }>(
+          "SELECT confirmed_by FROM empty_confirmations WHERE protected_object_id = $1",
+          [object?.id],
+        );
+        return rows;
+      });
+    expect(await confirmationsOf(fabrikam)).toEqual([]);
+    expect(await confirmationsOf(contoso)).toEqual([{ confirmed_by: "admin@contoso.test" }]);
+    // Another tenant can neither write one for this tenant nor delete this one.
+    await expect(
+      inTransaction(app, fabrikam, (client) =>
+        client.query(
+          `INSERT INTO empty_confirmations (tenant_id, protected_object_id, confirmed_by)
+           VALUES ($1, $2, 'mallory')`,
+          [contoso, object?.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    await inTransaction(app, fabrikam, (client) =>
+      client.query("DELETE FROM empty_confirmations WHERE protected_object_id = $1", [object?.id]),
+    );
+    expect(await confirmationsOf(contoso)).toHaveLength(1);
+  });
+
   it("keeps the manifest index (versions and the 0.3.4 rows) inside the tenant", async () => {
     const [object] = (
       await owner.query<{ id: string }>(
