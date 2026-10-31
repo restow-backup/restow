@@ -57,7 +57,14 @@ $RestowServiceName = 'RestowAgent'
 $RestowTrustedSids = @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
 # State of one run. A hashtable, so the functions share it however the script
 # is started (iex, a script block with parameters, -File, dot-sourced by the tests).
-$RestowState = @{}
+# Every key is there from the start: under Set-StrictMode a key that is missing
+# throws (PropertyNotFoundStrict) instead of reading as $null.
+$RestowState = @{
+    AgentExe = $null; BinDir = $null; DataRoot = $null; InstallDir = $null; InstallRoot = $null
+    EffectiveProxy = $null; SkipService = $null
+    EdP = $null; EdL = $null; EdD = $null; EdD2 = $null; EdSqrtM1 = $null; EdExpSqrt = $null
+    EdPm2 = $null; EdB = $null
+}
 
 # ---- Ed25519 (RFC 8032), the same acceptance rules as Go's crypto/ed25519 -----
 #
