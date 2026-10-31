@@ -79,6 +79,22 @@ describe("sorting", () => {
     expect(names(sortTenants(ALL, { key: "name", direction: "desc" }))[0]).toBe("Zeta Inc");
   });
 
+  it("sorts by the monthly amount, the dearest first, and keeps the rows without one last", () => {
+    const prices = new Map<string, number | null>([
+      ["alpha", 40],
+      ["beta", 90],
+      ["gamma", null],
+      ["zeta", 0],
+    ]);
+    const desc = names(sortTenants(ALL, { key: "price", direction: "desc" }, prices));
+    expect(desc.slice(0, 3)).toEqual(["Beta KG", "Alpha AG", "Zeta Inc"]);
+    const asc = names(sortTenants(ALL, { key: "price", direction: "asc" }, prices));
+    expect(asc.slice(0, 3)).toEqual(["Zeta Inc", "Alpha AG", "Beta KG"]);
+    // Gamma (null) and the tenants the estimate does not list come last in either direction.
+    expect(desc.slice(3)).toEqual(asc.slice(3));
+    expect(nextSort(DEFAULT_SORT, "price")).toEqual({ key: "price", direction: "desc" });
+  });
+
   it("does not change the list it was given", () => {
     const before = [...ALL];
     sortTenants(ALL, DEFAULT_SORT);

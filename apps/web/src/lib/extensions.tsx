@@ -40,8 +40,14 @@ export interface SlotProps {
    * the tenants and the tenants by what needs doing, shown where the installation enables the
    * gated feature `dashboard.allTenants`. `onOpenTenant` switches into a tenant,
    * `onOpenReadiness` into a tenant and on to its Recovery readiness in a state.
+   *
+   * The page hands over two cards of its own to be laid out with the extension's, so the first
+   * row can hold the readiness card and the price card side by side: `priceCard` (null where the
+   * installation has no price or the viewer may not see it) and `runningNow`.
    */
   "dashboard.provider": {
+    priceCard: React.ReactNode;
+    runningNow: React.ReactNode;
     view: WidgetView<ProviderView>;
     onRetry: () => void;
     retrying: boolean;

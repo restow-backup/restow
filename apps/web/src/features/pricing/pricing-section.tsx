@@ -32,7 +32,17 @@ import { usePricingEstimate } from "./use-estimate.js";
  */
 export function PricingSection() {
   const { t } = useTranslation("installation");
-  const query = useQuery({ queryKey: pricingKey, queryFn: fetchPricing });
+  const session = useSession();
+  // The page is for provider admins already (installation/installation-page.tsx); nobody else
+  // asks for a price even if the section is mounted elsewhere.
+  const query = useQuery({
+    queryKey: pricingKey,
+    queryFn: fetchPricing,
+    enabled: session.isProviderAdmin,
+  });
+  if (!session.isProviderAdmin) {
+    return null;
+  }
   return (
     <Card data-slot="pricing-settings">
       <CardHeader>

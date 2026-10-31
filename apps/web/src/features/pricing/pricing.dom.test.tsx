@@ -18,7 +18,7 @@ import { i18n } from "@/i18n";
 
 import "@/features/installation/i18n";
 import "./i18n";
-import { AllTenantsPriceCard } from "./all-tenants-price-card";
+import { ALL_TENANTS_TOP, AllTenantsPriceCard } from "./all-tenants-price-card";
 import type { PricingEstimate } from "./api";
 import { PriceCard } from "./price-card";
 import { PricingSection } from "./pricing-section";
@@ -52,17 +52,23 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
     ...actual,
     Link: ({
       to,
+      search,
       children,
-      className,
+      ...props
     }: {
       to: string;
+      search?: Record<string, string>;
       children: React.ReactNode;
       className?: string;
-    }) => (
-      <a href={to} className={className}>
-        {children}
-      </a>
-    ),
+      title?: string;
+    }) => {
+      const query = new URLSearchParams(search ?? {}).toString();
+      return (
+        <a href={query ? `${to}?${query}` : to} {...props}>
+          {children}
+        </a>
+      );
+    },
   };
 });
 
@@ -393,6 +399,38 @@ describe("the sum across the tenants", () => {
     expect(open).toHaveBeenCalledWith("t7");
   });
 
+  it("stays as long with two hundred tenants: five rows, the rest counted, one way to the full list", async () => {
+    const crowd = estimateFixture({
+      tenants: Array.from({ length: 200 }, (_, index) =>
+        estimateTenant({
+          tenantId: `c${index}`,
+          name: `Customer with a rather long name number ${index}`,
+          amount: { mailboxes: index, storage: null, total: index },
+        }),
+      ),
+      total: 19900,
+    });
+    const shown = await all(crowd);
+    const rows = shown?.querySelectorAll('[data-slot="all-top"] li') ?? [];
+    expect(rows).toHaveLength(ALL_TENANTS_TOP);
+    expect(shown?.textContent).toContain("+195 more");
+    // Names are cut short in the card and complete in the tooltip; the amount sits right.
+    const first = rows[0]?.querySelector("button");
+    expect(first?.getAttribute("title")).toBe("Customer with a rather long name number 199");
+    expect(first?.className).toContain("truncate");
+    expect(rows[0]?.querySelector("span")?.className).toContain("text-right");
+    // "All tenants" leads to the capacity page, the dearest first.
+    const link = shown?.querySelector('[data-slot="all-list"]');
+    expect(link?.textContent).toBe("All tenants");
+    expect(link?.getAttribute("href")).toBe("/resources?sort=price");
+  });
+
+  it("offers the way to the full list even when every tenant is named", async () => {
+    const shown = await all(estimateFixture({ tenants: [estimateTenant()] }));
+    expect(shown?.textContent).not.toContain("more");
+    expect(shown?.querySelector('[data-slot="all-list"]')).not.toBeNull();
+  });
+
   it("says when the figures of some tenants are missing", async () => {
     const shown = await all({ ...many, missing: 2 });
     expect(shown?.textContent).toContain("The figures of 2 tenants are not available yet.");
@@ -430,6 +468,16 @@ describe("the sum across the tenants", () => {
 });
 
 describe("the price settings", () => {
+  it("shows nothing and asks for nothing to anybody who is not a provider admin", async () => {
+    const { requests } = api(estimateFixture(), {
+      "GET /settings/pricing": () => json(PRICING),
+    });
+    mounted = mount(<PricingSection />, { session: sessionAs({ isProviderAdmin: false }) });
+    await flush(5);
+    expect(mounted.container.textContent).toBe("");
+    expect(requests).toHaveLength(0);
+  });
+
   it("saves what the owner typed, a comma as the decimal sign, an empty price as none", async () => {
     const { mock, requests } = routedFetch({
       "GET /settings/pricing": () =>

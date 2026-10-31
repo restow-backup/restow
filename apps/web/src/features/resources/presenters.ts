@@ -9,7 +9,7 @@ import type { CapacityGrowth, CapacityTenant } from "./api.js";
 /** A repository that runs full within this many days counts as near full (the server's `NEAR_FULL_DAYS`). */
 export const NEAR_FULL_DAYS = 90;
 
-export type CapacitySortKey = "full" | "growth" | "stored" | "name";
+export type CapacitySortKey = "full" | "growth" | "stored" | "name" | "price";
 export type SortDirection = "asc" | "desc";
 export interface CapacitySort {
   key: CapacitySortKey;
@@ -25,6 +25,8 @@ export const FIRST_DIRECTION: Readonly<Record<CapacitySortKey, SortDirection>> =
   growth: "desc",
   stored: "desc",
   name: "asc",
+  // The dearest first: the list the price card on "All tenants" leads to.
+  price: "desc",
 };
 
 export type CapacityFilter = "all" | "attention";
@@ -72,8 +74,17 @@ export function matchesFilter(tenant: CapacityTenant, filter: CapacityFilter): b
   return filter === "all" || needsAttention(tenant);
 }
 
-function sortValue(tenant: CapacityTenant, key: CapacitySortKey): number | null {
+/** The monthly amount per tenant id (the price estimate); a tenant without an amount is absent or null. */
+export type PriceByTenant = ReadonlyMap<string, number | null>;
+
+function sortValue(
+  tenant: CapacityTenant,
+  key: CapacitySortKey,
+  prices: PriceByTenant,
+): number | null {
   switch (key) {
+    case "price":
+      return prices.get(tenant.tenantId) ?? null;
     case "full":
       return daysUntilFull(tenant);
     case "growth":
@@ -92,6 +103,7 @@ function sortValue(tenant: CapacityTenant, key: CapacitySortKey): number | null 
 export function sortTenants(
   tenants: readonly CapacityTenant[],
   sort: CapacitySort,
+  prices: PriceByTenant = new Map(),
 ): CapacityTenant[] {
   const sign = sort.direction === "asc" ? 1 : -1;
   const byName = (a: CapacityTenant, b: CapacityTenant) =>
@@ -100,8 +112,8 @@ export function sortTenants(
     if (sort.key === "name") {
       return sign * byName(a, b);
     }
-    const left = sortValue(a, sort.key);
-    const right = sortValue(b, sort.key);
+    const left = sortValue(a, sort.key, prices);
+    const right = sortValue(b, sort.key, prices);
     if (left === null || right === null) {
       return left === right ? byName(a, b) : left === null ? 1 : -1;
     }

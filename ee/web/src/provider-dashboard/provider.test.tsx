@@ -154,6 +154,8 @@ const handlers = {
   onOpenTenant: () => {},
   onTenantDetails: () => {},
   onOpenReadiness: () => {},
+  priceCard: null,
+  runningNow: null,
 };
 
 describe("provider view", () => {
@@ -347,6 +349,72 @@ describe("the overview across all tenants", () => {
     expect(page).toContain("Tenants by need for action");
     expect(page).toContain("Click a row to switch into that tenant.");
     expect(page).toContain('data-slot="open-tenant"');
+  });
+});
+
+describe("the layout of the overview across all tenants", () => {
+  const price = <div data-widget="allTenantsPrice">Price</div>;
+  const running = <div data-widget="running">Running</div>;
+  const page = (view: Parameters<typeof widgetView>[0], extra = {}) =>
+    render(
+      <ProviderView
+        view={widgetView(view, false)}
+        {...handlers}
+        priceCard={price}
+        runningNow={running}
+        {...extra}
+      />,
+    );
+
+  it("puts the readiness card and the price card side by side in the first row, readiness wider", () => {
+    const html = page({ state: "ok", data: VIEW });
+    // A container query on the widget area, as on the tenant's Status tab: 42rem and 68rem.
+    expect(html).toContain("@container/widgets");
+    const row = html.slice(html.indexOf('data-section="provider-status"'));
+    const classes = /class="([^"]*)"/.exec(row)?.[1] ?? "";
+    expect(classes).toContain("@[42rem]/widgets:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]");
+    expect(classes).toContain("@[68rem]/widgets:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]");
+    // Readiness first, then the price card, both inside that one row.
+    const readiness = row.indexOf('data-widget="provider-readiness"');
+    const priceAt = row.indexOf('data-widget="allTenantsPrice"');
+    const rowEnd = row.indexOf('data-widget="running"');
+    expect(readiness).toBeGreaterThan(-1);
+    expect(priceAt).toBeGreaterThan(readiness);
+    expect(rowEnd).toBeGreaterThan(priceAt);
+  });
+
+  it("lays out what is running below the first row and before the figures", () => {
+    const html = page({ state: "ok", data: VIEW });
+    const at = (marker: string) => html.indexOf(marker);
+    expect(at('data-widget="running"')).toBeGreaterThan(at('data-widget="allTenantsPrice"'));
+    expect(at('data-widget="running"')).toBeLessThan(at('data-widget="providerAlerts"'));
+  });
+
+  it("gives the readiness card the whole row without a price card", () => {
+    const html = page({ state: "ok", data: VIEW }, { priceCard: null });
+    expect(html).not.toContain('data-section="provider-status"');
+    expect(html).toContain('data-widget="provider-readiness"');
+  });
+
+  it("sets the figure tiles in columns by the width of the widget area", () => {
+    const html = page({ state: "ok", data: VIEW });
+    expect(html).toContain("@[26rem]/widgets:grid-cols-2");
+    expect(html).toContain("@[56rem]/widgets:grid-cols-3");
+    expect(html).not.toMatch(/class="[^"]*\bxl:grid-cols-3/);
+  });
+
+  it("keeps the price card and what is running in the loading, error and empty states", () => {
+    for (const view of [
+      { kind: "loading" } as const,
+      widgetView({ state: "error" }, false),
+      widgetView({ state: "ok", data: { ...VIEW, tenants: [], alerts: [] } }, false),
+    ]) {
+      const html = render(
+        <ProviderView view={view} {...handlers} priceCard={price} runningNow={running} />,
+      );
+      expect(html).toContain('data-widget="allTenantsPrice"');
+      expect(html).toContain('data-widget="running"');
+    }
   });
 });
 

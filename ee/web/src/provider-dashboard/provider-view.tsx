@@ -31,6 +31,10 @@ interface ProviderViewProps {
   onOpenTenant: (tenantId: string) => void;
   onTenantDetails: (tenantId: string) => void;
   onOpenReadiness: (tenantId: string, state: ReadinessState) => void;
+  /** The price card of the page (null where there is none); it sits beside the readiness card. */
+  priceCard: React.ReactNode;
+  /** "Running now" of the page, laid out under the first row. */
+  runningNow: React.ReactNode;
 }
 
 const KPI_KEYS = ["tenants", "notReady", "unverified", "failures", "mailboxes", "stored"] as const;
@@ -114,7 +118,8 @@ function ProviderKpiTiles({ kpis, loading }: { kpis: ProviderKpis | null; loadin
   const incomplete = missing > 0 ? t("provider.kpis.incomplete", { count: missing }) : null;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    // Columns by the width of the widget area (a container query), so a collapsed sidebar counts.
+    <div className="grid gap-4 @[26rem]/widgets:grid-cols-2 @[56rem]/widgets:grid-cols-3">
       {KPI_KEYS.map((key) => (
         <KpiTile
           key={key}
@@ -126,6 +131,33 @@ function ProviderKpiTiles({ kpis, loading }: { kpis: ProviderKpis | null; loadin
           loading={loading}
         />
       ))}
+    </div>
+  );
+}
+
+/**
+ * The first row: the readiness card with the price card beside it, both at the full height of the
+ * row. As on the tenant's Status tab the width of the widget area decides (a container query on
+ * `@container/widgets`, so a collapsed sidebar counts): from 68rem the readiness card takes two
+ * thirds and the price card the third; from 42rem a little more than half and the rest; narrower,
+ * the price card below the readiness card. Without a price card the readiness card has the row.
+ */
+function StatusRow({ main, aside }: { main: React.ReactNode; aside: React.ReactNode }) {
+  if (!aside) {
+    return <>{main}</>;
+  }
+  return (
+    <div
+      data-section="provider-status"
+      className="grid gap-4 *:min-w-0 @[42rem]/widgets:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] @[68rem]/widgets:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
+    >
+      {/* One shrinkable track, so the card fills the height of its row. */}
+      <div data-slot="widget-cell" className="grid grid-cols-1">
+        {main}
+      </div>
+      <div data-slot="widget-cell" className="grid grid-cols-1">
+        {aside}
+      </div>
     </div>
   );
 }
@@ -145,10 +177,11 @@ function MatrixCard({ children }: { children: React.ReactNode }) {
 
 /**
  * The overview under "All tenants" (Service Provider edition, provider admins
- * only): the recovery readiness summed over every tenant, provider-wide figures,
- * alerts across tenants and the tenants by what needs doing. Figures are read one
- * tenant at a time on the server. The operator's own organisation is in the sums
- * and in the table, but is not counted as a customer.
+ * only): the recovery readiness summed over every tenant with the price card beside
+ * it, what is running now, provider-wide figures, alerts across tenants and the
+ * tenants by what needs doing. Figures are read one tenant at a time on the server.
+ * The operator's own organisation is in the sums and in the table, but is not
+ * counted as a customer.
  */
 export function ProviderView({
   view,
@@ -157,27 +190,36 @@ export function ProviderView({
   onOpenTenant,
   onTenantDetails,
   onOpenReadiness,
+  priceCard,
+  runningNow,
 }: ProviderViewProps) {
   const { t } = useTranslation("dashboard");
 
   if (view.kind === "error") {
     return (
-      <div data-widget="provider" data-state="error">
-        <ErrorState
-          title={t("provider.error.title")}
-          description={t("widget.error.description")}
-          error={view.error}
-          onRetry={onRetry}
-          retrying={retrying}
+      <div data-widget="provider" data-state="error" className="@container/widgets space-y-6">
+        <StatusRow
+          main={
+            <ErrorState
+              title={t("provider.error.title")}
+              description={t("widget.error.description")}
+              error={view.error}
+              onRetry={onRetry}
+              retrying={retrying}
+            />
+          }
+          aside={priceCard}
         />
+        {runningNow}
       </div>
     );
   }
 
   if (view.kind === "loading") {
     return (
-      <div data-widget="provider" data-state="loading" className="space-y-6">
-        <ProviderReadinessCard readiness={null} loading />
+      <div data-widget="provider" data-state="loading" className="@container/widgets space-y-6">
+        <StatusRow main={<ProviderReadinessCard readiness={null} loading />} aside={priceCard} />
+        {runningNow}
         <ProviderKpiTiles kpis={null} loading />
         <MatrixCard>
           <div className="space-y-2" aria-busy="true">
@@ -195,7 +237,9 @@ export function ProviderView({
   const { data } = view;
   if (data.tenants.length === 0) {
     return (
-      <div data-widget="provider" data-state="empty">
+      <div data-widget="provider" data-state="empty" className="@container/widgets space-y-6">
+        {priceCard}
+        {runningNow}
         <EmptyState
           icon={Building2}
           title={t("provider.empty.title")}
@@ -207,8 +251,12 @@ export function ProviderView({
   }
 
   return (
-    <div data-widget="provider" data-state="ready" className="space-y-6">
-      <ProviderReadinessCard readiness={data.kpis.readiness} loading={false} />
+    <div data-widget="provider" data-state="ready" className="@container/widgets space-y-6">
+      <StatusRow
+        main={<ProviderReadinessCard readiness={data.kpis.readiness} loading={false} />}
+        aside={priceCard}
+      />
+      {runningNow}
       <ProviderKpiTiles kpis={data.kpis} loading={false} />
       <AlertList alerts={data.alerts} onOpenTenant={onOpenTenant} />
       <MatrixCard>

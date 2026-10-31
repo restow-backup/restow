@@ -23,6 +23,9 @@ export const resourcesRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: RESOURCES_PATH,
   component: ResourcesPage,
+  // `?sort=price` opens the table by monthly amount (the link of the price card on "All tenants").
+  validateSearch: (search: Record<string, unknown>): { sort?: "price" } =>
+    search.sort === "price" ? { sort: "price" } : {},
 });
 
 export const routes = [resourcesRoute];
