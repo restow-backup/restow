@@ -355,10 +355,10 @@ describe("the overview across all tenants", () => {
 describe("the layout of the overview across all tenants", () => {
   const price = <div data-widget="allTenantsPrice">Price</div>;
   const running = <div data-widget="running">Running</div>;
-  const page = (view: Parameters<typeof widgetView>[0], extra = {}) =>
+  const page = (view: Parameters<typeof widgetView<ProviderData>>[0], extra = {}) =>
     render(
       <ProviderView
-        view={widgetView(view, false)}
+        view={widgetView<ProviderData>(view, false)}
         {...handlers}
         priceCard={price}
         runningNow={running}
@@ -406,8 +406,8 @@ describe("the layout of the overview across all tenants", () => {
   it("keeps the price card and what is running in the loading, error and empty states", () => {
     for (const view of [
       { kind: "loading" } as const,
-      widgetView({ state: "error" }, false),
-      widgetView({ state: "ok", data: { ...VIEW, tenants: [], alerts: [] } }, false),
+      widgetView<ProviderData>({ state: "error" }, false),
+      widgetView<ProviderData>({ state: "ok", data: { ...VIEW, tenants: [], alerts: [] } }, false),
     ]) {
       const html = render(
         <ProviderView view={view} {...handlers} priceCard={price} runningNow={running} />,
