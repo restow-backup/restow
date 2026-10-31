@@ -51,6 +51,16 @@ private repository.
   it the answer is the installation's one tenant (the oldest the viewer may enter) and the page
   says that the comparison comes with Service Provider. A tenant's figures are read in its own
   transaction, a few tenants at a time, and kept for 30 seconds for every viewer.
+- A new release is easy to see now. For provider administrators a small blue dot (the accent
+  colour, never green) appears beside "Version x.y.z" in the sidebar footer, on the menu entry
+  "Server & operation" and on "Updates" in the list of sections of the installation page. Its
+  tooltip and its text for assistive technology read "Update to x.y.z available"; it breathes
+  gently unless the system asks for reduced motion. The provider team's owner, who may install
+  the update, also sees a slim blue bar above the top bar: "Restow x.y.z is available", with
+  links to the release notes and to Updates. It can be closed; this browser remembers that for
+  that version only, so a newer release shows it again. Tenant users see neither the dots nor
+  the bar. An announced, running or planned update, a pause for one and a failed one keep the
+  place of the bar.
 
 ### Changed
 
@@ -106,6 +116,13 @@ private repository.
   there (after "Stored", sortable, dearest first), for provider admins once a price is set.
   Your own organisation is no customer: like in the card it has no amount there ("Not
   billed") and does not rank among the dearest.
+- The update check runs every six hours instead of once a day (four requests a day for the
+  release list, far below the limit of GitHub without a token), so a release is known the same
+  day. It still runs shortly after the api starts when the last check is older than that, and a
+  failed check is tried again after an hour at the earliest, not before a rate limit lifts. The
+  browser reads the version again every 15 minutes, so an open tab shows a new release without a
+  reload. In the sidebar footer the version of a provider administrator stays "Version x.y.z"
+  and carries the dot, instead of turning into the button "Update to x.y.z available".
 
 ### Fixed
 

@@ -1,7 +1,7 @@
 /**
  * Postgres-backed tests of the Updates feature: the settings row that carries
  * the switch, the source and the channel, the access token sealed in the secret
- * store (never returned, logged or audited), the cached check, the daily
+ * store (never returned, logged or audited), the cached check, the scheduled
  * check's audit entry, the "update available" alert raised once per version
  * (the bell and the tenants' alert rules), the announcement of an update
  * through a scripted updater, the updater's journal written to the audit
@@ -39,7 +39,7 @@ import {
   tenants,
 } from "@restow/db";
 import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProblemError } from "../../problem.js";
 import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
@@ -660,7 +660,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         enabled: true,
         state: "ok",
         checkedAt: "2026-10-01T09:00:00.000Z",
-        nextCheckAt: "2026-10-02T09:00:00.000Z",
+        nextCheckAt: "2026-10-01T15:00:00.000Z",
         error: null,
       });
       expect(view.latest).toMatchObject({
@@ -760,19 +760,38 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       expect(view.releases.map((release) => release.version)).toEqual(["0.2.0"]);
     });
 
-    it("runs the scheduled check once a day, not before", async () => {
+    it("runs the scheduled check every six hours, not before", async () => {
       const { service } = build();
       await service.saveSettings({ enabled: true }, actor);
       const requests = feed.requests.length;
-      now = new Date("2026-10-02T08:59:00.000Z");
+      now = new Date("2026-10-01T14:59:00.000Z");
       await service.runScheduledCheckIfDue();
       expect(feed.requests).toHaveLength(requests);
-      now = new Date("2026-10-02T09:00:01.000Z");
+      now = new Date("2026-10-01T15:00:01.000Z");
       await service.runScheduledCheckIfDue();
       expect(feed.requests).toHaveLength(requests + 1);
       const entries = await auditRows("update.check");
       expect(entries.at(-1)).toMatchObject({ actor: "system", actorUserId: null });
       expect(entries.at(-1)?.details).toMatchObject({ trigger: "scheduled" });
+    });
+
+    it("checks shortly after the start when the last check is older than six hours", async () => {
+      const { service } = build();
+      await service.saveSettings({ enabled: true }, actor);
+      const requests = feed.requests.length;
+      // The api was down for a while: the first pass after the start finds the check due.
+      now = new Date("2026-10-01T16:00:00.000Z");
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const loop = service.start();
+      try {
+        await vi.advanceTimersByTimeAsync(19_000);
+        expect(feed.requests).toHaveLength(requests);
+        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.waitFor(() => expect(feed.requests).toHaveLength(requests + 1));
+      } finally {
+        loop.close();
+        vi.useRealTimers();
+      }
     });
 
     it("retries a failed check after an hour, not sooner", async () => {
@@ -1940,7 +1959,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
     it("hands the updater a switch to the full images of the same version, and audits it", async () => {
       feed.respondWith(githubReleases({ tag: "v0.1.0", body: notes }));
       const { service } = build(COMMUNITY);
-      // The daily check is off: the switch reads the release once by itself.
+      // The scheduled check is off: the switch reads the release once by itself.
       await service.switchToFullBuild({ leadSeconds: 0 }, actor);
       expect(updater.scheduled[0]).toMatchObject({
         release: { version: "0.1.0", tag: "v0.1.0", digests: { app: FULL_APP, web: FULL_WEB } },

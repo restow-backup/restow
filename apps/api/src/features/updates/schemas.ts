@@ -39,7 +39,7 @@ export const MAX_TOKEN_LENGTH = 500;
 
 export const updateSettingsInputSchema = z
   .object({
-    /** Turn the daily check and "Check now" on or off. */
+    /** Turn the scheduled check and "Check now" on or off. */
     enabled: z.boolean().optional(),
     channel: z.enum(UPDATE_CHANNELS).optional(),
     /** A repository URL (GitHub, Forgejo or Gitea); null goes back to the default source. */

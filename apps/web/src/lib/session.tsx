@@ -69,6 +69,9 @@ export const meQueryOptions = queryOptions({
   queryKey: queryKeys.me,
   queryFn: fetchMe,
   staleTime: 60_000,
+  // The scheduled update check runs unseen (every six hours): a tab that stays open learns of a
+  // new release within a quarter of an hour, without a reload.
+  refetchInterval: 15 * 60_000,
   retry: (failureCount, error) =>
     !(error instanceof ApiError && error.status < 500) && failureCount < 1,
 });

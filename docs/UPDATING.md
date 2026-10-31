@@ -249,8 +249,10 @@ status of the last check and whether an update is available.
 ### Turning the check on
 
 The check is **off** until an administrator turns it on. When it is on, Restow
-reads the release list of the update source once a day and whenever you press
-*Check now*. It only reads that list: no request carries any data about your
+reads the release list of the update source every six hours (shortly after the
+api starts, too, when the last check is older than that) and whenever you press
+*Check now*. That is four requests a day, far below what GitHub allows without a
+token. It only reads that list: no request carries any data about your
 installation, and the result is cached. If the check fails, the tab says why
 and keeps showing the last good result:
 
@@ -264,6 +266,26 @@ and keeps showing the last good result:
 | Not a release list        | The address answered, but not with releases.                                   |
 | No release published      | The repository has no release yet.                                             |
 | Redirect refused          | The source redirected to another host; Restow does not follow it.              |
+
+### Where an available update shows
+
+When a check finds a newer release, provider administrators see it without opening the tab:
+
+- A small blue dot (the accent colour, never green) beside *Version x.y.z* in the sidebar
+  footer, on the menu entry *Server & operation* and on *Updates* in the list of sections of
+  the installation page. The dot breathes gently unless the system asks for reduced motion;
+  its text for assistive technology is "Update to x.y.z available".
+- A slim blue bar above the top bar, in the place of the maintenance bar: "Restow x.y.z is
+  available", with a link to the release notes and one to the Updates tab. The provider
+  team's owner role, which may install an update, sees it; the bar can be closed, and
+  closing it is remembered in this browser for that version only. A newer release shows it
+  again. It never shows to tenant users. While an update is planned, announced or running,
+  the maintenance bar takes its place.
+- The notification bell and the alert rules (event `update.available`) announce each
+  version once, as before.
+
+The browser reads the version again every 15 minutes and when its window gets focus, so a
+tab left open shows a release that the six-hourly check found within a quarter of an hour.
 
 ### Source, channel and token
 
@@ -498,7 +520,7 @@ modules add, and switches to the full build of the version it runs now:
 - **With the updater** (ready, published images): *Switch to the full build* announces
   the switch like an update, with a lead time and a countdown for everyone, and needs
   the provider team's owner role and a recent sign-in. The api reads the release of the
-  running version once from the update source (also when the daily check is off) and
+  running version once from the update source (also when the scheduled check is off) and
   takes the digests of the full images from its notes (`restow:` and `restow-web:`).
   The updater then runs the normal pipeline: it verifies both full images against the
   release workflow's signature of that tag, dumps the database, writes

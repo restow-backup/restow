@@ -137,7 +137,7 @@
     "status": {
       "off": {
         "title": "Update-Prüfung ist aus",
-        "description": "Diese Installation sucht nicht nach neuen Versionen. Schalten Sie unten die tägliche Prüfung ein oder aktualisieren Sie von Hand."
+        "description": "Diese Installation sucht nicht nach neuen Versionen. Schalten Sie unten die regelmäßige Prüfung ein oder aktualisieren Sie von Hand."
       },
       "pending": {
         "title": "Noch nicht geprüft",
@@ -214,10 +214,10 @@
     "description": "Woher Releases gelesen werden und welche Releases zählen.",
     "environment": {
       "title": "Die Update-Quelle wird von der Umgebung vorgegeben",
-      "description": "Die Variable RESTOW_UPDATE_CHECK_URL ist gesetzt. Sie hat Vorrang vor der täglichen Prüfung, der Quelle und dem Token unten. Entfernen Sie sie aus der .env-Datei und starten Sie neu, um sie hier zu verwalten. Der Kanal lässt sich weiterhin ändern. Verwendete Adresse:"
+      "description": "Die Variable RESTOW_UPDATE_CHECK_URL ist gesetzt. Sie hat Vorrang vor der regelmäßigen Prüfung, der Quelle und dem Token unten. Entfernen Sie sie aus der .env-Datei und starten Sie neu, um sie hier zu verwalten. Der Kanal lässt sich weiterhin ändern. Verwendete Adresse:"
     },
     "enabled": {
-      "label": "Einmal täglich auf Updates prüfen",
+      "label": "Regelmäßig auf Updates prüfen (alle sechs Stunden)",
       "hint": "Gelesen wird nur die Release-Liste der Quelle unten; über diese Installation wird nichts gesendet."
     },
     "url": {
@@ -551,6 +551,12 @@
   },
   "maintenance": {
     "openSettings": "Installation, Updates öffnen",
+    "availableBanner": {
+      "text": "{product} {version} ist verfügbar.",
+      "notes": "Release-Notes",
+      "open": "Zu den Updates",
+      "dismiss": "Hinweis auf Version {version} ausblenden"
+    },
     "banner": {
       "scheduled": "Wartung in {time}: {product} wird auf Version {version} aktualisiert. Speichern Sie Ihre Arbeit.",
       "starting": "Die Wartung beginnt: {product} wird auf Version {version} aktualisiert.",

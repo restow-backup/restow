@@ -137,7 +137,7 @@
     "status": {
       "off": {
         "title": "Update check is off",
-        "description": "This installation does not look for new versions. Turn on the daily check below, or update by hand."
+        "description": "This installation does not look for new versions. Turn on the regular check below, or update by hand."
       },
       "pending": {
         "title": "Not checked yet",
@@ -214,10 +214,10 @@
     "description": "Where releases are read from and which releases count.",
     "environment": {
       "title": "The update source is set by the environment",
-      "description": "The variable RESTOW_UPDATE_CHECK_URL is set. It wins over the daily check, the source and the token below. Remove it from the .env file and restart to manage them here. The channel can still be changed. Address in use:"
+      "description": "The variable RESTOW_UPDATE_CHECK_URL is set. It wins over the regular check, the source and the token below. Remove it from the .env file and restart to manage them here. The channel can still be changed. Address in use:"
     },
     "enabled": {
-      "label": "Check for updates once a day",
+      "label": "Check for updates regularly (every six hours)",
       "hint": "Only the release list of the source below is read; nothing about this installation is sent."
     },
     "url": {
@@ -551,6 +551,12 @@
   },
   "maintenance": {
     "openSettings": "Open Installation, Updates",
+    "availableBanner": {
+      "text": "{product} {version} is available.",
+      "notes": "Release notes",
+      "open": "Go to updates",
+      "dismiss": "Dismiss the notice about version {version}"
+    },
     "banner": {
       "scheduled": "Maintenance in {time}: {product} will be updated to version {version}. Save your work.",
       "starting": "Maintenance is starting: {product} is being updated to version {version}.",

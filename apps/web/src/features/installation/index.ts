@@ -70,5 +70,7 @@ export const navItems: NavItem[] = [
     roles: [...INSTALLATION_ROLES],
     group: "installation",
     order: 10,
+    // The Updates section is one of its sections: a newer release puts a dot on the entry.
+    leadsToUpdates: true,
   },
 ];

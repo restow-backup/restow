@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
 import type { ScheduleRequest, StateView } from "../../updater/protocol.js";
 import {
+  CHECK_INTERVAL_MS,
   isRunFor,
   mapUpdaterError,
   nextCheckAt,
@@ -120,8 +121,17 @@ describe("when the next check is due", () => {
     expect(nextCheckAt(null, now)).toEqual(now);
   });
 
-  it("is a day after a good check", () => {
-    expect(nextCheckAt(check({}), now).toISOString()).toBe("2026-10-02T08:00:00.000Z");
+  it("is six hours after a good check", () => {
+    expect(CHECK_INTERVAL_MS).toBe(6 * 60 * 60 * 1000);
+    expect(nextCheckAt(check({}), now).toISOString()).toBe("2026-10-01T14:00:00.000Z");
+  });
+
+  it("is due once the six hours have passed, not before", () => {
+    const later = (minutes: number) =>
+      new Date(Date.parse("2026-10-01T08:00:00.000Z") + minutes * 60_000);
+    const due = nextCheckAt(check({}), now);
+    expect(later(6 * 60 - 1) >= due).toBe(false);
+    expect(later(6 * 60) >= due).toBe(true);
   });
 
   it("is an hour after a failed check, or when the rate limit lifts if that is later", () => {
