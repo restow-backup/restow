@@ -58,6 +58,10 @@ export function MaintenanceBanner() {
       if (planned && plannedSoon(planned.startsAt, Date.now())) {
         return <PlannedBanner version={planned.version} startsAt={planned.startsAt} />;
       }
+      // A plan further ahead already answers the news: that update is scheduled.
+      if (planned) {
+        return null;
+      }
       // Nothing is going on: a newer release is the news (after the first answer, so that an
       // announced update never flashes this bar first).
       return snapshot ? <UpdateAvailableBanner /> : null;

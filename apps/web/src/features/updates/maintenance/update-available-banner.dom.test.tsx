@@ -207,14 +207,21 @@ describe("the update-available bar", () => {
     expect(banner()?.getAttribute("data-variant")).toBe("scheduled");
 
     await show({
-      view: maintenanceFixture({ phase: "running", runId: "r-1", targetVersion: "0.4.9" }),
+      view: maintenanceFixture({
+        phase: "running",
+        runId: "r-1",
+        targetVersion: "0.4.9",
+      }),
     });
     expect(available()).toBeNull();
     expect(banner()?.getAttribute("data-variant")).toBe("running");
 
     await show({
       view: maintenanceFixture({
-        planned: { version: "0.4.9", startsAt: new Date(Date.now() + 3_600_000).toISOString() },
+        planned: {
+          version: "0.4.9",
+          startsAt: new Date(Date.now() + 3_600_000).toISOString(),
+        },
       }),
     });
     expect(available()).toBeNull();
@@ -232,9 +239,26 @@ describe("the update-available bar", () => {
     expect(banner()?.getAttribute("data-variant")).toBe("attention");
   });
 
+  it("is hidden while an update is planned for a day far ahead", async () => {
+    await show({
+      view: maintenanceFixture({
+        planned: {
+          version: "0.4.9",
+          startsAt: new Date(Date.now() + 5 * 86_400_000).toISOString(),
+        },
+      }),
+    });
+    expect(available()).toBeNull();
+    expect(banner()).toBeNull();
+  });
+
   it("is back once the maintenance is over", async () => {
     await show({
-      view: maintenanceFixture({ phase: "running", runId: "r-1", targetVersion: "0.4.9" }),
+      view: maintenanceFixture({
+        phase: "running",
+        runId: "r-1",
+        targetVersion: "0.4.9",
+      }),
     });
     expect(available()).toBeNull();
     await show({ view: maintenanceFixture() });

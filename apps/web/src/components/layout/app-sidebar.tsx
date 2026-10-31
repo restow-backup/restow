@@ -335,7 +335,7 @@ export function AppSidebar() {
               : note
                 ? `${label} (${note})`
                 : label;
-            const base = updateLabel ? `${named} — ${updateLabel}` : named;
+            const base = updateLabel ? `${named}, ${updateLabel}` : named;
             return (
               <SidebarMenuItem key={item.id}>
                 <SidebarMenuButton
@@ -384,7 +384,7 @@ export function AppSidebar() {
                     {updateLabel ? (
                       <UpdateDot
                         data-nav-update="true"
-                        className="ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-1 group-data-[collapsible=icon]:right-1 group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar"
+                        className="ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-1 group-data-[collapsible=icon]:right-1 group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar group-data-[collapsible=icon]:motion-safe:animate-none"
                       />
                     ) : null}
                     {stage ? (
