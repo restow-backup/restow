@@ -171,7 +171,11 @@ describe("the throughput charts", () => {
   });
 
   it("names the moment and both values in a tooltip, and reads them out to a screen reader", async () => {
-    await show({ running: true });
+    // The clock stands at the newest measurement, so "now" does not depend on how long the
+    // render took on a busy machine.
+    const points = samples(40);
+    vi.useFakeTimers({ toFake: ["Date"], now: points.at(-1)?.[0] ?? 0 });
+    await show({ points, running: true });
     await press("End");
     expect(tooltip()?.textContent).toContain("now");
     expect(tooltip()?.textContent).toMatch(/Processing/);
