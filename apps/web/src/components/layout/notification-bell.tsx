@@ -3,6 +3,7 @@ import { Bell, CheckCheck } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { ErrorState } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { BellList } from "@/features/reports/api";
@@ -112,7 +113,17 @@ export function NotificationBell() {
             {t("bell.markAll")}
           </Button>
         </div>
-        {items.length === 0 ? (
+        {items.length === 0 && bell.isError ? (
+          // The bell exists to surface failures: an unreadable list must not read as "nothing new".
+          <div className="p-3">
+            <ErrorState
+              description={t("bell.loadError")}
+              error={bell.error}
+              onRetry={() => void bell.refetch()}
+              retrying={bell.isFetching}
+            />
+          </div>
+        ) : items.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-muted-foreground">{t("bell.empty")}</p>
         ) : (
           <ul className="max-h-96 divide-y divide-border overflow-y-auto">

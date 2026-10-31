@@ -35,7 +35,17 @@ const SELECT =
  */
 export function PricingSection() {
   const { t } = useTranslation("installation");
-  const query = useQuery({ queryKey: pricingKey, queryFn: fetchPricing });
+  const session = useSession();
+  // The page is for provider admins already (installation/installation-page.tsx); nobody else
+  // asks for a price even if the section is mounted elsewhere.
+  const query = useQuery({
+    queryKey: pricingKey,
+    queryFn: fetchPricing,
+    enabled: session.isProviderAdmin,
+  });
+  if (!session.isProviderAdmin) {
+    return null;
+  }
   return (
     <Card data-slot="pricing-settings">
       <CardHeader>
@@ -233,7 +243,7 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
       </div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1.5">
-          <label htmlFor={`${id}-currency`} className="text-sm font-medium">
+          <label htmlFor={`${id}-currency`} className="block text-sm font-medium">
             {t("pricing.currency")}
           </label>
           <select

@@ -399,6 +399,57 @@ describe.skipIf(!testDatabaseAdminUrl)("a tenant's own prices and the estimate",
     ).not.toMatch(/pric/i);
   });
 
+  it("gives a tenant's administrator and end user no price from any other route either", async () => {
+    // Prices are set (mailbox 2, storage 0.5 and Alpha's amount of 6 above): none may show up in
+    // what a tenant's people read, whatever the route. The provider-only routes are refused.
+    const [row] = await owner
+      .select({ organizationId: tenants.organizationId })
+      .from(tenants)
+      .where(eq(tenants.id, alpha));
+    const organizationId = row?.organizationId as string;
+    const people = [
+      ["owner", "alpha-owner@example.com"],
+      ["member", "alpha-user@example.com"],
+    ] as const;
+    for (const [role, email] of people) {
+      const userId = await createAccount(email, "user");
+      await owner.insert(member).values({
+        id: randomUUID(),
+        organizationId,
+        userId,
+        role,
+        createdAt: new Date(),
+      });
+      const cookie = await signIn(email);
+      for (const [method, path, body] of [
+        ["GET", "/api/v1/settings/pricing"],
+        ["PUT", "/api/v1/settings/pricing", { mailboxPrice: 1 }],
+        ["GET", "/api/v1/settings/pricing/estimate"],
+        ["GET", `/api/v1/settings/pricing/estimate?tenant=${alpha}`],
+        ["GET", `/api/v1/tenants/${alpha}/pricing`],
+        ["PUT", `/api/v1/tenants/${alpha}/pricing`, { storagePrice: 1 }],
+        ["GET", "/api/v1/usage"],
+        ["GET", "/api/v1/settings"],
+      ] as const) {
+        const response = await call(method, path, cookie, body);
+        expect(response.status, `${role}: ${method} ${path}`).toBe(403);
+        expect(await response.text()).not.toMatch(/mailboxPrice|storagePrice|"amount"/);
+      }
+      // What a tenant's person may read carries no price field, no amount and no estimate.
+      for (const path of ["/api/v1/me", "/api/v1/tenant", "/api/v1/dashboard", "/api/v1/stats"]) {
+        const response = await app.fetch(
+          new Request(`${PUBLIC_URL}${path}`, {
+            headers: { origin: PUBLIC_URL, cookie, "x-restow-tenant": alpha },
+          }),
+        );
+        expect(response.status, `${role}: GET ${path}`).toBeLessThan(500);
+        expect(await response.text(), `${role}: GET ${path}`).not.toMatch(
+          /mailboxPrice|storagePrice|pricing|"amount"|estimate/i,
+        );
+      }
+    }
+  });
+
   it("lets only the owner set a tenant's own prices, and any provider admin read them", async () => {
     const adminId = await createAccount("administrator@example.com", "admin");
     await owner

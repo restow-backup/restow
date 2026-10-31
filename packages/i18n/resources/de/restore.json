@@ -53,6 +53,7 @@
         "group": "Microsoft-365-Gruppen",
         "imap": "IMAP-Konten"
       },
+      "loadError": "Die Konten konnten nicht geladen werden",
       "empty": "Kein passendes Konto",
       "emptyDescription": "Versuchen Sie eine andere Suche oder einen anderen Typ.",
       "lastBackup": "Letzte Sicherung",

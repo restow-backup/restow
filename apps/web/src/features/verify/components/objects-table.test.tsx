@@ -8,7 +8,7 @@ import { useVerifyFormat } from "@/features/verify/use-verify";
 import { i18n } from "@/i18n";
 
 import "../i18n.js";
-import { ObjectsTable } from "./objects-table";
+import { OBJECTS_PAGE_SIZE, ObjectsTable } from "./objects-table";
 
 // The table's "report"/"view report" links become plain anchors, the same
 // way the dashboard widget tests do it, so the table renders outside a
@@ -537,6 +537,29 @@ describe("ObjectsTable", () => {
 
     it("keeps the empty text for a tenant with neither", () => {
       expect(table([], null, [])).toContain("No protected objects yet.");
+    });
+  });
+
+  describe("paging", () => {
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        readiness({ object: object({ id: `o${i}`, displayName: `Person ${i}` }) }),
+      );
+    // The header row plus the body rows.
+    const rows = (html: string) => count(html, 'data-slot="table-row"');
+
+    it("lists a large tenant in pages and offers more under the table", () => {
+      const html = table(many(OBJECTS_PAGE_SIZE + 10));
+      expect(rows(html)).toBe(OBJECTS_PAGE_SIZE + 1);
+      expect(html).toContain(`${OBJECTS_PAGE_SIZE} entries shown`);
+      expect(html).toContain("Load more");
+    });
+
+    it("shows a small tenant whole, with no paging footer", () => {
+      const html = table(many(OBJECTS_PAGE_SIZE));
+      expect(rows(html)).toBe(OBJECTS_PAGE_SIZE + 1);
+      expect(html).not.toContain("Load more");
+      expect(html).not.toContain("entries shown");
     });
   });
 

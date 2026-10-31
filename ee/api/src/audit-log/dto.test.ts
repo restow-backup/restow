@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuditEntryDto } from "./dto.js";
-import { redactAuditEntryForDemo } from "./dto.js";
+import { redactAuditEntryForDemo, redactPricesForTenant } from "./dto.js";
 
 const ENTRY: AuditEntryDto = {
   id: "e1",
@@ -29,5 +29,37 @@ describe("redactAuditEntryForDemo", () => {
   it("leaves an already-null ip alone (and the same object, not a copy)", () => {
     const withoutIp = { ...ENTRY, ip: null };
     expect(redactAuditEntryForDemo(withoutIp)).toBe(withoutIp);
+  });
+});
+
+describe("redactPricesForTenant", () => {
+  it("drops the details of a tenant's price change, keeping the entry and its hash state", () => {
+    const entry = {
+      ...ENTRY,
+      action: "tenant.pricing.updated",
+      details: { before: {}, after: { mailboxPrice: 7.77 } },
+    };
+    expect(redactPricesForTenant(entry)).toEqual({ ...entry, details: null });
+  });
+
+  it("strips price figures from any other entry, however deep, and keeps the rest", () => {
+    const entry = {
+      ...ENTRY,
+      action: "settings.pricing.updated",
+      details: {
+        currency: "EUR",
+        list: [{ storagePrice: 1, keep: true }],
+        after: { mailboxPrice: 2 },
+      },
+    };
+    expect(redactPricesForTenant(entry).details).toEqual({
+      currency: "EUR",
+      list: [{ keep: true }],
+      after: {},
+    });
+  });
+
+  it("leaves an entry without details alone", () => {
+    expect(redactPricesForTenant(ENTRY)).toBe(ENTRY);
   });
 });

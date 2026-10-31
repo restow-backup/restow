@@ -1,4 +1,5 @@
 import type { AuditLogEntry } from "@restow/db";
+import { TENANT_PRICING_AUDIT_ACTIONS } from "../../../../apps/api/src/features/settings/tenant-pricing.js";
 import {
   type AnchorRecord,
   type ChainBreak,
@@ -105,6 +106,39 @@ export function toEntryDto(
  */
 export function redactAuditEntryForDemo(entry: AuditEntryDto): AuditEntryDto {
   return entry.ip === null ? entry : { ...entry, ip: null };
+}
+
+const PRICE_KEYS: ReadonlySet<string> = new Set(["mailboxPrice", "storagePrice"]);
+
+/** The value without any `mailboxPrice` / `storagePrice` key, however deep. */
+function withoutPrices(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(withoutPrices);
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !PRICE_KEYS.has(key))
+        .map(([key, inner]) => [key, withoutPrices(inner)]),
+    );
+  }
+  return value;
+}
+
+/**
+ * The provider's prices never reach a reader outside the provider (a tenant admin reads their
+ * own tenant's chain, and the change of a tenant's own price is written there): the details of
+ * a price change are dropped, and any other entry loses its price figures. `hashValid` was
+ * computed from the stored entry before this and stays what it was.
+ */
+export function redactPricesForTenant(entry: AuditEntryDto): AuditEntryDto {
+  if (entry.details === null) {
+    return entry;
+  }
+  if (entry.action === TENANT_PRICING_AUDIT_ACTIONS.updated) {
+    return { ...entry, details: null };
+  }
+  return { ...entry, details: withoutPrices(entry.details) as Record<string, unknown> };
 }
 
 export function toBreakDto(value: ChainBreak): ChainBreakDto {

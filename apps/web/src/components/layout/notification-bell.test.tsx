@@ -9,6 +9,7 @@ import {
   json,
   type Mounted,
   mount,
+  problem,
   routedFetch,
   sessionAs,
 } from "@/features/updates/testing";
@@ -314,6 +315,46 @@ describe("the bell", () => {
       ids: ["n2"],
     });
     expect(popover()).not.toBeNull();
+  });
+});
+
+describe("a bell that cannot read its list", () => {
+  it("says so with a retry instead of 'Nothing new'", async () => {
+    let failing = true;
+    const { mock } = routedFetch({
+      "GET /notifications": () =>
+        failing
+          ? problem("urn:restow:problem:internal", 500)
+          : json({ items: [item({})], unread: 1 }),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<NotificationBell />, {
+      session: sessionAs({
+        activeTenant: {
+          id: "t1",
+          name: "Tenant",
+          slug: "tenant",
+          kind: "customer",
+          customerNumber: null,
+          role: "tenant_admin",
+          status: "active",
+        },
+      }),
+    });
+    await flush(5);
+    await click(document.body.querySelector('button[aria-label*="otification"]'));
+    await flush(3);
+    expect(text(popover())).toContain("Notifications could not be loaded");
+    expect(text(popover())).not.toContain("Nothing new");
+
+    failing = false;
+    const retry = [...(popover()?.querySelectorAll("button") ?? [])].find(
+      (button) => text(button) === "Retry",
+    );
+    await click(retry ?? null);
+    await flush(5);
+    expect(popover()?.querySelectorAll("ul button")).toHaveLength(1);
+    expect(text(popover())).not.toContain("could not be loaded");
   });
 });
 

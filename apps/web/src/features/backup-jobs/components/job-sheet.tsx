@@ -3,7 +3,14 @@ import { Link } from "@tanstack/react-router";
 import { ExternalLink, History, Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { DetailFact, DetailSection, DetailSheet, LogBlock, RelativeTime } from "@/components/kit";
+import {
+  DetailFact,
+  DetailSection,
+  DetailSheet,
+  ErrorState,
+  LogBlock,
+  RelativeTime,
+} from "@/components/kit";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTenantScope } from "@/features/endpoints/hooks";
@@ -328,6 +335,14 @@ function BackupJobBody({
       <DetailSection title={t("sheet.runs")}>
         {runs.isPending ? (
           <Skeleton className="h-16 w-full" />
+        ) : runs.isError && items.length === 0 ? (
+          // "No run yet" would be a claim; an unreadable history is not that.
+          <ErrorState
+            description={t("sheet.runsLoadError")}
+            error={runs.error}
+            onRetry={() => void runs.refetch()}
+            retrying={runs.isFetching}
+          />
         ) : (
           <RecentRuns runs={items.slice(0, JOB_SHEET_RUNS)} />
         )}

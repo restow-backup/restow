@@ -232,6 +232,7 @@
   },
   "pending": {
     "title": "Offene Anmeldungen",
+    "loadError": "Die offenen Anmeldungen konnten nicht geladen werden.",
     "description": "Installationsbefehle, die erstellt, aber noch von keinem Rechner verwendet wurden. Jeder funktioniert nur einmal und läuft nach 24 Stunden ab. Ein Befehl lässt sich nicht erneut anzeigen; erstellen Sie bei Verlust einen neuen.",
     "unnamed": "Ohne Namen",
     "created": "Erstellt",

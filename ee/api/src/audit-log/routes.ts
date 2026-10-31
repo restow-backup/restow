@@ -14,7 +14,7 @@ import {
 } from "../../../../apps/api/src/middleware/session.js";
 import { parseOrProblem } from "../../../../apps/api/src/schemas.js";
 import { capabilityGuard } from "../license/gate.js";
-import { type AuditEntryDto, redactAuditEntryForDemo } from "./dto.js";
+import { type AuditEntryDto, redactAuditEntryForDemo, redactPricesForTenant } from "./dto.js";
 import { auditCsv, auditJson, collectAuditExport } from "./export.js";
 import { mountPath } from "./meta.js";
 import {
@@ -83,9 +83,16 @@ function poolFor(scope: AuditScope): Database {
   return scope.kind === "provider" ? providerDb : db;
 }
 
-/** Applied to every entry this route hands back; a no-op outside demo mode. */
-function redact(entry: AuditEntryDto): AuditEntryDto {
-  return config.demo.enabled ? redactAuditEntryForDemo(entry) : entry;
+/**
+ * Applied to every entry this route hands back: the demo's IP redaction (a no-op outside demo
+ * mode), and, for anyone who is no provider admin, the provider's prices out of the details.
+ */
+function redactorFor(c: Context<SessionEnv>): (entry: AuditEntryDto) => AuditEntryDto {
+  const withoutPrices = !c.get("isProviderAdmin");
+  return (entry) => {
+    const priced = withoutPrices ? redactPricesForTenant(entry) : entry;
+    return config.demo.enabled ? redactAuditEntryForDemo(priced) : priced;
+  };
 }
 
 // Static paths first, so they never match as an entry id.
@@ -95,7 +102,7 @@ auditRoutes.get("/", async (c) => {
   const scope = await scopeOf(c);
   const selection = selectChains(scope, query.tenant);
   const page = await listAuditEntries(poolFor(scope), selection, query);
-  return c.json({ ...page, items: page.items.map(redact) });
+  return c.json({ ...page, items: page.items.map(redactorFor(c)) });
 });
 
 /** Action of the audit entry an export leaves: who took the log away, and which part of it. */
@@ -107,7 +114,7 @@ auditRoutes.get("/export", async (c) => {
   const scope = await scopeOf(c);
   const selection = selectChains(scope, filters.tenant);
   const pool = poolFor(scope);
-  const exported = await collectAuditExport(pool, selection, filters, redact);
+  const exported = await collectAuditExport(pool, selection, filters, redactorFor(c));
   const now = new Date();
   const user = c.get("user");
   // Taking the log away is itself on the record, in the chain it was taken from.
@@ -155,7 +162,7 @@ auditRoutes.get("/verify", async (c) => {
 auditRoutes.get("/:id", async (c) => {
   const { id } = parseOrProblem(entryIdParamSchema, c.req.param());
   const scope = await scopeOf(c);
-  return c.json(redact(await getAuditEntry(poolFor(scope), scope, id)));
+  return c.json(redactorFor(c)(await getAuditEntry(poolFor(scope), scope, id)));
 });
 
 /**
