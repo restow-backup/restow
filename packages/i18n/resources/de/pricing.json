@@ -34,6 +34,8 @@
     "unavailable": "Zahlen noch nicht verfügbar",
     "top": "Höchste Beträge",
     "more": "+{count} weitere",
+    "list": "Alle Mandanten",
+    "listTitle": "Die Preise aller Mandanten unter Kapazitätsplanung ansehen",
     "missing": "{count, plural, one {Die Zahlen von # Mandant sind noch nicht verfügbar.} other {Die Zahlen von # Mandanten sind noch nicht verfügbar.}} Die Summe ist unvollständig.",
     "loadError": "Die Preise aller Mandanten konnten nicht geladen werden."
   }

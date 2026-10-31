@@ -91,6 +91,21 @@ private repository.
   import wizard and the level badge of the notification matrix are no longer set in 11 px
   type; and the English texts say "organisation" throughout (five places used the American
   spelling).
+- The start page under "All tenants" is laid out like the Status tab of a tenant. The readiness
+  card of all tenants and the price card stand side by side in the first row (the readiness card
+  wider, both as high as the row), "Running now" follows under them, then the figures, the
+  alerts and the table. The widths follow the widget area, not the window, so a collapsed
+  sidebar counts: from 68rem the price card takes a third of the row, from 42rem two fifths,
+  and below that it sits under the readiness card. The six figure tiles use the same
+  measure (two columns from 26rem, three from 56rem). Without a price the readiness card keeps
+  the whole row, as before.
+- The price card under "All tenants" no longer grows with the number of tenants. It shows the
+  monthly total, the five dearest tenants in a compact list (long names are cut short and
+  complete in the tooltip, the amounts stand on the right), "+N more" and the link "All
+  tenants". The link opens Capacity planning by price: the table has a column "Price per month"
+  there (after "Stored", sortable, dearest first), for provider admins once a price is set.
+  Your own organisation is no customer: like in the card it has no amount there ("Not
+  billed") and does not rank among the dearest.
 
 ### Fixed
 
@@ -104,7 +119,15 @@ private repository.
   account list of the restore explorer, the bell and the last runs in the panel of a job: a
   failed read no longer reads as "No matching account", "Nothing new" or "No run yet".
 - Prices: the currency field sits under its label again instead of beside it.
-
+- Prices are only ever for the provider team. A check of every place that serves or shows one
+  (the price settings, the estimate, a tenant's own prices, the cards, Capacity planning,
+  exports, reports, webhooks, the integration API and the audit log) found one leak: the audit
+  entry of a changed tenant price, which a tenant's administrator could read in their own
+  audit log, in the viewer and in the JSON and CSV export, with the tenant's mailbox and
+  storage price. Anyone but a provider admin now gets that entry without its details (the
+  entry and its hash check stay), and no price figure at all in any other entry. Tests state
+  it for a tenant's administrator, a tenant's end user and API keys. The price settings
+  section also asks for nothing when it is shown to anyone who is not a provider admin.
 
 ## [0.4.8] - 2026-10-30
 

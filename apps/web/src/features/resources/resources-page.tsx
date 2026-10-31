@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useSearch } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowUp,
@@ -34,6 +35,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { dayLabel } from "@/features/dashboard/presenters";
+import { formatMoney } from "@/features/pricing/presenters";
+import { usePricingEstimate } from "@/features/pricing/use-estimate";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -53,6 +56,7 @@ import {
   type CapacitySort,
   type CapacitySortKey,
   DEFAULT_SORT,
+  FIRST_DIRECTION,
   type FullView,
   fullView,
   growthHeadline,
@@ -61,6 +65,7 @@ import {
   matchesFilter,
   NEAR_FULL_DAYS,
   nextSort,
+  type PriceByTenant,
   sortTenants,
   spanOf,
 } from "./presenters.js";
@@ -82,7 +87,10 @@ import "./i18n.js";
 
 export { RESOURCES_PATH };
 
-const COLUMNS: readonly { id: string; sort: CapacitySortKey | null }[] = [
+type Column = { id: string; sort: CapacitySortKey | null };
+
+/** The price column is the provider's (and only once a price is set): see {@link columnsOf}. */
+const COLUMNS: readonly Column[] = [
   { id: "tenant", sort: "name" },
   { id: "stored", sort: "stored" },
   { id: "growth", sort: "growth" },
@@ -90,6 +98,13 @@ const COLUMNS: readonly { id: string; sort: CapacitySortKey | null }[] = [
   { id: "full", sort: "full" },
   { id: "quota", sort: null },
 ];
+
+const PRICE_COLUMN: Column = { id: "price", sort: "price" };
+
+/** The columns of the table: the price after what is stored, where the installation has a price. */
+function columnsOf(withPrice: boolean): readonly Column[] {
+  return withPrice ? [...COLUMNS.slice(0, 2), PRICE_COLUMN, ...COLUMNS.slice(2)] : COLUMNS;
+}
 
 function useLanguage(): string {
   const { i18n } = useTranslation();
@@ -102,7 +117,11 @@ export function ResourcesPage() {
   const language = useLanguage();
   const session = useSession();
   const [filter, setFilter] = React.useState<CapacityFilter>("all");
-  const [sort, setSort] = React.useState<CapacitySort>(DEFAULT_SORT);
+  // "All tenants" on the dashboard leads here with `?sort=price`.
+  const requested = (useSearch({ strict: false }) as { sort?: unknown }).sort;
+  const [sort, setSort] = React.useState<CapacitySort>(
+    requested === "price" ? { key: "price", direction: FIRST_DIRECTION.price } : DEFAULT_SORT,
+  );
   const filterId = React.useId();
 
   const query = useQuery<Capacity>({
@@ -113,10 +132,30 @@ export function ResourcesPage() {
     refetchInterval: 5 * 60_000,
   });
   const data = query.data;
+  // The monthly amounts are the provider's business figures, from the same estimate as the price
+  // cards (every provider admin reads it; a tenant user never gets to this page).
+  const pricing = usePricingEstimate({ enabled: session.isProviderAdmin });
+  const prices: PriceByTenant = React.useMemo(
+    () =>
+      new Map(
+        pricing.data?.hasPrices
+          ? pricing.data.tenants
+              // The operator's own organisation is no customer: no amount, as in the price card.
+              .filter((entry) => entry.kind !== "internal")
+              .map((entry) => [entry.tenantId, entry.amount.total] as const)
+          : [],
+      ),
+    [pricing.data],
+  );
+  const priceColumn = pricing.data?.hasPrices === true;
+  const currency = pricing.data?.currency ?? "EUR";
+  // A price sort without a price column (the address says so, the prices are gone) is the default.
+  const effectiveSort = sort.key === "price" && !priceColumn ? DEFAULT_SORT : sort;
   const rows = data
     ? sortTenants(
         data.tenants.filter((tenant) => matchesFilter(tenant, filter)),
-        sort,
+        effectiveSort,
+        prices,
       )
     : [];
 
@@ -183,8 +222,11 @@ export function ResourcesPage() {
             {rows.length > 0 ? (
               <CapacityTable
                 rows={rows}
-                sort={sort}
-                onSort={(key) => setSort(nextSort(sort, key))}
+                sort={effectiveSort}
+                onSort={(key) => setSort(nextSort(effectiveSort, key))}
+                columns={columnsOf(priceColumn)}
+                prices={priceColumn ? prices : null}
+                currency={currency}
               />
             ) : (
               <EmptyState
@@ -332,7 +374,7 @@ function SortHeader({
   sort,
   onSort,
 }: {
-  column: (typeof COLUMNS)[number];
+  column: Column;
   sort: CapacitySort;
   onSort: (key: CapacitySortKey) => void;
 }) {
@@ -364,10 +406,17 @@ function CapacityTable({
   rows,
   sort,
   onSort,
+  columns,
+  prices,
+  currency,
 }: {
   rows: readonly CapacityTenant[];
   sort: CapacitySort;
   onSort: (key: CapacitySortKey) => void;
+  columns: readonly Column[];
+  /** The monthly amount per tenant, or null where the table has no price column. */
+  prices: PriceByTenant | null;
+  currency: string;
 }) {
   const { t } = useTranslation("resources");
   const [open, setOpen] = React.useState<ReadonlySet<string>>(() => new Set());
@@ -388,7 +437,7 @@ function CapacityTable({
       <Table aria-label={t("table.label")}>
         <TableHeader>
           <TableRow>
-            {COLUMNS.map((column) => (
+            {columns.map((column) => (
               <SortHeader key={column.id} column={column} sort={sort} onSort={onSort} />
             ))}
           </TableRow>
@@ -400,6 +449,16 @@ function CapacityTable({
               tenant={tenant}
               expanded={open.has(tenant.tenantId)}
               onToggle={toggle}
+              columnCount={columns.length}
+              price={
+                prices
+                  ? {
+                      amount: prices.get(tenant.tenantId) ?? null,
+                      billed: tenant.kind !== "internal",
+                      currency,
+                    }
+                  : null
+              }
             />
           ))}
         </TableBody>
@@ -412,10 +471,18 @@ function TenantRows({
   tenant,
   expanded,
   onToggle,
+  columnCount,
+  price,
 }: {
   tenant: CapacityTenant;
   expanded: boolean;
   onToggle: (id: string) => void;
+  columnCount: number;
+  /**
+   * The tenant's amount per month; null where the table has no price column. `billed` is false
+   * for the operator's own organisation, which has no amount to show.
+   */
+  price: { amount: number | null; billed: boolean; currency: string } | null;
 }) {
   const { t } = useTranslation("resources");
   const { t: tCommon } = useTranslation();
@@ -472,6 +539,21 @@ function TenantRows({
             </>
           )}
         </TableCell>
+        {price ? (
+          <TableCell className="tabular-nums" data-slot="resources-price">
+            {!price.billed ? (
+              <span className="text-muted-foreground" data-slot="resources-not-billed">
+                {t("table.notBilled")}
+              </span>
+            ) : price.amount === null ? (
+              <span className="text-muted-foreground">{t("table.unavailable")}</span>
+            ) : (
+              <span className="block text-sm">
+                {formatMoney(price.amount, price.currency, language)}
+              </span>
+            )}
+          </TableCell>
+        ) : null}
         <TableCell className="tabular-nums" data-slot="resources-growth">
           <GrowthCell tenant={tenant} />
         </TableCell>
@@ -492,7 +574,7 @@ function TenantRows({
         data-slot="resources-detail"
         className="bg-muted/30 hover:bg-muted/30"
       >
-        <TableCell colSpan={COLUMNS.length}>
+        <TableCell colSpan={columnCount}>
           {expanded ? <TenantDetail tenant={tenant} /> : null}
         </TableCell>
       </TableRow>

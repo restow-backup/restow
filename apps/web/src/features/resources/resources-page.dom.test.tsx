@@ -4,7 +4,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-
+import type { PricingEstimate } from "@/features/pricing/api";
+import { estimateFixture, estimateTenant, noPriceEstimate } from "@/features/pricing/testing";
 import { i18n } from "@/i18n";
 import { type SessionContextValue, type SessionTenant, StaticSessionProvider } from "@/lib/session";
 
@@ -21,6 +22,13 @@ import { ResourcesPage } from "./resources-page.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+const router = vi.hoisted(() => ({ search: {} as Record<string, unknown> }));
+
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return { ...actual, useSearch: () => router.search };
+});
+
 const OWN: SessionTenant = {
   id: "alpha",
   name: "Alpha AG",
@@ -32,6 +40,8 @@ const OWN: SessionTenant = {
 };
 
 let answer: Capacity = CAPACITY;
+/** What the price estimate answers; no price by default. */
+let estimate: PricingEstimate = noPriceEstimate();
 let failing = false;
 const requests: string[] = [];
 
@@ -66,6 +76,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   answer = CAPACITY;
+  estimate = noPriceEstimate();
+  router.search = {};
   failing = false;
   requests.length = 0;
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
@@ -77,7 +89,11 @@ beforeEach(() => {
         headers: { "content-type": "application/problem+json" },
       });
     }
-    const body = url.endsWith("/capacity") ? answer : { ...ALPHA_DETAIL, tenantId: "alpha" };
+    const body = url.includes("/settings/pricing/estimate")
+      ? estimate
+      : url.endsWith("/capacity")
+        ? answer
+        : { ...ALPHA_DETAIL, tenantId: "alpha" };
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -132,6 +148,105 @@ async function click(element: Element | null | undefined) {
     await tick();
   });
 }
+
+/** Prices of three tenants: Beta the dearest, Alpha next, Gamma without an amount. */
+function priced(): PricingEstimate {
+  const amount = (total: number | null) => ({ mailboxes: total, storage: null, total });
+  return estimateFixture({
+    tenants: [
+      estimateTenant({ tenantId: "alpha", name: "Alpha AG", amount: amount(40) }),
+      estimateTenant({ tenantId: "beta", name: "Beta KG", amount: amount(90) }),
+      estimateTenant({ tenantId: "gamma", name: "Gamma GmbH", amount: amount(null) }),
+    ],
+  });
+}
+
+describe("the monthly price per tenant", () => {
+  it("has no price column while the installation has no price, and asks nothing of a tenant admin", async () => {
+    await render();
+    expect(header("price")).toBeNull();
+    expect(cell("alpha", "price")).toBeNull();
+    act(() => root?.unmount());
+    host?.remove();
+    estimate = priced();
+    requests.length = 0;
+    await render(session("tenant_admin"));
+    // Neither the capacity figures nor the prices are asked for.
+    expect(requests).toEqual([]);
+    expect(document.body.textContent).not.toContain("Price per month");
+    expect(document.body.textContent).not.toContain("€90.00");
+  });
+
+  it("shows the amount after what is stored, 'not available' where there is none", async () => {
+    estimate = priced();
+    await render();
+    const heads = [...document.querySelectorAll("thead th")].map((th) => text(th));
+    expect(heads.slice(0, 3).map((head) => head.replace(/Sort by.*$/, "").trim())).toEqual([
+      "Tenant",
+      "Stored",
+      "Price per month",
+    ]);
+    expect(text(cell("beta", "price"))).toBe("€90.00");
+    expect(text(cell("alpha", "price"))).toBe("€40.00");
+    expect(text(cell("gamma", "price"))).toBe("Figures not available");
+    // The detail row spans every column, the price one included.
+    expect(
+      document.querySelector("tr[data-slot='resources-detail'] td")?.getAttribute("colspan"),
+    ).toBe("7");
+  });
+
+  it("shows no amount for the operator's own organisation, whatever the estimate computes", async () => {
+    estimate = priced();
+    estimate.tenants.push(
+      estimateTenant({
+        tenantId: "own-org",
+        name: "Own Org",
+        kind: "internal",
+        amount: { mailboxes: 500, storage: null, total: 500 },
+      }),
+    );
+    answer = {
+      ...CAPACITY,
+      tenants: [
+        ...CAPACITY.tenants,
+        { ...ALPHA, tenantId: "own-org", name: "Own Org", kind: "internal" },
+      ],
+    };
+    await render();
+    expect(text(cell("own-org", "price"))).toBe("Not billed");
+    expect(document.body.textContent).not.toContain("€500.00");
+    // Not among the dearest either when the amount sort is on.
+    await click(header("price"));
+    expect(order().slice(0, 2)).toEqual(["beta", "alpha"]);
+    expect(order().indexOf("own-org")).toBeGreaterThan(1);
+  });
+
+  it("sorts by the amount, the dearest first, the rows without an amount last", async () => {
+    estimate = priced();
+    await render();
+    await click(header("price"));
+    expect(order().slice(0, 3)).toEqual(["beta", "alpha", expect.any(String)]);
+    expect(header("price")?.closest("th")?.getAttribute("aria-sort")).toBe("descending");
+    await click(header("price"));
+    expect(order().slice(0, 2)).toEqual(["alpha", "beta"]);
+    expect(order().at(-1)).not.toBe("beta");
+  });
+
+  it("opens by the amount when the address asks for it (the link of the price card)", async () => {
+    estimate = priced();
+    router.search = { sort: "price" };
+    await render();
+    expect(header("price")?.closest("th")?.getAttribute("aria-sort")).toBe("descending");
+    expect(order().slice(0, 2)).toEqual(["beta", "alpha"]);
+  });
+
+  it("falls back to the usual order when the address asks for a price sort and there is no price", async () => {
+    router.search = { sort: "price" };
+    await render();
+    expect(header("full")?.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
+    expect(order()[0]).toBe("alpha");
+  });
+});
 
 describe("the key figures", () => {
   it("shows what is stored, the growth, the system disk, the first day and the tenants near quota", async () => {

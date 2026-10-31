@@ -60,6 +60,7 @@
     "columns": {
       "tenant": "Mandant",
       "stored": "Gespeichert",
+      "price": "Preis je Monat",
       "growth": "Wachstum pro Tag",
       "free": "Freier Platz",
       "full": "Voll (Schätzung)",
@@ -67,6 +68,7 @@
     },
     "internal": "Eigene Organisation",
     "customer": "Mandant",
+    "notBilled": "Nicht abgerechnet",
     "unavailable": "Werte nicht verfügbar"
   },
   "growth": {

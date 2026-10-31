@@ -60,6 +60,7 @@
     "columns": {
       "tenant": "Tenant",
       "stored": "Stored",
+      "price": "Price per month",
       "growth": "Growth per day",
       "free": "Free space",
       "full": "Full (estimate)",
@@ -67,6 +68,7 @@
     },
     "internal": "Own organisation",
     "customer": "Tenant",
+    "notBilled": "Not billed",
     "unavailable": "Figures not available"
   },
   "growth": {
