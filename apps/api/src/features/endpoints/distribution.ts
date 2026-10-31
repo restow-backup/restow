@@ -45,10 +45,12 @@ export function agentBinaryName(target: string): string {
   return target.startsWith("windows-") ? "restow-agent.exe" : "restow-agent";
 }
 
-/** The install scripts by URL name. Windows is intentionally absent. */
+/** The install scripts by URL name. */
 export const INSTALL_SCRIPTS = {
   "linux.sh": "linux.sh",
   "macos.sh": "macos.sh",
+  // Windows (0.5.0, preview; docs/WINDOWS-AGENT.md, section 14).
+  "windows.ps1": "windows.ps1",
   // The node installer for Proxmox VE (restow-pve, features/pve).
   "pve.sh": "pve.sh",
 } as const;

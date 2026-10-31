@@ -25,12 +25,13 @@ import (
 func devLayout() bool { return paths.DevLayout() }
 
 // requireRoot refuses to continue for unprivileged users: the agent must read
-// every file it backs up and owns root-only state.
+// every file it backs up and owns root-only state. On Windows that means
+// SYSTEM (the service) or an elevated administrator (privileged_windows.go).
 func requireRoot(cmd string, stderr io.Writer) bool {
-	if os.Geteuid() == 0 || devLayout() {
+	if isPrivileged() || devLayout() {
 		return true
 	}
-	fmt.Fprintf(stderr, "restow-agent %s must run as root (it reads all files and stores root-only secrets). Try: sudo restow-agent %s\n", cmd, cmd)
+	fmt.Fprintln(stderr, notPrivilegedMessage(cmd))
 	return false
 }
 

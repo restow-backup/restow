@@ -15,19 +15,46 @@ private repository.
 - Windows agent (preview), groundwork: `agent/build.sh` builds a fifth target, `windows-amd64`,
   with `restow-agent.exe` and the pinned `restic.exe` 0.19.1 (from restic's `.zip`, SHA-256 in
   `agent/tools.env`, checked before unpacking), and the image serves it under
-  `/srv/agent/<version>/windows-amd64/`. It is not usable yet: the Windows service, the
-  protection of the state, the trust check, the run lock, hooks and the self-update refuse on
-  Windows, and the server still refuses to enroll Windows machines. There is no Windows on ARM.
-  The plan is docs/WINDOWS-AGENT.md.
+  `/srv/agent/<version>/windows-amd64/`. There is no Windows on ARM. The plan is
+  docs/WINDOWS-AGENT.md.
+- Windows agent (preview), the parts that depend on the system: the Windows service
+  `RestowAgent` under LocalSystem, set up through the service control manager (delayed start,
+  restart after a failure and after a self-update, a reduced list of privileges, its own
+  service SID), with `restow-agent run --service`; the state in `C:\ProgramData\Restow` behind
+  a folder only SYSTEM and Administrators may open, the agent secret and the repository
+  password additionally encrypted with DPAPI; the trust check reads owners and permissions
+  (no folder anyone else can change, no link, junction or mount point); the run lock, the
+  power state, the privilege check (SYSTEM or an elevated administrator), the event log
+  (source `Restow`); restic and every hook run in a Job Object, restic is asked to stop with
+  CTRL_BREAK, hooks run in Windows PowerShell with an exit code you can rely on; the
+  self-update replaces the running `restow-agent.exe` by renaming it to `.prev`; restores go
+  to `C:\Restow-Restore-<time>` unless a target is given, never into Windows, Program Files or
+  the agent's own folders. Not usable yet: the server still refuses to enroll Windows machines,
+  and backups with shadow copies come with the next step.
+- `GET /install/windows.ps1`: the installer for Windows PowerShell 5.1. It checks the release
+  signature itself, with its own Ed25519 check written in PowerShell (no other tool needed),
+  before anything is run, shows the fingerprint of the release key and takes a pin
+  (`RESTOW_RELEASE_KEY_FINGERPRINT`); it stages the download in a folder only SYSTEM and
+  Administrators may open, refuses `C:\ProgramData\Restow` or `C:\Program Files\Restow` when
+  someone else prepared them, starts itself again as 64-bit from a 32-bit host and refuses
+  Windows on ARM and Smart App Control. `-Uninstall` removes everything. `restow-agent.exe` and
+  the script carry no Authenticode signature in this preview.
 - CI: a job on a Windows runner runs gofmt, `go vet` and the agent's unit tests natively, and
   the agent job vets every package for Windows and checks that `restic.exe` still prints the
   snapshot error texts the agent will recognise. The release runs `restow-agent.exe` and
   `restic.exe` on a Windows runner before the checksum list goes on the draft for signing; the
   request to sign names the SHA-256 of both and reminds of the Defender submission, and the
-  release notes list them.
+  release notes list them. The Windows job also creates and deletes a test service, checks
+  DPAPI, the trust check on real folders, Job Objects and the exit codes of PowerShell hooks,
+  and runs the installer tests: its Ed25519 check against Go's on the RFC 8032 vectors and
+  some hundred mutated signatures, the signature fixtures, and a full installation against a
+  test instance.
 
 ### Changed
 
+- Agent self-update, all systems: every file of a release (license notices, restic, agent) is
+  downloaded and checked before the first one replaces an installed file. Before, restic was
+  already replaced when the new agent then failed its version check.
 - The license notices cover the restic of every target: `licenses/restic-deps/` holds 82 Go
   modules (79 or 80 per target; three only in `restic.exe`, FUSE and xattr only on Linux and
   macOS), and `scripts/restic-licenses.mjs check` compares each restic binary with the modules

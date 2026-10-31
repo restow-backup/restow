@@ -60,11 +60,16 @@ type Error struct {
 	ExitCode int
 	TimedOut bool
 	Timeout  time.Duration
+	// Hint explains a known cause (Windows: the execution policy).
+	Hint string
 }
 
 func (e *Error) Error() string {
 	if e.TimedOut {
 		return fmt.Sprintf("%s hook did not finish within %s and was stopped", e.Kind, e.Timeout)
+	}
+	if e.Hint != "" {
+		return fmt.Sprintf("%s hook failed with exit code %d: %s", e.Kind, e.ExitCode, e.Hint)
 	}
 	return fmt.Sprintf("%s hook failed with exit code %d", e.Kind, e.ExitCode)
 }

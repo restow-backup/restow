@@ -7,10 +7,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/buildinfo"
+	"github.com/restow-backup/restow/agent/internal/eventlog"
 	"github.com/restow-backup/restow/agent/internal/paths"
 	"github.com/restow-backup/restow/agent/internal/state"
 	"github.com/restow-backup/restow/agent/internal/svc"
@@ -28,7 +31,7 @@ import (
 // underServiceManager reports whether systemd or launchd started this process
 // as the agent service (and will start it again when it exits).
 func underServiceManager() bool {
-	return os.Getenv("INVOCATION_ID") != "" || os.Getenv("XPC_SERVICE_NAME") == svc.LaunchdLabel
+	return inWindowsService || os.Getenv("INVOCATION_ID") != "" || os.Getenv("XPC_SERVICE_NAME") == svc.LaunchdLabel
 }
 
 // legacyFiles are the places of an earlier pre-release installation.
@@ -49,6 +52,9 @@ var installationRetry = 5 * time.Minute
 // starts the moved or refreshed installation. Until the installation is safe
 // the agent does nothing else: no backup, no task, no hook.
 func ensureInstallation(ctx context.Context, layout paths.Layout, logger *slog.Logger) (exit bool, code int) {
+	if runtime.GOOS == "windows" {
+		return ensureWindowsInstallation(ctx, logger)
+	}
 	installed := paths.InstalledAgentBinary()
 	var warned time.Time
 	for {
@@ -188,5 +194,50 @@ func ensureCommandLink(logger *slog.Logger, installed, link string) {
 	}
 	if err := os.Symlink(installed, link); err == nil {
 		logger.Info("created the command link", "link", link, "target", installed)
+	}
+}
+
+// ensureWindowsInstallation is the Windows part of ensureInstallation: there
+// is no earlier installation to move, so the agent only refuses to run from
+// anywhere but C:\Program Files\Restow\bin or from a folder others can
+// change, and brings the service definition in line. The program path never
+// changes on Windows, so a changed definition (privileges, failure actions)
+// needs no restart now; it applies from the next start on. No restart here
+// also means no restart loop should a setting read back differently.
+func ensureWindowsInstallation(ctx context.Context, logger *slog.Logger) (bool, int) {
+	installed := paths.InstalledAgentBinary()
+	var warned time.Time
+	for {
+		exe := executable()
+		var err error
+		if !strings.EqualFold(exe, installed) {
+			err = fmt.Errorf("the agent runs from %s, not from %s; re-run the install script", exe, installed)
+		} else if _, err = paths.TrustedFile(exe); err == nil {
+			m, merr := svc.New()
+			if merr != nil {
+				return false, exitOK
+			}
+			changed, rerr := m.Refresh(installed)
+			if rerr != nil {
+				logger.Warn("the service definition could not be updated", "error", rerr)
+				return false, exitOK
+			}
+			if changed {
+				eventlog.Info(eventlog.IDServiceConfigured, "The Restow agent brought the settings of the service RestowAgent in line with version "+buildinfo.Version+".")
+				logger.Info("the service definition was updated; it applies from the next start of the service")
+			}
+			return false, exitOK
+		}
+		if warned.IsZero() || time.Since(warned) > 30*time.Minute {
+			eventlog.Error(eventlog.IDTrustRefused, "The Restow agent does nothing until its installation is safe: "+err.Error())
+			logger.Error("the agent does nothing (no backups, no tasks, no hooks) until its installation is safe; it retries every 5 minutes. "+
+				"Re-running the install command from the Restow UI repairs the installation", "error", err)
+			warned = time.Now()
+		}
+		select {
+		case <-ctx.Done():
+			return true, exitOK
+		case <-time.After(installationRetry):
+		}
 	}
 }

@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/activity"
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/buildinfo"
+	"github.com/restow-backup/restow/agent/internal/eventlog"
 	"github.com/restow-backup/restow/agent/internal/lock"
+	"github.com/restow-backup/restow/agent/internal/release"
 	"github.com/restow-backup/restow/agent/internal/restic"
 	"github.com/restow-backup/restow/agent/internal/runlog"
 	"github.com/restow-backup/restow/agent/internal/status"
@@ -292,8 +295,12 @@ func (a *Agent) installOffered(ctx context.Context) (*update.Result, error) {
 		return nil, nil
 	}
 	if err != nil {
+		if errors.Is(err, release.ErrBadSignature) || strings.Contains(err.Error(), "SHA-256 mismatch") {
+			eventlog.Error(eventlog.IDUpdateRejected, "The Restow agent refused an update: "+err.Error())
+		}
 		return nil, err
 	}
+	eventlog.Info(eventlog.IDUpdateInstalled, "The Restow agent installed version "+res.Version+"; the service starts it now.")
 	return &res, nil
 }
 

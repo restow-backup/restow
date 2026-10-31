@@ -566,10 +566,10 @@ jobs:
     # Windows preview (docs/WINDOWS-AGENT.md, section 3.5): the unit tests that have no
     # `unix` build tag run natively. Tests that use /bin/sh stand-ins for restic or the
     # agent carry `//go:build unix` and run in the job above. The service, Job Object,
-    # DPAPI, ACL, installer and restic.exe integration tests join this job with the
-    # Windows code they test.
+    # DPAPI, ACL and hook tests carry the tag windowsintegration; the installer has its
+    # own PowerShell test. The restic.exe integration tests join with the backup code.
     runs-on: windows-2022
-    timeout-minutes: 40
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -620,6 +620,21 @@ jobs:
             echo "(gcc not found: running without the race detector)"
             CGO_ENABLED=0 go test -count=1 ./...
           fi
+
+      - name: Windows integration tests (service, DPAPI, ACLs, Job Objects, hooks)
+        # docs/WINDOWS-AGENT.md, section 22.1. The hosted runner runs as an
+        # administrator: the tests create and delete the service RestowAgentTest.
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        run: go test -count=1 -tags windowsintegration ./internal/state/ ./internal/paths/ ./internal/hooks/ ./internal/svc/ ./internal/procctl/
+
+      - name: Installer tests (Ed25519 against Go, SSHSIG, full run against the fake instance)
+        # Windows PowerShell 5.1, the version every supported Windows has. The
+        # differential test compares the PowerShell Ed25519 check with crypto/ed25519.
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        shell: pwsh
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-windows.ps1 -Vectors 300
 
   shellcheck:
     name: Shell scripts (shellcheck, server installer tests)

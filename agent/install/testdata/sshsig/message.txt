@@ -1,0 +1,2 @@
+0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  windows-amd64/restow-agent.exe
+fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210  windows-amd64/restic.exe

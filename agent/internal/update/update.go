@@ -11,6 +11,15 @@
 // with O_CREATE|O_EXCL|O_NOFOLLOW under random names in the root-owned bin
 // folder and renamed over the old ones, so a crash never leaves a half file
 // in place and nobody can plant a link to redirect the write.
+//
+// Every file of a release is staged and checked before any of them replaces
+// an installed one (restic first, the agent last): the signature covers the
+// file list, not the version number, so a hostile server could announce a new
+// version and deliver the validly signed list of an older release; the agent's
+// version check then fails before anything was replaced. On Windows the
+// running restow-agent.exe cannot be overwritten, but it can be renamed:
+// swap_windows.go moves it to restow-agent.exe.prev first
+// (docs/WINDOWS-AGENT.md, section 13).
 package update
 
 import (
@@ -41,9 +50,18 @@ const (
 	maxSumsBytes   = 1 << 20
 	maxSigBytes    = 16 << 10
 
-	agentFile  = "restow-agent"
-	resticFile = "restic"
+	agentBase  = "restow-agent"
+	resticBase = "restic"
 )
+
+// fileName is the name of a binary in the release folder of a target
+// (restow-agent.exe and restic.exe on Windows).
+func fileName(target, base string) string {
+	if strings.HasPrefix(target, "windows-") {
+		return base + ".exe"
+	}
+	return base
+}
 
 // Downloader is the part of api.Client that this package needs.
 type Downloader interface {
@@ -144,6 +162,7 @@ func install(ctx context.Context, o Options, version string, isUpdate bool) (Res
 	if err != nil {
 		return Result{}, err
 	}
+	agentFile, resticFile := fileName(target, agentBase), fileName(target, resticBase)
 	agentSum, err := sums.Lookup(target, agentFile)
 	if err != nil {
 		return Result{}, err
@@ -170,21 +189,31 @@ func install(ctx context.Context, o Options, version string, isUpdate bool) (Res
 	base := "/install/agent/" + version + "/" + target + "/"
 	res := Result{Version: version, AgentPath: filepath.Join(binDir, agentFile)}
 
-	// The license notices first: they describe the restic and the agent that follow.
+	// Stage and check everything first; nothing installed changes before all
+	// files passed.
+	var staged []stagedFile
+	discard := func() {
+		for _, f := range staged {
+			_ = os.Remove(f.staged)
+		}
+	}
+	// The license notices: they describe the restic and the agent that follow.
 	// Releases from before the notices existed do not list them.
 	if noticesSum, err := sums.Lookup(target, paths.NoticesFile); err == nil {
 		dest := filepath.Join(filepath.Dir(binDir), paths.NoticesFile)
-		res.NoticesChanged, err = installFile(ctx, o.Client, base+paths.NoticesFile, dest, noticesSum, nil, false, 0o644)
+		f, err := stageFile(ctx, o.Client, base+paths.NoticesFile, dest, noticesSum, nil, 0o644)
 		if err != nil {
+			discard()
 			return res, fmt.Errorf("license notices: %w", err)
 		}
+		staged = appendStaged(staged, f)
 	}
-
-	// restic first: the new agent starts with the restic its release pins.
-	res.ResticChanged, err = installFile(ctx, o.Client, base+resticFile, filepath.Join(binDir, resticFile), resticSum, nil, false, 0o755)
+	rf, err := stageFile(ctx, o.Client, base+resticFile, filepath.Join(binDir, resticFile), resticSum, nil, 0o755)
 	if err != nil {
+		discard()
 		return res, fmt.Errorf("restic: %w", err)
 	}
+	staged = appendStaged(staged, rf)
 	verify := o.Verify
 	if verify == nil {
 		verify = RunVersion
@@ -199,11 +228,53 @@ func install(ctx context.Context, o Options, version string, isUpdate bool) (Res
 		}
 		return nil
 	}
-	res.AgentChanged, err = installFile(ctx, o.Client, base+agentFile, res.AgentPath, agentSum, check, true, 0o755)
+	af, err := stageFile(ctx, o.Client, base+agentFile, res.AgentPath, agentSum, check, 0o755)
 	if err != nil {
+		discard()
 		return res, err
 	}
+	af.keepPrev = true
+	staged = appendStaged(staged, af)
+
+	// Now replace, in this order: notices, restic, the agent last. A failure
+	// of the agent's swap puts restic back.
+	var rollbacks []func()
+	for i, f := range staged {
+		rollback, err := commitFile(f.staged, f.dest, f.keepPrev)
+		if err != nil {
+			for j := len(rollbacks) - 1; j >= 0; j-- {
+				rollbacks[j]()
+			}
+			for _, rest := range staged[i:] {
+				_ = os.Remove(rest.staged)
+			}
+			return res, fmt.Errorf("cannot replace %s: %w", f.dest, err)
+		}
+		rollbacks = append(rollbacks, rollback)
+		switch f.dest {
+		case res.AgentPath:
+			res.AgentChanged = true
+		case rf.dest:
+			res.ResticChanged = true
+		default:
+			res.NoticesChanged = true
+		}
+	}
 	return res, nil
+}
+
+// stagedFile is a downloaded and checked file waiting to replace dest. An
+// empty staged path means dest already has the signed content.
+type stagedFile struct {
+	dest, staged string
+	keepPrev     bool
+}
+
+func appendStaged(list []stagedFile, f stagedFile) []stagedFile {
+	if f.staged == "" {
+		return list
+	}
+	return append(list, f)
 }
 
 // FetchSums downloads the SHA256SUMS of a release and its signature from the
@@ -228,19 +299,21 @@ func FetchSums(ctx context.Context, c Downloader, key *release.PublicKey, versio
 	return parsed, nil
 }
 
-// installFile puts the file with the signed SHA-256 want at dest, with the
-// given mode. It returns false when dest already has that content.
-func installFile(ctx context.Context, c Downloader, url, dest, want string, check func(context.Context, string) error, keepPrev bool, mode os.FileMode) (bool, error) {
+// stageFile downloads the file with the signed SHA-256 want next to dest,
+// checks it and returns the staged copy. It stages nothing when dest already
+// has that content.
+func stageFile(ctx context.Context, c Downloader, url, dest, want string, check func(context.Context, string) error, mode os.FileMode) (stagedFile, error) {
+	out := stagedFile{dest: dest}
 	if have, err := fileSHA256(dest); err == nil && strings.EqualFold(have, want) {
-		return false, nil
+		return out, nil
 	}
 	wantRaw, err := hex.DecodeString(want)
 	if err != nil || len(wantRaw) != 32 {
-		return false, fmt.Errorf("invalid signed SHA-256 %q", want)
+		return out, fmt.Errorf("invalid signed SHA-256 %q", want)
 	}
 	f, staged, err := createStaged(filepath.Dir(dest), filepath.Base(dest))
 	if err != nil {
-		return false, fmt.Errorf("cannot stage the download in %s: %w", filepath.Dir(dest), err)
+		return out, fmt.Errorf("cannot stage the download in %s: %w", filepath.Dir(dest), err)
 	}
 	cleanup := func() { _ = os.Remove(staged) }
 	got, err := c.Download(ctx, url, f, maxBinaryBytes)
@@ -252,38 +325,26 @@ func installFile(ctx context.Context, c Downloader, url, dest, want string, chec
 	}
 	if err != nil {
 		cleanup()
-		return false, fmt.Errorf("download failed: %w", err)
+		return out, fmt.Errorf("download failed: %w", err)
 	}
 	gotRaw, _ := hex.DecodeString(got)
 	if subtle.ConstantTimeCompare(gotRaw, wantRaw) != 1 {
 		cleanup()
-		return false, fmt.Errorf("SHA-256 mismatch: the signed release says %s but the download hashes to %s; not installing", want, got)
+		return out, fmt.Errorf("SHA-256 mismatch: the signed release says %s but the download hashes to %s; not installing", want, got)
 	}
 	// Only now, with a verified file, does it become executable (a binary) or readable by all.
 	if err := os.Chmod(staged, mode); err != nil {
 		cleanup()
-		return false, err
+		return out, err
 	}
 	if check != nil {
 		if err := check(ctx, staged); err != nil {
 			cleanup()
-			return false, err
+			return out, err
 		}
 	}
-	if keepPrev {
-		// The current binary stays for a manual rollback (hard link: same file
-		// system, no copy). Failure to keep it is not fatal.
-		prev := dest + ".prev"
-		_ = os.Remove(prev)
-		if st, err := os.Lstat(dest); err == nil && st.Mode().IsRegular() {
-			_ = os.Link(dest, prev)
-		}
-	}
-	if err := os.Rename(staged, dest); err != nil {
-		cleanup()
-		return false, fmt.Errorf("cannot replace %s: %w", dest, err)
-	}
-	return true, nil
+	out.staged = staged
+	return out, nil
 }
 
 func fileSHA256(path string) (string, error) {
@@ -313,16 +374,23 @@ func RunVersion(ctx context.Context, path string) (string, error) {
 	return string(out), nil
 }
 
-// CleanupStaged removes half-downloaded files left by a crash in dir.
+// CleanupStaged removes half-downloaded files left by a crash in dir, and old
+// binaries a Windows update could not delete right away.
 func CleanupStaged(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
-		name := e.Name()
-		if strings.HasPrefix(name, ".") && strings.Contains(name, ".new-") && e.Type().IsRegular() {
-			_ = os.Remove(filepath.Join(dir, name))
+		if IsLeftover(e.Name()) && e.Type().IsRegular() {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
+}
+
+// IsLeftover reports whether a file name in the bin folder is a staged
+// download (.restic.new-<hex>, .restow-agent.new-<hex>.exe) or an old binary
+// of a Windows update (restic.exe.old-<hex>).
+func IsLeftover(name string) bool {
+	return (strings.HasPrefix(name, ".") && strings.Contains(name, ".new-")) || strings.Contains(name, ".old-")
 }

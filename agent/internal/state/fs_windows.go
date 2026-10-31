@@ -2,15 +2,70 @@
 
 package state
 
-import "errors"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
 
-// errWindows is returned until the state folder is protected by a DACL and the
-// secrets by DPAPI (docs/WINDOWS-AGENT.md, section 7). Until then no state is
-// written or read on Windows.
-var errWindows = errors.New("the agent state is not supported on Windows yet")
+	"github.com/restow-backup/restow/agent/internal/paths"
+	"github.com/restow-backup/restow/agent/internal/winapi"
+)
 
-func ensureDir(string) error { return errWindows }
+// stateFileSDDL is the DACL a state file gets when its permissions are repaired.
+const stateFileSDDL = "D:P(A;;FA;;;SY)(A;;FA;;;BA)"
+
+// ensureDir creates the state folder (and C:\ProgramData\Restow above it) with
+// the protected DACL set when the folder is created, or checks and resets an
+// existing one. Development layouts use plain folders.
+func ensureDir(dir string) error {
+	if paths.DevLayout() {
+		return os.MkdirAll(dir, 0o700)
+	}
+	parent := filepath.Dir(dir)
+	if _, err := os.Lstat(parent); os.IsNotExist(err) {
+		if err := paths.EnsureProtectedDir(parent, paths.ProtectedSDDL); err != nil {
+			return err
+		}
+	}
+	return paths.EnsureProtectedDir(dir, paths.ProtectedSDDL)
+}
 
 func syncDir(string) error { return nil }
 
-func checkFile(string) ([]string, error) { return nil, errWindows }
+// checkFile enforces the protection of the state file: a regular file (no
+// link), owned by SYSTEM or Administrators, no access at all for anyone else.
+// Too open permissions are reset to SYSTEM and Administrators (and reported);
+// a file owned by someone else is refused.
+func checkFile(path string) ([]string, error) {
+	st, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !st.Mode().IsRegular() {
+		return nil, fmt.Errorf("state file %s is not a regular file", path)
+	}
+	info, err := paths.OwnerTrusted(path)
+	if err != nil {
+		return nil, fmt.Errorf("state file %s is refused: %w", path, err)
+	}
+	if reason := paths.EvaluateACL(info, paths.RulePrivate, paths.TrustedSIDs()); reason != "" && !paths.DevLayout() {
+		if err := winapi.SetFileDACL(path, stateFileSDDL); err != nil {
+			return nil, fmt.Errorf("state file %s %s and its permissions cannot be reset: %w", path, reason, err)
+		}
+		return []string{fmt.Sprintf("state file %s %s; its permissions were reset to SYSTEM and Administrators", path, reason)}, nil
+	}
+	return nil, nil
+}
+
+// dpapiSealer encrypts the secrets with DPAPI for this machine.
+type dpapiSealer struct{}
+
+func (dpapiSealer) Scheme() string { return "dpapi-machine" }
+
+func (dpapiSealer) Seal(plain []byte) ([]byte, error) {
+	return winapi.ProtectMachine(plain, "Restow agent state")
+}
+
+func (dpapiSealer) Open(blob []byte) ([]byte, error) { return winapi.UnprotectMachine(blob) }
+
+var secretSealer sealer = dpapiSealer{}

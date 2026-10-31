@@ -9,7 +9,10 @@ Engine restic, Agent in Go, Teil der Community-Edition, ausgeliefert mit 0.1.0.
 Stand 0.1.0: **Linux und macOS**. Windows (Dienst als LocalSystem, VSS, DPAPI) ist Teil
 des Protokolls und des Datenmodells, wird aber in dieser Version weder eingerichtet noch
 angenommen (Roadmap). Der Server lehnt `os=windows` mit einem klaren Problem ab; die
-Oberfläche zeigt Windows als deaktivierte Option "Geplant".
+Oberfläche zeigt Windows als deaktivierte Option "Geplant". In Arbeit für 0.5.0 (Vorschau,
+amd64): Der Plattformteil des Windows-Agenten (Dienst, DACLs und DPAPI,
+Vertrauensprüfung, Hooks, Selbstaktualisierung, `windows.ps1`) ist umgesetzt; Sicherung mit
+Schattenkopie und die Annahme am Server folgen (docs/WINDOWS-AGENT.md).
 
 ## Grundsätze
 
@@ -137,9 +140,10 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
    (unbekanntes `os`/`arch`, leerer Hostname) verbraucht das Token nicht.
 6. Windows: `os=windows` antwortet 422 `urn:restow:problem:unsupported-os`, das Token bleibt
    gültig. Auch `POST /api/v1/endpoints/tokens` verweigert es.
-7. Ablage des Agenten: Linux/macOS `/etc/restow-agent/state.json`, Modus 0600, root. (Windows
-   später: `%ProgramData%\Restow\agent\state.json`, ACL SYSTEM und Administratoren, Secrets per
-   DPAPI LocalMachine.)
+7. Ablage des Agenten: Linux/macOS `/etc/restow-agent/state.json`, Modus 0600, root. Windows
+   (Vorschau): `C:\ProgramData\Restow\state\state.json` in einem Ordner mit geschützter DACL
+   (SYSTEM und Administratoren), Agent-Secret und Repository-Passwort zusätzlich per DPAPI
+   (Maschinenbereich) verschlüsselt im Feld `protected`.
 
 `GET /api/v1/endpoints/tokens` listet standardmäßig nur gültige Token (nicht verwendet, nicht widerrufen,
 nicht abgelaufen), `?state=all` zusätzlich die abgeschlossenen (höchstens 50, neueste zuerst); der
@@ -1145,8 +1149,10 @@ unter `agent/dist/<os>-<arch>/` ab, mit `agent/dist/VERSION` und einer `SHA256SU
 versteht beide Layouts und nimmt ohne `RESTOW_AGENT_DIR` und ohne `/srv/agent` den Ordner
 `agent/dist` des Repositorys. Seit 0.5.0 gibt es das Ziel `windows-amd64` (Vorschau, noch
 nicht nutzbar, siehe docs/WINDOWS-AGENT.md) mit `restow-agent.exe` und `restic.exe`; ein
-Update für Windows nennt `restow-agent.exe`. Es gibt noch kein `windows.ps1`, und der Server
-nimmt `os=windows` weiter nicht an. Kein `windows-arm64`.
+Update für Windows nennt `restow-agent.exe`. `GET /install/windows.ps1` liefert den Installer
+für Windows PowerShell 5.1 aus (als `text/plain`, mit denselben geprüften Platzhaltern in
+einfachen Anführungszeichen); der Server nimmt `os=windows` noch nicht an. Kein
+`windows-arm64`.
 
 Agent-Version = Restow-Version; restic gepinnt (0.19.1), im Image per SHA-256
 geprüft (BSD-2-Clause). `THIRD_PARTY_NOTICES.txt` je Ziel baut `agent/build.sh` aus
@@ -1181,6 +1187,12 @@ Linux; der Agent prüft sie mit der Go-Standardbibliothek.
 - Der Agent prüft vor jedem Update zuerst die Signatur, dann jede Datei gegen ihren signierten
   Hash, macht sie erst danach ausführbar, führt `version` erst danach aus und benennt sie dann
   um (Zwischendatei mit `O_CREATE|O_EXCL|O_NOFOLLOW` und Zufallsnamen im root-eigenen Ordner).
+  Seit 0.5.0 werden alle Dateien eines Releases (Hinweise, restic, Agent) erst geladen und
+  geprüft, bevor die erste eine installierte ersetzt: Die Signatur deckt die Dateiliste, nicht
+  die Versionsnummer, und ein älteres gültiges Release mit falscher Agent-Version ersetzt so
+  auch restic nicht mehr. Unter Windows wird die laufende `restow-agent.exe` nach
+  `restow-agent.exe.prev` umbenannt (überschreiben lässt sie sich nicht), der Dienst endet mit
+  dem dienstspezifischen Code 3 und die Fehleraktion des SCM startet die neue Datei.
 - Die Installationsskripte prüfen mit `ssh-keygen -Y verify` (OpenSSH 8.1+) oder OpenSSL 3;
   ohne beides (RHEL 8, Amazon Linux 2) lehnen sie ab und nennen den Weg über
   `RESTOW_SHA256SUMS_SHA256` (Signatur auf einem anderen Rechner prüfen, Hash vorgeben).
@@ -1190,9 +1202,20 @@ Linux; der Agent prüft sie mit der Go-Standardbibliothek.
   eingecheckten Schlüssel, lädt hoch, setzt den Lauf fort); der Workflow prüft die Signatur,
   baut die Images mit dem signierten Agenten (das Dockerfile prüft erneut), fährt den
   Release-Smoke, prüft ein drittes Mal und veröffentlicht erst dann den Entwurf.
+- `windows.ps1` prüft die Signatur selbst: SSHSIG zerlegen (nur `sha512`), Ed25519 in
+  PowerShell mit `System.Numerics.BigInteger` und derselben Annahmemenge wie
+  `crypto/ed25519` (S < L, R muss byte-gleich neu kodiert werden). Getestet gegen Go: die
+  Vektoren aus RFC 8032 und einige hundert veränderte Signaturen im Windows-Job, der
+  Algorithmus zusätzlich als Go-Zwilling (`agent/scripts/sigdiff`) bei jedem `go test`. Er
+  gibt den Fingerabdruck des Schlüssels vor jedem weiteren Download aus und bricht ab, wenn
+  ein Pin (`RESTOW_RELEASE_KEY_FINGERPRINT`, im unbeaufsichtigten Aufruf empfohlen) nicht
+  passt.
 - Grenze: Die Erstinstallation vertraut dem Skript, das die Instanz ausliefert (wie jedes
-  `curl | sh`). Die Signaturen schützen die Selbstaktualisierung und die Binärdateien gegen
-  eine kompromittierte Instanz.
+  `curl | sh` und `iex (irm ...)`). Die Signaturen schützen die Selbstaktualisierung und die
+  Binärdateien gegen eine kompromittierte Instanz; gegen eine feindliche Instanz oder einen
+  TLS aufbrechenden Proxy schützt beim Erstinstallieren nur der Vergleich des Fingerabdrucks
+  mit einer unabhängigen Quelle (Release-Notizen) oder der Pin. Windows: `restow-agent.exe`,
+  `restic.exe` und `windows.ps1` tragen in 0.5.0 keine Authenticode-Signatur.
 
 Ein Mandant kann automatische Agent-Updates pausieren (`GET/PUT /api/v1/endpoints/agent-updates`,
 Oberfläche: Mandantenseite › Agenten; Audit `endpoint.updates.paused`/`resumed`). Der Schalter ist eine
@@ -1336,10 +1359,23 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
 - **Konsistenz.** Linux/macOS: optionale Pre-/Post-Hooks (z. B. `pg_dump`). Snapshots von
   LVM/ZFS/btrfs sind ein späterer Schritt. Windows würde VSS nutzen (`--use-fs-snapshot`), wenn
   es kommt.
+- **Windows (Vorschau).** Grenze ist die DACL von `C:\ProgramData\Restow` (SYSTEM und
+  Administratoren), nicht DPAPI: Im Maschinenbereich kann jeder Prozess des Rechners den
+  Blob entschlüsseln, der die Datei lesen kann; DPAPI schützt nur eine Kopie der Datei allein.
+  Statt Dateimodi prüft der Agent Eigentümer und DACL jedes Ordners bis zum Laufwerksstamm
+  und lehnt Links, Junctions und Einhängepunkte ab. Der Dienst läuft als LocalSystem mit
+  einer reduzierten Privilegienliste (der SCM entfernt `SeDebugPrivilege`, `SeTcbPrivilege`
+  usw. aus dem Token, auch für restic und Hooks); restic und Hooks laufen in Job Objects.
+  Sicherheitsrelevante Ereignisse (Anmeldung, Hook-Regel, abgelehnte Installation, Update,
+  abgelehntes Update, Restore-Ziel, Deinstallation) gehen in die Ereignisanzeige, Quelle
+  `Restow`. Restore-Ziele unter Windows: nur lokale feste Laufwerke mit Berechtigungen
+  (NTFS, ReFS), nie in oder unter `C:\Windows`, den Programmordnern, `C:\ProgramData\Restow`
+  oder `System Volume Information`; Standard `%SystemDrive%\Restow-Restore-<zeit>`.
 
 ## Offene Punkte und später
 
-- Windows (Dienst, VSS, DPAPI, PowerShell-Skript, Ziele im Image).
+- Windows (Vorschau in 0.5.0): Sicherung mit VSS, Annahme am Server und Oberfläche; danach
+  Windows on ARM, Authenticode, Windows Bare Metal.
 - mTLS je Agent.
 - LVM/ZFS/btrfs-Snapshots als Konsistenzquelle.
 - Löschen eines Endpunkts samt Repository (heute: Widerruf, Daten bleiben bis zur Aufbewahrung

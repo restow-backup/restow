@@ -1967,7 +1967,8 @@ Der Maintainer hat alle Punkte entschieden; die Begründungen der Empfehlungen g
 
 3. **Signaturprüfung im Installer: entschieden, eigene Ed25519-Prüfung in PowerShell.**
    Mit derselben Annahmemenge wie `crypto/ed25519`, Negativvektoren (RFC 8032, Wycheproof,
-   14.3) und einem Differenztest gegen Go im Windows-Job. Kein `ssh-keygen`.
+   14.3) und einem Differenztest gegen Go im Windows-Job. Kein `ssh-keygen`. Umgesetzt in
+   M2 (Abschnitt 26).
 
 4. **Authenticode: entschieden, keine Signatur in 0.5.0.** `restow-agent.exe` und
    `windows.ps1` bleiben unsigniert, `restic.exe` ohnehin. Die Einreichung bei Microsoft
@@ -1979,6 +1980,7 @@ Der Maintainer hat alle Punkte entschieden; die Begründungen der Empfehlungen g
 
 5. **Standard-Restore-Ziel: entschieden, `%SystemDrive%\Restow-Restore-<zeit>`.** Der
    Unterschied zu Unix (erster vertrauter gesicherter Ordner) wird dokumentiert (18.2).
+   Umgesetzt in M2 (`core/util_windows.go`).
 
 6. **Windows in 0.5.0 als Vorschau: entschieden.** "Vorschau" im Enroll-Dialog, in der
    Rechnerliste und im CHANGELOG, bis ein sauberes Defender-Ergebnis auf einem frischen
@@ -2035,19 +2037,154 @@ Der Maintainer hat alle Punkte entschieden; die Begründungen der Empfehlungen g
   weicht von "Server nimmt `windows` an" in M1 (Abschnitt 23) ab: Annehmen ergibt erst Sinn,
   wenn Dienst, State und Vertrauensprüfung keine Platzhalter mehr sind.
 
-**Noch offen aus M1:** neutrale Snapshot-Begriffe (Richtlinie, Fehlercodes, Berichtsfeld,
-abgestimmt mit dem Zweig für Bare Metal und APFS), `internal/winapi`, Vertrauensprüfung,
-State/DPAPI, `atomicfile`, Sperre, Dienst, Annahme von `windows` am Server.
+**M2, Plattformcode (umgesetzt).** Der Auftrag für diesen Schritt fasst unter "M2" den
+Plattformcode zusammen: was Abschnitt 23 als "Noch offen aus M1" führt, dazu Hooks,
+Selbstaktualisierung, Restore-Ziel und Installer. Sicherung mit Schattenkopie,
+Fehlerpolitik, Server, Oberfläche und i18n folgen im nächsten Schritt.
+
+- `internal/winapi`: DLLs mit absolutem Pfad aus `GetSystemDirectoryW`, alle Prozeduren an
+  einer Stelle (kernel32, advapi32, crypt32, shell32, ole32), Konstanten ohne Build-Tag.
+- Pfade (5): Layout unter `C:\ProgramData\Restow` über `SHGetKnownFolderPath`, Binaries mit
+  `.exe`; `Layout.Ensure` setzt die geschützten DACLs, der Datenordner lässt `BU` lesen,
+  `status.json` bekommt `(A;;FR;;;BU)`.
+- Vertrauensprüfung (6): `paths/acl.go` (ohne Tag, mit Tests) zerlegt SDDL und bewertet nach
+  den Regelsätzen streng, Vorfahr, Restore-Elternordner und privat (State-Datei);
+  `trust_windows.go` öffnet jeden Bestandteil ohne Folgen von Reparse-Points, liest Eigentümer
+  und DACL über den Handle und löst den Pfad über `GetFinalPathNameByHandleW` auf.
+  `paths/winpath.go` (ohne Tag) prüft die Pfadform.
+- State und DPAPI (7): `state.json` mit `protected` (`dpapi-machine`), Klartext wird unter
+  Windows abgelehnt; Ordner mit DACL beim Anlegen, zu offene Datei-DACL wird zurückgesetzt
+  und gemeldet. `internal/atomicfile` ersetzt Dateien mit `MoveFileExW` und Wiederholung
+  (State, Status, Outbox, Hinweise beim Update); die Log-Rotation schreibt bei gesperrter
+  Datei weiter.
+- Rechteprüfung (8): SYSTEM oder erhöhter Administrator; Texte mit `adminHint`.
+- Dienst (9): `svc/scm_windows.go` mit allen Einstellungen aus 9.1, `svc/windows.go` (ohne
+  Tag, getestet) mit Programmzeile, Abgleich der Konfiguration und Sperrliste für die
+  Deinstallation; `internal/winsvc` mit `StartServiceCtrlDispatcherW`; `run --service`
+  endet nach einem Update mit dem dienstspezifischen Code 3; `uninstall --keep-binaries` für
+  den Installer; Ereignisanzeige (`internal/eventlog`) für Anmeldung, Hook-Regel,
+  abgelehnte Installation, Update, abgelehntes Update, Restore-Ziel, Deinstallation,
+  angeglichenen Dienst.
+- Sperre (10) mit `LockFileEx`, Netzteil (11) mit `GetSystemPowerStatus` und reiner
+  Auswertung `windowsPower`.
+- Prozesssteuerung (12): `internal/procctl` (Job Objects, `CTRL_BREAK`, `AllocConsole`);
+  restic mit eigener Prozessgruppe und Job, Abbruch über `CTRL_BREAK`; Hooks in Windows
+  PowerShell mit der Exit-Code-Hülle (`hooks/pwsh.go`, ohne Tag, getestet), Regel `scripts`
+  nur `.ps1` und `.exe`, Hinweis bei einer Ausführungsrichtlinie per GPO; `procenv` mit
+  Windows-Allowlist ohne Groß-/Kleinschreibung, restic bekommt `TMP`/`TEMP`.
+- Selbstaktualisierung (13): für alle Systeme erst alle Dateien laden und prüfen, dann
+  tauschen (Test: ein gültig signiertes Release mit falscher Agent-Version lässt restic
+  unberührt); unter Windows Staging `.restow-agent.new-<hex>.exe`, laufende Exe nach `.prev`,
+  restic nach `.old-<hex>`, Rücknahme bei Fehler.
+- Restore-Ziel (18.1, 18.2): `core/restoretarget.go` (Form und Sperrliste, ohne Tag,
+  getestet), `core/util_windows.go` (Laufwerkstyp, `FILE_PERSISTENT_ACLS`, Vertrauen,
+  Anlegen mit geschützter DACL); Standardziel `%SystemDrive%\Restow-Restore-<zeit>`.
+- Installer (14): `agent/install/windows.ps1`, ausgeliefert unter `GET /install/windows.ps1`
+  (`text/plain`), mit eigener Ed25519-Prüfung. `agent/scripts/sigdiff` erzeugt die
+  Differenzvektoren und die SSHSIG-Testdaten (`agent/install/testdata`) und enthält
+  `ref.go`, dieselbe Prüfung Schritt für Schritt in Go mit `math/big`, deren Tests sie bei
+  jedem `go test` gegen `crypto/ed25519` vergleichen (RFC 8032 und 600 veränderte
+  Signaturen). `agent/scripts/test-install-windows.ps1` prüft im Windows-Job die
+  PowerShell-Fassung selbst und installiert gegen `fakeinstance`.
+- CI: Job `agent-windows` mit `windowsintegration`-Tests (Dienst anlegen, Konfiguration
+  zurücklesen, löschen; DPAPI; Vertrauensprüfung an echten Ordnern und einer Junction; Job
+  Objects; Exit-Codes und Zeitüberschreitung der Hooks) und dem Installer-Test.
+
+**Abweichungen vom Entwurf in M2 und warum:**
+
+- Die ACL wird als SDDL-Text ausgewertet (`ConvertSecurityDescriptorToStringSecurityDescriptorW`)
+  statt mit `GetAce`/`GetAclInformation`: So bewertet dieselbe reine Funktion die Testdaten
+  und die echten Ordner, und es braucht keine Zeigerarithmetik auf ACEs.
+- `GENERIC_WRITE` und `GENERIC_ALL` gelten in jedem Regelsatz als verboten (so listet sie
+  Abschnitt 6); nur über die Datei-Abbildung aufgelöst fiele `GENERIC_WRITE` beim
+  Vorfahren-Satz durch.
+- Der strenge Satz für den "direkten Elternordner" bezieht sich auf das eigentliche Ziel: bei
+  `TrustedDir(elternordner, true)` (Restore) bekommt der Elternordner den Restore-Satz und
+  sein eigener Elternordner den Vorfahren-Satz; sonst scheiterte `D:\Daten` als
+  Elternordner, weil `D:\` Benutzern das Anlegen erlaubt. `EnsureRootDir` prüft den
+  vorhandenen Vorfahren mit dem Vorfahren-Satz und das Ergebnis streng.
+- Die Testdaten `paths/testdata/*.sddl` sind aus den dokumentierten Standardrechten
+  geschrieben, nicht von einer Maschine abgezogen (README dort; Austausch ist Punkt 1 der
+  Liste unten).
+- Die Dienstbeschreibung nennt die Instanz nicht (`Install(exe)` kennt sie nicht).
+- Ein angeglichener Dienst (`Refresh`) wird unter Windows nicht neu gestartet: Der
+  Programmpfad ist fest, die übrigen Einstellungen gelten ab dem nächsten Start, und ein
+  Neustart könnte bei einer anders zurückgelesenen Einstellung in eine Schleife geraten.
+  Das Umziehen einer Vorabversion gibt es unter Windows nicht; `ensureInstallation` prüft
+  nur Pfad und Vertrauen.
+- Der Installer nimmt nur SSHSIG mit `sha512` an (der Agent auch `sha256`); `ssh-keygen` und
+  `sign-agent.sh` erzeugen `sha512`.
+- Differenztest: Windows PowerShell braucht etwa eine Sekunde je Prüfung, der CI-Lauf nimmt
+  darum 300 frische Vektoren plus die 123 eingecheckten, nicht "einige tausend". Die Menge
+  deckt jede Mutationsart mehrfach ab; der Go-Zwilling läuft mit 600 bei jedem `go test`.
+- Die Ereignisquelle legt der Installer mit `[Diagnostics.EventLog]::CreateEventSource` an
+  statt mit `New-EventLog` (geht auch unter PowerShell 7).
+- Im Release-Job `agent-windows-check` fehlt weiter das Anlegen und Löschen des Dienstes: Das
+  Binary liegt dort im Arbeitsordner des Runners, den `service install` als nicht vertraut
+  ablehnt. Den Dienst prüft der `windowsintegration`-Test mit dem Namen `RestowAgentTest`.
+- Der PowerShell-Code ist in der Entwicklungsumgebung nicht ausgeführt worden (kein
+  PowerShell vorhanden, Nachladen nicht erlaubt). Der Algorithmus ist über den Go-Zwilling
+  geprüft, die PowerShell-Fassung erst im Windows-Job.
+
+**Noch offen (nächster Schritt):** Sicherung mit Schattenkopie und `snapshotOnFailure`
+(17), Pfadabbildung und Ausschlüsse (16), `sysinfo_windows.go` (Version und Produkttyp aus
+der Registry; heute steht dort "Windows"), Annahme von `windows`/`amd64` am Server und
+Ablehnung von `arm64` (19.2), Enroll-Dialog, Oberfläche, i18n, Doku-Abschnitte zu Sicherung
+und Restore-Anzeige.
 
 **Nur auf einer echten Windows-Maschine zu prüfen (zusätzlich zu 22.3), nicht in dieser
-Umgebung geprüft:**
+Umgebung geprüft.** Nichts davon ist hier gelaufen; alles Windows-Spezifische ist nur für
+`windows/amd64` kompiliert und mit `go vet` (auch mit `-tags windowsintegration`) geprüft.
 
-- Der erste Lauf des Jobs `agent-windows`: ob alle Unit-Tests ohne `unix`-Tag unter Windows
-  grün sind (Pfadtrenner, Dateirechte, Zeitzonen, Umbenennen offener Dateien). Kandidaten bei
-  Fehlern: `internal/activity`, `internal/logging`, `internal/status`, `internal/runlog`,
-  `internal/schedule`, `internal/api`, `tools/fetch`.
-- Ob `gofmt -l` auf dem Windows-Runner mit `core.autocrlf=false` leer bleibt.
-- `restow-agent.exe version --short` und `restic.exe version` auf `windows-2022`
-  (Job `agent-windows-check`) und auf Windows 10/11 und Server 2016.
-- Ob Defender `restow-agent.exe` (Go 1.26, `-s -w`, Konsolen-Subsystem) schon beim Entpacken
-  oder Start meldet, und das Ergebnis der Einreichung beim ersten Prerelease.
+1. Der erste Lauf des Jobs `agent-windows`: Unit-Tests ohne `unix`-Tag, die
+   `windowsintegration`-Tests und `test-install-windows.ps1` grün. Kandidaten bei Fehlern
+   aus M1: `internal/activity`, `internal/logging`, `internal/status`, `internal/runlog`,
+   `internal/schedule`, `internal/api`, `tools/fetch`. Neu: `internal/lock` (Test jetzt ohne
+   Tag), `internal/atomicfile`, `internal/procenv`, `internal/paths` (SDDL-Tests).
+2. `paths/testdata/*.sddl` durch echte Abzüge ersetzen (`(Get-Acl 'C:\').Sddl` usw. auf
+   Windows 11 und Server 2022) und die Tests erneut laufen lassen.
+3. Ob `gofmt -l` auf dem Windows-Runner mit `core.autocrlf=false` leer bleibt.
+4. `restow-agent.exe version --short` und `restic.exe version` auf `windows-2022`
+   (Job `agent-windows-check`) und auf Windows 10/11 und Server 2016.
+5. Ob Defender `restow-agent.exe` (Go 1.26, `-s -w`, Konsolen-Subsystem) schon beim Entpacken
+   oder Start meldet, und das Ergebnis der Einreichung beim ersten Prerelease.
+6. Dienst: `restow-agent.exe run --service` unter dem SCM (Dispatcher mit
+   `syscall.NewCallback`), Zustand `RUNNING`, Stopp über `services.msc` in unter 15 s,
+   `PRESHUTDOWN` beim Herunterfahren, Start nach Neustart (verzögert), Abmelden eines
+   Benutzers beendet den Dienst nicht, kein Konsolenfenster.
+7. Privilegien: `sc qprivs RestowAgent` zeigt die Liste aus 9.1; `whoami /priv` aus einem
+   Hook zeigt kein `SeDebugPrivilege`/`SeTcbPrivilege`; Dienst-SID `NT SERVICE\RestowAgent`.
+8. `AllocConsole` im Dienst (Sitzung 0) und `CTRL_BREAK` an restic: "Sicherung stoppen" in
+   der Oberfläche beendet restic mit 130, keine Sperre bleibt im Repository; ohne Reaktion
+   beendet das Job Object restic nach 45 s.
+9. Neustart nach Selbstaktualisierung: Dienst endet mit Code 3, die Fehleraktion startet ihn
+   nach etwa 5 s mit der neuen Exe, Ereignis 7024 einmal, eigenes Ereignis 1004, `.prev`
+   vorhanden; Tausch, während Defender die neue Datei kurz offen hält; Rücknahme, wenn der
+   zweite Tausch scheitert.
+10. DPAPI im Maschinenbereich: der Dienst (SYSTEM) und eine erhöhte Konsole
+    (`restow-agent status`, `hooks`, `backup-now`) lesen denselben Zustand; ein Benutzer ohne
+    Erhöhung kann `C:\ProgramData\Restow\state` nicht öffnen, `restow-agent status` ohne
+    Erhöhung liest `status.json`.
+11. Vertrauensprüfung auf echten Systemen: Standardinstallation unter
+    `C:\Program Files\Restow\bin` wird angenommen (auch von einem RMM-Prozess als SYSTEM
+    angelegt), ein von einem Benutzer vorher angelegtes `C:\ProgramData\Restow` und eine
+    Junction an dieser Stelle werden abgelehnt (Agent und Installer); 8.3-Pfade werden
+    aufgelöst.
+12. `LockFileEx` zwischen Dienst und `backup-now` in einer erhöhten Konsole.
+13. Deinstallation: aus dem Dienst (Serveraufgabe: Dienst weg, `ProgramData\Restow` bis auf
+    `logs` weg, Exe und Ordner nach Neustart weg, Ereignis 1007) und über
+    `windows.ps1 -Uninstall` (beide Ordner sofort weg).
+14. Hooks: `.ps1` und `.exe` aus `hooks.d`, Regel `any`, Umlaute in der Ausgabe, GPO
+    `AllSigned` ergibt den Hinweis, Zeitüberschreitung beendet den Baum, ein
+    Hintergrundprozess überlebt das normale Ende.
+15. Restore-Ziel: Standard `C:\Restow-Restore-...`, eigenes `D:\R`, abgelehnt werden ein
+    Ziel mit Inhalt, eine Junction, `C:\Windows\...`, ein FAT/exFAT-Stick, ein Netzlaufwerk.
+16. Installer: Windows PowerShell 5.1 auf Server 2016 ohne TLS-1.2-Voreinstellung; Neustart
+    aus einem 32-Bit-Host (`Sysnative`), auch mit Token-Datei; `iex (irm ...)` und der
+    Scriptblock-Aufruf mit `-Uninstall`; Dauer der Signaturprüfung; Smart App Control wird
+    erkannt; ARM64 wird abgelehnt; Constrained Language Mode wird erkannt; `-Proxy` landet als
+    `Environment` am Dienst und wirkt nach dem Start; die Token-Datei ist danach gelöscht.
+17. Ereignisanzeige: Einträge der Quelle `Restow` erscheinen mit Text (ohne registrierte
+    Quelle mit dem Hinweis "Beschreibung nicht gefunden").
+18. Netzteil auf einem Laptop mit und ohne Ladekabel; Log-Rotation, während ein Editor
+    `agent.log` offen hält.

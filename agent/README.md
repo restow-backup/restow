@@ -22,9 +22,9 @@ small Go program (standard library only, no third-party Go dependencies) that dr
 
 Supported in 0.1.0: **Linux** (systemd, x86_64 and aarch64) and **macOS** (13 Ventura or
 newer, Intel and Apple Silicon). **Windows (amd64) is a preview in 0.5.0 and not usable
-yet**: the build and the image carry `restow-agent.exe`, but its Windows parts still refuse
-and the server does not enroll Windows machines (see "Known limits" and
-docs/WINDOWS-AGENT.md).
+yet**: the service, the protected state, the trust check, hooks, the self-update and the
+installer exist, but backups with shadow copies are still missing and the server does not
+enroll Windows machines yet (see "Known limits" and docs/WINDOWS-AGENT.md).
 
 ## Installing
 
@@ -119,6 +119,31 @@ the instance are kept;
 revoke the endpoint in the Restow UI to finish the removal there. (The UI can also send
 an `uninstall` task.)
 
+**Windows (preview).** In a PowerShell started as administrator (right-click > Run as
+administrator); Windows PowerShell 5.1 is enough:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (irm -UseBasicParsing 'https://<your instance>/install/windows.ps1')
+# unattended (RMM as SYSTEM): token file and the pinned release key
+$env:RESTOW_TOKEN_FILE = 'C:\Windows\System32\config\systemprofile\restow-enrollment.token'
+$env:RESTOW_RELEASE_KEY_FINGERPRINT = 'SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o'
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (irm -UseBasicParsing 'https://<your instance>/install/windows.ps1')
+# remove
+& ([scriptblock]::Create((irm -UseBasicParsing 'https://<your instance>/install/windows.ps1'))) -Uninstall
+```
+
+The installer checks the release signature itself (its own Ed25519 check in PowerShell, no
+other tool) before it runs anything, prints the fingerprint of the release key and stops
+when it differs from a pin. Options: `-Hooks off|scripts|any`, `-Proxy http://proxy:3128`
+(no credentials), `-ReleaseKeyFingerprint`, `-Uninstall`, or the same as `RESTOW_HOOKS`,
+`RESTOW_PROXY`, `RESTOW_RELEASE_KEY_FINGERPRINT`, `RESTOW_UNINSTALL=1`. A 32-bit host
+(Intune runs scripts 32-bit by default) is fine: the installer starts itself again as
+64-bit; write the token file there to `C:\Windows\Sysnative\config\systemprofile\`. Where
+`iex (irm ...)` is blocked (AMSI, ASR, EDR), download `windows.ps1`, compare its SHA-256 and
+run it with `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1`. Neither
+`restow-agent.exe` nor the script carry an Authenticode signature in this preview; see
+"Known limits" for Defender and Smart App Control.
+
 **macOS: grant Full Disk Access.** macOS protects Desktop, Documents, Downloads, iCloud
 Drive and other folders. Add `/Library/Application Support/Restow/bin/restow-agent`
 under System Settings > Privacy & Security > Full Disk Access (on managed Macs: a Privacy
@@ -131,13 +156,13 @@ run log says so. If protected folders are still reported after that, also add
 
 ```
 restow-agent enroll        Enroll this machine (RESTOW_TOKEN and RESTOW_URL from the environment)
-restow-agent run           The service main loop (what systemd / launchd execute)
-restow-agent status        Local state, no root needed (--json for scripts)
+restow-agent run           The service main loop (what systemd / launchd execute; Windows: run --service)
+restow-agent status        Local state, no root or administrator needed (--json for scripts)
 restow-agent backup-now    Run one backup in the foreground (exit 0 ok, 3 partial, 1 failed)
 restow-agent update        Install the release the server offers now, then restart the service
 restow-agent service ...   install | start | stop | restart | status
 restow-agent hooks ...     status | off | scripts | any: whether hooks from the server run here
-restow-agent uninstall     Remove the agent (--yes, --keep-logs)
+restow-agent uninstall     Remove the agent (--yes, --keep-logs, --keep-binaries)
 restow-agent version       Version, commit, build date (--short for the number only)
 ```
 
@@ -148,6 +173,11 @@ a new enrollment of an enrolled machine keeps its policy).
 `enroll --allow-insecure-http` exists for local development only and is refused by the
 install scripts unless `RESTOW_ALLOW_INSECURE_HTTP=1` is set; it makes the agent accept
 `http://` URLs and prints a warning every time.
+
+On Windows every command except `status` and `version` needs a PowerShell or Command Prompt
+started as administrator (an administrator without elevation is refused), or SYSTEM.
+`run --service` only runs under the service control manager; `run` without it runs the
+agent in the current window for troubleshooting (Ctrl+C stops it).
 
 ## What the agent does
 
@@ -280,6 +310,19 @@ must not print secrets: the agent masks its own secrets and common secret patter
 nothing more. The policy is read at every backup, so a change applies without a restart;
 the server learns it with the next heartbeat (within five minutes).
 
+**Windows.** Hooks run as SYSTEM in Windows PowerShell 5.1
+(`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand`, from
+the system folder). Every command is wrapped so the exit code means something: a failing
+cmdlet stops the hook with 1, a native program keeps its code (`cmd /c exit 7` gives 7), an
+own `exit 5` gives 5. A native program failing in the middle of a command does not stop it
+(as `sh -c` without `set -e`). The `scripts` policy runs `.ps1` (through the same wrapper)
+and `.exe` files from `C:\ProgramData\Restow\state\hooks.d` that only SYSTEM,
+Administrators and TrustedInstaller can change; `.cmd` and `.bat` are not run (call them
+from a `.ps1`). A group policy with the execution policy `AllSigned` or `Restricted` wins
+over `-ExecutionPolicy Bypass`; the run log then names it. Each hook runs in its own Job
+Object: a timeout or a cancelled run ends the hook and everything it started at once,
+without a grace period; after a normal end, background processes it started live on.
+
 **Networking.** HTTPS only (TLS 1.2 or newer, system trust store, redirects to `http://`
 refused). Calls have timeouts and retry with exponential backoff and jitter, honoring
 `Retry-After`; requests that are not safe to repeat are only retried when they cannot
@@ -356,6 +399,20 @@ are passed on when they are set in the service environment, for example with
   (rootless containers) does not work.
 - The service runs with low CPU and I/O priority and is restarted by systemd / launchd if
   it stops.
+- **Windows (preview).** The service `RestowAgent` runs as LocalSystem with a reduced list of
+  privileges (backup, restore, security, take ownership, symbolic links, change notify,
+  impersonate, create global, manage volume): the service control manager removes all
+  others, so restic and hooks never hold `SeDebugPrivilege` or `SeTcbPrivilege`. The
+  folders below `C:\ProgramData\Restow` have a protected DACL (SYSTEM and Administrators;
+  `status.json` readable by Users). The agent secret and the repository password are
+  additionally encrypted with DPAPI for the machine; that only protects a copy of the file
+  alone: any process on the machine that can read the file can decrypt it, so the DACL is
+  the boundary. The trust check reads owner and DACL of every folder from the file up to the
+  drive root (SYSTEM, Administrators and TrustedInstaller are trusted; nobody else may
+  write, delete or change permissions; adding entries to `C:\` or `C:\ProgramData` is
+  allowed above the folder itself) and refuses links, junctions and mount points. restic and
+  hooks run in Job Objects, so they end with the agent. Security-relevant events go to the
+  Application event log, source `Restow`.
 
 ## Files
 
@@ -372,6 +429,12 @@ are passed on when they are set in the service environment, for example with
 | `/var/log/restow-agent/agent.log` | Agent log, rotated at 5 MB, 3 files kept (Linux: also in the journal; macOS: `launchd.log` for crash traces) |
 | `/etc/systemd/system/restow-agent.service` | systemd unit (Linux) |
 | `/Library/LaunchDaemons/com.restowbackup.agent.plist` | LaunchDaemon (macOS) |
+| `C:\Program Files\Restow\bin\{restow-agent.exe,restic.exe}` | Binaries (Windows; `restow-agent.exe.prev`: previous agent after an update) |
+| `C:\Program Files\Restow\THIRD_PARTY_NOTICES.txt` | License notices (Windows) |
+| `C:\ProgramData\Restow\state\state.json`, `hooks.d\` | Enrollment with DPAPI-protected secrets, hook scripts (Windows; SYSTEM and Administrators only) |
+| `C:\ProgramData\Restow\data\{status.json,cache,tmp,restic-tmp,outbox,run.lock}` | Status (readable by Users), restic cache, temporary files, run lock (Windows) |
+| `C:\ProgramData\Restow\logs\agent.log` | Agent log (Windows); security events also in the Application event log, source `Restow` |
+| `HKLM\SYSTEM\CurrentControlSet\Services\RestowAgent` | The Windows service; `Environment` holds the proxy set with `-Proxy` |
 
 ## Build
 
@@ -483,6 +546,13 @@ build, builds the images with the signed agent (the Dockerfile checks the signat
 again), runs the release smoke, checks the signature once more and only then publishes
 the draft. The private key never enters the repository or CI.
 
+**Windows preview: Defender submission.** `restow-agent.exe` and `restic.exe` carry no
+Authenticode signature. Before signing every prerelease and release, submit both files
+(SHA-256 in the request to sign from the job `agent-sums`) at Microsoft's "Submit a file for
+malware analysis" as a software developer, and wait for a clean verdict; the builds are
+reproducible, so the hashes are final once the job `agent` ran. This is a manual step of the
+maintainer.
+
 The script runs from any directory and needs no clone of the repository with the tag. The
 repository is `--repo <owner/name>`; without it the script uses the GitHub repository of the
 clone it lives in (as `gh repo view` reports it) and otherwise `restow-backup/restow`.
@@ -526,7 +596,21 @@ scripts/test-install.sh         # install/linux.sh end to end in a container (fa
 scripts/test-install-macos.sh   # install/macos.sh on a Mac, unprivileged, relocated root
 scripts/test-systemd.sh         # real systemd (privileged container): hardening and the move of an older installation (RESTOW_TEST_OLD_REF)
 scripts/lint.sh                 # ShellCheck only
+go run ./scripts/sigdiff -n 400 # Ed25519 vectors for the differential test of the Windows installer
+# on Windows (CI job agent-windows):
+go test -tags windowsintegration ./internal/...   # service, DPAPI, ACLs, Job Objects, hooks (as administrator)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-windows.ps1
 ```
+
+The Windows installer checks the release signature with its own Ed25519 code in
+PowerShell. `scripts/sigdiff/ref.go` is the same algorithm in Go (`math/big`); `go test`
+compares it with `crypto/ed25519` on the RFC 8032 vectors and 600 mutated signatures (bit
+flips in R and S, S + L, high bits, non-canonical R, other message or key, wrong length).
+On Windows, `test-install-windows.ps1` compares the PowerShell code itself with Go on the
+committed vectors and 300 new ones, checks the SSHSIG fixtures in `install/testdata/sshsig`
+(regenerate with `go run ./scripts/sigdiff -sshsig install/testdata/sshsig`) and a signature
+made by `ssh-keygen`, and installs, repairs and removes the agent against the fake instance
+below a prefix.
 
 The install test builds a release from a copy of the checkout with a throwaway signing
 key and checks: the signature (ssh-keygen and OpenSSL 3), a re-hashed `SHA256SUMS`, an
@@ -614,10 +698,17 @@ carries all of them.
   snapshot integration either.
 - **File-based only.** No disk images, no bare-metal restore. Restoring a whole machine
   means reinstalling the operating system and restoring the files.
-- **Windows is a preview in 0.5.0 and not usable yet.** `build.sh` builds `windows-amd64`
-  and the image ships it, but the Windows parts (service, state protection, trust check,
-  lock, hooks, self-update) are stubs that refuse, and the server does not enroll Windows
-  machines. The plan is docs/WINDOWS-AGENT.md. No Windows on ARM. Tests that use `/bin/sh`
+- **Windows is a preview in 0.5.0 and not usable yet.** The platform parts exist (service,
+  DPAPI and DACLs, trust check, lock, hooks, self-update, installer), but backups with shadow
+  copies come next and the server does not enroll Windows machines yet. The plan is
+  docs/WINDOWS-AGENT.md. No Windows on ARM (installer and, later, server refuse it). No
+  Authenticode: Defender may flag a new build until Microsoft has cleared it, and Smart App
+  Control (fresh Windows 11) blocks the agent, which the installer detects. Hooks under
+  Windows: only `.ps1` and `.exe` in the `scripts` policy, no grace period on a timeout. The
+  proxy is a fixed URL without credentials (no WPAD/PAC, no NTLM or Kerberos). After an
+  uninstall through the agent itself, `restow-agent.exe` stays until the next restart
+  (the installer's `-Uninstall` removes everything). The restore target defaults to
+  `C:\Restow-Restore-<time>`, not into a backed-up folder as on Unix. Tests that use `/bin/sh`
   stand-ins carry `//go:build unix`; new Linux-only code needs `//go:build linux`, new
   macOS-only code `//go:build darwin`, or `GOOS=windows go vet` fails.
 - **Power detection is best effort.** Linux reads `/sys/class/power_supply`; macOS reads

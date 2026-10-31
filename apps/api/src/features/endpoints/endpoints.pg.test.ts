@@ -2180,6 +2180,10 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
           join(dist, "install", "linux.sh"),
           "INSTANCE_URL='__RESTOW_URL__'\nAGENT_VERSION='__RESTOW_VERSION__'\nRELEASE_KEY='__RESTOW_RELEASE_KEY__'\n",
         );
+        await writeFile(
+          join(dist, "install", "windows.ps1"),
+          "$RestowInstanceUrl = '__RESTOW_URL__'\n$RestowAgentVersion = '__RESTOW_VERSION__'\n$RestowReleaseKey = '__RESTOW_RELEASE_KEY__'\n",
+        );
         const { installRoutes } = await import("./install-routes.js");
         const { errorHandler } = await import("../../problem.js");
         const install = new Hono();
@@ -2198,6 +2202,15 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
         ).text();
         expect(script).toContain(`RELEASE_KEY='${key}'`);
         expect(script).toContain("AGENT_VERSION='1.2.3'");
+        // Windows PowerShell: the same checked values in single-quoted strings, as text.
+        const ps = await install.request("https://restow.test.example/install/windows.ps1");
+        expect(ps.status).toBe(200);
+        expect(ps.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+        const psText = await ps.text();
+        expect(psText).toContain("$RestowInstanceUrl = 'https://restow.test.example'");
+        expect(psText).toContain(`$RestowReleaseKey = '${key}'`);
+        expect(psText).toContain("$RestowAgentVersion = '1.2.3'");
+        expect(psText).not.toContain("__RESTOW_");
       } finally {
         for (const [name, value] of [
           ["RESTOW_AGENT_DIR", keep.dir],

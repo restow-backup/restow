@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/api"
+	"github.com/restow-backup/restow/agent/internal/atomicfile"
 )
 
 // maxOutbox bounds the number of undelivered reports kept on disk.
@@ -45,7 +46,7 @@ func (o *outbox) put(runID api.Flex, f api.FinishRequest) error {
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, name); err != nil {
+	if err := atomicfile.Rename(tmp, name); err != nil {
 		return err
 	}
 	o.prune()

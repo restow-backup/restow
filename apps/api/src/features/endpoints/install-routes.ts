@@ -21,15 +21,20 @@ import { instanceUrl } from "./instance-url.js";
  * check the maintainer's signature over the release's SHA256SUMS and the
  * checksums of the binaries before they run anything.
  *
- *   GET /install/linux.sh | macos.sh                 the install script for the system
+ *   GET /install/linux.sh | macos.sh | windows.ps1   the install script for the system
  *   GET /install/agent/<version>/SHA256SUMS[.sig]    the signed checksums of a release, byte for byte
  *   GET /install/agent/<version>/<os>-<arch>/<file>  restow-agent, restic, THIRD_PARTY_NOTICES.txt, SHA256SUMS
  *
- * There is no Windows script in 0.1.0.
+ * windows.ps1 (0.5.0, preview) is Windows PowerShell; it is served as text/plain so
+ * that `irm` hands it over as a string. The placeholders it carries are checked
+ * values without a single quote (renderInstallScript), so they are safe inside
+ * the single-quoted PowerShell strings as well. Because the server rewrites the
+ * script for every request, it cannot carry an Authenticode signature
+ * (docs/WINDOWS-AGENT.md, section 15).
  */
 export const installRoutes = new Hono();
 
-for (const name of ["linux.sh", "macos.sh"] as const) {
+for (const name of ["linux.sh", "macos.sh", "windows.ps1"] as const) {
   installRoutes.get(`/${name}`, async (c) => {
     const template = await readInstallScript(name);
     if (template === null) {
@@ -52,7 +57,9 @@ for (const name of ["linux.sh", "macos.sh"] as const) {
       });
     }
     return c.body(body, 200, {
-      "content-type": "text/x-shellscript; charset=utf-8",
+      "content-type": name.endsWith(".ps1")
+        ? "text/plain; charset=utf-8"
+        : "text/x-shellscript; charset=utf-8",
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
     });

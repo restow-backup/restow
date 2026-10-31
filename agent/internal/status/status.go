@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/restow-backup/restow/agent/internal/atomicfile"
 )
 
 // SchemaVersion of the file.
@@ -192,7 +194,11 @@ func (s *Store) saveLocked() error {
 		_ = os.Remove(name)
 		return err
 	}
-	if err := os.Rename(name, s.path); err != nil {
+	if err := shareStatusFile(name); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	if err := atomicfile.Rename(name, s.path); err != nil {
 		_ = os.Remove(name)
 		return err
 	}

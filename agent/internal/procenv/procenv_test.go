@@ -4,7 +4,7 @@ import "testing"
 
 func TestFilterDropsUnknownAndKeepsAllowed(t *testing.T) {
 	in := []string{"PATH=/bin", "AWS_SECRET_ACCESS_KEY=x", "RESTOW_TOKEN=rset_x", "HTTPS_PROXY=http://p:3128", "RESTIC_PASSWORD=p", "HOME=/root"}
-	out := Filter(in)
+	out := filter(in, false)
 	got := map[string]bool{}
 	for _, kv := range out {
 		got[kv] = true
@@ -22,8 +22,8 @@ func TestFilterDropsUnknownAndKeepsAllowed(t *testing.T) {
 }
 
 func TestFilterAddsDefaultPath(t *testing.T) {
-	out := Filter([]string{"HOME=/root"})
-	if v, ok := Get(out, "PATH"); !ok || v == "" {
+	out := filter([]string{"HOME=/root"}, false)
+	if v, ok := get(out, "PATH", false); !ok || v == "" {
 		t.Fatalf("PATH not set: %v", out)
 	}
 }

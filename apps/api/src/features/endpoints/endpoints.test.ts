@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultEndpointConfig, enrolledEndpointConfig, ResticError } from "@restow/core";
@@ -320,6 +320,32 @@ describe("distribution of the agent and its install scripts", () => {
       await writeFile(join(folder, "release-signing.pub"), `# comment\n${key}\n`);
       expect(await readReleaseKey({ RESTOW_AGENT_INSTALL_DIR: join(folder, "install") })).toBe(key);
       await rm(folder, { recursive: true, force: true });
+    });
+
+    it("fills the Windows installer: single-quoted PowerShell strings, plain ASCII", async () => {
+      const template = await readFile(
+        join(import.meta.dirname, "../../../../../agent/install/windows.ps1"),
+        "utf8",
+      );
+      expect([...template].every((ch) => ch.charCodeAt(0) < 128)).toBe(true);
+      const body = renderInstallScript(template, "https://restow.example.org:8443", "0.5.0", key);
+      expect(body).toContain("$RestowInstanceUrl = 'https://restow.example.org:8443'");
+      expect(body).toContain("$RestowAgentVersion = '0.5.0'");
+      expect(body).toContain(`$RestowReleaseKey = '${key}'`);
+      for (const placeholder of [
+        "__RESTOW_URL__",
+        "__RESTOW_VERSION__",
+        "__RESTOW_RELEASE_KEY__",
+      ]) {
+        expect(body).not.toContain(placeholder);
+      }
+      // A value that could leave the single quotes never reaches the script.
+      expect(() =>
+        renderInstallScript(template, "https://x.example'; iex evil; '", "0.5.0"),
+      ).toThrow();
+      expect(() =>
+        renderInstallScript(template, "https://x.example", "0.5.0'; iex evil"),
+      ).toThrow();
     });
 
     it("fills both placeholders everywhere", () => {
