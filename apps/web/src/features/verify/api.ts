@@ -144,7 +144,7 @@ export interface EmptyConfirmation {
   snapshotId: string | null;
 }
 
-export type EmptySkipReason = "not_empty" | "no_report" | "not_found";
+export type EmptySkipReason = "not_empty" | "no_report" | "not_found" | "excluded";
 
 export interface ConfirmEmptyResult {
   confirmed: { protectedObjectId: string; displayName: string | null }[];
@@ -523,6 +523,33 @@ export function confirmEmpty(request: ConfirmEmptyRequest): Promise<ConfirmEmpty
     method: "POST",
     body: request,
   });
+}
+
+/** Objects one request to /verify/empty-confirmations confirms at most (the API's limit). */
+export const EMPTY_CONFIRM_BATCH = 200;
+
+/**
+ * Confirm the chosen objects as empty, in requests of at most {@link EMPTY_CONFIRM_BATCH} ids one
+ * after the other, and merge the answers: a selection of more than 200 objects is confirmed
+ * whole. By id, not with the filter, so only the objects the admin saw and chose are confirmed,
+ * never one that turned empty after the page loaded. A request that fails stops the rest; the
+ * objects of the earlier requests stay confirmed.
+ */
+export async function confirmEmptyObjects(
+  objectIds: readonly string[],
+  note?: string | null,
+): Promise<ConfirmEmptyResult> {
+  const ids = [...new Set(objectIds)];
+  const result: ConfirmEmptyResult = { confirmed: [], skipped: [] };
+  for (let start = 0; start < ids.length; start += EMPTY_CONFIRM_BATCH) {
+    const part = await confirmEmpty({
+      objectIds: ids.slice(start, start + EMPTY_CONFIRM_BATCH),
+      ...(note === undefined ? {} : { note }),
+    });
+    result.confirmed.push(...part.confirmed);
+    result.skipped.push(...part.skipped);
+  }
+  return result;
 }
 
 export function revokeEmpty(objectId: string): Promise<void> {

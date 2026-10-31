@@ -121,7 +121,7 @@ function TenantReadiness({
   const [askEmpty, setAskEmpty] = React.useState<readonly string[] | null>(null);
 
   const confirmEmptyNow = (objectIds: readonly string[]) =>
-    confirmEmpty.mutateAsync({ objectIds: [...objectIds] }).then((result) => {
+    confirmEmpty.mutateAsync({ objectIds }).then((result) => {
       if (result.skipped.length > 0) {
         toast.info(
           t("toast.emptyConfirmedWithSkipped", {

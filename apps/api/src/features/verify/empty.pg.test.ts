@@ -170,6 +170,7 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
   let emptyToo: { id: string; snapshotId: string };
   let full: { id: string; snapshotId: string };
   let unchecked: { id: string; snapshotId: string };
+  let excluded: { id: string; snapshotId: string };
 
   beforeAll(async () => {
     db = createDb(await recreateDatabase(testDatabaseAdminUrl as string, DATABASE));
@@ -179,6 +180,12 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
     emptyToo = await object(db, contoso, "Empty site", EMPTY);
     full = await object(db, contoso, "Full drive", [], { bytes: 4096, items: 3 });
     unchecked = await object(db, contoso, "Unchecked drive");
+    // Excluded later, with its old empty check: the overview does not list it.
+    excluded = await object(db, contoso, "Excluded drive", EMPTY);
+    await db
+      .update(protectedObjects)
+      .set({ status: "excluded" })
+      .where(eq(protectedObjects.id, excluded.id));
   }, 60_000);
 
   afterAll(async () => {
@@ -269,6 +276,15 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
     expect(item).toMatchObject({ state: "empty", overdue: false });
   });
 
+  it("never confirms an excluded object: listed it is skipped, the filter passes it over", async () => {
+    const result = await confirmEmpty(db, contoso.tenantId, { objectIds: [excluded.id] }, ACTOR);
+    expect(result.confirmed).toEqual([]);
+    expect(result.skipped).toEqual([
+      { protectedObjectId: excluded.id, displayName: "Excluded drive", reason: "excluded" },
+    ]);
+    expect((await overview()).objects.some((item) => item.object.id === excluded.id)).toBe(false);
+  });
+
   it("confirms every empty object not confirmed yet through the filter", async () => {
     const result = await confirmEmpty(
       db,
@@ -280,6 +296,20 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
     expect(result.skipped).toEqual([]);
     const { summary } = await overview();
     expect(summary).toMatchObject({ yellow: 0, empty: 2 });
+    expect(
+      await db
+        .select({ id: emptyConfirmations.id })
+        .from(emptyConfirmations)
+        .where(eq(emptyConfirmations.protectedObjectId, excluded.id)),
+    ).toEqual([]);
+    expect(
+      await db
+        .select({ id: auditLog.id })
+        .from(auditLog)
+        .where(
+          and(eq(auditLog.action, EMPTY_AUDIT_ACTIONS.confirmed), eq(auditLog.target, excluded.id)),
+        ),
+    ).toEqual([]);
   });
 
   it("stops counting as soon as a newer check says anything else", async () => {

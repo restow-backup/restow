@@ -47,7 +47,8 @@ export interface EmptyConfirmationDto {
   snapshotId: string | null;
 }
 
-export type EmptySkipReason = "not_empty" | "no_report" | "not_found";
+/** `excluded`: the object is excluded from protection; the overview does not list it either. */
+export type EmptySkipReason = "not_empty" | "no_report" | "not_found" | "excluded";
 
 export interface EmptyConfirmResultDto {
   confirmed: { protectedObjectId: string; displayName: string | null }[];
@@ -155,7 +156,8 @@ async function candidatesOf(
  * Confirm objects as empty: the listed ones (at most {@link MAX_EMPTY_CONFIRMATIONS}), or with
  * the filter every object whose newest check found it empty and that nobody confirmed yet. Only
  * an object whose newest check says "empty" and nothing else is confirmed; the others come back
- * in `skipped` with the reason. Confirming again replaces the earlier confirmation. Every
+ * in `skipped` with the reason. An excluded object is never confirmed: the overview does not
+ * list it, so nobody saw it as empty. Confirming again replaces the earlier confirmation. Every
  * confirmation is audited on its own.
  */
 export async function confirmEmpty(
@@ -195,6 +197,10 @@ export async function confirmEmpty(
           });
         }
       };
+      if (candidate.status === "excluded") {
+        skip("excluded");
+        continue;
+      }
       const facts = verifications.get(id);
       const report = facts?.verification.report ?? null;
       if (!facts?.latestSnapshot || !report) {

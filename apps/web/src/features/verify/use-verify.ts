@@ -4,8 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { useLiveOpen } from "@/features/history/live/provider";
 import {
-  type ConfirmEmptyRequest,
-  confirmEmpty,
+  confirmEmptyObjects,
   fetchReadinessOverview,
   fetchReport,
   fetchReports,
@@ -102,7 +101,8 @@ export function useConfirmEmpty() {
   const { tenantId } = useTenantScope();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (request: ConfirmEmptyRequest) => confirmEmpty(request),
+    mutationFn: ({ objectIds, note }: { objectIds: readonly string[]; note?: string | null }) =>
+      confirmEmptyObjects(objectIds, note),
     onSettled: () => queryClient.invalidateQueries({ queryKey: verifyKeys.overview(tenantId) }),
   });
 }

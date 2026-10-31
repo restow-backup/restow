@@ -51,11 +51,12 @@ differences to see:
   "needs attention" (tenant rating, dashboard, statistics, provider view, alerts) and is never
   overdue. The confirmation ends by itself with the first check that finds content (the worker
   removes it with that report) and counts only while the newest check says "empty" and nothing
-  else; it can be revoked. API: `POST /api/v1/verify/empty-confirmations` (`{ objectIds }`, at
-  most 200, or `{ filter: { state: "empty_unconfirmed" } }`, with an optional `note`; objects
-  that are not empty come back in `skipped` with the reason) and `DELETE
-  /api/v1/verify/empty-confirmations/:objectId`, both audited (`verify.empty_confirmed`,
-  `verify.empty_confirmation_revoked`).
+  else; it can be revoked. A selection of more than 200 objects is sent in requests of 200.
+  API: `POST /api/v1/verify/empty-confirmations` (`{ objectIds }`, at most 200, or
+  `{ filter: { state: "empty_unconfirmed" } }`, with an optional `note`; objects that are not
+  empty or are excluded from protection come back in `skipped` with the reason, and the filter
+  passes excluded objects over) and `DELETE /api/v1/verify/empty-confirmations/:objectId`, both
+  audited (`verify.empty_confirmed`, `verify.empty_confirmation_revoked`).
 - Prices, "Bill storage in": exactly (as before, the default), started blocks of 100 GB or
   started TB. The stored bytes are rounded up to the next full block (decimal units, 0 stays
   0) before the storage price applies, whatever its unit, for tenants with prices of their own
@@ -120,7 +121,8 @@ New images and one database migration; no new or changed environment variable, a
 `docker-compose.yml` of 0.4.0 stays. Pull the images of 0.4.9 and restart as for any update.
 
 - Migration 0072 adds the table `empty_confirmations` (with Row Level Security like every
-  tenant table). It rewrites nothing and takes no lock on an existing table.
+  tenant table). It rewrites nothing; the new table is empty, so its foreign keys take only a
+  brief lock on the referenced tables.
 - Sites that read yellow "nothing to verify" turn green after their next restore check (the
   weekly one, or "Check now"). Empty mailboxes, OneDrives and sites read yellow "Empty" after
   their next check and stay yellow until someone confirms them as empty.
@@ -142,17 +144,17 @@ Before the tag, on the release branch (0.4.8 plus the fixes and additions above)
 of the libraries and typecheck of all workspaces; the core tests of the sampling (site content,
 quota), the readiness rating (empty, nothing to verify) and the verify engine (site read back,
 nothing of a site to the test restore); the migration and Row Level Security tests with 0072;
-the Postgres tests of "Confirm as empty" (skip reasons, bulk limit, audit, tenant boundary,
-rating, overdue, the integration API's values, the read-time guard) and of the worker ending a
-confirmation; the unit and Postgres tests of billing in blocks (0 bytes, exactly 100 GB,
-100.000000001 GB) and the web tests of the objects table, its selection, the price card and
-the price settings; the unit tests of the audit log's
-price redaction and the Postgres test through the real application (a tenant's administrator
-and the provider admin on `/audit`, `/audit/:id` and the JSON and CSV export,
-including the hash check; the Postgres test fails with the fix taken out); the route test and
-the Postgres test of who may read or change a price; the web DOM tests of the price cards and
-settings, the bell, the restore explorer's account list, the job panel, the pending enrollments
-and the Recovery readiness paging; the i18n tests; the install script's test
+the Postgres tests of "Confirm as empty" (skip reasons, excluded objects, bulk limit, audit,
+tenant boundary, rating, overdue, the integration API's values, the read-time guard) and of the
+worker ending a confirmation; the unit and Postgres tests of billing in blocks (0 bytes, exactly
+100 GB, 100.000000001 GB) and the web tests of the objects table, its selection, the
+confirmation of more than 200 objects in requests of 200, the price card and the price settings;
+the unit tests of the audit log's price redaction and the Postgres test through the real
+application (a tenant's administrator and the provider admin on `/audit`, `/audit/:id` and the
+JSON and CSV export, including the hash check; the Postgres test fails with the fix taken out);
+the route test and the Postgres test of who may read or change a price; the web DOM tests of the
+price cards and settings, the bell, the restore explorer's account list, the job panel, the
+pending enrollments and the Recovery readiness paging; the i18n tests; the install script's test
 (`deploy/install/test.sh`, 679 checks), the release check (`scripts/ci/check-release.mjs --tag
 v0.4.9`) and the third-party notices (unchanged). The full suites of every package were not
 rerun for the patch.
