@@ -551,6 +551,12 @@
   },
   "maintenance": {
     "openSettings": "Installation, Updates öffnen",
+    "availableBanner": {
+      "text": "{product} {version} ist verfügbar.",
+      "notes": "Release-Notes",
+      "open": "Zu den Updates",
+      "dismiss": "Hinweis auf Version {version} ausblenden"
+    },
     "banner": {
       "scheduled": "Wartung in {time}: {product} wird auf Version {version} aktualisiert. Speichern Sie Ihre Arbeit.",
       "starting": "Die Wartung beginnt: {product} wird auf Version {version} aktualisiert.",

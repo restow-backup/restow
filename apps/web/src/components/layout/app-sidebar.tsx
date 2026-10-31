@@ -1,5 +1,6 @@
 import { Link, type LinkProps } from "@tanstack/react-router";
 import { cn } from "cn";
+import type { TFunction } from "i18next";
 import { ArrowUpCircle, Clock, Loader2, Lock } from "lucide-react";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -35,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { BrandName, RestowMark } from "@/components/wordmark";
 import { CommunityEditionBadge } from "@/features/installation/edition-link";
 import { StartEntry } from "@/features/start";
+import { availableUpdateOf } from "@/features/updates/available";
 import { updatesTabLink } from "@/features/updates/settings-link";
 import { ExtensionSlot } from "@/lib/extensions";
 import {
@@ -44,10 +46,10 @@ import {
   type NavBadge,
   navGroupLabelKey,
 } from "@/lib/navigation";
-import { providerMay } from "@/lib/provider-role";
 import { isTenantOnlyNavItem } from "@/lib/scope";
 import { canAccess, type RunningVersion, sessionScope, useSession } from "@/lib/session";
 import { useNavItems } from "@/lib/use-nav-items";
+import { UpdateDot } from "./update-dot";
 
 const EXACT_MATCH = { exact: true, includeSearch: true } as const;
 
@@ -262,8 +264,9 @@ export function AppSidebar() {
   const { t } = useTranslation();
   const session = useSession();
   const { role, version } = session;
-  // Who may install an update sees the version as the way to it (VersionUpdateButton).
-  const mayUpdate = providerMay(session, "owner");
+  // Provider administrators see a newer release as a dot beside the version, beside the
+  // installation entry and in the section list (the footer's VersionUpdateButton).
+  const update = availableUpdateOf(session);
   const { isMobile, setOpenMobile, state } = useSidebar();
   // The icon-only rail shows every entry; a closed section would hide them.
   const iconRail = state === "collapsed" && !isMobile;
@@ -322,13 +325,17 @@ export function AppSidebar() {
           const dimmed = allTenants && isTenantOnlyNavItem(item.id);
           const dimmedHint = dimmed ? t("nav.scope.dimmedHint") : null;
           const note = stage ?? soon;
+          // The entry that leads to the Updates section carries the dot while one is due.
+          const updateLabel =
+            item.leadsToUpdates && update ? t("shell.updateTo", { version: update.latest }) : null;
           const renderEntry = (badge: NavBadge | null) => {
             const activity = badge?.activity ?? null;
-            const base = dimmedHint
+            const named = dimmedHint
               ? `${label} — ${dimmedHint}`
               : note
                 ? `${label} (${note})`
                 : label;
+            const base = updateLabel ? `${named} — ${updateLabel}` : named;
             return (
               <SidebarMenuItem key={item.id}>
                 <SidebarMenuButton
@@ -354,12 +361,14 @@ export function AppSidebar() {
                     aria-current={active ? "page" : undefined}
                     data-soon={item.soon ? "true" : undefined}
                     data-scope-dimmed={dimmed ? "true" : undefined}
-                    title={dimmedHint ?? undefined}
+                    title={dimmedHint ?? updateLabel ?? undefined}
                     onClick={closeOnMobile}
                   >
                     <Icon aria-hidden="true" />
                     <span>
                       {label}
+                      {/* "Server & operation, Update to 0.4.9 available": the dot is only drawn. */}
+                      {updateLabel ? <span className="sr-only">{`, ${updateLabel}`}</span> : null}
                       {/* "Jobs, coming soon" for assistive technology. */}
                       {item.soon ? <SoonSuffix /> : null}
                       {dimmedHint ? <span className="sr-only">{`, ${dimmedHint}`}</span> : null}
@@ -372,6 +381,12 @@ export function AppSidebar() {
                       <SoonBadge className="ml-auto group-data-[collapsible=icon]:hidden" />
                     ) : null}
                     {activity ? <ActivityDot activity={activity} /> : <EntryBadge badge={badge} />}
+                    {updateLabel ? (
+                      <UpdateDot
+                        data-nav-update="true"
+                        className="ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-1 group-data-[collapsible=icon]:right-1 group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar"
+                      />
+                    ) : null}
                     {stage ? (
                       <span className="ml-auto rounded border border-sidebar-border px-1 text-[0.625rem] leading-4 font-medium text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
                         {stage}
@@ -472,15 +487,13 @@ export function AppSidebar() {
               props={{}}
               fallback={<CommunityEditionBadge />}
             />
-            {mayUpdate && version?.updateAvailable && version.latest ? null : (
+            {update ? (
+              <VersionUpdateButton version={version} />
+            ) : (
               <VersionLabel version={version} />
             )}
           </div>
-          {mayUpdate ? (
-            <VersionUpdateButton version={version} />
-          ) : (
-            <UpdateNotice version={version} />
-          )}
+          {session.isProviderAdmin ? null : <UpdateNotice version={version} />}
         </div>
       </SidebarFooter>
 
@@ -489,26 +502,27 @@ export function AppSidebar() {
   );
 }
 
+/** "Version 0.4.8", or the words for a build without a release version. */
+function versionText(t: TFunction, version: RunningVersion): string {
+  return version.running
+    ? t("shell.version", { version: version.running })
+    : t("shell.versionUntagged");
+}
+
 function VersionLabel({ version }: { version: RunningVersion | null }) {
   const { t } = useTranslation();
   if (!version) {
     return null;
   }
-  return (
-    <span className="tabular-nums">
-      {version.running
-        ? t("shell.version", { version: version.running })
-        : t("shell.versionUntagged")}
-    </span>
-  );
+  return <span className="tabular-nums">{versionText(t, version)}</span>;
 }
 
 /**
- * The version, turned into the way to the update (0.4.2): for the people who may install it,
- * a newer release makes the version label a highlighted button "Update to X available" that
- * leads to Installation, Updates. Accent colour (info), never green; it breathes gently unless
- * the person asked for reduced motion. Without an update nothing renders here (the plain
- * version label stays).
+ * The version, turned into the way to the update: for provider administrators, a newer release
+ * puts a small dot (info colour, never green; it breathes gently unless the person asked for
+ * reduced motion) beside "Version 0.4.8". The label becomes a link to Installation, Updates; its
+ * tooltip and accessible name say "Update to 0.4.9 available". Without an update nothing renders
+ * here (the plain version label stays).
  */
 export function VersionUpdateButton({ version }: { version: RunningVersion | null }) {
   const { t } = useTranslation();
@@ -516,16 +530,18 @@ export function VersionUpdateButton({ version }: { version: RunningVersion | nul
     return null;
   }
   const link = updatesTabLink();
+  const update = t("shell.updateTo", { version: version.latest });
   return (
     <Link
       to={link.to}
       search={link.search}
       data-slot="version-update"
-      title={version.running ? t("shell.version", { version: version.running }) : undefined}
-      className="inline-flex items-center gap-1.5 self-start rounded-md border border-info/40 bg-info/10 px-2 py-1 text-xs font-medium text-info-text transition-colors hover:bg-info/20 focus-visible:outline-2 focus-visible:outline-ring motion-safe:animate-update-pulse"
+      title={update}
+      aria-label={`${versionText(t, version)}, ${update}`}
+      className="inline-flex items-center gap-1.5 rounded-md tabular-nums text-sidebar-foreground/70 transition-colors hover:text-sidebar-foreground focus-visible:outline-2 focus-visible:outline-ring"
     >
-      <ArrowUpCircle aria-hidden="true" className="size-3.5" />
-      {t("shell.updateTo", { version: version.latest })}
+      {versionText(t, version)}
+      <UpdateDot />
     </Link>
   );
 }

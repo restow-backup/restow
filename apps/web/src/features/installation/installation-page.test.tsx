@@ -139,6 +139,45 @@ describe("who opens the installation page", () => {
     expect(document.body.querySelector("h1")?.textContent).toBe("Notification mail");
   });
 
+  it("puts the update dot on Updates, for every provider role, while a release is newer", async () => {
+    vi.stubGlobal("fetch", routes().mock);
+    const version = {
+      running: "0.4.8",
+      commit: null,
+      latest: "0.4.9",
+      updateAvailable: true,
+      releaseUrl: null,
+    };
+    await open("/installation/mail", { session: providerSession("read_only", { version }) });
+    const link = [...(subnav()?.querySelectorAll("a") ?? [])].find(
+      (entry) => entry.querySelector("span")?.firstChild?.textContent === "Updates",
+    );
+    expect(text(link)).toBe("Updates, Update to 0.4.9 available");
+    expect(link?.getAttribute("title")).toBe("Update to 0.4.9 available");
+    const dot = link?.querySelector('[data-slot="update-dot"]');
+    expect(dot?.className).toContain("bg-info");
+    expect(dot?.className).toContain("motion-safe:animate-update-pulse");
+    expect(dot?.className).not.toMatch(/(^|\s)animate-|success|green/);
+    // Only that entry carries it, and the select on a small screen names it too.
+    expect(subnav()?.querySelectorAll('[data-slot="update-dot"]')).toHaveLength(1);
+  });
+
+  it("shows no dot without a newer release", async () => {
+    vi.stubGlobal("fetch", routes().mock);
+    await open("/installation/mail", {
+      session: providerSession("owner", {
+        version: {
+          running: "0.4.9",
+          commit: null,
+          latest: "0.4.9",
+          updateAvailable: false,
+          releaseUrl: null,
+        },
+      }),
+    });
+    expect(document.body.querySelectorAll('[data-slot="update-dot"]')).toHaveLength(0);
+  });
+
   it("keeps a tenant administrator out, with a sentence instead of the sections", async () => {
     const { mock, requests } = routes();
     vi.stubGlobal("fetch", mock);

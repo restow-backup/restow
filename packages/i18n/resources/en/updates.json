@@ -551,6 +551,12 @@
   },
   "maintenance": {
     "openSettings": "Open Installation, Updates",
+    "availableBanner": {
+      "text": "{product} {version} is available.",
+      "notes": "Release notes",
+      "open": "Go to updates",
+      "dismiss": "Dismiss the notice about version {version}"
+    },
     "banner": {
       "scheduled": "Maintenance in {time}: {product} will be updated to version {version}. Save your work.",
       "starting": "Maintenance is starting: {product} is being updated to version {version}.",

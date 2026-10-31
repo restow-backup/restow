@@ -133,6 +133,11 @@ export interface NavItem {
    * what assistive technology reads ("3 open warnings").
    */
   useBadge?: () => NavBadge | null;
+  /**
+   * The entry leads to the Updates section (installation › Server & operation): the sidebar draws
+   * the dot "update available" on it for the people who may see that section.
+   */
+  leadsToUpdates?: boolean;
 }
 
 /** A count next to a menu entry. */

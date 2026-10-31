@@ -862,8 +862,8 @@ Release-Liste der gewählten Quelle gelesen, nie etwas über die Installation ge
 
 ### Versionsprüfung (Einstellungen, Reiter "Updates")
 
-- Standardmäßig aus. Der Administrator schaltet sie im Reiter ein; dann liest Restow einmal am
-  Tag (und bei "Jetzt prüfen") die Release-Liste der Quelle und legt das Ergebnis im Cache ab.
+- Standardmäßig aus. Der Administrator schaltet sie im Reiter ein; dann liest Restow alle sechs
+  Stunden (beim Start der API, wenn die letzte Prüfung älter ist, und bei "Jetzt prüfen") die Release-Liste der Quelle und legt das Ergebnis im Cache ab.
   `RESTOW_UPDATE_CHECK_URL` bleibt als Umgebungs-Override bestehen und hat Vorrang: gesetzt
   (https) ist die Prüfung an, die Quelle schreibgeschützt, und ein gespeichertes Token wird
   dorthin nie gesendet. Reihenfolge: Umgebung, Reiter, Standard (aus, öffentliche
@@ -878,7 +878,7 @@ Release-Liste der gewählten Quelle gelesen, nie etwas über die Installation ge
 - Kanäle: `stable` (ohne Vorabversionen) und `beta` (mit). SemVer-Vergleich inklusive
   Pre-Release-Tags. Entwürfe (drafts) werden ignoriert. Fehler (Rate-Limit mit Zeitpunkt, 401,
   403, 404, Netzwerk, Zeitüberschreitung, keine Release-Liste) werden mit Grund angezeigt; das
-  letzte gute Ergebnis bleibt sichtbar. Nach Fehlschlag frühestens nach einer Stunde erneut.
+  letzte gute Ergebnis bleibt sichtbar. Nach Fehlschlag frühestens nach einer Stunde erneut (bei Rate-Limit erst, wenn es endet).
 - Datenmodell: Spalten an der Einzeilen-Tabelle `settings` (`update_check_enabled`,
   `update_source_url`, `update_channel`, `update_check` als jsonb-Cache, `update_notified_version`,
   `update_audit_cursor`); kein neuer Tabellentyp. Der Cache-Schreibzugriff ändert `updated_at`
