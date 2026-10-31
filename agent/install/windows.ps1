@@ -222,8 +222,10 @@ function Read-SshUInt32($Reader) {
 function Read-SshString($Reader) {
     $n = Read-SshUInt32 $Reader
     if ($n -gt ($Reader.Bytes.Length - $Reader.Pos)) { throw 'truncated' }
-    $out = New-Object byte[] $n
-    if ($n -gt 0) { [Array]::Copy($Reader.Bytes, $Reader.Pos, $out, 0, $n) }
+    # Plain ints, so Array.Copy has one overload to pick (Pos may have become a long).
+    $len = [int]$n; $pos = [int]$Reader.Pos
+    $out = New-Object byte[] $len
+    if ($len -gt 0) { [Array]::Copy($Reader.Bytes, $pos, $out, 0, $len) }
     $Reader.Pos = $Reader.Pos + $n
     return , $out
 }

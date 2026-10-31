@@ -158,6 +158,10 @@ if (-not $SkipInstall) {
         $null = New-Item -ItemType Directory -Force -Path $root
 
         function Invoke-Installer([hashtable]$Env, [string[]]$Arguments) {
+            # Windows PowerShell 5.1 turns each stderr line of a native command under 2>&1
+            # into an error record; with 'Stop' (set above) the first one would end the test
+            # before the exit code and the output are read.
+            $ErrorActionPreference = 'Continue'
             $script = Join-Path $work 'windows.ps1'
             Invoke-WebRequest -UseBasicParsing -Uri "$url/install/windows.ps1" -OutFile $script
             $old = @{}
