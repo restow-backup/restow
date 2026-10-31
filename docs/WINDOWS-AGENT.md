@@ -603,8 +603,13 @@ FILE_SHARE_READ | FILE_SHARE_WRITE`, Go `src/syscall/syscall_windows.go:374`). L
 `restow-agent status`, ein Log-Betrachter des Administrators und Virenscanner. Darum:
 
 - Jede atomare Ersetzung (`state.go:140`, `status/status.go:195`, `core/outbox.go:48`,
-  `update.go:286`) geht über `atomicfile.Replace`: temporäre Datei im selben Ordner,
-  `MoveFileExW(…, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`, bei
+  `update.go:286`) geht über `atomicfile.Replace`: temporäre Datei im selben Ordner, dann
+  zuerst ein Umbenennen mit POSIX-Semantik (`SetFileInformationByHandle` mit
+  `FileRenameInfoEx`, `FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS`,
+  ab Windows 10 1709 auf NTFS). Nur so wird ein Ziel ersetzt, das ein Leser mit
+  `FILE_SHARE_DELETE` offen hält; `MoveFileExW` lehnt das auch dann mit "Zugriff verweigert"
+  ab (auf dem Windows-Runner der CI nachgewiesen). Wo das nicht geht, folgt
+  `MoveFileExW(…, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`; bei
   `ERROR_ACCESS_DENIED` oder `ERROR_SHARING_VIOLATION` bis zu 10 Versuche mit steigender
   Pause (50 ms bis 1 s). `svc.go:156` schreibt nur Unit-Dateien und bleibt Unix.
 - Eigene Leser öffnen über `atomicfile.Open` (`syscall.CreateFile` mit
@@ -2091,7 +2096,8 @@ Fehlerpolitik, Server, Oberfläche und i18n folgen im nächsten Schritt.
   `paths/winpath.go` (ohne Tag) prüft die Pfadform.
 - State und DPAPI (7): `state.json` mit `protected` (`dpapi-machine`), Klartext wird unter
   Windows abgelehnt; Ordner mit DACL beim Anlegen, zu offene Datei-DACL wird zurückgesetzt
-  und gemeldet. `internal/atomicfile` ersetzt Dateien mit `MoveFileExW` und Wiederholung
+  und gemeldet. `internal/atomicfile` ersetzt Dateien mit POSIX-Umbenennen, sonst
+  `MoveFileExW`, und Wiederholung
   (State, Status, Outbox, Hinweise beim Update); die Log-Rotation schreibt bei gesperrter
   Datei weiter.
 - Rechteprüfung (8): SYSTEM oder erhöhter Administrator; Texte mit `adminHint`.

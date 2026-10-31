@@ -9,7 +9,14 @@ import (
 	"github.com/restow-backup/restow/agent/internal/winapi"
 )
 
+// rename replaces to with POSIX semantics first, so a reader that holds to open
+// with FILE_SHARE_DELETE (atomicfile.Open) does not block it. Where Windows or the
+// file system cannot do that (or refuses it for any other reason), MoveFileExW does
+// what it did before: it fails while to is open, and Rename retries.
 func rename(from, to string) error {
+	if err := winapi.RenameReplacing(from, to); err == nil {
+		return nil
+	}
 	if err := winapi.MoveFileEx(from, to, winapi.MoveFileReplaceExisting|winapi.MoveFileWriteThrough); err != nil {
 		return &os.LinkError{Op: "rename", Old: from, New: to, Err: err}
 	}

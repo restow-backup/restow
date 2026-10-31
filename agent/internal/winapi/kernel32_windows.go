@@ -3,27 +3,31 @@
 package winapi
 
 import (
+	"path/filepath"
+	"runtime"
+	"strings"
 	"syscall"
 	"unsafe"
 )
 
 var (
-	procLockFileEx                = kernel32.NewProc("LockFileEx")
-	procUnlockFileEx              = kernel32.NewProc("UnlockFileEx")
-	procGetSystemPowerStatus      = kernel32.NewProc("GetSystemPowerStatus")
-	procCreateJobObjectW          = kernel32.NewProc("CreateJobObjectW")
-	procSetInformationJobObject   = kernel32.NewProc("SetInformationJobObject")
-	procAssignProcessToJobObject  = kernel32.NewProc("AssignProcessToJobObject")
-	procTerminateJobObject        = kernel32.NewProc("TerminateJobObject")
-	procGenerateConsoleCtrlEvent  = kernel32.NewProc("GenerateConsoleCtrlEvent")
-	procAllocConsole              = kernel32.NewProc("AllocConsole")
-	procGetConsoleProcessList     = kernel32.NewProc("GetConsoleProcessList")
-	procMoveFileExW               = kernel32.NewProc("MoveFileExW")
-	procGetFinalPathNameByHandleW = kernel32.NewProc("GetFinalPathNameByHandleW")
-	procGetVolumePathNameW        = kernel32.NewProc("GetVolumePathNameW")
-	procGetDriveTypeW             = kernel32.NewProc("GetDriveTypeW")
-	procGetVolumeInformationW     = kernel32.NewProc("GetVolumeInformationW")
-	procLocalFree                 = kernel32.NewProc("LocalFree")
+	procLockFileEx                 = kernel32.NewProc("LockFileEx")
+	procUnlockFileEx               = kernel32.NewProc("UnlockFileEx")
+	procGetSystemPowerStatus       = kernel32.NewProc("GetSystemPowerStatus")
+	procCreateJobObjectW           = kernel32.NewProc("CreateJobObjectW")
+	procSetInformationJobObject    = kernel32.NewProc("SetInformationJobObject")
+	procAssignProcessToJobObject   = kernel32.NewProc("AssignProcessToJobObject")
+	procTerminateJobObject         = kernel32.NewProc("TerminateJobObject")
+	procGenerateConsoleCtrlEvent   = kernel32.NewProc("GenerateConsoleCtrlEvent")
+	procAllocConsole               = kernel32.NewProc("AllocConsole")
+	procGetConsoleProcessList      = kernel32.NewProc("GetConsoleProcessList")
+	procMoveFileExW                = kernel32.NewProc("MoveFileExW")
+	procSetFileInformationByHandle = kernel32.NewProc("SetFileInformationByHandle")
+	procGetFinalPathNameByHandleW  = kernel32.NewProc("GetFinalPathNameByHandleW")
+	procGetVolumePathNameW         = kernel32.NewProc("GetVolumePathNameW")
+	procGetDriveTypeW              = kernel32.NewProc("GetDriveTypeW")
+	procGetVolumeInformationW      = kernel32.NewProc("GetVolumeInformationW")
+	procLocalFree                  = kernel32.NewProc("LocalFree")
 )
 
 // LockFileEx locks a byte range of an open file
@@ -159,6 +163,65 @@ func MoveFileEx(from, to string, flags uint32) error {
 	}
 	_, err = call(procMoveFileExW, uintptr(unsafe.Pointer(f)), uintptr(unsafe.Pointer(t)), uintptr(flags))
 	return err
+}
+
+// RenameReplacing moves from over to with POSIX semantics
+// (SetFileInformationByHandle, FileRenameInfoEx, FILE_RENAME_FLAG_REPLACE_IF_EXISTS |
+// FILE_RENAME_FLAG_POSIX_SEMANTICS): the target is replaced even while another process
+// has it open with FILE_SHARE_DELETE, which MoveFileExW refuses with "access denied".
+// Older Windows and file systems without it answer ERROR_INVALID_PARAMETER or
+// ERROR_NOT_SUPPORTED; the caller then falls back to MoveFileEx
+// (https://learn.microsoft.com/windows/win32/api/winbase/ns-winbase-file_rename_info).
+func RenameReplacing(from, to string) error {
+	src, err := utf16Ptr(from)
+	if err != nil {
+		return err
+	}
+	target, err := verbatimPath(to)
+	if err != nil {
+		return err
+	}
+	name, err := syscall.UTF16FromString(target)
+	if err != nil {
+		return err
+	}
+	// The link itself, not what it points to, like MoveFileExW.
+	h, err := syscall.CreateFile(src, fileAccessDelete|fileAccessSynchronize, fileShareAll, nil,
+		openExisting, fileFlagBackupSemantics|fileFlagOpenReparsePoint, 0)
+	if err != nil {
+		return err
+	}
+	defer syscall.CloseHandle(h)
+
+	// FILE_RENAME_INFO on 64-bit Windows: Flags (4 bytes, padded to 8), RootDirectory
+	// (8), FileNameLength (4, bytes without the NUL), FileName from offset 20. Backed by
+	// uint64s so the structure is 8-byte aligned.
+	const nameOffset = 20
+	nameBytes := (len(name) - 1) * 2
+	size := nameOffset + len(name)*2
+	words := make([]uint64, (size+7)/8)
+	info := unsafe.Pointer(&words[0])
+	*(*uint32)(info) = fileRenameFlagReplaceIfExists | fileRenameFlagPosixSemantics
+	*(*uint32)(unsafe.Add(info, 16)) = uint32(nameBytes)
+	copy(unsafe.Slice((*uint16)(unsafe.Add(info, nameOffset)), len(name)), name)
+	_, err = call(procSetFileInformationByHandle, uintptr(h), fileRenameInfoEx, uintptr(info), uintptr(len(words)*8))
+	runtime.KeepAlive(words)
+	return err
+}
+
+// verbatimPath turns a path into the absolute \\?\ form the rename information takes.
+func verbatimPath(p string) (string, error) {
+	if strings.HasPrefix(p, `\\?\`) {
+		return p, nil
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasPrefix(abs, `\\`) {
+		return `\\?\UNC\` + abs[2:], nil
+	}
+	return `\\?\` + abs, nil
 }
 
 // FinalPathName resolves an open handle to its final DOS path

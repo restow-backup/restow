@@ -75,6 +75,21 @@ const (
 	FilePersistentACLs        = 0x00000008 // GetVolumeInformationW flag
 )
 
+// SetFileInformationByHandle with FileRenameInfoEx: a rename that replaces the target with
+// POSIX semantics, so a target another process holds open with FILE_SHARE_DELETE is
+// replaced instead of failing with "access denied" (Windows 10 1709 and newer, NTFS).
+const (
+	fileRenameInfoEx              = 22
+	fileRenameFlagReplaceIfExists = 0x1
+	fileRenameFlagPosixSemantics  = 0x2
+	fileAccessDelete              = 0x00010000
+	fileAccessSynchronize         = 0x00100000
+	fileShareAll                  = 0x1 | 0x2 | 0x4
+	openExisting                  = 3
+	fileFlagBackupSemantics       = 0x02000000
+	fileFlagOpenReparsePoint      = 0x00200000
+)
+
 // MoveFileExW flags.
 const (
 	MoveFileReplaceExisting   = 0x1
