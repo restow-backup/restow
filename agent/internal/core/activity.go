@@ -2,7 +2,7 @@ package core
 
 import (
 	"context"
-	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -27,9 +27,13 @@ func (a *Agent) previousSnapshot(current string) string {
 // this run backed up: a file of a folder that left the backup set is not
 // "deleted".
 func underSources(sources []string) func(string) bool {
+	return underSourcesFor(sources, runtime.GOOS == "windows")
+}
+
+func underSourcesFor(sources []string, windows bool) func(string) bool {
 	prefixes := make([]string, 0, len(sources))
 	for _, s := range sources {
-		p := strings.TrimRight(filepath.ToSlash(s), "/")
+		p := strings.TrimRight(snapshotPathOf(s, windows), "/")
 		prefixes = append(prefixes, p)
 	}
 	return func(p string) bool {

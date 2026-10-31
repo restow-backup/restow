@@ -518,7 +518,7 @@ jobs:
           # The agent has no third-party Go dependencies and so no go.sum to key a cache on.
           cache: false
 
-      - name: Static checks and unit tests (gofmt, go vet for the four targets, go test -race, ShellCheck)
+      - name: Static checks and unit tests (gofmt, go vet for the five targets, go test -race, ShellCheck)
         if: steps.detect.outputs.present == 'true'
         run: sh agent/scripts/test.sh
 
@@ -535,12 +535,106 @@ jobs:
         run: sh agent/build.sh --out "$RUNNER_TEMP/agent-dist"
 
       - name: The Go modules inside restic are the ones whose licenses are vendored
-        # The build information of the four pinned restic binaries just fetched must list
-        # exactly the modules, versions and hashes of licenses/restic-deps/modules.json, the
-        # source of the notices; a new restic pin needs `node scripts/restic-licenses.mjs
-        # vendor` first. Reads the binaries directly (no Go, no network).
+        # The build information of the five pinned restic binaries just fetched (restic.exe
+        # for Windows) must list the modules, versions and hashes of
+        # licenses/restic-deps/modules.json for their target, the source of the notices; a
+        # new restic pin needs `node scripts/restic-licenses.mjs vendor` first. Reads the
+        # binaries directly (no Go, no network).
         if: steps.detect.outputs.present == 'true' && hashFiles('scripts/restic-licenses.mjs') != ''
-        run: node scripts/restic-licenses.mjs check "$RUNNER_TEMP"/agent-dist/*/restic
+        run: node scripts/restic-licenses.mjs check "$RUNNER_TEMP"/agent-dist/*/restic*
+
+      - name: restic.exe still prints the snapshot errors the agent recognises
+        # The Windows agent learns that a shadow copy failed only from these texts in
+        # restic's JSON output (restic still exits 0, docs/WINDOWS-AGENT.md, section 17.3).
+        # A restic pin that changed them fails here, on Linux, whether or not VSS works
+        # on the Windows runner.
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          exe="$RUNNER_TEMP/agent-dist/windows-amd64/restic.exe"
+          [ -f "$exe" ] || { echo "::notice::no windows-amd64 build in this commit"; exit 0; }
+          for text in 'failed to create snapshot for [' 'failed to delete VSS snapshot' \
+            'Snapshots are not supported for volume' 'VSS error: '; do
+            if ! grep -q -a -F -- "$text" "$exe"; then
+              echo "::error::restic.exe no longer contains '$text'; check internal/restic/snapshot.go against the new restic"
+              exit 1
+            fi
+          done
+          echo "restic.exe contains all four snapshot error texts"
+
+  agent-windows:
+    name: Go agent on Windows (vet, unit tests)
+    # Windows preview (docs/WINDOWS-AGENT.md, section 3.5): the unit tests that have no
+    # `unix` build tag run natively. Tests that use /bin/sh stand-ins for restic or the
+    # agent carry `//go:build unix` and run in the job above. The service, Job Object,
+    # DPAPI, ACL and hook tests carry the tag windowsintegration; the installer has its
+    # own PowerShell test. The restic.exe integration tests join with the backup code.
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings
+        # The Windows runner checks out with core.autocrlf=true; gofmt would then list
+        # every Go file.
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Is there an agent in this commit?
+        id: detect
+        run: |
+          if [ -f agent/go.mod ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::agent/ does not exist in this commit; nothing to check."
+          fi
+
+      - name: Set up Go
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: gofmt and go vet (native)
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::not formatted: $unformatted"
+            exit 1
+          fi
+          go vet ./...
+
+      - name: Unit tests (native, with the race detector when gcc is there)
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        run: |
+          if command -v gcc >/dev/null 2>&1; then
+            CGO_ENABLED=1 go test -race -count=1 ./...
+          else
+            echo "(gcc not found: running without the race detector)"
+            CGO_ENABLED=0 go test -count=1 ./...
+          fi
+
+      - name: Windows integration tests (service, DPAPI, ACLs, Job Objects, hooks)
+        # docs/WINDOWS-AGENT.md, section 22.1. The hosted runner runs as an
+        # administrator: the tests create and delete the service RestowAgentTest.
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        run: go test -count=1 -tags windowsintegration ./internal/state/ ./internal/paths/ ./internal/hooks/ ./internal/svc/ ./internal/procctl/
+
+      - name: Installer tests (Ed25519 against Go, SSHSIG, full run against the fake instance)
+        # Windows PowerShell 5.1, the version every supported Windows has. The
+        # differential test compares the PowerShell Ed25519 check with crypto/ed25519.
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        shell: pwsh
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-windows.ps1 -Vectors 300
 
   shellcheck:
     name: Shell scripts (shellcheck, server installer tests)
@@ -599,6 +693,7 @@ jobs:
       - licenses
       - secrets
       - agent
+      - agent-windows
       - shellcheck
       - actionlint
     runs-on: ubuntu-24.04

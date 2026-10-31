@@ -16,9 +16,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/procenv"
@@ -59,7 +59,7 @@ func (r *Runner) log(line string) {
 // Env returns the environment of a restic process.
 func (r *Runner) Env() []string {
 	env := procenv.Base()
-	if _, ok := procenv.Get(env, "HOME"); !ok && r.CacheDir != "" {
+	if _, ok := procenv.Get(env, "HOME"); !ok && r.CacheDir != "" && runtime.GOOS != "windows" {
 		env = procenv.Set(env, "HOME", filepath.Dir(r.CacheDir))
 	}
 	env = procenv.Set(env, "RESTIC_REPOSITORY", r.Repo)
@@ -72,7 +72,13 @@ func (r *Runner) Env() []string {
 		env = procenv.Set(env, "RESTIC_CACHE_DIR", r.CacheDir)
 	}
 	if r.TmpDir != "" {
-		env = procenv.Set(env, "TMPDIR", r.TmpDir)
+		if runtime.GOOS == "windows" {
+			// restic (Go) takes its temporary folder from TMP, then TEMP.
+			env = procenv.Set(env, "TMP", r.TmpDir)
+			env = procenv.Set(env, "TEMP", r.TmpDir)
+		} else {
+			env = procenv.Set(env, "TMPDIR", r.TmpDir)
+		}
 	}
 	// One status message every two seconds instead of ten per second; the
 	// agent forwards the latest one to the server every five seconds (the
@@ -124,8 +130,9 @@ func (r *Runner) exec(ctx context.Context, spec execSpec) (*execResult, error) {
 	cmd.Env = r.Env()
 	cmd.Stdin = nil
 	// Ask restic to stop cleanly (it removes its lock and temporary files) and
-	// only kill it when it does not react.
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGINT) }
+	// only kill it when it does not react: SIGINT on Unix, CTRL_BREAK to its
+	// own process group on Windows (runner_unix.go, runner_windows.go).
+	configureProcess(cmd)
 	cmd.WaitDelay = r.CancelGrace
 	if cmd.WaitDelay == 0 {
 		cmd.WaitDelay = defaultGrace
@@ -183,6 +190,13 @@ func (r *Runner) exec(ctx context.Context, spec execSpec) (*execResult, error) {
 	})
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("cannot start restic (%s): %w", r.Bin, err)
+	}
+	// On Windows restic goes into a Job Object right away; if that fails it
+	// was terminated and Wait below reports it.
+	release, attachErr := afterStart(cmd)
+	defer release()
+	if attachErr != nil {
+		r.log(attachErr.Error())
 	}
 	// Wait copies the output through the writers above and, with WaitDelay
 	// set, does not hang if a grandchild keeps the pipes open.

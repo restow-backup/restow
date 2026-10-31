@@ -1,5 +1,6 @@
 export * from "./agent-policy.js";
 export * from "./config.js";
+export * from "./consistency.js";
 export * from "./data-folders.js";
 export * from "./loopback.js";
 export * from "./queues.js";
@@ -10,6 +11,7 @@ export * from "./repository-storage.js";
 export * from "./restic-authz.js";
 export * from "./restic-cli.js";
 export * from "./restic-rest.js";
+export * from "./restore-target.js";
 export * from "./restore-test.js";
 export * from "./restore-test-retry.js";
 export * from "./retention-policy.js";

@@ -548,6 +548,19 @@ test("an MPL-2.0 module says where its source code is; the others name their rep
     }),
     "Source: https://github.com/example/mono (tag sub/v0.2.8, folder sub).",
   );
+  // A module only some targets compile in (Windows has modules of its own) says where it is.
+  assert.equal(
+    moduleSourceNote({
+      path: "github.com/go-ole/go-ole",
+      version: "v1.3.0",
+      license: "MIT",
+      source: "https://github.com/go-ole/go-ole",
+      ref: "refs/tags/v1.3.0",
+      subdir: "",
+      targets: ["windows-amd64"],
+    }),
+    "Source: https://github.com/go-ole/go-ole (tag v1.3.0). Only in the restic binary for windows-amd64.",
+  );
 });
 
 test("the modules in restic get a section between the components and the packages", () => {

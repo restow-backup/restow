@@ -203,7 +203,17 @@ type Policy struct {
 	CatchUp      *CatchUp      `json:"catchUp,omitempty"`
 	// MaxRetries is the number of automatic retries after a failed backup.
 	MaxRetries *int `json:"maxRetries,omitempty"`
+	// SnapshotOnFailure (server 0.5.0) says what a backup does when the file
+	// system snapshot fails: continue (absent, the default) backs up from
+	// the live file system and ends partial, fail stops the backup.
+	SnapshotOnFailure string `json:"snapshotOnFailure,omitempty"`
 }
+
+// Values of Policy.SnapshotOnFailure.
+const (
+	SnapshotOnFailureContinue = "continue"
+	SnapshotOnFailureFail     = "fail"
+)
 
 // BackupWindow is a weekly time range. Days are the days the window
 // begins on (1 = Monday ... 7 = Sunday); a To not after From ends on the
@@ -353,7 +363,40 @@ type FinishRequest struct {
 	// the ransomware signals of the server (agent 0.4.0 and newer; a server
 	// that does not know it ignores it).
 	Activity *activity.Report `json:"activity,omitempty"`
+	// Consistency (agent 0.5.0) is how consistent the backed-up files are:
+	// whether a file system snapshot was used. Set for every backup that got
+	// as far as restic; a server of an earlier release ignores it.
+	Consistency *Consistency `json:"consistency,omitempty"`
 }
+
+// Consistency is the report field shared by every snapshot method (VSS on
+// Windows, LVM and btrfs on Linux, APFS on macOS; docs/AGENT.md).
+type Consistency struct {
+	// Method is the snapshot method of the machine: vss, lvm, btrfs, apfs,
+	// or mixed (more than one); empty when the system has none.
+	Method string `json:"method,omitempty"`
+	// State: used (requested, no volume failed; volumes the provider does
+	// not support do not count), partial (at least one volume was read
+	// live), unavailable (no snapshot at all) or off (not requested).
+	State string `json:"state"`
+	// LiveFilesystems are the volumes or file systems read from the live
+	// file system although a snapshot was requested, at most
+	// MaxLiveFilesystems.
+	LiveFilesystems []string `json:"liveFilesystems,omitempty"`
+}
+
+// MaxLiveFilesystems bounds Consistency.LiveFilesystems.
+const MaxLiveFilesystems = 32
+
+// Consistency methods and states.
+const (
+	SnapshotMethodVSS = "vss"
+
+	ConsistencyUsed        = "used"
+	ConsistencyPartial     = "partial"
+	ConsistencyUnavailable = "unavailable"
+	ConsistencyOff         = "off"
+)
 
 // RestoreTest is the result of a restore test (verify_sample) as the agent
 // observed it, without a verdict: the server decides from it whether the

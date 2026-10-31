@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "@/lib/api";
@@ -31,12 +34,14 @@ import {
   isAbsolutePath,
   isBelow,
   isKnownAttention,
+  isPreviewOs,
   isRetryableProblem,
   isWithoutBackup,
   LIVE_REFRESH_MS,
   lastBackupOf,
   listRefetchInterval,
   onlyInterrupted,
+  PREVIEW_ENDPOINT_OS,
   pathSegments,
   progressRatio,
   reportView,
@@ -758,5 +763,26 @@ describe("the person a machine is assigned to", () => {
     expect(assigneeFilterOptions([{ assignedTo: alice }], "Nobody")).toEqual([
       { value: "u1", label: "Alice Example" },
     ]);
+  });
+});
+
+describe("preview systems", () => {
+  it("mirrors PREVIEW_ENDPOINT_OS in packages/core/src/endpoints/config.ts", () => {
+    const source = readFileSync(
+      fileURLToPath(
+        new URL("../../../../../packages/core/src/endpoints/config.ts", import.meta.url),
+      ),
+      "utf8",
+    );
+    const match = source.match(/PREVIEW_ENDPOINT_OS:[^=]*=\s*\[([^\]]*)\]/);
+    expect(match).not.toBeNull();
+    const core = [...(match?.[1] ?? "").matchAll(/"([a-z]+)"/g)].map((entry) => entry[1]);
+    expect(PREVIEW_ENDPOINT_OS).toEqual(core);
+  });
+
+  it("treats Windows as a preview, Linux and macOS not", () => {
+    expect(isPreviewOs("windows")).toBe(true);
+    expect(isPreviewOs("linux")).toBe(false);
+    expect(isPreviewOs("darwin")).toBe(false);
   });
 });

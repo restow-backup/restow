@@ -248,6 +248,44 @@ describe.skipIf(!testDatabaseAdminUrl)("agent policies against Postgres", () => 
     expect("policy" in row.config).toBe(false);
   });
 
+  it("snapshotOnFailure reaches the agent only as fail, and a lock holds", async () => {
+    const who = await machine();
+    await policy.updateGlobalAgentPolicy({ settings: {}, locks: [] }, providerActor);
+    const view = await policy.updateTenantAgentPolicy(
+      appDb,
+      fixture.tenantId,
+      { snapshotOnFailure: "fail" },
+      actor,
+    );
+    expect(view.effective.snapshotOnFailure).toEqual({
+      value: "fail",
+      source: "tenant",
+      locked: false,
+    });
+    expect((await stored(who.id)).config.policy?.snapshotOnFailure).toBe("fail");
+    expect((await agentGet(who)).policy).toMatchObject({ snapshotOnFailure: "fail" });
+
+    // Continue is the default: nothing goes to the agent.
+    await policy.updateTenantAgentPolicy(
+      appDb,
+      fixture.tenantId,
+      { snapshotOnFailure: "continue" },
+      actor,
+    );
+    const policyAfter = (await agentGet(who)).policy as Record<string, unknown> | undefined;
+    expect(policyAfter?.snapshotOnFailure).toBeUndefined();
+
+    await policy.updateGlobalAgentPolicy(
+      { settings: { snapshotOnFailure: "continue" }, locks: ["snapshotOnFailure"] },
+      providerActor,
+    );
+    await expect(
+      policy.updateTenantAgentPolicy(appDb, fixture.tenantId, { snapshotOnFailure: "fail" }, actor),
+    ).rejects.toMatchObject({ status: 409, type: "urn:restow:problem:agent-policy-locked" });
+    await policy.updateGlobalAgentPolicy({ settings: {}, locks: [] }, providerActor);
+    await policy.updateTenantAgentPolicy(appDb, fixture.tenantId, {}, actor);
+  });
+
   it("a tenant overrides what is not locked and is refused what is", async () => {
     const who = await machine();
     await policy.updateGlobalAgentPolicy(

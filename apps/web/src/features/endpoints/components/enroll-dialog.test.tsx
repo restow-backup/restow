@@ -7,6 +7,7 @@ import { i18n } from "@/i18n";
 import type { CreatedToken, EnrollmentToken } from "../api.js";
 import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
+import { isPreviewOs } from "../presenters.js";
 import { defaultOs, EnrollDialog, enrollStatusOf, isSelectableOs } from "./enroll-dialog.js";
 
 const viewer = vi.hoisted(() => ({ role: null as string | null }));
@@ -126,10 +127,12 @@ beforeAll(async () => {
 });
 
 describe("the wizard's rules", () => {
-  it("offers Linux and macOS and keeps Windows planned", () => {
+  it("offers Linux, macOS and Windows, Windows as a preview", () => {
     expect(isSelectableOs("linux")).toBe(true);
     expect(isSelectableOs("darwin")).toBe(true);
-    expect(isSelectableOs("windows")).toBe(false);
+    expect(isSelectableOs("windows")).toBe(true);
+    expect(isPreviewOs("windows")).toBe(true);
+    expect(isPreviewOs("linux")).toBe(false);
   });
 
   it("proposes the system a new machine of each kind most likely runs", () => {
@@ -170,16 +173,16 @@ describe("EnrollDialog", () => {
     await page.settle();
   }
 
-  it("asks for the system first, with Windows disabled and labelled as planned", async () => {
+  it("asks for the system first, with Windows labelled as a preview", async () => {
     await open();
     const radios = [...document.querySelectorAll<HTMLButtonElement>('button[role="radio"]')];
     expect(radios).toHaveLength(3);
     const byValue = Object.fromEntries(radios.map((radio) => [radio.value, radio]));
     expect(byValue.linux?.disabled).toBe(false);
     expect(byValue.darwin?.disabled).toBe(false);
-    expect(byValue.windows?.disabled).toBe(true);
-    expect(page.text()).toContain("Planned");
-    expect(page.text()).toContain("Windows is on the roadmap");
+    expect(byValue.windows?.disabled).toBe(false);
+    expect(document.querySelector('[data-slot="enroll-preview"]')?.textContent).toBe("Preview");
+    expect(page.text()).not.toContain("Planned");
     expect(page.text()).toContain("does not create disk images");
     // Nothing was created yet.
     expect(createToken).not.toHaveBeenCalled();
@@ -196,16 +199,45 @@ describe("EnrollDialog", () => {
     viewer.role = null;
   });
 
-  it("does not let a click on the planned system choose it", async () => {
-    await open();
-    const windows = document.querySelector<HTMLButtonElement>(
-      'button[role="radio"][value="windows"]',
+  it("says what the Windows preview means, and shows the PowerShell command and its checks", async () => {
+    const tls = "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'";
+    const install = `${tls}; iex (irm -UseBasicParsing 'https://restow.example/install/windows.ps1')`;
+    const fingerprint = `SHA256:${"Q".repeat(43)}`;
+    createToken.mockResolvedValue(
+      created({
+        os: "windows",
+        commands: {
+          install,
+          installUnattended: `$env:RESTOW_TOKEN_FILE = 'C:\\Windows\\System32\\config\\systemprofile\\restow-enrollment.token'; $env:RESTOW_RELEASE_KEY_FINGERPRINT = '${fingerprint}'; ${install.replace(`${tls}; `, `${tls}; `)}`,
+          tokenFile: "C:\\Windows\\System32\\config\\systemprofile\\restow-enrollment.token",
+          uninstallScript: `${tls}; & ([scriptblock]::Create((irm -UseBasicParsing 'https://restow.example/install/windows.ps1'))) -Uninstall`,
+          uninstallAgent: "& 'C:\\Program Files\\Restow\\bin\\restow-agent.exe' uninstall",
+          hooksScripts: "& 'C:\\Program Files\\Restow\\bin\\restow-agent.exe' hooks scripts",
+          hooksAny: "& 'C:\\Program Files\\Restow\\bin\\restow-agent.exe' hooks any",
+        },
+        windows: { releaseKeyFingerprint: fingerprint, scriptSha256: "ab".repeat(32) },
+      }),
     );
-    await page.click(windows as HTMLButtonElement);
-    expect(windows?.getAttribute("aria-checked")).toBe("false");
-    expect(
-      document.querySelector('button[role="radio"][value="linux"]')?.getAttribute("aria-checked"),
-    ).toBe("true");
+    await open();
+    await page.click(
+      document.querySelector('button[role="radio"][value="windows"]') as HTMLElement,
+    );
+    await page.settle();
+    expect(document.querySelector('[data-slot="enroll-windows-preview"]')?.textContent).toContain(
+      "no Authenticode signature",
+    );
+    await create();
+    expect(createToken).toHaveBeenCalledWith({ profile: "server", os: "windows" });
+    expect(page.text()).toContain("Run this in PowerShell as administrator");
+    expect(document.querySelector('[data-slot="command-box"] code')?.textContent).toBe(install);
+    expect(page.text()).toContain(fingerprint);
+    expect(page.text()).toContain("-Hooks scripts");
+    expect(page.text()).not.toContain("sudo");
+    await page.click(page.byText("button", "Without iex: download, check and run the script"));
+    expect(page.text()).toContain("ab".repeat(32));
+    expect(page.text()).toContain("https://restow.example/install/windows.ps1");
+    await page.click(page.byText("button", "Unattended installation (RMM, scripts)"));
+    expect(page.text()).toContain("C:\\Windows\\Sysnative\\config\\systemprofile");
   });
 
   it("creates the token for the chosen system and optional name, then shows the command once", async () => {
@@ -387,7 +419,7 @@ describe("EnrollDialog", () => {
     );
     await open();
     await create();
-    expect(page.text()).toContain("This operating system is not supported yet");
+    expect(page.text()).toContain("This operating system is not supported.");
     expect(page.text()).toContain("Create install command");
   });
 
@@ -413,7 +445,7 @@ describe("EnrollDialog", () => {
     await i18n.changeLanguage("de");
     try {
       await open();
-      expect(page.text()).toContain("Geplant");
+      expect(page.text()).toContain("Vorschau");
       expect(page.text()).toContain("Installationsbefehl erstellen");
     } finally {
       await i18n.changeLanguage("en");

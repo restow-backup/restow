@@ -4,8 +4,12 @@ name: Release
 # package.json and have a finished CHANGELOG.md section with a real date. Then:
 #
 #   verify -> ci (the full CI on the tagged commit)
-#          -> agent (the endpoint agent for every target; its SHA256SUMS goes
-#                    to a DRAFT GitHub release as agent-SHA256SUMS)
+#          -> agent (builds the endpoint agent for every target and keeps the
+#                    build as a workflow artifact; it does not touch the release)
+#          -> agent-windows-check (on a Windows runner: the Windows files match
+#                    their SHA256SUMS and report the release versions)
+#          -> agent-sums (puts the build's SHA256SUMS on a DRAFT GitHub release
+#                    as agent-SHA256SUMS and asks the maintainer to sign it)
 #          -> agent-signature (waits in the environment agent-release-signing
 #                    until the maintainer signed agent-SHA256SUMS offline with
 #                    scripts/release/sign-agent.sh; checks the signature
@@ -231,12 +235,12 @@ jobs:
       contents: read
 
   agent:
-    name: Agent release (draft)
+    name: Agent release (build)
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
-      contents: write # the draft release
+      contents: read
     env:
       VERSION: ${{ needs.verify.outputs.version }}
     steps:
@@ -266,6 +270,68 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  agent-windows-check:
+    name: Agent release (Windows check)
+    # The Windows binaries are cross-compiled on Linux; they run here once before the
+    # checksum list goes on the draft, so nothing that does not start on Windows is ever
+    # signed (docs/WINDOWS-AGENT.md, section 3.6).
+    needs: [verify, agent]
+    runs-on: windows-2022
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Download the build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist
+          path: agent-dist
+
+      - name: The Windows files match their SHA256SUMS and report the release versions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $PWD 'agent-dist\windows-amd64'
+          $lines = Get-Content -LiteralPath (Join-Path $dir 'SHA256SUMS')
+          foreach ($name in 'restow-agent.exe', 'restic.exe', 'THIRD_PARTY_NOTICES.txt') {
+            $line = $lines | Where-Object { $_ -match "^[0-9a-f]{64}  $([regex]::Escape($name))$" }
+            if (-not $line) { throw "windows-amd64/SHA256SUMS does not list $name" }
+            $want = ($line -split '  ')[0]
+            $have = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dir $name)).Hash.ToLowerInvariant()
+            if ($have -ne $want) { throw "$name hashes to $have, SHA256SUMS says $want" }
+          }
+          $agent = (& (Join-Path $dir 'restow-agent.exe') version --short).Trim()
+          if ($LASTEXITCODE -ne 0 -or $agent -ne $env:VERSION) { throw "restow-agent.exe reports '$agent', expected $env:VERSION" }
+          $pinned = (Get-Content -LiteralPath 'agent-dist\RESTIC_VERSION').Trim()
+          $restic = (& (Join-Path $dir 'restic.exe') version) -join ' '
+          if ($LASTEXITCODE -ne 0 -or $restic -notmatch "^restic $([regex]::Escape($pinned)) ") { throw "restic.exe reports '$restic', pinned $pinned" }
+          Write-Output "restow-agent.exe $agent and restic.exe $pinned run on Windows"
+          # Creating and removing the service joins this job with the Windows service
+          # manager (docs/WINDOWS-AGENT.md, section 9.1).
+
+  agent-sums:
+    name: Agent release (checksums on the draft)
+    # After the Windows check: only now does the checksum list go on the draft and the
+    # maintainer get the request to sign it.
+    needs: [verify, agent, agent-windows-check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # the draft release
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist
+          path: ${{ runner.temp }}/agent-dist
+
       - name: Put agent-SHA256SUMS on the draft release (the maintainer signs it)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -283,11 +349,22 @@ jobs:
               --notes "Draft: waiting for the agent signature (scripts/release/sign-agent.sh $GITHUB_REF_NAME)." \
               "$RUNNER_TEMP/agent-SHA256SUMS"
           fi
+          # The Windows binaries are unsigned (no Authenticode): Defender allow-listing
+          # and the Microsoft submission go by their SHA-256 (docs/WINDOWS-AGENT.md, section 15).
+          sums="$RUNNER_TEMP/agent-dist/windows-amd64/SHA256SUMS"
+          if [ -f "$sums" ]; then
+            while read -r sum name; do
+              case "$name" in
+                restow-agent.exe | restic.exe) echo "::notice::windows-amd64/$name SHA-256 $sum" ;;
+              esac
+            done < "$sums"
+            echo "::notice::Before signing: submit windows-amd64/restow-agent.exe and restic.exe of this build to Microsoft (https://www.microsoft.com/wdsi/filesubmission, Software developer) unless they were submitted for this prerelease already (docs/WINDOWS-AGENT.md, section 15)."
+          fi
           echo "::notice::Sign the agent now, on the signing machine: scripts/release/sign-agent.sh $GITHUB_REF_NAME --key <private key>"
 
   agent-signature:
     name: Agent signature (maintainer, offline)
-    needs: [verify, agent]
+    needs: [verify, agent, agent-windows-check, agent-sums]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The maintainer approves this job after signing (sign-agent.sh does it).
@@ -775,7 +852,9 @@ jobs:
           mkdir -p assets
           for dir in agent-tree/*/; do
             target="$(basename "$dir")"
-            cp "$dir/restow-agent" "assets/restow-agent_${VERSION}_${target}"
+            exe=""
+            case "$target" in windows-*) exe=".exe" ;; esac
+            cp "$dir/restow-agent$exe" "assets/restow-agent_${VERSION}_${target}$exe"
           done
           # The license notices that travel with the agent (the same file in every target folder).
           cp agent-tree/linux-amd64/THIRD_PARTY_NOTICES.txt assets/restow-agent-THIRD_PARTY_NOTICES.txt
@@ -847,6 +926,18 @@ jobs:
             echo
             echo "The public demo's own images, \`$DEMO_SEED_IMAGE:$VERSION\` and \`$DEMO_DOVECOT_IMAGE:$VERSION\` (deploy/demo), carry the same tags, signatures and SBOMs; they are no part of an installation."
             echo
+            winsums="agent-tree/windows-amd64/SHA256SUMS"
+            if [ -f "$winsums" ]; then
+              echo "### Windows agent (preview)"
+              echo
+              echo "restow-agent.exe and restic.exe are not Authenticode-signed. Their SHA-256, for Microsoft Defender allow-listing by hash (the release signature in agent-SHA256SUMS.sig covers them as well):"
+              echo
+              echo "\`\`\`"
+              grep -E '  (restow-agent|restic)\.exe$' "$winsums"
+              echo "\`\`\`"
+              echo "Release signing key (agent/release-signing.pub): $(ssh-keygen -l -f agent/release-signing.pub)"
+              echo
+            fi
             echo "docker-compose.yml and env.example are the release stack (deploy/release/); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
           } >> notes.md
 
@@ -871,8 +962,10 @@ jobs:
           # The agent in the image is the signed one: every binary taken from it is in the signed list.
           for file in assets/restow-agent_"$VERSION"_*; do
             target="${file##*_}"
+            exe=""
+            case "$target" in *.exe) target="${target%.exe}"; exe=".exe" ;; esac
             sum="$(sha256sum "$file" | cut -d ' ' -f 1)"
-            grep -qx "$sum  $target/restow-agent" agent-signed/agent-SHA256SUMS || {
+            grep -qx "$sum  $target/restow-agent$exe" agent-signed/agent-SHA256SUMS || {
               echo "::error::The agent for $target in the image is not the signed build."
               exit 1
             }
@@ -891,10 +984,10 @@ jobs:
             flags+=(--prerelease)
           fi
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            # The draft of the agent job (or a re-run of a release that got this far): fill and publish it.
+            # The draft of the agent-sums job (or a re-run of a release that got this far): fill and publish it.
             gh release upload "$GITHUB_REF_NAME" --clobber assets/*
             gh release edit "$GITHUB_REF_NAME" --title "Restow $VERSION" --notes-file notes.md --draft=false "${flags[@]}"
           else
-            echo "::error::There is no draft release $GITHUB_REF_NAME with the signed agent; the agent job did not run."
+            echo "::error::There is no draft release $GITHUB_REF_NAME with the signed agent; the agent-sums job did not run."
             exit 1
           fi

@@ -6,15 +6,18 @@ Sicherung von Servern und Clients (Endpunkten). Es ist der Vertrag zwischen dem 
 `apps/web`, `packages/db`, `packages/core`). Entscheidung des Maintainers vom 30.09.2026:
 Engine restic, Agent in Go, Teil der Community-Edition, ausgeliefert mit 0.1.0.
 
-Stand 0.1.0: **Linux und macOS**. Windows (Dienst als LocalSystem, VSS, DPAPI) ist Teil
-des Protokolls und des Datenmodells, wird aber in dieser Version weder eingerichtet noch
-angenommen (Roadmap). Der Server lehnt `os=windows` mit einem klaren Problem ab; die
-Oberfläche zeigt Windows als deaktivierte Option "Geplant".
+Stand 0.5.0: **Linux, macOS und Windows** (Windows als **Vorschau**, nur amd64). Der
+Windows-Agent läuft als Dienst `RestowAgent` unter LocalSystem, sichert aus einer
+Schattenkopie (VSS, restic `--use-fs-snapshot`), schützt seine Geheimnisse mit DACL und DPAPI
+und wird mit `windows.ps1` installiert. `restow-agent.exe`, `restic.exe` und `windows.ps1`
+tragen keine Authenticode-Signatur. Windows on ARM lehnen Installer und Server ab. Entwurf,
+Entscheidungen und Testplan: docs/WINDOWS-AGENT.md.
 
 ## Grundsätze
 
 - Dateibasierte Sicherung mit restic. Keine Images, kein Bare-Metal-Restore. Das steht so
-  in der Oberfläche und in der Doku.
+  in der Oberfläche und in der Doku. Unter Windows heißt Wiederherstellung eines Rechners:
+  Windows neu installieren, dann die Dateien zurückholen (kein Systemzustand, keine Registry).
 - Ein Agent für Server und Clients, Profil `server` oder `client`.
 - Der Agent verbindet sich nur ausgehend per HTTPS mit der Restow-Instanz. Kein
   eingehender Port auf dem Rechner.
@@ -78,6 +81,15 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
    - macOS: `curl -fsSL 'https://<instanz>/install/macos.sh' | sudo sh`
    - unbeaufsichtigt: `curl -fsSL '...' | sudo RESTOW_TOKEN_FILE=/root/restow-enrollment.token sh`
      (macOS: `/var/root/restow-enrollment.token`)
+   - Windows (Vorschau, PowerShell als Administrator):
+     `[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (irm -UseBasicParsing 'https://<instanz>/install/windows.ps1')`
+   - Windows unbeaufsichtigt (RMM als SYSTEM): vorab
+     `$env:RESTOW_TOKEN_FILE = 'C:\Windows\System32\config\systemprofile\restow-enrollment.token'`
+     und `$env:RESTOW_RELEASE_KEY_FINGERPRINT = 'SHA256:...'` (Pin des Release-Schlüssels, den
+     der Assistent vorbelegt); ein 32-Bit-RMM-Prozess schreibt die Datei über
+     `C:\Windows\Sysnative\config\systemprofile`. Statt `iex` gleichwertig: Datei laden,
+     SHA-256 mit dem Wert im Assistenten vergleichen (`windows.sha256`, siehe unten), mit
+     `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` starten.
 
    Die Adresse steht in einfachen Anführungszeichen und muss eine reine Origin sein
    (Schema, Host, Port); der Server baut keinen Befehl aus etwas anderem.
@@ -135,11 +147,17 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
    (Endpunktzeile, Secret, Repository-Objekte) und gibt das Token wieder frei, denn der Agent
    hat noch nichts erhalten und kann denselben Befehl erneut ausführen. Eine ungültige Anfrage
    (unbekanntes `os`/`arch`, leerer Hostname) verbraucht das Token nicht.
-6. Windows: `os=windows` antwortet 422 `urn:restow:problem:unsupported-os`, das Token bleibt
-   gültig. Auch `POST /api/v1/endpoints/tokens` verweigert es.
-7. Ablage des Agenten: Linux/macOS `/etc/restow-agent/state.json`, Modus 0600, root. (Windows
-   später: `%ProgramData%\Restow\agent\state.json`, ACL SYSTEM und Administratoren, Secrets per
-   DPAPI LocalMachine.)
+6. Windows (seit 0.5.0, Vorschau): angenommen nur mit `arch=amd64`. `os=windows` mit `arm64`
+   antwortet 422 `urn:restow:problem:unsupported-os` ("Windows on ARM ..."), ein unbekanntes
+   System ebenso; das Token bleibt gültig. Die Antwort auf `POST /api/v1/endpoints/tokens` für
+   Windows trägt die PowerShell-Befehle und `windows: { releaseKeyFingerprint, scriptSha256 }`
+   (Fingerabdruck des Release-Schlüssels wie `ssh-keygen -l`, SHA-256 von `windows.ps1`, wie
+   diese Instanz es ausliefert; `null`, wenn es keins gibt). Ein Windows-Rechner bekommt die
+   Standardordner `C:\Users` (Server zusätzlich `C:\ProgramData`) und `useVss: true`.
+7. Ablage des Agenten: Linux/macOS `/etc/restow-agent/state.json`, Modus 0600, root. Windows
+   (Vorschau): `C:\ProgramData\Restow\state\state.json` in einem Ordner mit geschützter DACL
+   (SYSTEM und Administratoren), Agent-Secret und Repository-Passwort zusätzlich per DPAPI
+   (Maschinenbereich) verschlüsselt im Feld `protected`.
 
 `GET /api/v1/endpoints/tokens` listet standardmäßig nur gültige Token (nicht verwendet, nicht widerrufen,
 nicht abgelaufen), `?state=all` zusätzlich die abgeschlossenen (höchstens 50, neueste zuerst); der
@@ -159,11 +177,11 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | Aufruf | Zweck |
 | --- | --- |
 | `POST /enroll` | Token gegen Zugangsdaten tauschen (siehe oben). |
-| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. Ab 0.4.0 zusätzlich `startsPaused` (pausiert ein Update gerade neue Läufe, siehe "Update-Pause") und, wenn eine Richtlinie etwas festlegt, `policy: { backupWindow?, catchUp, maxRetries }` (siehe "Richtlinien"); Bandbreite und Netzteil der Richtlinie stecken dann schon in `bandwidthKbps` und `onlyOnAcPower`. Ein älterer Agent ignoriert beide Felder. `Cache-Control: no-store`. |
+| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. Ab 0.4.0 zusätzlich `startsPaused` (pausiert ein Update gerade neue Läufe, siehe "Update-Pause") und, wenn eine Richtlinie etwas festlegt, `policy: { backupWindow?, catchUp, maxRetries, snapshotOnFailure? }` (siehe "Richtlinien"; `snapshotOnFailure` seit 0.5.0 und nur als `"fail"`, fehlt es, gilt `continue`); Bandbreite und Netzteil der Richtlinie stecken dann schon in `bandwidthKbps` und `onlyOnAcPower`. Ein älterer Agent ignoriert beide Felder. `Cache-Control: no-store`. |
 | `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts?, machine?, dataFolders?, waiting? }` ergibt `{ tasks, startsPaused, cancel, updateNow }` (`startsPaused` ab 0.4.0; solange es `true` ist, enthält `tasks` keine `backup_now`-Aufgabe; `cancel` und `updateNow` ab 0.4.2, siehe "Sicherung stoppen" und "Selbstaktualisierung"). Alle 5 Minuten (Jitter +-60 s), während ein Lauf läuft jede Minute (Agent ab 0.4.2), und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). `machine` und `dataFolders` (Agent ab 0.4.0) siehe "Rechner und Datenordner". `waiting` (Agent ab 0.4.0, immer gesendet): worauf eine fällige Sicherung wartet, `""` wenn nichts wartet (siehe "Richtlinien"); fehlt es, gilt es als unbekannt. |
 | `POST /runs` | `{ kind: backup/restore/verify_sample, taskId?, startedAt }` ergibt `{ runId }`. |
 | `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
-| `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity? }`. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
+| `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity?, consistency? }`. `consistency` (Agent ab 0.5.0, jeder Backup-Lauf, der restic erreicht hat, auch ein fehlgeschlagener, wenn der Snapshot der Grund ist): `{ method?: vss/lvm/btrfs/apfs/mixed, state: used/partial/unavailable/off, liveFilesystems? }`, siehe "Konsistenz"; der Server prüft und begrenzt es und legt es als `stats.consistency` ab, ein fehlerhaftes wird verworfen. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
 | `GET /update` | `{ version, url, sha256 }` oder `null`: neuere **signierte** Agent-Version auf dieser Instanz; `null` auch, solange der Mandant Agent-Updates pausiert hat. |
 
 ### Rechner und Datenordner
@@ -187,8 +205,8 @@ sendet sie nicht, und dann zeigt die Oberfläche dazu nichts an.
   `/var/lib/postgresql`, `/var/lib/pgsql`, `/var/lib/mysql`, `/var/lib/mongodb`. Bewusst nicht:
   `/var/lib` als Ganzes und `/var/backups` (Paketverwaltung auf jedem System), `/home` und `/root`
   (in jedem Profil), macOS (die Daten liegen unter `/Users`, das beide Profile sichern) und Windows
-  (noch nicht unterstützt; eine Vermutung über Datenlaufwerke würde vor bewusst Weggelassenem
-  warnen). Der Server behält nur Namen dieser Liste (`endpoints.settings.agent`, keine Migration).
+  (in 0.5.0 nicht: weitere Laufwerke wie `D:\` meldet der Agent noch nicht; ein Job mit den
+  Standardordnern übergeht sie still, siehe docs/WINDOWS-AGENT.md 16.1). Der Server behält nur Namen dieser Liste (`endpoints.settings.agent`, keine Migration).
 - Ein Ordner gilt als gesichert, wenn ein Ordner des Jobs ihn enthält und kein Ausschluss ihn oder
   einen Ordner auf dem Weg zu ihm trifft (restic-Regeln: der letzte passende Ausschluss entscheidet,
   `!` nimmt zurück). Der Standardausschluss `/var/lib/docker` lässt deshalb auch die Docker-Volumes
@@ -213,8 +231,15 @@ Standardkonfiguration (`packages/core/src/endpoints/config.ts`):
   des Mandanten (sonst Europe/Berlin), Client `on_connect`, höchstens eine Sicherung alle 4 Stunden.
 - Pfade je System: Linux `/etc /home /root /srv /var/www`, bei Servern zusätzlich `/opt
   /usr/local /var/lib /var/backups` (dort liegen die Daten der Anwendungen, etwa in einem
-  LXC-Container); macOS `/Users`, (Windows später `C:\Users`, bei Servern zusätzlich
-  `C:\ProgramData`).
+  LXC-Container); macOS `/Users`; Windows `C:\Users`, bei Servern zusätzlich `C:\ProgramData`.
+- Ausschlüsse unter Windows: die Caches der Browser und des Explorers, `Temp`, `CrashDumps`,
+  `C:\Windows\Temp` und die Daten von Defender, Windows Search, Fehlerberichterstattung und
+  Übermittlungsoptimierung. Der Agent schließt unter Windows außerdem immer `pagefile.sys`,
+  `hiberfil.sys`, `swapfile.sys`, `System Volume Information`, `$Recycle.Bin` und
+  `C:\ProgramData\Restow` aus, vergleicht Muster ohne Groß-/Kleinschreibung (`--iexclude-file`)
+  und liest Nur-Online-Dateien von OneDrive und Co. nicht (`--exclude-cloud-files`). Ein Job mit
+  Linux- und Windows-Rechnern trägt beide Pfadformen; jeder Agent nimmt nur die seines Systems
+  und schreibt die übrigen einmal ins Protokoll ("gilt für andere Betriebssysteme").
 - Fehlt einem Linux-Job einer dieser Datenordner (`/home /root /srv /var/www /opt /usr/local
   /var/lib /var/backups`), etwa weil er mit den Client-Pfaden angelegt wurde, sagt der
   Job-Editor das und bietet an, sie hinzuzufügen; der Datei-Restore sagt es zu einem
@@ -385,6 +410,7 @@ Mandant, Job) und ob er gesperrt ist. Code: `packages/core/src/endpoints/agent-p
 | `bandwidthKbps` | kbit/s oder `null` | `null`: unbegrenzt |
 | `onlyOnAcPower` | `true`/`false` | `false` |
 | `retries` | 0 bis 10 | 5 |
+| `snapshotOnFailure` (seit 0.5.0) | `continue`/`fail` | `continue` |
 
 - **Sicherungsfenster.** Geplante Sicherungen, nachgeholte und Wiederholungen (auch die Fortsetzung
   eines unterbrochenen Laufs) **beginnen** nur im Fenster; ein Lauf, der am Ende des Fensters noch
@@ -423,6 +449,16 @@ Mandant, Job) und ob er gesperrt ist. Code: `packages/core/src/endpoints/agent-p
 - **Wiederholungen.** Nach einem fehlgeschlagenen Lauf versucht der Agent es bis zu `retries` Mal
   erneut, nach 5, 15, 30 Minuten und dann stündlich, danach wartet er auf den nächsten regulären
   Termin.
+- **Wenn der Dateisystem-Snapshot scheitert** (`snapshotOnFailure`, seit 0.5.0). Eine gemeinsame
+  Einstellung für die Schattenkopie (VSS) unter Windows und die Snapshots unter Linux (LVM, btrfs)
+  und macOS (APFS). `continue` (Standard): ohne Snapshot weiter sichern; der Lauf endet `partial`
+  mit einem klaren Lauf-Fehler (`snapshot_failed` je Volume bzw. `snapshot_unavailable`).
+  `fail`: Der Agent bricht restic beim ersten fehlgeschlagenen Volume ab (bzw. startet es gar
+  nicht); der Lauf endet `failed`, die automatischen Wiederholungen greifen. Ein Volume, das der
+  Anbieter nicht unterstützt (exFAT-Stick, eingehängte VHD), ist in beiden Fällen nur ein Hinweis
+  im Lauf-Log. Ob überhaupt ein Snapshot versucht wird, entscheidet unter Windows `useVss` am
+  Rechner (Einstellungen des Rechners, Standard an), nicht die Richtlinie. Der Server schickt
+  nur `"fail"` mit; ein Agent vor 0.5.0 kennt das Feld nicht.
 - **Was der Agent bekommt.** Der Server rechnet die Wirk-Richtlinie je Rechner aus (Installation,
   Mandant, Job seines Jobs) und schreibt sie als `config.policy` in seine Konfiguration: bei jeder
   Änderung der Installation (alle Mandanten), eines Mandanten und eines Jobs (`syncEndpointConfigs`).
@@ -574,8 +610,9 @@ Restore-Test.
 `errors[].code` ist ein Code des Agenten; der Server speichert ihn unverändert (ein neuerer Agent
 darf weitere senden), die Oberfläche formuliert die bekannten (`endpoints:runErrors.<code>`):
 `interrupted`, `cancelled` (seit 0.4.2, siehe "Sicherung stoppen"), `no_paths`, `pre_hook_failed`, `post_hook_failed`, `hooks_not_allowed`, `timeout`,
-`target_not_empty`, `invalid_task`, `hash_mismatch`, `missing`, `not_regular`, `read_error` und
-`restic_exit_<N>`. `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
+`target_not_empty`, `invalid_task`, `hash_mismatch`, `missing`, `not_regular`, `read_error`,
+`snapshot_failed`, `snapshot_unavailable`, `snapshot_cleanup_failed` (seit 0.5.0, siehe
+"Konsistenz") und `restic_exit_<N>`. `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
 Hooks des Servers nicht zu; die Sicherung lief ohne ihn und ist `partial`. `missing` heißt nur noch:
 In der hergestellten Kopie liegt unter diesem Pfad nichts; jeder andere Fehler beim Prüfen des
 Pfads ist `read_error`. Dateien, die restic bei einer Sicherung nicht lesen konnte, stehen je Datei
@@ -602,7 +639,9 @@ strukturierte Erklärung (`endpoint_runs.failure`, dasselbe Format wie bei Jobs,
 `post_hook_failed`, `hooks_not_allowed`, `timeout`, `target_not_empty`, `invalid_task`, `hash_mismatch`,
 `file_missing`, `file_not_regular`, `read_error`, `restic_failed`, `repository_locked`,
 `repository_missing`, `repository_password`, `repository_refused`, `network`, `agent_stopped`,
-`interrupted`), dazu die Schritte aus dem Katalog. Entscheidend für die Wahl ist der Fehler, den
+`interrupted`, seit 0.5.0 `snapshot_failed` (vorübergehend) und `snapshot_unavailable`), dazu die
+Schritte aus dem Katalog. `snapshot_cleanup_failed` ist ein Hinweis und nie die Erklärung eines
+Laufs. Entscheidend für die Wahl ist der Fehler, den
 der Admin zuerst beheben muss (ein Hook oder fehlende Ordner vor allem anderen). `restic_exit_<N>`
 wird nach restics Exit-Codes gedeutet (10 Repository fehlt, 11 gesperrt, 12 Passwort, 3
 unvollständig) und nach dem Text des Fehlers (Netzwerk, abgelehnt). Die Detailansicht eines
@@ -981,6 +1020,17 @@ Rechner selbst und jede andere Aktion antworten weiter 404. Danach ist er für j
 
 - **Auf den Endpunkt** (`POST /api/v1/endpoints/:id/tasks`, `kind: restore`): Der Agent stellt
   in einen **neuen Ordner** her. Die Oberfläche sagt das, bevor der Admin bestätigt.
+  Ziel unter Windows (seit 0.5.0): ein lokaler Ordner `X:\...` unterhalb des Laufwerksstamms,
+  kein UNC- oder Gerätepfad, kein `/`, kein `.`/`..`, keine Zeichen `<>:"|?*`, kein Bestandteil
+  mit Punkt oder Leerzeichen am Ende, kein reservierter Name (`CON`, `NUL`, `COM1` ...), nicht in
+  oder unter `C:\Windows`, den Programmordnern, `C:\ProgramData\Restow` oder `System Volume
+  Information`. Diese Formregeln prüfen API (`@restow/core` `restoreTargetIssue`, 422) und
+  Restore-Dialog schon vorher; der Agent prüft zusätzlich Laufwerkstyp (nur feste Laufwerke mit
+  Berechtigungen, NTFS oder ReFS), Vertrauen des Elternordners und Links. Ohne Angabe:
+  `%SystemDrive%\Restow-Restore-<zeit>` (unter Unix im ersten vertrauten gesicherten Ordner).
+  Die Dateien behalten ihre ursprünglichen Besitzer und DACLs; Alternate Data Streams (auch
+  Mark of the Web) werden nicht gesichert und kommen nicht zurück. Snapshot-Pfade bleiben an API
+  und Agent `/C/Users/...`; der Restore-Dialog zeigt sie als `C:\Users\...`.
 - **Download als ZIP** in zwei Schritten. `POST /api/v1/endpoints/:id/downloads` mit
   `{ snapshotId, paths }` (Pfade im Body, höchstens 10.000, Body höchstens 4 MiB, sonst 413
   `endpoint-download-too-large`) prüft jeden Pfad gegen den Snapshot (ein `restic ls` für bis zu
@@ -1101,7 +1151,7 @@ hier.
 | `endpoint-removal-legal-hold` | 409 | Sicherungen jetzt löschen, aber eine Legal Hold über den ganzen Mandanten hält sie. |
 | `endpoint-removal-suspicion-hold` | 409 | Sicherungen jetzt löschen, aber ein ungeklärter verdächtiger Sicherungsstand des Rechners hält sie. |
 | `endpoint-removal-never-expires` | 409 | Bis zum Ablauf behalten, aber die Aufbewahrung des Rechners behält alles. |
-| `unsupported-os` | 422 | Betriebssystem nicht unterstützt (Windows ist geplant, nicht ausgeliefert). |
+| `unsupported-os` | 422 | Betriebssystem nicht unterstützt: ein unbekanntes System oder Windows on ARM (Windows nur amd64). |
 | `enrollment-token-invalid` | 401 | Das Enrollment-Token ist unbekannt, abgelaufen, widerrufen oder verwendet. |
 | `agent-unauthorized` | 401 | Falsche oder fehlende Zugangsdaten des Agenten. |
 | `rate-limited` | 429 | Zu viele Anfragen oder fehlgeschlagene Anmeldungen einer Adresse. |
@@ -1143,12 +1193,18 @@ Statische Dateien werden nur für bekannte Versionen, Ziele und Dateinamen ausge
 Pfad kann ausbrechen). Ein Entwicklungsaufbau (`agent/build.sh`) legt die Ziele ohne Versionsordner
 unter `agent/dist/<os>-<arch>/` ab, mit `agent/dist/VERSION` und einer `SHA256SUMS`; der Server
 versteht beide Layouts und nimmt ohne `RESTOW_AGENT_DIR` und ohne `/srv/agent` den Ordner
-`agent/dist` des Repositorys. Es gibt kein `windows.ps1` und keine Windows-Ziele in 0.1.0.
+`agent/dist` des Repositorys. Seit 0.5.0 gibt es das Ziel `windows-amd64` (Vorschau, noch
+nicht nutzbar, siehe docs/WINDOWS-AGENT.md) mit `restow-agent.exe` und `restic.exe`; ein
+Update für Windows nennt `restow-agent.exe`. `GET /install/windows.ps1` liefert den Installer
+für Windows PowerShell 5.1 aus (als `text/plain`, mit denselben geprüften Platzhaltern in
+einfachen Anführungszeichen); der Server nimmt `os=windows` noch nicht an. Kein
+`windows-arm64`.
 
 Agent-Version = Restow-Version; restic gepinnt (0.19.1), im Image per SHA-256
 geprüft (BSD-2-Clause). `THIRD_PARTY_NOTICES.txt` je Ziel baut `agent/build.sh` aus
 `agent/THIRD_PARTY_NOTICES.txt`: die Lizenz des Agenten (Apache-2.0 mit der Copyright-Zeile aus
-NOTICE), die von Go, restic und den 79 Go-Modulen, die in restic einkompiliert sind (Texte in
+NOTICE), die von Go, restic und den Go-Modulen, die in restic einkompiliert sind (82 Module, je Ziel
+80 oder 79; Texte in
 `licenses/restic-deps/`, gelistet in THIRD_PARTY_NOTICES.md; golang-lru unter MPL-2.0 mit
 Hinweis auf seinen Quellcode). Die Datei steht in der signierten `SHA256SUMS` und liegt dem
 GitHub-Release als `restow-agent-THIRD_PARTY_NOTICES.txt` bei. Der Agent aktualisiert sich über
@@ -1177,6 +1233,14 @@ Linux; der Agent prüft sie mit der Go-Standardbibliothek.
 - Der Agent prüft vor jedem Update zuerst die Signatur, dann jede Datei gegen ihren signierten
   Hash, macht sie erst danach ausführbar, führt `version` erst danach aus und benennt sie dann
   um (Zwischendatei mit `O_CREATE|O_EXCL|O_NOFOLLOW` und Zufallsnamen im root-eigenen Ordner).
+  Seit 0.5.0 werden alle Dateien eines Releases (Hinweise, restic, Agent) erst geladen und
+  geprüft, bevor die erste eine installierte ersetzt: Die Signatur deckt die Dateiliste, nicht
+  die Versionsnummer, und ein älteres gültiges Release mit falscher Agent-Version ersetzt so
+  auch restic nicht mehr. Lässt sich danach die Datei des Agenten nicht tauschen, bekommen
+  restic und die Hinweise ihren vorigen Stand zurück. Unter Windows wird die laufende
+  `restow-agent.exe` nach `restow-agent.exe.prev` umbenannt (überschreiben lässt sie sich
+  nicht), der Dienst endet mit dem dienstspezifischen Code 3 und die Fehleraktion des SCM
+  startet die neue Datei.
 - Die Installationsskripte prüfen mit `ssh-keygen -Y verify` (OpenSSH 8.1+) oder OpenSSL 3;
   ohne beides (RHEL 8, Amazon Linux 2) lehnen sie ab und nennen den Weg über
   `RESTOW_SHA256SUMS_SHA256` (Signatur auf einem anderen Rechner prüfen, Hash vorgeben).
@@ -1186,9 +1250,20 @@ Linux; der Agent prüft sie mit der Go-Standardbibliothek.
   eingecheckten Schlüssel, lädt hoch, setzt den Lauf fort); der Workflow prüft die Signatur,
   baut die Images mit dem signierten Agenten (das Dockerfile prüft erneut), fährt den
   Release-Smoke, prüft ein drittes Mal und veröffentlicht erst dann den Entwurf.
+- `windows.ps1` prüft die Signatur selbst: SSHSIG zerlegen (nur `sha512`), Ed25519 in
+  PowerShell mit `System.Numerics.BigInteger` und derselben Annahmemenge wie
+  `crypto/ed25519` (S < L, R muss byte-gleich neu kodiert werden). Getestet gegen Go: die
+  Vektoren aus RFC 8032 und einige hundert veränderte Signaturen im Windows-Job, der
+  Algorithmus zusätzlich als Go-Zwilling (`agent/scripts/sigdiff`) bei jedem `go test`. Er
+  gibt den Fingerabdruck des Schlüssels vor jedem weiteren Download aus und bricht ab, wenn
+  ein Pin (`RESTOW_RELEASE_KEY_FINGERPRINT`, im unbeaufsichtigten Aufruf empfohlen) nicht
+  passt.
 - Grenze: Die Erstinstallation vertraut dem Skript, das die Instanz ausliefert (wie jedes
-  `curl | sh`). Die Signaturen schützen die Selbstaktualisierung und die Binärdateien gegen
-  eine kompromittierte Instanz.
+  `curl | sh` und `iex (irm ...)`). Die Signaturen schützen die Selbstaktualisierung und die
+  Binärdateien gegen eine kompromittierte Instanz; gegen eine feindliche Instanz oder einen
+  TLS aufbrechenden Proxy schützt beim Erstinstallieren nur der Vergleich des Fingerabdrucks
+  mit einer unabhängigen Quelle (Release-Notizen) oder der Pin. Windows: `restow-agent.exe`,
+  `restic.exe` und `windows.ps1` tragen in 0.5.0 keine Authenticode-Signatur.
 
 Ein Mandant kann automatische Agent-Updates pausieren (`GET/PUT /api/v1/endpoints/agent-updates`,
 Oberfläche: Mandantenseite › Agenten; Audit `endpoint.updates.paused`/`resumed`). Der Schalter ist eine
@@ -1329,13 +1404,40 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   restic laufen durch eine Schwärzung.
 - **Wiederherstellung von Sicherungen des Endpunkts setzt das Repository-Passwort voraus.**
   Es liegt nur auf dem Server (und dem Endpunkt selbst).
-- **Konsistenz.** Linux/macOS: optionale Pre-/Post-Hooks (z. B. `pg_dump`). Snapshots von
-  LVM/ZFS/btrfs sind ein späterer Schritt. Windows würde VSS nutzen (`--use-fs-snapshot`), wenn
-  es kommt.
+- **Konsistenz.** Linux/macOS: optionale Pre-/Post-Hooks (z. B. `pg_dump`); ohne Snapshot
+  liest restic das laufende Dateisystem. Windows: Schattenkopie (VSS) über restic
+  `--use-fs-snapshot -o vss.timeout=5m` (Wechseldatenträger, FAT und exFAT als
+  `vss.exclude-volumes`), wenn `useVss` am Rechner an ist. Das Ergebnis ist **dateikonsistent,
+  nicht anwendungskonsistent**: restic fordert eine Kopie-Sicherung ohne Writer-Komponenten an,
+  offene Datenbanken (SQL Server, Exchange) sind absturzkonsistent und ihre Protokolle werden
+  nicht gekürzt; Anwendungskonsistenz geht über einen Pre-Hook (`sqlcmd -Q "BACKUP DATABASE
+  ..."`). restic endet bei einer fehlgeschlagenen Schattenkopie mit Exit 0 und liest das Volume
+  live; der Agent erkennt das an restics Fehlereinträgen (`failed to create snapshot for [...]`)
+  und wendet `snapshotOnFailure` an. Ist VSS gar nicht nutzbar (Dienst deaktiviert, keine
+  Rechte, COM), startet der Agent restic unter `continue` ein zweites Mal ohne Schattenkopie
+  (beide Läufe zählen gegen die 72 Stunden). Jeder Bericht trägt `consistency`
+  (`method`, `state`, `liveFilesystems`), dasselbe Feld nutzen LVM, btrfs und APFS; die
+  Oberfläche zeigt es im Lauf als "Schattenkopie (dateikonsistent)", "Teilweise ohne
+  Schattenkopie: D:\" oder "Ohne Schattenkopie". Dateien, die in
+  `HKLM\SYSTEM\CurrentControlSet\Control\BackupRestore\FilesNotToSnapshot` stehen (Standard:
+  Outlook-OST), fehlen im Snapshot.
+- **Windows (Vorschau).** Grenze ist die DACL von `C:\ProgramData\Restow` (SYSTEM und
+  Administratoren), nicht DPAPI: Im Maschinenbereich kann jeder Prozess des Rechners den
+  Blob entschlüsseln, der die Datei lesen kann; DPAPI schützt nur eine Kopie der Datei allein.
+  Statt Dateimodi prüft der Agent Eigentümer und DACL jedes Ordners bis zum Laufwerksstamm
+  und lehnt Links, Junctions und Einhängepunkte ab. Der Dienst läuft als LocalSystem mit
+  einer reduzierten Privilegienliste (der SCM entfernt `SeDebugPrivilege`, `SeTcbPrivilege`
+  usw. aus dem Token, auch für restic und Hooks); restic und Hooks laufen in Job Objects.
+  Sicherheitsrelevante Ereignisse (Anmeldung, Hook-Regel, abgelehnte Installation, Update,
+  abgelehntes Update, Restore-Ziel, Deinstallation) gehen in die Ereignisanzeige, Quelle
+  `Restow`. Restore-Ziele unter Windows: nur lokale feste Laufwerke mit Berechtigungen
+  (NTFS, ReFS), nie in oder unter `C:\Windows`, den Programmordnern, `C:\ProgramData\Restow`
+  oder `System Volume Information`; Standard `%SystemDrive%\Restow-Restore-<zeit>`.
 
 ## Offene Punkte und später
 
-- Windows (Dienst, VSS, DPAPI, PowerShell-Skript, Ziele im Image).
+- Windows: Windows on ARM, Authenticode, Windows Bare Metal (Systemzustand, Registry),
+  weitere Datenlaufwerke als Datenordner melden, Windows-Pfade im Snapshot-Browser.
 - mTLS je Agent.
 - LVM/ZFS/btrfs-Snapshots als Konsistenzquelle.
 - Löschen eines Endpunkts samt Repository (heute: Widerruf, Daten bleiben bis zur Aufbewahrung
@@ -1378,7 +1480,9 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   dazu `restic restore` mit dem echten restic gegen beschädigte und fehlende Daten) und die
   Wiederholungen (`restore-test-retry.test.ts`).
 - Postgres (`endpoints.pg.test.ts` in api, worker, scheduler): Enrollment (Token einmalig,
-  abgelaufen, widerrufen, Windows, gleichzeitig), Agent-Authentifizierung und Drosselung,
+  abgelaufen, widerrufen, Windows amd64 angenommen und arm64 abgelehnt, gleichzeitig),
+  Agent-Authentifizierung und Drosselung, `consistency` beim Abschluss (auch bei einem
+  fehlgeschlagenen Lauf), Richtlinie `snapshotOnFailure` bis zum Agenten,
   Heartbeat und Aufgaben, Läufe, Stichproben und Webhook, RLS-Isolation zwischen Mandanten für
   alle Tabellen, Readiness, Jobs (Retention, Prüfung mit beschädigtem Pack, Restore-Test) und die
   Alarme des Monitors (einmalig, je Mandant), die Planung des Schedulers; der Restore-Test des

@@ -78,10 +78,21 @@ func (r *RotatingFile) rotate() error {
 			_ = os.Rename(fmt.Sprintf("%s.%d", r.Path, i), fmt.Sprintf("%s.%d", r.Path, i+1))
 		}
 		if err := os.Rename(r.Path, r.Path+".1"); err != nil {
-			return err
+			// Windows: someone has the log open without FILE_SHARE_DELETE (a log
+			// viewer, a virus scanner). Keep writing to the current file and try
+			// again at the next rotation instead of losing lines.
+			if oerr := r.open(); oerr != nil {
+				return err
+			}
+			r.size = 0 // the next attempt comes after another MaxBytes
+			return nil
 		}
 	} else if err := os.Remove(r.Path); err != nil {
-		return err
+		if oerr := r.open(); oerr != nil {
+			return err
+		}
+		r.size = 0
+		return nil
 	}
 	return r.open()
 }

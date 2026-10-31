@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/restow-backup/restow/agent/internal/eventlog"
 	"github.com/restow-backup/restow/agent/internal/hooks"
 	"github.com/restow-backup/restow/agent/internal/paths"
 	"github.com/restow-backup/restow/agent/internal/state"
@@ -96,6 +97,7 @@ func cmdHooks(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Cannot store the hook policy in %s: %v\n", layout.StateFile(), err)
 		return exitError
 	}
+	eventlog.Warning(eventlog.IDHookModeChanged, "The hook policy of the Restow agent was set to "+mode+" (hooks from the Restow server run as SYSTEM).")
 	fmt.Fprintf(stdout, "Hooks from the Restow server: %s.\n", describeHooks(mode, layout))
 	printHooks(stdout, mode, layout)
 	fmt.Fprintln(stdout, "The agent applies this to the next backup; the Restow server sees it with the next heartbeat (within five minutes).")
@@ -107,15 +109,15 @@ func printHooks(w io.Writer, mode string, layout paths.Layout) {
 	fmt.Fprintf(w, "Hook policy:  %s\n", describeHooks(mode, layout))
 	switch mode {
 	case hooks.ModeOff:
-		fmt.Fprintln(w, "Hooks configured in the Restow UI are not run on this machine. Allow them with: restow-agent hooks scripts (or any)")
+		fmt.Fprintln(w, "Hooks configured in the Restow UI are not run on this machine. Allow them with: "+adminHint("hooks scripts")+" (or any)")
 	case hooks.ModeScripts:
 		names := hooks.ListScripts(layout.HooksDir())
 		if len(names) == 0 {
-			fmt.Fprintf(w, "No usable scripts in %s yet. Put executable scripts there (owner root, not writable by others)\nand enter their names as hooks in the Restow UI.\n", layout.HooksDir())
+			fmt.Fprintf(w, "No usable scripts in %s yet. Put %s there\nand enter their names as hooks in the Restow UI.\n", layout.HooksDir(), scriptRequirement)
 		} else {
 			fmt.Fprintf(w, "Scripts:      %s\n", strings.Join(names, ", "))
 		}
 	case hooks.ModeAny:
-		fmt.Fprintln(w, "Any command configured in the Restow UI runs as root here. Whoever can change this endpoint's settings in Restow can run commands as root on this machine.")
+		fmt.Fprintln(w, "Any command configured in the Restow UI runs as "+superuser+" here. Whoever can change this endpoint's settings in Restow can run commands as "+superuser+" on this machine.")
 	}
 }

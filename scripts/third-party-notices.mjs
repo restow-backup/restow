@@ -378,12 +378,16 @@ export function moduleSourceNote(module) {
     ? `${module.source}${tag ? ` (tag ${tag}${module.subdir ? `, folder ${module.subdir}` : ""})` : ""}`
     : "";
   const proxy = `https://proxy.golang.org/${module.path.replace(/[A-Z]/g, (c) => `!${c.toLowerCase()}`)}/@v/${module.version}.zip`;
+  // A module that only some targets compile in says so (Windows has modules of its own).
+  const where = Array.isArray(module.targets)
+    ? ` Only in the restic binary for ${module.targets.join(", ")}.`
+    : "";
   if (/\bMPL-2\.0\b/.test(module.license)) {
-    return `Covered by the Mozilla Public License 2.0. restic contains this module unmodified, in executable form. Its source code, including the files covered by the MPL, is available from ${repository || "its repository"} and as the Go module ${module.path} ${module.version} from ${proxy}.`;
+    return `Covered by the Mozilla Public License 2.0. restic contains this module unmodified, in executable form. Its source code, including the files covered by the MPL, is available from ${repository || "its repository"} and as the Go module ${module.path} ${module.version} from ${proxy}.${where}`;
   }
   return repository
-    ? `Source: ${repository}.`
-    : `Source: the Go module ${module.path} ${module.version}.`;
+    ? `Source: ${repository}.${where}`
+    : `Source: the Go module ${module.path} ${module.version}.${where}`;
 }
 
 /** Licenses that also come as a short notice that points to the full text ("Licensed under ..."). */
@@ -566,8 +570,9 @@ function textLinks(ids) {
 
 /** What the section of the modules in restic says before the list (Markdown and text). */
 const RESTIC_MODULES_INTRO = [
-  "restic is a statically linked Go program: its release binary contains these Go modules,",
-  "at these versions (the same for every target). restic and the modules are distributed",
+  "restic is a statically linked Go program: its release binaries contain these Go modules,",
+  "at these versions (the same for every target; an entry that names targets is only in",
+  "the binaries of those targets). restic and the modules are distributed",
   "unmodified. Each entry names the module's license, its copyright lines, its license",
   "texts and, where it has one, its NOTICE file, taken from the module at that version",
   "(vendored in licenses/restic-deps/ by scripts/restic-licenses.mjs). One module is",

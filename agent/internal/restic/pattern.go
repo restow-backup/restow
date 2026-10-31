@@ -21,6 +21,25 @@ func EscapeIncludePath(path string) string {
 	return b.String()
 }
 
+// escapeIncludePathWindows is EscapeIncludePath for restic on Windows, where
+// restic cleans every pattern with filepath.Clean and the backslash becomes
+// a path separator, so escaping with \ does not work (docs/WINDOWS-AGENT.md,
+// 16.4). A [ is written as the class [[]; * and ? cannot occur in Windows
+// file names, and ] alone is no special character.
+func escapeIncludePathWindows(path string) string {
+	return strings.ReplaceAll(path, "[", "[[]")
+}
+
+// includeFor is the pattern and the option restic restores one snapshot
+// path with: on Windows without case (--iinclude), since Windows paths do
+// not depend on it.
+func includeFor(path string, windows bool) (option, pattern string) {
+	if windows {
+		return "--iinclude", escapeIncludePathWindows(path)
+	}
+	return "--include", EscapeIncludePath(path)
+}
+
 // excludeFileLine prepares one exclude pattern for --exclude-file. restic
 // trims whitespace, treats lines starting with # as comments and expands
 // environment variables ($ is written as $$). ok is false for patterns that

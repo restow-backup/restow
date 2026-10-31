@@ -553,6 +553,8 @@ export interface FleetStatus {
     pve_node: string;
     linux: string;
     darwin: string;
+    /** In a PowerShell started as administrator (0.5.0; absent before). */
+    windows?: string;
     legacy?: { linux: string; darwin: string };
     agentUpdateSince?: string;
   };

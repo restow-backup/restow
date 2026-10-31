@@ -20,10 +20,11 @@ small Go program (standard library only, no third-party Go dependencies) that dr
   files. The server later asks the agent to restore those files from the snapshot and
   compares the hashes.
 
-Supported in 0.1.0: **Linux** (systemd, x86_64 and aarch64) and **macOS** (13 Ventura or
-newer, Intel and Apple Silicon). **Windows is planned for a later release**; the code
-keeps the platform specifics behind small per-OS files so it can be added, but nothing
-Windows-specific ships in 0.1.0.
+Supported: **Linux** (systemd, x86_64 and aarch64), **macOS** (13 Ventura or newer, Intel
+and Apple Silicon) and, as a **preview in 0.5.0**, **Windows** 10/11 and Server 2016 or
+newer on x64 (amd64): a Windows service under LocalSystem that backs up from a volume shadow
+copy (VSS). No Windows on ARM, no Authenticode signature (see "Known limits" and
+docs/WINDOWS-AGENT.md).
 
 ## Installing
 
@@ -118,6 +119,32 @@ the instance are kept;
 revoke the endpoint in the Restow UI to finish the removal there. (The UI can also send
 an `uninstall` task.)
 
+**Windows (preview).** In a PowerShell started as administrator (right-click > Run as
+administrator); Windows PowerShell 5.1 is enough:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (irm -UseBasicParsing 'https://<your instance>/install/windows.ps1')
+# unattended (RMM as SYSTEM): token file and the pinned release key
+$env:RESTOW_TOKEN_FILE = 'C:\Windows\System32\config\systemprofile\restow-enrollment.token'
+$env:RESTOW_RELEASE_KEY_FINGERPRINT = 'SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o'
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (irm -UseBasicParsing 'https://<your instance>/install/windows.ps1')
+# remove
+& ([scriptblock]::Create((irm -UseBasicParsing 'https://<your instance>/install/windows.ps1'))) -Uninstall
+```
+
+The installer checks the release signature itself (its own Ed25519 check in PowerShell, no
+other tool) before it runs anything, prints the fingerprint of the release key and stops
+when it differs from a pin. Options: `-Hooks off|scripts|any`, `-Proxy http://proxy:3128`
+(no credentials; used for the downloads, the enrollment and the service),
+`-ReleaseKeyFingerprint`, `-Uninstall`, or the same as `RESTOW_HOOKS`, `RESTOW_PROXY`,
+`RESTOW_RELEASE_KEY_FINGERPRINT`, `RESTOW_UNINSTALL=1`. A 32-bit host
+(Intune runs scripts 32-bit by default) is fine: the installer starts itself again as
+64-bit; write the token file there to `C:\Windows\Sysnative\config\systemprofile\`. Where
+`iex (irm ...)` is blocked (AMSI, ASR, EDR), download `windows.ps1`, compare its SHA-256 and
+run it with `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1`. Neither
+`restow-agent.exe` nor the script carry an Authenticode signature in this preview; see
+"Known limits" for Defender and Smart App Control.
+
 **macOS: grant Full Disk Access.** macOS protects Desktop, Documents, Downloads, iCloud
 Drive and other folders. Add `/Library/Application Support/Restow/bin/restow-agent`
 under System Settings > Privacy & Security > Full Disk Access (on managed Macs: a Privacy
@@ -130,13 +157,13 @@ run log says so. If protected folders are still reported after that, also add
 
 ```
 restow-agent enroll        Enroll this machine (RESTOW_TOKEN and RESTOW_URL from the environment)
-restow-agent run           The service main loop (what systemd / launchd execute)
-restow-agent status        Local state, no root needed (--json for scripts)
+restow-agent run           The service main loop (what systemd / launchd execute; Windows: run --service)
+restow-agent status        Local state, no root or administrator needed (--json for scripts)
 restow-agent backup-now    Run one backup in the foreground (exit 0 ok, 3 partial, 1 failed)
 restow-agent update        Install the release the server offers now, then restart the service
 restow-agent service ...   install | start | stop | restart | status
 restow-agent hooks ...     status | off | scripts | any: whether hooks from the server run here
-restow-agent uninstall     Remove the agent (--yes, --keep-logs)
+restow-agent uninstall     Remove the agent (--yes, --keep-logs, --keep-binaries)
 restow-agent version       Version, commit, build date (--short for the number only)
 ```
 
@@ -147,6 +174,11 @@ a new enrollment of an enrolled machine keeps its policy).
 `enroll --allow-insecure-http` exists for local development only and is refused by the
 install scripts unless `RESTOW_ALLOW_INSECURE_HTTP=1` is set; it makes the agent accept
 `http://` URLs and prints a warning every time.
+
+On Windows every command except `status` and `version` needs a PowerShell or Command Prompt
+started as administrator (an administrator without elevation is refused), or SYSTEM.
+`run --service` only runs under the service control manager; `run` without it runs the
+agent in the current window for troubleshooting (Ctrl+C stops it).
 
 ## What the agent does
 
@@ -195,7 +227,32 @@ host name recorded at enrollment and the tag `restow-agent`.
 - `onlyOnAcPower` is checked before a scheduled start and, if the device is on battery,
   the backup waits (see the limits below). An administrator's "Back up now" is not held
   back. A running backup is not stopped when the charger is unplugged.
-- `useVss` is a Windows option and has no effect on Linux and macOS (it is logged).
+- `useVss` (Windows; on by default, switched per machine in the Restow UI) backs up from a
+  volume shadow copy: restic `--use-fs-snapshot -o vss.timeout=5m`, with removable drives,
+  FAT and exFAT volumes passed as `-o vss.exclude-volumes` (read live, noted in the run
+  log). The result is file consistent, not application consistent (restic asks for a copy
+  backup without writer components; use a pre hook such as `sqlcmd -Q "BACKUP DATABASE
+  ..."` for databases). On Linux and macOS `useVss` has no effect (it is logged).
+- **When the snapshot fails** the policy `snapshotOnFailure` decides (the same setting for
+  VSS, LVM, btrfs and APFS). restic ends with exit code 0 when a shadow copy fails and reads
+  that volume live; the agent tells from restic's error entries (`failed to create snapshot
+  for [c:\]: ...`). `continue` (default): the run ends `partial` with `snapshot_failed` for
+  each such volume; when VSS cannot be used at all (service disabled, COM, no rights,
+  restic's `VSS error` before any progress) the agent runs restic once more without
+  `--use-fs-snapshot` and reports `snapshot_unavailable`. `fail`: the agent stops restic
+  (CTRL_BREAK) at the first failed volume, or does not back up at all; the run ends
+  `failed`. A volume the provider does not support (`Snapshots are not supported for
+  volume`) is only a note in the run log, under both policies. A shadow copy restic could
+  not delete is reported as `snapshot_cleanup_failed`, which does not change the status.
+  Every backup report carries `consistency: { method, state, liveFilesystems }` (`state`
+  is `used`, `partial`, `unavailable` or `off`).
+- On Windows the agent also excludes `pagefile.sys`, `hiberfil.sys`, `swapfile.sys`,
+  `System Volume Information`, `$Recycle.Bin` and its own `C:\ProgramData\Restow`,
+  compares exclusion patterns without case (`--iexclude-file`), skips online-only cloud
+  files (`--exclude-cloud-files`, so OneDrive does not download anything) and writes the
+  drive letter of every source in capitals (restic stores `C:\Users` as `/C/Users`).
+  Paths of the other system in a mixed job (`/etc` on Windows, `C:\Users` on Linux) are
+  skipped with one log line.
 - A backup is limited to 72 hours; a wedged restic is then stopped and the run fails.
 
 **Restore task.** Restores into `targetDir`, or by default into
@@ -279,6 +336,19 @@ must not print secrets: the agent masks its own secrets and common secret patter
 nothing more. The policy is read at every backup, so a change applies without a restart;
 the server learns it with the next heartbeat (within five minutes).
 
+**Windows.** Hooks run as SYSTEM in Windows PowerShell 5.1
+(`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand`, from
+the system folder). Every command is wrapped so the exit code means something: a failing
+cmdlet stops the hook with 1, a native program keeps its code (`cmd /c exit 7` gives 7), an
+own `exit 5` gives 5. A native program failing in the middle of a command does not stop it
+(as `sh -c` without `set -e`). The `scripts` policy runs `.ps1` (through the same wrapper)
+and `.exe` files from `C:\ProgramData\Restow\state\hooks.d` that only SYSTEM,
+Administrators and TrustedInstaller can change; `.cmd` and `.bat` are not run (call them
+from a `.ps1`). A group policy with the execution policy `AllSigned` or `Restricted` wins
+over `-ExecutionPolicy Bypass`; the run log then names it. Each hook runs in its own Job
+Object: a timeout or a cancelled run ends the hook and everything it started at once,
+without a grace period; after a normal end, background processes it started live on.
+
 **Networking.** HTTPS only (TLS 1.2 or newer, system trust store, redirects to `http://`
 refused). Calls have timeouts and retry with exponential backoff and jitter, honoring
 `Retry-After`; requests that are not safe to repeat are only retried when they cannot
@@ -355,6 +425,20 @@ are passed on when they are set in the service environment, for example with
   (rootless containers) does not work.
 - The service runs with low CPU and I/O priority and is restarted by systemd / launchd if
   it stops.
+- **Windows (preview).** The service `RestowAgent` runs as LocalSystem with a reduced list of
+  privileges (backup, restore, security, take ownership, symbolic links, change notify,
+  impersonate, create global, manage volume): the service control manager removes all
+  others, so restic and hooks never hold `SeDebugPrivilege` or `SeTcbPrivilege`. The
+  folders below `C:\ProgramData\Restow` have a protected DACL (SYSTEM and Administrators;
+  `status.json` readable by Users). The agent secret and the repository password are
+  additionally encrypted with DPAPI for the machine; that only protects a copy of the file
+  alone: any process on the machine that can read the file can decrypt it, so the DACL is
+  the boundary. The trust check reads owner and DACL of every folder from the file up to the
+  drive root (SYSTEM, Administrators and TrustedInstaller are trusted; nobody else may
+  write, delete or change permissions; adding entries to `C:\` or `C:\ProgramData` is
+  allowed above the folder itself) and refuses links, junctions and mount points. restic and
+  hooks run in Job Objects, so they end with the agent. Security-relevant events go to the
+  Application event log, source `Restow`.
 
 ## Files
 
@@ -371,6 +455,12 @@ are passed on when they are set in the service environment, for example with
 | `/var/log/restow-agent/agent.log` | Agent log, rotated at 5 MB, 3 files kept (Linux: also in the journal; macOS: `launchd.log` for crash traces) |
 | `/etc/systemd/system/restow-agent.service` | systemd unit (Linux) |
 | `/Library/LaunchDaemons/com.restowbackup.agent.plist` | LaunchDaemon (macOS) |
+| `C:\Program Files\Restow\bin\{restow-agent.exe,restic.exe}` | Binaries (Windows; `restow-agent.exe.prev`: previous agent after an update) |
+| `C:\Program Files\Restow\THIRD_PARTY_NOTICES.txt` | License notices (Windows) |
+| `C:\ProgramData\Restow\state\state.json`, `hooks.d\` | Enrollment with DPAPI-protected secrets, hook scripts (Windows; SYSTEM and Administrators only) |
+| `C:\ProgramData\Restow\data\{status.json,cache,tmp,restic-tmp,outbox,run.lock}` | Status (readable by Users), restic cache, temporary files, run lock (Windows) |
+| `C:\ProgramData\Restow\logs\agent.log` | Agent log (Windows); security events also in the Application event log, source `Restow` |
+| `HKLM\SYSTEM\CurrentControlSet\Services\RestowAgent` | The Windows service; `Environment` holds the proxy set with `-Proxy` |
 
 ## Build
 
@@ -378,12 +468,13 @@ Go is not required on the host; the scripts use the pinned `golang` image (`GO_I
 `tools.env`) when no `go` is on the PATH. The Go version is 1.26 or newer (`go.mod`).
 
 ```sh
-./build.sh                          # development build 0.0.0-dev, all four targets into dist/<os>-<arch>/
+./build.sh                          # development build 0.0.0-dev, all five targets into dist/<os>-<arch>/
 ./build.sh --version 0.1.0          # a release build (needs the release key in release-signing.pub; signed separately)
 ```
 
-`build.sh` cross-compiles `linux/amd64`, `linux/arm64`, `darwin/amd64` and `darwin/arm64`
-with `CGO_ENABLED=0 -trimpath -buildvcs=false` and the version injected through
+`build.sh` cross-compiles `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` and
+`windows/amd64` (a preview, see below; the files are `restow-agent.exe` and `restic.exe`, restic
+from the pinned `.zip`) with `CGO_ENABLED=0 -trimpath -buildvcs=false` and the version injected through
 `-ldflags`, downloads the pinned restic release for every target and verifies its SHA-256
 against `tools.env` before unpacking, and writes checksums:
 
@@ -481,6 +572,13 @@ build, builds the images with the signed agent (the Dockerfile checks the signat
 again), runs the release smoke, checks the signature once more and only then publishes
 the draft. The private key never enters the repository or CI.
 
+**Windows preview: Defender submission.** `restow-agent.exe` and `restic.exe` carry no
+Authenticode signature. Before signing every prerelease and release, submit both files
+(SHA-256 in the request to sign from the job `agent-sums`) at Microsoft's "Submit a file for
+malware analysis" as a software developer, and wait for a clean verdict; the builds are
+reproducible, so the hashes are final once the job `agent` ran. This is a manual step of the
+maintainer.
+
 The script runs from any directory and needs no clone of the repository with the tag. The
 repository is `--repo <owner/name>`; without it the script uses the GitHub repository of the
 clone it lives in (as `gh repo view` reports it) and otherwise `restow-backup/restow`.
@@ -516,7 +614,7 @@ on another machine and pass the SHA-256 of the checked `SHA256SUMS` to the insta
 ## Tests
 
 ```sh
-scripts/test.sh                 # gofmt, go vet for all four targets, unit tests with the race detector, build.sh test, ShellCheck
+scripts/test.sh                 # gofmt, go vet for all five targets, unit tests with the race detector, build.sh test, ShellCheck
 scripts/test-build.sh           # build.sh with a stand-in go (layout, checksums, --no-restic); no Go, Docker or network
 scripts/integration.sh          # real restic + rest-server (append-only) on Linux, in Docker
 scripts/integration.sh --native # the same natively on this machine (macOS or Linux)
@@ -524,7 +622,21 @@ scripts/test-install.sh         # install/linux.sh end to end in a container (fa
 scripts/test-install-macos.sh   # install/macos.sh on a Mac, unprivileged, relocated root
 scripts/test-systemd.sh         # real systemd (privileged container): hardening and the move of an older installation (RESTOW_TEST_OLD_REF)
 scripts/lint.sh                 # ShellCheck only
+go run ./scripts/sigdiff -n 400 # Ed25519 vectors for the differential test of the Windows installer
+# on Windows (CI job agent-windows):
+go test -tags windowsintegration ./internal/...   # service, DPAPI, ACLs, Job Objects, hooks (as administrator)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-windows.ps1
 ```
+
+The Windows installer checks the release signature with its own Ed25519 code in
+PowerShell. `scripts/sigdiff/ref.go` is the same algorithm in Go (`math/big`); `go test`
+compares it with `crypto/ed25519` on the RFC 8032 vectors and 600 mutated signatures (bit
+flips in R and S, S + L, high bits, non-canonical R, other message or key, wrong length).
+On Windows, `test-install-windows.ps1` compares the PowerShell code itself with Go on the
+committed vectors and 300 new ones, checks the SSHSIG fixtures in `install/testdata/sshsig`
+(regenerate with `go run ./scripts/sigdiff -sshsig install/testdata/sshsig`) and a signature
+made by `ssh-keygen`, and installs, repairs and removes the agent against the fake instance
+below a prefix.
 
 The install test builds a release from a copy of the checkout with a throwaway signing
 key and checks: the signature (ssh-keygen and OpenSSL 3), a re-hashed `SHA256SUMS`, an
@@ -574,7 +686,7 @@ There is no `go.sum` because there is nothing to fetch.
 
 | Component | License | How it is used |
 | --- | --- | --- |
-| [restic](https://github.com/restic/restic) 0.19.1 | BSD-2-Clause; the 79 Go modules compiled into it are Apache-2.0, MIT, BSD-3-Clause, BSD-2-Clause and, for `github.com/hashicorp/golang-lru/v2`, MPL-2.0 (used unmodified) | External binary shipped next to the agent and executed with `RESTIC_*` environment variables |
+| [restic](https://github.com/restic/restic) 0.19.1 | BSD-2-Clause; the Go modules compiled into it (79 or 80 per target, 82 in all) are Apache-2.0, MIT, BSD-3-Clause, BSD-2-Clause and, for `github.com/hashicorp/golang-lru/v2`, MPL-2.0 (used unmodified) | External binary shipped next to the agent and executed with `RESTIC_*` environment variables |
 | [rest-server](https://github.com/restic/rest-server) 0.14.0 | BSD-2-Clause | Integration tests only, not shipped |
 | Go toolchain (`golang` image) | BSD-3-Clause | Build and tests only |
 | [ShellCheck](https://www.shellcheck.net) | GPL-3.0 | Linting only, run from its Docker image, not part of any build output |
@@ -606,14 +718,34 @@ carries all of them.
 - **No mTLS yet.** v1 authenticates each agent with a per-agent secret over HTTPS. A
   stolen secret (root on the endpoint) allows writing new backups to that endpoint's
   repository and reading it; it does not allow deleting anything.
-- **No LVM, ZFS or btrfs snapshots yet.** Consistency on Linux and macOS comes from the
-  optional pre/post hooks (database dumps, `fsfreeze`, and so on). Files that change while
-  they are read can end up inconsistent in the snapshot. On macOS there is no APFS
-  snapshot integration either.
+- **No LVM, ZFS or btrfs snapshots for ordinary backups yet.** Consistency on Linux and
+  macOS comes from the optional pre/post hooks (database dumps, `fsfreeze`, and so on).
+  Files that change while they are read can end up inconsistent in the snapshot.
+- **Windows shadow copies are file consistent, not application consistent.** Open
+  databases (SQL Server, Exchange) are crash consistent and their logs are not truncated;
+  use a pre hook for an application-consistent dump. Files listed under
+  `HKLM\SYSTEM\CurrentControlSet\Control\BackupRestore\FilesNotToSnapshot` (by default
+  Outlook OST files) are missing from the snapshot.
 - **File-based only.** No disk images, no bare-metal restore. Restoring a whole machine
   means reinstalling the operating system and restoring the files.
-- **Windows is not part of 0.1.0** (planned): no Windows build, installer or service, and
-  therefore no VSS.
+- **Windows is a preview in 0.5.0.** Backups with shadow copies, restores and the service
+  work as described in docs/WINDOWS-AGENT.md, but are tested on real machines only by the
+  maintainer's checklist there. No Windows on ARM (installer and server refuse it). No
+  Authenticode for `restow-agent.exe`, `restic.exe` or `windows.ps1`: Defender may flag a new
+  build until Microsoft has cleared it (the maintainer submits every prerelease), ASR rules
+  may block it, and Smart App Control (fresh Windows 11) blocks the agent, which the
+  installer detects. No alternate data streams (so no Mark of the Web after a restore), no
+  EFS files of other users (read errors), online-only cloud files are left out, junctions are
+  backed up as links, no system state or registry, no bare-metal restore: restoring a
+  Windows machine means reinstalling Windows, then restoring the files. Further data drives
+  (`D:\`) are not reported as data folders yet. Hooks under
+  Windows: only `.ps1` and `.exe` in the `scripts` policy, no grace period on a timeout. The
+  proxy is a fixed URL without credentials (no WPAD/PAC, no NTLM or Kerberos). After an
+  uninstall through the agent itself, `restow-agent.exe` stays until the next restart
+  (the installer's `-Uninstall` removes everything). The restore target defaults to
+  `C:\Restow-Restore-<time>`, not into a backed-up folder as on Unix. Tests that use `/bin/sh`
+  stand-ins carry `//go:build unix`; new Linux-only code needs `//go:build linux`, new
+  macOS-only code `//go:build darwin`, or `GOOS=windows go vet` fails.
 - **Power detection is best effort.** Linux reads `/sys/class/power_supply`; macOS reads
   `pmset -g batt` (a UPS counts as battery). When the state cannot be determined the agent
   assumes AC power so that a detection failure never blocks backups, and logs that once a

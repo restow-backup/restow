@@ -51,3 +51,6 @@ func checkFile(path string) ([]string, error) {
 	}
 	return warnings, nil
 }
+
+// secretSealer is nil on Unix: the file mode protects the secrets.
+var secretSealer sealer

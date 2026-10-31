@@ -16,7 +16,8 @@ export type { EndpointProfile };
 
 export type EndpointOs = "linux" | "windows" | "darwin";
 /** The systems the enrollment offers; Windows is planned, the API refuses it. */
-export type EnrollOs = Exclude<EndpointOs, "windows">;
+/** The systems a machine can be enrolled with (Windows from 0.5.0, as a preview, amd64 only). */
+export type EnrollOs = EndpointOs;
 export type EndpointArch = "amd64" | "arm64";
 export type EndpointStatus = "active" | "revoked";
 export type Connection = "online" | "offline" | "never";
@@ -146,6 +147,20 @@ export interface RunStats {
   dataAdded?: number;
   totalFilesProcessed?: number;
   totalBytesProcessed?: number;
+  /** Whether a file system snapshot was used (agents from 0.5.0; also on a failed run). */
+  consistency?: RunConsistency;
+}
+
+/**
+ * How consistent a backup's files are (docs/AGENT.md, "Konsistenz"): the snapshot method of the
+ * machine (`vss` on Windows; `lvm`, `btrfs`, `apfs`, `mixed` elsewhere; absent when there is none)
+ * and what happened: `used`, `partial` (some volumes read live), `unavailable` (no snapshot at
+ * all) or `off` (none requested).
+ */
+export interface RunConsistency {
+  method?: "vss" | "lvm" | "btrfs" | "apfs" | "mixed";
+  state: "used" | "partial" | "unavailable" | "off";
+  liveFilesystems?: string[];
 }
 
 export interface RunDetail extends RunSummary {
@@ -431,6 +446,11 @@ export interface CreatedToken extends EnrollmentToken {
     hooksScripts: string;
     hooksAny: string;
   };
+  /**
+   * Windows (0.5.0, preview): the fingerprint of the release signing key (the unattended command
+   * pins it) and the SHA-256 of windows.ps1 as this instance serves it; null when there is none.
+   */
+  windows?: { releaseKeyFingerprint: string | null; scriptSha256: string | null };
   warnings: TokenWarning[];
 }
 
@@ -505,6 +525,8 @@ export interface UpdateEndpointInput {
     /** `null` or an empty list removes them. */
     bandwidthWindows?: BandwidthWindow[] | null;
     onlyOnAcPower?: boolean;
+    /** Windows machines only: back up from a shadow copy (VSS). */
+    useVss?: boolean;
   };
   settings?: {
     retention?: Retention;

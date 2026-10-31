@@ -135,6 +135,7 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "GET /agent/v1/update",
   "GET /install/linux.sh",
   "GET /install/macos.sh",
+  "GET /install/windows.ps1",
   "GET /install/agent/:version/:file",
   "GET /install/agent/:version/:target/:file",
   // Proxmox VE (docs/PVE.md): the node helper authenticates with its own secret,

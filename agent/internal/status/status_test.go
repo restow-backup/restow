@@ -3,6 +3,7 @@ package status
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -25,7 +26,8 @@ func TestStoreRoundTripAndMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(path)
-	if err != nil || fi.Mode().Perm() != 0o644 {
+	// Windows has no mode bits beyond read-only.
+	if err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o644) {
 		t.Fatalf("stat: %v mode %v", err, fi.Mode())
 	}
 	loaded, err := Load(path)

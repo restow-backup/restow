@@ -10,17 +10,8 @@ import (
 	"syscall"
 )
 
-// UntrustedError names a file or folder the agent refuses to rely on because
-// a user other than root could change it.
-type UntrustedError struct {
-	Path   string
-	Reason string
-}
-
-func (e *UntrustedError) Error() string {
-	return fmt.Sprintf("%s %s. The agent runs as root and only uses files and folders that no other user can change "+
-		"(owner root, not writable by group or others); fix the ownership and permissions or re-run the install script", e.Path, e.Reason)
-}
+const untrustedHint = "The agent runs as root and only uses files and folders that no other user can change " +
+	"(owner root, not writable by group or others); fix the ownership and permissions or re-run the install script"
 
 // trustedUID is root, or the user the agent runs as (a development run
 // without root trusts its own files; it gains nothing from them).

@@ -18,8 +18,8 @@ Usage: restow-agent <command> [options]
 
 Commands:
   enroll       Enroll this machine (reads RESTOW_TOKEN and RESTOW_URL from the environment)
-  run          Run the agent (this is what the service executes)
-  status       Show the local state of the agent (no root needed)
+  run          Run the agent (this is what the service executes; Windows: run --service)
+  status       Show the local state of the agent (no root or administrator needed)
   backup-now   Run a backup right now and wait for it
   update       Install a newer release the Restow instance offers, now (not while a backup runs)
   service      Control the system service: install | start | stop | restart | status

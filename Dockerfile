@@ -152,6 +152,7 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
       cp -R . /out/; \
       rm -rf /out/server; \
       cp /src/agent/install/*.sh /src/agent/release-signing.pub /install/; \
+      for ps1 in /src/agent/install/*.ps1; do if [ -f "$ps1" ]; then cp "$ps1" /install/; fi; done; \
     elif [ -f /src/agent/build.sh ]; then \
       cd /src/agent; \
       set -- --out /out; \
@@ -160,6 +161,7 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
       export RESTOW_COMMIT="$(printf '%.7s' "${RESTOW_REVISION:-unknown}")"; \
       sh ./build.sh "$@"; \
       cp install/*.sh release-signing.pub /install/; \
+      for ps1 in install/*.ps1; do if [ -f "$ps1" ]; then cp "$ps1" /install/; fi; done; \
     else \
       echo "restow: no agent/ in the build context, the image ships without agent binaries" >&2; \
     fi; \
@@ -177,7 +179,8 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
 ########################################
 # agent-dist — /srv/agent/<version>/<os>-<arch>/ and the server's restic
 ########################################
-# One directory per agent target: restow-agent, restic, THIRD_PARTY_NOTICES.txt
+# One directory per agent target: restow-agent, restic (restow-agent.exe and
+# restic.exe for windows-amd64), THIRD_PARTY_NOTICES.txt
 # (the licenses the installers put next to the binaries) and the SHA256SUMS over
 # them, plus SHA256SUMS over all targets with the maintainer's signature
 # (SHA256SUMS.sig, release builds; agents and installers verify it), VERSION and
@@ -202,7 +205,9 @@ RUN set -eu; \
       target="$(basename "$dir")"; \
       [ "$target" != server ] || continue; \
       mkdir -p "${root}/${version}/${target}"; \
-      cp "$dir"restow-agent "$dir"restic "$dir"THIRD_PARTY_NOTICES.txt "$dir"SHA256SUMS "${root}/${version}/${target}/"; \
+      exe=""; \
+      case "$target" in windows-*) exe=".exe" ;; esac; \
+      cp "$dir"restow-agent$exe "$dir"restic$exe "$dir"THIRD_PARTY_NOTICES.txt "$dir"SHA256SUMS "${root}/${version}/${target}/"; \
       for extra in restow-pve RestowPlugin.pm RestowProvider.pm RestowPlugin.LICENSE.txt; do \
         if [ -f "$dir$extra" ]; then cp "$dir$extra" "${root}/${version}/${target}/"; fi; \
       done; \
@@ -211,6 +216,7 @@ RUN set -eu; \
       [ ! -f "/agent/${file}" ] || cp "/agent/${file}" "${root}/${version}/${file}"; \
     done; \
     cp /install/*.sh "${root}/install/" 2>/dev/null || true; \
+    cp /install/*.ps1 "${root}/install/" 2>/dev/null || true; \
     cp /install/release-signing.pub "${root}/install/" 2>/dev/null || true; \
     if [ -f "${root}/${version}/linux-${TARGETARCH}/restic" ]; then \
       ln -s "/srv/agent/${version}/linux-${TARGETARCH}/restic" /rootfs/usr/local/bin/restic; \

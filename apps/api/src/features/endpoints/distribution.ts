@@ -3,21 +3,22 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { SUPPORTED_ENDPOINT_OS } from "@restow/core";
-
 /**
  * Where the agent binaries and the install scripts come from
  * (docs/AGENT.md, "Distribution").
  *
  * The image ships the agent for every target under
  * `/srv/agent/<version>/<os>-<arch>/` (the binaries `restow-agent` and
- * `restic`, their license notices `THIRD_PARTY_NOTICES.txt` and a `SHA256SUMS`
- * next to them), so an instance never depends on
+ * `restic`, `restow-agent.exe` and `restic.exe` for Windows, their license
+ * notices `THIRD_PARTY_NOTICES.txt` and a `SHA256SUMS` next to them), so an
+ * instance never depends on
  * the vendor's site. The install scripts sit in `/srv/agent/install/`; a
  * development checkout reads them from `agent/install/` in the repository.
  * `RESTOW_AGENT_DIR` and `RESTOW_AGENT_INSTALL_DIR` move either.
  *
- * Only Linux and macOS targets exist in 0.1.0 (Windows is on the roadmap).
+ * Linux and macOS on amd64 and arm64, and Windows on amd64 (a preview in
+ * 0.5.0; there is no Windows on ARM, docs/WINDOWS-AGENT.md). Which systems may
+ * enroll is decided elsewhere (`SUPPORTED_ENDPOINT_OS` in @restow/core).
  *
  * Agent releases are signed by the maintainer (agent/README.md, "Release
  * signing"): `<root>/<version>/SHA256SUMS` lists every file of a release and
@@ -27,16 +28,29 @@ import { SUPPORTED_ENDPOINT_OS } from "@restow/core";
  * the server also writes into the install scripts).
  */
 
-/** The `<os>-<arch>` folders the server offers. */
-export const DISTRIBUTION_TARGETS = SUPPORTED_ENDPOINT_OS.flatMap((os) => [
-  `${os}-amd64`,
-  `${os}-arm64`,
-]);
+/**
+ * The `<os>-<arch>` folders the server offers, the targets of agent/build.sh. A
+ * fixed list: deriving it from the enrollable systems would invent windows-arm64.
+ */
+export const DISTRIBUTION_TARGETS: readonly string[] = [
+  "linux-amd64",
+  "linux-arm64",
+  "darwin-amd64",
+  "darwin-arm64",
+  "windows-amd64",
+];
 
-/** The install scripts by URL name. Windows is intentionally absent. */
+/** The file name of the agent binary of a target (`restow-agent.exe` on Windows). */
+export function agentBinaryName(target: string): string {
+  return target.startsWith("windows-") ? "restow-agent.exe" : "restow-agent";
+}
+
+/** The install scripts by URL name. */
 export const INSTALL_SCRIPTS = {
   "linux.sh": "linux.sh",
   "macos.sh": "macos.sh",
+  // Windows (0.5.0, preview; docs/WINDOWS-AGENT.md, section 14).
+  "windows.ps1": "windows.ps1",
   // The node installer for Proxmox VE (restow-pve, features/pve).
   "pve.sh": "pve.sh",
 } as const;
@@ -283,9 +297,10 @@ export async function latestAgentRelease(
       continue;
     }
     const sums = await readChecksums(version, target, root);
-    const sha256 = sums.get("restow-agent");
+    const file = agentBinaryName(target);
+    const sha256 = sums.get(file);
     if (sha256) {
-      return { version, target, sha256, file: "restow-agent" };
+      return { version, target, sha256, file };
     }
   }
   return null;

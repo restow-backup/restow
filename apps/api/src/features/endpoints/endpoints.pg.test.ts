@@ -255,12 +255,30 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
       expect(created.warnings).toEqual(["insecure_transport", "instance_url_not_configured"]);
     });
 
-    it("refuses tokens for Windows", async () => {
+    it("creates tokens for Windows with the PowerShell commands (preview)", async () => {
+      const created = await service.createEnrollmentToken(
+        shared.db,
+        fixture.tenantId,
+        { profile: "server", os: "windows" },
+        actor(),
+        instance,
+      );
+      expect(created.os).toBe("windows");
+      expect(created.commands.install).toBe(
+        "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (irm -UseBasicParsing 'https://restow.test.example/install/windows.ps1')",
+      );
+      expect(created.commands.tokenFile).toBe(
+        "C:\\Windows\\System32\\config\\systemprofile\\restow-enrollment.token",
+      );
+      expect(created.commands.hooksScripts).toBe(
+        "& 'C:\\Program Files\\Restow\\bin\\restow-agent.exe' hooks scripts",
+      );
+      expect(created.windows).toBeDefined();
       await expect(
         service.createEnrollmentToken(
           shared.db,
           fixture.tenantId,
-          { profile: "server", os: "windows" },
+          { profile: "server", os: "freebsd" },
           actor(),
           instance,
         ),
@@ -464,20 +482,36 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
       expect(entry).toBeDefined();
     });
 
-    it("does not enroll Windows and leaves the token valid", async () => {
+    it("enrolls Windows on amd64, refuses Windows on ARM and leaves the token valid", async () => {
       const created = await token("server");
-      const response = await enrollWith(created.token, { os: "windows" });
+      const response = await enrollWith(created.token, { os: "windows", arch: "arm64" });
       expect(response.status).toBe(422);
       const problem = (await response.json()) as { type: string; detail: string };
       expect(problem.type).toBe("urn:restow:problem:unsupported-os");
-      expect(problem.detail).toContain("Windows");
+      expect(problem.detail).toContain("Windows on ARM");
+      const freebsd = await enrollWith(created.token, { os: "freebsd" });
+      expect(freebsd.status).toBe(422);
       const [row] = await fixture.db
         .select()
         .from(endpointEnrollmentTokens)
         .where(eq(endpointEnrollmentTokens.id, created.id));
       expect(row?.usedAt).toBeNull();
-      // The same token still enrolls a Linux machine.
-      expect((await enrollWith(created.token)).status).toBe(201);
+      // The same token enrolls a Windows machine on amd64, with the shadow copy on.
+      const windows = await enrollWith(created.token, {
+        os: "windows",
+        arch: "amd64",
+        hostname: "PC-01",
+        osVersion: "Windows 11 Pro 24H2",
+      });
+      expect(windows.status).toBe(201);
+      const body = (await windows.json()) as Enrolled;
+      const [endpoint] = await fixture.db
+        .select()
+        .from(endpoints)
+        .where(eq(endpoints.id, body.endpointId));
+      expect(endpoint?.os).toBe("windows");
+      expect(endpoint?.config.useVss).toBe(true);
+      expect(endpoint?.config.paths).toEqual(["C:\\Users", "C:\\ProgramData"]);
     }, 30_000);
 
     it("rejects malformed bodies without spending the token", async () => {
@@ -1027,6 +1061,57 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
         .from(endpointRuns)
         .where(eq(endpointRuns.id, odd.runId));
       expect(plain?.stats).not.toHaveProperty("activity");
+    }, 30_000);
+
+    it("keeps the consistency report, also for a failed run, and drops a malformed one", async () => {
+      const who = await enrolled("server");
+      const partial = await finishedBackup(who, {
+        status: "partial",
+        errors: [
+          {
+            code: "snapshot_failed",
+            path: "C:\\",
+            message:
+              "The shadow copy of C:\\ could not be created (VSS_E_SNAPSHOT_SET_IN_PROGRESS).",
+          },
+        ],
+        consistency: { method: "vss", state: "partial", liveFilesystems: ["C:\\"] },
+      });
+      expect(partial.finish.status).toBe(200);
+      const [row] = await fixture.db
+        .select({ stats: endpointRuns.stats, failure: endpointRuns.failure })
+        .from(endpointRuns)
+        .where(eq(endpointRuns.id, partial.runId));
+      expect(row?.stats?.consistency).toEqual({
+        method: "vss",
+        state: "partial",
+        liveFilesystems: ["C:\\"],
+      });
+      expect(row?.failure).toMatchObject({ code: "endpoint.snapshot_failed" });
+
+      // A failed run has no statistics, but the snapshot may be why it failed.
+      const failed = await finishedBackup(who, {
+        status: "failed",
+        snapshotId: undefined,
+        stats: undefined,
+        sample: undefined,
+        errors: [{ code: "snapshot_unavailable", message: "VSS error: CoInitializeSecurity" }],
+        consistency: { method: "vss", state: "unavailable" },
+      });
+      const [failedRow] = await fixture.db
+        .select({ stats: endpointRuns.stats, failure: endpointRuns.failure })
+        .from(endpointRuns)
+        .where(eq(endpointRuns.id, failed.runId));
+      expect(failedRow?.stats).toEqual({ consistency: { method: "vss", state: "unavailable" } });
+      expect(failedRow?.failure).toMatchObject({ code: "endpoint.snapshot_unavailable" });
+
+      const odd = await finishedBackup(who, { consistency: { state: "perfect" } });
+      expect(odd.finish.status).toBe(200);
+      const [oddRow] = await fixture.db
+        .select({ stats: endpointRuns.stats })
+        .from(endpointRuns)
+        .where(eq(endpointRuns.id, odd.runId));
+      expect(oddRow?.stats).not.toHaveProperty("consistency");
     }, 30_000);
 
     it("finishing twice answers the same and changes nothing", async () => {
@@ -2180,6 +2265,10 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
           join(dist, "install", "linux.sh"),
           "INSTANCE_URL='__RESTOW_URL__'\nAGENT_VERSION='__RESTOW_VERSION__'\nRELEASE_KEY='__RESTOW_RELEASE_KEY__'\n",
         );
+        await writeFile(
+          join(dist, "install", "windows.ps1"),
+          "$RestowInstanceUrl = '__RESTOW_URL__'\n$RestowAgentVersion = '__RESTOW_VERSION__'\n$RestowReleaseKey = '__RESTOW_RELEASE_KEY__'\n",
+        );
         const { installRoutes } = await import("./install-routes.js");
         const { errorHandler } = await import("../../problem.js");
         const install = new Hono();
@@ -2198,6 +2287,15 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
         ).text();
         expect(script).toContain(`RELEASE_KEY='${key}'`);
         expect(script).toContain("AGENT_VERSION='1.2.3'");
+        // Windows PowerShell: the same checked values in single-quoted strings, as text.
+        const ps = await install.request("https://restow.test.example/install/windows.ps1");
+        expect(ps.status).toBe(200);
+        expect(ps.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+        const psText = await ps.text();
+        expect(psText).toContain("$RestowInstanceUrl = 'https://restow.test.example'");
+        expect(psText).toContain(`$RestowReleaseKey = '${key}'`);
+        expect(psText).toContain("$RestowAgentVersion = '1.2.3'");
+        expect(psText).not.toContain("__RESTOW_");
       } finally {
         for (const [name, value] of [
           ["RESTOW_AGENT_DIR", keep.dir],

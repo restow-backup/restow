@@ -1,10 +1,10 @@
 #!/bin/sh
-# Cross-compiles the Restow agent for Linux and macOS (amd64 and arm64), fetches
-# the pinned restic release for each target with SHA-256 verification, and
-# writes SHA256SUMS. Output layout:
+# Cross-compiles the Restow agent for Linux and macOS (amd64 and arm64) and
+# Windows (amd64, preview), fetches the pinned restic release for each target
+# with SHA-256 verification, and writes SHA256SUMS. Output layout:
 #
-#   dist/<os>-<arch>/restow-agent
-#   dist/<os>-<arch>/restic
+#   dist/<os>-<arch>/restow-agent    (restow-agent.exe for windows-amd64)
+#   dist/<os>-<arch>/restic          (restic.exe for windows-amd64)
 #   dist/<os>-<arch>/THIRD_PARTY_NOTICES.txt   (the license of the agent and the
 #                                    notices of restic and the Go modules in it,
 #                                    from THIRD_PARTY_NOTICES.txt in this folder;
@@ -43,7 +43,7 @@ AGENT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 VERSION="${RESTOW_VERSION:-0.0.0-dev}"
 OUT="$AGENT_DIR/dist"
-TARGETS="linux-amd64 linux-arm64 darwin-amd64 darwin-arm64"
+TARGETS="linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64"
 WITH_RESTIC="${RESTOW_BUILD_WITH_RESTIC:-1}"
 # The PVE storage plugin shim; restow-pve is built only together with it.
 PVE_PLUGIN_DIR="${RESTOW_PVE_PLUGIN_DIR:-}"
@@ -125,20 +125,26 @@ for target in $TARGETS; do
   os="${target%-*}"
   arch="${target#*-}"
   case "$os-$arch" in
-    linux-amd64 | linux-arm64 | darwin-amd64 | darwin-arm64) ;;
-    *) die "unsupported target $target (linux and darwin on amd64 and arm64 only)" ;;
+    linux-amd64 | linux-arm64 | darwin-amd64 | darwin-arm64 | windows-amd64) ;;
+    *) die "unsupported target $target (linux and darwin on amd64 and arm64, windows on amd64 only)" ;;
   esac
+  # Windows binaries end in .exe; the agent is a console program (no
+  # -H windowsgui), because it is also the command line tool.
+  exe=""
+  if [ "$os" = windows ]; then exe=".exe"; fi
   dir="$OUT/$target"
   mkdir -p "$dir"
   echo "== $target"
   CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false \
-    -ldflags "$LDFLAGS" -o "$dir/restow-agent" ./cmd/restow-agent
+    -ldflags "$LDFLAGS" -o "$dir/restow-agent$exe" ./cmd/restow-agent
   if [ "$WITH_RESTIC" = 1 ]; then
-    fetch_tool restic "$os" "$arch" "$dir/restic"
+    fetch_tool restic "$os" "$arch" "$dir/restic$exe"
+    # Windows binaries are only run here when build.sh itself runs on Windows
+    # (Git Bash); otherwise the release job agent-windows-check runs them.
     if [ "$os" = "$host_os" ] && [ "$arch" = "$host_arch" ]; then
-      got=$("$dir/restic" version | sed -n 's/^restic \([0-9][0-9.]*\).*/\1/p')
+      got=$("$dir/restic$exe" version | sed -n 's/^restic \([0-9][0-9.]*\).*/\1/p')
       [ "$got" = "$RESTIC_VERSION" ] || die "restic for $target reports version '$got', pinned $RESTIC_VERSION"
-      "$dir/restow-agent" version --short | grep -qx "$VERSION" || die "restow-agent for $target reports a different version"
+      "$dir/restow-agent$exe" version --short | tr -d '\r' | grep -qx "$VERSION" || die "restow-agent for $target reports a different version"
       echo "   verified: restic $got and restow-agent $VERSION run on this host"
     fi
   fi
@@ -165,7 +171,7 @@ for target in $TARGETS; do
     # restic is absent with --no-restic. Do not write this as `[ -f ... ] && ...`:
     # under set -e a false test would end the loop with status 1 and kill the
     # script without a message.
-    for f in restow-agent restic "$NOTICES" restow-pve RestowPlugin.pm RestowProvider.pm RestowPlugin.LICENSE.txt; do
+    for f in restow-agent restow-agent.exe restic restic.exe "$NOTICES" restow-pve RestowPlugin.pm RestowProvider.pm RestowPlugin.LICENSE.txt; do
       if [ -f "$f" ]; then
         sum=$(sha256_file "$f")
         [ -n "$sum" ] || die "cannot compute the SHA-256 of $dir/$f"

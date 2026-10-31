@@ -16,6 +16,7 @@ import (
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/buildinfo"
 	"github.com/restow-backup/restow/agent/internal/core"
+	"github.com/restow-backup/restow/agent/internal/eventlog"
 	"github.com/restow-backup/restow/agent/internal/hooks"
 	"github.com/restow-backup/restow/agent/internal/paths"
 	"github.com/restow-backup/restow/agent/internal/redact"
@@ -198,7 +199,8 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Enrolled, but the credentials could not be stored in %s: %v\nThe token is used up. Fix the problem (permissions, disk space) and create a new token.\n", layout.StateFile(), err)
 		return exitError
 	}
-	fmt.Fprintf(stdout, "Enrolled as endpoint %s (%s profile) on %s.\nCredentials are stored in %s (mode 0600, readable by root only).\n",
+	eventlog.Info(eventlog.IDEnrolled, fmt.Sprintf("This computer was enrolled at %s as endpoint %s.", st.ServerURL, st.EndpointID))
+	fmt.Fprintf(stdout, "Enrolled as endpoint %s (%s profile) on %s.\nCredentials are stored in %s ("+credentialProtection+").\n",
 		st.EndpointID, st.Profile, st.ServerURL, layout.StateFile())
 	fmt.Fprintf(stdout, "Hooks from the Restow server: %s (change on this machine with: restow-agent hooks off|scripts|any).\n", describeHooks(hooksMode, layout))
 	if *force {

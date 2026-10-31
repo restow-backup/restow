@@ -6,6 +6,7 @@ import {
   defaultEndpointConfig,
   enrolledEndpointConfig,
   isSupportedEndpointOs,
+  isSupportedEndpointTarget,
   isUnscheduled,
   noSchedule,
   SUPPORTED_ENDPOINT_OS,
@@ -101,12 +102,24 @@ describe("agent configuration defaults", () => {
     expect(DEFAULT_ENDPOINT_RETENTION).toEqual({ keepDaily: 30, keepWeekly: 12, keepMonthly: 12 });
   });
 
-  it("enrolls Linux and macOS only in this release", () => {
-    expect([...SUPPORTED_ENDPOINT_OS]).toEqual(["linux", "darwin"]);
+  it("enrolls Linux, macOS and Windows (amd64 only)", () => {
+    expect([...SUPPORTED_ENDPOINT_OS]).toEqual(["linux", "darwin", "windows"]);
     expect(isSupportedEndpointOs("linux")).toBe(true);
     expect(isSupportedEndpointOs("darwin")).toBe(true);
-    expect(isSupportedEndpointOs("windows")).toBe(false);
+    expect(isSupportedEndpointOs("windows")).toBe(true);
     expect(isSupportedEndpointOs("freebsd")).toBe(false);
+    expect(isSupportedEndpointTarget("windows", "amd64")).toBe(true);
+    expect(isSupportedEndpointTarget("windows", "arm64")).toBe(false);
+    expect(isSupportedEndpointTarget("linux", "arm64")).toBe(true);
+    expect(isSupportedEndpointTarget("darwin", "arm64")).toBe(true);
+    expect(isSupportedEndpointTarget("linux", "386")).toBe(false);
+  });
+
+  it("leaves the caches of Windows out, and the files the agent excludes itself", () => {
+    const excludes = defaultEndpointConfig("windows", "client", options).excludes;
+    expect(excludes).toContain("**\\AppData\\Local\\Microsoft\\Edge\\User Data\\*\\Cache");
+    expect(excludes).toContain("C:\\ProgramData\\Microsoft\\Windows Defender");
+    expect(excludes).not.toContain("**\\$Recycle.Bin");
   });
 });
 

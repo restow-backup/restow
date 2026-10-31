@@ -136,6 +136,16 @@ describe("EndpointsTable", () => {
     expect(html).toContain('href="/inventory/11111111-1111-4111-8111-111111111111"');
   });
 
+  it("marks a Windows machine as a preview, a Linux or macOS machine not", () => {
+    const windows = table([endpoint({ hostname: "pc-07", os: "windows", arch: "amd64" })]);
+    expect(windows).toContain("Windows");
+    expect(count(windows, 'data-slot="os-preview"')).toBe(1);
+    expect(windows).toContain(">Preview<");
+    const linux = table([endpoint()]);
+    expect(linux).not.toContain('data-slot="os-preview"');
+    expect(i18n.getFixedT("de", "endpoints")("osPreview")).toBe("Vorschau");
+  });
+
   it("makes the name the button that opens the details when the page has a panel", () => {
     const html = table([endpoint()], { onOpen: () => {} });
     expect(html).toContain('data-machine-name="11111111-1111-4111-8111-111111111111"');

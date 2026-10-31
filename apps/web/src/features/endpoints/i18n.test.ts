@@ -91,6 +91,9 @@ const VALUES = {
   to: "06:00",
   mode: "As soon as the machine is on again",
   kbps: 2000,
+  os: "windows",
+  method: "vss",
+  live: "D:\\",
 };
 
 describe("endpoints translations", () => {
@@ -126,7 +129,8 @@ describe("endpoints translations", () => {
       // names are technical and stay literal.
       const prose = value
         .replace(/Restow-Restore/g, "")
-        .replace(/\/Library\/Application Support\/Restow\b/g, "");
+        .replace(/\/Library\/Application Support\/Restow\b/g, "")
+        .replace(/C:\\(?:Program Files|ProgramData)\\Restow\b/g, "");
       expect(prose, key).not.toMatch(/\bRestow\b/);
     }
     expect(i18n.t("endpoints:repositoryKey.title", { appName: "Acme Backup" })).toBe(

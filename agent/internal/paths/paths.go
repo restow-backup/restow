@@ -54,25 +54,40 @@ const (
 	LegacyResticBinary = LegacyLibDir + "/restic"
 )
 
+// WindowsInstallDir is the install prefix on Windows in the normal case. The
+// real one comes from the known folder FOLDERID_ProgramFiles (paths_windows.go).
+const WindowsInstallDir = `C:\Program Files\Restow`
+
 // InstallDirFor returns the root-owned install prefix for an operating system.
 func InstallDirFor(goos string) string {
-	if goos == "darwin" {
+	switch goos {
+	case "darwin":
 		return DarwinInstallDir
+	case "windows":
+		return WindowsInstallDir
 	}
 	return LinuxInstallDir
 }
 
 // InstallDir is the install prefix on this machine.
-func InstallDir() string { return InstallDirFor(runtime.GOOS) }
+func InstallDir() string { return installDir() }
 
 // BinDir holds the agent and restic.
 func BinDir() string { return filepath.Join(InstallDir(), "bin") }
 
+// ExeName appends the executable suffix of this system (.exe on Windows).
+func ExeName(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".exe"
+	}
+	return name
+}
+
 // InstalledAgentBinary is where the install script and the self-update put the agent.
-func InstalledAgentBinary() string { return filepath.Join(BinDir(), "restow-agent") }
+func InstalledAgentBinary() string { return filepath.Join(BinDir(), ExeName("restow-agent")) }
 
 // InstalledResticBinary is where the install script and the self-update put restic.
-func InstalledResticBinary() string { return filepath.Join(BinDir(), "restic") }
+func InstalledResticBinary() string { return filepath.Join(BinDir(), ExeName("restic")) }
 
 // NoticesFile is the name of the license notices of the agent, restic and the
 // Go modules in restic, in a release and on the machine.
@@ -95,11 +110,7 @@ func Default() Layout {
 			LogDir:   filepath.Join(dir, "logs"),
 		}
 	}
-	return Layout{
-		StateDir: "/etc/restow-agent",
-		DataDir:  "/var/lib/restow-agent",
-		LogDir:   "/var/log/restow-agent",
-	}
+	return systemLayout()
 }
 
 // StateFile is the secret-bearing state file.
@@ -127,22 +138,12 @@ func (l Layout) OutboxDir() string { return filepath.Join(l.DataDir, "outbox") }
 // LogFile is the rotating agent log.
 func (l Layout) LogFile() string { return filepath.Join(l.LogDir, "agent.log") }
 
-// Ensure creates the data and log directories with their intended modes.
-// The data directory stays world-traversable (status.json carries no secrets,
-// so `restow-agent status` works without root); the restic cache below it is
-// private. The state directory is created by the state package (0700).
-func (l Layout) Ensure() error {
-	if err := os.MkdirAll(l.DataDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.Chmod(l.DataDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(l.LogDir, 0o750); err != nil {
-		return err
-	}
-	return nil
-}
+// Ensure creates the data and log directories with their intended modes
+// (Unix) or DACLs (Windows). The data directory stays readable for everyone
+// (status.json carries no secrets, so `restow-agent status` works without
+// privileges); the restic cache below it is private. The state directory is
+// created by the state package.
+func (l Layout) Ensure() error { return ensureLayout(l) }
 
 // ResticBinary locates the restic executable: the RESTOW_RESTIC_PATH override
 // (development and tests), else the installed location. It never searches

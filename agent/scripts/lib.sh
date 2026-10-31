@@ -27,7 +27,8 @@ sha256_file() {
 }
 
 # fetch_tool <restic|rest-server> <os> <arch> <dest>: download, verify against
-# the pinned checksum, unpack. Needs the Go toolchain (tools/fetch).
+# the pinned checksum, unpack. Needs the Go toolchain (tools/fetch). For
+# windows the caller passes a dest ending in .exe.
 fetch_tool() {
   _tool="$1"
   _os="$2"
@@ -36,13 +37,21 @@ fetch_tool() {
   case "$_tool" in
     restic)
       _sum=$(pinned_sha256 RESTIC_SHA256 "$_os" "$_arch")
-      _url="https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_${_os}_${_arch}.bz2"
-      (cd "$AGENT_DIR" && go run ./tools/fetch -url "$_url" -sha256 "$_sum" -format bz2 -out "$_dest")
+      _base="https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_${_os}_${_arch}"
+      if [ "$_os" = windows ]; then
+        # The .zip holds exactly restic_<v>_windows_<arch>.exe.
+        (cd "$AGENT_DIR" && go run ./tools/fetch -url "$_base.zip" -sha256 "$_sum" -format zip \
+          -member "restic_${RESTIC_VERSION}_${_os}_${_arch}.exe" -out "$_dest")
+      else
+        (cd "$AGENT_DIR" && go run ./tools/fetch -url "$_base.bz2" -sha256 "$_sum" -format bz2 -out "$_dest")
+      fi
       ;;
     rest-server)
       _sum=$(pinned_sha256 REST_SERVER_SHA256 "$_os" "$_arch")
       _url="https://github.com/restic/rest-server/releases/download/v${REST_SERVER_VERSION}/rest-server_${REST_SERVER_VERSION}_${_os}_${_arch}.tar.gz"
-      (cd "$AGENT_DIR" && go run ./tools/fetch -url "$_url" -sha256 "$_sum" -format tar.gz -member rest-server -out "$_dest")
+      _member=rest-server
+      if [ "$_os" = windows ]; then _member=rest-server.exe; fi
+      (cd "$AGENT_DIR" && go run ./tools/fetch -url "$_url" -sha256 "$_sum" -format tar.gz -member "$_member" -out "$_dest")
       ;;
     *) die "unknown tool $_tool" ;;
   esac

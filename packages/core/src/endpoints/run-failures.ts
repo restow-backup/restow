@@ -12,7 +12,7 @@ import type {
   FailureParams,
   FailureTechnical,
 } from "../failures/types.js";
-import { INTERRUPTED_RUN_CODE, resticExitCodeOf } from "./run-errors.js";
+import { INTERRUPTED_RUN_CODE, resticExitCodeOf, SNAPSHOT_CLEANUP_RUN_CODE } from "./run-errors.js";
 
 export interface RunErrorInput {
   path?: string | null;
@@ -34,8 +34,17 @@ const BY_CODE: Readonly<Record<string, FailureCode>> = {
   not_regular: "endpoint.file_not_regular",
   read_error: "endpoint.read_error",
   agent_stopped: "endpoint.agent_stopped",
+  snapshot_failed: "endpoint.snapshot_failed",
+  snapshot_unavailable: "endpoint.snapshot_unavailable",
   [INTERRUPTED_RUN_CODE]: "endpoint.interrupted",
 };
+
+/** The codes whose explanation is transient: the agent's next attempt may well work. */
+const TRANSIENT: ReadonlySet<FailureCode> = new Set([
+  "endpoint.timeout",
+  "endpoint.interrupted",
+  "endpoint.snapshot_failed",
+]);
 
 /** restic's words for "the server could not be reached or answered badly" (exit code 1). */
 const NETWORK_TEXT =
@@ -45,6 +54,7 @@ const REFUSED_TEXT = /unexpected http response \(40[13]\)|403 forbidden/i;
 const NEEDS_FIRST = [
   "pre_hook_failed",
   "hooks_not_allowed",
+  "snapshot_unavailable",
   "no_paths",
   "timeout",
   "target_not_empty",
@@ -70,12 +80,7 @@ export function classifyRunError(error: RunErrorInput): FailureCause {
   const known = error.code ? BY_CODE[error.code] : undefined;
   if (known) {
     const params: FailureParams = error.path ? { path: error.path.slice(0, 300) } : {};
-    return cause(
-      known,
-      error,
-      known === "endpoint.timeout" || known === "endpoint.interrupted",
-      params,
-    );
+    return cause(known, error, TRANSIENT.has(known), params);
   }
   const exitCode = resticExitCodeOf(error.code ?? undefined);
   if (exitCode !== null) {
@@ -100,12 +105,14 @@ export function classifyRunError(error: RunErrorInput): FailureCause {
  * first one. `null` for a run without errors. `count` is how many errors were reported.
  */
 export function failureOfRun(errors: readonly RunErrorInput[]): FailureCause | null {
-  if (errors.length === 0) {
+  // A snapshot left behind is a note beside the outcome, never its explanation.
+  const candidates = errors.filter((error) => error.code !== SNAPSHOT_CLEANUP_RUN_CODE);
+  if (candidates.length === 0) {
     return null;
   }
   const first =
-    NEEDS_FIRST.map((code) => errors.find((error) => error.code === code)).find(Boolean) ??
-    errors[0];
+    NEEDS_FIRST.map((code) => candidates.find((error) => error.code === code)).find(Boolean) ??
+    candidates[0];
   if (!first) {
     return null;
   }

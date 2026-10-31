@@ -1,7 +1,10 @@
+//go:build unix
+
 package restic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -67,6 +70,27 @@ forbidden)
   exit 1 ;;
 nosummary)
   echo '{"message_type":"status","percent_done":1}' ;;
+backup-vss)
+  # restic 0.19.1 on Windows: the shadow copy of c:\ failed and restic read the
+  # volume live (exit 0), e:\ is not supported by the provider, one file could
+  # not be read, and deleting the shadow copy of d:\ failed.
+  printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: async operation pending"},"during":"archival","item":"c:\\"}' >&2
+  printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [e:\\]: VSS error: Snapshots are not supported for volume e:\\"},"during":"archival","item":"e:\\"}' >&2
+  printf '%s\n' '{"message_type":"status","percent_done":0.5}'
+  printf '%s\n' '{"message_type":"error","error":{"message":"open C:\\x.pst: in use"},"during":"archival","item":"C:\\x.pst"}' >&2
+  printf '%s\n' '{"message_type":"error","error":{"message":"failed to delete VSS snapshot: VSS error: busy"},"during":"archival","item":"d:\\"}' >&2
+  printf '%s\n' '{"message_type":"summary","files_new":1,"snapshot_id":"aaaa000000000000000000000000000000000000000000000000000000000000"}'
+  printf '%s\n' '{"message_type":"exit_error","code":3,"message":"Warning: at least one source file could not be read"}' >&2
+  exit 3 ;;
+backup-vss-unusable)
+  printf '%s\n' '{"message_type":"exit_error","code":1,"message":"Fatal: VSS error: CoInitializeSecurity failed"}' >&2
+  exit 1 ;;
+backup-vss-wait)
+  trap 'kill $pid; echo interrupted >&2; exit 130' INT
+  printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: timeout"},"during":"archival","item":"c:\\"}' >&2
+  sleep 30 &
+  pid=$!
+  wait ;;
 sleep)
   # The interrupt handler and the child are in place before "started" is
   # written. A test that reacts to that line may signal at once; signalling
@@ -656,5 +680,73 @@ func TestPeekTypeAndLineWriter(t *testing.T) {
 	w.flush()
 	if len(got) != 3 || got[0] != "one" || got[1] != "two" || got[2] != "last-without-newline" {
 		t.Fatalf("lines = %d: %v", len(got), got[:min(len(got), 3)])
+	}
+}
+
+func TestBackupReadsTheSnapshotEntries(t *testing.T) {
+	r, argsFile, _ := fakeRestic(t)
+	mode(r, "backup-vss")
+	var failed []VolumeFailure
+	res, err := r.Backup(context.Background(), BackupOptions{Paths: []string{`c:\Users`, "/data"}, UseFSSnapshot: true,
+		OnSnapshotFailed: func(v VolumeFailure) { failed = append(failed, v) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := res.Snapshot
+	if !s.Requested || len(s.FailedVolumes) != 1 || s.FailedVolumes[0].Volume != `C:\` ||
+		len(s.SkippedVolumes) != 1 || s.SkippedVolumes[0] != `E:\` || len(s.CleanupFailed) != 1 {
+		t.Fatalf("snapshot %+v", s)
+	}
+	if len(failed) != 1 || failed[0].Volume != `C:\` {
+		t.Fatalf("callback %+v", failed)
+	}
+	// Only the file is a file error.
+	if res.ErrorCount != 1 || len(res.Errors) != 1 || res.Errors[0].Path != `C:\x.pst` || !res.Partial {
+		t.Fatalf("errors %d %+v", res.ErrorCount, res.Errors)
+	}
+	if !strings.Contains(readFile(t, argsFile), "--use-fs-snapshot") {
+		t.Fatal("--use-fs-snapshot missing")
+	}
+}
+
+func TestBackupWithoutSnapshotKeepsVSSTextsAsFileErrors(t *testing.T) {
+	r, _, _ := fakeRestic(t)
+	mode(r, "backup-vss")
+	res, err := r.Backup(context.Background(), BackupOptions{Paths: []string{"/data"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Snapshot.Requested || res.ErrorCount != 4 {
+		t.Fatalf("%+v %d", res.Snapshot, res.ErrorCount)
+	}
+}
+
+func TestBackupSnapshotUnusable(t *testing.T) {
+	r, _, _ := fakeRestic(t)
+	mode(r, "backup-vss-unusable")
+	_, err := r.Backup(context.Background(), BackupOptions{Paths: []string{"/data"}, UseFSSnapshot: true})
+	var re *Error
+	if !errors.As(err, &re) || !re.SnapshotUnavailable() {
+		t.Fatalf("err %v", err)
+	}
+	// Without --use-fs-snapshot the same failure is an ordinary restic error.
+	_, err = r.Backup(context.Background(), BackupOptions{Paths: []string{"/data"}})
+	if !errors.As(err, &re) || re.Snapshot != SnapshotFaultNone {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestBackupStoppedAfterASnapshotFailure(t *testing.T) {
+	r, _, _ := fakeRestic(t)
+	mode(r, "backup-vss-wait")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	res, err := r.Backup(ctx, BackupOptions{Paths: []string{"/data"}, UseFSSnapshot: true,
+		OnSnapshotFailed: func(VolumeFailure) { cancel() }})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err %v", err)
+	}
+	if res == nil || len(res.Snapshot.FailedVolumes) != 1 {
+		t.Fatalf("res %+v", res)
 	}
 }

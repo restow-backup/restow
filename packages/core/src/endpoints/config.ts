@@ -13,10 +13,14 @@
  *     their data; macOS `/Users`, Windows `C:\Users`, plus `C:\ProgramData`
  *     for servers);
  *   - excludes per OS: caches, temporary files, the trash, `node_modules`,
- *     `*.tmp` and the restic cache.
+ *     `*.tmp` and the restic cache; on Windows also the browser caches, the
+ *     thumbnail caches and the data Defender, Search and Windows Error Reporting
+ *     keep (the agent itself always excludes the paging, hibernation and swap
+ *     files, `System Volume Information` and `$Recycle.Bin`).
  *
- * Windows stays in the model for a later release; the server does not enroll
- * Windows endpoints in 0.1.0 ({@link SUPPORTED_ENDPOINT_OS}).
+ * Windows is enrolled from 0.5.0 as a preview, on amd64 only
+ * ({@link isSupportedEndpointTarget}): restic has no Windows on ARM build and its
+ * shadow copy code refuses arm64 (docs/WINDOWS-AGENT.md).
  */
 
 import type { BandwidthWindow } from "../backup-jobs/bandwidth.js";
@@ -31,11 +35,25 @@ export type EndpointOsName = (typeof ENDPOINT_OS)[number];
 export const ENDPOINT_ARCH = ["amd64", "arm64"] as const;
 export type EndpointArchName = (typeof ENDPOINT_ARCH)[number];
 
-/** The systems a 0.1.0 installation enrolls; Windows is on the roadmap. */
-export const SUPPORTED_ENDPOINT_OS: readonly EndpointOsName[] = ["linux", "darwin"];
+/** The systems an installation enrolls (Windows from 0.5.0, as a preview and on amd64 only). */
+export const SUPPORTED_ENDPOINT_OS: readonly EndpointOsName[] = ["linux", "darwin", "windows"];
+
+/** Systems enrolled as a preview: the UI labels them so. */
+export const PREVIEW_ENDPOINT_OS: readonly EndpointOsName[] = ["windows"];
 
 export function isSupportedEndpointOs(os: string): os is EndpointOsName {
   return (SUPPORTED_ENDPOINT_OS as readonly string[]).includes(os);
+}
+
+/**
+ * Whether a system and processor are enrolled: every supported system on amd64 and arm64, except
+ * Windows on ARM (restic ships no Windows arm64 build, and its shadow copy code refuses arm64).
+ */
+export function isSupportedEndpointTarget(os: string, arch: string): boolean {
+  if (!isSupportedEndpointOs(os) || !(ENDPOINT_ARCH as readonly string[]).includes(arch)) {
+    return false;
+  }
+  return !(os === "windows" && arch !== "amd64");
 }
 
 /**
@@ -155,14 +173,27 @@ const DEFAULT_EXCLUDES: Record<EndpointOsName, string[]> = {
     "/Users/*/.Trash",
     "/private/var/tmp",
   ],
+  // The agent itself always excludes pagefile.sys, hiberfil.sys, swapfile.sys,
+  // System Volume Information and $Recycle.Bin, and compares without case.
   windows: [
     ...COMMON_EXCLUDES,
     "**\\AppData\\Local\\Temp",
     "**\\AppData\\Local\\Microsoft\\Windows\\INetCache",
+    // thumbcache_*.db
+    "**\\AppData\\Local\\Microsoft\\Windows\\Explorer",
+    "**\\AppData\\Local\\Microsoft\\Windows\\WebCache",
+    "**\\AppData\\Local\\CrashDumps",
     "**\\AppData\\Local\\restic",
-    "**\\$Recycle.Bin",
+    "**\\AppData\\Local\\Google\\Chrome\\User Data\\*\\Cache",
+    "**\\AppData\\Local\\Microsoft\\Edge\\User Data\\*\\Cache",
+    "**\\AppData\\Local\\Mozilla\\Firefox\\Profiles\\*\\cache2",
     "**\\Thumbs.db",
     "C:\\Windows\\Temp",
+    "C:\\ProgramData\\Microsoft\\Windows Defender",
+    "C:\\ProgramData\\Microsoft\\Search\\Data",
+    "C:\\ProgramData\\Microsoft\\Windows\\WER",
+    "C:\\ProgramData\\Microsoft\\Network\\Downloader",
+    "C:\\ProgramData\\Package Cache",
   ],
 };
 
