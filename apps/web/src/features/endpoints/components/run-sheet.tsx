@@ -102,12 +102,6 @@ export function RunProgressView({
 }
 
 /**
- * Everything one run reported: facts, live progress, the files it could not
- * read, and the log tail. A restore test that could not complete is
- * explained in neutral words, never as a failure; `willRetry` is false on a
- * revoked machine, which runs no more tests.
- */
-/**
  * The consistency of a backup in words: "Shadow copy (file consistent)", "Partly without a shadow
  * copy: D:\", "Without a shadow copy". Never "consistent" alone: a shadow copy without writer
  * components makes open databases crash consistent, not application consistent.
@@ -132,6 +126,12 @@ export function consistencyText(
   }
 }
 
+/**
+ * Everything one run reported: facts, live progress, the files it could not
+ * read, and the log tail. A restore test that could not complete is
+ * explained in neutral words, never as a failure; `willRetry` is false on a
+ * revoked machine, which runs no more tests.
+ */
 export function RunDetailView({
   run,
   subjectName,

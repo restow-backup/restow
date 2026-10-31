@@ -31,6 +31,7 @@ import {
   activityKey,
   attentionTone,
   isKnownAttention,
+  isPreviewOs,
   runBadgeView,
   sortAttention,
   statusView,
@@ -44,7 +45,10 @@ const OS_ICON: Record<EndpointOs, typeof Terminal> = {
   windows: Monitor,
 };
 
-/** Operating system and CPU architecture, e.g. "Linux · amd64". */
+/**
+ * Operating system and CPU architecture, e.g. "Linux · amd64"; a system offered as a preview
+ * (Windows in 0.5.0) carries a "Preview" badge in the machine list and on the machine page.
+ */
 export function OsLabel({
   os,
   arch,
@@ -63,6 +67,11 @@ export function OsLabel({
         {t(`os.${os}`)}
         {arch ? <span className="text-muted-foreground"> · {arch}</span> : null}
       </span>
+      {isPreviewOs(os) ? (
+        <StatusBadge tone="info" className="shrink-0 whitespace-nowrap" data-slot="os-preview">
+          {t("osPreview")}
+        </StatusBadge>
+      ) : null}
     </span>
   );
 }

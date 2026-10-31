@@ -40,9 +40,10 @@ private repository.
   the script carry no Authenticode signature in this preview.
 - Windows agent (preview) with shadow copies: Windows machines on x64 can be enrolled (the
   dialog offers Windows labelled "Preview" and shows the PowerShell command, the fingerprint of
-  the release key and the SHA-256 of `windows.ps1` for the way without `iex`). Backups run from
-  a volume shadow copy (VSS) through restic's `--use-fs-snapshot`, with removable, FAT and exFAT
-  volumes read live. The shadow copy is a switch in the machine's settings, on by default.
+  the release key and the SHA-256 of `windows.ps1` for the way without `iex`; the machine list
+  and the machine page mark a Windows machine "Preview" as well). Backups run from a volume
+  shadow copy (VSS) through restic's `--use-fs-snapshot`, with removable, FAT and exFAT volumes
+  read live. The shadow copy is a switch in the machine's settings, on by default.
   Windows on ARM is refused by the installer and the server.
 - Agent policy "When the file system snapshot fails" (`snapshotOnFailure`), on the levels of the
   installation, the tenant and the job and lockable like the others: back up without the

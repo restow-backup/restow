@@ -7,6 +7,7 @@ import type {
   BrowseEntry,
   EffectiveSettings,
   EndpointAssignee,
+  EndpointOs,
   EndpointReport,
   EndpointSummary,
   EndpointTask,
@@ -36,6 +37,18 @@ export interface Formatters {
 // --- Names ------------------------------------------------------------------------
 
 /** The name shown for a machine: the label an admin gave it, else its host name. */
+/**
+ * Systems offered as a preview (0.5.0: Windows, amd64 only, unsigned binaries). Mirrors
+ * PREVIEW_ENDPOINT_OS in packages/core/src/endpoints/config.ts (the browser bundle does not
+ * depend on @restow/core); a test holds both lists to the same values.
+ */
+export const PREVIEW_ENDPOINT_OS: readonly EndpointOs[] = ["windows"];
+
+/** Whether machines with this system are a preview: the enroll dialog and every OS label say so. */
+export function isPreviewOs(os: EndpointOs): boolean {
+  return PREVIEW_ENDPOINT_OS.includes(os);
+}
+
 export function endpointName(endpoint: Pick<EndpointSummary, "displayName" | "hostname">): string {
   return endpoint.displayName?.trim() || endpoint.hostname;
 }

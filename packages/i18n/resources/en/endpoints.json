@@ -26,6 +26,7 @@
     "darwin": "macOS",
     "windows": "Windows"
   },
+  "osPreview": "Preview",
   "status": {
     "online": "Online",
     "offline": "Offline",

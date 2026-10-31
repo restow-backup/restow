@@ -2018,6 +2018,10 @@ Der Maintainer hat alle Punkte entschieden; die Begründungen der Empfehlungen g
 6. **Windows in 0.5.0 als Vorschau: entschieden.** "Vorschau" im Enroll-Dialog, in der
    Rechnerliste und im CHANGELOG, bis ein sauberes Defender-Ergebnis auf einem frischen
    Windows 11 mit Standardeinstellungen und das vollständige Freigabe-Gate (22.3) vorliegen.
+   Umgesetzt in M3: Enroll-Dialog und `OsLabel` (Rechnerliste, Rechner-Panel, Rechnerseite)
+   lesen `isPreviewOs` aus `apps/web/src/features/endpoints/presenters.ts`; dessen Liste
+   `PREVIEW_ENDPOINT_OS` spiegelt die aus `packages/core/src/endpoints/config.ts`, ein Test
+   hält beide gleich.
 
 ## 26. Stand der Umsetzung
 
@@ -2193,7 +2197,8 @@ Fehlerpolitik, Server, Oberfläche und i18n folgen im nächsten Schritt.
   `check_endpoint_snapshot_service`), `consistency` beim Abschluss, manueller
   Update-Befehl für Windows.
 - Oberfläche: Enroll-Dialog mit Windows ("Vorschau", Hinweis zur Vorschau, PowerShell-Befehl,
-  Datei-Weg mit SHA-256, Fingerabdruck), Restore-Dialog mit Windows-Regeln, Platzhalter
+  Datei-Weg mit SHA-256, Fingerabdruck), Abzeichen "Vorschau" neben dem Betriebssystem eines
+  Windows-Rechners in der Rechnerliste und auf der Rechnerseite, Restore-Dialog mit Windows-Regeln, Platzhalter
   `D:\Wiederherstellung` und Anzeige `C:\...`, Schalter "Schattenkopie (VSS)" in den
   Einstellungen eines Windows-Rechners, Richtlinien-Editoren mit "Wenn der
   Dateisystem-Snapshot scheitert", Lauf-Details mit "Konsistenz", Texte de/en.

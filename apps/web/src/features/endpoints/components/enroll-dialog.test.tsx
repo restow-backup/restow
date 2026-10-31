@@ -7,13 +7,8 @@ import { i18n } from "@/i18n";
 import type { CreatedToken, EnrollmentToken } from "../api.js";
 import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
-import {
-  defaultOs,
-  EnrollDialog,
-  enrollStatusOf,
-  isPreviewOs,
-  isSelectableOs,
-} from "./enroll-dialog.js";
+import { isPreviewOs } from "../presenters.js";
+import { defaultOs, EnrollDialog, enrollStatusOf, isSelectableOs } from "./enroll-dialog.js";
 
 const viewer = vi.hoisted(() => ({ role: null as string | null }));
 vi.mock("@/lib/session", () => ({

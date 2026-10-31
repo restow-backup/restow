@@ -44,7 +44,7 @@ import {
 } from "../api.js";
 import { useCreateToken, useEndpointFormat, useEnrollmentTokens } from "../hooks.js";
 import { type EndpointProfile, endpointDetailTo } from "../paths.js";
-import { endpointErrorKey } from "../presenters.js";
+import { endpointErrorKey, isPreviewOs } from "../presenters.js";
 import { useCanManageJobs } from "./without-backup.js";
 
 /** The public URL, which the agents enrol against, is set under Installation, Server. */
@@ -62,11 +62,6 @@ const OS_OPTIONS: readonly { os: EndpointOs; icon: LucideIcon }[] = [
 /** Whether the operating system can be chosen (every one from 0.5.0; Windows as a preview). */
 export function isSelectableOs(os: EndpointOs): os is EnrollOs {
   return os === "linux" || os === "darwin" || os === "windows";
-}
-
-/** Systems offered as a preview (0.5.0: Windows, amd64 only, unsigned binaries). */
-export function isPreviewOs(os: EndpointOs): boolean {
-  return os === "windows";
 }
 
 /** The system a new machine of this profile most likely runs; the admin still chooses. */
