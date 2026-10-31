@@ -38,8 +38,8 @@
     "quota": {
       "label": "Mandanten nahe am Kontingent",
       "value": "{count}",
-      "hint": "{count, plural, one {# Mandant ist} other {# Mandanten sind}} bei der Schätzung innerhalb von {days} Tagen voll.",
-      "hintNone": "Kein Mandant ist bei der Schätzung innerhalb von {days} Tagen voll."
+      "hint": "Außerdem {count, plural, one {läuft # Mandant} other {laufen # Mandanten}} bei der Schätzung innerhalb von {days} Tagen voll.",
+      "hintNone": "Außerdem läuft bei der Schätzung kein Mandant innerhalb von {days} Tagen voll."
     }
   },
   "span": {

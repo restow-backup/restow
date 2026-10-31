@@ -38,8 +38,8 @@
     "quota": {
       "label": "Tenants near their quota",
       "value": "{count}",
-      "hint": "{count, plural, one {# tenant runs full} other {# tenants run full}} within {days} days at the estimate.",
-      "hintNone": "No tenant runs full within {days} days at the estimate."
+      "hint": "Also, {count, plural, one {# tenant runs} other {# tenants run}} full within {days} days at the estimate.",
+      "hintNone": "Also, no tenant runs full within {days} days at the estimate."
     }
   },
   "span": {

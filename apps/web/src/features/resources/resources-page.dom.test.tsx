@@ -151,7 +151,7 @@ describe("the key figures", () => {
     expect(kpis).toContain("In about 40 days");
     expect(kpis).toContain("Alpha AG, around December 9, 2026 (estimate).");
     expect(kpis).toContain("Tenants near their quota");
-    expect(kpis).toContain("1 tenant runs full within 90 days at the estimate.");
+    expect(kpis).toContain("Also, 1 tenant runs full within 90 days at the estimate.");
   });
 
   it("says so when there is no growth, no day and no system disk", async () => {
@@ -172,7 +172,7 @@ describe("the key figures", () => {
     expect(kpis).toContain("Not enough history yet");
     expect(kpis).toContain("Not measured");
     expect(kpis).toContain("No date");
-    expect(kpis).toContain("No tenant runs full within 90 days at the estimate.");
+    expect(kpis).toContain("Also, no tenant runs full within 90 days at the estimate.");
   });
 });
 
