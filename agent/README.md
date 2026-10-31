@@ -21,9 +21,10 @@ small Go program (standard library only, no third-party Go dependencies) that dr
   compares the hashes.
 
 Supported in 0.1.0: **Linux** (systemd, x86_64 and aarch64) and **macOS** (13 Ventura or
-newer, Intel and Apple Silicon). **Windows is planned for a later release**; the code
-keeps the platform specifics behind small per-OS files so it can be added, but nothing
-Windows-specific ships in 0.1.0.
+newer, Intel and Apple Silicon). **Windows (amd64) is a preview in 0.5.0 and not usable
+yet**: the build and the image carry `restow-agent.exe`, but its Windows parts still refuse
+and the server does not enroll Windows machines (see "Known limits" and
+docs/WINDOWS-AGENT.md).
 
 ## Installing
 
@@ -378,12 +379,13 @@ Go is not required on the host; the scripts use the pinned `golang` image (`GO_I
 `tools.env`) when no `go` is on the PATH. The Go version is 1.26 or newer (`go.mod`).
 
 ```sh
-./build.sh                          # development build 0.0.0-dev, all four targets into dist/<os>-<arch>/
+./build.sh                          # development build 0.0.0-dev, all five targets into dist/<os>-<arch>/
 ./build.sh --version 0.1.0          # a release build (needs the release key in release-signing.pub; signed separately)
 ```
 
-`build.sh` cross-compiles `linux/amd64`, `linux/arm64`, `darwin/amd64` and `darwin/arm64`
-with `CGO_ENABLED=0 -trimpath -buildvcs=false` and the version injected through
+`build.sh` cross-compiles `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` and
+`windows/amd64` (a preview, see below; the files are `restow-agent.exe` and `restic.exe`, restic
+from the pinned `.zip`) with `CGO_ENABLED=0 -trimpath -buildvcs=false` and the version injected through
 `-ldflags`, downloads the pinned restic release for every target and verifies its SHA-256
 against `tools.env` before unpacking, and writes checksums:
 
@@ -516,7 +518,7 @@ on another machine and pass the SHA-256 of the checked `SHA256SUMS` to the insta
 ## Tests
 
 ```sh
-scripts/test.sh                 # gofmt, go vet for all four targets, unit tests with the race detector, build.sh test, ShellCheck
+scripts/test.sh                 # gofmt, go vet for all five targets, unit tests with the race detector, build.sh test, ShellCheck
 scripts/test-build.sh           # build.sh with a stand-in go (layout, checksums, --no-restic); no Go, Docker or network
 scripts/integration.sh          # real restic + rest-server (append-only) on Linux, in Docker
 scripts/integration.sh --native # the same natively on this machine (macOS or Linux)
@@ -574,7 +576,7 @@ There is no `go.sum` because there is nothing to fetch.
 
 | Component | License | How it is used |
 | --- | --- | --- |
-| [restic](https://github.com/restic/restic) 0.19.1 | BSD-2-Clause; the 79 Go modules compiled into it are Apache-2.0, MIT, BSD-3-Clause, BSD-2-Clause and, for `github.com/hashicorp/golang-lru/v2`, MPL-2.0 (used unmodified) | External binary shipped next to the agent and executed with `RESTIC_*` environment variables |
+| [restic](https://github.com/restic/restic) 0.19.1 | BSD-2-Clause; the Go modules compiled into it (79 or 80 per target, 82 in all) are Apache-2.0, MIT, BSD-3-Clause, BSD-2-Clause and, for `github.com/hashicorp/golang-lru/v2`, MPL-2.0 (used unmodified) | External binary shipped next to the agent and executed with `RESTIC_*` environment variables |
 | [rest-server](https://github.com/restic/rest-server) 0.14.0 | BSD-2-Clause | Integration tests only, not shipped |
 | Go toolchain (`golang` image) | BSD-3-Clause | Build and tests only |
 | [ShellCheck](https://www.shellcheck.net) | GPL-3.0 | Linting only, run from its Docker image, not part of any build output |
@@ -612,8 +614,12 @@ carries all of them.
   snapshot integration either.
 - **File-based only.** No disk images, no bare-metal restore. Restoring a whole machine
   means reinstalling the operating system and restoring the files.
-- **Windows is not part of 0.1.0** (planned): no Windows build, installer or service, and
-  therefore no VSS.
+- **Windows is a preview in 0.5.0 and not usable yet.** `build.sh` builds `windows-amd64`
+  and the image ships it, but the Windows parts (service, state protection, trust check,
+  lock, hooks, self-update) are stubs that refuse, and the server does not enroll Windows
+  machines. The plan is docs/WINDOWS-AGENT.md. No Windows on ARM. Tests that use `/bin/sh`
+  stand-ins carry `//go:build unix`; new Linux-only code needs `//go:build linux`, new
+  macOS-only code `//go:build darwin`, or `GOOS=windows go vet` fails.
 - **Power detection is best effort.** Linux reads `/sys/class/power_supply`; macOS reads
   `pmset -g batt` (a UPS counts as battery). When the state cannot be determined the agent
   assumes AC power so that a detection failure never blocks backups, and logs that once a

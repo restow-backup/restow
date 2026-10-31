@@ -10,6 +10,29 @@ private repository.
 
 ## [Unreleased]
 
+### Added
+
+- Windows agent (preview), groundwork: `agent/build.sh` builds a fifth target, `windows-amd64`,
+  with `restow-agent.exe` and the pinned `restic.exe` 0.19.1 (from restic's `.zip`, SHA-256 in
+  `agent/tools.env`, checked before unpacking), and the image serves it under
+  `/srv/agent/<version>/windows-amd64/`. It is not usable yet: the Windows service, the
+  protection of the state, the trust check, the run lock, hooks and the self-update refuse on
+  Windows, and the server still refuses to enroll Windows machines. There is no Windows on ARM.
+  The plan is docs/WINDOWS-AGENT.md.
+- CI: a job on a Windows runner runs gofmt, `go vet` and the agent's unit tests natively, and
+  the agent job vets every package for Windows and checks that `restic.exe` still prints the
+  snapshot error texts the agent will recognise. The release runs `restow-agent.exe` and
+  `restic.exe` on a Windows runner before the checksum list goes on the draft for signing; the
+  request to sign names the SHA-256 of both and reminds of the Defender submission, and the
+  release notes list them.
+
+### Changed
+
+- The license notices cover the restic of every target: `licenses/restic-deps/` holds 82 Go
+  modules (79 or 80 per target; three only in `restic.exe`, FUSE and xattr only on Linux and
+  macOS), and `scripts/restic-licenses.mjs check` compares each restic binary with the modules
+  listed for its target.
+
 ## [0.4.8] - 2026-10-30
 
 Beta release. Run it alongside your existing backups, not as your only one, until

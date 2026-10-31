@@ -163,6 +163,16 @@ if ls /srv/agent/*/*/restow-agent > /dev/null 2>&1; then
     (cd "$dir" && sha256sum -c SHA256SUMS > /dev/null) || { echo "checksum mismatch in $dir"; exit 1; }
   done
   echo "agent downloads:" $(ls -d /srv/agent/*/*/ | wc -l) "targets verified against SHA256SUMS"
+  # The Windows agent (preview) ships as .exe files, listed in its SHA256SUMS.
+  for dir in /srv/agent/*/; do
+    [ -f "$dir/VERSION" ] || continue
+    win="$dir/windows-amd64"
+    for file in restow-agent.exe restic.exe; do
+      test -s "$win/$file" || { echo "$win/$file is missing"; exit 1; }
+      grep -q "  $file$" "$win/SHA256SUMS" || { echo "$win/SHA256SUMS does not list $file"; exit 1; }
+    done
+  done
+  echo "windows-amd64: restow-agent.exe and restic.exe present and listed"
   ls /srv/agent/install
 else
   echo "NO-AGENT"

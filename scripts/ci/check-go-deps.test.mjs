@@ -48,10 +48,10 @@ test("reads the pinned Go image from tools.env", () => {
   assert.match(goImage(real) ?? "", /^golang:/);
 });
 
-test("it checks the four shipped targets with the format strings it documents", () => {
+test("it checks the five shipped targets with the format strings it documents", () => {
   assert.deepEqual(
     TARGETS.map((target) => `${target.goos}-${target.goarch}`),
-    ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64"],
+    ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64"],
   );
   assert.match(MODULE_FORMAT, /\.Main/);
   assert.match(DEPS_FORMAT, /\.Module/);

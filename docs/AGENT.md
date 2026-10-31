@@ -1143,12 +1143,16 @@ Statische Dateien werden nur für bekannte Versionen, Ziele und Dateinamen ausge
 Pfad kann ausbrechen). Ein Entwicklungsaufbau (`agent/build.sh`) legt die Ziele ohne Versionsordner
 unter `agent/dist/<os>-<arch>/` ab, mit `agent/dist/VERSION` und einer `SHA256SUMS`; der Server
 versteht beide Layouts und nimmt ohne `RESTOW_AGENT_DIR` und ohne `/srv/agent` den Ordner
-`agent/dist` des Repositorys. Es gibt kein `windows.ps1` und keine Windows-Ziele in 0.1.0.
+`agent/dist` des Repositorys. Seit 0.5.0 gibt es das Ziel `windows-amd64` (Vorschau, noch
+nicht nutzbar, siehe docs/WINDOWS-AGENT.md) mit `restow-agent.exe` und `restic.exe`; ein
+Update für Windows nennt `restow-agent.exe`. Es gibt noch kein `windows.ps1`, und der Server
+nimmt `os=windows` weiter nicht an. Kein `windows-arm64`.
 
 Agent-Version = Restow-Version; restic gepinnt (0.19.1), im Image per SHA-256
 geprüft (BSD-2-Clause). `THIRD_PARTY_NOTICES.txt` je Ziel baut `agent/build.sh` aus
 `agent/THIRD_PARTY_NOTICES.txt`: die Lizenz des Agenten (Apache-2.0 mit der Copyright-Zeile aus
-NOTICE), die von Go, restic und den 79 Go-Modulen, die in restic einkompiliert sind (Texte in
+NOTICE), die von Go, restic und den Go-Modulen, die in restic einkompiliert sind (82 Module, je Ziel
+80 oder 79; Texte in
 `licenses/restic-deps/`, gelistet in THIRD_PARTY_NOTICES.md; golang-lru unter MPL-2.0 mit
 Hinweis auf seinen Quellcode). Die Datei steht in der signierten `SHA256SUMS` und liegt dem
 GitHub-Release als `restow-agent-THIRD_PARTY_NOTICES.txt` bei. Der Agent aktualisiert sich über

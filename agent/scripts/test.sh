@@ -1,5 +1,5 @@
 #!/bin/sh
-# Unit tests and static checks: gofmt, go vet for all four release targets, the
+# Unit tests and static checks: gofmt, go vet for all five release targets, the
 # tests with the race detector, the build.sh test (scripts/test-build.sh, needs
 # neither Go nor Docker), the PVE installer test (scripts/test-pve-install.sh) and
 # ShellCheck. Uses the local Go toolchain if present,
@@ -38,11 +38,14 @@ if [ -n "$unformatted" ]; then
   exit 1
 fi
 
-echo "== go vet (linux and darwin, amd64 and arm64, integration tag)"
+echo "== go vet (linux and darwin, amd64 and arm64, integration tag; windows/amd64)"
 for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
   CGO_ENABLED=0 GOOS="${target%/*}" GOARCH="${target#*/}" go vet ./...
   CGO_ENABLED=0 GOOS="${target%/*}" GOARCH="${target#*/}" go vet -tags integration ./integration/
 done
+# Windows: compiler errors and vet findings of the _windows.go files show up
+# here on Linux already. The integration tag stays Linux and macOS.
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go vet ./...
 
 echo "== go test"
 if command -v gcc >/dev/null 2>&1; then

@@ -1,16 +1,19 @@
 // Command fetch downloads a release artifact, verifies its SHA-256 against a
 // pinned value and unpacks it. It is a build-time helper for build.sh and the
-// integration tests (restic and rest-server ship as .bz2 and .tar.gz, and the
-// Go build image has no bzip2). It is not part of the shipped agent.
+// integration tests (restic ships as .bz2 for Linux and macOS and as .zip for
+// Windows, rest-server as .tar.gz, and the Go build image has no bzip2). It is
+// not part of the shipped agent.
 //
 //	go run ./tools/fetch -url URL -sha256 HEX -format bz2 -out dist/restic
 //
 // Formats: raw (store as is), bz2 (decompress a single file), tar.gz (extract
-// the member whose base name is -member).
+// the member whose base name is -member), zip (extract the one top-level member
+// named exactly -member).
 package main
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/bzip2"
 	"compress/gzip"
 	"crypto/sha256"
@@ -33,8 +36,8 @@ const maxDownload = 200 << 20
 func main() {
 	url := flag.String("url", "", "https URL of the artifact")
 	want := flag.String("sha256", "", "expected SHA-256 of the downloaded file (hex)")
-	format := flag.String("format", "raw", "raw | bz2 | tar.gz")
-	member := flag.String("member", "", "tar.gz: base name of the file to extract")
+	format := flag.String("format", "raw", "raw | bz2 | tar.gz | zip")
+	member := flag.String("member", "", "tar.gz: base name of the file to extract; zip: its exact name")
 	out := flag.String("out", "", "output file")
 	mode := flag.Uint("mode", 0o755, "output file mode")
 	flag.Parse()
@@ -132,6 +135,13 @@ func unpack(src io.Reader, format, member, out string, mode os.FileMode) error {
 		if !found {
 			return fmt.Errorf("member %q not found in the archive", member)
 		}
+	case "zip":
+		rc, err := zipMember(src, member)
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+		body = rc
 	default:
 		return fmt.Errorf("unknown format %q", format)
 	}
@@ -159,4 +169,49 @@ func unpack(src io.Reader, format, member, out string, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(name, out)
+}
+
+// zipMember opens the member of a ZIP archive named exactly member: a plain
+// file name at the top of the archive (no folder, no ".."), a regular file, and
+// only one entry with that name. src must be seekable (the downloaded temporary
+// file is).
+func zipMember(src io.Reader, member string) (io.ReadCloser, error) {
+	if member == "" || member == "." || member == ".." || strings.ContainsAny(member, `/\:`) {
+		return nil, fmt.Errorf("zip: -member must be a plain file name, not %q", member)
+	}
+	ra, ok := src.(interface {
+		io.ReaderAt
+		io.Seeker
+	})
+	if !ok {
+		return nil, errors.New("zip: the archive is not seekable")
+	}
+	size, err := ra.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, err
+	}
+	zr, err := zip.NewReader(ra, size)
+	if err != nil {
+		return nil, err
+	}
+	var found *zip.File
+	for _, f := range zr.File {
+		if f.Name != member {
+			continue
+		}
+		if found != nil {
+			return nil, fmt.Errorf("zip: member %q appears more than once", member)
+		}
+		found = f
+	}
+	if found == nil {
+		return nil, fmt.Errorf("member %q not found in the archive", member)
+	}
+	if !found.Mode().IsRegular() {
+		return nil, fmt.Errorf("zip: member %q is not a regular file", member)
+	}
+	if found.UncompressedSize64 > 4*maxDownload {
+		return nil, fmt.Errorf("zip: member %q is larger than %d bytes", member, 4*maxDownload)
+	}
+	return found.Open()
 }

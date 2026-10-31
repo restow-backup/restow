@@ -9,8 +9,11 @@ import {
   MANIFEST,
   moduleFolder,
   moduleLicense,
+  moduleOnTarget,
   pinnedResticVersion,
   readBuildInfo,
+  targetOf,
+  unionOfModules,
   VENDOR_DIR,
 } from "../restic-licenses.mjs";
 
@@ -155,8 +158,89 @@ test("the vendored list must be exactly the modules of every binary, at the same
     problems[2],
     /extra \(linux-arm64\) contains example\.com\/b v1, which is not vendored/,
   );
-  assert.match(problems[3], /example\.com\/new is vendored but not in fewer/);
+  assert.match(problems[3], /example\.com\/new is vendored for linux-arm64 but not in fewer/);
   assert.match(problems[4], /agent is not a restic binary/);
+});
+
+/** The build information of a stand-in restic for one target with the given modules. */
+function infoFor(goos, goarch, deps) {
+  return readBuildInfo(
+    binary([
+      "path\tgithub.com/restic/restic/cmd/restic",
+      ...deps.map(([path, version, sum]) => `dep\t${path}\t${version}\t${sum}`),
+      `build\tGOOS=${goos}`,
+      `build\tGOARCH=${goarch}`,
+      "",
+    ]),
+  );
+}
+
+test("the targets differ: the union is vendored, a module of some targets names them", () => {
+  const common = ["example.com/common", "v1.0.0", "h1:c="];
+  const fuse = ["example.com/fuse", "v0.3.1", "h1:f="];
+  const winio = ["example.com/winio", "v0.6.2", "h1:w="];
+  const linux = infoFor("linux", "amd64", [common, fuse]);
+  const darwin = infoFor("darwin", "arm64", [common, fuse]);
+  const windows = infoFor("windows", "amd64", [winio, common]);
+  assert.equal(targetOf(windows), "windows-amd64");
+  const union = unionOfModules([
+    { file: "linux/restic", info: linux },
+    { file: "darwin/restic", info: darwin },
+    { file: "windows/restic.exe", info: windows },
+  ]);
+  assert.deepEqual(
+    union.map(({ dep, targets }) => [dep.path, targets]),
+    [
+      ["example.com/common", undefined],
+      ["example.com/fuse", ["darwin-arm64", "linux-amd64"]],
+      ["example.com/winio", ["windows-amd64"]],
+    ],
+  );
+  // One module at two versions (or hashes) in two binaries cannot be described once.
+  assert.throws(
+    () =>
+      unionOfModules([
+        { file: "linux/restic", info: linux },
+        {
+          file: "windows/restic.exe",
+          info: infoFor("windows", "amd64", [["example.com/common", "v1.0.1", "h1:x="]]),
+        },
+      ]),
+    /example\.com\/common is v1\.0\.0 h1:c= in linux\/restic but v1\.0\.1 h1:x= in windows\/restic\.exe/,
+  );
+
+  const manifest = {
+    restic: "0.19.1",
+    modules: union.map(({ dep, targets }) => ({ ...dep, ...(targets ? { targets } : {}) })),
+  };
+  assert.ok(moduleOnTarget(manifest.modules[0], "windows-amd64"));
+  assert.ok(!moduleOnTarget(manifest.modules[1], "windows-amd64"));
+  assert.deepEqual(
+    compareWithBinaries(
+      manifest,
+      [
+        { file: "linux/restic", info: linux },
+        { file: "darwin/restic", info: darwin },
+        { file: "windows/restic.exe", info: windows },
+      ],
+      "0.19.1",
+    ),
+    [],
+  );
+  // A Windows binary without its own module, or with one of Linux, is a problem.
+  const problems = compareWithBinaries(
+    manifest,
+    [
+      { file: "short.exe", info: infoFor("windows", "amd64", [common]) },
+      { file: "linux-arm64/restic", info: infoFor("linux", "arm64", [common, fuse]) },
+    ],
+    "0.19.1",
+  );
+  assert.equal(problems.length, 1);
+  assert.match(
+    problems[0],
+    /example\.com\/winio is vendored for windows-amd64 but not in short\.exe/,
+  );
 });
 
 test("the committed list is complete: the pinned restic, a license for each module, every file present", () => {
@@ -177,6 +261,23 @@ test("the committed list is complete: the pinned restic, a license for each modu
         `${VENDOR_DIR}/${file}`,
       );
     }
+  }
+  // The Windows binary has three modules of its own; FUSE and xattr are Linux and macOS only.
+  const windowsOnly = manifest.modules
+    .filter((module) => module.targets?.join() === "windows-amd64")
+    .map((module) => module.path);
+  assert.deepEqual(windowsOnly, [
+    "github.com/Microsoft/go-winio",
+    "github.com/go-ole/go-ole",
+    "github.com/inconshreveable/mousetrap",
+  ]);
+  for (const path of ["github.com/anacrolix/fuse", "github.com/pkg/xattr"]) {
+    const module = manifest.modules.find((entry) => entry.path === path);
+    assert.ok(module && !moduleOnTarget(module, "windows-amd64"), path);
+    assert.ok(
+      moduleOnTarget(module, "linux-amd64") && moduleOnTarget(module, "darwin-arm64"),
+      path,
+    );
   }
   // The NOTICE files the Apache-2.0 license asks to pass on.
   const noticed = manifest.modules.filter((module) => module.noticeFiles.length > 0);

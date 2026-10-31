@@ -1,5 +1,5 @@
 {
-  "$comment": "The Go modules compiled into the restic release binary (all four targets list the same), with the license texts and NOTICE files of each module at that exact version, fetched through the Go module proxy and checked against the hash in the binary. Written by `node scripts/restic-licenses.mjs vendor`, licenses reviewed by hand; scripts/third-party-notices.mjs prints them, scripts/ci/check-licenses.mjs checks them against license-policy.json.",
+  "$comment": "The Go modules compiled into the restic release binaries (a module with `targets` is only in the binaries of those targets, every other module is in all of them), with the license texts and NOTICE files of each module at that exact version, fetched through the Go module proxy and checked against the hash in the binary. Written by `node scripts/restic-licenses.mjs vendor`, licenses reviewed by hand; scripts/third-party-notices.mjs prints them, scripts/ci/check-licenses.mjs checks them against license-policy.json.",
   "restic": "0.19.1",
   "modules": [
     {
@@ -185,9 +185,22 @@
       "noticeFiles": []
     },
     {
+      "path": "github.com/Microsoft/go-winio",
+      "version": "v0.6.2",
+      "sum": "h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=",
+      "targets": ["windows-amd64"],
+      "license": "MIT",
+      "source": "https://github.com/Microsoft/go-winio",
+      "ref": "refs/tags/v0.6.2",
+      "subdir": "",
+      "licenseFiles": ["github.com_Microsoft_go-winio@v0.6.2/LICENSE"],
+      "noticeFiles": []
+    },
+    {
       "path": "github.com/anacrolix/fuse",
       "version": "v0.3.1",
       "sum": "h1:oT8s3B5HFkBdLe/WKJO5MNo9iIyEtc+BhvTZYp4jhDM=",
+      "targets": ["darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"],
       "license": "BSD-3-Clause AND BSD-2-Clause",
       "source": "https://github.com/anacrolix/fuse",
       "ref": "refs/tags/v0.3.1",
@@ -295,6 +308,18 @@
       "noticeFiles": []
     },
     {
+      "path": "github.com/go-ole/go-ole",
+      "version": "v1.3.0",
+      "sum": "h1:Dt6ye7+vXGIKZ7Xtk4s6/xVdGDQynvom7xCFEdWr6uE=",
+      "targets": ["windows-amd64"],
+      "license": "MIT",
+      "source": "https://github.com/go-ole/go-ole",
+      "ref": "refs/tags/v1.3.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_go-ole_go-ole@v1.3.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
       "path": "github.com/golang-jwt/jwt/v5",
       "version": "v5.3.1",
       "sum": "h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=",
@@ -358,6 +383,18 @@
       "ref": "refs/tags/v2.0.7",
       "subdir": "",
       "licenseFiles": ["github.com_hashicorp_golang-lru_v2@v2.0.7/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/inconshreveable/mousetrap",
+      "version": "v1.1.0",
+      "sum": "h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=",
+      "targets": ["windows-amd64"],
+      "license": "Apache-2.0",
+      "source": "https://github.com/inconshreveable/mousetrap",
+      "ref": "refs/tags/v1.1.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_inconshreveable_mousetrap@v1.1.0/LICENSE"],
       "noticeFiles": []
     },
     {
@@ -521,6 +558,7 @@
       "path": "github.com/pkg/xattr",
       "version": "v0.4.12",
       "sum": "h1:rRTkSyFNTRElv6pkA3zpjHpQ90p/OdHQC1GmGh1aTjM=",
+      "targets": ["darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"],
       "license": "BSD-2-Clause",
       "source": "https://github.com/pkg/xattr",
       "ref": "refs/tags/v0.4.12",

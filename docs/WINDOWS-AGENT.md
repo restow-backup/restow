@@ -1946,46 +1946,108 @@ Build, CI, Lizenzen, Doku:
 Unverändert: `scripts/release/sign-agent.sh`, `scripts/ci/license-policy.json`,
 `packages/db/drizzle/` (keine Migration), `integrations/pve/`.
 
-## 25. Offene Entscheidungen
+## 25. Offene Entscheidungen (entschieden)
 
-1. **Standard der Snapshot-Fehlerpolitik.** `continue` (Sicherung ohne Schattenkopie,
-   `partial`) oder `fail`. *Empfehlung:* `continue` als Standard, für alle drei Verfahren
-   (VSS, APFS, LVM/btrfs). Eine Sicherung mit möglicherweise inkonsistenten offenen Dateien
-   ist besser als keine, und `partial` mit klarer Erklärung macht das sichtbar; wer Konsistenz
-   erzwingen will, setzt `fail` in der Richtlinie und sperrt sie.
+Der Maintainer hat alle Punkte entschieden; die Begründungen der Empfehlungen gelten weiter.
 
-2. **Windows on ARM.** Gar nicht oder amd64 unter Emulation. *Empfehlung:* In 0.5.0
-   ablehnen (Installer und Server). restic liefert kein arm64, ein selbst gebautes arm64-restic
-   kann kein VSS, und ob das amd64-restic unter Emulation VSS kann, ist ungeprüft. Wieder
-   aufnehmen, wenn restic ein `windows_arm64`-Release mit VSS-Unterstützung hat.
+1. **Fehlerpolitik bei Snapshot-Fehlern: entschieden.** Eine gemeinsame Einstellung
+   `snapshotOnFailure` für alle Verfahren (VSS hier, LVM/btrfs unter Linux und APFS unter
+   macOS im Zweig für Bare Metal und APFS). Standard `continue`: Sicherung ohne Snapshot,
+   Lauf `partial` mit einem klaren Lauf-Fehler (17.4, 17.5). Alternative `fail`: Lauf
+   `failed`. Dasselbe Feld nutzen Linux und macOS; der Bericht trägt dafür ein gemeinsames
+   Feld `consistency`, in dem die Angaben aus 17.5 (`stats.snapshot`: Verfahren und
+   Zustand) aufgehen. Die genaue Form legen beide Zweige gemeinsam fest, der zuerst
+   zusammengeführte setzt sie.
 
-3. **Signaturprüfung im Installer.** Eigene Ed25519-Prüfung in PowerShell oder nur
-   `ssh-keygen -Y verify` (mit Abbruch, wo es fehlt). *Empfehlung:* Eigene Prüfung in
-   PowerShell, mit derselben Annahmemenge wie `crypto/ed25519`, Differenztest gegen Go im
-   Windows-Job und Negativvektoren. `ssh-keygen` ab 8.1 fehlt auf Server 2016 und vielen
-   Windows-10-Systemen; ein Installer, der dort nur mit manueller Prüfsumme geht, wird in der
-   Praxis umgangen. Der Agent prüft bei jedem Update ohnehin selbst.
+2. **Windows on ARM: entschieden, abgelehnt in 0.5.0.** Nur `windows-amd64`. Installer und
+   Server lehnen arm64 mit klarer Meldung ab; `agent/build.sh` kennt kein `windows-arm64`
+   (M1, `scripts/test-build.sh` prüft die Ablehnung), der Server liefert es nicht aus
+   (`DISTRIBUTION_TARGETS` ist eine feste Liste). Wieder aufnehmen, wenn restic ein
+   `windows_arm64`-Release mit VSS-Unterstützung hat.
 
-4. **Authenticode.** Ohne Signatur bleiben Defender-Fehlalarme, Smart App Control und
-   ASR-Regeln ein Risiko. *Empfehlung:* 0.5.0 ohne Signatur ausliefern, mit
-   Defender-Einreichung je Prerelease und den Hinweisen aus Abschnitt 15; parallel bei der
-   SignPath Foundation (kostenlose Code-Signierung für Open-Source-Projekte) anfragen und,
-   wenn bewilligt, in 0.5.x `restow-agent.exe` signieren. `windows.ps1` bleibt unsigniert:
-   Der Server schreibt es je Anfrage um, und `iex` prüft keine Signatur. Erst wenn es eine
-   statische Datei wird, die Instanz, Version und Schlüssel als Parameter nimmt, hilft eine
-   Signatur, und dann nur beim Start als Datei. restic.exe bliebe unsigniert, solange restic
-   nicht selbst signiert.
+3. **Signaturprüfung im Installer: entschieden, eigene Ed25519-Prüfung in PowerShell.**
+   Mit derselben Annahmemenge wie `crypto/ed25519`, Negativvektoren (RFC 8032, Wycheproof,
+   14.3) und einem Differenztest gegen Go im Windows-Job. Kein `ssh-keygen`.
 
-5. **Standard-Restore-Ziel.** `%SystemDrive%\Restow-Restore-<zeit>` oder wie Unix im ersten
-   vertrauten gesicherten Ordner (meist `C:\Users\Restow-Restore-<zeit>`). *Empfehlung:*
-   `%SystemDrive%\Restow-Restore-<zeit>`. Für Windows-Admins naheliegend, nicht mit einem
-   Benutzerprofil zu verwechseln, außerhalb von Controlled-Folder-Access-Ordnern; der
-   Unterschied zu Unix wird dokumentiert.
+4. **Authenticode: entschieden, keine Signatur in 0.5.0.** `restow-agent.exe` und
+   `windows.ps1` bleiben unsigniert, `restic.exe` ohnehin. Die Einreichung bei Microsoft
+   (Defender, "Submit a file for malware analysis" als Softwareentwickler) ist **je
+   Prerelease ein manueller Schritt des Maintainers**: nach dem Job `agent-sums` und vor dem
+   Signieren, mit den SHA-256 aus dessen Hinweisen (3.6, 15). Die Release-Notizen nennen die
+   SHA-256 von `restow-agent.exe` und `restic.exe` für Freigaben nach Hash. Eine Anfrage bei
+   der SignPath Foundation bleibt als Weg für 0.5.x offen.
 
-6. **Windows in 0.5.0 als Vorschau kennzeichnen.** Voll unterstützt oder "Vorschau" im
-   Enroll-Dialog, in der Rechnerliste und im CHANGELOG. *Empfehlung:* Vorschau, bis ein
-   sauberes Defender-Ergebnis auf einem frischen Windows 11 mit Standardeinstellungen und das
-   vollständige Freigabe-Gate (22.3) vorliegen; die Kennzeichnung fällt in einem 0.5.x ohne
-   weitere Codeänderung. Die Kernprüfung (Schattenkopie, Stoppsignal im Dienst) hängt an
-   Maschinentests, und 0.5.0 trägt mit Linux Bare Metal und APFS schon viel; die Vorschau
-   ist auch der Rückfall, wenn M3 rutscht (Abschnitt 23).
+5. **Standard-Restore-Ziel: entschieden, `%SystemDrive%\Restow-Restore-<zeit>`.** Der
+   Unterschied zu Unix (erster vertrauter gesicherter Ordner) wird dokumentiert (18.2).
+
+6. **Windows in 0.5.0 als Vorschau: entschieden.** "Vorschau" im Enroll-Dialog, in der
+   Rechnerliste und im CHANGELOG, bis ein sauberes Defender-Ergebnis auf einem frischen
+   Windows 11 mit Standardeinstellungen und das vollständige Freigabe-Gate (22.3) vorliegen.
+
+## 26. Stand der Umsetzung
+
+**M1, Teil Build, CI und Release-Gerüst (umgesetzt):**
+
+- `agent/build.sh` baut fünf Ziele; `windows-amd64` liefert `restow-agent.exe` und
+  `restic.exe` (aus dem gepinnten `.zip`, `tools/fetch -format zip`). `tools.env` pinnt
+  `RESTIC_SHA256_windows_amd64` und `REST_SERVER_SHA256_windows_amd64`; beide Werte stammen
+  aus den `SHA256SUMS` der Releases, deren GPG-Signatur gegen den Schlüssel
+  `CF8F18F2844575973F79D4E191A6868BD3F7A907` geprüft wurde (2026-10-31; der Schlüssel kam
+  dabei vom Keyserver `keyserver.ubuntu.com`, weil `restic.net` aus der Build-Umgebung nicht
+  erreichbar war; der Fingerabdruck ist derselbe). `scripts/pin-tools.sh` gibt die
+  Windows-Zeilen mit aus.
+- Lizenzen (3.3): `scripts/restic-licenses.mjs` vendort die Vereinigung der Modullisten,
+  `modules.json` trägt `targets` für Module nur einiger Ziele (go-winio, go-ole, mousetrap nur
+  Windows; anacrolix/fuse und pkg/xattr nur Linux und macOS); `check` prüft je Ziel. Die drei
+  neuen Module wurden einzeln über den Go-Modul-Proxy geholt und gegen die Hashes im Binary
+  geprüft (ein voller `vendor`-Lauf scheiterte am Plattenplatz der Build-Umgebung; die übrigen
+  79 Einträge sind unverändert). Die Hinweise nennen bei solchen Modulen die Ziele.
+- `scripts/ci/check-go-deps.mjs` prüft fünf Ziele. `agent/scripts/test.sh` ruft
+  `GOOS=windows go vet ./...` auf.
+- CI: Job `agent` mit Lizenzprüfung über `restic*` und dem Byte-Wächter auf `restic.exe`;
+  neuer Job `agent-windows` (gofmt, natives `go vet`, Unit-Tests ohne `unix`-Tag, mit `-race`,
+  wenn `gcc` da ist) in `passed`. Die Schritte 3 bis 5 aus 3.5 (`windowsintegration`,
+  Installer, Integration mit `restic.exe`) kommen mit dem jeweiligen Code.
+- Release: `agent` lädt nur noch `agent-dist` hoch; `agent-windows-check` prüft die
+  Windows-Dateien (`Get-FileHash`, `version --short`, `restic.exe version`); erst danach legt
+  `agent-sums` die Prüfsummen auf den Entwurf und nennt die SHA-256 der `.exe` mit der
+  Erinnerung an die Defender-Einreichung; `agent-signature` wartet auf beide. `publish`
+  veröffentlicht `restow-agent_<v>_windows-amd64.exe` und gleicht es mit
+  `windows-amd64/restow-agent.exe` ab; die Notizen nennen die SHA-256 und den Fingerabdruck
+  des Release-Schlüssels. Anlegen und Löschen des Dienstes in `agent-windows-check` fehlt
+  noch (kommt mit dem Dienst-Manager, 9.1).
+- Image: Die Kopierschleife des `Dockerfile` nimmt die `.exe`, `*.ps1` aus `agent/install/`
+  wird mitkopiert, sobald es existiert; die Smoke-Prüfung verlangt `windows-amd64/restow-agent.exe`
+  und `restic.exe` samt Eintrag in `SHA256SUMS`. `distribution.ts`: feste Zielliste mit
+  `windows-amd64`, `latestAgentRelease` nennt für Windows `restow-agent.exe`.
+- Build-Tags: `internal/pve` und `cmd/restow-pve` tragen `//go:build !windows`;
+  `share/sys_windows.go` ergänzt `sys_other.go`. Gemeinsame Typen von `hooks`, `lock`, `svc`,
+  `update` liegen ohne Tag; die Unix-Teile in `run_unix.go`, `resolve_unix.go`,
+  `lock_unix.go`, `new_unix.go`, `staged_unix.go`. Unter Windows stehen **Platzhalter, die
+  ablehnen**: Dienst, Deinstallation, Sperre, Hooks, Vertrauensprüfung (nichts gilt als
+  vertraut), State (weder Lesen noch Schreiben), Selbstaktualisierung (Staging); Netzteil
+  meldet "unbekannt, Netzbetrieb angenommen", die OS-Version "Windows". Tests mit
+  `/bin/sh`-Attrappen oder Unix-Pfaden und -Rechten tragen `//go:build unix` (alle Tests von
+  `internal/core`, `internal/share`, `internal/nbd`, `restic_test.go` und `command_test.go`,
+  `paths_test.go`, `state_test.go`, `sysinfo/machine_test.go`, in `cmd/restow-agent`
+  `main_test.go`, `update_test.go`, `installation_test.go`, `cmd/restow-share/main_test.go`).
+- Der Server lehnt `os=windows` weiter ab (`SUPPORTED_ENDPOINT_OS` unverändert). Das
+  weicht von "Server nimmt `windows` an" in M1 (Abschnitt 23) ab: Annehmen ergibt erst Sinn,
+  wenn Dienst, State und Vertrauensprüfung keine Platzhalter mehr sind.
+
+**Noch offen aus M1:** neutrale Snapshot-Begriffe (Richtlinie, Fehlercodes, Berichtsfeld,
+abgestimmt mit dem Zweig für Bare Metal und APFS), `internal/winapi`, Vertrauensprüfung,
+State/DPAPI, `atomicfile`, Sperre, Dienst, Annahme von `windows` am Server.
+
+**Nur auf einer echten Windows-Maschine zu prüfen (zusätzlich zu 22.3), nicht in dieser
+Umgebung geprüft:**
+
+- Der erste Lauf des Jobs `agent-windows`: ob alle Unit-Tests ohne `unix`-Tag unter Windows
+  grün sind (Pfadtrenner, Dateirechte, Zeitzonen, Umbenennen offener Dateien). Kandidaten bei
+  Fehlern: `internal/activity`, `internal/logging`, `internal/status`, `internal/runlog`,
+  `internal/schedule`, `internal/api`, `tools/fetch`.
+- Ob `gofmt -l` auf dem Windows-Runner mit `core.autocrlf=false` leer bleibt.
+- `restow-agent.exe version --short` und `restic.exe version` auf `windows-2022`
+  (Job `agent-windows-check`) und auf Windows 10/11 und Server 2016.
+- Ob Defender `restow-agent.exe` (Go 1.26, `-s -w`, Konsolen-Subsystem) schon beim Entpacken
+  oder Start meldet, und das Ergebnis der Einreichung beim ersten Prerelease.

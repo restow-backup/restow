@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Command restow-pve is the node helper of Restow for Proxmox VE: it backs up
 // VMs and containers through the PVE backup provider interface into a Restow
 // instance and restores them as new guests. The storage plugin shim (Perl, a

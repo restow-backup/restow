@@ -10,7 +10,7 @@ key, stays on the maintainer's machine: the release waits until it is used there
 
 | Workflow | Runs on | What it does |
 | --- | --- | --- |
-| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename) and the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the four targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64; passes with a notice on a commit that has no `agent/`), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows. The job **CI passed** is the one to require in branch protection. |
+| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename) and the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the five targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64 and windows on amd64, the license check of all five restic binaries and the byte guard on the snapshot error texts in `restic.exe`; passes with a notice on a commit that has no `agent/`), the Go agent on a Windows runner (job `agent-windows`, `windows-2022`: gofmt, native `go vet` and the unit tests without the `unix` build tag, see docs/WINDOWS-AGENT.md section 3.5), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows. The job **CI passed** is the one to require in branch protection. |
 | `release.yml` | a tag `v*` | see "Releasing" |
 | `smoke.yml` | nightly on `main`, and on demand | builds the images of both builds from the checkout and runs every smoke check, once per build; nothing is published |
 | `contributor-checks.yml` | pull requests | CLA and DCO sign-off; the DCO job skips Dependabot's pull requests (its commits carry no sign-off; the CLA job allowlists it for the same reason) |
@@ -30,23 +30,25 @@ workspaces must in addition be free of any copyleft (MPL is not allowed there ei
 and the `license` field of every `package.json` is checked (`Apache-2.0` for the core,
 `SEE LICENSE IN ../LICENSE` for `ee/`). The same job runs `scripts/ci/check-go-deps.mjs`
 (the Go agent may not depend on any third-party Go module: `go list` over the module
-graph and the packages of all four targets) and fails when `THIRD_PARTY_NOTICES.md` or
+graph and the packages of all five targets) and fails when `THIRD_PARTY_NOTICES.md` or
 `agent/THIRD_PARTY_NOTICES.txt` (the notices that ship with the agent to every machine) is
 not what `scripts/third-party-notices.mjs` generates.
 
-The restic binary Restow redistributes is a statically linked Go program with 79
-third-party modules (restic 0.19.1). Their licenses are checked one by one through the
+The restic binary Restow redistributes is a statically linked Go program with 79 or 80
+third-party modules per target, 82 over all five (restic 0.19.1: the Windows binary has
+three modules of its own and lacks FUSE and xattr). Their licenses are checked one by one through the
 section `redistributedBinaries` of the policy: each needs a license of the allowlist without
 copyleft, or a named exception for that binary. The only exception is MPL-2.0 for
 `github.com/hashicorp/golang-lru/v2` (unmodified; its notices entry says where its source
 is); it allows nothing for Restow's own dependencies and nothing in `ee/`, and an exception
 no module needs any more fails the check. The license and NOTICE files of these modules are
 vendored in `licenses/restic-deps/`: `node scripts/restic-licenses.mjs vendor
-agent/dist/*/restic` (maintainer, once per restic pin: reads the module list from the
-binaries' build information, fetches each module through the Go module proxy, checks it
-against the hash in the binary) and `... check` (CI, in the agent job against the four
-freshly fetched binaries: the vendored list is exactly their modules, versions and hashes;
-no Go, no network). A new restic pin therefore needs `vendor`, a review of the diff in
+agent/dist/*/restic*` (maintainer, once per restic pin: reads the module lists from the
+binaries' build information and vendors their union, a module of only some targets with
+`targets` in `modules.json`, fetches each module through the Go module proxy, checks it
+against the hash in the binary) and `... check` (CI, in the agent job against the five
+freshly fetched binaries, `restic.exe` included: every module of a binary is vendored at
+its version and hash, every module vendored for its target is in it; no Go, no network). A new restic pin therefore needs `vendor`, a review of the diff in
 `licenses/restic-deps/`, then `node scripts/third-party-notices.mjs`; CI fails until both
 are done.
 
@@ -204,8 +206,15 @@ image).
      (`agent/build.sh` allows that because `agent/release-signing.pub` holds the
      maintainer's release key, fingerprint
      `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`; it refuses a checkout where
-     the file is only a placeholder) and puts its checksum list on a **draft** release
-     as `agent-SHA256SUMS`.
+     the file is only a placeholder) and keeps it as the artifact `agent-dist`.
+   - **agent-windows-check** (`windows-2022`): the Windows files of that build match
+     their `SHA256SUMS` (`Get-FileHash`), `restow-agent.exe version --short` is the
+     release version and `restic.exe version` the pinned restic. Nothing that does not
+     start on Windows gets signed.
+   - **agent-sums**: only after that check, puts the checksum list on a **draft**
+     release as `agent-SHA256SUMS` and asks for the signature, naming the SHA-256 of
+     `restow-agent.exe` and `restic.exe` and reminding of the Defender submission
+     (maintainer step, see docs/WINDOWS-AGENT.md section 15).
    - **agent-signature** (environment `agent-release-signing`): waits until the
      maintainer ran `scripts/release/sign-agent.sh vX.Y.Z --key <private key>` on the
      signing machine (it signs `agent-SHA256SUMS`, checks the signature against the

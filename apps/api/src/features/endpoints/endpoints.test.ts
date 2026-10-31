@@ -12,6 +12,7 @@ import { installCommands } from "./commands.js";
 const SIGNATURE = "-----BEGIN SSH SIGNATURE-----\nU1NIU0lH\n-----END SSH SIGNATURE-----\n";
 
 import {
+  agentBinaryName,
   announcedAgentVersion,
   compareAgentVersions,
   DISTRIBUTION_TARGETS,
@@ -142,9 +143,11 @@ describe("distribution of the agent and its install scripts", () => {
     await mkdir(join(root, "not-a-version"), { recursive: true });
     await mkdir(join(root, "0.3.0", "darwin-arm64"), { recursive: true });
     await writeFile(join(root, "0.3.0", "darwin-arm64", "restow-agent"), "mac");
+    await mkdir(join(root, "0.3.0", "windows-amd64"), { recursive: true });
+    await writeFile(join(root, "0.3.0", "windows-amd64", "restow-agent.exe"), "MZ");
     await writeFile(
       join(root, "0.3.0", "SHA256SUMS"),
-      `${"c".repeat(64)}  linux-amd64/restow-agent\n${"d".repeat(64)}  darwin-arm64/restow-agent\n`,
+      `${"c".repeat(64)}  linux-amd64/restow-agent\n${"d".repeat(64)}  darwin-arm64/restow-agent\n${"f".repeat(64)}  windows-amd64/restow-agent.exe\n`,
     );
     await writeFile(join(root, "0.3.0", "SHA256SUMS.sig"), SIGNATURE);
   });
@@ -153,13 +156,16 @@ describe("distribution of the agent and its install scripts", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("offers Linux and macOS targets only", () => {
+  it("offers Linux and macOS on amd64 and arm64 and Windows on amd64 only", () => {
     expect(DISTRIBUTION_TARGETS).toEqual([
       "linux-amd64",
       "linux-arm64",
       "darwin-amd64",
       "darwin-arm64",
+      "windows-amd64",
     ]);
+    expect(agentBinaryName("windows-amd64")).toBe("restow-agent.exe");
+    expect(agentBinaryName("linux-arm64")).toBe("restow-agent");
   });
 
   it("orders versions by semver, a pre-release before its release, and ignores other folders", async () => {
@@ -201,7 +207,14 @@ describe("distribution of the agent and its install scripts", () => {
     expect(mac).toMatchObject({ version: "0.3.0", target: "darwin-arm64", file: "restow-agent" });
     const linux = await latestAgentRelease("linux", "amd64", root);
     expect(linux?.version).toBe("0.10.0");
-    expect(await latestAgentRelease("windows", "amd64", root)).toBeNull();
+    // Windows: the .exe of the signed list; no Windows on ARM.
+    expect(await latestAgentRelease("windows", "amd64", root)).toEqual({
+      version: "0.3.0",
+      target: "windows-amd64",
+      sha256: "f".repeat(64),
+      file: "restow-agent.exe",
+    });
+    expect(await latestAgentRelease("windows", "arm64", root)).toBeNull();
     expect(await latestAgentRelease("linux", "riscv64", root)).toBeNull();
   });
 
@@ -220,6 +233,9 @@ describe("distribution of the agent and its install scripts", () => {
     expect(await distributionFile("0.1.0", "linux-amd64", "restow-agent", root)).toMatchObject({
       size: "agent 0.1.0".length,
     });
+    expect(
+      await distributionFile("0.3.0", "windows-amd64", "restow-agent.exe", root),
+    ).toMatchObject({ size: 2 });
     for (const [version, target, file] of [
       ["0.1.0", "windows-amd64", "restow-agent.exe"],
       ["0.1.0", "linux-amd64", "../linux-amd64/restow-agent"],
