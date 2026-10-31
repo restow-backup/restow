@@ -135,8 +135,9 @@ $env:RESTOW_RELEASE_KEY_FINGERPRINT = 'SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3C
 The installer checks the release signature itself (its own Ed25519 check in PowerShell, no
 other tool) before it runs anything, prints the fingerprint of the release key and stops
 when it differs from a pin. Options: `-Hooks off|scripts|any`, `-Proxy http://proxy:3128`
-(no credentials), `-ReleaseKeyFingerprint`, `-Uninstall`, or the same as `RESTOW_HOOKS`,
-`RESTOW_PROXY`, `RESTOW_RELEASE_KEY_FINGERPRINT`, `RESTOW_UNINSTALL=1`. A 32-bit host
+(no credentials; used for the downloads, the enrollment and the service),
+`-ReleaseKeyFingerprint`, `-Uninstall`, or the same as `RESTOW_HOOKS`, `RESTOW_PROXY`,
+`RESTOW_RELEASE_KEY_FINGERPRINT`, `RESTOW_UNINSTALL=1`. A 32-bit host
 (Intune runs scripts 32-bit by default) is fine: the installer starts itself again as
 64-bit; write the token file there to `C:\Windows\Sysnative\config\systemprofile\`. Where
 `iex (irm ...)` is blocked (AMSI, ASR, EDR), download `windows.ps1`, compare its SHA-256 and

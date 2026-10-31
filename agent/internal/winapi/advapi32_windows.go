@@ -259,8 +259,10 @@ func QueryServiceConfig2(svc syscall.Handle, level uint32) ([]byte, error) {
 	return buf, nil
 }
 
-// ChangeServiceConfig sets start type and program of a service (everything
-// else unchanged).
+// ChangeServiceConfig sets start type, program and display name of a service
+// and puts it back to what CreateService gives it: the LocalSystem account
+// (empty password, as the documentation asks for LocalSystem), no load order
+// group and no dependencies. Error control and type stay as passed.
 func ChangeServiceConfig(svc syscall.Handle, startType uint32, binaryPath, display string) error {
 	b, err := utf16Ptr(binaryPath)
 	if err != nil {
@@ -270,8 +272,11 @@ func ChangeServiceConfig(svc syscall.Handle, startType uint32, binaryPath, displ
 	if err != nil {
 		return err
 	}
+	account, _ := utf16Ptr("LocalSystem")
+	empty := []uint16{0, 0} // "" for the group and the password, an empty list for the dependencies
 	_, err = call(procChangeServiceConfigW, uintptr(svc), ServiceWin32OwnProcess, uintptr(startType), ServiceErrorNormal,
-		uintptr(unsafe.Pointer(b)), 0, 0, 0, 0, 0, uintptr(unsafe.Pointer(d)))
+		uintptr(unsafe.Pointer(b)), uintptr(unsafe.Pointer(&empty[0])), 0, uintptr(unsafe.Pointer(&empty[0])),
+		uintptr(unsafe.Pointer(account)), uintptr(unsafe.Pointer(&empty[0])), uintptr(unsafe.Pointer(d)))
 	return err
 }
 

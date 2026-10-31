@@ -68,6 +68,8 @@ type windowsConfig struct {
 	StartType         uint32
 	Delayed           bool
 	StartName         string
+	Dependencies      []string
+	LoadOrderGroup    string
 	Restarts          []uint32
 	ResetSeconds      uint32
 	NonCrashFailures  bool
@@ -98,6 +100,8 @@ func windowsConfigDiffers(have, want windowsConfig) string {
 	case !strings.EqualFold(have.StartName, want.StartName) && !strings.EqualFold(have.StartName, `NT AUTHORITY\SYSTEM`) &&
 		!strings.EqualFold(have.StartName, `.\LocalSystem`):
 		return "account"
+	case len(have.Dependencies) > 0 || have.LoadOrderGroup != "":
+		return "dependencies"
 	case !equalUint32(have.Restarts, want.Restarts) || have.ResetSeconds != want.ResetSeconds || have.NonCrashFailures != want.NonCrashFailures:
 		return "failure actions"
 	case !sameFold(have.Privileges, want.Privileges):

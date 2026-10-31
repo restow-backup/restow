@@ -69,7 +69,24 @@ func (m *scm) Install(exe string) error {
 		}
 	}
 	defer winapi.CloseServiceHandle(svc)
-	return applyOptionalConfig(svc)
+	if err := applyOptionalConfig(svc); err != nil {
+		return err
+	}
+	return verifyConfig(svc, exe)
+}
+
+// verifyConfig reads the configuration back: a setting Windows did not take
+// (a service prepared by someone else that cannot be repaired) is an error,
+// not "brought in line".
+func verifyConfig(svc syscall.Handle, exe string) error {
+	have, err := readConfig(svc)
+	if err != nil {
+		return err
+	}
+	if d := windowsConfigDiffers(have, wantedWindowsConfig(exe)); d != "" {
+		return fmt.Errorf("the setting %q of the service %s could not be brought in line; delete the service (sc.exe delete %s) and run the installer again", d, WindowsServiceName, WindowsServiceName)
+	}
+	return nil
 }
 
 // applyOptionalConfig sets everything CreateServiceW cannot: description,
@@ -127,6 +144,8 @@ func readConfig(svc syscall.Handle) (windowsConfig, error) {
 	c.CommandLine = winapi.UTF16PtrToString(qc.BinaryPathName)
 	c.StartType = qc.StartType
 	c.StartName = winapi.UTF16PtrToString(qc.ServiceStartName)
+	c.Dependencies = winapi.ParseMultiSZ(qc.Dependencies)
+	c.LoadOrderGroup = winapi.UTF16PtrToString(qc.LoadOrderGroup)
 	_ = buf
 	if b, err := winapi.QueryServiceConfig2(svc, winapi.ServiceConfigDelayedAutoStartInfo); err == nil {
 		c.Delayed = (*winapi.ServiceDelayedAutoStartInfo)(unsafe.Pointer(&b[0])).DelayedAutostart != 0
@@ -299,6 +318,9 @@ func (m *scm) Refresh(exe string) (bool, error) {
 		return false, err
 	}
 	if err := applyOptionalConfig(svc); err != nil {
+		return false, err
+	}
+	if err := verifyConfig(svc, exe); err != nil {
 		return false, err
 	}
 	return true, nil

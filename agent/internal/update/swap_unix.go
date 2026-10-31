@@ -32,21 +32,52 @@ func createStaged(dir, base string) (*os.File, string, error) {
 	return nil, "", errors.New("cannot find a free name for the staged file")
 }
 
-// commitFile renames the staged file over dest. With keepPrev the current
-// binary stays as dest.prev for a manual rollback (hard link: same file
-// system, no copy; failure to keep it is not fatal). Unix replaces a running
-// binary in one rename; there is nothing to roll back.
-func commitFile(staged, dest string, keepPrev bool) (func(), error) {
-	if keepPrev {
-		prev := dest + ".prev"
-		_ = os.Remove(prev)
-		if st, err := os.Lstat(dest); err == nil && st.Mode().IsRegular() {
-			_ = os.Link(dest, prev)
+// commitFile renames the staged file over dest. The current content stays
+// reachable through a hard link (same file system, no copy): dest.prev for
+// the agent, kept for a manual rollback, and dest.old-<hex> for the other
+// files, which undo renames back over dest and done deletes. Unix replaces a
+// running binary in one rename. Failing to make the link is not fatal; the
+// file then cannot be put back.
+func commitFile(staged, dest string, keepPrev bool) (swap, error) {
+	existed := false
+	old := ""
+	if st, err := os.Lstat(dest); err == nil {
+		existed = true
+		if st.Mode().IsRegular() {
+			old = dest + ".old-" + randomSuffix()
+			if keepPrev {
+				old = dest + ".prev"
+				_ = os.Remove(old)
+			}
+			if os.Link(dest, old) != nil {
+				old = ""
+			}
 		}
 	}
 	if err := os.Rename(staged, dest); err != nil {
 		_ = os.Remove(staged)
-		return nil, err
+		if old != "" && !keepPrev {
+			_ = os.Remove(old)
+		}
+		return swap{}, err
 	}
-	return func() {}, nil
+	sw := swap{undo: func() {}, done: func() {}}
+	switch {
+	case !existed:
+		sw.undo = func() { _ = os.Remove(dest) }
+	case old != "" && keepPrev:
+		sw.undo = func() {
+			// .prev stays: link it again after the rename takes it.
+			back := dest + ".old-" + randomSuffix()
+			if os.Link(old, back) == nil {
+				if os.Rename(back, dest) != nil {
+					_ = os.Remove(back)
+				}
+			}
+		}
+	case old != "":
+		sw.undo = func() { _ = os.Rename(old, dest) }
+		sw.done = func() { _ = os.Remove(old) }
+	}
+	return sw, nil
 }

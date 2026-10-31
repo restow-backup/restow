@@ -1190,9 +1190,11 @@ Linux; der Agent prüft sie mit der Go-Standardbibliothek.
   Seit 0.5.0 werden alle Dateien eines Releases (Hinweise, restic, Agent) erst geladen und
   geprüft, bevor die erste eine installierte ersetzt: Die Signatur deckt die Dateiliste, nicht
   die Versionsnummer, und ein älteres gültiges Release mit falscher Agent-Version ersetzt so
-  auch restic nicht mehr. Unter Windows wird die laufende `restow-agent.exe` nach
-  `restow-agent.exe.prev` umbenannt (überschreiben lässt sie sich nicht), der Dienst endet mit
-  dem dienstspezifischen Code 3 und die Fehleraktion des SCM startet die neue Datei.
+  auch restic nicht mehr. Lässt sich danach die Datei des Agenten nicht tauschen, bekommen
+  restic und die Hinweise ihren vorigen Stand zurück. Unter Windows wird die laufende
+  `restow-agent.exe` nach `restow-agent.exe.prev` umbenannt (überschreiben lässt sie sich
+  nicht), der Dienst endet mit dem dienstspezifischen Code 3 und die Fehleraktion des SCM
+  startet die neue Datei.
 - Die Installationsskripte prüfen mit `ssh-keygen -Y verify` (OpenSSH 8.1+) oder OpenSSL 3;
   ohne beides (RHEL 8, Amazon Linux 2) lehnen sie ab und nennen den Weg über
   `RESTOW_SHA256SUMS_SHA256` (Signatur auf einem anderen Rechner prüfen, Hash vorgeben).

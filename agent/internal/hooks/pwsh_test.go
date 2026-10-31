@@ -61,13 +61,30 @@ func TestWindowsScriptKind(t *testing.T) {
 }
 
 func TestExecutionPolicyBlocked(t *testing.T) {
-	if !ExecutionPolicyBlocked(`File C:\x.ps1 cannot be loaded because running scripts is disabled on this system.`) ||
-		!ExecutionPolicyBlocked("+ FullyQualifiedErrorId : UnauthorizedAccess") ||
-		!ExecutionPolicyBlocked("Die Datei kann nicht geladen werden, da die Ausführung von Skripts auf diesem System deaktiviert ist.") {
-		t.Fatal("not recognised")
+	for _, line := range []string{
+		`File C:\x.ps1 cannot be loaded because running scripts is disabled on this system.`,
+		"    + CategoryInfo          : SecurityError: (:) [], PSSecurityException",
+		`File C:\x.ps1 cannot be loaded. The file C:\x.ps1 is not digitally signed.`,
+		"Die Datei kann nicht geladen werden, da die Ausführung von Skripts auf diesem System deaktiviert ist.",
+		`Die Datei C:\x.ps1 ist nicht digital signiert.`,
+	} {
+		if !ExecutionPolicyBlocked(line) {
+			t.Errorf("not recognised: %s", line)
+		}
 	}
-	if ExecutionPolicyBlocked("dump finished") {
-		t.Fatal("false positive")
+	// An ordinary "access denied" is a file permission, not a policy.
+	for _, line := range []string{
+		"dump finished",
+		`Get-Content : Access to the path 'C:\dump\db.bak' is denied.`,
+		"    + CategoryInfo          : PermissionDenied: (C:\\dump\\db.bak:String) [Get-Content], UnauthorizedAccessException",
+		"    + FullyQualifiedErrorId : GetContentReaderUnauthorizedAccessError,Microsoft.PowerShell.Commands.GetContentCommand",
+		"    + FullyQualifiedErrorId : UnauthorizedAccess",
+		`Get-Content : Der Zugriff auf den Pfad "C:\dump\db.bak" wurde verweigert.`,
+		"Die Ausführung von Skripts im Ordner C:\\dump ist erlaubt.",
+	} {
+		if ExecutionPolicyBlocked(line) {
+			t.Errorf("false positive: %s", line)
+		}
 	}
 	e := &Error{Kind: Pre, ExitCode: 1, Hint: executionPolicyHint}
 	if !strings.Contains(e.Error(), "execution policy") {

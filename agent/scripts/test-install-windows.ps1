@@ -9,6 +9,8 @@
 #    generated ones (go run ./scripts/sigdiff; the differential test).
 # 3. Its SSHSIG check accepts the good fixture and a signature made by
 #    ssh-keygen (internal/release/testdata) and refuses every bad fixture.
+# 3b. -Proxy reaches the agent's own commands (enroll, status) and the
+#    session's environment is restored afterwards.
 # 4. A full installation below a prefix (RESTOW_INSTALL_ROOT, no service)
 #    against the fake instance, a second run (repair), a pinned key that does
 #    not match, a tampered release (nothing installed), -Proxy with
@@ -96,6 +98,30 @@ if ($releaseKey) {
     Ok ("release key fingerprint " + (Get-ReleaseKeyFingerprint $releaseKey))
 }
 
+# ---- 3b. -Proxy reaches the agent's own commands (enroll, status) ----------------
+# A stand-in for the agent: this PowerShell, which exits 0 only when it sees the
+# proxy in its environment.
+$check = "if (`$env:HTTPS_PROXY -ne 'http://proxy.test:3128' -or `$env:HTTP_PROXY -ne 'http://proxy.test:3128' -or `$env:NO_PROXY -ne 'localhost,127.0.0.1,::1') { exit 3 }; exit 0"
+$probe = @('-NoProfile', '-NonInteractive', '-EncodedCommand', [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($check)))
+$before = @{ HTTPS_PROXY = $env:HTTPS_PROXY; HTTP_PROXY = $env:HTTP_PROXY; NO_PROXY = $env:NO_PROXY }
+$env:HTTPS_PROXY = 'http://before.test:1'
+try {
+    $RestowState.AgentExe = (Get-Process -Id $PID).Path
+    $RestowState.EffectiveProxy = 'http://proxy.test:3128'
+    $code = Invoke-Agent $probe
+    if ($code -ne 0) { Fail "-Proxy did not reach the agent's environment (exit code $code)" } else { Ok '-Proxy reaches the agent''s own commands' }
+    if ($env:HTTPS_PROXY -ne 'http://before.test:1' -or $env:HTTP_PROXY -ne $before.HTTP_PROXY -or $env:NO_PROXY -ne $before.NO_PROXY) {
+        Fail 'the proxy environment of the session was not restored after the agent command'
+    } else { Ok 'proxy environment of the session restored' }
+    $RestowState.EffectiveProxy = ''
+    $code = Invoke-Agent $probe
+    if ($code -ne 3) { Fail "without -Proxy the agent command saw a proxy (exit code $code)" } else { Ok 'without -Proxy the environment stays as it was' }
+} finally {
+    foreach ($k in $before.Keys) { [Environment]::SetEnvironmentVariable($k, $before[$k], 'Process') }
+    $RestowState.AgentExe = $null
+    $RestowState.EffectiveProxy = ''
+}
+
 # ---- 4. full installation against the fake instance ------------------------------
 if (-not $SkipInstall) {
     $work = Join-Path ([IO.Path]::GetTempPath()) ('restow-install-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -171,6 +197,21 @@ if (-not $SkipInstall) {
         elseif (Test-Path $tokenFile) { Fail 'the token file was not deleted after the enrollment' }
         elseif (@(Get-ChildItem (Join-Path $root 'Program Files\Restow') -Force -Filter '.stage-*').Count -gt 0) { Fail 'the staging folder was left behind' }
         else { Ok 'installation with token file and pin' }
+
+        # The installed files have the permissions of their folder, not the
+        # staging folder's (a move on the same volume keeps the DACL).
+        $binDir = Join-Path $root 'Program Files\Restow\bin'
+        # CREATOR OWNER turns into the owner on the file, so it is left out.
+        $folderIds = @((Get-Acl $binDir).Access | Where-Object { ($_.InheritanceFlags -band [System.Security.AccessControl.InheritanceFlags]::ObjectInherit) -ne 0 } |
+            ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } | Where-Object { $_ -ne 'S-1-3-0' } | Sort-Object -Unique)
+        foreach ($f in @((Join-Path $binDir 'restow-agent.exe'), (Join-Path $binDir 'restic.exe'), (Join-Path $root 'Program Files\Restow\THIRD_PARTY_NOTICES.txt'))) {
+            $acl = Get-Acl $f
+            $ids = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique)
+            $missing = @($folderIds | Where-Object { $ids -notcontains $_ })
+            if ($acl.AreAccessRulesProtected -or @($acl.Access | Where-Object { -not $_.IsInherited }).Count -gt 0) { Fail "$f keeps its own permissions instead of inheriting them" }
+            elseif ($missing.Count -gt 0) { Fail "$f lacks the permissions its folder hands down to [$($missing -join ', ')]" }
+            else { Ok "$(Split-Path -Leaf $f) inherits the permissions of its folder" }
+        }
 
         # A second run repairs without a token.
         $r = Invoke-Installer @{} @('-Hooks', 'scripts')

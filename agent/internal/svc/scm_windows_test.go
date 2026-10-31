@@ -4,6 +4,7 @@ package svc
 
 import (
 	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/restow-backup/restow/agent/internal/winapi"
@@ -38,6 +39,16 @@ func TestServiceConfigurationRoundTrip(t *testing.T) {
 	}
 	if changed, err := m.Refresh(exe); err != nil || changed {
 		t.Fatalf("refresh of an up-to-date service: %v %v", changed, err)
+	}
+	// A dependency someone added is removed again, and only once.
+	if out, err := exec.Command("sc.exe", "config", "RestowAgentTest", "depend=", "LanmanWorkstation").CombinedOutput(); err != nil {
+		t.Fatalf("sc.exe config: %v %s", err, out)
+	}
+	if changed, err := m.Refresh(exe); err != nil || !changed {
+		t.Fatalf("refresh of a service with a dependency: %v %v", changed, err)
+	}
+	if changed, err := m.Refresh(exe); err != nil || changed {
+		t.Fatalf("second refresh after the repair: %v %v", changed, err)
 	}
 	if prog, err := m.Program(); err != nil || prog != exe {
 		t.Fatalf("program %q %v", prog, err)

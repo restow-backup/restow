@@ -54,7 +54,8 @@ private repository.
 
 - Agent self-update, all systems: every file of a release (license notices, restic, agent) is
   downloaded and checked before the first one replaces an installed file. Before, restic was
-  already replaced when the new agent then failed its version check.
+  already replaced when the new agent then failed its version check. Should the agent's own
+  file then fail to move into place, restic and the notices get their previous content back.
 - The license notices cover the restic of every target: `licenses/restic-deps/` holds 82 Go
   modules (79 or 80 per target; three only in `restic.exe`, FUSE and xattr only on Linux and
   macOS), and `scripts/restic-licenses.mjs check` compares each restic binary with the modules

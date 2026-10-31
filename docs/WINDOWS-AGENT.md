@@ -674,7 +674,11 @@ Die Methoden des vorhandenen Interfaces (`svc.go:72-103`):
 - `UninstallFromInside`: `DeleteService` zuerst (der SCM entfernt den Eintrag, sobald der
   Prozess endet), dann räumt der Agent auf und beendet sich (Abschnitt 9.4).
 - `Refresh(exe)`: `QueryServiceConfigW` und `QueryServiceConfig2W`; weicht Programm,
-  Startart, Fehleraktion oder Privilegienliste ab, wird angeglichen.
+  Startart, Konto, Abhängigkeiten, Fehleraktion oder Privilegienliste ab, wird angeglichen.
+  `ChangeServiceConfigW` setzt dabei auch das Konto `LocalSystem` (leeres Kennwort), eine
+  leere Abhängigkeitsliste und keine Ladegruppe. Danach wird die Definition neu gelesen;
+  weicht sie noch ab, ist das ein Fehler mit dem Namen der Einstellung und kein "angeglichen"
+  (`Install` ebenso).
 - `ReloadFromInside`: gibt `exitNow = true` zurück; der Neustart kommt über die Fehleraktion
   (Abschnitt 9.3).
 - `Program`: Programmpfad aus `lpBinaryPathName` (erstes Argument, Anführungszeichen entfernt).
@@ -935,7 +939,10 @@ Installer setzt deshalb auf Wunsch (`-Proxy http://proxy:3128`) den Wert `Enviro
 (`REG_MULTI_SZ`, `HTTPS_PROXY=…`, `NO_PROXY=…`) am Dienstschlüssel
 `HKLM\SYSTEM\CurrentControlSet\Services\RestowAgent`; `procenv` reicht ihn an restic weiter.
 Der Wert am Dienst wirkt mit dem nächsten Dienststart; systemweite Variablen (`setx /M`)
-sieht ein Dienst dagegen erst nach einem Neustart des Rechners **[Maschine]**.
+sieht ein Dienst dagegen erst nach einem Neustart des Rechners **[Maschine]**. Die Befehle,
+die der Installer selbst mit dem Agenten ausführt (`enroll`, `hooks`, `status`), bekommen
+`HTTPS_PROXY`, `HTTP_PROXY` und `NO_PROXY` aus `-Proxy` nur für diesen einen Aufruf
+(`Invoke-Agent`); danach hat die PowerShell-Sitzung wieder ihre eigenen Werte.
 
 Grenzen (in "Known limits"):
 
@@ -974,12 +981,19 @@ aber umbenennen (das Abbild ist mit `FILE_SHARE_DELETE` geöffnet). Ablauf
    `CleanupStaged` (`:342-353`) erkennt die Namensformen.
 3. Prüfen wie oben, für beide Dateien, bevor etwas getauscht wird.
 4. Tausch von restic.exe: Updates laufen nur im Leerlauf (`core.ErrBusy`), restic läuft also
-   nicht. Alte Datei nach `restic.exe.old-<hex>` umbenennen, gestagte Datei an ihren Platz;
-   lässt sich die alte Datei nicht löschen, `MOVEFILE_DELAY_UNTIL_REBOOT`.
+   nicht. Alte Datei nach `restic.exe.old-<hex>` umbenennen, gestagte Datei an ihren Platz.
+   `restic.exe.old-<hex>` bleibt liegen, bis auch der Agent getauscht ist (Schritt 5), und
+   wird erst dann gelöscht; lässt sie sich nicht löschen, `MOVEFILE_DELAY_UNTIL_REBOOT`.
+   Gleiches gilt für `THIRD_PARTY_NOTICES.txt`.
 5. Tausch des Agenten: alte `restow-agent.exe.prev` löschen (falls nicht in Benutzung),
    `MoveFileExW(restow-agent.exe, restow-agent.exe.prev)` (geht trotz laufendem Prozess),
    dann `MoveFileExW(staged, restow-agent.exe, MOVEFILE_WRITE_THROUGH)`. Scheitert der
-   zweite Schritt, werden `.prev` und `restic.exe.old-<hex>` zurückbenannt.
+   zweite Schritt, wird `.prev` zurückbenannt, und `commitAll` (`update.go`) nimmt die
+   früheren Tausche zurück: die neue `restic.exe` (und die Notices) gehen nach
+   `.old-<hex>` und werden gelöscht, `restic.exe.old-<hex>` wird zurückbenannt. Der alte
+   Agent läuft so nie mit einem restic, das sein Release nicht festlegt. Unter Unix gilt
+   dasselbe über einen harten Link `restic.old-<hex>` auf die alte Datei (getestet in
+   `swap_test.go`, ohne Build-Tag).
 6. Defender scannt frisch geschriebene `.exe` und hält sie kurz offen: jedes Umbenennen über
    `atomicfile` mit Wiederholung (Abschnitt 7).
 7. Neustart: `core.ErrRestart`, Dienst endet mit Code 3, Fehleraktion startet neu (9.3).
@@ -1084,8 +1098,12 @@ jeder Schritt steht in `try`/`catch`, ein Fehler beendet das Skript mit Exit-Cod
 5. **Installation:** Läuft der Dienst schon, `Stop-Service RestowAgent`. Ordner
    `C:\Program Files\Restow\bin` anlegen (erbt die DACL von `Program Files`), Eigentümer und
    DACL mit `Get-Acl` gegen die Regeln aus Abschnitt 6 prüfen. Dateien verschieben; eine
-   laufende alte `restow-agent.exe` wird wie in Abschnitt 13 umbenannt. **Am Zielort**
-   werden die Hashes unmittelbar vor `service install` noch einmal geprüft.
+   laufende alte `restow-agent.exe` wird wie in Abschnitt 13 umbenannt. Ein Verschieben auf
+   demselben Volume behält die DACL der Datei, also die des Staging-Ordners (nur SY, BA);
+   `icacls <datei> /reset` gibt jeder verschobenen Datei danach die geerbten Rechte ihres
+   neuen Ordners, wie bei den Dateien der Selbstaktualisierung (dort im `bin`-Ordner
+   angelegt). Sonst könnte ein Benutzer ohne Erhöhung `restow-agent status` nicht starten.
+   **Am Zielort** werden die Hashes unmittelbar vor `service install` noch einmal geprüft.
 6. **Ereignisquelle:** `New-EventLog -LogName Application -Source Restow`, falls nicht
    vorhanden (9.5).
 7. **Dienst und Anmeldung:** `restow-agent.exe service install`, dann `enroll` (Token über
@@ -1776,7 +1794,9 @@ Windows-Job `agent-windows` (Abschnitt 3.5):
   `RESTOW_INSTALL_ROOT` und `RESTOW_SKIP_SERVICE` gegen die Testinstanz, Lauf aus dem
   32-Bit-Host, zweitem Lauf (Wiederholbarkeit), `-Uninstall`, Abbruch bei einem vorher von
   einem Testbenutzer angelegten `C:\ProgramData\Restow` und bei einer Junction an dieser
-  Stelle, Ablehnung von `-Proxy` mit Zugangsdaten, Token-Datei wird nach `enroll` gelöscht.
+  Stelle, Ablehnung von `-Proxy` mit Zugangsdaten, Token-Datei wird nach `enroll` gelöscht,
+  `-Proxy` erreicht die Umgebung der Agent-Aufrufe (und die Sitzung hat danach wieder ihre
+  Werte), installierte Dateien erben die Rechte ihres Ordners.
 
 Release: `agent-windows-check` vor `agent-sums` (Abschnitt 3.6).
 
@@ -2160,7 +2180,9 @@ Umgebung geprüft.** Nichts davon ist hier gelaufen; alles Windows-Spezifische i
 9. Neustart nach Selbstaktualisierung: Dienst endet mit Code 3, die Fehleraktion startet ihn
    nach etwa 5 s mit der neuen Exe, Ereignis 7024 einmal, eigenes Ereignis 1004, `.prev`
    vorhanden; Tausch, während Defender die neue Datei kurz offen hält; Rücknahme, wenn der
-   zweite Tausch scheitert.
+   zweite Tausch scheitert (dazu `restow-agent.exe` von einem Prozess ohne
+   `FILE_SHARE_DELETE` offen halten lassen): `restic.exe` hat danach wieder den alten Hash,
+   keine `restic.exe.old-<hex>` bleibt liegen (oder sie ist für den Neustart vorgemerkt).
 10. DPAPI im Maschinenbereich: der Dienst (SYSTEM) und eine erhöhte Konsole
     (`restow-agent status`, `hooks`, `backup-now`) lesen denselben Zustand; ein Benutzer ohne
     Erhöhung kann `C:\ProgramData\Restow\state` nicht öffnen, `restow-agent status` ohne
@@ -2188,3 +2210,22 @@ Umgebung geprüft.** Nichts davon ist hier gelaufen; alles Windows-Spezifische i
     Quelle mit dem Hinweis "Beschreibung nicht gefunden").
 18. Netzteil auf einem Laptop mit und ohne Ladekabel; Log-Rotation, während ein Editor
     `agent.log` offen hält.
+19. Rechte der installierten Dateien: Nach dem Installer und nach einer Selbstaktualisierung
+    startet ein Benutzer ohne Administratorrechte
+    `& 'C:\Program Files\Restow\bin\restow-agent.exe' status`; `icacls` zeigt für
+    `restow-agent.exe` und `restic.exe` nur geerbte Einträge (wie `bin`, mit
+    `BUILTIN\Users:(I)(RX)`), nach beiden Wegen dieselben. Ungeprüft ist hier, ob
+    `icacls /reset` nach `Move-Item` das leistet.
+20. `-Proxy` in einem Netz, das nur über den Proxy nach außen kommt: Download, `enroll` und
+    `status` im Installer gelingen; in der PowerShell-Sitzung ist `HTTPS_PROXY` danach wieder
+    wie vorher.
+21. Erster Aufruf der Windows-Funktionen mit Zeigerargumenten (`call`/`callStatus` tragen
+    `//go:uintptrescapes`; `go build -gcflags=-m` zeigt die Argumente jetzt auf dem Heap):
+    DPAPI schützen und entschlüsseln, `QueryServiceStatus`, `ControlService`,
+    `GetSecurityInfo` liefern gleich beim ersten Aufruf nach dem Dienststart richtige Werte;
+    die `windowsintegration`-Tests mehrmals hintereinander grün.
+22. Dienst reparieren: `sc.exe config RestowAgent obj= "NT AUTHORITY\LocalService"` und
+    `sc.exe config RestowAgent depend= LanmanWorkstation`, dann den Agenten starten: Konto
+    wieder `LocalSystem`, keine Abhängigkeit, das Ereignis zum Abgleich der Dienstdefinition
+    genau einmal, beim nächsten Start nicht wieder. Lässt Windows eine Einstellung nicht zu,
+    meldet der Agent das als Fehler mit dem Namen der Einstellung.

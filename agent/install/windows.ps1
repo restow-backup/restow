@@ -439,8 +439,36 @@ function Invoke-Agent([string[]]$Arguments) {
     # stderr are no PowerShell errors (Windows PowerShell 5.1 would turn them
     # into terminating errors under 'Stop' in some hosts).
     $ErrorActionPreference = 'Continue'
-    & $RestowState.AgentExe @Arguments | Out-Host
-    return $LASTEXITCODE
+    # The agent reads its proxy from the environment only (Go's
+    # ProxyFromEnvironment; the service gets it as its Environment value), so
+    # -Proxy reaches enroll and status the same way, for this one command.
+    $saved = @{}
+    if ($RestowState.EffectiveProxy) {
+        $proxyEnv = @{ HTTPS_PROXY = $RestowState.EffectiveProxy; HTTP_PROXY = $RestowState.EffectiveProxy; NO_PROXY = 'localhost,127.0.0.1,::1' }
+        foreach ($k in $proxyEnv.Keys) {
+            $saved[$k] = [Environment]::GetEnvironmentVariable($k, 'Process')
+            [Environment]::SetEnvironmentVariable($k, $proxyEnv[$k], 'Process')
+        }
+    }
+    try {
+        & $RestowState.AgentExe @Arguments | Out-Host
+        return $LASTEXITCODE
+    } finally {
+        foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process') }
+    }
+}
+
+# Reset-InheritedAcl gives a file moved out of the staging folder the
+# permissions of its new folder. A move on the same volume keeps the
+# security descriptor, so without this the binaries would keep the staging
+# folder's SYSTEM-and-Administrators-only DACL, and `restow-agent status`
+# would not start for other users (the self-update's files inherit the bin
+# folder's permissions; both must end up the same).
+function Reset-InheritedAcl([string]$Path) {
+    $ErrorActionPreference = 'Continue'
+    $icacls = Join-Path ([Environment]::SystemDirectory) 'icacls.exe'
+    $null = & $icacls $Path /reset /Q 2>&1
+    if ($LASTEXITCODE -ne 0) { Stop-Installer "cannot reset the permissions of $Path (icacls exit code $LASTEXITCODE)" }
 }
 
 function Remove-RestowInstallation {
@@ -677,10 +705,13 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
                 if ($name -eq 'restic.exe') { Remove-Item -LiteralPath $aside -Force -ErrorAction SilentlyContinue }
             }
             Move-Item -LiteralPath (Join-Path $stage $name) -Destination $dest
+            Reset-InheritedAcl $dest
             Write-Note $dest
         }
         if ($files -contains 'THIRD_PARTY_NOTICES.txt') {
-            Move-Item -LiteralPath (Join-Path $stage 'THIRD_PARTY_NOTICES.txt') -Destination (Join-Path $RestowState.InstallDir 'THIRD_PARTY_NOTICES.txt') -Force
+            $notices = Join-Path $RestowState.InstallDir 'THIRD_PARTY_NOTICES.txt'
+            Move-Item -LiteralPath (Join-Path $stage 'THIRD_PARTY_NOTICES.txt') -Destination $notices -Force
+            Reset-InheritedAcl $notices
         }
         # The files at their final place, once more, right before anything runs them.
         foreach ($name in @('restow-agent.exe', 'restic.exe')) {

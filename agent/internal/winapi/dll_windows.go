@@ -60,6 +60,15 @@ var (
 
 // call invokes a procedure and turns a zero return value into the last error.
 // A procedure that cannot be found is an error, not a panic.
+//
+// Callers pass pointers as uintptr(unsafe.Pointer(&x)) written inside the
+// call expression. The uintptrescapes directive (the same one the standard
+// library puts on LazyProc.Call) makes the compiler move such values to the
+// heap and keep them alive until call returns. Without it they could stay on
+// the goroutine stack as plain integers, and a stack copy (p.Find loading the
+// DLL, SyscallN) would leave Windows writing into stale memory.
+//
+//go:uintptrescapes
 func call(p *syscall.LazyProc, args ...uintptr) (uintptr, error) {
 	if err := p.Find(); err != nil {
 		return 0, err
@@ -72,6 +81,9 @@ func call(p *syscall.LazyProc, args ...uintptr) (uintptr, error) {
 }
 
 // callStatus invokes a procedure that returns a Win32 error code (0 = success).
+// See call for the uintptrescapes directive.
+//
+//go:uintptrescapes
 func callStatus(p *syscall.LazyProc, args ...uintptr) error {
 	if err := p.Find(); err != nil {
 		return err

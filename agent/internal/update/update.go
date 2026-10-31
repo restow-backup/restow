@@ -25,6 +25,7 @@ package update
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -237,20 +238,11 @@ func install(ctx context.Context, o Options, version string, isUpdate bool) (Res
 	staged = appendStaged(staged, af)
 
 	// Now replace, in this order: notices, restic, the agent last. A failure
-	// of the agent's swap puts restic back.
-	var rollbacks []func()
-	for i, f := range staged {
-		rollback, err := commitFile(f.staged, f.dest, f.keepPrev)
-		if err != nil {
-			for j := len(rollbacks) - 1; j >= 0; j-- {
-				rollbacks[j]()
-			}
-			for _, rest := range staged[i:] {
-				_ = os.Remove(rest.staged)
-			}
-			return res, fmt.Errorf("cannot replace %s: %w", f.dest, err)
-		}
-		rollbacks = append(rollbacks, rollback)
+	// of a later swap (the agent's, in practice) puts the earlier files back.
+	if err := commitAll(staged); err != nil {
+		return res, err
+	}
+	for _, f := range staged {
 		switch f.dest {
 		case res.AgentPath:
 			res.AgentChanged = true
@@ -261,6 +253,48 @@ func install(ctx context.Context, o Options, version string, isUpdate bool) (Res
 		}
 	}
 	return res, nil
+}
+
+// commit is commitFile; the tests replace it to make one swap fail.
+var commit = commitFile
+
+// swap is a file that commitFile has put in place. undo puts the previous
+// content back (or removes the file when there was none); done drops what
+// undo would have needed, once every file of the release is in place.
+type swap struct {
+	undo, done func()
+}
+
+// commitAll puts every staged file in place, in order. When one fails, the
+// files already replaced get their previous content back, so the installed
+// agent never runs with a restic or notices its release did not ship, and
+// the staged files that are left are deleted.
+func commitAll(staged []stagedFile) error {
+	var swaps []swap
+	for i, f := range staged {
+		sw, err := commit(f.staged, f.dest, f.keepPrev)
+		if err != nil {
+			for j := len(swaps) - 1; j >= 0; j-- {
+				swaps[j].undo()
+			}
+			for _, rest := range staged[i:] {
+				_ = os.Remove(rest.staged)
+			}
+			return fmt.Errorf("cannot replace %s: %w", f.dest, err)
+		}
+		swaps = append(swaps, sw)
+	}
+	for _, sw := range swaps {
+		sw.done()
+	}
+	return nil
+}
+
+// randomSuffix returns 16 hex characters for the name of a file kept aside.
+func randomSuffix() string {
+	var rnd [8]byte
+	_, _ = rand.Read(rnd[:])
+	return hex.EncodeToString(rnd[:])
 }
 
 // stagedFile is a downloaded and checked file waiting to replace dest. An
@@ -389,8 +423,9 @@ func CleanupStaged(dir string) {
 }
 
 // IsLeftover reports whether a file name in the bin folder is a staged
-// download (.restic.new-<hex>, .restow-agent.new-<hex>.exe) or an old binary
-// of a Windows update (restic.exe.old-<hex>).
+// download (.restic.new-<hex>, .restow-agent.new-<hex>.exe) or a previous
+// file kept until the agent's swap succeeded (restic.exe.old-<hex>, under Unix
+// the hard link restic.old-<hex>) that a crash left behind.
 func IsLeftover(name string) bool {
 	return (strings.HasPrefix(name, ".") && strings.Contains(name, ".new-")) || strings.Contains(name, ".old-")
 }

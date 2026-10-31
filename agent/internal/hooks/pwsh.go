@@ -68,11 +68,14 @@ func WindowsScriptKind(name string) string {
 
 // executionPolicyMarkers are the texts PowerShell prints when a group policy
 // (MachinePolicy or UserPolicy, which -ExecutionPolicy Bypass cannot override)
-// forbids running scripts: the error id and the English and German messages.
+// forbids running scripts: the exception's name and the English and German
+// messages. The bare error id UnauthorizedAccess is no marker: PowerShell
+// prints it (and UnauthorizedAccessException) for every "Access to the path
+// is denied" as well, which is a file permission, not a policy.
 var executionPolicyMarkers = []string{
-	"PSSecurityException", "UnauthorizedAccess", "running scripts is disabled on this system",
+	"PSSecurityException", "running scripts is disabled on this system",
 	"is not digitally signed", "die Ausführung von Skripts auf diesem System deaktiviert",
-	"Ausführung von Skripts", "nicht digital signiert",
+	"nicht digital signiert",
 }
 
 // ExecutionPolicyBlocked reports whether a line of hook output says that the

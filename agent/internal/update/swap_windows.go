@@ -38,12 +38,6 @@ func createStaged(dir, base string) (*os.File, string, error) {
 	return nil, "", errors.New("cannot find a free name for the staged file")
 }
 
-func randomSuffix() string {
-	var rnd [8]byte
-	_, _ = rand.Read(rnd[:])
-	return hex.EncodeToString(rnd[:])
-}
-
 // moveRetry renames with the retry of package atomicfile (Defender keeps a
 // freshly written .exe open for a moment). Without MOVEFILE_REPLACE_EXISTING
 // semantics problems the caller handles that dest is free.
@@ -51,16 +45,17 @@ func moveRetry(from, to string) error { return atomicfile.Rename(from, to) }
 
 // commitFile puts staged at dest. A running .exe cannot be overwritten or
 // deleted, but renamed: the current file moves aside first (to dest.prev for
-// the agent, kept for a manual rollback; to dest.old-<hex> for restic, deleted
-// right away or at the next reboot), then the staged file moves into place.
-// The returned function undoes the swap (used when a later file fails).
-func commitFile(staged, dest string, keepPrev bool) (func(), error) {
+// the agent, kept for a manual rollback; to dest.old-<hex> for restic and the
+// notices), then the staged file moves into place. undo moves the new file
+// out and the previous one back; done deletes dest.old-<hex> (at the next
+// reboot when restic still runs).
+func commitFile(staged, dest string, keepPrev bool) (swap, error) {
 	if _, err := os.Lstat(dest); os.IsNotExist(err) {
 		if err := moveRetry(staged, dest); err != nil {
 			_ = os.Remove(staged)
-			return nil, err
+			return swap{}, err
 		}
-		return func() { _ = os.Remove(dest) }, nil
+		return swap{undo: func() { removeOrLater(dest) }, done: func() {}}, nil
 	}
 	aside := dest + ".old-" + randomSuffix()
 	if keepPrev {
@@ -76,22 +71,33 @@ func commitFile(staged, dest string, keepPrev bool) (func(), error) {
 	}
 	if err := moveRetry(dest, aside); err != nil {
 		_ = os.Remove(staged)
-		return nil, err
+		return swap{}, err
 	}
 	if err := moveRetry(staged, dest); err != nil {
 		_ = moveRetry(aside, dest)
 		_ = os.Remove(staged)
-		return nil, err
+		return swap{}, err
+	}
+	sw := swap{
+		undo: func() {
+			out := dest + ".old-" + randomSuffix()
+			if moveRetry(dest, out) == nil {
+				_ = moveRetry(aside, dest)
+				removeOrLater(out)
+			}
+		},
+		done: func() {},
 	}
 	if !keepPrev {
-		if err := os.Remove(aside); err != nil {
-			_ = winapi.MoveFileEx(aside, "", winapi.MoveFileDelayUntilReboot)
-		}
-		return func() {}, nil
+		sw.done = func() { removeOrLater(aside) }
 	}
-	return func() {
-		if moveRetry(dest, dest+".old-"+randomSuffix()) == nil {
-			_ = moveRetry(aside, dest)
-		}
-	}, nil
+	return sw, nil
+}
+
+// removeOrLater deletes path, or marks it for deletion at the next reboot
+// when a running process still holds it.
+func removeOrLater(path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		_ = winapi.MoveFileEx(path, "", winapi.MoveFileDelayUntilReboot)
+	}
 }
