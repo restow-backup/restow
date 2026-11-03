@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.12",
-    "@better-auth/utils": "0.5.0",
+    "@better-auth/utils": "0.5.1",
     "@hono/node-server": "^1.13.0",
     "@react-pdf/renderer": "^4.9.0",
     "@restow/core": "workspace:*",
@@ -30,7 +30,7 @@
     "@restow/i18n": "workspace:*",
     "better-auth": "^1.7.12",
     "drizzle-orm": "^0.45.4",
-    "hono": "^4.13.13",
+    "hono": "^4.13.14",
     "imapflow": "^1.0.171",
     "mailparser": "^3.12.4",
     "nodemailer": "^10.2.1",
