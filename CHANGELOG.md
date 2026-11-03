@@ -10,6 +10,16 @@ private repository.
 
 ## [Unreleased]
 
+### Fixed
+
+- Proxmox VE: restore checks and boot tests of a container with a bind or device mount point
+  (`mp0: /host/path,mp=...`) always failed with "restoring 'mp0' to bind mount is only
+  possible for root": PVE lets only root@pam restore such a mount point, and the node restores
+  with its API token. A check now names the container's rootfs and volume mount points itself
+  (same size and options, on the check's storage) and leaves bind and device mount points
+  out; their data lives on the host and is not part of the backup. The check's log names the
+  mount points it left out. Restores into a new guest are unchanged.
+
 ## [0.4.9] - 2026-10-31
 
 Beta release. Run it alongside your existing backups, not as your only one, until
