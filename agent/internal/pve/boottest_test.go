@@ -46,6 +46,10 @@ type fakeNode struct {
 	destroyFails   bool
 	vzdumpRunning  bool
 	storages       []Storage
+	// What the last restore was given, and whether PVE refused it like a token's restore
+	// of a bind mount point ("only possible for root").
+	restoreMounts map[string]string
+	refusedBind   bool
 }
 
 func newFakeNode() *fakeNode {
@@ -151,7 +155,7 @@ func (f *fakeNode) NextID(context.Context) (int, error) {
 	return id, nil
 }
 
-func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, archive, storage, pool string, start bool) (string, error) {
+func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, archive, storage, pool string, start bool, mounts map[string]string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if start {
@@ -160,8 +164,19 @@ func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, 
 	if _, taken := f.guests[vmid]; taken {
 		return "", errors.New("VMID taken")
 	}
+	f.restoreMounts = mounts
 	conf := map[string]string{}
 	for k, v := range f.restoreConfig {
+		if kind == "ct" && mounts != nil && mpKeyRE.MatchString(k) {
+			continue // named mount points replace those of the backup
+		}
+		if kind == "ct" && mounts == nil && mpKeyRE.MatchString(k) && !isVolumeMount(v) {
+			f.refusedBind = true
+			return fmt.Sprintf("UPID:%s:0000AAAA:00BBBBBB:6700000:vzrestore:%d:restow@pve!pve1:", node, vmid), nil
+		}
+		conf[k] = v
+	}
+	for k, v := range mounts {
 		conf[k] = v
 	}
 	f.guests[vmid] = &fakeGuest{kind: kind, node: node, pool: pool, conf: conf, status: "stopped"}
@@ -170,6 +185,9 @@ func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, 
 }
 
 func (f *fakeNode) WaitTask(context.Context, string, string, time.Duration) (string, error) {
+	if f.refusedBind {
+		return "unable to restore CT 9001 - restoring 'mp1' to bind mount is only possible for root", nil
+	}
 	return f.restoreExit, nil
 }
 
@@ -551,6 +569,15 @@ func TestBootTestOfAContainer(t *testing.T) {
 	}
 	if seen["mp0"] == "" || seen["hostname"] != "restow-boottest-200" || seen["tags"] != BootTestTag {
 		t.Errorf("config at start: %v", seen)
+	}
+	// The bind mount mp1 is left out by the restore itself: PVE refuses a token's restore
+	// of a bind mount point.
+	want := map[string]string{"rootfs": "local-lvm:8", "mp0": "local-lvm:4,mp=/srv,backup=1"}
+	if fmt.Sprint(f.restoreMounts) != fmt.Sprint(want) {
+		t.Errorf("restore mounts = %v, want %v", f.restoreMounts, want)
+	}
+	if !strings.Contains(res.Log, "mp1 (/mnt/host)") {
+		t.Errorf("the log does not name the left-out mount point:\n%s", res.Log)
 	}
 }
 

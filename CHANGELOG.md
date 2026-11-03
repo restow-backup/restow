@@ -10,6 +10,73 @@ private repository.
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-11-03
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.10 is a hotfix of 0.4.9 for Proxmox VE: the restore checks and boot tests of a
+container with a bind or device mount point failed every time, so such containers never got a
+passed check. No database migration; restow-pve on the nodes needs the update.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.9.0. The result of a container's restore check
+can carry the new field `omittedMounts` (the mount points the check left out).
+
+### Added
+
+None.
+
+### Changed
+
+None.
+
+### Fixed
+
+- Proxmox VE: restore checks and boot tests of a container with a bind or device mount point
+  (`mp0: /host/path,mp=...`) always failed with "restoring 'mp0' to bind mount is only
+  possible for root": PVE lets only root@pam restore such a mount point, and the node restores
+  with its API token. A check now names the container's rootfs and volume mount points itself
+  (same size and options, on the check's storage) and leaves bind and device mount points
+  out; their data lives on the host and is not part of the backup. The check's log names the
+  mount points it left out. Restores into a new guest are unchanged.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images and a new restow-pve; no database migration, no new or changed environment variable,
+and the `docker-compose.yml` of 0.4.0 stays. Pull the images of 0.4.10 and restart as for any
+update.
+
+- restow-pve on every Proxmox VE node needs 0.4.10: the fix is in the node's agent. Nodes update
+  by themselves (when idle, at the latest six hours later), with the server update, with
+  **Update now** on the node, or by hand with `/opt/restow-pve/bin/restow-pve update`.
+- Containers whose checks failed read green again after their next restore check or boot test
+  (the scheduled one, or "Check now" / "Boot test now").
+
+### Known Issues
+
+- The known issues of 0.4.9 still apply.
+- A restore into a new guest (not a check) of a container with a bind or device mount point
+  still fails with PVE's "only possible for root" for the node's API token; restore such a
+  container on the node as root (`pct restore`).
+
+### Verification
+
+Before the tag: `go vet` and the tests of every agent package, including the new unit tests of
+the mount points a check names and leaves out, the boot test of a container with a volume and a
+bind mount point against a fake node that refuses a bind mount point from the backup like PVE
+(it fails with "only possible for root" with the fix taken out), and the restore check of such a
+container against a stand-in of the PVE API and the Restow server; the release check
+(`scripts/ci/check-release.mjs --tag v0.4.10`) and the install script's test
+(`deploy/install/test.sh`).
+
 ## [0.4.9] - 2026-10-31
 
 Beta release. Run it alongside your existing backups, not as your only one, until

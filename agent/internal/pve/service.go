@@ -622,12 +622,30 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 			}
 		}
 		archive := s.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")
-		upid, err := s.PVE.RestoreGuest(ctx, s.State.NodeName, p.Kind, vmid, archive, p.TargetStorage, p.Pool, p.Start && !p.RestoreTest)
+		var mounts map[string]string
+		var omitted []string
+		if p.RestoreTest && p.Kind == "ct" {
+			// A check leaves bind and device mount points out (TestRestoreMounts).
+			rp, err := s.Server.ResolveVolname(ctx, p.Volname)
+			if err != nil {
+				return nil, fmt.Errorf("restore point: %w", err)
+			}
+			if mounts, omitted, err = TestRestoreMounts(parseConfigText(rp.GuestConfig), p.TargetStorage); err != nil {
+				return nil, err
+			}
+			if len(omitted) > 0 {
+				s.Logf("restore test of %s: left out (not part of the backup): %s", p.Volname, strings.Join(omitted, ", "))
+			}
+		}
+		upid, err := s.PVE.RestoreGuest(ctx, s.State.NodeName, p.Kind, vmid, archive, p.TargetStorage, p.Pool, p.Start && !p.RestoreTest, mounts)
 		if err != nil {
 			return nil, err
 		}
 		exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
 		result := map[string]any{"vmid": vmid, "upid": upid}
+		if len(omitted) > 0 {
+			result["omittedMounts"] = omitted
+		}
 		if err != nil {
 			return result, err
 		}

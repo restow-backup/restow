@@ -74,7 +74,7 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) (string,
 // bootTestPVE is what a boot test needs of the local PVE API.
 type bootTestPVE interface {
 	NextID(ctx context.Context) (int, error)
-	RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, start bool) (string, error)
+	RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, start bool, mounts map[string]string) (string, error)
 	WaitTask(ctx context.Context, node, upid string, poll time.Duration) (string, error)
 	TaskLogTail(ctx context.Context, node, upid string, lines int) (string, error)
 	Storages(ctx context.Context, node string) ([]Storage, error)
@@ -274,7 +274,7 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 	if reason, msg := b.checkStorage(ctx, storage, p); reason != "" {
 		return skipped(reason, msg)
 	}
-	res := b.restoreAndBoot(ctx, p, storage)
+	res := b.restoreAndBoot(ctx, p, conf, storage)
 	res.Storage = storage
 	return res
 }
@@ -346,7 +346,7 @@ func (b *BootTester) poll() time.Duration {
 	return 5 * time.Second
 }
 
-func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, storage string) (res BootTestResult) {
+func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, conf map[string]string, storage string) (res BootTestResult) {
 	vmid, err := b.PVE.NextID(ctx)
 	if err != nil {
 		return BootTestResult{Message: "no free VMID: " + err.Error()}
@@ -366,8 +366,20 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, stora
 		}
 	}()
 	archive := b.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")
+	var mounts map[string]string
+	if p.Kind == "ct" {
+		var omitted []string
+		mounts, omitted, err = TestRestoreMounts(conf, storage)
+		if err != nil {
+			res.Outcome, res.Reason, res.Message = "red", "restore_failed", "The restore did not start: "+err.Error()
+			return res
+		}
+		if len(omitted) > 0 {
+			b.logf("left out of the temporary container (not part of the backup): %s", strings.Join(omitted, ", "))
+		}
+	}
 	b.logf("restoring to the temporary %s %d on %s", p.Kind, vmid, storage)
-	upid, err := b.PVE.RestoreGuest(ctx, b.State.NodeName, p.Kind, vmid, archive, storage, BootTestPool, false)
+	upid, err := b.PVE.RestoreGuest(ctx, b.State.NodeName, p.Kind, vmid, archive, storage, BootTestPool, false, mounts)
 	if err != nil {
 		res.Outcome, res.Reason, res.Message = "red", "restore_failed", "The restore did not start: "+err.Error()
 		return res

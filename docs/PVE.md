@@ -614,7 +614,10 @@ What the guest's node does:
    reason, which the guest's page shows.
 3. **Restore** through the normal restore path (the PVE API, a new VMID from the cluster, the
    pool `restow-restore`, no start; the original guest is never touched). A failing restore is
-   red.
+   red. A container with a bind or device mount point is restored with its rootfs and volume
+   mount points named explicitly and without the bind and device ones: PVE restores those
+   only for root@pam, not for the node's API token, and their data is not in the backup. The
+   restore check (`restoreTest`) does the same; the log names what was left out.
 4. **Isolate before the start.** The temporary guest gets the tag `restow-boottest` and the
    name `restow-boottest-<vmid>`; every NIC `link_down=1` (or the isolated bridge the node
    names with `--boot-test-bridge`; a container loses its interfaces); PCI and USB passthrough,
