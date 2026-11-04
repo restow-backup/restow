@@ -148,9 +148,14 @@ func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest)
 			_ = os.Remove(p.taskLog)
 		}
 	}
-	if verb == "backup-vm" || verb == "backup-container" {
-		// The service stops a backup that was cancelled in Restow through this process (cancel.go).
-		defer markProvider(p.Layout, req.VMID)()
+	if verb == "backup-vm" && req.VMID > 0 {
+		// The service stops a backup that was cancelled in Restow through this process (cancel.go);
+		// backup-container records itself in its run folder (backupContainer).
+		done, err := markProvider(p.Layout.providerPIDFile(req.VMID))
+		if err != nil {
+			p.logf("info", "this backup cannot be stopped from Restow: %v", err)
+		}
+		defer done()
 	}
 	switch verb {
 	case "activate-storage":

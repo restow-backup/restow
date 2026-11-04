@@ -171,11 +171,7 @@ func openJobs(l Layout) int {
 
 // providerAlive says whether a provider process backs up the guest now.
 func providerAlive(l Layout, vmid int) bool {
-	if vmid <= 0 {
-		return false
-	}
-	pid := readPID(l.providerPIDFile(vmid))
-	return pid > 1 && liveProcess(pid, "restow-pve", "provider")
+	return findProvider(l, vmid) > 1
 }
 
 // readPID reads a pid file; 0 when it is missing or damaged.

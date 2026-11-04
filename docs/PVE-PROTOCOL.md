@@ -299,10 +299,19 @@ heartbeats every 15 seconds while a task runs or waits (every minute otherwise).
   records it as `cancelled`. The running one: its vzdump task is stopped
   (`DELETE /nodes/{node}/tasks/{upid}` of the local PVE API).
 - `cancel.runs`: running backup runs with a cancel request. With `taskId` it is the
-  node's running task (as above). Without (a backup started in PVE): the node sends
-  SIGTERM to the provider process of that VMID (`/run/restow-pve/providers/<vmid>.pid`,
-  checked against `/proc/<pid>/cmdline`), else it stops an active vzdump task whose id
-  is the VMID. Each order is acted on once.
+  node's running task (as above). Without (a backup started in PVE, also a vzdump task
+  of several guests, whose task id is empty): the node sends SIGTERM to the provider
+  process of that VMID. A VM's provider (root) records its pid in
+  `/run/restow-pve/providers/<vmid>.pid`, checked against `/proc/<pid>/cmdline`. A
+  container's provider runs as the mapped container root, which cannot write there:
+  `backup-container-prepare` (root) creates `/run/restow-pve/run-<id>/provider-<vmid>.pid`
+  in the run folder it hands to that uid, and the record counts only for a
+  `restow-pve provider backup-container` process that holds the guest's pointer file
+  (`/run/restow-pve/ct-<storeid>-<vmid>.json`, root's) open, so a record written by
+  another container's provider (the same uid) never stops the wrong backup. Else it
+  stops an active vzdump task whose id is the VMID only when the node's own token
+  started it (another user's task needs `Sys.Modify` on the node, which the role does
+  not hold). Each order is acted on once.
 - The server refuses `POST /runs` for a task with a cancel request and every call of a
   cancelled run (`incremental`, `blocks`, `commit`, `restic`, the restic repository
   route) with 409, so an older node ends the backup at its next call.

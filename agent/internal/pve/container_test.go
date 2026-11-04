@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -417,5 +418,29 @@ func TestContainerCachesOfGuestsGoneFromTheNodeAreRemoved(t *testing.T) {
 	}
 	if strings.Join(names, " ") != "ct-105 ct-107 other" {
 		t.Fatalf("left %q", names)
+	}
+}
+
+// backup_container keeps its guest's pointer open while restic runs and records itself in the
+// run folder that backup_container_prepare created for it.
+func TestContainerProviderIsKnownByItsRunFolderWhileItRuns(t *testing.T) {
+	p, req, _, runDir := fakeContainerBackup(t, ctSummary, "", 0)
+	script := filepath.Join(filepath.Dir(runDir), "restic")
+	seen := filepath.Join(filepath.Dir(runDir), "seen")
+	// The restic of this test looks at the provider's record and its open pointer, as the
+	// service does, then ends.
+	body := "#!/bin/sh\ncat " + ctProviderPIDFile(runDir, 200) + " > " + seen + "\nls -l /proc/$PPID/fd >> " + seen + "\necho '" + ctSummary + "'\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.backupContainer(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(seen)
+	if !strings.HasPrefix(string(data), strconv.Itoa(os.Getpid())) || !strings.Contains(string(data), p.ctPointer("restow", 200)) {
+		t.Fatalf("while restic ran: %q", data)
+	}
+	if _, err := os.Stat(ctProviderPIDFile(runDir, 200)); !os.IsNotExist(err) {
+		t.Fatalf("the record must go when the provider ends: %v", err)
 	}
 }

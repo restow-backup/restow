@@ -90,7 +90,11 @@ func (p *Provider) containerPrepare(ctx context.Context, req ProviderRequest) (a
 	if err := os.WriteFile(filepath.Join(runDir, "credentials.json"), data, 0o400); err != nil {
 		return nil, err
 	}
-	for _, path := range []string{runDir, filepath.Join(runDir, "credentials.json")} {
+	// The provider's record (cancel.go): backup_container cannot create files where root's are.
+	if err := os.WriteFile(ctProviderPIDFile(runDir, req.VMID), nil, 0o600); err != nil {
+		return nil, err
+	}
+	for _, path := range []string{runDir, filepath.Join(runDir, "credentials.json"), ctProviderPIDFile(runDir, req.VMID)} {
 		if err := os.Chown(path, uid, -1); err != nil {
 			return nil, fmt.Errorf("hand the run folder to uid %d: %w", uid, err)
 		}
@@ -133,11 +137,23 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 		// CacheDir is the guest's restic cache; "" runs restic with --no-cache.
 		CacheDir string `json:"cacheDir"`
 	}
-	if err := readJSON(p.ctPointer(req.StoreID, req.VMID), &pointer); err != nil {
+	// The pointer stays open while the backup runs: the service tells this guest's provider
+	// by it (holdsPointer, cancel.go).
+	pf, err := os.Open(p.ctPointer(req.StoreID, req.VMID))
+	if err == nil {
+		defer pf.Close()
+		err = json.NewDecoder(pf).Decode(&pointer)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("the container backup was not prepared: %w", err)
 	}
 	// This call's lines go to the run folder; backup_cleanup folds them into the job's log.
 	p.taskLog = ctTaskLog(pointer.RunDir)
+	done, err := markProvider(ctProviderPIDFile(pointer.RunDir, req.VMID))
+	if err != nil {
+		p.logf("info", "this backup cannot be stopped from Restow: %v", err)
+	}
+	defer done()
 	var creds ctCredentials
 	if err := readJSON(filepath.Join(pointer.RunDir, "credentials.json"), &creds); err != nil {
 		return nil, err

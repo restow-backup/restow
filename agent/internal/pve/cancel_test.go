@@ -5,6 +5,7 @@ package pve
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -128,7 +129,7 @@ func (f *cancelNode) service(t *testing.T) *Service {
 		Layout: Layout{DataDir: filepath.Join(root, "data"), RunDir: filepath.Join(root, "run"),
 			PluginDir: root, ProviderDir: root},
 		State: &State{NodeName: "pve1", StorageID: "restow", FleecingStorage: "local-lvm",
-			BootTestsDisabled: true},
+			BootTestsDisabled: true, PVETokenID: "restow@pve!restow"},
 		Server: srv, PVE: api,
 		Logf:     func(f string, a ...any) { t.Logf(f, a...) },
 		Interval: 20 * time.Millisecond, BusyInterval: 20 * time.Millisecond,
@@ -221,7 +222,10 @@ func TestCancelledTaskNeverStartsVzdump(t *testing.T) {
 func TestCancelOrderStopsTheProviderOfABackupStartedInPVE(t *testing.T) {
 	f := newCancelNode(t)
 	s := f.service(t)
-	done := markProvider(s.Layout, 101)
+	done, err := markProvider(s.Layout.providerPIDFile(101))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer done()
 	proc := t.TempDir()
 	pid := strconv.Itoa(os.Getpid())
@@ -244,9 +248,10 @@ func TestCancelOrderStopsTheProviderOfABackupStartedInPVE(t *testing.T) {
 	}
 }
 
-func TestCancelOrderStopsTheVzdumpTaskOfAGuestWithoutProvider(t *testing.T) {
+func TestCancelOrderStopsOnlyAVzdumpTaskOfTheNodesOwn(t *testing.T) {
 	f := newCancelNode(t)
-	f.active = []NodeTask{{UPID: "UPID:other", Type: "vzdump", ID: "102"}, {UPID: testUPID, Type: "vzdump", ID: "101"}}
+	f.active = []NodeTask{{UPID: "UPID:other", Type: "vzdump", ID: "102", User: "restow@pve!restow"},
+		{UPID: testUPID, Type: "vzdump", ID: "101", User: "restow@pve!restow"}}
 	s := f.service(t)
 	oldProc := procRoot
 	procRoot = t.TempDir()
@@ -254,6 +259,111 @@ func TestCancelOrderStopsTheVzdumpTaskOfAGuestWithoutProvider(t *testing.T) {
 	s.applyCancel(context.Background(), &CancelOrders{Runs: []CancelRun{{ID: "run-2", VMID: 101}}})
 	if len(f.deleted) != 1 || !strings.Contains(f.deleted[0], "vzdump:101") {
 		t.Fatalf("stopped %v, want the vzdump task of guest 101", f.deleted)
+	}
+}
+
+// A PVE backup job runs as root@pam; stopping its task needs Sys.Modify, which the token does
+// not hold. Without a provider the log says how the backup ends instead of "nothing runs".
+func TestCancelOrderLeavesAPVEJobsTaskAndSaysHowTheBackupEnds(t *testing.T) {
+	f := newCancelNode(t)
+	f.active = []NodeTask{{UPID: testUPID, Type: "vzdump", ID: "101", User: "root@pam"}}
+	s := f.service(t)
+	var log []string
+	s.Logf = func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+	oldProc := procRoot
+	procRoot = t.TempDir()
+	defer func() { procRoot = oldProc }()
+	s.applyCancel(context.Background(), &CancelOrders{Runs: []CancelRun{{ID: "run-2", VMID: 101}}})
+	if len(f.deleted) != 0 {
+		t.Fatalf("stopped root's task %v", f.deleted)
+	}
+	joined := strings.Join(log, "\n")
+	if !strings.Contains(joined, "no provider of it was found on this node, so it ends at its next upload") ||
+		strings.Contains(joined, "no backup of it runs") {
+		t.Fatalf("log %q", joined)
+	}
+}
+
+// fakeProcFDs is a /proc with one process: its command line and the files it holds open.
+func fakeProcFDs(t *testing.T, pid int, cmdline string, open ...string) {
+	t.Helper()
+	proc := t.TempDir()
+	dir := filepath.Join(proc, strconv.Itoa(pid))
+	if err := os.MkdirAll(filepath.Join(dir, "fd"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cmdline"), []byte(cmdline), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i, f := range open {
+		if err := os.Symlink(f, filepath.Join(dir, "fd", strconv.Itoa(i+3))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := procRoot
+	procRoot = proc
+	t.Cleanup(func() { procRoot = old })
+}
+
+const ctProviderCmdline = "/opt/restow-pve/bin/restow-pve\x00provider\x00backup-container\x00"
+
+// The provider of an unprivileged container cannot write the root-only providers folder; its
+// record is in its run folder, also for a vzdump task of several guests (no task id).
+func TestCancelOrderStopsAContainerProviderThroughItsRunFolder(t *testing.T) {
+	f := newCancelNode(t)
+	f.active = []NodeTask{{UPID: "UPID:pve1:0001:0002:0003:vzdump::root@pam:", Type: "vzdump", ID: "", User: "root@pam"}}
+	s := f.service(t)
+	// The providers folder cannot be made (as for the mapped root of a container).
+	if err := os.WriteFile(filepath.Join(s.Layout.RunDir, "providers"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := markProvider(s.Layout.providerPIDFile(105)); err == nil {
+		t.Fatal("the providers folder is writable in this test")
+	}
+	runDir := filepath.Join(s.Layout.RunDir, "run-abc")
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	done, err := markProvider(ctProviderPIDFile(runDir, 105))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer done()
+	fakeProcFDs(t, os.Getpid(), ctProviderCmdline, filepath.Join(s.Layout.RunDir, "ct-restow-105.json"))
+	var signalled []int
+	oldSignal := signalProcess
+	signalProcess = func(p int) error { signalled = append(signalled, p); return nil }
+	defer func() { signalProcess = oldSignal }()
+	if !providerAlive(s.Layout, 105) {
+		t.Fatal("a running container provider does not count as running")
+	}
+	s.applyCancel(context.Background(), &CancelOrders{Runs: []CancelRun{{ID: "run-1", VMID: 105}}})
+	if len(signalled) != 1 || signalled[0] != os.Getpid() || len(f.deleted) != 0 {
+		t.Fatalf("signalled %v, stopped %v", signalled, f.deleted)
+	}
+}
+
+// A record in a run folder can be written by the mapped root of every container: it counts only
+// for a container provider that holds this guest's pointer open.
+func TestForgedContainerProviderRecordIsNeverSignalled(t *testing.T) {
+	l := Layout{RunDir: t.TempDir()}
+	runDir := filepath.Join(l.RunDir, "run-x")
+	_ = os.MkdirAll(runDir, 0o700)
+	_ = os.WriteFile(ctProviderPIDFile(runDir, 105), []byte(strconv.Itoa(os.Getpid())), 0o600)
+	oldSignal := signalProcess
+	signalProcess = func(int) error { t.Fatal("signalled a process that is not this guest's provider"); return nil }
+	defer func() { signalProcess = oldSignal }()
+	for name, proc := range map[string][]string{
+		"another guest's provider": {ctProviderCmdline, filepath.Join(l.RunDir, "ct-restow-106.json")},
+		"another guest, same tail": {ctProviderCmdline, filepath.Join(l.RunDir, "ct-restow-1105.json")},
+		"a pointer elsewhere":      {ctProviderCmdline, "/tmp/ct-restow-105.json"},
+		"a VM provider":            {"/opt/restow-pve/bin/restow-pve\x00provider\x00backup-vm\x00", filepath.Join(l.RunDir, "ct-restow-105.json")},
+		"another process":          {"/usr/sbin/sshd\x00", filepath.Join(l.RunDir, "ct-restow-105.json")},
+	} {
+		fakeProcFDs(t, os.Getpid(), proc[0], proc[1])
+		if stopProvider(l, 105) {
+			t.Fatalf("%s: stopProvider = true", name)
+		}
 	}
 }
 

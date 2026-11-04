@@ -316,9 +316,16 @@ with the operate permission). Every stop asks first and is audited
   (`cancel.tasks`, `cancel.runs`). A backup Restow asked for: the node stops its
   vzdump task through the PVE API (`DELETE /nodes/{node}/tasks/{upid}`); vzdump
   ends the guest, removes its snapshot and the fleecing image. A backup started
-  in PVE (a PVE backup job of several guests): the node ends the provider of that
-  guest with SIGTERM, so vzdump goes on with the other guests; when no provider
-  of it runs, it stops a vzdump task that backs up this guest alone. A stopped
+  in PVE (a PVE backup job of one or several guests): the node ends the provider
+  of that guest with SIGTERM, so vzdump goes on with the other guests. A VM's
+  provider records itself in `/run/restow-pve/providers/<vmid>.pid`; a container's
+  provider runs as the mapped container root and records itself in its run folder
+  (`/run/restow-pve/run-<id>/provider-<vmid>.pid`, prepared by root), and counts
+  only while it holds that guest's backup open. The node stops a vzdump task
+  itself only when it is its own: stopping the task of a PVE backup job (root@pam)
+  needs `Sys.Modify`, which the node's token does not hold. When no provider is
+  found, the log says that the backup ends at its next upload, which the server
+  refuses (below). A stopped
   provider asks restic to stop with SIGINT (killed after 15 seconds), so restic
   removes its lock from the container's repository.
 - **Older nodes.** The server refuses every upload of a cancelled run (blocks,

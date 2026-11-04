@@ -460,6 +460,16 @@ private repository.
   a change of the ID map, with millions of unreadable files, the provider kept every error line
   and could use gigabytes on the node; it now counts them and keeps the first 20, and a line
   longer than 1 MiB no longer stops the reading.
+- Proxmox VE: stopping in Restow a container backup that a PVE backup job started did not stop
+  it, and the node logged "no backup of it runs on this node" while restic went on reading. The
+  provider of an unprivileged container runs as the mapped container root and could not write
+  its pid file into the root-only `/run/restow-pve/providers`, a vzdump task of several guests
+  has no guest id to match, and stopping the task of a PVE job (root@pam) needs `Sys.Modify`,
+  which the node's token does not hold. The provider now records itself in its run folder,
+  which root prepares for it, and the node stops it there; the record counts only for a
+  container provider that holds that guest's backup open, so another container's provider is
+  never stopped. The node stops only vzdump tasks of its own, and when it finds no provider the
+  log says that the backup ends at its next upload, which the server refuses.
 
 ### Upgrade Notes
 
