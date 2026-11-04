@@ -7,6 +7,7 @@ import type {
   ProbeInput,
   ProbeOutcome,
   PromoteResult,
+  RepositoryRepairs,
   RestorePointImmutability,
   SetImmutabilityInput,
   SetImmutabilityResult,
@@ -28,6 +29,7 @@ export const storageKeys = {
   all: (tenantId: string | null) => ["tenant", tenantId, "storage"] as const,
   targets: (tenantId: string | null) => ["tenant", tenantId, "storage", "targets"] as const,
   usage: (tenantId: string | null) => ["tenant", tenantId, "storage", "usage"] as const,
+  repairs: (tenantId: string | null) => ["tenant", tenantId, "storage", "repairs"] as const,
   restorePoint: (tenantId: string | null, kind: string, id: string) =>
     ["tenant", tenantId, "storage", "restore-point", kind, id] as const,
 };
@@ -129,4 +131,22 @@ export function fetchEndpointRestorePointImmutability(
   return apiFetch<RestorePointImmutability>(
     `/endpoints/${encodeURIComponent(endpointId)}/snapshots/${encodeURIComponent(snapshotId)}/immutability`,
   );
+}
+
+/** The newest repository scan and repair (docs/STORAGE.md, "Repository repair"). */
+export function fetchRepositoryRepairs(): Promise<RepositoryRepairs> {
+  return apiFetch<RepositoryRepairs>("/storage/repositories/repairs");
+}
+
+/** Queue a scan of every restic repository on every storage target (changes nothing). */
+export function requestRepositoryScan(): Promise<unknown> {
+  return apiFetch<unknown>("/storage/repositories/scan", { method: "POST", body: {} });
+}
+
+/** Repair what the newest scan found (a recent sign-in, the typed word). */
+export function requestRepositoryRepair(scanId: string, confirm: string): Promise<unknown> {
+  return apiFetch<unknown>("/storage/repositories/repair", {
+    method: "POST",
+    body: { scanId, confirm },
+  });
 }

@@ -126,6 +126,7 @@ import {
 import { immutabilityTask } from "./handlers/immutability.js";
 import { handlers } from "./handlers/index.js";
 import { mailFilesCleanupTask } from "./handlers/mail-files-cleanup.js";
+import { startRepositoryRepairs } from "./handlers/repository-repair.js";
 import { retentionTasks } from "./handlers/retention.js";
 import { emitJobWebhook, webhooksHandler } from "./handlers/webhooks.js";
 import { JobPauseGate } from "./job-pause.js";
@@ -485,6 +486,10 @@ async function main(): Promise<void> {
   // Proxmox VE guests (docs/PVE.md): job planning, retention, verify and restore checks,
   // one pass every five minutes in one worker at a time.
   startPveMaintenance({ db, providerDb, runtime, startsPaused: () => jobPause.paused() });
+
+  // Repository scans and repairs an administrator queued (docs/STORAGE.md, "Repository
+  // repair"): one pass every 15 seconds in one worker at a time.
+  startRepositoryRepairs({ db, providerDb, runtime });
 
   // Ransomware detection (docs/RANSOMWARE.md): every new restore point of every kind is judged
   // against its object's baseline and the signatures, one pass every two minutes. Retention of an

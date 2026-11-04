@@ -1,11 +1,18 @@
 import type { Database } from "@restow/db";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db } from "../../db.js";
+import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { backupDestination } from "./destination.js";
 import { setImmutability, verifyImmutabilityNow } from "./immutability.js";
+import {
+  repositoryRepairs,
+  requestRepairSchema,
+  requestRepositoryRepair,
+  requestRepositoryScan,
+} from "./repository-repair.js";
 import {
   createStorageTargetSchema,
   migrationIdParamSchema,
@@ -50,6 +57,10 @@ import {
  *   DELETE /targets/:id                      remove the target (its data stays where it is)
  *   POST   /targets/:id/test                 write/read/list/delete probe + Object Lock detection, recorded
  *   POST   /targets/:id/completeness         does this copy hold everything the primary holds?
+ *   GET    /repositories/repairs             the newest repository scan and repair
+ *   POST   /repositories/scan                queue a scan of every restic repository (202)
+ *   POST   /repositories/repair              repair the newest scan ({ scanId, confirm: "REPAIR" },
+ *                                            a recent sign-in; 202)
  *   POST   /targets/:id/promote              make this copy the primary
  *   POST   /targets/:id/migration/cancel     cancel the storage migration replacing the primary with :id
  *   POST   /targets/:id/migration/retry      re-queue a failed "move" replacing the primary with :id
@@ -142,6 +153,25 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
 
   routes.post("/targets/:id/completeness", deps.requireAdmin, async (c) => {
     return c.json(await checkCompleteness(deps.db, c.get("tenantId"), targetId(c), actorOf(c)));
+  });
+
+  routes.get("/repositories/repairs", deps.requireAdmin, async (c) => {
+    return c.json(await repositoryRepairs(deps.db, c.get("tenantId")));
+  });
+
+  routes.post("/repositories/scan", deps.requireAdmin, async (c) => {
+    return c.json(await requestRepositoryScan(deps.db, c.get("tenantId"), actorOf(c)), 202);
+  });
+
+  // Changes repositories on the primary and marks lost restore points: a recent sign-in and the
+  // typed confirmation (docs/STORAGE.md, "Repository repair").
+  routes.post("/repositories/repair", deps.requireAdmin, async (c) => {
+    const input = await parseJsonBody(c.req, requestRepairSchema);
+    assertRecentSignIn(c.get("auth").session);
+    return c.json(
+      await requestRepositoryRepair(deps.db, c.get("tenantId"), input, actorOf(c)),
+      202,
+    );
   });
 
   routes.post("/targets/:id/promote", deps.requireAdmin, async (c) => {
