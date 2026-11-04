@@ -217,6 +217,60 @@ describe("a guests table that does not jump", () => {
     );
   });
 
+  it("labels a boot test by how it ended: a red one never reads Succeeded", async () => {
+    const MESSAGE =
+      "unable to restore CT 124 - restoring 'mp0' to bind mount is only possible for root";
+    fetchGuest.mockResolvedValueOnce({
+      guest: null,
+      cluster: null,
+      snapshots: [],
+      runs: [
+        {
+          id: "r-1",
+          kind: "boot_test",
+          origin: "restow",
+          status: "succeeded",
+          archiveName: null,
+          startedAt: "2026-11-03T05:00:00Z",
+          finishedAt: "2026-11-03T05:02:00Z",
+          error: MESSAGE,
+          stats: { bootTest: { outcome: "red" } },
+        },
+        {
+          id: "r-2",
+          kind: "backup",
+          origin: "restow",
+          status: "succeeded",
+          archiveName: null,
+          startedAt: "2026-11-02T09:19:00Z",
+          finishedAt: "2026-11-02T09:30:00Z",
+          error: null,
+          stats: null,
+        },
+      ],
+    } as never);
+    const ct = guest(113, { lastRunWarnings: [] });
+    await mount(
+      <GuestSheet
+        guestId={ct.id}
+        guest={ct}
+        node={null}
+        jobs={[]}
+        onClose={() => undefined}
+        guard={noGuard}
+        onAssign={() => undefined}
+      />,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const items = [...document.body.querySelectorAll('[data-slot="pve-sheet-runs"] > li')];
+    expect(items).toHaveLength(2);
+    expect(items[0]?.textContent).toContain("Did not boot");
+    expect(items[0]?.textContent).not.toContain("Succeeded");
+    expect(items[1]?.textContent).toContain("Succeeded");
+  });
+
   it("shows why a restore check could not run, amber and copyable, never red or green", async () => {
     const HOLDER = "repository is already locked exclusively by PID 4711 on pmx01 by root";
     const locked = guest(102, {

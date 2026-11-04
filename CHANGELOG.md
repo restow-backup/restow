@@ -10,6 +10,17 @@ private repository.
 
 ## [Unreleased]
 
+### Fixed
+
+- Proxmox VE: a restore check of a container whose repository kept a lock a run had left behind
+  (a backup that ended without releasing it) was postponed as "repository locked" every time,
+  for weeks. Before the check and before retention, the server now removes the lock files the
+  storage received more than 30 minutes ago, as for machines: restic writes a fresh lock file
+  every five minutes while it works, so a live run never has an older one. What `restic unlock`
+  reports is logged instead of dropped.
+- Proxmox VE, detail panel of a guest: a boot test that ended red ("Did not boot") read
+  "Succeeded" under Recent runs; it now says how it ended, as on the guest page.
+
 ## [0.4.10] - 2026-11-03
 
 Beta release. Run it alongside your existing backups, not as your only one, until
