@@ -119,4 +119,29 @@ describe("reading the tar archives of restic dump", () => {
     expect(pax.get("path")).toBe("a/b/c.txt");
     expect(pax.get("size")).toBe("42");
   });
+
+  it("reads the source to its end, so a process writing it can end (#96)", async () => {
+    const tar = await tarOf([{ name: "a.txt", content: "hello" }]);
+    // The stream delivers the archive up to the first zero block; the rest of the end marker
+    // and the end of the stream come a moment later, as from restic.
+    const firstZero = tar.length - 1024;
+    const stream = new PassThrough();
+    stream.write(tar.subarray(0, firstZero + 512));
+    setTimeout(() => {
+      stream.end(tar.subarray(firstZero + 512));
+    }, 20);
+    const ended = new Promise<void>((resolve) => stream.once("end", () => resolve()));
+    const names: string[] = [];
+    for await (const entry of readTar(stream)) {
+      names.push(entry.name);
+      for await (const _ of entry.body) {
+        // read the body
+      }
+    }
+    expect(names).toEqual(["a.txt"]);
+    const timeout = new Promise<string>((resolve) =>
+      setTimeout(() => resolve("never ended"), 1000),
+    );
+    expect(await Promise.race([ended.then(() => "ended"), timeout])).toBe("ended");
+  });
 });

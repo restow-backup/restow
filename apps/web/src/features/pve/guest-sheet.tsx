@@ -41,6 +41,7 @@ import { activityHint, BackupProgress } from "./backup-progress.js";
 import { GuestActionButton, GuestState, type SelfBackupGuard, shortDate } from "./guest-cells.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo } from "./paths.js";
+import { runStatusKey, runTone } from "./run-status.js";
 import { RestowServerNote } from "./self-backup.js";
 
 /**
@@ -70,8 +71,13 @@ function RecentRuns({ runs, shown }: { runs: readonly PveRun[]; shown?: string |
     <ol className="space-y-3" data-slot="pve-sheet-runs">
       {runs.map((run) => {
         const warnings = run.warnings ?? [];
-        const variant =
-          run.status === "failed"
+        // A finished boot test says how it ended (its outcome), as on the guest page: a test
+        // that ran to "red" is not "Succeeded".
+        const bootTest =
+          run.kind === "boot_test" && run.status !== "running" && run.stats?.bootTest;
+        const variant = bootTest
+          ? runTone(run)
+          : run.status === "failed"
             ? "destructive"
             : run.status === "running"
               ? "info"
@@ -85,9 +91,11 @@ function RecentRuns({ runs, shown }: { runs: readonly PveRun[]; shown?: string |
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-medium">{t(`guest.kind.${run.kind}`)}</span>
               <Badge variant={variant}>
-                {run.status === "succeeded" && warnings.length > 0
-                  ? t("guests.succeededWithWarnings")
-                  : t(`guest.${run.status}`)}
+                {bootTest
+                  ? t(runStatusKey(run))
+                  : run.status === "succeeded" && warnings.length > 0
+                    ? t("guests.succeededWithWarnings")
+                    : t(`guest.${run.status}`)}
               </Badge>
               <span className="text-muted-foreground tabular-nums">
                 {formatDateTime(run.startedAt, language)}

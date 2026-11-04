@@ -8,7 +8,7 @@
  * keeps out is postponed, then recorded as "could not check", never failed.
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -886,10 +886,26 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       // The weekly clock tries again after a day.
       expect((await guest(ct.guestId))?.lastVerifyAt).toEqual(new Date(gaveUp.getTime() - 6 * DAY));
 
-      // The lock is gone: the next check runs and is green again.
+      // The lock is gone: the next check runs and is green again. A lock file a run left behind
+      // weeks ago is removed from the storage first, whatever restic unlock makes of it; a
+      // fresh one (a live run refreshes its lock every five minutes) stays.
       await writeFile(mode, "ok");
       const nextDay = new Date(gaveUp.getTime() + DAY + 60_000);
+      const lockName = (n: number) => `${n}`.repeat(64);
+      const lockKey = (n: number) => `pve-guests/${ct.guestId}/locks/${lockName(n)}`;
+      const lockPath = (n: number) =>
+        join(work, "storage", "pve-guests", ct.guestId, "locks", lockName(n));
+      for (const n of [1, 2]) {
+        await storage.primary.put(lockKey(n), Buffer.from("lock"));
+      }
+      const weeksAgo = new Date(nextDay.getTime() - 18 * DAY);
+      await utimes(lockPath(1), weeksAgo, weeksAgo);
+      const minuteAgo = new Date(nextDay.getTime() - 60_000);
+      await utimes(lockPath(2), minuteAgo, minuteAgo);
       await verifyDue(deps, nextDay);
+      expect(await storage.primary.head(lockKey(1))).toBeNull();
+      expect(await storage.primary.head(lockKey(2))).not.toBeNull();
+      await storage.primary.delete(lockKey(2));
       row = await point(ct.pointId);
       const passedAt = row?.verify?.checkedAt;
       expect(typeof passedAt).toBe("string");

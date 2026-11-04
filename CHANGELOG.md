@@ -227,6 +227,195 @@ nothing. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key kee
   registry, no bare-metal restore for Windows, and further data drives are not reported as
   data folders yet.
 
+## [0.4.12] - 2026-11-04
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.12 is a hotfix of 0.4.11: a ZIP download of folders (file shares, machines, Proxmox
+VE container files) could hang now and then and never finish. No database migration, no agent
+change.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.9.0.
+
+### Added
+
+None.
+
+### Changed
+
+None.
+
+### Fixed
+
+- ZIP downloads of folders (file shares, machines, Proxmox VE container files) could hang now
+  and then and never finish (#96): the reader of `restic dump`'s tar stopped at the first zero
+  block of the end marker, so the rest of restic's output stayed unread, restic's process never
+  reported its end, and the download waited for it. The reader now reads the stream to its end.
+  It showed in the release smoke as "a ZIP download of two folders" timing out.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.4.0 stays. Pull the images of 0.4.12 and restart as for any update.
+
+- restow-pve and the agents need no update in this release (no change to the agents or the
+  Proxmox VE plugin).
+- A download that hung before the update ended with the restart; start it again.
+
+### Known Issues
+
+- The known issues of 0.4.11 still apply.
+
+### Verification
+
+Before the tag: lint and typecheck of `@restow/core`; the core tests of machines, restores and
+Proxmox VE (580), among them the new tar test that delivers the end-of-archive marker late and
+checks the stream is read to its end (it fails with the fix taken out); the release check
+(`scripts/ci/check-release.mjs --tag v0.4.12`) and the install script's test
+(`deploy/install/test.sh`).
+
+## [0.4.11] - 2026-11-04
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.11 is a hotfix of 0.4.10 for Proxmox VE containers: a container repository that kept
+a lock a backup had left behind (one that ended without releasing it, for example when the PVE
+API went away during an update) had its restore check postponed as "repository locked" for
+good. The server now removes such leftover locks before it checks or prunes. The detail panel of
+a guest also stops calling a red boot test "Succeeded". No database migration, no agent change.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.9.0.
+
+### Added
+
+None.
+
+### Changed
+
+None.
+
+### Fixed
+
+- Proxmox VE: a restore check of a container whose repository kept a lock a run had left behind
+  (a backup that ended without releasing it) was postponed as "repository locked" every time,
+  for weeks. Before the check and before retention, the server now removes the lock files the
+  storage received more than 30 minutes ago, as for machines: restic writes a fresh lock file
+  every five minutes while it works, so a live run never has an older one. What `restic unlock`
+  reports is logged instead of dropped.
+- Proxmox VE, detail panel of a guest: a boot test that ended red ("Did not boot") read
+  "Succeeded" under Recent runs; it now says how it ended, as on the guest page.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.4.0 stays. Pull the images of 0.4.11 and restart as for any update.
+
+- restow-pve and the agents need no update in this release (no change to the agents or the
+  Proxmox VE plugin). Nodes still on 0.4.9 or older need 0.4.10 for the boot tests and restore
+  checks of containers with a bind mount point.
+- Containers whose checks were postponed as "repository locked" are checked again on the
+  worker's next pass (the postponed check is tried every ten minutes, a check that gave up after
+  a day); "Check now" on the guest starts one at once.
+
+### Known Issues
+
+- The known issues of 0.4.10 still apply.
+
+### Verification
+
+Before the tag: lint and typecheck of the worker and the web app; the worker's Proxmox VE tests
+against Postgres (18), among them the container check with a lock file stored weeks ago and a
+fresh one (the old one is removed, the fresh one stays; the test fails with the removal taken
+out); the web tests of Proxmox VE (99), among them the detail panel labelling a red boot test
+"Did not boot" (fails with the fix taken out); the release check
+(`scripts/ci/check-release.mjs --tag v0.4.11`) and the install script's test
+(`deploy/install/test.sh`).
+
+## [0.4.10] - 2026-11-03
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.10 is a hotfix of 0.4.9 for Proxmox VE: the restore checks and boot tests of a
+container with a bind or device mount point failed every time, so such containers never got a
+passed check. No database migration; restow-pve on the nodes needs the update.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.9.0. The result of a container's restore check
+can carry the new field `omittedMounts` (the mount points the check left out).
+
+### Added
+
+None.
+
+### Changed
+
+None.
+
+### Fixed
+
+- Proxmox VE: restore checks and boot tests of a container with a bind or device mount point
+  (`mp0: /host/path,mp=...`) always failed with "restoring 'mp0' to bind mount is only
+  possible for root": PVE lets only root@pam restore such a mount point, and the node restores
+  with its API token. A check now names the container's rootfs and volume mount points itself
+  (same size and options, on the check's storage) and leaves bind and device mount points
+  out; their data lives on the host and is not part of the backup. The check's log names the
+  mount points it left out. Restores into a new guest are unchanged.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images and a new restow-pve; no database migration, no new or changed environment variable,
+and the `docker-compose.yml` of 0.4.0 stays. Pull the images of 0.4.10 and restart as for any
+update.
+
+- restow-pve on every Proxmox VE node needs 0.4.10: the fix is in the node's agent. Nodes update
+  by themselves (when idle, at the latest six hours later), with the server update, with
+  **Update now** on the node, or by hand with `/opt/restow-pve/bin/restow-pve update`.
+- Containers whose checks failed read green again after their next restore check or boot test
+  (the scheduled one, or "Check now" / "Boot test now").
+
+### Known Issues
+
+- The known issues of 0.4.9 still apply.
+- A restore into a new guest (not a check) of a container with a bind or device mount point
+  still fails with PVE's "only possible for root" for the node's API token; restore such a
+  container on the node as root (`pct restore`).
+
+### Verification
+
+Before the tag: `go vet` and the tests of every agent package, including the new unit tests of
+the mount points a check names and leaves out, the boot test of a container with a volume and a
+bind mount point against a fake node that refuses a bind mount point from the backup like PVE
+(it fails with "only possible for root" with the fix taken out), and the restore check of such a
+container against a stand-in of the PVE API and the Restow server; the release check
+(`scripts/ci/check-release.mjs --tag v0.4.10`) and the install script's test
+(`deploy/install/test.sh`).
+
 ## [0.4.9] - 2026-10-31
 
 Beta release. Run it alongside your existing backups, not as your only one, until

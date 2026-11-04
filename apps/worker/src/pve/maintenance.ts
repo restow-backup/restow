@@ -38,7 +38,9 @@ import {
   DEFAULT_SCHEDULE_TIMEZONE,
   decodeBlockMap,
   deleteOnAllTargets,
+  listLockFiles,
   loadManifest,
+  locksToRemove,
   mapChunkIds,
   measureRepositoryBytes,
   PVE_BOOT_TEST_CAPABILITY,
@@ -52,6 +54,7 @@ import {
   pveNodeDeclares,
   pveSelfBackupBlocked,
   ResticError,
+  removeLockFiles,
   resticBinary,
   resticCacheBase,
   resticCheck,
@@ -630,6 +633,49 @@ async function repositoryAccess(deps: PveDeps, guest: PveGuest) {
   };
 }
 
+/**
+ * Clear the stale locks of a container repository before the server's restic works on it.
+ *
+ * A lock file the storage received more than 30 minutes ago is removed straight from the
+ * storage: restic writes a fresh lock file (with a new name) every five minutes while it works,
+ * so a live run never has an older one. `restic unlock` alone judges by the time inside the
+ * file and did not lift a backup's lock left behind for weeks (CT 113, every check postponed
+ * as "repository locked"); it still runs after, and what it says is logged, not swallowed.
+ */
+async function clearStaleGuestLocks(
+  deps: PveDeps,
+  access: Pick<NonNullable<Awaited<ReturnType<typeof repositoryAccess>>>, "storage" | "prefix">,
+  session: Parameters<typeof resticUnlock>[0],
+  guestId: string,
+): Promise<void> {
+  try {
+    const present = await listLockFiles(access.storage, access.prefix);
+    const stale = locksToRemove(present, {
+      agentLocks: new Set(),
+      agentActive: false,
+      now: deps.runtime.now(),
+    });
+    if (stale.length > 0) {
+      await removeLockFiles(access.storage, access.prefix, stale);
+      deps.runtime.logger.info("pve: stale locks of a container repository removed", {
+        guestId,
+        locks: stale.length,
+      });
+    }
+  } catch (error) {
+    deps.runtime.logger.warn("pve: the locks of a container repository could not be listed", {
+      guestId,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+  }
+  await resticUnlock(session).catch((error: unknown) => {
+    deps.runtime.logger.warn("pve: restic unlock failed", {
+      guestId,
+      detail: resticErrorDetail(error, 500),
+    });
+  });
+}
+
 async function forgetResticSnapshots(deps: PveDeps, guest: PveGuest, ids: string[]): Promise<void> {
   const access = await repositoryAccess(deps, guest);
   if (!access) {
@@ -638,7 +684,7 @@ async function forgetResticSnapshots(deps: PveDeps, guest: PveGuest, ids: string
   await withGuestRepository(deps, guest.id, () =>
     withRepository(access, async (session) => {
       // Stale locks only (a run that ended without releasing its lock), as for machines.
-      await resticUnlock(session).catch(() => undefined);
+      await clearStaleGuestLocks(deps, access, session, guest.id);
       await resticForget(session, ids);
       await resticPrune(session);
     }),
@@ -683,8 +729,8 @@ export async function verifySnapshot(
       await withGuestRepository(deps, snap.guestId, () =>
         withRepository(access, async (session) => {
           // Stale locks only (a run that ended without releasing its lock, a restarted API):
-          // restic never removes one a live run still refreshes.
-          await resticUnlock(session).catch(() => undefined);
+          // never one a live run still refreshes.
+          await clearStaleGuestLocks(deps, access, session, snap.guestId);
           await resticCheck(session, "5%", {
             signal: deps.runtime.shutdownSignal,
             retryLock: options.retryLock,
