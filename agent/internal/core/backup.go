@@ -110,14 +110,24 @@ func (a *Agent) doBackup(rc *runContext) runOutcome {
 	if len(foreign) > 0 {
 		rl.Infof("Paths for other operating systems are skipped on this machine: %s.", strings.Join(foreign, ", "))
 	}
-	sources, missing, resolved := splitSources(ownPaths)
-	for _, m := range missing {
+	split := splitSources(ownPaths)
+	sources := split.existing
+	for _, m := range split.missing {
 		rl.Warnf("Path %s does not exist on this machine and is skipped.", m)
 	}
-	for _, r := range resolved {
-		rl.Infof("Path %s is a symbolic link; backing up its target %s.", r.Configured, r.Resolved)
+	for _, r := range split.resolved {
+		rl.Infof("Path %s is a %s; backing up %s.", r.Configured, r.Kind, r.Resolved)
 	}
+	// A source that exists but cannot be backed up as configured is an error
+	// of the run, never a silent skip: the run ends partial at best.
+	for _, e := range split.problems {
+		rl.Errorf("%s", e.Message)
+	}
+	out.Errors = append(out.Errors, split.problems...)
 	if len(sources) == 0 {
+		if len(split.problems) > 0 {
+			return out
+		}
 		if len(cfg.Paths) == 0 {
 			out.fail("no_paths", "No backup paths are configured for this endpoint. Set them in the Restow UI (Endpoints, Settings).")
 		} else if len(ownPaths) == 0 {
@@ -181,7 +191,8 @@ func (a *Agent) doBackup(rc *runContext) runOutcome {
 
 	if proceed {
 		out = a.backupStep(rc, out, sources)
-		// A hook that was not allowed makes a good backup partial: it is not what was configured.
+		// A hook that was not allowed or a source that could not be read makes a
+		// good backup partial: it is not what was configured.
 		if refused && out.Status == api.StatusSucceeded {
 			out.Status = api.StatusPartial
 		}
@@ -384,6 +395,16 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 		out.Errors = append(out.Errors, api.RunError{Path: e.Path, Message: e.Message, Code: e.During})
 	}
 	out.Unlisted = res.ErrorCount - len(res.Errors)
+	// Safety net: a snapshot without a single file although a source holds
+	// files is no backup of it (a link or mount point restic did not follow).
+	var emptySources []api.RunError
+	if s.TotalFilesProcessed == 0 {
+		emptySources = sourcesWithFiles(sources)
+		for _, e := range emptySources {
+			rl.Errorf("%s", e.Message)
+		}
+		out.Errors = append(out.Errors, emptySources...)
+	}
 	if runtime.GOOS == "darwin" {
 		for _, e := range res.Errors {
 			if strings.Contains(e.Message, "operation not permitted") {
@@ -399,6 +420,8 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	case res.Partial:
 		out.Status = api.StatusPartial
 		rl.Warnf("Some files could not be read (%d errors); the snapshot is incomplete. Details are listed in the errors of this run.", res.ErrorCount)
+	case len(emptySources) > 0:
+		out.Status = api.StatusPartial
 	case snapUnavailable || len(snap.FailedVolumes) > 0:
 		// Backed up, but not (all) from a snapshot: what the policy continue means.
 		out.Status = api.StatusPartial

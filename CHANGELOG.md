@@ -250,6 +250,17 @@ private repository.
   the ransomware signals. The agent looked for `/C/Users/a.txt` from the snapshot at
   `\C\Users\a.txt` instead of `C:\Users\a.txt`, found none of the files and wrote "No sample
   files could be recorded", so a Windows machine never got a restore test.
+- Windows agent (preview): a backup path on a drive that is locked by BitLocker, offline or not
+  ready, or that the agent may not read, was logged as "does not exist" and the run stayed
+  green while the drive was never backed up. Only a path that really does not exist is skipped
+  that way now; any other error is the run error `source_unreadable` with the system's text,
+  and the run ends partial (failed when no path is left).
+- Windows agent (preview): a junction (`mklink /J`) or a folder a volume is mounted at,
+  configured as a backup path, was backed up as a bare link without its files, and the run was
+  green. The agent now backs up the junction's target and the mounted volume by its drive
+  letter, and says so in the log; a volume without a drive letter is the run error
+  `source_is_mount_point` (the run ends partial). A backup in which restic read no file at all
+  from a folder that holds files ends partial as well.
 
 ### Upgrade Notes
 
@@ -266,9 +277,9 @@ nothing. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key kee
 - A shadow copy makes a backup file consistent, not application consistent: SQL Server or
   Exchange files are crash consistent; use a pre hook for a dump.
 - No alternate data streams (no Mark of the Web after a restore), no EFS files of other users,
-  online-only cloud files are left out, junctions are backed up as links, no system state or
-  registry, no bare-metal restore for Windows, and further data drives are not reported as
-  data folders yet.
+  online-only cloud files are left out, junctions inside a backed-up folder are backed up as
+  links, no system state or registry, no bare-metal restore for Windows, and further data
+  drives are not reported as data folders yet.
 
 ## [0.4.12] - 2026-11-04
 

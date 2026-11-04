@@ -125,7 +125,7 @@ Harte Randbedingungen, die für alles Folgende gelten:
 | VSS nur mit amd64-restic auf 64-Bit-Windows (oder 386 auf 32 Bit); ein arm64-restic bekommt `executables compiled for arm64 can't use VSS`. | `vss_windows.go:888-900, 1248-1260` |
 | restic sichert und stellt Security Descriptors (Owner, Gruppe, DACL, SACL) wieder her, wenn es als Administrator läuft (sonst nur DACL); Vererbungs-Flags seit 0.19.0 korrekt. NTFS Extended Attributes seit 0.17.0. | CHANGELOG 0.17.0 #4708 und #4807, 0.19.0 #5427 und #5424; `doc/050_restore.rst:82-89` |
 | **Alternate Data Streams werden nicht gesichert** (Pfade mit `:` werden übersprungen, kein Changelog-Eintrag führt ADS ein). `Zone.Identifier` (Mark of the Web) geht damit verloren. | `internal/fs/node_windows.go:96, 346` |
-| restic setzt `godebug winsymlink=0`: Junctions verhalten sich wie vor Go 1.23 (als symbolische Links). | `go.mod:9` von restic |
+| restic setzt `godebug winsymlink=0`: Junctions verhalten sich wie vor Go 1.23 (als symbolische Links). Eine Junction oder ein eingehängter Ordner als Quelle löst darum der Agent auf (16.5). | `go.mod:9` von restic |
 | Snapshot-Pfade: Das Volume wird wörtlich übernommen, `C:\Users` wird `/C/Users`, `c:\Users` aber `/c/Users`. | `internal/archiver/tree.go:35-65` |
 | Mindestversion von restic selbst: Windows 10 / Server 2016. | CHANGELOG 0.18.0 #4938 |
 | `--one-file-system` bricht unter Windows sofort ab. | `doc/040_backup.rst:518-519` |
@@ -1335,6 +1335,36 @@ ab. Folgen im Agenten:
   (Abschnitt 19.3); an API und Agent bleiben es `/C/…`-Pfade
   (`schemas.ts:390-396`, `core/restore.go:52-58` passen schon).
 
+### 16.5 Quellen, die nicht gelesen werden können, Junctions und eingehängte Ordner
+
+`splitSources` (`core/util.go`) prüft jede konfigurierte Quelle vor dem Start von restic:
+
+- **Fehlt sie** (`os.Lstat` meldet `ErrNotExist`, auch ein fehlender Laufwerksbuchstabe), steht
+  wie bisher "existiert nicht und wird übersprungen" im Lauf-Log; kein Lauf-Fehler.
+- **Jeder andere Fehler** (BitLocker-gesperrtes Laufwerk, `ERROR_NOT_READY` einer
+  ausgeschalteten iSCSI- oder USB-Platte, Zugriff verweigert, ebenso ein Fehler beim Auflösen
+  von Links) ist der Lauf-Fehler `source_unreadable` mit Pfad und dem Text des Systems; der
+  Lauf endet höchstens `partial`, ohne lesbare Quelle `failed`. Vorher galt jeder Fehler als
+  "existiert nicht", und der Lauf blieb grün, während das Datenlaufwerk nie gesichert wurde.
+- **Junction** (`mklink /J`) und **eingehängter Ordner** tragen beide den Reparse-Tag
+  `IO_REPARSE_TAG_MOUNT_POINT`. Seit Go 1.23 meldet `os.Lstat` sie als "irregular" und
+  `filepath.EvalSymlinks` löst sie nicht mehr auf; restic (`winsymlink=0`) speichert sie als
+  Link, ohne Inhalt. Der Agent liest den Reparse-Punkt selbst (`FSCTL_GET_REPARSE_POINT`,
+  `winapi.ReparsePoint`): Eine Junction ersetzt er durch ihr Ziel, einen eingehängten Ordner
+  durch den Laufwerksbuchstaben des Volumes (`GetVolumePathNamesForVolumeNameW`), beides mit
+  einer Zeile im Lauf-Log wie bei symbolischen Links. Ein Volume ohne Laufwerksbuchstaben ist
+  der Lauf-Fehler `source_is_mount_point` ("geben Sie dem Volume einen Laufwerksbuchstaben und
+  sichern Sie es darüber"); andere Links (etwa WSL-Symlinks) sind `source_unreadable`. Junctions
+  *innerhalb* einer Quelle bleiben Links, wie restic sie sichert.
+- **Sicherheitsnetz:** Hat restic keine einzige Datei verarbeitet, obwohl eine Quelle eine Datei
+  ist oder direkt eine enthält, ist das `source_unreadable` und der Lauf `partial`.
+
+Getestet mit einem nachgebildeten Dateisystem (gesperrt, nicht bereit, kein Zugriff, Junction,
+Junction auf Junction, Volume mit und ohne Buchstaben, unbekannter Tag, Schleife), dem Parser
+für `REPARSE_DATA_BUFFER` (auch unter Linux) und unter `windowsintegration` mit `mklink /J`
+und `mountvol` auf dem Windows-Runner. Die Erklärungen der Codes im Fehlerkatalog gehören zum
+Server.
+
 ## 17. Schattenkopie (VSS)
 
 Die Begriffe an API, Richtlinie und Fehlercodes sind betriebssystemneutral, weil im selben
@@ -2346,9 +2376,10 @@ geprüft sind die reinen Funktionen und die Politik mit einem falschen restic un
     `E:\` in `vss.exclude-volumes` annimmt oder `E:` verlangt, ist hier nicht geprüft.
 27. Vom Anbieter nicht unterstütztes Volume (eingehängte VHD, ReFS auf älterem Server): nur
     Hinweis im Log, kein Fehler, auch mit `fail`.
-28. Eingehängter Ordner (Volume unter `C:\mnt\daten`): `GetVolumePathNameW` liefert den
-    Einhängepunkt, restic macht eine eigene Schattenkopie; prüfen, dass `liveFilesystems` und
-    die Lauf-Fehler den Einhängepunkt sinnvoll nennen.
+28. Eingehängter Ordner (Volume unter `C:\mnt\daten`) als Quelle: mit Laufwerksbuchstaben
+    sichert der Agent das Laufwerk (Lauf-Log nennt beides), ohne Buchstaben endet der Lauf
+    `partial` mit `source_is_mount_point`. Eine Junction als Quelle wird über ihr Ziel
+    gesichert; ein BitLocker-gesperrtes Datenlaufwerk ergibt `source_unreadable` (16.5).
 29. `--exclude-cloud-files` mit OneDrive (Nur-Online-Dateien): nichts wird heruntergeladen,
     lokal vorhandene Dateien sind im Snapshot; `--iexclude-file`: `c:\windows\temp` wird von
     `C:\Windows\Temp` getroffen; `pagefile.sys`, `hiberfil.sys`, `$Recycle.Bin` und

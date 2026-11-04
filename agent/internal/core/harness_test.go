@@ -89,6 +89,10 @@ backup)
     echo '{"message_type":"error","error":{"message":"permission denied"},"during":"archival","item":"/root/secret"}'
     echo '{"message_type":"summary","files_new":2,"files_changed":0,"files_unmodified":1,"data_added":100,"total_files_processed":3,"total_bytes_processed":300,"snapshot_id":"bbbb000000000000000000000000000000000000000000000000000000000000"}'
     exit 3 ;;
+  link-only)
+    # The source was a link restic did not follow: a snapshot without a file.
+    echo '{"message_type":"summary","files_new":0,"files_changed":0,"files_unmodified":0,"data_added":120,"total_files_processed":0,"total_bytes_processed":0,"snapshot_id":"cccc000000000000000000000000000000000000000000000000000000000000"}'
+    exit 0 ;;
   partial-many)
     i=0
     while [ $i -lt 130 ]; do

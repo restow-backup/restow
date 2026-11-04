@@ -735,9 +735,10 @@ carries all of them.
   build until Microsoft has cleared it (the maintainer submits every prerelease), ASR rules
   may block it, and Smart App Control (fresh Windows 11) blocks the agent, which the
   installer detects. No alternate data streams (so no Mark of the Web after a restore), no
-  EFS files of other users (read errors), online-only cloud files are left out, junctions are
-  backed up as links, no system state or registry, no bare-metal restore: restoring a
-  Windows machine means reinstalling Windows, then restoring the files. Further data drives
+  EFS files of other users (read errors), online-only cloud files are left out, junctions
+  inside a backed-up folder are backed up as links (a junction configured as a path is
+  followed), no system state or registry, no bare-metal restore: restoring a Windows machine
+  means reinstalling Windows, then restoring the files. Further data drives
   (`D:\`) are not reported as data folders yet. Hooks under
   Windows: only `.ps1` and `.exe` in the `scripts` policy, no grace period on a timeout. The
   proxy is a fixed URL without credentials (no WPAD/PAC, no NTLM or Kerberos). After an

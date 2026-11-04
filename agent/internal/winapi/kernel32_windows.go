@@ -28,6 +28,8 @@ var (
 	procGetDriveTypeW              = kernel32.NewProc("GetDriveTypeW")
 	procGetVolumeInformationW      = kernel32.NewProc("GetVolumeInformationW")
 	procLocalFree                  = kernel32.NewProc("LocalFree")
+
+	procGetVolumePathNamesForVolumeNameW = kernel32.NewProc("GetVolumePathNamesForVolumeNameW")
 )
 
 // LockFileEx locks a byte range of an open file
@@ -332,4 +334,50 @@ func CreateFileSDDL(path, sddl string) (syscall.Handle, error) {
 	sa := syscall.SecurityAttributes{Length: uint32(unsafe.Sizeof(syscall.SecurityAttributes{})), SecurityDescriptor: uintptr(sd)}
 	return syscall.CreateFile(p, syscall.GENERIC_WRITE|syscall.GENERIC_READ,
 		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_DELETE, &sa, syscall.CREATE_NEW, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+}
+
+// fsctlGetReparsePoint is FSCTL_GET_REPARSE_POINT (winioctl.h).
+const fsctlGetReparsePoint = 0x000900A8
+
+// ReparsePoint reads the reparse point of path itself (not what it points
+// to): its tag and, for a junction, mounted volume or symbolic link, the
+// substitute name (see ParseReparseData).
+func ReparsePoint(path string) (tag uint32, substitute string, err error) {
+	p, err := utf16Ptr(path)
+	if err != nil {
+		return 0, "", err
+	}
+	h, err := syscall.CreateFile(p, 0, fileShareAll, nil, openExisting, fileFlagBackupSemantics|fileFlagOpenReparsePoint, 0)
+	if err != nil {
+		return 0, "", err
+	}
+	defer syscall.CloseHandle(h)
+	buf := make([]byte, 16*1024) // MAXIMUM_REPARSE_DATA_BUFFER_SIZE
+	var n uint32
+	if err := syscall.DeviceIoControl(h, fsctlGetReparsePoint, nil, 0, &buf[0], uint32(len(buf)), &n, nil); err != nil {
+		return 0, "", err
+	}
+	return ParseReparseData(buf[:n])
+}
+
+// VolumePathNames lists the drive letters and folders a volume
+// (\\?\Volume{guid}\) is mounted at, such as E:\ and C:\SQLData\
+// (https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getvolumepathnamesforvolumenamew).
+func VolumePathNames(volume string) ([]string, error) {
+	p, err := utf16Ptr(volume)
+	if err != nil {
+		return nil, err
+	}
+	buf := make([]uint16, 1024)
+	for {
+		var need uint32
+		_, err := call(procGetVolumePathNamesForVolumeNameW, uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(unsafe.Pointer(&need)))
+		if err == nil {
+			return ParseMultiSZ(&buf[0]), nil
+		}
+		if !IsErrno(err, ErrorMoreData) || int(need) <= len(buf) {
+			return nil, err
+		}
+		buf = make([]uint16, need)
+	}
 }
