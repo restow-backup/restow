@@ -284,3 +284,84 @@ func TestStartAfterRestoreIsRefusedWhereTheCopyMayNotRun(t *testing.T) {
 		t.Fatalf("static IPs %s", msg)
 	}
 }
+
+// A restore check its target storage cannot take is skipped before a VMID is taken or anything
+// restored: the storage is missing, inactive, holds no guests of the kind (an images-only
+// storage and a container) or lacks the space. The task is done with result.skipped, no error.
+func TestARestoreCheckSkipsATargetStorageThatCannotTakeIt(t *testing.T) {
+	const ctConf = "hostname: web\nrootfs: local-lvm:vm-114-disk-0,size=8G\nmp0: local-lvm:vm-114-disk-1,mp=/data,backup=1,size=100G\n"
+	no := false
+	for _, tc := range []struct {
+		name, kind, reason string
+		setup              func(f *fakeNode, s *Service)
+	}{
+		{"storage missing", "vm", "no_storage", func(f *fakeNode, _ *Service) { f.storages[0].Storage = "other" }},
+		{"storage inactive", "vm", "storage_inactive", func(f *fakeNode, _ *Service) { f.storages[0].Active = 0 }},
+		{"images-only storage and a container", "ct", "storage_content", func(f *fakeNode, _ *Service) { f.storages[0].Content = "images" }},
+		{"rootdir-only storage and a VM", "vm", "storage_content", func(f *fakeNode, _ *Service) { f.storages[0].Content = "rootdir,vztmpl" }},
+		{"too small for the container's volumes", "ct", "storage_space", func(f *fakeNode, _ *Service) {
+			f.storages[0].Type, f.storages[0].Avail = "lvm", 50<<30
+		}},
+		{"too small for the VM's disks", "vm", "storage_space", func(f *fakeNode, _ *Service) {
+			f.storages[0].Type, f.storages[0].Avail = "lvm", 20<<30
+		}},
+		{"restores switched off", "vm", "restores_off", func(_ *fakeNode, s *Service) { s.State.AllowRestores = &no }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeNode()
+			conf := ctConf
+			if tc.kind == "vm" {
+				conf = "name: db\nmemory: 2048\nscsi0: local-lvm:vm-114-disk-0,size=32G\n"
+			}
+			f.restoreConfig = parseConfigText(conf)
+			s := restoreService(t, f, tc.kind, conf)
+			s.BootTests.Resolve = func(_ context.Context, volname string) (*RestorePoint, error) {
+				return &RestorePoint{SnapshotID: "s1", Kind: tc.kind, VMID: 114, GuestConfig: conf,
+					Devices: []DeviceSize{{Device: "drive-scsi0", Size: 32 << 30}}, ByteSize: 3 << 30}, nil
+			}
+			tc.setup(f, s)
+			result, err := s.task(context.Background(), restoreTaskOf(t, tc.kind, true))
+			if err != nil {
+				t.Fatalf("a skipped check is no error: %v", err)
+			}
+			skipped, _ := result["skipped"].(map[string]any)
+			if skipped["reason"] != tc.reason || fmt.Sprint(skipped["message"]) == "" {
+				t.Fatalf("result = %v, want skipped %s", result, tc.reason)
+			}
+			if _, ok := result["vmid"]; ok {
+				t.Fatalf("a skipped check names a guest: %v", result)
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.nextID != 9001 || len(f.guests) != 0 || f.restoreMounts != nil {
+				t.Fatalf("something was restored: nextID %d, guests %v", f.nextID, f.guests)
+			}
+			if markers := s.BootTests.markers(); len(markers) != 0 {
+				t.Fatalf("a temporary guest was marked: %v", markers)
+			}
+		})
+	}
+}
+
+// A storage that takes the check: the restore runs. A thin storage counts the restore point's
+// data, a thick one the full disks; a restore into a new guest is never skipped by this check.
+func TestARestoreCheckRunsOnAStorageThatTakesIt(t *testing.T) {
+	const conf = "hostname: web\nrootfs: local-lvm:vm-114-disk-0,size=8G\n"
+	f := newFakeNode()
+	f.restoreConfig = parseConfigText(conf)
+	f.storages[0].Avail = 6 << 30 // thin: 3 GiB of data and the margin fit, the 8 GiB volume would not
+	s := restoreService(t, f, "ct", conf)
+	s.BootTests.Resolve = func(_ context.Context, volname string) (*RestorePoint, error) {
+		return &RestorePoint{SnapshotID: "s1", Kind: "ct", VMID: 114, GuestConfig: conf, ByteSize: 3 << 30}, nil
+	}
+	result, err := s.task(context.Background(), restoreTaskOf(t, "ct", true))
+	if err != nil || result["skipped"] != nil || result["deleted"] != true {
+		t.Fatalf("check: %v (%v)", err, result)
+	}
+	// A restore into a new guest on an inactive storage is no check: PVE's refusal says why.
+	f.storages[0].Active = 0
+	result, _ = s.task(context.Background(), restoreTaskOf(t, "ct", false))
+	if result["skipped"] != nil {
+		t.Fatalf("a restore into a new guest was skipped: %v", result)
+	}
+}

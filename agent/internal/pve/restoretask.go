@@ -26,6 +26,9 @@ type restoreParams struct {
 	Start         bool   `json:"start"`
 	// RestoreTest deletes the guest again after a successful restore.
 	RestoreTest bool `json:"restoreTest"`
+	// DataBytes is what the restore writes (a VM's stored, non-zero data; optional, else the
+	// check of the target storage counts the full disks on a thin storage as well).
+	DataBytes uint64 `json:"dataBytes"`
 }
 
 // restoreState is what a restore task knows once PVE runs its restore (kept with the task in
@@ -53,12 +56,15 @@ type restoreState struct {
 }
 
 func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, error) {
-	if !s.State.RestoresAllowed() {
-		return nil, errors.New("restores are switched off on this node")
-	}
 	var p restoreParams
 	if err := json.Unmarshal(t.Params, &p); err != nil || p.Volname == "" || p.TargetStorage == "" {
 		return nil, errors.New("invalid restore task")
+	}
+	if !s.State.RestoresAllowed() {
+		if p.RestoreTest {
+			return skippedCheck(s, p, "restores_off", "Restores are switched off on this node (restow-pve config --allow-restores)."), nil
+		}
+		return nil, errors.New("restores are switched off on this node")
 	}
 	if p.Pool == "" || p.RestoreTest {
 		// A check's guest lives in the restore pool, where its removal is allowed and proven.
@@ -77,6 +83,13 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	rp, err := b.Resolve(ctx, p.Volname)
 	if err != nil {
 		return nil, fmt.Errorf("restore point: %w", err)
+	}
+	if p.RestoreTest {
+		// A check the target storage cannot take says nothing about the restore point: it is
+		// skipped before a VMID is taken or anything restored.
+		if reason, msg := s.checkTargetStorage(ctx, p, rp); reason != "" {
+			return skippedCheck(s, p, reason, msg), nil
+		}
 	}
 	if p.Kind == "vm" {
 		// PCI or USB passthrough, a device mapping, virtiofs, host ports, raw arguments: PVE
@@ -133,6 +146,52 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: vmid,
 		StartedAt: time.Now().UTC().Format(time.RFC3339), Restore: &st})
 	return s.finishRestore(ctx, t.ID, p, st)
+}
+
+// skippedCheck is the result of a restore check the node did not run (docs/PVE-PROTOCOL.md, "A
+// restore check the node skips"): not a result about the restore point.
+func skippedCheck(s *Service, p restoreParams, reason, msg string) map[string]any {
+	s.Logf("restore check of %s skipped: %s", p.Volname, msg)
+	return map[string]any{"skipped": map[string]any{"reason": reason, "message": msg}}
+}
+
+// checkTargetStorage checks the target storage of a restore check as the boot test checks its
+// own: there and active on this node, holding guests of the kind (images for a VM, rootdir for
+// a container), with the space the restore takes of it (thin or thick). It returns the reason
+// and the message of a skip, or "".
+func (s *Service) checkTargetStorage(ctx context.Context, p restoreParams, rp *RestorePoint) (string, string) {
+	b := s.bootTester()
+	name := p.TargetStorage
+	data, disks := p.DataBytes, uint64(0)
+	if p.Kind == "ct" {
+		disks = containerVolumeBytes(parseConfigText(rp.GuestConfig))
+		if data == 0 {
+			data = rp.ByteSize
+		}
+	} else {
+		for _, d := range rp.Devices {
+			disks += d.Size
+		}
+		if disks == 0 {
+			disks = rp.ByteSize
+		}
+	}
+	f := b.fitStorage(ctx, name, p.Kind, data, disks)
+	guests := "VMs"
+	if p.Kind == "ct" {
+		guests = "containers"
+	}
+	switch f.Problem {
+	case "missing":
+		return "no_storage", fmt.Sprintf("The target storage %s does not exist on node %s.", name, s.State.NodeName)
+	case "inactive":
+		return "storage_inactive", fmt.Sprintf("The target storage %s is not active on node %s.", name, s.State.NodeName)
+	case "content":
+		return "storage_content", fmt.Sprintf("The target storage %s holds no %s (content %s).", name, guests, f.Want)
+	case "space":
+		return "storage_space", fmt.Sprintf("The target storage %s has %d MiB free; the restore needs about %d MiB (%s).", name, f.Avail>>20, f.Need>>20, f.Basis)
+	}
+	return "", ""
 }
 
 // finishRestore waits for the restore task and ends the restore. A check removes its guest on

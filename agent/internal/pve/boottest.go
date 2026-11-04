@@ -392,43 +392,71 @@ func (b *BootTester) backupBusy(ctx context.Context) (string, string) {
 }
 
 func (b *BootTester) checkStorage(ctx context.Context, name string, p BootTestParams, conf map[string]string, rp *RestorePoint) (string, string) {
+	data, disks := p.DataBytes, p.DiskBytes
+	if p.Kind == "ct" {
+		if sum := containerVolumeBytes(conf); sum > 0 {
+			disks = sum
+		}
+		if data == 0 && rp != nil {
+			data = rp.ByteSize
+		}
+	}
+	f := b.fitStorage(ctx, name, p.Kind, data, disks)
+	switch f.Problem {
+	case "missing":
+		return "no_storage", fmt.Sprintf("The boot test storage %s does not exist on this node.", name)
+	case "inactive":
+		return "no_storage", fmt.Sprintf("The boot test storage %s is not active on this node.", name)
+	case "content":
+		return "storage_content", fmt.Sprintf("The boot test storage %s does not hold %s.", name, f.Want)
+	case "space":
+		return "storage_space", fmt.Sprintf("The boot test storage %s has %d MiB free; the restore needs about %d MiB (%s).", name, f.Avail>>20, f.Need>>20, f.Basis)
+	}
+	return "", ""
+}
+
+// storageFit is whether a storage of this node takes a restore (fitStorage): Problem is ""
+// (it does, or the storages could not be read), "missing", "inactive", "content" (it holds no
+// Want: images for a VM, rootdir for a container) or "space" (Avail is less than Need).
+type storageFit struct {
+	Problem     string
+	Want        string
+	Avail, Need uint64
+	Basis       string
+}
+
+// fitStorage checks a storage of this node for a restore of a guest of kind with data bytes
+// of stored data and disks bytes of disks: there, active, holding the guest's content, and
+// with the space the restore takes of it (RestoreSpaceNeed, with a tenth and 1 GiB beside).
+func (b *BootTester) fitStorage(ctx context.Context, name, kind string, data, disks uint64) storageFit {
+	want := "images"
+	if kind == "ct" {
+		want = "rootdir"
+	}
 	list, err := b.PVE.Storages(ctx, b.State.NodeName)
 	if err != nil {
 		b.logf("storages unknown: %v", err)
-		return "", ""
+		return storageFit{Want: want}
 	}
 	for _, s := range list {
 		if s.Storage != name {
 			continue
 		}
 		if s.Active != 1 {
-			return "no_storage", fmt.Sprintf("The boot test storage %s is not active on this node.", name)
-		}
-		want := "images"
-		if p.Kind == "ct" {
-			want = "rootdir"
+			return storageFit{Problem: "inactive", Want: want}
 		}
 		if s.Content != "" && !strings.Contains(","+s.Content+",", ","+want+",") {
-			return "storage_content", fmt.Sprintf("The boot test storage %s does not hold %s.", name, want)
+			return storageFit{Problem: "content", Want: want}
 		}
-		data, disks := p.DataBytes, p.DiskBytes
-		if p.Kind == "ct" {
-			if sum := containerVolumeBytes(conf); sum > 0 {
-				disks = sum
-			}
-			if data == 0 && rp != nil {
-				data = rp.ByteSize
-			}
-		}
-		need, basis := RestoreSpaceNeed(p.Kind, s, b.storageOptions(name), data, disks)
+		need, basis := RestoreSpaceNeed(kind, s, b.storageOptions(name), data, disks)
 		need += need/10 + bootTestStorageMarginBytes
 		b.logf("the restore needs about %d MiB on %s (%s): %d MiB free", need>>20, name, basis, s.Avail>>20)
 		if s.Avail < need {
-			return "storage_space", fmt.Sprintf("The boot test storage %s has %d MiB free; the restore needs about %d MiB (%s).", name, s.Avail>>20, need>>20, basis)
+			return storageFit{Problem: "space", Want: want, Avail: s.Avail, Need: need, Basis: basis}
 		}
-		return "", ""
+		return storageFit{Want: want}
 	}
-	return "no_storage", fmt.Sprintf("The boot test storage %s does not exist on this node.", name)
+	return storageFit{Problem: "missing", Want: want}
 }
 
 func (b *BootTester) cli(kind string) string {
