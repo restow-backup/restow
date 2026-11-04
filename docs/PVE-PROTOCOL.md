@@ -176,17 +176,25 @@ that came to an outcome, with `result`:
  "cleanedUp": true, "log": "12:00:01 restoring to the temporary vm 9001 on local-lvm\n..."}
 ```
 
-| `outcome` | `reason` (examples) | Meaning |
+| `outcome` | `reason` | Meaning |
 | --- | --- | --- |
-| `green` | `agent_answered`, `init_running` | the VM's QEMU guest agent answered `qm guest cmd <id> ping`; a container's `pct exec <id> -- cat /proc/1/comm` answered |
-| `yellow` | `no_guest_agent`, `init_unknown` | the guest started and kept running for `timeoutSeconds`, nothing inside answered |
-| `red` | `restore_failed`, `start_failed`, `guest_stopped` | the restore, the start or the boot failed |
-| `skipped` | `memory_limit`, `node_memory`, `storage_space`, `storage_content`, `no_storage`, `backup_running`, `boot_test_running`, `restores_off`, `boot_tests_off` | the node did not run it; `message` says why |
+| `green` | `agent_answered`, `init_running` | the VM's QEMU guest agent answered `qm guest cmd <id> ping`; a container's init runs (and, from 0.5.0, systemd reached `running`) |
+| `yellow` | `no_guest_agent`, `init_unknown`; from 0.5.0 `guest_agent_silent` (the original runs the guest agent, the copy's did not answer), `init_running_unverified` (an init that is not systemd runs; its services were not checked), `systemd_degraded` (failed units, named in `message`) | the guest started and kept running for `timeoutSeconds`; nothing proved that it booted to its services |
+| `red` | `restore_failed`, `start_failed`, `guest_stopped`; from 0.5.0 `guest_panicked`, `systemd_emergency` | the restore, the start or the boot failed |
+| `skipped` | `memory_limit`, `node_memory`, `storage_space`, `storage_content`, `no_storage`, `backup_running`, `boot_test_running`, `restores_off`, `boot_tests_off`; from 0.5.0 `custom_qemu_args`, `host_disk`, `bridge_not_isolated` (the copy would reach out of the test), `node_resources` (hugepages or a NUMA binding could not be had), `storage_space` also for a restore that ran out of space | the node did not boot it, for a reason outside the restore point; `message` says why |
+| `error` (from 0.5.0) | `setup_failed` (the test could not be prepared before the restore read the archive), `io_error` (the copy paused on an I/O error of the boot test storage) | the test could not be carried out; it rates nothing and is tried again |
+
+The server reads the outcome through the reason (`pveBootTestOutcomeOf` in
+`@restow/core`): a skipped or error reason above rates nothing whatever outcome came with
+it, a red reason is red, and a yellow reason takes a green down to yellow (it never makes a
+red better). A reason not in the table keeps the node's outcome, and the web app shows the
+node's `message` for it. `node_resources`, `storage_space`, `node_memory`, `backup_running`,
+`boot_test_running` and every `error` are tried again (30 minutes, then doubling).
 
 `status: "failed"` means the node could not carry the test out at all (its PVE API failed,
-the temporary guest could not be isolated); the server records the outcome `error`. Green,
-yellow and red become the restore point's boot test (`pve_snapshots.boot_test`); skipped and
-error stay with the run.
+the temporary guest could not be isolated); the server records the outcome `error` (with the
+node's `reason` when the result has one, else `node_error`). Green, yellow and red become the
+restore point's boot test (`pve_snapshots.boot_test`); skipped and error stay with the run.
 
 What the node does: see PVE.md, "Boot test". It uses the PVE API for the restore (the same
 call as a restore task, into the pool `restow-restore`, `start=0`) and `qm`/`pct` as root for

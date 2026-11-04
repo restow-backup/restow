@@ -298,6 +298,20 @@
       "yellow": "The restored VM started and kept running, but its QEMU Guest Agent did not answer. Install the guest agent in the VM for proof.",
       "red": "The restore point did not boot: {message}"
     },
+    "bootTestReason": {
+      "custom_qemu_args": "Not tested: the VM has QEMU arguments of its own (args), which can reach the network or disks of the host. A copy started next to the original could use them too.",
+      "host_disk": "Not tested: the VM uses a disk of the host directly (a device passed through). A copy started next to the original would write to the same disk.",
+      "bridge_not_isolated": "Not tested: the boot test bridge of the node is connected to the network. Set a bridge without ports with restow-pve config --boot-test-bridge.",
+      "node_resources": "Not tested: the node could not give the copy the memory it is set up for (hugepages or a NUMA binding). It is tried again later.",
+      "storage_space": "Not tested: the boot test storage had too little free space for the restore. It is tried again later.",
+      "setup_failed": "Not carried out: the boot test could not be prepared before the restore. This says nothing about the restore point; it is tried again later.",
+      "io_error": "Not carried out: the copy stopped on an I/O error of the boot test storage. This says nothing about the restore point; it is tried again later.",
+      "guest_agent_silent": "The copy started and kept running, but the QEMU Guest Agent that runs in the original did not answer. That it booted is not proven.",
+      "init_running_unverified": "The container's init runs, but whether its services came up could not be checked.",
+      "systemd_degraded": "The container started, but systemd reports failed services (degraded).",
+      "systemd_emergency": "The container did not reach its services: systemd is in emergency or rescue mode.",
+      "guest_panicked": "The copy crashed while it booted (guest panicked)."
+    },
     "bootTestSchedule": {
       "off": "Boot tests: off in the backup job",
       "weekly": "Boot tests: weekly",

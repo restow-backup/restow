@@ -6,11 +6,13 @@ import {
   MAX_BOOT_TEST_TIMEOUT_SECONDS,
   PVE_BOOT_TEST_CAPABILITY,
   pveBootTestDue,
+  pveBootTestOutcomeOf,
   pveBootTestOverdueMs,
   pveBootTestPlan,
   pveBootTestRating,
   pveBootTestRetry,
   pveBootTestTaskParams,
+  pveBootTestTransient,
   pveNodeDeclares,
   pveRestoreCheckBlocker,
   pveRestorePointPrivileged,
@@ -269,5 +271,45 @@ describe("a restore point of a privileged container", () => {
     expect(pveRestorePointPrivileged(ct(""), true)).toBe(true);
     expect(pveRestorePointPrivileged(ct(""), false)).toBe(false);
     expect(pveRestorePointPrivileged({ kind: "vm", guestConfig: "" }, true)).toBe(false);
+  });
+});
+
+describe("what a boot test's reason stands for", () => {
+  it("never reads green for a reason that proves nothing", () => {
+    for (const reason of [
+      "custom_qemu_args",
+      "host_disk",
+      "bridge_not_isolated",
+      "node_resources",
+      "storage_space",
+    ]) {
+      expect(pveBootTestOutcomeOf("green", reason)).toBe("skipped");
+      expect(pveBootTestOutcomeOf("red", reason)).toBe("skipped");
+    }
+    for (const reason of ["setup_failed", "io_error"]) {
+      expect(pveBootTestOutcomeOf("red", reason)).toBe("error");
+    }
+    for (const reason of ["init_running_unverified", "systemd_degraded", "guest_agent_silent"]) {
+      expect(pveBootTestOutcomeOf("green", reason)).toBe("yellow");
+      // A yellow reason never makes a red any better.
+      expect(pveBootTestOutcomeOf("red", reason)).toBe("red");
+    }
+    for (const reason of ["guest_panicked", "systemd_emergency"]) {
+      expect(pveBootTestOutcomeOf("green", reason)).toBe("red");
+      expect(pveBootTestOutcomeOf("yellow", reason)).toBe("red");
+    }
+  });
+
+  it("keeps the node's outcome for a proof and for a reason it does not know", () => {
+    expect(pveBootTestOutcomeOf("green", "agent_answered")).toBe("green");
+    expect(pveBootTestOutcomeOf("green", "init_running")).toBe("green");
+    expect(pveBootTestOutcomeOf("yellow", "a_reason_of_a_newer_node")).toBe("yellow");
+    expect(pveBootTestOutcomeOf("green", "")).toBe("green");
+  });
+
+  it("tries a test skipped for the node's resources again", () => {
+    expect(pveBootTestTransient({ outcome: "skipped", reason: "node_resources" })).toBe(true);
+    expect(pveBootTestTransient({ outcome: "skipped", reason: "custom_qemu_args" })).toBe(false);
+    expect(pveBootTestTransient({ outcome: "error", reason: "io_error" })).toBe(true);
   });
 });

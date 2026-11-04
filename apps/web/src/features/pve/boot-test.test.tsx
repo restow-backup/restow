@@ -97,6 +97,54 @@ describe("BootTestBadge", () => {
   });
 });
 
+describe("the reasons restow-pve 0.5.0 reports", () => {
+  const cases: [string, "green" | "yellow" | "red" | "skipped" | "error", string, string][] = [
+    ["custom_qemu_args", "green", "muted", "Skipped"],
+    ["host_disk", "green", "muted", "Skipped"],
+    ["bridge_not_isolated", "green", "muted", "Skipped"],
+    ["node_resources", "red", "muted", "Skipped"],
+    ["storage_space", "red", "muted", "Skipped"],
+    ["setup_failed", "red", "muted", "Not carried out"],
+    ["io_error", "red", "muted", "Not carried out"],
+    ["guest_agent_silent", "green", "warning", "Started, no answer"],
+    ["init_running_unverified", "green", "warning", "Started, no answer"],
+    ["systemd_degraded", "green", "warning", "Started, no answer"],
+    ["systemd_emergency", "yellow", "destructive", "Did not boot"],
+    ["guest_panicked", "yellow", "destructive", "Did not boot"],
+  ];
+
+  it.each(cases)("%s is never green and has a text of its own", (reason, sent, variant, label) => {
+    expect(bootTestVariant(sent, reason)).toBe(variant);
+    const html = render(
+      <BootTestBadge test={test({ outcome: sent, reason, message: "node said" })} kind="vm" />,
+    );
+    expect(html).toContain(`data-variant="${variant}"`);
+    expect(html).not.toContain('data-variant="success"');
+    expect(html).toContain(label);
+    expect(html).toContain('data-slot="pve-boot-test-reason"');
+    const key = `guest.bootTestReason.${reason}`;
+    for (const language of ["en", "de"]) {
+      expect(i18n.exists(key, { ns: "pve", lng: language })).toBe(true);
+    }
+    expect(html).toContain(i18n.t(key, { ns: "pve" }).slice(0, 12));
+  });
+
+  it("a yellow reason never makes a red any better, and an unknown reason shows the node's message", () => {
+    expect(bootTestVariant("red", "init_running_unverified")).toBe("destructive");
+    expect(bootTestVariant("green", "agent_answered")).toBe("success");
+    const html = render(
+      <BootTestBadge
+        test={test({ outcome: "yellow", reason: "a_newer_reason", message: "What the node saw" })}
+        kind="vm"
+      />,
+    );
+    expect(html).toContain('data-variant="warning"');
+    expect(html).toContain('data-slot="pve-boot-test-node-message"');
+    expect(html).toContain("What the node saw");
+    expect(html).not.toContain('data-slot="pve-boot-test-reason"');
+  });
+});
+
 describe("a temporary guest the boot test could not remove", () => {
   it("is a leftover for any outcome while no inventory said it is gone", () => {
     expect(bootTestLeftover(test())).toBeNull();

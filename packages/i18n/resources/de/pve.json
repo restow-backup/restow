@@ -298,6 +298,20 @@
       "yellow": "Die wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nicht geantwortet. Installieren Sie den Guest Agent in der VM, um den Start nachzuweisen.",
       "red": "Der Sicherungsstand ist nicht gestartet: {message}"
     },
+    "bootTestReason": {
+      "custom_qemu_args": "Nicht geprüft: Die VM hat eigene QEMU-Argumente (args), die das Netzwerk oder Datenträger des Hosts erreichen können. Eine neben dem Original gestartete Kopie könnte sie ebenfalls nutzen.",
+      "host_disk": "Nicht geprüft: Die VM nutzt einen Datenträger des Hosts direkt (durchgereichtes Gerät). Eine neben dem Original gestartete Kopie würde auf denselben Datenträger schreiben.",
+      "bridge_not_isolated": "Nicht geprüft: Die Bridge für Startprüfungen auf dem Knoten ist mit dem Netzwerk verbunden. Legen Sie mit restow-pve config --boot-test-bridge eine Bridge ohne Ports fest.",
+      "node_resources": "Nicht geprüft: Der Knoten konnte der Kopie den Speicher, für den sie eingerichtet ist, nicht geben (Hugepages oder eine NUMA-Bindung). Es wird später erneut versucht.",
+      "storage_space": "Nicht geprüft: Auf dem Speicher für Startprüfungen war zu wenig Platz für die Wiederherstellung. Es wird später erneut versucht.",
+      "setup_failed": "Nicht durchgeführt: Die Startprüfung ließ sich vor der Wiederherstellung nicht vorbereiten. Das sagt nichts über den Sicherungsstand; es wird später erneut versucht.",
+      "io_error": "Nicht durchgeführt: Die Kopie hielt bei einem E/A-Fehler des Speichers für Startprüfungen an. Das sagt nichts über den Sicherungsstand; es wird später erneut versucht.",
+      "guest_agent_silent": "Die Kopie startete und lief weiter, aber der QEMU Guest Agent, der im Original läuft, antwortete nicht. Dass sie hochgefahren ist, ist nicht belegt.",
+      "init_running_unverified": "Der Init-Prozess des Containers läuft, ob seine Dienste gestartet sind, ließ sich aber nicht prüfen.",
+      "systemd_degraded": "Der Container startete, aber systemd meldet fehlgeschlagene Dienste (degraded).",
+      "systemd_emergency": "Der Container erreichte seine Dienste nicht: systemd ist im Notfall- oder Rettungsmodus.",
+      "guest_panicked": "Die Kopie ist beim Hochfahren abgestürzt (guest panicked)."
+    },
     "bootTestSchedule": {
       "off": "Startprüfungen: im Backup-Job aus",
       "weekly": "Startprüfungen: wöchentlich",

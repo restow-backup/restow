@@ -1,5 +1,6 @@
 import {
   PVE_BOOT_TEST_CAPABILITY,
+  pveBootTestOutcomeOf,
   pveBootTestPlan,
   pveBootTestTaskParams,
   pveJobOfGuest,
@@ -254,7 +255,10 @@ async function queueBootTest(
  * this server does not understand never discards the others.
  */
 const nodeResultSchema = z.object({
-  outcome: z.enum(["green", "yellow", "red", "skipped"]).nullable().catch(null),
+  // "error" from restow-pve 0.5.0: the test could not be carried out (it failed before the
+  // restore, or on the boot test storage), with its reason.
+  outcome: z.enum(["green", "yellow", "red", "skipped", "error"]).nullable().catch(null),
+  // Any reason is taken, also one this server does not know: the run shows the node's message.
   reason: z.string().max(64).catch(""),
   message: z.string().max(4000).catch(""),
   durationMs: z.number().int().min(0).catch(0),
@@ -307,7 +311,12 @@ export async function recordBootTestResult(
   const node =
     raw && typeof raw === "object" && !Array.isArray(raw) ? nodeResultSchema.parse(raw) : null;
   const failed = input.status === "failed" || !node?.outcome;
-  const outcome: PveBootTestOutcome = failed ? "error" : (node?.outcome ?? "error");
+  // The reason decides where it names what the test proved (pveBootTestOutcomeOf): a skipped
+  // or unverified reason is never green, a panicked guest never amber.
+  const reason = node?.reason || (failed ? "node_error" : "");
+  const outcome: PveBootTestOutcome = failed
+    ? "error"
+    : pveBootTestOutcomeOf(node?.outcome ?? "error", reason);
   const tempVmid = node?.tempVmid ?? null;
   // An older node, or a result without the field: a guest it made counts as removed only when
   // it says so.
@@ -325,7 +334,7 @@ export async function recordBootTestResult(
   const message = leftover ? [said, leftoverSentence(leftover)].filter(Boolean).join(" ") : said;
   const result: PveBootTestResult = {
     outcome,
-    reason: failed ? "node_error" : (node?.reason ?? ""),
+    reason,
     message,
     checkedAt: now.toISOString(),
     durationMs: node?.durationMs ?? 0,

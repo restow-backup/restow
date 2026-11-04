@@ -161,7 +161,76 @@ export const PVE_BOOT_TEST_TRANSIENT_REASONS: readonly string[] = [
   "boot_test_running",
   "node_memory",
   "storage_space",
+  "node_resources",
 ];
+
+/**
+ * What a boot test's `reason` stands for (docs/PVE-PROTOCOL.md, "Task boot_test"), whatever
+ * `outcome` the node sent beside it. Green is proof only: a reason that proves nothing never
+ * reads green.
+ *
+ *   - skipped: the node did not boot the copy, for a reason that says nothing about the restore
+ *     point (it would reach out of the test: custom QEMU arguments, a host disk, a bridge that is
+ *     not isolated; the node lacked memory, hugepages or space);
+ *   - error: the test could not be carried out (prepared before the restore, an I/O error of the
+ *     boot test storage): grey, tried again, rates nothing;
+ *   - yellow: it started, but nothing proved it booted to its services;
+ *   - red: it did not boot (a restore or start that failed, a guest that stopped or panicked, a
+ *     container in systemd's emergency mode).
+ *
+ * A reason not listed here keeps the node's outcome (a newer node may know more).
+ */
+export const PVE_BOOT_TEST_REASON_OUTCOMES: Readonly<Record<string, PveBootTestOutcomeKind>> = {
+  // skipped before or instead of booting
+  memory_limit: "skipped",
+  node_memory: "skipped",
+  node_resources: "skipped",
+  storage_space: "skipped",
+  storage_content: "skipped",
+  no_storage: "skipped",
+  backup_running: "skipped",
+  boot_test_running: "skipped",
+  restores_off: "skipped",
+  boot_tests_off: "skipped",
+  custom_qemu_args: "skipped",
+  host_disk: "skipped",
+  bridge_not_isolated: "skipped",
+  // not carried out
+  setup_failed: "error",
+  io_error: "error",
+  node_error: "error",
+  // started, no proof
+  no_guest_agent: "yellow",
+  guest_agent_silent: "yellow",
+  init_unknown: "yellow",
+  init_running_unverified: "yellow",
+  systemd_degraded: "yellow",
+  // did not boot
+  restore_failed: "red",
+  start_failed: "red",
+  guest_stopped: "red",
+  guest_panicked: "red",
+  systemd_emergency: "red",
+};
+
+/**
+ * The outcome a boot test result stands for ({@link PVE_BOOT_TEST_REASON_OUTCOMES}): a skipped
+ * or error reason rates nothing, a red reason is red, and a yellow reason takes a green down to
+ * yellow (it never makes a red any better). A reason not listed keeps the node's outcome.
+ */
+export function pveBootTestOutcomeOf(
+  outcome: PveBootTestOutcomeKind,
+  reason: string,
+): PveBootTestOutcomeKind {
+  const meant = PVE_BOOT_TEST_REASON_OUTCOMES[reason];
+  if (meant === undefined) {
+    return outcome;
+  }
+  if (meant === "yellow") {
+    return outcome === "green" ? "yellow" : outcome;
+  }
+  return meant;
+}
 /** The first retry of a boot test that did not come to a result waits this long, then doubling. */
 export const PVE_BOOT_TEST_RETRY_FIRST_MS = 30 * 60 * 1000;
 /** No retry waits longer than this. */

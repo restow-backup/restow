@@ -357,6 +357,71 @@ describe.skipIf(!canRun)("boot tests of Proxmox VE restore points", () => {
     expect((await readinessRow())?.bootTest?.outcome).toBe("red");
   });
 
+  it("rates by what the reason stands for: no green without proof, an unknown reason keeps its message", async () => {
+    const stored = async (taskId: string) => {
+      const [run] = await rows((tx) => tx.select().from(pveRuns).where(eq(pveRuns.taskId, taskId)));
+      return run;
+    };
+    const pointTest = async () =>
+      (await rows((tx) => tx.select().from(pveSnapshots).where(eq(pveSnapshots.id, newest()))))[0]
+        ?.bootTest;
+    // A green whose init runs but whose services were not checked: amber, rated.
+    let taskId = await openBootTask(newest());
+    await report(taskId, nodeResult("green", { reason: "init_running_unverified" }));
+    expect((await stored(taskId))?.stats.bootTest).toMatchObject({
+      outcome: "yellow",
+      reason: "init_running_unverified",
+    });
+    expect(await pointTest()).toMatchObject({ outcome: "yellow" });
+    expect(await readinessRow()).toMatchObject({ state: "yellow" });
+    // A panicked guest is red, also when the node said amber.
+    taskId = await openBootTask(newest());
+    await report(taskId, nodeResult("yellow", { reason: "guest_panicked" }));
+    expect(await pointTest()).toMatchObject({ outcome: "red", reason: "guest_panicked" });
+    // Not booted for a reason outside the restore point: skipped, the rating stays red.
+    for (const reason of [
+      "custom_qemu_args",
+      "host_disk",
+      "bridge_not_isolated",
+      "node_resources",
+    ]) {
+      taskId = await openBootTask(newest());
+      await report(taskId, nodeResult("green", { reason, message: `not booted: ${reason}` }));
+      expect(await stored(taskId)).toMatchObject({
+        status: "failed",
+        errorMessage: `not booted: ${reason}`,
+      });
+      expect((await stored(taskId))?.stats.bootTest).toMatchObject({ outcome: "skipped", reason });
+      expect(await pointTest()).toMatchObject({ outcome: "red", reason: "guest_panicked" });
+    }
+    // restow-pve 0.5.0 reports a test it could not prepare as error with its own reason.
+    taskId = await openBootTask(newest());
+    await report(taskId, {
+      status: "done",
+      result: { outcome: "error", reason: "setup_failed", message: "mp1 has no size" },
+    });
+    expect(await stored(taskId)).toMatchObject({
+      status: "failed",
+      errorMessage: "mp1 has no size",
+    });
+    expect((await stored(taskId))?.stats.bootTest).toMatchObject({
+      outcome: "error",
+      reason: "setup_failed",
+    });
+    expect(await pointTest()).toMatchObject({ outcome: "red", reason: "guest_panicked" });
+    // A reason this server does not know: the node's outcome and message.
+    taskId = await openBootTask(newest());
+    await report(taskId, nodeResult("yellow", { reason: "a_newer_reason", message: "said so" }));
+    expect((await stored(taskId))?.stats.bootTest).toMatchObject({
+      outcome: "yellow",
+      reason: "a_newer_reason",
+      message: "said so",
+    });
+    // Leave the restore point red, as the tests after this one expect it.
+    taskId = await openBootTask(newest());
+    await report(taskId, nodeResult("red", { reason: "guest_stopped" }));
+  });
+
   it("keeps a temporary guest the node could not remove, also when the test failed, until the inventory no longer lists it", async () => {
     // The isolation failed after the restore (outcome ""), and the temporary VM could not be
     // destroyed: the node sends its VMID and cleanedUp false with the failed task.
