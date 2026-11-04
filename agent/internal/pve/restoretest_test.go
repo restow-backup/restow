@@ -5,6 +5,7 @@ package pve
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -209,6 +210,18 @@ func TestAContainerVolumeOfSizeZero(t *testing.T) {
 	}
 }
 
+// cloudInitVM is a VM whose cloud-init gives it a static address (a restored copy gets a new
+// MAC, so cloud-init configures the same address in the copy).
+const cloudInitVM = plainVMConfig + "ide2: local-lvm:vm-114-cloudinit,media=cdrom\nciuser: admin\n" +
+	"ipconfig0: ip=10.0.0.5/24,gw=10.0.0.1\nnameserver: 10.0.0.1\n"
+
+// guestsFail is the fake node whose cluster guest list cannot be read.
+type guestsFail struct{ *fakeNode }
+
+func (guestsFail) Guests(context.Context) ([]Resource, error) {
+	return nil, errors.New("PVE API answered 500: got timeout")
+}
+
 func startTaskOf(kind string) Task {
 	params, _ := json.Marshal(map[string]any{"volname": "backup/" + kind + "/114/2030-01-01T00:00:00Z", "kind": kind,
 		"targetStorage": "local-lvm", "start": true})
@@ -249,6 +262,8 @@ func TestStartAfterRestoreIsRefusedWhereTheCopyMayNotRun(t *testing.T) {
 		original                 string // status of CT 114 in the cluster
 	}{
 		{"a static IP the running original uses", "ct", staticCT, "static_ip", "running"},
+		{"a cloud-init IP the running original uses", "vm", cloudInitVM, "static_ip", "running"},
+		{"a cloud-init IP of an original in an unknown state", "vm", cloudInitVM, "static_ip", "unknown"},
 		{"mount points left out", "ct", "hostname: x\nunprivileged: 1\nrootfs: local-lvm:vm-114-disk-0,size=4G\nmp0: /mnt/data,mp=/data\n", "omitted_mounts", ""},
 		{"host devices of the original", "vm", passthroughVMConfig, "host_devices", ""},
 	}
@@ -260,9 +275,16 @@ func TestStartAfterRestoreIsRefusedWhereTheCopyMayNotRun(t *testing.T) {
 				f.guests[114] = &fakeGuest{kind: c.kind, node: "pve1", conf: map[string]string{"hostname": "dns"}, status: c.original}
 			}
 			s := restoreService(t, f, c.kind, c.conf)
+			if c.original == "unknown" {
+				delete(f.guests, 114)
+				s.bootTester().PVE = guestsFail{f}
+			}
 			result, err := s.task(context.Background(), startTaskOf(c.kind))
 			if err != nil || result["started"] != false || result["startSkipped"] != c.reason || result["startSkippedMessage"] == "" {
 				t.Fatalf("%v %v", result, err)
+			}
+			if c.kind == "vm" && c.reason == "static_ip" && !strings.Contains(fmt.Sprint(result["startSkippedMessage"]), "VM 114") {
+				t.Fatalf("message %v", result["startSkippedMessage"])
 			}
 			for _, cmd := range f.commands {
 				if strings.Contains(cmd, " start 9001") {
@@ -281,6 +303,24 @@ func TestStartAfterRestoreIsRefusedWhereTheCopyMayNotRun(t *testing.T) {
 		t.Fatalf("%v %v", result, err)
 	}
 	if msg := fmt.Sprint(containerStaticIPs(parseConfigText(staticCT + "net1: name=eth1,bridge=vmbr1,ip=dhcp,ip6=fd00::5/64\n"))); msg != "[192.168.1.20 fd00::5]" {
+		t.Fatalf("static IPs %s", msg)
+	}
+	// A VM: cloud-init's static address with the original stopped starts; DHCP always does.
+	for _, conf := range []string{cloudInitVM, plainVMConfig + "ipconfig0: ip=dhcp,ip6=auto\n"} {
+		f = newFakeNode()
+		f.restoreConfig = parseConfigText(conf)
+		status := "stopped"
+		if conf != cloudInitVM {
+			status = "running"
+		}
+		f.guests[114] = &fakeGuest{kind: "vm", node: "pve1", conf: map[string]string{"name": "web"}, status: status}
+		s = restoreService(t, f, "vm", conf)
+		result, err = s.task(context.Background(), startTaskOf("vm"))
+		if err != nil || result["started"] != true {
+			t.Fatalf("%v %v", result, err)
+		}
+	}
+	if msg := fmt.Sprint(vmStaticIPs(parseConfigText(cloudInitVM + "ipconfig1: ip6=2001:db8::5/64,gw6=2001:db8::1\nipconfig2: ip=dhcp\n"))); msg != "[10.0.0.5 2001:db8::5]" {
 		t.Fatalf("static IPs %s", msg)
 	}
 }

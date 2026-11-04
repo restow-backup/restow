@@ -509,14 +509,18 @@ successful restore the node starts the copy as root (`qm start` / `pct start`) a
 minute until it runs; the result says `started: true`, or `started: false` with the error
 (`startError`), and the restore stays successful. The copy is not started, with the reason
 (`startSkipped`), when the restore left mount points out (`omitted_mounts`), when it has the
-original's host devices (`host_devices`), or when a container has a static IP (`ip=`) and its
-original runs in the cluster (`static_ip`: "the original CT 113 runs with 192.168.1.20; change
-the IP, then start it").
+original's host devices (`host_devices`), or when its configuration has a static IP and its
+original runs in the cluster or its state cannot be read (`static_ip`): a container's `ip=` /
+`ip6=` ("the original CT 113 runs with 192.168.1.20; change the IP, then start it"), a VM's
+cloud-init `ipconfigN` with `ip=` / `ip6=` ("the original VM 114 runs with 10.0.0.5; change the
+IP (cloud-init ipconfig), then start it"). An address set inside the guest (its own network
+configuration, not cloud-init) cannot be seen from the node: such a copy is started, and its
+address clashes with the running original's.
 
 The restored guest gets new MAC addresses (PVE's `unique=1`, for VMs and containers); a
 container does not start with its node (`onboot 0`, the result says so when the original did).
-IP addresses stay the same, in the configuration (a container's `ip=`) and inside the guest:
-change them before the copy runs beside the original.
+IP addresses stay the same, in the configuration (a container's `ip=`, a VM's `ipconfigN`) and
+inside the guest: change them before the copy runs beside the original.
 
 A VM whose configuration holds what PVE restores only for root@pam is restored as root with
 `qmrestore <storage>:backup/<volume> <vmid> --storage <target> --unique 1 --pool

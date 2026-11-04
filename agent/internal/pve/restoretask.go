@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -53,7 +54,8 @@ type restoreState struct {
 	// as the original (a restore into a new guest).
 	Root        bool     `json:"root,omitempty"`
 	KeptDevices []string `json:"keptDevices,omitempty"`
-	// StaticIPs are the static addresses of a container's interfaces (ip=, ip6=).
+	// StaticIPs are the static addresses in the configuration: a container's interfaces (netN
+	// ip=, ip6=), a VM's cloud-init interfaces (ipconfigN ip=, ip6=).
 	StaticIPs []string `json:"staticIps,omitempty"`
 }
 
@@ -96,10 +98,12 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	if p.Kind == "vm" {
 		// PCI or USB passthrough, a device mapping, virtiofs, host ports, raw arguments: PVE
 		// restores those only for root@pam, so the node restores such a VM as root.
-		if rootKeys = rootOnlyVMKeys(parseConfigText(rp.GuestConfig)); len(rootKeys) > 0 {
+		conf := parseConfigText(rp.GuestConfig)
+		if rootKeys = rootOnlyVMKeys(conf); len(rootKeys) > 0 {
 			sp.Root = true
 			s.Logf("restore of %s: %s, which PVE restores only for root@pam: restoring as root", p.Volname, strings.Join(rootKeys, ", "))
 		}
+		staticIPs = vmStaticIPs(conf)
 	}
 	if p.Kind == "ct" {
 		// PVE restores raw lxc.* keys only for root@pam; the token's restore skips them.
@@ -308,7 +312,8 @@ func (s *Service) finishRestore(ctx context.Context, taskID string, p restorePar
 
 // startRestored starts a restored guest as root when the task asks for it and the copy may
 // run: not without the mount points the restore left out, not with the original's host
-// devices, and a container not with a static IP its running original uses. The restore itself
+// devices, and not with a static IP of its configuration (a container's ip=, a VM's cloud-init
+// ipconfigN) while the original runs. An address set inside the guest is not seen. The restore itself
 // succeeded either way; the result says whether the guest started (`started`, `startError`) or
 // why it was not started (`startSkipped`, `startSkippedMessage`).
 func (s *Service) startRestored(ctx context.Context, p restoreParams, st restoreState, result map[string]any) {
@@ -324,12 +329,16 @@ func (s *Service) startRestored(ctx context.Context, p restoreParams, st restore
 	case len(st.KeptDevices) > 0:
 		skip("host_devices", "restored with host devices "+strings.Join(st.KeptDevices, ", ")+" that the original also uses; check them before starting")
 		return
-	case p.Kind == "ct" && len(st.StaticIPs) > 0 && st.SourceVMID > 0:
+	case len(st.StaticIPs) > 0 && st.SourceVMID > 0:
 		running, known := b.guestRunning(ctx, st.SourceVMID)
 		if running || !known {
-			msg := fmt.Sprintf("the original CT %d runs with %s; change the IP, then start it", st.SourceVMID, strings.Join(st.StaticIPs, ", "))
+			what, setting := "CT", "the IP"
+			if p.Kind == "vm" {
+				what, setting = "VM", "the IP (cloud-init ipconfig)"
+			}
+			msg := fmt.Sprintf("the original %s %d runs with %s; change %s, then start it", what, st.SourceVMID, strings.Join(st.StaticIPs, ", "), setting)
 			if !known {
-				msg = fmt.Sprintf("the original CT %d may run with %s (its state is unknown); change the IP, then start it", st.SourceVMID, strings.Join(st.StaticIPs, ", "))
+				msg = fmt.Sprintf("the original %s %d may run with %s (its state is unknown); change %s, then start it", what, st.SourceVMID, strings.Join(st.StaticIPs, ", "), setting)
 			}
 			skip("static_ip", msg)
 			return
@@ -353,12 +362,27 @@ func mountKeys(lines []string) string {
 	return strings.Join(keys, ", ")
 }
 
-// containerStaticIPs are the static addresses of a container's interfaces.
+// containerStaticIPs are the static addresses of a container's interfaces (netN: ip=, ip6=).
 func containerStaticIPs(conf map[string]string) []string {
+	return staticAddresses(conf, netKeyRE)
+}
+
+var ipconfigKeyRE = regexp.MustCompile(`^ipconfig\d+$`)
+
+// vmStaticIPs are the static addresses a VM's cloud-init gives its interfaces (ipconfigN: ip=,
+// ip6=; "ip=10.0.0.5/24,gw=10.0.0.1"). A restored copy gets new MAC addresses, so cloud-init
+// applies them to the copy as well.
+func vmStaticIPs(conf map[string]string) []string {
+	return staticAddresses(conf, ipconfigKeyRE)
+}
+
+// staticAddresses are the addresses of the ip= and ip6= options of the keys that match (not
+// dhcp, auto or manual), without their prefix length.
+func staticAddresses(conf map[string]string, keyRE *regexp.Regexp) []string {
 	var out []string
 	keys := make([]string, 0, len(conf))
 	for k := range conf {
-		if netKeyRE.MatchString(k) {
+		if keyRE.MatchString(k) {
 			keys = append(keys, k)
 		}
 	}

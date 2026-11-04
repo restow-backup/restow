@@ -342,9 +342,11 @@ private repository.
   start and, when asked, starts the copy as root afterwards and waits until it runs: the result
   says `started`, or `started: false` with `startError`, and the restore stays successful. A
   copy that may not run is not started, with the reason (`startSkipped`): mount points the
-  restore left out, the original's host devices, or a container with a static IP whose original
-  runs in the cluster ("the original CT 113 runs with 192.168.1.20; change the IP, then start
-  it").
+  restore left out, the original's host devices, or a static IP in the configuration while the
+  original runs in the cluster, a container's `ip=` ("the original CT 113 runs with
+  192.168.1.20; change the IP, then start it") or a VM's cloud-init `ipconfig0: ip=` (the copy's
+  new MAC makes cloud-init configure the same address again). An address set inside the guest
+  cannot be seen from the node.
 - Proxmox VE: the boot test's isolation left keys in place that reach out of the guest, and
   trusted the isolated bridge blindly. A VM with raw QEMU `args` (`-netdev user`, `-device
   vfio-pci`, `-drive file=/dev/disk/by-id/...`) could boot with its own network or open the disk
