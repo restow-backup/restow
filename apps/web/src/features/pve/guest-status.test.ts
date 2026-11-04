@@ -214,3 +214,41 @@ describe("guest states", () => {
     }
   });
 });
+
+describe("the boot test of the newest restore point rates the guest too (S06)", () => {
+  const verify = (
+    state: "green" | "yellow" | "red" | null,
+    boot: "green" | "yellow" | "red" | null,
+  ) =>
+    testGuest({
+      lastVerify: {
+        state,
+        checkedAt: state ? "2026-10-20T02:00:00Z" : null,
+        errors: [],
+        requested: false,
+        bootTest: boot ? { outcome: boot, checkedAt: "2026-10-20T03:00:00Z", message: "" } : null,
+      },
+    });
+
+  it("a red boot test is red, never verified, whatever the read-back says", () => {
+    const g = verify("green", "red");
+    expect(primaryStatus(g).key).toBe("boot_failed");
+    expect(keys(g)).not.toContain("verified");
+    expect(matchesStateFilter(guestStatuses(g), "ok")).toBe(false);
+    expect(matchesStateFilter(guestStatuses(g), "problems")).toBe(true);
+  });
+
+  it("a yellow boot test is no proof: amber, not verified, not ok", () => {
+    const g = verify("green", "yellow");
+    expect(primaryStatus(g)).toMatchObject({ key: "boot_unverified", tone: "warning" });
+    expect(keys(g)).not.toContain("verified");
+    expect(matchesStateFilter(guestStatuses(g), "ok")).toBe(false);
+  });
+
+  it("without a boot test the read-back decides as before; a green boot test proves it", () => {
+    expect(primaryStatus(verify("green", null)).key).toBe("verified");
+    expect(primaryStatus(verify(null, "green")).key).toBe("verified");
+    expect(primaryStatus(verify("red", "green")).key).toBe("verify_failed");
+    expect(verifyStatusKey({ state: null, bootTest: null })).toBeNull();
+  });
+});

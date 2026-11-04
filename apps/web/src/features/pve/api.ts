@@ -133,6 +133,8 @@ export interface PveVerifyFact {
     attempts: number;
     gaveUp: boolean;
   } | null;
+  /** The rated boot test of the same restore point (servers from 0.5.0). */
+  bootTest?: { outcome: "green" | "yellow" | "red"; checkedAt: string; message: string } | null;
 }
 
 /** Whether "Back up now" or putting the guest into a job needs the self-backup confirmation. */

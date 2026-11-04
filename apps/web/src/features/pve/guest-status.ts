@@ -21,7 +21,8 @@ import type { PveGuest, PveNode, PveVerifyFact } from "./api.js";
  * build does not know yet also shows as `verify_not_checked`, never as passed.
  *
  * Green is proof (green-is-proof.test.ts): only `verified`, a restore check that read the
- * newest restore point back, is green. A backup that merely succeeded is the neutral outline.
+ * newest restore point back (or a boot test that booted it), is green, and never while its boot
+ * test is red (`boot_failed`) or yellow (`boot_unverified`). A backup that merely succeeded is the neutral outline.
  */
 
 /** Every state, highest priority first. The table shows the first one that applies. */
@@ -33,7 +34,9 @@ export const GUEST_STATUS_ORDER = [
   // Excluded on purpose: what the row says first, whatever its old runs said.
   "excluded",
   "failed",
+  "boot_failed",
   "verify_failed",
+  "boot_unverified",
   "verify_not_checked",
   "verify_postponed",
   "incomplete",
@@ -86,7 +89,11 @@ export const GUEST_STATUS_META: Record<GuestStatusKey, StatusMeta> = {
   waiting_offline: { tone: "warning", problem: true, group: "waiting" },
   waiting: { tone: "muted", problem: false, group: "waiting" },
   failed: { tone: "destructive", problem: true, group: "failed" },
+  // The newest restore point's boot test: red (it did not boot), yellow (it started, nothing
+  // inside answered). Either outranks a read-back that passed (pveRestorePointRating).
+  boot_failed: { tone: "destructive", problem: true, group: "verify" },
   verify_failed: { tone: "destructive", problem: true, group: "verify" },
+  boot_unverified: { tone: "warning", problem: true, group: "verify" },
   // The restore check could not run for two hours (repository locked, check stopped): amber.
   verify_not_checked: { tone: "warning", problem: true, group: "verify" },
   // The newest check could not run yet and is tried again shortly: amber, not yet a problem.
@@ -140,17 +147,27 @@ type StatusNode = Pick<PveNode, "online" | "queuePausedAt"> | null | undefined;
  * come to a result either: amber, never green.
  */
 export function verifyStatusKey(
-  verify: Pick<PveVerifyFact, "state"> | null | undefined,
+  verify: Pick<PveVerifyFact, "state" | "bootTest"> | null | undefined,
 ): GuestStatusKey | null {
   const state = (verify?.state ?? null) as string | null;
-  if (state === null) {
-    return null;
+  // The restore point is rated by both checks (pveRestorePointRating in @restow/core): a red
+  // boot test is red whatever the read-back says, a yellow one is no proof; a green one proves
+  // the point unless the read-back failed.
+  const boot = (verify?.bootTest?.outcome ?? null) as string | null;
+  if (boot === "red") {
+    return "boot_failed";
   }
   if (state === "red") {
     return "verify_failed";
   }
-  if (state === "green") {
+  if (boot === "yellow") {
+    return "boot_unverified";
+  }
+  if (boot === "green" || state === "green") {
     return "verified";
+  }
+  if (state === null && boot === null) {
+    return null;
   }
   return "verify_not_checked";
 }
@@ -161,7 +178,7 @@ export function verifyStatusKey(
  * amber `verify_postponed` beside the earlier result, which still stands.
  */
 export function verifyStatusKeys(
-  verify: Pick<PveVerifyFact, "state" | "notChecked"> | null | undefined,
+  verify: Pick<PveVerifyFact, "state" | "notChecked" | "bootTest"> | null | undefined,
 ): GuestStatusKey[] {
   const keys: GuestStatusKey[] = [];
   const result = verifyStatusKey(verify);

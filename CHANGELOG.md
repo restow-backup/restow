@@ -293,6 +293,12 @@ private repository.
   over is not counted as checked, and its page says why. A check restow-pve skips because of the
   target storage (missing, inactive, without the guest's content type, too small) reads "Not
   checked" in grey, neither red nor green, and is tried again after a day.
+- Proxmox VE: the list of VMs and containers showed a guest as green "Restore check passed" when
+  its newest restore point had passed the read-back but failed its boot test, while Recovery
+  readiness showed the same restore point red; the filter "OK" listed it too. The row now rates
+  the restore point by both checks, as readiness does: "Boot test failed" (red) for a boot test
+  that did not boot, "Boot test without proof" (amber) for one that started without an answer,
+  and green only when neither stands against it.
 
 ### Upgrade Notes
 

@@ -1,6 +1,7 @@
 import {
   enrollmentTokenExpiry,
   generateEnrollmentToken,
+  pveBootTestRating,
   pveGuestCounted,
   pveGuestExcluded,
   pveGuestIsRestowServer,
@@ -11,6 +12,7 @@ import {
 } from "@restow/core";
 import {
   type Database,
+  type PveBootTestResult,
   type PveGuest,
   type PveJob,
   type PveJobSchedule,
@@ -309,6 +311,7 @@ type SnapshotSizeRow = {
   byte_size: number | string;
   stats: PveRunStats | null;
   verify?: PveVerifyResult | null;
+  boot_test?: PveBootTestResult | null;
 };
 
 /** The restore check of a guest's newest restore point, as the guest row shows it. */
@@ -333,14 +336,30 @@ export interface GuestVerifyFact {
     attempts: number;
     gaveUp: boolean;
   } | null;
+  /**
+   * The rated boot test of the same restore point (green, yellow, red), or null. The guest row
+   * rates the restore point by both checks (`pveRestorePointRating`): a red boot test is red
+   * whatever the read-back says, a yellow one is no proof.
+   */
+  bootTest: { outcome: "green" | "yellow" | "red"; checkedAt: string; message: string } | null;
 }
 
 export function verifyFact(
   verify: PveVerifyResult | null | undefined,
   requestedAt: Date | string | null | undefined,
+  bootTest: PveBootTestResult | null | undefined = null,
 ): GuestVerifyFact {
   const notChecked = verify?.notChecked;
+  const boot = pveBootTestRating(bootTest);
   return {
+    bootTest:
+      boot && bootTest
+        ? {
+            outcome: boot,
+            checkedAt: bootTest.checkedAt,
+            message: String(bootTest.message ?? "").slice(0, 1000),
+          }
+        : null,
     state: pveRestorePointReadiness(verify ?? null),
     checkedAt: verify?.notChecked?.gaveUpAt ?? verify?.checkedAt ?? null,
     errors: (verify?.errors ?? []).slice(0, 5).map((e) => String(e).slice(0, 1000)),
@@ -631,10 +650,13 @@ export async function overview(database: Database, tenantId: string, now: Date =
         FROM pve_snapshots ORDER BY guest_id, sequence ASC`);
     const lasts = await tx.execute<SnapshotSizeRow & { verify_requested_at: Date | null }>(sql`
       SELECT DISTINCT ON (guest_id) guest_id, kind, backup_at, byte_size, stats, verify,
-             verify_requested_at
+             verify_requested_at, boot_test
         FROM pve_snapshots WHERE status = 'active' ORDER BY guest_id, sequence DESC`);
     const verifies = new Map(
-      lasts.rows.map((row) => [row.guest_id, verifyFact(row.verify, row.verify_requested_at)]),
+      lasts.rows.map((row) => [
+        row.guest_id,
+        verifyFact(row.verify, row.verify_requested_at, row.boot_test),
+      ]),
     );
     // The newest kept follow-up points per guest (after the first backup ever), for the
     // average a follow-up backup adds.
@@ -896,7 +918,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         null,
         undefined,
         undefined,
-        newest ? verifyFact(newest.verify, newest.verifyRequestedAt) : null,
+        newest ? verifyFact(newest.verify, newest.verifyRequestedAt, newest.bootTest) : null,
       ),
       bootTest: await guestBootTestFacts(tx, guest),
       restoreCheck: await guestRestoreCheckFacts(tx, guest),

@@ -1827,6 +1827,43 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(detail.guest.lastVerify?.errors).toEqual([error]);
   });
 
+  it("gives the guest row the boot test of its newest restore point beside the read-back (S06)", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const checkedAt = new Date().toISOString();
+    await fixture.db
+      .update(pveSnapshots)
+      .set({
+        verify: { checkedAt, blocks: 8, mismatched: 0, errors: [] },
+        bootTest: {
+          outcome: "red",
+          reason: "guest_stopped",
+          message: "the guest stopped 12 s after its start",
+          checkedAt,
+          durationMs: 1,
+          bootSeconds: null,
+          guestAgent: false,
+          tempVmid: 9001,
+          storage: "local-lvm",
+          cleanedUp: true,
+          runId: "",
+        },
+      })
+      .where(eq(pveSnapshots.guestId, vm?.id ?? ""));
+    const guest = (await service.overview(shared.db, fixture.tenantId)).guests.find(
+      (g) => g.vmid === 101,
+    );
+    expect(guest?.lastVerify).toMatchObject({
+      state: "green",
+      bootTest: { outcome: "red", message: "the guest stopped 12 s after its start" },
+    });
+    const detail = await service.guestDetail(shared.db, fixture.tenantId, vm?.id ?? "");
+    expect(detail.guest.lastVerify?.bootTest?.outcome).toBe("red");
+    await fixture.db
+      .update(pveSnapshots)
+      .set({ bootTest: null })
+      .where(eq(pveSnapshots.guestId, vm?.id ?? ""));
+  });
+
   it("shows a check that could not run as not checked (yellow), never as failed (0.4.3)", async () => {
     const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
     const detailText =
