@@ -380,9 +380,25 @@ type InventoryGuest struct {
 	SMBIOSUUID string `json:"smbiosUuid,omitempty"`
 }
 
-// ReportInventory replaces the inventory this node reports.
-func (s *Server) ReportInventory(ctx context.Context, guests []InventoryGuest) error {
-	return s.json(ctx, http.MethodPost, "/inventory", map[string]any{"guests": guests}, nil, true)
+// ClusterGuest is one guest of the cluster with the node it runs on (/cluster/resources).
+type ClusterGuest struct {
+	VMID int    `json:"vmid"`
+	Node string `json:"node"`
+	Type string `json:"type"` // qemu | lxc
+}
+
+// maxClusterGuests bounds clusterGuests (the server refuses a longer list).
+const maxClusterGuests = 20000
+
+// ReportInventory replaces the inventory this node reports: its own guests, and every guest of
+// the cluster with its node (servers from 0.5.0; nil leaves the field out, and the server then
+// takes the node's own guests alone).
+func (s *Server) ReportInventory(ctx context.Context, guests []InventoryGuest, cluster []ClusterGuest) error {
+	body := map[string]any{"guests": guests}
+	if cluster != nil {
+		body["clusterGuests"] = cluster
+	}
+	return s.json(ctx, http.MethodPost, "/inventory", body, nil, true)
 }
 
 // TaskResult reports how a task ended.

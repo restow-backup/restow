@@ -581,6 +581,15 @@ func (s *Service) ReportInventory(ctx context.Context) (int, error) {
 	var guests []InventoryGuest
 	containers := map[int]bool{}
 	temp := (&BootTester{Layout: s.Layout}).markedVMIDs()
+	// The whole cluster's guests with their nodes, from the same answer: a guest that moved to
+	// a node without restow-pve stays known with that node instead of reading absent.
+	cluster := []ClusterGuest{}
+	for _, r := range res {
+		if r.VMID > 0 && r.Node != "" && (r.Type == "qemu" || r.Type == "lxc") && !inventoryTemp(r, temp) &&
+			len(cluster) < maxClusterGuests {
+			cluster = append(cluster, ClusterGuest{VMID: r.VMID, Node: r.Node, Type: r.Type})
+		}
+	}
 	for _, r := range res {
 		if r.Node != s.State.NodeName {
 			continue
@@ -610,7 +619,7 @@ func (s *Service) ReportInventory(ctx context.Context) (int, error) {
 		guests = append(guests, g)
 	}
 	pruneContainerCaches(s.Layout, containers)
-	return len(guests), s.Server.ReportInventory(ctx, guests)
+	return len(guests), s.Server.ReportInventory(ctx, guests, cluster)
 }
 
 // inventoryTemp says whether a guest is a temporary guest of a boot test or a restore check:

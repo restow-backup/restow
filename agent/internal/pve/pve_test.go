@@ -780,3 +780,51 @@ func TestInventoryLeavesTheTemporaryGuestsOut(t *testing.T) {
 		t.Fatalf("reported %d guests: %v", n, got)
 	}
 }
+
+// The inventory carries the cluster's guests with their nodes (clusterGuests): a guest on
+// another node is in clusterGuests only, never among the node's own guests; the temporary
+// guests of checks are in neither.
+func TestInventoryCarriesTheClustersGuests(t *testing.T) {
+	f := &inventoryNode{resources: []Resource{
+		{VMID: 101, Type: "qemu", Name: "web", Node: "pve1"},
+		{VMID: 120, Type: "lxc", Name: "dns", Node: "pve3"},
+		{VMID: 130, Type: "qemu", Name: "mail", Node: "pve2", Template: 1},
+		{VMID: 140, Type: "qemu", Name: "restow-boottest-130", Node: "pve2", Pool: BootTestPool, Tags: "restow-boottest"},
+	}, configs: map[int]map[string]any{}}
+	s := f.service(t)
+	if _, err := s.ReportInventory(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.reported(t); len(got) != 1 || got[0] != 101 {
+		t.Fatalf("own guests = %v", got)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	raw, ok := f.sent[0]["clusterGuests"].([]any)
+	if !ok {
+		t.Fatalf("no clusterGuests: %v", f.sent[0])
+	}
+	var got []string
+	for _, g := range raw {
+		m := g.(map[string]any)
+		got = append(got, fmt.Sprintf("%v@%v/%v", m["vmid"], m["node"], m["type"]))
+	}
+	if strings.Join(got, " ") != "101@pve1/qemu 120@pve3/lxc 130@pve2/qemu" {
+		t.Fatalf("clusterGuests = %v", got)
+	}
+}
+
+// When /cluster/resources cannot be read no inventory is sent at all: the server never takes
+// a guest for absent because the list was missing.
+func TestInventoryIsNotSentWithoutTheClustersGuests(t *testing.T) {
+	f := &inventoryNode{resourcesFail: true}
+	s := f.service(t)
+	if _, err := s.ReportInventory(context.Background()); err == nil {
+		t.Fatal("an inventory without the cluster's list was reported")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) != 0 {
+		t.Fatalf("sent %v", f.sent)
+	}
+}
