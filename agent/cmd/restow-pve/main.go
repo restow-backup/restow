@@ -434,6 +434,16 @@ func cmdDiagnose(layout pve.Layout, args []string, stdout, stderr io.Writer, str
 	} else {
 		add("restic", true, "%s", filepath.Join(layout.BinDir, "restic"))
 	}
+	st, _ := pve.LoadState(layout.StateFile)
+	if dir, total, avail, onRoot, err := pve.RestoreFolderStatus(layout, st); err != nil {
+		add("restore folder", false, "%s: free space unknown (%v)", dir, err)
+	} else {
+		where := ""
+		if onRoot {
+			where = " on the root file system; container restores unpack the whole container here (restow-pve config --restore-tmp <a folder on a data storage>)"
+		}
+		add("restore folder", true, "%s: %.1f GB free of %.1f GB%s", dir, float64(avail)/1e9, float64(total)/1e9, where)
+	}
 	if data, err := os.ReadFile("/etc/pve/storage.cfg"); err == nil {
 		ok := strings.Contains(string(data), "restow:")
 		add("storage.cfg", ok, "restow storage %s", map[bool]string{true: "configured", false: "not configured (pvesm add restow ...)"}[ok])

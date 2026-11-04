@@ -387,6 +387,22 @@ private repository.
   task. Both now install only while no task of the service runs or waits, no `vzdump` task runs
   and no backup or restore is open, and the service starts no task from that check until the
   restart. An offer that waited is tried again after 15 minutes instead of six hours.
+- Proxmox VE: a container restore (also a restore check, a boot test and a restore from the PVE
+  UI) unpacked the whole restore point into `/var/tmp/restow-pve` on the node's root file system
+  without looking at its free space, and without `--sparse`. A 300 GB container on a default
+  install filled `/`, where pmxcfs, the journal and vzdump keep their files, and failed after
+  hours with a bare restic error. The restore did not wait for the repository lock the server
+  holds while it checks or prunes, typical right after a backup, so a boot test after every
+  backup was red (`restore_failed`). Two restores of one restore point shared one folder: the
+  second deleted the tree the first one's PVE was copying, and either cleanup removed the
+  other's. Now the node checks the folder before restic starts (the restore point's size and a
+  tenth, 5% of the file system stay free) and refuses with the free space and
+  `restow-pve config --restore-tmp`; restic runs with `--sparse` and `--retry-lock 15m` and says
+  "the Restow server is checking or pruning this container's repository; try again in a few
+  minutes" when the lock stays; every restore gets its own folder, which the shim names to the
+  cleanup, and a folder whose PVE worker is gone is removed by the next restore. `restow-pve
+  diagnose` shows the restore folder and its free space, and a running container restore holds
+  back the self-update and boot tests.
 
 ### Upgrade Notes
 

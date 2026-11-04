@@ -479,6 +479,25 @@ btrfs); elsewhere it gets the size the restore point recorded, else the restore 
 and a fifth; with nothing to size it the restore fails before it starts and names the storage
 type. A privileged container is restored unprivileged (`madeUnprivileged` in the result).
 
+A container restore (also a restore check, a boot test and a restore from the PVE UI) unpacks
+the restore point with `restic restore --sparse` into a folder of its own below the restore
+folder, `/var/tmp/restow-pve` by default, from which PVE copies it into the new volumes; the
+folder goes when the restore ends. That folder lies on the node's root file system unless
+`restow-pve config --restore-tmp <folder on a data storage>` names another, and it needs the
+whole container once. Before restic starts the node checks it: the restore point's size and a
+tenth must fit, and 5% of the file system stay free; otherwise the restore fails at once with
+"The temporary folder ... has X GB free, the restore needs about Y GB; set restow-pve config
+--restore-tmp ...". An unknown size (a server before 0.5.0) or free space is not checked.
+`restow-pve diagnose` shows the folder, its free space and whether it is on the root file
+system. Every restore gets its own folder (`ct-<hash>-<random>`, the PVE worker that restores
+recorded in it), so two restores of one restore point (a boot test beside a restore from the
+PVE UI) never touch each other's tree; one whose worker is gone (a crash, a stopped task) is
+removed by the next container restore. restic waits up to 15 minutes for the lock the server
+holds while it checks or prunes the repository (typically right after a backup); after that the
+restore says "the Restow server is checking or pruning this container's repository; try again
+in a few minutes". A container restore counts as running work for the self-update and boot
+tests.
+
 A restore task that PVE ends with `WARNINGS: n` ran to its end and warned beside it: Restow
 shows "Restored with warnings" (amber) with the warning lines, never a plain success and never
 a failure. The usual cause is a container with raw `lxc.*` lines (GPU or Coral passthrough with
@@ -673,6 +692,8 @@ restow-pve diagnose          every check a backup needs, with the findings (--js
 restow-pve test              like diagnose, exit code 0 only when all is in order
 restow-pve config --allow-restores=false    refuse restores the server asks for (node's own decision)
 restow-pve config --pve-cert-sha256 <sha>   pin a custom pveproxy certificate
+restow-pve config --restore-tmp <dir>       where container restores unpack (default /var/tmp/restow-pve,
+                                            on the root file system; see "Restore")
 restow-pve config --boot-tests=false        do not run boot tests (the node stops announcing them)
 restow-pve config --boot-test-storage <id>  storage for the temporary guests (default: the fleecing storage)
 restow-pve config --boot-test-bridge <br>   connect the NICs of boot tests to this isolated bridge

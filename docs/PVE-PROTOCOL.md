@@ -69,8 +69,8 @@ what is missing instead.
 | `restore-vm-init` | `volname` | `{devices: {device: {size}}}` |
 | `restore-vm-volume-init` | `volname`, `device` | `{qemuImgPath}`: `nbd+unix:///<device>?socket=<path>` |
 | `restore-vm-volume-cleanup` / `restore-vm-cleanup` | `volname`, `device` | `{}` |
-| `restore-container-init` | `volname` | `{archiveDirectory}` |
-| `restore-container-cleanup` | `volname` | `{}` |
+| `restore-container-init` | `volname` | `{archiveDirectory}`: `<restore folder>/ct-<hash>-<random>/root`, one per call (since 0.5.0); refused when the restore folder lacks the space |
+| `restore-container-cleanup` | `volname`, `directory` (the `archiveDirectory` of its init, since 0.5.0) | `{}`; removes that folder only (it must lie below the restore folder); without `directory` the folders of the volname that the calling PVE worker owns |
 | `storage-status` | | `{total, used, avail, active}` (cache only, never the network) |
 | `list-volumes` | `vmid?` | `{volumes: [{volname, vmid, ctime, size, subtype, format}]}` (cache only) |
 | `activate-storage` | | `{}` |

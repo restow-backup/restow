@@ -45,6 +45,8 @@ type ProviderRequest struct {
 	LogFile         string                    `json:"logFile,omitempty"`
 	Volname         string                    `json:"volname,omitempty"`
 	Device          string                    `json:"device,omitempty"`
+	// Directory is the archive directory restore-container-init gave (restore-container-cleanup).
+	Directory string `json:"directory,omitempty"`
 }
 
 // ProviderVolume is one disk of backup_vm or backup_vm_query_incremental.
@@ -225,8 +227,7 @@ func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest)
 	case "restore-container-init":
 		return p.restoreContainerInit(ctx, req)
 	case "restore-container-cleanup":
-		p.restoreContainerCleanup(req)
-		return map[string]any{}, nil
+		return map[string]any{}, p.restoreContainerCleanup(req)
 	}
 	return nil, fmt.Errorf("unknown provider verb %q", verb)
 }

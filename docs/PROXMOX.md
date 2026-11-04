@@ -541,10 +541,11 @@ keys anyway.
    the helper start an NBD server that serves the synthetic full of that disk and returns
    `nbd+unix:///drive-scsi0?socket=/run/restow-pve/restore-<id>.sock`. The server reads the map and
    streams chunks with readahead (sequential, 8 to 16 blocks in flight).
-5. CTs: `restore_container_init` returns `archive-directory` = a `restic mount` of the snapshot (FUSE is
-   present on PVE because pmxcfs uses it [I]) or, as a fallback, a `restic restore` into a temporary
-   directory on a local storage with enough free space. PVE then tars it into the new rootfs with the ID
-   mapping.
+5. CTs: `restore_container_init` returns `archive-directory` = a `restic restore --sparse
+   --retry-lock 15m` into a folder of its own below the restore folder (`--restore-tmp`, default
+   `/var/tmp/restow-pve`), after a check of its free space; `restore_container_cleanup` gets that
+   directory back from the shim and removes only that folder. PVE then tars it into the new rootfs
+   with the ID mapping. (A `restic mount` was the first idea; it is not used.)
 6. The run ends with the new VMID. The original guest is never touched; Restow never passes `force=1`.
 
 The restore pool `restow-restore` limits `VM.Allocate` (create and **delete**) to guests in that pool

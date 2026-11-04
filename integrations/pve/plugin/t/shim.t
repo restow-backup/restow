@@ -122,12 +122,29 @@ is($p->restore_vm_init('x')->{'drive-scsi0'}->{size}, 4194304, 'restore devices'
 is($p->restore_vm_volume_init('x', 'drive-scsi0', {})->{'qemu-img-path'}, 'nbd+unix:///drive-scsi0?socket=/run/x.sock', 'qemu-img path');
 $p->restore_vm_volume_cleanup('x', 'drive-scsi0', {});
 $p->restore_vm_cleanup('x');
-is($p->restore_container_init('y', {})->{'archive-directory'}, '/var/tmp/restow-pve/ct', 'container directory');
+is($p->restore_container_init('y', {})->{'archive-directory'}, '/var/tmp/restow-pve/ct-y-1/root', 'container directory');
 $p->restore_container_cleanup('y', {});
 # pve-container passes the storage ID before the info hash.
-is($p->restore_container_init('y', 'restow', {})->{'archive-directory'}, '/var/tmp/restow-pve/ct', 'container directory with storage ID');
+is($p->restore_container_init('y', 'restow', {})->{'archive-directory'}, '/var/tmp/restow-pve/ct-y-2/root', 'container directory with storage ID');
 $p->restore_container_cleanup('y', 'restow', {});
-calls();
+{
+    my @c = grep { $_->{verb} eq 'restore-container-cleanup' } calls();
+    is(scalar(@c), 2, 'two cleanups');
+    is($c[0]->{request}->{directory}, '/var/tmp/restow-pve/ct-y-1/root', 'cleanup names the directory its init gave');
+    is($c[1]->{request}->{directory}, '/var/tmp/restow-pve/ct-y-2/root', 'each restore its own directory');
+}
+# Two restores of one restore point on one provider object: each cleanup names its own; a
+# cleanup without an init names none (restow-pve then removes only what this worker owns).
+$p->restore_container_init('z', {});
+my $q = $plugin->new_backup_provider({ type => 'restow' }, 'restow', $logf);
+$q->restore_container_init('z', {});
+$p->restore_container_cleanup('z', {});
+$q->restore_container_cleanup('z', {});
+$q->restore_container_cleanup('z', {});
+{
+    my @c = map { $_->{request}->{directory} } grep { $_->{verb} eq 'restore-container-cleanup' } calls();
+    is_deeply(\@c, ['/var/tmp/restow-pve/ct-z-3/root', '/var/tmp/restow-pve/ct-z-4/root', undef], 'cleanups of concurrent restores');
+}
 
 # --- storage plugin ----------------------------------------------------------
 my @st = $plugin->status('restow', {}, {});

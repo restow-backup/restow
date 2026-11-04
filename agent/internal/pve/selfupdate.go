@@ -122,12 +122,13 @@ func activeRuns(l Layout) []string {
 const staleJobAge = 48 * time.Hour
 
 // busy says whether a backup or a restore works on this node now: a restore server that
-// runs (its pid file names a live `restow-pve serve-restore` of that disk), or an open backup
+// runs (its pid file names a live `restow-pve serve-restore` of that disk), a container restore
+// whose folder's owner runs (ctrestore.go), or an open backup
 // (a job file younger than staleJobAge, or one whose guest has a live provider process). Logs,
 // sockets and the files a finished or crashed restore left behind do not count: only live work
 // may hold back a self-update or a boot test.
 func busy(l Layout) bool {
-	return len(liveRestoreServers(l)) > 0 || openJobs(l) > 0
+	return len(liveRestoreServers(l)) > 0 || openJobs(l) > 0 || liveContainerRestores(restoreTmpOf(l)) > 0
 }
 
 // liveRestoreServers lists the keys of the restore servers that run now.
