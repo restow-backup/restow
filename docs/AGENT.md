@@ -123,7 +123,11 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
    installiert mit einer Warnung), richtet den Dienst ein (systemd-Unit `restow-agent.service`, macOS LaunchDaemon
    `com.restowbackup.agent`) und ruft `restow-agent enroll` auf. Es ist idempotent: Erneutes
    Ausführen repariert und verschiebt eine Installation einer Vorabversion aus `/usr/local`,
-   ohne deren Binärdatei auszuführen. Option `--hooks=off|scripts|any` setzt die Hook-Regel des Rechners
+   ohne deren Binärdatei auszuführen. Ob der Rechner schon angemeldet ist, sagt
+   `restow-agent status --json` (`"credentials": "readable"`); eine unlesbare Anmeldung wird
+   mit neuem Token neu angemeldet (`enroll --force`). Einen neuen Token verlangt das Skript nur,
+   wenn `enroll` mit Exit-Code 4 endet (Token abgelehnt); Exit-Code 5 heißt "Instanz nicht
+   erreichbar" (Netz, Firewall, Proxy). Ein scheiterndes `restow-agent hooks` bricht ab. Option `--hooks=off|scripts|any` setzt die Hook-Regel des Rechners
    (siehe "Hooks"). Deinstallation: `sudo /opt/restow-agent/bin/restow-agent uninstall` oder
    das Skript mit `--uninstall`; beides zeigt der Assistent an und entfernt auch die
    Lizenzhinweise.

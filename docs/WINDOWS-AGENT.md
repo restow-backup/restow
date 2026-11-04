@@ -1187,7 +1187,19 @@ jeder Schritt steht in `try`/`catch`, ein Fehler beendet das Skript mit Exit-Cod
    die Umgebung des Kindprozesses, wie `linux.sh`; die Eingabe kommt aus
    `Read-Host -AsSecureString` und wird nur für diesen Aufruf entschlüsselt), dann
    `service start` und `status`. Ist der Rechner schon angemeldet, wird kein Token
-   abgefragt (Reparatur/Upgrade, wie unter Linux). Mit `RESTOW_TOKEN_FILE`: vorher die ACL
+   abgefragt (Reparatur/Upgrade, wie unter Linux). "Angemeldet" entscheidet
+   `restow-agent status --json` des neu installierten Agents (`credentials: readable`), nicht
+   `Test-Path` auf `state.json`; nur wenn `status` nicht läuft, gilt die Datei wie früher. Ist
+   die Anmeldung unlesbar (DPAPI-Schlüssel weg, Datei beschädigt), nennt der Installer den
+   Grund, verlangt einen Token und ruft `enroll --force` auf. `-Hooks` auf einem angemeldeten
+   Rechner prüft den Exit-Code von `restow-agent hooks` und bricht bei einem Fehler ab. Der
+   Text eines gescheiterten `enroll` richtet sich nach dessen Exit-Code: 4 (die Instanz hat den
+   Token abgelehnt) verlangt einen neuen Token, 5 (Instanz nicht erreichbar) nennt Netz,
+   Firewall und `-Proxy`, und nutzt Windows für die URL einen Proxy
+   (`[Net.WebRequest]::GetSystemWebProxy()`, Internetoptionen, WPAD oder PAC), nennt der
+   Installer ihn mit `-Proxy <proxy>`; er übernimmt ihn nie ungefragt. Jeder andere Code
+   verweist auf die Meldung des Agents, die sagt, ob der Token verbraucht ist. `linux.sh` und
+   `macos.sh` machen dasselbe. Mit `RESTOW_TOKEN_FILE`: vorher die ACL
    der Datei mit den Regeln aus Abschnitt 6 prüfen (Lesen für nicht vertraute SIDs →
    Warnung wie `linux.sh:316-319`), nach erfolgreichem `enroll` die Datei löschen (der
    Token ist ohnehin nur einmal gültig, `agent-service.ts:226-257`).

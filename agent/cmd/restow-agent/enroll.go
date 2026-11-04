@@ -181,11 +181,12 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "Reason given: %s\n", redact.Redact(ae.Detail))
 			}
 			fmt.Fprintln(stderr, "Enrollment tokens are valid for 24 hours and can be used once. Create a new server or client in the Restow UI (Endpoints) and run the install command again.")
-			return exitError
+			return exitTokenRefused
 		}
 		fmt.Fprintf(stderr, "Enrollment failed: %s\n", api.Explain(err, baseURL))
 		if api.IsNetworkError(err) {
 			fmt.Fprintln(stderr, "If the request reached the instance before the connection broke, the token may be used up; then create a new one in the UI.")
+			return exitUnreachable
 		}
 		return exitError
 	}

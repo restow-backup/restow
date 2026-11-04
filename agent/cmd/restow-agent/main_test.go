@@ -135,7 +135,8 @@ func TestEnrollRejectedToken(t *testing.T) {
 	c := newCLI(t)
 	t.Setenv("RESTOW_TOKEN", "rset_this_token_was_never_issued")
 	_, se, code := c.run("enroll", "--allow-insecure-http")
-	if code != exitError {
+	// Only this exit code makes the install scripts ask for a new token (K115).
+	if code != exitTokenRefused {
 		t.Fatalf("exit %d", code)
 	}
 	for _, want := range []string{"did not accept the enrollment token", "valid for 24 hours", "Create a new server or client"} {
@@ -155,8 +156,41 @@ func TestEnrollUntrustedCertificateExplains(t *testing.T) {
 	t.Setenv("RESTOW_URL", tlsSrv.URL)
 	t.Setenv("RESTOW_TOKEN", tlsSrv.EnrollToken)
 	_, se, code := c.run("enroll")
-	if code != exitError || !strings.Contains(se, "not trusted") {
+	if code != exitUnreachable || !strings.Contains(se, "not trusted") {
 		t.Fatalf("exit %d\n%s", code, se)
+	}
+}
+
+// An instance that cannot be reached is no refused token: the install
+// scripts tell to check the network and the proxy instead (K115).
+func TestEnrollUnreachableInstance(t *testing.T) {
+	c := newCLI(t)
+	t.Setenv("RESTOW_URL", "http://127.0.0.1:1")
+	_, se, code := c.run("enroll", "--allow-insecure-http")
+	if code != exitUnreachable || strings.Contains(se, "did not accept the enrollment token") {
+		t.Fatalf("exit %d\n%s", code, se)
+	}
+}
+
+// status --json says why an existing enrollment cannot be read, so the
+// install scripts can explain it and ask for a token (K116).
+func TestStatusJSONUnreadableCredentials(t *testing.T) {
+	c := newCLI(t)
+	stateDir := filepath.Join(c.dir, "agent", "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "state.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	so, _, code := c.run("status", "--json")
+	var rep statusReport
+	if code != exitOK || json.Unmarshal([]byte(so), &rep) != nil || rep.Credentials != "unreadable" || rep.CredentialsError == "" {
+		t.Fatalf("%d %+v\n%s", code, rep, so)
+	}
+	// The install scripts look for this exact text.
+	if !strings.Contains(so, `"credentials": "unreadable"`) {
+		t.Fatalf("status --json:\n%s", so)
 	}
 }
 
@@ -300,6 +334,25 @@ func TestEnrollRefusesARepositoryOnAnotherHost(t *testing.T) {
 	_, se, code := c.run("enroll", "--allow-insecure-http")
 	if code != exitError || !strings.Contains(se, "not on the Restow instance") {
 		t.Fatalf("exit %d\n%s", code, se)
+	}
+}
+
+// A file named hooks.d is no folder for scripts: `hooks scripts` fails
+// (exit 1, which the install scripts now check) instead of reporting success.
+func TestHooksScriptsNeedsAFolder(t *testing.T) {
+	c := newCLI(t)
+	if _, se, code := c.run("enroll", "--allow-insecure-http"); code != exitOK {
+		t.Fatalf("enroll: %d %s", code, se)
+	}
+	if err := os.WriteFile(filepath.Join(c.dir, "agent", "state", "hooks.d"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, se, code := c.run("hooks", "scripts"); code != exitError || !strings.Contains(se, "not a folder") {
+		t.Fatalf("hooks scripts: %d %s", code, se)
+	}
+	raw, _ := os.ReadFile(filepath.Join(c.dir, "agent", "state", "state.json"))
+	if strings.Contains(string(raw), `"hooks": "scripts"`) {
+		t.Fatalf("the policy was stored: %s", raw)
 	}
 }
 

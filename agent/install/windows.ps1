@@ -567,6 +567,65 @@ function Invoke-Agent([string[]]$Arguments) {
     }
 }
 
+# Get-EnrollmentCredentials asks the installed agent whether this computer is
+# enrolled with credentials it can read (restow-agent status --json):
+# State is readable, unreadable (Error says why) or missing. A state file that
+# exists does not prove an enrollment: one that can no longer be decrypted or
+# read leaves the service waiting. Should status not run or not answer, the
+# state file decides as before.
+function Get-EnrollmentCredentials([string]$StateFile) {
+    $ErrorActionPreference = 'Continue'
+    $result = @{ State = 'missing'; Error = '' }
+    if (Test-Path -LiteralPath $StateFile) { $result.State = 'readable' }
+    try {
+        $text = (& $RestowState.AgentExe status --json 2>$null | Out-String)
+        if ($LASTEXITCODE -eq 0 -and $text.Trim()) {
+            $rep = $text | ConvertFrom-Json
+            $names = @($rep.PSObject.Properties | ForEach-Object { $_.Name })
+            if ($names -contains 'credentials' -and @('readable', 'unreadable', 'missing') -contains [string]$rep.credentials) {
+                $result.State = [string]$rep.credentials
+                if ($names -contains 'credentialsError') { $result.Error = [string]$rep.credentialsError }
+            }
+        }
+    } catch { }
+    return $result
+}
+
+# Get-SystemProxy returns the proxy Windows uses for $Url (Internet Options,
+# WPAD or a PAC file), or '' when it goes there directly. Invoke-WebRequest
+# uses it for the downloads; the agent only reads -Proxy (HTTPS_PROXY), so the
+# installer names it and never takes it over unasked.
+function Get-SystemProxy([string]$Url) {
+    try {
+        $uri = New-Object System.Uri $Url
+        $p = [System.Net.WebRequest]::GetSystemWebProxy().GetProxy($uri)
+        if ($p -and $p.AbsoluteUri -ne $uri.AbsoluteUri) { return $p.AbsoluteUri.TrimEnd('/') }
+    } catch { }
+    return ''
+}
+
+# Get-EnrollFailureText explains a failed `restow-agent enroll` by its exit
+# code: 4 the instance refused the token (only then a new token helps), 5 the
+# instance could not be reached, else the agent's own message says why and
+# whether the token is used up.
+function Get-EnrollFailureText([int]$Code, [string]$Url, [string]$UsedProxy, [string]$SystemProxy) {
+    switch ($Code) {
+        4 { return 'the agent is installed but not enrolled: the Restow instance did not accept the token. Create a new token in the Restow UI (the old one may have expired or been used) and run the install command again.' }
+        5 {
+            $text = "the agent is installed but not enrolled: it could not reach $Url (see its message above). Check the network, the firewall and the time of this computer."
+            if ($UsedProxy) {
+                $text += " Check that the proxy $UsedProxy lets this computer reach $Url."
+            } elseif ($SystemProxy) {
+                $text += " Windows sends web traffic of this computer through the proxy $SystemProxy (the installer's downloads used it), but the agent does not read that setting: run the installer again with -Proxy $SystemProxy."
+            } else {
+                $text += ' If this computer reaches the internet through a proxy, run the installer again with -Proxy http://<proxy>:<port>.'
+            }
+            return $text
+        }
+    }
+    return "the agent is installed but not enrolled (restow-agent enroll ended with exit code $Code). Its message above says why and whether the token was used; fix the cause and run the install command again."
+}
+
 # Set-InstalledSecurity makes BUILTIN\Administrators the owner of a folder the
 # installer created or a file it moved into place, then gives it the
 # permissions of its folder.
@@ -872,17 +931,30 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
                 Write-Note "proxy for the service: $proxy"
             }
         }
-        if (Test-Path -LiteralPath $stateFile) {
+        $credentials = Get-EnrollmentCredentials $stateFile
+        if ($credentials.State -eq 'readable') {
             Write-Step 'This computer is already enrolled; keeping the existing enrollment'
             if ($hooks) {
-                $null = Invoke-Agent @('hooks', $hooks)
+                $code = Invoke-Agent @('hooks', $hooks)
+                if ($code -ne 0) { Stop-Installer "the hook policy could not be set to $hooks (restow-agent hooks ended with exit code $code; see its message above)." }
                 Write-Note "hooks from the Restow server: $hooks"
             }
         } else {
-            $token = Read-EnrollmentToken
-            if (-not $token) { Stop-Installer 'this computer is not enrolled and no enrollment token was given. Create a server or client in the Restow UI (Endpoints) and run the command shown there.' }
-            Write-Step 'Enrolling this computer'
             $enrollArgs = @('enroll')
+            if ($credentials.State -eq 'unreadable') {
+                $why = $credentials.Error
+                if (-not $why) { $why = 'no reason given' }
+                Write-Warn "the existing enrollment in $stateFile cannot be read ($why); this computer has to be enrolled again with a new token"
+                $enrollArgs += '--force'
+            }
+            $token = Read-EnrollmentToken
+            if (-not $token) {
+                if ($credentials.State -eq 'unreadable') {
+                    Stop-Installer "the existing enrollment of this computer cannot be read ($why), and no enrollment token was given. Create a new token in the Restow UI (Endpoints) and run the install command again with it; the agent then enrolls again (restow-agent enroll --force)."
+                }
+                Stop-Installer 'this computer is not enrolled and no enrollment token was given. Create a server or client in the Restow UI (Endpoints) and run the command shown there.'
+            }
+            Write-Step 'Enrolling this computer'
             if ($allowHttp) { $enrollArgs += '--allow-insecure-http' }
             if ($hooks) { $enrollArgs += "--hooks=$hooks" }
             # The token goes to the agent through the environment of this one command.
@@ -890,7 +962,9 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
             $env:RESTOW_URL = $url
             try { $code = Invoke-Agent $enrollArgs } finally { Remove-Item Env:RESTOW_TOKEN -ErrorAction SilentlyContinue; $token = '' }
             if ($code -ne 0) {
-                Stop-Installer 'the agent is installed but not enrolled. Create a new token in the Restow UI (the old one may have expired or been used) and run the install command again.'
+                $systemProxy = ''
+                if ($code -eq 5 -and -not $RestowState.EffectiveProxy) { $systemProxy = Get-SystemProxy $url }
+                Stop-Installer (Get-EnrollFailureText $code $url $RestowState.EffectiveProxy $systemProxy)
             }
             if ($env:RESTOW_TOKEN_FILE) {
                 # The token is used up; do not leave it lying around.

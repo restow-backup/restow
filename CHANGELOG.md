@@ -340,6 +340,21 @@ private repository.
   as missing after the service had been installed; the installer now hands the 64-bit run the
   path it is really at, and a missing token file stops it before anything is installed, naming
   the copy in `SysWOW64` if there is one.
+- Agent installers: every failed enrollment ended with "Create a new token in the Restow UI (the
+  old one may have expired or been used)", also when the agent never reached the instance, for
+  example on a Windows computer whose proxy comes from Internet Options or a PAC file: the
+  installer's downloads used it, the agent does not read it. `restow-agent enroll` now ends with
+  exit code 4 when the instance refused the token and 5 when it could not be reached, and the
+  installers ask for a new token only on 4; on 5 they point to the network and the proxy, and
+  the Windows installer names the proxy Windows uses for the instance (`-Proxy <proxy>`, never
+  taken over unasked).
+- Agent installers: on a machine that was already enrolled, a failing `restow-agent hooks` (for
+  `-Hooks`/`--hooks`) was reported as done on Windows, and an existing state file counted as an
+  enrollment even when the agent could no longer read it; the installer then said "installed
+  and enrolled" while the service waited for an enrollment. The installers now stop with the
+  agent's error, decide "enrolled" with `restow-agent status --json`, and for an enrollment that
+  cannot be read name the reason, ask for a new token and enroll again (`enroll --force`).
+  `restow-agent hooks scripts` also fails now when `hooks.d` exists as a file instead of a folder.
 
 ### Upgrade Notes
 

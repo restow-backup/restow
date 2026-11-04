@@ -22,18 +22,21 @@ import (
 )
 
 type statusReport struct {
-	AgentVersion string         `json:"agentVersion"`
-	Platform     string         `json:"platform"`
-	Enrolled     bool           `json:"enrolled"`
-	Credentials  string         `json:"credentials"` // readable | unreadable | missing
-	EndpointID   string         `json:"endpointId,omitempty"`
-	ServerURL    string         `json:"serverUrl,omitempty"`
-	Binary       string         `json:"binary"`
-	Hooks        string         `json:"hooks,omitempty"`
-	Service      serviceReport  `json:"service"`
-	Restic       resticReport   `json:"restic"`
-	Runtime      *status.Status `json:"runtime,omitempty"`
-	Notes        []string       `json:"notes,omitempty"`
+	AgentVersion string `json:"agentVersion"`
+	Platform     string `json:"platform"`
+	Enrolled     bool   `json:"enrolled"`
+	Credentials  string `json:"credentials"` // readable | unreadable | missing
+	// CredentialsError says why the credentials are unreadable (the install
+	// scripts show it before they ask for a token to enroll again).
+	CredentialsError string         `json:"credentialsError,omitempty"`
+	EndpointID       string         `json:"endpointId,omitempty"`
+	ServerURL        string         `json:"serverUrl,omitempty"`
+	Binary           string         `json:"binary"`
+	Hooks            string         `json:"hooks,omitempty"`
+	Service          serviceReport  `json:"service"`
+	Restic           resticReport   `json:"restic"`
+	Runtime          *status.Status `json:"runtime,omitempty"`
+	Notes            []string       `json:"notes,omitempty"`
 }
 
 type serviceReport struct {
@@ -85,10 +88,10 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 	case errors.Is(err, state.ErrNotEnrolled):
 		rep.Credentials = "missing"
 	case os.IsPermission(err) || errors.Is(err, os.ErrPermission):
-		rep.Credentials = "unreadable"
+		rep.Credentials, rep.CredentialsError = "unreadable", err.Error()
 		rep.Notes = append(rep.Notes, "the credentials are readable by root only; run with sudo for the full picture")
 	default:
-		rep.Credentials = "unreadable"
+		rep.Credentials, rep.CredentialsError = "unreadable", err.Error()
 		rep.Notes = append(rep.Notes, err.Error())
 	}
 	if !rep.Enrolled && rt.EndpointID != "" {

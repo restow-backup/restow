@@ -12,6 +12,8 @@
 # 3b. -Proxy reaches the agent's own commands (enroll, status) and the
 #    session's environment is restored afterwards.
 # 3c. The installer enables TLS 1.2 itself (the -File form starts without it).
+# 3e. The text of a failed enrollment depends on the agent's exit code, and
+#    restow-agent status --json decides whether the computer is enrolled.
 # 3d. The restart of a 32-bit host: stderr of the 64-bit child is no error of
 #    the parent, the session's environment is restored, and a token file
 #    written by a 32-bit program to System32 is found below SysWOW64.
@@ -212,6 +214,44 @@ try {
     Remove-Item -LiteralPath $fakeWin -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# ---- 3e. enrollment results and the state of an enrollment ---------------------------
+# Only a refused token (enroll exit code 4) asks for a new token; an unreachable
+# instance (5) names the proxy of Windows when there is one, without taking it over.
+$t = Get-EnrollFailureText 4 'https://x' '' ''
+if ($t -notmatch 'did not accept the token' -or $t -notmatch 'new token') { Fail "exit code 4: $t" } else { Ok 'enroll exit code 4 asks for a new token' }
+$t = Get-EnrollFailureText 5 'https://x' '' ''
+if ($t -notmatch 'could not reach https://x' -or $t -match 'new token' -or $t -notmatch '-Proxy http://<proxy>') { Fail "exit code 5: $t" } else { Ok 'enroll exit code 5 points to the network and -Proxy' }
+$t = Get-EnrollFailureText 5 'https://x' '' 'http://wpad.test:8080'
+if ($t -notmatch [regex]::Escape('-Proxy http://wpad.test:8080') -or $t -notmatch 'does not read that setting') { Fail "exit code 5 with a system proxy: $t" } else { Ok 'enroll exit code 5 names the proxy of Windows' }
+$t = Get-EnrollFailureText 5 'https://x' 'http://proxy.test:3128' ''
+if ($t -notmatch [regex]::Escape('proxy http://proxy.test:3128 lets')) { Fail "exit code 5 with -Proxy: $t" }
+$t = Get-EnrollFailureText 1 'https://x' '' ''
+if ($t -match 'new token in the Restow UI' -or $t -notmatch 'exit code 1') { Fail "exit code 1: $t" } else { Ok 'other enroll failures do not blame the token' }
+if ((Get-SystemProxy 'not a url') -ne '') { Fail 'Get-SystemProxy of an invalid URL' }
+
+# status --json decides whether the computer is enrolled; a stand-in agent answers.
+$fakeAgentDir = Join-Path ([IO.Path]::GetTempPath()) ('restow-status-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+$null = New-Item -ItemType Directory -Force -Path $fakeAgentDir
+try {
+    $fakeState = Join-Path $fakeAgentDir 'state.json'
+    Set-Content -LiteralPath $fakeState -Value '{not json'
+    $fakeAgent = Join-Path $fakeAgentDir 'agent.cmd'
+    Set-Content -LiteralPath $fakeAgent -Encoding ASCII -Value @('@echo off', 'echo {"enrolled": false, "credentials": "unreadable", "credentialsError": "the protected secrets cannot be decrypted on this machine"}')
+    $RestowState.AgentExe = $fakeAgent
+    $c = Get-EnrollmentCredentials $fakeState
+    if ($c.State -ne 'unreadable' -or $c.Error -notmatch 'cannot be decrypted') { Fail "an unreadable state counts as $($c.State) ($($c.Error))" } else { Ok 'an unreadable state is no enrollment' }
+    Set-Content -LiteralPath $fakeAgent -Encoding ASCII -Value @('@echo off', 'echo {"credentials": "readable"}')
+    if ((Get-EnrollmentCredentials $fakeState).State -ne 'readable') { Fail 'a readable state is not seen' }
+    # An agent whose status does not run: the state file decides, as before.
+    Set-Content -LiteralPath $fakeAgent -Encoding ASCII -Value @('@echo off', 'echo broken 1>&2', 'exit /b 1')
+    if ((Get-EnrollmentCredentials $fakeState).State -ne 'readable') { Fail 'without status an existing state file no longer counts as enrolled' }
+    if ((Get-EnrollmentCredentials (Join-Path $fakeAgentDir 'none.json')).State -ne 'missing') { Fail 'without status a missing state file counts as enrolled' }
+    Ok 'without status the state file decides'
+} finally {
+    $RestowState.AgentExe = $null
+    Remove-Item -LiteralPath $fakeAgentDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # ---- 4. full installation against the fake instance ------------------------------
 if (-not $SkipInstall) {
     $work = Join-Path ([IO.Path]::GetTempPath()) ('restow-install-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -310,6 +350,33 @@ if (-not $SkipInstall) {
         # A second run repairs without a token.
         $r = Invoke-Installer @{} @('-Hooks', 'scripts')
         if ($r.Code -ne 0 -or $r.Out -notmatch 'already enrolled') { Fail "second run: $($r.Out)" } else { Ok 'second run repairs' }
+
+        # restow-agent hooks fails (hooks.d is a file): the installer stops and says so.
+        $hooksDir = Join-Path $root 'ProgramData\Restow\state\hooks.d'
+        Remove-Item -LiteralPath $hooksDir -Recurse -Force -ErrorAction SilentlyContinue
+        Set-Content -LiteralPath $hooksDir -Value 'x'
+        try {
+            $r = Invoke-Installer @{} @('-Hooks', 'scripts')
+            if ($r.Code -eq 0 -or $r.Out -notmatch 'hook policy could not be set' -or $r.Out -match 'Done\.') { Fail "a failing hooks command was reported as done: $($r.Out)" } else { Ok 'a failing hooks command stops the installer' }
+        } finally {
+            Remove-Item -LiteralPath $hooksDir -Force -ErrorAction SilentlyContinue
+        }
+
+        # An enrollment that cannot be read is no enrollment: without a token the
+        # installer says why and asks for one, with a token it enrolls again (--force).
+        $stateJson = Join-Path $root 'ProgramData\Restow\state\state.json'
+        [System.IO.File]::WriteAllText($stateJson, '{not json')
+        $r = Invoke-Installer @{} @()
+        if ($r.Code -eq 0 -or $r.Out -notmatch 'cannot be read' -or $r.Out -notmatch 'enroll --force' -or $r.Out -match 'Done\.') { Fail "an unreadable state counted as enrolled: $($r.Out)" } else { Ok 'an unreadable state asks for a new token' }
+        $token3 = (Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$url/test/token").Content
+        $r = Invoke-Installer @{ RESTOW_TOKEN = $token3 } @()
+        if ($r.Code -ne 0 -or $r.Out -notmatch 'enrolled again with a new token' -or $r.Out -notmatch 'Enrolled as endpoint') { Fail "enrolling again over an unreadable state: $($r.Out)" }
+        else {
+            $env:RESTOW_AGENT_DIR = Join-Path $root 'ProgramData\Restow'
+            try { $statusJson = (& $agentExe status --json | Out-String) } finally { Remove-Item Env:RESTOW_AGENT_DIR -ErrorAction SilentlyContinue }
+            if ($statusJson -notmatch '"credentials": "readable"') { Fail "the new enrollment is not readable: $statusJson" }
+            else { Ok 'an unreadable state is replaced by a new enrollment' }
+        }
 
         # A tampered binary on the instance: refused, the installed one stays.
         $before = (Get-FileHash $agentExe).Hash

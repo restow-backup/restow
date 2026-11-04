@@ -40,6 +40,12 @@ const (
 	exitError   = 1
 	exitUsage   = 2
 	exitPartial = 3 // backup-now: snapshot created, some files were unreadable
+	// enroll: the instance answered and refused the token (HTTP 4xx); only
+	// then do the install scripts ask for a new token.
+	exitTokenRefused = 4
+	// enroll: the instance could not be reached (DNS, connection, TLS, proxy,
+	// timeout); the install scripts point to -Proxy / HTTPS_PROXY.
+	exitUnreachable = 5
 )
 
 func main() {

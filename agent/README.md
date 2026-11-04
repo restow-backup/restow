@@ -170,7 +170,12 @@ restow-agent version       Version, commit, build date (--short for the number o
 ```
 
 `--debug` (or `RESTOW_DEBUG=1`) turns on verbose logging. `enroll --force` enrolls again
-with a new token (the old endpoint stays on the server until you revoke it).
+with a new token (the old endpoint stays on the server until you revoke it). `enroll` ends
+with exit code 4 when the instance refused the token (expired, used or unknown), 5 when it
+could not reach the instance (DNS, connection, TLS, proxy) and 1 for anything else; the
+install scripts ask for a new token only on 4. They decide whether a machine is enrolled
+with `status --json` (`"credentials": "readable"`), not by the existence of the state file:
+an enrollment that cannot be read any more is enrolled again with a new token (`--force`).
 `enroll --hooks=off|scripts|any` sets the hook policy of a new enrollment (default off;
 a new enrollment of an enrolled machine keeps its policy).
 `enroll --allow-insecure-http` exists for local development only and is refused by the

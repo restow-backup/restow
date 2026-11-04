@@ -88,6 +88,11 @@ func cmdHooks(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "Cannot create %s: %v\n", layout.HooksDir(), err)
 			return exitError
 		}
+		// "Exists" is no folder yet: scripts in a file named hooks.d never run.
+		if fi, err := os.Lstat(layout.HooksDir()); err != nil || !fi.IsDir() {
+			fmt.Fprintf(stderr, "Cannot use %s: it is not a folder (remove it and run the command again).\n", layout.HooksDir())
+			return exitError
+		}
 	}
 	if hooks.NormalizeMode(st.Hooks) == mode {
 		fmt.Fprintf(stdout, "Hooks are already set to %s.\n", describeHooks(mode, layout))
