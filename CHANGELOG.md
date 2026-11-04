@@ -305,8 +305,10 @@ private repository.
   nobody was told. Such a test is now tried again after 30 minutes, then with a doubling wait (at
   most 6 hours, five attempts per restore point). A guest whose boot tests came to no result for
   longer than its schedule allows (two days after every backup, eight days weekly) raises the new
-  event "No boot test result" (`boot_test.skipped`) once, with the last reason; rules and the
-  bell can pick it like the other boot test events.
+  event "No boot test result" (`boot_test.skipped`) once, with the last reason, as soon as its
+  newest restore point is no longer being tried (a reason that stays, or five attempts used up)
+  or the skips have gone on that long; a first skip whose retry is still due raises nothing.
+  Rules and the bell can pick it like the other boot test events.
 - Proxmox VE: a boot test whose temporary guest could not be removed left no trace in Restow.
   When the test failed on the way (isolating the guest or waiting for its restore went wrong),
   the server discarded the whole result, the VMID and "not removed" included, and the node's log

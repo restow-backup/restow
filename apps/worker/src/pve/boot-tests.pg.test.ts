@@ -430,4 +430,37 @@ describe.skipIf(!adminUrl)("boot tests in the worker against Postgres", () => {
     await advance(31 * MINUTE);
     expect(await planBootTests(deps, clock)).toBe(0);
   });
+
+  it("an old result and one fresh skip that is tried again raise no boot_test.skipped yet", async () => {
+    // Backed up every three days and tested after every backup: the last green test of 101 is
+    // three days old when the new restore point's first attempt meets a running backup.
+    await owner
+      .update(pveJobs)
+      .set({ settings: { bootTest: { schedule: "after_backup" } } })
+      .where(eq(pveJobs.id, jobId));
+    await owner.delete(notifications).where(eq(notifications.event, "boot_test.skipped"));
+    await advance(3 * DAY);
+    await addPoint(101, 5, clock);
+    expect(await planBootTests(deps, clock)).toBe(1);
+    expect(await plannedFor(101)).toBe(1);
+    await skipAll("backup_running");
+    // The retry comes in 30 minutes: no warning for a guest that is being tested.
+    expect(await alertBootTestsSkipped(deps, clock)).toBe(0);
+    // Every retry passes without a result too (30 minutes, then 1, 2 and 4 hours).
+    for (const wait of [30, 60, 120, 240]) {
+      await advance((wait + 1) * MINUTE);
+      expect(await planBootTests(deps, clock)).toBe(1);
+      await skipAll("backup_running");
+      if (wait < 240) {
+        expect(await alertBootTestsSkipped(deps, clock)).toBe(0);
+      }
+    }
+    // The attempts at this restore point are used up: now it is "no result".
+    expect(await alertBootTestsSkipped(deps, clock)).toBe(1);
+    const [raised] = await owner
+      .select()
+      .from(notifications)
+      .where(eq(notifications.event, "boot_test.skipped"));
+    expect(raised?.details).toMatchObject({ pveGuestId: guestIds[101], reason: "backup_running" });
+  });
 });

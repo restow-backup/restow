@@ -1778,8 +1778,14 @@ export async function alertBootTests(deps: PveDeps, now: Date): Promise<number> 
  * Raise boot_test.skipped once per guest and episode: its job boot-tests it, but no boot test
  * came to an outcome (green, yellow, red) for longer than the schedule allows (two days after
  * every backup, eight days weekly), and the last attempt was skipped or could not be carried
- * out. The event names the last reason; the run it was raised for keeps `skippedAlertedAt`, so
- * it comes again only after a boot test came to an outcome in between.
+ * out. A skip the planner still tries again is not yet "no result": the event waits until the
+ * attempts at the newest tested restore point are over (a skip that stays, or the attempts used
+ * up, `pveBootTestRetry`) or the skips themselves have gone on for that long. Otherwise a guest
+ * whose last result is old by the rhythm of its backups (backed up every three days, tested
+ * after every backup) would raise it on the first `backup_running` of a new restore point,
+ * whose retry 30 minutes later usually succeeds. The event names the last reason; the run it
+ * was raised for keeps `skippedAlertedAt`, so it comes again only after a boot test came to an
+ * outcome in between.
  */
 export async function alertBootTestsSkipped(deps: PveDeps, now: Date): Promise<number> {
   const jobs = await deps.providerDb
@@ -1840,8 +1846,25 @@ export async function alertBootTestsSkipped(deps: PveDeps, now: Date): Promise<n
         if (!latest || (latestOutcome !== "skipped" && latestOutcome !== "error")) {
           continue;
         }
-        const since = last?.finishedAt ?? episode[episode.length - 1]?.startedAt ?? now;
+        const episodeStart = episode[episode.length - 1]?.startedAt ?? now;
+        const since = last?.finishedAt ?? episodeStart;
         if (now.getTime() - since.getTime() < overdueMs) {
+          continue;
+        }
+        // Still being tried: the planner retries this restore point after a passing skip.
+        const retry = pveBootTestRetry(
+          episode
+            .filter((r) => r.snapshotId === latest.snapshotId)
+            .map((r) => {
+              const test = bootTestOf(r.stats);
+              return {
+                outcome: typeof test?.outcome === "string" ? test.outcome : null,
+                reason: typeof test?.reason === "string" ? test.reason : "",
+                startedAt: r.startedAt,
+              };
+            }),
+        );
+        if (!retry.tested && now.getTime() - episodeStart.getTime() < overdueMs) {
           continue;
         }
         if (episode.some((r) => typeof bootTestOf(r.stats)?.skippedAlertedAt === "string")) {

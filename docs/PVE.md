@@ -781,9 +781,13 @@ reason that stays (the guest needs more memory than the job allows, the storage 
 guests of its kind, restores or boot tests are off on the node) is not retried; the run on
 the guest's page says why. When no boot test of a guest came to a result for longer than its
 schedule allows (two days after every backup, eight days weekly), `boot_test.skipped`
-(warning, group recoverability, "No boot test result") is raised once with the last reason;
-it comes again only after a boot test came to a result in between. `qm` and `pct` run as root, as the service does; the node's API token needs
-no new privilege.
+(warning, group recoverability, "No boot test result") is raised once with the last reason,
+but only once the newest restore point is no longer being tried (a reason that stays, or its
+five attempts are used up) or the skips themselves have gone on that long: a first
+`backup_running` of a new restore point whose retry is due in 30 minutes raises nothing, even
+when the last result is old by the rhythm of the backups. It comes again only after a boot
+test came to a result in between. `qm` and `pct` run as root, as the service does; the node's
+API token needs no new privilege.
 
 Not part of the test: a check of ports or applications inside the isolated network, a
 screenshot or serial console heuristic, Windows without the guest agent (yellow at best), and
