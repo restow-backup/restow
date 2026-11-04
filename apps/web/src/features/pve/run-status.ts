@@ -25,7 +25,12 @@ export function restoreFindings(run: RunFacts): RestoreFinding[] {
   if (run.kind === "restore_test" && stats.deleted === false) {
     out.push("leftover");
   }
-  if (stats.started === false || stats.startError || stats.startSkipped) {
+  // Only a restore can be asked to start its copy (a check never starts it); the server keeps
+  // these fields only where the task asked for a start.
+  if (
+    run.kind === "restore" &&
+    (stats.started === false || stats.startError || stats.startSkipped)
+  ) {
     out.push("notStarted");
   }
   if ((stats.omittedMounts ?? []).length > 0) {

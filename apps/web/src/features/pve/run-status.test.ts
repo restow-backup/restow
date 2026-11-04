@@ -57,11 +57,20 @@ describe("runTone: green only for proof", () => {
     ];
     for (const kind of ["restore", "restore_test"] as const) {
       for (const [stats, finding] of cases) {
+        if (kind === "restore_test" && finding === "notStarted") {
+          continue;
+        }
         const r = run({ kind, stats });
         expect(runTone(r), `${kind} ${finding}`).toBe("warning");
         expect(restoreFindings(r)).toContain(finding);
         expect(runStatusKey(r)).not.toBe("guest.succeeded");
       }
+    }
+    // A check never starts its copy: `started: false` from a node says nothing against it.
+    for (const stats of [{ started: false }, { started: false, startSkipped: "static_ip" }]) {
+      const check = run({ kind: "restore_test", stats });
+      expect(restoreFindings(check)).toEqual([]);
+      expect(runTone(check)).toBe("success");
     }
     // A check whose temporary guest is still there.
     const leftover = run({ kind: "restore_test", stats: { deleted: false, leftoverVmid: 105 } });

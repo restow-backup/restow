@@ -939,9 +939,17 @@ export async function taskResult(
       // The run succeeded; what the result says beside it (warnings, mount points left out, a
       // guest the check could not remove, ...) stays with it and makes it amber in the UI.
       const parsed = restoreResultSchema.safeParse(input.result ?? {});
-      const result = parsed.success
+      const result: Record<string, unknown> = parsed.success
         ? Object.fromEntries(Object.entries(parsed.data).filter(([, v]) => v !== undefined))
         : {};
+      // Whether the copy started means something only where the task asked for a start: a
+      // check never starts its guest, and a restore without "Start after the restore" has no
+      // start to report. A `started: false` there must not read "Restored, not started".
+      if (run.kind !== "restore" || task.params?.start !== true) {
+        delete result.started;
+        delete result.startError;
+        delete result.startSkipped;
+      }
       const skipped = run.kind === "restore_test" && parsed.success ? parsed.data.skipped : null;
       if (skipped) {
         // The node did not run the check (its target storage is missing, inactive, without the

@@ -268,7 +268,9 @@ private repository.
   reported beside it. Nothing read what the node sent: mount points left out of a container
   (bind and device mount points are not in a backup), raw LXC options PVE skipped for the
   node's token, the restore task's warnings, host devices the copy shares with the original, a
-  temporary guest the check could not remove, or a start that did not happen. Such a run is now
+  temporary guest the check could not remove, or a start that was asked for and did not
+  happen (a check, which never starts its copy, and a restore without "Start after the restore"
+  are never "not started"). Such a run is now
   amber with what it was ("Checked without 1 mount point", "Restored with warnings", "Temporary
   guest 105 could not be removed", "Restored, not started"), and the guest's page and panel
   list each line with what to do: the commands that put the mount points back as root and the

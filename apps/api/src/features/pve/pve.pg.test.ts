@@ -793,6 +793,9 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
             // Unreadable fields are dropped, the rest is kept.
             skippedLxc: "not a list",
             somethingElse: { nested: true },
+            // A check never starts its copy: a start fact from the node is not kept.
+            started: false,
+            startSkipped: "static_ip",
           },
         },
       }),
@@ -800,6 +803,8 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     );
     const [run] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.taskId, queued.taskId));
     expect(run?.status).toBe("succeeded");
+    expect(run?.stats.started).toBeUndefined();
+    expect(run?.stats.startSkipped).toBeUndefined();
     expect(run?.stats).toMatchObject({
       vmid: 9105,
       deleted: false,
@@ -814,6 +819,39 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     const shown = detail.runs.find((r) => r.id === run?.id);
     expect(shown?.stats).toMatchObject({ deleted: false, omittedMounts: [expect.any(String)] });
     expect(shown?.warnings).toEqual(["WARN: unable to set acl"]);
+  });
+
+  it("keeps whether the copy started only for a restore that asked for a start", async () => {
+    const results: Record<string, unknown>[] = [];
+    for (const start of [true, false]) {
+      const queued = await service.restoreSnapshot(
+        shared.db,
+        fixture.tenantId,
+        first.snapshotId,
+        { targetStorage: "local-lvm", start },
+        actor(),
+      );
+      await call(node, "/heartbeat", { json: { helperVersion: "0.5.0", state: "idle" } });
+      await json(
+        await call(node, `/tasks/${queued.taskId}/result`, {
+          json: {
+            status: "done",
+            result: { vmid: start ? 9120 : 9121, started: false, startSkipped: "omitted_mounts" },
+          },
+        }),
+        204,
+      );
+      const [run] = await fixture.db
+        .select()
+        .from(pveRuns)
+        .where(eq(pveRuns.taskId, queued.taskId));
+      expect(run?.status).toBe("succeeded");
+      results.push(run?.stats ?? {});
+    }
+    // Asked to start: "Restored, not started" (amber in the web). Not asked: nothing to say.
+    expect(results[0]).toMatchObject({ started: false, startSkipped: "omitted_mounts" });
+    expect(results[1]?.started).toBeUndefined();
+    expect(results[1]?.startSkipped).toBeUndefined();
   });
 
   it("a restore check the node skipped is not checked: neither green nor red, tried again in a day (S05)", async () => {
