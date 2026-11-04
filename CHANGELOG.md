@@ -10,6 +10,14 @@ private repository.
 
 ## [Unreleased]
 
+### Fixed
+
+- ZIP downloads of folders (file shares, machines, Proxmox VE container files) could hang now
+  and then and never finish (#96): the reader of `restic dump`'s tar stopped at the first zero
+  block of the end marker, so the rest of restic's output stayed unread, restic's process never
+  reported its end, and the download waited for it. The reader now reads the stream to its end.
+  It showed in the release smoke as "a ZIP download of two folders" timing out.
+
 ## [0.4.11] - 2026-11-04
 
 Beta release. Run it alongside your existing backups, not as your only one, until

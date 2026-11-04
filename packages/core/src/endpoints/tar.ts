@@ -68,6 +68,14 @@ class ByteReader {
     return taken;
   }
 
+  /** Read the source to its end and drop what is left (after the end-of-archive marker). */
+  async drain(): Promise<void> {
+    this.buffer = Buffer.alloc(0);
+    while (await this.fill()) {
+      this.buffer = Buffer.alloc(0);
+    }
+  }
+
   async skip(size: number): Promise<void> {
     let left = size;
     while (left > 0) {
@@ -189,6 +197,11 @@ export async function* readTar(
   for (;;) {
     const header = await reader.readExact(BLOCK);
     if (header.length < BLOCK || isZeroBlock(header)) {
+      // The source is read to its end: after the first zero block come the second one and
+      // the padding to the record size. Left unread, the stdout of `restic dump` never ends,
+      // so its process never reports "close" and the download waited for it for good
+      // (#96: the ZIP of two folders hung when the end came after the first zero block).
+      await reader.drain();
       return;
     }
     if (!checksumValid(header)) {
