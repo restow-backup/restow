@@ -297,6 +297,13 @@ private repository.
   line enabled TLS 1.2, in the caller's own session. The installer enables TLS 1.2 itself now,
   and a download that fails while setting up TLS says that TLS 1.2 is needed instead of
   asking to check the network.
+- Windows agent (preview): a PowerShell hook that ran a program which writes warnings or its
+  progress to stderr, such as `mysqldump` ("Using a password on the command line"), `git` or
+  `pg_dump --verbose`, failed with exit code 1 under Windows PowerShell 5.1 although the program
+  succeeded, and a pre hook then stopped the backup. The hook wrapper no longer sets
+  `$ErrorActionPreference = 'Stop'`, which turned the first stderr line into a terminating error;
+  a failing cmdlet still stops the hook with exit code 1 and its error text in the run log, and
+  a program's own exit code decides for the program.
 
 ### Upgrade Notes
 

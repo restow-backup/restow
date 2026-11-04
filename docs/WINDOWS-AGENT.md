@@ -891,16 +891,26 @@ Windows (`hooks/run_windows.go`, `hooks/resolve_windows.go`):
 
   ```powershell
   [Console]::OutputEncoding = [Text.Encoding]::UTF8
-  $ErrorActionPreference = 'Stop'
+  $PSDefaultParameterValues['*:ErrorAction'] = 'Stop'
+  trap { [Console]::Error.WriteLine(($_ | Out-String).TrimEnd()); exit 1 }
   <Befehl>
-  exit $(if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } else { 1 })
+  exit $(if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } elseif ($Error.Count -gt 0 -and $Error[0] -is [Management.Automation.ErrorRecord] -and $Error[0].FullyQualifiedErrorId -like 'NativeCommandError*') { 0 } else { 1 })
   ```
 
-  Damit bricht ein Cmdlet-Fehler ab (Exit 1), ein natives Programm mit Code 3 liefert 3, ein
-  eigenes `exit 5` im Befehl liefert 5. Ein natives Programm, das mitten im Befehl scheitert,
-  bricht unter Windows PowerShell 5.1 nicht ab (wie `sh -c` ohne `set -e`); die Doku sagt das.
-  Die Hülle ist eine reine Funktion ohne Build-Tag und hat Tabellentests; die tatsächlichen
-  Codes prüft der Windows-Job (Abschnitt 22.1).
+  Damit bricht ein Cmdlet-Fehler ab (Exit 1, der Fehlertext steht im Hook-Protokoll), ein
+  natives Programm mit Code 3 liefert 3, ein eigenes `exit 5` im Befehl liefert 5. Die Hülle
+  setzt bewusst **nicht** `$ErrorActionPreference = 'Stop'`: Windows PowerShell 5.1 macht bei
+  umgeleiteter Ausgabe (wie beim Hook) aus jeder stderr-Zeile eines nativen Programms einen
+  `NativeCommandError`, und unter `Stop` beendete schon die erste Warnung von `mysqldump`, die
+  Fortschrittsanzeige von `git` oder `pg_dump --verbose` den Hook mit Exit 1, obwohl das
+  Programm erfolgreich war. Der Vorgabewert `-ErrorAction Stop` gilt nur für Cmdlets und
+  erweiterte Funktionen; native Programme haben den Parameter nicht. Für ein natives Programm
+  zählt allein sein Exit-Code: stderr mit Code 0 ist Erfolg (auch mit `2>&1` im Befehl), Code 4
+  bleibt 4. Ein natives Programm, das mitten im Befehl scheitert, bricht unter Windows
+  PowerShell 5.1 nicht ab (wie `sh -c` ohne `set -e`); wer das will, prüft `$LASTEXITCODE`
+  selbst (`if ($LASTEXITCODE) { exit $LASTEXITCODE }`). Die Hülle ist eine reine Funktion ohne
+  Build-Tag und hat Tabellentests; die tatsächlichen Codes prüft der Windows-Job (Abschnitt
+  22.1, `hooks/run_windows_test.go`).
 - **Regel `scripts`:** Name nach `IsScriptName` (`policy.go:61-65`) in
   `C:\ProgramData\Restow\state\hooks.d`, Erweiterung bestimmt den Aufruf. In 0.5.0 nur zwei:
   - `.ps1`: über PowerShell wie oben, der Befehl ist `& '<pfad>'` in derselben Hülle (nicht

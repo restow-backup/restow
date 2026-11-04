@@ -33,15 +33,27 @@ func TestPowerShellWrapper(t *testing.T) {
 		}
 		script := decodePS(t, argv[len(argv)-1])
 		lines := strings.Split(script, "\n")
-		if lines[0] != "[Console]::OutputEncoding = [Text.Encoding]::UTF8" || lines[1] != "$ErrorActionPreference = 'Stop'" {
-			t.Fatalf("preamble: %q", lines[:2])
+		if lines[0] != "[Console]::OutputEncoding = [Text.Encoding]::UTF8" ||
+			lines[1] != "$PSDefaultParameterValues['*:ErrorAction'] = 'Stop'" ||
+			lines[2] != "trap { [Console]::Error.WriteLine(($_ | Out-String).TrimEnd()); exit 1 }" {
+			t.Fatalf("preamble: %q", lines[:3])
 		}
-		if lines[2] != cmd {
-			t.Fatalf("command line %q, want %q", lines[2], cmd)
+		// A global 'Stop' preference turns a native program's stderr line into
+		// a terminating error under Windows PowerShell 5.1 (K110).
+		if strings.Contains(script, "$ErrorActionPreference") {
+			t.Fatalf("the wrapper sets $ErrorActionPreference: %q", script)
+		}
+		if lines[3] != cmd {
+			t.Fatalf("command line %q, want %q", lines[3], cmd)
 		}
 		// The exit line stands alone after the command, so a trailing comment cannot hide it.
-		if lines[3] != "exit $(if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } else { 1 })" {
-			t.Fatalf("exit line %q", lines[3])
+		if lines[4] != "exit $(if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } "+
+			"elseif ($Error.Count -gt 0 -and $Error[0] -is [Management.Automation.ErrorRecord] -and "+
+			"$Error[0].FullyQualifiedErrorId -like 'NativeCommandError*') { 0 } else { 1 })" {
+			t.Fatalf("exit line %q", lines[4])
+		}
+		if len(lines) != 6 || lines[5] != "" {
+			t.Fatalf("lines after the exit line: %q", lines[5:])
 		}
 	}
 }
