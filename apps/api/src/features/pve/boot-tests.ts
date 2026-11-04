@@ -27,6 +27,7 @@ import { z } from "zod";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
+import { avoidVmids } from "./vmids.js";
 
 /**
  * Boot tests of Proxmox VE restore points (docs/PVE.md, "Boot test"): the guest's node restores
@@ -189,7 +190,11 @@ async function queueBootTest(
       nodeId: node.id,
       guestId: guest.id,
       kind: "boot_test",
-      params: { ...pveBootTestTaskParams(snap, guest.vmid, plan) },
+      params: {
+        ...pveBootTestTaskParams(snap, guest.vmid, plan),
+        // restow-pve from 0.5.0 picks a free VMID outside these (docs/PVE-PROTOCOL.md).
+        avoidVmids: await avoidVmids(tx, guest.clusterId),
+      },
       createdBy: input.userId,
       expiresAt: new Date(now.getTime() + BOOT_TEST_TASK_TTL_MS),
     })
@@ -213,29 +218,50 @@ async function queueBootTest(
   return task.id;
 }
 
-/** The result the node reports for a boot test (agent/internal/pve/boottest.go BootTestResult). */
+/**
+ * The result the node reports for a boot test (agent/internal/pve/boottest.go BootTestResult).
+ * Every field is read on its own: a test the node could not carry out (outcome "", the task
+ * failed) still says which temporary guest it made and whether that one is gone, and a field
+ * this server does not understand never discards the others.
+ */
 const nodeResultSchema = z.object({
-  outcome: z.enum(["green", "yellow", "red", "skipped"]),
-  reason: z.string().max(64).default(""),
-  message: z.string().max(4000).default(""),
-  durationMs: z.number().int().min(0).default(0),
-  bootSeconds: z.number().min(0).nullish(),
-  guestAgent: z.boolean().default(false),
-  tempVmid: z.number().int().min(0).nullish(),
-  storage: z.string().max(64).nullish(),
-  cleanedUp: z.boolean().default(false),
+  outcome: z.enum(["green", "yellow", "red", "skipped"]).nullable().catch(null),
+  reason: z.string().max(64).catch(""),
+  message: z.string().max(4000).catch(""),
+  durationMs: z.number().int().min(0).catch(0),
+  bootSeconds: z.number().min(0).nullable().catch(null),
+  guestAgent: z.boolean().catch(false),
+  tempVmid: z.number().int().min(1).nullable().catch(null),
+  storage: z.string().max(64).nullable().catch(null),
+  cleanedUp: z.boolean().nullable().catch(null),
   log: z
     .string()
     .max(256 * 1024)
-    .default(""),
+    .catch(""),
 });
 
 const LOG_TAIL_CHARS = 16 * 1024;
 
+/** A temporary guest the boot test made and could not remove; null: none is left. */
+export function bootTestLeftover(
+  result: Pick<PveBootTestResult, "tempVmid" | "cleanedUp" | "storage" | "leftoverGoneAt">,
+): { vmid: number; storage: string | null } | null {
+  return result.tempVmid !== null && !result.cleanedUp && !result.leftoverGoneAt
+    ? { vmid: result.tempVmid, storage: result.storage }
+    : null;
+}
+
+/** The sentence a run's error message carries about a temporary guest that is still there. */
+function leftoverSentence(leftover: { vmid: number; storage: string | null }): string {
+  return `The temporary guest ${leftover.vmid}${leftover.storage ? ` on ${leftover.storage}` : ""} could not be removed.`;
+}
+
 /**
  * The end of a boot test task: its run takes the outcome; a rated outcome (green, yellow, red)
  * becomes the restore point's boot test, which readiness reads. A skipped test, or one the node
- * could not carry out (the task failed), stays with its run and rates nothing.
+ * could not carry out (the task failed), stays with its run and rates nothing. Whatever the
+ * outcome, a temporary guest the node could not remove is kept with the run (its VMID, its
+ * storage) and named in the run's message.
  */
 export async function recordBootTestResult(
   tx: Transaction,
@@ -248,13 +274,26 @@ export async function recordBootTestResult(
     .from(pveRuns)
     .where(and(eq(pveRuns.taskId, task.id), eq(pveRuns.kind, "boot_test")))
     .limit(1);
-  const parsed = nodeResultSchema.safeParse(input.result ?? {});
-  const failed = input.status === "failed" || !parsed.success;
-  const outcome: PveBootTestOutcome = failed ? "error" : parsed.data.outcome;
-  const node = parsed.success ? parsed.data : null;
-  const message = failed
-    ? (input.error ?? "").slice(0, 2000) || "The node could not carry out the boot test."
+  const raw = input.result;
+  const node =
+    raw && typeof raw === "object" && !Array.isArray(raw) ? nodeResultSchema.parse(raw) : null;
+  const failed = input.status === "failed" || !node?.outcome;
+  const outcome: PveBootTestOutcome = failed ? "error" : (node?.outcome ?? "error");
+  const tempVmid = node?.tempVmid ?? null;
+  // An older node, or a result without the field: a guest it made counts as removed only when
+  // it says so.
+  const cleanedUp = tempVmid === null ? true : node?.cleanedUp === true;
+  const leftover = bootTestLeftover({
+    tempVmid,
+    cleanedUp,
+    storage: node?.storage ?? null,
+  });
+  const said = failed
+    ? (input.error ?? "").slice(0, 2000) ||
+      node?.message ||
+      "The node could not carry out the boot test."
     : (node?.message ?? "");
+  const message = leftover ? [said, leftoverSentence(leftover)].filter(Boolean).join(" ") : said;
   const result: PveBootTestResult = {
     outcome,
     reason: failed ? "node_error" : (node?.reason ?? ""),
@@ -263,9 +302,9 @@ export async function recordBootTestResult(
     durationMs: node?.durationMs ?? 0,
     bootSeconds: node?.bootSeconds ?? null,
     guestAgent: node?.guestAgent ?? false,
-    tempVmid: node?.tempVmid ?? null,
+    tempVmid,
     storage: node?.storage ?? null,
-    cleanedUp: node?.cleanedUp ?? false,
+    cleanedUp,
     runId: run?.id ?? "",
   };
   if (run) {
@@ -278,7 +317,8 @@ export async function recordBootTestResult(
         status: outcome === "skipped" || outcome === "error" ? "failed" : "succeeded",
         finishedAt: now,
         stats,
-        errorMessage: outcome === "green" ? null : message || null,
+        // Green says nothing more, unless its temporary guest is still there.
+        errorMessage: outcome === "green" && !leftover ? null : message || null,
         logTail: node?.log ? node.log.slice(-LOG_TAIL_CHARS) : run.logTail,
       })
       .where(eq(pveRuns.id, run.id));
@@ -290,6 +330,97 @@ export async function recordBootTestResult(
       .update(pveSnapshots)
       .set({ bootTest: result })
       .where(and(eq(pveSnapshots.id, snapshotId), eq(pveSnapshots.status, "active")));
+  }
+}
+
+/** A temporary guest of a boot test that is still on its node, per guest (newest first). */
+export interface BootTestLeftover {
+  vmid: number;
+  storage: string | null;
+  node: string | null;
+  runId: string;
+  at: string;
+}
+
+/** Inventories this soon after a boot test ended may have been taken before it (one minute). */
+const LEFTOVER_INVENTORY_SLACK_MS = 60_000;
+
+/**
+ * The temporary guests of boot tests that are still on their node, by tested guest: the newest
+ * boot test run whose result says it could not remove its temporary guest, as long as no later
+ * inventory of that node left the VMID out ({@link markBootTestLeftoversGone}) and no later boot
+ * test on the node removed a guest of that VMID.
+ */
+export async function bootTestLeftovers(
+  tx: Transaction,
+  guestId?: string,
+): Promise<Map<string, BootTestLeftover>> {
+  const rows = await tx.execute<{
+    guest_id: string;
+    id: string;
+    vmid: string;
+    storage: string | null;
+    node: string | null;
+    finished_at: Date | string | null;
+  }>(sql`
+    SELECT DISTINCT ON (r.guest_id) r.guest_id, r.id, r.stats->'bootTest'->>'tempVmid' AS vmid,
+           r.stats->'bootTest'->>'storage' AS storage, n.name AS node, r.finished_at
+      FROM pve_runs r LEFT JOIN pve_nodes n ON n.id = r.node_id
+     WHERE r.kind = 'boot_test' AND r.status <> 'running'
+       ${guestId ? sql`AND r.guest_id = ${guestId}` : sql``}
+       AND r.stats->'bootTest'->>'cleanedUp' = 'false'
+       AND jsonb_typeof(r.stats->'bootTest'->'tempVmid') = 'number'
+       AND COALESCE(r.stats->'bootTest'->>'leftoverGoneAt', '') = ''
+       AND NOT EXISTS (
+         SELECT 1 FROM pve_runs l
+          WHERE l.kind = 'boot_test' AND l.node_id = r.node_id AND l.started_at > r.started_at
+            AND l.stats->'bootTest'->>'tempVmid' = r.stats->'bootTest'->>'tempVmid'
+            AND l.stats->'bootTest'->>'cleanedUp' = 'true')
+     ORDER BY r.guest_id, r.started_at DESC`);
+  return new Map(
+    rows.rows.map((r) => [
+      r.guest_id,
+      {
+        vmid: Number(r.vmid),
+        storage: r.storage,
+        node: r.node,
+        runId: r.id,
+        at: r.finished_at ? new Date(r.finished_at).toISOString() : "",
+      },
+    ]),
+  );
+}
+
+/**
+ * The node's inventory no longer lists a temporary guest a boot test of that node left behind
+ * (restow-pve removes leftovers before every boot test and when its service starts): the run
+ * and its restore point record when it went, and the guest's amber note ends.
+ */
+export async function markBootTestLeftoversGone(
+  tx: Transaction,
+  nodeId: string,
+  listed: readonly number[],
+  now: Date,
+): Promise<void> {
+  const before = new Date(now.getTime() - LEFTOVER_INVENTORY_SLACK_MS);
+  const gone = await tx.execute<{ id: string; snapshot_id: string | null }>(sql`
+    UPDATE pve_runs
+       SET stats = jsonb_set(stats, '{bootTest,leftoverGoneAt}', to_jsonb(${now.toISOString()}::text))
+     WHERE kind = 'boot_test' AND node_id = ${nodeId} AND status <> 'running'
+       AND finished_at < ${before.toISOString()}::timestamptz
+       AND stats->'bootTest'->>'cleanedUp' = 'false'
+       AND jsonb_typeof(stats->'bootTest'->'tempVmid') = 'number'
+       AND COALESCE(stats->'bootTest'->>'leftoverGoneAt', '') = ''
+       AND NOT ((stats->'bootTest'->>'tempVmid')::int = ANY(${`{${listed.map((v) => Math.trunc(v)).join(",")}}`}::int[]))
+    RETURNING id, snapshot_id`);
+  for (const row of gone.rows) {
+    if (!row.snapshot_id) {
+      continue;
+    }
+    await tx.execute(sql`
+      UPDATE pve_snapshots
+         SET boot_test = jsonb_set(boot_test, '{leftoverGoneAt}', to_jsonb(${now.toISOString()}::text))
+       WHERE id = ${row.snapshot_id} AND boot_test->>'runId' = ${row.id}`);
   }
 }
 

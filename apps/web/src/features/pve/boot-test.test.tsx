@@ -6,8 +6,16 @@ import { i18n } from "@/i18n";
 
 import "./i18n";
 import type { PveBootTest } from "./api";
-import { BootTestBadge, BootTestFacts, bootTestDetailKey, bootTestVariant } from "./boot-test";
+import {
+  BootTestBadge,
+  BootTestFacts,
+  bootTestDetailKey,
+  bootTestLeftover,
+  bootTestVariant,
+} from "./boot-test";
+import { BootTestLeftoverNotice } from "./guest-page";
 import { guestResultKey } from "./readiness-row";
+import { runTone } from "./run-status";
 
 /** Boot tests on the guest page and in readiness: green only when the guest agent answered. */
 
@@ -86,6 +94,69 @@ describe("BootTestBadge", () => {
     expect(yellow).toContain("Started, no answer");
     expect(yellow).toContain('data-variant="warning"');
     expect(render(<BootTestBadge test={null} kind="vm" />)).toContain("Not tested");
+  });
+});
+
+describe("a temporary guest the boot test could not remove", () => {
+  it("is a leftover for any outcome while no inventory said it is gone", () => {
+    expect(bootTestLeftover(test())).toBeNull();
+    expect(bootTestLeftover(test({ cleanedUp: false }))).toEqual({
+      vmid: 9001,
+      storage: "local-lvm",
+    });
+    expect(bootTestLeftover(test({ outcome: "error", cleanedUp: false, tempVmid: 9007 }))).toEqual({
+      vmid: 9007,
+      storage: "local-lvm",
+    });
+    // No temporary guest was made (a skipped test): nothing is left.
+    expect(
+      bootTestLeftover(test({ outcome: "skipped", tempVmid: null, cleanedUp: false })),
+    ).toBeNull();
+    expect(
+      bootTestLeftover(test({ cleanedUp: false, leftoverGoneAt: new Date().toISOString() })),
+    ).toBeNull();
+  });
+
+  it("is amber on the restore point's badge, beside a green outcome", () => {
+    const html = render(<BootTestBadge test={test({ cleanedUp: false })} kind="vm" />);
+    expect(html).toContain("Booted");
+    expect(html).toContain('data-slot="pve-boot-test-leftover"');
+    expect(html).toContain("The temporary guest 9001 on local-lvm could not be removed.");
+    expect(render(<BootTestBadge test={test()} kind="vm" />)).not.toContain(
+      "pve-boot-test-leftover",
+    );
+  });
+
+  it("keeps the run from green, and from grey when the test did not run to an end", () => {
+    const boot = (over: Partial<PveBootTest>, status: "succeeded" | "failed" = "succeeded") => ({
+      kind: "boot_test" as const,
+      status,
+      stats: { bootTest: test(over) },
+    });
+    expect(runTone(boot({}))).toBe("success");
+    expect(runTone(boot({ cleanedUp: false }))).toBe("warning");
+    expect(runTone(boot({ outcome: "error", cleanedUp: false }, "failed"))).toBe("warning");
+    expect(runTone(boot({ outcome: "red", cleanedUp: false }))).toBe("destructive");
+    expect(runTone(boot({ cleanedUp: false, leftoverGoneAt: new Date().toISOString() }))).toBe(
+      "success",
+    );
+  });
+
+  it("is a notice on the guest's page with its node", () => {
+    const html = render(
+      <BootTestLeftoverNotice
+        leftover={{
+          vmid: 9007,
+          storage: "local-zfs",
+          node: "pve1",
+          runId: "r1",
+          at: new Date().toISOString(),
+        }}
+      />,
+    );
+    expect(html).toContain('data-slot="pve-boot-test-leftover-notice"');
+    expect(html).toContain("The temporary guest 9007 on local-zfs could not be removed.");
+    expect(html).toContain("node pve1");
   });
 });
 

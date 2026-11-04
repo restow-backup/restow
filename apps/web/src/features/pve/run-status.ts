@@ -1,5 +1,5 @@
 import type { PveRun } from "./api.js";
-import { bootTestVariant } from "./boot-test.js";
+import { bootTestLeftover, bootTestVariant } from "./boot-test.js";
 
 type RunFacts = Pick<PveRun, "kind" | "status" | "stats"> & Partial<Pick<PveRun, "warnings">>;
 
@@ -58,11 +58,15 @@ export function runTone(
   }
   if (run.kind === "boot_test") {
     // Without an outcome nothing was proven (a run an older server closed as stale).
-    return run.stats?.bootTest
-      ? bootTestVariant(run.stats.bootTest.outcome)
-      : run.status === "failed"
-        ? "destructive"
-        : "muted";
+    if (!run.stats?.bootTest) {
+      return run.status === "failed" ? "destructive" : "muted";
+    }
+    const tone = bootTestVariant(run.stats.bootTest.outcome);
+    // A temporary guest that is still on the node keeps even a boot that answered from green,
+    // and a test that did not run from grey: something is left to do.
+    return bootTestLeftover(run.stats.bootTest) && (tone === "success" || tone === "muted")
+      ? "warning"
+      : tone;
   }
   if (run.status === "failed") {
     // A restore check the node did not run (its storage, restores off) says nothing about the

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, History, Play, RotateCcw } from "lucide-react";
+import { ArrowLeft, History, Play, RotateCcw, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -48,6 +48,7 @@ import {
   backupNow,
   fetchGuest,
   guestRefreshMs,
+  type PveBootTestLeftover,
   type PveFollowUpAverage,
   type PveGuest,
   type PveGuestDetail,
@@ -63,7 +64,12 @@ import {
   verifySnapshot,
 } from "./api.js";
 import { BackupProgress } from "./backup-progress.js";
-import { BootTestBadge, BootTestFacts } from "./boot-test.js";
+import {
+  BootTestBadge,
+  BootTestFacts,
+  BootTestLeftoverNote,
+  bootTestLeftover,
+} from "./boot-test.js";
 import { CancelBackupButton, CancelledBadge, CancellingBadge } from "./cancel-controls.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { pveTo } from "./paths.js";
@@ -342,6 +348,16 @@ function RunStatus({ run, name }: { run: PveRun; name: string }) {
  */
 function RunNote({ run }: { run: PveRun }) {
   const { t } = useTranslation(PVE_NAMESPACE);
+  const leftover = run.kind === "boot_test" ? bootTestLeftover(run.stats?.bootTest) : null;
+  if (leftover) {
+    // Whatever the outcome: the temporary guest still takes memory and disk on the node.
+    return (
+      <span className="flex flex-col gap-0.5">
+        <BootTestLeftoverNote leftover={leftover} node={run.node?.name ?? null} />
+        {run.error ? <span title={run.error}>{run.error}</span> : null}
+      </span>
+    );
+  }
   if (run.error) {
     return <span title={run.error}>{run.error}</span>;
   }
@@ -422,6 +438,30 @@ export function RepositoryChainNotice({ chain }: { chain: PveRepositoryChain }) 
               count: chain.unavailablePoints,
               actor: chain.actor ?? t("guest.chain.someone"),
             })}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/**
+ * A boot test's temporary guest that could not be removed is still on its node (it takes
+ * memory and disk there): amber until the node's inventory no longer lists it.
+ */
+export function BootTestLeftoverNotice({ leftover }: { leftover: PveBootTestLeftover }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  return (
+    <Alert variant="warning" data-slot="pve-boot-test-leftover-notice">
+      <TriangleAlert />
+      <AlertTitle>
+        {leftover.storage
+          ? t("guest.bootTestLeftover.onStorage", {
+              vmid: leftover.vmid,
+              storage: leftover.storage,
+            })
+          : t("guest.bootTestLeftover.plain", { vmid: leftover.vmid })}
+      </AlertTitle>
+      <AlertDescription>
+        {t("guest.bootTestLeftover.what", { node: leftover.node ?? "?" })}
       </AlertDescription>
     </Alert>
   );
@@ -813,6 +853,9 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
       </PageHeader>
       {data && canManage ? <BackupDestinationNote /> : null}
       {chains[0] ? <RepositoryChainNotice chain={chains[0]} /> : null}
+      {data?.guest.bootTestLeftover ? (
+        <BootTestLeftoverNotice leftover={data.guest.bootTestLeftover} />
+      ) : null}
       {data ? <ExclusionSection guest={data.guest} canManage={canManage} /> : null}
       {data && !data.guest.excludedAt ? <RestowServerSection guest={data.guest} /> : null}
       <ObjectSuspicionBadge target={suspicionTarget} />

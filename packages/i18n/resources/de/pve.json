@@ -133,6 +133,7 @@
       "verify_postponed": "Restore-Prüfung verschoben",
       "incomplete": "Sicherung unvollständig",
       "warnings": "Erfolgreich mit Warnungen",
+      "boot_test_leftover": "Gast der Startprüfung übrig",
       "restow_server": "{appName}-Server",
       "no_job": "Kein Backup-Job",
       "never": "Noch nicht gesichert",
@@ -307,6 +308,11 @@
       "restores_off": "Keine Startprüfung möglich: Wiederherstellungen sind auf dem Knoten des Gasts ausgeschaltet.",
       "privileged": "Keine Startprüfung möglich: Proxmox VE kann privilegierte Container nicht über eine Backup-Schnittstelle wiederherstellen.",
       "template": "Keine Startprüfung für VM-Vorlagen."
+    },
+    "bootTestLeftover": {
+      "plain": "Der temporäre Gast {vmid} konnte nicht entfernt werden.",
+      "onStorage": "Der temporäre Gast {vmid} auf {storage} konnte nicht entfernt werden.",
+      "what": "Er belegt auf dem Knoten {node} weiter Arbeitsspeicher und Speicherplatz (im Pool restow-restore). restow-pve entfernt ihn vor seiner nächsten Startprüfung und beim Start seines Dienstes; Sie können ihn auch in Proxmox VE entfernen."
     },
     "chain": {
       "missingTitle": "Neue Sicherungskette am {date} begonnen",

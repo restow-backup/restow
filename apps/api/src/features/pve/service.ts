@@ -41,7 +41,12 @@ import {
   isSafeOrigin,
 } from "../endpoints/distribution.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
-import { guestBootTestFacts, guestRestoreCheckFacts } from "./boot-tests.js";
+import {
+  type BootTestLeftover,
+  bootTestLeftovers,
+  guestBootTestFacts,
+  guestRestoreCheckFacts,
+} from "./boot-tests.js";
 import { withdrawQueued } from "./cancel.js";
 import { containerBackupPaths } from "./files.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
@@ -436,6 +441,7 @@ function guestDto(
   sizes: GuestBackupSizes = { first: null, last: null },
   detail: GuestActivityDetail = { since: null, progress: null },
   verify: GuestVerifyFact | null = null,
+  leftover: BootTestLeftover | null = null,
 ) {
   const attention: string[] = [];
   if (g.template && g.kind === "vm") {
@@ -457,6 +463,10 @@ function guestDto(
   }
   if (pveSelfBackupBlocked(g)) {
     attention.push("restow_server");
+  }
+  // A boot test left its temporary guest on the node (memory and disk) until it is removed.
+  if (leftover) {
+    attention.push("boot_test_leftover");
   }
   return {
     id: g.id,
@@ -508,6 +518,7 @@ function guestDto(
     progress: activity === "running" ? detail.progress : null,
     bitmapState: bitmapState(g),
     backups: sizes,
+    bootTestLeftover: leftover,
     attention,
   };
 }
@@ -698,6 +709,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
         entry.followUp = followUpAverage(points, firstSequences.get(guestId) ?? null);
       }
     }
+    const leftovers = await bootTestLeftovers(tx);
     const jobMap = new Map(jobs.map((j) => [j.id, j]));
     const guestCounts = new Map<string, number>();
     // Paused jobs count their guests too (the worker's `coveredBy`).
@@ -726,6 +738,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
           sizes.get(g.id),
           activityDetail.get(g.id),
           verifies.get(g.id) ?? null,
+          leftovers.get(g.id) ?? null,
         ),
       ),
       jobs: jobs.map((j) =>
@@ -919,6 +932,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         undefined,
         undefined,
         newest ? verifyFact(newest.verify, newest.verifyRequestedAt, newest.bootTest) : null,
+        (await bootTestLeftovers(tx, guest.id)).get(guest.id) ?? null,
       ),
       bootTest: await guestBootTestFacts(tx, guest),
       restoreCheck: await guestRestoreCheckFacts(tx, guest),

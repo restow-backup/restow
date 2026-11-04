@@ -37,7 +37,7 @@ import {
   readReleaseFile,
 } from "../endpoints/distribution.js";
 import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
-import { recordBootTestResult } from "./boot-tests.js";
+import { markBootTestLeftoversGone, recordBootTestResult } from "./boot-tests.js";
 import { cancelOrders, taskCancelledOrFailed } from "./cancel.js";
 import type { NodeContext } from "./node-auth.js";
 import { endedStatus, finishFailedTaskRun, settleLateBackupResult } from "./runs.js";
@@ -627,6 +627,8 @@ export async function reportInventory(
           listed.length > 0 ? notInArray(pveGuests.vmid, listed) : sql`true`,
         ),
       );
+    // A boot test's temporary guest this node could not remove and no longer lists is gone.
+    await markBootTestLeftoversGone(tx, node.nodeId, listed, now);
   });
   return { guests: guests.length };
 }

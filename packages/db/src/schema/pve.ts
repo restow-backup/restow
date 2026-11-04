@@ -213,11 +213,16 @@ export type PveBootTestResult = {
   /** Seconds from the start of the guest until the agent (or init) answered. */
   bootSeconds: number | null;
   guestAgent: boolean;
-  /** The temporary VMID on the node (destroyed again). */
+  /** The temporary VMID on the node (destroyed again); null when none was created. */
   tempVmid: number | null;
   storage: string | null;
-  /** Whether the temporary guest was destroyed. */
+  /**
+   * Whether the temporary guest was destroyed. False with a `tempVmid`: it is still on the node
+   * (amber on the run, the restore point and the guest) until `leftoverGoneAt`.
+   */
   cleanedUp: boolean;
+  /** When a later inventory of the node no longer listed the temporary guest (0.5.0). */
+  leftoverGoneAt?: string | null;
   runId: string;
 };
 

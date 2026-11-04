@@ -42,6 +42,46 @@ export function bootTestDetailKey(
   return null;
 }
 
+/**
+ * The temporary guest a boot test made and could not remove (whatever its outcome), while no
+ * later inventory of the node said it is gone; null when nothing is left.
+ */
+export function bootTestLeftover(
+  test:
+    | Pick<PveBootTest, "tempVmid" | "cleanedUp" | "storage" | "leftoverGoneAt">
+    | null
+    | undefined,
+): { vmid: number; storage: string | null } | null {
+  if (!test || test.tempVmid === null || test.tempVmid === undefined) {
+    return null;
+  }
+  return test.cleanedUp === false && !test.leftoverGoneAt
+    ? { vmid: test.tempVmid, storage: test.storage ?? null }
+    : null;
+}
+
+/** Amber: the temporary guest of a boot test is still on the node, and what to do about it. */
+export function BootTestLeftoverNote({
+  leftover,
+  node,
+}: {
+  leftover: { vmid: number; storage: string | null };
+  node?: string | null;
+}) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  return (
+    <span
+      className="max-w-96 text-xs break-words text-warning-text"
+      data-slot="pve-boot-test-leftover"
+    >
+      {leftover.storage
+        ? t("guest.bootTestLeftover.onStorage", { vmid: leftover.vmid, storage: leftover.storage })
+        : t("guest.bootTestLeftover.plain", { vmid: leftover.vmid })}{" "}
+      {t("guest.bootTestLeftover.what", { node: node ?? "?" })}
+    </span>
+  );
+}
+
 export function BootTestBadge({
   test,
   kind,
@@ -54,6 +94,7 @@ export function BootTestBadge({
     return <Badge variant="muted">{t("guest.bootTestNone")}</Badge>;
   }
   const detail = bootTestDetailKey(test, kind);
+  const leftover = bootTestLeftover(test);
   // Red says it in the badge; the node's message is the text. The other outcomes explain why.
   const summary =
     detail && test.outcome !== "red"
@@ -85,6 +126,7 @@ export function BootTestBadge({
           {test.message}
         </span>
       ) : null}
+      {leftover ? <BootTestLeftoverNote leftover={leftover} /> : null}
     </span>
   );
 }

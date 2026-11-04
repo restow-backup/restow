@@ -133,6 +133,7 @@
       "verify_postponed": "Restore check postponed",
       "incomplete": "Incomplete backup",
       "warnings": "Succeeded with warnings",
+      "boot_test_leftover": "Boot test guest left over",
       "restow_server": "{appName} server",
       "no_job": "No backup job",
       "never": "Not backed up yet",
@@ -307,6 +308,11 @@
       "restores_off": "No boot test possible: restores are switched off on the guest's node.",
       "privileged": "No boot test possible: Proxmox VE cannot restore privileged containers from a backup interface.",
       "template": "No boot test for VM templates."
+    },
+    "bootTestLeftover": {
+      "plain": "The temporary guest {vmid} could not be removed.",
+      "onStorage": "The temporary guest {vmid} on {storage} could not be removed.",
+      "what": "It still takes memory and disk on node {node} (in the pool restow-restore). restow-pve removes it before its next boot test and when its service starts; you can also remove it in Proxmox VE."
     },
     "chain": {
       "missingTitle": "New backup chain started on {date}",

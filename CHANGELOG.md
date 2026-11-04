@@ -307,6 +307,15 @@ private repository.
   longer than its schedule allows (two days after every backup, eight days weekly) raises the new
   event "No boot test result" (`boot_test.skipped`) once, with the last reason; rules and the
   bell can pick it like the other boot test events.
+- Proxmox VE: a boot test whose temporary guest could not be removed left no trace in Restow.
+  When the test failed on the way (isolating the guest or waiting for its restore went wrong),
+  the server discarded the whole result, the VMID and "not removed" included, and the node's log
+  with it; after a rated test the fact was stored but shown nowhere, so a green run could leave
+  a VM taking memory and disk on the node. The server now reads the temporary guest from every
+  result. Its run names it ("The temporary guest 9007 on local-zfs could not be removed"), is
+  amber instead of green or grey, the restore point's boot test says it, and the guest gets the
+  state "Boot test guest left over" with a notice on its page, until an inventory of the node no
+  longer lists that VMID or a later boot test there removed it.
 
 ### Upgrade Notes
 

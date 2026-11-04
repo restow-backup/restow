@@ -41,6 +41,7 @@ export const GUEST_STATUS_ORDER = [
   "verify_postponed",
   "incomplete",
   "warnings",
+  "boot_test_leftover",
   "restow_server",
   "no_job",
   "never",
@@ -100,6 +101,8 @@ export const GUEST_STATUS_META: Record<GuestStatusKey, StatusMeta> = {
   verify_postponed: { tone: "warning", problem: false, group: "verify" },
   incomplete: { tone: "warning", problem: true, group: "warnings" },
   warnings: { tone: "warning", problem: true, group: "warnings" },
+  // A boot test's temporary guest could not be removed and still takes memory and disk.
+  boot_test_leftover: { tone: "warning", problem: true, group: "warnings" },
   restow_server: { tone: "warning", problem: false, group: null },
   no_job: { tone: "warning", problem: true, group: "no_backup" },
   never: { tone: "warning", problem: true, group: "no_backup" },
@@ -226,6 +229,9 @@ export function guestStatuses(guest: StatusGuest, node?: StatusNode): GuestStatu
   }
   if ((guest.backups?.last?.unreadable ?? 0) > 0) {
     keys.add("incomplete");
+  }
+  if ((guest.attention ?? []).includes("boot_test_leftover")) {
+    keys.add("boot_test_leftover");
   }
   if (guest.lastRunStatus === "succeeded" && (guest.lastRunWarnings ?? []).length > 0) {
     keys.add("warnings");

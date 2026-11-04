@@ -45,6 +45,13 @@ const keys = (g: PveGuest, node?: Parameters<typeof guestStatuses>[1]) =>
   guestStatuses(g, node).map((s) => s.key);
 
 describe("guest states", () => {
+  it("names a boot test's temporary guest that is still on the node, amber and a problem", () => {
+    const statuses = guestStatuses(testGuest({ attention: ["boot_test_leftover"] }));
+    expect(statuses[0]).toEqual({ key: "boot_test_leftover", tone: "warning", problem: true });
+    expect(matchesStateFilter(statuses, "problems")).toBe(true);
+    expect(matchesStateFilter(statuses, "ok")).toBe(false);
+  });
+
   it("shows a plain successful backup as backed up, neutral, never green", () => {
     const status = primaryStatus(testGuest());
     expect(status.key).toBe("succeeded");

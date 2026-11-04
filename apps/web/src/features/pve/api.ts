@@ -86,6 +86,11 @@ export interface PveGuest {
   backups?: PveGuestBackupSizes;
   attention: string[];
   /**
+   * A boot test's temporary guest that could not be removed and is still on the node (memory,
+   * disk); null otherwise. Missing on servers before 0.5.0.
+   */
+  bootTestLeftover?: PveBootTestLeftover | null;
+  /**
    * vzdump's warnings beside the newest backup, which committed its restore point ("Succeeded
    * with warnings"); missing on servers before 0.4.2.
    */
@@ -253,9 +258,22 @@ export interface PveBootTest {
   durationMs: number;
   bootSeconds: number | null;
   guestAgent: boolean;
+  /** The temporary guest the node made; null when it made none. */
   tempVmid: number | null;
   storage: string | null;
+  /** False with a `tempVmid`: the temporary guest is still on the node (until `leftoverGoneAt`). */
   cleanedUp: boolean;
+  /** When a later inventory of the node no longer listed the temporary guest (servers from 0.5.0). */
+  leftoverGoneAt?: string | null;
+}
+
+/** A boot test's temporary guest that is still on its node (servers from 0.5.0). */
+export interface PveBootTestLeftover {
+  vmid: number;
+  storage: string | null;
+  node: string | null;
+  runId: string;
+  at: string;
 }
 
 /** Why a guest's restore points cannot be boot-tested; null: they can. */
