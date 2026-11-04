@@ -224,6 +224,16 @@ describe("HelperRunner", () => {
     await expect(runner.run({ argv: ["sh", "-c", "id"], timeoutMs: 1000 })).rejects.toThrow(
       /docker/,
     );
+    for (const argv of [
+      ["docker", "rmi", "ghcr.io/restow-backup/restow:0.1.0"],
+      ["docker", "image", "rm", "--force", `sha256:${"a".repeat(64)}`],
+      ["docker", "image", "prune", "--all", "--force"],
+      ["docker", "system", "prune"],
+      ["docker", "image", "rm", "ghcr.io/restow-backup/restow"],
+      ["docker", "image", "rm", "-f", "restow:0.1.0"],
+    ]) {
+      await expect(runner.run({ argv, timeoutMs: 1000 })).rejects.toThrow(/only removed by ID/);
+    }
     expect(api.created.size).toBe(0);
   });
 

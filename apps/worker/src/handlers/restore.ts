@@ -34,6 +34,8 @@
  *   IMAP_ALLOW_INSECURE   "true" permits IMAP sources with security "none" (development only)
  */
 import {
+  type ArchiveRestoreItem,
+  archiveRestoreSource,
   assertTransport,
   authzidNotHonouredMessage,
   authzidWasHonoured,
@@ -55,9 +57,17 @@ import {
   type RestoreTarget,
   type ThrottleInfo,
 } from "@restow/core";
-import { protectedObjects, restoreJobs, sources, users } from "@restow/db";
-import { and, asc, eq, ne, or, sql } from "drizzle-orm";
+import {
+  archiveItemOfMailbox,
+  archiveItems,
+  protectedObjects,
+  restoreJobs,
+  sources,
+  users,
+} from "@restow/db";
+import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { ImapFlow } from "imapflow";
+import { appendAuditEntry } from "../audit.js";
 import { processEntraApp } from "../entra-app.js";
 import type { TenantTxRunner } from "../progress.js";
 import {
@@ -84,6 +94,18 @@ import {
 
 type Env = Record<string, string | undefined>;
 type RestoreJobRow = typeof restoreJobs.$inferSelect;
+
+/** The restore that reads archived messages: named in the audit entry of every read. */
+export interface ArchiveRestoreReader {
+  readonly restoreJobId: string;
+  readonly jobId: string;
+  /** Who asked for the restore (`restore_jobs.actor_user_id`). */
+  readonly actorUserId: string | null;
+  readonly impersonated: boolean;
+}
+
+/** The audit action of an archived message read by the worker for a restore. */
+export const ARCHIVE_RESTORE_READ_ACTION = "archive.item.restore_read";
 
 // ---------------------------------------------------------------------------
 // From the stored request to the engine request
@@ -123,6 +145,50 @@ export function parseStoredSelection(value: unknown): StoredRestoreSelection {
     ...(!all && folderPaths?.length ? { folderPaths } : {}),
     ...(!all && objectIds?.length ? { objectIds } : {}),
     ...(isRecord(value.options) ? { options: value.options } : {}),
+  };
+}
+
+/**
+ * The archived messages a restore from the archive names
+ * (`source_selection.archiveItemIds`, apps/api/src/features/restore/archive.ts),
+ * or null for a restore from a snapshot.
+ */
+export function archiveItemIdsOf(sourceSelection: unknown): string[] | null {
+  if (!isRecord(sourceSelection)) {
+    return null;
+  }
+  const ids = sourceSelection.archiveItemIds;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return null;
+  }
+  return ids.filter((id): id is string => typeof id === "string" && isUuid(id));
+}
+
+/**
+ * The engine request of a restore from the archive (docs/ARCHIVE.md "Aus dem
+ * Archiv im Restore-Explorer"): the archived messages as the source, no
+ * snapshot. The restore job id stands in where a snapshot id is only a label.
+ */
+export function toArchiveRestoreRequest(
+  row: RestoreJobRow,
+  protectedObject: ProtectedObjectRef,
+  items: readonly ArchiveRestoreItem[],
+): RestoreRequest {
+  return {
+    restoreJobId: row.id,
+    snapshotId: row.id,
+    protectedObject,
+    selection: parseStoredSelection(row.sourceSelection),
+    target: { type: row.targetType, ref: row.targetRef },
+    mode: row.mode,
+    actor: { userId: row.actorUserId, impersonated: row.impersonated, reason: row.reason },
+    requestedAt: row.createdAt,
+    source: archiveRestoreSource({
+      protectedObject,
+      items,
+      label: row.id,
+      createdAt: row.createdAt,
+    }),
   };
 }
 
@@ -279,6 +345,19 @@ export interface RestoreStore {
   /** Phase and Graph throttling waits while the run goes on (`jobs.payload.runtime`). */
   persistRuntimeState(jobId: string, state: BackupRuntimeState): Promise<void>;
   persistResult(jobId: string, result: StoredRestoreResult): Promise<void>;
+  /**
+   * The archived messages of a restore from the archive, limited to those of
+   * the protected object (the API checked the same when the restore was
+   * requested); messages without a recorded content reference are left out.
+   * Every message handed out is audited as read (`archive.item.restore_read`, the
+   * restore and who asked for it) in the same transaction, before its content is read:
+   * every read of the archive is audited, a restore's too.
+   */
+  loadArchiveItems?(
+    protectedObjectId: string,
+    itemIds: readonly string[],
+    reader: ArchiveRestoreReader,
+  ): Promise<ArchiveRestoreItem[]>;
 }
 
 export function pgRestoreStore(run: TenantTxRunner, tenantId: string): RestoreStore {
@@ -299,6 +378,59 @@ export function pgRestoreStore(run: TenantTxRunner, tenantId: string): RestoreSt
 
     persistResult: (jobId, result) =>
       mergeJobPayload(run, tenantId, jobId, { [RESULT_KEY]: result }),
+
+    async loadArchiveItems(protectedObjectId, itemIds, reader) {
+      if (itemIds.length === 0) {
+        return [];
+      }
+      const rows = await run(async (tx) => {
+        const loaded = await tx
+          .select({
+            id: archiveItems.id,
+            itemHash: archiveItems.itemHash,
+            sizeBytes: archiveItems.sizeBytes,
+            chunks: archiveItems.chunks,
+            messageId: archiveItems.messageId,
+            receivedAt: archiveItems.receivedAt,
+            sentAt: archiveItems.sentAt,
+            subject: archiveItems.subject,
+            from: sql<string | null>`${archiveItems.envelope}->>'from'`,
+          })
+          .from(archiveItems)
+          .where(
+            and(
+              eq(archiveItems.tenantId, tenantId),
+              inArray(archiveItems.id, [...itemIds]),
+              archiveItemOfMailbox(protectedObjectId),
+            ),
+          )
+          .orderBy(asc(archiveItems.receivedAt), asc(archiveItems.id));
+        for (const item of loaded) {
+          if (item.sizeBytes === null || item.chunks === null) {
+            continue;
+          }
+          await appendAuditEntry(tx, {
+            tenantId,
+            ...(reader.actorUserId ? { actorUserId: reader.actorUserId } : { actor: "system" }),
+            action: ARCHIVE_RESTORE_READ_ACTION,
+            target: item.id,
+            targetType: "archive_item",
+            details: {
+              restoreJobId: reader.restoreJobId,
+              jobId: reader.jobId,
+              protectedObjectId,
+              impersonated: reader.impersonated,
+            },
+          });
+        }
+        return loaded;
+      });
+      return rows.flatMap((row) =>
+        row.sizeBytes === null || row.chunks === null
+          ? []
+          : [{ ...row, sizeBytes: row.sizeBytes, chunks: row.chunks }],
+      );
+    },
   };
 }
 
@@ -566,7 +698,30 @@ export function createRestoreHandler(options: RestoreHandlerOptions): JobHandler
         throw new InvalidPayloadError(`restore request ${payload.restoreJobId} does not exist`);
       }
 
-      const request = toRestoreRequest(row, protectedObject);
+      const archiveIds = archiveItemIdsOf(row.sourceSelection);
+      let request: RestoreRequest;
+      let missingArchiveItems: string[] = [];
+      if (archiveIds) {
+        if (!store.loadArchiveItems) {
+          throw new InvalidPayloadError("this worker cannot read archived messages for a restore");
+        }
+        const items = await store.loadArchiveItems(protectedObject.id, archiveIds, {
+          restoreJobId: row.id,
+          jobId: ctx.jobId,
+          actorUserId: row.actorUserId,
+          impersonated: row.impersonated,
+        });
+        if (items.length === 0) {
+          throw new InvalidPayloadError(
+            `restore ${row.id} names no archived message of this mailbox that can be read`,
+          );
+        }
+        const found = new Set(items.map((item) => item.id));
+        missingArchiveItems = archiveIds.filter((id) => !found.has(id));
+        request = toArchiveRestoreRequest(row, protectedObject, items);
+      } else {
+        request = toRestoreRequest(row, protectedObject);
+      }
       const logger = ctx.logger.child({
         restoreJobId: row.id,
         snapshotId: request.snapshotId,
@@ -575,7 +730,7 @@ export function createRestoreHandler(options: RestoreHandlerOptions): JobHandler
         mode: request.mode,
         impersonated: request.actor.impersonated,
       });
-      logger.info("restore started");
+      logger.info("restore started", archiveIds ? { source: "archive" } : {});
 
       // Phases and every Graph throttling wait reach `jobs.payload.runtime`,
       // so a restore held back by Microsoft says so instead of looking stuck.
@@ -602,6 +757,18 @@ export function createRestoreHandler(options: RestoreHandlerOptions): JobHandler
         for (const failure of result.failures) {
           ctx.progress.fail(failure.itemRef, failure.reason, failure.cause);
         }
+      }
+      // An archived message the API accepted but that is no longer there (retention after
+      // its period, a mailbox assignment gone) is reported, never silently left out.
+      if (missingArchiveItems.length > 0) {
+        const missing = missingArchiveItems.map((itemRef) => ({
+          itemRef,
+          reason: "the archived message is no longer available for this mailbox",
+        }));
+        for (const failure of missing) {
+          ctx.progress.fail(failure.itemRef, failure.reason);
+        }
+        result = { ...result, failures: [...result.failures, ...missing] };
       }
 
       const stored = toStoredResult(result, ctx.now(), recorder.throttleTotals());

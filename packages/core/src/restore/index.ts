@@ -9,6 +9,12 @@
  * without name clashes.
  */
 
+export type { ArchiveRestoreItem } from "./archive-source.js";
+export {
+  archiveRestoreObject,
+  archiveRestorePath,
+  archiveRestoreSource,
+} from "./archive-source.js";
 export type { RestoreGraphClientFactory, RestoreRequestOptions } from "./common.js";
 export { defaultRestoreFolderName, restoreRequestOptions } from "./common.js";
 export type { RestoreEngines, RestoreEnginesOptions } from "./dispatcher.js";

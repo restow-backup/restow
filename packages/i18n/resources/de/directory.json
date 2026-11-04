@@ -314,6 +314,8 @@
       "sites_unavailable": "SharePoint-Websites konnten nicht aufgelistet werden ({status}); die bisher bekannten Websites bleiben unverändert.",
       "groups_permission": "Microsoft-365-Gruppen werden nicht gelesen: Der Tenant hat der App der Sicherung Group.Read.All nicht erteilt ({status}). Gruppenkalender und Unterhaltungen werden weder gefunden noch gesichert; Mail, OneDrive und SharePoint sind nicht betroffen. Führen Sie die Administratorzustimmung für diesen Tenant erneut aus.",
       "groups_unavailable": "Microsoft-365-Gruppen konnten nicht gelesen werden ({status}); die bisher bekannten Gruppen bleiben unverändert.",
+      "memberships_permission": "Inhaber und Mitglieder der Microsoft-365-Gruppen werden nicht gelesen: Der Tenant hat der App der Sicherung Group.Read.All nicht erteilt ({status}). Der Restore-Explorer zeigt bei den Personen deshalb keine oder veraltete Teams und Websites; gesichert wird weiter alles. Führen Sie die Administratorzustimmung für diesen Tenant erneut aus.",
+      "memberships_unavailable": "{count, plural, one {Inhaber und Mitglieder einer Microsoft-365-Gruppe konnten nicht gelesen werden ({status})} other {Inhaber und Mitglieder von # Microsoft-365-Gruppen konnten nicht gelesen werden ({status})}}; der Restore-Explorer zeigt dafür die zuletzt gelesenen und weist darauf hin, dass seine Listen unvollständig sein können. Der nächste Abgleich liest diese Gruppen erneut.",
       "lock_probe_failed": "Ob {user} noch gesperrt ist, konnte nicht geprüft werden ({status}); es bleibt als gesperrt geführt."
     },
     "result": {

@@ -429,6 +429,14 @@ wohin und wie lange, für viele Objekte oder Rechner zugleich. Ein **Lauf** ist,
   Download.
 - Download-Restore: ZIP mit EML/Dateien wird serverseitig gestreamt (kein Temp auf
   Platte über 1 GiB), Link mit Ablauf 24 h.
+- Aus dem Archiv (seit 0.5.0, #48): Der Explorer bietet Administratoren je Postfach oder
+  IMAP-Konto die archivierte Mail seit der neuesten Sicherung als zusätzliche, nur lesende
+  Quelle (`GET /archive/gap`). Zurückgeholt wird sie als gewöhnlicher Restore-Job ohne
+  Sicherungsstand (`restore_jobs.snapshot_id` NULL, `source_selection.archiveItemIds`): Der
+  Worker gibt die Archivobjekte den Engines als Quelle (`RestoreRequest.source`, core
+  `restore/archive-source.ts`) statt eines Manifests, immer in einen eigenen Ordner des
+  ursprünglichen Kontos. Regeln, Rechte und Audit: docs/ARCHIVE.md, "Aus dem Archiv im
+  Restore-Explorer".
 - Export als Mail-Dateien (EML-ZIP, MBOX, ggf. MSG) aus Sicherung, importiertem Postfach und
   Archiv: eigener Job `export`, Ergebnis versiegelt im Speicherziel, Download mit Ablauf und
   Audit; Import von Mail-Dateien in ein importiertes Postfach: Job `import`

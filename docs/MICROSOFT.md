@@ -225,6 +225,16 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   Eintrag, Name und Schlüssel, je 50 Einträge, beim Blättern oder auf "Weitere anzeigen"); Suche
   über Namen, Adressen und Konto-IDs und der Typfilter laufen in der Datenbank, so dass auch
   Mandanten mit über 10.000 Personen nie alle auf einmal laden.
+- Teams & Websites einer Person (ab 0.5.0, #89): Unter E-Mail, Kalender, Kontakte und OneDrive
+  zeigt der Eintrag einer Person die SharePoint-Websites und Gruppenpostfächer, deren Inhaber oder
+  Mitglied sie ist (Abschnitt „Mitgliedschaften" unten), Inhaber zuerst, mit Rolle und neuestem
+  Sicherungsstand. Ein Klick öffnet das Objekt in seinem eigenen Eintrag unter „SharePoint &
+  Teams" mit seinen Sicherungsständen; dort bleibt es auch gelistet, und eine Wiederherstellung
+  von hier folgt denselben Regeln. Wie Websites und Gruppen überall sehen den Bereich nur
+  Wiederherstellungsoperatoren und Administratoren. Aufgeführt sind geschützte Objekte und solche
+  mit Sicherungsstand. Die Liste kommt seitenweise aus der API
+  (`GET /snapshots/people/memberships?key=user:<id>`, Keyset nach Rolle, Name und ID, je 25 Einträge,
+  eine Abfrage je Seite über den Index `directory_memberships_user_idx`).
 - Freigaben/Berechtigungen werden als Information gesichert, nicht wiederhergestellt
   (v1).
 - Gesperrtes OneDrive (ab 0.4.7): Microsoft sperrt das OneDrive eines Kontos ohne Lizenz nach
@@ -350,7 +360,9 @@ Nutzer, wie bei anderen Microsoft-365-Sicherungsprodukten).
   Websitevorlage (Graph v1.0 nennt sie nicht), Inhaltstypen-Hub: nicht gesichert bzw. nur als
   Information.
 - Berechtigungen (Freigaben, Stammordner-Freigaben der Bibliotheken) werden als Information
-  gesichert, nie wiederhergestellt; Websitegruppen und Mitgliedschaften nicht.
+  gesichert, nie wiederhergestellt; Websitegruppen und Mitgliedschaften nicht (welche Personen
+  Inhaber oder Mitglied einer Microsoft-365-Gruppe sind, kennt der Verzeichnisabgleich für den
+  Explorer, siehe „Mitgliedschaften" unter „Gruppenpostfächer"; wiederhergestellt wird das nie).
 - Workflows (SharePoint 2010/2013), Power Automate, Power Apps: nicht gesichert.
 - SharePoint Server (on-premises): nicht unterstützt, nur SharePoint Online über Graph.
 - Eine gelöschte Website oder Bibliothek wird nicht neu angelegt; wiederhergestellt wird in eine
@@ -446,6 +458,69 @@ Wiederherstellung, Download, Export, Restore-Prüfung und Aufbewahrung unveränd
 - Eine gelöschte Gruppe schlägt mit `graph.group_unavailable` fehl (die nächste Synchronisierung
   verwaist sie). Throttling wie bei Postfächern (derselbe Graph-Client, Parallelität über die
   Gruppen statt innerhalb einer).
+
+**Mitgliedschaften (ab 0.5.0, #89).** Damit der Restore-Explorer bei einer Person ihre Teams
+und Websites zeigen kann, liest die Verzeichnissynchronisierung nach dem Festschreiben der Gruppen
+deren Inhaber und Mitglieder und legt sie in `directory_memberships` ab (Migration
+`0074_directory_memberships`, Row Level Security wie jede Mandantentabelle; Code: Graph-Aufrufe in
+`packages/core/src/graph/resources/groups.ts`, Lesen in `packages/core/src/directory/memberships.ts`,
+Schreiben in `apps/worker/src/handlers/directory.ts` `writeMemberships`). Je Gruppe drei Aufrufe,
+gebündelt per `$batch`, 50 Gruppen je Abschnitt. Geschrieben wird am Ende jedes Abschnitts und
+zusätzlich, sobald die gelesenen Gruppen 20 000 Zeilen erreichen (`MEMBERSHIP_FLUSH_ROWS`; eine
+Gruppe mit Website zählt doppelt), jeweils in einer eigenen Transaktion. Darin rechnet der Worker
+den Unterschied zu den gespeicherten Zeilen aus und schickt Löschungen und Einfügungen in Scheiben
+zu 5000 Zeilen (`MEMBERSHIP_WRITE_SLICE`); eine Gruppe „Alle Mitarbeitenden" mit Zehntausenden
+Mitgliedern wird so zu mehreren begrenzten Anweisungen statt einem riesigen Parameter, und im
+Speicher liegen höchstens die ersten Seiten eines Abschnitts plus die größte einzelne Gruppe:
+
+| Aufruf (Graph v1.0) | Anwendungsberechtigung laut Referenz | bei Restow vorhanden über |
+| --- | --- | --- |
+| `GET /groups/{id}/owners?$select=id&$top=999` | `GroupMember.Read.All` (geringste), `Group.Read.All`, `Directory.Read.All` | `Group.Read.All` |
+| `GET /groups/{id}/members?$select=id&$top=999` | `GroupMember.Read.All` (geringste), `Group.Read.All`, `Directory.Read.All` | `Group.Read.All` |
+| `GET /groups/{id}/sites/root?$select=id` | `Sites.Read.All` | `Sites.ReadWrite.All` (optional, siehe oben) bzw. `Sites.Read.All` |
+
+**Keine neue Berechtigung**, kein erneuter Admin-Consent. Mehr als 999 Einträge setzen auf dem
+`@odata.nextLink` fort. Behalten werden nur Benutzer (`#microsoft.graph.user`; Geräte, Kontakte
+und Dienstprinzipale nicht) und nur solche, die das Verzeichnis kennt (`users.entra_object_id`).
+Wer als Inhaber und als Mitglied geführt wird, ist Inhaber. Die Website einer Gruppe bekommt
+dieselben Zeilen wie die Gruppe. Eine Gruppe, die neu gelesen wird, ersetzt ihre Zeilen: Wer
+ausgetreten ist, verliert seine Zeile, eine geänderte Rolle wird aktualisiert. Zeilen einer an der
+Quelle gelöschten Gruppe oder Website bleiben wie zuletzt gelesen (wie ihre Sicherungsstände),
+damit die Teams einer Person auch nach dem Löschen eines Teams wiederherstellbar bei ihr stehen;
+sie gehen mit dem Objekt oder der Person.
+
+- Wann: bei jedem vollen Abgleich (spätestens alle 24 Stunden) und beim ersten Lauf mit dieser
+  Version alle Gruppen (`sources.config.directory.membershipsSyncedAt`), dazwischen die Gruppen,
+  die der Delta-Strom meldet, und die, die ein früherer Lauf nicht abschließen konnte
+  (`membershipsRetryIds`: verweigert, über die Wiederholungen hinaus gedrosselt, oder ihre Website
+  war noch kein Objekt der Quelle, weil `getAllSites` die Website eines eben angelegten Teams
+  noch nicht listet). Diese liest jeder folgende Lauf erneut, bis sie gelingen, nicht erst der
+  nächste volle. Sind es mehr als 1000 (`MEMBERSHIP_RETRY_LIMIT`), merkt sich der Lauf sie nicht
+  einzeln, sondern setzt `membershipsSyncedAt` zurück, und der nächste Lauf liest alle Gruppen.
+  Eine geänderte Mitgliedschaft allein weckt `groups/delta` nicht (Mitglieder sind nicht
+  ausgewählt), sie erscheint also mit dem nächsten vollen Abgleich.
+- Throttling: derselbe Graph-Client (Retry-After plus Jitter); gedrosselte Antworten im `$batch`
+  werden einzeln wiederholt. Bleibt eine Gruppe nach den Wiederholungen gedrosselt (429/5xx) oder
+  verweigert Graph sie (403 ohne Zustimmung), behält sie ihre Zeilen, und der Abgleich meldet
+  **eine** Warnung `memberships_unavailable` mit der Zahl der Gruppen („Inhaber und Mitglieder
+  der Microsoft-365-Gruppen werden nicht gelesen: Der Tenant hat der App der Sicherung
+  Group.Read.All nicht erteilt …" bei 401/403). Der Abgleich schlägt deshalb nie fehl, und die
+  betroffenen Gruppen liest der nächste Lauf erneut. Verweigert Graph einen ganzen Abschnitt mit
+  401/403 (die Berechtigung fehlt), fragt der Lauf die übrigen Gruppen nicht mehr an und lässt sie
+  ebenso dem nächsten Lauf; ohne Zustimmung kostet ein Lauf so nur einen Abschnitt. Eine
+  Gruppe, die inzwischen gelöscht ist (404), wird übergangen; der nächste Delta-Lauf verwaist sie.
+- Vollständigkeit im Explorer: Solange eine nicht pausierte Microsoft-365-Quelle des Mandanten
+  noch nie alle Gruppen gelesen hat oder Gruppen zum erneuten Lesen vormerkt, liefert die API
+  `complete: false`, und der Bereich „Teams & Websites" sagt, dass die Liste unvollständig sein
+  kann; eine leere Liste heißt dann ausdrücklich nicht „keine Mitgliedschaften".
+  Verweigert Graph nur die Website (ohne `Sites.Read.All`), behält die Website ihre Zeilen.
+- Kommunikationswebsites ohne Gruppe bekommen **keine** Zeilen: Graph v1.0 nennt ihre
+  SharePoint-Gruppen (Besitzer, Mitglieder, Besucher) nicht; das ginge nur über die
+  SharePoint-REST-API (`/_api/web/AssociatedOwnerGroup`), mit einer zweiten Token-Zielgruppe und
+  app-only einem Zertifikat. Dasselbe gilt für Websitesammlungsadministratoren und für
+  private und freigegebene Kanäle eines Teams (eigene Websites mit eigener Mitgliedschaft).
+- Nicht gegen einen echten Tenant geprüft: Die Formen folgen der Graph-v1.0-Referenz, die Tests
+  laufen gegen eine simulierte Graph-API (`packages/core/src/graph/testing/fake-memberships.ts`).
 
 **Wiederherstellung.** Im Explorer steht die Gruppe im Abschnitt „SharePoint & Teams" (ein
 Eintrag je Gruppe, Filter „Microsoft-365-Gruppen") mit den Bereichen **Gruppenkalender** und

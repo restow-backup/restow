@@ -208,12 +208,31 @@
 			respond `{"type":"urn:restow:problem:service-unavailable","title":"Service unavailable","status":503,"detail":"The server is restarting or under maintenance."}` 503
 		}
 
+		# The language of the page: the one the app shows (the cookie restow_lang, written by
+		# apps/web/src/i18n.ts on every language change, so the demo's English start and a
+		# visitor's own choice count), else the browser's (Accept-Language), else English.
 		@app_down_page_de {
 			expression {err.status_code} in [502, 503, 504]
 			header Accept *text/html*
-			header_regexp language Accept-Language (?i)^\s*de
+			header_regexp chosen Cookie (^|;\s*)restow_lang=de(;|$)
 		}
 		handle @app_down_page_de {
+			header Cache-Control "no-store"
+			header Retry-After "30"
+			rewrite * /maintenance/index.de.html
+			root * /srv
+			file_server {
+				status 503
+			}
+		}
+
+		@app_down_page_browser_de {
+			expression {err.status_code} in [502, 503, 504]
+			header Accept *text/html*
+			header_regexp language Accept-Language (?i)^\s*de
+			not header_regexp Cookie (^|;\s*)restow_lang=
+		}
+		handle @app_down_page_browser_de {
 			header Cache-Control "no-store"
 			header Retry-After "30"
 			rewrite * /maintenance/index.de.html

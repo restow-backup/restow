@@ -519,6 +519,20 @@
       "when": 1793470093653,
       "tag": "0073_storage_samples",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1793818442629,
+      "tag": "0074_directory_memberships",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1793829896791,
+      "tag": "0075_archive_gap_index",
+      "breakpoints": true
     }
   ]
 }

@@ -123,9 +123,168 @@ private repository.
   and runs the installer tests: its Ed25519 check against Go's on the RFC 8032 vectors and
   some hundred mutated signatures, the signature fixtures, and a full installation against a
   test instance.
+- Proxmox VE, "New data per backup" (#58): a guest's page shows above its restore points a bar
+  chart of what each of its newest 30 backups added to the repository, oldest left, coloured by
+  type (first backup, incremental, full read) from the categorical chart palette, never green.
+  A first backup far above the follow-ups (more than four times the largest) is cut at the top
+  of the scale so the follow-ups stay readable, and the chart names it with its real size.
+  Screen readers get a sentence with the range and the newest figure, and "Show as table" lists
+  every bar with its time, type and size. A machine's Snapshots tab shows the same chart over
+  its newest 30 snapshots that carry what they added, from the snapshot list the tab loads
+  anyway (restic runs once). A machine's snapshots carry no type, so there a backup is cut when
+  it stands more than four times above the next smaller one (its first backup, typically) and at
+  least two backups remain below it; it is named with its real size like a guest's. The chart is
+  a kit part (`NewDataChart`) on the shared chart card.
+
+- Updater: after an update succeeded (the new version answers and the run is recorded as
+  succeeded), it removes the images of earlier releases and keeps those of the version that runs
+  now and of the version before it, for a rollback by hand. Only Restow's own images go: every
+  name of the image must be in a repository of the installation (application and web image, the
+  other build's twins, the local names of `source` mode, the images Compose resolves for api,
+  worker, scheduler, updater and mounter; the edge image is only kept, as an override may run a
+  stock Caddy there), its release must be older than the previous one (by its version label or
+  `RESTOW_VERSION`; by a version tag only in the Restow repositories), no container may use it
+  (running or stopped, of any project) and the project must not be configured with it. It is
+  removed by its image ID, never forced; an image with several names first loses the others,
+  each only while it still names that image. The command runners refuse `docker image rm` with
+  anything but image IDs or one name with a tag or digest, `--force`, `rmi`, `image`, `builder`
+  and `system prune` and `--rmi`. Nothing is
+  removed after a failed, rolled back or interrupted run, and a removal that fails is logged and
+  leaves the update succeeded. The run's log says how many images went and their size, the finish
+  step carries the numbers. docs/UPDATING.md, "Old images".
+- Public demo: in follow mode `reset.sh` checks the free space on Docker's data root before it
+  pulls a release (`RESTOW_DEMO_MIN_FREE_MB`, default 4096, `0` turns it off) and stops with a
+  log line while the demo keeps running when it is short or cannot be measured. After a
+  successful reset it removes the images of the releases it followed before, except the one
+  before the current release (in SemVer order, `rc.10` after `rc.9`), and after every
+  successful reset the demo's own earlier images that have no name any more (by ID, never
+  `docker image prune`, which would also take a co-hosted production stack's) and the build
+  cache older than a day, host-wide (`RESTOW_DEMO_PRUNE_BUILD_CACHE=false` leaves it alone;
+  deploy/demo/README.md, "Disk space").
+
+- Restore explorer: a person's entry has a new area "Teams & sites" (#89) under Mail, Calendar,
+  Contacts and OneDrive. It lists the SharePoint sites and Microsoft 365 group mailboxes (Teams
+  included) the person owns or belongs to, owned ones first, each with the role (Owner or Member,
+  neutral, never green), its kind, its newest restore point, and "No backup yet" or "Removed"
+  where that applies. A click opens the site or group mailbox on its own restore points; it stays
+  listed under "SharePoint & Teams" as well, and a restore started from here follows exactly the
+  rules of that section. The area is shown to restore operators and administrators only, like
+  sites and group mailboxes everywhere else. Listed are objects that are protected or have a
+  restore point; a group nobody chose to back up that never was has nothing to restore. The list
+  comes from the api a page at a time (25 per page, "Show N more"), so a person in hundreds of
+  Teams does not load them all at once.
+- The directory sync stores who belongs to which Microsoft 365 group in the new table
+  `directory_memberships` (migration 0074, Row Level Security like the other tenant tables): the
+  owners (`/groups/{id}/owners`) and direct members (`/groups/{id}/members`) of every group,
+  users only, ids only, 999 per page and the rest on the next links, together with the group's
+  site (`/groups/{id}/sites/root`), three reads per group sent through `$batch` (throttled
+  answers waited out with Retry-After like every other Graph call). A group-connected site gets
+  the same rows as its group; someone listed as owner and member is an owner. A group that is
+  read again has its rows replaced: a person who left loses the row, a changed role is updated.
+  Every group is read on a full sync (at least every 24 hours) and on the first run with this
+  version; in between the groups the groups delta reports (a changed membership alone does not
+  show up in it) and the groups an earlier run could not finish: refused, throttled past the
+  retries, or whose site the sites listing did not have yet (a Team created a moment ago). Those
+  are read again on every following run until they succeed, not only by the next full sync; with
+  more than 1000 of them the next run reads every group. What a run reads is written at the end
+  of each chunk of 50 groups and as soon as it holds 20,000 rows, as the difference to the stored
+  rows in statements of at most 5000 rows, so an "All employees" group with tens of thousands of
+  members neither fills the memory nor becomes one huge statement. Rows of a group or site deleted at the source stay as last known,
+  next to its restore points, and go with the object or the person. Communication sites without
+  a group have none: Graph v1.0 does not expose their SharePoint groups.
+- No new permission: `Group.Read.All`, which the app has always required, covers owners and
+  members, and `Sites.Read.All` (or `Sites.ReadWrite.All`) the group's site. When Graph refuses
+  the membership (403 without the consent) or keeps throttling a group past the retries, the sync
+  does not fail: the stored rows stay, and the source shows one warning naming how many groups
+  could not be read ("Owners and members of the Microsoft 365 groups are not read: the tenant has
+  not granted Group.Read.All …"). When a whole chunk is refused with 401/403 the run stops asking
+  for the rest, so a missing consent costs one chunk per run. A site Graph does not name keeps its
+  rows. Until every group has been read, and while groups wait to be read again, a person's
+  "Teams & sites" says that the list may be incomplete ("… that is no proof" when it is empty)
+  instead of presenting it as a complete result; the api answers `complete: false` for it.
+- The api answers `GET /api/v1/snapshots/people/memberships?key=user:<id>&after=&limit=`: one
+  page of a person's group mailboxes and sites with the role and each object as the explorer's
+  other lists return it (restore points, readiness, status), owned first, then by name, with a
+  keyset cursor. One query reads the page over the index on `(user_id, protected_object_id)`,
+  however many groups the tenant has, and one more loads its objects; for a viewer who does not
+  see sites the answer is an empty list. Each membership is one button whose accessible name is
+  its content (name, kind, role, "No backup yet" or "Removed"), and the area is labelled by its
+  heading.
+- Restore explorer: "From the archive" (#48). Below the folders of a mailbox or IMAP account,
+  administrators find the mail that reached the archive after the account's newest backup, the
+  gap between two backups that the archive already holds. It counts the archived items of the
+  account (its own captures and the journal reports and copies assigned to it) captured from the
+  start of the newest completed backup on, newest first, 50 a page; superseded captures, imported
+  mail files and the one-time takeover are left out (they did not arrive after the backup). The
+  capture time sets the boundary, so a mail that was in the mailbox just before the backup began
+  but reached the archive just after is listed rather than missed; it is marked "Already in the
+  backup" (not green) when the newest backup holds a mail with the same Message-ID (as the header
+  spells it, with or without angle brackets), and putting it back makes a second copy. The list
+  reads the account's own captures and assignments, and looks the page's Message-IDs up in the
+  backup, through indexes (migration 0075), never the whole archive of the tenant or every mail
+  of the backup. A message opens in the archive's reading pane and downloads as its original
+  `.eml`; selected
+  messages go back into the account as a restore job through the same worker and engines as a
+  restore from a restore point, always into a new folder "From the archive <date>" (below it
+  `INBOX` on IMAP), never over anything there. Each message is read from the chunk store and
+  checked against the size and SHA-256 recorded at capture before it reaches the mailbox. The
+  archive stays as it is: a copy goes back, the item, its retention and any legal hold do not
+  change. The restore shows under "Recent restores" as "From the archive". An archived message
+  that is gone between the request and the run is reported as failed, never left out quietly.
+- The source follows the archive's rules. The archive is for tenant administrators (provider
+  admins from the provider team role "Technician" on), so is the source: restore operators and
+  end users use the explorer as before, do not see the entry, and nothing is asked of the
+  archive on their behalf. Every listing is audited as `archive.searched` with
+  `details.view = "restore_gap"` and, for someone else's mailbox, on their behalf; reading and
+  downloading keep their audit entries; putting messages back is a `restore.requested` with
+  `details.source = "archive"` and the items, and needs a reason for another person's mail like
+  every restore of their data; the worker then writes one `archive.item.restore_read` per message
+  it reads for the restore (the restore job and who asked for it), before reading its content. Only the original account is a target (an orphaned one is
+  refused, 409); the demo does not put mail back into a mailbox.
+- The api answers `GET /api/v1/archive/gap?object=<id>` (the gap, tenant admins) and
+  `POST /api/v1/restore/archive` (`objectId`, `itemIds` up to 500, `reason`,
+  `options.restoreFolderName`; tenant admins). It takes only what the list shows: a superseded
+  capture, an imported file, the one-time takeover or mail from before the newest backup is
+  refused (422 `urn:restow:problem:archive-not-in-gap`). Each gap item carries `inBackup`. A
+  restore's `source` is `snapshot` or `archive` in `GET /api/v1/restore` and
+  `GET /api/v1/restore/:id`; a restore from the archive has no `snapshotId`. The engines take
+  archived messages as their source through `RestoreRequest.source` (core
+  `restore/archive-source.ts`); the stored request keeps them in
+  `restore_jobs.source_selection.archiveItemIds` (no new column).
+- `GET /api/v1/navigation` tells the web which menu entries the active tenant offers beyond roles
+  and the installation's features; today `offers.archive` (always false for someone who is not an
+  administrator of the tenant).
 
 ### Changed
 
+- Proxmox VE inventory (#58): a guest's row says how large its first backup was and when
+  ("First backup: 32 GB on 3 Oct"), what the last follow-up added ("Last follow-up: +210 MB", or
+  "No follow-up backup yet") and the average follow-up ("Average follow-up: +180 MB (last 7
+  backups)"); the tooltip adds the first backup's full time and what the newest restore point
+  contains. It all comes with the overview, nothing is loaded per row. `GET /api/v1/pve` names
+  the `sequence` of `backups.first` and `backups.last` (additive), so the newest point counts as
+  a follow-up by its place, not by its time; the web interface still reads older servers.
+- The menu entry "Archive" stays in Mail & SaaS but shows only where the tenant has an archive:
+  the archive holds mail of the tenant (from any edition, a file import with "archive at the same
+  time" included, and after a change of edition), or the edition includes a capture
+  (`archive.mailboxCapture` or `archive.smtpCapture`) and a capture is set up in the tenant: a
+  mail job archives (paused or with its way still to be chosen included), the journal address
+  was issued, an account has an active forwarding address, or a capture stream is not switched
+  off, so journaling shows before its first report arrives. Elsewhere it is hidden: in an edition
+  without capture while nothing is archived, and in a tenant where no capture is set up yet. Saving a
+  job, the first read of the journal address and issuing a forwarding address ask again, so the
+  entry appears once a capture is set up. The journal host note on the tenant page reads the host
+  alone (`GET /api/v1/archive/journal/host`, every provider role that sees the tenant) and no
+  longer issues the journal address, so looking at the tenant page does not bring the entry. It is hidden until the answer is in,
+  so nothing appears and vanishes again; the page stays reachable by its address, and the
+  tenant page keeps its archive sections. The same rule decides on the explorer's source "From
+  the archive". docs/ARCHIVE.md describes it in "Eintrag „Archiv“ im Menü".
+- docs/ARCHIVE.md: the status section is checked against 0.5.0. It now says that a hold on a
+  mailbox protects every archived item of that mailbox, not only journal reports: its own
+  captures (Graph, IMAP, copies forwarded to the account's archive address, file imports) and
+  the journal reports and copies assigned to it; only items without any assignment rely on a
+  tenant-wide hold (#48). The retention line says that 8 years is the default no API or page
+  can change, and hold scopes by search are not evaluated.
 - The storage growth chart of the start page and the capacity page share one module for what
   they have in common (the figures of a series, the estimate, the day a repository runs full and
   what limits a repository). The chart looks as before.
@@ -193,9 +352,28 @@ private repository.
   modules (79 or 80 per target; three only in `restic.exe`, FUSE and xattr only on Linux and
   macOS), and `scripts/restic-licenses.mjs check` compares each restic binary with the modules
   listed for its target.
+- Dependencies: better-auth and its passkey plugin 1.7.15, `@better-auth/utils` 0.5.1, hono
+  4.13.16, `@aws-sdk/client-s3` 3.1161.0, i18next 26.6.0, react-i18next 17.1.10,
+  `@tanstack/react-query` 5.105.1, react-hook-form 7.91.0, react-resizable-panels 4.16.0,
+  lucide-react 1.66.0 and cn 0.5.1 (Dependabot #95), and two major updates: `@hono/node-server`
+  2 (2.1.6, Dependabot #87), the HTTP server of the api, the updater and the mounter, and unpdf 2
+  (2.0.1, Dependabot #90), which reads the rendered PDF reports back in the tests only. With
+  `@hono/node-server` 2 a request whose path holds a raw backslash is answered with 400 before it
+  reaches a route, and a response without a body no longer carries `Content-Type: text/plain`;
+  the advisory GHSA-rmxm-3fg6-px4f (its static file middleware, which Restow does not use) is
+  closed with it.
 
 ### Fixed
 
+- The API now writes an unexpected error to its log before it answers with HTTP 500: the method,
+  the path, the error's name and message (with secrets masked) and the first frames of its stack.
+  Until now such a request failed in the browser while `docker compose logs api` showed nothing,
+  so the cause could not be found without a debugger.
+- The page "Restow is temporarily unavailable" (the edge's page while the server restarts or is
+  updated) speaks the language the app shows. It followed only the browser's language, so a
+  German browser got it in German even where Restow was set to English, as on the public demo,
+  which starts in English. The app now keeps its language in a cookie `restow_lang` that the
+  edge reads first; without it the browser's language counts as before.
 - Mail archive: a request to look at a mailbox now, made while a pass over it was still running,
   was overwritten by the pass's own next time when the pass ended. It happened when the IDLE
   watch of an IMAP account began during the account's pass, when new mail was announced by IDLE
@@ -207,12 +385,57 @@ private repository.
   one the pass started with.
   This was the cause of the IMAP test that failed now and then ("shows a watched account as
   IDLE"); with a pass slowed down on purpose it failed every time before and passes now.
+- Old images filled the disk: neither the updater nor the demo reset ever removed the images of
+  earlier releases, the updater only refused an update when the space was short. A demo host
+  that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
+  its disk ran full and PostgreSQL stopped. Both now clean up after a successful update or reset
+  (see Added). For updates by hand (`docker compose pull` and `up -d`, `install.sh`),
+  docs/UPDATING.md gives the commands that remove old Restow images safely (only version tags
+  older than the previous release, in the repositories of `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE`
+  from `.env`), and its duplicated heading "Disk space" is gone.
+- Servers & clients › Jobs: the detail panel of a running Proxmox VE job showed only how many
+  guests of its round were done, run and wait, with no live progress and no speed graph, unlike
+  a mail, machine or file share job's panel. It now lists the guests the round backs up at this
+  moment, each with its progress bar, what its node has read and its speed, and the small line
+  of that speed over the last minutes (sampled as on the start page's "Running now"), and a
+  boot test the job started, marked as one (it reports no progress, so it has no bar); the
+  panel of a backup asked for by hand shows the same for its guest. The percent beside the
+  job's state in the list moves with the running backups' progress instead of only when a guest
+  finishes (a boot test is not part of the round), and a backup asked for by hand shows its own
+  percent there. The live channel's Proxmox VE runs (and "Running now" of the start page) carry
+  the job that started a run as `jobId`, and as `jobName` the job of the round for a guest that
+  a job over all guests covers (it was empty there). The live channel now carries up to 500
+  running Proxmox VE runs of a tenant instead of 51, so the panel of a busy tenant's job lists
+  every guest of its round; the start page still lists 50 and says that more go on. The web app
+  matches the runs of an older server by the job's name, and then only backups while the job's
+  round runs guests: such a server cannot tell a backup asked for by hand from the round's.
+- Servers & clients › Jobs: the schedule of a Proxmox VE job on chosen weekdays, monthly or with
+  a cron expression read "every 0 h" in the list and in the detail panel, and a daily one showed
+  its time unformatted. Both now use the words of every other schedule ("Monday to Friday at
+  01:30", "Monthly on day 1 at 03:00", "Custom: …"), as on the Proxmox VE page; the time zone is
+  shown for clock times only.
+- The detail panel and the row of a copy job showed no progress while it copied: its runs are
+  restores of what it copies and were not counted as the job's.
 
 ### Upgrade Notes
 
-One database migration runs on start: 0073 creates the new table `storage_samples` and rewrites
-nothing. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the fingerprint
-`SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
+Three database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
+explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
+index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
+assignment, a partial index on the Message-IDs of `manifest_versions` (mail only), and the new
+column `tenants.journal_address_issued_at`, empty for every tenant. Building the indexes reads the
+archive's rows, its assignments and the backup index's mail rows once, and new captures and
+backups wait for it meanwhile; nothing is rewritten. A journal address issued before 0.5.0 no
+longer brings the menu entry "Archive" on its own: up to 0.4.12 the tenant page and the Archive
+page issued it when they were first opened, also where journaling was never set up. Such a
+tenant gets the entry once a journal report arrives, a mail job archives, or an administrator
+opens the journal setup on the Archive page (it stays reachable by its address) or issues a new
+address there; the address itself keeps working. The first directory sync after the update reads
+the owners and members of every Microsoft 365 group once (three Graph reads per group, through
+`$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
+incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
+fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
 
 ### Known Issues
 

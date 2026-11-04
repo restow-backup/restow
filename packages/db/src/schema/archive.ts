@@ -140,6 +140,14 @@ export const archiveItems = pgTable(
       .where(sql`${t.supersedesItemId} IS NOT NULL`),
     // The chain tip: the newest item in append order (created_at, then id).
     index("archive_items_tenant_created_idx").on(t.tenantId, t.createdAt, t.id),
+    // One mailbox's own captures in capture order: the restore explorer's "From the archive"
+    // (apps/api archive/gap.ts, `archiveItemIdsOfMailbox`) reads the mail after a backup
+    // began as an index range instead of a scan of the tenant's archive.
+    index("archive_items_tenant_object_received_idx").on(
+      t.tenantId,
+      t.protectedObjectId,
+      t.receivedAt,
+    ),
   ],
 );
 
@@ -168,7 +176,15 @@ export const archiveItemMailboxes = pgTable(
   },
   (t) => [
     uniqueIndex("archive_item_mailboxes_item_object_uq").on(t.archiveItemId, t.protectedObjectId),
-    index("archive_item_mailboxes_object_idx").on(t.tenantId, t.protectedObjectId),
+    // One mailbox's assignments in the order they were written: the restore explorer's
+    // "From the archive" (apps/api archive/gap.ts, `archiveItemIdsOfMailbox`) reads those
+    // since a backup began as an index range, not the mailbox's whole archive history. Took
+    // over from `archive_item_mailboxes_object_idx` (tenant, mailbox) in migration 0075.
+    index("archive_item_mailboxes_object_created_idx").on(
+      t.tenantId,
+      t.protectedObjectId,
+      t.createdAt,
+    ),
   ],
 );
 

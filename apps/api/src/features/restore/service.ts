@@ -112,6 +112,11 @@ export interface RestoreFailureDto {
 export interface RestoreDto {
   id: string;
   jobId: string | null;
+  /**
+   * Where the restored data came from: a restore point (`snapshotId`), or archived mail of
+   * the mailbox (features/restore/archive.ts; `snapshotId` is then null).
+   */
+  source: "snapshot" | "archive";
   snapshotId: string | null;
   snapshotSequence: number | null;
   snapshotAt: string | null;
@@ -801,9 +806,11 @@ function isVisibleTo(viewer: Viewer, row: RestoreRow): boolean {
 function toRestoreDto(row: RestoreRow, now: Date): RestoreDto {
   const status: RestoreStatus = row.job?.status ?? "unknown";
   const completedAt = row.job?.completedAt ?? null;
+  const selection = parseStoredSelection(row.restore.sourceSelection);
   return {
     id: row.restore.id,
     jobId: row.restore.jobId,
+    source: selection.archiveItemIds ? "archive" : "snapshot",
     snapshotId: row.restore.snapshotId,
     snapshotSequence: row.snapshot?.sequence ?? null,
     snapshotAt: iso(row.snapshot?.completedAt),
@@ -817,7 +824,7 @@ function toRestoreDto(row: RestoreRow, now: Date): RestoreDto {
       : null,
     target: { type: row.restore.targetType, ref: row.restore.targetRef },
     mode: row.restore.mode,
-    selection: summarizeSelection(parseStoredSelection(row.restore.sourceSelection)),
+    selection: summarizeSelection(selection),
     reason: row.restore.reason,
     impersonated: row.restore.impersonated,
     actor: {

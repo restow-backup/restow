@@ -102,6 +102,43 @@ export function fetchPeople(params: {
   );
 }
 
+/** A group mailbox or site of a person's "Teams & sites" (#89), with their role in it. */
+export interface PersonMembership {
+  role: "owner" | "member";
+  /** The site or group mailbox with its restore points, as its own entry lists it. */
+  object: SnapshotObject;
+}
+
+export interface PersonMembershipsPage {
+  key: string;
+  items: PersonMembership[];
+  total: number;
+  /** The cursor of the next page; null on the last one. */
+  next: string | null;
+  /**
+   * Whether the directory sync has read every Microsoft 365 group with nothing left to read
+   * again; false: the list may be missing entries (an empty one proves nothing).
+   */
+  complete: boolean;
+}
+
+/** The page size of a person's Teams and sites. */
+export const MEMBERSHIPS_PAGE_SIZE = 25;
+
+/** One page of the group mailboxes and sites a person (`user:<id>`) owns or belongs to. */
+export function fetchPersonMemberships(params: {
+  key: string;
+  after?: string | null;
+}): Promise<PersonMembershipsPage> {
+  return apiFetch<PersonMembershipsPage>(
+    `/snapshots/people/memberships${queryString({
+      key: params.key,
+      after: params.after ?? undefined,
+      limit: MEMBERSHIPS_PAGE_SIZE,
+    })}`,
+  );
+}
+
 export interface Snapshot {
   id: string;
   objectId: string;
@@ -405,6 +442,11 @@ export interface RestoreResult {
 export interface RestoreJob {
   id: string;
   jobId: string | null;
+  /**
+   * Where the restored data came from: a restore point, or archived mail of the mailbox
+   * ("From the archive", `snapshotId` null). Absent from an API older than 0.5.0: a restore point.
+   */
+  source?: "snapshot" | "archive";
   snapshotId: string | null;
   snapshotSequence: number | null;
   snapshotAt: string | null;
@@ -489,6 +531,8 @@ export const restoreKeys = {
     ["tenant", tenantId, "restore", "people", section, q, kind] as const,
   personOf: (tenantId: TenantKey, objectId: string | null) =>
     ["tenant", tenantId, "restore", "person-of", objectId] as const,
+  memberships: (tenantId: TenantKey, key: string | null) =>
+    ["tenant", tenantId, "restore", "memberships", key] as const,
   snapshots: (tenantId: TenantKey, objectId: string | null) =>
     ["tenant", tenantId, "restore", "snapshots", objectId] as const,
   tree: (tenantId: TenantKey, snapshotId: string | null, path: string, sort: TreeSort) =>
@@ -639,6 +683,21 @@ export function searchSnapshot(snapshotId: string, q: string): Promise<SearchRes
 
 export function createRestore(request: CreateRestoreRequest): Promise<RestoreCreated> {
   return apiFetch<RestoreCreated>("/restore", { method: "POST", body: request });
+}
+
+/** POST /restore/archive: archived mail of a mailbox back into it (administrators only). */
+export interface CreateArchiveRestoreRequest {
+  objectId: string;
+  itemIds: string[];
+  /** Required when the mailbox is not the administrator's own. */
+  reason?: string;
+  options?: { restoreFolderName?: string };
+}
+
+export function createArchiveRestore(
+  request: CreateArchiveRestoreRequest,
+): Promise<RestoreCreated> {
+  return apiFetch<RestoreCreated>("/restore/archive", { method: "POST", body: request });
 }
 
 export async function fetchRestoreTargets(objectId: string): Promise<RestoreTargetAccount[]> {

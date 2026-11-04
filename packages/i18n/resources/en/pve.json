@@ -98,10 +98,15 @@
     "sizeHint": "Configured disk size in Proxmox VE: what is allocated, not what is in use.",
     "backup": "Backup",
     "backupContains": "{size} in the backup",
-    "backupAdded": "+{size} new in the last run",
     "backupFirst": "First backup on {date}: {size} stored",
     "backupFollowUp": "Average per follow-up backup: +{size} (last {count, plural, one {# backup} other {# backups}})",
     "backupNone": "No backup yet",
+    "backupSizes": {
+      "first": "First backup: {size} on {date}",
+      "lastFollowUp": "Last follow-up: +{size}",
+      "noFollowUp": "No follow-up backup yet",
+      "average": "Average follow-up: +{size} (last {count, plural, one {# backup} other {# backups}})"
+    },
     "incomplete": "Last backup incomplete",
     "incompleteHint": "{count, plural, one {# item} other {# items}} could not be read; the restore point misses them.",
     "diskAllocated": "{size} allocated",

@@ -46,7 +46,9 @@ Postgres-Service bereit und setzt die Variable.
   `features/snapshots/calendar.pg.test.ts` (Kalender im Explorer: Termine nach Beginn,
   Monatsansicht mit Serien aus echtem verschlüsseltem Inhalt),
   `features/snapshots/people.pg.test.ts` (Personen im Explorer seitenweise: stabiler Keyset,
-  Suche, Typfilter, eigener Eintrag zuerst), `features/snapshots/explorer-scale.pg.test.ts`
+  Suche, Typfilter, eigener Eintrag zuerst), `features/snapshots/memberships.pg.test.ts` (Teams
+  und Websites einer Person: Inhaber zuerst, stabiler Keyset, eine Abfrage je Seite, nur für
+  Wiederherstellungsoperatoren und Administratoren), `features/snapshots/explorer-scale.pg.test.ts`
   (Ordnerliste eines Postfachs mit 60 000 Nachrichten und eines OneDrive mit 20 000 Ordnern
   über den Index: Plan ohne Scan aller Einträge, gleiche Zeilen wie der vollständige Scan,
   rund 25 s), `features/webhooks/integrations.pg.test.ts`
@@ -57,7 +59,9 @@ Postgres-Service bereit und setzt die Variable.
   `legal-holds/legal-holds.pg.test.ts`, `provider-api/tenants.pg.test.ts`,
   `provider-dashboard/view.pg.test.ts`,
   `reports/summary.pg.test.ts`, `ee/worker/src/archive-retention/archive-retention.pg.test.ts`
-- apps/worker: `framework.pg.test.ts` sowie die Postgres-Abschnitte von
+- apps/worker: `handlers/directory-memberships.pg.test.ts` (Inhaber und Mitglieder der
+  Microsoft-365-Gruppen auf Gruppe und Gruppen-Website, Ersetzen beim erneuten Lesen, Zeilen
+  bleiben bei verweigertem Lesen), `framework.pg.test.ts` sowie die Postgres-Abschnitte von
   `handlers/restore.test.ts`, `handlers/webhooks.test.ts` und `handlers/audit-anchor.test.ts`
 - Endpoint-Backup (docs/AGENT.md), brauchen zusätzlich das restic-Binary (`RESTIC_BINARY` oder
   im `PATH`): apps/api `features/endpoints/endpoints.pg.test.ts` (Enrollment, Agent-API, RLS),

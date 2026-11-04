@@ -54,6 +54,7 @@ function pveRun(overrides: Partial<PveRunningDto> = {}): PveRunningDto {
     id: "pve-1",
     kind: "backup",
     guest: { id: "g1", vmid: 100, name: "web", kind: "vm" },
+    jobId: "pj-1",
     jobName: "Every guest",
     startedAt: "2026-10-02T10:00:00.000Z",
     cancelling: false,

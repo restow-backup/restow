@@ -52,6 +52,8 @@ import { mountPath as jobsMountPath } from "./features/jobs/meta.js";
 import { jobsRoutes } from "./features/jobs/routes.js";
 import { mountPath as mountsMountPath } from "./features/mounts/meta.js";
 import { mountsRoutes } from "./features/mounts/routes.js";
+import { mountPath as navigationMountPath } from "./features/navigation/meta.js";
+import { navigationRoutes } from "./features/navigation/routes.js";
 import { mountPath as providerTeamMountPath } from "./features/provider-team/meta.js";
 import { providerTeamRoutes } from "./features/provider-team/routes.js";
 import {
@@ -227,6 +229,7 @@ export function buildApp() {
 
   // Web UI (session) routes, in navigation order.
   app.route(`${API_V1}/status`, status);
+  app.route(`${API_V1}${navigationMountPath}`, navigationRoutes);
   app.route(`${API_V1}${dashboardMountPath}`, dashboardRoutes);
   app.route(`${API_V1}${statsMountPath}`, statsRoutes);
   app.route(`${API_V1}${tenantsMountPath}`, tenantsRoutes);

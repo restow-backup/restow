@@ -59,7 +59,7 @@ export function ShellBreadcrumbs({ className }: { className?: string }) {
   const entry = useShellEntry();
   const pageTitle = usePageTitle();
   const session = useSession();
-  const navItems = useNavItems();
+  const navItems = useNavItems({ includeNotOffered: true });
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
   const scopeKind = scopeKindOf({

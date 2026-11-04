@@ -177,6 +177,8 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
 export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> = {
   // --- Identity -------------------------------------------------------------
   "GET /api/v1/me": view(NONE),
+  // Which menu entries the active tenant offers (features/navigation): no content.
+  "GET /api/v1/navigation": view(),
   "GET /api/v1/settings/passkey-ready": view(NONE),
   // Accepting the operator notice is the operator's decision: owners and
   // administrators only. Technicians and read-only members are held up by the
@@ -455,6 +457,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/snapshots": view(),
   "GET /api/v1/snapshots/objects": view(),
   "GET /api/v1/snapshots/people": view(),
+  // Which groups and sites a person belongs to: names and roles, like the people list.
+  "GET /api/v1/snapshots/people/memberships": view(),
   "GET /api/v1/snapshots/objects/:id/versions": view(),
   "GET /api/v1/snapshots/search": operate(),
   "GET /api/v1/snapshots/:id/tree": operate(),
@@ -468,6 +472,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/restore/:id": view(),
   "GET /api/v1/restore/targets": operate(),
   "POST /api/v1/restore": operate(),
+  "POST /api/v1/restore/archive": operate(),
   "POST /api/v1/restore/:id/cancel": operate(),
   "GET /api/v1/restore/:id/download": operate(),
 
@@ -504,6 +509,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/archive/items/:id": operate(),
   "GET /api/v1/archive/items/:id/preview": operate(),
   "GET /api/v1/archive/items/:id/download": operate(),
+  // The restore explorer's source "From the archive" (#48): archived mail of one mailbox,
+  // content like the search; restoring it into the mailbox is a restore.
+  "GET /api/v1/archive/gap": operate(),
   // Archive capture beyond journaling (0.4.4): its state, a resync, the hold confirmation.
   "GET /api/v1/archive/capture": view(),
   "GET /api/v1/archive/capture/mailboxes": view(),

@@ -5,7 +5,13 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { useConfirmIdentity } from "@/components/confirm-identity-dialog";
-import { DetailHover, PageHeader, RefreshButton, RelativeTime } from "@/components/kit";
+import {
+  DetailHover,
+  NewDataChart,
+  PageHeader,
+  RefreshButton,
+  RelativeTime,
+} from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -63,6 +69,7 @@ import {
   verifySnapshot,
 } from "./api.js";
 import { BackupProgress } from "./backup-progress.js";
+import { newDataPoints } from "./backup-size.js";
 import { BootTestBadge, BootTestFacts } from "./boot-test.js";
 import { CancelBackupButton, CancelledBadge, CancellingBadge } from "./cancel-controls.js";
 import { PVE_NAMESPACE } from "./i18n.js";
@@ -756,6 +763,8 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
   );
   const guestName = data ? (data.guest.name ?? String(data.guest.vmid)) : "";
   const availablePoints = (data?.snapshots ?? []).filter((p) => p.available !== false).length;
+  // What each of the newest 30 restore points added (#58), from the points the page loads anyway.
+  const newData = React.useMemo(() => newDataPoints(data?.snapshots ?? []), [data]);
   return (
     <div className="space-y-6">
       <Link
@@ -822,6 +831,11 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
           {t("guest.restorePoints")}
         </h2>
         {data?.followUp ? <FollowUpNote followUp={data.followUp} /> : null}
+        {newData.length >= 2 ? (
+          <div data-slot="pve-new-data">
+            <NewDataChart points={newData} />
+          </div>
+        ) : null}
         {data?.bootTest ? <BootTestFacts facts={data.bootTest} /> : null}
         {data && data.snapshots.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("guest.noRestorePoints")}</p>

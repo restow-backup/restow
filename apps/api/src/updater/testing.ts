@@ -15,6 +15,7 @@ import {
   type ConfiguredImages,
   type DockerOps,
   type DumpVerification,
+  type LocalImage,
   OpsError,
   PullError,
   type RunnerReadiness,
@@ -173,6 +174,13 @@ export class FakeDockerOps implements DockerOps {
   /** Content of the dump files the fake writes. */
   dumpContent = Buffer.concat([Buffer.from("PGDMP"), Buffer.alloc(2048, 7)]);
   apiRunningVersionValue: string | null = null;
+  /**
+   * The local image store as `listImages` reports it (the image cleanup). Pulls and builds
+   * do not add to it; tests put in what they need.
+   */
+  readonly imageStore: LocalImage[] = [];
+  /** Image IDs used by containers outside the compose project (stopped or running). */
+  readonly otherContainerImages = new Set<string>();
 
   constructor(
     private readonly projectDir: string,
@@ -389,6 +397,85 @@ export class FakeDockerOps implements DockerOps {
     this.hit("build", `${spec.target} ${spec.tag}`);
     this.builds.push(spec);
     this.localImages.set(spec.tag, [digestOf(spec.tag)]);
+  }
+
+  async listImages(): Promise<LocalImage[]> {
+    this.hit("listImages");
+    return this.imageStore.map((image) => ({
+      ...image,
+      tags: [...image.tags],
+      digests: [...image.digests],
+    }));
+  }
+
+  async containerImageIds(): Promise<Set<string>> {
+    this.hit("containerImageIds");
+    return this.usedImageIds();
+  }
+
+  private usedImageIds(): Set<string> {
+    const ids = new Set(this.otherContainerImages);
+    for (const container of this.containers.values()) {
+      for (const image of this.imageStore) {
+        if (image.id === container.image || image.tags.includes(container.image)) {
+          ids.add(image.id);
+        }
+      }
+    }
+    return ids;
+  }
+
+  async removeImage(id: string): Promise<void> {
+    this.hit("removeImage", id);
+    const index = this.imageStore.findIndex((image) => image.id === id);
+    if (index < 0) {
+      throw new OpsError("Removing the image failed (exit code 1).", `No such image: ${id}`);
+    }
+    if (this.usedImageIds().has(id)) {
+      throw new OpsError(
+        "Removing the image failed (exit code 1).",
+        `conflict: unable to delete ${id.slice(7, 19)} - image is being used by a container`,
+      );
+    }
+    const image = this.imageStore[index] as LocalImage;
+    // Like Docker: by ID only an image with one name (one tag, digests of its repository).
+    const repositories = new Set(
+      [...image.tags, ...image.digests].map((reference) => fakeRepositoryOf(reference)),
+    );
+    if (image.tags.length > 1 || repositories.size > 1) {
+      throw new OpsError(
+        "Removing the image failed (exit code 1).",
+        `conflict: unable to delete ${id.slice(7, 19)} (must be forced) - image is referenced in multiple repositories`,
+      );
+    }
+    this.imageStore.splice(index, 1);
+  }
+
+  async untagImage(reference: string, id: string): Promise<void> {
+    this.hit("untagImage", reference);
+    const image = this.imageStore.find(
+      (entry) => entry.tags.includes(reference) || entry.digests.includes(reference),
+    );
+    if (!image) {
+      throw new OpsError(
+        "Inspecting the image failed (exit code 1).",
+        `No such image: ${reference}`,
+      );
+    }
+    if (image.id !== id) {
+      throw new OpsError("The image name was not removed.", "It refers to another image by now.");
+    }
+    image.tags = image.tags.filter((entry) => entry !== reference);
+    image.digests = image.digests.filter((entry) => entry !== reference);
+    if (image.tags.length === 0) {
+      // Docker drops the digests of the repository whose last tag went, and the image
+      // itself with its last name (unless a container uses it).
+      const repository = fakeRepositoryOf(reference);
+      image.digests = image.digests.filter((entry) => fakeRepositoryOf(entry) !== repository);
+      if (image.digests.length === 0 && !this.usedImageIds().has(image.id)) {
+        this.imageStore.splice(this.imageStore.indexOf(image), 1);
+      }
+    }
   }
 
   // -- Database -------------------------------------------------------------
@@ -907,4 +994,11 @@ export async function waitForCall(harness: Harness, prefix: string, count = 1): 
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`No call ${prefix} was made.`);
+}
+
+/** The repository of an image name in the fake image store (no tag, no digest). */
+function fakeRepositoryOf(reference: string): string {
+  const name = reference.split("@")[0] ?? reference;
+  const colon = name.lastIndexOf(":");
+  return colon > name.lastIndexOf("/") ? name.slice(0, colon) : name;
 }

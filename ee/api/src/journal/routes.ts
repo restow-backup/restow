@@ -16,6 +16,7 @@ import {
   getJournalReceiver,
   getJournalSetup,
   type JournalSetupEnvironment,
+  journalHost,
   rotateJournalAddress,
 } from "./setup.js";
 
@@ -27,10 +28,11 @@ import {
  *                     first call), the receiver state, the last report and the
  *                     requirements for DNS, the firewall and Exchange Online
  *   POST   /rotate    issue a new address; the old one stops working at once
+ *   GET    /host      the journal host alone, for the tenant page: issues no address
  *   GET    /receiver  the receiver itself, for every tenant: whether it listens,
  *                     why not, the journal host, port, TLS and size limit
  *
- * The first two are for tenant administrators; the receiver is installation
+ * The first three are for tenant administrators; the receiver is installation
  * level and for provider admins (it names no tenant). Mounted behind
  * the `archive.journalReceiver` capability (apps/api/src/app.ts): without it
  * every path here answers 404.
@@ -59,6 +61,10 @@ export function buildJournalRoutes(deps: JournalRoutesDeps): Hono<TenantEnv> {
       await getJournalSetup(deps.db, c.get("tenantId"), actorOf(c), deps.environment()),
     );
   });
+
+  // The host belongs to the installation: no address is read or issued, so looking at the
+  // tenant page does not count as journaling set up (apps/api archive/availability.ts).
+  routes.get("/host", deps.requireAdmin, (c) => c.json(journalHost(deps.environment())));
 
   // The receiver concerns no tenant, so the guard is the session one; the router here is typed
   // for the tenant routes next to it.
