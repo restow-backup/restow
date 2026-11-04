@@ -920,6 +920,10 @@ export async function finishRun(
   now: Date = new Date(),
 ): Promise<void> {
   const run = await withTenantTx(db, node.tenantId, (tx) => loadRun(tx, node, runId));
+  if (run.kind !== "backup") {
+    // Only a backup ends here: the snapshotId of any other run names the restore point it read.
+    throw problem(409, "Not a backup run", "This run is not a backup.");
+  }
   if (run.status !== "running") {
     return;
   }
@@ -989,8 +993,9 @@ export async function finishFailedTaskRun(
     await recordBootTestResult(tx, task, { status: "failed", error: message }, now);
     return;
   }
-  // A run that committed its restore point succeeded, whatever the task says afterwards: the
-  // restore point is there. The task's message becomes its warning.
+  // A backup run that committed its restore point succeeded, whatever the task says afterwards:
+  // the restore point is there. The task's message becomes its warning. Only a backup: the
+  // snapshotId of a restore or restore check names the restore point it read, not a result.
   const kept = await tx
     .update(pveRuns)
     .set({
@@ -1003,10 +1008,16 @@ export async function finishFailedTaskRun(
       and(
         eq(pveRuns.taskId, task.id),
         eq(pveRuns.status, "running"),
+        eq(pveRuns.kind, "backup"),
         isNotNull(pveRuns.snapshotId),
       ),
     )
-    .returning({ id: pveRuns.id, guestId: pveRuns.guestId, status: pveRuns.status });
+    .returning({
+      id: pveRuns.id,
+      guestId: pveRuns.guestId,
+      status: pveRuns.status,
+      kind: pveRuns.kind,
+    });
   // Every other run the task left open fails with it (a redelivered task can have opened
   // several); one stopped in the UI ends cancelled.
   const cancelled = task.status === "cancelled";
@@ -1024,10 +1035,16 @@ export async function finishFailedTaskRun(
         : {}),
     })
     .where(and(eq(pveRuns.taskId, task.id), eq(pveRuns.status, "running")))
-    .returning({ id: pveRuns.id, guestId: pveRuns.guestId, status: pveRuns.status });
+    .returning({
+      id: pveRuns.id,
+      guestId: pveRuns.guestId,
+      status: pveRuns.status,
+      kind: pveRuns.kind,
+    });
   closed.push(...kept);
   if (closed.length > 0) {
-    const ended = closed.filter((r) => r.status !== "cancelled");
+    // "Last backup" moves for a backup that ended, never for a restore or a restore check.
+    const ended = closed.filter((r) => r.kind === "backup" && r.status !== "cancelled");
     for (const guestId of new Set(ended.map((r) => r.guestId))) {
       await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, guestId));
     }

@@ -678,6 +678,95 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     });
     expect(await fixture.db.select().from(chunks).limit(1)).toHaveLength(1);
   });
+  it("a failed, expired or cancelled restore or restore check never succeeds and never moves Last backup (S01)", async () => {
+    const [guest] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const before = new Date("2026-10-04T01:00:00Z");
+    await fixture.db
+      .update(pveGuests)
+      .set({ lastBackupAt: before, lastRestoreTestAt: null })
+      .where(eq(pveGuests.id, guest?.id ?? ""));
+    const guestRow = async () =>
+      (
+        await fixture.db
+          .select()
+          .from(pveGuests)
+          .where(eq(pveGuests.id, guest?.id ?? ""))
+      )[0];
+    const runOf = async (taskId: string) =>
+      (await fixture.db.select().from(pveRuns).where(eq(pveRuns.taskId, taskId)))[0];
+    const restore = (restoreTest: boolean) =>
+      service.restoreSnapshot(
+        shared.db,
+        fixture.tenantId,
+        first.snapshotId,
+        { targetStorage: "local-lvm", start: false },
+        actor(),
+        { restoreTest },
+      );
+    // The node reports the restore and the restore check failed (PVE refused, out of space).
+    for (const restoreTest of [false, true]) {
+      const queued = await restore(restoreTest);
+      await call(node, "/heartbeat", { json: { helperVersion: "0.3.0", state: "idle" } });
+      const error = "unable to restore CT 9002 - mount point mp0: only root can set bind mounts";
+      await json(
+        await call(node, `/tasks/${queued.taskId}/result`, { json: { status: "failed", error } }),
+        204,
+      );
+      const run = await runOf(queued.taskId);
+      expect(run).toMatchObject({
+        kind: restoreTest ? "restore_test" : "restore",
+        status: "failed",
+        errorMessage: error,
+      });
+      expect(run?.stats.warnings).toBeUndefined();
+      const [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, queued.taskId));
+      expect(task?.status).toBe("failed");
+    }
+    expect((await guestRow())?.lastBackupAt).toEqual(before);
+    expect((await guestRow())?.lastRestoreTestAt).toBeNull();
+    // A restore task closed by the server (it expired) fails its run the same way.
+    const { finishFailedTaskRun } = await import("./runs.js");
+    const { withTenantTx } = await import("../../lib/tenant-context.js");
+    const expired = await restore(true);
+    const [open] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, expired.taskId));
+    await withTenantTx(shared.db, fixture.tenantId, (tx) =>
+      finishFailedTaskRun(
+        tx,
+        { ...(open as never as object), status: "failed" } as never,
+        "The node did not run the task in time.",
+        new Date(),
+      ),
+    );
+    expect(await runOf(expired.taskId)).toMatchObject({
+      status: "failed",
+      errorMessage: "The node did not run the task in time.",
+    });
+    // A restore stopped in the UI ends cancelled.
+    const stopped = await restore(false);
+    await call(node, "/heartbeat", { json: { helperVersion: "0.3.0", state: "idle" } });
+    await fixture.db
+      .update(pveTasks)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(pveTasks.id, stopped.taskId));
+    await json(
+      await call(node, `/tasks/${stopped.taskId}/result`, {
+        json: { status: "failed", error: "context canceled" },
+      }),
+      204,
+    );
+    expect(await runOf(stopped.taskId)).toMatchObject({ kind: "restore", status: "cancelled" });
+    expect((await guestRow())?.lastBackupAt).toEqual(before);
+    // The node never calls a restore run's end as a backup's.
+    const restoreRun = await runOf(stopped.taskId);
+    expect(
+      (
+        await call(node, `/runs/${restoreRun?.id}/finish`, {
+          json: { status: "succeeded" },
+        })
+      ).status,
+    ).toBe(409);
+  });
+
   it("shows a container's backup as queued, then running, and closes a run whose end the node never reported", async () => {
     const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
     const ctId = ct?.id ?? "";

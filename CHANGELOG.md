@@ -246,6 +246,13 @@ private repository.
   docs/UPDATING.md gives the commands that remove old Restow images safely (only version tags
   older than the previous release, in the repositories of `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE`
   from `.env`), and its duplicated heading "Disk space" is gone.
+- Proxmox VE: a restore or a restore check that failed showed as succeeded (green), with the
+  node's error only as a warning, and set the guest's "Last backup" to that moment though no
+  backup ran. This happened for every failure the node reported (PVE refusing a bind mount
+  point to the API token, a full target storage, a restore that ended with an error) and for a
+  restore task the server closed because it expired. The server took the restore point a
+  restore reads for one a backup had committed. Such a run now ends failed with the node's
+  error, or cancelled when it was stopped, and "Last backup" moves only for backups.
 
 ### Upgrade Notes
 

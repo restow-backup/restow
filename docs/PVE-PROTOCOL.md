@@ -216,8 +216,14 @@ closes a run its node no longer lists, a task expires), and settles what the lat
 result can still say: an open run ends as the task says; a committed run that was
 closed as failed succeeds when the task is reported `done` (the old message becomes
 a warning); warnings are added once. A committed restore point is never failed by
-a task: a task that fails or expires leaves its committed runs succeeded, and a task
-whose run is still open does not expire. 404 only for a task the node never had.
+a task: a task that fails or expires leaves its committed backup runs succeeded, and a
+task whose run is still open does not expire. 404 only for a task the node never had.
+
+Only a backup run commits a restore point. A restore or restore check run names the
+restore point it reads from the start, so it never counts as committed: when its task
+fails or expires it ends `failed` with the task's error (`cancelled` after a cancel
+request), and the guest's "Last backup" stays as it was. `POST /runs/:id/finish` is for
+backup runs; for any other run the server answers 409.
 
 The node (since 0.4.2) keeps a result the server could not take (unreachable, 5xx)
 in `/var/lib/restow-pve/pending-results.json` (at most 100) and sends the kept ones
