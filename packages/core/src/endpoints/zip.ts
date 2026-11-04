@@ -18,6 +18,7 @@ import type { Readable } from "node:stream";
 import { type Archiver, ZipArchive } from "archiver";
 import {
   normaliseSnapshotPath,
+  type ResticDump,
   type ResticSession,
   resticDump,
   resticStatMany,
@@ -153,19 +154,34 @@ export function streamSnapshotZip(
   const { session, snapshotId, selection, signal } = options;
   const archive = new ZipArchive({ zlib: { level: 1 }, comment: options.comment });
   const names = new UniqueNames();
+  // The dump being read. Whatever ends the archive early (a broken tar, an error of the ZIP
+  // writer, the client leaving) cancels it: its output is read by nobody then, and restic
+  // would wait on the full pipe without ending.
+  let current: ResticDump | null = null;
+  const stopCurrent = () => {
+    const dump = current;
+    current = null;
+    if (dump) {
+      dump.cancel();
+      dump.stream.destroy();
+    }
+  };
 
   const pump = async (): Promise<void> => {
     for (const item of selection) {
       if (item.type === "file") {
         const dump = resticDump(session, snapshotId, item.path, { signal });
+        current = dump;
         const name = names.claim(safeEntryName(basename(item.path)) || "file");
         const added = nextEntry(archive);
         archive.append(dump.stream, { name });
         await added;
         await dump.done;
+        current = null;
         continue;
       }
       const dump = resticDump(session, snapshotId, item.path, { archive: "tar", signal });
+      current = dump;
       const prefix = parentPrefix(item.path);
       for await (const entry of readTar(dump.stream)) {
         const relative = entry.name.startsWith(prefix)
@@ -190,13 +206,17 @@ export function streamSnapshotZip(
         }
       }
       await dump.done;
+      current = null;
     }
     await archive.finalize();
   };
 
   pump().catch((error: unknown) => {
+    stopCurrent();
     archive.destroy(error instanceof Error ? error : new Error(String(error)));
   });
+  archive.on("error", stopCurrent);
+  archive.on("close", stopCurrent);
   signal?.addEventListener("abort", () => archive.destroy(new Error("aborted")), { once: true });
 
   const only = selection.length === 1 ? selection[0] : undefined;

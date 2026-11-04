@@ -632,6 +632,9 @@ export interface ResticDump {
   cancel(): void;
 }
 
+/** How long a cancelled `restic dump` gets to end after SIGTERM before it is killed. */
+const DUMP_KILL_AFTER_MS = 5_000;
+
 /** `restic dump`: a file's content, or a directory as a tar archive with `archive: "tar"`. */
 export function resticDump(
   session: ResticSession,
@@ -657,7 +660,16 @@ export function resticDump(
     stream: child.stdout as Readable,
     done: outcome,
     cancel: () => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        return;
+      }
+      // Nobody reads its output any more: SIGTERM, and SIGKILL when it does not end in time
+      // (it may be blocked writing into the pipe). "close" reaps it either way.
+      child.stdout?.destroy();
       child.kill("SIGTERM");
+      const kill = setTimeout(() => child.kill("SIGKILL"), DUMP_KILL_AFTER_MS);
+      kill.unref();
+      child.once("close", () => clearTimeout(kill));
     },
   };
 }
