@@ -25,6 +25,7 @@ type cancelNode struct {
 	mu       sync.Mutex
 	beats    []map[string]any // answered in turn; the last one again and again
 	states   []string         // the `state` of every heartbeat
+	sent     []map[string]any // every heartbeat's body
 	results  map[string]map[string]any
 	deleted  []string
 	vzdumps  int
@@ -51,6 +52,7 @@ func newCancelNode(t *testing.T, beats ...map[string]any) *cancelNode {
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			state, _ := in["state"].(string)
 			f.states = append(f.states, state)
+			f.sent = append(f.sent, in)
 			answer := map[string]any{"tasks": []any{}, "storageId": "restow", "usage": map[string]any{}}
 			if len(f.beats) > 0 {
 				answer = f.beats[0]
@@ -462,5 +464,109 @@ func TestUpdateNowWaitsForQueuedRunsAndInstallsBeforeTheNextFromTheServer(t *tes
 	tick()
 	if len(installed) != 1 {
 		t.Fatalf("installed %v together with a new task", installed)
+	}
+}
+
+// lastHeld is the heldTasks of the last heartbeat.
+func (f *cancelNode) lastHeld(t *testing.T) map[string]any {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) == 0 {
+		t.Fatal("no heartbeat")
+	}
+	held, ok := f.sent[len(f.sent)-1]["heldTasks"].(map[string]any)
+	if !ok {
+		t.Fatalf("heartbeat without heldTasks: %v", f.sent[len(f.sent)-1])
+	}
+	return held
+}
+
+// The heartbeat names the task the node works on and those in its queue, so the server keeps
+// them from expiring while the node holds them.
+func TestHeartbeatListsTheTasksTheNodeHolds(t *testing.T) {
+	f := newCancelNode(t)
+	s := f.service(t)
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	held := f.lastHeld(t)
+	if _, ok := held["current"]; ok {
+		t.Fatalf("idle node reports a current task: %v", held)
+	}
+	if q, ok := held["queued"].([]any); !ok || len(q) != 0 {
+		t.Fatalf("idle node: queued = %#v, want []", held["queued"])
+	}
+	s.mu.Lock()
+	s.lazyLocked()
+	s.cur = &current{id: "task-a", kind: "backup"}
+	s.mu.Unlock()
+	s.enqueue([]Task{{ID: "task-b", Kind: "backup"}, {ID: "task-c", Kind: "boot_test"}})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	held = f.lastHeld(t)
+	q, _ := held["queued"].([]any)
+	if held["current"] != "task-a" || len(q) != 2 || q[0] != "task-b" || q[1] != "task-c" {
+		t.Fatalf("heldTasks = %v", held)
+	}
+}
+
+// A queued task the server cancels is dropped before it starts and reported cancelled; one
+// delivered and cancelled in the same heartbeat never enters the queue.
+func TestACancelledQueuedTaskNeverRuns(t *testing.T) {
+	f := newCancelNode(t, map[string]any{"tasks": []any{cancelBackupTask("task-d")},
+		"cancel": map[string]any{"tasks": []any{"task-d", "task-e"}}})
+	s := f.service(t)
+	s.enqueue([]Task{{ID: "task-e", Kind: "backup", Params: json.RawMessage(`{"vmid":101}`)}})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s.Busy() {
+		t.Fatalf("cancelled tasks wait in the queue: %v", s.heldTasks())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); s.work(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.vzdumps != 0 {
+		t.Fatalf("vzdump started %d times for cancelled tasks", f.vzdumps)
+	}
+	for _, id := range []string{"task-d", "task-e"} {
+		if f.results[id]["status"] != "failed" || f.results[id]["error"] != "cancelled in Restow" {
+			t.Errorf("result of %s = %v", id, f.results[id])
+		}
+	}
+}
+
+// A queued task whose vzdump runs already (taken up again after a restart) is not dropped, which
+// would leave the vzdump running: its wait stops the vzdump task and reports how it ended.
+func TestACancelledTaskWaitedForAgainStopsItsVzdump(t *testing.T) {
+	f := newCancelNode(t, map[string]any{"tasks": []any{}, "cancel": map[string]any{"tasks": []any{"task-f"}}})
+	s := f.service(t)
+	params := json.RawMessage(`{"vmid":101}`)
+	s.keepInflight(inflightTask{TaskID: "task-f", Kind: "backup", Params: params, UPID: testUPID, VMID: 101})
+	s.enqueue([]Task{{ID: "task-f", Kind: "backup", Params: params}})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if h := s.heldTasks(); len(h.Queued) != 1 {
+		t.Fatalf("the task waited for again was dropped: %v", h)
+	}
+	s.runTask(context.Background(), Task{ID: "task-f", Kind: "backup", Params: params})
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.deleted) != 1 || !strings.Contains(f.deleted[0], "vzdump") {
+		t.Fatalf("vzdump task not stopped: %v", f.deleted)
+	}
+	if f.vzdumps != 0 {
+		t.Fatal("a second vzdump was started")
+	}
+	if r := f.results["task-f"]; r["status"] != "failed" || !strings.Contains(fmt.Sprint(r["error"]), "cancelled in Restow") {
+		t.Fatalf("result = %v", r)
 	}
 }

@@ -148,6 +148,20 @@ func (s *Service) enqueue(tasks []Task) {
 	}
 }
 
+// heldTasks lists the task the worker runs and the queued ones.
+func (s *Service) heldTasks() HeldTasks {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h := HeldTasks{Queued: []string{}}
+	if s.cur != nil {
+		h.Current = s.cur.id
+	}
+	for _, q := range s.queue {
+		h.Queued = append(h.Queued, q.ID)
+	}
+	return h
+}
+
 // dropQueued removes a task that waits in the queue; false when it does not wait there.
 func (s *Service) dropQueued(id string) bool {
 	s.mu.Lock()
@@ -417,7 +431,7 @@ func (s *Service) Tick(ctx context.Context) error {
 		HelperVersion: buildinfo.Version, PVEVersion: pveVersion, FleecingStorage: s.State.FleecingStorage,
 		PluginLoaded: !contains(problems, "pve.plugin_not_loaded"), State: state, Problems: problems,
 		RestoresAllowed: s.State.RestoresAllowed(), ActiveRuns: activeRuns(s.Layout),
-		Capabilities: s.Capabilities(),
+		Capabilities: s.Capabilities(), HeldTasks: s.heldTasks(),
 	})
 	status := ServiceStatus{LastHeartbeat: time.Now().UTC().Format(time.RFC3339), PVEVersion: pveVersion, Problems: problems}
 	if err != nil {
@@ -444,8 +458,8 @@ func (s *Service) Tick(ctx context.Context) error {
 		}
 	}
 	_ = writeJSONAtomic(s.Layout.ServiceStatus(), status, 0o644)
-	s.applyCancel(ctx, hb.Cancel)
-	s.enqueue(hb.Tasks)
+	handled := s.applyCancel(ctx, hb.Cancel)
+	s.enqueue(s.withoutCancelled(ctx, hb.Tasks, hb.Cancel, handled))
 	// "Update now": installed only while nothing runs here (no task, no backup PVE started).
 	if hb.Update != nil && hb.Update.Now && s.OnUpdate != nil {
 		v := hb.Update.Version

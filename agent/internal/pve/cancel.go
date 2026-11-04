@@ -137,19 +137,31 @@ type current struct {
 // applyCancel carries out the server's cancel orders: a queued task is dropped (and reported as
 // failed, which the server records as cancelled), the running one's vzdump task is stopped
 // through the PVE API, and a backup started in PVE is stopped through its provider (or a vzdump
-// task of the node's own that backs up this guest alone). Each order is acted on once.
-func (s *Service) applyCancel(ctx context.Context, orders *CancelOrders) {
+// task of the node's own that backs up this guest alone). A queued task whose PVE task runs
+// already (waited for again after a restart) stays queued, marked cancelled: its wait stops the
+// vzdump task and reports how it ended. Each order is acted on once. It returns the task ids
+// it found queued or running.
+func (s *Service) applyCancel(ctx context.Context, orders *CancelOrders) map[string]bool {
+	handled := map[string]bool{}
 	if orders == nil {
-		return
+		return handled
 	}
 	for _, id := range orders.Tasks {
+		if s.inflight(id) != nil && s.markQueuedCancelled(id) {
+			s.Logf("task %s was cancelled in Restow; its PVE task is stopped when the node takes it up again", id)
+			handled[id] = true
+			continue
+		}
 		if s.dropQueued(id) {
 			s.Logf("task %s was cancelled in Restow before it started", id)
 			// Kept and sent again like any task result the server could not take (results.go).
 			s.reportResult(ctx, PendingResult{TaskID: id, Status: "failed", Error: ErrCancelled.Error()})
+			handled[id] = true
 			continue
 		}
-		s.stopCurrent(ctx, id, 0)
+		if s.stopCurrent(ctx, id, 0) {
+			handled[id] = true
+		}
 	}
 	for _, r := range orders.Runs {
 		if r.TaskID != "" && s.stopCurrent(ctx, r.TaskID, r.VMID) {
@@ -157,6 +169,48 @@ func (s *Service) applyCancel(ctx context.Context, orders *CancelOrders) {
 		}
 		s.stopRun(ctx, r)
 	}
+	return handled
+}
+
+// markQueuedCancelled marks a queued task cancelled; false when it does not wait in the queue.
+func (s *Service) markQueuedCancelled(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lazyLocked()
+	for _, q := range s.queue {
+		if q.ID == id {
+			s.cancelled[id] = true
+			return true
+		}
+	}
+	return false
+}
+
+// withoutCancelled are the delivered tasks less those with a cancel order. A task delivered and
+// cancelled in the same heartbeat (and not queued or running here, handled) never starts and is
+// reported cancelled.
+func (s *Service) withoutCancelled(ctx context.Context, tasks []Task, orders *CancelOrders, handled map[string]bool) []Task {
+	if orders == nil || len(orders.Tasks) == 0 {
+		return tasks
+	}
+	cancel := map[string]bool{}
+	for _, id := range orders.Tasks {
+		cancel[id] = true
+	}
+	var out []Task
+	for _, t := range tasks {
+		if !cancel[t.ID] {
+			out = append(out, t)
+			continue
+		}
+		if handled[t.ID] || s.pendingResult(t.ID) {
+			continue
+		}
+		handled[t.ID] = true
+		s.Logf("task %s was cancelled in Restow before it started", t.ID)
+		s.reportResult(ctx, PendingResult{TaskID: t.ID, Status: "failed", Error: ErrCancelled.Error()})
+	}
+	return out
 }
 
 // stopCurrent stops the running task `id` (its vzdump task); false when it is not the one.

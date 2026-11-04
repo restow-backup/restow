@@ -107,7 +107,7 @@ except enrollment. Binary formats are defined in
 | --- | --- |
 | `POST /enroll/preflight` | `{token}` → `{expiresAt, pveTokenId, pveTokenSecret}`: the installer's check before it changes anything. 401 when the token is unknown, used, revoked or expired. `pveTokenId`/`pveTokenSecret` are the existing PVE API token an admin gave for this enrollment, else `null`. Does not use the token up. |
 | `POST /enroll` | `{token, clusterName, clusterFingerprint, nodeName, pveVersion, helperVersion, fleecingStorage}` → `{nodeId, nodeSecret, clusterId, storageId, createdCluster}` |
-| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update, cancel, queuePaused}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts, or the node's queue is paused (`queuePaused`, 0.4.2), the answer holds no backup task. Nodes with boot tests also send `capabilities` (below). Since 0.4.2: `update` is `{version, now}` (`now`: install it once idle, "Update now" or the fleet phase of an update), and `cancel` is `{tasks: [taskId], runs: [{id, vmid, taskId}]}`, what was stopped in the web app (see "Cancel orders"). |
+| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update, cancel, queuePaused}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts, or the node's queue is paused (`queuePaused`, 0.4.2), the answer holds no backup task. Nodes with boot tests also send `capabilities` (below). Since 0.4.2: `update` is `{version, now}` (`now`: install it once idle, "Update now" or the fleet phase of an update), and `cancel` is `{tasks: [taskId], runs: [{id, vmid, taskId}]}`, what was stopped in the web app (see "Cancel orders"). Since 0.5.0 the facts carry `heldTasks: {current?, queued: [taskId]}`: the task the node works on (absent when none) and those waiting in its queue in their order (never null; also a task it waits for again after a restart), so the server does not expire a task the node still holds. |
 | `POST /inventory` | `{guests: [...]}` of this node; since 0.4.2 a VM carries `smbiosUuid` (the `uuid` of its `smbios1`), which finds the Restow server's own VM (PVE.md) |
 | `POST /tasks/:id/result` | `{status: done\|failed, error, result}`; see "Task results" |
 | `GET /listing` | restore points of the cluster for the plugin |
@@ -296,8 +296,11 @@ heartbeats every 15 seconds while a task runs or waits (every minute otherwise).
 
 - `cancel.tasks`: delivered backup tasks with a cancel request. A task still in the
   node's queue is dropped and reported as `failed` (`/tasks/:id/result`); the server
-  records it as `cancelled`. The running one: its vzdump task is stopped
-  (`DELETE /nodes/{node}/tasks/{upid}` of the local PVE API).
+  records it as `cancelled`. A task in the same answer's `tasks` never enters the queue
+  and is reported so as well (0.5.0). The running one: its vzdump task is stopped
+  (`DELETE /nodes/{node}/tasks/{upid}` of the local PVE API). A queued task whose PVE task
+  already runs (one the node waits for again after a restart, 0.5.0) stays queued: when
+  the node takes it up it stops that vzdump task and reports how it ended.
 - `cancel.runs`: running backup runs with a cancel request. With `taskId` it is the
   node's running task (as above). Without (a backup started in PVE, also a vzdump task
   of several guests, whose task id is empty): the node sends SIGTERM to the provider
