@@ -414,6 +414,15 @@ private repository.
   disks of many terabytes could not be restored: it now stops after an hour without a request
   (30 days at most), keeps two batches in flight, and the init waits up to ten minutes for a
   server that is still loading the hash list of a large disk.
+- Proxmox VE: a restart of the Restow server (an update applies its migrations for a minute or
+  two) or one bad block read failed a running VM restore or VM boot test. The restore server's
+  block reads had five attempts, about 30 seconds, where the calls of a backup wait five
+  minutes, and the first failed read stayed with the restore server for good: every later read
+  of every block failed, `qemu-img convert` stopped, and PVE removed the half-written disks of a
+  restore that had copied for hours (a boot test was red). The block reads, the lookup of the
+  restore point and a container's restic credential now ride out a server restart like a
+  backup's calls, and a failed read fails only the reads waiting for it: the blocks are fetched
+  again (three attempts), and a fetch that keeps failing still ends the restore with its error.
 
 ### Upgrade Notes
 

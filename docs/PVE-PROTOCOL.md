@@ -209,14 +209,19 @@ restore task), and:
 A boot test's result carries `warnings` and `skippedLxc` the same way; a restore with warnings
 goes on to the boot and is never red for the warnings alone.
 
-### A server restart during a backup
+### A server restart during a backup or restore
 
 The calls of a running backup (`incremental`, the base `hashes`, `blocks`, `commit`,
 `finish`) keep trying for five minutes while the server is unreachable (a network
 failure, or 502, 503 or 504 from the proxy in front of it), 15 to 30 seconds apart,
 after their usual five attempts: an update of Restow restarts the api and applies its
 migrations meanwhile (since 0.4.0; before, about 30 seconds in all). An answer of the
-server itself ends them as before.
+server itself ends them as before. Since 0.5.0 the calls of a restore do the same: the
+lookup of the restore point (`GET /restore-points`), a VM disk's block reads
+(`GET /snapshots/:id/disks/:device/blocks`, which a VM restore and a VM boot test make for
+hours) and a container's restic credential (`POST /snapshots/:id/restic`). A block read that
+still fails fails only the reads waiting for it; the restore server fetches those blocks again
+(three attempts in all) and goes on serving.
 
 A backup run whose `finish` never arrived is closed by the server once a heartbeat of
 its node (from the last 15 minutes) no longer lists it in `activeRuns` and the run is

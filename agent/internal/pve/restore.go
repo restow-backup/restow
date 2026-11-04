@@ -221,9 +221,22 @@ type RestoreImage struct {
 	mu    sync.Mutex
 	cache map[uint32][]byte
 	order []uint32
-	inFl  map[uint32]chan struct{}
-	err   error
+	inFl  map[uint32]*blockFetch
 }
+
+// blockFetch is one request for a run of blocks; its error belongs to its waiters only, and
+// the blocks it did not deliver are fetched again by the next read.
+type blockFetch struct {
+	done chan struct{}
+	err  error
+}
+
+// restoreFetchAttempts bounds how often a read fetches a block whose fetch failed (each
+// fetch rides out a server restart itself); restoreRefetchPause grows with each attempt.
+var (
+	restoreFetchAttempts = 3
+	restoreRefetchPause  = 5 * time.Second
+)
 
 // NewRestoreImage creates the image. flags is the per-block flag list of the
 // map (FlagZero marks blocks never stored).
@@ -235,7 +248,7 @@ func NewRestoreImage(ctx context.Context, fetch BlockFetcher, snapshotID, device
 		}
 	}
 	return &RestoreImage{ctx: ctx, fetch: fetch, snapshotID: snapshotID, device: device, size: size, zero: zero,
-		ahead: 8, cache: map[uint32][]byte{}, inFl: map[uint32]chan struct{}{}}
+		ahead: 8, cache: map[uint32][]byte{}, inFl: map[uint32]*blockFetch{}}
 }
 
 const restoreCacheBlocks = 32
@@ -266,30 +279,44 @@ func (r *RestoreImage) ReadAt(p []byte, off int64) (int, error) {
 }
 
 func (r *RestoreImage) block(idx uint32) ([]byte, error) {
-	r.mu.Lock()
-	if data, ok := r.cache[idx]; ok {
-		r.mu.Unlock()
-		r.readAhead(idx)
-		return data, nil
-	}
-	ch, flying := r.inFl[idx]
-	r.mu.Unlock()
-	if !flying {
-		ch = r.startFetch(idx)
-	}
-	<-ch
-	r.mu.Lock()
-	data, ok := r.cache[idx]
-	err := r.err
-	r.mu.Unlock()
-	r.readAhead(idx)
-	if !ok {
-		if err == nil {
-			err = fmt.Errorf("block %d was not delivered", idx)
+	var last error
+	for attempt := 1; ; attempt++ {
+		r.mu.Lock()
+		if data, ok := r.cache[idx]; ok {
+			r.mu.Unlock()
+			r.readAhead(idx)
+			return data, nil
 		}
-		return nil, err
+		f, flying := r.inFl[idx]
+		r.mu.Unlock()
+		if !flying {
+			f = r.startFetch(idx)
+		}
+		select {
+		case <-f.done:
+		case <-r.ctx.Done():
+			return nil, r.ctx.Err()
+		}
+		r.mu.Lock()
+		data, ok := r.cache[idx]
+		r.mu.Unlock()
+		if ok {
+			r.readAhead(idx)
+			return data, nil
+		}
+		last = f.err
+		if last == nil {
+			last = fmt.Errorf("block %d was not delivered", idx)
+		}
+		if attempt >= restoreFetchAttempts || r.ctx.Err() != nil {
+			return nil, last
+		}
+		select {
+		case <-time.After(restoreRefetchPause * time.Duration(attempt)):
+		case <-r.ctx.Done():
+			return nil, last
+		}
 	}
-	return data, nil
 }
 
 // readAhead keeps two batches in flight: the rest of the current one, and the next one as soon
@@ -301,13 +328,13 @@ func (r *RestoreImage) readAhead(idx uint32) {
 }
 
 // startFetch fetches a run of up to `ahead` stored blocks starting at idx.
-func (r *RestoreImage) startFetch(idx uint32) chan struct{} {
+func (r *RestoreImage) startFetch(idx uint32) *blockFetch {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if ch, ok := r.inFl[idx]; ok {
-		return ch
+	if f, ok := r.inFl[idx]; ok {
+		return f
 	}
-	ch := make(chan struct{})
+	ch := &blockFetch{done: make(chan struct{})}
 	count := uint32(0)
 	for i := idx; i < uint32(len(r.zero)) && count < r.ahead; i++ {
 		if _, cached := r.cache[i]; cached {
@@ -320,15 +347,13 @@ func (r *RestoreImage) startFetch(idx uint32) chan struct{} {
 		count++
 	}
 	if count == 0 {
-		close(ch)
+		close(ch.done)
 		return ch
 	}
 	go func() {
 		blocks, err := r.fetch.RestoreBlocks(r.ctx, r.snapshotID, r.device, idx, count)
 		r.mu.Lock()
-		if err != nil {
-			r.err = err
-		}
+		ch.err = err
 		for _, b := range blocks {
 			data := b.Data
 			if b.Zero {
@@ -345,7 +370,7 @@ func (r *RestoreImage) startFetch(idx uint32) chan struct{} {
 			r.order = r.order[1:]
 		}
 		r.mu.Unlock()
-		close(ch)
+		close(ch.done)
 	}()
 	return ch
 }

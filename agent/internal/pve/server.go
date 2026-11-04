@@ -620,19 +620,23 @@ type RestorePoint struct {
 	ByteSize uint64 `json:"byteSize,omitempty"`
 }
 
-// ResolveVolname looks a PVE volume name up.
+// ResolveVolname looks a PVE volume name up. It rides out a restart of the server
+// (OutageWindow): a restore, a restore server and a boot test start with it.
 func (s *Server) ResolveVolname(ctx context.Context, volname string) (*RestorePoint, error) {
 	var out RestorePoint
 	q := url.Values{"volname": {volname}}
-	return &out, s.json(ctx, http.MethodGet, "/restore-points?"+q.Encode(), nil, &out, true)
+	return &out, s.do(ctx, request{method: http.MethodGet, path: "/restore-points?" + q.Encode(), out: &out,
+		idempotent: true, outage: true})
 }
 
-// RestoreBlocks streams blocks [from, from+count) of a disk of a restore point.
+// RestoreBlocks streams blocks [from, from+count) of a disk of a restore point. Like the calls
+// of a backup it rides out a restart of the server (an update of Restow): a restore copies for
+// hours and must not fail for a minute without the server.
 func (s *Server) RestoreBlocks(ctx context.Context, snapshotID, device string, from, count uint32) ([]RestoreBlock, error) {
 	var raw []byte
 	path := "/snapshots/" + url.PathEscape(snapshotID) + "/disks/" + url.PathEscape(device) +
 		"/blocks?from=" + strconv.FormatUint(uint64(from), 10) + "&count=" + strconv.FormatUint(uint64(count), 10)
-	if err := s.do(ctx, request{method: http.MethodGet, path: path, raw: &raw, idempotent: true,
+	if err := s.do(ctx, request{method: http.MethodGet, path: path, raw: &raw, idempotent: true, outage: true,
 		maxBytes: int64(count)*(BlockSize+9) + 64, timeout: 10 * time.Minute}); err != nil {
 		return nil, err
 	}
@@ -651,8 +655,10 @@ func (s *Server) RestoreBlocks(ctx context.Context, snapshotID, device string, f
 	return out, nil
 }
 
-// RestoreRestic fetches a read credential for a container restore point.
+// RestoreRestic fetches a read credential for a container restore point (riding out a restart
+// of the server, as ResolveVolname).
 func (s *Server) RestoreRestic(ctx context.Context, snapshotID string) (*ResticAccess, error) {
 	var out ResticAccess
-	return &out, s.json(ctx, http.MethodPost, "/snapshots/"+url.PathEscape(snapshotID)+"/restic", map[string]any{}, &out, true)
+	return &out, s.jsonRequest(ctx, request{method: http.MethodPost, path: "/snapshots/" + url.PathEscape(snapshotID) + "/restic",
+		out: &out, idempotent: true, outage: true}, map[string]any{})
 }

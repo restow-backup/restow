@@ -277,3 +277,114 @@ func TestAHungQmCallIsBounded(t *testing.T) {
 		t.Fatalf("took %s", time.Since(start))
 	}
 }
+
+// jsonAfterOutage answers 503 to the first fail requests, then body as JSON.
+func jsonAfterOutage(t *testing.T, fail int32, body any) (*Server, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) <= fail {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
+	}))
+	t.Cleanup(ts.Close)
+	s, err := NewServer(ts.URL, "n", "s", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.sleep = func(context.Context, time.Duration) error { return nil }
+	return s, &calls
+}
+
+// A restore copies for hours: its block reads, the lookup of the restore point and the restic
+// credential of a container restore ride out a restart of the server, as a backup's calls do.
+func TestRestoreCallsRideOutAServerRestart(t *testing.T) {
+	s, calls, _ := failingServer(t, 15)
+	if _, err := s.RestoreBlocks(context.Background(), "s1", "drive-scsi0", 0, 8); err != nil {
+		t.Fatalf("blocks during a restart: %v", err)
+	}
+	if calls.Load() != 16 {
+		t.Fatalf("calls = %d, want 16", calls.Load())
+	}
+	r, rcalls := jsonAfterOutage(t, 15, map[string]any{"snapshotId": "s1", "kind": "vm"})
+	rp, err := r.ResolveVolname(context.Background(), "backup/vm/101/x")
+	if err != nil || rp.SnapshotID != "s1" || rcalls.Load() != 16 {
+		t.Fatalf("restore point during a restart: %+v %v (%d calls)", rp, err, rcalls.Load())
+	}
+	c, ccalls := jsonAfterOutage(t, 15, map[string]any{"repositoryUrl": "https://r"})
+	a, err := c.RestoreRestic(context.Background(), "s1")
+	if err != nil || a.RepositoryURL != "https://r" || ccalls.Load() != 16 {
+		t.Fatalf("credential during a restart: %+v %v (%d calls)", a, err, ccalls.Load())
+	}
+}
+
+// flakyFetcher fails its first `fail` fetches (every fetch with fail < 0).
+type flakyFetcher struct {
+	mu    sync.Mutex
+	fail  int
+	n     int
+	calls map[uint32]int
+}
+
+func (f *flakyFetcher) RestoreBlocks(_ context.Context, _, _ string, from, count uint32) ([]RestoreBlock, error) {
+	f.mu.Lock()
+	f.calls[from]++
+	f.n++
+	n := f.n
+	f.mu.Unlock()
+	if f.fail < 0 || n <= f.fail {
+		return nil, errors.New("503 Service Unavailable")
+	}
+	out := make([]RestoreBlock, 0, count)
+	for i := from; i < from+count; i++ {
+		out = append(out, RestoreBlock{Index: i, Length: 8, Data: []byte{byte(i), 1, 2, 3, 4, 5, 6, 7}})
+	}
+	return out, nil
+}
+
+func flakyImage(t *testing.T, fail int) (*RestoreImage, *flakyFetcher) {
+	t.Helper()
+	oldPause := restoreRefetchPause
+	restoreRefetchPause = time.Millisecond
+	t.Cleanup(func() { restoreRefetchPause = oldPause })
+	f := &flakyFetcher{fail: fail, calls: map[uint32]int{}}
+	flags := []byte{FlagPresent, FlagPresent, FlagPresent, FlagPresent}
+	img := NewRestoreImage(context.Background(), f, "s1", "drive-scsi0", 4*BlockSize, flags)
+	img.ahead = 2
+	return img, f
+}
+
+// One failed fetch fails only its own waiters; the next read fetches again, and later blocks
+// are served (before, the first error stayed for every read of the image).
+func TestRestoreImageFetchesAgainAfterAFailure(t *testing.T) {
+	img, f := flakyImage(t, 2)
+	buf := make([]byte, 8)
+	if _, err := img.ReadAt(buf, 0); err != nil || buf[0] != 0 {
+		t.Fatalf("block 0 after two failed fetches: %v %v", buf, err)
+	}
+	if _, err := img.ReadAt(buf, 3*BlockSize); err != nil || buf[0] != 3 {
+		t.Fatalf("a later block: %v %v", buf, err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.calls[0] != 3 {
+		t.Fatalf("fetches of block 0: %d, want 3", f.calls[0])
+	}
+}
+
+// A fetch that keeps failing ends the read with its error after the bounded attempts.
+func TestRestoreImageGivesUpOnAPermanentFailure(t *testing.T) {
+	img, f := flakyImage(t, -1)
+	_, err := img.ReadAt(make([]byte, 8), 0)
+	if err == nil || !strings.Contains(err.Error(), "503") {
+		t.Fatalf("err = %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.calls[0] != restoreFetchAttempts {
+		t.Fatalf("fetches %d, want %d", f.calls[0], restoreFetchAttempts)
+	}
+}
