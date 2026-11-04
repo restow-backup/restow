@@ -169,10 +169,10 @@ that came to an outcome, with `result`:
 
 | `outcome` | `reason` (examples) | Meaning |
 | --- | --- | --- |
-| `green` | `agent_answered`, `init_running` | the VM's QEMU guest agent answered `qm guest cmd <id> ping`; a container's `pct exec <id> -- cat /proc/1/comm` answered |
-| `yellow` | `no_guest_agent`, `init_unknown` | the guest started and kept running for `timeoutSeconds`, nothing inside answered |
-| `red` | `restore_failed`, `start_failed`, `guest_stopped` | the restore, the start or the boot failed |
-| `skipped` | `memory_limit`, `node_memory`, `storage_space`, `storage_content`, `no_storage`, `backup_running`, `boot_test_running`, `restores_off`, `boot_tests_off`; since 0.5.0 also `custom_qemu_args` (raw QEMU `args` beyond `-cpu`, `-smbios`, `-rtc`), `host_disk` (a restored disk on a host path), `bridge_not_isolated` (`--boot-test-bridge` has a port that is no guest's), `node_resources` (the start failed for want of node memory) | the node did not run it, or did not start the copy; `message` says why |
+| `green` | `agent_answered`, `system_running` (before 0.5.0 `init_running`) | the VM's QEMU guest agent answered `qm guest cmd <id> ping`; a systemd container's `systemctl is-system-running` said `running`, or `degraded` with only network units failed (the test takes the network away) |
+| `yellow` | `no_guest_agent`, `agent_not_answering`, `guest_paused`, `system_degraded`, `system_starting`, `system_unknown`, `init_running_unverified`, `init_unknown` | the guest started and kept running for `timeoutSeconds` without proof: no agent answer (`no_guest_agent` when the test switched the agent on, `agent_not_answering` when the guest has it enabled), a paused VM, a container with failed units (listed), still starting, whose systemd could not be asked, with another init than systemd, or whose init could not be read |
+| `red` | `restore_failed`, `start_failed`, `guest_stopped`, `guest_panicked`, `guest_internal_error`, `system_maintenance` | the restore, the start or the boot failed (a panic, an internal error of the virtual CPU, a container in emergency or rescue mode) |
+| `skipped` | `memory_limit`, `node_memory`, `storage_space`, `storage_content`, `no_storage`, `backup_running`, `boot_test_running`, `restores_off`, `boot_tests_off`; since 0.5.0 also `custom_qemu_args` (raw QEMU `args` beyond `-cpu`, `-smbios`, `-rtc`), `host_disk` (a restored disk on a host path), `bridge_not_isolated` (`--boot-test-bridge` has a port that is no guest's), `node_resources` (the start failed for want of node memory), `storage_io_error` (the VM was paused by an I/O error of the boot test storage) | the node did not run it, or did not start the copy; `message` says why |
 
 `status: "failed"` means the node could not carry the test out at all (its PVE API failed,
 the temporary guest could not be isolated); the server records the outcome `error`. Green,
@@ -182,7 +182,8 @@ error stay with the run.
 What the node does: see PVE.md, "Boot test". It restores as a restore task does (the PVE API
 into the pool `restow-restore`, `start=0`; a VM with what PVE restores only for root@pam through
 `qmrestore` as root) and uses `qm`/`pct` as root for everything else (`config`, `set`, `start`,
-`status`, `guest cmd ... ping`, `exec`, `unlock`, `stop`, `destroy`), so the node's API token
+`status --verbose`, `guest cmd ... ping`, `exec`, `unlock`, `stop`, `destroy`, and `lxc-info`
+for a container's PID 1), so the node's API token
 needs no new privilege.
 
 ### Task `restore`

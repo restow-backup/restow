@@ -127,7 +127,7 @@ func TestABootTestGoesOnAfterARestoreWithWarnings(t *testing.T) {
 	f := newFakeNode()
 	f.restoreConfig = parseConfigText(lxcGuestConfig)
 	f.restoreExit, f.taskLog = "WARNINGS: 1", lxcRestoreLog
-	f.initComm = "systemd"
+	f.initComm, f.systemState = "systemd", "running"
 	b := newTester(t, f)
 	b.Resolve = func(context.Context, string) (*RestorePoint, error) {
 		return &RestorePoint{SnapshotID: "s1", Kind: "ct", VMID: 114, GuestConfig: lxcGuestConfig}, nil

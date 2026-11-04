@@ -47,9 +47,20 @@ type fakeNode struct {
 	keepKeys       map[string]bool // `qm set --delete` does not remove these (a broken isolation)
 	ignoreLinkDown bool            // `qm set` does not apply link_down (a broken isolation)
 	initComm       string
-	destroyFails   bool
-	vzdumpRunning  bool
-	storages       []Storage
+	// A container's systemd: what `systemctl is-system-running` says ("" fails the exec) and its
+	// failed units; lxcPID is what lxc-info gives for PID 1 (0: lxc-info fails); execBroken: no
+	// cat in the container (pct exec of it fails).
+	systemState string
+	failedUnits []string
+	lxcPID      int
+	execBroken  bool
+	qmpStatus   string // `qm status --verbose`'s qmpstatus ("" leaves it out)
+	// stopCTAfterStatus: a container stops after this many `pct status` calls (0: never).
+	stopCTAfterStatus int
+	ctStatusCalls     int
+	destroyFails      bool
+	vzdumpRunning     bool
+	storages          []Storage
 	// What the last restore was given, and whether PVE refused it like a token's restore
 	// of a bind mount point ("only possible for root").
 	restoreMounts map[string]string
@@ -83,6 +94,14 @@ func (f *fakeNode) Run(ctx context.Context, name string, args ...string) (string
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.commands = append(f.commands, name+" "+strings.Join(args, " "))
+	if name == "lxc-info" {
+		// lxc-info -n <id> -p -H
+		id, _ := strconv.Atoi(args[1])
+		if g := f.guests[id]; g == nil || g.status != "running" || f.lxcPID == 0 {
+			return "", errors.New("lxc-info failed")
+		}
+		return strconv.Itoa(f.lxcPID), nil
+	}
 	if name != "qm" && name != "pct" || len(args) < 2 {
 		return "", fmt.Errorf("unknown command %s", name)
 	}
@@ -151,9 +170,38 @@ func (f *fakeNode) Run(ctx context.Context, name string, args ...string) (string
 		g.status = "running"
 		return "", nil
 	case "status":
-		return "status: " + g.status, nil
+		if g.kind == "ct" && f.stopCTAfterStatus > 0 {
+			if f.ctStatusCalls++; f.ctStatusCalls >= f.stopCTAfterStatus {
+				g.status = "stopped"
+			}
+		}
+		out := "status: " + g.status
+		if g.kind == "vm" && f.qmpStatus != "" && len(args) > 2 && args[2] == "--verbose" {
+			out = "blockstat:\n\tscsi0:\n\t\trd_bytes: 1\ncpus: 2\nqmpstatus: " + f.qmpStatus + "\nrunning-machine: pc-i440fx-9.0+pve0\n" + out
+		}
+		return out, nil
 	case "exec":
-		if g.status != "running" || f.initComm == "" {
+		if g.status != "running" {
+			return "", errors.New("exec failed")
+		}
+		cmd := strings.Join(args[2:], " ")
+		switch {
+		case strings.Contains(cmd, "is-system-running"):
+			if f.systemState == "" {
+				return "", errors.New("exec failed")
+			}
+			if f.systemState != "running" {
+				return f.systemState, errors.New("exit status 1: " + f.systemState)
+			}
+			return f.systemState + "\n", nil
+		case strings.Contains(cmd, "list-units"):
+			var b strings.Builder
+			for _, u := range f.failedUnits {
+				fmt.Fprintf(&b, "%s loaded failed failed %s\n", u, u)
+			}
+			return b.String(), nil
+		}
+		if f.initComm == "" || f.execBroken {
 			return "", errors.New("exec failed")
 		}
 		return f.initComm + "\n", nil
@@ -491,9 +539,10 @@ func newTester(t *testing.T, f *fakeNode) *BootTester {
 		Resolve: func(_ context.Context, volname string) (*RestorePoint, error) {
 			return &RestorePoint{SnapshotID: "s1", Kind: "vm", VMID: 101, GuestConfig: f.restoreConfigText()}, nil
 		},
-		MemAvailable:  func() (uint64, error) { return 64 << 30, nil },
-		BackupRunning: func() bool { return false },
-		Poll:          time.Millisecond, TaskPoll: time.Millisecond,
+		MemAvailable:   func() (uint64, error) { return 64 << 30, nil },
+		ARCReclaimable: func() uint64 { return 0 },
+		BackupRunning:  func() bool { return false },
+		Poll:           time.Millisecond, TaskPoll: time.Millisecond,
 		Now: (&steppingClock{now: time.Unix(1_900_000_000, 0)}).Now,
 	}
 }
@@ -760,7 +809,7 @@ func TestBootTestOfAContainer(t *testing.T) {
 		"mp0": "local-lvm:vm-200-disk-1,mp=/srv,backup=1,size=4G", "mp1": "/mnt/host,mp=/host",
 		"net0": "name=eth0,bridge=vmbr0,ip=dhcp", "dev0": "/dev/ttyUSB0", "unprivileged": "1",
 	}
-	f.initComm = "systemd"
+	f.initComm, f.systemState = "systemd", "running"
 	b := newTester(t, f)
 	var seen map[string]string
 	b.Cmd = runnerFunc(func(ctx context.Context, name string, args ...string) (string, error) {
@@ -778,7 +827,7 @@ func TestBootTestOfAContainer(t *testing.T) {
 	})
 	p := BootTestParams{Volname: "backup/ct/200/2030-01-01T00:00:00Z", Kind: "ct", VMID: 200, DataBytes: 2 << 30}
 	res, err := b.Run(context.Background(), p)
-	if err != nil || res.Outcome != "green" || res.Reason != "init_running" || !res.CleanedUp {
+	if err != nil || res.Outcome != "green" || res.Reason != "system_running" || !res.CleanedUp {
 		t.Fatalf("%+v %v", res, err)
 	}
 	for _, k := range []string{"net0", "dev0", "mp1"} {

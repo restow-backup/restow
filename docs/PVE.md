@@ -380,7 +380,8 @@ Guests count everywhere the mailboxes and the machines do, by one rule
 - **Readiness** is the restore check and the boot test of the newest restore
   point (`pveRestorePointRating`, packages/core/src/pve/boot-test.ts): red when
   either failed; by a boot test green only when the restored guest's QEMU guest
-  agent answered (a container: its init runs), yellow when the VM only started;
+  agent answered (a container: systemd reports the system running), yellow when
+  the guest only started;
   without a boot test the read-back decides (green when the sample matched);
   unverified until a check ran, no backup without a restore point. The readiness
   row says which check decided.
@@ -696,7 +697,8 @@ What the guest's node does:
    backup. The node checks again: a Restow backup or restore in progress, or any running
    `vzdump` task of PVE, skips the test ("A backup runs on this node").
 2. **Resources first.** The guest's memory (from the restore point's configuration) must not
-   exceed the job's limit, the node must have that much available plus 1 GiB (`MemAvailable`),
+   exceed the job's limit, the node must have that much available plus 1 GiB (`MemAvailable`,
+   plus what the ZFS ARC holds above `zfs_arc_min` on a node with ZFS: it gives that back),
    and the boot test storage must hold what the restore allocates there plus a tenth and 1 GiB:
    on a thin storage (`lvmthin`, `rbd`, `btrfs`, a `zfspool` with `sparse 1`, a container's
    subvolumes on a `zfspool`, a file storage without `preallocation full` or `falloc`) the
@@ -734,12 +736,24 @@ What the guest's node does:
    a host path (`scsi1: /dev/disk/by-id/...`) skips the test (`host_disk`): the copy would open
    the original's device.
 5. **Boot and wait.** `qm start`, then every five seconds `qm guest cmd <id> ping`: green as
-   soon as the agent answers (proof the operating system came up). A VM that stops on its own
-   is red; one that keeps running without an answer until the wait is over is yellow
-   ("started, no answer": install the QEMU guest agent for proof). A start that fails because
-   the node cannot allocate the memory (hugepages, a memory backend) is skipped
-   (`node_resources`), not red. A container is green once
-   `pct exec <id> -- cat /proc/1/comm` shows its init.
+   soon as the agent answers (proof the operating system came up). `qm status --verbose` is
+   read beside it: a VM that stops on its own, or whose QEMU status turns `guest-panicked` or
+   `internal-error`, is red; `io-error` (its disks on the boot test storage, for example a full
+   thin pool) skips the test. One that keeps running without an answer until the wait is over
+   is yellow: when the test switched the agent on, "started, no answer" (install the QEMU guest
+   agent for proof); when the guest has the agent enabled itself, "the agent did not answer
+   within N s" (the guest probably did not finish booting); a paused VM is yellow too. A start
+   that fails because the node cannot allocate the memory (hugepages, a memory backend) is
+   skipped (`node_resources`), not red. A container's PID 1 is read from the host (`lxc-info -n
+   <id> -p -H`, then `/proc/<pid>/comm` and `exe`; `pct exec -- cat /proc/1/comm` only as
+   fallback, so OCI and minimal images need no `cat`). With systemd the node asks
+   `systemctl is-system-running` until the wait is over: `running` is green; `degraded` is
+   green when only units that need the network failed (`networking`, `ifup@*`,
+   `ifupdown-wait-online`, `systemd-networkd-wait-online`, `NetworkManager-wait-online`; the
+   test takes the network away), else yellow with the failed units; `maintenance` (emergency or
+   rescue mode) is red; still starting at the end of the wait is yellow. Another init (OpenRC,
+   an application) that keeps running is yellow: Restow cannot ask it whether the boot
+   finished.
 6. **Destroy in every case**, with proof that the guest is the test's own, and leftovers when
    the service starts and before every boot test: see "Temporary guests of restore tests and
    boot tests" above.

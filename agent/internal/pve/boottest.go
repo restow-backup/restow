@@ -38,9 +38,11 @@ import (
 // or a restart of the node left behind is found again by its tag and name (or
 // by the marker file) and destroyed when the service starts.
 //
-// Green needs proof: the guest agent answered (a container: its PID 1 runs).
-// A VM that started and kept running without an answer is yellow; a restore,
-// a start or a boot that failed is red. A test the node cannot run safely
+// Green needs proof: the guest agent answered (a container: systemd reports
+// the system running). A VM that started and kept running without an answer,
+// a container with a degraded system or an init Restow cannot ask is yellow; a
+// restore, a start or a boot that failed (a stop, a panic, emergency mode) is
+// red. A test the node cannot run safely
 // (not enough memory or space, a backup running, another boot test) is
 // skipped with the reason.
 
@@ -187,6 +189,10 @@ type BootTester struct {
 	Resolve func(ctx context.Context, volname string) (*RestorePoint, error)
 	// MemAvailable is the node's available memory in bytes (default: /proc/meminfo).
 	MemAvailable func() (uint64, error)
+	// ARCReclaimable is what the ZFS ARC can give back, in bytes (default: arcstats).
+	ARCReclaimable func() uint64
+	// ProcRoot is where the node's process table is read (default /proc).
+	ProcRoot string
 	// BackupRunning reports a backup on this node (default: the provider's job files).
 	BackupRunning func() bool
 	// SysNet is where the network interfaces of the node are read (default /sys/class/net).
@@ -330,9 +336,20 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 		memFn = ProcMemAvailable
 	}
 	if avail, err := memFn(); err == nil {
+		arcFn := b.ARCReclaimable
+		if arcFn == nil {
+			arcFn = func() uint64 { return zfsARCReclaimable(zfsARCStats) }
+		}
+		// The ZFS ARC gives memory back when a guest needs it, but MemAvailable does not count it.
+		arc := arcFn()
+		avail += arc
 		need := uint64(memMiB)<<20 + bootTestMemoryMarginBytes
 		if avail < need {
-			return skipped("node_memory", fmt.Sprintf("The node has %d MiB of memory available; the guest needs %d MiB and 1 GiB stays free.", avail>>20, memMiB))
+			msg := fmt.Sprintf("The node has %d MiB of memory available; the guest needs %d MiB and 1 GiB stays free.", avail>>20, memMiB)
+			if arc > 0 {
+				msg = fmt.Sprintf("The node has %d MiB of memory available, %d MiB of them in the ZFS ARC that it can give back (above zfs_arc_min); the guest needs %d MiB and 1 GiB stays free.", avail>>20, arc>>20, memMiB)
+			}
+			return skipped("node_memory", msg)
 		}
 	} else {
 		b.logf("available memory unknown: %v", err)
@@ -509,7 +526,8 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *R
 	if c, err := b.PVE.GuestConfig(ctx, b.State.NodeName, p.Kind, vmid); err == nil {
 		b.recordCreated(vmid, c)
 	}
-	if err := b.isolate(ctx, p, vmid); err != nil {
+	agentForced, err := b.isolate(ctx, p, vmid)
+	if err != nil {
 		var skip *isolationSkip
 		if errors.As(err, &skip) {
 			b.logf("not started: %s", skip.message)
@@ -547,7 +565,7 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *R
 	}
 	started := b.now()
 	b.logf("started")
-	outcome := b.waitForBoot(bootCtx, p.Kind, vmid, started, timeout)
+	outcome := b.waitForBoot(bootCtx, p.Kind, vmid, started, timeout, agentForced)
 	if outcome.outcome == "" && ctx.Err() == nil && bootCtx.Err() != nil {
 		outcome.message = fmt.Sprintf("the boot phase did not end within %s (qm or pct did not answer)", minutes(bootLimit))
 	}
@@ -568,44 +586,6 @@ func bootPhaseLimit(timeout time.Duration) time.Duration {
 type bootOutcome struct {
 	outcome, reason, message string
 	agent                    bool
-}
-
-func (b *BootTester) waitForBoot(ctx context.Context, kind string, vmid int, started time.Time, timeout time.Duration) bootOutcome {
-	id := strconv.Itoa(vmid)
-	cli := b.cli(kind)
-	for {
-		if kind == "vm" {
-			if _, err := b.command(ctx, "qm", "guest", "cmd", id, "ping"); err == nil {
-				b.logf("the QEMU guest agent answered")
-				return bootOutcome{"green", "agent_answered", "The restored VM booted: its QEMU guest agent answered.", true}
-			}
-		} else if out, err := b.command(ctx, "pct", "exec", id, "--", "cat", "/proc/1/comm"); err == nil && strings.TrimSpace(out) != "" {
-			b.logf("init runs: %s", strings.TrimSpace(out))
-			return bootOutcome{"green", "init_running", fmt.Sprintf("The restored container started: its init (%s) runs.", strings.TrimSpace(out)), false}
-		}
-		st, err := b.command(ctx, cli, "status", id)
-		if err == nil && !strings.Contains(st, "running") {
-			b.logf("the guest stopped: %s", st)
-			return bootOutcome{"red", "guest_stopped", "The temporary guest stopped while it booted (" + strings.TrimSpace(st) + ").", false}
-		}
-		if b.now().Sub(started) >= timeout {
-			if err != nil {
-				// "Kept running" needs a status that says so.
-				b.logf("the state of the guest is unknown: %v", err)
-				return bootOutcome{"", "", "the state of the temporary guest is unknown: " + err.Error(), false}
-			}
-			if kind == "vm" {
-				b.logf("no answer of the guest agent within %s", timeout)
-				return bootOutcome{"yellow", "no_guest_agent", fmt.Sprintf("The restored VM started and kept running for %s, but its QEMU guest agent did not answer (not installed?).", timeout), false}
-			}
-			return bootOutcome{"yellow", "init_unknown", fmt.Sprintf("The restored container kept running for %s, but its init could not be looked at.", timeout), false}
-		}
-		select {
-		case <-ctx.Done():
-			return bootOutcome{"", "", "cancelled: " + ctx.Err().Error(), false}
-		case <-time.After(b.poll()):
-		}
-	}
 }
 
 var (
@@ -719,13 +699,14 @@ func isolatedKey(kind, k, v string) bool {
 }
 
 // isolate makes the restored guest safe to start: no network to the outside, no host devices,
-// no hook script, no start on boot, the boot test's tag and name.
-func (b *BootTester) isolate(ctx context.Context, p BootTestParams, vmid int) error {
+// no hook script, no start on boot, the boot test's tag and name. agentForced: the VM's
+// configuration had the QEMU guest agent off, and isolate switched it on.
+func (b *BootTester) isolate(ctx context.Context, p BootTestParams, vmid int) (agentForced bool, err error) {
 	id := strconv.Itoa(vmid)
 	cli := b.cli(p.Kind)
 	out, err := b.command(ctx, cli, "config", id)
 	if err != nil {
-		return err
+		return false, err
 	}
 	conf := parseConfigText(out)
 	name := fmt.Sprintf("%s%d", BootTestNamePrefix, p.VMID)
@@ -766,25 +747,26 @@ func (b *BootTester) isolate(ctx context.Context, p BootTestParams, vmid int) er
 	if p.Kind == "vm" && !agentEnabled(conf["agent"]) {
 		// So an installed guest agent can answer although the original has it off.
 		args = append(args, "--agent", "enabled=1")
+		agentForced = true
 	}
 	if len(del) > 0 {
 		args = append(args, "--delete", strings.Join(del, ","))
 	}
 	if _, err := b.command(ctx, cli, args...); err != nil {
-		return err
+		return agentForced, err
 	}
 	if p.Kind == "vm" {
 		// Tagged and named by now, so its removal finds it ours.
 		if k, v := hostDisk(conf); k != "" {
-			return &isolationSkip{"host_disk", fmt.Sprintf("The restored VM has a disk on a host device (%s: %s); its copy would open the same device as the original.", k, v)}
+			return agentForced, &isolationSkip{"host_disk", fmt.Sprintf("The restored VM has a disk on a host device (%s: %s); its copy would open the same device as the original.", k, v)}
 		}
 	}
 	// Read back: no interface may reach a network, nothing of the host may be left.
 	out, err = b.command(ctx, cli, "config", id)
 	if err != nil {
-		return err
+		return agentForced, err
 	}
-	return b.checkIsolated(p.Kind, out, bridge)
+	return agentForced, b.checkIsolated(p.Kind, out, bridge)
 }
 
 // checkIsolated reads a temporary guest's configuration back after isolate(): an error names

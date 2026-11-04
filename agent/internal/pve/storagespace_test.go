@@ -116,7 +116,7 @@ func TestBootTestSpaceCheckOfAContainer(t *testing.T) {
 			"hostname": "files", "memory": "1024", "rootfs": "store:vm-200-disk-0,size=200G",
 			"mp0": "store:vm-200-disk-1,mp=/srv,size=300G", "mp1": "/mnt/huge,mp=/huge",
 		}
-		f.initComm = "systemd"
+		f.initComm, f.systemState = "systemd", "running"
 		f.storages = []Storage{{Storage: "store", Type: typ, Content: "images,rootdir", Active: 1, Avail: 100 << 30}}
 		b := newTester(t, f)
 		writeStorageCfg(t, b)

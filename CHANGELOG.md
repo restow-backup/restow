@@ -363,6 +363,22 @@ private repository.
   and volume mount points) and for the data on thin storage, reading `sparse` and
   `preallocation` from `/etc/pve/storage.cfg`; an unknown storage counts as thick. A restore
   that runs out of space anyway is skipped (`storage_space`), never red.
+- Proxmox VE: the boot test's evidence was weaker than its colours said. A container was green
+  as soon as `pct exec -- cat /proc/1/comm` answered, which `pct start` alone proves, also for a
+  container whose systemd dropped to emergency mode; OCI and minimal containers without `cat`
+  were never green. A VM in a BSOD loop or a kernel panic was yellow with "its QEMU guest agent
+  did not answer (not installed?)", although its configuration had the agent enabled, and a VM
+  paused by an I/O error of the boot test storage was yellow as well. On ZFS nodes the
+  reclaimable ARC was not counted, so larger VMs were skipped for "not enough memory". Now a
+  container's PID 1 is read from the host (`lxc-info`, `/proc`); with systemd the node asks
+  `systemctl is-system-running`: `running` is green, `degraded` green only when the failed
+  units are network units (the test takes the network away) and yellow with the failed units
+  otherwise, emergency or rescue mode is red, still starting is yellow. Another init is yellow
+  (`init_running_unverified`), no longer green. A VM's `qm status --verbose` makes
+  `guest-panicked` and `internal-error` red and `io-error` skipped; the yellow text blames a
+  missing agent only when the test switched it on, and otherwise says that the agent of the
+  guest did not answer within the wait. The ARC above `zfs_arc_min` counts as available memory,
+  and the skip text names it.
 
 ### Upgrade Notes
 
