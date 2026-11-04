@@ -1382,6 +1382,7 @@
     "pveRestoreCheck": "The newest restore point of every guest is read back weekly; each guest's result is on VMs & containers.",
     "keep": "Keeps",
     "keepValue": "{daily} daily, {weekly} weekly, {monthly} monthly restore points",
-    "progressOf": "Progress of {name}"
+    "progressOf": "Progress of {name}",
+    "pveRunning": "VMs and containers being backed up now"
   }
 }

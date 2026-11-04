@@ -277,6 +277,12 @@ export interface PveRunning {
   id: string;
   kind: "backup" | "restore" | "restore_test" | "verify" | "boot_test";
   guest: { id: string; vmid: number; name: string | null; kind: "vm" | "ct" };
+  /**
+   * The job that started the run (a backup of its round, its boot test); null for one asked for
+   * by hand or started in PVE. Missing from servers before 0.5.0: then only `jobName` says it.
+   */
+  jobId?: string | null;
+  /** The job that started the run, else the job the guest is in. */
   jobName: string | null;
   startedAt: string;
   cancelling: boolean;

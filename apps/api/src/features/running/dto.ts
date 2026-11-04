@@ -21,7 +21,14 @@ export interface PveRunningDto {
   id: string;
   kind: PveRunKind;
   guest: { id: string; vmid: number; name: string | null; kind: PveGuestKind };
-  /** The backup job the guest is in. */
+  /**
+   * The Proxmox VE job that started the run (its task names it): a backup of the job's round, or
+   * its boot test. The job's detail panel on the job lists follows its running guests by it.
+   * Null for a run asked for by hand or started in PVE, and for restores. Missing from servers
+   * before 0.5.0, whose web app matches by {@link jobName} instead.
+   */
+  jobId: string | null;
+  /** The job that started the run, else the backup job the guest is in. */
   jobName: string | null;
   startedAt: string;
   /** A stop was asked for and the node has not stopped the run yet. */

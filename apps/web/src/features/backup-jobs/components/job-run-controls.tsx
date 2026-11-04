@@ -7,14 +7,16 @@ import { ConfirmDialog, DisabledReason } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { useTenantScope } from "@/features/endpoints/hooks";
-import type { Run } from "@/features/history/api";
-import { useLiveRuns } from "@/features/history/live/provider";
+import type { PveRunning, Run } from "@/features/history/api";
+import { useLivePveRuns, useLiveRuns } from "@/features/history/live/provider";
 import { cancelGuestBackup, cancelPveJob, pveKeys, runPveJob } from "@/features/pve/api";
+import { progressPercent } from "@/features/pve/backup-progress";
 import { ApiError, errorMessageKey } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import type { BackupJob } from "../api.js";
 import { useCancelBackupJob } from "../hooks.js";
+import { pveRoundPercent, runsOfPveJob } from "../pve-live.js";
 import type { JobsAccess } from "./access-note.js";
 import { useRunNow } from "./job-actions.js";
 import { isPveRow, type JobsListRow } from "./pve-rows.js";
@@ -50,7 +52,11 @@ export interface JobActivity {
   queued: number;
   /** Every running or waiting backup was asked to stop already. */
   cancelling: boolean;
-  /** The progress of the job's backups in percent while they run; null when unknown. */
+  /**
+   * The progress of the job's backups in percent while they run; null when unknown. A mail,
+   * machine or share job's is its lead run's, a Proxmox VE job's its round's (the guests done and
+   * the share of the running ones), a manual guest backup's its own.
+   */
   percent: number | null;
   /** The live run the job's progress is shown by (the one that started first). */
   lead: Run | null;
@@ -58,10 +64,14 @@ export interface JobActivity {
 
 const IDLE: JobActivity = { running: 0, queued: 0, cancelling: false, percent: null, lead: null };
 
-/** What a job of the list does right now. */
+/**
+ * What a job of the list does right now. `livePve` is the live channel's Proxmox VE runs (null
+ * before its snapshot): a Proxmox VE job's percent moves with its running guests' progress.
+ */
 export function jobActivity(
   row: JobsListRow,
   liveRuns: Readonly<Record<string, Run>>,
+  livePve: Readonly<Record<string, PveRunning>> | null = null,
 ): JobActivity {
   if (isPveRow(row)) {
     if (row.rowType === "manual") {
@@ -70,7 +80,7 @@ export function jobActivity(
         running: guest.activity === "running" ? 1 : 0,
         queued: guest.activity === "queued" ? 1 : 0,
         cancelling: Boolean(guest.cancelling),
-        percent: null,
+        percent: guest.activity === "running" ? progressPercent(guest.progress) : null,
         lead: null,
       };
     }
@@ -82,14 +92,15 @@ export function jobActivity(
       running: round.running,
       queued: round.queued,
       cancelling: false,
-      percent: round.total > 0 ? Math.round((round.done / round.total) * 100) : null,
+      percent: pveRoundPercent(round, runsOfPveJob(livePve, row.job)),
       lead: null,
     };
   }
+  // A copy job's runs are restores of what it copies (`type` copy); every other job's, backups.
   const own = Object.values(liveRuns).filter(
     (run) =>
       run.job?.id === row.id &&
-      run.kind === "backup" &&
+      (run.kind === "backup" || (row.kind === "copy" && run.type === "copy")) &&
       (run.state === "running" || run.state === "queued"),
   );
   const liveRunning = own.filter((run) => run.state === "running");
@@ -111,7 +122,8 @@ export function jobActivity(
 /** The activity of every row, from the live channel. */
 export function useJobActivity(row: JobsListRow): JobActivity {
   const liveRuns = useLiveRuns();
-  return React.useMemo(() => jobActivity(row, liveRuns), [row, liveRuns]);
+  const livePve = useLivePveRuns();
+  return React.useMemo(() => jobActivity(row, liveRuns, livePve), [row, liveRuns, livePve]);
 }
 
 export function isActive(activity: JobActivity): boolean {
