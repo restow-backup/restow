@@ -79,7 +79,7 @@ Anwendungsberechtigungen** exakt diese Rechte setzen. Alle sind vom Typ *Applica
 | `Contacts.ReadWrite` | Kontakte sichern und restaurieren. | ja |
 | `Files.ReadWrite.All` | OneDrive sichern und restaurieren (Upload-Session). | ja |
 | `User.Read.All` | Verzeichnis-Sync, Postfachliste, Schutzregeln. | ja |
-| `Group.Read.All` | Schutzregel „Gruppe" auflösen; ab 0.4.5 auch Microsoft-365-Gruppen erkennen (`groups/delta`) und ihre Unterhaltungen sichern (`/groups/{id}/threads`, `…/posts`). | ja |
+| `Group.Read.All` | Schutzregel „Gruppe" auflösen; ab 0.4.5 auch Microsoft-365-Gruppen erkennen (`groups/delta`) und ihre Unterhaltungen sichern (`/groups/{id}/threads`, `…/posts`). Ab 0.5.0 liest der Verzeichnisabgleich damit auch Inhaber und Mitglieder der Gruppen (`/groups/{id}/owners`, `…/members`) für die Teams und Websites einer Person im Restore-Explorer; `GroupMember.Read.All` ist darin enthalten und wird nicht zusätzlich angefordert. | ja |
 | `Directory.Read.All` | Verzeichnis-Sync, gelöschte Nutzer, Rollenprüfung. | ja |
 | `Organization.Read.All` | Tenant-Name, Lizenzen (Anzeige, Schätzungen). | ja |
 | `Sites.ReadWrite.All` | **Optional.** SharePoint-Websites erkennen, sichern (dafür genügt `Sites.Read.All`) und wiederherstellen. Ohne sie bleiben Mail und OneDrive unverändert. | optional |

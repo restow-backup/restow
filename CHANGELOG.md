@@ -162,6 +162,55 @@ private repository.
   cache older than a day, host-wide (`RESTOW_DEMO_PRUNE_BUILD_CACHE=false` leaves it alone;
   deploy/demo/README.md, "Disk space").
 
+- Restore explorer: a person's entry has a new area "Teams & sites" (#89) under Mail, Calendar,
+  Contacts and OneDrive. It lists the SharePoint sites and Microsoft 365 group mailboxes (Teams
+  included) the person owns or belongs to, owned ones first, each with the role (Owner or Member,
+  neutral, never green), its kind, its newest restore point, and "No backup yet" or "Removed"
+  where that applies. A click opens the site or group mailbox on its own restore points; it stays
+  listed under "SharePoint & Teams" as well, and a restore started from here follows exactly the
+  rules of that section. The area is shown to restore operators and administrators only, like
+  sites and group mailboxes everywhere else. Listed are objects that are protected or have a
+  restore point; a group nobody chose to back up that never was has nothing to restore. The list
+  comes from the api a page at a time (25 per page, "Show N more"), so a person in hundreds of
+  Teams does not load them all at once.
+- The directory sync stores who belongs to which Microsoft 365 group in the new table
+  `directory_memberships` (migration 0074, Row Level Security like the other tenant tables): the
+  owners (`/groups/{id}/owners`) and direct members (`/groups/{id}/members`) of every group,
+  users only, ids only, 999 per page and the rest on the next links, together with the group's
+  site (`/groups/{id}/sites/root`), three reads per group sent through `$batch` (throttled
+  answers waited out with Retry-After like every other Graph call). A group-connected site gets
+  the same rows as its group; someone listed as owner and member is an owner. A group that is
+  read again has its rows replaced: a person who left loses the row, a changed role is updated.
+  Every group is read on a full sync (at least every 24 hours) and on the first run with this
+  version; in between the groups the groups delta reports (a changed membership alone does not
+  show up in it) and the groups an earlier run could not finish: refused, throttled past the
+  retries, or whose site the sites listing did not have yet (a Team created a moment ago). Those
+  are read again on every following run until they succeed, not only by the next full sync; with
+  more than 1000 of them the next run reads every group. What a run reads is written at the end
+  of each chunk of 50 groups and as soon as it holds 20,000 rows, as the difference to the stored
+  rows in statements of at most 5000 rows, so an "All employees" group with tens of thousands of
+  members neither fills the memory nor becomes one huge statement. Rows of a group or site deleted at the source stay as last known,
+  next to its restore points, and go with the object or the person. Communication sites without
+  a group have none: Graph v1.0 does not expose their SharePoint groups.
+- No new permission: `Group.Read.All`, which the app has always required, covers owners and
+  members, and `Sites.Read.All` (or `Sites.ReadWrite.All`) the group's site. When Graph refuses
+  the membership (403 without the consent) or keeps throttling a group past the retries, the sync
+  does not fail: the stored rows stay, and the source shows one warning naming how many groups
+  could not be read ("Owners and members of the Microsoft 365 groups are not read: the tenant has
+  not granted Group.Read.All …"). When a whole chunk is refused with 401/403 the run stops asking
+  for the rest, so a missing consent costs one chunk per run. A site Graph does not name keeps its
+  rows. Until every group has been read, and while groups wait to be read again, a person's
+  "Teams & sites" says that the list may be incomplete ("… that is no proof" when it is empty)
+  instead of presenting it as a complete result; the api answers `complete: false` for it.
+- The api answers `GET /api/v1/snapshots/people/memberships?key=user:<id>&after=&limit=`: one
+  page of a person's group mailboxes and sites with the role and each object as the explorer's
+  other lists return it (restore points, readiness, status), owned first, then by name, with a
+  keyset cursor. One query reads the page over the index on `(user_id, protected_object_id)`,
+  however many groups the tenant has, and one more loads its objects; for a viewer who does not
+  see sites the answer is an empty list. Each membership is one button whose accessible name is
+  its content (name, kind, role, "No backup yet" or "Removed"), and the area is labelled by its
+  heading.
+
 ### Changed
 
 - Proxmox VE inventory (#58): a guest's row says how large its first backup was and when
@@ -305,9 +354,12 @@ private repository.
 
 ### Upgrade Notes
 
-One database migration runs on start: 0073 creates the new table `storage_samples` and rewrites
-nothing. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the fingerprint
-`SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
+Two database migrations run on start: 0073 creates the new table `storage_samples` and 0074 the
+new table `directory_memberships`; neither rewrites anything. The first directory sync after the
+update reads the owners and members of every Microsoft 365 group once (three Graph reads per
+group, through `$batch`); until it has run, a person's "Teams & sites" is empty and says that it
+may be incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
+fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
 
 ### Known Issues
 

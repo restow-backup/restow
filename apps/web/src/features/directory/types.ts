@@ -88,6 +88,11 @@ export type SyncWarning =
   | (GraphFailure & { kind: "sites_unavailable" })
   /** Microsoft 365 groups could not be read (mostly: no Group.Read.All consent in the tenant). */
   | (GraphFailure & { kind: "groups_unavailable" })
+  /**
+   * The owners or members of `groups` Microsoft 365 groups could not be read (#89); their stored
+   * memberships stay. 401/403: the tenant has not granted Group.Read.All.
+   */
+  | (GraphFailure & { kind: "memberships_unavailable"; groups: number })
   | (GraphFailure & {
       kind: "mailbox_probe_failed" | "drive_probe_failed" | "user_fetch_failed";
       userId: string;

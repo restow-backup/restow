@@ -1,4 +1,9 @@
-import { expandSeries, type RecurringEventLike } from "@restow/core";
+import {
+  expandSeries,
+  membershipsComplete,
+  type RecurringEventLike,
+  readDirectoryState,
+} from "@restow/core";
 import {
   chunkIdsFromDriver,
   type Database,
@@ -11,7 +16,7 @@ import {
   sources,
   users,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, type SQL, sql } from "drizzle-orm";
 import { type AuditEvent, audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -28,6 +33,7 @@ import {
   normalizeEmail,
   type OwnedObject,
   onBehalfOfOwner,
+  seesAllObjects,
   type Viewer,
   visibleObjectsCondition,
 } from "./access.js";
@@ -55,6 +61,7 @@ import type {
   ListObjectsQuery,
   ListSnapshotsQuery,
   PeopleQuery,
+  PersonMembershipsQuery,
   SearchQuery,
   TreeQuery,
   VersionsQuery,
@@ -1947,6 +1954,160 @@ export async function listPeople(
       total: Number(result.rows[0]?.total ?? 0),
       next:
         more && last ? encodeCursor({ own: last.own, name: last.sort_name, key: last.key }) : null,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// A person's Teams and sites (#89): the groups and sites they own or belong to
+// ---------------------------------------------------------------------------
+
+/** One group mailbox or site of a person's "Teams & sites", with the person's role in it. */
+export interface PersonMembershipDto {
+  role: "owner" | "member";
+  /** The site or group mailbox, with its restore points (the same object its own entry lists). */
+  object: SnapshotObjectDto;
+}
+
+export interface PersonMembershipsPageDto {
+  /** The person's entry (`user:<id>`). */
+  key: string;
+  items: PersonMembershipDto[];
+  /** Memberships listed, all pages together. */
+  total: number;
+  /** The cursor of the next page; null on the last one. */
+  next: string | null;
+  /**
+   * Whether the directory sync has read the owners and members of every Microsoft 365 group of
+   * the tenant's Microsoft 365 sources, with nothing left to read again. False: the list may be
+   * missing entries (never read yet, the permission is missing, or Graph refused some groups),
+   * so an empty list does not prove that the person belongs to nothing.
+   */
+  complete: boolean;
+}
+
+interface MembershipCursor {
+  rank: number;
+  name: string;
+  id: string;
+}
+
+function encodeMembershipCursor(cursor: MembershipCursor): string {
+  return Buffer.from(JSON.stringify([cursor.rank, cursor.name, cursor.id])).toString("base64url");
+}
+
+function decodeMembershipCursor(value: string): MembershipCursor {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (
+      Array.isArray(parsed) &&
+      (parsed[0] === 0 || parsed[0] === 1) &&
+      typeof parsed[1] === "string" &&
+      typeof parsed[2] === "string" &&
+      /^[0-9a-f-]{36}$/i.test(parsed[2])
+    ) {
+      return { rank: parsed[0], name: parsed[1], id: parsed[2] };
+    }
+  } catch {
+    // Falls through to the problem below.
+  }
+  throw new ProblemError(400, "Invalid cursor", {
+    detail: "The cursor does not come from a previous page of this list.",
+  });
+}
+
+/**
+ * The Microsoft 365 group mailboxes and SharePoint sites a person owns or belongs to, as the
+ * directory sync stored them (`directory_memberships`), for the "Teams & sites" area of their
+ * entry: owned ones first, then by name and id (a keyset, so a tenant with thousands of groups
+ * pages through one query per page over `directory_memberships_user_idx`, plus the page's objects
+ * by id). Listed are objects that are protected or have a restore point; a group nobody chose to
+ * back up and that never was has nothing to restore. The objects stay listed in the
+ * "SharePoint & Teams" section as well, and a restore from here follows the same rules: sites and
+ * group mailboxes are shown to restore operators and administrators only, so anyone else gets an
+ * empty list.
+ */
+export async function listPersonMemberships(
+  db: Database,
+  tenantId: string,
+  viewer: Viewer,
+  query: PersonMembershipsQuery,
+): Promise<PersonMembershipsPageDto> {
+  const userId = query.key.slice("user:".length);
+  if (!seesAllObjects(viewer)) {
+    return { key: query.key, items: [], total: 0, next: null, complete: true };
+  }
+  return withTenantTx(db, tenantId, async (tx) => {
+    // A paused source keeps what it read last and is not waited for; one awaiting consent is.
+    const directorySources = await tx
+      .select({ config: sources.config })
+      .from(sources)
+      .where(
+        and(
+          eq(sources.tenantId, tenantId),
+          eq(sources.kind, "m365"),
+          ne(sources.status, "disabled"),
+        ),
+      );
+    const complete = directorySources.every((source) =>
+      membershipsComplete(readDirectoryState(source.config)),
+    );
+    const cursor = query.after ? decodeMembershipCursor(query.after) : null;
+    const after = cursor
+      ? sql`WHERE (m.rank, m.sort_name, m.id) > (${cursor.rank}, ${cursor.name}, ${cursor.id}::uuid)`
+      : sql``;
+    const result = await tx.execute<{
+      id: string;
+      role: "owner" | "member";
+      rank: number;
+      sort_name: string;
+      total: number;
+    }>(sql`
+      WITH m AS (
+        SELECT po.id, dm.role,
+               CASE WHEN dm.role = 'owner' THEN 0 ELSE 1 END AS rank,
+               lower(coalesce(po.display_name, po.external_id)) AS sort_name,
+               count(*) OVER () AS total
+        FROM directory_memberships dm
+        JOIN protected_objects po ON po.id = dm.protected_object_id
+        WHERE dm.tenant_id = ${tenantId}::uuid
+          AND dm.user_id = ${userId}::uuid
+          AND po.tenant_id = ${tenantId}::uuid
+          AND po.kind IN ('site', 'group')
+          AND (po.status = 'active'
+               OR EXISTS (SELECT 1 FROM snapshots sn WHERE sn.protected_object_id = po.id
+                            AND sn.status = 'active' AND sn.manifest_path IS NOT NULL))
+      )
+      SELECT m.id, m.role, m.rank, m.sort_name, m.total::int AS total
+      FROM m
+      ${after}
+      ORDER BY m.rank, m.sort_name, m.id
+      LIMIT ${query.limit + 1}
+    `);
+    // `total` is counted before the cursor applies: on a later page it still counts them all.
+    const rows = result.rows.slice(0, query.limit);
+    const objects = await selectObjects(
+      tx,
+      tenantId,
+      viewer,
+      "all",
+      rows.map((row) => row.id),
+    );
+    const byId = new Map(objects.map((object) => [object.id, object]));
+    const items = rows.flatMap((row): PersonMembershipDto[] => {
+      const object = byId.get(row.id);
+      return object ? [{ role: row.role, object }] : [];
+    });
+    const last = rows[rows.length - 1];
+    return {
+      key: query.key,
+      items,
+      total: Number(result.rows[0]?.total ?? 0),
+      next:
+        result.rows.length > query.limit && last
+          ? encodeMembershipCursor({ rank: Number(last.rank), name: last.sort_name, id: last.id })
+          : null,
+      complete,
     };
   });
 }

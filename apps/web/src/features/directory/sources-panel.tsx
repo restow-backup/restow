@@ -435,10 +435,17 @@ function Warnings({ warnings, total }: { warnings: readonly SyncWarning[]; total
                             : "sync.warnings.groups_unavailable",
                           { status: warning.status },
                         )
-                      : t(`sync.warnings.${warning.kind}`, {
-                          user: warning.user ?? warning.userId,
-                          status: warning.status,
-                        })}
+                      : warning.kind === "memberships_unavailable"
+                        ? t(
+                            warning.status === 401 || warning.status === 403
+                              ? "sync.warnings.memberships_permission"
+                              : "sync.warnings.memberships_unavailable",
+                            { status: warning.status, count: warning.groups },
+                          )
+                        : t(`sync.warnings.${warning.kind}`, {
+                            user: warning.user ?? warning.userId,
+                            status: warning.status,
+                          })}
               </li>
             ))}
           </ul>

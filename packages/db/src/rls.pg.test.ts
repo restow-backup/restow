@@ -616,6 +616,88 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
     expect(removed.rowCount).toBe(1);
   });
 
+  it("keeps the memberships of groups and sites inside the tenant", async () => {
+    // A group mailbox and a person in each tenant, written as the owner.
+    const seed = async (tenantId: string, name: string) => {
+      const { rows: objects } = await owner.query<{ id: string }>(
+        `INSERT INTO protected_objects (tenant_id, source_id, kind, external_id, display_name)
+           SELECT tenant_id, id, 'group', $2, $3 FROM sources WHERE tenant_id = $1
+         RETURNING id`,
+        [tenantId, `group-${name}-${suffix}`, name],
+      );
+      const { rows: people } = await owner.query<{ id: string }>(
+        `INSERT INTO users (tenant_id, entra_object_id, email)
+         VALUES ($1, $2, $3) RETURNING id`,
+        [tenantId, `entra-${name}-${suffix}`, `${name}-${suffix}@example.test`],
+      );
+      return {
+        objectId: (objects[0] as { id: string }).id,
+        userId: (people[0] as { id: string }).id,
+      };
+    };
+    const ours = await seed(contoso, "sales");
+    const theirs = await seed(fabrikam, "board");
+    const insert = (
+      client: pg.PoolClient,
+      tenantId: string,
+      row: { objectId: string; userId: string },
+      role = "member",
+    ) =>
+      client.query(
+        `INSERT INTO directory_memberships (tenant_id, protected_object_id, user_id, role)
+         VALUES ($1, $2, $3, $4)`,
+        [tenantId, row.objectId, row.userId, role],
+      );
+
+    await inTransaction(app, contoso, (client) => insert(client, contoso, ours, "owner"));
+    await inTransaction(app, fabrikam, (client) => insert(client, fabrikam, theirs));
+    // A transaction pinned to one tenant cannot write a membership for the other ...
+    await expect(
+      inTransaction(app, fabrikam, (client) =>
+        insert(client, contoso, { objectId: ours.objectId, userId: theirs.userId }),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    // ... nor read, change or remove its rows; an unpinned one sees none at all.
+    const seen = await inTransaction(app, fabrikam, (client) =>
+      client.query<{ role: string }>("SELECT role FROM directory_memberships"),
+    );
+    expect(seen.rows).toEqual([{ role: "member" }]);
+    const changed = await inTransaction(app, fabrikam, (client) =>
+      client.query("UPDATE directory_memberships SET role = 'member' WHERE user_id = $1", [
+        ours.userId,
+      ]),
+    );
+    expect(changed.rowCount).toBe(0);
+    const removed = await inTransaction(app, fabrikam, (client) =>
+      client.query("DELETE FROM directory_memberships WHERE protected_object_id = $1", [
+        ours.objectId,
+      ]),
+    );
+    expect(removed.rowCount).toBe(0);
+    const unpinned = await inTransaction(app, null, (client) =>
+      client.query("SELECT 1 FROM directory_memberships"),
+    );
+    expect(unpinned.rowCount).toBe(0);
+    const own = await inTransaction(app, contoso, (client) =>
+      client.query<{ role: string }>("SELECT role FROM directory_memberships"),
+    );
+    expect(own.rows).toEqual([{ role: "owner" }]);
+    // Only the two roles exist.
+    await expect(
+      inTransaction(app, contoso, (client) =>
+        client.query("UPDATE directory_memberships SET role = 'guest'"),
+      ),
+    ).rejects.toThrow(/directory_memberships_role_ck/);
+    // The rows go with the person and with the object.
+    await owner.query("DELETE FROM users WHERE id = $1", [ours.userId]);
+    await owner.query("DELETE FROM protected_objects WHERE id = $1", [theirs.objectId]);
+    const left = await owner.query(
+      "SELECT 1 FROM directory_memberships WHERE user_id = ANY($1::uuid[])",
+      [[ours.userId, theirs.userId]],
+    );
+    expect(left.rowCount).toBe(0);
+  });
+
   it("lets the installation role see every tenant", async () => {
     const { rows } = await provider.query<{ id: string }>("SELECT id FROM tenants ORDER BY slug");
     expect(rows.map((row) => row.id)).toEqual([contoso, fabrikam]);

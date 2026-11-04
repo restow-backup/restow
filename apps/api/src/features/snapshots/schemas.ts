@@ -119,3 +119,17 @@ export const peopleQuerySchema = z.object({
   objectId: z.string().uuid().optional(),
 });
 export type PeopleQuery = z.infer<typeof peopleQuerySchema>;
+
+/**
+ * One page of a person's Teams and sites (#89): the Microsoft 365 group mailboxes and SharePoint
+ * sites the person (`key`, `user:<directory user id>` as the people list hands it out) owns or
+ * belongs to, owned ones first. `after` is the `next` cursor of the previous page.
+ */
+export const personMembershipsQuerySchema = z.object({
+  key: z
+    .string()
+    .regex(/^user:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "not a person"),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  after: z.string().max(2048).optional(),
+});
+export type PersonMembershipsQuery = z.infer<typeof personMembershipsQuerySchema>;
