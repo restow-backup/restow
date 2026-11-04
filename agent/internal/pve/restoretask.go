@@ -41,6 +41,8 @@ type restoreState struct {
 	OnbootCleared bool `json:"onbootCleared,omitempty"`
 	// SourceVMID is the original guest's VMID (the name of a check's guest).
 	SourceVMID int `json:"sourceVmid,omitempty"`
+	// MadeUnprivileged: the container was privileged; it is restored unprivileged.
+	MadeUnprivileged bool `json:"madeUnprivileged,omitempty"`
 }
 
 func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, error) {
@@ -64,7 +66,7 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	}
 	var omitted []string
 	var lxc lxcOptions
-	onboot := false
+	onboot, madeUnprivileged := false, false
 	if p.Kind == "ct" {
 		rp, err := b.Resolve(ctx, p.Volname)
 		if err != nil {
@@ -75,21 +77,25 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 		if len(lxc.Lines) > 0 {
 			s.Logf("restore of %s: PVE restores raw LXC options only for root@pam; add them as root: %s", p.Volname, strings.Join(lxc.Lines, " | "))
 		}
-		onboot = parseConfigText(rp.GuestConfig)["onboot"] == "1"
+		conf := parseConfigText(rp.GuestConfig)
+		onboot = conf["onboot"] == "1"
+		madeUnprivileged = conf["unprivileged"] != "1"
+		// Every container restore names its rootfs and volume mount points and leaves the bind
+		// and device mount points out (RestoreMounts): PVE restores those only for root@pam.
+		mounts, left, err := RestoreMounts(conf, p.TargetStorage, b.mountSizing(ctx, p.TargetStorage, rp))
+		if err != nil {
+			return nil, err
+		}
+		omitted = left
+		if len(omitted) > 0 {
+			s.Logf("restore of %s: left out (not part of the backup): %s", p.Volname, strings.Join(omitted, " | "))
+		}
+		sp.Params = map[string]string{}
 		if p.RestoreTest {
-			// A check leaves bind and device mount points out (TestRestoreMounts).
-			mounts, left, err := TestRestoreMounts(parseConfigText(rp.GuestConfig), p.TargetStorage)
-			if err != nil {
-				return nil, err
-			}
-			omitted = left
-			if len(omitted) > 0 {
-				s.Logf("restore test of %s: left out (not part of the backup): %s", p.Volname, strings.Join(omitted, ", "))
-			}
-			sp.Params = map[string]string{"hostname": tempName(PurposeRestoreCheck, source)}
-			for k, v := range mounts {
-				sp.Params[k] = v
-			}
+			sp.Params["hostname"] = tempName(PurposeRestoreCheck, source)
+		}
+		for k, v := range mounts {
+			sp.Params[k] = v
 		}
 	}
 	vmid, upid, err := b.startRestore(ctx, sp)
@@ -103,7 +109,7 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 		return nil, err
 	}
 	st := restoreState{VMID: vmid, UPID: upid, OmittedMounts: omitted, SkippedLxc: lxc.Lines, CustomIDMap: lxc.IDMap,
-		OnbootCleared: onboot, SourceVMID: source}
+		OnbootCleared: onboot, SourceVMID: source, MadeUnprivileged: madeUnprivileged}
 	s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: vmid,
 		StartedAt: time.Now().UTC().Format(time.RFC3339), Restore: &st})
 	return s.finishRestore(ctx, t.ID, p, st)
@@ -122,6 +128,15 @@ func (s *Service) finishRestore(ctx context.Context, taskID string, p restorePar
 	}
 	if st.OnbootCleared {
 		result["onbootCleared"] = true
+	}
+	if st.MadeUnprivileged {
+		result["madeUnprivileged"] = true
+	}
+	if len(st.OmittedMounts) > 0 && !p.RestoreTest {
+		// The copy runs without them until they are put back (as root); a bind mount point
+		// put back shares the original's live data, and on another node its host path may
+		// not exist.
+		result["remountCommands"] = remountCommands(vmid, st.OmittedMounts)
 	}
 	if p.RestoreTest {
 		defer func() {

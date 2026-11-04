@@ -323,7 +323,7 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 	if reason, msg := b.checkStorage(ctx, storage, p); reason != "" {
 		return skipped(reason, msg)
 	}
-	res := b.restoreAndBoot(ctx, p, conf, rawLxcOptions(rp.GuestConfig), storage)
+	res := b.restoreAndBoot(ctx, p, rp, conf, rawLxcOptions(rp.GuestConfig), storage)
 	res.Storage = storage
 	return res
 }
@@ -395,18 +395,18 @@ func (b *BootTester) poll() time.Duration {
 	return 5 * time.Second
 }
 
-func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, conf map[string]string, lxc lxcOptions, storage string) (res BootTestResult) {
+func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *RestorePoint, conf map[string]string, lxc lxcOptions, storage string) (res BootTestResult) {
 	sp := restoreSpec{Purpose: PurposeBootTest, Kind: p.Kind, SourceVMID: p.VMID, Storage: storage, Pool: BootTestPool,
 		Archive: b.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")}
 	if p.Kind == "ct" {
-		mounts, omitted, err := TestRestoreMounts(conf, storage)
+		mounts, omitted, err := RestoreMounts(conf, storage, b.mountSizing(ctx, storage, rp))
 		if err != nil {
 			// Nothing was restored: the test could not run, which says nothing about the backup.
 			res.Message = "the restore could not be planned: " + err.Error()
 			return res
 		}
 		if len(omitted) > 0 {
-			b.logf("left out of the temporary container (not part of the backup): %s", strings.Join(omitted, ", "))
+			b.logf("left out of the temporary container (not part of the backup): %s", strings.Join(omitted, " | "))
 		}
 		sp.Params = map[string]string{"hostname": tempName(PurposeBootTest, p.VMID)}
 		for k, v := range mounts {

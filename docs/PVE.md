@@ -437,6 +437,21 @@ container does not start with its node (`onboot 0`, the result says so when the 
 IP addresses stay the same, in the configuration (a container's `ip=`) and inside the guest:
 change them before the copy runs beside the original.
 
+A container is restored with its rootfs and its volume mount points named explicitly (the same
+options, each a new volume on the target storage) and without its bind and device mount points
+(`mp0: /mnt/paperless,mp=/data`, `mp1: /dev/sdb1,mp=...`): PVE restores those only for root@pam,
+not for the node's API token, and their data lives on the host, not in the backup. restow-pve
+does not restore such a container as root instead: the copy would get the original's bind
+mounts and, once started, write into the original's live data. The result names the left-out
+mount points (`omittedMounts`) with the commands to put them back as root
+(`pct set <vmid> -mp0 /mnt/paperless,mp=/data`); a bind mount point put back shares the
+original's live data, and on another node the host path may not exist. Such a copy is never
+started by the restore. A volume without a size (`size=0`, a ZFS or directory subvolume
+without a quota) is restored as such where the target storage has subvolumes (zfspool, dir,
+btrfs); elsewhere it gets the size the restore point recorded, else the restore point's size
+and a fifth; with nothing to size it the restore fails before it starts and names the storage
+type. A privileged container is restored unprivileged (`madeUnprivileged` in the result).
+
 A restore task that PVE ends with `WARNINGS: n` ran to its end and warned beside it: Restow
 shows "Restored with warnings" (amber) with the warning lines, never a plain success and never
 a failure. The usual cause is a container with raw `lxc.*` lines (GPU or Coral passthrough with
@@ -668,10 +683,9 @@ What the guest's node does:
 3. **Restore** through the normal restore path (the PVE API, a new VMID from the cluster, the
    pool `restow-restore`, no start; the original guest is never touched). A failing restore is
    red; a restore that ends with warnings (`WARNINGS: n`, for example the skipped raw `lxc.*`
-   lines of a container) goes on to the boot, and the result carries the warnings. A container with a bind or device mount point is restored with its rootfs and volume
-   mount points named explicitly and without the bind and device ones: PVE restores those
-   only for root@pam, not for the node's API token, and their data is not in the backup. The
-   restore check (`restoreTest`) does the same; the log names what was left out.
+   lines of a container) goes on to the boot, and the result carries the warnings. A container
+   is restored as every container restore is (see "Restore": rootfs and volume mount points
+   named, bind and device mount points left out); the log names what was left out.
 4. **Isolate before the start.** The temporary guest gets the tag `restow-boottest` and the
    name `restow-boottest-<vmid>`; every NIC `link_down=1` (or the isolated bridge the node
    names with `--boot-test-bridge`; a container loses its interfaces); PCI and USB passthrough,
@@ -727,8 +741,9 @@ guests that need passthrough hardware to boot (removed for the test, so they may
 ## Known limits of this release
 
 Not possible: backing up VM templates (PVE disables fleecing for them), live
-restore (PVE refuses it for providers), restoring privileged containers (PVE
-refuses it; restore by hand as unprivileged), restoring single files back into
+restore (PVE refuses it for providers), restoring privileged containers as privileged
+(Restow restores them unprivileged and says so), the bind and device mount points of a
+container (put them back by hand, see "Restore"), restoring single files back into
 a running guest (they are browsed and downloaded as a ZIP, see "Files of a
 container" and "Files of a VM"), files of VMs on btrfs, ZFS, ReFS, LVM thin or
 RAID volumes, BitLocker or LUKS, NTFS-compressed or EFS files (see "Files of a

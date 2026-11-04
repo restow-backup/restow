@@ -195,7 +195,10 @@ restore task), and:
 | --- | --- |
 | `warnings` | the restore task ended `WARNINGS: n` (since 0.5.0): it ran to its end and warned beside it; the warning lines of its log (at most ten). The task is `done`; the server shows "Restored with warnings" (amber). Any other exit status but `OK` fails the task. |
 | `skippedLxc` | the raw `lxc.*` lines of the container's backup (GPU or TUN passthrough, a custom idmap). PVE restores them only for root@pam and skips them for the node's token ("skipping custom lxc options, restore manually as root"); add them as root. `customIdmap: true` when an `lxc.idmap` is among them: the restored container uses the default map, so its files belong to the ids of that map. |
-| `omittedMounts` | the mount points a check left out (bind and device mount points). |
+| `omittedMounts` | the bind and device mount points the restore left out, as configuration lines (`mp0: /mnt/paperless,mp=/data`; before 0.5.0 a check only, as `mp0 (/mnt/paperless)`). Every container restore names rootfs and its volume mount points itself, so PVE takes none from the backup. |
+| `remountCommands` | a restore into a new guest: the commands that put the left-out mount points back as root (`pct set <vmid> -mp0 /mnt/paperless,mp=/data`). A bind mount point put back shares the original's live data; on another node the host path may not exist. |
+| `madeUnprivileged` | the container was privileged and is restored unprivileged. |
+| `onbootCleared` | the container started with its node; the copy does not (`onboot=0`). |
 | `disks`, `deleted`, `leftoverVmid` | a check: the disks of the restored guest, and whether it was removed. `deleted: true` only once its configuration is gone (since 0.5.0); `deleted: false` with `leftoverVmid` when it is still there (the node removes it when its service starts; the server shows it amber). The check's guest is removed on every way out, also when the restore failed. |
 
 A boot test's result carries `warnings` and `skippedLxc` the same way; a restore with warnings

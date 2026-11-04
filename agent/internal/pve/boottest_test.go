@@ -680,7 +680,7 @@ func TestBootTestOfAContainer(t *testing.T) {
 	if fmt.Sprint(f.restoreMounts) != fmt.Sprint(want) {
 		t.Errorf("restore mounts = %v, want %v", f.restoreMounts, want)
 	}
-	if !strings.Contains(res.Log, "mp1 (/mnt/host)") {
+	if !strings.Contains(res.Log, "mp1: /mnt/host,mp=/host") {
 		t.Errorf("the log does not name the left-out mount point:\n%s", res.Log)
 	}
 }

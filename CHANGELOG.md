@@ -306,6 +306,18 @@ private repository.
   starts, also with boot tests or restores switched off. A VMID that another restore got at the
   same moment is asked for again instead of failing, and a boot test whose restore PVE never ran
   ends with an error, never red. DELETE parameters go into the query string.
+- Proxmox VE: a restore into a new guest of a container with a bind or device mount point still
+  failed with "restoring 'mp0' to bind mount is only possible for root" (the known issue of
+  0.4.10): only checks and boot tests named the mount points themselves. Every container
+  restore now names rootfs and its volume mount points (same options, new volumes on the target
+  storage) and leaves bind and device mount points out, whose data is not in the backup. The
+  result lists them as configuration lines (`omittedMounts`) with the commands to put them back
+  as root (`remountCommands`), and such a copy is never started by the restore. A volume
+  without a size (`size=0T`, a ZFS or directory subvolume without a quota) broke the checks and
+  boot tests of such containers; it is now restored as a subvolume where the target storage has
+  them (zfspool, dir, btrfs), else with the size the restore point knows; with nothing to size it
+  the restore fails before it starts and names the storage type (a boot test: an error, not
+  red). A privileged container restored unprivileged says so (`madeUnprivileged`).
 
 ### Upgrade Notes
 

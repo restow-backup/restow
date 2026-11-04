@@ -5,6 +5,7 @@ package pve
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -33,7 +34,7 @@ func TestRestoreCheckOfAContainerLeavesItsBindMountOut(t *testing.T) {
 	if _, ok := f.restoreMounts["mp0"]; ok {
 		t.Errorf("the bind mount was passed on: %v", f.restoreMounts)
 	}
-	if got, _ := result["omittedMounts"].([]string); len(got) != 1 || got[0] != "mp0 (/mnt/paperless)" {
+	if got, _ := result["omittedMounts"].([]string); len(got) != 1 || got[0] != "mp0: /mnt/paperless,mp=/data" {
 		t.Errorf("omittedMounts = %v", result["omittedMounts"])
 	}
 	if result["deleted"] != true || len(f.guests) != 0 {
@@ -142,6 +143,68 @@ func TestABootTestGoesOnAfterARestoreWithWarnings(t *testing.T) {
 	f.restoreExit = "unable to restore CT 9002 - command 'tar' failed"
 	res, err = b.Run(context.Background(), BootTestParams{Volname: "backup/ct/114/2030-01-01T00:00:00Z", Kind: "ct", VMID: 114, DataBytes: 1 << 30})
 	if err != nil || res.Outcome != "red" || res.Reason != "restore_failed" {
+		t.Fatalf("%+v %v", res, err)
+	}
+}
+
+// A restore into a new guest of a container with a bind, a device and a volume mount point: PVE
+// refuses the token a bind mount point from the backup, so the restore names rootfs and the
+// volume mount points itself and leaves the others out, with the commands to put them back.
+// Before, only a check did so, and every such restore failed with "only possible for root".
+func TestARestoreOfAContainerWithABindMountIntoANewGuest(t *testing.T) {
+	const conf = "hostname: paperless\nmemory: 2048\nrootfs: local-lvm:vm-113-disk-0,size=8G\n" +
+		"mp0: /mnt/paperless,mp=/data\nmp1: local-lvm:vm-113-disk-1,mp=/opt,backup=1,size=2G\n" +
+		"mp2: /dev/sdb1,mp=/mnt/usb\nmp3: local-lvm:vm-113-disk-2,mp=/scratch,backup=0,size=4G\n"
+	f := newFakeNode()
+	f.restoreConfig = parseConfigText(conf)
+	s := restoreService(t, f, "ct", conf)
+	result, err := s.task(context.Background(), restoreTaskOf(t, "ct", false))
+	if err != nil || f.refusedBind {
+		t.Fatalf("restore: %v (%v), refused %v", err, result, f.refusedBind)
+	}
+	want := map[string]string{"rootfs": "local-lvm:8", "mp1": "local-lvm:2,mp=/opt,backup=1", "mp3": "local-lvm:4,mp=/scratch,backup=0"}
+	if fmt.Sprint(f.restoreMounts) != fmt.Sprint(want) {
+		t.Fatalf("restore mounts %v, want %v", f.restoreMounts, want)
+	}
+	omitted, _ := result["omittedMounts"].([]string)
+	remount, _ := result["remountCommands"].([]string)
+	if fmt.Sprint(omitted) != "[mp0: /mnt/paperless,mp=/data mp2: /dev/sdb1,mp=/mnt/usb]" ||
+		fmt.Sprint(remount) != "[pct set 9001 -mp0 /mnt/paperless,mp=/data pct set 9001 -mp2 /dev/sdb1,mp=/mnt/usb]" {
+		t.Fatalf("omitted %v, remount %v", omitted, remount)
+	}
+	if result["madeUnprivileged"] != true {
+		t.Fatalf("the privileged original is not named: %v", result)
+	}
+}
+
+// A ZFS subvolume without quota (size=0T) is restored as one where the target has subvolumes,
+// and with a size elsewhere.
+func TestAContainerVolumeOfSizeZero(t *testing.T) {
+	const conf = "hostname: db\nunprivileged: 1\nrootfs: local-zfs:subvol-105-disk-0,size=0T\nmp0: /mnt/host,mp=/host\n"
+	for _, c := range []struct{ storage, typ, want string }{{"local-zfs", "zfspool", "local-zfs:0"}, {"local-lvm", "lvmthin", "local-lvm:12"}} {
+		f := newFakeNode()
+		f.storages = append(f.storages, Storage{Storage: "local-zfs", Type: "zfspool", Content: "rootdir,images", Active: 1, Avail: 500 << 30})
+		f.restoreConfig = parseConfigText(conf)
+		s := restoreService(t, f, "ct", conf)
+		s.bootTester().Resolve = func(context.Context, string) (*RestorePoint, error) {
+			return &RestorePoint{SnapshotID: "s1", Kind: "ct", VMID: 105, GuestConfig: conf, ByteSize: 10 << 30}, nil
+		}
+		params, _ := json.Marshal(map[string]any{"volname": "backup/ct/105/2030-01-01T00:00:00Z", "kind": "ct",
+			"targetStorage": c.storage, "restoreTest": true})
+		result, err := s.task(context.Background(), Task{ID: "t", Kind: "restore", Params: params})
+		if err != nil || f.restoreMounts["rootfs"] != c.want || result["deleted"] != true {
+			t.Fatalf("%s: %v %v, mounts %v", c.typ, result, err, f.restoreMounts)
+		}
+	}
+	// Nothing to size it with: the boot test cannot run, which is an error and never red.
+	f := newFakeNode()
+	f.restoreConfig = parseConfigText(conf)
+	b := newTester(t, f)
+	b.Resolve = func(context.Context, string) (*RestorePoint, error) {
+		return &RestorePoint{SnapshotID: "s1", Kind: "ct", VMID: 105, GuestConfig: conf}, nil
+	}
+	res, err := b.Run(context.Background(), BootTestParams{Volname: "backup/ct/105/2030-01-01T00:00:00Z", Kind: "ct", VMID: 105, DataBytes: 1 << 30})
+	if err == nil || res.Outcome != "" || !strings.Contains(res.Message, "cannot create a volume without one") {
 		t.Fatalf("%+v %v", res, err)
 	}
 }

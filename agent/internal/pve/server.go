@@ -615,6 +615,9 @@ type RestorePoint struct {
 	Devices        []DeviceSize `json:"devices"`
 	ResticSnapshot string       `json:"resticSnapshotId"`
 	ResticRoot     string       `json:"resticRoot"`
+	// ByteSize is the restore point's size (servers from 0.5.0): it sizes a container volume
+	// that has none in the configuration (size=0) on a storage without subvolumes.
+	ByteSize uint64 `json:"byteSize,omitempty"`
 }
 
 // ResolveVolname looks a PVE volume name up.
