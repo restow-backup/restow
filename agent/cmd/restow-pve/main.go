@@ -653,19 +653,23 @@ func cmdServeRestore(layout pve.Layout, args []string, stderr io.Writer) int {
 	volname := fs.String("volname", "", "")
 	device := fs.String("device", "", "")
 	socket := fs.String("socket", "", "")
-	idle := fs.Duration("max-time", 48*time.Hour, "stop after this long in any case")
+	// The restore's cleanup stops the server. Without it (a PVE worker that crashed), the server
+	// stops after an hour without a request; the absolute cap is only a safety net, far beyond
+	// the copy of a disk of many terabytes.
+	idle := fs.Duration("idle", time.Hour, "stop after this long without a request")
+	maxTime := fs.Duration("max-time", 30*24*time.Hour, "stop after this long in any case")
 	if err := fs.Parse(args); err != nil || *volname == "" || *device == "" || *socket == "" {
 		fmt.Fprintln(stderr, "usage: restow-pve serve-restore --volname V --device D --socket PATH")
 		return 2
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	ctx, cancel2 := context.WithTimeout(ctx, *idle)
+	ctx, cancel2 := context.WithTimeout(ctx, *maxTime)
 	defer cancel2()
 	logf := func(f string, a ...any) {
 		fmt.Fprintf(stderr, "%s %s\n", time.Now().UTC().Format(time.RFC3339), fmt.Sprintf(f, a...))
 	}
-	if err := pve.ServeRestore(ctx, layout, *volname, *device, *socket, logf); err != nil {
+	if err := pve.ServeRestore(ctx, layout, *volname, *device, *socket, *idle, logf); err != nil {
 		logf("%v", err)
 		return 1
 	}

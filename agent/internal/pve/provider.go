@@ -219,10 +219,10 @@ func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest)
 	case "restore-vm-volume-init":
 		return p.restoreVolumeInit(ctx, req)
 	case "restore-vm-volume-cleanup":
-		p.stopRestoreServers(req.Volname, req.Device)
+		p.stopRestoreServers(req.Volname, restoreOwner(), req.Device)
 		return map[string]any{}, nil
 	case "restore-vm-cleanup":
-		p.stopRestoreServers(req.Volname, "")
+		p.stopRestoreServers(req.Volname, restoreOwner(), "")
 		return map[string]any{}, nil
 	case "restore-container-init":
 		return p.restoreContainerInit(ctx, req)

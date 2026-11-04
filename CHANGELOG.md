@@ -403,6 +403,17 @@ private repository.
   cleanup, and a folder whose PVE worker is gone is removed by the next restore. `restow-pve
   diagnose` shows the restore folder and its free space, and a running container restore holds
   back the self-update and boot tests.
+- Proxmox VE: two restores of one VM restore point at the same time (a boot test or restore
+  check beside a restore from the PVE UI, two GUI restores of one backup as clones) killed each
+  other's restore servers. The server was keyed by the volume and the disk only: the second
+  restore's init stopped the first one's server mid-copy, and either cleanup stopped every
+  server of the volume, so `qemu-img convert` failed with an NBD error. A restore server now
+  belongs to the PVE worker that restores, and a cleanup stops only its own worker's servers;
+  an init stops another worker's server only when that worker is gone. The restore server also
+  stopped after 48 hours whatever it was doing and fetched one batch of blocks at a time, so
+  disks of many terabytes could not be restored: it now stops after an hour without a request
+  (30 days at most), keeps two batches in flight, and the init waits up to ten minutes for a
+  server that is still loading the hash list of a large disk.
 
 ### Upgrade Notes
 

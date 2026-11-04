@@ -137,7 +137,7 @@ func TestNodeIsIdleAgainAfterAVMRestore(t *testing.T) {
 	if _, ok := res.(map[string]any)["qemuImgPath"]; !ok {
 		t.Fatalf("result %v", res)
 	}
-	key := restoreKey(restoreReq().Volname, restoreReq().Device)
+	key := restoreKey(restoreReq().Volname, restoreOwner(), restoreReq().Device)
 	pid := readPID(filepath.Join(p.restoreDir(), key+".pid"))
 	if !busy(l) {
 		t.Fatal("a running restore server does not make the node busy")
@@ -171,7 +171,7 @@ func TestStaleRestoreFilesDoNotMakeTheNodeBusy(t *testing.T) {
 	l := Layout{RunDir: run}
 	dir := filepath.Join(run, "restore")
 	_ = os.MkdirAll(dir, 0o700)
-	key := restoreKey(restoreReq().Volname, restoreReq().Device)
+	key := restoreKey(restoreReq().Volname, restoreOwner(), restoreReq().Device)
 	for name, data := range map[string]string{key + ".log": "served", key + ".sock": "", "other.log": "x"} {
 		_ = os.WriteFile(filepath.Join(dir, name), []byte(data), 0o600)
 	}
@@ -200,7 +200,7 @@ func TestStaleRestoreFilesDoNotMakeTheNodeBusy(t *testing.T) {
 	}
 	_ = os.WriteFile(filepath.Join(proc, "4242", "cmdline"), []byte("/usr/bin/kvm\x00-id\x00105"), 0o600)
 	p := &Provider{Layout: l}
-	p.stopRestoreServers(restoreReq().Volname, "")
+	p.stopRestoreServers(restoreReq().Volname, restoreOwner(), "")
 	if _, err := os.Stat(filepath.Join(dir, key+".log")); !os.IsNotExist(err) {
 		t.Fatal("the log of the stopped server stays")
 	}
@@ -255,7 +255,7 @@ func TestRestoreVolumeInitLeavesNothingBehindWhenItFails(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
 			for i := 0; i < 100; i++ {
-				if readPID(filepath.Join(p.restoreDir(), restoreKey(restoreReq().Volname, restoreReq().Device)+".pid")) > 0 {
+				if readPID(filepath.Join(p.restoreDir(), restoreKey(restoreReq().Volname, restoreOwner(), restoreReq().Device)+".pid")) > 0 {
 					break
 				}
 				time.Sleep(20 * time.Millisecond)

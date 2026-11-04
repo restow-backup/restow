@@ -18,7 +18,7 @@ Changes are additive: new fields may appear, existing ones keep their meaning.
 | `restow-pve config` | `--allow-restores=true\|false`, `--fleecing-storage`, `--pve-cert-sha256`, `--restore-tmp`, `--boot-tests=true\|false`, `--boot-test-storage`, `--boot-test-bridge` (`-` clears it). |
 | `restow-pve update` | Install a newer signed release the instance offers. |
 | `restow-pve uninstall --yes` | Remove unit, plugin, state, caches and binaries. |
-| `restow-pve serve-restore --volname V --device D --socket S` | The NBD restore server of one disk (started by the provider). |
+| `restow-pve serve-restore --volname V --device D --socket S` | The NBD restore server of one disk (started by the provider). It stops with the restore's cleanup, after `--idle` (one hour) without an NBD request, or after `--max-time` (30 days) in any case; it keeps two batches of eight blocks in flight. |
 | `restow-pve version [--short]` | Version. |
 
 `RESTOW_PVE_ROOT` prefixes every path (tests, relocated installs).
@@ -67,8 +67,8 @@ what is missing instead.
 | `restore-get-mechanism` | `volname` | `{mechanism: "qemu-img"\|"directory", vmtype}` |
 | `archive-get-guest-config` / `archive-get-firewall-config` | `volname` | `{config}` (firewall: string or null) |
 | `restore-vm-init` | `volname` | `{devices: {device: {size}}}` |
-| `restore-vm-volume-init` | `volname`, `device` | `{qemuImgPath}`: `nbd+unix:///<device>?socket=<path>` |
-| `restore-vm-volume-cleanup` / `restore-vm-cleanup` | `volname`, `device` | `{}` |
+| `restore-vm-volume-init` | `volname`, `device` | `{qemuImgPath}`: `nbd+unix:///<device>?socket=<path>`; since 0.5.0 the server belongs to the calling PVE worker (`/run/restow-pve/restore/<hash>-<worker pid>-<device>.*`), so two restores of one restore point get one each, and an init stops another worker's server only when that worker is gone |
+| `restore-vm-volume-cleanup` / `restore-vm-cleanup` | `volname`, `device` | `{}`; stops only the calling worker's servers (and those a restow-pve before 0.5.0 started) |
 | `restore-container-init` | `volname` | `{archiveDirectory}`: `<restore folder>/ct-<hash>-<random>/root`, one per call (since 0.5.0); refused when the restore folder lacks the space |
 | `restore-container-cleanup` | `volname`, `directory` (the `archiveDirectory` of its init, since 0.5.0) | `{}`; removes that folder only (it must lie below the restore folder); without `directory` the folders of the volname that the calling PVE worker owns |
 | `storage-status` | | `{total, used, avail, active}` (cache only, never the network) |
