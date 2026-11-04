@@ -144,3 +144,39 @@ export function isAttachmentExpansionRefused(error: unknown): boolean {
     (error.status === 400 && /expand|attachment|not\s*supported/i.test(error.message))
   );
 }
+
+// ---------------------------------------------------------------------------
+// Membership (the restore explorer's "Teams & sites" of a person, #89)
+
+/** Largest page Graph serves for `/members` and `/owners`. */
+export const GROUP_MEMBERS_PAGE_SIZE = 999;
+
+/**
+ * The owners of a group, ids only. Application permissions: GroupMember.Read.All (least),
+ * Group.Read.All, Directory.Read.All; Restow has Group.Read.All.
+ */
+export function groupOwnersUrl(groupId: string): string {
+  return `${groupPath(groupId)}/owners${query({ $select: "id", $top: GROUP_MEMBERS_PAGE_SIZE })}`;
+}
+
+/** The direct members of a group, ids only (Microsoft 365 groups do not nest). Same permissions. */
+export function groupMembersUrl(groupId: string): string {
+  return `${groupPath(groupId)}/members${query({ $select: "id", $top: GROUP_MEMBERS_PAGE_SIZE })}`;
+}
+
+/** The group-connected SharePoint site of a group (Sites.Read.All). */
+export function groupRootSiteUrl(groupId: string): string {
+  return `${groupPath(groupId)}/sites/root${query({ $select: "id" })}`;
+}
+
+/** A directory object of a member or owner listing; `@odata.type` names users, devices, ... */
+export interface DirectoryObjectRef {
+  id: string;
+  "@odata.type"?: string;
+}
+
+/** True for a user (the only kind of member a person's entry can show). */
+export function isUserObject(entry: DirectoryObjectRef): boolean {
+  const type = entry["@odata.type"];
+  return type === undefined || type.toLowerCase() === "#microsoft.graph.user";
+}

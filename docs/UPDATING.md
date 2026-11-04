@@ -94,6 +94,60 @@ docker compose pull
 docker compose up -d
 ```
 
+Neither these commands nor `install.sh` remove the images of the release before:
+every update adds two images of several hundred MB to Docker's image store, and a
+disk that fills up stops PostgreSQL. Once the new version runs, remove the images of
+older releases, keeping the one that runs now and the one before it (for a rollback
+without a download). In the installation directory, with the version that ran
+before the update in `previous`:
+
+```sh
+previous=W.V.U   # the version before the update; it and everything newer stay
+for var in RESTOW_IMAGE RESTOW_WEB_IMAGE; do
+  ref=$(sed -n "s/^$var=//p" .env | tail -n 1 | tr -d "\"'")
+  repo=${ref%@*}
+  case ${repo##*/} in *:*) repo=${repo%:*} ;; esac
+  [ -n "$repo" ] || continue
+  docker image ls --format '{{.Tag}}' "$repo" | while read -r tag; do
+    core=${tag%%-*}   # 0.4.11 of 0.4.11 and of 0.4.11-rc.1
+    # Version tags only: latest, beta and other moving tags stay.
+    printf '%s\n' "$core" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+' || continue
+    # Strictly older than the version before: it, its pre-releases and newer ones stay.
+    [ "$core" != "${previous%%-*}" ] || continue
+    [ "$(printf '%s\n%s\n' "$core" "${previous%%-*}" | sort -V | head -n 1)" = "$core" ] || continue
+    docker image rm "$repo:$tag"
+  done
+done
+```
+
+The repositories come from `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` in `.env` (the
+`ghcr.io/restow-backup/...` names, their `-community` twins or a mirror's), so the
+loop only ever looks at the images this installation runs. It removes only tags
+that are a version older than `previous`: `latest`, `beta`, a newer release pulled
+ahead of time and anything else stays. `docker image rm` with a name removes only
+that name; Docker deletes the image once no other name refers to it and refuses an
+image that a container still uses, running or stopped, so the loop cannot take away
+what a stack runs (a refusal is printed and the loop goes on). Do not add
+`--force`. To see what is there first:
+`docker image ls <repository>` with the repository of `RESTOW_IMAGE` (and of
+`RESTOW_WEB_IMAGE`). An installation built from source (no `RESTOW_IMAGE` in
+`.env`, the images are `restow:local` and `restow-web:local`) has no version tags;
+see the next paragraph.
+
+Built from source, every `docker compose up -d --build` leaves the image it
+replaces without a name, and the build cache grows. Both can go, for the whole host,
+once nothing of theirs is needed any more:
+
+```sh
+docker image prune --force               # images without a name that no container uses
+docker builder prune --force --filter until=24h   # build cache older than a day
+```
+
+`docker image prune -a` and `docker system prune -a` remove every image that no
+container uses, also those of other projects on the host and the previous Restow
+release; do not use them for this. With the updater, old images are removed after
+every successful update ([Old images](#old-images)).
+
 Running jobs get 60 seconds to save a checkpoint when the worker stops
 (`stop_grace_period: 60s` on the `worker` service; the worker itself waits
 50 seconds for them). A Compose file from before 0.3.5 does not have that
@@ -704,7 +758,9 @@ everyone sees a full-screen notice with the steps and the progress.
 6. **Health check.** Waits until the api reports ready and the new version
    (it gives up at once when the api container keeps restarting); then starts
    worker and scheduler, then recreates the web edge last.
-7. **Done.**
+7. **Done.** Old dumps beyond the three kept and the fetched sources are removed.
+   Once the run is recorded as succeeded, the images of releases older than the
+   previous one are removed ([Old images](#old-images)).
 
 While the api restarts, the edge answers browsers with a static maintenance
 page (in the browser's language, light or dark) and answers API calls with a
@@ -889,7 +945,6 @@ choice back. A plan keeps the zone it was made in: changing the zone afterwards
 does not move a planned update.
 
 ### Disk space
-### Disk space
 
 An update writes a full database dump into the updater's volume, pulls two new
 images and lets the new api run its migrations. On a nearly full disk the dump
@@ -913,6 +968,60 @@ listed in the Updates tab with their size; the provider owner can download or
 delete one there (recent sign-in, written to the audit log). A dump holds the
 whole database, the encrypted secrets included: keep a downloaded one as
 carefully as the master key.
+
+The images of earlier releases would fill the disk over time as well; the updater
+removes them after every successful update (next section).
+
+### Old images
+
+Every update pulls (or builds) two new images, and the old ones stay in Docker's
+image store until someone removes them. Over a year of releases that is many GB; when
+the disk is full, PostgreSQL stops. So after a successful update (the new version
+answers and the run is recorded as succeeded) the updater removes the images of
+earlier releases. It keeps the images of the version that runs now and of the version
+before it, so going back by hand ([Rollback](#rollback)) needs no download. An image
+is removed only when all of this holds:
+
+- **It is Restow's.** Every name of it (`name:tag` and `name@sha256:…`) is in one of
+  this installation's repositories: `RESTOW_UPDATER_IMAGE_REPOSITORY` and
+  `RESTOW_UPDATER_WEB_IMAGE_REPOSITORY`, the same repositories of the other build
+  (with or without `-community`), the local names `source` mode builds (`restow`,
+  `restow-web`, `restow-community`, `restow-web-community`) and the repositories of the
+  Restow images Compose resolves for api, worker, scheduler, updater and mounter.
+  The web edge's image is only kept, its repository is not taken for Restow's: an
+  override may run a stock Caddy there, whose versions are not Restow's. An image
+  with a name anywhere else, or with no name at all, is never touched.
+- **It is old.** Its release (the `org.opencontainers.image.version` label, else its
+  `RESTOW_VERSION`) is older than the version before the current one. A version tag
+  counts as the release only in the Restow repositories of the first list
+  (the configured ones, their twins, the local names); in a repository known only
+  from the compose configuration, an image without such a label stays. An image
+  whose release cannot be told stays, and so does one of a newer release.
+- **Nothing uses it.** No container on the Docker host uses it, running or stopped,
+  of this project or any other.
+- **It is not configured.** It is none of the images the compose project names now
+  (the updater's and the mounter's pinned images included) and none the run
+  replaced.
+
+The updater removes each such image by its ID with `docker image rm`, never forced
+(Docker itself refuses an image a container uses). Docker also refuses to remove an
+image with more than one name by ID (several tags, such as `restow:0.4.11` and
+`restow:0.4`, or the names of two repositories); the updater first takes the other
+names off it, one at a time with `docker image rm <name>` and each only after
+`docker image inspect` showed that the name still refers to that image, so the
+image always keeps a name until it goes by its ID. Its command runners refuse every
+other removal: `docker image rm` with anything but image IDs or exactly one name
+with a tag or digest, `--force`, and `rmi`, `image prune`, `builder prune`,
+`system prune` and `--rmi`. Nothing is removed when the
+update failed, was rolled back or needs attention. An image Docker refuses, or a list
+that cannot be read, is logged and never changes the outcome of the update. The run's
+log in the Updates tab says how many images were removed and their size
+(`Removed 3 images of earlier releases (1.9 GB)`; layers they shared with the images
+that stay are not freed, so the disk can gain less), and the updater's own log
+(`docker compose --profile updater logs updater`) names each image. Images without a
+name and the build cache are not touched; see [the commands for manual
+updates](#2-new-image-no-or-automatic-migrations), which also apply to an
+installation that was updated by hand before.
 
 ### When something goes wrong
 

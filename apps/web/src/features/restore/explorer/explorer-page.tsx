@@ -62,6 +62,7 @@ import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { FolderTree } from "@/features/restore/explorer/folder-tree";
 import { ItemList } from "@/features/restore/explorer/item-list";
 import { PersonAreas } from "@/features/restore/explorer/person-areas";
+import { PersonMemberships } from "@/features/restore/explorer/person-memberships";
 import { RestorePointBar } from "@/features/restore/explorer/restore-point-bar";
 import { restorePointTime } from "@/features/restore/explorer/restore-point-label";
 import { SearchField } from "@/features/restore/explorer/search-field";
@@ -214,6 +215,7 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
   const { t } = useTranslation("restore");
   const { user } = useSession();
   const canProtect = useCanProtect();
+  const seesAll = useSeesAllAccounts();
   const wide = useMediaQuery("(min-width: 1024px)");
   const [search, setSearch] = useExplorerSearch();
 
@@ -486,6 +488,16 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
         onOpenFolder={openFolder}
       />
       {archiveEntries}
+      {/* A person's Teams and sites (#89); sites are for restore operators and admins only. */}
+      {seesAll && person.key.startsWith("user:") ? (
+        <PersonMemberships
+          personKey={person.key}
+          // A group mailbox opens on its first area (the group calendar), like its own entry.
+          onOpen={(target) =>
+            setSearch(withObject(target.id, target.kind === "group" ? "calendar" : undefined))
+          }
+        />
+      ) : null}
     </div>
   ) : object && restorePoint ? (
     <div className="h-full overflow-y-auto p-2">

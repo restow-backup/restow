@@ -167,6 +167,11 @@ export interface PveRunProgress {
  */
 export interface PveBackupSize {
   at: string;
+  /**
+   * The point's place in the guest's backups: the newest point is a follow-up when it is above
+   * the first one's (#58). Missing on servers before 0.5.0, which compare `at` instead.
+   */
+  sequence?: number;
   contains: number;
   added: number | null;
   /** Items a container backup could not read; the point misses them. */

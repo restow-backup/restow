@@ -1,5 +1,6 @@
 import { type DumpStore, dumpFileName, KEEP_DUMPS } from "./dumps.js";
 import { type CapturedEnv, type EnvFile, EnvFileError, postgresSettings } from "./env-file.js";
+import { formatBytes, removeOldImages } from "./image-cleanup.js";
 import { fullBuildRepositories, type ImageVariant } from "./image-variant.js";
 import type { Logger } from "./logger.js";
 import { type ApiClient, type Clock, type DockerOps, OpsError, type TimerHandle } from "./ops.js";
@@ -554,6 +555,11 @@ export class UpdateEngine {
 
   private async executeSteps(exec: Exec): Promise<void> {
     await this.runSteps(exec);
+    const finished = this.deps.store.state;
+    if (finished.phase === "succeeded" && finished.run && !this.shuttingDown) {
+      // Only now, with the run recorded as succeeded; it stays succeeded whatever happens here.
+      await this.removeOldImages(finished.run, finished.runContext);
+    }
     const state = this.deps.store.state;
     if (state.phase === "succeeded" && state.run && this.deps.selfUpdater && !this.shuttingDown) {
       // After the run is recorded as succeeded: whatever happens here, it stays succeeded.
@@ -1228,6 +1234,67 @@ export class UpdateEngine {
     this.deps.store.recordHistory(run);
     await this.deps.store.save();
     this.deps.preflight.invalidate();
+  }
+
+  /**
+   * After a succeeded run: remove the images of releases older than the previous one
+   * (image-cleanup.ts). Never throws; the result goes into the run's log and the detail
+   * of its finish step, and into the history entry of the run.
+   */
+  private async removeOldImages(run: Run, context: RunContext | null): Promise<void> {
+    const { config, ops, logger, redactor, store } = this.deps;
+    let line: string;
+    try {
+      const result = await removeOldImages(
+        { ops, logger, redactor },
+        {
+          imageRepository: config.imageRepository,
+          webImageRepository: config.webImageRepository,
+          currentVersion: run.targetVersion,
+          previousVersion: run.fromVersion,
+          keep: [
+            run.images.app,
+            run.images.web,
+            context?.previousImages?.app ?? null,
+            context?.previousImages?.web ?? null,
+          ],
+          // A run scheduled meanwhile (or a shutdown) ends the cleanup before the next image.
+          proceed: () => {
+            const phase = store.state.phase;
+            return !this.shuttingDown && phase !== "scheduled" && phase !== "running";
+          },
+        },
+      );
+      line =
+        result.removed > 0
+          ? `Removed ${result.removed} image${result.removed === 1 ? "" : "s"} of earlier releases (${formatBytes(result.bytes)}); the images of ${run.targetVersion} and of the previous version stay.`
+          : "No images of earlier releases to remove; the images of this and of the previous version stay.";
+      if (result.failed > 0) {
+        line += ` ${result.failed} could not be removed (see the updater's log).`;
+      }
+      const finish = run.steps.find((step) => step.id === "finish");
+      if (finish) {
+        finish.detail = {
+          ...finish.detail,
+          oldImagesRemoved: result.removed,
+          oldImagesBytes: result.bytes,
+          oldImagesFailed: result.failed,
+        };
+      }
+    } catch (error) {
+      line = `The images of earlier releases could not be removed: ${this.detail(error)}`;
+    }
+    try {
+      logger.info(line);
+      this.log(run, line);
+      // The history entry gets the numbers too, while it is still the newest one.
+      if (store.state.history[0]?.id === run.id) {
+        store.recordHistory(run);
+      }
+      await store.save();
+    } catch (error) {
+      logger.warn(`The image cleanup could not be recorded: ${(error as Error).message}`);
+    }
   }
 
   // ---------------------------------------------------------------------------

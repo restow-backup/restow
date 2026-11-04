@@ -38,6 +38,7 @@ export * from "./imports.js";
 export * from "./job-start-pause.js";
 export * from "./jobs.js";
 export * from "./manifest.js";
+export * from "./memberships.js";
 export * from "./notifications.js";
 export * from "./provider-team.js";
 export * from "./providers.js";

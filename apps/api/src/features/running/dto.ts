@@ -16,12 +16,28 @@ import type { RunDto } from "../history/dto.js";
 /** Most runs one tenant lists; `truncated` says that more were running. */
 export const RUNNING_LIMIT = 50;
 
+/**
+ * Most Proxmox VE runs the live channel carries for one tenant (features/history/live.ts). Far
+ * more than a page lists: a job's detail panel follows every guest of its round there, and a
+ * busy tenant runs more than {@link RUNNING_LIMIT} at once; the start page still lists
+ * {@link RUNNING_LIMIT} of them and says that more go on. A bound all the same, for the read the
+ * channel repeats every few seconds.
+ */
+export const LIVE_PVE_LIMIT = 500;
+
 /** A run of a Proxmox VE guest that is going on. */
 export interface PveRunningDto {
   id: string;
   kind: PveRunKind;
   guest: { id: string; vmid: number; name: string | null; kind: PveGuestKind };
-  /** The backup job the guest is in. */
+  /**
+   * The Proxmox VE job that started the run (its task names it): a backup of the job's round, or
+   * its boot test. The job's detail panel on the job lists follows its running guests by it.
+   * Null for a run asked for by hand or started in PVE, and for restores. Missing from servers
+   * before 0.5.0, whose web app matches by {@link jobName} instead.
+   */
+  jobId: string | null;
+  /** The job that started the run, else the backup job the guest is in. */
   jobName: string | null;
   startedAt: string;
   /** A stop was asked for and the node has not stopped the run yet. */

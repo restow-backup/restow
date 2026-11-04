@@ -16,6 +16,7 @@ import {
   fetchCalendar,
   fetchEntryPreview,
   fetchPeople,
+  fetchPersonMemberships,
   fetchRestoreJob,
   fetchRestoreJobs,
   fetchRestoreTargets,
@@ -26,6 +27,7 @@ import {
   type ObjectKind,
   type PeoplePage,
   type PeopleSection,
+  type PersonMembershipsPage,
   type RestoreJob,
   restoreKeys,
   searchSnapshot,
@@ -96,6 +98,22 @@ export function usePersonOf(objectId: string | null) {
     enabled: enabled && objectId !== null,
     // Moving between a person's areas keeps their entry on screen while the next one loads.
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * A person's Teams and sites (#89), page by page: the group mailboxes and sites they own or
+ * belong to. `key` is the person's entry (`user:<id>`); null (no person, or a viewer who does
+ * not see sites) asks nothing.
+ */
+export function usePersonMemberships(key: string | null) {
+  const { tenantId, enabled } = useTenantScope();
+  return useInfiniteQuery({
+    queryKey: restoreKeys.memberships(tenantId, key),
+    queryFn: ({ pageParam }) => fetchPersonMemberships({ key: key as string, after: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last: PersonMembershipsPage) => last.next ?? undefined,
+    enabled: enabled && key !== null,
   });
 }
 

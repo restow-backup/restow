@@ -314,6 +314,8 @@
       "sites_unavailable": "SharePoint sites could not be listed ({status}); the sites known so far stay as they are.",
       "groups_permission": "Microsoft 365 groups are not read: the tenant has not granted the backup app Group.Read.All ({status}). Group calendars and conversations are neither found nor backed up; mail, OneDrive and SharePoint are not affected. Run the admin consent for this tenant again.",
       "groups_unavailable": "Microsoft 365 groups could not be read ({status}); the groups known so far stay as they are.",
+      "memberships_permission": "Owners and members of the Microsoft 365 groups are not read: the tenant has not granted Group.Read.All to the backup app ({status}). The restore explorer therefore shows no or outdated Teams and sites for people; everything is still backed up. Run the admin consent for this tenant again.",
+      "memberships_unavailable": "{count, plural, one {Owners and members of one Microsoft 365 group could not be read ({status})} other {Owners and members of # Microsoft 365 groups could not be read ({status})}}; the restore explorer shows the ones read last and says that its lists may be incomplete. The next sync reads these groups again.",
       "lock_probe_failed": "Whether {user} is still locked could not be checked ({status}); it stays marked as locked."
     },
     "result": {

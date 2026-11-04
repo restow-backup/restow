@@ -154,6 +154,8 @@ DECLARE
     'restore_point_suspicions',
     -- The daily size samples of the capacity page (0.5.0, apps/worker storage-samples.ts).
     'storage_samples',
+    -- Who belongs to a Microsoft 365 group or a SharePoint site (0.5.0, #89).
+    'directory_memberships',
     -- Read and written only by the installation role (packages/db roles.ts);
     -- the policy is a second line should the tenant role ever be granted it.
     'provider_member_tenants'

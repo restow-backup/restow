@@ -457,6 +457,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/snapshots": view(),
   "GET /api/v1/snapshots/objects": view(),
   "GET /api/v1/snapshots/people": view(),
+  // Which groups and sites a person belongs to: names and roles, like the people list.
+  "GET /api/v1/snapshots/people/memberships": view(),
   "GET /api/v1/snapshots/objects/:id/versions": view(),
   "GET /api/v1/snapshots/search": operate(),
   "GET /api/v1/snapshots/:id/tree": operate(),

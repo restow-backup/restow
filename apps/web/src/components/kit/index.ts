@@ -20,7 +20,12 @@ export {
 } from "./activity-orb.js";
 export { ChartCard, type ChartCardProps } from "./chart-card.js";
 export { type ChartStatusTone, STATUS_CHART_COLOR } from "./chart-colors.js";
-export { HORIZONTAL_GRID, VALUE_AXIS_INTERVAL, VERTICAL_GRID } from "./chart-grid.js";
+export {
+  byteAxisTicks,
+  HORIZONTAL_GRID,
+  VALUE_AXIS_INTERVAL,
+  VERTICAL_GRID,
+} from "./chart-grid.js";
 export { type ClipboardEnvironment, copyToClipboard } from "./clipboard.js";
 export {
   ConfirmDialog,
@@ -52,6 +57,15 @@ export {
   type KpiTileProps,
 } from "./kpi-tile.js";
 export { NativeSelect } from "./native-select.js";
+export {
+  NEW_DATA_CAP_FACTOR,
+  NewDataChart,
+  type NewDataChartProps,
+  type NewDataPoint,
+  type NewDataRow,
+  type NewDataType,
+  newDataRows,
+} from "./new-data-chart.js";
 export {
   DEFAULT_PAGE_WIDTH,
   documentTitle,
