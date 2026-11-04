@@ -36,7 +36,7 @@ import { stoppableBackup } from "./components/machine-cells.js";
 import { OverviewTab } from "./components/overview-tab.js";
 import { RunSheet } from "./components/run-sheet.js";
 import { SettingsTab } from "./components/settings-tab.js";
-import { SnapshotsTab } from "./components/snapshots-tab.js";
+import { MachineNewDataChart, SnapshotsTab } from "./components/snapshots-tab.js";
 import {
   ActivityBadge,
   AttentionBadges,
@@ -379,7 +379,8 @@ export function EndpointDetailPage({
         <TabsContent value="overview" className="pt-2">
           <OverviewTab detail={detail} onOpenRun={setOpenRun} />
         </TabsContent>
-        <TabsContent value="snapshots" className="pt-2">
+        <TabsContent value="snapshots" className="space-y-4 pt-2">
+          <MachineNewDataChart endpointId={detail.id} />
           <SnapshotsTab detail={detail} onShowOverview={() => onTabChange("overview")} />
         </TabsContent>
         <TabsContent value="settings" className="pt-2">

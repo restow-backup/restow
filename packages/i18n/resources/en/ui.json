@@ -85,6 +85,25 @@
       "description": "The chart fills in as soon as there is data for this period."
     }
   },
+  "newData": {
+    "title": "New data per backup",
+    "description": "What each of the last {count, plural, one {# backup} other {# backups}} added to the repository after deduplication, oldest on the left.",
+    "summary": "New data of the last {count, plural, one {# backup} other {# backups}}: from {min} to {max}, the newest added {last}.",
+    "series": {
+      "first": "First backup",
+      "fullRead": "Full read",
+      "incremental": "Follow-up backup",
+      "backup": "Backup"
+    },
+    "cut": "Cut at the top of the scale so that the follow-up backups stay readable: {points}.",
+    "cutPoint": "{date} ({type}, {size})",
+    "table": {
+      "show": "Show as table",
+      "date": "Backup",
+      "type": "Type",
+      "added": "New data"
+    }
+  },
   "copy": {
     "action": "Copy",
     "copied": "Copied",

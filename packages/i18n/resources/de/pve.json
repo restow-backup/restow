@@ -98,10 +98,15 @@
     "sizeHint": "In Proxmox VE eingestellte Disk-Größe: was zugewiesen ist, nicht was belegt ist.",
     "backup": "Sicherung",
     "backupContains": "{size} im Backup",
-    "backupAdded": "+{size} neu im letzten Lauf",
     "backupFirst": "Erste Sicherung am {date}: {size} gespeichert",
     "backupFollowUp": "Durchschnitt je Folgesicherung: +{size} (letzte {count, plural, one {# Sicherung} other {# Sicherungen}})",
     "backupNone": "Noch keine Sicherung",
+    "backupSizes": {
+      "first": "Erste Sicherung: {size} am {date}",
+      "lastFollowUp": "Letzte Folgesicherung: +{size}",
+      "noFollowUp": "Noch keine Folgesicherung",
+      "average": "Folgesicherung im Schnitt: +{size} (letzte {count, plural, one {# Sicherung} other {# Sicherungen}})"
+    },
     "incomplete": "Letzte Sicherung unvollständig",
     "incompleteHint": "{count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gelesen werden; dem Sicherungsstand fehlen sie.",
     "diskAllocated": "{size} zugewiesen",

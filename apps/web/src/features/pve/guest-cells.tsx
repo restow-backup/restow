@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 import { backupNow, type PveGuest, type PveNode, pveKeys } from "./api.js";
 import { progressPercent } from "./backup-progress.js";
+import { lastFollowUp, shortDate } from "./backup-size.js";
 import { CancelBackupButton } from "./cancel-controls.js";
 import { type GuestStatus, guestStatuses } from "./guest-status.js";
 import { PVE_NAMESPACE } from "./i18n.js";
@@ -121,13 +122,6 @@ export function GuestStatusCell({
   );
 }
 
-/** A short date in the user's language: "3 Oct" / "3. Okt.". */
-export function shortDate(value: string, language: string): string {
-  return new Intl.DateTimeFormat(language, { day: "numeric", month: "short" }).format(
-    new Date(value),
-  );
-}
-
 /**
  * The backups of a guest on one line (#58): how large the first (full) backup was and when,
  * and what the last follow-up backup added: "First: 32 GB on 3 Oct · Last: +210 MB". What the
@@ -148,9 +142,9 @@ export function BackupSizeLine({ guest }: { guest: Pick<PveGuest, "backups"> }) 
       })
     : null;
   // The newest point is the first backup itself until a follow-up ran.
-  const followUp = last && first && last.at !== first.at && last.added !== null;
+  const followUp = lastFollowUp(guest.backups);
   const lastText = followUp
-    ? t("guests.backupLine.last", { size: formatBytes(last?.added ?? 0, language) })
+    ? t("guests.backupLine.last", { size: formatBytes(followUp.added, language) })
     : null;
   const title = [
     firstText,

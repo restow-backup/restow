@@ -38,7 +38,8 @@ import {
   verifyGuest,
 } from "./api.js";
 import { activityHint, BackupProgress } from "./backup-progress.js";
-import { GuestActionButton, GuestState, type SelfBackupGuard, shortDate } from "./guest-cells.js";
+import { NEW_DATA_POINTS, newDataPoints, shortDate } from "./backup-size.js";
+import { GuestActionButton, GuestState, type SelfBackupGuard } from "./guest-cells.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo } from "./paths.js";
 import { runStatusKey, runTone } from "./run-status.js";
@@ -125,40 +126,38 @@ function RecentRuns({ runs, shown }: { runs: readonly PveRun[]; shown?: string |
 }
 
 /** How many restore points the "new data per backup" bars show, newest last. */
-export const SHEET_BARS = 30;
+export const SHEET_BARS = NEW_DATA_POINTS;
 
 /**
  * What each backup added to the repository (#58), as small bars, oldest left: the first
  * backup is the full one, the others what changed. From the guest's restore points, which
- * the panel loads anyway; points that did not record it are left out.
+ * the panel loads anyway; points that did not record it are left out. The guest's page shows
+ * the same points as a chart with axes and a table.
  */
 export function AddedBars({ points }: { points: readonly PveRestorePoint[] }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
   const language = i18n.resolvedLanguage ?? i18n.language;
-  const bars = [...points]
-    .filter((point) => point.added !== null && point.added !== undefined)
-    .sort((a, b) => a.sequence - b.sequence)
-    .slice(-SHEET_BARS);
+  const bars = newDataPoints(points, SHEET_BARS);
   if (bars.length < 2) {
     return null;
   }
-  const max = Math.max(...bars.map((point) => point.added ?? 0), 1);
+  const max = Math.max(...bars.map((point) => point.added), 1);
   return (
     <figure className="space-y-1" data-slot="pve-sheet-added">
       <figcaption className="text-xs text-muted-foreground">{t("sheet.addedChart")}</figcaption>
       <ol className="flex h-16 items-end gap-px rounded-md border bg-muted/30 p-1">
         {bars.map((point) => {
-          const date = shortDate(point.backupAt, language);
-          const size = formatBytes(point.added ?? 0, language);
+          const date = shortDate(point.at, language);
+          const size = formatBytes(point.added, language);
           const label =
-            point.backupType === "first"
+            point.type === "first"
               ? t("sheet.addedFirst", { date, size })
               : t("sheet.addedBar", { date, size });
           return (
             <li key={point.id} title={label} className="flex h-full min-w-0 flex-1 items-end">
               <span
                 className="block w-full rounded-t-sm bg-info/70"
-                style={{ height: `${Math.max(4, ((point.added ?? 0) / max) * 100)}%` }}
+                style={{ height: `${Math.max(4, (point.added / max) * 100)}%` }}
               />
               <span className="sr-only">{label}</span>
             </li>
