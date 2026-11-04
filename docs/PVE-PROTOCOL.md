@@ -115,8 +115,8 @@ except enrollment. Binary formats are defined in
 | `POST /runs` | open a backup run → `{runId, guestId, origin, progressIntervalSeconds}` (the last since 0.4.0) |
 | `POST /runs/:id/incremental` | `{devices: [{device, size}]}` → per disk `mode`, `baseSnapshotId`, `hashesDigest` |
 | `PUT /runs/:id/blocks` | one frame of up to 16 blocks (`RSBF`, octet-stream) |
-| `POST /runs/:id/commit` | `{commitId, devices?, guestConfig, firewallConfig, resticSnapshotId?, resticUnreadable?, resticUnreadablePaths?, consistency?, ...}` → `{snapshotId, alreadyCommitted, hashesDigests}` |
-| `POST /runs/:id/finish`, `POST /runs/:id/log` | end of the run, PVE task log |
+| `POST /runs/:id/commit` | `{commitId, devices?, guestConfig, firewallConfig, resticSnapshotId?, resticUnreadable?, resticUnreadablePaths?, consistency?, vmConsistency?, ...}` → `{snapshotId, alreadyCommitted, hashesDigests}`. `consistency` is one line on what the restore point lacks (a container's unreadable items; a VM's missing freeze). `vmConsistency` (VMs, 0.5.0) is `{state, detail?, warnings?}` with `state` one of `frozen`, `stopped`, `no_agent`, `crash_consistent`, `freeze_failed`, `unknown`, from vzdump's log of the running backup. |
+| `POST /runs/:id/finish`, `POST /runs/:id/log` | end of the run; PVE task log `{log, vmConsistency?}` (VMs, 0.5.0: the same classification read from the whole log, which `backup_handle_log_file` gets after the commit, for the server where the commit's said `unknown`; an older server ignores both) |
 | `POST /runs/:id/progress` | `{bytesDone, bytesTotal?, bytesUploaded?}` → 204: how far a running backup is (since 0.4.0). Basic `nodeId:nodeSecret`, or the run's restic credential `runId:token` (the unprivileged container backup has no node secret). Reports closer than 2 s are dropped; 409 once the run ended. |
 | `POST /runs/:id/restic` | per-run restic credential of a container backup; since 0.4.0 also `{progressUrl, progressIntervalSeconds}` |
 | `GET /restore-points?volname=` | a restore point by its PVE volume name |

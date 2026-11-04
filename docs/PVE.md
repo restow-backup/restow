@@ -641,7 +641,14 @@ folder list and ZIP download as for a container; the same routes, roles and audi
   systems through the QEMU guest agent (then it is consistent). ext journals are replayed in
   memory; the XFS log and NTFS's `$LogFile` are not, so a crash-consistent XFS or NTFS restore
   point can lack the last seconds of writes, or show a damaged folder that a mount (with log
-  replay) would have repaired. Restore the whole VM for that.
+  replay) would have repaired. Restore the whole VM for that. Which case applies is read from
+  vzdump's log of the backup and recorded with the restore point (`vmConsistency`):
+  `frozen` (fs-freeze and thaw issued), `stopped` (the guest did not run), `no_agent` (the agent
+  is configured but did not answer), `crash_consistent` (no agent enabled, or the freeze
+  switched off in its options), `freeze_failed` (the freeze was issued and failed, for example
+  a VSS writer error in Windows; a warning in the task log as well) or `unknown` (the log says
+  nothing about it; never taken for either). A freeze whose thaw failed or was never logged is
+  a warning: check that the guest can write.
 
 #### Threat model of the VM file restore
 

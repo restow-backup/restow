@@ -253,6 +253,9 @@ type jobState struct {
 	RunDir      string                       `json:"runDir,omitempty"`
 	// ProgressInterval is how often the server wants progress (0: never).
 	ProgressInterval int `json:"progressInterval,omitempty"`
+	// GuestConfig is a VM's configuration as backup_vm got it (for the consistency of the
+	// log, backup_handle_log_file).
+	GuestConfig string `json:"guestConfig,omitempty"`
 }
 
 func (p *Provider) loadJob(storeid string, vmid int) (*jobState, error) {
@@ -501,15 +504,20 @@ func (p *Provider) backupVM(ctx context.Context, req ProviderRequest) (any, erro
 		doneUploaded += res.UploadedBytes
 	}
 	reporter.Stop()
+	// PVE froze (or did not freeze) the guest before backup_vm; vzdump's log of it says which.
+	cons := ClassifyVMConsistency(vzdumpGuestLog(req.VMID), req.GuestConfig)
+	p.logConsistency(cons)
 	// The commit id is stored before the commit is sent: a retry after a
 	// lost answer asks for the same commit, which the server answers with
 	// the snapshot it already made.
 	job.CommitID = newCommitID()
+	job.GuestConfig = req.GuestConfig
 	if err := p.saveJob(job); err != nil {
 		return nil, err
 	}
 	commit, err := p.server.Commit(ctx, job.RunID, CommitRequest{CommitID: job.CommitID, Devices: devices,
-		GuestConfig: req.GuestConfig, FirewallConfig: req.Info.FirewallConfig})
+		GuestConfig: req.GuestConfig, FirewallConfig: req.Info.FirewallConfig,
+		ConsistencyRemark: cons.Remark(), VMConsistency: &cons})
 	if err != nil {
 		// Unknown outcome: dying lets QEMU merge the bitmap back; the next
 		// run reads the whole disk if the server did commit (journal mismatch).
@@ -592,7 +600,14 @@ func (p *Provider) handleLogFile(ctx context.Context, req ProviderRequest) (any,
 			// into the guest's log file (tasklog.go).
 			ours, _ := readTail(logFile, 64<<10)
 			data = tailBytes(MergeTaskLog(data, ours), 64<<10)
-			if err := p.server.RunLog(ctx, job.RunID, string(data)); err != nil {
+			var cons *VMConsistency
+			if job.Kind == "vm" {
+				// The whole log: the freeze lines come early, the tail may have lost them.
+				head, _ := readHead(req.LogFile, 256<<10)
+				c := ClassifyVMConsistency(string(head), job.GuestConfig)
+				cons = &c
+			}
+			if err := p.server.RunLog(ctx, job.RunID, string(data), cons); err != nil {
 				p.logf("warn", "could not upload the task log: %v", err)
 			}
 		}
@@ -600,6 +615,32 @@ func (p *Provider) handleLogFile(ctx context.Context, req ProviderRequest) (any,
 	}
 	_ = os.Remove(logFile)
 	return map[string]any{}, nil
+}
+
+// readHead reads the first n bytes of a file.
+func readHead(path string, n int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, n))
+}
+
+// logConsistency says in the task log what the restore point records about the freeze; a
+// failed freeze or thaw is a warning.
+func (p *Provider) logConsistency(c VMConsistency) {
+	switch c.State {
+	case "freeze_failed":
+		p.logf("warn", "%s", c.Detail)
+	case "unknown":
+		p.logf("info", "vzdump's log does not say whether the guest agent froze the file systems")
+	default:
+		p.logf("info", "%s", c.Detail)
+	}
+	for _, w := range c.Warnings {
+		p.logf("warn", "%s", w)
+	}
 }
 
 func readTail(path string, n int64) ([]byte, error) {

@@ -488,6 +488,15 @@ private repository.
   when the backup waited. A lock timeout fails with "another Proxmox VE backup job held the
   backup lock of node pve1 for all of vzdump's lock wait ...; move the schedule of the Restow job
   or of the PVE backup job". PVE's own lock wait stays as configured.
+- Proxmox VE: a VM restore point did not say whether PVE froze the guest's file systems. With
+  the guest agent configured but not running, or a freeze that failed (a Windows VSS writer
+  error, a timeout), vzdump went on crash-consistent and the restore point looked like a frozen
+  one; the failed freeze's ERROR line was not among the task's warnings. The node now reads
+  vzdump's log of the backup and records with the restore point whether it was frozen, taken
+  from a stopped guest, without an answering agent, crash-consistent (no agent enabled or the
+  freeze switched off), with a failed freeze, or unknown (`vmConsistency`, with a line for the
+  restore point where it is not frozen). A failed freeze, a failed thaw and a freeze without a
+  logged thaw are warnings in the task log.
 
 ### Upgrade Notes
 

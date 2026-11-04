@@ -216,6 +216,9 @@ type fakeRestow struct {
 	progressInterval int
 	progress         []Progress
 	logs             []string
+	// lastCommit is the last commit request, logConsistency what came with the last log.
+	lastCommit     CommitRequest
+	logConsistency *VMConsistency
 }
 
 func (f *fakeRestow) handler(t *testing.T) http.Handler {
@@ -235,9 +238,13 @@ func (f *fakeRestow) handler(t *testing.T) http.Handler {
 			f.progress = append(f.progress, in)
 			w.WriteHeader(204)
 		case strings.HasSuffix(p, "/log"):
-			var in struct{ Log string }
+			var in struct {
+				Log           string
+				VMConsistency *VMConsistency `json:"vmConsistency"`
+			}
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			f.logs = append(f.logs, in.Log)
+			f.logConsistency = in.VMConsistency
 			w.WriteHeader(204)
 		case strings.HasSuffix(p, "/restic"):
 			_ = json.NewEncoder(w).Encode(ResticAccess{RepositoryURL: "https://restow.example/r", Username: "u", Password: "p"})
@@ -267,6 +274,7 @@ func (f *fakeRestow) handler(t *testing.T) http.Handler {
 			}
 			var in CommitRequest
 			_ = json.NewDecoder(r.Body).Decode(&in)
+			f.lastCommit = in
 			snap, again := f.commits[in.CommitID]
 			if !again {
 				snap = "snap-" + in.CommitID[:8]

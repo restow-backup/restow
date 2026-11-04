@@ -636,7 +636,9 @@ func WarningLines(tail string, max int) []string {
 		if line == "" || strings.HasPrefix(upper, "TASK WARNINGS") {
 			continue
 		}
-		if strings.Contains(upper, "WARN") {
+		// A failed fs-freeze or thaw is an ERROR line of vzdump that does not fail the backup.
+		if strings.Contains(upper, "WARN") || (strings.HasPrefix(upper, "ERROR:") &&
+			(strings.Contains(line, freezeCommand) || strings.Contains(line, thawCommand))) {
 			if len(line) > 500 {
 				line = line[:500]
 			}

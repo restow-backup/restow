@@ -539,6 +539,9 @@ type CommitRequest struct {
 	ResticFilesNew     uint64 `json:"resticFilesNew,omitempty"`
 	ResticFilesChanged uint64 `json:"resticFilesChanged,omitempty"`
 	ResticFilesTotal   uint64 `json:"resticFilesTotal,omitempty"`
+	// VMConsistency is what vzdump's log says about the guest agent's fs-freeze of a VM
+	// backup (an older server ignores it).
+	VMConsistency *VMConsistency `json:"vmConsistency,omitempty"`
 }
 
 // CommitResponse is the answer of a commit.
@@ -579,9 +582,14 @@ func (s *Server) ReportProgress(ctx context.Context, runID string, p Progress) e
 		body: body, timeout: progressTimeout})
 }
 
-// RunLog attaches the PVE task log (its tail) to a run.
-func (s *Server) RunLog(ctx context.Context, runID, log string) error {
-	return s.json(ctx, http.MethodPost, "/runs/"+url.PathEscape(runID)+"/log", map[string]string{"log": log}, nil, true)
+// RunLog attaches the PVE task log (its tail) to a run, with what the whole log says about a
+// VM's fs-freeze (nil for a container; an older server ignores it).
+func (s *Server) RunLog(ctx context.Context, runID, log string, c *VMConsistency) error {
+	body := map[string]any{"log": log}
+	if c != nil {
+		body["vmConsistency"] = c
+	}
+	return s.json(ctx, http.MethodPost, "/runs/"+url.PathEscape(runID)+"/log", body, nil, true)
 }
 
 // ResticAccess is a short-lived credential for one guest's restic repository.
