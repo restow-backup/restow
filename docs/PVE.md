@@ -405,18 +405,39 @@ Three numbers describe a guest and its backups, and they mean different things:
   `data_added` for a container, the uploaded blocks for a VM. The first backup
   stores (nearly) everything, later ones only what changed.
 
-VMs & containers and the inventory show the newest restore point ("9.4 GB in
-the backup, +2.5 MB new in the last run") and, on hover, the first backup and
-what a follow-up backup adds on average. The average covers the newest 10 kept
-restore points after the first backup that recorded what they added; with no
-such point there is no average. A guest's page states the same average above
-its restore points and lists every restore point as first backup, incremental,
-or (VM) full read, with what it contains and what it added.
+VMs & containers show a guest's backups on one line ("First: 32 GB on 3 Oct ·
+Last: +210 MB"), the inventory in its row per guest: "First backup: 32 GB on
+3 Oct", "Last follow-up: +210 MB" (or "No follow-up backup yet") and "Average
+follow-up: +180 MB (last 7 backups)"; on hover the first backup's full time and
+what the newest restore point contains. The first backup is the guest's first
+ever (also when retention pruned it since), the last follow-up its newest kept
+restore point after it (by `sequence`, which `GET /api/v1/pve` sends with
+`backups.first` and `backups.last` from 0.5.0 on). All of it comes with the
+overview, from one query per figure for all guests. The average covers the
+newest 10 kept restore points after the first backup that recorded what they
+added; with no such point there is no average. A guest's page states the same
+average above its restore points and lists every restore point as first backup,
+incremental, or (VM) full read, with what it contains and what it added.
+
+**New data per backup** (a guest's page, above its restore points; a smaller
+version in the detail panel of VMs & containers): a bar per backup for the
+newest 30 restore points that recorded what they added, oldest left, coloured by
+type (first backup, incremental, full read) from the categorical chart palette;
+never green, a size proves nothing. A full backup more than four times the
+largest follow-up would flatten the others, so the axis then follows the
+follow-ups and the full backup is cut at its top; the chart names every bar it
+cut with its real size. Screen readers get a sentence (how many backups, the
+smallest and largest, the newest), and "Show as table" lists every bar with its
+time, type and size. With fewer than two such points there is no chart.
 
 A machine's (endpoint agent's) restore points use the same words: what the
 point contains (restic's `total_bytes_processed`) and what it added (`data_added`,
 as the agent reported it for the run, else restic's own snapshot summary from
-restic 0.17 on). Points without either figure show neither.
+restic 0.17 on). Points without either figure show neither. The machine's
+Snapshots tab draws the same "New data per backup" chart over its newest 30
+snapshots that carry `data_added` (untyped bars, a machine's restic repository
+does not say which snapshot was its first), from the snapshot list the tab loads
+anyway.
 
 ## Restore
 

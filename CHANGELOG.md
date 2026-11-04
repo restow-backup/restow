@@ -123,9 +123,25 @@ private repository.
   and runs the installer tests: its Ed25519 check against Go's on the RFC 8032 vectors and
   some hundred mutated signatures, the signature fixtures, and a full installation against a
   test instance.
+- Proxmox VE, "New data per backup" (#58): a guest's page shows above its restore points a bar
+  chart of what each of its newest 30 backups added to the repository, oldest left, coloured by
+  type (first backup, incremental, full read) from the categorical chart palette, never green.
+  A first backup far above the follow-ups (more than four times the largest) is cut at the top
+  of the scale so the follow-ups stay readable, and the chart names it with its real size.
+  Screen readers get a sentence with the range and the newest figure, and "Show as table" lists
+  every bar with its time, type and size. A machine's Snapshots tab shows the same chart over
+  its newest 30 snapshots that carry what they added, from the snapshot list the tab loads
+  anyway (restic runs once). The chart is a kit part (`NewDataChart`) on the shared chart card.
 
 ### Changed
 
+- Proxmox VE inventory (#58): a guest's row says how large its first backup was and when
+  ("First backup: 32 GB on 3 Oct"), what the last follow-up added ("Last follow-up: +210 MB", or
+  "No follow-up backup yet") and the average follow-up ("Average follow-up: +180 MB (last 7
+  backups)"); the tooltip adds the first backup's full time and what the newest restore point
+  contains. It all comes with the overview, nothing is loaded per row. `GET /api/v1/pve` names
+  the `sequence` of `backups.first` and `backups.last` (additive), so the newest point counts as
+  a follow-up by its place, not by its time; the web interface still reads older servers.
 - The storage growth chart of the start page and the capacity page share one module for what
   they have in common (the figures of a series, the estimate, the day a repository runs full and
   what limits a repository). The chart looks as before.

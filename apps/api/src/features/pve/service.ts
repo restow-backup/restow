@@ -297,6 +297,11 @@ export function unreadableItems(stats: PveRunStats | null | undefined): number {
  */
 export interface BackupSize {
   at: string;
+  /**
+   * The restore point's place in the guest's backups (`pve_snapshots.sequence`): the newest point
+   * is a follow-up backup when its sequence is above the first one's (#58).
+   */
+  sequence: number;
   contains: number;
   added: number | null;
   unreadable: number;
@@ -305,6 +310,7 @@ export interface BackupSize {
 type SnapshotSizeRow = {
   guest_id: string;
   kind: string;
+  sequence: number | string;
   backup_at: Date | string;
   byte_size: number | string;
   stats: PveRunStats | null;
@@ -359,6 +365,7 @@ export function verifyFact(
 function backupSize(row: SnapshotSizeRow): BackupSize {
   return {
     at: new Date(row.backup_at).toISOString(),
+    sequence: Number(row.sequence),
     contains: Number(row.byte_size),
     added: addedBytes(row.kind, row.stats),
     unreadable: unreadableItems(row.stats),
@@ -627,11 +634,11 @@ export async function overview(database: Database, tenantId: string, now: Date =
     // The first backup ever (pruned ones included: it is the full one) and the newest
     // restore point, per guest.
     const firsts = await tx.execute<SnapshotSizeRow>(sql`
-      SELECT DISTINCT ON (guest_id) guest_id, kind, backup_at, byte_size, stats
+      SELECT DISTINCT ON (guest_id) guest_id, kind, sequence, backup_at, byte_size, stats
         FROM pve_snapshots ORDER BY guest_id, sequence ASC`);
     const lasts = await tx.execute<SnapshotSizeRow & { verify_requested_at: Date | null }>(sql`
-      SELECT DISTINCT ON (guest_id) guest_id, kind, backup_at, byte_size, stats, verify,
-             verify_requested_at
+      SELECT DISTINCT ON (guest_id) guest_id, kind, sequence, backup_at, byte_size, stats,
+             verify, verify_requested_at
         FROM pve_snapshots WHERE status = 'active' ORDER BY guest_id, sequence DESC`);
     const verifies = new Map(
       lasts.rows.map((row) => [row.guest_id, verifyFact(row.verify, row.verify_requested_at)]),

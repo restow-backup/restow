@@ -85,6 +85,25 @@
       "description": "Das Diagramm füllt sich, sobald Daten für diesen Zeitraum vorliegen."
     }
   },
+  "newData": {
+    "title": "Neue Daten je Sicherung",
+    "description": "Was jede der letzten {count, plural, one {# Sicherung} other {# Sicherungen}} nach der Deduplizierung zum Repository hinzugefügt hat, die älteste links.",
+    "summary": "Neue Daten der letzten {count, plural, one {# Sicherung} other {# Sicherungen}}: von {min} bis {max}, die neueste fügte {last} hinzu.",
+    "series": {
+      "first": "Erste Sicherung",
+      "fullRead": "Vollständig gelesen",
+      "incremental": "Folgesicherung",
+      "backup": "Sicherung"
+    },
+    "cut": "Oben an der Skala abgeschnitten, damit die Folgesicherungen lesbar bleiben: {points}.",
+    "cutPoint": "{date} ({type}, {size})",
+    "table": {
+      "show": "Als Tabelle anzeigen",
+      "date": "Sicherung",
+      "type": "Art",
+      "added": "Neue Daten"
+    }
+  },
   "copy": {
     "action": "Kopieren",
     "copied": "Kopiert",
