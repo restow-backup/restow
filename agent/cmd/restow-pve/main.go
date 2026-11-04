@@ -297,10 +297,13 @@ func loadService(layout pve.Layout) (*pve.Service, error) {
 const (
 	firstUpdateCheck    = 2 * time.Minute
 	updateCheckInterval = 6 * time.Hour
+	// updateBusyRetry is the next check after an offer that waited for a running task.
+	updateBusyRetry = 15 * time.Minute
 )
 
-// updateLoop calls check once after first, then after every interval, until ctx ends.
-func updateLoop(ctx context.Context, first, interval time.Duration, check func(context.Context)) {
+// updateLoop calls check once after first, then after every interval, until ctx ends; after a
+// check that found the node busy (check returns true) already after busyRetry.
+func updateLoop(ctx context.Context, first, interval, busyRetry time.Duration, check func(context.Context) bool) {
 	wait := first
 	for {
 		select {
@@ -308,8 +311,10 @@ func updateLoop(ctx context.Context, first, interval time.Duration, check func(c
 			return
 		case <-time.After(wait):
 		}
-		check(ctx)
 		wait = interval
+		if check(ctx) {
+			wait = busyRetry
+		}
 	}
 }
 
@@ -342,14 +347,20 @@ func cmdRun(layout pve.Layout, stderr io.Writer) int {
 	// "Update now" from the server (the node's page, or right after the server was updated):
 	// installed with the heartbeat that says so, once the node is idle.
 	s.OnUpdate = install
-	go updateLoop(ctx, firstUpdateCheck, updateCheckInterval, func(ctx context.Context) {
+	go updateLoop(ctx, firstUpdateCheck, updateCheckInterval, updateBusyRetry, func(ctx context.Context) bool {
+		waits := false
 		if v, err := s.Server.UpdateOffer(ctx); err == nil && v != "" {
-			install(ctx, v)
+			// Never beside a task: the update restarts the PVE daemons and this service.
+			if reason := s.UpdateWhenIdle(ctx, func(ctx context.Context) { install(ctx, v) }); reason != "" {
+				logger("update to %s waits: %s; next try in %s", v, reason, updateBusyRetry)
+				waits = true
+			}
 		}
 		// A node an older restow-pve updated still has the PVE daemons on the old plugin.
-		if !s.Busy() {
+		s.UpdateWhenIdle(ctx, func(ctx context.Context) {
 			pve.EnsurePluginLoaded(ctx, layout, pve.ExecRunner{}, logger)
-		}
+		})
+		return waits
 	})
 	if err := s.Run(ctx); err != nil {
 		logger("%v", err)

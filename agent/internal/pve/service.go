@@ -53,6 +53,10 @@ type Service struct {
 	// idle (`restow-pve run` sets it: verify, install, restart); nil means never.
 	OnUpdate func(ctx context.Context, version string)
 
+	// VzdumpRunning reports a vzdump task of PVE on this node (an update waits for it); nil
+	// asks the PVE API.
+	VzdumpRunning func(ctx context.Context) bool
+
 	// Cmd runs qm and pct (boot tests); nil means the real commands.
 	Cmd CommandRunner
 	// BootTests runs the boot tests; nil means one built from the fields above.
@@ -66,6 +70,9 @@ type Service struct {
 	cancelled map[string]bool
 	stopped   map[string]bool
 	wake      chan struct{}
+	// updateMu keeps tasks and a self-update apart: the worker holds it while it takes and runs
+	// a task, an update from its check until the process exits (UpdateWhenIdle).
+	updateMu sync.Mutex
 
 	// Owned by the heartbeat loop.
 	lastInvent   time.Time
@@ -148,11 +155,25 @@ func (s *Service) startedVzdump(id, upid string, vmid int) bool {
 	return false
 }
 
-// work runs the queued tasks one after another until ctx ends.
+// work runs the queued tasks one after another until ctx ends. It takes a task only while no
+// self-update runs (updateMu): an update that found the node idle restarts it before the next.
 func (s *Service) work(ctx context.Context) {
 	for {
 		s.mu.Lock()
 		s.lazyLocked()
+		waiting := len(s.queue) > 0
+		wake := s.wake
+		s.mu.Unlock()
+		if !waiting {
+			select {
+			case <-ctx.Done():
+				return
+			case <-wake:
+			}
+			continue
+		}
+		s.updateMu.Lock()
+		s.mu.Lock()
 		var next *Task
 		if len(s.queue) > 0 {
 			t := s.queue[0]
@@ -160,18 +181,48 @@ func (s *Service) work(ctx context.Context) {
 			next = &t
 			s.cur = &current{id: t.ID, kind: t.Kind}
 		}
-		wake := s.wake
 		s.mu.Unlock()
 		if next != nil {
 			s.runTask(ctx, *next)
-			continue
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-wake:
-		}
+		s.updateMu.Unlock()
 	}
+}
+
+// UpdateWhenIdle calls install (a self-update, or the restart of the PVE daemons) only while
+// nothing works on this node: no task of the service runs or waits, no backup or restore of PVE
+// works here (busy), no vzdump task runs. From the check until install returns the worker
+// starts no task; a successful update exits the process inside install, so none starts before
+// the restart. It returns why install was not called ("" when it was).
+func (s *Service) UpdateWhenIdle(ctx context.Context, install func(context.Context)) string {
+	if !s.updateMu.TryLock() {
+		return "a task runs on this node"
+	}
+	defer s.updateMu.Unlock()
+	if s.Busy() {
+		return "a task runs or waits on this node"
+	}
+	if busy(s.Layout) {
+		return "a backup or restore runs on this node"
+	}
+	if s.vzdumpRunning(ctx) {
+		return "a PVE backup (vzdump) runs on this node"
+	}
+	install(ctx)
+	return ""
+}
+
+// vzdumpRunning: a vzdump task runs on this node (also one before its first call of the
+// provider, which leaves no job file yet). Unknown counts as none.
+func (s *Service) vzdumpRunning(ctx context.Context) bool {
+	if s.VzdumpRunning != nil {
+		return s.VzdumpRunning(ctx)
+	}
+	if s.PVE == nil {
+		return false
+	}
+	tasks, err := s.PVE.ActiveTasks(ctx, s.State.NodeName, "vzdump")
+	return err == nil && len(tasks) > 0
 }
 
 // Capabilities are the task kinds beyond the original set this node announces.
@@ -367,9 +418,12 @@ func (s *Service) Tick(ctx context.Context) error {
 	s.applyCancel(ctx, hb.Cancel)
 	s.enqueue(hb.Tasks)
 	// "Update now": installed only while nothing runs here (no task, no backup PVE started).
-	if hb.Update != nil && hb.Update.Now && s.OnUpdate != nil && !s.Busy() && !busy(s.Layout) {
-		s.Logf("the Restow server asks this node to update to %s now", hb.Update.Version)
-		s.OnUpdate(ctx, hb.Update.Version)
+	if hb.Update != nil && hb.Update.Now && s.OnUpdate != nil {
+		v := hb.Update.Version
+		s.UpdateWhenIdle(ctx, func(ctx context.Context) {
+			s.Logf("the Restow server asks this node to update to %s now", v)
+			s.OnUpdate(ctx, v)
+		})
 	}
 	return nil
 }

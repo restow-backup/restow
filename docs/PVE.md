@@ -338,12 +338,17 @@ API: `POST /api/v1/pve/guests/:id/cancel`, `POST /api/v1/pve/nodes/:id/queue/pau
 ## Updates of the node
 
 restow-pve looks for a newer signed release by itself (two minutes after it
-starts, then every six hours) and installs it only while no backup or restore
-runs on the node. Only live work counts: an open backup (its job file in
+starts, then every six hours) and installs it only while nothing works on the
+node: no task of the service runs or waits (a backup, a restore, a restore check,
+a boot test), no `vzdump` task of PVE runs, and no backup or restore of PVE is
+open. Only live work counts: an open backup (its job file in
 `/run/restow-pve/jobs`, younger than two days or with a running provider) or a
 restore server that serves a VM disk (`/run/restow-pve/restore/<key>.pid` naming
 a running `restow-pve serve-restore`). Logs, sockets and pid files a finished or
 interrupted restore left behind do not count; boot tests use the same check.
+From that check until the restart the service starts no task (a task handed out
+meanwhile runs after the restart, or right away when the update fails). An offer
+that waited for work is tried again after 15 minutes, not six hours.
 Since 0.4.2 the server can also ask for it now:
 
 - **Update now** on the node (nodes table, next to the version, when a newer

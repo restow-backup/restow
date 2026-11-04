@@ -379,6 +379,14 @@ private repository.
   missing agent only when the test switched it on, and otherwise says that the agent of the
   guest did not answer within the wait. The ARC above `zfs_arc_min` counts as available memory,
   and the skip text names it.
+- Proxmox VE: the six-hourly self-update of restow-pve did not look at the service's own task.
+  It reloaded pvedaemon, pveproxy, pvestatd and pvescheduler and restarted the service in the
+  middle of a boot test (while the guest booted), a restore check, a container restore or a
+  backup whose vzdump had not called the provider yet: the result was never sent, and the boot
+  test's temporary guest waited for the next start. Only **Update now** checked for a running
+  task. Both now install only while no task of the service runs or waits, no `vzdump` task runs
+  and no backup or restore is open, and the service starts no task from that check until the
+  restart. An offer that waited is tried again after 15 minutes instead of six hours.
 
 ### Upgrade Notes
 

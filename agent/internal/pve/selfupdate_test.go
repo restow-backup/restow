@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // systemdStub answers systemctl like a node: `is-active` per unit, and the other calls recorded
@@ -248,4 +249,69 @@ func TestEnsurePluginLoadedWaitsWhileBusyAndRetriesAfterAFailure(t *testing.T) {
 	if got := broken.changes(); len(got) != 2 {
 		t.Fatalf("calls = %v, want two attempts", got)
 	}
+}
+
+// The periodic update and "Update now" install only while nothing works here: a task of the
+// service that runs or waits, a backup or restore of PVE, a vzdump task.
+func TestUpdateWhenIdleWaitsForEveryKindOfWork(t *testing.T) {
+	f := newCancelNode(t)
+	s := f.service(t)
+	vzdump := false
+	s.VzdumpRunning = func(context.Context) bool { return vzdump }
+	calls := 0
+	install := func(context.Context) { calls++ }
+	s.enqueue([]Task{{ID: "t1", Kind: "boot_test"}})
+	if reason := s.UpdateWhenIdle(context.Background(), install); reason == "" || calls != 0 {
+		t.Fatalf("installed beside a queued task (%q)", reason)
+	}
+	s.dropQueued("t1")
+	s.mu.Lock()
+	s.cur = &current{id: "t2", kind: "restore"}
+	s.mu.Unlock()
+	if reason := s.UpdateWhenIdle(context.Background(), install); reason == "" || calls != 0 {
+		t.Fatalf("installed beside a running task (%q)", reason)
+	}
+	s.mu.Lock()
+	s.cur = nil
+	s.mu.Unlock()
+	vzdump = true
+	if reason := s.UpdateWhenIdle(context.Background(), install); !strings.Contains(reason, "vzdump") || calls != 0 {
+		t.Fatalf("installed beside vzdump (%q)", reason)
+	}
+	vzdump = false
+	if reason := s.UpdateWhenIdle(context.Background(), install); reason != "" || calls != 1 {
+		t.Fatalf("idle node: %q, %d installs", reason, calls)
+	}
+}
+
+// A task the heartbeat hands out while the update downloads waits until the update is over
+// (on success the process exits before it starts).
+func TestNoTaskStartsWhileAnUpdateRuns(t *testing.T) {
+	f := newCancelNode(t)
+	s := f.service(t)
+	s.VzdumpRunning = func(context.Context) bool { return false }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { defer close(done); s.work(ctx) }()
+	reason := s.UpdateWhenIdle(ctx, func(context.Context) {
+		s.enqueue([]Task{{ID: "inv", Kind: "refresh_inventory"}})
+		time.Sleep(150 * time.Millisecond)
+		s.mu.Lock()
+		started := s.cur != nil || len(s.queue) == 0
+		s.mu.Unlock()
+		if started {
+			t.Error("a task started during the update")
+		}
+	})
+	if reason != "" {
+		t.Fatalf("not installed: %s", reason)
+	}
+	select {
+	case <-f.finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the task did not run after the update gave up")
+	}
+	cancel()
+	<-done
 }
