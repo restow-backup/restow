@@ -65,7 +65,9 @@ export function runTone(
         : "muted";
   }
   if (run.status === "failed") {
-    return "destructive";
+    // A restore check the node did not run (its storage, restores off) says nothing about the
+    // restore point: not checked, neither red nor green.
+    return run.kind === "restore_test" && run.stats?.skipped ? "muted" : "destructive";
   }
   if (run.status === "cancelled") {
     return "muted";
@@ -87,6 +89,9 @@ export function runStatusLabel(run: RunFacts): { key: string; values?: Record<st
     (run.warnings ?? run.stats?.warnings ?? []).length > 0
   ) {
     return { key: "guests.succeededWithWarnings" };
+  }
+  if (run.status === "failed" && run.kind === "restore_test" && run.stats?.skipped) {
+    return { key: "guest.restoreCheckSkipped", values: { reason: run.stats.skipped.reason } };
   }
   const [first] = restoreFindings(run);
   if (first) {

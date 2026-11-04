@@ -283,6 +283,16 @@ private repository.
   for the credential, keeps the guest's checks out for two hours at most, and ends as PVE ended
   it once restow-pve from 0.5.0 reports it: green only for `OK`, amber for `WARNINGS: n`, failed
   otherwise. Without a report it fails after 48 hours, never green.
+- Proxmox VE: the monthly restore check of a job was planned for the first due guest whatever
+  its node could do, and the guest counted as checked at once. On a node with restores switched
+  off it ended red every month; on a node that was off it waited and expired; with one target
+  storage for VMs and containers (often a VM-only NFS storage) every container's check failed
+  and blamed a backup that was fine; the other guests of the job waited behind it. The worker
+  now takes the guest that waits longest among those whose node allows restores and reported
+  in the last ten minutes, with no restore or boot test waiting and no run going; a guest passed
+  over is not counted as checked, and its page says why. A check restow-pve skips because of the
+  target storage (missing, inactive, without the guest's content type, too small) reads "Not
+  checked" in grey, neither red nor green, and is tried again after a day.
 
 ### Upgrade Notes
 

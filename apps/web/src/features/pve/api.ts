@@ -386,6 +386,8 @@ export interface PveRestoreResult {
   started?: boolean;
   startError?: string;
   startSkipped?: string;
+  /** A restore check the node did not run, with its reason (servers from 0.5.0). */
+  skipped?: { reason: string; message: string };
 }
 
 /** A task that waits for the guest's node (backup, restore, boot test). */
@@ -433,6 +435,16 @@ export interface PveGuestDetail {
     blocker: PveBootTestBlocker;
     schedule: PveBootTestSchedule;
     lastBootTestAt: string | null;
+  };
+  /**
+   * The job's monthly restore check of the guest: whether it asks for one, why the guest's node
+   * cannot run it now, the last check (servers from 0.5.0).
+   */
+  restoreCheck?: {
+    enabled: boolean;
+    blocker: "no_node" | "restores_off" | "node_offline" | null;
+    node: string | null;
+    lastRestoreTestAt: string | null;
   };
 }
 

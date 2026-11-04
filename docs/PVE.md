@@ -235,7 +235,20 @@ unique per installation).
   the guests are checked in a line of its own.
 
   A job can also restore one guest a month into `restow-restore`, check it and
-  delete it again. Such a restore check is green only when the restore ran to
+  delete it again. The worker picks, per job and pass, the guest whose check
+  waits longest among those its node can run now: restores allowed on the node,
+  the node seen within the last ten minutes, no restore or boot test of the
+  guest waiting, no run of it going. A guest passed over is not counted as
+  checked; its page says why ("Restore check not possible: restores are
+  switched off on node pve2", "Restore check waits: node pve2 has not reported
+  lately"). The node looks at the job's target storage before it restores; when
+  the storage is missing, inactive, holds no guests of this kind (`images` for a
+  VM, `rootdir` for a container: a VM-only NFS storage cannot take a container)
+  or lacks the space, it skips the check with the reason. The run then reads
+  "Not checked: ..." (grey, neither red nor green: it says nothing about the
+  restore point), and the guest is tried again after a day. A job over VMs and
+  containers needs a target storage that takes both.
+  Such a restore check is green only when the restore ran to
   `OK`, the temporary guest is gone again and nothing was left out. It is amber
   (succeeded, but no full proof) when the run says what it could not cover:
   "Checked without 1 mount point" (a bind or device mount point, whose data is

@@ -231,6 +231,16 @@ in `/var/lib/restow-pve/pending-results.json` (at most 100) and sends the kept o
 again before every heartbeat, oldest first; a refusal (4xx) ends the attempts. A
 task the server delivers again while its result is kept is not run a second time.
 
+### A restore check the node skips (0.5.0)
+
+A restore check (`restore` with `restoreTest`) the node does not run is reported `done` with
+`result.skipped: {reason, message}`. Reasons: `no_storage` (the target storage is not on the
+node), `storage_inactive`, `storage_content` (it holds no `images` for a VM or no `rootdir`
+for a container), `storage_space`, `restores_off`. The server records the run `failed` with
+`stats.skipped` and the message; the web app shows it as "Not checked: ..." in grey, never
+red and never green, and the guest's check is planned again after a day. The planner passes
+over nodes with restores off or silent for ten minutes, so `restores_off` is rare.
+
 ### Tasks the node holds (0.5.0)
 
 restow-pve keeps its queue in memory: a task it was given and had not finished when it

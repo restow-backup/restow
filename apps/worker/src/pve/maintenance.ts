@@ -44,6 +44,7 @@ import {
   mapChunkIds,
   measureRepositoryBytes,
   PVE_BOOT_TEST_CAPABILITY,
+  PVE_RESTORE_TEST_EVERY_MS,
   protectionOnTargets,
   pveBootTestDue,
   pveBootTestPlan,
@@ -52,6 +53,7 @@ import {
   pveGuestCounted,
   pveNextRunAt,
   pveNodeDeclares,
+  pveRestoreCheckBlocker,
   pveSelfBackupBlocked,
   ResticError,
   removeLockFiles,
@@ -163,7 +165,7 @@ function withGuestRepository<T>(deps: PveDeps, guestId: string, work: () => Prom
 export const PVE_PASS_INTERVAL_MS = 5 * 60 * 1000;
 const STALE_RUN_MS = 48 * 60 * 60 * 1000;
 const VERIFY_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
-const RESTORE_TEST_EVERY_MS = 30 * 24 * 60 * 60 * 1000;
+const RESTORE_TEST_EVERY_MS = PVE_RESTORE_TEST_EVERY_MS;
 const TASK_TTL_MS = 12 * 60 * 60 * 1000;
 const VERIFY_SAMPLE = 8;
 /** Asked-for restore checks per pass (after a backup round they drain over a few passes). */
@@ -1105,6 +1107,15 @@ export async function verifyDue(deps: PveDeps, now: Date): Promise<number> {
 // Monthly restore check
 // ---------------------------------------------------------------------------
 
+/**
+ * Plan the monthly restore checks the jobs ask for: per job one guest whose check is due, the
+ * longest unchecked first, and only one its node can run now (`pveRestoreCheckBlocker`:
+ * restores allowed, seen lately), that has no restore or boot test waiting and no run going. A
+ * guest passed over is not stamped, so it is planned once its node can; the guest's page says
+ * why (`restoreCheck.blocker`). The planned one is stamped now, so a failing check is not
+ * planned again on every pass; one the node skipped (target storage missing, inactive, without
+ * the guest's content type or too small) is tried again after a day (API node-service.ts).
+ */
 export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number> {
   const jobs = await deps.providerDb.select().from(pveJobs).where(eq(pveJobs.enabled, true));
   let n = 0;
@@ -1114,68 +1125,96 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
       continue;
     }
     n += await withTenantTx(deps.db, job.tenantId, async (tx) => {
-      const guests = coveredBy(job, await tx.select().from(pveGuests)).filter(
-        (g) =>
-          g.lastSnapshotId !== null &&
-          !(g.kind === "ct" && g.privileged) &&
-          (g.lastRestoreTestAt === null ||
-            g.lastRestoreTestAt.getTime() < now.getTime() - RESTORE_TEST_EVERY_MS),
-      );
-      const guest = guests[0];
-      if (!guest) {
-        return 0;
-      }
-      const [snap] = await tx
-        .select()
-        .from(pveSnapshots)
-        .where(eq(pveSnapshots.id, guest.lastSnapshotId as string));
-      const [node] = await tx
-        .select()
-        .from(pveNodes)
-        .where(
-          and(
-            eq(pveNodes.clusterId, guest.clusterId),
-            eq(pveNodes.name, guest.node ?? ""),
-            isNull(pveNodes.revokedAt),
-          ),
+      const due = coveredBy(job, await tx.select().from(pveGuests))
+        .filter(
+          (g) =>
+            g.lastSnapshotId !== null &&
+            !(g.kind === "ct" && g.privileged) &&
+            (g.lastRestoreTestAt === null ||
+              g.lastRestoreTestAt.getTime() < now.getTime() - RESTORE_TEST_EVERY_MS),
+        )
+        .sort(
+          (a, b) => (a.lastRestoreTestAt?.getTime() ?? 0) - (b.lastRestoreTestAt?.getTime() ?? 0),
         );
-      if (snap?.status !== "active" || !node) {
+      if (due.length === 0) {
         return 0;
       }
-      const [task] = await tx
-        .insert(pveTasks)
-        .values({
+      const nodes = await tx.select().from(pveNodes).where(isNull(pveNodes.revokedAt));
+      for (const guest of due) {
+        const node =
+          nodes.find((x) => x.clusterId === guest.clusterId && x.name === guest.node) ?? null;
+        if (pveRestoreCheckBlocker(node, now) !== null || !node) {
+          continue;
+        }
+        const [open] = await tx
+          .select({ id: pveTasks.id })
+          .from(pveTasks)
+          .where(
+            and(
+              eq(pveTasks.guestId, guest.id),
+              inArray(pveTasks.kind, ["restore", "boot_test"]),
+              inArray(pveTasks.status, ["pending", "delivered"]),
+            ),
+          )
+          .limit(1);
+        if (open) {
+          continue;
+        }
+        // A run of it going, or a backup its node took on (the restore checks' rule).
+        const [busy] = await tx
+          .select({ id: pveGuests.id })
+          .from(pveGuests)
+          .where(and(eq(pveGuests.id, guest.id), guestBusy(sql`${pveGuests.id}`, now)))
+          .limit(1);
+        if (busy) {
+          continue;
+        }
+        const [snap] = await tx
+          .select()
+          .from(pveSnapshots)
+          .where(eq(pveSnapshots.id, guest.lastSnapshotId as string));
+        if (snap?.status !== "active") {
+          continue;
+        }
+        const [task] = await tx
+          .insert(pveTasks)
+          .values({
+            tenantId: job.tenantId,
+            nodeId: node.id,
+            guestId: guest.id,
+            kind: "restore",
+            params: {
+              volname: snap.archiveName,
+              kind: snap.kind,
+              targetVmid: 0,
+              targetStorage: test.targetStorage,
+              pool: "restow-restore",
+              start: false,
+              restoreTest: true,
+            },
+            expiresAt: new Date(now.getTime() + TASK_TTL_MS),
+          })
+          .returning();
+        await tx.insert(pveRuns).values({
           tenantId: job.tenantId,
+          clusterId: guest.clusterId,
           nodeId: node.id,
           guestId: guest.id,
-          kind: "restore",
-          params: {
-            volname: snap.archiveName,
-            kind: snap.kind,
-            targetVmid: 0,
-            targetStorage: test.targetStorage,
-            pool: "restow-restore",
-            start: false,
-            restoreTest: true,
-          },
-          expiresAt: new Date(now.getTime() + TASK_TTL_MS),
-        })
-        .returning();
-      await tx.insert(pveRuns).values({
-        tenantId: job.tenantId,
-        clusterId: guest.clusterId,
-        nodeId: node.id,
-        guestId: guest.id,
-        kind: "restore_test",
-        origin: "restow",
-        archiveName: snap.archiveName,
-        taskId: task?.id ?? null,
-        snapshotId: snap.id,
-        startedAt: now,
-      });
-      // Marked now, so a failing test is not planned again on every pass.
-      await tx.update(pveGuests).set({ lastRestoreTestAt: now }).where(eq(pveGuests.id, guest.id));
-      return 1;
+          kind: "restore_test",
+          origin: "restow",
+          archiveName: snap.archiveName,
+          taskId: task?.id ?? null,
+          snapshotId: snap.id,
+          startedAt: now,
+        });
+        // Marked now, so a failing test is not planned again on every pass.
+        await tx
+          .update(pveGuests)
+          .set({ lastRestoreTestAt: now })
+          .where(eq(pveGuests.id, guest.id));
+        return 1;
+      }
+      return 0;
     });
   }
   return n;

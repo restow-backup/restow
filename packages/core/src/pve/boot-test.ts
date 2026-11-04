@@ -22,6 +22,33 @@ export const MAX_BOOT_TEST_MEMORY_MIB = 1024 * 1024;
 /** A weekly boot test of a guest is due this long after its last one. */
 export const BOOT_TEST_WEEKLY_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** A job's restore check (docs/PVE.md): one guest a month is restored, checked and removed. */
+export const PVE_RESTORE_TEST_EVERY_MS = 30 * 24 * 60 * 60 * 1000;
+/** A restore check the node could not carry out (skipped, with its reason) is tried again after. */
+export const PVE_RESTORE_TEST_SKIP_RETRY_MS = 24 * 60 * 60 * 1000;
+/** A node silent for longer than this gets no new restore check or boot test. */
+export const PVE_NODE_SEEN_FOR_CHECKS_MS = 10 * 60 * 1000;
+
+/**
+ * Why a node cannot run a guest's restore check now: restores are switched off on it, or it
+ * has not been seen lately (it would only wait and expire). Null: it can.
+ */
+export function pveRestoreCheckBlocker(
+  node: { facts: { restoresAllowed?: boolean }; lastSeenAt: Date | null } | null,
+  now: Date,
+): "no_node" | "restores_off" | "node_offline" | null {
+  if (!node) {
+    return "no_node";
+  }
+  if (node.facts.restoresAllowed === false) {
+    return "restores_off";
+  }
+  if (!node.lastSeenAt || now.getTime() - node.lastSeenAt.getTime() > PVE_NODE_SEEN_FOR_CHECKS_MS) {
+    return "node_offline";
+  }
+  return null;
+}
+
 export type PveBootTestScheduleKind = "off" | "weekly" | "after_backup";
 export type PveBootTestOutcomeKind = "green" | "yellow" | "red" | "skipped" | "error";
 

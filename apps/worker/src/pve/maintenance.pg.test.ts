@@ -73,6 +73,7 @@ import {
   PVE_CHECK_RETRY_LOCK,
   type PveDeps,
   planJobs,
+  planRestoreTests,
   purgeDownloads,
   pvePass,
   VERIFY_GIVE_UP_MS,
@@ -629,6 +630,91 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
         ids.map((x) => x.taskId),
       ),
     );
+  });
+
+  it("plans the monthly restore check only where the node can run it, and stamps only that guest (S05)", async () => {
+    await owner.delete(pveTasks);
+    await owner.delete(pveRuns).where(eq(pveRuns.status, "running"));
+    const [job] = await owner
+      .insert(pveJobs)
+      .values({
+        tenantId,
+        name: "with restore check",
+        scopeAll: false,
+        schedule: { kind: "daily", timeOfDay: "03:00", timeZone: "UTC" },
+        settings: { restoreTest: { enabled: true, targetStorage: "local-lvm" } },
+      })
+      .returning();
+    const jobId = job?.id ?? "";
+    const [off] = await owner
+      .insert(pveNodes)
+      .values({
+        tenantId,
+        clusterId,
+        name: "pve2",
+        secretHash: "1".repeat(64),
+        lastSeenAt: clock,
+        facts: { restoresAllowed: false },
+      })
+      .returning();
+    const [onNodeOff] = await owner
+      .insert(pveGuests)
+      .values({ tenantId, clusterId, vmid: 202, kind: "vm", node: "pve2", jobId })
+      .returning();
+    await commit(60, [blockOf(6)], new Date(clock.getTime() - DAY), false, {
+      id: onNodeOff?.id ?? "",
+      vmid: 202,
+    });
+    const [pve1] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: clock, facts: { restoresAllowed: true } })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    // Guest 202 waits longest (never checked), but its node has restores off: the next one.
+    await owner
+      .update(pveGuests)
+      .set({ jobId, lastRestoreTestAt: new Date(clock.getTime() - 40 * DAY) })
+      .where(eq(pveGuests.id, guestId));
+    const tasksOf = async (id: string) =>
+      owner
+        .select()
+        .from(pveTasks)
+        .where(and(eq(pveTasks.guestId, id), eq(pveTasks.kind, "restore")));
+    const guestRow = async (id: string) =>
+      (await owner.select().from(pveGuests).where(eq(pveGuests.id, id)))[0];
+    // The node of 101 has not reported for an hour: nothing is planned, nothing stamped.
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: new Date(clock.getTime() - 60 * 60 * 1000) })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    expect(await planRestoreTests(deps, clock)).toBe(0);
+    expect((await guestRow(guestId))?.lastRestoreTestAt).toEqual(
+      new Date(clock.getTime() - 40 * DAY),
+    );
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: clock })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    expect(await planRestoreTests(deps, clock)).toBe(1);
+    expect(await tasksOf(onNodeOff?.id ?? "")).toHaveLength(0);
+    expect((await guestRow(onNodeOff?.id ?? ""))?.lastRestoreTestAt).toBeNull();
+    const [task] = await tasksOf(guestId);
+    expect(task).toMatchObject({
+      nodeId: pve1?.id,
+      params: expect.objectContaining({ restoreTest: true, targetStorage: "local-lvm" }),
+    });
+    expect((await guestRow(guestId))?.lastRestoreTestAt).toEqual(clock);
+    // Planned once: the stamp holds it back.
+    expect(await planRestoreTests(deps, clock)).toBe(0);
+    await owner.delete(pveRuns).where(eq(pveRuns.taskId, task?.id ?? ""));
+    await owner.delete(pveTasks).where(eq(pveTasks.id, task?.id ?? ""));
+    await owner.delete(pveGuests).where(eq(pveGuests.id, onNodeOff?.id ?? ""));
+    await owner.delete(pveNodes).where(eq(pveNodes.id, off?.id ?? ""));
+    await owner
+      .update(pveGuests)
+      .set({ jobId: null, lastRestoreTestAt: null })
+      .where(eq(pveGuests.id, guestId));
+    await owner.delete(pveJobs).where(eq(pveJobs.id, jobId));
   });
 
   it("closes a backup run its node no longer lists, after a grace, and only with a fresh list (#46)", async () => {

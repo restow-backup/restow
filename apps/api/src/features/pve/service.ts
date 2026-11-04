@@ -39,7 +39,7 @@ import {
   isSafeOrigin,
 } from "../endpoints/distribution.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
-import { guestBootTestFacts } from "./boot-tests.js";
+import { guestBootTestFacts, guestRestoreCheckFacts } from "./boot-tests.js";
 import { withdrawQueued } from "./cancel.js";
 import { containerBackupPaths } from "./files.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
@@ -899,6 +899,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         newest ? verifyFact(newest.verify, newest.verifyRequestedAt) : null,
       ),
       bootTest: await guestBootTestFacts(tx, guest),
+      restoreCheck: await guestRestoreCheckFacts(tx, guest),
       followUp: followUpAverage(
         snapshots.map((s) => ({ sequence: s.sequence, added: addedBytes(s.kind, s.stats) })),
         firstSequence,

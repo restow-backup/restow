@@ -173,6 +173,17 @@ export const restoreResultSchema = z
     started: z.boolean().optional().catch(undefined),
     startError: z.string().max(2000).optional().catch(undefined),
     startSkipped: z.string().max(200).optional().catch(undefined),
+    /**
+     * A restore check the node did not run (no_storage, storage_inactive, storage_content,
+     * storage_space, restores_off): not a result about the restore point.
+     */
+    skipped: z
+      .object({
+        reason: z.string().max(64),
+        message: z.string().max(2000).default(""),
+      })
+      .optional()
+      .catch(undefined),
   })
   .strip();
 

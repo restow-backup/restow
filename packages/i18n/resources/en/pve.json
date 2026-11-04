@@ -369,7 +369,15 @@
       "keptDevicesDetail": "The copy uses the same host devices as the original. Check them before you start it while the original runs:",
       "madeUnprivileged": "The original is a privileged container; the copy was restored unprivileged.",
       "onbootCleared": "Unlike the original, the copy does not start with its node (onboot=0)."
-    }
+    },
+    "restoreCheckSkipped": "Not checked: {reason, select, no_storage {target storage missing} storage_inactive {target storage inactive} storage_content {target storage takes no guests of this kind} storage_space {not enough space} restores_off {restores are off} other {not possible}}",
+    "restoreCheckBlocked": {
+      "restores_off": "Restore check not possible: restores are switched off on node {node}.",
+      "node_offline": "Restore check waits: node {node} has not reported lately.",
+      "no_node": "Restore check not possible: restow-pve is not installed on the guest's node."
+    },
+    "restoreCheckLast": "Last restore check",
+    "restoreCheckNone": "Monthly restore check: none yet"
   },
   "restore": {
     "title": "Restore as a new guest",

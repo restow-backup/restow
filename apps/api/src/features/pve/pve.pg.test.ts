@@ -816,6 +816,86 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(shown?.warnings).toEqual(["WARN: unable to set acl"]);
   });
 
+  it("a restore check the node skipped is not checked: neither green nor red, tried again in a day (S05)", async () => {
+    const queued = await service.restoreSnapshot(
+      shared.db,
+      fixture.tenantId,
+      first.snapshotId,
+      { targetStorage: "nfs-images", start: false },
+      actor(),
+      { restoreTest: true },
+    );
+    await call(node, "/heartbeat", { json: { helperVersion: "0.5.0", state: "idle" } });
+    const at = new Date();
+    await json(
+      await call(node, `/tasks/${queued.taskId}/result`, {
+        json: {
+          status: "done",
+          result: {
+            skipped: {
+              reason: "storage_content",
+              message: "storage 'nfs-images' does not hold container directories (rootdir)",
+            },
+          },
+        },
+      }),
+      204,
+    );
+    const [run] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.taskId, queued.taskId));
+    expect(run).toMatchObject({
+      kind: "restore_test",
+      status: "failed",
+      errorMessage: "storage 'nfs-images' does not hold container directories (rootdir)",
+    });
+    expect(run?.stats.skipped).toMatchObject({ reason: "storage_content" });
+    const [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, queued.taskId));
+    expect(task?.status).toBe("done");
+    // Due again in a day: the monthly clock is set back to 29 days ago.
+    const [guest] = await fixture.db
+      .select()
+      .from(pveGuests)
+      .where(eq(pveGuests.id, run?.guestId ?? ""));
+    const since = at.getTime() - (guest?.lastRestoreTestAt?.getTime() ?? 0);
+    expect(Math.round(since / (24 * 60 * 60 * 1000))).toBe(29);
+    // The guest's page says when a job's check cannot run on the node.
+    const job = await service.saveJob(
+      shared.db,
+      fixture.tenantId,
+      null,
+      {
+        name: "Checked",
+        scopeAll: false,
+        schedule: { kind: "daily", timeOfDay: "03:00", timeZone: "UTC" },
+        enabled: true,
+        settings: { restoreTest: { enabled: true, targetStorage: "local-lvm" } },
+      },
+      actor(),
+    );
+    await fixture.db
+      .update(pveGuests)
+      .set({ jobId: job.id })
+      .where(eq(pveGuests.id, run?.guestId ?? ""));
+    await fixture.db
+      .update(pveNodes)
+      .set({ facts: sql`facts || '{"restoresAllowed": false}'::jsonb` })
+      .where(eq(pveNodes.id, node.nodeId));
+    const detail = await service.guestDetail(shared.db, fixture.tenantId, run?.guestId ?? "");
+    expect(detail.restoreCheck).toMatchObject({
+      enabled: true,
+      blocker: "restores_off",
+      node: "pve1",
+    });
+    await fixture.db
+      .update(pveNodes)
+      .set({ facts: sql`facts || '{"restoresAllowed": true}'::jsonb` })
+      .where(eq(pveNodes.id, node.nodeId));
+    await fixture.db
+      .update(pveGuests)
+      .set({ jobId: null })
+      .where(eq(pveGuests.id, run?.guestId ?? ""));
+    await service.deleteJob(shared.db, fixture.tenantId, job.id, actor());
+  });
+
   it("shows a container's backup as queued, then running, and closes a run whose end the node never reported", async () => {
     const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
     const ctId = ct?.id ?? "";

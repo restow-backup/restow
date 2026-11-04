@@ -67,7 +67,7 @@ import { BootTestBadge, BootTestFacts } from "./boot-test.js";
 import { CancelBackupButton, CancelledBadge, CancellingBadge } from "./cancel-controls.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { pveTo } from "./paths.js";
-import { RestoreFindings } from "./restore-findings.js";
+import { RestoreCheckFacts, RestoreFindings } from "./restore-findings.js";
 import { runStatusLabel, runTone } from "./run-status.js";
 import { RestowServerNote, useSelfBackupGuard } from "./self-backup.js";
 
@@ -832,6 +832,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         </h2>
         {data?.followUp ? <FollowUpNote followUp={data.followUp} /> : null}
         {data?.bootTest ? <BootTestFacts facts={data.bootTest} /> : null}
+        {data?.restoreCheck ? <RestoreCheckFacts facts={data.restoreCheck} /> : null}
         {data && data.snapshots.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("guest.noRestorePoints")}</p>
         ) : (

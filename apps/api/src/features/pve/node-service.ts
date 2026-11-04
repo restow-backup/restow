@@ -3,6 +3,8 @@ import {
   generateAgentSecret,
   hashSecret,
   PVE_BOOT_TEST_CAPABILITY,
+  PVE_RESTORE_TEST_EVERY_MS,
+  PVE_RESTORE_TEST_SKIP_RETRY_MS,
   parseArchiveName,
   pveNodeDeclares,
 } from "@restow/core";
@@ -757,6 +759,30 @@ export async function taskResult(
       const result = parsed.success
         ? Object.fromEntries(Object.entries(parsed.data).filter(([, v]) => v !== undefined))
         : {};
+      const skipped = run.kind === "restore_test" && parsed.success ? parsed.data.skipped : null;
+      if (skipped) {
+        // The node did not run the check (its target storage is missing, inactive, without the
+        // guest's content type or too small; restores are off): not checked, which says nothing
+        // about the restore point. It is planned again after a day.
+        await tx
+          .update(pveRuns)
+          .set({
+            status: "failed",
+            finishedAt: now,
+            errorMessage: skipped.message || `Not checked: ${skipped.reason}`,
+            stats: { ...run.stats, ...result },
+          })
+          .where(eq(pveRuns.id, run.id));
+        await tx
+          .update(pveGuests)
+          .set({
+            lastRestoreTestAt: new Date(
+              now.getTime() - PVE_RESTORE_TEST_EVERY_MS + PVE_RESTORE_TEST_SKIP_RETRY_MS,
+            ),
+          })
+          .where(eq(pveGuests.id, run.guestId));
+        return;
+      }
       await tx
         .update(pveRuns)
         .set({

@@ -100,4 +100,17 @@ describe("runTone: green only for proof", () => {
       "guests.succeededWithWarnings",
     );
   });
+
+  it("a restore check the node skipped is not checked: muted, never red or green", () => {
+    const skipped = run({
+      kind: "restore_test",
+      status: "failed",
+      stats: { skipped: { reason: "storage_content", message: "no rootdir" } },
+    });
+    expect(runTone(skipped)).toBe("muted");
+    expect(runStatusLabel(skipped)).toEqual({
+      key: "guest.restoreCheckSkipped",
+      values: { reason: "storage_content" },
+    });
+  });
 });

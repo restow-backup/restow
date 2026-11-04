@@ -1,8 +1,9 @@
 import { useTranslation } from "react-i18next";
 
 import { CopyButton } from "@/components/kit/copy-button";
+import { RelativeTime } from "@/components/kit/relative-time";
 
-import type { PveRun } from "./api.js";
+import type { PveGuestDetail, PveRun } from "./api.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { restoreFindings } from "./run-status.js";
 
@@ -112,5 +113,35 @@ export function RestoreFindings({
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * What the guest's page says about the job's monthly restore check: why the node cannot run it
+ * (restores off, offline: the check waits and is not counted as done), or when the last ran.
+ * Nothing when the job asks for none.
+ */
+export function RestoreCheckFacts({
+  facts,
+}: {
+  facts: NonNullable<PveGuestDetail["restoreCheck"]>;
+}) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  if (!facts.enabled) {
+    return null;
+  }
+  return (
+    <p className="text-sm text-muted-foreground" data-slot="pve-restore-check-facts">
+      {facts.blocker ? (
+        t(`guest.restoreCheckBlocked.${facts.blocker}`, { node: facts.node ?? "?" })
+      ) : facts.lastRestoreTestAt ? (
+        <>
+          {t("guest.restoreCheckLast")}{" "}
+          <RelativeTime value={facts.lastRestoreTestAt} focusable={false} />
+        </>
+      ) : (
+        t("guest.restoreCheckNone")
+      )}
+    </p>
   );
 }

@@ -8,7 +8,7 @@ import { i18n } from "@/i18n";
 
 import "./i18n";
 import type { PveRun } from "./api";
-import { RestoreFindings } from "./restore-findings";
+import { RestoreCheckFacts, RestoreFindings } from "./restore-findings";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -87,5 +87,38 @@ describe("RestoreFindings", () => {
   it("shows nothing for a clean restore", () => {
     const el = render({ kind: "restore", status: "succeeded", stats: { vmid: 9003 } });
     expect(el.querySelector('[data-slot="pve-restore-findings"]')).toBeNull();
+  });
+});
+
+describe("RestoreCheckFacts", () => {
+  it("says when the node cannot run the job's restore check, and nothing without one", () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => {
+      root?.render(
+        <I18nextProvider i18n={i18n}>
+          <RestoreCheckFacts
+            facts={{
+              enabled: true,
+              blocker: "restores_off",
+              node: "pve2",
+              lastRestoreTestAt: null,
+            }}
+          />
+          <RestoreCheckFacts
+            facts={{ enabled: false, blocker: null, node: "pve2", lastRestoreTestAt: null }}
+          />
+        </I18nextProvider>,
+      );
+    });
+    const lines = host.querySelectorAll('[data-slot="pve-restore-check-facts"]');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.textContent).toBe(
+      "Restore check not possible: restores are switched off on node pve2.",
+    );
+    expect(i18n.t("guest.restoreCheckSkipped", { ns: "pve", reason: "storage_space" })).toBe(
+      "Not checked: not enough space",
+    );
   });
 });

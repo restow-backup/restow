@@ -4,6 +4,7 @@ import {
   pveBootTestTaskParams,
   pveJobOfGuest,
   pveNodeDeclares,
+  pveRestoreCheckBlocker,
 } from "@restow/core";
 import {
   type Database,
@@ -308,5 +309,32 @@ export async function guestBootTestFacts(
     blocker: bootTestBlocker(guest, node),
     schedule: pveBootTestPlan(job?.settings.bootTest).schedule,
     lastBootTestAt: guest.lastBootTestAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * The monthly restore check of a guest for its page (docs/PVE.md): whether its job asks for one,
+ * why its node cannot run it now (restores off, offline, not enrolled; the planner passes such a
+ * guest over and does not stamp it), the node's name and the last check.
+ */
+export async function guestRestoreCheckFacts(
+  tx: Transaction,
+  guest: PveGuest,
+  now: Date = new Date(),
+): Promise<{
+  enabled: boolean;
+  blocker: "no_node" | "restores_off" | "node_offline" | null;
+  node: string | null;
+  lastRestoreTestAt: string | null;
+}> {
+  const jobs = await tx.select().from(pveJobs);
+  const test = pveJobOfGuest(guest, jobs)?.settings.restoreTest;
+  const enabled = Boolean(test?.enabled && test.targetStorage);
+  const node = enabled ? await guestNode(tx, guest) : null;
+  return {
+    enabled,
+    blocker: enabled ? pveRestoreCheckBlocker(node, now) : null,
+    node: guest.node,
+    lastRestoreTestAt: guest.lastRestoreTestAt?.toISOString() ?? null,
   };
 }

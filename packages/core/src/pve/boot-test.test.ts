@@ -10,6 +10,7 @@ import {
   pveBootTestRating,
   pveBootTestTaskParams,
   pveNodeDeclares,
+  pveRestoreCheckBlocker,
   pveRestorePointRating,
 } from "./boot-test.js";
 
@@ -177,5 +178,22 @@ describe("the task a node gets", () => {
       dataBytes: 5000,
       diskBytes: 5000,
     });
+  });
+});
+
+describe("pveRestoreCheckBlocker", () => {
+  const now = new Date("2030-05-06T12:00:00Z");
+  const seen = (minutesAgo: number) => new Date(now.getTime() - minutesAgo * 60_000);
+  it("lets a node run a restore check only with restores allowed and seen lately", () => {
+    expect(pveRestoreCheckBlocker({ facts: {}, lastSeenAt: seen(1) }, now)).toBeNull();
+    expect(
+      pveRestoreCheckBlocker({ facts: { restoresAllowed: true }, lastSeenAt: seen(9) }, now),
+    ).toBeNull();
+    expect(
+      pveRestoreCheckBlocker({ facts: { restoresAllowed: false }, lastSeenAt: seen(1) }, now),
+    ).toBe("restores_off");
+    expect(pveRestoreCheckBlocker({ facts: {}, lastSeenAt: seen(11) }, now)).toBe("node_offline");
+    expect(pveRestoreCheckBlocker({ facts: {}, lastSeenAt: null }, now)).toBe("node_offline");
+    expect(pveRestoreCheckBlocker(null, now)).toBe("no_node");
   });
 });
