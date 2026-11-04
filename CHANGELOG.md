@@ -10,6 +10,29 @@ private repository.
 
 ## [Unreleased]
 
+## [0.4.12] - 2026-11-04
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.12 is a hotfix of 0.4.11: a ZIP download of folders (file shares, machines, Proxmox
+VE container files) could hang now and then and never finish. No database migration, no agent
+change.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.9.0.
+
+### Added
+
+None.
+
+### Changed
+
+None.
+
 ### Fixed
 
 - ZIP downloads of folders (file shares, machines, Proxmox VE container files) could hang now
@@ -17,6 +40,31 @@ private repository.
   block of the end marker, so the rest of restic's output stayed unread, restic's process never
   reported its end, and the download waited for it. The reader now reads the stream to its end.
   It showed in the release smoke as "a ZIP download of two folders" timing out.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.4.0 stays. Pull the images of 0.4.12 and restart as for any update.
+
+- restow-pve and the agents need no update in this release (no change to the agents or the
+  Proxmox VE plugin).
+- A download that hung before the update ended with the restart; start it again.
+
+### Known Issues
+
+- The known issues of 0.4.11 still apply.
+
+### Verification
+
+Before the tag: lint and typecheck of `@restow/core`; the core tests of machines, restores and
+Proxmox VE (580), among them the new tar test that delivers the end-of-archive marker late and
+checks the stream is read to its end (it fails with the fix taken out); the release check
+(`scripts/ci/check-release.mjs --tag v0.4.12`) and the install script's test
+(`deploy/install/test.sh`).
 
 ## [0.4.11] - 2026-11-04
 
