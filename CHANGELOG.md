@@ -355,6 +355,13 @@ private repository.
   agent's error, decide "enrolled" with `restow-agent status --json`, and for an enrollment that
   cannot be read name the reason, ask for a new token and enroll again (`enroll --force`).
   `restow-agent hooks scripts` also fails now when `hooks.d` exists as a file instead of a folder.
+- Windows agent (preview): when the agent stopped with an error, the service ended with the
+  Windows exit code 1, and the event log and the services console said "Incorrect function",
+  which pointed administrators to the wrong cause. The service now ends with its own
+  service-specific code: 536870913 (0x20000001) for an error, whose reason is in `agent.log`,
+  and 536870914 (0x20000002) for a usage or configuration error; codes from this range have no
+  Windows text, so the event shows the number, which docs/WINDOWS-AGENT.md (section 9.2)
+  explains. The restart after an update keeps the code 3.
 
 ### Upgrade Notes
 

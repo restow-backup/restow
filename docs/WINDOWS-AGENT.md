@@ -747,9 +747,25 @@ Die Methoden des vorhandenen Interfaces (`svc.go:72-103`):
    abbrechen, `SERVICE_STOP_PENDING` mit `dwWaitHint = 10000` und steigendem
    `dwCheckPoint` alle 5 s melden, bis `cmdRun` zurückkehrt. `SERVICE_CONTROL_INTERROGATE`:
    aktuellen Zustand melden. Alles andere: `ERROR_CALL_NOT_IMPLEMENTED`.
-4. Ende: `SERVICE_STOPPED` mit Exit-Code. `0` bei normalem Ende; bei `core.ErrRestart`
-   (`agent/internal/core/agent.go:33-35`, `run.go:94-96`) `dwWin32ExitCode =
-   ERROR_SERVICE_SPECIFIC_ERROR`, `dwServiceSpecificExitCode = 3`; bei Fehler `1`.
+4. Ende: `SERVICE_STOPPED` mit Exit-Code. `0` bei normalem Ende; sonst immer
+   `dwWin32ExitCode = ERROR_SERVICE_SPECIFIC_ERROR` mit einem dienstspezifischen Code
+   (`cmd/restow-agent/service_exit.go`, Tabellentest ohne Build-Tag):
+
+   | Dienstspezifischer Code | Bedeutung |
+   | --- | --- |
+   | `3` | Neustart nach einer Selbstaktualisierung (`core.ErrRestart`, 9.3), kein Fehler |
+   | `536870913` (`0x20000001`) | Der Agent hat mit einem Fehler aufgehört; der Grund steht in `C:\ProgramData\Restow\logs\agent.log` (Kann er seine Ordner nicht anlegen, steht er im Ereignis 1002 der Quelle `Restow`) |
+   | `536870914` (`0x20000002`) | Aufruf- oder Konfigurationsfehler |
+
+   Die Ereignisanzeige (System, Quelle "Service Control Manager", Ereignis 7024) gibt den
+   dienstspezifischen Code als Windows-Meldung wieder. Bis 0.5.0 endete der Dienst bei einem
+   Fehler mit dem Win32-Code `1`, und Windows schrieb dazu "Unzulässige Funktion" ("Incorrect
+   function", Ereignis 7023/7024), was auf eine falsche Spur führte; ein dienstspezifisches `1`
+   oder `2` hätte dieselbe bzw. "Die angegebene Datei wurde nicht gefunden" ergeben. Codes mit
+   gesetztem Bit 29 sind Anwendungen vorbehalten und haben keine Windows-Meldung: das Ereignis
+   zeigt die Zahl (z. B. `%%536870913`), diese Tabelle erklärt sie. Bei Code `3` schreibt Windows
+   den Systemtext zu 3 ("Das System kann den angegebenen Pfad nicht finden"); er bedeutet hier
+   nur den Neustart. Die Fehleraktion (9.3) startet den Dienst nach jedem dieser Codes neu.
 
 Im Dienstmodus gibt es kein `signalContext` (`common.go:101-103`): Stoppen kommt nur über
 `HandlerEx`. Ohne `--service` läuft `run` wie heute im Vordergrund (Konsole, Strg+C), für
@@ -775,7 +791,7 @@ startet nur nach einem Fehler neu. Darum endet der Dienst nach einem Update mit 
 dienstspezifischen Code 3 (9.2, Schritt 4), und die Fehleraktion mit
 `FailureActionsOnNonCrashFailures = TRUE` startet ihn nach 5 s neu, jetzt mit der neuen
 `restow-agent.exe` am selben Pfad. Nebenwirkung: Die Ereignisanzeige zeigt Ereignis 7024
-("beendet mit dienstspezifischem Fehler 3"). docs/AGENT.md erklärt das; das eigene Ereignis
+("beendet mit dienstspezifischem Fehler 3", mit dem Systemtext zu 3, siehe 9.2). docs/AGENT.md erklärt das; das eigene Ereignis
 "Update auf Version X installiert" (9.5) steht unmittelbar davor. Die Alternative, ein
 abgekoppelter Hilfsprozess mit `sc.exe start`, ist verworfen: zusätzlicher Prozess,
 Wettlauf mit dem Ende des Dienstes.
