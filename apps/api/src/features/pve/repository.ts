@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  INSTALLATION_DEFAULT_TARGET_ID,
   resticBinary,
   resticCacheBase,
   resticInit,
@@ -12,6 +13,7 @@ import {
   PVE_REPOSITORY_CHAINS_KEPT,
   type PveGuest,
   type PveRepositoryChain,
+  type PveRepositoryProblem,
   pveGuests,
   pveSnapshots,
 } from "@restow/db";
@@ -23,7 +25,13 @@ import { ProblemError } from "../../problem.js";
 import { removeRepositoryObjects } from "../endpoints/repository.js";
 import { type DestinationDeps, destinationRecord } from "../storage/destination.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
-import { type TenantChunkStore, tenantChunkStore } from "./store.js";
+import {
+  type SearchedTarget,
+  searchedTargets,
+  storeTarget,
+  type TenantChunkStore,
+  tenantChunkStore,
+} from "./store.js";
 
 /**
  * The restic repository of a container (docs/PVE.md, "Container repositories"): one per guest
@@ -31,22 +39,48 @@ import { type TenantChunkStore, tenantChunkStore } from "./store.js";
  * is append-only and cannot) and hands every backup run a credential for it.
  *
  * Before a backup run gets its credential, the server makes sure the repository is really
- * there: `repository_ready_at` only says it was created once, not that it still exists on the
- * primary. When it is gone (the primary changed without it, or it was deleted) and no other
- * target of the tenant holds it, a new repository is created: a new backup chain begins, the
- * container's earlier restore points become `unavailable` (they cannot be restored or checked
- * any more), and the guest records the change, which its page and its history show. When
- * another target (a retired primary) still holds it, the backup is refused with a clear
- * message instead: a storage "move" brings it over, or an administrator resets the repository.
+ * there, on the target the run was pinned to (the primary when the credential was issued,
+ * docs/STORAGE.md "Runs and storage changes"): `repository_ready_at` only says it was created
+ * once, not that it still exists. When it is not complete on the primary, every target of the
+ * tenant and the installation default are searched (docs/PVE.md, "Repository problems"), and
+ * the backup is refused with a problem the guest page explains:
+ *
+ *   - `pve-repository-elsewhere`: complete on another target (a move or a repair brings it over);
+ *   - `pve-repository-split`: data without `config` on the primary, or parts on another target
+ *     (a run that straddled a storage change; the repair rebuilds it where it can);
+ *   - `pve-repository-missing`: on no target, while restore points still refer to it (the way
+ *     out is "Reset repository", which makes them unavailable).
+ *
+ * Only when the repository is on no target and no restore point refers to it does a new chain
+ * begin without asking (nothing is lost by it). Never before 0.5.0 did the server ask: a
+ * repository it could not find started a new chain and made every restore point unavailable.
  */
 
 export const PVE_REPOSITORY_PROBLEMS = {
   elsewhere: "urn:restow:problem:pve-repository-elsewhere",
+  split: "urn:restow:problem:pve-repository-split",
+  missing: "urn:restow:problem:pve-repository-missing",
   unreachable: "urn:restow:problem:pve-repository-unreachable",
   notContainer: "urn:restow:problem:pve-repository-not-container",
   confirmName: "urn:restow:problem:pve-repository-confirm-name",
   leftover: "urn:restow:problem:pve-repository-leftover",
+  initFailed: "urn:restow:problem:pve-repository-init-failed",
 } as const;
+
+/** The problem a run gets when its storage target stopped being the primary. */
+export const STORAGE_SWITCHED_PROBLEM = "urn:restow:problem:storage-switched-during-run";
+
+/**
+ * The run's storage target stopped being the primary. 409 where a node asks for a credential;
+ * 403 for a restic request, which restic takes as final (it retries a 409 for minutes).
+ */
+export function storageSwitchedDuringRun(status: 403 | 409 = 409): ProblemError {
+  return new ProblemError(status, "Storage changed during the run", {
+    type: STORAGE_SWITCHED_PROBLEM,
+    detail:
+      "The primary storage target of this tenant changed while this run was going. The run stops here instead of writing the rest of its backup to another target; the next run uses the new primary.",
+  });
+}
 
 /** Container repositories lie under this prefix of the tenant's primary target. */
 export function guestRepositoryPrefix(guestId: string): string {
@@ -76,28 +110,186 @@ export interface RepositoryDeps {
   destination?: DestinationDeps;
 }
 
-/** Whether `key` exists on `backend`; a storage that does not answer is an error, not "missing". */
-async function exists(backend: StorageBackend, key: string): Promise<boolean> {
+function unreachable(error: unknown): ProblemError {
+  return new ProblemError(503, "Storage not reachable", {
+    type: PVE_REPOSITORY_PROBLEMS.unreachable,
+    detail: `The storage target of this container's backups did not answer: ${
+      error instanceof Error ? error.message : String(error)
+    }`,
+  });
+}
+
+/** The files of a repository on `backend`, lock files aside; a storage that does not answer is an error. */
+async function repositoryFiles(backend: StorageBackend, prefix: string): Promise<string[]> {
   try {
-    return (await backend.head(key)) !== null;
+    return (await backend.list(prefix)).filter((key) => !key.startsWith(`${prefix}locks/`));
   } catch (error) {
-    throw new ProblemError(503, "Storage not reachable", {
-      type: PVE_REPOSITORY_PROBLEMS.unreachable,
-      detail: `The storage target of this container's backups did not answer: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    });
+    throw unreachable(error);
   }
 }
 
-/** Another target of the tenant (a retired primary, a copy) that holds the repository. */
-async function heldElsewhere(store: TenantChunkStore, prefix: string): Promise<boolean> {
-  for (const other of store.read.copies) {
-    if (await other.head(`${prefix}config`).catch(() => null)) {
-      return true;
+/** Whether `backend` holds the repository's `config` and at least one key. */
+async function completeOn(backend: StorageBackend, prefix: string): Promise<boolean> {
+  try {
+    if ((await backend.head(`${prefix}config`)) === null) {
+      return false;
+    }
+    return (await backend.list(`${prefix}keys/`)).length > 0;
+  } catch (error) {
+    throw unreachable(error);
+  }
+}
+
+/** What one place holds of a repository. */
+export interface RepositoryHolding {
+  readonly target: SearchedTarget;
+  readonly config: boolean;
+  readonly keys: number;
+  /** Files other than `config`, keys and the sealed password file. */
+  readonly data: number;
+}
+
+function holdingOf(
+  target: SearchedTarget,
+  prefix: string,
+  files: readonly string[],
+): RepositoryHolding {
+  let keys = 0;
+  let data = 0;
+  let config = false;
+  for (const key of files) {
+    const rest = key.slice(prefix.length);
+    if (rest === "config") {
+      config = true;
+    } else if (rest.startsWith("keys/")) {
+      keys += 1;
+    } else if (rest !== REPOSITORY_PASSWORD_FILE) {
+      data += 1;
     }
   }
-  return false;
+  return { target, config, keys, data };
+}
+
+/** The sealed password file next to every repository. */
+const REPOSITORY_PASSWORD_FILE = "restow-repository-password.json";
+
+/**
+ * Where the parts of a repository lie, the primary first: every target of the tenant and the
+ * installation default (`searchedTargets`). A target that does not answer is skipped, except
+ * the primary.
+ */
+export async function locateRepository(
+  store: TenantChunkStore,
+  primary: { id: string; backend: StorageBackend },
+  prefix: string,
+): Promise<RepositoryHolding[]> {
+  const holdings: RepositoryHolding[] = [];
+  const primaryTarget: SearchedTarget = {
+    id: primary.id,
+    name: store.targets.find((target) => target.id === primary.id)?.name ?? null,
+    role: "primary",
+    backend: primary.backend,
+  };
+  holdings.push(holdingOf(primaryTarget, prefix, await repositoryFiles(primary.backend, prefix)));
+  for (const target of await searchedTargets(store)) {
+    if (target.id === primary.id || target.backend === primary.backend) {
+      continue;
+    }
+    const files = await target.backend.list(prefix).catch(() => null);
+    if (files === null) {
+      continue;
+    }
+    const listed = files.filter((key) => !key.startsWith(`${prefix}locks/`));
+    if (listed.length > 0) {
+      holdings.push(holdingOf(target, prefix, listed));
+    }
+  }
+  return holdings;
+}
+
+function targetLabel(target: SearchedTarget): string {
+  if (target.id === INSTALLATION_DEFAULT_TARGET_ID) {
+    return "the installation default";
+  }
+  return target.name ? `"${target.name}"` : "a retired target";
+}
+
+async function activePointCount(
+  database: Database,
+  tenantId: string,
+  guestId: string,
+): Promise<number> {
+  const rows = await withTenantTx(database, tenantId, (tx) =>
+    tx
+      .select({ id: pveSnapshots.id })
+      .from(pveSnapshots)
+      .where(
+        and(
+          eq(pveSnapshots.guestId, guestId),
+          eq(pveSnapshots.kind, "ct"),
+          eq(pveSnapshots.status, "active"),
+        ),
+      ),
+  );
+  return rows.length;
+}
+
+/** Record (or clear) why the last backup of the container was refused; the guest page shows it. */
+export async function recordRepositoryProblem(
+  database: Database,
+  tenantId: string,
+  guestId: string,
+  problem: PveRepositoryProblem | null,
+): Promise<void> {
+  await withTenantTx(database, tenantId, (tx) =>
+    tx.update(pveGuests).set({ repositoryProblem: problem }).where(eq(pveGuests.id, guestId)),
+  );
+}
+
+/** The repository problem as a 409, recorded on the guest first. */
+async function refuse(
+  database: Database,
+  tenantId: string,
+  guest: PveGuest,
+  kind: "elsewhere" | "split" | "missing",
+  heldBy: SearchedTarget | null,
+  activePoints: number,
+  now: Date,
+): Promise<never> {
+  await recordRepositoryProblem(database, tenantId, guest.id, {
+    at: now.toISOString(),
+    type: PVE_REPOSITORY_PROBLEMS[kind].slice("urn:restow:problem:".length),
+    heldBy: heldBy
+      ? heldBy.id === INSTALLATION_DEFAULT_TARGET_ID
+        ? "installation_default"
+        : (heldBy.name ?? heldBy.id)
+      : null,
+    activePoints,
+  });
+  const where = heldBy ? targetLabel(heldBy) : null;
+  if (kind === "elsewhere") {
+    throw new ProblemError(409, "Repository on another storage target", {
+      type: PVE_REPOSITORY_PROBLEMS.elsewhere,
+      detail: `The repository of this container is not on the current primary storage target but on ${where}. Move the backups to the primary (storage, replace the primary with "move", or run the repository repair), or reset the repository on the guest page to begin a new backup chain.`,
+      extensions: { heldBy: where, activePoints },
+    });
+  }
+  if (kind === "split") {
+    throw new ProblemError(409, "Repository split across storage targets", {
+      type: PVE_REPOSITORY_PROBLEMS.split,
+      detail: `The repository of this container is incomplete: ${
+        where
+          ? `parts of it lie on ${where}`
+          : "the primary holds its data but not its config or keys"
+      }. A backup that ran while the primary storage target changed wrote to two targets. Run the repository repair (storage), which rebuilds it on the primary where the parts allow; or reset the repository on the guest page to begin a new backup chain.`,
+      extensions: { heldBy: where, activePoints },
+    });
+  }
+  throw new ProblemError(409, "Repository missing", {
+    type: PVE_REPOSITORY_PROBLEMS.missing,
+    detail: `The repository of this container is on no storage target of this tenant, but ${activePoints} restore point(s) still refer to it. If an old storage location still has it, attach it read-only and run the repository repair (storage). Otherwise reset the repository on the guest page: its restore points become unavailable and the next backup begins a new chain.`,
+    extensions: { activePoints },
+  });
 }
 
 /**
@@ -110,10 +302,11 @@ export async function recordNewChain(
   guest: Pick<PveGuest, "id" | "repositoryChains">,
   chain: Omit<PveRepositoryChain, "unavailablePoints">,
   now: Date,
+  reason: "chain" | "lost" = "chain",
 ): Promise<PveRepositoryChain> {
   const marked = await tx
     .update(pveSnapshots)
-    .set({ status: "unavailable", unavailableAt: now })
+    .set({ status: "unavailable", unavailableAt: now, unavailableReason: reason })
     .where(
       and(
         eq(pveSnapshots.guestId, guest.id),
@@ -134,68 +327,105 @@ export async function recordNewChain(
       lastSuccessAt: null,
       lastVerifyAt: null,
       lastRestoreTestAt: null,
+      repositoryProblem: null,
     })
     .where(eq(pveGuests.id, guest.id));
   return record;
 }
 
 /**
- * Create the repository on the primary with a new password. A repository left at the prefix
- * by an earlier chain (after a reset, or a creation that never got recorded) is removed first;
- * no active restore point refers to it.
+ * Move every object under `prefix` aside to `<prefix without slash>.orphaned-<time>/` on the
+ * same target: never deleted, an operator can still look at it (or delete it).
+ */
+export async function moveRepositoryAside(
+  backend: StorageBackend,
+  prefix: string,
+  now: Date,
+): Promise<string> {
+  const stamp = now.toISOString().replace(/[:.]/g, "-");
+  const destination = `${prefix.replace(/\/$/, "")}.orphaned-${stamp}/`;
+  for (const key of await backend.list(prefix)) {
+    const target = `${destination}${key.slice(prefix.length)}`;
+    await backend.put(target, await backend.getStream(key));
+    await backend.delete(key);
+  }
+  return destination;
+}
+
+/**
+ * Create the repository on `primary` (the target the run was pinned to) with a new password.
+ *
+ *   - A complete repository left at the prefix by an earlier chain (after a reset, or a
+ *     creation that never got recorded) is removed first; no active restore point refers to it.
+ *   - Data without `config` (a split repository) is refused with `pve-repository-split`:
+ *     `restic init` would fail on it ("repository already contains snapshots", the HTTP 500 of
+ *     0.4.x). Right after a reset (no active restore point), it is moved aside instead.
+ *   - The password is stored only once `restic init` succeeded, so a failed attempt leaves
+ *     no orphan secret behind.
  */
 async function createRepository(
   database: Database,
   tenantId: string,
   guest: PveGuest,
-  store: TenantChunkStore,
+  primary: StorageBackend,
+  now: Date,
 ): Promise<string> {
   const prefix = guestRepositoryPrefix(guest.id);
-  const primary = store.write.primary;
-  if (await exists(primary, `${prefix}config`)) {
-    const [active] = await withTenantTx(database, tenantId, (tx) =>
-      tx
-        .select({ id: pveSnapshots.id })
-        .from(pveSnapshots)
-        .where(
-          and(
-            eq(pveSnapshots.guestId, guest.id),
-            eq(pveSnapshots.kind, "ct"),
-            eq(pveSnapshots.status, "active"),
-          ),
-        )
-        .limit(1),
-    );
-    if (active) {
+  const files = await repositoryFiles(primary, prefix);
+  if (files.length > 0) {
+    const active = await activePointCount(database, tenantId, guest.id);
+    const afterReset =
+      guest.repositoryReadyAt === null &&
+      (guest.repositoryChains?.[0]?.reason === "reset" ||
+        guest.repositoryChains?.[0]?.reason === "lost");
+    const hasConfig = files.includes(`${prefix}config`);
+    if (active > 0 && hasConfig) {
       throw new ProblemError(409, "Repository state unclear", {
         type: PVE_REPOSITORY_PROBLEMS.leftover,
         detail:
           "The container has restore points, but its repository is not recorded as ready. Reset the repository on the guest page to begin a new backup chain.",
       });
     }
-    await removeRepositoryObjects(primary, prefix);
+    if (hasConfig) {
+      await removeRepositoryObjects(primary, prefix);
+    } else if (afterReset && active === 0) {
+      await moveRepositoryAside(primary, prefix, now).catch((error: unknown) => {
+        throw unreachable(error);
+      });
+    } else {
+      await refuse(database, tenantId, guest, "split", null, active, now);
+    }
   }
   const password = randomBytes(32).toString("base64url");
+  try {
+    await withRepository(
+      {
+        storage: primary,
+        prefix,
+        repositoryPassword: password,
+        repositoryKey: guest.id,
+        binary: resticBinary(),
+        cacheBase: resticCacheBase(),
+      },
+      (session) => resticInit(session),
+    );
+  } catch (error) {
+    throw new ProblemError(503, "Repository could not be created", {
+      type: PVE_REPOSITORY_PROBLEMS.initFailed,
+      detail: `restic could not create the repository of this container on the primary storage target: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    });
+  }
   const secret = await storeSecret(database, {
     tenantId,
     kind: PVE_REPOSITORY_SECRET_KIND,
     plaintext: password,
   });
-  await withRepository(
-    {
-      storage: primary,
-      prefix,
-      repositoryPassword: password,
-      repositoryKey: guest.id,
-      binary: resticBinary(),
-      cacheBase: resticCacheBase(),
-    },
-    (session) => resticInit(session),
-  );
   const dek = await withTenantTx(database, tenantId, (tx) => loadTenantDek(tx, tenantId));
   // Next to the repository, sealed with the tenant key: storage and master key restore without this database.
   await primary.put(
-    `${prefix}restow-repository-password.json`,
+    `${prefix}${REPOSITORY_PASSWORD_FILE}`,
     sealEndpointPassword({ tenantId, endpointId: guest.id, password, dek }),
   );
   await withTenantTx(database, tenantId, (tx) =>
@@ -206,6 +436,7 @@ async function createRepository(
         repositoryReadyAt: new Date(),
         repositoryBytes: null,
         repositoryMeasuredAt: null,
+        repositoryProblem: null,
       })
       .where(eq(pveGuests.id, guest.id)),
   );
@@ -214,15 +445,15 @@ async function createRepository(
 
 /**
  * The repository password of a container for a run, creating the repository when it does not
- * exist yet. `write` (a backup) also makes sure the repository is on the primary: missing
- * there and nowhere else, a new backup chain begins (see the module comment); held by another
- * target, the backup is refused. Reads (a restore) never create anything: the restic route
- * reads from whichever target holds the repository.
+ * exist yet. `write` (a backup) also makes sure the repository is complete on the run's target
+ * (`target`, the primary its credential was issued for): see the module comment for what
+ * happens when it is not. Reads (a restore) never create anything: the restic route reads from
+ * whichever target holds the repository.
  */
 export async function ensureGuestRepository(
   tenantId: string,
   guestId: string,
-  run: { runId: string; write: boolean },
+  run: { runId: string; write: boolean; target?: string },
   deps: RepositoryDeps = {},
 ): Promise<string> {
   const database = deps.db ?? defaultDb;
@@ -234,6 +465,11 @@ export async function ensureGuestRepository(
     throw new ProblemError(404, "Guest not found", { detail: "Unknown guest." });
   }
   const store = await tenantChunkStore(tenantId);
+  const targetId = run.target ?? store.primaryTarget;
+  const primaryBackend = storeTarget(store, targetId);
+  if (!primaryBackend || (run.write && targetId !== store.primaryTarget)) {
+    throw storageSwitchedDuringRun();
+  }
   const prefix = guestRepositoryPrefix(guest.id);
   if (guest.repositorySecretId && guest.repositoryReadyAt) {
     const password = await readSecret(database, { id: guest.repositorySecretId, tenantId });
@@ -241,19 +477,63 @@ export async function ensureGuestRepository(
       if (!run.write || checkedRuns.has(run.runId)) {
         return password;
       }
-      if (await exists(store.write.primary, `${prefix}config`)) {
+      if (await completeOn(primaryBackend, prefix)) {
+        if (guest.repositoryProblem) {
+          await recordRepositoryProblem(database, tenantId, guest.id, null);
+        }
         rememberChecked(run.runId);
         return password;
       }
-      if (await heldElsewhere(store, prefix)) {
-        throw new ProblemError(409, "Repository on another storage target", {
-          type: PVE_REPOSITORY_PROBLEMS.elsewhere,
-          detail:
-            'The repository of this container is not on the current primary storage target but on another target of this tenant (a previous primary). Move the backups to the primary (storage, replace the primary with "move"), or reset the repository on the guest page to begin a new backup chain.',
-        });
+      const holdings = await locateRepository(
+        store,
+        { id: targetId, backend: primaryBackend },
+        prefix,
+      );
+      const [onPrimary, ...others] = holdings as [RepositoryHolding, ...RepositoryHolding[]];
+      const othersWithData = others.filter(
+        (other) => other.data > 0 || other.config || other.keys > 0,
+      );
+      const active = await activePointCount(database, tenantId, guest.id);
+      const complete = othersWithData.find((other) => other.config && other.keys > 0);
+      if (onPrimary.config || onPrimary.keys > 0 || onPrimary.data > 0) {
+        await refuse(
+          database,
+          tenantId,
+          guest,
+          "split",
+          complete?.target ?? othersWithData[0]?.target ?? null,
+          active,
+          now(),
+        );
       }
-      // Gone: a new chain begins (below), and the guest says so.
-      const password2 = await createRepository(database, tenantId, guest, store);
+      if (complete) {
+        const split = othersWithData.some((other) => other !== complete);
+        await refuse(
+          database,
+          tenantId,
+          guest,
+          split ? "split" : "elsewhere",
+          complete.target,
+          active,
+          now(),
+        );
+      }
+      if (othersWithData.length > 0) {
+        await refuse(
+          database,
+          tenantId,
+          guest,
+          "split",
+          othersWithData[0]?.target ?? null,
+          active,
+          now(),
+        );
+      }
+      if (active > 0) {
+        await refuse(database, tenantId, guest, "missing", null, active, now());
+      }
+      // Gone everywhere and nothing refers to it: a new chain begins (below), and the guest says so.
+      const password2 = await createRepository(database, tenantId, guest, primaryBackend, now());
       const target = await destinationRecord(database, tenantId, deps.destination);
       const at = now();
       await withTenantTx(database, tenantId, async (tx) => {
@@ -284,7 +564,7 @@ export async function ensureGuestRepository(
       return password2;
     }
   }
-  const password = await createRepository(database, tenantId, guest, store);
+  const password = await createRepository(database, tenantId, guest, primaryBackend, now());
   rememberChecked(run.runId);
   return password;
 }

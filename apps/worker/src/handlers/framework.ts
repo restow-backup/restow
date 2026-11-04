@@ -25,6 +25,7 @@ import {
   type CursorStore,
   discardUncommittedSnapshot,
   type FailureCause,
+  INSTALLATION_DEFAULT_TARGET_ID,
   JobAbortedError,
   type JobContext,
   type JobPayload,
@@ -39,6 +40,7 @@ import {
   type PackRecord,
   type ProtectedObjectRef,
   parseImmutabilitySettings,
+  type ResolvedStorageTarget,
   redactSensitiveText,
   type S3CredentialsSecret,
   S3StorageBackend,
@@ -71,6 +73,7 @@ import {
   secrets,
   snapshots,
   sources,
+  storageGeneration,
   storageMigrations,
   storageTargets,
   tenantKeys,
@@ -689,6 +692,8 @@ export async function resolveStorageForJob(options: {
    * Omitted (tests), the default is not checked.
    */
   readonly getDefaultGeneration?: () => Promise<string>;
+  /** The tenant's current storage generation (`@restow/db`); omitted (tests), not checked. */
+  readonly getStorageGeneration?: (tenantId: string) => Promise<string>;
 }): Promise<StorageTargets> {
   const { tenantId, queue, storage, getLatestKeepSwitchAt, getDefaultGeneration } = options;
   if (STORAGE_WRITE_QUEUES.has(queue)) {
@@ -699,6 +704,13 @@ export async function resolveStorageForJob(options: {
       const currentGeneration = await getLatestKeepSwitchAt(tenantId);
       const usedDefault = resolved.defaultGeneration ?? null;
       if (!sameGeneration(cachedGeneration, currentGeneration)) {
+        storage.invalidate(tenantId);
+      } else if (
+        resolved.storageGeneration !== undefined &&
+        options.getStorageGeneration &&
+        resolved.storageGeneration !== (await options.getStorageGeneration(tenantId))
+      ) {
+        // A promotion or the switch of a "move" since the value was cached.
         storage.invalidate(tenantId);
       } else if (
         usedDefault !== null &&
@@ -985,6 +997,17 @@ export interface ResolvedTenantStorage extends StorageTargets {
    * Default storage is never written to from a stale cache.
    */
   readonly defaultGeneration?: string | null;
+  /**
+   * The tenant's storage generation (`@restow/db` `storageGeneration`) read with the rows:
+   * {@link freshTenantStorage} and `resolveStorageForJob` reload a cached value of another one,
+   * so a promotion or the switch of a "move" is seen at once (docs/STORAGE.md, "Runs and
+   * storage changes"). Absent in values built by tests.
+   */
+  readonly storageGeneration?: string;
+  /** Every target by the id a run records (core `ResolvedStorageTarget`); absent in tests. */
+  readonly targets?: readonly ResolvedStorageTarget[];
+  /** The primary's id (a row id, or `installation_default`); absent in tests. */
+  readonly primaryTarget?: string;
 }
 
 /** The installation default as `resolveTenantStorage` takes it (apps/worker/src/default-storage.ts). */
@@ -1020,14 +1043,15 @@ export async function resolveTenantStorage(options: {
   // `storage_targets` rows it describes, not derived from a separate call
   // (and separate clock) minutes or milliseconds apart — see
   // `ResolvedTenantStorage.keepGeneration` and `resolveStorageForJob`.
-  const { rows, keepGeneration } = await options.run(async (tx) => {
+  const { rows, keepGeneration, generation } = await options.run(async (tx) => {
     const rows = await tx
       .select()
       .from(storageTargets)
       .where(eq(storageTargets.tenantId, options.tenantId))
       .orderBy(asc(storageTargets.createdAt));
     const keepGeneration = await latestKeepSwitchAtTx(tx, options.tenantId);
-    return { rows, keepGeneration };
+    const generation = await storageGeneration(tx, options.tenantId);
+    return { rows, keepGeneration, generation };
   });
   // Resolved once, and only when this tenant actually uses the default.
   const resolvedDefault: { used: { targets: StorageTargets; generation: string | null } | null } = {
@@ -1049,6 +1073,22 @@ export async function resolveTenantStorage(options: {
       previous: [],
       keepGeneration,
       defaultGeneration: resolvedDefault.used?.generation ?? null,
+      storageGeneration: generation,
+      targets: [
+        {
+          id: INSTALLATION_DEFAULT_TARGET_ID,
+          name: null,
+          role: "primary",
+          backend: targets.primary,
+        },
+        ...targets.copies.map((backend, index) => ({
+          id: `${INSTALLATION_DEFAULT_TARGET_ID}:copy:${index}`,
+          name: null,
+          role: "copy" as const,
+          backend,
+        })),
+      ],
+      primaryTarget: INSTALLATION_DEFAULT_TARGET_ID,
     };
   }
   const primaryRow = rows.find((row) => row.role === "primary");
@@ -1057,15 +1097,37 @@ export async function resolveTenantStorage(options: {
     : (await defaults()).primary;
   const copies: StorageBackend[] = primaryRow ? [] : [...(await defaults()).copies];
   const previous: StorageBackend[] = [];
+  const targets: ResolvedStorageTarget[] = [
+    {
+      id: primaryRow ? primaryRow.id : INSTALLATION_DEFAULT_TARGET_ID,
+      name: primaryRow?.name ?? null,
+      role: "primary",
+      backend: primary,
+    },
+    ...copies.map((backend, index) => ({
+      id: `${INSTALLATION_DEFAULT_TARGET_ID}:copy:${index}`,
+      name: null,
+      role: "copy" as const,
+      backend,
+    })),
+  ];
   for (const row of rows) {
     if (row.role === "copy") {
-      copies.push(await storageBackendFor(row, options.secretReader));
+      const backend = await storageBackendFor(row, options.secretReader);
+      copies.push(backend);
+      targets.push({ id: row.id, name: row.name, role: "copy", backend });
     } else if (row.role === "previous") {
-      previous.push(
-        row.kind === "installation_default"
-          ? (await defaults()).primary
-          : await storageBackendFor(row, options.secretReader),
-      );
+      const retiredDefault = row.kind === "installation_default";
+      const backend = retiredDefault
+        ? (await defaults()).primary
+        : await storageBackendFor(row, options.secretReader);
+      previous.push(backend);
+      targets.push({
+        id: retiredDefault ? INSTALLATION_DEFAULT_TARGET_ID : row.id,
+        name: row.name,
+        role: "previous",
+        backend,
+      });
     }
   }
   return {
@@ -1074,7 +1136,31 @@ export async function resolveTenantStorage(options: {
     previous,
     keepGeneration,
     defaultGeneration: resolvedDefault.used?.generation ?? null,
+    storageGeneration: generation,
+    targets,
+    primaryTarget: primaryRow ? primaryRow.id : INSTALLATION_DEFAULT_TARGET_ID,
   };
+}
+
+/**
+ * The tenant's storage from the process cache, resolved afresh when the cached value is of
+ * another storage generation than the tenant's current one (docs/STORAGE.md, "Runs and storage
+ * changes"): what the file share dispatcher and the PVE maintenance use before they pin a run
+ * or touch a repository. One indexed query.
+ */
+export async function freshTenantStorage(
+  run: TenantTxRunner,
+  cache: TenantCache<StorageTargets>,
+  tenantId: string,
+): Promise<StorageTargets & Partial<ResolvedTenantStorage>> {
+  const cached = cache.peek(tenantId) as Partial<ResolvedTenantStorage> | undefined;
+  if (cached?.storageGeneration !== undefined) {
+    const current = await run((tx) => storageGeneration(tx, tenantId));
+    if (current !== cached.storageGeneration) {
+      cache.invalidate(tenantId);
+    }
+  }
+  return (await cache.get(tenantId)) as StorageTargets & Partial<ResolvedTenantStorage>;
 }
 
 /** Generic per-tenant cache with a TTL (keyrings, storage targets). */
@@ -1874,6 +1960,7 @@ export async function runJob(
         storage: runtime.storage,
         getLatestKeepSwitchAt: (tenantId) => latestKeepSwitchAt(run, tenantId),
         getDefaultGeneration: runtime.defaultStorageGeneration,
+        getStorageGeneration: (tenantId) => run((tx) => storageGeneration(tx, tenantId)),
       }),
       queue,
     );

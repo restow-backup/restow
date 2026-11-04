@@ -1,7 +1,7 @@
 import type { ResticLockRegistry, StorageBackend } from "@restow/core";
 import { fileShareRepositoryPrefix, hashSecret, secretMatchesHash } from "@restow/core";
-import { fileShareRuns, tenants } from "@restow/db";
-import { eq } from "drizzle-orm";
+import { fileShareRuns, storageGenerationSql, tenants } from "@restow/db";
+import { eq, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { DeniedThrottle } from "../../lib/denied-audit.js";
@@ -11,8 +11,11 @@ import {
   type RunResticAccess,
   type RunResticResolution,
 } from "../../lib/restic-run-route.js";
+import type { ProblemError } from "../../problem.js";
 import { authFailures } from "../endpoints/agent-auth.js";
 import { tenantStorage } from "../endpoints/repository.js";
+import { storageSwitchedDuringRun } from "../pve/repository.js";
+import { searchedTargets, storeTarget, tenantChunkStore } from "../pve/store.js";
 import { FILE_SHARE_RUNNER_AUDIT_ACTIONS } from "./constants.js";
 import {
   addShareUsage,
@@ -63,6 +66,10 @@ export interface FileShareRunCredential {
   expiresAt: Date;
   /** The share whose repository the run reads or writes (a restore: its source). */
   repositoryShareId: string;
+  /** The target the run was pinned to when it started (docs/STORAGE.md); null before 0.5.0. */
+  storageTarget?: string | null;
+  /** The tenant's storage generation now. */
+  generation?: string;
 }
 
 export interface FileShareRunCredentials {
@@ -107,7 +114,9 @@ export class PgRunCredentials implements FileShareRunCredentials {
         tokenHash: fileShareRuns.tokenHash,
         expiresAt: fileShareRuns.tokenExpiresAt,
         repositoryShareId: fileShareRuns.fileShareId,
+        storageTarget: fileShareRuns.storageTarget,
         tenantStatus: tenants.status,
+        generation: sql<string>`${storageGenerationSql(sql`${fileShareRuns.tenantId}`)}`,
       })
       .from(fileShareRuns)
       .innerJoin(tenants, eq(tenants.id, fileShareRuns.tenantId))
@@ -125,6 +134,8 @@ export class PgRunCredentials implements FileShareRunCredentials {
       tokenHash: row.tokenHash,
       expiresAt: row.expiresAt,
       repositoryShareId: row.repositoryShareId,
+      storageTarget: row.storageTarget,
+      generation: row.generation,
     };
   }
 }
@@ -135,6 +146,7 @@ export const fileShareRunCredentials: FileShareRunCredentials = new PgRunCredent
 export async function resolveFileShareCredential(
   credentials: FileShareRunCredentials,
   storageOf: (tenantId: string) => Promise<StorageBackend>,
+  storageFor: FileShareResticRouteDeps["storageFor"],
   presented: { runId: string; token: string },
   shareId: string,
   now: number,
@@ -154,21 +166,59 @@ export async function resolveFileShareCredential(
   ) {
     return { ok: false, reason: "expired" };
   }
+  const resolved = storageFor
+    ? await storageFor(run)
+    : { storage: await storageOf(run.tenantId), refuseWrites: undefined };
   return {
     ok: true,
     access: {
       tenantId: run.tenantId,
       runId: run.runId,
-      principal: run.kind === "backup" ? "agent" : "reader",
+      principal: run.kind === "backup" ? (resolved.refuseWrites ? "closing" : "agent") : "reader",
       prefix: fileShareRepositoryPrefix(shareId),
-      storage: await storageOf(run.tenantId),
+      storage: resolved.storage,
+      ...(resolved.refuseWrites ? { refuseWrites: resolved.refuseWrites } : {}),
     },
   };
+}
+
+/**
+ * The target a run reads and writes (docs/STORAGE.md, "Runs and storage changes"): the one it
+ * was pinned to when the dispatcher started it. A backup whose target stopped being the
+ * primary has its writes refused (409); a run from before 0.5.0 (none recorded) uses the
+ * primary, a restore of one the target that holds the repository.
+ */
+export async function pinnedShareStorage(
+  run: FileShareRunCredential,
+): Promise<{ storage: StorageBackend; refuseWrites?: ProblemError }> {
+  const store = await tenantChunkStore(run.tenantId, Date.now(), run.generation);
+  const pinned = run.storageTarget ? storeTarget(store, run.storageTarget) : null;
+  if (run.kind === "backup") {
+    const switched = Boolean(run.storageTarget) && run.storageTarget !== store.primaryTarget;
+    return {
+      storage: pinned ?? store.write.primary,
+      ...(switched ? { refuseWrites: storageSwitchedDuringRun(403) } : {}),
+    };
+  }
+  if (pinned) {
+    return { storage: pinned };
+  }
+  const prefix = fileShareRepositoryPrefix(run.repositoryShareId);
+  for (const target of await searchedTargets(store)) {
+    if (await target.backend.head(`${prefix}config`).catch(() => null)) {
+      return { storage: target.backend };
+    }
+  }
+  return { storage: store.write.primary };
 }
 
 export interface FileShareResticRouteDeps {
   credentials: FileShareRunCredentials;
   storageOf: (tenantId: string) => Promise<StorageBackend>;
+  /** The run's own target (pinned when it started); `storageOf` without it. */
+  storageFor?: (
+    run: FileShareRunCredential,
+  ) => Promise<{ storage: StorageBackend; refuseWrites?: ProblemError }>;
   /** The budgets of 7.4 (share and tenant); none without it. */
   remainingBytes?: (access: RunResticAccess, shareId: string) => Promise<number | null>;
   /** The lock registry of a backup run's own locks; process-local without it. */
@@ -195,7 +245,14 @@ export function buildFileShareResticRoutes(deps: FileShareResticRouteDeps) {
     realm: "restow-share",
     internalOnly: true,
     resolve: (presented, shareId, now) =>
-      resolveFileShareCredential(deps.credentials, deps.storageOf, presented, shareId, now),
+      resolveFileShareCredential(
+        deps.credentials,
+        deps.storageOf,
+        deps.storageFor,
+        presented,
+        shareId,
+        now,
+      ),
     locks: (access, shareId) => (deps.locks ? deps.locks(access, shareId) : runLocks(access.runId)),
     remainingBytes: deps.remainingBytes,
     quotaProblem: FILE_SHARE_QUOTA_PROBLEM,
@@ -214,6 +271,7 @@ export function buildFileShareResticRoutes(deps: FileShareResticRouteDeps) {
 export const fileShareResticRoutes = buildFileShareResticRoutes({
   credentials: fileShareRunCredentials,
   storageOf: async (tenantId) => (await tenantStorage(db, tenantId)).storage,
+  storageFor: pinnedShareStorage,
   locks: (access, shareId) =>
     shareLockRegistry({ tenantId: access.tenantId, fileShareId: shareId }),
   remainingBytes: async (access, shareId) =>

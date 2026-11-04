@@ -34,6 +34,14 @@ export interface RunResticAccess {
   /** Storage prefix of the repository, with a trailing slash. */
   prefix: string;
   storage: StorageBackend;
+  /**
+   * The run's target is no longer the tenant's primary (docs/STORAGE.md, "Runs and storage
+   * changes"): every write is answered with this problem (403: restic takes it as final), so
+   * the run fails instead of
+   * writing the rest of its backup elsewhere. Reads and the release of its own locks still go
+   * to the run's target.
+   */
+  refuseWrites?: ProblemError;
 }
 
 /**
@@ -159,6 +167,12 @@ export function buildRunResticRoute(options: RunResticRouteOptions): Hono {
     const url = new URL(c.req.url);
     const base = `${options.basePath}/${repoId}`;
     const path = url.pathname.startsWith(base) ? url.pathname.slice(base.length) || "/" : "/";
+    if (
+      access.refuseWrites &&
+      (c.req.method === "POST" || (c.req.method === "DELETE" && !path.startsWith("/locks/")))
+    ) {
+      throw access.refuseWrites;
+    }
     return handleResticRequest(c.req.raw, {
       storage: access.storage,
       prefix: access.prefix,

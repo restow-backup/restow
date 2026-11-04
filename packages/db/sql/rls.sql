@@ -94,6 +94,7 @@ DECLARE
     'storage_targets',
     'immutability_deferred_deletions',
     'storage_migrations',
+    'storage_repository_repairs',
     'audit_log',
     'audit_anchor',
     'archive_items',

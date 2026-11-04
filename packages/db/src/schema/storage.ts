@@ -297,6 +297,114 @@ export const immutabilityDeferredDeletions = pgTable(
   ],
 );
 
+/**
+ * What a repository scan (docs/STORAGE.md, "Repository repair") found for one restic
+ * repository of the tenant, compared across every storage target:
+ *
+ *   - `ok`: complete on the primary;
+ *   - `elsewhere`: complete on another target, nothing on the primary;
+ *   - `split`: `config` and keys on one target, data the holder lacks on another;
+ *   - `data_only`: data, but no `config` or no key on any target;
+ *   - `password_only`: only the sealed password file;
+ *   - `missing`: nothing on any target;
+ *   - `conflict`: two different `config` files (two chains under one prefix).
+ */
+export type StorageRepositoryClass =
+  | "ok"
+  | "elsewhere"
+  | "split"
+  | "data_only"
+  | "password_only"
+  | "missing"
+  | "conflict";
+
+/** What one target holds of a repository. */
+export interface StorageRepositoryHolding {
+  /** A target id, or `installation_default`. */
+  readonly target: string;
+  readonly targetName: string;
+  readonly role: string;
+  readonly config: boolean;
+  readonly keys: number;
+  /** Content-addressed files (data, index, snapshots), keys excluded. */
+  readonly files: number;
+  readonly snapshots: number;
+  readonly password: boolean;
+}
+
+export interface StorageRepositoryScanEntry {
+  readonly prefix: string;
+  readonly kind: "container" | "machine" | "file_share";
+  readonly ownerId: string;
+  readonly name: string | null;
+  readonly class: StorageRepositoryClass;
+  readonly holdings: readonly StorageRepositoryHolding[];
+  /** Files no single target holds all of: what a merge onto the primary would copy. */
+  readonly filesToCopy: number;
+  /** Restore points (containers) or snapshots that still refer to the repository. */
+  readonly activePoints: number;
+  /** Whether "apply" can rebuild it on the primary from what the targets hold. */
+  readonly repairable: boolean;
+}
+
+/** The outcome of "apply" for one repository. */
+export interface StorageRepositoryRepairEntry {
+  readonly prefix: string;
+  readonly kind: StorageRepositoryScanEntry["kind"];
+  readonly ownerId: string;
+  readonly name: string | null;
+  readonly outcome: "merged" | "lost" | "moved_aside" | "unchanged" | "failed";
+  readonly copied: number;
+  readonly lostPoints: number;
+  readonly movedTo: string | null;
+  readonly detail: string | null;
+}
+
+export interface StorageRepositoryRepairResult {
+  readonly repositories: readonly (StorageRepositoryScanEntry | StorageRepositoryRepairEntry)[];
+}
+
+/**
+ * A repository scan or repair of a tenant (docs/STORAGE.md, "Repository repair"): queued by an
+ * administrator, run by the worker. `scan` only lists and classifies every restic repository
+ * of the tenant on every target; `apply` (needs a completed scan, `scanId`) rebuilds what can be
+ * rebuilt on the primary and marks what is lost.
+ */
+export const storageRepositoryRepairs = pgTable(
+  "storage_repository_repairs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"scan" | "apply">().notNull(),
+    status: text("status")
+      .$type<"queued" | "running" | "completed" | "failed">()
+      .notNull()
+      .default("queued"),
+    scanId: uuid("scan_id"),
+    requestedBy: text("requested_by").notNull(),
+    requestedByUserId: uuid("requested_by_user_id"),
+    result: jsonb("result").$type<StorageRepositoryRepairResult>(),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    ...timestamps(),
+  },
+  (t) => [
+    index("storage_repository_repairs_tenant_idx").on(t.tenantId, t.createdAt),
+    index("storage_repository_repairs_queued_idx")
+      .on(t.createdAt)
+      .where(sql`${t.status} IN ('queued', 'running')`),
+    // One scan or repair at a time per tenant.
+    uniqueIndex("storage_repository_repairs_unfinished_uq")
+      .on(t.tenantId)
+      .where(sql`${t.status} IN ('queued', 'running')`),
+  ],
+);
+
+export type StorageRepositoryRepair = typeof storageRepositoryRepairs.$inferSelect;
+
 export type ImmutabilityDeferredDeletion = typeof immutabilityDeferredDeletions.$inferSelect;
 export type StorageTarget = typeof storageTargets.$inferSelect;
 export type NewStorageTarget = typeof storageTargets.$inferInsert;

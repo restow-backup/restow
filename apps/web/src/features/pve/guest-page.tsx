@@ -52,6 +52,7 @@ import {
   type PveGuest,
   type PveGuestDetail,
   type PveRepositoryChain,
+  type PveRepositoryProblem,
   type PveRestorePoint,
   type PveRun,
   pveKeys,
@@ -386,7 +387,7 @@ function chainTarget(
 }
 
 /**
- * The newest new backup chain of a container (docs/PVE.md, "New backup chain"): the repository
+ * The newest new backup chain of a container (docs/PVE.md, "Repository problems"): the repository
  * was missing on the primary when a backup began, or an administrator reset it.
  */
 export function RepositoryChainNotice({ chain }: { chain: PveRepositoryChain }) {
@@ -395,24 +396,58 @@ export function RepositoryChainNotice({ chain }: { chain: PveRepositoryChain }) 
   const date = formatDateTime(chain.at, language);
   const target = chainTarget(chain, t);
   return (
-    <Alert
-      variant={chain.reason === "missing" ? "warning" : "info"}
-      data-slot="pve-repository-chain"
-    >
+    <Alert variant={chain.reason === "reset" ? "info" : "warning"} data-slot="pve-repository-chain">
       <History />
-      <AlertTitle>
-        {t(chain.reason === "missing" ? "guest.chain.missingTitle" : "guest.chain.resetTitle", {
-          date,
-        })}
-      </AlertTitle>
+      <AlertTitle>{t(`guest.chain.${chain.reason}Title`, { date })}</AlertTitle>
       <AlertDescription>
-        {chain.reason === "missing"
-          ? t("guest.chain.missing", { target, count: chain.unavailablePoints })
-          : t("guest.chain.reset", {
-              target,
-              count: chain.unavailablePoints,
-              actor: chain.actor ?? t("guest.chain.someone"),
-            })}
+        {t(`guest.chain.${chain.reason}`, {
+          target,
+          count: chain.unavailablePoints,
+          actor: chain.actor ?? t("guest.chain.someone"),
+        })}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/** The problem types the guest page explains (docs/PVE.md, "Repository problems"). */
+const PROBLEM_KEYS: Record<string, "elsewhere" | "split" | "missing"> = {
+  "pve-repository-elsewhere": "elsewhere",
+  "pve-repository-split": "split",
+  "pve-repository-missing": "missing",
+};
+
+/**
+ * Why the last backup of a container was refused for its repository, and the way out: the
+ * repository repair under Storage, or a reset of the repository (docs/PVE.md, "Repository
+ * problems").
+ */
+export function RepositoryProblemNotice({ problem }: { problem: PveRepositoryProblem }) {
+  const { t, i18n } = useTranslation(PVE_NAMESPACE);
+  const kind = PROBLEM_KEYS[problem.type];
+  if (!kind) {
+    return null;
+  }
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const target =
+    problem.heldBy === null
+      ? null
+      : problem.heldBy === "installation_default"
+        ? t("guest.chain.installationDefault")
+        : problem.heldBy;
+  return (
+    <Alert variant="destructive" data-slot="pve-repository-problem" data-problem={kind}>
+      <History />
+      <AlertTitle>{t(`guest.repositoryProblem.${kind}Title`)}</AlertTitle>
+      <AlertDescription>
+        <p>
+          {t(`guest.repositoryProblem.${kind}`, {
+            target: target ?? t("guest.repositoryProblem.noTarget"),
+            count: problem.activePoints,
+            date: formatDateTime(problem.at, language),
+          })}
+        </p>
+        <p>{t(`guest.repositoryProblem.${kind}Action`, { count: problem.activePoints })}</p>
       </AlertDescription>
     </Alert>
   );
@@ -803,6 +838,9 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         ) : null}
       </PageHeader>
       {data && canManage ? <BackupDestinationNote /> : null}
+      {data?.repository?.problem ? (
+        <RepositoryProblemNotice problem={data.repository.problem} />
+      ) : null}
       {chains[0] ? <RepositoryChainNotice chain={chains[0]} /> : null}
       {data ? <ExclusionSection guest={data.guest} canManage={canManage} /> : null}
       {data && !data.guest.excludedAt ? <RestowServerSection guest={data.guest} /> : null}
@@ -953,11 +991,13 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                     </TableCell>
                     <TableCell>{t("guest.chain.history")}</TableCell>
                     <TableCell>
-                      <Badge variant={row.chain.reason === "missing" ? "warning" : "info"}>
+                      <Badge variant={row.chain.reason === "reset" ? "info" : "warning"}>
                         {t(
                           row.chain.reason === "missing"
                             ? "guest.chain.historyMissing"
-                            : "guest.chain.historyReset",
+                            : row.chain.reason === "lost"
+                              ? "guest.chain.historyLost"
+                              : "guest.chain.historyReset",
                           {
                             target: chainTarget(row.chain, t),
                             actor: row.chain.actor ?? t("guest.chain.someone"),

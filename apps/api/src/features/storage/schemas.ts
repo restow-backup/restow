@@ -11,7 +11,12 @@ import { z } from "zod";
  */
 
 export const storageKindSchema = z.enum(["local", "s3"]);
-export const storageRoleSchema = z.enum(["primary", "copy"]);
+/**
+ * The role a new target is added with. `previous` attaches an old location read-only
+ * (docs/STORAGE.md, "Repository repair"): a restored copy of an earlier primary, for example,
+ * that restores and the repository repair read from and nothing writes to.
+ */
+export const storageRoleSchema = z.enum(["primary", "copy", "previous"]);
 
 /**
  * How a new primary target takes over from the tenant's current one, when the

@@ -34,12 +34,15 @@ import {
 import {
   type Database,
   endpoints,
+  fileShareRuns,
   fileShares,
   type Job,
   jobProgress,
   jobs as jobsTable,
+  lockTenantStorage,
   packs,
   pveGuests,
+  pveRuns,
   type StorageMigration,
   type StorageTarget,
   snapshots,
@@ -386,13 +389,14 @@ function activeEndpoints(): ProblemError {
 export interface ResticRepositoryKinds {
   containers: boolean;
   fileShares: boolean;
+  machines: boolean;
 }
 
 /**
  * A switch that copies nothing ("keep existing backups where they are", promoting a copy)
  * while the tenant has restic repositories: they lie on the current primary only, and every
- * container and file share would find an empty repository on the new one (the PVE field
- * incident, docs/STORAGE.md). "Move" copies them across before it switches.
+ * container, machine and file share would find an empty repository on the new one (the PVE
+ * field incident, docs/STORAGE.md). "Move" copies them across before it switches.
  */
 function switchBlockedByRepositories(
   kinds: ResticRepositoryKinds,
@@ -400,6 +404,7 @@ function switchBlockedByRepositories(
 ): ProblemError {
   const what = [
     kinds.containers ? "containers (Proxmox VE)" : null,
+    kinds.machines ? "machines" : null,
     kinds.fileShares ? "file shares" : null,
   ]
     .filter(Boolean)
@@ -414,11 +419,11 @@ function switchBlockedByRepositories(
 }
 
 /**
- * Which restic repositories the tenant has on its primary that a switch copying nothing would
- * leave behind: a container's (created at its first backup) and a file share's. Both are
- * written to and read from the primary only. Machines are not here: an active one refuses
- * every switch (`activeEndpoints`), and a revoked one is only read, from whichever target holds
- * its repository (endpoints/repository.ts `backendHolding`). Indexed existence checks.
+ * Which restic repositories the tenant has that a switch copying nothing would leave behind:
+ * a container's and a file share's (created at the first backup: a recorded password counts as
+ * well as a finished creation, so a creation in flight is not missed) and a machine's, also of
+ * a revoked machine: after a promotion away from the installation default nothing used to keep
+ * the old location attached, and its backups became unreadable. Indexed existence checks.
  */
 async function tenantResticRepositories(
   tx: DbExecutor,
@@ -427,15 +432,34 @@ async function tenantResticRepositories(
   const [container] = await tx
     .select({ id: pveGuests.id })
     .from(pveGuests)
-    .where(and(eq(pveGuests.tenantId, tenantId), isNotNull(pveGuests.repositoryReadyAt)))
+    .where(
+      and(
+        eq(pveGuests.tenantId, tenantId),
+        or(isNotNull(pveGuests.repositoryReadyAt), isNotNull(pveGuests.repositorySecretId)),
+      ),
+    )
     .limit(1);
   const [share] = await tx
     .select({ id: fileShares.id })
     .from(fileShares)
-    .where(and(eq(fileShares.tenantId, tenantId), isNotNull(fileShares.repositoryReadyAt)))
+    .where(
+      and(
+        eq(fileShares.tenantId, tenantId),
+        or(isNotNull(fileShares.repositoryReadyAt), isNotNull(fileShares.repositorySecretId)),
+      ),
+    )
     .limit(1);
-  const kinds = { containers: container !== undefined, fileShares: share !== undefined };
-  return kinds.containers || kinds.fileShares ? kinds : null;
+  const [machine] = await tx
+    .select({ id: endpoints.id })
+    .from(endpoints)
+    .where(and(eq(endpoints.tenantId, tenantId), isNotNull(endpoints.repositorySecretId)))
+    .limit(1);
+  const kinds = {
+    containers: container !== undefined,
+    fileShares: share !== undefined,
+    machines: machine !== undefined,
+  };
+  return kinds.containers || kinds.fileShares || kinds.machines ? kinds : null;
 }
 
 async function assertNoResticRepositories(
@@ -447,6 +471,50 @@ async function assertNoResticRepositories(
   if (kinds) {
     throw switchBlockedByRepositories(kinds, action);
   }
+}
+
+/**
+ * Whether a run of the tenant writes to a restic repository or the chunk store right now: a
+ * Proxmox VE backup (container or VM) or a file share run. Such a run has (or is about to get)
+ * its credential for the current primary; a switch now would split what it writes between two
+ * targets (docs/STORAGE.md, "Runs and storage changes"). Read under the tenant's storage lock,
+ * which credential issue takes too.
+ */
+async function hasRunningRepositoryRun(tx: DbExecutor, tenantId: string): Promise<boolean> {
+  const [guestRun] = await tx
+    .select({ id: pveRuns.id })
+    .from(pveRuns)
+    .where(
+      and(
+        eq(pveRuns.tenantId, tenantId),
+        eq(pveRuns.kind, "backup"),
+        eq(pveRuns.status, "running"),
+      ),
+    )
+    .limit(1);
+  if (guestRun) {
+    return true;
+  }
+  const [shareRun] = await tx
+    .select({ id: fileShareRuns.id })
+    .from(fileShareRuns)
+    .where(
+      and(
+        eq(fileShareRuns.tenantId, tenantId),
+        inArray(fileShareRuns.status, ["starting", "running"]),
+      ),
+    )
+    .limit(1);
+  return shareRun !== undefined;
+}
+
+function switchBlockedByRuns(): ProblemError {
+  return new ProblemError(409, "Backups are running", {
+    type: `${PROBLEM_PREFIX}switch-blocked-by-runs`,
+    detail:
+      "A container backup or a file share run of this tenant is running. It writes to the current primary until it ends; switching now would split its backup between two storage targets. Wait for it to finish (or stop it), then try again.",
+    extensions: { code: "switch_blocked_by_runs" },
+  });
 }
 
 function keepBlockedByActiveJob(): ProblemError {
@@ -979,7 +1047,11 @@ export async function createTarget(
     const row = await withTenantTx(db, tenantId, async (tx) => {
       const rows = await loadTargets(tx, tenantId);
       const situation = situationOf(rows, await tenantHasData(tx, tenantId), defaults, actor);
-      const violation = decideCreate(situation, { role: input.role, location });
+      // An old location attached read-only is checked like a copy (where it lies, who may).
+      const violation = decideCreate(situation, {
+        role: input.role === "previous" ? "copy" : input.role,
+        location,
+      });
       if (violation) {
         throw ruleProblem(violation);
       }
@@ -1132,6 +1204,9 @@ async function startReplacePrimaryTx(
     await verifyKeepTarget(tenantId, location, input, now);
   }
   const { destination, migration } = await withTenantTx(db, tenantId, async (tx) => {
+    // Credential issue takes this lock too: no run gets a credential for the primary this
+    // transaction may retire, and every run that has one is seen below.
+    await lockTenantStorage(tx, tenantId);
     const rows = await loadTargets(tx, tenantId);
     const situation = situationOf(rows, await tenantHasData(tx, tenantId), defaults, actor);
     const existingMigrations = await loadMigrations(tx, tenantId);
@@ -1153,6 +1228,9 @@ async function startReplacePrimaryTx(
     }
     if (mode === "keep" && (await hasActiveWriteJob(tx, tenantId))) {
       throw keepBlockedByActiveJob();
+    }
+    if (mode === "keep" && (await hasRunningRepositoryRun(tx, tenantId))) {
+      throw switchBlockedByRuns();
     }
     const currentPrimary = rows.find((row) => row.role === "primary") ?? null;
 
@@ -1749,7 +1827,6 @@ async function liveExclusiveObjectKeys(
   });
 }
 
-/** The endpoints of the tenant that have a restic repository (active or revoked). */
 /**
  * The storage prefixes of the tenant's restic repositories: machines (also revoked ones),
  * containers and file shares.
@@ -1764,7 +1841,12 @@ async function resticRepositoryPrefixes(db: Database, tenantId: string): Promise
       tx
         .select({ id: pveGuests.id })
         .from(pveGuests)
-        .where(and(eq(pveGuests.tenantId, tenantId), isNotNull(pveGuests.repositoryReadyAt))),
+        .where(
+          and(
+            eq(pveGuests.tenantId, tenantId),
+            or(isNotNull(pveGuests.repositoryReadyAt), isNotNull(pveGuests.repositorySecretId)),
+          ),
+        ),
       tx
         .select({ id: fileShares.id })
         .from(fileShares)
@@ -1823,24 +1905,26 @@ async function previousTargetExclusiveObjects(
         checkSourceExclusiveObjects({ source: previousBackend, others, prefix, isLive }),
       ),
     );
-    // A restic repository (a machine's, docs/AGENT.md; a container's; a file share's) that only
-    // this location holds: its `config` object marks the repository; a revoked machine's
-    // backups stay restorable from here.
+    // A restic repository (a machine's, docs/AGENT.md; a container's; a file share's) of which
+    // this location holds any file no other target has: not only its `config` (a run split by
+    // a switch left early packs here while `config` is on the new primary too), every data,
+    // index, snapshot and key file counts. Lock files are transient and do not.
     const endpointKeys: string[] = [];
     for (const prefix of repositoryPrefixes) {
-      const key = `${prefix}config`;
-      if (!(await previousBackend.head(key))) {
+      const here = (await previousBackend.list(prefix)).filter(
+        (key) => !key.startsWith(`${prefix}locks/`),
+      );
+      if (here.length === 0) {
         continue;
       }
-      let elsewhere = false;
+      const elsewhere = new Set<string>();
       for (const other of others) {
-        if (await other.head(key)) {
-          elsewhere = true;
-          break;
+        for (const key of await other.list(prefix)) {
+          elsewhere.add(key);
         }
       }
-      if (!elsewhere) {
-        endpointKeys.push(key);
+      if (here.some((key) => !elsewhere.has(key))) {
+        endpointKeys.push(prefix);
       }
     }
     return {
@@ -2250,7 +2334,10 @@ export async function checkCompleteness(
 /**
  * Make a copy the primary. It must have passed its last test and hold every
  * pack, manifest and key of the current primary; the current primary target
- * (if any) becomes a copy in the same transaction, so writes keep reaching it.
+ * becomes a copy in the same transaction, so writes keep reaching it. When the
+ * current primary is the installation default, a placeholder row keeps it
+ * attached read-only (`previous`). Refused while the tenant has restic
+ * repositories (a copy never receives them) or a backup run is running.
  */
 export async function promoteTarget(
   db: Database,
@@ -2280,6 +2367,8 @@ export async function promoteTarget(
   }
 
   const { promoted, previousPrimaryId } = await withTenantTx(db, tenantId, async (tx) => {
+    // The lock credential issue takes: no run gets a credential for the old primary after this.
+    await lockTenantStorage(tx, tenantId);
     const fresh = await loadTarget(tx, tenantId, id);
     if (fresh.role === "primary") {
       throw ruleProblem("already_primary");
@@ -2296,11 +2385,19 @@ export async function promoteTarget(
     if (kinds) {
       throw switchBlockedByRepositories(kinds, "promote");
     }
+    if (await hasRunningRepositoryRun(tx, tenantId)) {
+      throw switchBlockedByRuns();
+    }
     const demoted = await tx
       .update(storageTargets)
       .set({ role: "copy" })
       .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.role, "primary")))
       .returning({ id: storageTargets.id });
+    // The installation default has no row to demote: without one standing for it, it dropped
+    // out of every list of the tenant's targets (0.4.1), and whatever only it held became
+    // unreadable. It stays attached read-only, as after "keep" or a "move".
+    const retiredDefault =
+      demoted.length === 0 ? await insertRetiredInstallationDefault(tx, tenantId) : null;
     const [promoted] = await tx
       .update(storageTargets)
       .set({ role: "primary" })
@@ -2320,6 +2417,7 @@ export async function promoteTarget(
       ip: actor.ip,
       details: {
         previousPrimary: previousPrimaryId ?? "installation_default",
+        ...(retiredDefault ? { retiredInstallationDefault: retiredDefault } : {}),
         packs: completeness.packs.expected,
         manifests: completeness.manifests.expected,
         keys: completeness.keys.expected,

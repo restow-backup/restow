@@ -903,6 +903,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("check_storage_health", "storage"), READ_DETAILS],
   },
+  "share.repository_unavailable": {
+    category: "share",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_storage_health", "storage"), READ_DETAILS],
+  },
   "share.quota_exceeded": {
     category: "share",
     transient: false,

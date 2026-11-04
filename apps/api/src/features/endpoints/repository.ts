@@ -12,14 +12,15 @@ import {
   type Endpoint,
   EndpointRepositoryBusyError,
   secrets,
+  storageGenerationSql,
 } from "@restow/db";
-import { and, eq } from "drizzle-orm";
-import { db } from "../../db.js";
+import { and, eq, sql } from "drizzle-orm";
+import { db, providerDb } from "../../db.js";
 import { readSecret } from "../../lib/secrets.js";
 import type { DbExecutor } from "../../lib/tenant-context.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
-import { resolveTenantStorage } from "../restore/storage.js";
+import { currentDefaultStorage, resolveTenantStorage } from "../restore/storage.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 
 /**
@@ -37,26 +38,46 @@ export const REPOSITORY_SECRET_KIND = "endpoint_repository";
 interface CachedStorage {
   storage: StorageBackend;
   copies: readonly StorageBackend[];
+  generation: string;
   expiresAt: number;
 }
 
 const STORAGE_TTL_MS = 60_000;
 const storageCache = new Map<string, CachedStorage>();
 
-/** The tenant's storage targets, cached briefly: the restic endpoint asks for them on every request. */
+/** The tenant's storage generation, read on the installation pool (no tenant transaction). */
+async function currentGeneration(tenantId: string): Promise<string> {
+  const result = await providerDb.execute(
+    sql`select ${storageGenerationSql(tenantId)} as generation`,
+  );
+  return String((result.rows[0] as { generation?: unknown } | undefined)?.generation ?? "");
+}
+
+/**
+ * The tenant's storage targets, cached briefly: the restic endpoint asks for them on every
+ * request. The cache is checked against the tenant's storage generation (one indexed query),
+ * so a change of the primary is seen at the next request (docs/STORAGE.md, "Runs and storage
+ * changes"), not when the minute is over.
+ */
 export async function tenantStorage(
   database: DbExecutor,
   tenantId: string,
   now = Date.now(),
 ): Promise<{ storage: StorageBackend; copies: readonly StorageBackend[] }> {
+  const generation = await currentGeneration(tenantId).catch(() => null);
   const cached = storageCache.get(tenantId);
-  if (cached && cached.expiresAt > now) {
+  if (
+    cached &&
+    cached.expiresAt > now &&
+    (generation === null || cached.generation === generation)
+  ) {
     return cached;
   }
   const resolved = await resolveTenantStorage(database, tenantId);
   const entry = {
     storage: resolved.primary,
     copies: resolved.copies,
+    generation: generation ?? "",
     expiresAt: now + STORAGE_TTL_MS,
   };
   if (storageCache.size > 500) {
@@ -78,7 +99,8 @@ export function forgetTenantStorage(tenantId?: string): void {
 /**
  * For the server's reads: the target that holds the repository. Normally the
  * primary; after a storage migration keeps the old target attached read-only,
- * a repository that was not moved is still read from there.
+ * a repository that was not moved is still read from there, and from the
+ * installation default when no target of the tenant has it.
  */
 export async function backendHolding(
   targets: { storage: StorageBackend; copies: readonly StorageBackend[] },
@@ -91,6 +113,12 @@ export async function backendHolding(
     if (await copy.head(`${prefix}config`).catch(() => null)) {
       return copy;
     }
+  }
+  // The installation default, also when it is no target of the tenant any more: a promotion
+  // of 0.4.1 dropped it from the tenant's targets without a trace (docs/STORAGE.md).
+  const defaults = await currentDefaultStorage().catch(() => null);
+  if (defaults && (await defaults.primary.head(`${prefix}config`).catch(() => null))) {
+    return defaults.primary;
   }
   return targets.storage;
 }

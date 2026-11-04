@@ -634,6 +634,19 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       previous: [],
       keepGeneration: null,
       defaultGeneration: null,
+      // The storage generation and every target by the id a run records (docs/STORAGE.md,
+      // "Runs and storage changes").
+      storageGeneration: expect.any(String),
+      primaryTarget: "installation_default",
+      targets: [
+        { id: "installation_default", name: null, role: "primary", backend: storage.primary },
+        ...storage.copies.map((backend, index) => ({
+          id: `installation_default:copy:${index}`,
+          name: null,
+          role: "copy",
+          backend,
+        })),
+      ],
     });
 
     await db.insert(storageTargets).values([

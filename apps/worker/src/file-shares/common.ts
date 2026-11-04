@@ -5,7 +5,7 @@
  * overlapping (the endpoints' advisory lock, keyed by the share).
  */
 
-import type { HostResolver } from "@restow/core";
+import type { HostResolver, StorageBackend } from "@restow/core";
 import {
   ensureRepositoryPasswordFile,
   FILE_SHARE_PASSWORD_KIND,
@@ -135,6 +135,8 @@ export async function openTenantSecret(
 export async function shareRepositoryAccess(
   deps: FileShareDeps,
   share: Pick<FileShare, "id" | "tenantId" | "repositorySecretId">,
+  /** The target a run was pinned to (docs/STORAGE.md, "Runs and storage changes"); else the primary. */
+  storage?: StorageBackend,
 ): Promise<RepositoryAccess> {
   if (!share.repositorySecretId) {
     throw new FileShareGoneError(share.id);
@@ -143,9 +145,9 @@ export async function shareRepositoryAccess(
   if (password === null) {
     throw new FileShareGoneError(share.id);
   }
-  const targets = await deps.runtime.storage.get(share.tenantId);
+  const backend = storage ?? (await deps.runtime.storage.get(share.tenantId)).primary;
   return {
-    storage: targets.primary,
+    storage: backend,
     prefix: fileShareRepositoryPrefix(share.id),
     repositoryPassword: password,
     repositoryKey: fileShareRepositoryKey(share.id),

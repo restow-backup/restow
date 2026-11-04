@@ -830,6 +830,19 @@ export function openInstallationDefault(
 /** A `storage_targets` row as far as resolution is concerned. */
 export interface StorageTargetRow extends StorageTargetRecord {
   readonly role: string;
+  readonly name?: string | null;
+}
+
+/** What a run records as its target when that is the installation default (no row of its own). */
+export const INSTALLATION_DEFAULT_TARGET_ID = "installation_default";
+
+/** One opened target of a tenant, by the id a run records for it (docs/STORAGE.md). */
+export interface ResolvedStorageTarget {
+  /** The row id, {@link INSTALLATION_DEFAULT_TARGET_ID}, or `installation_default:copy:<n>`. */
+  readonly id: string;
+  readonly name: string | null;
+  readonly role: "primary" | "copy" | "previous";
+  readonly backend: StorageBackend;
 }
 
 export interface ResolvedStorageTargets extends StorageTargets {
@@ -843,6 +856,22 @@ export interface ResolvedStorageTargets extends StorageTargets {
    * so the write path (new packs, manifests, wrapped keys) never reaches one.
    */
   readonly previous: readonly StorageBackend[];
+  /**
+   * Every target above with the id a run records for it (`pve_runs.storage_target`): the
+   * primary first, then the copies and the retired targets in row order. A retired
+   * installation default appears under {@link INSTALLATION_DEFAULT_TARGET_ID}.
+   */
+  readonly targets: readonly ResolvedStorageTarget[];
+  /** The id of the primary: its row id, or {@link INSTALLATION_DEFAULT_TARGET_ID}. */
+  readonly primaryTarget: string;
+}
+
+/** The backend a run recorded (`storage_target`), or null when the tenant has no such target. */
+export function storageTargetById(
+  resolved: Pick<ResolvedStorageTargets, "targets">,
+  id: string,
+): StorageBackend | null {
+  return resolved.targets.find((target) => target.id === id)?.backend ?? null;
 }
 
 /**
@@ -887,25 +916,61 @@ export async function resolveStorageTargets(
     }
     return defaultsCache;
   };
+  const targets: ResolvedStorageTarget[] = [];
   if (primaryRow) {
     primary = (await openStorageTarget(primaryRow, options.secrets)).backend;
+    targets.push({
+      id: primaryRow.id,
+      name: primaryRow.name ?? null,
+      role: "primary",
+      backend: primary,
+    });
   } else {
     const resolved = await defaults();
     primary = resolved.primary;
     copies.push(...resolved.copies);
+    targets.push({
+      id: INSTALLATION_DEFAULT_TARGET_ID,
+      name: null,
+      role: "primary",
+      backend: primary,
+    });
+    resolved.copies.forEach((backend, index) => {
+      targets.push({
+        id: `${INSTALLATION_DEFAULT_TARGET_ID}:copy:${index}`,
+        name: null,
+        role: "copy",
+        backend,
+      });
+    });
   }
   for (const row of rows) {
     if (row.role === "copy") {
-      copies.push((await openStorageTarget(row, options.secrets)).backend);
+      const backend = (await openStorageTarget(row, options.secrets)).backend;
+      copies.push(backend);
+      targets.push({ id: row.id, name: row.name ?? null, role: "copy", backend });
     } else if (row.role === "previous") {
-      previous.push(
-        row.kind === "installation_default"
-          ? (await defaults()).primary
-          : (await openStorageTarget(row, options.secrets)).backend,
-      );
+      const retiredDefault = row.kind === "installation_default";
+      const backend = retiredDefault
+        ? (await defaults()).primary
+        : (await openStorageTarget(row, options.secrets)).backend;
+      previous.push(backend);
+      targets.push({
+        id: retiredDefault ? INSTALLATION_DEFAULT_TARGET_ID : row.id,
+        name: row.name ?? null,
+        role: "previous",
+        backend,
+      });
     }
   }
-  return { primary, copies, previous, usesInstallationDefault: primaryRow === undefined };
+  return {
+    primary,
+    copies,
+    previous,
+    usesInstallationDefault: primaryRow === undefined,
+    targets,
+    primaryTarget: primaryRow ? primaryRow.id : INSTALLATION_DEFAULT_TARGET_ID,
+  };
 }
 
 // ---------------------------------------------------------------------------

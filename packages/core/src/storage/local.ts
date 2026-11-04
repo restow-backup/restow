@@ -205,7 +205,15 @@ export class LocalStorageBackend implements StorageBackend {
 
   async list(prefix: string): Promise<string[]> {
     const keys: string[] = [];
-    await this.walk(this.root, keys);
+    // Only the directory the prefix lies in is walked, not the whole tree: a repository's
+    // `keys/` must not cost a walk over every pack of the installation.
+    const slash = prefix.lastIndexOf("/");
+    const start = slash > 0 ? resolve(this.root, prefix.slice(0, slash)) : this.root;
+    const rel = relative(this.root, start);
+    if (rel.startsWith("..") || rel.split(sep).includes("..")) {
+      throw new Error(`storage key escapes the root: ${prefix}`);
+    }
+    await this.walk(start, keys);
     return keys.filter((key) => key.startsWith(prefix)).sort();
   }
 

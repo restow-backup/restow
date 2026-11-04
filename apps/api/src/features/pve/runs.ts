@@ -27,6 +27,8 @@ import {
   writeToAllTargets,
 } from "@restow/core";
 import {
+  currentPrimaryTarget,
+  lockTenantStorage,
   type PveRun,
   type PveRunProgress,
   type PveSnapshot,
@@ -37,6 +39,7 @@ import {
   pveRuns,
   pveSnapshots,
   pveTasks,
+  storageGeneration,
 } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
@@ -46,12 +49,17 @@ import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { recordBootTestResult } from "./boot-tests.js";
 import type { NodeContext } from "./node-auth.js";
 import { checkArchiveName, guestForBackup } from "./node-service.js";
-import { ensureGuestRepository, guestRepositoryPrefix } from "./repository.js";
+import {
+  ensureGuestRepository,
+  guestRepositoryPrefix,
+  storageSwitchedDuringRun,
+} from "./repository.js";
 import { verifyAfterBackup } from "./settings.js";
 import {
   newChunkReader,
   newChunkWriter,
   readBlockMap,
+  searchedTargets,
   type TenantChunkStore,
   tenantChunkStore,
 } from "./store.js";
@@ -1180,6 +1188,51 @@ export function progressUrl(instanceUrl: string, runId: string): string {
   return `${instanceUrl.replace(/\/$/, "")}/agent/pve/v1/runs/${runId}/progress`;
 }
 
+/**
+ * Pin the run to one storage target (docs/STORAGE.md, "Runs and storage changes"): a backup to
+ * the primary, a restore to the target that holds the repository. Under the tenant's storage
+ * lock, which every change of the primary takes as well: no switch happens between choosing the
+ * target and recording it, and a switch afterwards sees this run (it is running) and waits or
+ * refuses. A run asking again (a node retrying) keeps the target it got first.
+ */
+async function pinRunTarget(
+  tenantId: string,
+  runId: string,
+  chosen: string | null,
+): Promise<{ target: string; generation: string }> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    await lockTenantStorage(tx, tenantId);
+    const [row] = await tx
+      .select({ target: pveRuns.storageTarget, generation: pveRuns.storageGeneration })
+      .from(pveRuns)
+      .where(eq(pveRuns.id, runId))
+      .for("update")
+      .limit(1);
+    const generation = await storageGeneration(tx, tenantId);
+    if (row?.target) {
+      return { target: row.target, generation };
+    }
+    const target = chosen ?? (await currentPrimaryTarget(tx, tenantId));
+    await tx
+      .update(pveRuns)
+      .set({ storageTarget: target, storageGeneration: generation })
+      .where(eq(pveRuns.id, runId));
+    return { target, generation };
+  });
+}
+
+/** The target a restore reads the container's repository from: the first that holds its config. */
+async function holdingTarget(tenantId: string, guestId: string): Promise<string> {
+  const store = await tenantChunkStore(tenantId);
+  const prefix = guestRepositoryPrefix(guestId);
+  for (const target of await searchedTargets(store)) {
+    if (await target.backend.head(`${prefix}config`).catch(() => null)) {
+      return target.id;
+    }
+  }
+  return store.primaryTarget;
+}
+
 async function issueResticCredential(
   tenantId: string,
   runId: string,
@@ -1188,8 +1241,23 @@ async function issueResticCredential(
   now: Date,
   backup = false,
 ) {
-  // A backup also makes sure the repository is really on the primary (repository.ts).
-  const password = await ensureGuestRepository(tenantId, guestId, { runId, write: backup });
+  const pinned = await pinRunTarget(
+    tenantId,
+    runId,
+    backup ? null : await holdingTarget(tenantId, guestId),
+  );
+  if (backup) {
+    const store = await tenantChunkStore(tenantId, Date.now(), pinned.generation);
+    if (store.primaryTarget !== pinned.target) {
+      throw storageSwitchedDuringRun();
+    }
+  }
+  // A backup also makes sure the repository is really on its target (repository.ts).
+  const password = await ensureGuestRepository(tenantId, guestId, {
+    runId,
+    write: backup,
+    target: pinned.target,
+  });
   const token = generateAgentSecret();
   const expiresAt = new Date(now.getTime() + RESTIC_TOKEN_TTL_MS);
   await withTenantTx(db, tenantId, (tx) =>

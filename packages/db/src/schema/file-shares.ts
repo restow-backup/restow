@@ -227,6 +227,11 @@ export const fileShareRuns = pgTable(
     // The run credential (5.1): SHA-256 only, valid until the deadline.
     tokenHash: text("token_hash"),
     tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+    // The storage target the run's credential was issued for (a target id, or
+    // `installation_default`) and the tenant's storage generation then (docs/STORAGE.md,
+    // "Runs and storage changes"): the run reads and writes exactly this target.
+    storageTarget: text("storage_target"),
+    storageGeneration: text("storage_generation"),
     cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
     queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),

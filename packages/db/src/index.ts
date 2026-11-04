@@ -61,5 +61,6 @@ export * from "./run-samples.js";
 // Re-export the full schema (tables, enums, and inferred row types).
 export * from "./schema/index.js";
 // The retention hold on suspicion: objects with a suspicious restore point nobody resolved.
+export * from "./storage-generation.js";
 export * from "./suspicion-holds.js";
 export { schema };

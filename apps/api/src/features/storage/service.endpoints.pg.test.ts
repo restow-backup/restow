@@ -23,6 +23,7 @@ import {
   providers,
   pveClusters,
   pveGuests,
+  pveRuns,
   secrets,
   storageMigrations,
   storageTargets,
@@ -214,25 +215,147 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
     expect(error.extensions?.code).toBe("tenant_has_data");
   });
 
-  it("replaces the primary once only revoked machines are left, and keeps their repositories reachable", async () => {
-    const oldDir = join(root, "old-with-revoked");
+  it("refuses to keep or promote while only revoked machines have repositories", async () => {
+    // A promotion away from the installation default (0.4.1) dropped the old location without
+    // a trace, and a revoked machine's backups with it: its repository counts too.
+    const old = await primaryAt(join(root, "old-with-revoked"));
+    const copy = await primaryAt(join(root, "copy-with-revoked"), "copy");
+    await endpoint("revoked");
+
+    const kept = await refusal(replace("keep", "after-revoke"));
+    expect(kept.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
+    expect(kept.extensions?.repositories).toEqual({
+      containers: false,
+      fileShares: false,
+      machines: true,
+    });
+    const promoted = await refusal(promoteTarget(db, tenantId, copy, actor));
+    expect(promoted.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
+    const rows = await db
+      .select()
+      .from(storageTargets)
+      .where(eq(storageTargets.tenantId, tenantId));
+    expect(Object.fromEntries(rows.map((row) => [row.id, row.role]))).toEqual({
+      [old]: "primary",
+      [copy]: "copy",
+    });
+  });
+
+  it("does not remove a retired location that holds the only copy of a repository", async () => {
+    const oldDir = join(root, "old-only-copy");
     const old = await primaryAt(oldDir);
     const revoked = await endpoint("revoked");
     await mkdir(join(oldDir, endpointPrefix(revoked)), { recursive: true });
     await writeFile(join(oldDir, endpointPrefix(revoked), "config"), "restic-config");
-
-    const created = await replace("keep", "after-revoke");
-    expect(created.role).toBe("primary");
-    const [retired] = await db.select().from(storageTargets).where(eq(storageTargets.id, old));
-    expect(retired?.role).toBe("previous");
+    await db.update(storageTargets).set({ role: "previous" }).where(eq(storageTargets.id, old));
+    await primaryAt(join(root, "new-only-copy"));
 
     // Removing the retired location would make the revoked machine's backups unreachable.
     const error = await refusal(deleteTarget(db, tenantId, old, actor));
     expect(error.status).toBe(409);
     expect(error.type).toBe("urn:restow:problem:storage-previous-holds-endpoint-repositories");
-    expect(error.extensions?.repositories).toEqual([`${endpointPrefix(revoked)}config`]);
+    expect(error.extensions?.repositories).toEqual([endpointPrefix(revoked)]);
     const [still] = await db.select().from(storageTargets).where(eq(storageTargets.id, old));
     expect(still?.role).toBe("previous");
+  });
+
+  it("does not remove a retired location that holds early packs of a run split by a switch", async () => {
+    // The config is on the new primary too (the move copied it, or the run wrote it on both),
+    // but a data file only the retired location has: deleting it would lose that pack.
+    const oldDir = join(root, "old-split");
+    const newDir = join(root, "new-split");
+    const old = await primaryAt(oldDir);
+    const [cluster] = await db
+      .insert(pveClusters)
+      .values({ tenantId, name: "lab", fingerprint: randomUUID(), storageId: "restow" })
+      .returning();
+    const [guest] = await db
+      .insert(pveGuests)
+      .values({
+        tenantId,
+        clusterId: cluster?.id as string,
+        vmid: 109,
+        kind: "ct",
+        repositoryReadyAt: new Date(),
+      })
+      .returning();
+    const prefix = `pve-guests/${guest?.id}/`;
+    for (const dir of [oldDir, newDir]) {
+      await mkdir(join(dir, prefix), { recursive: true });
+      await writeFile(join(dir, prefix, "config"), "restic-config");
+    }
+    await mkdir(join(oldDir, prefix, "data", "ab"), { recursive: true });
+    await writeFile(join(oldDir, prefix, "data", "ab", "ab".repeat(32)), "early pack");
+    await db.update(storageTargets).set({ role: "previous" }).where(eq(storageTargets.id, old));
+    await primaryAt(newDir);
+
+    const error = await refusal(deleteTarget(db, tenantId, old, actor));
+    expect(error.type).toBe("urn:restow:problem:storage-previous-holds-endpoint-repositories");
+    expect(error.extensions?.repositories).toEqual([prefix]);
+  });
+
+  it("keeps the installation default attached read-only when a copy is promoted away from it", async () => {
+    // A tenant with mail backups only (no restic repository): promoting is allowed, and the
+    // installation default stays readable as a retired target (0.4.1 dropped it).
+    const copy = await primaryAt(join(root, "copy-from-default"), "copy");
+    const result = await promoteTarget(db, tenantId, copy, actor);
+    expect(result.target.role).toBe("primary");
+    const rows = await db
+      .select()
+      .from(storageTargets)
+      .where(eq(storageTargets.tenantId, tenantId));
+    expect(rows.map((row) => [row.kind, row.role]).sort()).toEqual([
+      ["installation_default", "previous"],
+      ["local", "primary"],
+    ]);
+  });
+
+  it("refuses to promote while a container's repository is being created (a password, no ready time)", async () => {
+    await primaryAt(join(root, "primary-creating"));
+    const copy = await primaryAt(join(root, "copy-creating"), "copy");
+    const [cluster] = await db
+      .insert(pveClusters)
+      .values({ tenantId, name: "lab", fingerprint: randomUUID(), storageId: "restow" })
+      .returning();
+    const [secret] = await db
+      .insert(secrets)
+      .values({ tenantId, kind: "pve_ct_repository", ciphertext: "sealed" })
+      .returning();
+    await db.insert(pveGuests).values({
+      tenantId,
+      clusterId: cluster?.id as string,
+      vmid: 300,
+      kind: "ct",
+      repositorySecretId: secret?.id as string,
+    });
+    const error = await refusal(promoteTarget(db, tenantId, copy, actor));
+    expect(error.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
+    expect(error.extensions?.repositories).toMatchObject({ containers: true });
+  });
+
+  it("refuses to promote or keep while a backup run is running", async () => {
+    await primaryAt(join(root, "primary-running"));
+    const copy = await primaryAt(join(root, "copy-running"), "copy");
+    const [cluster] = await db
+      .insert(pveClusters)
+      .values({ tenantId, name: "lab", fingerprint: randomUUID(), storageId: "restow" })
+      .returning();
+    // A VM (no restic repository): its run alone holds the switch.
+    const [guest] = await db
+      .insert(pveGuests)
+      .values({ tenantId, clusterId: cluster?.id as string, vmid: 101, kind: "vm" })
+      .returning();
+    await db.insert(pveRuns).values({
+      tenantId,
+      clusterId: cluster?.id as string,
+      guestId: guest?.id as string,
+      kind: "backup",
+      status: "running",
+    });
+    const promoted = await refusal(promoteTarget(db, tenantId, copy, actor));
+    expect(promoted.type).toBe("urn:restow:problem:storage-switch-blocked-by-runs");
+    const kept = await refusal(replace("keep", "while-running"));
+    expect(kept.type).toBe("urn:restow:problem:storage-switch-blocked-by-runs");
   });
 
   it("removes a retired location once its repositories are also on the current primary", async () => {
@@ -284,7 +407,11 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
     const error = await refusal(replace("keep", "nas-keep"));
     expect(error.status).toBe(409);
     expect(error.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
-    expect(error.extensions?.repositories).toEqual({ containers: true, fileShares: false });
+    expect(error.extensions?.repositories).toEqual({
+      containers: true,
+      fileShares: false,
+      machines: false,
+    });
     expect(error.detail).toContain('"move"');
     // Nothing switched.
     const rows = await db
@@ -305,7 +432,11 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
       repositoryReadyAt: new Date(),
     });
     const shares = await refusal(replace("keep", "nas-keep-shares"));
-    expect(shares.extensions?.repositories).toEqual({ containers: false, fileShares: true });
+    expect(shares.extensions?.repositories).toEqual({
+      containers: false,
+      fileShares: true,
+      machines: false,
+    });
 
     // "move" copies the repositories, so it is allowed.
     const moved = await replace("move", "nas-move");

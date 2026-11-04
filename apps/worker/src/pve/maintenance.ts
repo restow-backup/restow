@@ -106,6 +106,7 @@ import {
 } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
 import {
+  freshTenantStorage,
   PgChunkIndex,
   PgSecretReader,
   tenantRunner,
@@ -622,7 +623,13 @@ async function repositoryAccess(deps: PveDeps, guest: PveGuest) {
   if (!password) {
     return null;
   }
-  const storage = await deps.runtime.storage.get(guest.tenantId);
+  // Resolved afresh after a change of the primary (the storage generation), not up to five
+  // minutes later (docs/STORAGE.md, "Runs and storage changes").
+  const storage = await freshTenantStorage(
+    tenantRunner(deps.db, guest.tenantId),
+    deps.runtime.storage,
+    guest.tenantId,
+  );
   return {
     storage: storage.primary,
     prefix: `pve-guests/${guest.id}/`,
@@ -630,7 +637,84 @@ async function repositoryAccess(deps: PveDeps, guest: PveGuest) {
     repositoryKey: guest.id,
     binary: resticBinary(),
     cacheBase: resticCacheBase(),
+    targets: storage.targets ?? [],
   };
+}
+
+/**
+ * Why the server's restic cannot work on a container repository, in words, or null when it is
+ * complete on the primary (`config` and a key). The other targets of the tenant are searched
+ * as the API does before a backup (docs/PVE.md, "Repository problems"), and the guest records
+ * the problem, so its page explains it instead of restic's "unable to open config file".
+ */
+async function repositoryProblem(
+  deps: PveDeps,
+  guest: PveGuest,
+  access: NonNullable<Awaited<ReturnType<typeof repositoryAccess>>>,
+): Promise<string | null> {
+  const prefix = access.prefix;
+  const primaryFiles = (await access.storage.list(prefix)).filter(
+    (key) => !key.startsWith(`${prefix}locks/`),
+  );
+  if (
+    primaryFiles.includes(`${prefix}config`) &&
+    primaryFiles.some((key) => key.startsWith(`${prefix}keys/`))
+  ) {
+    return null;
+  }
+  let type = "pve-repository-missing";
+  let heldBy: string | null = null;
+  let message =
+    "the container's repository is on no storage target of this tenant (see the guest page)";
+  if (primaryFiles.length > 0) {
+    type = "pve-repository-split";
+    message =
+      "the container's repository on the primary storage target holds data without its config or keys: it is split across targets (see the guest page)";
+  } else {
+    for (const target of access.targets) {
+      if (target.backend === access.storage) {
+        continue;
+      }
+      const held = await target.backend.list(prefix).catch(() => [] as string[]);
+      if (held.length === 0) {
+        continue;
+      }
+      heldBy =
+        target.id === "installation_default" ? "installation_default" : (target.name ?? target.id);
+      const complete = held.includes(`${prefix}config`);
+      type = complete ? "pve-repository-elsewhere" : "pve-repository-split";
+      message = complete
+        ? `the container's repository is not on the primary storage target but on ${target.name ?? "another target"} (see the guest page)`
+        : `parts of the container's repository lie on ${target.name ?? "another target"}, without its config (see the guest page)`;
+      break;
+    }
+  }
+  const [active] = await withTenantTx(deps.db, guest.tenantId, (tx) =>
+    tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(pveSnapshots)
+      .where(
+        and(
+          eq(pveSnapshots.guestId, guest.id),
+          eq(pveSnapshots.kind, "ct"),
+          eq(pveSnapshots.status, "active"),
+        ),
+      ),
+  );
+  await withTenantTx(deps.db, guest.tenantId, (tx) =>
+    tx
+      .update(pveGuests)
+      .set({
+        repositoryProblem: {
+          at: deps.runtime.now().toISOString(),
+          type,
+          heldBy,
+          activePoints: active?.n ?? 0,
+        },
+      })
+      .where(eq(pveGuests.id, guest.id)),
+  );
+  return message;
 }
 
 /**
@@ -681,6 +765,14 @@ async function forgetResticSnapshots(deps: PveDeps, guest: PveGuest, ids: string
   if (!access) {
     return;
   }
+  const problem = await repositoryProblem(deps, guest, access);
+  if (problem) {
+    deps.runtime.logger.warn("pve retention: restic forget skipped", {
+      guestId: guest.id,
+      problem,
+    });
+    return;
+  }
   await withGuestRepository(deps, guest.id, () =>
     withRepository(access, async (session) => {
       // Stale locks only (a run that ended without releasing its lock), as for machines.
@@ -723,6 +815,11 @@ export async function verifySnapshot(
     const access = guest ? await repositoryAccess(deps, guest) : null;
     if (!access) {
       result.errors.push("the container repository is not available");
+      return result;
+    }
+    const problem = guest ? await repositoryProblem(deps, guest, access) : null;
+    if (problem) {
+      result.errors.push(problem);
       return result;
     }
     try {

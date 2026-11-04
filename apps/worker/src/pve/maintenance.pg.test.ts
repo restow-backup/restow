@@ -631,6 +631,62 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     expect(await dropPveTokenSecrets(deps, clock)).toBe(0);
   });
 
+  /** The repository's config and a key on the primary (the fake restic needs nothing more). */
+  async function completeRepository(id: string): Promise<void> {
+    await storage.primary.put(`pve-guests/${id}/config`, Buffer.from("config"));
+    await storage.primary.put(`pve-guests/${id}/keys/${"a".repeat(64)}`, Buffer.from("key"));
+  }
+
+  it("reports a repository not complete on the primary instead of restic's own error", async () => {
+    const keys = await deps.runtime.keyrings.get(tenantId);
+    const secretId = randomUUID();
+    await owner.insert(secrets).values({
+      id: secretId,
+      tenantId,
+      kind: "pve_ct_repository",
+      ciphertext: sealSecret(keys.current, secretId, "repository-password"),
+    });
+    const [ct] = await owner
+      .insert(pveGuests)
+      .values({
+        tenantId,
+        clusterId,
+        vmid: 330,
+        kind: "ct",
+        node: "pve1",
+        repositorySecretId: secretId,
+      })
+      .returning();
+    const guest = ct?.id ?? "";
+    // CT 109 on NFW-01: data and a snapshot, no config and no keys.
+    await storage.primary.put(`pve-guests/${guest}/data/ab/${"ab".repeat(32)}`, Buffer.from("x"));
+    const [point] = await owner
+      .insert(pveSnapshots)
+      .values({
+        tenantId,
+        clusterId,
+        guestId: guest,
+        sequence: 1,
+        kind: "ct",
+        archiveName: "ct/330/2026-10-16T14:07:57Z",
+        storageId: "restow",
+        resticSnapshotId: "f".repeat(64),
+        manifestPath: `tenants/${tenantId}/manifests/${randomUUID()}`,
+        backupAt: clock,
+      })
+      .returning();
+    const result = await verifySnapshot(deps, point as never);
+    expect(result.errors).toEqual([
+      expect.stringContaining("holds data without its config or keys: it is split across targets"),
+    ]);
+    const [row] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guest));
+    expect(row?.repositoryProblem).toMatchObject({
+      type: "pve-repository-split",
+      activePoints: 1,
+    });
+    await owner.delete(pveGuests).where(eq(pveGuests.id, guest));
+  });
+
   it("checks a container repository only while the file restore does not read it (#62)", async () => {
     const keys = await deps.runtime.keyrings.get(tenantId);
     const secretId = randomUUID();
@@ -651,6 +707,7 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
         repositorySecretId: secretId,
       })
       .returning();
+    await completeRepository(ct?.id ?? "");
     const [point] = await owner
       .insert(pveSnapshots)
       .values({
@@ -767,6 +824,7 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
           repositorySecretId: secretId,
         })
         .returning();
+      await completeRepository(ct?.id ?? "");
       const [point] = await owner
         .insert(pveSnapshots)
         .values({

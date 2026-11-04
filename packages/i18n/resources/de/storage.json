@@ -22,6 +22,8 @@
     "primaryHint": "Backups werden zuerst hierhin geschrieben; Wiederherstellungen lesen von hier.",
     "copyHint": "Jedes neue Backup wird auch hierhin geschrieben. Daten aus der Zeit vor der Kopie spiegelt und prüft der Kopierlauf.",
     "previousHint": "Abgelöst: Wird nicht mehr beschrieben. Bleibt bis zur Entfernung erhalten; Wiederherstellung, Prüfung, Downloads und spätere Backups von vor der Umstellung geschützten Objekten lesen weiterhin von hier, sobald ein Sicherungsstand nur noch hier liegt.",
+    "attachPrevious": "Alten Speicherort schreibgeschützt einbinden",
+    "attachPreviousHint": "Hierhin wird nichts geschrieben. Wiederherstellungen lesen daraus, und die Reparatur der Repositorys (unten) nimmt die Teile von Repositorys, die er enthält, etwa eine wiederhergestellte Kopie eines früheren primären Repositorys.",
     "replacePrimary": "Primäres Repository ersetzen",
     "replacePrimaryHint": "Wählen Sie unten, ob vorhandene Backups zuerst zum neuen Repository wandern oder dort bleiben, wo sie sind."
   },
@@ -390,7 +392,8 @@
     "immutabilityModeNotAvailable": "Dieser Modus ist für diese Art von Repository nicht verfügbar.",
     "immutabilityNotWritable": "An diesen Ort wird nichts mehr geschrieben; Unveränderbarkeit gilt für das, was ab jetzt geschrieben wird.",
     "immutabilityNotObjectLock": "Nur ein Repository mit Object Lock wird beim Speicher geprüft.",
-    "switchBlockedByRepositories": "Container oder Dateifreigaben dieses Mandanten haben Repositorys auf dem aktuellen primären Repository. Wenn Sie die vorhandenen Sicherungen dort lassen oder eine Kopie zum primären Repository machen, blieben diese Repositorys zurück, und ihre nächsten Sicherungen schlügen fehl oder begännen von vorn. Ersetzen Sie das primäre Repository stattdessen mit „Verschieben“: Dabei werden die Repositorys kopiert und geprüft, bevor umgeschaltet wird."
+    "switchBlockedByRepositories": "Container, Maschinen oder Dateifreigaben dieses Mandanten haben Repositorys auf dem aktuellen primären Repository. Wenn Sie die vorhandenen Sicherungen dort lassen oder eine Kopie zum primären Repository machen, blieben diese Repositorys zurück, und ihre nächsten Sicherungen schlügen fehl oder begännen von vorn. Ersetzen Sie das primäre Repository stattdessen mit „Verschieben“: Dabei werden die Repositorys kopiert und geprüft, bevor umgeschaltet wird.",
+    "switchBlockedByRuns": "Eine Container-Sicherung oder ein Lauf einer Dateifreigabe dieses Mandanten läuft gerade. Sie schreibt bis zu ihrem Ende auf das aktuelle primäre Repository; ein Wechsel jetzt würde ihre Sicherung auf zwei Repositorys verteilen. Warten Sie, bis sie fertig ist, oder brechen Sie sie ab, und versuchen Sie es dann erneut."
   },
   "immutability": {
     "title": "Unveränderbare Backups",
@@ -481,6 +484,70 @@
       "badge": "Systemplatte",
       "title": "Sicherungen landen auf der Systemplatte des Servers",
       "description": "Dieses Verzeichnis liegt auf derselben Platte wie Betriebssystem, Docker und die Datenbank von {appName}. Füllen Sicherungen sie, stehen die Datenbank und {appName} selbst still, nicht nur die Sicherungen. Legen Sie das Repository auf eine zweite Platte, eine Netzwerkfreigabe oder einen Objektspeicher."
+    }
+  },
+  "repair": {
+    "title": "Repositorys reparieren",
+    "description": "Prüft jedes Sicherungs-Repository von Containern, Maschinen und Dateifreigaben auf jedem Speicherziel dieses Mandanten, die Installationsvorgabe eingeschlossen, und zeigt, wo seine Teile liegen. Eine Prüfung ändert nichts. Die Reparatur baut auf dem primären Repository wieder auf, was die Teile erlauben, und markiert Wiederherstellungspunkte, deren Daten auf keinem Speicherziel liegen, als unverfügbar.",
+    "scan": "Repositorys prüfen",
+    "repair": "Reparieren…",
+    "lastRepair": "Letzte Reparatur",
+    "installationDefault": "Installationsvorgabe",
+    "holding": "{name}: config {config}, {keys} Schlüssel, {files} Dateien, {snapshots} Snapshots",
+    "yes": "ja",
+    "no": "nein",
+    "nowhere": "Auf keinem Speicherziel",
+    "allOk": "{count, plural, =0 {Dieser Mandant hat keine Sicherungs-Repositorys.} one {Das Repository ist auf dem primären Repository vollständig.} other {Alle # Repositorys sind auf dem primären Repository vollständig.}}",
+    "nothingChanged": "Es musste nichts geändert werden.",
+    "queued": "Reparatur eingeplant. Sie läuft im Hintergrund; diese Karte zeigt das Ergebnis.",
+    "dialogTitle": "Repositorys reparieren?",
+    "dialogDescription": "Für jedes Repository, das die Prüfung verteilt oder auf einem anderen Speicherziel gefunden hat, werden config, Schlüssel und fehlende Dateien auf das primäre Repository kopiert, per Hash geprüft, und restic prüft das Ergebnis. Wiederherstellungspunkte, deren Daten auf keinem Speicherziel liegen, werden unverfügbar. Container-Repositorys ohne config auf irgendeinem Speicherziel werden auf dem primären Repository beiseitegelegt (nicht gelöscht), und ihre nächste Sicherung beginnt eine neue Kette. Zwei Repositorys unter einem Präfix bleiben für Ihre Entscheidung liegen.",
+    "typeWord": "Geben Sie zur Bestätigung {word} ein",
+    "confirm": "Reparieren",
+    "cancel": "Abbrechen",
+    "failed": "Die Reparatur konnte nicht eingeplant werden.",
+    "columns": {
+      "repository": "Repository",
+      "state": "Zustand",
+      "where": "Wo seine Teile liegen",
+      "points": "Wiederherstellungspunkte",
+      "outcome": "Ergebnis"
+    },
+    "kind": {
+      "container": "Container",
+      "machine": "Maschine",
+      "file_share": "Dateifreigabe"
+    },
+    "status": {
+      "queued": "Eingeplant",
+      "running": "Läuft",
+      "completed": "Fertig",
+      "failed": "Fehlgeschlagen"
+    },
+    "class": {
+      "ok": "Vollständig",
+      "elsewhere": "Auf anderem Speicherziel",
+      "split": "Verteilt",
+      "data_only": "Daten ohne config",
+      "password_only": "Nur Passwortdatei",
+      "missing": "Fehlt",
+      "conflict": "Zwei Repositorys"
+    },
+    "classHint": {
+      "ok": "Vollständig auf dem primären Repository.",
+      "elsewhere": "Vollständig auf einem anderen Speicherziel. Die Reparatur kopiert {count, plural, one {# Datei} other {# Dateien}} auf das primäre Repository.",
+      "split": "Seine Teile liegen auf mehreren Speicherzielen. Die Reparatur führt {count, plural, one {# Datei} other {# Dateien}} auf dem primären Repository zusammen.",
+      "data_only": "Daten, aber keine config oder kein Schlüssel auf irgendeinem Speicherziel: Es lässt sich nicht öffnen. Binden Sie einen alten Speicherort ein, der sie noch haben könnte; sonst markiert die Reparatur seine Wiederherstellungspunkte als verloren.",
+      "password_only": "Nur die versiegelte Passwortdatei: Das Repository selbst liegt auf keinem Speicherziel.",
+      "missing": "Auf keinem Speicherziel.",
+      "conflict": "Zwei verschiedene Repositorys unter einem Präfix, keines auf dem primären Repository: Entscheiden Sie, welches bleiben soll."
+    },
+    "outcome": {
+      "merged": "Auf dem primären Repository wieder aufgebaut ({copied} Dateien kopiert); {count, plural, =0 {jeder Wiederherstellungspunkt ist darin} one {# Wiederherstellungspunkt war nicht darin und ist jetzt unverfügbar} other {# Wiederherstellungspunkte waren nicht darin und sind jetzt unverfügbar}}.",
+      "lost": "Verloren: {count, plural, one {# Wiederherstellungspunkt ist} other {# Wiederherstellungspunkte sind}} jetzt unverfügbar; die nächste Sicherung beginnt eine neue Kette.",
+      "moved_aside": "Reste beiseitegelegt nach {movedTo}; die nächste Sicherung beginnt eine neue Kette.",
+      "unchanged": "Unverändert gelassen.",
+      "failed": "Nicht repariert."
     }
   }
 }

@@ -316,7 +316,22 @@
       "historyReset": "Repository zurückgesetzt von {actor}",
       "someone": "Ein Administrator",
       "unknownTarget": "dem primären Repository",
-      "installationDefault": "dem Installationsstandard"
+      "installationDefault": "dem Installationsstandard",
+      "lostTitle": "Repository verloren am {date}",
+      "lost": "Die Reparatur der Repositorys hat das Repository auf keinem Speicherziel gefunden. {count, plural, =0 {Kein Wiederherstellungspunkt war betroffen} one {# Wiederherstellungspunkt ist nicht mehr verfügbar} other {# Wiederherstellungspunkte sind nicht mehr verfügbar}}; die nächste Sicherung beginnt eine neue Kette auf {target}.",
+      "historyLost": "Repository verloren: eine neue Kette beginnt"
+    },
+    "repositoryProblem": {
+      "noTarget": "einem anderen Speicherziel",
+      "elsewhereTitle": "Sicherungen abgelehnt: das Repository liegt auf einem anderen Speicherziel",
+      "elsewhere": "Seit {date} werden Sicherungen dieses Containers abgelehnt: sein Repository liegt nicht auf dem aktuellen primären Repository, sondern auf {target}.",
+      "elsewhereAction": "Holen Sie es mit Speicher, „Repositorys reparieren“ herüber (oder ersetzen Sie das primäre Repository mit „Verschieben“). Setzen Sie das Repository stattdessen zurück, beginnt eine neue Sicherungskette, und {count, plural, =0 {kein Wiederherstellungspunkt ist betroffen} one {# Wiederherstellungspunkt wird unverfügbar} other {# Wiederherstellungspunkte werden unverfügbar}}.",
+      "splitTitle": "Sicherungen abgelehnt: das Repository ist auf mehrere Speicherziele verteilt",
+      "split": "Seit {date} werden Sicherungen dieses Containers abgelehnt: sein Repository ist auf dem aktuellen primären Repository unvollständig, Teile davon liegen auf {target}. Eine Sicherung, die lief, während das primäre Repository wechselte, hat auf zwei Speicherziele geschrieben.",
+      "splitAction": "Starten Sie Speicher, „Repositorys reparieren“: Es zeigt, was jedes Speicherziel enthält, und baut das Repository auf dem primären Repository wieder auf, soweit die Teile es erlauben. Setzen Sie das Repository stattdessen zurück, beginnt eine neue Sicherungskette, und {count, plural, =0 {kein Wiederherstellungspunkt ist betroffen} one {# Wiederherstellungspunkt wird unverfügbar} other {# Wiederherstellungspunkte werden unverfügbar}}.",
+      "missingTitle": "Sicherungen abgelehnt: das Repository fehlt",
+      "missing": "Seit {date} werden Sicherungen dieses Containers abgelehnt: sein Repository liegt auf keinem Speicherziel dieses Mandanten, aber {count, plural, one {# Wiederherstellungspunkt verweist} other {# Wiederherstellungspunkte verweisen}} noch darauf.",
+      "missingAction": "Hat ein alter Speicherort es noch, binden Sie ihn schreibgeschützt ein und starten Sie Speicher, „Repositorys reparieren“. Sonst setzen Sie das Repository zurück: Seine Wiederherstellungspunkte werden unverfügbar, und die nächste Sicherung beginnt eine neue Kette."
     },
     "unavailable": "Nicht verfügbar",
     "unavailableHint": "Dieser Sicherungsstand gehört zu einer früheren Sicherungskette, deren Repository nicht mehr vorhanden ist. Er kann weder wiederhergestellt noch geprüft werden.",
