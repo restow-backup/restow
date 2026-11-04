@@ -47,6 +47,7 @@ import {
   heartbeatSchema,
   incrementalSchema,
   inventorySchema,
+  listingQuerySchema,
   logSchema,
   openRunSchema,
   progressSchema,
@@ -191,7 +192,8 @@ pveNodeRoutes.post("/tasks/:taskId/result", async (c) => {
 
 pveNodeRoutes.get("/listing", async (c) => {
   c.header("cache-control", "no-store");
-  return c.json(await listing(c.get("node")));
+  const query = parseOrProblem(listingQuerySchema, c.req.query());
+  return c.json(await listing(c.get("node"), query));
 });
 
 pveNodeRoutes.get("/update", async (c) => {

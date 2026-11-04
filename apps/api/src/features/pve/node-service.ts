@@ -984,26 +984,80 @@ export async function taskResult(
   });
 }
 
-/** The restore points of the node's cluster, for the storage plugin's listing. */
-export async function listing(node: NodeContext) {
-  const rows = await withTenantTx(db, node.tenantId, (tx) =>
-    tx
+/** The most restore points one page of the listing holds (and what a node before 0.5.0 gets). */
+export const LISTING_PAGE_MAX = 10_000;
+
+/**
+ * Where a page of the cluster-wide listing ends: the backup time (to the millisecond, as the
+ * listing orders it) and the id of its last restore point, base64url.
+ */
+export function listingCursor(backupAtMs: number, id: string): string {
+  return Buffer.from(`${backupAtMs}:${id}`, "utf8").toString("base64url");
+}
+
+function parseListingCursor(cursor: string): { backupAtMs: number; id: string } {
+  const text = Buffer.from(cursor, "base64url").toString("utf8");
+  const match = /^(\d{1,15}):([0-9a-f-]{36})$/.exec(text);
+  if (!match) {
+    throw new ProblemError(422, "Invalid cursor", {
+      detail: "The cursor is not one a listing page gave.",
+    });
+  }
+  return { backupAtMs: Number(match[1]), id: match[2] as string };
+}
+
+/**
+ * The restore points of the node's cluster, for the storage plugin's listing
+ * (docs/PVE-PROTOCOL.md, "Listing"), newest first:
+ *
+ *   - with `vmid`, every active restore point of that VMID, unpaged (PVE asks per VMID for a
+ *     guest's Backup tab and for one volume's size);
+ *   - else one page of the cluster's, at most `limit` (and {@link LISTING_PAGE_MAX}), from
+ *     `cursor` on; `next` is the cursor of the page after, null on the last. A node before
+ *     0.5.0 asks without either and gets the newest 10,000, as before.
+ */
+export async function listing(
+  node: NodeContext,
+  query: { vmid?: number; cursor?: string; limit?: number } = {},
+) {
+  // Ordered by the backup time to the millisecond and the id: the cursor carries both exactly.
+  const backupAtMs = sql<number>`floor(extract(epoch from ${pveSnapshots.backupAt}) * 1000)::bigint`;
+  const where = [eq(pveSnapshots.clusterId, node.clusterId), eq(pveSnapshots.status, "active")];
+  let limit: number | undefined;
+  if (query.vmid !== undefined) {
+    where.push(eq(pveGuests.vmid, query.vmid));
+  } else {
+    limit = Math.min(Math.max(query.limit ?? LISTING_PAGE_MAX, 1), LISTING_PAGE_MAX);
+    if (query.cursor) {
+      const after = parseListingCursor(query.cursor);
+      where.push(
+        sql`(${backupAtMs}, ${pveSnapshots.id}) < (${after.backupAtMs}::bigint, ${after.id}::uuid)`,
+      );
+    }
+  }
+  const rows = await withTenantTx(db, node.tenantId, (tx) => {
+    const select = tx
       .select({
         archiveName: pveSnapshots.archiveName,
         kind: pveSnapshots.kind,
         backupAt: pveSnapshots.backupAt,
+        backupAtMs,
         byteSize: pveSnapshots.byteSize,
         id: pveSnapshots.id,
         vmid: pveGuests.vmid,
       })
       .from(pveSnapshots)
       .innerJoin(pveGuests, eq(pveGuests.id, pveSnapshots.guestId))
-      .where(and(eq(pveSnapshots.clusterId, node.clusterId), eq(pveSnapshots.status, "active")))
-      .orderBy(desc(pveSnapshots.backupAt))
-      .limit(10_000),
-  );
+      .where(and(...where))
+      .orderBy(desc(backupAtMs), desc(pveSnapshots.id));
+    // One more than the page, to know whether another follows.
+    return limit === undefined ? select : select.limit(limit + 1);
+  });
+  const more = limit !== undefined && rows.length > limit;
+  const page = more ? rows.slice(0, limit) : rows;
+  const last = page.at(-1);
   return {
-    volumes: rows.map((r) => ({
+    volumes: page.map((r) => ({
       volname: r.archiveName,
       vmid: r.vmid,
       kind: r.kind,
@@ -1011,6 +1065,7 @@ export async function listing(node: NodeContext) {
       size: r.byteSize,
       snapshotId: r.id,
     })),
+    next: more && last ? listingCursor(Number(last.backupAtMs), last.id) : null,
   };
 }
 

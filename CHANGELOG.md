@@ -386,6 +386,13 @@ private repository.
   30th backup, and nothing said so. A job that sets either is now refused with 422 and a text
   that names it ("not supported for Proxmox VE jobs yet"); a job saved with them before no
   longer shows them and can be edited as it is. The web app never offered either.
+- Proxmox VE: the listing of restore points that restow-pve keeps for PVE's storage view stopped
+  at the newest 10,000 of the cluster. In a large cluster (700 guests with the default retention
+  hold about 11,900) the older restore points vanished from "Storage > restow > Backups" and from
+  each guest's Backup tab, though they were active and restorable in Restow, and PVE asking for
+  the size of one got "volume not found". The server now lists every restore point of one VMID
+  on request and the cluster's in pages (docs/PVE-PROTOCOL.md); restow-pve from 0.5.0 uses both.
+  An older node gets the newest 10,000 as before.
 
 ### Upgrade Notes
 

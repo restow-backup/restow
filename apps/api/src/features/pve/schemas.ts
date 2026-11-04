@@ -320,6 +320,12 @@ export const taskParamSchema = z.object({ taskId: uuid });
 export const snapshotDiskParamSchema = z.object({ snapshotId: uuid, device });
 export const snapshotParamSchema = z.object({ snapshotId: uuid });
 export const volnameQuerySchema = z.object({ volname: z.string().max(120) });
+/** GET /listing: one VMID's restore points, or a page of the cluster's (docs/PVE-PROTOCOL.md). */
+export const listingQuerySchema = z.object({
+  vmid: z.coerce.number().int().min(100).max(999_999_999).optional(),
+  cursor: z.string().min(1).max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(10_000).optional(),
+});
 export const blocksQuerySchema = z.object({
   from: z.coerce.number().int().min(0),
   count: z.coerce.number().int().min(1).max(16),
