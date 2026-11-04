@@ -206,14 +206,17 @@ unique per installation).
   worker lists the restic snapshots (`restic snapshots`) and forgets, then
   prunes, every one no active restore point names: the snapshot of a pruned
   restore point, also one whose forget failed before (a lock, the storage, a
-  restart: the next pass does it), and a snapshot no restore point names at all
+  restart: a later pass does it), and a snapshot no restore point names at all
   (a run that wrote it and never committed: a late cancel, a refused commit,
   vzdump failing after the archive step) once it is six hours old and its
-  `run=` tag names no run still going. A snapshot the storage still locks
+  `run=` tag names no run still going. The restore points and the running runs
+  are read in one statement, so a run that commits during the comparison is
+  never taken for one that never committed. A snapshot the storage still locks
   stays. Forget and prune wait up to two minutes for another run's lock
-  (`--retry-lock`); a comparison that did not get through is repeated by the
-  next pass (every five minutes), at most ten a pass beside the ones a prune
-  asked for.
+  (`--retry-lock`); a comparison that did not get through is repeated an hour
+  later, at most ten a pass beside the ones a prune asked for. A restore point
+  pruned while the comparison runs keeps it due, so the next pass (every five
+  minutes) forgets that point's snapshot as well.
 - **Restore check.** The server reads a sample of the data blocks of a restore
   point back and compares them with the SHA-256 in the map (containers: `restic
   check` of 5 %). It checks

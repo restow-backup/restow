@@ -78,6 +78,8 @@ import {
   PVE_CHECK_LOCK_WAITS_PER_PASS,
   PVE_CHECK_RETRY_LOCK,
   PVE_ORPHAN_SNAPSHOT_GRACE_MS,
+  PVE_RECONCILE_EVERY_MS,
+  PVE_RECONCILE_RETRY_MS,
   type PveDeps,
   planBootTests,
   planJobs,
@@ -1511,24 +1513,28 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       await applyRetention(deps, later);
       expect((await ct.listed()).sort()).toEqual(Object.values(ids).sort());
 
-      // The repository is held (a file restore reads it): the pass fails and records nothing.
+      // The repository is held (a file restore reads it): the pass fails and records nothing
+      // but its claim, which makes the comparison due again in an hour, not on every pass.
       const reading = await acquireEndpointRepositoryLock(
         owner.$client,
         pveGuestRepositoryLockKey(ct.id),
         { mode: "shared" },
       );
+      const failedAt = new Date();
       try {
         await expect(
           reconcileGuestRepository(
             { ...deps, repositoryLockWaitMs: 300 },
             (await ct.row()) as never,
-            new Date(),
+            failedAt,
           ),
         ).rejects.toThrow();
       } finally {
         await reading();
       }
-      expect((await ct.row())?.repositoryReconciledAt).toBeNull();
+      expect((await ct.row())?.repositoryReconciledAt).toEqual(
+        new Date(failedAt.getTime() - PVE_RECONCILE_EVERY_MS + PVE_RECONCILE_RETRY_MS),
+      );
       expect(await ct.listed()).toContain(ids.pruned);
 
       // The next pass forgets the same snapshot. A snapshot without a restore point that is
@@ -1553,6 +1559,92 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       await applyRetention(deps, new Date(later.getTime() + DAY + 60_000));
       expect(await ct.listed()).toEqual([ids.active]);
       expect((await ct.row())?.repositoryBytes).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  it.skipIf(!resticOk)(
+    "a failed comparison is tried again after an hour, not on every pass",
+    async () => {
+      const ct = await realContainer(323);
+      const run = randomUUID();
+      const id = await ct.backup(run);
+      await ct.point(1, id, run, "pruned");
+      // The previous comparison failed half an hour ago (its claim is still in the column).
+      const failedAt = new Date(Date.now() - 30 * 60_000);
+      const claim = new Date(failedAt.getTime() - PVE_RECONCILE_EVERY_MS + PVE_RECONCILE_RETRY_MS);
+      await owner
+        .update(pveGuests)
+        .set({ repositoryReconciledAt: claim })
+        .where(eq(pveGuests.id, ct.id));
+      await applyRetention(deps, new Date());
+      expect(await ct.listed()).toContain(id);
+      expect((await ct.row())?.repositoryReconciledAt).toEqual(claim);
+      // An hour after the failure it is due again and forgets the snapshot.
+      const retryAt = new Date(failedAt.getTime() + PVE_RECONCILE_RETRY_MS + 60_000);
+      await applyRetention(deps, retryAt);
+      expect(await ct.listed()).not.toContain(id);
+      expect((await ct.row())?.repositoryReconciledAt).toEqual(retryAt);
+    },
+    120_000,
+  );
+
+  it.skipIf(!resticOk)(
+    "a restore point pruned while the repository is compared keeps the comparison due",
+    async () => {
+      const ct = await realContainer(324);
+      const runs = { old: randomUUID(), late: randomUUID() };
+      const ids = { old: await ct.backup(runs.old), late: await ct.backup(runs.late) };
+      await ct.point(1, ids.old, runs.old, "pruned");
+      await ct.point(2, ids.late, runs.late);
+      // Retention prunes the second restore point after the comparison read the rows and
+      // before it records itself (here: while it measures the repository after the forget).
+      const prefix = `pve-guests/${ct.id}/`;
+      let pruned = false;
+      const prunedMeanwhile = async () => {
+        if (!pruned) {
+          pruned = true;
+          await owner
+            .update(pveSnapshots)
+            .set({ status: "pruned", prunedAt: new Date() })
+            .where(eq(pveSnapshots.resticSnapshotId, ids.late));
+          await owner
+            .update(pveGuests)
+            .set({ repositoryReconciledAt: null })
+            .where(eq(pveGuests.id, ct.id));
+        }
+      };
+      const primary = storage.primary;
+      const watched = new Proxy(primary, {
+        get(target, key, receiver) {
+          const value = Reflect.get(target, key, receiver);
+          if ((key === "list" || key === "listWithSizes") && typeof value === "function") {
+            return async (listed: string, ...rest: unknown[]) => {
+              if (listed === prefix) {
+                await prunedMeanwhile();
+              }
+              return value.call(target, listed, ...rest);
+            };
+          }
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const racing = {
+        ...deps,
+        runtime: {
+          ...deps.runtime,
+          storage: new TenantCache<StorageTargets>(async () => ({ primary: watched, copies: [] })),
+        },
+      };
+      const result = await reconcileGuestRepository(racing, (await ct.row()) as never, new Date());
+      expect(pruned).toBe(true);
+      expect(result.forgotten).toEqual([ids.old]);
+      // Not stamped: the snapshot of the point pruned meanwhile is still there, and the next
+      // pass must compare again instead of waiting a day.
+      expect((await ct.row())?.repositoryReconciledAt).toBeNull();
+      const next = await reconcileGuestRepository(deps, (await ct.row()) as never, new Date());
+      expect(next.forgotten).toEqual([ids.late]);
+      expect((await ct.row())?.repositoryReconciledAt).not.toBeNull();
     },
     120_000,
   );

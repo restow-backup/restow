@@ -337,9 +337,10 @@ private repository.
   now compares each container repository with its restore points after a prune and once a
   day, and forgets every snapshot no active restore point holds: those of pruned points (also
   ones pruned before this release), and after six hours those of runs that never committed and
-  no longer run. A pass that does not get through is repeated by the next one; forget and prune
-  wait two minutes for another run's lock. Retention now also leaves a guest alone while a run
-  of it is going.
+  no longer run (never the snapshot of a run that commits while the comparison reads). A pass
+  that does not get through is repeated an hour later (at once when a restore point was pruned
+  meanwhile); forget and prune wait two minutes for another run's lock. Retention now also
+  leaves a guest alone while a run of it is going.
 - Proxmox VE: a storage whose clock lags the server's by more than 30 minutes (a NAS set to
   local time as UTC) made every live restic lock of a container repository look stale, and the
   worker removed it and pruned while the node's restic was restoring, testing or backing up. A

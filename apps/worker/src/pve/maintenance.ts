@@ -604,6 +604,13 @@ export const PVE_RECONCILE_EVERY_MS = 24 * 60 * 60 * 1000;
 export const PVE_RECONCILES_PER_PASS = 10;
 /** How long forget and prune wait for another run's lock before the pass leaves them. */
 export const PVE_FORGET_RETRY_LOCK = "2m";
+/**
+ * A comparison that did not get through (the storage is down, a long restore holds the lock,
+ * the password is wrong) is tried again after this long (1 hour), not on every pass: each try
+ * waits up to {@link PVE_FORGET_RETRY_LOCK} inside the repository lock and would slow the
+ * whole PVE pass. A restore point pruned meanwhile makes it due at once.
+ */
+export const PVE_RECONCILE_RETRY_MS = 60 * 60 * 1000;
 
 /**
  * VMIDs a restore check or boot test must not take (the API's pve/vmids.ts, docs/PVE.md, "A VMID
@@ -749,9 +756,13 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
  *
  * Never a snapshot an active (or unavailable) restore point names, nor one the storage still
  * locks. Inside the guest's repository lock, after its stale locks are cleared; forget and
- * prune wait {@link PVE_FORGET_RETRY_LOCK} for another run's lock. Only a pass that got
- * through records the comparison (`repositoryReconciledAt`); a failed one is tried again by
- * the next pass.
+ * prune wait {@link PVE_FORGET_RETRY_LOCK} for another run's lock.
+ *
+ * The comparison is claimed first: `repositoryReconciledAt` is set to a claim time that makes
+ * it due again after {@link PVE_RECONCILE_RETRY_MS}, so a pass that fails is tried again an
+ * hour later. Only a pass that got through records the comparison, and only while the column
+ * still holds that exact claim: a restore point pruned meanwhile (pruneSnapshot sets it to
+ * null) keeps it due, and the next pass forgets that point's snapshot too.
  */
 export async function reconcileGuestRepository(
   deps: PveDeps,
@@ -764,36 +775,33 @@ export async function reconcileGuestRepository(
   }
   const storage = await deps.runtime.storage.get(guest.tenantId);
   const targets = [storage.primary, ...storage.copies];
-  // Claim the comparison: a prune that lands meanwhile sets it back to null.
+  // Claim the comparison with a value only this pass writes: due again after the retry delay
+  // if the pass fails, and set back to null by a prune that lands meanwhile.
+  const claim = new Date(now.getTime() - PVE_RECONCILE_EVERY_MS + PVE_RECONCILE_RETRY_MS);
   await withTenantTx(deps.db, guest.tenantId, (tx) =>
-    tx.update(pveGuests).set({ repositoryReconciledAt: null }).where(eq(pveGuests.id, guest.id)),
+    tx.update(pveGuests).set({ repositoryReconciledAt: claim }).where(eq(pveGuests.id, guest.id)),
   );
   const forgotten = await withGuestRepository(deps, guest.id, () =>
     withRepository(access, async (session) => {
       await clearStaleGuestLocks(deps, access, session, guest.id);
       const listed = await resticSnapshots(session, { noLock: true });
-      const rows = await withTenantTx(deps.db, guest.tenantId, (tx) =>
-        tx
-          .select({
-            resticSnapshotId: pveSnapshots.resticSnapshotId,
-            status: pveSnapshots.status,
-          })
-          .from(pveSnapshots)
-          .where(and(eq(pveSnapshots.guestId, guest.id), isNotNull(pveSnapshots.resticSnapshotId))),
+      // The restore points and the running runs in one statement, so both come from the same
+      // moment: read one after the other, a run committing in between was neither running nor
+      // a restore point yet, and the snapshot it just committed was forgotten as an orphan.
+      const facts = await withTenantTx(deps.db, guest.tenantId, (tx) =>
+        tx.execute<{ source: "point" | "run"; id: string; status: string }>(sql`
+          SELECT 'point' AS source, s.restic_snapshot_id AS id, s.status::text AS status
+            FROM pve_snapshots s
+           WHERE s.guest_id = ${guest.id} AND s.restic_snapshot_id IS NOT NULL
+          UNION ALL
+          SELECT 'run' AS source, r.id::text AS id, r.status::text AS status
+            FROM pve_runs r
+           WHERE r.guest_id = ${guest.id} AND r.status = 'running'`),
       );
-      const running = await withTenantTx(deps.db, guest.tenantId, (tx) =>
-        tx
-          .select({ id: pveRuns.id })
-          .from(pveRuns)
-          .where(and(eq(pveRuns.guestId, guest.id), eq(pveRuns.status, "running"))),
-      );
-      const keep = new Set(
-        rows.filter((r) => r.status !== "pruned").map((r) => r.resticSnapshotId as string),
-      );
-      const pruned = new Set(
-        rows.filter((r) => r.status === "pruned").map((r) => r.resticSnapshotId as string),
-      );
-      const runningIds = new Set(running.map((r) => r.id));
+      const points = facts.rows.filter((r) => r.source === "point");
+      const keep = new Set(points.filter((r) => r.status !== "pruned").map((r) => r.id));
+      const pruned = new Set(points.filter((r) => r.status === "pruned").map((r) => r.id));
+      const runningIds = new Set(facts.rows.filter((r) => r.source === "run").map((r) => r.id));
       const ids: string[] = [];
       for (const snapshot of listed) {
         if (keep.has(snapshot.id)) {
@@ -833,17 +841,18 @@ export async function reconcileGuestRepository(
   // The prune freed space the restic route never saw: measure the repository again.
   const repositoryBytes =
     forgotten.length > 0 ? await measureRepositoryBytes(access.storage, access.prefix) : null;
-  await withTenantTx(deps.db, guest.tenantId, (tx) =>
-    tx
+  await withTenantTx(deps.db, guest.tenantId, async (tx) => {
+    if (repositoryBytes !== null) {
+      await tx
+        .update(pveGuests)
+        .set({ repositoryBytes, repositoryMeasuredAt: deps.runtime.now() })
+        .where(eq(pveGuests.id, guest.id));
+    }
+    await tx
       .update(pveGuests)
-      .set({
-        repositoryReconciledAt: now,
-        ...(repositoryBytes !== null
-          ? { repositoryBytes, repositoryMeasuredAt: deps.runtime.now() }
-          : {}),
-      })
-      .where(and(eq(pveGuests.id, guest.id), isNull(pveGuests.repositoryReconciledAt))),
-  );
+      .set({ repositoryReconciledAt: now })
+      .where(and(eq(pveGuests.id, guest.id), eq(pveGuests.repositoryReconciledAt, claim)));
+  });
   if (forgotten.length > 0) {
     deps.runtime.logger.info("pve retention: restic snapshots forgotten", {
       guestId: guest.id,
