@@ -304,6 +304,15 @@ private repository.
   `$ErrorActionPreference = 'Stop'`, which turned the first stderr line into a terminating error;
   a failing cmdlet still stops the hook with exit code 1 and its error text in the run log, and
   a program's own exit code decides for the program.
+- Windows agent (preview): when the Volume Shadow Copy service was disabled, or Windows denied
+  the agent access to it, every backup reported a "snapshot_failed" for each volume, which reads
+  as a passing problem (a busy VSS writer, another backup taking a shadow copy); under the policy
+  "stop the backup" every run then failed with that wording, and the service was never named.
+  restic only notices this at the first volume and still ends with exit code 0. The agent now
+  recognises the texts that concern the whole machine (service disabled, not installed or not
+  starting, access denied, an unexpected provider error, a wrong restic architecture or an
+  unknown provider) and reports one "snapshot_unavailable" with the cause, under both policies,
+  and its run log points to the service "Volume Shadow Copy" in services.msc.
 
 ### Upgrade Notes
 

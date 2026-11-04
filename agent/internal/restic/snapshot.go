@@ -101,6 +101,61 @@ func (o *SnapshotOutcome) record(item, message string) (snapshotKind, bool) {
 	return kind, true
 }
 
+// vssMachineMarkers are texts in a volume's "failed to create snapshot" entry
+// that say the Volume Shadow Copy service cannot be used on the whole
+// machine, not that this one shadow copy failed (compared without case).
+// restic's HasSufficientPrivilegesForVSS only loads VssApi.dll and creates
+// the in-process backup components, so it passes when the service is
+// disabled or COM refuses the requester; the service is first contacted in
+// NewVssSnapshot for every volume (InitializeForBackup, GatherWriterMetadata),
+// whose error restic writes per volume and ends with exit code 0. restic
+// prints an HRESULT it has no name for as "UNKNOWN (0x80070422)".
+//
+// A failure of every volume is no such marker by itself: a second backup
+// program taking a shadow copy at the same time (VSS_E_SNAPSHOT_SET_IN_PROGRESS)
+// or a writer in a bad state fails every volume as well and passes.
+var vssMachineMarkers = []struct{ marker, cause string }{
+	{"0x80070422", "the Volume Shadow Copy service (VSS) is disabled"},
+	{"0x80070424", "the Volume Shadow Copy service (VSS) is not installed"},
+	{"0x8007042c", "a service the Volume Shadow Copy service (VSS) depends on did not start"},
+	{"0x80070005", "Windows denied the agent access to the Volume Shadow Copy service"},
+	{"e_accessdenied", "Windows denied the agent access to the Volume Shadow Copy service"},
+	{"0x8004230f", "the shadow copy provider reported an unexpected error (VSS_E_UNEXPECTED_PROVIDER_ERROR)"},
+	{"vss_e_unexpected_provider_error", "the shadow copy provider reported an unexpected error (VSS_E_UNEXPECTED_PROVIDER_ERROR)"},
+	{"can't use vss", "restic.exe was built for another processor architecture than this Windows"},
+	{"failed to detect windows architecture", "restic could not detect the processor architecture of Windows"},
+	{"invalid vss provider", "the configured shadow copy provider does not exist on this machine"},
+}
+
+// MachineWideCause returns why the Volume Shadow Copy service cannot be used
+// on the machine at all when a volume's failure text says so, else "".
+func MachineWideCause(message string) string {
+	m := strings.ToLower(message)
+	for _, k := range vssMachineMarkers {
+		if strings.Contains(m, k.marker) {
+			return k.cause
+		}
+	}
+	return ""
+}
+
+// SplitMachineWide separates the failed volumes whose text says that VSS
+// cannot be used on the machine at all (with the first such cause) from the
+// failures of single shadow copies.
+func (o SnapshotOutcome) SplitMachineWide() (cause string, machine, single []VolumeFailure) {
+	for _, f := range o.FailedVolumes {
+		if c := MachineWideCause(f.Message); c != "" {
+			if cause == "" {
+				cause = c
+			}
+			machine = append(machine, f)
+			continue
+		}
+		single = append(single, f)
+	}
+	return cause, machine, single
+}
+
 // NormalizeVolume writes a drive volume with a capital letter and a trailing
 // backslash (c:\ -> C:\, C: -> C:\); other forms (\\?\Volume{...}\) stay.
 func NormalizeVolume(v string) string {

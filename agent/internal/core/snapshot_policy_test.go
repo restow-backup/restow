@@ -92,6 +92,45 @@ func TestSnapshotFailedStopsUnderFail(t *testing.T) {
 	}
 }
 
+// The Volume Shadow Copy service is disabled: restic reports every volume
+// and ends with exit 0. The run carries one permanent snapshot_unavailable
+// that names the service, not a transient snapshot_failed per volume (K103).
+func TestSnapshotServiceDisabledContinue(t *testing.T) {
+	withVSS(t, vssPlan)
+	fin, h := backupWithPolicy(t, "vss-disabled", "")
+	if fin.Status != api.StatusPartial || fin.SnapshotID == "" {
+		t.Fatalf("status %s snapshot %q", fin.Status, fin.SnapshotID)
+	}
+	if codes(fin.Errors) != "snapshot_unavailable" || !strings.Contains(fin.Errors[0].Message, "service (VSS) is disabled") ||
+		!strings.Contains(fin.Errors[0].Message, "ran without it") {
+		t.Fatalf("errors %+v", fin.Errors)
+	}
+	if c := fin.Consistency; c == nil || c.State != "unavailable" {
+		t.Fatalf("consistency %+v", fin.Consistency)
+	}
+	if !strings.Contains(fin.LogTail, "services.msc") {
+		t.Fatalf("log:\n%s", fin.LogTail)
+	}
+	if n := strings.Count(h.commands(), "backup\n"); n != 1 {
+		t.Fatalf("restic backup ran %d times", n)
+	}
+}
+
+func TestSnapshotServiceDeniedStopsUnderFail(t *testing.T) {
+	withVSS(t, vssPlan)
+	fin, _ := backupWithPolicy(t, "vss-disabled-wait", api.SnapshotOnFailureFail)
+	if fin.Status != api.StatusFailed || fin.SnapshotID != "" {
+		t.Fatalf("status %s snapshot %q", fin.Status, fin.SnapshotID)
+	}
+	if codes(fin.Errors) != "snapshot_unavailable" || !strings.Contains(fin.Errors[0].Message, "denied the agent access") ||
+		!strings.Contains(fin.Errors[0].Message, "stopped") {
+		t.Fatalf("errors %+v", fin.Errors)
+	}
+	if c := fin.Consistency; c == nil || c.State != "unavailable" {
+		t.Fatalf("consistency %+v", fin.Consistency)
+	}
+}
+
 func TestSnapshotUnavailableFallsBack(t *testing.T) {
 	withVSS(t, vssPlan)
 	fin, h := backupWithPolicy(t, "vss-unusable", "")

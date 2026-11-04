@@ -56,6 +56,21 @@ backup)
     if [ -n "$vss" ]; then
       printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: VSS_E_SNAPSHOT_SET_IN_PROGRESS"},"during":"archival","item":"c:\\"}' >&2
     fi ;;
+  vss-disabled)
+    # The Volume Shadow Copy service is disabled: restic 0.19.1 reports every
+    # volume (InitializeForBackup, ERROR_SERVICE_DISABLED) and ends with exit 0.
+    if [ -n "$vss" ]; then
+      printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},"during":"archival","item":"c:\\"}' >&2
+      printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [d:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},"during":"archival","item":"d:\\"}' >&2
+    fi ;;
+  vss-disabled-wait)
+    if [ -n "$vss" ]; then
+      trap 'kill $pid 2>/dev/null; echo interrupted >&2; exit 130' INT
+      printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: E_ACCESSDENIED (0x80070005)"},"during":"archival","item":"c:\\"}' >&2
+      sleep 30 &
+      pid=$!
+      wait
+    fi ;;
   vss-cleanup)
     if [ -n "$vss" ]; then
       printf '%s\n' '{"message_type":"error","error":{"message":"failed to delete VSS snapshot: VSS error: busy"},"during":"archival","item":"c:\\"}' >&2

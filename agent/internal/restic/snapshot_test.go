@@ -57,6 +57,45 @@ func TestSnapshotOutcomeRecord(t *testing.T) {
 	}
 }
 
+// The texts a volume gets when the Volume Shadow Copy service cannot be used
+// on the machine at all (restic 0.19.1, vss_windows.go: "VSS error: <call>
+// failed: <name> (<hresult>)", UNKNOWN for an HRESULT without a name).
+func TestMachineWideCause(t *testing.T) {
+	for msg, want := range map[string]string{
+		`failed to create snapshot for [c:\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)`:                                                                      "disabled",
+		`failed to create snapshot for [c:\]: VSS error: GatherWriterMetadata() failed: UNKNOWN (0x8007042c)`:                                                                     "depends on",
+		`failed to create snapshot for [c:\]: VSS error: InitializeForBackup() failed: E_ACCESSDENIED (0x80070005)`:                                                               "denied",
+		`failed to create snapshot for [c:\]: VSS error: The caller does not have sufficient backup privileges or is not an administrator: E_ACCESSDENIED (0x80070005)`:           "denied",
+		`failed to create snapshot for [c:\]: VSS error: DoSnapshotSet() failed: VSS_E_UNEXPECTED_PROVIDER_ERROR (0x8004230f)`:                                                    "provider",
+		`failed to create snapshot for [c:\]: VSS error: executables compiled for 386 can't use VSS on other architectures. Please use an executable compiled for your platform.`: "architecture",
+		`failed to create snapshot for [c:\]: invalid VSS provider "{00000000-0000-0000-0000-000000000001}"`:                                                                      "provider",
+	} {
+		if got := MachineWideCause(msg); !strings.Contains(got, want) {
+			t.Errorf("%s: %q", msg, got)
+		}
+	}
+	// Failures of one shadow copy, even when every volume has them.
+	for _, msg := range []string{
+		`failed to create snapshot for [c:\]: VSS error: StartSnapshotSet() failed: VSS_E_SNAPSHOT_SET_IN_PROGRESS (0x80042316)`,
+		`failed to create snapshot for [c:\]: VSS error: GatherWriterMetadata() deadline exceeded`,
+		`failed to create snapshot for [c:\]: VSS error: async operation failed: VSS_E_WRITERERROR_TIMEOUT (0x800423f2)`,
+		`failed to create snapshot for [c:\]: VSS error: DoSnapshotSet() failed: VSS_E_INSUFFICIENT_STORAGE (0x8004231f)`,
+	} {
+		if got := MachineWideCause(msg); got != "" {
+			t.Errorf("%s: %q", msg, got)
+		}
+	}
+	o := SnapshotOutcome{FailedVolumes: []VolumeFailure{
+		{`C:\`, `failed to create snapshot for [c:\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)`},
+		{`D:\`, `failed to create snapshot for [d:\]: VSS error: timeout`},
+		{`E:\`, `failed to create snapshot for [e:\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)`},
+	}}
+	cause, machine, single := o.SplitMachineWide()
+	if !strings.Contains(cause, "disabled") || len(machine) != 2 || len(single) != 1 || single[0].Volume != `D:\` {
+		t.Fatalf("%q %+v %+v", cause, machine, single)
+	}
+}
+
 func TestSnapshotFaultOf(t *testing.T) {
 	cases := []struct {
 		name     string

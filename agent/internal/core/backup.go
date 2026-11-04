@@ -361,9 +361,10 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 			// Stopped under the policy fail. Should restic have finished first,
 			// its snapshot is reported with the failed run.
 			out.Status = api.StatusFailed
-			out.Errors = append(out.Errors, snapshotFailedErrors(snap, true)...)
+			failed, machineWide := snapshotFailedErrors(snap, true)
+			out.Errors = append(out.Errors, failed...)
 			out.Errors = append(out.Errors, snapshotCleanupErrors(snap)...)
-			out.Consistency = consistencyOf(plan, snap, false)
+			out.Consistency = consistencyOf(plan, snap, machineWide)
 			if err == nil && res != nil {
 				out.SnapshotID = res.SnapshotID
 			}
@@ -384,8 +385,9 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	for _, w := range res.Warnings {
 		rl.Warnf("%s", w)
 	}
-	out.Consistency = consistencyOf(plan, snap, snapUnavailable)
-	snapErrors := append(snapshotFailedErrors(snap, false), snapshotCleanupErrors(snap)...)
+	snapErrors, machineWide := snapshotFailedErrors(snap, false)
+	snapErrors = append(snapErrors, snapshotCleanupErrors(snap)...)
+	out.Consistency = consistencyOf(plan, snap, snapUnavailable || machineWide)
 	s := res.Summary
 	out.SnapshotID = res.SnapshotID
 	out.Stats = &api.Stats{

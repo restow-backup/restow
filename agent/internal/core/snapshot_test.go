@@ -79,12 +79,26 @@ func TestSnapshotRunErrors(t *testing.T) {
 		FailedVolumes: []restic.VolumeFailure{{Volume: `C:\`, Message: "failed to create snapshot for [c:\\]: timeout"}},
 		CleanupFailed: []restic.VolumeFailure{{Volume: `D:\`, Message: "failed to delete VSS snapshot: busy"}},
 	}
-	f := snapshotFailedErrors(out, false)
-	if len(f) != 1 || f[0].Code != "snapshot_failed" || f[0].Path != `C:\` || !strings.Contains(f[0].Message, "live file system") {
+	f, mw := snapshotFailedErrors(out, false)
+	if mw || len(f) != 1 || f[0].Code != "snapshot_failed" || f[0].Path != `C:\` || !strings.Contains(f[0].Message, "live file system") {
 		t.Fatalf("%+v", f)
 	}
-	if s := snapshotFailedErrors(out, true); !strings.Contains(s[0].Message, "stopped") {
+	if s, _ := snapshotFailedErrors(out, true); !strings.Contains(s[0].Message, "stopped") {
 		t.Fatalf("%+v", s)
+	}
+	// The service is disabled: one permanent snapshot_unavailable for both
+	// volumes, not two transient snapshot_failed (K103).
+	disabled := restic.SnapshotOutcome{FailedVolumes: []restic.VolumeFailure{
+		{Volume: `C:\`, Message: "failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},
+		{Volume: `D:\`, Message: "failed to create snapshot for [d:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},
+	}}
+	for _, stopped := range []bool{false, true} {
+		f, mw = snapshotFailedErrors(disabled, stopped)
+		if !mw || len(f) != 1 || f[0].Code != "snapshot_unavailable" || f[0].Path != "" ||
+			!strings.Contains(f[0].Message, "service (VSS) is disabled") || !strings.Contains(f[0].Message, `C:\, D:\`) ||
+			!strings.Contains(f[0].Message, map[bool]string{false: "ran without it", true: "stopped"}[stopped]) {
+			t.Fatalf("stopped %v: %+v", stopped, f)
+		}
 	}
 	c := snapshotCleanupErrors(out)
 	if len(c) != 1 || c[0].Code != "snapshot_cleanup_failed" || c[0].Path != `D:\` {
