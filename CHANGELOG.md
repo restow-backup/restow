@@ -415,6 +415,12 @@ private repository.
   from a shadow copy with some volumes read live (an exFAT or removable disk beside C:\) showed
   only "Shadow copy (file consistent)"; it now names them: "Shadow copy (file consistent); read
   live: E:\".
+- Servers and clients: a machine whose newest backup recorded no sample files (every Windows
+  backup before agent 0.5.0) was never restore-checked, and nothing said so: it stayed
+  "Unverified" for good, the worker only logged it, and "Check now" was accepted and ended
+  without a result. The machine now shows "No restore check possible" in amber, the readiness
+  overview says "No sample files recorded; restore check not possible for this backup", and a
+  check asked for is refused with that reason (`endpoint-no-samples`). It is never green.
 
 ### Upgrade Notes
 

@@ -603,7 +603,11 @@ Platte nur, wenn sie nachweislich unverändert ist (Größe wie im Snapshot, Än
 zwei Sekunden daneben, und vor wie nach dem Hashen gleich); andere Kandidaten überspringt er.
 Sonst würde der Restore-Test eine nach der Sicherung bearbeitete Datei fälschlich rot bewerten.
 Der Server speichert die Stichproben (`endpoint_samples`, 90 Tage) und benutzt sie für den
-Restore-Test.
+Restore-Test. Hat die neueste gute Sicherung keine Stichprobe (der Agent konnte keine aufzeichnen;
+unter Windows vor 0.5.0 bei jeder Sicherung), ist kein Restore-Test von ihr möglich: Die
+Readiness bleibt `unverified` mit `noSamples: true`, die Oberfläche zeigt den Rechner gelb mit
+"Keine Restore-Prüfung möglich" statt des ruhigen "Ungeprüft", und ein verlangter Test wird mit
+`endpoint-no-samples` (409) abgelehnt, statt eingereiht zu werden und ohne Ergebnis zu enden.
 
 ### Fehlercodes eines Laufs
 
@@ -1125,6 +1129,7 @@ hier.
 | --- | --- | --- |
 | `endpoint-revoked` | 401 an den Agenten, 409 bei Änderung oder Aufgabe durch einen Admin | Der Endpunkt ist widerrufen. |
 | `endpoint-nothing-to-test` | 409 | Ein Restore-Test wurde verlangt, aber es gibt noch keine gute Sicherung. |
+| `endpoint-no-samples` | 409 | Ein Restore-Test wurde verlangt, aber die neueste Sicherung hat keine Stichprobendateien aufgezeichnet. |
 | `endpoint-instance-unknown` | 503 | Die öffentliche Adresse der Installation ist nicht gesetzt; ein Installationsbefehl lässt sich nicht bauen. |
 | `endpoint-queue-not-ready` | 503 | Der Worker hat seine Queues noch nicht angelegt. |
 | `endpoint-token-settled` | 409 | Das Token ist bereits verwendet oder widerrufen. |

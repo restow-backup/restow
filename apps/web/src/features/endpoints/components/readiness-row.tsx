@@ -22,7 +22,12 @@ import { ProfileIcon } from "./status.js";
  */
 
 /** The translation key (namespace `endpoints`) of the result line of a machine. */
-export function endpointResultKey(row: Pick<EndpointReadinessRow, "state" | "overdue">): string {
+export function endpointResultKey(
+  row: Pick<EndpointReadinessRow, "state" | "overdue" | "noSamples">,
+): string {
+  if (row.state === "unverified" && row.noSamples) {
+    return "readinessSection.result.noSamples";
+  }
   if (row.state === "no_backup") {
     return row.overdue
       ? "readinessSection.result.noBackupOverdue"

@@ -51,6 +51,8 @@
     "overdueHint": "Die neueste Sicherung wurde seit über einer Woche nicht durch eine Restore-Prüfung geprüft.",
     "frozen": "Geprüft {time}; es kommen keine neuen Sicherungen hinzu",
     "frozenUndated": "Alter Sicherungsstand; es kommen keine neuen Sicherungen hinzu",
+    "noSamples": "Keine Restore-Prüfung möglich",
+    "noSamplesHint": "Mit der neuesten Sicherung wurden keine Stichprobendateien aufgezeichnet, deshalb ist für sie keine Restore-Prüfung möglich, und sie wird nie als geprüft angezeigt. Das Lauf-Log der Sicherung nennt den Grund (unter Windows haben Agents vor 0.5.0 nie welche aufgezeichnet: Aktualisieren Sie den Agent).",
     "frozenHint": "Der Rechner ist in keinem Backup-Job. Die Bewertung gilt für einen älteren Sicherungsstand, den nichts mehr erneuert."
   },
   "runKind": {
@@ -1069,6 +1071,7 @@
     "resticUnavailable": "Das Programm restic ist auf dem Server nicht verfügbar, daher lassen sich Snapshots nicht lesen.",
     "unsupportedOs": "Dieses Betriebssystem wird nicht unterstützt. {appName} sichert Linux, macOS und Windows auf x64 (amd64); Windows on ARM wird in dieser Version nicht unterstützt.",
     "revoked": "Dieser Rechner ist gesperrt und nimmt keine Änderungen oder Aufgaben an.",
+    "noSamples": "Die neueste Sicherung hat keine Stichprobendateien aufgezeichnet, deshalb ist keine Restore-Prüfung von ihr möglich. Das Lauf-Log der Sicherung nennt den Grund.",
     "nothingToTest": "Es gibt noch keine erfolgreiche Sicherung, die getestet werden könnte.",
     "instanceUnknown": "Die Adresse dieser Installation ist unbekannt. Setzen Sie die öffentliche URL in den Einstellungen und versuchen Sie es erneut.",
     "queueNotReady": "Der Worker ist noch nicht gestartet. Versuchen Sie es gleich noch einmal.",
@@ -1104,6 +1107,7 @@
       "green": "Die Restore-Prüfung der neuesten Sicherung hat jede geprüfte Datei bestätigt.",
       "yellow": "Die Restore-Prüfung wurde bestanden, aber die neueste Sicherung ist unvollständig: einige Dateien ließen sich nicht lesen.",
       "red": "Die Restore-Prüfung der neuesten Sicherung ist fehlgeschlagen, oder eine Integritätsprüfung hat Schäden gefunden.",
+      "noSamples": "Keine Stichprobendateien aufgezeichnet; für diese Sicherung ist keine Restore-Prüfung möglich.",
       "unverified": "Eine Sicherung ist vorhanden, wurde aber nie geprüft.",
       "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
       "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden nach Beginn des Schutzes."
@@ -1384,6 +1388,7 @@
     "never_seen": "Nie verbunden",
     "revoke_suggested": "Sperren empfohlen",
     "never": "Noch keine Sicherung",
+    "no_samples": "Keine Restore-Prüfung möglich",
     "restore_warning": "Restore-Prüfung: Achtung",
     "check_overdue": "Restore-Prüfung überfällig",
     "interrupted": "Unterbrochen",

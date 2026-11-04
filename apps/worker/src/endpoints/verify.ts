@@ -74,7 +74,12 @@ export async function endpointVerify(
       ),
   );
   if (samples.length === 0) {
-    logger.info("no samples to restore-test", { tenantId, endpointId, snapshotId });
+    // The machine shows it (readiness `noSamples`), and a test asked for is refused with a reason.
+    logger.warn("the newest backup recorded no sample files; no restore test is possible", {
+      tenantId,
+      endpointId,
+      snapshotId,
+    });
     return;
   }
   // Shared with the API's reads, never beside retention or the check: a prune that rewrites

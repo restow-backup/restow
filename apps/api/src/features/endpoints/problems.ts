@@ -15,6 +15,8 @@ export const ENDPOINT_PROBLEMS = {
   revoked: "urn:restow:problem:endpoint-revoked",
   /** 409: a restore test was asked for, but the endpoint has no good backup to test. */
   nothingToTest: "urn:restow:problem:endpoint-nothing-to-test",
+  /** 409: a restore test was asked for, but the newest backup recorded no sample files. */
+  noSamples: "urn:restow:problem:endpoint-no-samples",
   /** 503: the public address of this installation is not set, so no install command can be built. */
   instanceUnknown: "urn:restow:problem:endpoint-instance-unknown",
   /** 503: the worker has not created its job queues yet. */

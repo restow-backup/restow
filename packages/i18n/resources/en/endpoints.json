@@ -51,6 +51,8 @@
     "overdueHint": "The newest backup has not been checked by a restore check for more than a week.",
     "frozen": "Checked {time}; no new backups are added",
     "frozenUndated": "Old restore point; no new backups are added",
+    "noSamples": "No restore check possible",
+    "noSamplesHint": "No sample files were recorded with the newest backup, so no restore check is possible for it and it is never shown as checked. The run log of the backup says why the agent could record none (on Windows, agents before 0.5.0 recorded none at all: update the agent).",
     "frozenHint": "The machine is in no backup job. The rating is for an older restore point that nothing renews."
   },
   "runKind": {
@@ -1069,6 +1071,7 @@
     "resticUnavailable": "The restic program is not available on the server, so snapshots cannot be read.",
     "unsupportedOs": "This operating system is not supported. {appName} backs up Linux, macOS and Windows on x64 (amd64); Windows on ARM is not supported in this release.",
     "revoked": "This machine is revoked and takes no changes or tasks.",
+    "noSamples": "The newest backup recorded no sample files, so no restore check of it is possible. The run log of the backup says why.",
     "nothingToTest": "There is no successful backup to test yet.",
     "instanceUnknown": "The address of this installation is not known. Set the public URL in the settings and try again.",
     "queueNotReady": "The worker has not started yet. Try again in a moment.",
@@ -1104,6 +1107,7 @@
       "green": "The restore check of the newest backup matched every checked file.",
       "yellow": "The restore check passed, but the newest backup has warnings: some files could not be read.",
       "red": "The restore check of the newest backup failed, or an integrity check found damage.",
+      "noSamples": "No sample files recorded; restore check not possible for this backup.",
       "unverified": "A backup exists but was never checked.",
       "noBackup": "Nothing to verify until the first backup completes.",
       "noBackupOverdue": "No backup within 24 hours of protection starting."
@@ -1384,6 +1388,7 @@
     "never_seen": "Never connected",
     "revoke_suggested": "Revoke suggested",
     "never": "No backup yet",
+    "no_samples": "No restore check possible",
     "restore_warning": "Restore check: attention",
     "check_overdue": "Restore check overdue",
     "interrupted": "Interrupted",

@@ -45,6 +45,11 @@ export interface EndpointReadiness {
   overdue: boolean;
   basis: "restore_test" | "repository_check" | null;
   latestSnapshotId: string | null;
+  /**
+   * The newest backup recorded no sample files, so no restore test of it is possible (0.5.0;
+   * absent from older servers).
+   */
+  noSamples?: boolean;
 }
 
 export type RunKind = "backup" | "restore" | "verify_sample";
