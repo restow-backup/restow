@@ -114,4 +114,11 @@ describe("summarizeSelection / parseStoredSelection", () => {
     expect(parseStoredSelection({ paths: ["a"], folderPaths: "nope" })).toEqual({ paths: ["a"] });
     expect(parseStoredSelection({ all: true, paths: ["a"] })).toEqual({ all: true, paths: ["a"] });
   });
+
+  it("reads a restore from the archive as its messages, not as everything", () => {
+    const stored = parseStoredSelection({ archiveItemIds: ["x", "y"], options: { a: 1 } });
+    expect(stored).toEqual({ archiveItemIds: ["x", "y"] });
+    expect(summarizeSelection(stored)).toEqual({ all: false, folders: 0, items: 2 });
+    expect(parseStoredSelection({ archiveItemIds: [] })).toEqual({ all: true });
+  });
 });

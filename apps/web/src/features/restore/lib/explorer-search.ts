@@ -32,6 +32,13 @@ export const explorerSearchSchema = z.object({
     .catch(undefined),
   /** The tab: absent is browsing, `recent` the list of recent restores. */
   tab: z.enum(["recent"]).optional().catch(undefined),
+  /**
+   * `archive`: the list shows the mailbox's archived mail since its newest backup instead
+   * of a restore point's folder ("From the archive", administrators only, #48).
+   */
+  source: z.enum(["archive"]).optional().catch(undefined),
+  /** The archived message open in the reading pane (with `source=archive`). */
+  archiveItem: optionalUuid,
 });
 
 export type ExplorerSearch = z.infer<typeof explorerSearchSchema>;
@@ -53,6 +60,8 @@ export function compactSearch(search: ExplorerSearch): ExplorerSearch {
   if (search.sort && search.sort !== "date") compact.sort = search.sort;
   if (search.view) compact.view = search.view;
   if (search.view && search.month) compact.month = search.month;
+  if (search.source) compact.source = search.source;
+  if (search.source && search.archiveItem) compact.archiveItem = search.archiveItem;
   return compact;
 }
 
@@ -66,7 +75,29 @@ export function withObject(objectId: string, path?: string): ExplorerSearch {
  * item, so the same place can be compared across snapshots.
  */
 export function withSnapshot(search: ExplorerSearch, snapshotId: string): ExplorerSearch {
-  return { ...search, snapshot: snapshotId };
+  return { ...withoutArchive(search), snapshot: snapshotId };
+}
+
+/** The archived mail of the object since its newest backup, in place of a folder. */
+export function withArchiveSource(search: ExplorerSearch): ExplorerSearch {
+  return {
+    object: search.object,
+    snapshot: search.snapshot,
+    source: "archive",
+  };
+}
+
+/** Open one archived message (or close it with `undefined`). */
+export function withArchiveItem(
+  search: ExplorerSearch,
+  itemId: string | undefined,
+): ExplorerSearch {
+  return { ...search, source: "archive", archiveItem: itemId };
+}
+
+/** Back from the archive to the restore point's folders. */
+export function withoutArchive(search: ExplorerSearch): ExplorerSearch {
+  return { ...search, source: undefined, archiveItem: undefined };
 }
 
 /**
@@ -77,7 +108,7 @@ export function withFolder(search: ExplorerSearch, path: string): ExplorerSearch
   const next = normalizePath(path);
   const calendar = isCalendarPath(next);
   return {
-    ...search,
+    ...withoutArchive(search),
     path: next,
     item: undefined,
     q: undefined,

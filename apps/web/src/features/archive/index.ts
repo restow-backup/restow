@@ -13,7 +13,9 @@ import { ARCHIVE_PATH } from "./paths.js";
  * Legal holds are a section of the Business/Service Provider modules
  * (ee/web), rendered through the page's `archive.sections` slot.
  * Tenant-administrator only (see hooks.ts's useTenantScope and
- * apps/api/src/features/archive/routes.ts).
+ * apps/api/src/features/archive/routes.ts). The menu entry shows only where the
+ * tenant offers the archive (lib/tenant-nav-offers.ts); the page stays
+ * reachable by its address.
  */
 
 export const archiveRoute = createRoute({
@@ -31,6 +33,9 @@ export const navItems: NavItem[] = [
     labelKey: "archive:nav",
     icon: ArchiveIcon,
     roles: ["provider_admin", "tenant_admin"],
+    // Only where the tenant has an archive: it holds mail, or the edition captures and a
+    // mail job archives (docs/ARCHIVE.md, "Eintrag „Archiv“ im Menü").
+    tenantOffer: "archive",
     group: "mail",
     order: 30,
   },

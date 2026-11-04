@@ -188,6 +188,46 @@
       "emptyMonthDescription": "Dieser Sicherungsstand enthält in diesem Monat keine Termine. Frühere oder spätere Monate können welche haben.",
       "truncated": "Nicht alle Termine dieses Zeitraums werden gezeigt: Es sind mehr, als eine Ansicht auflistet.",
       "unexpanded": "{count, plural, one {# Serie konnte nicht geöffnet werden} other {# Serien konnten nicht geöffnet werden}}: Ihre Termine fehlen hier, die Liste zeigt sie weiterhin."
+    },
+    "archive": {
+      "entry": "Aus dem Archiv",
+      "title": "Aus dem Archiv: {object}",
+      "back": "Zurück zu den Ordnern",
+      "restoreSelected": "{count, plural, =0 {Zurückholen} one {# Nachricht zurückholen} other {# Nachrichten zurückholen}}",
+      "since": "{count, plural, =0 {Seit Beginn der neuesten Sicherung am {date} ist keine Mail ins Archiv gekommen.} one {# Mail kam seit Beginn der neuesten Sicherung am {date} ins Archiv.} other {# Mails kamen seit Beginn der neuesten Sicherung am {date} ins Archiv.}}",
+      "noBackup": "{count, plural, =0 {Dieses Konto hat noch keine Sicherung, und das Archiv hält noch keine Mail dafür.} one {Dieses Konto hat noch keine Sicherung: # Mail liegt im Archiv.} other {Dieses Konto hat noch keine Sicherung: # Mails liegen im Archiv.}}",
+      "loading": "Das Archiv wird gelesen …",
+      "loadError": "Das Archiv konnte nicht gelesen werden.",
+      "empty": "Nichts Neues im Archiv",
+      "emptyDescription": "Was seit der neuesten Sicherung ankam, ist entweder schon gesichert oder wurde nicht archiviert. Ältere Mail finden Sie in den Sicherungsständen oder auf der Seite Archiv.",
+      "columns": {
+        "select": "Auswahl",
+        "message": "Nachricht",
+        "received": "Ins Archiv gekommen"
+      },
+      "selectAll": "Alle auf dieser Seite auswählen",
+      "select": "„{subject}“ auswählen",
+      "readOnly": "Nur lesend: Das Archiv bleibt unverändert. Jeder Abruf wird im Audit-Log protokolliert.",
+      "previous": "Vorherige Seite",
+      "next": "Nächste Seite",
+      "range": "{from}–{to} von {total}",
+      "noSubject": "(Ohne Betreff)",
+      "restoreOne": "In das Postfach zurückholen",
+      "close": "Nachricht schließen",
+      "folderName": "Aus dem Archiv {stamp}",
+      "dialog": {
+        "title": "Aus dem Archiv zurückholen",
+        "description": "{count, plural, one {Die Nachricht geht zurück in {object}, dort in den neuen Ordner „{folder}“.} other {Die # Nachrichten gehen zurück in {object}, dort in den neuen Ordner „{folder}“.}} Vorhandenes bleibt unberührt.",
+        "archiveTitle": "Das Archiv bleibt, wie es ist",
+        "archiveUnchanged": "Zurückgeholt wird eine Kopie des Originals. Die archivierte Nachricht, ihre Aufbewahrungsfrist und ein Legal Hold ändern sich dadurch nicht.",
+        "demo": "In dieser Demo wird nicht in ein Postfach zurückgeholt. Laden Sie die Nachricht als .eml herunter.",
+        "gone": "Das Konto ist an seiner Quelle nicht verfügbar. Laden Sie die Nachricht als .eml herunter.",
+        "submit": "Zurückholen"
+      },
+      "errors": {
+        "selectionUnknown": "Einige ausgewählte Nachrichten sind für dieses Konto nicht (mehr) archiviert. Laden Sie die Liste neu und wählen Sie erneut aus.",
+        "notRecorded": "Einige ausgewählte Nachrichten wurden archiviert, bevor ihr Inhaltsverweis gespeichert wurde. Sie lassen sich nur exportieren."
+      }
     }
   },
   "details": {
@@ -400,6 +440,9 @@
       "confirm": "Wiederherstellung abbrechen",
       "done": "Die Wiederherstellung wurde abgebrochen.",
       "failed": "Die Wiederherstellung konnte nicht abgebrochen werden."
+    },
+    "source": {
+      "archive": "Aus dem Archiv"
     }
   },
   "job": {

@@ -12,6 +12,8 @@ import {
   type RestoreResult,
 } from "@restow/core";
 import {
+  archiveItemMailboxes,
+  archiveItems,
   createDb,
   type Database,
   jobs,
@@ -30,6 +32,7 @@ import { dropTestDatabase } from "../testing/database.js";
 import type { BackupRuntimeState } from "./backup.js";
 import { InvalidPayloadError, tenantRunner, type WorkerJobContext } from "./framework.js";
 import {
+  archiveItemIdsOf,
   createRestoreHandler,
   imapTargetAccount,
   MAX_STORED_ITEMS,
@@ -39,6 +42,7 @@ import {
   type RestoreStore,
   type StoredRestoreResult,
   storedItems,
+  toArchiveRestoreRequest,
   toRestoreRequest,
   toStoredResult,
 } from "./restore.js";
@@ -136,6 +140,65 @@ describe("toRestoreRequest", () => {
     expect(() => toRestoreRequest({ ...storedRow, snapshotId: null }, mailbox)).toThrow(
       InvalidPayloadError,
     );
+  });
+});
+
+const ARCHIVE_ITEM = "3c2f2c6e-3d1a-4a1b-8e3f-0c1d2e3f4a5b";
+
+const archiveRow = {
+  ...storedRow,
+  snapshotId: null,
+  sourceSelection: {
+    archiveItemIds: [ARCHIVE_ITEM, "not-a-uuid"],
+    options: { restoreFolderName: "Aus dem Archiv" },
+  },
+  targetType: "original" as const,
+  targetRef: null,
+  mode: "rename" as const,
+  impersonated: false,
+  reason: null,
+};
+
+const archivedItem = {
+  id: ARCHIVE_ITEM,
+  itemHash: "ab".repeat(32),
+  sizeBytes: 42,
+  chunks: ["c1"],
+  messageId: "<late@example.com>",
+  receivedAt: new Date("2026-03-01T09:00:00Z"),
+  sentAt: null,
+};
+
+describe("restore from the archive", () => {
+  it("reads the archived messages a stored selection names", () => {
+    expect(archiveItemIdsOf(archiveRow.sourceSelection)).toEqual([ARCHIVE_ITEM]);
+    expect(archiveItemIdsOf(storedRow.sourceSelection)).toBeNull();
+    expect(archiveItemIdsOf({ archiveItemIds: [] })).toBeNull();
+    expect(archiveItemIdsOf(null)).toBeNull();
+  });
+
+  it("builds a request whose source is the archived messages, not a snapshot", () => {
+    const request = toArchiveRestoreRequest(archiveRow, mailbox, [archivedItem]);
+    expect(request).toMatchObject({
+      restoreJobId: RESTORE,
+      snapshotId: RESTORE,
+      protectedObject: mailbox,
+      target: { type: "original", ref: null },
+      mode: "rename",
+      selection: { all: true, options: { restoreFolderName: "Aus dem Archiv" } },
+    });
+    expect(request.source?.kind).toBe("archive");
+    expect(request.source?.manifest.source.protectedObjectId).toBe(mailbox.id);
+    expect(request.source?.manifest.objects).toEqual([
+      expect.objectContaining({
+        id: ARCHIVE_ITEM,
+        path: `mail/${ARCHIVE_ITEM}.eml`,
+        type: "mail",
+        sha256: archivedItem.itemHash,
+        chunks: ["c1"],
+        size: 42,
+      }),
+    ]);
   });
 });
 
@@ -381,6 +444,52 @@ describe("restore handler", () => {
     expect(runtime.at(-1)).toEqual({ phase: null, phaseSince: null, throttle: null });
   });
 
+  it("restores archived messages through the dispatcher and reports one that is gone", async () => {
+    const { ctx, sink } = context();
+    const gone = "4c2f2c6e-3d1a-4a1b-8e3f-0c1d2e3f4a5b";
+    const row = {
+      ...archiveRow,
+      sourceSelection: { ...archiveRow.sourceSelection, archiveItemIds: [ARCHIVE_ITEM, gone] },
+    } as unknown as typeof storedRow;
+    const { store, persisted } = memoryStore(row);
+    const asked: { objectId: string; ids: readonly string[] }[] = [];
+    store.loadArchiveItems = async (objectId, ids) => {
+      asked.push({ objectId, ids });
+      return [archivedItem];
+    };
+    const seen: RestoreRequest[] = [];
+    const handler = createRestoreHandler({
+      dispatcher: () => ({
+        async run(_ctx, request) {
+          seen.push(request);
+          return { restored: 1, skipped: 0, bytes: 42, failures: [] };
+        },
+      }),
+      store: () => store,
+    });
+
+    await handler.run(ctx, payload);
+    await ctx.progress.flush();
+
+    expect(asked).toEqual([{ objectId: mailbox.id, ids: [ARCHIVE_ITEM, gone] }]);
+    expect(seen[0]?.source?.manifest.objects.map((object) => object.id)).toEqual([ARCHIVE_ITEM]);
+    expect(sink.failures.map((failure) => failure.itemRef)).toEqual([gone]);
+    expect(persisted[0]?.result).toMatchObject({ restored: 1, failures: 1 });
+  });
+
+  it("refuses a restore from the archive when none of its messages can be read", async () => {
+    const row = archiveRow as unknown as typeof storedRow;
+    const { store } = memoryStore(row);
+    store.loadArchiveItems = async () => [];
+    const handler = createRestoreHandler({
+      dispatcher: () => ({
+        run: async () => ({ restored: 0, skipped: 0, bytes: 0, failures: [] }),
+      }),
+      store: () => store,
+    });
+    await expect(handler.run(context().ctx, payload)).rejects.toBeInstanceOf(InvalidPayloadError);
+  });
+
   it("rejects jobs it cannot run instead of retrying them", async () => {
     const dispatcher = () => ({
       run: async () => ({ restored: 0, skipped: 0, bytes: 0, failures: [] }),
@@ -514,6 +623,61 @@ describe.skipIf(!adminUrl)("restore store against Postgres", () => {
     await store.persistResult(jobId, result);
     const [row] = await db.select({ payload: jobs.payload }).from(jobs).where(eq(jobs.id, jobId));
     expect(row?.payload).toEqual({ jobId, tenantId, runtime, result });
+  });
+
+  it("loads the archived messages of the object only, and only with their content reference", async () => {
+    const store = pgRestoreStore(tenantRunner(db, tenantId), tenantId);
+    const [other] = await db
+      .insert(protectedObjects)
+      .values({
+        tenantId,
+        sourceId: imapObject.sourceId,
+        kind: "imap",
+        externalId: `other-${randomUUID().slice(0, 6)}@example.test`,
+      })
+      .returning();
+    const insert = async (values: {
+      own?: string;
+      chunks?: string[] | null;
+      size?: number | null;
+    }) => {
+      const id = randomUUID();
+      await db.insert(archiveItems).values({
+        id,
+        tenantId,
+        protectedObjectId: values.own ?? null,
+        messageId: `<${id}@example.test>`,
+        itemHash: "cd".repeat(32),
+        chainHash: `chain-${id}`,
+        receivedAt: new Date("2026-03-01T08:00:00Z"),
+        capturedVia: "imap_sync",
+        storagePath: `tenants/${tenantId}/archive/${id}`,
+        sizeBytes: values.size === undefined ? 10 : values.size,
+        chunks: values.chunks === undefined ? ["c1"] : values.chunks,
+      });
+      return id;
+    };
+    const own = await insert({ own: imapObject.id });
+    const journal = await insert({});
+    await db
+      .insert(archiveItemMailboxes)
+      .values({ tenantId, archiveItemId: journal, protectedObjectId: imapObject.id });
+    const foreign = await insert({ own: other?.id });
+    const unrecorded = await insert({ own: imapObject.id, chunks: null, size: null });
+
+    const loaded = await store.loadArchiveItems?.(imapObject.id, [
+      own,
+      journal,
+      foreign,
+      unrecorded,
+    ]);
+    expect(loaded?.map((item) => item.id).sort()).toEqual([own, journal].sort());
+    expect(loaded?.find((item) => item.id === own)).toMatchObject({
+      sizeBytes: 10,
+      chunks: ["c1"],
+      itemHash: "cd".repeat(32),
+    });
+    expect(await store.loadArchiveItems?.(imapObject.id, [])).toEqual([]);
   });
 
   it("resolves the IMAP account of the object and of another known login", async () => {

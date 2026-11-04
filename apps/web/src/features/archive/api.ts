@@ -53,7 +53,7 @@ export interface ArchiveSearchParams {
   offset?: number;
 }
 
-function toQueryString(params: ArchiveSearchParams): string {
+function toQueryString(params: object): string {
   const usp = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") {
@@ -66,6 +66,30 @@ function toQueryString(params: ArchiveSearchParams): string {
 
 export function searchArchive(params: ArchiveSearchParams): Promise<ArchiveSearchResponse> {
   return apiFetch<ArchiveSearchResponse>(`/archive/search${toQueryString(params)}`);
+}
+
+/**
+ * A mailbox's archived mail that arrived after its newest backup (GET /archive/gap): the
+ * restore explorer's source "From the archive" (#48). Every listing is audited.
+ */
+export interface ArchiveGap {
+  objectId: string;
+  /** Start of the newest completed backup the gap is measured from; null without a backup. */
+  since: string | null;
+  snapshotId: string | null;
+  items: ArchiveSearchResult[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Messages per page of the explorer's source "From the archive". */
+export const ARCHIVE_GAP_PAGE = 50;
+
+export function fetchArchiveGap(objectId: string, offset = 0): Promise<ArchiveGap> {
+  return apiFetch<ArchiveGap>(
+    `/archive/gap${toQueryString({ object: objectId, limit: ARCHIVE_GAP_PAGE, offset })}`,
+  );
 }
 
 export interface ArchiveItem {
@@ -349,6 +373,8 @@ export const archiveKeys = {
     ["tenant", tenantId, "archive", "item", id] as const,
   preview: (tenantId: string | null, id: string) =>
     ["tenant", tenantId, "archive", "item", id, "preview"] as const,
+  gap: (tenantId: string | null, objectId: string, offset: number) =>
+    ["tenant", tenantId, "archive", "gap", objectId, offset] as const,
   chain: (tenantId: string | null) => ["tenant", tenantId, "archive", "chain"] as const,
   retention: (tenantId: string | null) => ["tenant", tenantId, "archive", "retention"] as const,
   capture: (tenantId: string | null) => ["tenant", tenantId, "archive", "capture"] as const,

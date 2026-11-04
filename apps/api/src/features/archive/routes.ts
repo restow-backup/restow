@@ -11,8 +11,10 @@ import {
 } from "../../middleware/session.js";
 import { parseOrProblem } from "../../schemas.js";
 import { contentDisposition } from "../restore/headers.js";
+import { listArchiveGap } from "./gap.js";
 import { archiveRetentionViewFor } from "./retention-policy.js";
 import {
+  archiveGapQuerySchema,
   archiveItemParamSchema,
   archiveSearchQuerySchema,
   chainVerifyQuerySchema,
@@ -36,6 +38,8 @@ import { type VerifyOptions, verifyArchive } from "./verify.js";
  *   GET    /items/:id/download  the original message as `.eml` (audited read)
  *   GET    /chain/verify        links, daily anchors and a content sample (audited; verify.ts)
  *   GET    /retention           the retention that applies to the tenant's archive (read only)
+ *   GET    /gap?object=         a mailbox's archived mail after its newest backup, for the
+ *                               restore explorer's source "From the archive" (audited; gap.ts)
  *
  * Search and reading are part of the core. Legal holds
  * (`/archive/legal-holds`) and the rest of the GoBD layer (journal receipt,
@@ -73,6 +77,17 @@ export function buildArchiveRoutes(deps: ArchiveRoutesDeps): Hono<TenantEnv> {
   routes.get("/search", deps.requireAdmin, async (c) => {
     const query = parseOrProblem(archiveSearchQuerySchema, c.req.query());
     return c.json(await searchArchive(deps.db, c.get("tenantId"), query, actorOf(c)));
+  });
+
+  routes.get("/gap", deps.requireAdmin, async (c) => {
+    const query = parseOrProblem(archiveGapQuerySchema, c.req.query());
+    const user = c.get("user");
+    return c.json(
+      await listArchiveGap(deps.db, c.get("tenantId"), query, {
+        ...actorOf(c),
+        email: user.email,
+      }),
+    );
   });
 
   routes.get("/items/:id", deps.requireAdmin, async (c) => {
