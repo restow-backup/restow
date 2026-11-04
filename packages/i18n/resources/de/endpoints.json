@@ -593,6 +593,7 @@
     },
     "consistency": {
       "used": "{method, select, vss {Schattenkopie (dateikonsistent)} none {Dateisystem-Snapshot (dateikonsistent)} other {Dateisystem-Snapshot {method} (dateikonsistent)}}",
+      "usedWith": "{method, select, vss {Schattenkopie (dateikonsistent); direkt gelesen: {live}} none {Dateisystem-Snapshot (dateikonsistent); direkt gelesen: {live}} other {Dateisystem-Snapshot {method} (dateikonsistent); direkt gelesen: {live}}}",
       "partial": "{method, select, vss {Teilweise ohne Schattenkopie} other {Teilweise ohne Dateisystem-Snapshot}}",
       "partialWith": "{method, select, vss {Teilweise ohne Schattenkopie: {live}} other {Teilweise ohne Dateisystem-Snapshot: {live}}}",
       "unavailable": "{method, select, vss {Ohne Schattenkopie (Schattenkopie nicht verfügbar)} other {Ohne Dateisystem-Snapshot (nicht verfügbar)}}",

@@ -402,6 +402,13 @@ private repository.
   decides now, for the restore, the restore check and the boot test; the text says that Restow
   restores containers only as unprivileged and why, and the guest's page says "Not checked:
   privileged container".
+- Windows agent (preview), run details: a run that saved no snapshot (the shadow copy of C:\
+  failed under the policy "stop the backup") still showed a consistency line such as "Partly
+  without a shadow copy: C:\", which read as if data had been backed up that way. The line is
+  left out for a run without a snapshot; its errors say why the shadow copy failed. A run read
+  from a shadow copy with some volumes read live (an exFAT or removable disk beside C:\) showed
+  only "Shadow copy (file consistent)"; it now names them: "Shadow copy (file consistent); read
+  live: E:\".
 
 ### Upgrade Notes
 

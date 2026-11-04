@@ -593,6 +593,7 @@
     },
     "consistency": {
       "used": "{method, select, vss {Shadow copy (file consistent)} none {File system snapshot (file consistent)} other {File system snapshot {method} (file consistent)}}",
+      "usedWith": "{method, select, vss {Shadow copy (file consistent); read live: {live}} none {File system snapshot (file consistent); read live: {live}} other {File system snapshot {method} (file consistent); read live: {live}}}",
       "partial": "{method, select, vss {Partly without a shadow copy} other {Partly without a file system snapshot}}",
       "partialWith": "{method, select, vss {Partly without a shadow copy: {live}} other {Partly without a file system snapshot: {live}}}",
       "unavailable": "{method, select, vss {Without a shadow copy (shadow copy not available)} other {Without a file system snapshot (not available)}}",
