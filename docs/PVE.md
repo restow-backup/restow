@@ -709,7 +709,46 @@ the first; it needs KVM on the Restow server and is not part of this release.
 
 **Without Restow:** `restow-restore` (packages/cli) writes a VM restore point's
 disks as sparse raw images (`disks/<device>.raw`) from the storage target and
-the master key alone. Container restore points are plain restic repositories.
+the master key alone.
+
+A container restore point is a restic snapshot in the guest's repository
+(`pve-guests/<guest id>/` of the tenant's primary target), with the repository
+password next to it in `restow-repository-password.json`, sealed with the
+tenant key as for machines. `restow-restore endpoint-password` opens only the
+passwords under `endpoints/` in this release, not those of containers. What the
+snapshot holds and what it does not:
+
+- **Files only.** The snapshot is the container's root file system and its
+  volume mount points with `backup=1`, as the container sees them. Its `pct`
+  configuration and its firewall configuration are not in the snapshot: they
+  go to the Restow server with the commit and are kept there with the restore
+  point (PVE's "Show configuration" reads them from there). Without the Restow
+  server take them from `/etc/pve/lxc/<vmid>.conf` and
+  `/etc/pve/firewall/<vmid>.fw` of the cluster, if the original still exists,
+  or from your own copy of `/etc/pve`.
+- **Container-view owners.** The files belong to the ids inside the container
+  (root 0, a user 1000). A `restic restore` as root on the host writes exactly
+  those ids. Copied into an unprivileged container as they are, every file
+  would be owned by the host's root and read as nobody:nogroup inside. Let PVE
+  map the ids instead: restore the snapshot as root into an empty folder, then
+  hand it to `pct restore` as a tar stream on stdin (`-`), which PVE unpacks in
+  the container's user namespace:
+
+  ```sh
+  restic -r <repository> --password-file <file> restore <snapshot id> --target /root/ct-restore
+  tar -C /root/ct-restore --numeric-owner -cpf - . | \
+    pct restore <new vmid> - --unprivileged 1 --rootfs <storage>:<GiB>
+  ```
+
+  Without the configuration in the archive PVE creates the container with
+  defaults: set hostname, memory, cores and network afterwards (`pct set`),
+  from the configuration above, and add every volume mount point again (its
+  files are in the tar stream below the mount path, so give the rootfs room
+  for them, or move them onto a new mount point afterwards). A privileged
+  container takes `--unprivileged 0`: its ids are the host's. A container with
+  a custom `lxc.idmap` is restored with the default map this way; add the
+  `lxc.idmap` lines as root afterwards and change the owners of the files of
+  the remapped ids to match before it starts.
 
 ## The Restow server's own VM
 

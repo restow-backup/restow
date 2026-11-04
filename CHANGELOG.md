@@ -526,6 +526,17 @@ private repository.
   guest with that VMID. The node now leaves them out: guests tagged and named so, and guests in
   `restow-restore` with that tag, that name or a marker of the node (a restore still running).
   A real restore in `restow-restore` is still reported.
+- Proxmox VE: docs/PVE.md said that container restore points are plain restic repositories, as
+  if a container could be recovered without Restow with restic alone. It could not as written:
+  the snapshot holds no `pct` configuration (the configuration is kept by the Restow server),
+  and files restored with restic belong to the ids as the container sees them, so copied into
+  a new unprivileged container they are owned by the host's root and read as nobody:nogroup.
+  The section "Without Restow" now says where the configuration is, that `restow-restore
+  endpoint-password` does not open a container's password in this release, and how to recover
+  a container: `restic restore` as root, then `tar --numeric-owner -cpf - . | pct restore
+  <vmid> - --unprivileged 1 --rootfs <storage>:<GiB>`, which lets PVE map the ids, with notes for
+  privileged containers and a custom `lxc.idmap`. docs/PROXMOX.md no longer plans the
+  configuration as a file in the snapshot.
 
 ### Upgrade Notes
 

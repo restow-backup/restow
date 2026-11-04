@@ -514,14 +514,19 @@ keys anyway.
   restic cache dir `/var/cache/restow-pve/ct-<vmid>` to that uid (or uses `--no-cache` below 1 GB free).
 - `backup_container` (as uid 100000 in the user namespace): runs `restic backup` on `directory` for each
   entry of `sources`, translates `$exclude_patterns` (vzdump globs) to restic `--exclude`, and tags
-  `vmid=<id>`, `cluster=<id>`, `run=<id>`. It also stores `pct.conf` and the firewall config as files in
-  the snapshot (e.g. `/.restow/pct.conf`) or as restic snapshot metadata. Network access works because
-  only the user namespace changes [I, test].
+  `vmid=<id>`, `run=<id>`. The `pct` configuration and the firewall config are not stored in the
+  snapshot: they go to the server with the commit (`guestConfig`, `firewallConfig`) and are kept with
+  the restore point. A file beside the sources would add a path to the snapshot (restic picks the
+  parent snapshot by its paths, and the tree would no longer be the container root the file browser
+  and every restore rely on); a second snapshot per run would break the one snapshot per restore
+  point the server's retention, checks and restores assume. Network access works because only the
+  user namespace changes [I, test].
 - **One restic repository per guest** under `endpoints/<repoId>/` (same layout, authz matrix, quota and
   lock handling as the agent). Retention, check and restore-test run on the server through the existing
   loopback maintenance path. Reasons: a guest migrates between nodes, per-guest retention and quotas
   apply, prune does not block other guests' backups, and "restore without Restow" stays a plain
-  `restic restore`.
+  `restic restore`, followed by `tar --numeric-owner -cpf - . | pct restore <vmid> - --unprivileged 1`
+  so that PVE maps the container's ids (docs/PVE.md, "Without Restow").
 - **Credential scope:** the restic-REST principal for a run is limited to that guest's repository and
   expires with the run. A node holds no long-lived restic credential.
 - Alternative considered: CT file trees into the chunk store via server-side ingest. That would mean
