@@ -259,7 +259,10 @@ restore also the target VMID and what the restore left out) in
 `/var/lib/restow-pve/inflight.json` from the moment PVE started it, and waits for it again when
 the service starts; the result then says how the task really ended. A task that had not started
 its PVE task yet is delivered again by the server (after 30 minutes, as any delivered task
-without a result). Every `qm` and `pct` call has a deadline (60 seconds for `config`, `set`,
+without a result). A restore restow-pve runs as root (`qmrestore`, see `restoredAsRoot`) is a
+child of the service and ends with it (PVE then ends its task "interrupted by signal"); the wait
+after the restart reports that, and a restore test's guest is removed as after any failed
+restore. Every `qm` and `pct` call has a deadline (60 seconds for `config`, `set`,
 `status`, `guest cmd`, `exec`; five minutes for `start`, `stop`, `destroy`, `unlock`), and a boot
 test's start and boot together at most twice its wait plus five minutes.
 
