@@ -328,5 +328,10 @@ heartbeats every 15 seconds while a task runs or waits (every minute otherwise).
   route) with 409, so an older node ends the backup at its next call.
 - `finish` with `failed` (and `/tasks/:id/result` with `failed`) after a cancel request
   ends the run and the task as `cancelled`; a run that committed its restore point
-  before still ends `succeeded`.
+  before still ends `succeeded`. That holds for every `finish` with `failed` of a
+  committed run, with or without a cancel request (vzdump failing after the commit, for
+  example while it removes the fleecing image): the run succeeds with the node's error
+  as a warning (`stats.warnings`, "Succeeded with warnings"), its task is `done`, and
+  the guest's "Last backup" moves. A failed task result that comes later changes none
+  of it.
 

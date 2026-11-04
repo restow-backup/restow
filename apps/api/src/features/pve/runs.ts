@@ -927,16 +927,29 @@ export async function finishRun(
   if (run.status !== "running") {
     return;
   }
-  const status = endedStatus(
-    run,
-    input.status === "succeeded" && run.snapshotId ? "succeeded" : "failed",
-  );
+  // A backup that committed its restore point succeeded, whatever ends it afterwards: a stop
+  // pressed after the commit, or vzdump failing while it cleans up (fleecing). The restore point
+  // is there and listed; the node's message becomes a warning (docs/PVE-PROTOCOL.md, "Cancel
+  // orders"), as finishFailedTaskRun does for the task's end.
+  const committed = run.snapshotId !== null;
+  const status = committed ? "succeeded" : endedStatus(run, "failed");
   const message =
-    status === "failed"
-      ? (input.error ?? "").slice(0, 2000) ||
-        (run.snapshotId ? "" : "The backup ended without a restore point.")
-      : null;
-  if (!run.snapshotId) {
+    status === "succeeded"
+      ? null
+      : (input.error ?? "").slice(0, 2000) || "The backup ended without a restore point.";
+  const lateError =
+    committed && input.status === "failed"
+      ? (input.error ?? "").trim().slice(0, 500) ||
+        "The backup reported an error after its restore point was committed."
+      : "";
+  const stats: Record<string, unknown> = { ...run.stats, ...(input.stats ?? {}) };
+  if (lateError) {
+    const before = Array.isArray(stats.warnings)
+      ? stats.warnings.filter((w): w is string => typeof w === "string")
+      : [];
+    stats.warnings = mergeWarnings(before, [lateError]);
+  }
+  if (!committed) {
     await releaseStaging(node.tenantId, run.id);
   }
   await withTenantTx(db, node.tenantId, async (tx) => {
@@ -946,7 +959,7 @@ export async function finishRun(
         status,
         finishedAt: now,
         errorMessage: message,
-        stats: { ...run.stats, ...(input.stats ?? {}) },
+        stats,
       })
       .where(eq(pveRuns.id, run.id));
     if (status !== "cancelled") {

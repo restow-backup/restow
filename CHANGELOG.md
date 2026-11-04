@@ -368,6 +368,11 @@ private repository.
   leave alone (used by restow-pve from 0.5.0), a VMID typed into the restore dialog that
   belonged to such a guest needs a confirmation, and another guest that still turns up under
   such a VMID gets its own row while the old one stays absent with its restore points.
+- Proxmox VE: a backup stopped after it had committed its restore point, or whose vzdump failed
+  afterwards (removing the fleecing image, for example), ended "Cancelled" or "Failed" next to a
+  valid new restore point; a cancelled one did not move "Last backup", so the guest could turn
+  overdue. Such a run now ends "Succeeded with warnings" with the node's message, its task done,
+  and "Last backup" moves. A run without a restore point still ends cancelled or failed.
 
 ### Upgrade Notes
 
