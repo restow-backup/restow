@@ -178,7 +178,9 @@ pveNodeRoutes.post("/heartbeat", async (c) => {
 
 pveNodeRoutes.post("/inventory", async (c) => {
   const input = await parseJsonBody(c.req, inventorySchema);
-  return c.json(await reportInventory(c.get("node"), input.guests));
+  return c.json(
+    await reportInventory(c.get("node"), input.guests, new Date(), input.clusterGuests),
+  );
 });
 
 pveNodeRoutes.post("/tasks/:taskId/result", async (c) => {

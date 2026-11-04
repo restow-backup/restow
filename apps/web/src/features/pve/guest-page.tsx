@@ -853,6 +853,13 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
       </PageHeader>
       {data && canManage ? <BackupDestinationNote /> : null}
       {chains[0] ? <RepositoryChainNotice chain={chains[0]} /> : null}
+      {data?.guest.attention.includes("no_restow_node") ? (
+        <Alert variant="warning" data-slot="pve-guest-no-restow-node">
+          <TriangleAlert />
+          <AlertTitle>{t("guest.noRestowNode.title", { node: data.guest.node ?? "?" })}</AlertTitle>
+          <AlertDescription>{t("guest.noRestowNode.what")}</AlertDescription>
+        </Alert>
+      ) : null}
       {data?.guest.bootTestLeftover ? (
         <BootTestLeftoverNotice leftover={data.guest.bootTestLeftover} />
       ) : null}

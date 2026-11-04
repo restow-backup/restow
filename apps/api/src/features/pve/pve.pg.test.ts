@@ -2064,4 +2064,59 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       await fixture.db.execute(sql`DELETE FROM settings`);
     }
   });
+  it("a guest that moved to a node without restow-pve stays present and needs attention; one gone from the cluster is absent (S15)", async () => {
+    // A cluster of its own: nodes A (restow-pve) and B (restow-pve); C has none.
+    const a = await json<Node>(await enroll(fixture.tenantId, "9".repeat(64), "pveA"), 201);
+    await json<Node>(await enroll(fixture.tenantId, "9".repeat(64), "pveB"), 201);
+    const inventory = (body: unknown) => call(a, "/inventory", { json: body });
+    const ct = (vmid: number) => ({ vmid, kind: "ct", name: `ct${vmid}`, node: "pveA" });
+    const lxc = (vmid: number, on: string) => ({ vmid, node: on, type: "lxc" });
+    const guest = async (vmid: number) =>
+      (await service.overview(shared.db, fixture.tenantId)).guests.find(
+        (g) => g.clusterId === a.clusterId && g.vmid === vmid,
+      );
+    await json(await inventory({ guests: [ct(120), ct(121), ct(122), ct(123)] }));
+
+    // HA moved CT 120 to C and CT 123 to B; CT 121 was deleted; VM 130 runs on C and was
+    // never on a node with restow-pve.
+    await json(
+      await inventory({
+        guests: [ct(122)],
+        clusterGuests: [
+          lxc(120, "pveC"),
+          lxc(122, "pveA"),
+          lxc(123, "pveB"),
+          { vmid: 130, node: "pveC", type: "qemu" },
+        ],
+      }),
+    );
+    expect(await guest(120)).toMatchObject({ present: true, node: "pveC" });
+    expect((await guest(120))?.attention).toContain("no_restow_node");
+    expect(await guest(121)).toMatchObject({ present: false });
+    // B reports it: not absent meanwhile, and not "no Restow node".
+    expect(await guest(123)).toMatchObject({ present: true, node: "pveB" });
+    expect((await guest(123))?.attention).not.toContain("no_restow_node");
+    expect(await guest(130)).toMatchObject({ present: true, node: "pveC", kind: "vm" });
+    expect((await guest(130))?.attention).toEqual(expect.arrayContaining(["no_restow_node"]));
+    const detail = await service.guestDetail(
+      shared.db,
+      fixture.tenantId,
+      (await guest(120))?.id ?? "",
+    );
+    expect(detail.guest.attention).toContain("no_restow_node");
+
+    // Gone from the cluster's list: absent.
+    await json(
+      await inventory({ guests: [ct(122)], clusterGuests: [lxc(122, "pveA"), lxc(123, "pveB")] }),
+    );
+    expect(await guest(120)).toMatchObject({ present: false });
+    expect(await guest(130)).toMatchObject({ present: false });
+    expect(await guest(123)).toMatchObject({ present: true });
+
+    // A node that could not read the list (or an older one) sends none: only its own guests
+    // count, as before.
+    await json(await inventory({ guests: [], clusterGuests: null }));
+    expect(await guest(122)).toMatchObject({ present: false });
+    expect(await guest(123)).toMatchObject({ present: true });
+  });
 });

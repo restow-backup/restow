@@ -115,6 +115,24 @@ export const inventorySchema = z.object({
     .max(10_000)
     .nullish()
     .transform((v) => v ?? []),
+  /**
+   * Every guest of the cluster with the node it runs on, from /cluster/resources (restow-pve
+   * from 0.5.0). Absent from an older node, or null when the node could not read the list: then
+   * only the node's own guests count (an older server ignores it).
+   */
+  clusterGuests: z
+    .array(
+      z.object({
+        vmid,
+        node: z.string().min(1).max(64),
+        type: z
+          .enum(["qemu", "lxc", "vm", "ct"])
+          .transform((t) => (t === "qemu" || t === "vm" ? "vm" : "ct")),
+      }),
+    )
+    .max(20_000)
+    .nullish()
+    .transform((v) => v ?? null),
 });
 
 /**

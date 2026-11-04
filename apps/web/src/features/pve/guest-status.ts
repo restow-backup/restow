@@ -43,6 +43,7 @@ export const GUEST_STATUS_ORDER = [
   "warnings",
   "boot_test_leftover",
   "restow_server",
+  "no_restow_node",
   "no_job",
   "never",
   "cancelled",
@@ -105,6 +106,8 @@ export const GUEST_STATUS_META: Record<GuestStatusKey, StatusMeta> = {
   // A boot test's temporary guest could not be removed and still takes memory and disk.
   boot_test_leftover: { tone: "warning", problem: true, group: "warnings" },
   restow_server: { tone: "warning", problem: false, group: null },
+  // It runs on a node without restow-pve: no backup can run there (servers from 0.5.0).
+  no_restow_node: { tone: "warning", problem: true, group: "no_backup" },
   no_job: { tone: "warning", problem: true, group: "no_backup" },
   never: { tone: "warning", problem: true, group: "no_backup" },
   // Excluded from backup by an administrator on purpose: not a problem, a filter of its own.
@@ -229,6 +232,9 @@ export function guestStatuses(guest: StatusGuest, node?: StatusNode): GuestStatu
   // are the guests Restow restored into its pool.
   const backable =
     guest.present && !(guest.kind === "vm" && guest.template) && !excluded && !restorePool;
+  if (backable && (guest.attention ?? []).includes("no_restow_node")) {
+    keys.add("no_restow_node");
+  }
   if (backable && (guest.attention ?? []).includes("no_job")) {
     keys.add("no_job");
   }

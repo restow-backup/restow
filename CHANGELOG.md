@@ -353,6 +353,13 @@ private repository.
   job". Such a guest in no job is now left out of the job for all guests and every count, and
   the list shows it as "Restored, in restow-restore (move it out of the pool to protect it)". A
   guest put into a job by hand is still backed up.
+- Proxmox VE: a guest that moved (HA, a migration) to a node of the cluster without restow-pve
+  silently dropped out of backups and of every count: the node it left no longer listed it, so
+  it read "No longer reported" and no job, unprotected count or overdue warning took it. With
+  restow-pve from 0.5.0, which sends the cluster's whole guest list with its inventory, such a
+  guest stays in the list with its node, reads "Node without restow-pve" (amber) and counts as
+  unprotected; only a guest the cluster no longer has is absent. An older node keeps the
+  previous behaviour.
 
 ### Upgrade Notes
 

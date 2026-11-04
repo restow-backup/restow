@@ -45,6 +45,13 @@ const keys = (g: PveGuest, node?: Parameters<typeof guestStatuses>[1]) =>
   guestStatuses(g, node).map((s) => s.key);
 
 describe("guest states", () => {
+  it("names a guest on a node without restow-pve, amber and a problem without a backup", () => {
+    const statuses = guestStatuses(testGuest({ node: "pveC", attention: ["no_restow_node"] }));
+    expect(statuses[0]).toEqual({ key: "no_restow_node", tone: "warning", problem: true });
+    expect(matchesStateFilter(statuses, "no_backup")).toBe(true);
+    expect(matchesStateFilter(statuses, "ok")).toBe(false);
+  });
+
   it("shows a restored copy in restow-restore in no job as such, never as unprotected", () => {
     const restored = testGuest({
       jobId: null,

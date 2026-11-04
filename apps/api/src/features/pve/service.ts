@@ -4,8 +4,8 @@ import {
   pveBootTestRating,
   pveGuestBackable,
   pveGuestCounted,
-  pveGuestInRestorePool,
   pveGuestExcluded,
+  pveGuestInRestorePool,
   pveGuestIsRestowServer,
   pveJobOfGuest,
   pveNextRunAt,
@@ -444,6 +444,7 @@ function guestDto(
   detail: GuestActivityDetail = { since: null, progress: null },
   verify: GuestVerifyFact | null = null,
   leftover: BootTestLeftover | null = null,
+  helperNodes: ReadonlySet<string> | null = null,
 ) {
   const attention: string[] = [];
   if (g.template && g.kind === "vm") {
@@ -462,6 +463,13 @@ function guestDto(
   }
   if (!g.present) {
     attention.push("absent");
+  }
+  // It runs on a node of its cluster without restow-pve (its inventory comes from another
+  // node's cluster list): nothing backs it up there (docs/PVE.md, "Nodes without restow-pve").
+  const noRestowNode =
+    helperNodes !== null && g.present && g.node !== null && !helperNodes.has(g.node);
+  if (noRestowNode && pveGuestCounted(g)) {
+    attention.push("no_restow_node");
   }
   // A restored copy or a temporary guest in no job: not backed up, and not to be (docs/PVE.md).
   if (pveGuestBackable(g) && g.jobId === null && pveGuestInRestorePool(g)) {
@@ -716,6 +724,12 @@ export async function overview(database: Database, tenantId: string, now: Date =
       }
     }
     const leftovers = await bootTestLeftovers(tx);
+    const helpersByCluster = new Map<string, Set<string>>();
+    for (const n of nodes) {
+      const set = helpersByCluster.get(n.clusterId) ?? new Set<string>();
+      set.add(n.name);
+      helpersByCluster.set(n.clusterId, set);
+    }
     const jobMap = new Map(jobs.map((j) => [j.id, j]));
     const guestCounts = new Map<string, number>();
     // Paused jobs count their guests too (the worker's `coveredBy`).
@@ -745,6 +759,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
           activityDetail.get(g.id),
           verifies.get(g.id) ?? null,
           leftovers.get(g.id) ?? null,
+          helpersByCluster.get(g.clusterId) ?? new Set(),
         ),
       ),
       jobs: jobs.map((j) =>
@@ -939,6 +954,14 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         undefined,
         newest ? verifyFact(newest.verify, newest.verifyRequestedAt, newest.bootTest) : null,
         (await bootTestLeftovers(tx, guest.id)).get(guest.id) ?? null,
+        new Set(
+          (
+            await tx
+              .select({ name: pveNodes.name })
+              .from(pveNodes)
+              .where(and(eq(pveNodes.clusterId, guest.clusterId), isNull(pveNodes.revokedAt)))
+          ).map((n) => n.name),
+        ),
       ),
       bootTest: await guestBootTestFacts(tx, guest),
       restoreCheck: await guestRestoreCheckFacts(tx, guest),

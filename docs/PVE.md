@@ -463,6 +463,20 @@ point contains (restic's `total_bytes_processed`) and what it added (`data_added
 as the agent reported it for the run, else restic's own snapshot summary from
 restic 0.17 on). Points without either figure show neither.
 
+## Nodes without restow-pve
+
+Every node of a cluster should run restow-pve: a backup of a guest runs on the
+node the guest is on. restow-pve from 0.5.0 sends the cluster's whole guest
+list (`/cluster/resources`: VMID, node, type) with its inventory. A guest that
+moved (HA, a migration) to a node without restow-pve then stays in the list
+with that node, reads **Node without restow-pve** (amber, a problem: no backup
+can run there) and its page says "Runs on node X, which has no Restow helper";
+it counts as unprotected once its backups are overdue, instead of silently
+dropping out of every count. A guest is marked "No longer reported" only when
+the cluster's list no longer names it. Without the list (an older restow-pve,
+or one that could not read it) a node's inventory only speaks for its own
+guests, as before: one it no longer lists reads absent.
+
 ## Restore
 
 From the guest's page: **Restore as a new guest**, with the target storage,

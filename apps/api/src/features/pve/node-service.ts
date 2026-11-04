@@ -581,15 +581,29 @@ export interface InventoryGuestInput {
   smbiosUuid?: string | null;
 }
 
+/** A guest of the cluster as /cluster/resources lists it (restow-pve from 0.5.0). */
+export interface ClusterGuestInput {
+  vmid: number;
+  node: string;
+  type: "vm" | "ct";
+}
+
 /**
- * Replace what this node reports: every guest it lists is upserted (it may
- * have migrated here), every guest last seen on this node that it no longer
- * lists is marked absent.
+ * Replace what this node reports: every guest it lists is upserted (it may have migrated here).
+ *
+ * With the cluster's whole guest list (`clusterGuests`, restow-pve from 0.5.0) the sweep is
+ * cluster-wide and by fact: a guest the list does not name is gone (absent); a guest it names on
+ * a node without restow-pve stays present with that node, so it reads "no Restow node" and
+ * counts as unprotected instead of dropping out of every count; a guest on another node with
+ * restow-pve is that node's to report. Without the list (an older node, or one that could not
+ * read it), every guest last seen on this node that it no longer lists is marked absent, as
+ * before.
  */
 export async function reportInventory(
   node: NodeContext,
   guests: InventoryGuestInput[],
   now: Date = new Date(),
+  clusterGuests: ClusterGuestInput[] | null = null,
 ): Promise<{ guests: number }> {
   // The VM this installation runs in carries the server's SMBIOS UUID (self-guest.ts).
   const own = await ownSmbiosUuid();
@@ -617,20 +631,100 @@ export async function reportInventory(
         .onConflictDoUpdate({ target: [pveGuests.clusterId, pveGuests.vmid], set: values });
     }
     const listed = guests.map((g) => g.vmid);
-    await tx
-      .update(pveGuests)
-      .set({ present: false })
-      .where(
-        and(
-          eq(pveGuests.clusterId, node.clusterId),
-          eq(pveGuests.node, node.name),
-          listed.length > 0 ? notInArray(pveGuests.vmid, listed) : sql`true`,
-        ),
-      );
+    if (clusterGuests === null) {
+      await tx
+        .update(pveGuests)
+        .set({ present: false })
+        .where(
+          and(
+            eq(pveGuests.clusterId, node.clusterId),
+            eq(pveGuests.node, node.name),
+            listed.length > 0 ? notInArray(pveGuests.vmid, listed) : sql`true`,
+          ),
+        );
+    } else {
+      await sweepByClusterList(tx, node, listed, clusterGuests);
+    }
     // A boot test's temporary guest this node could not remove and no longer lists is gone.
     await markBootTestLeftoversGone(tx, node.nodeId, listed, now);
   });
   return { guests: guests.length };
+}
+
+/** The cluster-wide sweep of {@link reportInventory}, by the cluster's whole guest list. */
+async function sweepByClusterList(
+  tx: Transaction,
+  node: NodeContext,
+  listed: readonly number[],
+  clusterGuests: readonly ClusterGuestInput[],
+): Promise<void> {
+  const named = [...new Set([...listed, ...clusterGuests.map((g) => g.vmid)])];
+  // Gone from the cluster: absent, whichever node last reported it.
+  await tx
+    .update(pveGuests)
+    .set({ present: false })
+    .where(
+      and(
+        eq(pveGuests.clusterId, node.clusterId),
+        eq(pveGuests.present, true),
+        named.length > 0 ? notInArray(pveGuests.vmid, named) : sql`true`,
+      ),
+    );
+  const helpers = new Set(
+    (
+      await tx
+        .select({ name: pveNodes.name })
+        .from(pveNodes)
+        .where(and(eq(pveNodes.clusterId, node.clusterId), isNull(pveNodes.revokedAt)))
+    ).map((n) => n.name),
+  );
+  const own = new Set(listed);
+  for (const g of clusterGuests) {
+    if (own.has(g.vmid) || g.node === node.name) {
+      continue;
+    }
+    if (helpers.has(g.node)) {
+      // That node reports it; a guest that just moved there keeps its row and is not absent.
+      await tx
+        .update(pveGuests)
+        .set({ node: g.node })
+        .where(
+          and(
+            eq(pveGuests.clusterId, node.clusterId),
+            eq(pveGuests.vmid, g.vmid),
+            eq(pveGuests.kind, g.type),
+            eq(pveGuests.node, node.name),
+          ),
+        );
+      continue;
+    }
+    // Runs on a node without restow-pve: still there, and not backed up there. One no node
+    // with restow-pve ever reported is listed as well, so it is not missed.
+    const kept = await tx
+      .update(pveGuests)
+      .set({ node: g.node, present: true })
+      .where(
+        and(
+          eq(pveGuests.clusterId, node.clusterId),
+          eq(pveGuests.vmid, g.vmid),
+          eq(pveGuests.kind, g.type),
+        ),
+      )
+      .returning({ id: pveGuests.id });
+    if (kept.length === 0) {
+      await tx
+        .insert(pveGuests)
+        .values({
+          tenantId: node.tenantId,
+          clusterId: node.clusterId,
+          vmid: g.vmid,
+          kind: g.type,
+          node: g.node,
+          present: true,
+        })
+        .onConflictDoNothing();
+    }
+  }
 }
 
 /** The warning lines a node reports with a task (vzdump "TASK WARNINGS"), cut and bounded. */

@@ -135,6 +135,7 @@
       "warnings": "Erfolgreich mit Warnungen",
       "boot_test_leftover": "Gast der Startprüfung übrig",
       "restow_server": "{appName}-Server",
+      "no_restow_node": "Knoten ohne restow-pve",
       "no_job": "Kein Backup-Job",
       "never": "Noch nicht gesichert",
       "cancelled": "Abgebrochen",
@@ -314,6 +315,10 @@
       "plain": "Der temporäre Gast {vmid} konnte nicht entfernt werden.",
       "onStorage": "Der temporäre Gast {vmid} auf {storage} konnte nicht entfernt werden.",
       "what": "Er belegt auf dem Knoten {node} weiter Arbeitsspeicher und Speicherplatz (im Pool restow-restore). restow-pve entfernt ihn vor seiner nächsten Startprüfung und beim Start seines Dienstes; Sie können ihn auch in Proxmox VE entfernen."
+    },
+    "noRestowNode": {
+      "title": "Läuft auf dem Knoten {node}, der keinen {appName}-Helfer hat",
+      "what": "Dort kann keine Sicherung dieses Gasts laufen. Installieren Sie restow-pve auf diesem Knoten (VMs & Container → Proxmox VE verbinden), oder verschieben Sie den Gast zurück auf einen Knoten mit restow-pve."
     },
     "chain": {
       "missingTitle": "Neue Sicherungskette am {date} begonnen",

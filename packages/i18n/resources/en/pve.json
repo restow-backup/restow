@@ -135,6 +135,7 @@
       "warnings": "Succeeded with warnings",
       "boot_test_leftover": "Boot test guest left over",
       "restow_server": "{appName} server",
+      "no_restow_node": "Node without restow-pve",
       "no_job": "No backup job",
       "never": "Not backed up yet",
       "cancelled": "Cancelled",
@@ -314,6 +315,10 @@
       "plain": "The temporary guest {vmid} could not be removed.",
       "onStorage": "The temporary guest {vmid} on {storage} could not be removed.",
       "what": "It still takes memory and disk on node {node} (in the pool restow-restore). restow-pve removes it before its next boot test and when its service starts; you can also remove it in Proxmox VE."
+    },
+    "noRestowNode": {
+      "title": "Runs on node {node}, which has no {appName} helper",
+      "what": "No backup of this guest can run there. Install restow-pve on that node (VMs & containers → Connect Proxmox VE), or move the guest back to a node with restow-pve."
     },
     "chain": {
       "missingTitle": "New backup chain started on {date}",
