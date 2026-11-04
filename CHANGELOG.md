@@ -373,6 +373,14 @@ private repository.
   valid new restore point; a cancelled one did not move "Last backup", so the guest could turn
   overdue. Such a run now ends "Succeeded with warnings" with the node's message, its task done,
   and "Last backup" moves. A run without a restore point still ends cancelled or failed.
+- Proxmox VE: browsing the files of a VM restore point could show an ext4 file system as it was
+  before its last committed changes, or with blocks in the wrong places, while it said that the
+  journal was replayed. The replay in memory took the revoke records of a last transaction that
+  never committed (the usual state of a running guest's restore point) and so dropped a
+  committed write of the same block; it read the tags of a journal with checksum v3 on a file
+  system without the 64bit feature as 12 bytes instead of 16; and it skipped a block whose first
+  bytes looked like the journal's magic number, keeping an older copy. It now replays as the
+  kernel and e2fsck do, tested against journals written by debugfs.
 
 ### Upgrade Notes
 

@@ -97,7 +97,11 @@ export class Ext4FileSystem implements GuestFileSystem {
   private firstDataBlock = 0;
   private incompat = 0;
   private descriptors: Buffer | null = null;
-  private overlay = new Map<number, number>();
+  /**
+   * Blocks a committed journal transaction replaced: the journal block that holds the newest
+   * copy, or the copy itself for an escaped block (its first four bytes restored).
+   */
+  private overlay = new Map<number, number | Buffer>();
   private inodeCache = new Map<number, Inode>();
 
   private constructor(private readonly source: ByteSource) {}
@@ -190,6 +194,9 @@ export class Ext4FileSystem implements GuestFileSystem {
     const fromJournal = this.overlay.get(block);
     if (!Number.isSafeInteger(block) || block < 0) {
       throw damaged("an impossible block number");
+    }
+    if (Buffer.isBuffer(fromJournal)) {
+      return Promise.resolve(Buffer.from(fromJournal));
     }
     return this.source.read((fromJournal ?? block) * this.blockSize, this.blockSize);
   }
@@ -498,21 +505,24 @@ export class Ext4FileSystem implements GuestFileSystem {
     const is64 = (incompat & 0x2) !== 0;
     const csumV3 = (incompat & 0x10) !== 0;
     const csumV2 = (incompat & 0x8) !== 0;
-    let tagBytes: number;
-    if (csumV3) {
-      tagBytes = is64 ? 16 : 12;
-    } else {
-      tagBytes = (is64 ? 12 : 8) + (csumV2 ? 2 : 0);
-    }
+    // jbd2's journal_tag_bytes: csum v3 tags are journal_block_tag3_t (16 bytes, with or without
+    // 64bit); otherwise 8 bytes, 4 more for the high block number, 2 more for a csum v2 checksum.
+    const tagBytes = csumV3 ? 16 : (is64 ? 12 : 8) + (csumV2 ? 2 : 0);
+    // A descriptor block of csum v2/v3 ends in a 4-byte checksum tail, which holds no tag.
+    const tagSpace = this.blockSize - (csumV2 || csumV3 ? 4 : 0);
     if (first === 0 || maxLen <= first || start < first || start >= maxLen) {
       throw damaged("an impossible journal geometry");
     }
     const advance = (block: number) => (block + 1 >= maxLen ? first : block + 1);
-    // One pass over the committed transactions: remember what each wrote and revoked.
+    // One pass over the committed transactions: remember what each wrote and revoked. A
+    // transaction counts only once its commit block is read (as jbd2's recovery, whose revoke
+    // pass stops at the last committed transaction): the writes and the revokes of a torn last
+    // transaction are both left out.
     const writes: { seq: number; target: number; from: number; escaped: boolean }[] = [];
     const revoked = new Map<number, number>();
     let block = start;
     let pending: typeof writes = [];
+    let pendingRevokes: number[] = [];
     for (let guard = 0; guard < maxLen * 2; guard++) {
       const { data } = await readJournal(block);
       if (data.readUInt32BE(0) !== JOURNAL_MAGIC || data.readUInt32BE(8) !== sequence) {
@@ -523,7 +533,7 @@ export class Ext4FileSystem implements GuestFileSystem {
         // Descriptor: tags, each followed by the block it describes.
         let at = 12;
         let next = advance(block);
-        for (let t = 0; t < 10_000 && at + tagBytes <= data.length; t++) {
+        for (let t = 0; t < 10_000 && at + tagBytes <= tagSpace; t++) {
           const low = data.readUInt32BE(at);
           const flags = csumV3 ? data.readUInt32BE(at + 4) : data.readUInt16BE(at + 6);
           const high = is64 ? data.readUInt32BE(at + (csumV3 ? 8 : 8)) : 0;
@@ -544,6 +554,10 @@ export class Ext4FileSystem implements GuestFileSystem {
       if (type === 2) {
         writes.push(...pending);
         pending = [];
+        for (const target of pendingRevokes) {
+          revoked.set(target, Math.max(revoked.get(target) ?? 0, sequence));
+        }
+        pendingRevokes = [];
         sequence = (sequence + 1) >>> 0;
         block = advance(block);
         continue;
@@ -552,8 +566,7 @@ export class Ext4FileSystem implements GuestFileSystem {
         const count = data.readUInt32BE(12);
         const size = is64 ? 8 : 4;
         for (let at = 16; at + size <= Math.min(count, data.length); at += size) {
-          const target = is64 ? Number(data.readBigUInt64BE(at)) : data.readUInt32BE(at);
-          revoked.set(target, Math.max(revoked.get(target) ?? 0, sequence));
+          pendingRevokes.push(is64 ? Number(data.readBigUInt64BE(at)) : data.readUInt32BE(at));
         }
         block = advance(block);
         continue;
@@ -565,8 +578,15 @@ export class Ext4FileSystem implements GuestFileSystem {
     for (const write of writes) {
       const revokedAt = revoked.get(write.target);
       if (revokedAt !== undefined && revokedAt >= write.seq) continue;
-      if (write.escaped) continue; // its first bytes looked like the journal magic: rare, skipped
-      this.overlay.set(write.target, (await map(write.from)) || 0);
+      const physical = (await map(write.from)) || 0;
+      if (write.escaped && physical !== 0) {
+        // The block began with the journal magic, which jbd2 zeroed in the log: put it back.
+        const copy = Buffer.from(await this.source.read(physical * this.blockSize, this.blockSize));
+        copy.writeUInt32BE(JOURNAL_MAGIC, 0);
+        this.overlay.set(write.target, copy);
+      } else {
+        this.overlay.set(write.target, physical);
+      }
       applied++;
     }
     for (const [target, physical] of this.overlay) {
