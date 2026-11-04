@@ -342,8 +342,10 @@
     "verifyQueuedBadge": "Prüfung eingereiht",
     "verifyNotCheckedLocked": "Nicht prüfbar: Repository gesperrt",
     "verifyNotCheckedInterrupted": "Nicht prüfbar: Prüfung unterbrochen",
+    "verifyNotCheckedError": "Nicht prüfbar: Prüfung konnte nicht starten",
     "verifyPostponedLocked": "Prüfung verschoben: Repository gesperrt",
-    "verifyPostponedInterrupted": "Prüfung verschoben: Prüfung unterbrochen"
+    "verifyPostponedInterrupted": "Prüfung verschoben: Prüfung unterbrochen",
+    "verifyPostponedError": "Prüfung verschoben: Prüfung konnte nicht starten"
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",
@@ -373,11 +375,16 @@
       "bootYellow": "Der neueste Sicherungsstand ist in seiner Startprüfung gestartet, aber sein Guest Agent hat nicht geantwortet: Es ist nicht nachgewiesen, dass das System funktioniert.",
       "bootRed": "Der neueste Sicherungsstand ist in seiner Startprüfung nicht gestartet.",
       "notCheckedLocked": "Die Restore-Prüfung des neuesten Sicherungsstands konnte zwei Stunden lang nicht laufen: Ein anderer Vorgang hielt die Sperre seines Repositorys. Über den Sicherungsstand ist noch nichts bekannt; die Prüfung wird erneut versucht.",
-      "notCheckedInterrupted": "Die Restore-Prüfung des neuesten Sicherungsstands wurde wiederholt abgebrochen, bevor sie fertig war. Über den Sicherungsstand ist noch nichts bekannt; die Prüfung wird erneut versucht."
+      "notCheckedInterrupted": "Die Restore-Prüfung des neuesten Sicherungsstands wurde wiederholt abgebrochen, bevor sie fertig war. Über den Sicherungsstand ist noch nichts bekannt; die Prüfung wird erneut versucht.",
+      "notCheckedError": "Die Restore-Prüfung des neuesten Sicherungsstands konnte zwei Stunden lang nicht starten (den Grund sehen Sie darunter). Über den Sicherungsstand ist noch nichts bekannt; die Prüfung wird erneut versucht."
     },
     "checkNow": "Jetzt prüfen",
     "checkNowFor": "{name} jetzt prüfen",
     "checkWaiting": "Prüfung eingereiht",
+    "checkOverdue": "Prüfung überfällig",
+    "checkStalled": "Diese Prüfung ist seit mehr als 30 Minuten fällig und ist noch nicht gelaufen. Der Durchlauf des Servers für VMs und Container ist noch nicht bei ihr angekommen: Er ist womöglich noch mit einer anderen Prüfung beschäftigt, oder der Worker läuft nicht. Das Log des Workers nennt die Ursache (Zeilen, die mit „pve“ beginnen).",
+    "checkBlocked": "Diese Prüfung ist seit mehr als 30 Minuten fällig und wartet, weil ein Vorgang des Gastes noch als laufend verzeichnet ist, ohne seit mehr als zwei Stunden ein Lebenszeichen zu geben: {kind} seit {since}. Solange ein Vorgang eines Gastes läuft, wird er nicht geprüft. Ist dieser Vorgang zu Ende, ohne dass sein Ende den Server erreicht hat, beendet ihn der Server (spätestens 48 Stunden nach seinem Start).",
+    "checkWaitsFor": "Wartet auf den laufenden Vorgang des Gastes: {kind} seit {since}. Solange ein Vorgang eines Gastes läuft, wird er nicht geprüft; die Prüfung folgt danach.",
     "checkQueued": "Restore-Prüfung eingereiht: Sie läuft in wenigen Minuten.",
     "checkAll": "Alle ungeprüften prüfen",
     "checkAllQueued": "{count, plural, =0 {Nichts einzureihen: Jeder Sicherungsstand ist geprüft oder wartet auf seine Prüfung.} one {# Restore-Prüfung eingereiht.} other {# Restore-Prüfungen eingereiht.}}",
@@ -385,6 +392,7 @@
     "uncheckedBody": "Noch keine Restore-Prüfung hat ihren neuesten Sicherungsstand zurückgelesen.",
     "waitingTitle": "{count, plural, one {# Restore-Prüfung einer VM oder eines Containers wartet} other {# Restore-Prüfungen von VMs und Containern warten}}",
     "waiting": "{count, plural, one {# Restore-Prüfung wartet} other {# Restore-Prüfungen warten}} auf den nächsten Durchlauf (alle fünf Minuten).",
+    "waitingOverdue": "{count, plural, one {# Restore-Prüfung ist} other {# Restore-Prüfungen sind}} seit mehr als 30 Minuten fällig, ohne gelaufen zu sein. Die Zeile nennt den Grund, sofern er bekannt ist.",
     "scheduleAfterBackup": "VMs und Container: Jeder neue Sicherungsstand wird wenige Minuten nach seiner Sicherung geprüft, der neueste Sicherungsstand jedes Gastes mindestens alle {days} Tage.",
     "schedulePeriodic": "VMs und Container: Der neueste Sicherungsstand jedes Gastes wird alle {days} Tage geprüft (die Prüfung direkt nach jeder Sicherung ist für diese Installation ausgeschaltet)."
   },

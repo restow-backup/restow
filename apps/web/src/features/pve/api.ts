@@ -110,7 +110,7 @@ export interface PveGuest {
 
 /** Why a restore check could not run (servers from 0.4.3). */
 export interface PveVerifyNotChecked {
-  reason: "locked" | "interrupted";
+  reason: "locked" | "interrupted" | "error";
   /** What restic said, e.g. who holds the repository's lock. */
   detail: string;
   attempts: number;
@@ -128,7 +128,7 @@ export interface PveVerifyFact {
   requested: boolean;
   /** The newest check could not run (`gaveUp`: no more tries); servers from 0.4.3. */
   notChecked?: {
-    reason: "locked" | "interrupted";
+    reason: "locked" | "interrupted" | "error";
     detail: string;
     attempts: number;
     gaveUp: boolean;

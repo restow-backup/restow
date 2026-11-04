@@ -34,10 +34,16 @@
  *     (403, not 507: restic gives up at once instead of sending the same pack
  *     again for a quarter of an hour). Lock files are exempt, so a restore on
  *     the machine still works when the budget is used up.
+ *
+ * A deletion the storage refuses for good (a write-once share or a read-only mount: EPERM,
+ * EACCES, EROFS) is answered with 403, like one Object Lock refuses. restic treats 403 as
+ * final; a 500 it tries again for a quarter of an hour per file (lock files included), which
+ * on such a share would only hold the run up.
  */
 import { createHash } from "node:crypto";
 import { Readable, Transform, type TransformCallback } from "node:stream";
 import {
+  isDeleteRefused,
   listWithSizes,
   lockedErrorOf,
   readRange,
@@ -442,10 +448,15 @@ export async function handleResticRequest(
         : text(400, "missing create=true");
     }
     let deferred = 0;
+    let refused = 0;
     for (const key of await storage.list(prefix)) {
       try {
         await storage.delete(key);
       } catch (error) {
+        if (isDeleteRefused(error)) {
+          refused++;
+          continue;
+        }
         const locked = lockedErrorOf(error);
         if (!locked) {
           throw error;
@@ -453,6 +464,9 @@ export async function handleResticRequest(
         deferred++;
         await options.onDeletionDeferred?.({ resource, key, retainUntil: locked.retainUntil });
       }
+    }
+    if (refused > 0) {
+      return text(403, `forbidden: the storage refuses to delete ${refused} objects`);
     }
     if (deferred > 0) {
       return text(403, `forbidden: ${deferred} objects are still locked`);
@@ -547,6 +561,10 @@ export async function handleResticRequest(
       try {
         await storage.delete(key);
       } catch (error) {
+        if (isDeleteRefused(error)) {
+          // A write-once share: final, so restic gives up at once instead of trying again.
+          return text(403, "forbidden: the storage refuses deletes");
+        }
         const locked = lockedErrorOf(error);
         if (!locked) {
           throw error;

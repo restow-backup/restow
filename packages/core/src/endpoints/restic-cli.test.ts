@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   compareDirectoryEntries,
   normaliseSnapshotPath,
+  RESTIC_UNLOCK_TIMEOUT_MS,
   ResticError,
   type ResticNode,
   type ResticSession,
@@ -458,5 +459,65 @@ describe("a check of a repository another run locked", () => {
     expect(detail.split("unlock").length - 1).toBe(1);
     expect(resticErrorDetail(error, 40)).toHaveLength(40);
     expect(resticErrorDetail(new Error("plain"))).toBe("plain");
+  });
+
+  it("checks without a lock when asked, and never waits for one then", async () => {
+    const { session, argsFile } = await lockedRestic();
+    await expect(resticCheck(session, "5%", { noLock: true })).rejects.toBeInstanceOf(ResticError);
+    expect((await readFile(argsFile, "utf8")).trim().split("\n")).toEqual([
+      "check",
+      "--no-lock",
+      "--read-data-subset=5%",
+    ]);
+    await expect(
+      resticCheck(session, "5%", { noLock: true, retryLock: "2m" }),
+    ).rejects.toBeInstanceOf(TypeError);
+  });
+});
+
+describe("time limits of the server's restic", () => {
+  let work: string;
+
+  beforeAll(async () => {
+    work = await mkdtemp(join(tmpdir(), "restow-restic-timeout-"));
+  });
+
+  afterAll(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+
+  /** A restic that never ends by itself (a storage it keeps retrying). */
+  async function hangingRestic(): Promise<ResticSession> {
+    const fake = join(work, `restic-${Math.random().toString(36).slice(2)}.sh`);
+    await writeFile(fake, "#!/bin/sh\nexec sleep 60\n");
+    await chmod(fake, 0o755);
+    return {
+      repositoryUrl: join(work, "repo"),
+      username: "",
+      password: "",
+      repositoryPassword: "x",
+      cacheDir: join(work, "cache"),
+      binary: fake,
+    };
+  }
+
+  it("stops a run that takes longer than its limit, as a timeout, not a finding", async () => {
+    const session = await hangingRestic();
+    const started = Date.now();
+    const error = await runRestic(session, ["unlock"], { timeoutMs: 200, killGraceMs: 200 }).catch(
+      (e: unknown) => e,
+    );
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(error).toBeInstanceOf(ResticError);
+    expect((error as ResticError).failure).toBe("timeout");
+    expect((error as ResticError).message).toContain("did not finish within");
+    await expect(
+      resticCheck(session, "5%", { noLock: true, timeoutMs: 200 }),
+    ).rejects.toMatchObject({ failure: "timeout" });
+  });
+
+  it("bounds restic unlock by default", () => {
+    expect(RESTIC_UNLOCK_TIMEOUT_MS).toBeGreaterThan(0);
+    expect(RESTIC_UNLOCK_TIMEOUT_MS).toBeLessThanOrEqual(5 * 60 * 1000);
   });
 });

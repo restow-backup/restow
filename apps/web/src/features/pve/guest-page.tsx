@@ -66,6 +66,7 @@ import { BackupProgress } from "./backup-progress.js";
 import { BootTestBadge, BootTestFacts } from "./boot-test.js";
 import { CancelBackupButton, CancelledBadge, CancellingBadge } from "./cancel-controls.js";
 import { PVE_NAMESPACE } from "./i18n.js";
+import { notCheckedSuffix } from "./not-checked.js";
 import { pveTo } from "./paths.js";
 import { runStatusKey, runTone } from "./run-status.js";
 import { RestowServerNote, useSelfBackupGuard } from "./self-backup.js";
@@ -189,9 +190,7 @@ function VerifyResult({ point }: { point: PveRestorePoint }) {
     return (
       <div className="max-w-80 space-y-1" data-slot="pve-point-verify-not-checked">
         <Badge variant="warning">
-          {notChecked.reason === "locked"
-            ? t("guest.verifyNotCheckedLocked")
-            : t("guest.verifyNotCheckedInterrupted")}
+          {t(`guest.verifyNotChecked${notCheckedSuffix(notChecked.reason)}`)}
         </Badge>
         {notChecked.detail ? (
           <DetailHover text={notChecked.detail} tone="warning">
@@ -206,9 +205,7 @@ function VerifyResult({ point }: { point: PveRestorePoint }) {
   // Still tried again: the earlier result (if any) stands, with a note why the new check waits.
   const postponedBadge = notChecked ? (
     <Badge variant="muted" data-slot="pve-point-verify-postponed">
-      {notChecked.reason === "locked"
-        ? t("guest.verifyPostponedLocked")
-        : t("guest.verifyPostponedInterrupted")}
+      {t(`guest.verifyPostponed${notCheckedSuffix(notChecked.reason)}`)}
     </Badge>
   ) : null;
   const postponed =

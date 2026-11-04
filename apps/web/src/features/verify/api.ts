@@ -303,13 +303,24 @@ export interface GuestReadinessRow {
   bootTest?: { outcome: string; reason: string; message?: string; checkedAt: string } | null;
   /** A restore check of the newest restore point waits for the worker (servers from 0.4.2). */
   checkRequested?: boolean;
+  /** When the waiting check was due (servers from 0.5.0). */
+  checkRequestedAt?: string | null;
+  /** The waiting check has been due for half an hour or more and has not run (servers from 0.5.0). */
+  checkOverdue?: boolean;
+  /**
+   * A run of the guest still recorded as running without a sign of life for two hours, which
+   * holds the check back (servers from 0.5.0).
+   */
+  checkBlockedBy?: { kind: string; since: string } | null;
+  /** A run of the guest that is going: the check follows it, nothing is wrong (servers from 0.5.0). */
+  checkWaitsFor?: { kind: string; since: string } | null;
   /** What the restore check of the newest restore point found, when red (servers from 0.4.2). */
   verifyErrors?: string[];
   /**
    * Why the restore check of the newest restore point could not run (yellow, basis verify: the
    * repository stayed locked), as restic said it (servers from 0.4.3).
    */
-  verifyNotChecked?: { reason: "locked" | "interrupted"; detail: string } | null;
+  verifyNotChecked?: { reason: "locked" | "interrupted" | "error"; detail: string } | null;
 }
 
 /**

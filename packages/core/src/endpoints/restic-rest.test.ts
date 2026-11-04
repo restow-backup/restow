@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { isDeleteRefused } from "../storage/backend.js";
 import { MemoryStorage } from "../verify/testing.js";
 import type { ResticPrincipal } from "./restic-authz.js";
 import {
@@ -250,6 +251,48 @@ describe("restic REST protocol on the storage abstraction", () => {
     const storage = new MemoryStorage();
     const missing = await call(storage, "maintenance", "DELETE", `/locks/${"a".repeat(64)}`);
     expect(missing.response.status).toBe(404);
+  });
+
+  it("answers 403 when the storage refuses deletes (write-once share), so restic stops at once", async () => {
+    // A 500 restic would try again for a quarter of an hour per file (restic unlock on a
+    // write-once share: the PVE pass held up for an hour); a 403 it takes as final.
+    class WriteOnceStorage extends MemoryStorage {
+      override async delete(key: string): Promise<void> {
+        throw Object.assign(new Error(`EPERM: operation not permitted, unlink '${key}'`), {
+          code: "EPERM",
+        });
+      }
+    }
+    const storage = new WriteOnceStorage();
+    const lock = Buffer.from("lock");
+    await call(storage, "maintenance", "POST", `/locks/${sha256(lock)}`, { body: lock });
+    const refused = await call(storage, "maintenance", "DELETE", `/locks/${sha256(lock)}`);
+    expect(refused.response.status).toBe(403);
+    expect((await refused.text()).toString()).toContain("refuses deletes");
+    expect(storage.files.size).toBe(1);
+    const repository = await call(storage, "maintenance", "DELETE", "/");
+    expect(repository.response.status).toBe(403);
+    expect((await repository.text()).toString()).toContain("refuses to delete 1 objects");
+    // Anything else still fails as before (the listener answers 500).
+    class BrokenStorage extends MemoryStorage {
+      override async delete(): Promise<void> {
+        throw Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+      }
+    }
+    const broken = new BrokenStorage();
+    await call(broken, "maintenance", "POST", `/locks/${sha256(lock)}`, { body: lock });
+    await expect(call(broken, "maintenance", "DELETE", `/locks/${sha256(lock)}`)).rejects.toThrow(
+      "connection reset",
+    );
+  });
+
+  it("tells a refused deletion from a passing fault", () => {
+    const eperm = Object.assign(new Error("EPERM"), { code: "EPERM" });
+    expect(isDeleteRefused(eperm)).toBe(true);
+    expect(isDeleteRefused(new Error("wrapped", { cause: eperm }))).toBe(true);
+    expect(isDeleteRefused(Object.assign(new Error("ro"), { code: "EROFS" }))).toBe(true);
+    expect(isDeleteRefused(Object.assign(new Error("x"), { code: "ETIMEDOUT" }))).toBe(false);
+    expect(isDeleteRefused(new Error("plain"))).toBe(false);
   });
 
   describe("storage budget", () => {

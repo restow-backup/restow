@@ -292,7 +292,7 @@ async function retain(
         ),
     );
     const result = await withRepository(access, async (session) => {
-      await resticUnlock(session).catch(() => undefined);
+      await resticUnlock(session, { signal: deps.runtime.shutdownSignal }).catch(() => undefined);
       const stored = await listRepositoryObjects(access.storage, access.prefix, "snapshots");
       let claimed: ResticSnapshot[] = [];
       try {
@@ -421,7 +421,7 @@ export async function shareCheck(deps: FileShareDeps, payload: FileShareJobPaylo
     try {
       await clearShareLocks(deps, share, access, now);
       await withRepository(access, async (session) => {
-        await resticUnlock(session).catch(() => undefined);
+        await resticUnlock(session, { signal: deps.runtime.shutdownSignal }).catch(() => undefined);
         await resticCheck(session, subset, { signal: deps.runtime.shutdownSignal });
       });
       await recordShareUnlocked(deps, share);

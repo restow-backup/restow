@@ -245,7 +245,7 @@ async function retain(
     };
     const result = await withRepository(lockedAccess, async (session) => {
       // Locks restic itself calls stale (by their content) go as well.
-      await resticUnlock(session).catch(() => undefined);
+      await resticUnlock(session, { signal: deps.runtime.shutdownSignal }).catch(() => undefined);
       const stored = await listRepositoryObjects(access.storage, access.prefix, "snapshots");
       // What restic reads from the snapshots (their times, which the agent writes) only flags;
       // without it, snapshots no run reported are still flagged, and nothing is decided.

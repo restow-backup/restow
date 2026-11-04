@@ -73,7 +73,7 @@ async function check(
   try {
     await clearLocksBeforeMaintenance(deps, tenantId, endpointId, access, now);
     await withRepository(access, async (session) => {
-      await resticUnlock(session).catch(() => undefined);
+      await resticUnlock(session, { signal: deps.runtime.shutdownSignal }).catch(() => undefined);
       await resticCheck(session, subset, { signal: deps.runtime.shutdownSignal });
     });
     await recordMaintenanceUnlocked(deps, tenantId, endpointId);

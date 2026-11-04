@@ -11,9 +11,11 @@ import { useTenantScope } from "@/features/endpoints/hooks";
 import { type GuestReadinessRow, verifyKeys } from "@/features/verify/api";
 import { StateBadge } from "@/features/verify/components/status";
 import { guestRowName } from "@/features/verify/presenters";
+import { formatDateTime } from "@/lib/format";
 
 import { pveKeys, verifyGuest } from "./api.js";
 import "./i18n.js";
+import { notCheckedSuffix } from "./not-checked.js";
 import { guestTo } from "./paths.js";
 
 /**
@@ -38,11 +40,45 @@ export function guestResultKey(
   }
   // The read-back rates green or red, or yellow when it could not run at all (servers from 0.4.3).
   if (row.state === "yellow" && row.verifyNotChecked) {
-    return row.verifyNotChecked.reason === "locked"
-      ? "readiness.result.notCheckedLocked"
-      : "readiness.result.notCheckedInterrupted";
+    return `readiness.result.notChecked${notCheckedSuffix(row.verifyNotChecked.reason)}`;
   }
   return row.state === "yellow" ? "readiness.result.bootYellow" : `readiness.result.${row.state}`;
+}
+
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+/** The `{kind}` and `{since}` of a run named in a check's note. */
+function runFields(t: Translate, run: { kind: string; since: string }, language: string) {
+  return {
+    kind: t(`guest.kind.${run.kind}`, { defaultValue: run.kind }),
+    since: formatDateTime(run.since, language) ?? run.since,
+  };
+}
+
+/**
+ * Why a check waits longer than expected: a run of the guest still recorded as running, without
+ * a sign of life, holds it back, or the server's Proxmox VE pass has not got to it.
+ */
+export function checkOverdueText(
+  t: Translate,
+  row: Pick<GuestReadinessRow, "checkBlockedBy">,
+  language: string,
+): string {
+  if (row.checkBlockedBy) {
+    return t("readiness.checkBlocked", runFields(t, row.checkBlockedBy, language));
+  }
+  return t("readiness.checkStalled");
+}
+
+/** A queued check behind a run of the guest that is going: what it waits for; else null. */
+export function checkWaitsForText(
+  t: Translate,
+  row: Pick<GuestReadinessRow, "checkWaitsFor">,
+  language: string,
+): string | null {
+  return row.checkWaitsFor
+    ? t("readiness.checkWaitsFor", runFields(t, row.checkWaitsFor, language))
+    : null;
 }
 
 /** "Check now" of a guest's newest restore point (D2): queued for the worker's next pass. */
@@ -68,7 +104,7 @@ export function GuestReadinessRowView({
   row: GuestReadinessRow;
   canCheck?: boolean;
 }) {
-  const { t } = useTranslation("pve");
+  const { t, i18n } = useTranslation("pve");
   const check = useGuestCheck();
   const name = guestRowName(row);
   // A red row names what failed: the boot test's message when the boot test decided, else
@@ -113,11 +149,19 @@ export function GuestReadinessRowView({
             fallback={t("readiness.notChecked")}
             focusable={false}
           />
-          {row.checkRequested ? (
-            // Asked for and not done yet: the row says so until the result replaces it.
-            <StatusBadge tone="info" live aria-live="polite" data-slot="guest-readiness-waiting">
+          {row.checkRequested && row.checkOverdue ? (
+            // Due for long and still not run: never a silent "queued" (why, when it is known).
+            <DetailHover text={checkOverdueText(t, row, i18n.language)} tone="warning">
+              <StatusBadge tone="warning" data-slot="guest-readiness-overdue">
+                {t("readiness.checkOverdue")}
+              </StatusBadge>
+            </DetailHover>
+          ) : row.checkRequested ? (
+            // Asked for and not done yet: the row says so until the result replaces it, and what
+            // it waits for when a run of the guest is going.
+            <QueuedBadge note={checkWaitsForText(t, row, i18n.language)}>
               {t("readiness.checkWaiting")}
-            </StatusBadge>
+            </QueuedBadge>
           ) : null}
         </div>
       </TableCell>
@@ -178,4 +222,14 @@ export function GuestReadinessRowView({
       </TableCell>
     </TableRow>
   );
+}
+
+/** The "Check queued" badge, with a neutral note on hover when one is known. */
+function QueuedBadge({ note, children }: { note: string | null; children: string }) {
+  const badge = (
+    <StatusBadge tone="info" live aria-live="polite" data-slot="guest-readiness-waiting">
+      {children}
+    </StatusBadge>
+  );
+  return note ? <DetailHover text={note}>{badge}</DetailHover> : badge;
 }
