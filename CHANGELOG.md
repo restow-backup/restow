@@ -289,6 +289,23 @@ private repository.
   PVE for new MAC addresses (`unique=1`) and `onboot=0`; the result says when the original
   started with its node (`onbootCleared`). IP addresses stay the same, which docs/PVE.md now
   says.
+- Proxmox VE: restore tests left their restored guest behind, and boot tests could remove the
+  wrong guest. A restore test removed its guest only on the happy path: not after a restore with
+  warnings, an error or a failed wait, not when the copy was protected (PVE copies `protection`
+  from the backup), and it said "deleted" even when the delete task failed. Nothing found these
+  copies again; they kept the original's `onboot` and network and came up at the next reboot of
+  the node. The delete also sent `purge` and `destroy-unreferenced-disks` in the body of a
+  DELETE, where PVE does not read them. A boot test's marker, on the other hand, destroyed
+  whatever guest had its VMID by then. Restore tests and boot tests now share one lifecycle: a
+  marker per guest in `/var/lib/restow-pve/tempguests` written before the restore, tag and name
+  (`restow-restorecheck-<vmid>`, `onboot 0`, `protection 0`) right after it, removal on every way
+  out only with proof that the guest is ours (tag and name in `restow-restore`, the marker's
+  running restore task, or the creation time the marker recorded), with a running restore task
+  stopped first, the lock and the protection cleared, and the removal counted only when the
+  guest is gone (`deleted: false` with `leftoverVmid` otherwise). Leftovers go when the service
+  starts, also with boot tests or restores switched off. A VMID that another restore got at the
+  same moment is asked for again instead of failing, and a boot test whose restore PVE never ran
+  ends with an error, never red. DELETE parameters go into the query string.
 
 ### Upgrade Notes
 

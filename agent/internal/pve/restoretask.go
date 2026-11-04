@@ -39,6 +39,8 @@ type restoreState struct {
 	CustomIDMap bool     `json:"customIdmap,omitempty"`
 	// OnbootCleared: the container started with its node; the restored copy does not (onboot=0).
 	OnbootCleared bool `json:"onbootCleared,omitempty"`
+	// SourceVMID is the original guest's VMID (the name of a check's guest).
+	SourceVMID int `json:"sourceVmid,omitempty"`
 }
 
 func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, error) {
@@ -49,19 +51,17 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	if err := json.Unmarshal(t.Params, &p); err != nil || p.Volname == "" || p.TargetStorage == "" {
 		return nil, errors.New("invalid restore task")
 	}
-	if p.Pool == "" {
+	if p.Pool == "" || p.RestoreTest {
+		// A check's guest lives in the restore pool, where its removal is allowed and proven.
 		p.Pool = BootTestPool
 	}
 	b := s.bootTester()
-	vmid := p.TargetVMID
-	if vmid == 0 {
-		var err error
-		if vmid, err = b.PVE.NextID(ctx); err != nil {
-			return nil, err
-		}
+	_, source, _ := ParseVolname(p.Volname)
+	sp := restoreSpec{Kind: p.Kind, SourceVMID: source, Storage: p.TargetStorage, Pool: p.Pool, VMID: p.TargetVMID,
+		Archive: s.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")}
+	if p.RestoreTest {
+		sp.Purpose = PurposeRestoreCheck
 	}
-	archive := s.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")
-	var mounts map[string]string
 	var omitted []string
 	var lxc lxcOptions
 	onboot := false
@@ -72,42 +72,76 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 		}
 		// PVE restores raw lxc.* keys only for root@pam; the token's restore skips them.
 		lxc = rawLxcOptions(rp.GuestConfig)
-		onboot = parseConfigText(rp.GuestConfig)["onboot"] == "1"
 		if len(lxc.Lines) > 0 {
 			s.Logf("restore of %s: PVE restores raw LXC options only for root@pam; add them as root: %s", p.Volname, strings.Join(lxc.Lines, " | "))
 		}
+		onboot = parseConfigText(rp.GuestConfig)["onboot"] == "1"
 		if p.RestoreTest {
 			// A check leaves bind and device mount points out (TestRestoreMounts).
-			if mounts, omitted, err = TestRestoreMounts(parseConfigText(rp.GuestConfig), p.TargetStorage); err != nil {
+			mounts, left, err := TestRestoreMounts(parseConfigText(rp.GuestConfig), p.TargetStorage)
+			if err != nil {
 				return nil, err
 			}
+			omitted = left
 			if len(omitted) > 0 {
 				s.Logf("restore test of %s: left out (not part of the backup): %s", p.Volname, strings.Join(omitted, ", "))
 			}
+			sp.Params = map[string]string{"hostname": tempName(PurposeRestoreCheck, source)}
+			for k, v := range mounts {
+				sp.Params[k] = v
+			}
 		}
 	}
-	upid, err := b.PVE.RestoreGuest(ctx, s.State.NodeName, p.Kind, vmid, archive, p.TargetStorage, p.Pool, p.Start && !p.RestoreTest, mounts)
+	vmid, upid, err := b.startRestore(ctx, sp)
 	if err != nil {
+		if p.RestoreTest && vmid > 0 {
+			// Only a guest proven ours goes (a restore the refused call started all the same).
+			cctx, cancel := cleanupContext(ctx)
+			defer cancel()
+			b.removeTemp(cctx, p.Kind, vmid)
+		}
 		return nil, err
 	}
-	st := restoreState{VMID: vmid, UPID: upid, OmittedMounts: omitted, SkippedLxc: lxc.Lines, CustomIDMap: lxc.IDMap, OnbootCleared: onboot}
+	st := restoreState{VMID: vmid, UPID: upid, OmittedMounts: omitted, SkippedLxc: lxc.Lines, CustomIDMap: lxc.IDMap,
+		OnbootCleared: onboot, SourceVMID: source}
 	s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: vmid,
 		StartedAt: time.Now().UTC().Format(time.RFC3339), Restore: &st})
 	return s.finishRestore(ctx, t.ID, p, st)
 }
 
-// finishRestore waits for the restore task and ends the restore (a check deletes its guest).
-func (s *Service) finishRestore(ctx context.Context, taskID string, p restoreParams, st restoreState) (map[string]any, error) {
+// finishRestore waits for the restore task and ends the restore. A check removes its guest on
+// every way out (also when the restore failed or the wait ended) and says whether that worked:
+// `deleted` only once the guest's configuration is gone, else `deleted: false` with
+// `leftoverVmid`.
+func (s *Service) finishRestore(ctx context.Context, taskID string, p restoreParams, st restoreState) (result map[string]any, err error) {
 	b := s.bootTester()
 	vmid, upid := st.VMID, st.UPID
-	exit, err := b.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
-	result := map[string]any{"vmid": vmid, "upid": upid}
+	result = map[string]any{"vmid": vmid, "upid": upid}
 	if len(st.OmittedMounts) > 0 {
 		result["omittedMounts"] = st.OmittedMounts
 	}
 	if st.OnbootCleared {
 		result["onbootCleared"] = true
 	}
+	if p.RestoreTest {
+		defer func() {
+			if ctx.Err() != nil && s.inflight(taskID) != nil {
+				// The service stops: the check is waited for again after the restart, which
+				// removes the guest then (its marker keeps it known meanwhile).
+				return
+			}
+			cctx, cancel := cleanupContext(ctx)
+			defer cancel()
+			if b.removeTemp(cctx, p.Kind, vmid) {
+				result["deleted"] = true
+			} else {
+				result["deleted"] = false
+				result["leftoverVmid"] = vmid
+				s.Logf("restore check: the temporary guest %d could not be removed", vmid)
+			}
+		}()
+	}
+	exit, err := b.waitRestore(ctx, upid)
 	if err != nil {
 		return result, err
 	}
@@ -131,12 +165,12 @@ func (s *Service) finishRestore(ctx context.Context, taskID string, p restorePar
 		conf, cerr = b.PVE.GuestConfig(ctx, s.State.NodeName, p.Kind, vmid)
 	}
 	if p.RestoreTest {
-		result["disks"] = len(GuestDisks(p.Kind, conf))
-		if dupid, derr := b.PVE.DeleteGuest(ctx, s.State.NodeName, p.Kind, vmid); derr == nil {
-			_, _ = b.PVE.WaitTask(ctx, s.State.NodeName, dupid, 5*time.Second)
-			result["deleted"] = true
-		} else {
-			s.Logf("restore test: could not delete guest %d: %v", vmid, derr)
+		if cerr == nil {
+			b.recordCreated(vmid, conf)
+			result["disks"] = len(GuestDisks(p.Kind, conf))
+		}
+		if err := b.markTemp(ctx, PurposeRestoreCheck, p.Kind, vmid, st.SourceVMID); err != nil {
+			s.Logf("restore check: marking the temporary guest %d: %v", vmid, err)
 		}
 	}
 	if cerr != nil {

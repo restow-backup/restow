@@ -54,6 +54,14 @@ type fakeNode struct {
 	refusedBind   bool
 	// taskLog is the log tail of every task ("error: chunk missing" when empty).
 	taskLog string
+	// The restore task runs on until StopTask (restoreRunning), the wait for it fails
+	// (waitErr), the restore call fails (restoreErr: before PVE ran anything).
+	restoreRunning bool
+	waitErr        error
+	restoreErr     error
+	tasks          map[string]string // UPID -> "running" | "stopped"
+	stoppedTasks   []string
+	ctime          int64
 }
 
 func newFakeNode() *fakeNode {
@@ -139,9 +147,18 @@ func (f *fakeNode) Run(_ context.Context, name string, args ...string) (string, 
 	case "stop":
 		g.status = "stopped"
 		return "", nil
+	case "unlock":
+		delete(g.conf, "lock")
+		return "", nil
 	case "destroy":
 		if f.destroyFails {
 			return "", errors.New("destroy failed")
+		}
+		if g.conf["protection"] == "1" {
+			return "", fmt.Errorf("can't remove VM %d - protection mode enabled", id)
+		}
+		if g.conf["lock"] != "" && !strings.Contains(strings.Join(args, " "), "--skiplock 1") && !strings.Contains(strings.Join(args, " "), "--force 1") {
+			return "", fmt.Errorf("VM is locked (%s)", g.conf["lock"])
 		}
 		delete(f.guests, id)
 		return "", nil
@@ -165,8 +182,11 @@ func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, 
 	if start {
 		return "", errors.New("a boot test must not start the guest with the restore")
 	}
+	if f.restoreErr != nil {
+		return "", f.restoreErr
+	}
 	if _, taken := f.guests[vmid]; taken {
-		return "", errors.New("VMID taken")
+		return "", fmt.Errorf("unable to create VM %d - VM %d already exists on node 'pve1'", vmid, vmid)
 	}
 	f.restoreMounts = mounts
 	conf := map[string]string{}
@@ -174,10 +194,10 @@ func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, 
 		if strings.HasPrefix(k, "lxc.") {
 			continue // PVE restores raw LXC options only for root@pam
 		}
-		if kind == "ct" && mounts != nil && mpKeyRE.MatchString(k) {
+		if kind == "ct" && mounts["rootfs"] != "" && mpKeyRE.MatchString(k) {
 			continue // named mount points replace those of the backup
 		}
-		if kind == "ct" && mounts == nil && mpKeyRE.MatchString(k) && !isVolumeMount(v) {
+		if kind == "ct" && mounts["rootfs"] == "" && mpKeyRE.MatchString(k) && !isVolumeMount(v) {
 			f.refusedBind = true
 			return fmt.Sprintf("UPID:%s:0000AAAA:00BBBBBB:6700000:vzrestore:%d:restow@pve!pve1:", node, vmid), nil
 		}
@@ -186,16 +206,76 @@ func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, 
 	for k, v := range mounts {
 		conf[k] = v
 	}
+	if kind == "vm" && f.ctime != 0 {
+		conf["meta"] = fmt.Sprintf("creation-qemu=9.0.2,ctime=%d", f.ctime)
+	}
+	upid := fmt.Sprintf("UPID:%s:0000AAAA:00BBBBBB:6700000:qmrestore:%d:restow@pve!pve1:", node, vmid)
+	if f.tasks == nil {
+		f.tasks = map[string]string{}
+	}
+	if f.restoreRunning {
+		conf["lock"] = "create"
+		f.tasks[upid] = "running"
+	} else {
+		f.tasks[upid] = "stopped"
+	}
 	f.guests[vmid] = &fakeGuest{kind: kind, node: node, pool: pool, conf: conf, status: "stopped"}
+	if f.restoreRunning {
+		// PVE adds the guest to its pool only at the end of the restore.
+		f.guests[vmid].pool = ""
+	}
 	f.commands = append(f.commands, fmt.Sprintf("restore %s %d %s %s %s", kind, vmid, archive, storage, pool))
-	return fmt.Sprintf("UPID:%s:0000AAAA:00BBBBBB:6700000:qmrestore:%d:restow@pve!pve1:", node, vmid), nil
+	return upid, nil
 }
 
-func (f *fakeNode) WaitTask(context.Context, string, string, time.Duration) (string, error) {
-	if f.refusedBind {
-		return "unable to restore CT 9001 - restoring 'mp1' to bind mount is only possible for root", nil
+func (f *fakeNode) WaitTask(_ context.Context, _, upid string, _ time.Duration) (string, error) {
+	if f.waitErr != nil {
+		return "", f.waitErr
 	}
-	return f.restoreExit, nil
+	exit := f.restoreExit
+	if f.refusedBind {
+		exit = "unable to restore CT 9001 - restoring 'mp1' to bind mount is only possible for root"
+	}
+	if exit != "OK" && !TaskWarnings(exit) {
+		// A restore that fails removes the guest it was creating.
+		f.mu.Lock()
+		for id := range f.guests {
+			if strings.Contains(upid, fmt.Sprintf(":%d:", id)) && strings.Contains(upid, "restore") {
+				delete(f.guests, id)
+			}
+		}
+		f.mu.Unlock()
+	}
+	return exit, nil
+}
+
+func (f *fakeNode) TaskStatus(_ context.Context, _, upid string) (TaskStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if st, ok := f.tasks[upid]; ok {
+		if st == "running" {
+			return TaskStatus{Status: "running"}, nil
+		}
+		return TaskStatus{Status: "stopped", ExitStatus: f.restoreExit}, nil
+	}
+	return TaskStatus{}, &PVEAPIError{Status: 404, Message: "no such task"}
+}
+
+// StopTask stops a restore task: PVE removes the guest it was creating.
+func (f *fakeNode) StopTask(_ context.Context, _, upid string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commands = append(f.commands, "stoptask "+upid)
+	f.stoppedTasks = append(f.stoppedTasks, upid)
+	if f.tasks[upid] == "running" {
+		f.tasks[upid] = "stopped"
+		for id, g := range f.guests {
+			if g.conf["lock"] == "create" && strings.Contains(upid, fmt.Sprintf(":%d:", id)) {
+				delete(f.guests, id)
+			}
+		}
+	}
+	return nil
 }
 
 func (f *fakeNode) TaskLogTail(context.Context, string, string, int) (string, error) {
@@ -217,17 +297,6 @@ func (f *fakeNode) GuestConfig(_ context.Context, _, _ string, vmid int) (map[st
 		out[k] = v
 	}
 	return out, nil
-}
-
-func (f *fakeNode) DeleteGuest(_ context.Context, node, _ string, vmid int) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.commands = append(f.commands, fmt.Sprintf("api-delete %d", vmid))
-	if f.guests[vmid] == nil {
-		return "", &PVEAPIError{Status: 500, Message: "does not exist"}
-	}
-	delete(f.guests, vmid)
-	return fmt.Sprintf("UPID:%s:0000AAAA:00BBBBBB:6700001:qmdestroy:%d:restow@pve!pve1:", node, vmid), nil
 }
 
 func (f *fakeNode) Storages(context.Context, string) ([]Storage, error) { return f.storages, nil }
@@ -353,7 +422,7 @@ func TestBootTestGreenWhenTheGuestAgentAnswers(t *testing.T) {
 	if len(f.guests) != 0 {
 		t.Fatalf("the temporary guest is left: %+v", f.guests)
 	}
-	if _, err := os.Stat(b.markerFile()); !os.IsNotExist(err) {
+	if _, err := os.Stat(b.markerPath(9001)); !os.IsNotExist(err) {
 		t.Fatalf("marker left: %v", err)
 	}
 	// The original VMID is never touched; the restore went into the restore pool without a start.
@@ -607,7 +676,7 @@ func TestBootTestOfAContainer(t *testing.T) {
 	}
 	// The bind mount mp1 is left out by the restore itself: PVE refuses a token's restore
 	// of a bind mount point.
-	want := map[string]string{"rootfs": "local-lvm:8", "mp0": "local-lvm:4,mp=/srv,backup=1"}
+	want := map[string]string{"rootfs": "local-lvm:8", "mp0": "local-lvm:4,mp=/srv,backup=1", "hostname": "restow-boottest-200"}
 	if fmt.Sprint(f.restoreMounts) != fmt.Sprint(want) {
 		t.Errorf("restore mounts = %v, want %v", f.restoreMounts, want)
 	}
@@ -618,42 +687,89 @@ func TestBootTestOfAContainer(t *testing.T) {
 
 func TestCleanupRemovesOnlyTheBootTestsLeftovers(t *testing.T) {
 	f := newFakeNode()
-	tagged := func(name string) map[string]string {
-		return map[string]string{"name": name, "tags": "restow-boottest"}
+	tagged := func(name, tag string) map[string]string {
+		return map[string]string{"name": name, "tags": tag}
 	}
-	f.guests[9100] = &fakeGuest{kind: "vm", node: "pve1", pool: "restow-restore", conf: tagged("restow-boottest-101"), status: "running"}
-	f.guests[9101] = &fakeGuest{kind: "vm", node: "pve2", pool: "restow-restore", conf: tagged("restow-boottest-102"), status: "running"}
+	f.guests[9100] = &fakeGuest{kind: "vm", node: "pve1", pool: "restow-restore", conf: tagged("restow-boottest-101", BootTestTag), status: "running"}
+	f.guests[9101] = &fakeGuest{kind: "vm", node: "pve2", pool: "restow-restore", conf: tagged("restow-boottest-102", BootTestTag), status: "running"}
 	f.guests[9102] = &fakeGuest{kind: "vm", node: "pve1", pool: "restow-restore", conf: map[string]string{"name": "restow-boottest-103"}}
-	f.guests[9103] = &fakeGuest{kind: "vm", node: "pve1", pool: "", conf: tagged("restow-boottest-104")}
+	f.guests[9103] = &fakeGuest{kind: "vm", node: "pve1", pool: "", conf: tagged("restow-boottest-104", BootTestTag)}
 	f.guests[9104] = &fakeGuest{kind: "vm", node: "pve1", pool: "restow-restore", conf: map[string]string{"name": "web01"}}
 	f.guests[9105] = &fakeGuest{kind: "vm", node: "pve1", pool: "restow-restore", conf: map[string]string{"name": "web02"}}
+	f.guests[9106] = &fakeGuest{kind: "ct", node: "pve1", pool: "restow-restore", conf: map[string]string{"hostname": "restow-restorecheck-113", "tags": RestoreCheckTag, "protection": "1"}}
 	f.guests[101] = &fakeGuest{kind: "vm", node: "pve1", conf: map[string]string{"name": "web01", "tags": "prod"}}
 	b := newTester(t, f)
-	// The marker of a test that was restoring 9104 when the node went down.
-	if err := writeJSONAtomic(b.markerFile(), bootTestMarker{VMID: 9104, Kind: "vm", UPID: "UPID:pve1:1:2:3:qmrestore:9104:restow@pve!pve1:"}, 0o600); err != nil {
+	// The marker of a test that restored 9104 once: the guest of that VMID now is another
+	// (the leftover was removed by hand and the VMID given to a real restore).
+	if err := b.writeMarker(tempMarker{VMID: 9104, Kind: "vm", UPID: "UPID:pve1:1:2:3:qmrestore:9104:restow@pve!pve1:", StartedAt: "2030-01-01T00:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}
 	b.Cleanup(context.Background())
-	for _, gone := range []int{9100, 9104} {
+	for _, gone := range []int{9100, 9106} {
 		if _, ok := f.guests[gone]; ok {
 			t.Errorf("%d not removed", gone)
 		}
 	}
-	for _, kept := range []int{9101, 9102, 9103, 9105, 101} {
+	for _, kept := range []int{9101, 9102, 9103, 9104, 9105, 101} {
 		if _, ok := f.guests[kept]; !ok {
 			t.Errorf("%d removed", kept)
 		}
 	}
-	if _, err := os.Stat(b.markerFile()); !os.IsNotExist(err) {
-		t.Fatal("marker kept")
+	if b.readMarker(9104) != nil {
+		t.Fatal("the marker that names another guest is kept")
 	}
-	// A marker without the restore task: the guest is not taken for one of ours.
-	if err := writeJSONAtomic(b.markerFile(), bootTestMarker{VMID: 9105, Kind: "vm"}, 0o600); err != nil {
+}
+
+// A marker proves a guest ours only while that is the guest the restore made: its restore task
+// still runs for it, or it has the creation time the marker recorded.
+func TestCleanupRemovesAMarkersGuestOnlyWithProof(t *testing.T) {
+	f := newFakeNode()
+	b := newTester(t, f)
+	// 9200: restored by a check that crashed before it set the tag; the marker has its ctime.
+	f.guests[9200] = &fakeGuest{kind: "vm", node: "pve1", pool: "restow-restore", status: "stopped",
+		conf: map[string]string{"name": "web01", "onboot": "1", "protection": "1", "meta": "creation-qemu=9.0.2,ctime=1900000100"}}
+	_ = b.writeMarker(tempMarker{VMID: 9200, Kind: "vm", Purpose: PurposeRestoreCheck, UPID: "UPID:pve1:1:2:3:qmrestore:9200:restow@pve!pve1:", CTime: 1900000100})
+	// 9201: same VMID reused by a VM restored later (another ctime): not ours.
+	f.guests[9201] = &fakeGuest{kind: "vm", node: "pve1", pool: "restow-restore", status: "running",
+		conf: map[string]string{"name": "web01", "meta": "creation-qemu=9.0.2,ctime=1900009999"}}
+	_ = b.writeMarker(tempMarker{VMID: 9201, Kind: "vm", Purpose: PurposeRestoreCheck, UPID: "UPID:pve1:1:2:3:qmrestore:9201:restow@pve!pve1:", CTime: 1900000100})
+	// 9202: a guest outside the pool.
+	f.guests[9202] = &fakeGuest{kind: "vm", node: "pve1", pool: "", conf: map[string]string{"name": "restow-boottest-9", "tags": BootTestTag}}
+	_ = b.writeMarker(tempMarker{VMID: 9202, Kind: "vm", Purpose: PurposeBootTest})
+	// 9203: a container a check restored, its hostname from the restore.
+	f.guests[9203] = &fakeGuest{kind: "ct", node: "pve1", pool: "restow-restore", conf: map[string]string{"hostname": "restow-restorecheck-113"}}
+	_ = b.writeMarker(tempMarker{VMID: 9203, Kind: "ct", Purpose: PurposeRestoreCheck, Name: "restow-restorecheck-113"})
+	b.Cleanup(context.Background())
+	if _, ok := f.guests[9200]; ok {
+		t.Error("9200 (ctime proves it ours) is left")
+	}
+	if _, ok := f.guests[9203]; ok {
+		t.Error("9203 (its hostname proves it ours) is left")
+	}
+	for _, kept := range []int{9201, 9202} {
+		if _, ok := f.guests[kept]; !ok {
+			t.Errorf("%d removed without proof", kept)
+		}
+		if b.readMarker(kept) != nil {
+			t.Errorf("the marker of %d is kept", kept)
+		}
+	}
+}
+
+// The marker of a boot test before 0.5.0 (one file) is taken over.
+func TestCleanupTakesOverTheMarkerOfAnOlderRelease(t *testing.T) {
+	f := newFakeNode()
+	b := newTester(t, f)
+	f.guests[9300] = &fakeGuest{kind: "vm", node: "pve1", pool: "restow-restore", conf: map[string]string{"name": "restow-boottest-101", "tags": BootTestTag}}
+	if err := writeJSONAtomic(b.legacyMarkerFile(), map[string]any{"vmid": 9300, "kind": "vm", "upid": "UPID:pve1:1:2:3:qmrestore:9300:restow@pve!pve1:"}, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	b.Cleanup(context.Background())
-	if _, ok := f.guests[9105]; !ok {
-		t.Error("9105 removed without proof it was a boot test's")
+	if _, ok := f.guests[9300]; ok {
+		t.Fatal("not removed")
+	}
+	if _, err := os.Stat(b.legacyMarkerFile()); !os.IsNotExist(err) {
+		t.Fatal("the old marker is kept")
 	}
 }
 
@@ -667,9 +783,9 @@ func TestBootTestKeepsTheMarkerWhenTheGuestCannotBeDestroyed(t *testing.T) {
 	if err != nil || res.Outcome != "green" || res.CleanedUp {
 		t.Fatalf("%+v %v", res, err)
 	}
-	var m bootTestMarker
-	if err := readJSON(b.markerFile(), &m); err != nil || m.VMID != 9001 || m.UPID == "" {
-		t.Fatalf("marker %+v %v", m, err)
+	m := b.readMarker(9001)
+	if m == nil || m.UPID == "" || m.Purpose != PurposeBootTest {
+		t.Fatalf("marker %+v", m)
 	}
 	// The next start of the service removes it.
 	f.destroyFails = false

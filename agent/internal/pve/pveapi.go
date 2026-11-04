@@ -120,7 +120,9 @@ func (p *PVEAPI) call(ctx context.Context, method, path string, form url.Values,
 	defer cancel()
 	var body io.Reader
 	target := p.base + path
-	if form != nil && method == http.MethodGet {
+	// pve-http-server reads a form body only for POST and PUT: the parameters of GET and DELETE
+	// go into the query string (a DELETE body is dropped without a word).
+	if form != nil && (method == http.MethodGet || method == http.MethodDelete) {
 		target += "?" + form.Encode()
 	} else if form != nil {
 		body = strings.NewReader(form.Encode())
@@ -285,14 +287,6 @@ func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, 
 	}
 	var upid string
 	return upid, p.call(ctx, http.MethodPost, fmt.Sprintf("/nodes/%s/%s", url.PathEscape(node), apiType(kind)), form, &upid)
-}
-
-// DeleteGuest removes a guest (restore tests clean up after themselves; the
-// token may only delete guests in the restore pool).
-func (p *PVEAPI) DeleteGuest(ctx context.Context, node, kind string, vmid int) (string, error) {
-	var upid string
-	return upid, p.call(ctx, http.MethodDelete, fmt.Sprintf("/nodes/%s/%s/%d", url.PathEscape(node), apiType(kind), vmid),
-		url.Values{"purge": {"1"}, "destroy-unreferenced-disks": {"1"}}, &upid)
 }
 
 // TaskStatus is GET /nodes/{node}/tasks/{upid}/status.

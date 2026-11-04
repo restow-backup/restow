@@ -215,10 +215,9 @@ func (s *Service) Run(ctx context.Context) error {
 	if s.BusyInterval == 0 {
 		s.BusyInterval = 15 * time.Second
 	}
-	// A boot test the last run of the service could not finish leaves a temporary guest.
-	if !s.State.BootTestsDisabled {
-		s.bootTester().Cleanup(ctx)
-	}
+	// A boot test or restore check the last run of the service could not finish leaves a
+	// temporary guest; it goes also when boot tests or restores are switched off since.
+	s.bootTester().Cleanup(ctx)
 	// Backups and restores PVE went on with while the service was stopped are waited for again.
 	for _, e := range loadInflight(s.Layout) {
 		s.Logf("task %s (%s): waiting again for %s, which PVE started before restow-pve stopped", e.TaskID, e.Kind, e.UPID)

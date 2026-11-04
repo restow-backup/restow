@@ -446,6 +446,40 @@ token. The result names the skipped lines (`skippedLxc`); add them to the restor
 root (`/etc/pve/lxc/<vmid>.conf`). With a custom `lxc.idmap` the restored container uses the
 default map, so files owned by ids outside it cannot be unpacked; the failed restore says so.
 
+### Temporary guests of restore tests and boot tests
+
+The monthly restore test of a backup job (`restoreTest`) and a boot test restore into the pool
+`restow-restore` and remove the guest again. Both share one lifecycle on the node:
+
+- **Marker before the restore.** `/var/lib/restow-pve/tempguests/<vmid>.json` records the
+  VMID, the kind, the purpose, the start time, then the UPID of the restore task and the
+  guest's creation time. It survives a crash or a reboot of the node.
+- **Tag and name right after the restore.** A restore test's guest becomes
+  `restow-restorecheck-<vmid of the original>` with the tag `restow-restorecheck`, `onboot 0`
+  and `protection 0` (a container gets the name already with the restore); a boot test's guest
+  `restow-boottest-<vmid>` with the tag `restow-boottest` (step 4 of the boot test).
+- **Removal only with proof.** A guest is removed only when it is on this node and carries the
+  tag and the name of a temporary guest in `restow-restore`, or its marker's restore task still
+  runs for it, or it has the creation time (a container: the name) the marker recorded. A guest
+  in the pool without that proof is never touched (real restores land there too; a VMID may
+  have been given to another guest since): its marker is dropped and the log says why.
+- **Removal in every case.** Also after a failed restore, a restore with warnings, a wait that
+  ended or a cancelled test: a restore task that still runs is stopped first (and waited for),
+  then `qm|pct unlock`, `set --protection 0`, `stop`, and `qm destroy --purge 1
+  --destroy-unreferenced-disks 1 --skiplock 1` or `pct destroy --purge 1
+  --destroy-unreferenced-disks 1 --force 1`, as root. It counts only when the guest's
+  configuration is gone afterwards: a restore test then reports `deleted: true`, else `deleted:
+  false` with `leftoverVmid`, and the marker stays.
+- **Leftovers** go when the service starts (also when boot tests or restores are switched off
+  on the node since) and before every boot test: the guests of the markers, and every guest of
+  this node in `restow-restore` with the tag and name of a temporary guest. A restore test the
+  service waits for again after a restart (PVE-PROTOCOL.md, "Task results") keeps its guest
+  until it ends.
+- **A VMID taken meanwhile** (two restores that got the same VMID from `/cluster/nextid`) is
+  asked for again, up to three times; the other guest is never touched. A restore PVE did not
+  run (a VMID taken, a refused call, a mount point that could not be planned) makes a boot test
+  end with an error, never red.
+
 ### Files of a container
 
 **Servers & clients › File restore** lists every container with a restore
@@ -650,12 +684,9 @@ What the guest's node does:
    is red; one that keeps running without an answer until the wait is over is yellow
    ("started, no answer": install the QEMU guest agent for proof). A container is green once
    `pct exec <id> -- cat /proc/1/comm` shows its init.
-6. **Destroy in every case** (`qm stop`, `qm destroy --purge --destroy-unreferenced-disks`).
-   A marker file under `/var/lib/restow-pve/boottest` records the temporary guest with the
-   UPID of its restore task before it exists; when the service starts, and before every boot
-   test, a leftover is destroyed: the marker's guest (only when the UPID proves this node
-   restored it), and every guest of this node in `restow-restore` that carries both the tag
-   and the name.
+6. **Destroy in every case**, with proof that the guest is the test's own, and leftovers when
+   the service starts and before every boot test: see "Temporary guests of restore tests and
+   boot tests" above.
 
 The result (outcome, reason, boot time, duration, the node's log of the test) is kept with the
 run and, when it rates (green, yellow, red), with the restore point. A red boot test raises

@@ -122,7 +122,8 @@ type bootTestPVE interface {
 	Guests(ctx context.Context) ([]Resource, error)
 	ActiveTasks(ctx context.Context, node, typeFilter string) ([]NodeTask, error)
 	GuestConfig(ctx context.Context, node, kind string, vmid int) (map[string]any, error)
-	DeleteGuest(ctx context.Context, node, kind string, vmid int) (string, error)
+	TaskStatus(ctx context.Context, node, upid string) (TaskStatus, error)
+	StopTask(ctx context.Context, node, upid string) error
 }
 
 // BootTestParams is the task the server sends.
@@ -167,14 +168,6 @@ func (r BootTestResult) asMap() map[string]any {
 	return out
 }
 
-// bootTestMarker is written before a temporary guest exists, so a restart finds it again.
-type bootTestMarker struct {
-	VMID      int    `json:"vmid"`
-	Kind      string `json:"kind"`
-	UPID      string `json:"upid,omitempty"`
-	StartedAt string `json:"startedAt"`
-}
-
 // BootTester runs boot tests on this node.
 type BootTester struct {
 	Layout Layout
@@ -193,8 +186,9 @@ type BootTester struct {
 	TaskPoll time.Duration
 	Now      func() time.Time
 
-	mu  sync.Mutex
-	log []string
+	mu      sync.Mutex
+	log     []string
+	testing bool // a boot test runs (its lines say so)
 }
 
 const (
@@ -221,7 +215,13 @@ func (b *BootTester) logf(format string, args ...any) {
 	}
 	b.mu.Unlock()
 	if b.Logf != nil {
-		b.Logf("boot test: %s", line)
+		b.mu.Lock()
+		prefix := "temporary guests: "
+		if b.testing {
+			prefix = "boot test: "
+		}
+		b.mu.Unlock()
+		b.Logf("%s%s", prefix, line)
 	}
 }
 
@@ -229,10 +229,6 @@ func (b *BootTester) logText() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return strings.Join(b.log, "\n")
-}
-
-func (b *BootTester) markerFile() string {
-	return filepath.Join(b.Layout.DataDir, "boottest", "current.json")
 }
 
 func (b *BootTester) lockFile() string { return filepath.Join(b.Layout.RunDir, "boottest.lock") }
@@ -250,8 +246,13 @@ func (b *BootTester) storage() string {
 // outcome of a test that ran (also red and skipped) comes back as a result.
 func (b *BootTester) Run(ctx context.Context, p BootTestParams) (BootTestResult, error) {
 	b.mu.Lock()
-	b.log = nil
+	b.log, b.testing = nil, true
 	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		b.testing = false
+		b.mu.Unlock()
+	}()
 	start := b.now()
 	res := b.run(ctx, p)
 	res.DurationMs = b.now().Sub(start).Milliseconds()
@@ -270,12 +271,6 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 	if p.Volname == "" || (p.Kind != "vm" && p.Kind != "ct") {
 		return BootTestResult{Message: "invalid boot test task"}
 	}
-	if !b.State.RestoresAllowed() {
-		return skipped("restores_off", "Restores are switched off on this node (restow-pve config --allow-restores).")
-	}
-	if b.State.BootTestsDisabled {
-		return skipped("boot_tests_off", "Boot tests are switched off on this node (restow-pve config --boot-tests).")
-	}
 	held, err := lock.TryAcquire(b.lockFile())
 	if errors.Is(err, lock.ErrLocked) {
 		return skipped("boot_test_running", "Another boot test runs on this node.")
@@ -284,8 +279,14 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 		return BootTestResult{Message: "boot test lock: " + err.Error()}
 	}
 	defer func() { _ = held.Release() }()
-	// Whatever an earlier test left behind goes first.
+	// Whatever an earlier test or check left behind goes first, also when they are switched off.
 	b.Cleanup(ctx)
+	if !b.State.RestoresAllowed() {
+		return skipped("restores_off", "Restores are switched off on this node (restow-pve config --allow-restores).")
+	}
+	if b.State.BootTestsDisabled {
+		return skipped("boot_tests_off", "Boot tests are switched off on this node (restow-pve config --boot-tests).")
+	}
 	if reason, msg := b.backupBusy(ctx); reason != "" {
 		return skipped(reason, msg)
 	}
@@ -395,50 +396,41 @@ func (b *BootTester) poll() time.Duration {
 }
 
 func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, conf map[string]string, lxc lxcOptions, storage string) (res BootTestResult) {
-	vmid, err := b.PVE.NextID(ctx)
-	if err != nil {
-		return BootTestResult{Message: "no free VMID: " + err.Error()}
-	}
-	marker := bootTestMarker{VMID: vmid, Kind: p.Kind, StartedAt: b.now().UTC().Format(time.RFC3339)}
-	if err := writeJSONAtomic(b.markerFile(), marker, 0o600); err != nil {
-		return BootTestResult{Message: "boot test marker: " + err.Error()}
-	}
-	res.TempVMID = vmid
-	// The temporary guest goes in every case, also when the test itself is cancelled.
-	defer func() {
-		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
-		defer cancel()
-		res.CleanedUp = b.destroy(cctx, p.Kind, vmid)
-		if res.CleanedUp {
-			_ = os.Remove(b.markerFile())
-		}
-	}()
-	archive := b.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")
-	var mounts map[string]string
+	sp := restoreSpec{Purpose: PurposeBootTest, Kind: p.Kind, SourceVMID: p.VMID, Storage: storage, Pool: BootTestPool,
+		Archive: b.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")}
 	if p.Kind == "ct" {
-		var omitted []string
-		mounts, omitted, err = TestRestoreMounts(conf, storage)
+		mounts, omitted, err := TestRestoreMounts(conf, storage)
 		if err != nil {
-			res.Outcome, res.Reason, res.Message = "red", "restore_failed", "The restore did not start: "+err.Error()
+			// Nothing was restored: the test could not run, which says nothing about the backup.
+			res.Message = "the restore could not be planned: " + err.Error()
 			return res
 		}
 		if len(omitted) > 0 {
 			b.logf("left out of the temporary container (not part of the backup): %s", strings.Join(omitted, ", "))
 		}
+		sp.Params = map[string]string{"hostname": tempName(PurposeBootTest, p.VMID)}
+		for k, v := range mounts {
+			sp.Params[k] = v
+		}
 	}
-	b.logf("restoring to the temporary %s %d on %s", p.Kind, vmid, storage)
-	upid, err := b.PVE.RestoreGuest(ctx, b.State.NodeName, p.Kind, vmid, archive, storage, BootTestPool, false, mounts)
+	b.logf("restoring the %s to a temporary guest on %s", p.Kind, storage)
+	vmid, upid, err := b.startRestore(ctx, sp)
+	if vmid > 0 {
+		res.TempVMID = vmid
+		// The temporary guest goes in every case, also when the test itself is cancelled.
+		defer func() {
+			cctx, cancel := cleanupContext(ctx)
+			defer cancel()
+			res.CleanedUp = b.removeTemp(cctx, p.Kind, vmid)
+		}()
+	}
 	if err != nil {
-		res.Outcome, res.Reason, res.Message = "red", "restore_failed", "The restore did not start: "+err.Error()
+		// PVE did not run a restore (a VMID taken, a refused call): an error, never red.
+		res.Message = "the restore did not start: " + err.Error()
 		return res
 	}
-	marker.UPID = upid
-	_ = writeJSONAtomic(b.markerFile(), marker, 0o600)
-	taskPoll := b.TaskPoll
-	if taskPoll <= 0 {
-		taskPoll = 5 * time.Second
-	}
-	exit, err := b.PVE.WaitTask(ctx, b.State.NodeName, upid, taskPoll)
+	b.logf("restoring to the temporary %s %d (%s)", p.Kind, vmid, upid)
+	exit, err := b.waitRestore(ctx, upid)
 	if err != nil {
 		res.Outcome, res.Message = "", "waiting for the restore: "+err.Error()
 		return res
@@ -466,6 +458,10 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, conf 
 	}
 	if len(res.SkippedLxc) > 0 {
 		b.logf("PVE restores raw LXC options only for root@pam; the temporary container runs without: %s", strings.Join(res.SkippedLxc, " | "))
+	}
+	// Its creation time proves the guest ours until isolate() gives it the tag.
+	if c, err := b.PVE.GuestConfig(ctx, b.State.NodeName, p.Kind, vmid); err == nil {
+		b.recordCreated(vmid, c)
 	}
 	if err := b.isolate(ctx, p, vmid); err != nil {
 		// Never start a guest whose network could not be cut.
@@ -668,73 +664,6 @@ func isolatedNIC(v, bridge string) string {
 func agentEnabled(v string) bool {
 	v = strings.TrimSpace(v)
 	return v == "1" || strings.HasPrefix(v, "1,") || strings.Contains(","+v+",", ",enabled=1,")
-}
-
-// destroy stops and removes a temporary guest; true when it is gone.
-func (b *BootTester) destroy(ctx context.Context, kind string, vmid int) bool {
-	id := strconv.Itoa(vmid)
-	cli := b.cli(kind)
-	if !b.exists(ctx, kind, vmid) {
-		return true
-	}
-	if _, err := b.command(ctx, cli, "stop", id, "--skiplock", "1"); err != nil {
-		b.logf("stop: %v", err)
-	}
-	args := []string{"destroy", id, "--purge", "1", "--destroy-unreferenced-disks", "1"}
-	if kind == "vm" {
-		args = append(args, "--skiplock", "1")
-	} else {
-		args = append(args, "--force", "1")
-	}
-	if _, err := b.command(ctx, cli, args...); err != nil {
-		b.logf("destroy: %v", err)
-	}
-	if b.exists(ctx, kind, vmid) {
-		b.logf("the temporary guest %d is still there; it is removed on the next start of the service", vmid)
-		return false
-	}
-	b.logf("the temporary guest %d is destroyed", vmid)
-	return true
-}
-
-func (b *BootTester) exists(ctx context.Context, kind string, vmid int) bool {
-	_, err := b.command(ctx, b.cli(kind), "config", strconv.Itoa(vmid))
-	return err == nil
-}
-
-// Cleanup destroys what earlier boot tests left behind: the guest of the marker file (when the
-// marker shows the restore was started by this node) and every guest of this node in the
-// restore pool that carries both the boot test's tag and its name.
-func (b *BootTester) Cleanup(ctx context.Context) {
-	var m bootTestMarker
-	if err := readJSON(b.markerFile(), &m); err == nil && m.VMID > 0 {
-		ours := m.UPID != "" && strings.Contains(m.UPID, ":"+strconv.Itoa(m.VMID)+":")
-		if !ours && b.exists(ctx, m.Kind, m.VMID) {
-			// The restore was perhaps never started by this node: not ours to remove.
-			b.logf("guest %d of an interrupted boot test is not removed: its restore task is unknown", m.VMID)
-			_ = os.Remove(b.markerFile())
-		} else if b.destroy(ctx, m.Kind, m.VMID) {
-			_ = os.Remove(b.markerFile())
-		}
-	}
-	guests, err := b.PVE.Guests(ctx)
-	if err != nil {
-		return
-	}
-	for _, g := range guests {
-		if g.Node != b.State.NodeName || g.Pool != BootTestPool || !strings.HasPrefix(g.Name, BootTestNamePrefix) {
-			continue
-		}
-		if !hasTag(g.Tags, BootTestTag) {
-			continue
-		}
-		kind := "vm"
-		if g.Type == "lxc" {
-			kind = "ct"
-		}
-		b.logf("removing the leftover temporary guest %d (%s)", g.VMID, g.Name)
-		b.destroy(ctx, kind, g.VMID)
-	}
 }
 
 func hasTag(tags, tag string) bool {
