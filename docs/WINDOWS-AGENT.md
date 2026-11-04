@@ -1224,12 +1224,15 @@ jeder Schritt steht in `try`/`catch`, ein Fehler beendet das Skript mit Exit-Cod
    die Anmeldung unlesbar (DPAPI-Schlüssel weg, Datei beschädigt), nennt der Installer den
    Grund, verlangt einen Token und ruft `enroll --force` auf. `-Hooks` auf einem angemeldeten
    Rechner prüft den Exit-Code von `restow-agent hooks` und bricht bei einem Fehler ab. Der
-   Text eines gescheiterten `enroll` richtet sich nach dessen Exit-Code: 4 (die Instanz hat den
-   Token abgelehnt) verlangt einen neuen Token, 5 (Instanz nicht erreichbar) nennt Netz,
+   Text eines gescheiterten `enroll` richtet sich nach dessen Exit-Code: 4 (die Instanz selbst hat den
+   Token abgelehnt: HTTP 401 mit dem Problemtyp `enrollment-token-invalid`) verlangt einen neuen
+   Token, 5 (Instanz nicht erreichbar, auch HTTP 407 eines Proxys mit Anmeldung) nennt Netz,
    Firewall und `-Proxy`, und nutzt Windows für die URL einen Proxy
    (`[Net.WebRequest]::GetSystemWebProxy()`, Internetoptionen, WPAD oder PAC), nennt der
    Installer ihn mit `-Proxy <proxy>`; er übernimmt ihn nie ungefragt. Jeder andere Code
-   verweist auf die Meldung des Agents, die sagt, ob der Token verbraucht ist. `linux.sh` und
+   verweist auf die Meldung des Agents, die sagt, ob der Token verbraucht ist; eine andere
+   4xx-Antwort (404 einer falschen Adresse, 403 einer Web Application Firewall) ist Code 1, und
+   die Meldung nennt Adresse, Reverse-Proxy und Firewall statt des Tokens. `linux.sh` und
    `macos.sh` machen dasselbe. Mit `RESTOW_TOKEN_FILE`: vorher die ACL
    der Datei mit den Regeln aus Abschnitt 6 prüfen (Lesen für nicht vertraute SIDs →
    Warnung wie `linux.sh:316-319`), nach erfolgreichem `enroll` die Datei löschen (der

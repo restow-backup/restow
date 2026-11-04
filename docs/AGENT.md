@@ -126,8 +126,11 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
    ohne deren Binärdatei auszuführen. Ob der Rechner schon angemeldet ist, sagt
    `restow-agent status --json` (`"credentials": "readable"`); eine unlesbare Anmeldung wird
    mit neuem Token neu angemeldet (`enroll --force`). Einen neuen Token verlangt das Skript nur,
-   wenn `enroll` mit Exit-Code 4 endet (Token abgelehnt); Exit-Code 5 heißt "Instanz nicht
-   erreichbar" (Netz, Firewall, Proxy). Ein scheiterndes `restow-agent hooks` bricht ab. Option `--hooks=off|scripts|any` setzt die Hook-Regel des Rechners
+   wenn `enroll` mit Exit-Code 4 endet: Die Instanz selbst hat den Token abgelehnt (HTTP 401
+   mit dem Problemtyp `urn:restow:problem:enrollment-token-invalid`). Exit-Code 5 heißt "Instanz
+   nicht erreichbar" (Netz, Firewall, Proxy, auch HTTP 407 eines Proxys mit Anmeldung); jede
+   andere 4xx-Antwort (404 einer falschen Adresse, 403 einer Web Application Firewall, 401 eines
+   Reverse-Proxys mit eigener Anmeldung) ist Exit-Code 1 mit einem Hinweis auf Adresse und Proxy. Ein scheiterndes `restow-agent hooks` bricht ab. Option `--hooks=off|scripts|any` setzt die Hook-Regel des Rechners
    (siehe "Hooks"). Deinstallation: `sudo /opt/restow-agent/bin/restow-agent uninstall` oder
    das Skript mit `--uninstall`; beides zeigt der Assistent an und entfernt auch die
    Lizenzhinweise.

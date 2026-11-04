@@ -40,8 +40,9 @@ const (
 	exitError   = 1
 	exitUsage   = 2
 	exitPartial = 3 // backup-now: snapshot created, some files were unreadable
-	// enroll: the instance answered and refused the token (HTTP 4xx); only
-	// then do the install scripts ask for a new token.
+	// enroll: the instance refused the token (HTTP 401 with its problem type
+	// enrollment-token-invalid); only then do the install scripts ask for a
+	// new token. Any other 4xx (wrong address, proxy, firewall) is exitError.
 	exitTokenRefused = 4
 	// enroll: the instance could not be reached (DNS, connection, TLS, proxy,
 	// timeout); the install scripts point to -Proxy / HTTPS_PROXY.

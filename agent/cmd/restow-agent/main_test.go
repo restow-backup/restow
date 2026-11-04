@@ -5,6 +5,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,6 +149,47 @@ func TestEnrollRejectedToken(t *testing.T) {
 	}
 	if strings.Contains(se, "rset_this_token_was_never_issued") {
 		t.Fatalf("the token was printed:\n%s", se)
+	}
+}
+
+// Only the instance's own refusal of the token is exit 4. A wrong address
+// (404), a firewall (403), a reverse proxy with its own login (401 without the
+// problem type) or a proxy that wants a login (407) is not, and the message
+// sends the administrator to the URL and the proxy, not to a new token.
+func TestEnrollBlamesTheTokenOnlyForItsRefusal(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		ctype  string
+		body   string
+		want   int
+		text   string
+	}{
+		{"wrong address", 404, "text/html", "<html>Not Found</html>", exitError, "no refusal of the token"},
+		{"firewall", 403, "text/html", "<html>Request blocked</html>", exitError, "web application firewall"},
+		{"login of a reverse proxy", 401, "text/plain", "Unauthorized", exitError, "no refusal of the token"},
+		{"other problem type", 422, "application/problem+json", `{"type":"urn:restow:problem:unsupported-os","title":"Operating system not supported","status":422}`, exitError, "no refusal of the token"},
+		{"proxy login", 407, "text/plain", "Proxy Authentication Required", exitUnreachable, "proxy asked for authentication"},
+		{"token refused", 401, "application/problem+json", `{"type":"urn:restow:problem:enrollment-token-invalid","title":"Enrollment token not valid","status":401}`, exitTokenRefused, "did not accept the enrollment token"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tc.ctype)
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer stub.Close()
+			c := newCLI(t)
+			t.Setenv("RESTOW_URL", stub.URL)
+			_, se, code := c.run("enroll", "--allow-insecure-http")
+			if code != tc.want || !strings.Contains(se, tc.text) {
+				t.Fatalf("exit %d, want %d\n%s", code, tc.want, se)
+			}
+			if tc.want != exitTokenRefused && strings.Contains(se, "did not accept the enrollment token") {
+				t.Fatalf("the token is blamed:\n%s", se)
+			}
+		})
 	}
 }
 

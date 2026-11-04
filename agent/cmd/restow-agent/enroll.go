@@ -175,13 +175,31 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		var ae *api.APIError
-		if errors.As(err, &ae) && ae.Status >= 400 && ae.Status < 500 && ae.Status != 429 {
+		isAPI := errors.As(err, &ae)
+		if api.IsTokenRefused(err) {
 			fmt.Fprintf(stderr, "The Restow instance did not accept the enrollment token (HTTP %d %s).\n", ae.Status, ae.Title)
 			if ae.Detail != "" {
 				fmt.Fprintf(stderr, "Reason given: %s\n", redact.Redact(ae.Detail))
 			}
 			fmt.Fprintln(stderr, "Enrollment tokens are valid for 24 hours and can be used once. Create a new server or client in the Restow UI (Endpoints) and run the install command again.")
 			return exitTokenRefused
+		}
+		if isAPI && ae.Status == 407 {
+			// A proxy that wants a login: the request never reached the instance.
+			fmt.Fprintf(stderr, "Enrollment failed: the proxy asked for authentication (HTTP 407) and the request did not reach %s. "+
+				"Give the proxy with its user name and password (-Proxy http://user:password@proxy:port, or HTTPS_PROXY), or ask for this computer to be allowed through. The token was not used.\n", baseURL)
+			return exitUnreachable
+		}
+		if isAPI && ae.Status >= 400 && ae.Status < 500 && ae.Status != 429 {
+			// Answered, but not as the instance refuses a token: a wrong
+			// address, a reverse proxy, a web application firewall, an
+			// unsupported system. A new token would not help.
+			fmt.Fprintf(stderr, "Enrollment failed: %s answered HTTP %d %s to the enrollment request. This is no refusal of the token.\n", baseURL, ae.Status, ae.Title)
+			if ae.Detail != "" {
+				fmt.Fprintf(stderr, "Reason given: %s\n", redact.Redact(ae.Detail))
+			}
+			fmt.Fprintln(stderr, "Check that the URL is the address of the Restow web interface, and that no reverse proxy, web application firewall or proxy blocks or rewrites /agent/v1/enroll. Then run the install command again with the same token, unless the reason above says it is used up.")
+			return exitError
 		}
 		fmt.Fprintf(stderr, "Enrollment failed: %s\n", api.Explain(err, baseURL))
 		if api.IsNetworkError(err) {

@@ -344,10 +344,12 @@ private repository.
   old one may have expired or been used)", also when the agent never reached the instance, for
   example on a Windows computer whose proxy comes from Internet Options or a PAC file: the
   installer's downloads used it, the agent does not read it. `restow-agent enroll` now ends with
-  exit code 4 when the instance refused the token and 5 when it could not be reached, and the
-  installers ask for a new token only on 4; on 5 they point to the network and the proxy, and
-  the Windows installer names the proxy Windows uses for the instance (`-Proxy <proxy>`, never
-  taken over unasked).
+  exit code 4 only when the instance itself refused the token (HTTP 401 with its problem type),
+  5 when it could not be reached or a proxy asked for a login (HTTP 407), and 1 with a note on
+  the address, reverse proxy and firewall for any other answer (a 404 of a wrong URL, a 403 of
+  a web application firewall); the installers ask for a new token only on 4. On 5 they point to
+  the network and the proxy, and the Windows installer names the proxy Windows uses for the
+  instance (`-Proxy <proxy>`, never taken over unasked).
 - Agent installers: on a machine that was already enrolled, a failing `restow-agent hooks` (for
   `-Hooks`/`--hooks`) was reported as done on Windows, and an existing state file counted as an
   enrollment even when the agent could no longer read it; the installer then said "installed
