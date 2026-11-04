@@ -5,10 +5,12 @@ package pve
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -24,19 +26,34 @@ type fakeVzdump struct {
 	log     []string
 	forms   []url.Values
 	starts  int
+	// startAnswer is what POST vzdump answers ("" a UPID); resources what /cluster/resources
+	// lists (resourcesFail: it fails); paths every path asked for.
+	startAnswer   string
+	resources     []Resource
+	resourcesFail bool
+	paths         []string
 }
 
 func (f *fakeVzdump) handler(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	answer := func(v any) { _ = json.NewEncoder(w).Encode(map[string]any{"data": v}) }
+	f.paths = append(f.paths, r.Method+" "+r.URL.Path)
 	switch {
 	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/vzdump"):
 		body, _ := io.ReadAll(r.Body)
 		form, _ := url.ParseQuery(string(body))
 		f.forms = append(f.forms, form)
 		f.starts++
+		if f.startAnswer != "" {
+			answer(f.startAnswer)
+			return
+		}
 		answer("UPID:pve1:0001:vzdump:101:root@pam:")
+	case strings.HasSuffix(r.URL.Path, "/cluster/resources") && f.resourcesFail:
+		w.WriteHeader(http.StatusForbidden)
+	case strings.HasSuffix(r.URL.Path, "/cluster/resources"):
+		answer(f.resources)
 	case strings.HasSuffix(r.URL.Path, "/status") && f.running:
 		answer(map[string]any{"status": "running"})
 	case strings.HasSuffix(r.URL.Path, "/status"):
@@ -56,14 +73,20 @@ func (f *fakeVzdump) handler(w http.ResponseWriter, r *http.Request) {
 // then takes them.
 type fakeResults struct {
 	mu   sync.Mutex
-	fail int
-	got  []map[string]any
-	ids  []string
+	fail        int
+	got         []map[string]any
+	ids         []string
+	inventories int
 }
 
 func (f *fakeResults) handler(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if strings.HasSuffix(r.URL.Path, "/inventory") {
+		f.inventories++
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if !strings.HasSuffix(r.URL.Path, "/result") {
 		http.NotFound(w, r)
 		return
@@ -309,5 +332,66 @@ func TestAServiceStopDuringABackupReportsNothingAndTheRestartWaitsAgain(t *testi
 	}
 	if s.inflight("task-1") != nil {
 		t.Fatal("the task is still kept as running")
+	}
+}
+
+// vzdump answers "OK" and starts nothing for a guest that is not on the node: it migrated after
+// the last inventory, or it is gone. The task says so (never WaitTask on "OK"), asks for the
+// inventory at once, and leaves no full-read request behind.
+func TestBackupOfAGuestThatIsNoLongerOnTheNode(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		resources []Resource
+		fail      bool
+		want      string
+		inventory int
+	}{
+		{"migrated", []Resource{{VMID: 101, Type: "lxc", Node: "pve2"}, {VMID: 102, Type: "qemu", Node: "pve1"}},
+			false, "guest 101 now runs on node pve2; Restow backs it up there after the next inventory", 1},
+		{"gone", []Resource{{VMID: 102, Type: "qemu", Node: "pve1"}}, false, "guest 101 was not found in the cluster", 0},
+		{"unknown", nil, true, "vzdump started no task; guest 101 is probably no longer on node pve1", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vz := &fakeVzdump{startAnswer: "OK", resources: tc.resources, resourcesFail: tc.fail}
+			res := &fakeResults{}
+			s := newTaskService(t, vz, res)
+			_, err := s.task(context.Background(), Task{ID: "t1", Kind: "backup", Params: json.RawMessage(`{"vmid":101,"verifyRead":true}`)})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+			for _, p := range vz.paths {
+				if strings.Contains(p, "/tasks/") {
+					t.Fatalf("a task was waited for or stopped: %v", vz.paths)
+				}
+			}
+			if res.inventories != tc.inventory {
+				t.Fatalf("%d inventories sent", res.inventories)
+			}
+			if _, err := os.Stat(s.Layout.forceNewFile(101)); !os.IsNotExist(err) {
+				t.Fatalf("the full-read request stayed behind: %v", err)
+			}
+			if s.inflight("t1") != nil {
+				t.Fatal("a task that started nothing is kept as in flight")
+			}
+		})
+	}
+}
+
+func TestRestoreThatStartsNoTaskFails(t *testing.T) {
+	vz := &fakeVzdump{}
+	s := newTaskService(t, vz, &fakeResults{})
+	pveSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": "OK"})
+	}))
+	t.Cleanup(pveSrv.Close)
+	api, err := NewPVEAPI(pveSrv.URL, "restow@pve!t", "x", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.PVE = api
+	_, err = s.PVE.RestoreGuest(context.Background(), "pve1", "vm", 9001, "restow:backup/vm/101/x", "local-lvm", "restow-restore", nil)
+	var none *NoTaskError
+	if !errors.As(err, &none) || none.Answer != "OK" {
+		t.Fatalf("err = %v", err)
 	}
 }

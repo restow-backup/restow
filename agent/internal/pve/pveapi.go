@@ -256,7 +256,31 @@ func (p *PVEAPI) StartBackup(ctx context.Context, node string, vmid int, storage
 		form.Set("fleecing", "enabled=1,storage="+fleecing)
 	}
 	var upid string
-	return upid, p.call(ctx, http.MethodPost, "/nodes/"+url.PathEscape(node)+"/vzdump", form, &upid)
+	if err := p.call(ctx, http.MethodPost, "/nodes/"+url.PathEscape(node)+"/vzdump", form, &upid); err != nil {
+		return "", err
+	}
+	return checkUPID("vzdump", upid)
+}
+
+// NoTaskError is the answer of a call that starts a PVE task when it is no UPID. vzdump answers
+// "OK" and starts nothing when none of the guests it was asked for is on the node ("silent
+// exit if specified VMs run on other nodes"): the guest migrated, or it is gone.
+type NoTaskError struct {
+	Call   string
+	Answer string
+}
+
+func (e *NoTaskError) Error() string {
+	return fmt.Sprintf("%s started no task (PVE answered %q)", e.Call, e.Answer)
+}
+
+// checkUPID passes a UPID through and makes a NoTaskError of anything else, so that it never
+// reaches WaitTask or StopTask (whose 400 "unable to parse worker upid" says nothing).
+func checkUPID(call, answer string) (string, error) {
+	if !strings.HasPrefix(answer, "UPID:") {
+		return "", &NoTaskError{Call: call, Answer: answer}
+	}
+	return answer, nil
 }
 
 // RestoreGuest creates a new guest from a backup volume; returns the task UPID.
@@ -286,7 +310,10 @@ func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, 
 	// Never start=1: PVE would start the guest in a task of its own whose failure the restore
 	// task does not show, and the start needs VM.PowerMgmt. restow-pve starts it as root.
 	var upid string
-	return upid, p.call(ctx, http.MethodPost, fmt.Sprintf("/nodes/%s/%s", url.PathEscape(node), apiType(kind)), form, &upid)
+	if err := p.call(ctx, http.MethodPost, fmt.Sprintf("/nodes/%s/%s", url.PathEscape(node), apiType(kind)), form, &upid); err != nil {
+		return "", err
+	}
+	return checkUPID("the restore", upid)
 }
 
 // TaskStatus is GET /nodes/{node}/tasks/{upid}/status.

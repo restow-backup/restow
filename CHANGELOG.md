@@ -470,6 +470,16 @@ private repository.
   container provider that holds that guest's backup open, so another container's provider is
   never stopped. The node stops only vzdump tasks of its own, and when it finds no provider the
   log says that the backup ends at its next upload, which the server refuses.
+- Proxmox VE: a backup of a guest that had just migrated to another node (live migration, HA,
+  maintenance mode, between two inventories) failed with "PVE API answered 400 ... unable to
+  parse worker upid". vzdump answers `OK` and starts nothing for a guest that is not on its
+  node, and restow-pve waited for a task called "OK". A call that should start a PVE task (a
+  backup, a restore) and answers anything but a UPID now fails at once. For a backup the node
+  looks the guest up in the cluster and says "guest 101 now runs on node pve2; Restow backs it
+  up there after the next inventory" (and sends its inventory at once), "guest 101 was not found
+  in the cluster", or, when the cluster cannot be read, that the guest is probably no longer on
+  the node; it never stops a task that does not exist, and a full read asked for with the
+  backup is not left over for the next one.
 
 ### Upgrade Notes
 

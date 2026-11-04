@@ -673,6 +673,12 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 		}
 		upid, err := s.PVE.StartBackup(ctx, s.State.NodeName, p.VMID, s.State.StorageID, mode, fleecing)
 		if err != nil {
+			// No backup ran, so no full read is owed to it.
+			_ = os.Remove(s.Layout.forceNewFile(p.VMID))
+			var none *NoTaskError
+			if errors.As(err, &none) {
+				return nil, s.whereIsGuest(ctx, p.VMID)
+			}
 			return nil, err
 		}
 		s.Logf("backup of %d started: %s", p.VMID, upid)
@@ -699,6 +705,30 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 		return map[string]any{"guests": n}, err
 	}
 	return nil, fmt.Errorf("unknown task kind %q", t.Kind)
+}
+
+// whereIsGuest explains why vzdump started no task for the guest: it is on another node now
+// (Restow backs it up there once the inventory says so, which this asks for at once), or in no
+// node of the cluster any more.
+func (s *Service) whereIsGuest(ctx context.Context, vmid int) error {
+	node := s.State.NodeName
+	guests, err := s.PVE.Guests(ctx)
+	if err != nil {
+		return fmt.Errorf("vzdump started no task; guest %d is probably no longer on node %s (the cluster's guests cannot be read: %v)", vmid, node, err)
+	}
+	for _, g := range guests {
+		if g.VMID != vmid {
+			continue
+		}
+		if g.Node == node {
+			return fmt.Errorf("vzdump started no task for guest %d on node %s, where PVE lists it", vmid, node)
+		}
+		if _, err := s.ReportInventory(ctx); err != nil {
+			s.Logf("inventory: %v", err)
+		}
+		return fmt.Errorf("guest %d now runs on node %s; Restow backs it up there after the next inventory", vmid, g.Node)
+	}
+	return fmt.Errorf("guest %d was not found in the cluster", vmid)
 }
 
 // finishBackup waits for a vzdump task and makes the task's result of its end.
