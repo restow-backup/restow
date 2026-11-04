@@ -688,7 +688,19 @@ What the guest's node does:
 The result (outcome, reason, boot time, duration, the node's log of the test) is kept with the
 run and, when it rates (green, yellow, red), with the restore point. A red boot test raises
 `boot_test.failed`, a yellow one `boot_test.unproven` (notification catalog, group
-recoverability). `qm` and `pct` run as root, as the service does; the node's API token needs
+recoverability).
+
+A test skipped for a reason that passes (a backup or another boot test ran on the node, its
+memory or the storage's space was short at that moment) and a test the node could not carry
+out at all are tried again on a later pass: 30 minutes after the attempt, then 1, 2 and 4
+hours, at most 6, five attempts per restore point (the next restore point starts anew). With
+the weekly schedule the retries come within the week; the week's test comes as usual. A
+reason that stays (the guest needs more memory than the job allows, the storage takes no
+guests of its kind, restores or boot tests are off on the node) is not retried; the run on
+the guest's page says why. When no boot test of a guest came to a result for longer than its
+schedule allows (two days after every backup, eight days weekly), `boot_test.skipped`
+(warning, group recoverability, "No boot test result") is raised once with the last reason;
+it comes again only after a boot test came to a result in between. `qm` and `pct` run as root, as the service does; the node's API token needs
 no new privilege.
 
 Not part of the test: a check of ports or applications inside the isolated network, a

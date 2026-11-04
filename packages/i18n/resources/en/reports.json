@@ -399,7 +399,8 @@
     },
     "boot_test": {
       "failed": "Boot test failed",
-      "unproven": "Boot test without proof"
+      "unproven": "Boot test without proof",
+      "skipped": "No boot test result"
     },
     "scrub": {
       "corrupt": "Storage damage found",
@@ -456,7 +457,8 @@
     },
     "boot_test": {
       "failed": "A Proxmox VE restore point did not boot: restoring it to a temporary guest, starting it or its boot failed.",
-      "unproven": "A VM restored from a Proxmox VE restore point started and kept running, but its QEMU Guest Agent never answered, so nothing proves the system inside works."
+      "unproven": "A VM restored from a Proxmox VE restore point started and kept running, but its QEMU Guest Agent never answered, so nothing proves the system inside works.",
+      "skipped": "A guest's job boot-tests it, but for longer than its schedule allows (two days after every backup, eight days weekly) every boot test was skipped or could not be carried out. The message names the last reason."
     },
     "scrub": {
       "corrupt": "The storage check found damaged or missing pack files.",
@@ -635,7 +637,8 @@
     },
     "boot_test": {
       "failed": "Boot test failed: {object}",
-      "unproven": "Boot test without proof: {object}"
+      "unproven": "Boot test without proof: {object}",
+      "skipped": "No boot test result: {object}"
     },
     "scrub": {
       "corrupt": "Storage damage found",

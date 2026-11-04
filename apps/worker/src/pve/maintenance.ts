@@ -24,7 +24,10 @@ import { createHash } from "node:crypto";
  *              guest's node restores the newest restore point to a temporary guest, starts
  *              it and waits for the guest agent; only nodes that announced the capability,
  *              one per node at a time, never beside a backup on the node; a failed or
- *              unproven boot test raises boot_test.failed / boot_test.unproven once
+ *              unproven boot test raises boot_test.failed / boot_test.unproven once; a skip
+ *              that passes, or an error, is tried again (30 minutes, doubling, five times),
+ *              and boot tests that came to no result for longer than the schedule allows
+ *              raise boot_test.skipped once
  *   tokens     an existing PVE API token an admin gave for an enrollment is deleted
  *              once that enrollment token is used, revoked or expired
  *   downloads  prepared ZIP downloads of container files go an hour after they expired
@@ -44,10 +47,13 @@ import {
   mapChunkIds,
   measureRepositoryBytes,
   PVE_BOOT_TEST_CAPABILITY,
+  PVE_BOOT_TEST_MAX_ATTEMPTS,
   PVE_RESTORE_TEST_EVERY_MS,
   protectionOnTargets,
   pveBootTestDue,
+  pveBootTestOverdueMs,
   pveBootTestPlan,
+  pveBootTestRetry,
   pveBootTestTaskParams,
   pveDisksOf,
   pveGuestCounted,
@@ -1293,8 +1299,8 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
           continue;
         }
         // By guest first: pve_runs_guest_started_idx reads the guest's runs, not every run.
-        const [tried] = await tx
-          .select({ id: pveRuns.id })
+        const attempts = await tx
+          .select({ status: pveRuns.status, stats: pveRuns.stats, startedAt: pveRuns.startedAt })
           .from(pveRuns)
           .where(
             and(
@@ -1303,19 +1309,38 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
               eq(pveRuns.snapshotId, snap.id),
             ),
           )
-          .limit(1);
-        const due = pveBootTestDue(
+          .orderBy(desc(pveRuns.startedAt))
+          .limit(PVE_BOOT_TEST_MAX_ATTEMPTS + 1);
+        // A skip that passes (a backup or boot test ran, memory or space was short) and a test
+        // the node could not carry out are tried again with a growing wait, a few times; any
+        // other outcome stands for this restore point (pveBootTestRetry).
+        const retry = pveBootTestRetry(
+          attempts.map((a) => {
+            const test = a.status === "running" ? null : bootTestOf(a.stats);
+            return {
+              outcome: typeof test?.outcome === "string" ? test.outcome : null,
+              reason: typeof test?.reason === "string" ? test.reason : "",
+              startedAt: a.startedAt,
+            };
+          }),
+        );
+        const scheduled = pveBootTestDue(
           {
             schedule: plan.schedule,
             lastBootTestAt: guest.lastBootTestAt,
             newest: {
               backupAt: snap.backupAt,
-              tested: snap.bootTest !== null || tried !== undefined,
+              tested: snap.bootTest !== null || retry.tested || retry.retryAt !== null,
             },
           },
           now,
         );
-        if (!due) {
+        const retryDue = !retry.tested && retry.retryAt !== null && retry.retryAt <= now;
+        // Weekly: a retry within the week, or the week's test; never before the wait is over.
+        if (retry.retryAt !== null && retry.retryAt > now) {
+          continue;
+        }
+        if (!scheduled && !retryDue) {
           continue;
         }
         const [task] = await tx
@@ -1350,6 +1375,17 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
     });
   }
   return n;
+}
+
+/** The boot test record of a run's stats, as far as it is one. */
+function bootTestOf(stats: Record<string, unknown>): {
+  outcome?: unknown;
+  reason?: string;
+  message?: string;
+  skippedAlertedAt?: unknown;
+} | null {
+  const test = stats.bootTest;
+  return test && typeof test === "object" ? (test as Record<string, never>) : null;
 }
 
 /** Boot tests older than this are not alerted any more (a worker that was down for long). */
@@ -1410,6 +1446,113 @@ export async function alertBootTests(deps: PveDeps, now: Date): Promise<number> 
         .where(eq(pveRuns.id, run.id));
     });
     n++;
+  }
+  return n;
+}
+
+/**
+ * Raise boot_test.skipped once per guest and episode: its job boot-tests it, but no boot test
+ * came to an outcome (green, yellow, red) for longer than the schedule allows (two days after
+ * every backup, eight days weekly), and the last attempt was skipped or could not be carried
+ * out. The event names the last reason; the run it was raised for keeps `skippedAlertedAt`, so
+ * it comes again only after a boot test came to an outcome in between.
+ */
+export async function alertBootTestsSkipped(deps: PveDeps, now: Date): Promise<number> {
+  const jobs = await deps.providerDb
+    .select({ job: pveJobs })
+    .from(pveJobs)
+    .innerJoin(tenants, eq(tenants.id, pveJobs.tenantId))
+    .where(and(eq(pveJobs.enabled, true), eq(tenants.status, "active")));
+  let n = 0;
+  for (const { job } of jobs) {
+    const overdueMs = pveBootTestOverdueMs(pveBootTestPlan(job.settings.bootTest).schedule);
+    if (overdueMs === null) {
+      continue;
+    }
+    n += await withTenantTx(deps.db, job.tenantId, async (tx) => {
+      const guests = coveredBy(job, await tx.select().from(pveGuests)).filter(
+        (g) => g.lastSnapshotId !== null && !(g.kind === "ct" && g.privileged),
+      );
+      let raised = 0;
+      for (const guest of guests) {
+        const rated = (r: { stats: Record<string, unknown> }) => {
+          const outcome = bootTestOf(r.stats)?.outcome;
+          return outcome === "green" || outcome === "yellow" || outcome === "red";
+        };
+        // The last boot test that came to a result, and the attempts since.
+        const [last] = await tx
+          .select({ finishedAt: pveRuns.finishedAt })
+          .from(pveRuns)
+          .where(
+            and(
+              eq(pveRuns.guestId, guest.id),
+              eq(pveRuns.kind, "boot_test"),
+              sql`${pveRuns.stats}->'bootTest'->>'outcome' IN ('green', 'yellow', 'red')`,
+            ),
+          )
+          .orderBy(desc(pveRuns.startedAt))
+          .limit(1);
+        const episode = (
+          await tx
+            .select()
+            .from(pveRuns)
+            .where(
+              and(
+                eq(pveRuns.guestId, guest.id),
+                eq(pveRuns.kind, "boot_test"),
+                sql`${pveRuns.status} <> 'running'`,
+                last?.finishedAt ? sql`${pveRuns.startedAt} > ${last.finishedAt}` : undefined,
+              ),
+            )
+            .orderBy(desc(pveRuns.startedAt))
+            .limit(50)
+        ).filter((r) => !rated(r));
+        const latest = episode[0];
+        const latestOutcome = latest ? bootTestOf(latest.stats)?.outcome : null;
+        if (!latest || (latestOutcome !== "skipped" && latestOutcome !== "error")) {
+          continue;
+        }
+        const since = last?.finishedAt ?? episode[episode.length - 1]?.startedAt ?? now;
+        if (now.getTime() - since.getTime() < overdueMs) {
+          continue;
+        }
+        if (episode.some((r) => typeof bootTestOf(r.stats)?.skippedAlertedAt === "string")) {
+          continue;
+        }
+        const test = bootTestOf(latest.stats) ?? {};
+        const name = guest.name?.trim() || `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`;
+        const days = Math.floor((now.getTime() - since.getTime()) / (24 * 60 * 60 * 1000));
+        await raiseEvents(
+          tx,
+          [
+            {
+              tenantId: job.tenantId,
+              level: "warning",
+              event: "boot_test.skipped",
+              message:
+                `No boot test of ${name} came to a result for ${days} days: ${test.message || test.reason || ""}`.trim(),
+              details: {
+                pveGuestId: guest.id,
+                objectName: name,
+                snapshotId: latest.snapshotId,
+                runId: latest.id,
+                reason: test.reason ?? null,
+                days,
+              },
+            },
+          ],
+          now,
+        );
+        await tx
+          .update(pveRuns)
+          .set({
+            stats: sql`jsonb_set(${pveRuns.stats}, '{bootTest,skippedAlertedAt}', to_jsonb(${now.toISOString()}::text))`,
+          })
+          .where(eq(pveRuns.id, latest.id));
+        raised++;
+      }
+      return raised;
+    });
   }
   return n;
 }
@@ -1490,7 +1633,7 @@ export async function pvePass(deps: PveDeps): Promise<PvePassSummary> {
     verified: paused ? 0 : await verifyDue(deps, now),
     restoreTests: paused ? 0 : await planRestoreTests(deps, now),
     bootTests: paused ? 0 : await planBootTests(deps, now),
-    bootTestAlerts: await alertBootTests(deps, now),
+    bootTestAlerts: (await alertBootTests(deps, now)) + (await alertBootTestsSkipped(deps, now)),
     pveTokensDropped: await dropPveTokenSecrets(deps, now),
     downloadsPurged: await purgeDownloads(deps, now),
   };

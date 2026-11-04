@@ -6,8 +6,10 @@ import {
   MAX_BOOT_TEST_TIMEOUT_SECONDS,
   PVE_BOOT_TEST_CAPABILITY,
   pveBootTestDue,
+  pveBootTestOverdueMs,
   pveBootTestPlan,
   pveBootTestRating,
+  pveBootTestRetry,
   pveBootTestTaskParams,
   pveNodeDeclares,
   pveRestoreCheckBlocker,
@@ -195,5 +197,53 @@ describe("pveRestoreCheckBlocker", () => {
     expect(pveRestoreCheckBlocker({ facts: {}, lastSeenAt: seen(11) }, now)).toBe("node_offline");
     expect(pveRestoreCheckBlocker({ facts: {}, lastSeenAt: null }, now)).toBe("node_offline");
     expect(pveRestoreCheckBlocker(null, now)).toBe("no_node");
+  });
+});
+
+describe("pveBootTestRetry", () => {
+  const at = (minutesAgo: number) => new Date(NOW.getTime() - minutesAgo * 60_000);
+  const skip = (reason: string, minutesAgo: number) => ({
+    outcome: "skipped",
+    reason,
+    startedAt: at(minutesAgo),
+  });
+  it("retries a transient skip or an error with a doubling wait, and gives up after five", () => {
+    expect(pveBootTestRetry([])).toMatchObject({ tested: false, retryAt: null });
+    expect(pveBootTestRetry([skip("backup_running", 10)])).toEqual({
+      tested: false,
+      retryAt: at(-20),
+      attempts: 1,
+      gaveUp: false,
+    });
+    const twice = pveBootTestRetry([
+      { outcome: "error", reason: "node_error", startedAt: at(10) },
+      skip("node_memory", 100),
+    ]);
+    expect(twice).toMatchObject({ tested: false, attempts: 2, retryAt: at(-50) });
+    const five = [1, 2, 3, 4, 5].map((n) => skip("boot_test_running", n * 60));
+    expect(pveBootTestRetry(five)).toMatchObject({ tested: true, gaveUp: true });
+    // The wait is capped at six hours.
+    expect(pveBootTestRetry(five.slice(0, 4), { maxMs: 60 * 60_000 }).retryAt).toEqual(at(0));
+  });
+
+  it("counts an outcome that stands as tested: rated, a permanent skip, one going", () => {
+    expect(pveBootTestRetry([{ outcome: "green", reason: "", startedAt: at(5) }]).tested).toBe(
+      true,
+    );
+    expect(pveBootTestRetry([skip("memory_limit", 5)]).tested).toBe(true);
+    expect(pveBootTestRetry([{ outcome: null, reason: "", startedAt: at(5) }]).tested).toBe(true);
+    // A transient skip after a red one is retried: only the attempts since count.
+    expect(
+      pveBootTestRetry([
+        skip("backup_running", 5),
+        { outcome: "red", reason: "", startedAt: at(90) },
+      ]).tested,
+    ).toBe(false);
+  });
+
+  it("raises the overdue alert after two days (after every backup) or eight (weekly)", () => {
+    expect(pveBootTestOverdueMs("after_backup")).toBe(2 * 24 * 60 * 60 * 1000);
+    expect(pveBootTestOverdueMs("weekly")).toBe(8 * 24 * 60 * 60 * 1000);
+    expect(pveBootTestOverdueMs("off")).toBeNull();
   });
 });

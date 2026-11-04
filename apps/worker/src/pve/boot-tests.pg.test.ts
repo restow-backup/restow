@@ -26,7 +26,13 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadTenantKeyring, TenantCache } from "../handlers/framework.js";
 import { dropTestDatabase } from "../testing/database.js";
-import { alertBootTests, type PveDeps, planBootTests, pvePass } from "./maintenance.js";
+import {
+  alertBootTests,
+  alertBootTestsSkipped,
+  type PveDeps,
+  planBootTests,
+  pvePass,
+} from "./maintenance.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 const TEST_DB = "restow_worker_pve_boot_test";
@@ -330,6 +336,98 @@ describe.skipIf(!adminUrl)("boot tests in the worker against Postgres", () => {
       .update(pveJobs)
       .set({ settings: { bootTest: { schedule: "off" } } })
       .where(eq(pveJobs.id, jobId));
+    expect(await planBootTests(deps, clock)).toBe(0);
+  });
+
+  /** End every open boot test as skipped (or not carried out), as the API records it. */
+  async function skipAll(reason: string, outcome: "skipped" | "error" = "skipped") {
+    for (const task of await openBootTasks()) {
+      await owner
+        .update(pveTasks)
+        .set({ status: "done", finishedAt: clock })
+        .where(eq(pveTasks.id, task.id));
+      await owner
+        .update(pveRuns)
+        .set({
+          status: "failed",
+          finishedAt: clock,
+          stats: {
+            bootTest: {
+              outcome,
+              reason,
+              message: `skipped: ${reason}`,
+              checkedAt: clock.toISOString(),
+            },
+          },
+        })
+        .where(eq(pveRuns.taskId, task.id));
+    }
+  }
+  const plannedFor = async (vmid: number) =>
+    (await openBootTasks()).filter((t) => t.guestId === guestIds[vmid]).length;
+  const MINUTE = 60_000;
+
+  it("after every backup: a skip that passes is tried again after a wait, one that stays is not (S07)", async () => {
+    await owner
+      .update(pveJobs)
+      .set({ settings: { bootTest: { schedule: "after_backup" } } })
+      .where(eq(pveJobs.id, jobId));
+    await advance(DAY);
+    await addPoint(101, 3, clock);
+    expect(await planBootTests(deps, clock)).toBe(1);
+    expect(await plannedFor(101)).toBe(1);
+    await skipAll("backup_running");
+    // Not on the same pass: the first retry waits 30 minutes.
+    expect(await planBootTests(deps, clock)).toBe(0);
+    await advance(31 * MINUTE);
+    expect(await planBootTests(deps, clock)).toBe(1);
+    expect(await plannedFor(101)).toBe(1);
+    // The node could not carry it out: tried again, now after an hour.
+    await skipAll("node_error", "error");
+    await advance(31 * MINUTE);
+    expect(await planBootTests(deps, clock)).toBe(0);
+    await advance(30 * MINUTE);
+    expect(await planBootTests(deps, clock)).toBe(1);
+    // The guest needs more memory than the job allows: that stays, no retry.
+    await skipAll("memory_limit");
+    await advance(7 * 60 * MINUTE);
+    expect(await planBootTests(deps, clock)).toBe(0);
+  });
+
+  it("raises boot_test.skipped once when no boot test came to a result for too long (S07)", async () => {
+    // The last result of 101 was the red one; its later attempts were all skipped.
+    expect(await alertBootTestsSkipped(deps, clock)).toBe(1);
+    expect(await alertBootTestsSkipped(deps, clock)).toBe(0);
+    const [raised] = await owner
+      .select()
+      .from(notifications)
+      .where(eq(notifications.event, "boot_test.skipped"));
+    expect(raised).toMatchObject({ level: "warning" });
+    expect(raised?.details).toMatchObject({ pveGuestId: guestIds[101], reason: "memory_limit" });
+    expect(raised?.message).toContain("skipped: memory_limit");
+  });
+
+  it("weekly: a skip that passes is tried again within the week (S07)", async () => {
+    await owner
+      .update(pveJobs)
+      .set({ settings: { bootTest: { schedule: "weekly" } } })
+      .where(eq(pveJobs.id, jobId));
+    await advance(8 * DAY);
+    // Only 101 is due this week (102 was tested a moment ago).
+    await owner
+      .update(pveGuests)
+      .set({ lastBootTestAt: clock })
+      .where(eq(pveGuests.id, guestIds[102] as string));
+    await addPoint(101, 4, clock);
+    expect(await planBootTests(deps, clock)).toBe(1);
+    expect(await plannedFor(101)).toBe(1);
+    await skipAll("node_memory");
+    expect(await planBootTests(deps, clock)).toBe(0);
+    await advance(31 * MINUTE);
+    expect(await planBootTests(deps, clock)).toBe(1);
+    expect(await plannedFor(101)).toBe(1);
+    await finishAll("green");
+    await advance(31 * MINUTE);
     expect(await planBootTests(deps, clock)).toBe(0);
   });
 });

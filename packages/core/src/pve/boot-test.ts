@@ -126,6 +126,93 @@ export function pveBootTestDue(input: PveBootTestDueInput, now: Date): boolean {
   );
 }
 
+/**
+ * Why a node skipped a boot test, when the reason passes (another backup or boot test ran, the
+ * node was short of memory or space at that moment): the test is tried again. The other reasons
+ * (the guest needs more memory than the job allows, the storage holds no guests of its kind,
+ * restores or boot tests are off on the node) stay until someone changes something. A test the
+ * node could not carry out at all (outcome `error`) is tried again as well.
+ */
+export const PVE_BOOT_TEST_TRANSIENT_REASONS: readonly string[] = [
+  "backup_running",
+  "boot_test_running",
+  "node_memory",
+  "storage_space",
+];
+/** The first retry of a boot test that did not come to a result waits this long, then doubling. */
+export const PVE_BOOT_TEST_RETRY_FIRST_MS = 30 * 60 * 1000;
+/** No retry waits longer than this. */
+export const PVE_BOOT_TEST_RETRY_MAX_MS = 6 * 60 * 60 * 1000;
+/** Attempts per restore point before the planner gives up on it (its next one is tried anew). */
+export const PVE_BOOT_TEST_MAX_ATTEMPTS = 5;
+
+/** A boot test run of one restore point, as the planner reads it. */
+export interface PveBootTestAttempt {
+  /** Its outcome; null while it runs, or for a run closed without one. */
+  readonly outcome: string | null;
+  readonly reason: string;
+  readonly startedAt: Date;
+}
+
+/** Whether a boot test attempt passes without a result that the next attempt may change. */
+export function pveBootTestTransient(attempt: Pick<PveBootTestAttempt, "outcome" | "reason">) {
+  return (
+    attempt.outcome === "error" ||
+    (attempt.outcome === "skipped" && PVE_BOOT_TEST_TRANSIENT_REASONS.includes(attempt.reason))
+  );
+}
+
+/**
+ * What the boot test runs of a restore point (newest first) say for the planner: `tested` when
+ * one came to an outcome that stands (green, yellow, red, a permanent skip), one is going, or
+ * the attempts are used up; otherwise, after a transient skip or an error, `retryAt` is when the
+ * next attempt is due (30 minutes, doubling, at most 6 hours). Only the attempts since the last
+ * outcome that stands count.
+ */
+export function pveBootTestRetry(
+  attempts: readonly PveBootTestAttempt[],
+  limits: { firstMs?: number; maxMs?: number; maxAttempts?: number } = {},
+): { tested: boolean; retryAt: Date | null; attempts: number; gaveUp: boolean } {
+  const first = limits.firstMs ?? PVE_BOOT_TEST_RETRY_FIRST_MS;
+  const max = limits.maxMs ?? PVE_BOOT_TEST_RETRY_MAX_MS;
+  const most = limits.maxAttempts ?? PVE_BOOT_TEST_MAX_ATTEMPTS;
+  const lead: PveBootTestAttempt[] = [];
+  for (const attempt of attempts) {
+    if (!pveBootTestTransient(attempt)) {
+      break;
+    }
+    lead.push(attempt);
+  }
+  const latest = lead[0];
+  if (!latest) {
+    return { tested: attempts.length > 0, retryAt: null, attempts: 0, gaveUp: false };
+  }
+  if (lead.length >= most) {
+    return { tested: true, retryAt: null, attempts: lead.length, gaveUp: true };
+  }
+  const wait = Math.min(first * 2 ** (lead.length - 1), max);
+  return {
+    tested: false,
+    retryAt: new Date(latest.startedAt.getTime() + wait),
+    attempts: lead.length,
+    gaveUp: false,
+  };
+}
+
+/**
+ * How long a guest whose job boot-tests it may go without a boot test that came to an outcome
+ * before `boot_test.skipped` is raised: two days after every backup, eight days weekly.
+ */
+export function pveBootTestOverdueMs(schedule: PveBootTestScheduleKind): number | null {
+  if (schedule === "after_backup") {
+    return 2 * 24 * 60 * 60 * 1000;
+  }
+  if (schedule === "weekly") {
+    return 8 * 24 * 60 * 60 * 1000;
+  }
+  return null;
+}
+
 /** The parts of a boot test result the rating reads. */
 export interface PveBootTestFact {
   readonly outcome: string;

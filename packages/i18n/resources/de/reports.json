@@ -399,7 +399,8 @@
     },
     "boot_test": {
       "failed": "Startprüfung nicht bestanden",
-      "unproven": "Startprüfung ohne Nachweis"
+      "unproven": "Startprüfung ohne Nachweis",
+      "skipped": "Kein Ergebnis der Startprüfung"
     },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",
@@ -456,7 +457,8 @@
     },
     "boot_test": {
       "failed": "Ein Sicherungsstand aus Proxmox VE ist nicht gestartet: Die Wiederherstellung als temporärer Gast, sein Start oder sein Hochfahren ist fehlgeschlagen.",
-      "unproven": "Eine aus einem Sicherungsstand von Proxmox VE wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nie geantwortet. Damit ist nicht nachgewiesen, dass das System darin funktioniert."
+      "unproven": "Eine aus einem Sicherungsstand von Proxmox VE wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nie geantwortet. Damit ist nicht nachgewiesen, dass das System darin funktioniert.",
+      "skipped": "Der Job eines Gastes sieht Startprüfungen vor, aber länger, als sein Zeitplan erlaubt (zwei Tage bei Prüfung nach jeder Sicherung, acht Tage bei wöchentlicher), wurde jede Startprüfung übersprungen oder konnte nicht durchgeführt werden. Die Meldung nennt den letzten Grund."
     },
     "scrub": {
       "corrupt": "Die Speicherprüfung hat beschädigte oder fehlende Pack-Dateien gefunden.",
@@ -635,7 +637,8 @@
     },
     "boot_test": {
       "failed": "Startprüfung nicht bestanden: {object}",
-      "unproven": "Startprüfung ohne Nachweis: {object}"
+      "unproven": "Startprüfung ohne Nachweis: {object}",
+      "skipped": "Kein Ergebnis der Startprüfung: {object}"
     },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",

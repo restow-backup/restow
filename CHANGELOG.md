@@ -299,6 +299,14 @@ private repository.
   the restore point by both checks, as readiness does: "Boot test failed" (red) for a boot test
   that did not boot, "Boot test without proof" (amber) for one that started without an answer,
   and green only when neither stands against it.
+- Proxmox VE: a boot test skipped for a reason that passes (a backup ran on the node, memory or
+  space was short at that moment) or one the node could not carry out was not tried again: after
+  every backup the restore point counted as tested, weekly the next try came a week later, and
+  nobody was told. Such a test is now tried again after 30 minutes, then with a doubling wait (at
+  most 6 hours, five attempts per restore point). A guest whose boot tests came to no result for
+  longer than its schedule allows (two days after every backup, eight days weekly) raises the new
+  event "No boot test result" (`boot_test.skipped`) once, with the last reason; rules and the
+  bell can pick it like the other boot test events.
 
 ### Upgrade Notes
 
