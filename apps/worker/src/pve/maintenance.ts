@@ -905,10 +905,25 @@ async function clearStaleGuestLocks(
     const now = deps.runtime.now();
     // Only restow-pve and the server write here, so a lock's own time can be trusted: a lock
     // is stale only when its storage time and its own time are both 30 minutes old. A storage
-    // whose clock lags (a NAS on local time as UTC) never gets a live lock taken away.
+    // whose clock lags (a NAS on local time as UTC) never gets a live lock taken away. A lock
+    // that is still there but could not be read is kept for the next pass (null); one that is
+    // gone meanwhile has nothing left to remove.
     const lockTimes = new Map<string, Date | null>();
     for (const lock of storageStaleLocks(present, now)) {
-      lockTimes.set(lock.name, await resticLockTime(session, lock.name));
+      const read = await resticLockTime(session, lock.name);
+      if ("time" in read) {
+        lockTimes.set(lock.name, read.time);
+        continue;
+      }
+      const stillThere = await access.storage.head(`${access.prefix}locks/${lock.name}`);
+      if (!stillThere) {
+        continue;
+      }
+      lockTimes.set(lock.name, null);
+      deps.runtime.logger.warn(
+        "pve: the time of a container repository's lock could not be read, the lock is kept for now",
+        { guestId, lock: lock.name.slice(0, 12), detail: read.unreadable },
+      );
     }
     const skews = lockClockSkews(present, lockTimes);
     if (skews.length > 0) {

@@ -8,6 +8,7 @@ import {
   measureRepositoryBytes,
   removeLockFiles,
   STALE_LOCK_MS,
+  UNREADABLE_LOCK_MS,
 } from "./repository-storage.js";
 
 const PREFIX = "endpoints/22222222-2222-4222-8222-222222222222/";
@@ -82,9 +83,9 @@ describe("locks before maintenance", () => {
       [name("d"), at(120)],
     ]);
     const context = { agentLocks: new Set<string>(), agentActive: true, now, lockTimes };
-    // a: fresh by its own time, kept. b: old by both, removed. c: unreadable, the storage time
-    // decides. d: fresh in the storage, kept whatever it says inside.
-    expect(locksToRemove(locks, context)).toEqual([name("b"), name("c")]);
+    // a: fresh by its own time, kept. b: old by both, removed. c: unreadable, kept for the next
+    // pass. d: fresh in the storage, kept whatever it says inside.
+    expect(locksToRemove(locks, context)).toEqual([name("b")]);
     // Without its own times (an endpoint's repository) the storage time alone decides.
     expect(locksToRemove(locks, { ...context, lockTimes: undefined })).toEqual([
       name("a"),
@@ -96,6 +97,26 @@ describe("locks before maintenance", () => {
       { name: name("a"), skewMs: -60 * MINUTE },
       { name: name("d"), skewMs: 115 * MINUTE },
     ]);
+  });
+
+  it("keeps a lock whose own time could not be read until it is a day old in the storage", () => {
+    // The storage's clock lags two hours and `restic cat lock` failed for a moment (a timeout):
+    // the live lock of a running backup must survive this pass. Only a lock file stored more
+    // than a day ago is removed unread, so a broken one cannot stop maintenance for good.
+    const locks = [
+      { name: name("e"), storedAt: at(120) },
+      { name: name("f"), storedAt: at(UNREADABLE_LOCK_MS / MINUTE + 1) },
+      { name: name("0"), storedAt: at(120) },
+    ];
+    const lockTimes = new Map<string, Date | null>([
+      [name("e"), null],
+      [name("f"), null],
+    ]);
+    expect(UNREADABLE_LOCK_MS).toBe(24 * 60 * MINUTE);
+    // e: unreadable, kept. f: unreadable but a day old, removed. 0: not read at all, kept.
+    expect(
+      locksToRemove(locks, { agentLocks: new Set(), agentActive: true, now, lockTimes }),
+    ).toEqual([name("f")]);
   });
 
   it("deletes lock files by name", async () => {

@@ -727,19 +727,32 @@ function retryLockArgs(retryLock: string | undefined): string[] {
 
 /**
  * The time a lock file says it was written (restic's own timestamp, from the clock of whoever
- * wrote it), read without taking a lock; null when the file is gone or cannot be read.
+ * wrote it), read without taking a lock. A lock that could not be read (the file is gone, the
+ * storage did not answer, restic failed, the content holds no time) is `unreadable` with what
+ * went wrong: the caller tells "gone" from "still there" by the storage, never by a guess, and
+ * keeps a lock it could not judge (@restow/core `locksToRemove`).
  */
-export async function resticLockTime(session: ResticSession, name: string): Promise<Date | null> {
+export async function resticLockTime(
+  session: ResticSession,
+  name: string,
+): Promise<{ time: Date } | { unreadable: string }> {
   if (!/^[0-9a-f]{64}$/.test(name)) {
     throw new TypeError("a lock name must be 64 lower-case hex digits");
   }
+  let stdout: string;
   try {
-    const { stdout } = await runRestic(session, ["cat", "lock", "--no-lock", name]);
+    ({ stdout } = await runRestic(session, ["cat", "lock", "--no-lock", name]));
+  } catch (error) {
+    return { unreadable: resticErrorDetail(error, 300) };
+  }
+  try {
     const parsed = JSON.parse(stdout) as { time?: unknown };
     const time = typeof parsed.time === "string" ? new Date(parsed.time) : null;
-    return time && Number.isFinite(time.getTime()) ? time : null;
+    return time && Number.isFinite(time.getTime())
+      ? { time }
+      : { unreadable: "the lock holds no time" };
   } catch {
-    return null;
+    return { unreadable: "the lock is not JSON" };
   }
 }
 

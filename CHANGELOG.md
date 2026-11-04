@@ -344,8 +344,11 @@ private repository.
   local time as UTC) made every live restic lock of a container repository look stale, and the
   worker removed it and pruned while the node's restic was restoring, testing or backing up. A
   lock of a container repository now counts as stale only when the time restic wrote into it is
-  30 minutes old as well; a disagreement of the two clocks is logged as a warning. Endpoint
-  repositories keep the storage rule, where an agent could plant a lock dated in the future.
+  30 minutes old as well; a lock whose own time could not be read at that moment (a timeout of
+  the storage, restic failing) is kept for the next pass and removed unread only once the
+  storage received it more than a day ago. A disagreement of the two clocks is logged as a
+  warning. Endpoint repositories keep the storage rule, where an agent could plant a lock dated
+  in the future.
 - Proxmox VE: guests in the pool `restow-restore` (a restored copy not yet accepted, a leftover
   temporary guest of a restore check or boot test) were taken by a job for "all guests": a
   restored copy was backed up as a second guest with the original's name, a boot test's guest
