@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -672,5 +673,110 @@ func TestVzdumpFormNotificationModePerPVEVersion(t *testing.T) {
 			form.Get("remove") != "0" || form.Get("fleecing") != "enabled=1,storage=local-lvm" {
 			t.Errorf("PVE %q: form = %v", tc.version, form)
 		}
+	}
+}
+
+// inventoryNode is a PVE API with the cluster's guests and their configurations, and a Restow
+// server that keeps the inventory it is sent.
+type inventoryNode struct {
+	mu        sync.Mutex
+	resources []Resource
+	// resourcesFail: /cluster/resources answers 500.
+	resourcesFail bool
+	configs       map[int]map[string]any
+	sent          []map[string]any
+}
+
+func (f *inventoryNode) service(t *testing.T) *Service {
+	t.Helper()
+	pveSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		answer := func(v any) { _ = json.NewEncoder(w).Encode(map[string]any{"data": v}) }
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/cluster/resources") && f.resourcesFail:
+			w.WriteHeader(http.StatusInternalServerError)
+		case strings.HasSuffix(r.URL.Path, "/cluster/resources"):
+			answer(f.resources)
+		case strings.HasSuffix(r.URL.Path, "/config"):
+			parts := strings.Split(r.URL.Path, "/")
+			var id int
+			_, _ = fmt.Sscan(parts[len(parts)-2], &id)
+			answer(f.configs[id])
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(pveSrv.Close)
+	restow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		f.sent = append(f.sent, body)
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(restow.Close)
+	api, err := NewPVEAPI(pveSrv.URL, "restow@pve!t", "x", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := NewServer(restow.URL, "n", "s", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Attempts = 1
+	dir := t.TempDir()
+	return &Service{Layout: Layout{DataDir: dir + "/data", RunDir: dir + "/run"},
+		State: &State{NodeName: "pve1", StorageID: "restow"}, Server: srv, PVE: api, Logf: func(string, ...any) {}}
+}
+
+func (f *inventoryNode) reported(t *testing.T) []int {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) != 1 {
+		t.Fatalf("inventories sent: %d", len(f.sent))
+	}
+	var out []int
+	guests, _ := f.sent[0]["guests"].([]any)
+	for _, g := range guests {
+		out = append(out, int(g.(map[string]any)["vmid"].(float64)))
+	}
+	return out
+}
+
+// The temporary guests of boot tests and restore checks are no guests of the inventory: tagged
+// and named, or in the restore pool with the tag, the name or a marker of this node. A real
+// restore into the restore pool is reported.
+func TestInventoryLeavesTheTemporaryGuestsOut(t *testing.T) {
+	f := &inventoryNode{resources: []Resource{
+		{VMID: 101, Type: "qemu", Name: "web", Node: "pve1"},
+		{VMID: 105, Type: "qemu", Name: "restow-boottest-101", Node: "pve1", Pool: BootTestPool, Tags: "restow-boottest"},
+		{VMID: 106, Type: "lxc", Name: "restow-restorecheck-200", Node: "pve1", Pool: BootTestPool, Tags: "restow-restorecheck"},
+		// Restoring: neither tag nor name yet, only the node's marker.
+		{VMID: 107, Type: "qemu", Name: "web", Node: "pve1", Pool: BootTestPool},
+		// Tagged, the name not yet set.
+		{VMID: 108, Type: "qemu", Name: "web", Node: "pve1", Pool: BootTestPool, Tags: "restow-boottest"},
+		// A real restore into the restore pool.
+		{VMID: 109, Type: "qemu", Name: "web", Node: "pve1", Pool: BootTestPool},
+		// The tag on a guest outside the restore pool, named as the admin chose.
+		{VMID: 110, Type: "qemu", Name: "db", Node: "pve1", Tags: "restow-boottest"},
+		{VMID: 111, Type: "lxc", Name: "restow-boottest-200", Node: "pve1", Tags: "restow-boottest"},
+	}, configs: map[int]map[string]any{}}
+	s := f.service(t)
+	if err := os.MkdirAll(filepath.Join(s.Layout.DataDir, "tempguests"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Layout.DataDir, "tempguests", "107.json"), []byte(`{"vmid":107,"kind":"vm","purpose":"boottest"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.ReportInventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := f.reported(t)
+	if n != 3 || len(got) != 3 || got[0] != 101 || got[1] != 109 || got[2] != 110 {
+		t.Fatalf("reported %d guests: %v", n, got)
 	}
 }

@@ -98,6 +98,23 @@ func (b *BootTester) readMarker(vmid int) *tempMarker {
 
 func (b *BootTester) dropMarker(vmid int) { _ = os.Remove(b.markerPath(vmid)) }
 
+// markedVMIDs are the VMIDs this node's marker files name (read only; also the marker of an
+// older release).
+func (b *BootTester) markedVMIDs() map[int]bool {
+	out := map[int]bool{}
+	var legacy tempMarker
+	if err := readJSON(b.legacyMarkerFile(), &legacy); err == nil && legacy.VMID > 0 {
+		out[legacy.VMID] = true
+	}
+	entries, _ := os.ReadDir(b.markerDir())
+	for _, e := range entries {
+		if id, err := strconv.Atoi(strings.TrimSuffix(e.Name(), ".json")); err == nil && strings.HasSuffix(e.Name(), ".json") {
+			out[id] = true
+		}
+	}
+	return out
+}
+
 // markers lists the marker files (a boot test marker of an older release is taken over).
 func (b *BootTester) markers() []tempMarker {
 	var legacy tempMarker

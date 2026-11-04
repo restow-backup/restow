@@ -547,8 +547,15 @@ func (s *Service) ReportInventory(ctx context.Context) (int, error) {
 	}
 	var guests []InventoryGuest
 	containers := map[int]bool{}
+	temp := (&BootTester{Layout: s.Layout}).markedVMIDs()
 	for _, r := range res {
 		if r.Node != s.State.NodeName {
+			continue
+		}
+		if inventoryTemp(r, temp) {
+			// A boot test's or restore check's guest is gone again in minutes: as a guest of
+			// the inventory it would count as unprotected, be planned for backups, and take
+			// over the row of a deleted guest whose VMID it got.
 			continue
 		}
 		kind := "vm"
@@ -571,6 +578,21 @@ func (s *Service) ReportInventory(ctx context.Context) (int, error) {
 	}
 	pruneContainerCaches(s.Layout, containers)
 	return len(guests), s.Server.ReportInventory(ctx, guests)
+}
+
+// inventoryTemp says whether a guest is a temporary guest of a boot test or a restore check:
+// tagged and named so, or in the restore pool with the tag, the name or a marker of this node
+// (temp, before the tag and name are set). A real restore in the restore pool has none of them
+// and stays in the inventory.
+func inventoryTemp(r Resource, temp map[int]bool) bool {
+	if tempTagged(r) {
+		return true
+	}
+	if r.Pool != BootTestPool {
+		return false
+	}
+	return temp[r.VMID] || hasTag(r.Tags, BootTestTag) || hasTag(r.Tags, RestoreCheckTag) ||
+		strings.HasPrefix(r.Name, BootTestNamePrefix) || strings.HasPrefix(r.Name, RestoreCheckNamePrefix)
 }
 
 // SMBIOSUUID is the SMBIOS UUID of a VM (`smbios1: uuid=...`), lower case, or "". The guest

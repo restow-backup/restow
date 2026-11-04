@@ -593,6 +593,11 @@ The monthly restore test of a backup job (`restoreTest`) and a boot test restore
   --destroy-unreferenced-disks 1 --force 1`, as root. It counts only when the guest's
   configuration is gone afterwards: a restore test then reports `deleted: true`, else `deleted:
   false` with `leftoverVmid`, and the marker stays.
+- **Not in the inventory.** The node leaves these guests out of the inventory it sends: those
+  tagged and named so, and those in `restow-restore` with the tag, the name or a marker of the
+  node (a restore still running). They are no guests of a job, never count as unprotected and
+  never take over the row of a deleted guest whose VMID they got. A real restore in
+  `restow-restore` has none of them and is reported.
 - **Leftovers** go when the service starts (also when boot tests or restores are switched off
   on the node since) and before every boot test: the guests of the markers, and every guest of
   this node in `restow-restore` with the tag and name of a temporary guest. A restore test the

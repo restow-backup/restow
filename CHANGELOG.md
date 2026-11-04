@@ -518,6 +518,14 @@ private repository.
   `on`; a path such as `mp=/backup=1` no longer counts) and reports a bind or device mount point
   as not backed up, with the reason "not part of the backup", as the server's file view of a
   restore point does.
+- Proxmox VE: the temporary guests of boot tests and restore checks (`restow-boottest-<vmid>`,
+  `restow-restorecheck-<vmid>` in the pool `restow-restore`) were reported in the node's
+  inventory as ordinary guests. They counted as unprotected or "in no job", a job for all guests
+  could plan a backup of one that failed once the guest was gone, and as they take the lowest
+  free VMID they could take over the guest row (name, kind, restore points, job) of a deleted
+  guest with that VMID. The node now leaves them out: guests tagged and named so, and guests in
+  `restow-restore` with that tag, that name or a marker of the node (a restore still running).
+  A real restore in `restow-restore` is still reported.
 
 ### Upgrade Notes
 
