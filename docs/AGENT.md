@@ -630,7 +630,13 @@ darf weitere senden), die Oberfläche formuliert die bekannten (`endpoints:runEr
 `interrupted`, `cancelled` (seit 0.4.2, siehe "Sicherung stoppen"), `no_paths`, `pre_hook_failed`, `post_hook_failed`, `hooks_not_allowed`, `timeout`,
 `target_not_empty`, `invalid_task`, `hash_mismatch`, `missing`, `not_regular`, `read_error`,
 `snapshot_failed`, `snapshot_unavailable`, `snapshot_cleanup_failed` (seit 0.5.0, siehe
-"Konsistenz") und `restic_exit_<N>`. `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
+"Konsistenz"), `source_unreadable`, `source_is_mount_point` (seit 0.5.0) und `restic_exit_<N>`.
+`source_unreadable` heißt: Ein Sicherungspfad existiert, ist aber nicht lesbar (mit BitLocker
+gesperrt, offline oder nicht bereit, kein Zugriff, ein Link, dem restic nicht folgt) oder restic hat
+aus einem als Link eingetragenen Ordner mit Dateien keine Datei gesichert; `source_is_mount_point`:
+Der Pfad ist ein Ordner, in dem ein Volume ohne Laufwerksbuchstaben eingehängt ist. Beide machen
+den Lauf `partial` (ohne lesbaren Pfad `failed`) und erklären ihn vor einer einzelnen unlesbaren
+Datei (docs/WINDOWS-AGENT.md, 16.5). `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
 Hooks des Servers nicht zu; die Sicherung lief ohne ihn und ist `partial`. `missing` heißt nur noch:
 In der hergestellten Kopie liegt unter diesem Pfad nichts; jeder andere Fehler beim Prüfen des
 Pfads ist `read_error`. Dateien, die restic bei einer Sicherung nicht lesen konnte, stehen je Datei

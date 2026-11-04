@@ -254,7 +254,9 @@ private repository.
   ready, or that the agent may not read, was logged as "does not exist" and the run stayed
   green while the drive was never backed up. Only a path that really does not exist is skipped
   that way now; any other error is the run error `source_unreadable` with the system's text,
-  and the run ends partial (failed when no path is left).
+  and the run ends partial (failed when no path is left). The run details word it and
+  `source_is_mount_point` in both languages, and the run's explanation names the folder and
+  what to do (unlock the drive, give the volume a drive letter) before a single unreadable file.
 - Windows agent (preview): a junction (`mklink /J`) or a folder a volume is mounted at,
   configured as a backup path, was backed up as a bare link without its files, and the run was
   green. The agent now backs up the junction's target and the mounted volume by its drive

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { catalogEntry, isFailureCode } from "../failures/index.js";
+import { ENDPOINT_RUN_ERROR_CODES } from "./run-errors.js";
 import {
   agentStoppedCause,
   backupOverdueCause,
@@ -24,6 +25,8 @@ describe("explaining the agent's run errors", () => {
       read_error: "endpoint.read_error",
       interrupted: "endpoint.interrupted",
       agent_stopped: "endpoint.agent_stopped",
+      source_unreadable: "endpoint.source_unreadable",
+      source_is_mount_point: "endpoint.source_is_mount_point",
     };
     for (const [agentCode, code] of Object.entries(expected)) {
       const cause = classifyRunError({ code: agentCode, message: "m" });
@@ -109,6 +112,34 @@ describe("explaining the agent's run errors", () => {
       ])?.code,
     ).toBe("endpoint.read_error");
     expect(failureOfRun([{ code: "snapshot_cleanup_failed", message: "not deleted" }])).toBeNull();
+  });
+
+  it("explains a backup path that exists but was not backed up", () => {
+    const locked = classifyRunError({
+      code: "source_unreadable",
+      path: "E:\\",
+      message:
+        "The backup path E:\\ cannot be read: This drive is locked by BitLocker Drive Encryption.",
+    });
+    expect(locked.code).toBe("endpoint.source_unreadable");
+    expect(locked.transient).toBe(false);
+    expect(locked.params.path).toBe("E:\\");
+    const mount = classifyRunError({
+      code: "source_is_mount_point",
+      path: "C:\\Mnt\\Data",
+      message: "x",
+    });
+    expect(mount.code).toBe("endpoint.source_is_mount_point");
+    expect(mount.transient).toBe(false);
+    // A whole folder missing decides before a file restic could not read.
+    expect(
+      failureOfRun([
+        { code: "archival", message: "open C:\\x.pst: in use" },
+        { code: "source_unreadable", path: "E:\\", message: "locked" },
+      ])?.code,
+    ).toBe("endpoint.source_unreadable");
+    expect(ENDPOINT_RUN_ERROR_CODES).toContain("source_unreadable");
+    expect(ENDPOINT_RUN_ERROR_CODES).toContain("source_is_mount_point");
   });
 
   it("knows the causes the server derives itself", () => {

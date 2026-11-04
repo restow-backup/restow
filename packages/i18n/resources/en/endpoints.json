@@ -1133,6 +1133,8 @@
     "snapshot_failed": "The shadow copy of a drive failed",
     "snapshot_unavailable": "Without a shadow copy: file system snapshots cannot be used on the machine",
     "snapshot_cleanup_failed": "A shadow copy was left behind after the backup",
+    "source_unreadable": "A backup folder could not be read, for example a drive locked by BitLocker, offline or without access, and is missing from this backup",
+    "source_is_mount_point": "A backup folder is a volume without a drive letter: only its mount point would be backed up, so it is missing from this backup",
     "cancelled": "Cancelled in the web app"
   },
   "agentUpdates": {

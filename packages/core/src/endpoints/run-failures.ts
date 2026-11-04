@@ -36,6 +36,9 @@ const BY_CODE: Readonly<Record<string, FailureCode>> = {
   agent_stopped: "endpoint.agent_stopped",
   snapshot_failed: "endpoint.snapshot_failed",
   snapshot_unavailable: "endpoint.snapshot_unavailable",
+  // A backup path that exists but was not backed up (a locked drive, a mount point).
+  source_unreadable: "endpoint.source_unreadable",
+  source_is_mount_point: "endpoint.source_is_mount_point",
   [INTERRUPTED_RUN_CODE]: "endpoint.interrupted",
 };
 
@@ -56,6 +59,9 @@ const NEEDS_FIRST = [
   "hooks_not_allowed",
   "snapshot_unavailable",
   "no_paths",
+  // A whole folder missing from the backup decides before a file restic could not read.
+  "source_unreadable",
+  "source_is_mount_point",
   "timeout",
   "target_not_empty",
   "post_hook_failed",
