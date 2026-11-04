@@ -1382,6 +1382,9 @@
     "pveRestoreCheck": "The newest restore point of every guest is read back weekly; each guest's result is on VMs & containers.",
     "keep": "Keeps",
     "keepValue": "{daily} daily, {weekly} weekly, {monthly} monthly restore points",
-    "progressOf": "Progress of {name}"
+    "progressOf": "Progress of {name}",
+    "pveRunning": "Backups and boot tests of VMs and containers running now",
+    "pveBootTest": "Boot test",
+    "pveBootTestHint": "Restores the newest restore point to a temporary guest and starts it; the node reports no progress for it."
   }
 }

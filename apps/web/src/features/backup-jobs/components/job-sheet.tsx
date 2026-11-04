@@ -35,6 +35,7 @@ import {
 import type { JobsAccess } from "./access-note.js";
 import { JobStateBadge, NextRunCell, RestoreCheckBadge } from "./job-cells.js";
 import { JobRunButton, type JobRunControls, useJobActivity } from "./job-run-controls.js";
+import { PveGuestActivity, PveJobActivity } from "./pve-live.js";
 import {
   isPveRow,
   type JobsListRow,
@@ -368,6 +369,7 @@ function PveJobBody({
       <>
         <DetailSection title={t("sheet.state")} slot="job-sheet-state">
           <JobStateBadge state={row.guest.activity === "running" ? "running" : "queued"} />
+          <PveGuestActivity guest={row.guest} />
         </DetailSection>
         <div className="flex flex-wrap gap-2" data-slot="job-sheet-actions">
           <JobRunButton row={row} controls={controls} access={access} className="justify-start" />
@@ -384,18 +386,7 @@ function PveJobBody({
         <div className="flex flex-wrap items-center gap-1.5" data-slot="job-states">
           <JobStateBadge state={pveJobState(job)} />
         </div>
-        {round ? (
-          <p className="text-sm" data-slot="job-sheet-activity">
-            {[
-              t("list.pve.round", { done: round.done, total: round.total }),
-              round.running > 0 ? t("lastRun.running", { count: round.running }) : null,
-              round.queued > 0 ? t("lastRun.queued", { count: round.queued }) : null,
-              round.failed > 0 ? t("lastRun.failed", { count: round.failed }) : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        ) : null}
+        <PveJobActivity job={job} />
       </DetailSection>
 
       <div className="flex flex-wrap gap-2" data-slot="job-sheet-actions">

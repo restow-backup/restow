@@ -1382,6 +1382,9 @@
     "pveRestoreCheck": "Der neueste Sicherungsstand jedes Gasts wird wöchentlich zurückgelesen; das Ergebnis je Gast steht unter VMs & Container.",
     "keep": "Behält",
     "keepValue": "{daily} tägliche, {weekly} wöchentliche, {monthly} monatliche Sicherungsstände",
-    "progressOf": "Fortschritt von {name}"
+    "progressOf": "Fortschritt von {name}",
+    "pveRunning": "Sicherungen und Startprüfungen von VMs und Containern, die gerade laufen",
+    "pveBootTest": "Startprüfung",
+    "pveBootTestHint": "Stellt den neuesten Sicherungsstand als temporären Gast wieder her und startet ihn; der Knoten meldet dafür keinen Fortschritt."
   }
 }
