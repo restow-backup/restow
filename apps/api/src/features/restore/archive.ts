@@ -17,6 +17,12 @@
  * archived mail knows no folder of the mailbox, and a restore never replaces
  * what is there. Only the original account is a target: the messages are that
  * mailbox's mail.
+ *
+ * Only what the explorer lists can be put back: the mailbox's items that arrived after its
+ * newest backup began, on their own (`arrivedAfterBackup`). A superseded capture (its
+ * stronger twin is the one listed), an imported file, the one-time takeover or mail from
+ * before the backup are refused (422 `archive-not-in-gap`), so a request made by hand
+ * cannot put a second copy of what the backup or the list already has into the mailbox.
  */
 import { randomUUID } from "node:crypto";
 import {
@@ -27,7 +33,7 @@ import {
   restoreJobs,
   sources,
 } from "@restow/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
@@ -35,7 +41,7 @@ import { withTenantTx } from "../../lib/tenant-context.js";
 import { DEMO_READ_ONLY_PROBLEM } from "../../middleware/demo-guard.js";
 import { isTenantAdmin } from "../../middleware/rbac.js";
 import { ProblemError } from "../../problem.js";
-import { loadArchiveMailbox } from "../archive/gap.js";
+import { arrivedAfterBackup, loadArchiveMailbox, newestBackup } from "../archive/gap.js";
 import { sendJob } from "../jobs/queue.js";
 import { isImpersonation } from "../snapshots/access.js";
 import { restoreOptionsSchema, storedRestoreOptions } from "./schemas.js";
@@ -112,11 +118,13 @@ export async function createArchiveRestore(
     }
 
     const requested = [...new Set(input.itemIds)].sort();
+    const backup = await newestBackup(tx, tenantId, object.id);
     const rows = await tx
       .select({
         id: archiveItems.id,
         sizeBytes: archiveItems.sizeBytes,
         chunks: archiveItems.chunks,
+        inGap: sql<boolean>`(${sql.join(arrivedAfterBackup(backup?.since ?? null), sql` and `)})`,
       })
       .from(archiveItems)
       .where(
@@ -134,6 +142,18 @@ export async function createArchiveRestore(
         detail:
           "Some selected messages are not archived for this mailbox. Reload the list and select again.",
         extensions: { unknown: unknown.map((id) => `archiveItem:${id}`) },
+      });
+    }
+    const outside = rows.filter((row) => !row.inGap).map((row) => row.id);
+    if (outside.length > 0) {
+      throw new ProblemError(422, "Messages not in the archive's gap", {
+        type: "urn:restow:problem:archive-not-in-gap",
+        detail:
+          "Some selected messages did not reach the archive on their own after the newest backup began (the backup holds them, or another capture of the same mail is listed). Reload the list and select again.",
+        extensions: {
+          itemIds: outside,
+          since: backup ? backup.since.toISOString() : null,
+        },
       });
     }
     const notRecorded = rows

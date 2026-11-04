@@ -61,7 +61,12 @@ describe.skipIf(!testDatabaseAdminUrl)("restore from the archive against Postgre
     archive = await import("./archive.js");
     service = await import("./service.js");
 
-    const item = async (label: string, own: string | null, recorded = true) => {
+    const item = async (
+      label: string,
+      own: string | null,
+      recorded = true,
+      extra: Partial<typeof archiveItems.$inferInsert> = {},
+    ) => {
       const [row] = await db
         .insert(archiveItems)
         .values({
@@ -76,6 +81,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore from the archive against Postgre
           subject: label,
           sizeBytes: recorded ? 100 : null,
           chunks: recorded ? ["c1"] : null,
+          ...extra,
         })
         .returning();
       items[label] = row?.id ?? "";
@@ -89,6 +95,15 @@ describe.skipIf(!testDatabaseAdminUrl)("restore from the archive against Postgre
     await item("bobs", f.bobMailbox);
     await item("unrecorded", f.annaMailbox, false);
     await item("imaps", f.imapAccount);
+    // Anna's newest backup began on 2 January 2026 (the explorer fixture): what came before
+    // it, an imported file, the one-time takeover and a superseded capture are not the gap.
+    await item("beforeBackup", f.annaMailbox, true, {
+      receivedAt: new Date("2025-12-30T08:00:00Z"),
+    });
+    await item("imported", f.annaMailbox, true, { capturedVia: "file_import" });
+    await item("takeover", f.annaMailbox, true, { flags: ["captured-late"] });
+    const weak = await item("weak", f.annaMailbox);
+    await item("strong", null, true, { supersedesItemId: weak });
   }, 60_000);
 
   afterAll(async () => {
@@ -233,6 +248,27 @@ describe.skipIf(!testDatabaseAdminUrl)("restore from the archive against Postgre
         request({ objectId: f.annaDrive, itemIds: [items.annas], reason: "Ticket" }),
       ),
     ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("restores only what the explorer lists: mail that arrived on its own after the backup", async () => {
+    for (const label of ["beforeBackup", "imported", "takeover", "weak"]) {
+      await expect(
+        archive.createArchiveRestore(
+          db,
+          f.tenantId,
+          actor(f.admin),
+          request({
+            objectId: f.annaMailbox,
+            itemIds: [items.annas, items[label]],
+            reason: "Ticket",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        status: 422,
+        type: "urn:restow:problem:archive-not-in-gap",
+        extensions: { itemIds: [items[label]], since: "2026-01-02T08:00:00.000Z" },
+      });
+    }
   });
 
   it("refuses an account that is gone at its source", async () => {

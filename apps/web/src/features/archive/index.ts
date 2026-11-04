@@ -34,7 +34,7 @@ export const navItems: NavItem[] = [
     icon: ArchiveIcon,
     roles: ["provider_admin", "tenant_admin"],
     // Only where the tenant has an archive: it holds mail, or the edition captures and a
-    // mail job archives (docs/ARCHIVE.md, "Eintrag „Archiv“ im Menü").
+    // capture is set up (docs/ARCHIVE.md, "Eintrag „Archiv“ im Menü").
     tenantOffer: "archive",
     group: "mail",
     order: 30,

@@ -67,6 +67,7 @@ import {
 } from "@restow/db";
 import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { ImapFlow } from "imapflow";
+import { appendAuditEntry } from "../audit.js";
 import { processEntraApp } from "../entra-app.js";
 import type { TenantTxRunner } from "../progress.js";
 import {
@@ -93,6 +94,18 @@ import {
 
 type Env = Record<string, string | undefined>;
 type RestoreJobRow = typeof restoreJobs.$inferSelect;
+
+/** The restore that reads archived messages: named in the audit entry of every read. */
+export interface ArchiveRestoreReader {
+  readonly restoreJobId: string;
+  readonly jobId: string;
+  /** Who asked for the restore (`restore_jobs.actor_user_id`). */
+  readonly actorUserId: string | null;
+  readonly impersonated: boolean;
+}
+
+/** The audit action of an archived message read by the worker for a restore. */
+export const ARCHIVE_RESTORE_READ_ACTION = "archive.item.restore_read";
 
 // ---------------------------------------------------------------------------
 // From the stored request to the engine request
@@ -336,10 +349,14 @@ export interface RestoreStore {
    * The archived messages of a restore from the archive, limited to those of
    * the protected object (the API checked the same when the restore was
    * requested); messages without a recorded content reference are left out.
+   * Every message handed out is audited as read (`archive.item.restore_read`, the
+   * restore and who asked for it) in the same transaction, before its content is read:
+   * every read of the archive is audited, a restore's too.
    */
   loadArchiveItems?(
     protectedObjectId: string,
     itemIds: readonly string[],
+    reader: ArchiveRestoreReader,
   ): Promise<ArchiveRestoreItem[]>;
 }
 
@@ -362,12 +379,12 @@ export function pgRestoreStore(run: TenantTxRunner, tenantId: string): RestoreSt
     persistResult: (jobId, result) =>
       mergeJobPayload(run, tenantId, jobId, { [RESULT_KEY]: result }),
 
-    async loadArchiveItems(protectedObjectId, itemIds) {
+    async loadArchiveItems(protectedObjectId, itemIds, reader) {
       if (itemIds.length === 0) {
         return [];
       }
-      const rows = await run((tx) =>
-        tx
+      const rows = await run(async (tx) => {
+        const loaded = await tx
           .select({
             id: archiveItems.id,
             itemHash: archiveItems.itemHash,
@@ -387,8 +404,27 @@ export function pgRestoreStore(run: TenantTxRunner, tenantId: string): RestoreSt
               archiveItemOfMailbox(protectedObjectId),
             ),
           )
-          .orderBy(asc(archiveItems.receivedAt), asc(archiveItems.id)),
-      );
+          .orderBy(asc(archiveItems.receivedAt), asc(archiveItems.id));
+        for (const item of loaded) {
+          if (item.sizeBytes === null || item.chunks === null) {
+            continue;
+          }
+          await appendAuditEntry(tx, {
+            tenantId,
+            ...(reader.actorUserId ? { actorUserId: reader.actorUserId } : { actor: "system" }),
+            action: ARCHIVE_RESTORE_READ_ACTION,
+            target: item.id,
+            targetType: "archive_item",
+            details: {
+              restoreJobId: reader.restoreJobId,
+              jobId: reader.jobId,
+              protectedObjectId,
+              impersonated: reader.impersonated,
+            },
+          });
+        }
+        return loaded;
+      });
       return rows.flatMap((row) =>
         row.sizeBytes === null || row.chunks === null
           ? []
@@ -669,7 +705,12 @@ export function createRestoreHandler(options: RestoreHandlerOptions): JobHandler
         if (!store.loadArchiveItems) {
           throw new InvalidPayloadError("this worker cannot read archived messages for a restore");
         }
-        const items = await store.loadArchiveItems(protectedObject.id, archiveIds);
+        const items = await store.loadArchiveItems(protectedObject.id, archiveIds, {
+          restoreJobId: row.id,
+          jobId: ctx.jobId,
+          actorUserId: row.actorUserId,
+          impersonated: row.impersonated,
+        });
         if (items.length === 0) {
           throw new InvalidPayloadError(
             `restore ${row.id} names no archived message of this mailbox that can be read`,

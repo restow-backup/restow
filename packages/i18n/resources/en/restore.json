@@ -226,6 +226,8 @@
       "next": "Next page",
       "range": "{from}–{to} of {total}",
       "noSubject": "(No subject)",
+      "inBackup": "Already in the backup",
+      "inBackupHint": "The newest backup holds a mail with the same Message-ID. This mail was in the mailbox when the backup began and reached the archive only afterwards. Putting it back creates a second copy.",
       "restoreOne": "Put back into the mailbox",
       "close": "Close message",
       "folderName": "From the archive {stamp}",
@@ -240,7 +242,8 @@
       },
       "errors": {
         "selectionUnknown": "Some selected messages are not (or no longer) archived for this account. Reload the list and select again.",
-        "notRecorded": "Some selected messages were archived before their content reference was recorded. They can only be exported."
+        "notRecorded": "Some selected messages were archived before their content reference was recorded. They can only be exported.",
+        "notInGap": "Some selected messages are not among the mail that reached the archive since the newest backup began, for example because a new backup has run since. Reload the list and select again."
       }
     }
   },

@@ -44,6 +44,8 @@ export const eeProviderRouteRules: Readonly<Record<string, ProviderRouteRule>> =
   // installation, not to a tenant, and holds no address: every provider admin may read it,
   // but not a member limited to some tenants (it concerns all of them).
   "GET /api/v1/archive/journal/receiver": view(scope.provider),
+  // The journal host alone (the tenant page): installation configuration, no address, no write.
+  "GET /api/v1/archive/journal/host": view(),
 
   // Forwarded copies (0.4.4). An account's archive address is a credential like the journal
   // address (whoever knows it can deliver into that account's archive), so reading the list

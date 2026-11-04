@@ -72,12 +72,18 @@ export function searchArchive(params: ArchiveSearchParams): Promise<ArchiveSearc
  * A mailbox's archived mail that arrived after its newest backup (GET /archive/gap): the
  * restore explorer's source "From the archive" (#48). Every listing is audited.
  */
+/** One message of the gap: a search result, and whether the newest backup holds it already. */
+export interface ArchiveGapItem extends ArchiveSearchResult {
+  /** The newest backup holds a mail with the same Message-ID: putting it back makes a second copy. */
+  inBackup: boolean;
+}
+
 export interface ArchiveGap {
   objectId: string;
   /** Start of the newest completed backup the gap is measured from; null without a backup. */
   since: string | null;
   snapshotId: string | null;
-  items: ArchiveSearchResult[];
+  items: ArchiveGapItem[];
   total: number;
   limit: number;
   offset: number;

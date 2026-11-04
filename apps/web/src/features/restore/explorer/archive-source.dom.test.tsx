@@ -84,6 +84,8 @@ const gapItems = ["Late offer", "Re: Late offer"].map((subject, index) => ({
   sizeBytes: 2048,
   flags: [],
   source: index === 0 ? "graph_sync" : "journal",
+  // The first one was in the mailbox before the backup began and reached the archive after.
+  inBackup: index === 0,
 }));
 
 function flush(): Promise<void> {
@@ -229,6 +231,12 @@ describe("the explorer's source From the archive", () => {
     expect(el().textContent).toContain("2 mails reached the archive since the newest backup");
     expect(el().textContent).toContain("Graph sync");
     expect(el().textContent).toContain("Read only");
+    // Marked, not hidden, and never green: the backup holds the first one already.
+    const marked = [...el().querySelectorAll('[data-slot="archive-gap-in-backup"]')];
+    expect(marked).toHaveLength(1);
+    expect(rows[0]?.contains(marked[0] ?? null)).toBe(true);
+    expect(marked[0]?.textContent).toBe("Already in the backup");
+    expect(marked[0]?.className).not.toContain("success");
 
     const restore = el().querySelector(
       '[data-slot="archive-restore-selected"]',

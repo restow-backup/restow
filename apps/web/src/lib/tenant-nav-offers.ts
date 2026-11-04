@@ -9,8 +9,10 @@ import { useSession } from "@/lib/session";
  * installation's gated features (GET /api/v1/navigation, apps/api features/navigation):
  *
  *   archive   "Archive" and the restore explorer's source "From the archive": the archive
- *             holds mail of the tenant, or the edition captures and a mail job archives
- *             (docs/ARCHIVE.md, "Eintrag „Archiv“ im Menü"); for administrators only.
+ *             holds mail of the tenant, or the edition captures and a capture is set up
+ *             (a mail job archives, the journal address was issued, a forwarding address is
+ *             active, a capture stream runs; docs/ARCHIVE.md, "Eintrag „Archiv“ im Menü");
+ *             for administrators only.
  *
  * Asked once per tenant; until the answer is in such an entry stays hidden, so nothing
  * appears that then vanishes (the maintainer decision on menu entries, lib/navigation.ts).

@@ -29,11 +29,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  ARCHIVE_GAP_PAGE,
-  type ArchiveSearchResult,
-  type ArchiveSource,
-} from "@/features/archive/api";
+import { ARCHIVE_GAP_PAGE, type ArchiveGapItem, type ArchiveSource } from "@/features/archive/api";
 import "@/features/archive/i18n";
 import { ArchiveDetail } from "@/features/archive/archive-detail";
 import { useArchiveGap, useTenantScope } from "@/features/archive/hooks";
@@ -313,7 +309,7 @@ function GapRow({
   sourceLabel,
   language,
 }: {
-  item: ArchiveSearchResult;
+  item: ArchiveGapItem;
   open: boolean;
   selected: boolean;
   onToggle: (on: boolean) => void;
@@ -354,6 +350,16 @@ function GapRow({
         <Badge variant="outline" className="mt-1">
           {sourceLabel}
         </Badge>
+        {item.inBackup ? (
+          <Badge
+            variant="secondary"
+            className="mt-1 ml-1"
+            title={t("explorer.archive.inBackupHint")}
+            data-slot="archive-gap-in-backup"
+          >
+            {t("explorer.archive.inBackup")}
+          </Badge>
+        ) : null}
       </td>
     </tr>
   );
@@ -406,6 +412,9 @@ function archiveRestoreErrorKey(error: unknown): string {
     }
     if (error.problem.type === "urn:restow:problem:archive-content-unavailable") {
       return "restore:explorer.archive.errors.notRecorded";
+    }
+    if (error.problem.type === "urn:restow:problem:archive-not-in-gap") {
+      return "restore:explorer.archive.errors.notInGap";
     }
   }
   return restoreErrorOf(error).key;

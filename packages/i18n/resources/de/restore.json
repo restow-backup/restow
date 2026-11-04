@@ -226,6 +226,8 @@
       "next": "Nächste Seite",
       "range": "{from}–{to} von {total}",
       "noSubject": "(Ohne Betreff)",
+      "inBackup": "Schon in der Sicherung",
+      "inBackupHint": "Die neueste Sicherung enthält eine Mail mit derselben Message-ID. Diese Mail lag schon im Postfach, als die Sicherung begann, und kam erst danach ins Archiv. Zurückholen legt eine zweite Kopie an.",
       "restoreOne": "In das Postfach zurückholen",
       "close": "Nachricht schließen",
       "folderName": "Aus dem Archiv {stamp}",
@@ -240,7 +242,8 @@
       },
       "errors": {
         "selectionUnknown": "Einige ausgewählte Nachrichten sind für dieses Konto nicht (mehr) archiviert. Laden Sie die Liste neu und wählen Sie erneut aus.",
-        "notRecorded": "Einige ausgewählte Nachrichten wurden archiviert, bevor ihr Inhaltsverweis gespeichert wurde. Sie lassen sich nur exportieren."
+        "notRecorded": "Einige ausgewählte Nachrichten wurden archiviert, bevor ihr Inhaltsverweis gespeichert wurde. Sie lassen sich nur exportieren.",
+        "notInGap": "Einige ausgewählte Nachrichten gehören nicht zu dem, was seit Beginn der neuesten Sicherung ins Archiv kam, etwa weil inzwischen eine neue Sicherung lief. Laden Sie die Liste neu und wählen Sie erneut aus."
       }
     }
   },

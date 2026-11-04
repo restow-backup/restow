@@ -14,6 +14,7 @@ import {
 import {
   archiveItemMailboxes,
   archiveItems,
+  auditLog,
   createDb,
   type Database,
   jobs,
@@ -26,7 +27,7 @@ import {
   tenants,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { dropTestDatabase } from "../testing/database.js";
 import type { BackupRuntimeState } from "./backup.js";
@@ -452,9 +453,9 @@ describe("restore handler", () => {
       sourceSelection: { ...archiveRow.sourceSelection, archiveItemIds: [ARCHIVE_ITEM, gone] },
     } as unknown as typeof storedRow;
     const { store, persisted } = memoryStore(row);
-    const asked: { objectId: string; ids: readonly string[] }[] = [];
-    store.loadArchiveItems = async (objectId, ids) => {
-      asked.push({ objectId, ids });
+    const asked: { objectId: string; ids: readonly string[]; reader: unknown }[] = [];
+    store.loadArchiveItems = async (objectId, ids, reader) => {
+      asked.push({ objectId, ids, reader });
       return [archivedItem];
     };
     const seen: RestoreRequest[] = [];
@@ -471,7 +472,19 @@ describe("restore handler", () => {
     await handler.run(ctx, payload);
     await ctx.progress.flush();
 
-    expect(asked).toEqual([{ objectId: mailbox.id, ids: [ARCHIVE_ITEM, gone] }]);
+    expect(asked).toEqual([
+      {
+        objectId: mailbox.id,
+        ids: [ARCHIVE_ITEM, gone],
+        // The read is audited for this restore and its requester.
+        reader: {
+          restoreJobId: row.id,
+          jobId: ctx.jobId,
+          actorUserId: row.actorUserId,
+          impersonated: false,
+        },
+      },
+    ]);
     expect(seen[0]?.source?.manifest.objects.map((object) => object.id)).toEqual([ARCHIVE_ITEM]);
     expect(sink.failures.map((failure) => failure.itemRef)).toEqual([gone]);
     expect(persisted[0]?.result).toMatchObject({ restored: 1, failures: 1 });
@@ -625,7 +638,7 @@ describe.skipIf(!adminUrl)("restore store against Postgres", () => {
     expect(row?.payload).toEqual({ jobId, tenantId, runtime, result });
   });
 
-  it("loads the archived messages of the object only, and only with their content reference", async () => {
+  it("loads the archived messages of the object only, with their content reference, and audits each read", async () => {
     const store = pgRestoreStore(tenantRunner(db, tenantId), tenantId);
     const [other] = await db
       .insert(protectedObjects)
@@ -665,19 +678,42 @@ describe.skipIf(!adminUrl)("restore store against Postgres", () => {
     const foreign = await insert({ own: other?.id });
     const unrecorded = await insert({ own: imapObject.id, chunks: null, size: null });
 
-    const loaded = await store.loadArchiveItems?.(imapObject.id, [
-      own,
-      journal,
-      foreign,
-      unrecorded,
-    ]);
+    const reader = {
+      restoreJobId,
+      jobId,
+      actorUserId: "user-admin-1",
+      impersonated: true,
+    };
+    const loaded = await store.loadArchiveItems?.(
+      imapObject.id,
+      [own, journal, foreign, unrecorded],
+      reader,
+    );
     expect(loaded?.map((item) => item.id).sort()).toEqual([own, journal].sort());
     expect(loaded?.find((item) => item.id === own)).toMatchObject({
       sizeBytes: 10,
       chunks: ["c1"],
       itemHash: "cd".repeat(32),
     });
-    expect(await store.loadArchiveItems?.(imapObject.id, [])).toEqual([]);
+    // Every message handed to the engines is audited as read, for this restore, by its
+    // requester; the foreign and the unreadable one are not read and not audited.
+    const reads = await db
+      .select()
+      .from(auditLog)
+      .where(
+        and(eq(auditLog.tenantId, tenantId), eq(auditLog.action, "archive.item.restore_read")),
+      );
+    expect(reads.map((entry) => entry.target).sort()).toEqual([own, journal].sort());
+    for (const entry of reads) {
+      expect(entry).toMatchObject({ actorUserId: "user-admin-1", targetType: "archive_item" });
+      expect(entry.details).toEqual({
+        restoreJobId,
+        jobId,
+        protectedObjectId: imapObject.id,
+        impersonated: true,
+      });
+    }
+    expect(await store.loadArchiveItems?.(imapObject.id, [], reader)).toEqual([]);
   });
 
   it("resolves the IMAP account of the object and of another known login", async () => {
