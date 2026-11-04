@@ -54,6 +54,17 @@ my %results = (
 $results{'restore-container-init'} = { archiveDirectory => '/var/tmp/restow-pve/ct-' . ($req->{volname} // '') . '-' . next_init() . '/root' }
     if $verb eq 'restore-container-init';
 
+# volume-size knows a restore point older than the listing's page (as the Restow
+# server does), and none of VMID 999.
+if ($verb eq 'volume-size') {
+    my $volname = $req->{volname} // '';
+    if ($volname =~ m!/999/!) {
+        print JSON::PP->new->encode({ ok => JSON::PP::false, error => "restore point $volname not found in Restow" });
+        exit 1;
+    }
+    $results{'volume-size'} = { size => ($volname eq 'backup/vm/101/2025-01-05T22:00:00Z' ? 4096 : 5) };
+}
+
 if ($verb eq 'fail') {
     print JSON::PP->new->encode({ ok => JSON::PP::false, error => 'it failed on purpose' });
     exit 1;

@@ -72,7 +72,8 @@ what is missing instead.
 | `restore-container-init` | `volname` | `{archiveDirectory}`: `<restore folder>/ct-<hash>-<random>/root`, one per call (since 0.5.0); refused when the restore folder lacks the space |
 | `restore-container-cleanup` | `volname`, `directory` (the `archiveDirectory` of its init, since 0.5.0) | `{}`; removes that folder only (it must lie below the restore folder); without `directory` the folders of the volname that the calling PVE worker owns |
 | `storage-status` | | `{total, used, avail, active}` (cache only, never the network) |
-| `list-volumes` | `vmid?` | `{volumes: [{volname, vmid, ctime, size, subtype, format}]}` (cache only) |
+| `list-volumes` | `vmid?` | `{volumes: [{volname, vmid, ctime, size, subtype, format}]}`. Without `vmid` from the cluster's listing the service keeps (`cache/volumes.json`, every page of `GET /listing` since 0.5.0). With `vmid` (a guest's Backup tab) since 0.5.0 from `GET /listing?vmid=` with a 5 s limit, kept in `cache/volumes-<vmid>.json`; without the server from the newer of that file and the cluster's listing |
+| `volume-size` | `volname` | `{size}` (since 0.5.0, PVE's `volume_size_info`): from `GET /restore-points?volname=` with a 5 s limit (`byteSize`, or the disks' sizes from an older server); without the server from the node's listings. "not found in Restow" when the server does not know it |
 | `activate-storage` | | `{}` |
 
 Volume names are `backup/<vm|ct>/<vmid>/<UTC time>`.

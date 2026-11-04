@@ -417,12 +417,60 @@ type Listing struct {
 	SnapshotID string `json:"snapshotId"`
 }
 
-// Listings is GET /listing: the restore points of the cluster.
+// listingPage is one answer of GET /listing; Next is the cursor of the page after (servers
+// from 0.5.0; null on the last page and absent from an older server, which sends one page).
+type listingPage struct {
+	Volumes []Listing `json:"volumes"`
+	Next    *string   `json:"next"`
+}
+
+// maxListingPages bounds the pages of one listing (10,000 restore points each).
+const maxListingPages = 1000
+
+// Listings is GET /listing: every active restore point of the cluster, page by page
+// (docs/PVE-PROTOCOL.md). A server from 0.5.0 gives at most 10,000 per page and the cursor
+// of the next; an older one gives its newest 10,000 and no cursor. It fails rather than
+// return part of the listing: the cache it fills would lose restore points.
 func (s *Server) Listings(ctx context.Context) ([]Listing, error) {
-	var out struct {
-		Volumes []Listing `json:"volumes"`
+	var all []Listing
+	seen := map[string]bool{}
+	path := "/listing"
+	for page := 0; ; page++ {
+		if page == maxListingPages {
+			return nil, fmt.Errorf("listing: more than %d pages", maxListingPages)
+		}
+		var out listingPage
+		if err := s.json(ctx, http.MethodGet, path, nil, &out, true); err != nil {
+			return nil, err
+		}
+		all = append(all, out.Volumes...)
+		if out.Next == nil || *out.Next == "" {
+			return all, nil
+		}
+		if seen[*out.Next] {
+			return nil, fmt.Errorf("listing: the server repeated the cursor %q", *out.Next)
+		}
+		seen[*out.Next] = true
+		path = "/listing?" + url.Values{"cursor": {*out.Next}}.Encode()
 	}
-	return out.Volumes, s.json(ctx, http.MethodGet, "/listing", nil, &out, true)
+}
+
+// ListingOf is GET /listing?vmid=: every active restore point of one VMID (servers from
+// 0.5.0). An older server ignores the parameter and answers with its cluster-wide page,
+// so the answer is filtered here as well.
+func (s *Server) ListingOf(ctx context.Context, vmid int) ([]Listing, error) {
+	var out listingPage
+	path := "/listing?" + url.Values{"vmid": {strconv.Itoa(vmid)}}.Encode()
+	if err := s.json(ctx, http.MethodGet, path, nil, &out, true); err != nil {
+		return nil, err
+	}
+	own := []Listing{}
+	for _, l := range out.Volumes {
+		if l.VMID == vmid {
+			own = append(own, l)
+		}
+	}
+	return own, nil
 }
 
 // UpdateOffer asks for a newer helper release.
@@ -672,6 +720,14 @@ func (s *Server) ResolveVolname(ctx context.Context, volname string) (*RestorePo
 	q := url.Values{"volname": {volname}}
 	return &out, s.do(ctx, request{method: http.MethodGet, path: "/restore-points?" + q.Encode(), out: &out,
 		idempotent: true, outage: true})
+}
+
+// LookupVolname is ResolveVolname for a caller that waits on the answer (the storage plugin's
+// volume_size_info): it keeps the usual attempts but does not ride out a restart of the server.
+func (s *Server) LookupVolname(ctx context.Context, volname string) (*RestorePoint, error) {
+	var out RestorePoint
+	q := url.Values{"volname": {volname}}
+	return &out, s.json(ctx, http.MethodGet, "/restore-points?"+q.Encode(), nil, &out, true)
 }
 
 // RestoreBlocks streams blocks [from, from+count) of a disk of a restore point. Like the calls

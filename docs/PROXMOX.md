@@ -372,7 +372,9 @@ crypto and no network code; it only turns callbacks into helper calls. Two point
   Perl `use base` makes a derivative work. **Maintainer decision required before 0.3.0.**
 - *Robustness:* `status()` is polled by `pvestatd` every few seconds on every node [I]. It must return
   cached values from a local file the helper maintains and must never block on the network. `list_volumes`
-  likewise reads a local cache, refreshed by the helper and on demand with a short timeout.
+  without a VMID reads the cluster's listing the helper keeps (every page of it); with a VMID (a guest's
+  Backup tab) and `volume_size_info` ask the server with a short timeout and fall back to the local
+  listings, so a restore point the cluster-wide listing does not hold still shows and has a size.
   `free_image`/volume removal refuses with a clear message ("retention is managed in Restow").
   `prune_backups` (vzdump of a PVE job with retention, `pvesm prune-backups`) prunes nothing, lists
   nothing and logs "restow: retention is managed in Restow; PVE's retention settings are ignored":

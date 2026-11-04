@@ -414,7 +414,8 @@ func TestListVolumesFromCacheOnly(t *testing.T) {
 	if _, err := p.Handle(context.Background(), "job-init", ProviderRequest{StoreID: "restow"}); err != nil {
 		t.Fatal(err)
 	}
-	out, err := p.Handle(context.Background(), "list-volumes", ProviderRequest{StoreID: "restow", VMID: 101})
+	// Without a VMID ("Storage > restow > Backups") only the listing job-init kept is read.
+	out, err := p.Handle(context.Background(), "list-volumes", ProviderRequest{StoreID: "restow"})
 	if err != nil {
 		t.Fatal(err)
 	}

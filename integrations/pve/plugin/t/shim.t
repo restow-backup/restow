@@ -153,6 +153,23 @@ my $vols = $plugin->list_volumes('restow', {}, 101, ['backup']);
 is($vols->[0]->{volid}, 'restow:backup/vm/101/2026-10-03T22:00:00Z', 'volume id');
 is($vols->[0]->{content}, 'backup', 'content type');
 is_deeply($plugin->list_volumes('restow', {}, undef, ['images']), [], 'no images');
+calls();
+# volume_size_info asks restow-pve by the volume name: a restore point older
+# than the listing's page (the listing holds only vm/101/2026-10-03T22:00:00Z)
+# still has its size, and an unknown one is an error that names it.
+{
+    my $size = eval { $plugin->volume_size_info({}, 'restow', 'backup/vm/101/2025-01-05T22:00:00Z', 5) };
+    is($@, '', 'the size of a restore point outside the listing') or diag($@);
+    is($size, 4096, 'its size comes from restow-pve');
+    my @sz = $plugin->volume_size_info({}, 'restow', 'backup/vm/101/2025-01-05T22:00:00Z', 5);
+    is_deeply(\@sz, [4096, 'raw', 4096, undef], 'size, format, used and parent in list context');
+    my @c = calls();
+    is_deeply([map { $_->{verb} } @c], ['volume-size', 'volume-size'], 'asked by volume-size, not through the listing');
+    is_deeply($c[0]->{request}, { storeid => 'restow', volname => 'backup/vm/101/2025-01-05T22:00:00Z' }, 'the request names the volume');
+    eval { $plugin->volume_size_info({}, 'restow', 'backup/vm/999/2025-01-05T22:00:00Z', 5) };
+    like($@, qr{^restow: restore point backup/vm/999/2025-01-05T22:00:00Z not found in Restow}, 'an unknown restore point is an error');
+    calls();
+}
 my @parsed = $plugin->parse_volname('backup/ct/200/2026-10-03T22:00:00Z');
 is_deeply([@parsed[0, 1, 2]], ['backup', 'ct/200/2026-10-03T22:00:00Z', 200], 'parse_volname');
 eval { $plugin->parse_volname('images/vm-1-disk-0') };

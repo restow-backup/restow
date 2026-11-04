@@ -27,7 +27,7 @@ var ProviderVerbs = []string{
 	"restore-get-mechanism", "archive-get-guest-config", "archive-get-firewall-config",
 	"restore-vm-init", "restore-vm-cleanup", "restore-vm-volume-init",
 	"restore-vm-volume-cleanup", "restore-container-init", "restore-container-cleanup",
-	"storage-status", "list-volumes", "activate-storage",
+	"storage-status", "list-volumes", "volume-size", "activate-storage",
 }
 
 // ProviderRequest is the JSON object the shim writes to stdin. Fields not
@@ -135,7 +135,9 @@ func (p *Provider) clock() time.Time {
 
 // Handle runs a verb.
 func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest) (any, error) {
-	if verb != "backup-container" && verb != "storage-status" && verb != "list-volumes" {
+	// list-volumes and volume-size load the state themselves and answer from the node's
+	// listings when they cannot reach the server.
+	if verb != "backup-container" && verb != "storage-status" && verb != "list-volumes" && verb != "volume-size" {
 		if err := p.load(); err != nil {
 			return nil, err
 		}
@@ -163,7 +165,9 @@ func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest)
 	case "storage-status":
 		return p.storageStatus(), nil
 	case "list-volumes":
-		return p.listVolumes(req), nil
+		return p.listVolumes(ctx, req), nil
+	case "volume-size":
+		return p.volumeSize(ctx, req)
 	case "job-init":
 		p.refreshListing(ctx)
 		return map[string]any{}, nil
@@ -693,14 +697,22 @@ func (p *Provider) storageStatus() StatusCache {
 	return s
 }
 
-func (p *Provider) listVolumes(req ProviderRequest) map[string]any {
-	var all []Listing
-	_ = readJSON(p.Layout.VolumesCache(), &all)
+// askServerTimeout bounds what list-volumes and volume-size wait for the server: the plugin
+// gives them 10 seconds, and PVE's API call waits on them.
+const askServerTimeout = 5 * time.Second
+
+// listVolumes answers PVE's list_volumes. Without a VMID ("Storage > restow > Backups",
+// pvesm list) it reads the cluster's listing the service keeps (every page of it). With one
+// (a guest's Backup tab) it asks the server for that guest's restore points and keeps the
+// answer (cache/volumes-<vmid>.json); without the server it answers from the newer of that
+// file and the cluster's listing.
+func (p *Provider) listVolumes(ctx context.Context, req ProviderRequest) map[string]any {
+	vols, err := p.askVolumesOf(ctx, req.VMID)
+	if err != nil {
+		vols = p.cachedVolumes(req.VMID)
+	}
 	out := []map[string]any{}
-	for _, l := range all {
-		if req.VMID > 0 && l.VMID != req.VMID {
-			continue
-		}
+	for _, l := range vols {
 		subtype := "qemu"
 		if l.Kind == "ct" {
 			subtype = "lxc"
@@ -711,6 +723,94 @@ func (p *Provider) listVolumes(req ProviderRequest) map[string]any {
 		})
 	}
 	return map[string]any{"volumes": out}
+}
+
+// askVolumesOf asks the server for the restore points of one VMID and keeps them.
+func (p *Provider) askVolumesOf(ctx context.Context, vmid int) ([]Listing, error) {
+	if vmid <= 0 {
+		return nil, errors.New("no VMID")
+	}
+	if err := p.load(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, askServerTimeout)
+	defer cancel()
+	vols, err := p.server.ListingOf(ctx, vmid)
+	if err != nil {
+		return nil, err
+	}
+	_ = os.MkdirAll(filepath.Dir(p.Layout.VolumesCacheOf(vmid)), 0o755)
+	_ = writeJSONAtomic(p.Layout.VolumesCacheOf(vmid), vols, 0o644)
+	return vols, nil
+}
+
+// cachedVolumes are the restore points the node keeps, of one VMID (vmid > 0) or all: the
+// cluster's listing, or the VMID's own when that is newer.
+func (p *Provider) cachedVolumes(vmid int) []Listing {
+	path := p.Layout.VolumesCache()
+	if vmid > 0 {
+		own, err := os.Stat(p.Layout.VolumesCacheOf(vmid))
+		if err == nil {
+			if all, err := os.Stat(path); err != nil || own.ModTime().After(all.ModTime()) {
+				path = p.Layout.VolumesCacheOf(vmid)
+			}
+		}
+	}
+	var all []Listing
+	_ = readJSON(path, &all)
+	out := []Listing{}
+	for _, l := range all {
+		if vmid <= 0 || l.VMID == vmid {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// volumeSize answers PVE's volume_size_info: the size of one restore point. It asks the
+// server (by the volume name, as a restore does), since a listing may not hold every restore
+// point of the cluster; without the server it answers from the listings the node keeps.
+func (p *Provider) volumeSize(ctx context.Context, req ProviderRequest) (any, error) {
+	_, vmid, ok := ParseVolname(req.Volname)
+	if !ok {
+		return nil, fmt.Errorf("not a volume name of this storage: %q", req.Volname)
+	}
+	name := strings.TrimPrefix(req.Volname, "backup/")
+	cached := func() (Listing, bool) {
+		for _, l := range p.cachedVolumes(vmid) {
+			if l.Volname == name {
+				return l, true
+			}
+		}
+		return Listing{}, false
+	}
+	askErr := p.load()
+	if askErr == nil {
+		actx, cancel := context.WithTimeout(ctx, askServerTimeout)
+		rp, err := p.server.LookupVolname(actx, req.Volname)
+		cancel()
+		if err == nil {
+			size := rp.ByteSize
+			if size == 0 {
+				// A server before 0.5.0 sends no byteSize: a VM's disks add up to it.
+				for _, d := range rp.Devices {
+					size += d.Size
+				}
+			}
+			if l, ok := cached(); size == 0 && ok {
+				size = l.Size
+			}
+			return map[string]any{"size": size}, nil
+		}
+		if IsStatus(err, 404) {
+			return nil, fmt.Errorf("restore point %s not found in Restow", req.Volname)
+		}
+		askErr = err
+	}
+	if l, ok := cached(); ok {
+		return map[string]any{"size": l.Size}, nil
+	}
+	return nil, fmt.Errorf("restore point %s: the Restow server did not answer (%v), and the node's listing does not hold it", req.Volname, askErr)
 }
 
 func (p *Provider) refreshListing(ctx context.Context) {

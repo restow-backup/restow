@@ -54,6 +54,12 @@ func (l Layout) cacheFile(name string) string { return filepath.Join(l.DataDir, 
 func (l Layout) StatusCache() string          { return l.cacheFile("status.json") }
 func (l Layout) VolumesCache() string         { return l.cacheFile("volumes.json") }
 func (l Layout) ServiceStatus() string        { return l.cacheFile("service.json") }
+
+// VolumesCacheOf is the listing of one VMID, as list-volumes last got it from the server.
+func (l Layout) VolumesCacheOf(vmid int) string {
+	return l.cacheFile(fmt.Sprintf("volumes-%d.json", vmid))
+}
+
 func (l Layout) journalFile(vmid int) string {
 	return filepath.Join(l.DataDir, "journal", fmt.Sprintf("%d.json", vmid))
 }

@@ -19,9 +19,11 @@
 # This file is deliberately thin. Every call that needs Restow is passed to
 # the separate program `restow-pve provider <verb>` (JSON on stdin and
 # stdout, documented in docs/PVE-PROTOCOL.md of the Restow repository).
-# status() and list_volumes() only read caches restow-pve maintains, with a
-# short timeout, so pvestatd never waits for the network. Deleting backups
-# and pruning are refused: retention is managed in Restow.
+# status() only reads a cache restow-pve maintains, so pvestatd never waits
+# for the network; list_volumes() and volume_size_info() run with a short
+# timeout, and restow-pve answers them from its caches when the server is
+# away. Deleting backups and pruning are refused: retention is managed in
+# Restow.
 package PVE::Storage::Custom::RestowPlugin;
 
 use strict;
@@ -258,14 +260,16 @@ sub deactivate_volume {
     return 1;
 }
 
+# The size of one restore point, asked by its volume name (restow-pve asks the
+# Restow server and falls back to the listing it keeps). A listing need not hold
+# every restore point of the cluster, so it is not searched here.
 sub volume_size_info {
     my ($class, $scfg, $storeid, $volname, $timeout) = @_;
-    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
-    for my $v (@{ $class->list_volumes($storeid, $scfg, $vmid, ['backup']) }) {
-        return wantarray ? ($v->{size}, 'raw', $v->{size}, undef) : $v->{size}
-            if $v->{volid} eq "$storeid:$volname";
-    }
-    die "restow: volume '$volname' not found\n";
+    $class->parse_volname($volname);
+    my $result = eval { call_helper('volume-size', { storeid => $storeid, volname => $volname }, undef, 10) };
+    die "restow: $@" if $@;
+    my $size = $result->{size} // 0;
+    return wantarray ? ($size, 'raw', $size, undef) : $size;
 }
 
 sub get_volume_attribute {
