@@ -196,6 +196,11 @@ private repository.
 
 ### Fixed
 
+- The page "Restow is temporarily unavailable" (the edge's page while the server restarts or is
+  updated) speaks the language the app shows. It followed only the browser's language, so a
+  German browser got it in German even where Restow was set to English, as on the public demo,
+  which starts in English. The app now keeps its language in a cookie `restow_lang` that the
+  edge reads first; without it the browser's language counts as before.
 - Mail archive: a request to look at a mailbox now, made while a pass over it was still running,
   was overwritten by the pass's own next time when the pass ended. It happened when the IDLE
   watch of an IMAP account began during the account's pass, when new mail was announced by IDLE

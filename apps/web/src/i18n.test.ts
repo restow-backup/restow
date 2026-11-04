@@ -106,3 +106,23 @@ describe("language suggested by the setup wizard", () => {
     expect(setupLanguageSuggestion()).toBe("de");
   });
 });
+
+describe("the language cookie for the edge's error page", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", memoryStorage());
+  });
+
+  it('names the language the app shows, so the page "temporarily unavailable" speaks it too', async () => {
+    await i18n.changeLanguage("de");
+    expect(document.cookie).toMatch(/(^|;\s*)restow_lang=de(;|$)/);
+    await i18n.changeLanguage("en");
+    expect(document.cookie).toMatch(/(^|;\s*)restow_lang=en(;|$)/);
+  });
+
+  it("follows the demo's English start in a German browser", async () => {
+    localStorage.removeItem(CHOSEN_KEY);
+    await i18n.changeLanguage("de");
+    applyDemoLanguage(true);
+    await vi.waitFor(() => expect(document.cookie).toMatch(/(^|;\s*)restow_lang=en(;|$)/));
+  });
+});
