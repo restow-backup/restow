@@ -444,6 +444,36 @@ function Get-SumsEntry([string[]]$Lines, [string]$Name) {
 
 function Test-DevVersion([string]$Version) { return ($Version -like '*-dev' -or $Version -like '*-dev.*') }
 
+# Smart App Control (Windows 11): the value VerifiedAndReputablePolicyState of
+# HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy is 0 (off), 1 (on) or 2
+# (evaluation). Get-SmartAppControlState returns it, or -1 when the key or the
+# value is not there (Windows 10, Windows Server). The key is a parameter, so
+# the tests read a key of their own.
+function Get-SmartAppControlState([string]$Key) {
+    try {
+        $item = Get-ItemProperty -Path $Key -Name VerifiedAndReputablePolicyState -ErrorAction Stop
+        return [int]$item.VerifiedAndReputablePolicyState
+    } catch [System.Management.Automation.ItemNotFoundException] {
+        return -1
+    } catch [System.Management.Automation.PSArgumentException] {
+        return -1
+    }
+}
+
+# Get-SmartAppControlVerdict says what the installer does for a state: Stop
+# (on: it blocks the unsigned agent now) or Warn (evaluation: Windows may switch
+# it on later by itself); both are '' otherwise.
+function Get-SmartAppControlVerdict([int]$State) {
+    $off = 'To switch it off: Windows Security > App & browser control > Smart App Control settings > Off. Switching it off is permanent: Smart App Control can only be switched on again by resetting or reinstalling Windows.'
+    if ($State -eq 1) {
+        return @{ Stop = "Smart App Control is on. It blocks programs without a code signature, and restow-agent.exe and restic.exe have none in this preview. Nothing was installed. $off See the Restow agent documentation (Known limits)."; Warn = '' }
+    }
+    if ($State -eq 2) {
+        return @{ Stop = ''; Warn = "Smart App Control is in evaluation mode. Windows may switch it on later by itself; it then blocks restow-agent.exe and restic.exe (no code signature in this preview) and every agent update: the service no longer starts, backups stop, and the Restow UI only shows this computer as offline. $off See the Restow agent documentation (Known limits)." }
+    }
+    return @{ Stop = ''; Warn = '' }
+}
+
 function Get-SystemArchitecture {
     $arch = $env:PROCESSOR_ARCHITEW6432
     if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
@@ -848,15 +878,11 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
     if (-not $version -or $version -notmatch '^[0-9A-Za-z.+-]+$') { Stop-Installer 'unknown or invalid agent version' }
     if ($key -and $key -notlike 'ssh-ed25519 *') { Stop-Installer 'the release signing key of this instance is not an ssh-ed25519 key' }
 
+    $sacWarning = ''
     if (-not $RestowState.InstallRoot) {
-        try {
-            $sac = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -Name VerifiedAndReputablePolicyState -ErrorAction Stop
-            if ($sac.VerifiedAndReputablePolicyState -eq 1) {
-                Stop-Installer 'Smart App Control is on. It blocks programs without a code signature, and restow-agent.exe has none in this preview. Nothing was installed. See the Restow agent documentation (Known limits).'
-            }
-        } catch [System.Management.Automation.ItemNotFoundException] {
-        } catch [System.Management.Automation.PSArgumentException] {
-        }
+        $sac = Get-SmartAppControlVerdict (Get-SmartAppControlState 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy')
+        if ($sac.Stop) { Stop-Installer $sac.Stop }
+        $sacWarning = $sac.Warn
     }
 
     # A token file that cannot be read stops the installer before anything is
@@ -874,6 +900,7 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
     Write-Host "Instance: $url"
     Write-Host "Version:  $version"
     Write-Host ''
+    if ($sacWarning) { Write-Warn $sacWarning; Write-Host '' }
 
     if (-not (Test-Path -LiteralPath $RestowState.InstallDir)) {
         $null = New-Item -ItemType Directory -Path $RestowState.InstallDir
@@ -1047,6 +1074,10 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
     Write-Host "Hooks:   & '$($RestowState.AgentExe)' hooks --help   (in a PowerShell started as administrator)"
     Write-Host 'Logs:    C:\ProgramData\Restow\logs\agent.log   and the Application event log, source Restow'
     Write-Host "Remove:  & ([scriptblock]::Create((irm -UseBasicParsing '$url/install/windows.ps1'))) -Uninstall"
+    if ($sacWarning) {
+        Write-Host ''
+        Write-Warn $sacWarning
+    }
 }
 
 # The tests load the functions without running the installer.

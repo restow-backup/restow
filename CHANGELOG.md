@@ -371,6 +371,13 @@ private repository.
   file that is still in use for a moment, and otherwise stops with a clear message to run the
   uninstall again later. Without a usable agent binary it stops the service with a time limit
   instead of waiting without an end.
+- Windows agent (preview): the installer stopped only when Smart App Control was on, and
+  installed without a word when it was in evaluation mode, which a freshly installed Windows 11
+  starts in. Windows may switch Smart App Control on later by itself; it then blocks the unsigned
+  `restow-agent.exe`, `restic.exe` and every agent update, the service no longer starts, and the
+  Restow UI only shows the computer as offline. The installer now warns clearly at its start and
+  at its end in evaluation mode, and both its texts say how to switch Smart App Control off and
+  that this is for good (only a reset or a new installation of Windows switches it on again).
 
 ### Upgrade Notes
 

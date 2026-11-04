@@ -19,6 +19,9 @@
 # 3d. The restart of a 32-bit host: stderr of the 64-bit child is no error of
 #    the parent, the session's environment is restored, and a token file
 #    written by a 32-bit program to System32 is found below SysWOW64.
+# 3g. Smart App Control: on stops the installer, evaluation mode warns (it may
+#    switch on later), off and a missing value say nothing; read from a
+#    registry key of the test's own.
 # 4. A full installation below a prefix (RESTOW_INSTALL_ROOT, no service)
 #    against the fake instance, a second run (repair), a pinned key that does
 #    not match, a tampered release (nothing installed), -Proxy with
@@ -280,6 +283,35 @@ try {
 }
 Remove-FolderWithRetry $busy 5
 if (Test-Path -LiteralPath $busy) { Fail 'the folder was not removed once the file was closed' } else { Ok 'the folder is removed once the file is free' }
+
+# ---- 3g. Smart App Control ------------------------------------------------------------
+# The installer reads VerifiedAndReputablePolicyState (0 off, 1 on, 2 evaluation);
+# a key below HKCU stands in for HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy.
+$sacKey = 'HKCU:\Software\Restow-Test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8) + '\CI\Policy'
+try {
+    if ((Get-SmartAppControlState $sacKey) -ne -1) { Fail 'a missing Smart App Control key does not read as -1' }
+    $null = New-Item -Path $sacKey -Force
+    if ((Get-SmartAppControlState $sacKey) -ne -1) { Fail 'a missing VerifiedAndReputablePolicyState does not read as -1' }
+    foreach ($want in @(0, 1, 2)) {
+        $null = New-ItemProperty -Path $sacKey -Name VerifiedAndReputablePolicyState -PropertyType DWord -Value $want -Force
+        $got = Get-SmartAppControlState $sacKey
+        if ($got -ne $want) { Fail "Smart App Control state $want reads as $got" }
+    }
+    Ok 'Smart App Control state is read from the registry'
+} finally {
+    Remove-Item -Path ($sacKey -replace '\\CI\\Policy$', '') -Recurse -Force -ErrorAction SilentlyContinue
+}
+$v = Get-SmartAppControlVerdict 1
+if (-not $v.Stop -or $v.Warn -or $v.Stop -notmatch 'Nothing was installed') { Fail "Smart App Control on: Stop '$($v.Stop)', Warn '$($v.Warn)'" } else { Ok 'Smart App Control on stops the installer' }
+$v = Get-SmartAppControlVerdict 2
+if ($v.Stop -or -not $v.Warn) { Fail "Smart App Control in evaluation mode: Stop '$($v.Stop)', Warn '$($v.Warn)'" }
+elseif ($v.Warn -notmatch 'evaluation mode' -or $v.Warn -notmatch 'switch it on later' -or $v.Warn -notmatch 'update' -or $v.Warn -notmatch 'Smart App Control settings > Off' -or $v.Warn -notmatch 'permanent') { Fail "the evaluation mode warning does not say what may happen and how to switch it off: $($v.Warn)" }
+else { Ok 'Smart App Control in evaluation mode warns and goes on' }
+foreach ($state in @(0, -1)) {
+    $v = Get-SmartAppControlVerdict $state
+    if ($v.Stop -or $v.Warn) { Fail "Smart App Control state ${state}: Stop '$($v.Stop)', Warn '$($v.Warn)'" }
+}
+Ok 'Smart App Control off or absent says nothing'
 
 # ---- 4. full installation against the fake instance ------------------------------
 if (-not $SkipInstall) {

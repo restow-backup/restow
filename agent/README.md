@@ -744,7 +744,11 @@ carries all of them.
   Authenticode for `restow-agent.exe`, `restic.exe` or `windows.ps1`: Defender may flag a new
   build until Microsoft has cleared it (the maintainer submits every prerelease), ASR rules
   may block it, and Smart App Control (fresh Windows 11) blocks the agent, which the
-  installer detects. No alternate data streams (so no Mark of the Web after a restore), no
+  installer detects. In evaluation mode (the start of a fresh Windows 11) Smart App Control
+  blocks nothing yet, but Windows may switch it on later and then block the agent and its
+  updates without the agent being able to report it (the machine only shows as offline); the
+  installer warns about this and says how to switch it off (for good: only a reset of Windows
+  switches it on again). No alternate data streams (so no Mark of the Web after a restore), no
   EFS files of other users (read errors), online-only cloud files are left out, junctions
   inside a backed-up folder are backed up as links (a junction configured as a path is
   followed), no system state or registry, no bare-metal restore: restoring a Windows machine

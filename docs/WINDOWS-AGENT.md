@@ -1312,7 +1312,7 @@ Skriptsignaturen ohnehin nicht. Folgen:
 | SmartScreen (App-Reputation) | Prüft Dateien mit Mark of the Web beim Start aus dem Explorer. `Invoke-RestMethod`/`Invoke-WebRequest` setzen kein Mark of the Web, der Dienst startet nicht über den Explorer: **kein SmartScreen-Dialog** beim Skriptweg. Lädt ein Admin die `.exe` per Browser und startet sie per Doppelklick, kommt "Der Computer wurde durch Windows geschützt". | Doku: nur den Skriptweg nutzen. |
 | AMSI, ASR, EDR gegen `iex (irm …)` | Das Muster "Download und direkt ausführen" wird von vielen Regeln gemeldet oder blockiert. | Doku nennt den Weg "Datei laden, Hash vergleichen, mit `-File` starten" gleichwertig (14.1). |
 | Microsoft Defender Antivirus | Unsignierte, neue Go-Binaries werden gelegentlich heuristisch als Schadsoftware erkannt (Fehlalarm), auch nach Updates (neuer Hash). | Einreichung über das Microsoft-Portal "Submit a file for malware analysis" als Softwareentwickler, **schon für den Prerelease-Build**: Der Build ist reproduzierbar (`SOURCE_DATE_EPOCH`, `release.yml:256`), die Hashes stehen nach dem Job `agent` fest, und das Urteil dauert Tage. Die Zeile "Defender-Einreichung geprüft" steht in der Aufforderung zum Signieren (3.6) und in der Checkliste von agent/README.md ("Release signing"). Keine pauschale Ausnahme für den Ordner empfehlen. |
-| Smart App Control (Windows 11, nur bei Neuinstallation aktiv) | Blockiert unsignierte Programme ohne Reputation unabhängig vom Mark of the Web. Der Dienst startet dann nicht. | Kein Ausweg ohne Signatur; der Installer erkennt den Zustand (`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`, Wert `VerifiedAndReputablePolicyState` = 1) und bricht mit Erklärung ab **[Maschine]**. Betrifft vor allem Privatgeräte; auf verwalteten Geräten ist SAC meist aus. |
+| Smart App Control (Windows 11, nur bei Neuinstallation aktiv) | Blockiert unsignierte Programme ohne Reputation unabhängig vom Mark of the Web. Der Dienst startet dann nicht. Ein frisch installiertes Windows 11 beginnt im **Auswertungsmodus**: SAC blockiert noch nichts, Windows schaltet es nach einer Lernphase aber selbst ein oder aus. Schaltet es ein, blockiert es `restow-agent.exe`, `restic.exe` und jedes Agent-Update; der Dienst startet nicht mehr, Sicherungen bleiben aus, und der Server sieht nur, dass der Rechner offline ist (der blockierte Agent kann nichts mehr melden). | Kein Ausweg ohne Signatur. Der Installer liest `HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`, Wert `VerifiedAndReputablePolicyState` (0 aus, 1 an, 2 Auswertung): Bei 1 bricht er mit Erklärung ab, bei 2 installiert er und warnt am Anfang und am Ende deutlich, dass SAC später einschalten und den Agenten blockieren kann **[Maschine]**. Beide Texte nennen den Weg zum Ausschalten (Windows-Sicherheit › App- & Browsersteuerung › Einstellungen für intelligente App-Steuerung › Aus) und dass das endgültig ist: Einschalten lässt sich SAC danach nur durch Zurücksetzen oder Neuinstallieren von Windows. Geht ein Windows-11-Rechner ohne erkennbaren Grund offline, ist SAC eine mögliche Ursache. Betrifft vor allem Privatgeräte; auf verwalteten Geräten ist SAC meist aus. |
 | ASR-Regel "Ausführbare Dateien nur bei Verbreitung, Alter oder vertrauenswürdiger Liste" | Blockiert neue, seltene Binaries. Auf MSP-Flotten mit Defender for Endpoint häufig aktiv. | Doku: Ausnahme je Pfad `C:\Program Files\Restow\bin\` für diese ASR-Regel oder Datei-Indikator "Zulassen" nach SHA-256 (je Release neu). |
 | WDAC / AppLocker | Publisher-Regeln greifen nicht; Hash-Regeln brechen bei jedem Update. | Pfadregel für `C:\Program Files\Restow\bin\` (nur Administratoren dürfen dort schreiben, Abschnitt 6). |
 | Controlled Folder Access | Ein unbekanntes Programm darf nicht in geschützte Ordner (Dokumente, Bilder) schreiben. Betrifft Restores dorthin. | Standard-Restore-Ziel liegt außerhalb (Abschnitt 18.2). Doku nennt die App-Freigabe. |
@@ -1885,7 +1885,8 @@ Zugangsdaten (12.5), keine Gnadenfrist für Hooks unter Windows und Hooks nur `.
 (12.2), `.ps1`-Hooks unter einer GPO mit `AllSigned` nur signiert (12.2), Binärdatei bleibt
 nach Deinstallation über das Binary bis zum Neustart liegen (9.4), Restrisiko beim
 Job-Zuordnen (12.3), Installer-Prüfung schützt ohne Pin nicht gegen eine feindliche Instanz
-(14.3).
+(14.3), Smart App Control im Auswertungsmodus kann den Agenten nach der Installation
+blockieren, ohne dass der Agent das noch melden kann (15).
 
 ## 22. Testplan
 
@@ -1991,7 +1992,8 @@ Punkte folgen nach dem Release und gehen in 0.5.x ein.
    gemeldet? Einreichung bei Microsoft vorher erledigt? Gilt als bestanden mit einem sauberen
    Ergebnis auf einem frischen Windows 11 mit Standardeinstellungen.
 3. Smart App Control (Windows 11 frisch installiert, SAC an): erkennt der Installer es und
-   bricht verständlich ab?
+   bricht verständlich ab? Im Auswertungsmodus (Wert 2): installiert er und warnt am Anfang
+   und am Ende, mit dem Weg zum Ausschalten?
 4. ARM64: klare Ablehnung durch Installer und Server.
 5. Dienst: startet nach Neustart (verzögert), steht unter LocalSystem mit der reduzierten
    Privilegienliste (`sc qprivs RestowAgent`), kein sichtbares Konsolenfenster, Stopp über
