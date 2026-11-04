@@ -511,6 +511,13 @@ private repository.
   and newer with `notification-mode=legacy-sendmail` and no `mailto`, so PVE sends nothing for
   it; Restow reports the outcome itself. A PVE that refused the parameter would get the backup
   started again without it, never a failed backup. Backups started in PVE notify as before.
+- Proxmox VE: the guest's disk list showed a container's bind or device mount point with
+  `backup=1` (`mp0: /srv/media,mp=/media,backup=1`) as backed up. PVE never backs those up,
+  whatever the flag says, so /media looked protected although none of it is in any restore
+  point. The node now reads the mount point's options one by one (`backup=1`, `yes`, `true` or
+  `on`; a path such as `mp=/backup=1` no longer counts) and reports a bind or device mount point
+  as not backed up, with the reason "not part of the backup", as the server's file view of a
+  restore point does.
 
 ### Upgrade Notes
 

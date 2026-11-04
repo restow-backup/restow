@@ -487,6 +487,34 @@ func TestParsers(t *testing.T) {
 	if len(ct) != 2 || ct[0].Backup || !ct[1].Backup {
 		t.Fatalf("%+v", ct)
 	}
+	// PVE never backs up a bind or device mount point, whatever its backup flag says; a volume
+	// mount point only with backup=1 (or yes, true, on), never because a path reads so.
+	ct = GuestDisks("ct", map[string]any{"rootfs": "local-lvm:vm-1-disk-0,size=8G",
+		"mp0": "/srv/media,mp=/media,backup=1", "mp1": "/dev/sdb1,mp=/mnt/usb,backup=1",
+		"mp2": "volume=local-lvm:vm-1-disk-1,mp=/data,backup=yes,size=2G", "mp3": "local-lvm:vm-1-disk-2,mp=/backup=1,size=1G",
+		"mp4": "volume=/srv/x,mp=/x,backup=1", "mp5": "local-lvm:vm-1-disk-3,mp=/y,backup=0,size=1G"})
+	want := map[string]InventoryDisk{
+		"mp0":    {Device: "mp0", Backup: false, Reason: "not part of the backup"},
+		"mp1":    {Device: "mp1", Backup: false, Reason: "not part of the backup"},
+		"mp2":    {Device: "mp2", Size: 2 << 30, Backup: true},
+		"mp3":    {Device: "mp3", Size: 1 << 30, Backup: false},
+		"mp4":    {Device: "mp4", Backup: false, Reason: "not part of the backup"},
+		"mp5":    {Device: "mp5", Size: 1 << 30, Backup: false},
+		"rootfs": {Device: "rootfs", Size: 8 << 30, Backup: true},
+	}
+	if len(ct) != len(want) {
+		t.Fatalf("%+v", ct)
+	}
+	for _, d := range ct {
+		if d != want[d.Device] {
+			t.Errorf("%s = %+v, want %+v", d.Device, d, want[d.Device])
+		}
+	}
+	vm := GuestDisks("vm", map[string]any{"scsi0": "local-lvm:vm-1-disk-0,size=8G", "scsi1": "local-lvm:vm-1-disk-1,backup=0,size=8G",
+		"scsi2": "local-lvm:vm-1-disk-2,backup=no,size=8G", "scsi3": "local-lvm:vm-1-disk-3,backup=1,size=8G"})
+	if len(vm) != 4 || !vm[0].Backup || vm[1].Backup || vm[2].Backup || !vm[3].Backup {
+		t.Fatalf("%+v", vm)
+	}
 	if !VersionAtLeast("9.2.1", 8, 4) || VersionAtLeast("8.3.5", 8, 4) || !VersionAtLeast("8.4.0", 8, 4) {
 		t.Fatal("versions")
 	}

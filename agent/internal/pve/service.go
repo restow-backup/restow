@@ -481,6 +481,24 @@ func ParseDiskSize(value string) uint64 {
 	return uint64(f * mult)
 }
 
+// mountFlag reads a boolean option of a disk or mount point line (PVE takes 1, yes, true, on and
+// 0, no, false, off); set is false when the option is not there. The leading volume and other
+// options (mp=/backup=1 is a path) never count.
+func mountFlag(value, name string) (on, set bool) {
+	for _, opt := range mountOptions(value) {
+		k, v, ok := strings.Cut(opt, "=")
+		if !ok || strings.TrimSpace(k) != name {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "yes", "true", "on":
+			return true, true
+		}
+		return false, true
+	}
+	return false, false
+}
+
 // GuestDisks lists the disks of a guest configuration. VM device names are
 // QEMU drive ids as PVE passes them to the provider (drive-scsi0; the TPM
 // state appears as drive-tpmstate0-backup).
@@ -499,11 +517,22 @@ func GuestDisks(kind string, conf map[string]any) []InventoryDisk {
 			if strings.HasPrefix(k, "tpmstate") {
 				dev += "-backup"
 			}
-			out = append(out, InventoryDisk{Device: dev, Size: ParseDiskSize(s), Backup: !strings.Contains(s, "backup=0")})
+			backup, set := mountFlag(s, "backup")
+			out = append(out, InventoryDisk{Device: dev, Size: ParseDiskSize(s), Backup: backup || !set})
 		}
 		if kind == "ct" && mpKeyRE.MatchString(k) {
-			backup := k == "rootfs" || strings.Contains(s, "backup=1")
-			out = append(out, InventoryDisk{Device: k, Size: ParseDiskSize(s), Backup: backup})
+			d := InventoryDisk{Device: k, Size: ParseDiskSize(s), Backup: k == "rootfs"}
+			if k != "rootfs" {
+				// vzdump backs up a volume mount point with backup=1 and never a bind or device
+				// mount point (an absolute host path), whatever its flag says (files.ts
+				// containerBackupPaths reads restore points the same way).
+				backup, _ := mountFlag(s, "backup")
+				d.Backup = backup && isVolumeMount(s)
+				if !isVolumeMount(s) {
+					d.Reason = "not part of the backup"
+				}
+			}
+			out = append(out, d)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Device < out[j].Device })

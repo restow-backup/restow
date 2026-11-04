@@ -343,6 +343,10 @@ type InventoryDisk struct {
 	Device string `json:"device"`
 	Size   uint64 `json:"size"`
 	Backup bool   `json:"backup"`
+	// Reason says why a disk is not backed up where its configuration alone does not ("not
+	// part of the backup" for a container's bind or device mount point, whatever its backup
+	// flag says).
+	Reason string `json:"reason,omitempty"`
 }
 
 // InventoryGuest is one VM or container.
