@@ -31,6 +31,38 @@ export interface CommandSpec {
   maxOutputBytes?: number;
 }
 
+/** An image ID as Docker prints it with `--no-trunc`; the only form an image is removed by. */
+export const IMAGE_ID = /^sha256:[0-9a-f]{64}$/;
+
+/**
+ * The one way a runner removes images: `docker image rm <ID>...`, by full image ID and
+ * never forced (the image cleanup, image-cleanup.ts). `rmi`, the prune commands and
+ * `compose ... --rmi` delete images by name or by pattern; no runner runs them. Throws.
+ */
+export function assertImageCommandAllowed(argv: readonly string[]): void {
+  const [, command, sub, ...rest] = argv;
+  const refuse = (): never => {
+    throw new Error("Images are only removed by ID, one by one, never forced or pruned.");
+  };
+  if (command === "rmi") {
+    refuse();
+  }
+  if ((command === "image" || command === "builder") && sub === "prune") {
+    refuse();
+  }
+  if (command === "system" && sub === "prune") {
+    refuse();
+  }
+  if (command === "compose" && argv.includes("--rmi")) {
+    refuse();
+  }
+  if (command === "image" && (sub === "rm" || sub === "remove")) {
+    if (rest.length === 0 || rest.some((value) => !IMAGE_ID.test(value))) {
+      refuse();
+    }
+  }
+}
+
 export interface CommandResult {
   exitCode: number;
   /** Captured stdout, raw (may hold configuration; never log it). Empty with `stdoutFile`. */
@@ -153,6 +185,24 @@ export interface BuildSpec {
   buildArgs: Readonly<Record<string, string>>;
 }
 
+/** An image in the local image store (`docker image inspect`). */
+export interface LocalImage {
+  /** The image ID, `sha256:<64 hex>`. */
+  id: string;
+  /** `name:tag` references (RepoTags). */
+  tags: string[];
+  /** `name@sha256:...` references (RepoDigests). */
+  digests: string[];
+  /** Size of the image in bytes, as Docker reports it (layers shared with other images included). */
+  bytes: number;
+  /**
+   * The release the image belongs to: its `org.opencontainers.image.version` label, else
+   * its RESTOW_VERSION variable; null when it has neither. Nothing else of the image's
+   * configuration is kept.
+   */
+  version: string | null;
+}
+
 export interface DumpVerification {
   bytes: number;
   /** Entries `pg_restore --list` printed. */
@@ -200,6 +250,16 @@ export interface DockerOps {
    */
   verifySignature(check: SignatureCheck): Promise<void>;
   build(spec: BuildSpec): Promise<void>;
+  /** Every image in the local image store (dangling ones included). */
+  listImages(): Promise<LocalImage[]>;
+  /** The IDs of the images all containers of this Docker host use, running or stopped. */
+  containerImageIds(): Promise<Set<string>>;
+  /**
+   * Remove one image by its ID (`sha256:<64 hex>`), never forced: Docker itself refuses an
+   * image a container uses or one that is referenced from several repositories. Throws
+   * OpsError when it was not removed.
+   */
+  removeImage(id: string): Promise<void>;
 
   /** Number of applied database migrations. Throws when it cannot be read. */
   migrationCount(): Promise<number>;

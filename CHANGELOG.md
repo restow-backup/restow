@@ -124,6 +124,25 @@ private repository.
   some hundred mutated signatures, the signature fixtures, and a full installation against a
   test instance.
 
+- Updater: after an update succeeded (the new version answers and the run is recorded as
+  succeeded), it removes the images of earlier releases and keeps those of the version that runs
+  now and of the version before it, for a rollback by hand. Only Restow's own images go: every
+  name of the image must be in a repository of the installation (application and web image, the
+  other build's twins, the local names of `source` mode, the images Compose resolves for api,
+  edge, updater and mounter), its release must be older than the previous one, no container may
+  use it (running or stopped, of any project) and the project must not be configured with it. It
+  is removed by its image ID, never forced; the command runners refuse `docker image rm` by name
+  or with `--force`, `rmi`, `image`, `builder` and `system prune` and `--rmi`. Nothing is
+  removed after a failed, rolled back or interrupted run, and a removal that fails is logged and
+  leaves the update succeeded. The run's log says how many images went and their size, the finish
+  step carries the numbers. docs/UPDATING.md, "Old images".
+- Public demo: in follow mode `reset.sh` checks the free space on Docker's data root before it
+  pulls a release (`RESTOW_DEMO_MIN_FREE_MB`, default 4096) and stops with a log line while the
+  demo keeps running when it is short. After a successful reset it removes the images of the
+  releases it followed before, except the one before the current release, and after every
+  successful reset dangling images and build cache older than a day (deploy/demo/README.md,
+  "Disk space").
+
 ### Changed
 
 - The storage growth chart of the start page and the capacity page share one module for what
@@ -212,6 +231,13 @@ private repository.
   one the pass started with.
   This was the cause of the IMAP test that failed now and then ("shows a watched account as
   IDLE"); with a pass slowed down on purpose it failed every time before and passes now.
+- Old images filled the disk: neither the updater nor the demo reset ever removed the images of
+  earlier releases, the updater only refused an update when the space was short. A demo host
+  that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
+  its disk ran full and PostgreSQL stopped. Both now clean up after a successful update or reset
+  (see Added). For updates by hand (`docker compose pull` and `up -d`, `install.sh`),
+  docs/UPDATING.md gives the commands that remove old Restow images safely, and its duplicated
+  heading "Disk space" is gone.
 
 ### Upgrade Notes
 

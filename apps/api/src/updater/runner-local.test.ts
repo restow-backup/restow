@@ -79,6 +79,29 @@ describe("LocalRunner", () => {
     await expect(fs.access(path.join(cwd, "pwned"))).rejects.toThrow();
   });
 
+  it("removes images only by ID, never forced or pruned", async () => {
+    const id = `sha256:${"a".repeat(64)}`;
+    for (const argv of [
+      ["docker", "rmi", id],
+      ["docker", "image", "rm", "-f", id],
+      ["docker", "image", "rm", "ghcr.io/restow-backup/restow:0.1.0"],
+      ["docker", "image", "remove", "--force", id],
+      ["docker", "image", "rm"],
+      ["docker", "image", "prune", "-a", "-f"],
+      ["docker", "system", "prune", "-a"],
+      ["docker", "builder", "prune"],
+      ["docker", "compose", "down", "--rmi", "all"],
+    ]) {
+      await expect(runner().run({ argv, timeoutMs: 5000 })).rejects.toThrow(/only removed by ID/);
+    }
+    // `args` echoes: the allowed form reaches the binary unchanged.
+    const allowed = await runner().run({
+      argv: ["docker", "args", "image", "rm", id],
+      timeoutMs: 5000,
+    });
+    expect(allowed.stdout).toBe(`image\nrm\n${id}\n`);
+  });
+
   it("runs in the project directory", async () => {
     const result = await runner().run({ argv: ["docker", "cwd"], timeoutMs: 5000 });
     expect(await fs.realpath(result.stdout.trim())).toBe(await fs.realpath(cwd));

@@ -15,6 +15,7 @@ import {
   type ConfiguredImages,
   type DockerOps,
   type DumpVerification,
+  type LocalImage,
   OpsError,
   PullError,
   type RunnerReadiness,
@@ -173,6 +174,13 @@ export class FakeDockerOps implements DockerOps {
   /** Content of the dump files the fake writes. */
   dumpContent = Buffer.concat([Buffer.from("PGDMP"), Buffer.alloc(2048, 7)]);
   apiRunningVersionValue: string | null = null;
+  /**
+   * The local image store as `listImages` reports it (the image cleanup). Pulls and builds
+   * do not add to it; tests put in what they need.
+   */
+  readonly imageStore: LocalImage[] = [];
+  /** Image IDs used by containers outside the compose project (stopped or running). */
+  readonly otherContainerImages = new Set<string>();
 
   constructor(
     private readonly projectDir: string,
@@ -389,6 +397,47 @@ export class FakeDockerOps implements DockerOps {
     this.hit("build", `${spec.target} ${spec.tag}`);
     this.builds.push(spec);
     this.localImages.set(spec.tag, [digestOf(spec.tag)]);
+  }
+
+  async listImages(): Promise<LocalImage[]> {
+    this.hit("listImages");
+    return this.imageStore.map((image) => ({
+      ...image,
+      tags: [...image.tags],
+      digests: [...image.digests],
+    }));
+  }
+
+  async containerImageIds(): Promise<Set<string>> {
+    this.hit("containerImageIds");
+    return this.usedImageIds();
+  }
+
+  private usedImageIds(): Set<string> {
+    const ids = new Set(this.otherContainerImages);
+    for (const container of this.containers.values()) {
+      for (const image of this.imageStore) {
+        if (image.id === container.image || image.tags.includes(container.image)) {
+          ids.add(image.id);
+        }
+      }
+    }
+    return ids;
+  }
+
+  async removeImage(id: string): Promise<void> {
+    this.hit("removeImage", id);
+    const index = this.imageStore.findIndex((image) => image.id === id);
+    if (index < 0) {
+      throw new OpsError("Removing the image failed (exit code 1).", `No such image: ${id}`);
+    }
+    if (this.usedImageIds().has(id)) {
+      throw new OpsError(
+        "Removing the image failed (exit code 1).",
+        `conflict: unable to delete ${id.slice(7, 19)} - image is being used by a container`,
+      );
+    }
+    this.imageStore.splice(index, 1);
   }
 
   // -- Database -------------------------------------------------------------

@@ -1,7 +1,13 @@
 import { spawn } from "node:child_process";
 import { accessSync, closeSync, constants as fsConstants, openSync } from "node:fs";
 import * as path from "node:path";
-import type { CommandResult, CommandRunner, CommandSpec, RunnerReadiness } from "./ops.js";
+import {
+  assertImageCommandAllowed,
+  type CommandResult,
+  type CommandRunner,
+  type CommandSpec,
+  type RunnerReadiness,
+} from "./ops.js";
 import type { Redactor } from "./redact.js";
 
 /**
@@ -165,6 +171,7 @@ export class LocalRunner implements CommandRunner {
     if (program !== "docker") {
       throw new Error("Only docker commands can be run.");
     }
+    assertImageCommandAllowed(spec.argv);
     for (const file of [spec.stdoutFile, spec.stdinFile]) {
       if (file !== undefined && (!path.isAbsolute(file) || file.includes("\0"))) {
         throw new Error("Command files must be absolute paths.");

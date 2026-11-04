@@ -271,24 +271,29 @@ Follow mode is one setting in `deploy/demo/.env`:
 
 In follow mode, every reset, before it touches the running project:
 
-1. pulls `restow-demo-seed:<RESTOW_DEMO_FOLLOW>` and reads the release version
+1. checks that Docker's data root (`docker info`, `DockerRootDir`) has at least
+   `RESTOW_DEMO_MIN_FREE_MB` free (default 4096) and stops otherwise, before
+   anything is pulled (see "Disk space");
+2. pulls `restow-demo-seed:<RESTOW_DEMO_FOLLOW>` and reads the release version
    from its label. The moving tag is pulled for the demo's own seed image
    only: the application images are then pulled by that exact version, so
    a production stack on the same host that runs `restow:beta` or
    `restow:latest` never finds its tag moved by the demo, and the
    production names `restow:local`/`restow-web:local` are neither pulled nor
    re-tagged (security review finding M2);
-2. pulls `restow:<version>`, `restow-web:<version>`,
+3. pulls `restow:<version>`, `restow-web:<version>`,
    `restow-demo-seed:<version>` and `restow-demo-dovecot:<version>`;
-3. checks that all four say they are that release, and refuses a mix (the
+4. checks that all four say they are that release, and refuses a mix (the
    seed of one release against the api of another), an image without a
    version label, and a pinned version whose image says otherwise;
-4. runs the project from exactly those four references (they replace
+5. runs the project from exactly those four references (they replace
    `RESTOW_DEMO_*_IMAGE` from `.env` for the run) and logs
-   `reset complete; the demo now runs Restow <version> (following <channel>)`.
+   `reset complete; the demo now runs Restow <version> (following <channel>)`;
+6. after that, removes the images of the releases it followed before, except
+   the one before the current release (see "Disk space").
 
-A failed pull (the registry down, a release without demo images, a typo in
-the channel) or a mix of releases stops the reset before anything is torn
+Too little free space, a failed pull (the registry down, a release without demo
+images, a typo in the channel) or a mix of releases stops the reset before anything is torn
 down, with a line in `/var/log/restow-demo-reset.log` that says which image
 and that nothing was stopped; the demo keeps running what it ran and is not
 reset that night. The next run tries again.
@@ -331,9 +336,10 @@ Nothing else changes: the timer and the service unit stay as installed (see
 release of the channel. The images loaded from the last tarball
 (`restow-demo-*:local`) are no longer used and can be removed with
 `docker image rm restow-demo-app:local restow-demo-web:local
-restow-demo-seed:local restow-demo-dovecot:local`. Images of earlier releases
-stay on the host until removed by hand; `reset.sh` never removes an image,
-since a production stack on the same host may run the same `restow:<version>`.
+restow-demo-seed:local restow-demo-dovecot:local`. From then on each reset
+removes the images of releases older than the one before ("Disk space"); images
+of earlier releases a host collected before this change go at the first reset
+with it.
 
 Back to loaded images: empty `RESTOW_DEMO_FOLLOW` again (and load a tarball,
 see "Images"). To hold the demo on one release, set it to that version.
@@ -523,7 +529,10 @@ write, so a visitor cannot install or remove a key either.
    The seed fails, for one, when a simulated machine is not proven
    restorable at the end, or the archive's hash chain does not verify. A
    restore that fails is never published either: the run falls back to the
-   full seed of steps 3 to 5.
+   full seed of steps 3 to 5;
+7. after the demo is back, frees disk space (see "Disk space"): in follow mode
+   the images of earlier releases, always dangling images and build cache
+   older than a day. Nothing of it can fail the reset.
 
 The log ends with how the demo came back ("seeded from scratch" or
 "restored from template ...") and how long it was offline.
@@ -548,7 +557,7 @@ It logs to `/var/log/restow-demo-reset.log` (override with
 compose file itself at another file for a test run (the services still read
 `env_file: .env` next to the compose file). `RESTOW_DEMO_FOLLOW`,
 `RESTOW_DEMO_FOLLOW_REGISTRY` (see "Following the releases"),
-`RESTOW_DEMO_PUBLISH_PUBLIC` and the `RESTOW_DEMO_TEMPLATE*` settings (see
+`RESTOW_DEMO_MIN_FREE_MB` (see "Disk space"), `RESTOW_DEMO_PUBLISH_PUBLIC` and the `RESTOW_DEMO_TEMPLATE*` settings (see
 "Fast reset") come from the environment of the run if set there, otherwise
 from that file; the script reads them as plain `NAME=value` lines and never
 sources the file. `deploy/demo/test.sh` tests all of this against a stub
@@ -703,6 +712,48 @@ Settings (`.env` or the environment of the run):
 
 To force a full seed once, delete the template directory (or its newest
 entry) before the run.
+
+## Disk space
+
+Every release the demo follows brings four images of its own, and Docker keeps
+the old ones until someone removes them. A demo host that followed the releases
+for a few months had its disk full of them (60 images, 25 GB, half of it no
+longer used, plus build cache), and a full disk stops PostgreSQL. `reset.sh`
+therefore:
+
+- **checks before it pulls.** In follow mode, before the first pull, it reads
+  Docker's data root (`docker info --format '{{.DockerRootDir}}'`, usually
+  `/var/lib/docker`) and its free space (`df`). With less than
+  `RESTOW_DEMO_MIN_FREE_MB` (default 4096) it logs
+  `only <n> MiB free on Docker's data root ..., less than RESTOW_DEMO_MIN_FREE_MB=...;
+  nothing was pulled or stopped` and exits: the demo keeps running what it ran.
+  When the free space cannot be read (Docker on another machine, say), it logs
+  that and goes on.
+- **removes old releases after a successful reset.** In follow mode, once `web`
+  is back up and the reset is complete, it removes the four images
+  (`restow`, `restow-web`, `restow-demo-seed`, `restow-demo-dovecot`) of every
+  release the demo followed before, except the release before the current one
+  (kept for going back). Which releases the demo followed it reads from the
+  exact version tags of `restow-demo-seed`, the demo's own image, which follow
+  mode pulls for every release; newer releases (after a switch of channel) stay.
+  It removes them by name with `docker image rm <registry>/<name>:<version>`, never
+  forced: Docker deletes an image only when no other name refers to it and no
+  container uses it, running or stopped, so a co-hosted production stack keeps
+  whatever it runs. An unused image of such an old release that a production
+  stack on the same host keeps only for a rollback goes as well (it carries the
+  same name); pull it again if you need it. Production installations clean up
+  their own old images ([docs/UPDATING.md](../../docs/UPDATING.md#old-images)).
+- **removes what nobody uses after every successful reset** (also with loaded
+  images): `docker image prune --force --filter until=24h` (images without a name
+  that no container uses, such as those a `docker load` of a new tarball
+  replaced) and `docker builder prune --force --filter until=24h` (build cache).
+
+The log names what was removed, what was kept, and the free space before and after.
+A reset that fails removes nothing.
+
+| Setting | Default | |
+| --- | --- | --- |
+| `RESTOW_DEMO_MIN_FREE_MB` | `4096` | free space on Docker's data root a follow-mode reset needs before it pulls |
 
 ## The seed and the synthetic mail
 

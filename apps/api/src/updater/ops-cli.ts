@@ -10,6 +10,8 @@ import {
   type ConfiguredImages,
   type DockerOps,
   type DumpVerification,
+  IMAGE_ID,
+  type LocalImage,
   OpsError,
   PullError,
   type RunnerReadiness,
@@ -63,7 +65,20 @@ const TIMEOUTS = {
   verify: 30 * MINUTE,
   up: 15 * MINUTE,
   verifySignature: 10 * MINUTE,
+  removeImage: 5 * MINUTE,
 } as const;
+
+const CONTAINER_ID = /^[0-9a-f]{64}$/;
+
+/**
+ * One JSON object per image, out of `docker image inspect`: only the fields the image
+ * cleanup needs. The labels and the environment are read for the version only and
+ * never kept, logged or returned.
+ */
+export const IMAGE_INSPECT_FORMAT =
+  '{"id":{{json .Id}},"tags":{{json .RepoTags}},"digests":{{json .RepoDigests}},"bytes":{{json .Size}},' +
+  '"labels":{{if .Config}}{{json .Config.Labels}}{{else}}null{{end}},' +
+  '"env":{{if .Config}}{{json .Config.Env}}{{else}}null{{end}}}';
 
 /** An image named by digest (`name@sha256:...`): what a signature is checked for. */
 const IMAGE_BY_DIGEST = /^[a-z0-9][a-z0-9._/:-]{0,199}@sha256:[0-9a-f]{64}$/;
@@ -318,6 +333,52 @@ export class CliDockerOps implements DockerOps {
     this.expectSuccess(result, "Building the image");
   }
 
+  async listImages(): Promise<LocalImage[]> {
+    const ids = await this.docker(["image", "ls", "--quiet", "--no-trunc"], {
+      timeoutMs: TIMEOUTS.quick,
+    });
+    this.expectSuccess(ids, "Listing the images");
+    const unique = idLines(ids.stdout, IMAGE_ID, "Listing the images");
+    if (unique.length === 0) {
+      return [];
+    }
+    const result = await this.docker(
+      ["image", "inspect", "--format", IMAGE_INSPECT_FORMAT, ...unique],
+      { timeoutMs: TIMEOUTS.config, maxOutputBytes: 16 * 1024 * 1024 },
+    );
+    this.expectSuccess(result, "Inspecting the images");
+    if (result.truncated) {
+      throw new OpsError("Inspecting the images failed.", "The output was too long.");
+    }
+    return parseImageInspect(result.stdout);
+  }
+
+  async containerImageIds(): Promise<Set<string>> {
+    const ids = await this.docker(["ps", "--all", "--quiet", "--no-trunc"], {
+      timeoutMs: TIMEOUTS.quick,
+    });
+    this.expectSuccess(ids, "Listing the containers");
+    const containers = idLines(ids.stdout, CONTAINER_ID, "Listing the containers");
+    if (containers.length === 0) {
+      return new Set();
+    }
+    const result = await this.docker(
+      ["container", "inspect", "--format", "{{.Image}}", ...containers],
+      { timeoutMs: TIMEOUTS.config },
+    );
+    this.expectSuccess(result, "Inspecting the containers");
+    return new Set(idLines(result.stdout, IMAGE_ID, "Inspecting the containers"));
+  }
+
+  async removeImage(id: string): Promise<void> {
+    if (!IMAGE_ID.test(id)) {
+      throw new OpsError("The image ID is not valid.");
+    }
+    // Never --force: Docker keeps an image a container (running or stopped) uses.
+    const result = await this.docker(["image", "rm", id], { timeoutMs: TIMEOUTS.removeImage });
+    this.expectSuccess(result, "Removing the image");
+  }
+
   // -- Database -------------------------------------------------------------
 
   async migrationCount(): Promise<number> {
@@ -529,6 +590,83 @@ export function isManifestNotFound(text: string): boolean {
     /manifest unknown|manifest for .+ not found|no such manifest|not found: manifest/i.test(text) ||
     /failed to resolve reference .+: not found\s*$/i.test(text.trim())
   );
+}
+
+/** The distinct IDs of a command's output, one per line; anything else is an error. */
+function idLines(output: string, pattern: RegExp, action: string): string[] {
+  const ids = new Set<string>();
+  for (const line of output.split("\n")) {
+    const id = line.trim();
+    if (!id) {
+      continue;
+    }
+    if (!pattern.test(id)) {
+      throw new OpsError(`${action} failed.`, "The output was not a list of IDs.");
+    }
+    ids.add(id);
+  }
+  return [...ids];
+}
+
+const VERSION_LABEL = "org.opencontainers.image.version";
+
+/** The lines {@link IMAGE_INSPECT_FORMAT} prints, as images; an unreadable line is an error. */
+export function parseImageInspect(output: string): LocalImage[] {
+  const images: LocalImage[] = [];
+  for (const line of output.split("\n")) {
+    if (!line.trim()) {
+      continue;
+    }
+    let record: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(line) as unknown;
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error("not an object");
+      }
+      record = parsed as Record<string, unknown>;
+    } catch {
+      // Never quote the output: the environment of an image may hold anything.
+      throw new OpsError("Inspecting the images failed.", "The output was not valid JSON.");
+    }
+    const id = record.id;
+    if (typeof id !== "string" || !IMAGE_ID.test(id)) {
+      throw new OpsError("Inspecting the images failed.", "An image has no valid ID.");
+    }
+    const strings = (value: unknown): string[] =>
+      Array.isArray(value)
+        ? value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+        : [];
+    const bytes =
+      typeof record.bytes === "number" && Number.isFinite(record.bytes) && record.bytes >= 0
+        ? Math.floor(record.bytes)
+        : 0;
+    images.push({
+      id,
+      tags: strings(record.tags).filter((tag) => !tag.startsWith("<none>")),
+      digests: strings(record.digests).filter((digest) => !digest.startsWith("<none>")),
+      bytes,
+      version: versionOf(record.labels, record.env),
+    });
+  }
+  return images;
+}
+
+function versionOf(labels: unknown, env: unknown): string | null {
+  if (typeof labels === "object" && labels !== null && !Array.isArray(labels)) {
+    const value = (labels as Record<string, unknown>)[VERSION_LABEL];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim().slice(0, 64);
+    }
+  }
+  if (Array.isArray(env)) {
+    for (const entry of env) {
+      if (typeof entry === "string" && entry.startsWith("RESTOW_VERSION=")) {
+        const value = entry.slice("RESTOW_VERSION=".length).trim();
+        return value ? value.slice(0, 64) : null;
+      }
+    }
+  }
+  return null;
 }
 
 /** `docker compose ps --format json`: a JSON array (older Compose) or one object per line (newer). */
