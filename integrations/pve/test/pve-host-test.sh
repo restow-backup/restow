@@ -13,13 +13,21 @@
 #      through the PVE API, with the API token restow-pve uses,
 #   5. compares the restored VM disk with the original when the VM is stopped
 #      (ORACLE=1), and a few files of the container,
-#   6. writes everything into one report file to paste back.
+#   6. runs the shapes that broke these paths before: a restart of restow-pve
+#      during a backup, a container backed up twice in suspend mode, a
+#      container restore larger than the restore folder, and the backups of
+#      the optional guests below,
+#   7. with INTERACTIVE=1 walks through what only Restow can start (boot tests,
+#      restores, restore checks, Back up now) and checks on the node what each
+#      left behind; the tester answers what Restow shows,
+#   8. writes everything into one report file to paste back.
 #
 # Nothing here deletes or overwrites the test guests themselves; the restored
-# guests are removed at the end unless KEEP=1.
+# guests (also those restored from Restow during INTERACTIVE=1) are removed at
+# the end unless KEEP=1.
 #
 # Required environment:
-#   RESTOW_URL       https://<your Restow instance running the 0.3.0 branch>
+#   RESTOW_URL       https://<your Restow instance running the 0.5.0 branch>
 #   VM_ID            a small test VM (Debian with qemu-guest-agent is best)
 #   CT_ID            a small unprivileged test container
 #   FLEECING         a thin storage of this node for fleecing (local-lvm, local-zfs, ...)
@@ -35,6 +43,14 @@
 #                         (needs the test VM stopped: its disk must not change)
 #   KEEP=1                keep the restored guests
 #   SKIP_INSTALL=1        restow-pve is installed already
+#   INTERACTIVE=1         also the steps started in Restow (section 7); needs a terminal
+#   WAIT_MINUTES          how long a step started in Restow may take (default 30)
+#   CT_RAW_ID             a container with raw lxc.* lines (e.g. lxc.cgroup2.devices.allow,
+#                         lxc.mount.entry) and a bind mount point (mpN: /host/path,mp=...)
+#   VM_PT_ID              a VM with PCI or USB passthrough (hostpciN or usbN)
+#   PROTECTED_ID          a guest with protection 1
+# Steps that cannot run (a guest not given, no terminal, a shape the node does not
+# show) are counted as SKIP, never as PASS.
 set -u
 
 : "${RESTOW_URL:?set RESTOW_URL}"
@@ -49,8 +65,15 @@ REPORT="${REPORT:-/root/restow-pve-report-$STAMP.txt}"
 WORK=$(mktemp -d)
 PASS=0
 FAIL=0
+SKIP=0
 RESTORED_VM=''
 RESTORED_CT=''
+# Guests restored from Restow during section 7, removed at the end unless KEEP=1.
+RESTORED_EXTRA=''
+# The restore folder before section 6c set a small one (restored at the end).
+RESTORE_TMP_BEFORE=''
+TINY_TMP=''
+WAIT_SECONDS=$((${WAIT_MINUTES:-30} * 60))
 
 exec 3>>"$REPORT"
 log() { printf '%s\n' "$*" | tee /dev/fd/3; }
@@ -69,10 +92,29 @@ bad() {
   FAIL=$((FAIL + 1))
   log "FAIL: $*"
 }
+skip() {
+  SKIP=$((SKIP + 1))
+  log "SKIP: $*"
+}
+# reset_restore_tmp: the restore folder as it was before section 6c.
+reset_restore_tmp() {
+  [ -n "$TINY_TMP" ] || return 0
+  /opt/restow-pve/bin/restow-pve config --restore-tmp "${RESTORE_TMP_BEFORE:-/var/tmp/restow-pve}" >/dev/null 2>&1
+  umount "$TINY_TMP" >/dev/null 2>&1
+  TINY_TMP=''
+}
 cleanup() {
+  reset_restore_tmp
   if [ -z "${KEEP:-}" ]; then
     [ -n "$RESTORED_VM" ] && qm destroy "$RESTORED_VM" --purge >/dev/null 2>&1
     [ -n "$RESTORED_CT" ] && pct destroy "$RESTORED_CT" --purge >/dev/null 2>&1
+    for _id in $RESTORED_EXTRA; do
+      if [ -f "/etc/pve/qemu-server/$_id.conf" ]; then
+        qm destroy "$_id" --purge >/dev/null 2>&1
+      else
+        pct destroy "$_id" --purge >/dev/null 2>&1
+      fi
+    done
   fi
   rm -rf "$WORK"
 }
@@ -117,6 +159,106 @@ disk_sha() {
   qemu-img convert -O raw "$_path" "$WORK/disk.raw" >/dev/null 2>&1 || return 1
   sha256sum "$WORK/disk.raw" | cut -d ' ' -f 1
   rm -f "$WORK/disk.raw"
+}
+
+# guests: one line per guest of the cluster, tab-separated: vmid name pool tags status node type.
+guests() {
+  pvesh get /cluster/resources --type vm --output-format json 2>/dev/null |
+    perl -MJSON::PP -0777 -ne 'for my $g (@{ decode_json($_) }) { print join("\t", map { defined($_) && $_ ne "" ? $_ : "-" } @$g{qw(vmid name pool tags status node type)}), "\n" }'
+}
+
+# named <name>: the VMID of the guest with that name (status 1 when there is none).
+named() {
+  guests | awk -F '\t' -v n="$1" '$2 == n { print $1; f = 1 } END { exit !f }'
+}
+not_named() { ! named "$1" >/dev/null; }
+
+# wait_for <seconds> <command...>: until the command succeeds, every 5 seconds; 1 when the time is up.
+wait_for() {
+  _left=$1
+  shift
+  while :; do
+    "$@" && return 0
+    [ "$_left" -le 0 ] && return 1
+    sleep 5
+    _left=$((_left - 5))
+  done
+}
+
+# pool_members: the VMIDs in the pool restow-restore.
+pool_members() {
+  guests | awk -F '\t' '$3 == "restow-restore" { print $1 }' | sort
+}
+
+# new_in_pool <file of pool_members before>: a guest that came into restow-restore since
+# (not a temporary guest of a test).
+new_in_pool() {
+  guests | awk -F '\t' '$3 == "restow-restore" && $2 !~ /^restow-(boottest|restorecheck)-/ { print $1 }' | sort |
+    comm -13 "$1" - | head -n 1 | grep .
+}
+
+# unlocked <vmid>: its configuration has no lock (the restore ended).
+unlocked() {
+  if [ -f "/etc/pve/qemu-server/$1.conf" ]; then
+    ! qm config "$1" 2>/dev/null | grep -q '^lock:'
+  else
+    pct config "$1" >/dev/null 2>&1 && ! pct config "$1" 2>/dev/null | grep -q '^lock:'
+  fi
+}
+
+# no_leftovers <label>: PASS when this node holds no temporary guest of a test and no marker.
+no_leftovers() {
+  _guests=$(guests | awk -F '\t' -v node="$NODE" '$6 == node && $2 ~ /^restow-(boottest|restorecheck)-/ { printf "%s ", $1 }')
+  _markers=$(find /var/lib/restow-pve/tempguests -mindepth 1 -maxdepth 1 -printf '%f ' 2>/dev/null)
+  if [ -z "$_guests$_markers" ]; then
+    ok "$1: no temporary guest and no marker left"
+  else
+    bad "$1: left behind: guests ${_guests:-none}, markers ${_markers:-none}"
+  fi
+}
+
+# journal_since <time>: restow-pve's journal since then, into the report; also prints it.
+journal_since() {
+  journalctl -u restow-pve --since "$1" --no-pager 2>&1 | redact | tee -a "$REPORT"
+}
+
+# step <instruction>: the tester does it in Restow and presses Enter; status 1 on "skip".
+step() {
+  log ">>> $*"
+  printf 'Press Enter once done, or type skip: ' >/dev/tty
+  read -r _answer </dev/tty || return 1
+  log "(tester: ${_answer:-done})"
+  [ "$_answer" != skip ]
+}
+
+# answer <question> <expected, an extended regex> <label>: PASS when the tester's answer matches.
+answer() {
+  printf '%s ' "$1" >/dev/tty
+  read -r _answer </dev/tty || _answer=''
+  log "$1 -> ${_answer:-<no answer>}"
+  case "$_answer" in
+    skip) skip "$3 (the tester skipped it)" ;;
+    *) if printf '%s' "$_answer" | grep -Eqix "$2"; then ok "$3"; else bad "$3: Restow shows \"$_answer\""; fi ;;
+  esac
+}
+
+# expected_rating <vmid>: what a boot test of the guest proves: green with a QEMU guest agent
+# (a VM) or systemd (a container), else yellow.
+expected_rating() {
+  if [ -f "/etc/pve/qemu-server/$1.conf" ]; then
+    if qm config "$1" | grep -Eq '^agent: *(1|enabled=1)'; then echo green; else echo yellow; fi
+  elif [ "$(pct exec "$1" -- cat /proc/1/comm 2>/dev/null)" = systemd ]; then
+    echo green
+  else
+    echo yellow
+  fi
+}
+
+# vzdump_bg <vmid> <log> [mode]: a backup onto the Restow storage in the background; sets BG_PID.
+vzdump_bg() {
+  log "\$ vzdump $1 --storage $STORAGE_ID --mode ${3:-snapshot} --remove 0 (in the background)"
+  vzdump "$1" --storage "$STORAGE_ID" --mode "${3:-snapshot}" --fleecing "enabled=1,storage=$FLEECING" --remove 0 >"$2" 2>&1 &
+  BG_PID=$!
 }
 
 first_disk() {
@@ -309,8 +451,323 @@ else
 fi
 log "check root@pam's mailbox (and the notification targets): no mail for this backup expected"
 
-# ---- 6. diagnostics -----------------------------------------------------------------
-section "6. Diagnostics"
+# ---- 6. shapes that broke these paths before ----------------------------------------
+section "6a. A restart of restow-pve during a backup leaves the backup alone"
+# The backup runs in vzdump's provider process, not in the service: the service may restart
+# (an update, systemctl restart) at any time.
+_log="$WORK/vzdump-restart.log"
+vzdump_bg "$VM_ID" "$_log"
+sleep 5
+restarted=''
+if kill -0 "$BG_PID" 2>/dev/null; then
+  run systemctl restart restow-pve
+  restarted=1
+fi
+wait "$BG_PID"
+rc=$?
+redact <"$_log" >>"$REPORT"
+if [ -z "$restarted" ]; then
+  skip "the backup ended within 5 s, before the restart (a larger VM shows it)"
+elif [ "$rc" = 0 ]; then
+  ok "the backup across a restart of restow-pve ended OK"
+else
+  bad "the backup across a restart of restow-pve failed (exit $rc)"
+fi
+if systemctl is-active --quiet restow-pve; then ok "restow-pve runs again after the restart"; else bad "restow-pve does not run after the restart"; fi
+
+section "6b. Container $CT_ID backed up twice in suspend mode (the second finds its parent)"
+# In suspend mode PVE hands over a copy in a new folder each time; restow-pve backs it up
+# through a stable folder, so restic finds the first backup as the parent.
+suspend_ok=1
+for n in 1 2; do
+  _log="$WORK/vzdump-suspend-$n.log"
+  vzdump_bg "$CT_ID" "$_log" suspend
+  wait "$BG_PID"
+  rc=$?
+  redact <"$_log" >>"$REPORT"
+  if [ "$rc" = 0 ]; then ok "suspend-mode backup $n of the container"; else bad "suspend-mode backup $n of the container (exit $rc)"; suspend_ok=''; fi
+done
+if [ -z "$suspend_ok" ]; then
+  skip "the stable folder of a suspend-mode backup (a backup failed)"
+elif grep -q "restic finds no earlier backup of this copy" "$WORK/vzdump-suspend-2.log"; then
+  bad "the second suspend-mode backup was read in full: no stable folder (see its log)"
+else
+  ok "the second suspend-mode backup ran through the stable folder (its parent is the first)"
+fi
+log "In Restow, the second suspend-mode run of CT $CT_ID shows few new or changed files, not all of them."
+
+section "6c. A container restore larger than the restore folder is refused at once, with what to do"
+CT_SIZE_VOL=$(latest_volid "$CT_ID")
+if [ -n "$CT_SIZE_VOL" ] && command -v mount >/dev/null; then
+  RESTORE_TMP_BEFORE=$(sed -n 's/.*"restoreTmpDir": *"\([^"]*\)".*/\1/p' /etc/restow-pve/state.json)
+  TINY_TMP="$WORK/tiny-restore-folder"
+  mkdir -p "$TINY_TMP"
+  if mount -t tmpfs -o size=16m restow-host-test "$TINY_TMP"; then
+    run /opt/restow-pve/bin/restow-pve config --restore-tmp "$TINY_TMP"
+    TOO_BIG_CT=$(pvesh get /cluster/nextid)
+    out=$(api POST "/nodes/$NODE/lxc" -d "vmid=$TOO_BIG_CT" --data-urlencode "ostemplate=$CT_SIZE_VOL" -d restore=1 -d unprivileged=1 -d "storage=$TARGET_STORAGE" -d pool=restow-restore)
+    log "$out"
+    upid=$(printf '%s' "$out" | sed -n 's/.*"data":"\([^"]*\)".*/\1/p')
+    if [ -n "$upid" ]; then
+      exit_status=$(wait_task "$upid")
+      task_log "$upid"
+      if [ "$exit_status" = OK ] || printf '%s' "$exit_status" | grep -q '^WARNINGS'; then
+        bad "a container restore into a 16 MB restore folder ended with $exit_status"
+      elif pvenode task log "$upid" 2>/dev/null | grep -q "free, the restore needs about .*restow-pve config --restore-tmp"; then
+        ok "the restore was refused with the free space, the need and restow-pve config --restore-tmp"
+      else
+        bad "the restore failed without the space message (exit status: $exit_status)"
+      fi
+    else
+      bad "PVE did not start the container restore: $out"
+    fi
+    # Only a guest the refused restore left in restow-restore (PVE removes it on failure).
+    if pool_members | grep -qx "$TOO_BIG_CT"; then pct destroy "$TOO_BIG_CT" --purge >/dev/null 2>&1; fi
+    reset_restore_tmp
+  else
+    skip "no tmpfs for a small restore folder"
+    TINY_TMP=''
+  fi
+else
+  skip "no container restore point, or no mount"
+fi
+
+section "6d. Backups of the optional guests (CT_RAW_ID, VM_PT_ID, PROTECTED_ID)"
+for g in "${CT_RAW_ID:-}" "${VM_PT_ID:-}" "${PROTECTED_ID:-}"; do
+  [ -n "$g" ] || continue
+  if [ -f "/etc/pve/qemu-server/$g.conf" ]; then run qm config "$g"; else run pct config "$g"; fi
+  # shellcheck disable=SC2046 # the exit code and the log path, split on purpose
+  set -- $(vzdump_restow "$g")
+  if [ "$1" = 0 ]; then ok "backup of guest $g"; else bad "backup of guest $g (exit $1)"; fi
+done
+[ -n "${CT_RAW_ID:-}${VM_PT_ID:-}${PROTECTED_ID:-}" ] || skip "no CT_RAW_ID, VM_PT_ID or PROTECTED_ID given"
+
+# ---- 7. started in Restow (INTERACTIVE=1) ---------------------------------------------
+# Boot tests, restores from Restow, restore checks and "Back up now" start in Restow; the
+# script says what to press, then checks on the node what the step did and left behind, and
+# asks what Restow shows. Without INTERACTIVE=1 (or without a terminal) every step is a SKIP.
+interactive=''
+if [ -n "${INTERACTIVE:-}" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then interactive=1; fi
+
+# boot_test <vmid> <label>: one boot test started in Restow, checked on the node.
+boot_test() {
+  _since=$(date '+%Y-%m-%d %H:%M:%S')
+  _want=$(expected_rating "$1")
+  if ! step "In Restow, open guest $1, choose its newest restore point and press 'Boot test now' ($2)."; then
+    skip "$2"
+    return 1
+  fi
+  if wait_for "$WAIT_SECONDS" named "restow-boottest-$1" >/dev/null; then
+    ok "$2: the temporary guest restow-boottest-$1 came up"
+  else
+    bad "$2: no temporary guest restow-boottest-$1 within ${WAIT_MINUTES:-30} minutes"
+  fi
+  if wait_for "$WAIT_SECONDS" not_named "restow-boottest-$1"; then ok "$2: the temporary guest is gone"; else bad "$2: the temporary guest is still there"; fi
+  wait_for 120 test ! -e /var/lib/restow-pve/boottest/current.json || bad "$2: boottest/current.json stays"
+  no_leftovers "$2"
+  journal_since "$_since" >/dev/null
+  answer "What does Restow show for this boot test (green, yellow, red, skipped)?" "$_want" "$2: rated $_want"
+}
+
+# restore_from_restow <vmid> <label> [start]: a restore as a new guest started in Restow; sets
+# NEW_GUEST to the restored guest once its restore ended.
+restore_from_restow() {
+  NEW_GUEST=''
+  _since=$(date '+%Y-%m-%d %H:%M:%S')
+  pool_members >"$WORK/pool-before"
+  _how="no start"
+  [ -n "${3:-}" ] && _how="with 'Start after the restore'"
+  if ! step "In Restow, on guest $1: 'Restore as a new guest', target storage $TARGET_STORAGE, $_how ($2)."; then
+    skip "$2"
+    return 1
+  fi
+  if NEW_GUEST=$(wait_for "$WAIT_SECONDS" new_in_pool "$WORK/pool-before"); then
+    RESTORED_EXTRA="$RESTORED_EXTRA $NEW_GUEST"
+    log "restored as $NEW_GUEST"
+  else
+    bad "$2: no new guest in restow-restore within ${WAIT_MINUTES:-30} minutes"
+    return 1
+  fi
+  if wait_for "$WAIT_SECONDS" unlocked "$NEW_GUEST"; then ok "$2: the restore of $NEW_GUEST ended"; else bad "$2: $NEW_GUEST stays locked"; fi
+  # The node starts a copy only after the restore; give it its minute.
+  [ -n "${3:-}" ] && sleep 70
+  journal_since "$_since" >"$WORK/journal-step"
+  if [ -f "/etc/pve/qemu-server/$NEW_GUEST.conf" ]; then run qm config "$NEW_GUEST"; else run pct config "$NEW_GUEST"; fi
+  return 0
+}
+
+# restore_check <vmid> <label> <expected rating>: the monthly restore check of a job, which
+# Restow plans for a guest that had none in the last 30 days.
+restore_check() {
+  _since=$(date '+%Y-%m-%d %H:%M:%S')
+  if ! step "In Restow, put guest $1 into a backup job of its own with 'Monthly restore check' on (storage $TARGET_STORAGE); Restow plans the check within about five minutes ($2)."; then
+    skip "$2"
+    return 1
+  fi
+  if wait_for "$WAIT_SECONDS" named "restow-restorecheck-$1" >/dev/null; then
+    ok "$2: the temporary guest restow-restorecheck-$1 came up"
+  else
+    log "$2: no temporary guest restow-restorecheck-$1 seen (a restore that fails early creates none)"
+  fi
+  wait_for "$WAIT_SECONDS" not_named "restow-restorecheck-$1" || bad "$2: the temporary guest restow-restorecheck-$1 stays"
+  # The check ends after its guest is gone; then nothing of it may be left.
+  sleep 30
+  no_leftovers "$2"
+  journal_since "$_since" >/dev/null
+  answer "What does Restow show for this restore check (green, yellow, red, skipped)?" "$3" "$2: rated $3"
+}
+
+# active_vzdump <vmid>: the UPID of a running vzdump task of the guest on this node.
+active_vzdump() {
+  pvesh get "/nodes/$NODE/tasks" --source active --typefilter vzdump --vmid "$1" --output-format json 2>/dev/null |
+    perl -MJSON::PP -0777 -ne 'my $t = decode_json($_); exit 1 if !@$t; print $t->[0]{upid}, "\n"'
+}
+
+if [ -z "$interactive" ]; then
+  section "7. Steps started in Restow"
+  skip "boot tests, restores from Restow, restore checks and Back up now (run with INTERACTIVE=1 in a terminal)"
+else
+  section "7a. Boot test of VM $VM_ID twice in a row on this node"
+  boot_test "$VM_ID" "boot test 1 of VM $VM_ID" && boot_test "$VM_ID" "boot test 2 of VM $VM_ID (right after the first)"
+
+  section "7b. Restore of VM $VM_ID from Restow; the node is idle again afterwards"
+  if restore_from_restow "$VM_ID" "restore of VM $VM_ID"; then
+    servers=$(find /run/restow-pve/restore -mindepth 1 -maxdepth 1 -printf '%f ' 2>/dev/null)
+    if [ -z "$servers" ]; then
+      ok "no restore server is left in /run/restow-pve/restore"
+    else
+      bad "restore servers are left: $servers"
+    fi
+    _since=$(date '+%Y-%m-%d %H:%M:%S')
+    _version=$(/opt/restow-pve/bin/restow-pve version --short)
+    if step "If Restow offers this node a newer release, press 'Update now' on the node; else type skip."; then
+      # shellcheck disable=SC2016 # expanded by the inner shell
+      if wait_for 600 sh -c '[ "$(/opt/restow-pve/bin/restow-pve version --short)" != "$1" ]' _ "$_version"; then
+        ok "the node updated right after the restore ($_version -> $(/opt/restow-pve/bin/restow-pve version --short))"
+      else
+        bad "the node did not update within 10 minutes after the restore (busy?)"
+      fi
+      journal_since "$_since" >/dev/null
+    else
+      skip "Update now after a restore"
+    fi
+  fi
+
+  section "7c. Restore checks: one that passes (VM $VM_ID), one that fails (CT $CT_ID)"
+  restore_check "$VM_ID" "restore check of VM $VM_ID" green
+  RESTORE_TMP_BEFORE=$(sed -n 's/.*"restoreTmpDir": *"\([^"]*\)".*/\1/p' /etc/restow-pve/state.json)
+  TINY_TMP="$WORK/tiny-restore-folder"
+  mkdir -p "$TINY_TMP"
+  if mount -t tmpfs -o size=16m restow-host-test "$TINY_TMP"; then
+    run /opt/restow-pve/bin/restow-pve config --restore-tmp "$TINY_TMP"
+    # A container restore into a 16 MB restore folder is refused: the check must not be green.
+    restore_check "$CT_ID" "restore check of CT $CT_ID that fails (16 MB restore folder)" "red|failed"
+    reset_restore_tmp
+  else
+    skip "a restore check that fails (no tmpfs for a small restore folder)"
+    TINY_TMP=''
+  fi
+
+  section "7d. Container with raw lxc.* lines and a bind mount (CT_RAW_ID)"
+  if [ -z "${CT_RAW_ID:-}" ]; then
+    skip "no CT_RAW_ID given"
+  else
+    if restore_from_restow "$CT_RAW_ID" "restore of CT $CT_RAW_ID"; then
+      if pct config "$NEW_GUEST" | grep -Eq '^lxc\.|^mp[0-9]+: /'; then
+        bad "the restored container has raw lxc.* lines or a bind mount (only root may set them)"
+      else
+        ok "the restored container has no raw lxc.* line and no bind mount"
+      fi
+      if grep -q "PVE restores raw LXC options only for root@pam" "$WORK/journal-step"; then ok "the node names the skipped lxc.* lines"; else bad "the node's log does not name the skipped lxc.* lines"; fi
+      answer "Does Restow show the restore amber ('Restored with warnings') with the skipped lxc.* lines and the left-out mount point (yes/no)?" yes "restore of CT $CT_RAW_ID amber with what to put back"
+    fi
+    restore_check "$CT_RAW_ID" "restore check of CT $CT_RAW_ID" yellow
+    boot_test "$CT_RAW_ID" "boot test of CT $CT_RAW_ID"
+  fi
+
+  section "7e. VM with PCI or USB passthrough (VM_PT_ID): restored as root, never started"
+  if [ -z "${VM_PT_ID:-}" ]; then
+    skip "no VM_PT_ID given"
+  else
+    if restore_from_restow "$VM_PT_ID" "restore of VM $VM_PT_ID" start; then
+      if grep -q "which PVE restores only for root@pam: restoring as root" "$WORK/journal-step"; then ok "the VM was restored as root"; else bad "the node's log does not say the VM was restored as root"; fi
+      if qm config "$NEW_GUEST" | grep -Eq '^(hostpci|usb)[0-9]+:'; then ok "the copy keeps the original's devices"; else bad "the copy lost the original's devices"; fi
+      if qm status "$NEW_GUEST" | grep -q stopped; then ok "the copy with the original's devices was not started"; else bad "the copy with the original's devices runs"; fi
+    fi
+    # During its boot test the temporary guest has no passthrough left.
+    ( wait_for "$WAIT_SECONDS" named "restow-boottest-$VM_PT_ID" >/dev/null &&
+      sleep 20 && qm config "$(named "restow-boottest-$VM_PT_ID")" >"$WORK/pt-boottest.conf" 2>&1 ) &
+    watcher=$!
+    if boot_test "$VM_PT_ID" "boot test of VM $VM_PT_ID"; then
+      wait "$watcher"
+    else
+      kill "$watcher" 2>/dev/null
+    fi
+    if [ ! -s "$WORK/pt-boottest.conf" ]; then
+      skip "the boot test guest of VM $VM_PT_ID was not seen"
+    elif grep -Eq '^(hostpci|usb)[0-9]+:' "$WORK/pt-boottest.conf"; then
+      bad "the boot test guest of VM $VM_PT_ID had passthrough devices"
+    else
+      ok "the boot test guest of VM $VM_PT_ID ran without passthrough devices"
+    fi
+  fi
+
+  section "7f. Protected guest (PROTECTED_ID): its restore check removes the protected copy"
+  if [ -z "${PROTECTED_ID:-}" ]; then
+    skip "no PROTECTED_ID given"
+  else
+    restore_check "$PROTECTED_ID" "restore check of protected guest $PROTECTED_ID" green
+  fi
+
+  section "7g. Restart of restow-pve during a boot test"
+  _since=$(date '+%Y-%m-%d %H:%M:%S')
+  if step "In Restow, press 'Boot test now' on the newest restore point of VM $VM_ID; the script restarts restow-pve once its temporary guest runs."; then
+    if wait_for "$WAIT_SECONDS" named "restow-boottest-$VM_ID" >/dev/null; then
+      run systemctl restart restow-pve
+      if wait_for 600 not_named "restow-boottest-$VM_ID"; then ok "the restarted service removed the boot test's guest"; else bad "the boot test's guest stays after the restart"; fi
+      no_leftovers "boot test with a restart"
+      journal_since "$_since" >/dev/null
+      answer "What does Restow show for this boot test after a few minutes (green, yellow, red, skipped, failed)?" "failed|error|red|skipped" "a boot test cut by a restart is never green"
+    else
+      bad "no temporary guest restow-boottest-$VM_ID within ${WAIT_MINUTES:-30} minutes"
+    fi
+  else
+    skip "restart during a boot test"
+  fi
+
+  section "7h. Restart of restow-pve during a backup started in Restow; no PVE notification"
+  _since=$(date '+%Y-%m-%d %H:%M:%S')
+  if step "In Restow, press 'Back up now' on VM $VM_ID; the script restarts restow-pve while vzdump runs."; then
+    if upid=$(wait_for 600 active_vzdump "$VM_ID"); then
+      run systemctl restart restow-pve
+      exit_status=$(wait_task "$upid")
+      task_log "$upid"
+      if [ "$exit_status" = OK ]; then ok "the backup across the restart ended OK"; else bad "the backup across the restart ended with $exit_status"; fi
+      sleep 70
+      if journal_since "$_since" | grep -q "waiting again for"; then ok "the restarted service waited for the backup again"; else bad "the restarted service did not wait for the backup again"; fi
+      answer "Does Restow show this run as succeeded, once (yes/no)?" yes "the backup across a restart succeeded in Restow"
+      answer "Did root@pam's mailbox or a PVE notification target get a message for this backup (no/yes)?" no "a backup from Restow sends no PVE notification"
+    else
+      bad "no vzdump of VM $VM_ID started within 10 minutes"
+    fi
+  else
+    skip "restart during a backup started in Restow"
+  fi
+
+  section "7i. Restore with start of a container whose original runs with a static IP"
+  if pct status "$CT_ID" | grep -q running && pct config "$CT_ID" | grep -Eq '^net[0-9]+:.*ip=[0-9]'; then
+    if restore_from_restow "$CT_ID" "restore of CT $CT_ID with start" start; then
+      if pct status "$NEW_GUEST" | grep -q stopped; then ok "the copy was not started beside its running original"; else bad "the copy runs beside its original with the same IP"; fi
+      if grep -q "is not started" "$WORK/journal-step"; then ok "the node says why the copy is not started"; else bad "the node's log does not say why the copy is not started"; fi
+      answer "Does Restow show the restore amber with 'the original CT $CT_ID runs with <IP>' (yes/no)?" yes "restore with start of a CT beside its original: amber, not started"
+    fi
+  else
+    skip "CT $CT_ID does not run with a static IP"
+  fi
+fi
+
+# ---- 8. diagnostics -----------------------------------------------------------------
+section "8. Diagnostics"
 run /opt/restow-pve/bin/restow-pve status --json
 run /opt/restow-pve/bin/restow-pve diagnose --json
 run journalctl -u restow-pve -n 300 --no-pager
@@ -322,6 +779,6 @@ for f in /run/restow-pve/restore/*.log; do
 done
 
 section "Result"
-log "PASS $PASS, FAIL $FAIL"
+log "PASS $PASS, FAIL $FAIL, SKIP $SKIP"
 log "Report: $REPORT (secrets are redacted; please paste it back)"
 [ "$FAIL" -eq 0 ]
