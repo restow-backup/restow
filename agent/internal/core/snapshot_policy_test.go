@@ -323,6 +323,26 @@ func TestSnapshotExcludedVolumesReachRestic(t *testing.T) {
 	}
 }
 
+// Every source on a volume VSS cannot do by design (an exFAT disk, a
+// removable drive): no volume came from a shadow copy, which the consistency
+// says (unavailable, with the volume), but nothing failed and nothing the
+// administrator could fix short of switching VSS off for the machine, so the
+// run is green, as with an exFAT disk next to a snapshotted C:\ (K-W03).
+func TestSnapshotOnlyExcludedVolumesSucceeds(t *testing.T) {
+	withVSS(t, snapshotPlan{method: api.SnapshotMethodVSS, requested: true,
+		excluded: []string{`E:\`}, vssExclude: []string{`E:\`}, notes: []string{`E:\ is read without a shadow copy: file system exFAT.`}})
+	fin, _ := backupWithPolicy(t, "ok", "")
+	if fin.Status != api.StatusSucceeded || len(fin.Errors) != 0 {
+		t.Fatalf("%s %+v", fin.Status, fin.Errors)
+	}
+	if c := fin.Consistency; c == nil || c.State != "unavailable" || strings.Join(c.LiveFilesystems, ";") != `E:\` {
+		t.Fatalf("consistency %+v", fin.Consistency)
+	}
+	if !strings.Contains(fin.LogTail, "file system exFAT") {
+		t.Fatalf("log:\n%s", fin.LogTail)
+	}
+}
+
 func TestSnapshotCleanupIsOnlyANote(t *testing.T) {
 	withVSS(t, vssPlan)
 	fin, _ := backupWithPolicy(t, "vss-cleanup", "")

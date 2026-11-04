@@ -449,6 +449,9 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string, res
 		out.Status = api.StatusPartial
 	case snapUnavailable || len(snap.FailedVolumes) > 0:
 		// Backed up, but not (all) from a snapshot: what the policy continue means.
+		// Volumes VSS cannot do by design (excluded from the start, not
+		// supported by the provider) are no failure, also when they are all
+		// the backup has: the consistency names them, the status stays.
 		out.Status = api.StatusPartial
 		rl.Warnf("The backup was made without a shadow copy of every volume; files that changed during it may be inconsistent.")
 	default:

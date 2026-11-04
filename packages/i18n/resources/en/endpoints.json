@@ -597,6 +597,7 @@
       "partial": "{method, select, vss {Partly without a shadow copy} other {Partly without a file system snapshot}}",
       "partialWith": "{method, select, vss {Partly without a shadow copy: {live}} other {Partly without a file system snapshot: {live}}}",
       "unavailable": "{method, select, vss {Without a shadow copy (shadow copy not available)} other {Without a file system snapshot (not available)}}",
+      "unavailableWith": "{method, select, vss {Without a shadow copy: {live}} other {Without a file system snapshot: {live}}}",
       "off": "{method, select, vss {Without a shadow copy (switched off for this machine)} other {Without a file system snapshot, read from the live file system}}"
     },
     "progress": {

@@ -597,6 +597,7 @@
       "partial": "{method, select, vss {Teilweise ohne Schattenkopie} other {Teilweise ohne Dateisystem-Snapshot}}",
       "partialWith": "{method, select, vss {Teilweise ohne Schattenkopie: {live}} other {Teilweise ohne Dateisystem-Snapshot: {live}}}",
       "unavailable": "{method, select, vss {Ohne Schattenkopie (Schattenkopie nicht verfügbar)} other {Ohne Dateisystem-Snapshot (nicht verfügbar)}}",
+      "unavailableWith": "{method, select, vss {Ohne Schattenkopie: {live}} other {Ohne Dateisystem-Snapshot: {live}}}",
       "off": "{method, select, vss {Ohne Schattenkopie (für diesen Rechner abgeschaltet)} other {Ohne Dateisystem-Snapshot, direkt vom Dateisystem gelesen}}"
     },
     "progress": {

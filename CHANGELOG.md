@@ -265,8 +265,10 @@ private repository.
 - Windows agent (preview): a backup that read no volume from a shadow copy reported the
   consistency "Shadow copy (file consistent)", for example a job with only an exFAT disk or a
   volume whose snapshot provider does not support it. Such a backup is now "Without a shadow
-  copy" with the volumes read live; "used" needs at least one volume that really came from a
-  shadow copy and lists the others it read live.
+  copy: E:\" with the volumes read live; "used" needs at least one volume that really came from
+  a shadow copy and lists the others it read live. A volume VSS cannot do by design (exFAT,
+  FAT32, a removable drive) is no failure, also when it is all the backup has: the run stays
+  succeeded, as it does for such a disk next to a snapshotted C:\.
 - Windows agent (preview): a short network or server failure while restic opened the
   repository (exit code 1 before any progress) was put down to the shadow copy. The agent backed
   up again without it, so a backup with a shadow copy became a live one, and the run was
@@ -392,7 +394,7 @@ private repository.
   removed it. The same held for a snapshot saved just before an interruption or the time limit.
   The failed run now reports the snapshot with its figures, its error says that the snapshot
   stays in the repository but is no backup the policy accepts, and the run details say so beside
-  the snapshot of a failed run.
+  the snapshot of a failed run and of a run cancelled in Restow.
 - Windows agent (preview): the installer stopped only when Smart App Control was on, and
   installed without a word when it was in evaluation mode, which a freshly installed Windows 11
   starts in. Windows may switch Smart App Control on later by itself; it then blocks the unsigned
