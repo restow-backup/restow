@@ -7,8 +7,10 @@ import {
 } from "@tanstack/react-query";
 
 import {
+  type CreateArchiveRestoreRequest,
   type CreateRestoreRequest,
   cancelRestoreJob,
+  createArchiveRestore,
   createRestore,
   DEFAULT_TREE_SORT,
   fetchCalendar,
@@ -234,6 +236,18 @@ export function useCreateRestore() {
   const { tenantId } = useTenantScope();
   return useMutation({
     mutationFn: (request: CreateRestoreRequest) => createRestore(request),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: restoreKeys.jobs(tenantId) });
+    },
+  });
+}
+
+/** Archived mail back into its mailbox (the explorer's source "From the archive"). */
+export function useCreateArchiveRestore() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  return useMutation({
+    mutationFn: (request: CreateArchiveRestoreRequest) => createArchiveRestore(request),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: restoreKeys.jobs(tenantId) });
     },

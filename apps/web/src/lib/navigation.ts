@@ -117,6 +117,13 @@ export interface NavItem {
    */
   visible?: (context: NavLockContext) => boolean;
   /**
+   * The entry depends on the active tenant's own state (lib/tenant-nav-offers.ts, GET
+   * /api/v1/navigation): offered only while the tenant offers it, hidden while that is
+   * still unknown. "Archive" uses it: hidden where the archive is neither set up nor holds
+   * mail (docs/ARCHIVE.md). The page itself stays reachable by its address.
+   */
+  tenantOffer?: TenantNavOffer;
+  /**
    * A feature that does not exist yet but already has its place in the
    * menu: the release that brings it (`0.2.0`). The entry shows a "Soon"
    * badge and opens a short placeholder page instead of the feature.
@@ -171,6 +178,9 @@ export interface NavActivityItem {
   to: string;
   search?: Readonly<Record<string, string>>;
 }
+
+/** Entries that depend on the active tenant's state (see {@link NavItem.tenantOffer}). */
+export type TenantNavOffer = "archive";
 
 /** A nav item as shown, with whether its lock holds it closed. */
 export interface PlacedNavItem extends NavItem {

@@ -156,7 +156,11 @@ function JobsTable({ jobs }: { jobs: RestoreJob[] }) {
                     </Badge>
                   ) : null}
                 </div>
-                {job.snapshotSequence !== null ? (
+                {job.source === "archive" ? (
+                  <p className="truncate text-xs text-muted-foreground">
+                    {t("jobs.source.archive")}
+                  </p>
+                ) : job.snapshotSequence !== null ? (
                   <p className="truncate text-xs text-muted-foreground">
                     {t("jobs.snapshot", {
                       sequence: job.snapshotSequence,

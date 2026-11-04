@@ -145,6 +145,13 @@ export const manifestVersions = pgTable(
     index("manifest_versions_object_last_idx").on(t.protectedObjectId, t.lastSequence),
     index("manifest_versions_object_path_idx").on(t.protectedObjectId, t.path),
     index("manifest_versions_object_item_idx").on(t.protectedObjectId, t.itemId),
+    // Mail by its Message-ID as the source wrote it: the restore explorer's "From the archive"
+    // marks archived mail the newest backup holds already (apps/api archive/gap.ts). The plain
+    // column, not `lower(btrim(message_id, '<> '))`: under row-level security only a leakproof
+    // condition is used as an index condition, and those functions are not.
+    index("manifest_versions_object_message_idx")
+      .on(t.protectedObjectId, t.messageId)
+      .where(sql`${t.messageId} IS NOT NULL`),
     // The explorer's folder listing (apps/api snapshots/service.ts `versionListingCte`): the
     // children of one folder and a skip scan over the folders below it. Paths in byte order
     // (`COLLATE "C"`) whatever the database's collation, so everything below `a/b` is the one

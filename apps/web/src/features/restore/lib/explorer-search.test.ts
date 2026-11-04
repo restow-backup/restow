@@ -5,10 +5,13 @@ import {
   compactSearch,
   parseExplorerSearch,
   preferredObject,
+  withArchiveItem,
+  withArchiveSource,
   withCalendarView,
   withFolder,
   withItem,
   withObject,
+  withoutArchive,
   withQuery,
   withSnapshot,
   withSort,
@@ -140,5 +143,45 @@ describe("the calendar's view in the address", () => {
     expect(withFolder(month, "calendar/Team")).toMatchObject({ view: "month", month: "2026-09" });
     expect(withFolder(month, "mail/Inbox")).toMatchObject({ view: undefined, month: undefined });
     expect(withCalendarView(month, "list")).toMatchObject({ view: undefined, month: undefined });
+  });
+});
+
+describe("the source From the archive", () => {
+  const ITEM = "5d2f2c6e-3d1a-4a1b-8e3f-0c1d2e3f4a5b";
+
+  it("keeps the account and its restore point and opens one archived message", () => {
+    const browsing = { object: OBJECT, snapshot: SNAPSHOT, path: "mail/Inbox", item: "mail/x.eml" };
+    const archive = withArchiveSource(browsing);
+    expect(archive).toEqual({ object: OBJECT, snapshot: SNAPSHOT, source: "archive" });
+    expect(compactSearch(withArchiveItem(archive, ITEM))).toEqual({
+      object: OBJECT,
+      snapshot: SNAPSHOT,
+      source: "archive",
+      archiveItem: ITEM,
+    });
+    expect(parseExplorerSearch({ source: "archive", archiveItem: ITEM })).toMatchObject({
+      source: "archive",
+      archiveItem: ITEM,
+    });
+    expect(parseExplorerSearch({ source: "elsewhere", archiveItem: "nope" })).toMatchObject({
+      source: undefined,
+      archiveItem: undefined,
+    });
+    // An archived message without the source is not kept in the address.
+    expect(compactSearch({ object: OBJECT, archiveItem: ITEM })).toEqual({ object: OBJECT });
+  });
+
+  it("leaves the archive for a folder, another restore point or on the way back", () => {
+    const archive = withArchiveItem({ object: OBJECT, snapshot: SNAPSHOT }, ITEM);
+    expect(compactSearch(withFolder(archive, "mail/Inbox"))).toEqual({
+      object: OBJECT,
+      snapshot: SNAPSHOT,
+      path: "mail/Inbox",
+    });
+    expect(compactSearch(withSnapshot(archive, OTHER_SNAPSHOT))).toEqual({
+      object: OBJECT,
+      snapshot: OTHER_SNAPSHOT,
+    });
+    expect(compactSearch(withoutArchive(archive))).toEqual({ object: OBJECT, snapshot: SNAPSHOT });
   });
 });

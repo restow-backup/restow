@@ -65,7 +65,7 @@ export interface ArchiveSearchResponse {
   offset: number;
 }
 
-function toResultDto(row: {
+export function toResultDto(row: {
   id: string;
   subject: string | null;
   envelope: ArchiveEnvelope | null;
@@ -103,16 +103,32 @@ function toResultDto(row: {
  */
 
 /** Whether a stronger capture of the same mail superseded the item (indexed by supersedes_item_id). */
-const isSuperseded = sql<boolean>`exists (
+export const isSuperseded = sql<boolean>`exists (
   select 1 from archive_items newer
    where newer.tenant_id = archive_items.tenant_id
      and newer.supersedes_item_id = archive_items.id)`;
 
 /** The ways that captured the item's mail again (archive_item_captures, by (tenant, item)). */
-const alsoCapturedVia = sql<string[]>`(
+export const alsoCapturedVia = sql<string[]>`(
   select coalesce(array_agg(distinct c.captured_via::text order by c.captured_via::text), '{}')
     from archive_item_captures c
    where c.tenant_id = archive_items.tenant_id and c.archive_item_id = archive_items.id)`;
+
+/** The columns a search result ({@link toResultDto}) is read from. */
+export const archiveResultColumns = {
+  id: archiveItems.id,
+  subject: archiveItems.subject,
+  envelope: archiveItems.envelope,
+  receivedAt: archiveItems.receivedAt,
+  sentAt: archiveItems.sentAt,
+  hasAttachment: archiveItems.hasAttachment,
+  sizeBytes: archiveItems.sizeBytes,
+  flags: archiveItems.flags,
+  capturedVia: archiveItems.capturedVia,
+  supersedesItemId: archiveItems.supersedesItemId,
+  superseded: isSuperseded,
+  alsoCapturedVia,
+};
 
 /**
  * The date a message is filtered and ordered by: its own date (`sent_at`)
@@ -183,20 +199,7 @@ export async function searchArchive(
       .where(where);
 
     const rows = await tx
-      .select({
-        id: archiveItems.id,
-        subject: archiveItems.subject,
-        envelope: archiveItems.envelope,
-        receivedAt: archiveItems.receivedAt,
-        sentAt: archiveItems.sentAt,
-        hasAttachment: archiveItems.hasAttachment,
-        sizeBytes: archiveItems.sizeBytes,
-        flags: archiveItems.flags,
-        capturedVia: archiveItems.capturedVia,
-        supersedesItemId: archiveItems.supersedesItemId,
-        superseded: isSuperseded,
-        alsoCapturedVia,
-      })
+      .select(archiveResultColumns)
       .from(archiveItems)
       .where(where)
       .orderBy(desc(messageDate), desc(archiveItems.receivedAt), desc(archiveItems.id))

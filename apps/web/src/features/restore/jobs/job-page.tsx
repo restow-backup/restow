@@ -344,12 +344,14 @@ function RequestCard({ job }: { job: RestoreJobDetail }) {
             </span>
           </Fact>
           <Fact label={t("job.request.snapshot")}>
-            {job.snapshotSequence !== null
-              ? t("jobs.snapshot", {
-                  sequence: job.snapshotSequence,
-                  date: formatDateTime(job.snapshotAt, language) ?? "",
-                })
-              : t("job.request.snapshotPruned")}
+            {job.source === "archive"
+              ? t("jobs.source.archive")
+              : job.snapshotSequence !== null
+                ? t("jobs.snapshot", {
+                    sequence: job.snapshotSequence,
+                    date: formatDateTime(job.snapshotAt, language) ?? "",
+                  })
+                : t("job.request.snapshotPruned")}
           </Fact>
           <Fact label={t("job.request.selection")}>{text.selection(job.selection)}</Fact>
           <Fact label={t("job.request.target")}>{text.target(job.target)}</Fact>

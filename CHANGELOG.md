@@ -210,6 +210,50 @@ private repository.
   see sites the answer is an empty list. Each membership is one button whose accessible name is
   its content (name, kind, role, "No backup yet" or "Removed"), and the area is labelled by its
   heading.
+- Restore explorer: "From the archive" (#48). Below the folders of a mailbox or IMAP account,
+  administrators find the mail that reached the archive after the account's newest backup, the
+  gap between two backups that the archive already holds. It counts the archived items of the
+  account (its own captures and the journal reports and copies assigned to it) captured from the
+  start of the newest completed backup on, newest first, 50 a page; superseded captures, imported
+  mail files and the one-time takeover are left out (they did not arrive after the backup). The
+  capture time sets the boundary, so a mail that was in the mailbox just before the backup began
+  but reached the archive just after is listed rather than missed; it is marked "Already in the
+  backup" (not green) when the newest backup holds a mail with the same Message-ID (as the header
+  spells it, with or without angle brackets), and putting it back makes a second copy. The list
+  reads the account's own captures and assignments, and looks the page's Message-IDs up in the
+  backup, through indexes (migration 0075), never the whole archive of the tenant or every mail
+  of the backup. A message opens in the archive's reading pane and downloads as its original
+  `.eml`; selected
+  messages go back into the account as a restore job through the same worker and engines as a
+  restore from a restore point, always into a new folder "From the archive <date>" (below it
+  `INBOX` on IMAP), never over anything there. Each message is read from the chunk store and
+  checked against the size and SHA-256 recorded at capture before it reaches the mailbox. The
+  archive stays as it is: a copy goes back, the item, its retention and any legal hold do not
+  change. The restore shows under "Recent restores" as "From the archive". An archived message
+  that is gone between the request and the run is reported as failed, never left out quietly.
+- The source follows the archive's rules. The archive is for tenant administrators (provider
+  admins from the provider team role "Technician" on), so is the source: restore operators and
+  end users use the explorer as before, do not see the entry, and nothing is asked of the
+  archive on their behalf. Every listing is audited as `archive.searched` with
+  `details.view = "restore_gap"` and, for someone else's mailbox, on their behalf; reading and
+  downloading keep their audit entries; putting messages back is a `restore.requested` with
+  `details.source = "archive"` and the items, and needs a reason for another person's mail like
+  every restore of their data; the worker then writes one `archive.item.restore_read` per message
+  it reads for the restore (the restore job and who asked for it), before reading its content. Only the original account is a target (an orphaned one is
+  refused, 409); the demo does not put mail back into a mailbox.
+- The api answers `GET /api/v1/archive/gap?object=<id>` (the gap, tenant admins) and
+  `POST /api/v1/restore/archive` (`objectId`, `itemIds` up to 500, `reason`,
+  `options.restoreFolderName`; tenant admins). It takes only what the list shows: a superseded
+  capture, an imported file, the one-time takeover or mail from before the newest backup is
+  refused (422 `urn:restow:problem:archive-not-in-gap`). Each gap item carries `inBackup`. A
+  restore's `source` is `snapshot` or `archive` in `GET /api/v1/restore` and
+  `GET /api/v1/restore/:id`; a restore from the archive has no `snapshotId`. The engines take
+  archived messages as their source through `RestoreRequest.source` (core
+  `restore/archive-source.ts`); the stored request keeps them in
+  `restore_jobs.source_selection.archiveItemIds` (no new column).
+- `GET /api/v1/navigation` tells the web which menu entries the active tenant offers beyond roles
+  and the installation's features; today `offers.archive` (always false for someone who is not an
+  administrator of the tenant).
 
 ### Changed
 
@@ -220,6 +264,27 @@ private repository.
   contains. It all comes with the overview, nothing is loaded per row. `GET /api/v1/pve` names
   the `sequence` of `backups.first` and `backups.last` (additive), so the newest point counts as
   a follow-up by its place, not by its time; the web interface still reads older servers.
+- The menu entry "Archive" stays in Mail & SaaS but shows only where the tenant has an archive:
+  the archive holds mail of the tenant (from any edition, a file import with "archive at the same
+  time" included, and after a change of edition), or the edition includes a capture
+  (`archive.mailboxCapture` or `archive.smtpCapture`) and a capture is set up in the tenant: a
+  mail job archives (paused or with its way still to be chosen included), the journal address
+  was issued, an account has an active forwarding address, or a capture stream is not switched
+  off, so journaling shows before its first report arrives. Elsewhere it is hidden: in an edition
+  without capture while nothing is archived, and in a tenant where no capture is set up yet. Saving a
+  job, the first read of the journal address and issuing a forwarding address ask again, so the
+  entry appears once a capture is set up. The journal host note on the tenant page reads the host
+  alone (`GET /api/v1/archive/journal/host`, every provider role that sees the tenant) and no
+  longer issues the journal address, so looking at the tenant page does not bring the entry. It is hidden until the answer is in,
+  so nothing appears and vanishes again; the page stays reachable by its address, and the
+  tenant page keeps its archive sections. The same rule decides on the explorer's source "From
+  the archive". docs/ARCHIVE.md describes it in "Eintrag „Archiv“ im Menü".
+- docs/ARCHIVE.md: the status section is checked against 0.5.0. It now says that a hold on a
+  mailbox protects every archived item of that mailbox, not only journal reports: its own
+  captures (Graph, IMAP, copies forwarded to the account's archive address, file imports) and
+  the journal reports and copies assigned to it; only items without any assignment rely on a
+  tenant-wide hold (#48). The retention line says that 8 years is the default no API or page
+  can change, and hold scopes by search are not evaluated.
 - The storage growth chart of the start page and the capacity page share one module for what
   they have in common (the figures of a series, the estimate, the day a repository runs full and
   what limits a repository). The chart looks as before.
@@ -354,11 +419,22 @@ private repository.
 
 ### Upgrade Notes
 
-Two database migrations run on start: 0073 creates the new table `storage_samples` and 0074 the
-new table `directory_memberships`; neither rewrites anything. The first directory sync after the
-update reads the owners and members of every Microsoft 365 group once (three Graph reads per
-group, through `$batch`); until it has run, a person's "Teams & sites" is empty and says that it
-may be incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
+Three database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
+explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
+index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
+assignment, a partial index on the Message-IDs of `manifest_versions` (mail only), and the new
+column `tenants.journal_address_issued_at`, empty for every tenant. Building the indexes reads the
+archive's rows, its assignments and the backup index's mail rows once, and new captures and
+backups wait for it meanwhile; nothing is rewritten. A journal address issued before 0.5.0 no
+longer brings the menu entry "Archive" on its own: up to 0.4.12 the tenant page and the Archive
+page issued it when they were first opened, also where journaling was never set up. Such a
+tenant gets the entry once a journal report arrives, a mail job archives, or an administrator
+opens the journal setup on the Archive page (it stays reachable by its address) or issues a new
+address there; the address itself keeps working. The first directory sync after the update reads
+the owners and members of every Microsoft 365 group once (three Graph reads per group, through
+`$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
+incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
 fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
 
 ### Known Issues

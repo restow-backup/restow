@@ -13,7 +13,7 @@
 
 import type { Dek } from "../crypto.js";
 import type { FailureCause } from "../failures/types.js";
-import type { ManifestObject } from "../manifest.js";
+import type { ManifestObject, SnapshotManifest } from "../manifest.js";
 import type { ActivityReport } from "../ransomware/activity.js";
 import type { StorageBackend } from "../storage/backend.js";
 import type { ChunkDataStats } from "./chunkstore.js";
@@ -506,6 +506,20 @@ export interface RestoreRequest {
    * stored request (verify probes) omit it; the job clock is used instead.
    */
   readonly requestedAt?: Date;
+  /**
+   * Where the objects come from when it is not a snapshot: archived messages
+   * of the mailbox (docs/ARCHIVE.md "Aus dem Archiv im Restore-Explorer"),
+   * handed over as a manifest the host built from the archive's own rows
+   * (restore/archive-source.ts). `snapshotId` is then only a label; the
+   * engines restore exactly these objects, read through the same chunk store.
+   */
+  readonly source?: RestoreSourceOverride;
+}
+
+/** Objects a restore reads from instead of a stored snapshot manifest. */
+export interface RestoreSourceOverride {
+  readonly kind: "archive";
+  readonly manifest: SnapshotManifest;
 }
 
 export interface RestoreResult {

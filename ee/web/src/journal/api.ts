@@ -82,6 +82,20 @@ export function fetchJournalReceiver(): Promise<JournalReceiver> {
   return apiFetch<JournalReceiver>(`${JOURNAL}/receiver`, { tenantId: null });
 }
 
+/** The journal host alone (GET /archive/journal/host), for the tenant page. */
+export interface JournalHost {
+  hostname: string | null;
+  hostnameIssue: HostnameIssue | null;
+}
+
+/**
+ * The journal host without the tenant's address: unlike the setup, it never issues one, and
+ * an issued address counts as journaling set up for the menu entry "Archive".
+ */
+export function fetchJournalHost(): Promise<JournalHost> {
+  return apiFetch<JournalHost>(`${JOURNAL}/host`);
+}
+
 export function fetchJournalSetup(): Promise<JournalSetup> {
   return apiFetch<JournalSetup>(JOURNAL);
 }
@@ -92,5 +106,6 @@ export function rotateJournalAddress(): Promise<JournalSetup> {
 
 export const journalKeys = {
   setup: (tenantId: string | null) => ["tenant", tenantId, "archive", "journal"] as const,
+  host: (tenantId: string | null) => ["tenant", tenantId, "archive", "journal", "host"] as const,
   receiver: ["installation", "journal", "receiver"] as const,
 };

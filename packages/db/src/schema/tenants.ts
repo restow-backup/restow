@@ -105,6 +105,12 @@ export const tenants = pgTable(
     // one. Never the tenant id itself, so a leaked address cannot be turned
     // back into a tenant lookup key by guessing.
     journalToken: text("journal_token"),
+    // When the journal address was issued, or confirmed by opening the journal setup, from
+    // 0.5.0 on (ee/api journal/setup.ts). Only then does it count as journaling set up for the
+    // menu entry "Archive" (apps/api archive/availability.ts): up to 0.4.12 the tenant page
+    // issued the address on its first view, also where nobody set up journaling, so migration
+    // 0075 leaves this null for every address issued before.
+    journalAddressIssuedAt: timestamp("journal_address_issued_at", { withTimezone: true }),
     // The tenant-wide pause of automatic agent updates: no machine of the tenant (also one that
     // enrols later) installs a new agent release while this is set. A machine can still be paused
     // on its own (`endpoints.settings.autoUpdatePaused`, an override that outlives a resume here).

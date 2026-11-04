@@ -202,6 +202,49 @@
       "emptyMonthDescription": "This restore point holds no appointments in this month. Earlier or later months may have some.",
       "truncated": "Not every appointment of this period is shown: there are more than one view lists.",
       "unexpanded": "{count, plural, one {# series could not be opened} other {# series could not be opened}}: its occurrences are missing here; the list still shows it."
+    },
+    "archive": {
+      "entry": "From the archive",
+      "title": "From the archive: {object}",
+      "back": "Back to the folders",
+      "restoreSelected": "{count, plural, =0 {Put back} one {Put back # message} other {Put back # messages}}",
+      "since": "{count, plural, =0 {No mail has reached the archive since the newest backup began on {date}.} one {# mail reached the archive since the newest backup began on {date}.} other {# mails reached the archive since the newest backup began on {date}.}}",
+      "noBackup": "{count, plural, =0 {This account has no backup yet, and the archive holds no mail for it yet.} one {This account has no backup yet: # mail is in the archive.} other {This account has no backup yet: # mails are in the archive.}}",
+      "loading": "Reading the archive …",
+      "loadError": "The archive could not be read.",
+      "empty": "Nothing new in the archive",
+      "emptyDescription": "What arrived since the newest backup is either backed up already or was not archived. Find older mail in the restore points or on the Archive page.",
+      "columns": {
+        "select": "Selection",
+        "message": "Message",
+        "received": "Reached the archive"
+      },
+      "selectAll": "Select all on this page",
+      "select": "Select “{subject}”",
+      "readOnly": "Read only: the archive stays unchanged. Every read is recorded in the audit log.",
+      "previous": "Previous page",
+      "next": "Next page",
+      "range": "{from}–{to} of {total}",
+      "noSubject": "(No subject)",
+      "inBackup": "Already in the backup",
+      "inBackupHint": "The newest backup holds a mail with the same Message-ID. This mail was in the mailbox when the backup began and reached the archive only afterwards. Putting it back creates a second copy.",
+      "restoreOne": "Put back into the mailbox",
+      "close": "Close message",
+      "folderName": "From the archive {stamp}",
+      "dialog": {
+        "title": "Put back from the archive",
+        "description": "{count, plural, one {The message goes back into {object}, into the new folder “{folder}”.} other {The # messages go back into {object}, into the new folder “{folder}”.}} Nothing there is changed.",
+        "archiveTitle": "The archive stays as it is",
+        "archiveUnchanged": "A copy of the original is put back. The archived message, its retention period and any legal hold do not change.",
+        "demo": "This demo does not put mail back into a mailbox. Download the message as .eml instead.",
+        "gone": "The account is not available at its source. Download the message as .eml instead.",
+        "submit": "Put back"
+      },
+      "errors": {
+        "selectionUnknown": "Some selected messages are not (or no longer) archived for this account. Reload the list and select again.",
+        "notRecorded": "Some selected messages were archived before their content reference was recorded. They can only be exported.",
+        "notInGap": "Some selected messages are not among the mail that reached the archive since the newest backup began, for example because a new backup has run since. Reload the list and select again."
+      }
     }
   },
   "details": {
@@ -414,6 +457,9 @@
       "confirm": "Cancel restore",
       "done": "The restore was cancelled.",
       "failed": "The restore could not be cancelled."
+    },
+    "source": {
+      "archive": "From the archive"
     }
   },
   "job": {

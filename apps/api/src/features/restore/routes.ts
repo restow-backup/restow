@@ -10,6 +10,7 @@ import {
   type TenantEnv,
 } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { createArchiveRestore, createArchiveRestoreSchema } from "./archive.js";
 import { contentDisposition } from "./headers.js";
 import {
   createRestoreSchema,
@@ -33,13 +34,16 @@ import {
  * `tenant_user` may use every route except the target suggestions; the
  * service narrows end users to their own objects and to original/download
  * targets (service.ts). Restore operators (`tenant_restore`) and admins
- * restore every account of the tenant, into another one too.
+ * restore every account of the tenant, into another one too. A restore of
+ * archived mail (`POST /archive`, archive.ts) is for tenant administrators, as
+ * the archive is.
  */
 
 export const restoreRoutes = new Hono<TenantEnv>();
 
 const tenantUser = requireTenant("tenant_user");
 const tenantRestore = requireTenant("tenant_restore");
+const tenantAdmin = requireTenant("tenant_admin");
 
 /**
  * The download is a plain browser navigation, which cannot carry the
@@ -70,6 +74,13 @@ function actorOf(c: Context<TenantEnv>): RestoreActor {
 restoreRoutes.post("/", tenantUser, async (c) => {
   const input = await parseJsonBody(c.req, createRestoreSchema);
   return c.json(await createRestore(db, c.get("tenantId"), actorOf(c), input), 202);
+});
+
+// Archived mail of a mailbox back into it (features/restore/archive.ts): the archive is
+// open to tenant administrators only, so is this.
+restoreRoutes.post("/archive", tenantAdmin, async (c) => {
+  const input = await parseJsonBody(c.req, createArchiveRestoreSchema);
+  return c.json(await createArchiveRestore(db, c.get("tenantId"), actorOf(c), input), 202);
 });
 
 restoreRoutes.get("/", tenantUser, async (c) => {

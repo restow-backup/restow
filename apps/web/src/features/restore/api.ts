@@ -442,6 +442,11 @@ export interface RestoreResult {
 export interface RestoreJob {
   id: string;
   jobId: string | null;
+  /**
+   * Where the restored data came from: a restore point, or archived mail of the mailbox
+   * ("From the archive", `snapshotId` null). Absent from an API older than 0.5.0: a restore point.
+   */
+  source?: "snapshot" | "archive";
   snapshotId: string | null;
   snapshotSequence: number | null;
   snapshotAt: string | null;
@@ -678,6 +683,21 @@ export function searchSnapshot(snapshotId: string, q: string): Promise<SearchRes
 
 export function createRestore(request: CreateRestoreRequest): Promise<RestoreCreated> {
   return apiFetch<RestoreCreated>("/restore", { method: "POST", body: request });
+}
+
+/** POST /restore/archive: archived mail of a mailbox back into it (administrators only). */
+export interface CreateArchiveRestoreRequest {
+  objectId: string;
+  itemIds: string[];
+  /** Required when the mailbox is not the administrator's own. */
+  reason?: string;
+  options?: { restoreFolderName?: string };
+}
+
+export function createArchiveRestore(
+  request: CreateArchiveRestoreRequest,
+): Promise<RestoreCreated> {
+  return apiFetch<RestoreCreated>("/restore/archive", { method: "POST", body: request });
 }
 
 export async function fetchRestoreTargets(objectId: string): Promise<RestoreTargetAccount[]> {
