@@ -250,13 +250,18 @@ private repository.
   guests of its round were done, run and wait, with no live progress and no speed graph, unlike
   a mail, machine or file share job's panel. It now lists the guests the round backs up at this
   moment, each with its progress bar, what its node has read and its speed, and the small line
-  of that speed over the last minutes (sampled as on the start page's "Running now"); the
+  of that speed over the last minutes (sampled as on the start page's "Running now"), and a
+  boot test the job started, marked as one (it reports no progress, so it has no bar); the
   panel of a backup asked for by hand shows the same for its guest. The percent beside the
-  job's state in the list moves with the running guests' progress instead of only when a guest
-  finishes, and a backup asked for by hand shows its own percent there. The live channel's
-  Proxmox VE runs (and "Running now" of the start page) carry the job that started a run as
-  `jobId`, and as `jobName` the job of the round for a guest that a job over all guests covers
-  (it was empty there); the web app matches the runs of an older server by the job's name.
+  job's state in the list moves with the running backups' progress instead of only when a guest
+  finishes (a boot test is not part of the round), and a backup asked for by hand shows its own
+  percent there. The live channel's Proxmox VE runs (and "Running now" of the start page) carry
+  the job that started a run as `jobId`, and as `jobName` the job of the round for a guest that
+  a job over all guests covers (it was empty there). The live channel now carries up to 500
+  running Proxmox VE runs of a tenant instead of 51, so the panel of a busy tenant's job lists
+  every guest of its round; the start page still lists 50 and says that more go on. The web app
+  matches the runs of an older server by the job's name, and then only backups while the job's
+  round runs guests: such a server cannot tell a backup asked for by hand from the round's.
 - Servers & clients › Jobs: the schedule of a Proxmox VE job on chosen weekdays, monthly or with
   a cron expression read "every 0 h" in the list and in the detail panel, and a daily one showed
   its time unformatted. Both now use the words of every other schedule ("Monday to Friday at

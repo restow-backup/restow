@@ -180,7 +180,9 @@ describe("the detail panel of a running Proxmox VE job", () => {
     const sheet = await openPanel(row);
     expect(sheet?.textContent).toContain("3 of 19 guests done");
     const live = slot("pve-job-live", sheet ?? document);
-    expect(live?.getAttribute("aria-label")).toBe("VMs and containers being backed up now");
+    expect(live?.getAttribute("aria-label")).toBe(
+      "Backups and boot tests of VMs and containers running now",
+    );
     const guests = [...(live?.querySelectorAll('[data-slot="pve-job-live-guest"]') ?? [])];
     expect(guests.map((entry) => entry.querySelector("a")?.textContent)).toEqual([
       "web01",
@@ -210,6 +212,49 @@ describe("the detail panel of a running Proxmox VE job", () => {
     const guests = [...document.querySelectorAll('[data-slot="pve-job-live-guest"]')];
     expect(guests.map((entry) => entry.querySelector("a")?.textContent)).toEqual(["web01"]);
     expect(sheet?.textContent).toContain("3 of 19 guests done · 2 running · 14 waiting");
+  });
+
+  it("shows a boot test the job started, marked as one, without a bar and outside the percent", async () => {
+    const row = await openWith({
+      "run-web": liveRun({
+        id: "run-web",
+        guest: WEB,
+        startedAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+      "boot-files": liveRun({ id: "boot-files", guest: FILES, kind: "boot_test", progress: null }),
+    });
+    // Only web01's backup moves the round: 3.5 of 19, as without the boot test.
+    expect(row?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("18");
+    const sheet = await openPanel(row);
+    const guests = [...(sheet?.querySelectorAll('[data-slot="pve-job-live-guest"]') ?? [])];
+    expect(guests.map((entry) => entry.querySelector("a")?.textContent)).toEqual([
+      "web01",
+      "files",
+    ]);
+    const boot = guests[1];
+    expect(boot?.textContent).toContain("Boot test");
+    expect(boot?.textContent).not.toContain("No progress reported yet");
+    expect(boot?.querySelector('[role="progressbar"]')).toBeNull();
+    expect(guests[0]?.textContent).not.toContain("Boot test");
+  });
+
+  it("shows a job's boot test also after its round ended", async () => {
+    const row = await openWith(
+      { "boot-web": liveRun({ id: "boot-web", guest: WEB, kind: "boot_test", progress: null }) },
+      [pveJob({ round: null })],
+    );
+    const sheet = await openPanel(row);
+    const guests = [...(sheet?.querySelectorAll('[data-slot="pve-job-live-guest"]') ?? [])];
+    expect(guests).toHaveLength(1);
+    expect(guests[0]?.textContent).toContain("Boot test");
+  });
+
+  it("takes no backup of an older server by name while the job's round runs no guest", async () => {
+    const { jobId: _jobId, ...legacy } = liveRun({ id: "run-web", guest: WEB });
+    // "Back up now" of a guest in the job: such a server names the guest's job on it.
+    const row = await openWith({ "run-web": legacy }, [pveJob({ round: null })]);
+    const sheet = await openPanel(row);
+    expect(slot("pve-job-live", sheet ?? document)).toBeNull();
   });
 
   it("shows the round's totals alone while the live channel has not described any run", async () => {

@@ -13,7 +13,7 @@ import { isRunOfPveJob, pveRoundPercent, runShare, runsOfPveJob } from "./pve-li
  * id the server names from 0.5.0, by its name before), and how far its round is with them.
  */
 
-const JOB = { id: "pj-1", name: "VMs & containers monthly" };
+const JOB = { id: "pj-1", name: "VMs & containers monthly", round: { running: 2 } };
 
 function pveRun(over: Partial<PveRunning> = {}): PveRunning {
   return {
@@ -40,14 +40,29 @@ describe("the runs of a Proxmox VE job", () => {
     expect(isRunOfPveJob(pveRun(), JOB)).toBe(true);
     expect(isRunOfPveJob(pveRun({ jobId: null }), JOB)).toBe(false);
     expect(isRunOfPveJob(pveRun({ jobId: "pj-2" }), JOB)).toBe(false);
-    // A boot test the job started is not part of its backup round.
-    expect(isRunOfPveJob(pveRun({ kind: "boot_test" }), JOB)).toBe(false);
+  });
+
+  it("takes the boot tests the job started too, but no restore or restore check", () => {
+    expect(isRunOfPveJob(pveRun({ kind: "boot_test", progress: null }), JOB)).toBe(true);
+    expect(isRunOfPveJob(pveRun({ kind: "boot_test", jobId: "pj-2" }), JOB)).toBe(false);
+    // Restores and restore checks name no job; one that did would still not be the job's.
+    for (const kind of ["restore", "restore_test", "verify"] as const) {
+      expect(isRunOfPveJob(pveRun({ kind }), JOB)).toBe(false);
+    }
+    // Without a round going on, the job's boot tests still show.
+    expect(isRunOfPveJob(pveRun({ kind: "boot_test" }), { ...JOB, round: null })).toBe(true);
   });
 
   it("matches by the job's name where an older server names no job id", () => {
     const { jobId: _jobId, ...legacy } = pveRun();
     expect(isRunOfPveJob(legacy, JOB)).toBe(true);
     expect(isRunOfPveJob({ ...legacy, jobName: "Nightly" }, JOB)).toBe(false);
+    // There the name is the guest's job, also on a "Back up now": while the job's round runs
+    // no guest, a backup by that name is one asked for by hand.
+    expect(isRunOfPveJob(legacy, { ...JOB, round: null })).toBe(false);
+    expect(isRunOfPveJob(legacy, { ...JOB, round: { running: 0 } })).toBe(false);
+    // Such a server cannot tell a boot test of the job from one asked for by hand.
+    expect(isRunOfPveJob({ ...legacy, kind: "boot_test" }, JOB)).toBe(false);
   });
 
   it("lists them the one started first first, and none before the channel's snapshot", () => {
@@ -74,6 +89,11 @@ describe("how far a Proxmox VE job's round is", () => {
     );
     expect(pveRoundPercent({ total: 100, done: 57, running: 0 })).toBe(57);
     expect(pveRoundPercent({ total: 0, done: 0, running: 0 })).toBeNull();
+  });
+
+  it("leaves a boot test out of the round's percent", () => {
+    const bootTest = pveRun({ id: "boot", kind: "boot_test" });
+    expect(pveRoundPercent(round, [pveRun(), bootTest])).toBe(18);
   });
 
   it("moves the job row's percent with the live runs", () => {

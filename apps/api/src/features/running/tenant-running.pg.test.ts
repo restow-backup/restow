@@ -510,6 +510,52 @@ describe.skipIf(!testDatabaseAdminUrl)("what runs right now in every tenant", ()
     expect(cut?.pve.some((run) => run.guest.name === "guest0")).toBe(false);
   }, 60_000);
 
+  it("carries every running guest of a busy tenant in the live channel, not only the listed ones", async () => {
+    const tenantId = await createTenant("Busy");
+    const cluster = one(
+      await owner
+        .insert(pveClusters)
+        .values({ tenantId, name: "busy", fingerprint: randomUUID(), storageId: "restow" })
+        .returning(),
+    ).id;
+    const count = 60;
+    const guestRows = await owner
+      .insert(pveGuests)
+      .values(
+        Array.from({ length: count }, (_, index) => ({
+          tenantId,
+          clusterId: cluster,
+          vmid: 2000 + index,
+          kind: "vm" as const,
+          name: `busy${index}`,
+        })),
+      )
+      .returning({ id: pveGuests.id });
+    await owner.insert(pveRuns).values(
+      guestRows.map((row, index) => ({
+        tenantId,
+        clusterId: cluster,
+        guestId: row.id,
+        kind: "backup" as const,
+        status: "running" as const,
+        startedAt: ago(count - index),
+      })),
+    );
+    const shared = await import("../../db.js");
+    const { databaseSources } = await import("../history/live.js");
+    // A job's detail panel follows its whole round there, the oldest guests too.
+    const live = await databaseSources(shared.db, tenantId, ago(60)).pveRuns();
+    expect(live).toHaveLength(count);
+    expect(live.some((run) => run.guest.name === "busy0")).toBe(true);
+    // The start page still lists the newest 50 and says that more go on.
+    const body = (await (
+      await call("/api/v1/tenant-running", ownerCookie)
+    ).json()) as AllTenantsRunningDto;
+    const listed = body.tenants.find((entry) => entry.tenantId === tenantId);
+    expect(listed?.pve).toHaveLength(50);
+    expect(listed?.truncated).toBe(true);
+  }, 60_000);
+
   it("names the job whose task started a run, also for a guest of a job over all guests", async () => {
     const tenantId = await createTenant("Rounds");
     const cluster = one(

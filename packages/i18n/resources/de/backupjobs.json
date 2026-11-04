@@ -1383,6 +1383,8 @@
     "keep": "Behält",
     "keepValue": "{daily} tägliche, {weekly} wöchentliche, {monthly} monatliche Sicherungsstände",
     "progressOf": "Fortschritt von {name}",
-    "pveRunning": "VMs und Container, die gerade gesichert werden"
+    "pveRunning": "Sicherungen und Startprüfungen von VMs und Containern, die gerade laufen",
+    "pveBootTest": "Startprüfung",
+    "pveBootTestHint": "Stellt den neuesten Sicherungsstand als temporären Gast wieder her und startet ihn; der Knoten meldet dafür keinen Fortschritt."
   }
 }

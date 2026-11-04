@@ -16,6 +16,15 @@ import type { RunDto } from "../history/dto.js";
 /** Most runs one tenant lists; `truncated` says that more were running. */
 export const RUNNING_LIMIT = 50;
 
+/**
+ * Most Proxmox VE runs the live channel carries for one tenant (features/history/live.ts). Far
+ * more than a page lists: a job's detail panel follows every guest of its round there, and a
+ * busy tenant runs more than {@link RUNNING_LIMIT} at once; the start page still lists
+ * {@link RUNNING_LIMIT} of them and says that more go on. A bound all the same, for the read the
+ * channel repeats every few seconds.
+ */
+export const LIVE_PVE_LIMIT = 500;
+
 /** A run of a Proxmox VE guest that is going on. */
 export interface PveRunningDto {
   id: string;

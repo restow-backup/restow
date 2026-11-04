@@ -54,14 +54,17 @@ function useLiveGuests(
 
 /**
  * What of the job runs, in the panel's State: how its round stands ("3 of 19 guests done ·
- * 3 running · 16 waiting") and, under it, the guests it backs up now. Nothing while neither.
+ * 3 running · 16 waiting") and, under it, the guests it backs up or boot tests now. Nothing while
+ * neither.
  */
 export function PveJobActivity({ job }: { job: Pick<PveJob, "id" | "name" | "round"> }) {
   const { t } = useTranslation("backupjobs");
   const { id, name } = job;
+  const roundRunning = job.round?.running ?? 0;
   const select = React.useCallback(
-    (runs: Readonly<Record<string, PveRunning>> | null) => runsOfPveJob(runs, { id, name }),
-    [id, name],
+    (runs: Readonly<Record<string, PveRunning>> | null) =>
+      runsOfPveJob(runs, { id, name, round: { running: roundRunning } }),
+    [id, name, roundRunning],
   );
   const live = useLiveGuests(select, `pve-job:${id}`);
   const round = job.round;
@@ -121,7 +124,7 @@ export function PveGuestActivity({ guest }: { guest: PveGuest }) {
   );
 }
 
-/** The running guests, one row each; nothing while none runs. */
+/** The running guests, one row each (a boot test marked as one); nothing while none runs. */
 export function PveRunningGuests({
   runs,
   points,
@@ -157,6 +160,7 @@ function PveRunningGuest({
   const guest = run.guest;
   const kind = guest.kind === "vm" ? "VM" : "CT";
   const name = guestName(guest);
+  const bootTest = run.kind === "boot_test";
   return (
     <li className="flex items-center gap-3" data-slot="pve-job-live-guest">
       <div className="min-w-0 flex-1 space-y-1">
@@ -170,12 +174,18 @@ function PveRunningGuest({
           <span className="text-xs text-muted-foreground">
             {kind} {guest.vmid}
           </span>
+          {bootTest ? <StatusBadge tone="info">{t("sheet.pveBootTest")}</StatusBadge> : null}
           {run.cancelling ? <StatusBadge tone="warning">{t("stop.stopping")}</StatusBadge> : null}
         </div>
-        <BackupProgress progress={run.progress} name={name} className="max-w-none" />
+        {/* A boot test reports no figures: it restores, starts and waits, so it has no bar. */}
+        {bootTest ? (
+          <p className="text-xs text-muted-foreground">{t("sheet.pveBootTestHint")}</p>
+        ) : (
+          <BackupProgress progress={run.progress} name={name} className="max-w-none" />
+        )}
       </div>
       {/* Decoration: the speed under the bar says the same in words. */}
-      <RateSparkline points={points} now={now} />
+      {bootTest ? null : <RateSparkline points={points} now={now} />}
     </li>
   );
 }
