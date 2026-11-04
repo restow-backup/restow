@@ -148,16 +148,34 @@ func (s *Service) enqueue(tasks []Task) {
 	}
 }
 
-// heldTasks lists the task the worker runs and the queued ones.
+// maxHeldTasks bounds heldTasks.queued (the server refuses a longer list).
+const maxHeldTasks = 64
+
+// heldTasks lists the task the worker runs, the queued ones and those whose result waits to be
+// sent again (docs/PVE-PROTOCOL.md, "Tasks the node holds"), at most maxHeldTasks queued.
 func (s *Service) heldTasks() HeldTasks {
+	pendingMu.Lock()
+	pending := s.loadPending()
+	pendingMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	h := HeldTasks{Queued: []string{}}
+	seen := map[string]bool{}
 	if s.cur != nil {
 		h.Current = s.cur.id
+		seen[s.cur.id] = true
+	}
+	add := func(id string) {
+		if id != "" && !seen[id] && len(h.Queued) < maxHeldTasks {
+			seen[id] = true
+			h.Queued = append(h.Queued, id)
+		}
 	}
 	for _, q := range s.queue {
-		h.Queued = append(h.Queued, q.ID)
+		add(q.ID)
+	}
+	for _, r := range pending {
+		add(r.TaskID)
 	}
 	return h
 }

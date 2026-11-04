@@ -510,6 +510,20 @@ func TestHeartbeatListsTheTasksTheNodeHolds(t *testing.T) {
 	if held["current"] != "task-a" || len(q) != 2 || q[0] != "task-b" || q[1] != "task-c" {
 		t.Fatalf("heldTasks = %v", held)
 	}
+	// A result the server could not take yet: the node still holds that task.
+	s.savePending([]PendingResult{{TaskID: "task-z", Status: "done"}})
+	if h := s.heldTasks(); len(h.Queued) != 3 || h.Queued[2] != "task-z" {
+		t.Fatalf("heldTasks with a kept result = %v", h)
+	}
+	// At most 64.
+	var many []Task
+	for i := 0; i < 80; i++ {
+		many = append(many, Task{ID: fmt.Sprintf("task-%02d", i), Kind: "backup"})
+	}
+	s.enqueue(many)
+	if h := s.heldTasks(); len(h.Queued) != 64 || h.Current != "task-a" {
+		t.Fatalf("heldTasks of a long queue: %d queued, current %q", len(h.Queued), h.Current)
+	}
 }
 
 // A queued task the server cancels is dropped before it starts and reported cancelled; one

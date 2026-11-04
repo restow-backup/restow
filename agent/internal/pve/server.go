@@ -303,9 +303,10 @@ type HeartbeatRequest struct {
 	// The server hands a node only what it announced; older servers ignore the field.
 	// Never null.
 	Capabilities []string `json:"capabilities"`
-	// HeldTasks are the server's tasks this node holds: the one it works on and those waiting in
-	// its queue (also a task it waits for again after a restart). The server keeps them from
-	// expiring while the node holds them (restow-pve 0.5.0; older servers ignore it).
+	// HeldTasks are the server's tasks this node holds: the one it works on, those waiting in
+	// its queue (also a task it waits for again after a restart) and those whose result it keeps
+	// to send again. The server keeps them from expiring while the node holds them and closes a
+	// delivered check the list leaves out (restow-pve 0.5.0; older servers ignore it).
 	HeldTasks HeldTasks `json:"heldTasks"`
 }
 
@@ -313,7 +314,8 @@ type HeartbeatRequest struct {
 type HeldTasks struct {
 	// Current is the task the node works on now; "" when none.
 	Current string `json:"current,omitempty"`
-	// Queued are the tasks waiting in the node's queue, in the order they will run. Never null.
+	// Queued are the tasks waiting in the node's queue, in the order they will run, then those
+	// whose result waits to be sent again; at most 64. Never null.
 	Queued []string `json:"queued"`
 }
 
