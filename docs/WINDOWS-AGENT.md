@@ -552,6 +552,36 @@ Funktion in `paths/acl.go` ohne Build-Tag. Ihre Tests nutzen als Testdaten die e
 frischen Windows-11- und Server-2022-Installation, als SDDL abgelegt
 (`paths/testdata/*.sddl`) **[Maschine]**.
 
+**Besitzer beim Anlegen.** Was der Installer oder der Agent anlegt, bekommt den Besitzer
+Administratoren (`S-1-5-32-544`) gleich beim Anlegen, wer es auch anlegt. Ohne das gehört ein
+neuer Ordner oder eine neue Datei dort, wo Administratoren selbst Besitzer dessen sind, was sie
+anlegen (UAC aus, das eingebaute Konto Administrator, die Richtlinie "Standardbesitzer für
+Objekte, die von Mitgliedern der Administratorengruppe erstellt werden: Objektersteller", der
+GitHub-Runner `windows-2022`), dem Konto selbst. Der Installer lehnte dann seinen eigenen
+Ordner `C:\Program Files\Restow` ab ("owned by S-1-5-21-…, someone else may have prepared
+it"), `service install` die `restow-agent.exe`, ein Hook-Skript den Ordner `hooks.d`, und nach
+`restow-agent update` durch einen Administrator blieb der Dienst untätig. Darum:
+
+- Installer: `C:\Program Files\Restow` und `bin` direkt nach `New-Item`, jede Datei direkt
+  nach `Move-Item` mit `icacls <pfad> /setowner *S-1-5-32-544`, danach `icacls <pfad> /reset`
+  (`Set-InstalledSecurity`). Die Reihenfolge zählt: Das Zurücksetzen macht aus dem Eintrag
+  `CREATOR OWNER` von `Program Files` einen Eintrag für den Besitzer, und der muss dann schon
+  Administratoren sein, nicht das Konto. Der Staging-Ordner bekommt den Besitzer in seiner
+  `DirectorySecurity` (`SetOwner`).
+- Agent: `paths.MkdirTrusted` und `paths.CreateTrusted` legen mit der SDDL `O:BA` an
+  (Besitzer, keine DACL, also geerbte Rechte): `EnsureRootDir` (Ordner der Binaries beim
+  Update), `hooks.d` (`restow-agent hooks scripts`), die neue Datei der Selbstaktualisierung
+  (`createStaged`; das Umbenennen behält den Besitzer). Geschützte Ordner und die temporäre
+  State-Datei hatten `O:BA` schon (Abschnitt 7).
+- Ein Entwicklungslauf ohne Erhöhung darf den Besitzer nicht setzen und vertraut sich selbst;
+  er legt ohne Besitzer an.
+- Getestet auf dem Windows-Runner: eine Installation ohne `RESTOW_INSTALL_ROOT` in das echte
+  `C:\Program Files\Restow` (`test-install-windows.ps1`, Schritt 4b, prüft den Besitzer jedes
+  Ordners und jeder Datei) und `windowsintegration`-Tests für `EnsureRootDir`,
+  `MkdirTrusted`, `CreateTrusted` und `createStaged`. Hook-Skripte, die ein Administrator
+  selbst in `hooks.d` legt, gehören auf solchen Rechnern ihm; `icacls <datei> /setowner
+  *S-1-5-32-544` macht sie nutzbar (die Ablehnung nennt den Besitzer).
+
 Verwendet wird die Prüfung wie heute: für `restic.exe` vor jedem Start
 (`paths.TrustedRestic`, `paths.go:165-174`), für den Ordner der Binaries vor einem Update
 (`update.go:164-171`), für Hook-Skripte (`hooks/policy.go:89-104`), für das Restore-Ziel
@@ -1107,11 +1137,13 @@ jeder Schritt steht in `try`/`catch`, ein Fehler beendet das Skript mit Exit-Cod
    DACL im selben Aufruf. Jede Datei mit `Get-FileHash -Algorithm SHA256` gegen die signierte
    Liste. Erst danach wird irgendetwas ausgeführt.
 5. **Installation:** Läuft der Dienst schon, `Stop-Service RestowAgent`. Ordner
-   `C:\Program Files\Restow\bin` anlegen (erbt die DACL von `Program Files`), Eigentümer und
+   `C:\Program Files\Restow\bin` anlegen (erbt die DACL von `Program Files`, Besitzer
+   Administratoren wie in Abschnitt 6, "Besitzer beim Anlegen"), Eigentümer und
    DACL mit `Get-Acl` gegen die Regeln aus Abschnitt 6 prüfen. Dateien verschieben; eine
    laufende alte `restow-agent.exe` wird wie in Abschnitt 13 umbenannt. Ein Verschieben auf
    demselben Volume behält die DACL der Datei, also die des Staging-Ordners (nur SY, BA);
-   `icacls <datei> /reset` gibt jeder verschobenen Datei danach die geerbten Rechte ihres
+   `icacls <datei> /setowner *S-1-5-32-544` und `icacls <datei> /reset` geben jeder
+   verschobenen Datei danach den Besitzer Administratoren und die geerbten Rechte ihres
    neuen Ordners, wie bei den Dateien der Selbstaktualisierung (dort im `bin`-Ordner
    angelegt). Sonst könnte ein Benutzer ohne Erhöhung `restow-agent status` nicht starten.
    **Am Zielort** werden die Hashes unmittelbar vor `service install` noch einmal geprüft.

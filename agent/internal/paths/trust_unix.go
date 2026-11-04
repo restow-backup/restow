@@ -149,3 +149,7 @@ func EnsureRootDir(dir string) (string, error) {
 	}
 	return TrustedDir(dir, false)
 }
+
+// MkdirTrusted creates one folder with perm; it is owned by the creating
+// user, root for the agent (Windows sets the owner explicitly).
+func MkdirTrusted(dir string, perm os.FileMode) error { return os.Mkdir(dir, perm) }

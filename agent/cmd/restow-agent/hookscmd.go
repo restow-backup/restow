@@ -82,7 +82,9 @@ func cmdHooks(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	if mode == hooks.ModeScripts {
-		if err := os.MkdirAll(layout.HooksDir(), 0o700); err != nil {
+		// Owned by Administrators on Windows (the trust check of a script
+		// refuses a folder owned by the administrator's own account).
+		if err := paths.MkdirTrusted(layout.HooksDir(), 0o700); err != nil && !os.IsExist(err) {
 			fmt.Fprintf(stderr, "Cannot create %s: %v\n", layout.HooksDir(), err)
 			return exitError
 		}

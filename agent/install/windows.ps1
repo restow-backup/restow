@@ -373,9 +373,20 @@ function Test-FolderTrust([string]$Path, [switch]$Strict) {
     }
 }
 
+function Test-Elevated {
+    $principal = New-Object System.Security.Principal.WindowsPrincipal([System.Security.Principal.WindowsIdentity]::GetCurrent())
+    return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# Test-CanOwnAsAdministrators: whether this run can make BUILTIN\Administrators
+# the owner of what it creates (an elevated administrator can; a test
+# installation below a prefix without elevation cannot and trusts its own user).
+function Test-CanOwnAsAdministrators { return ((-not $RestowState.InstallRoot) -or (Test-Elevated)) }
+
 function New-PrivateFolder([string]$Path) {
     $sec = New-Object System.Security.AccessControl.DirectorySecurity
     $sec.SetAccessRuleProtection($true, $false)
+    if (Test-CanOwnAsAdministrators) { $sec.SetOwner((New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-32-544')) }
     $sids = @('S-1-5-18', 'S-1-5-32-544')
     if ($RestowState.InstallRoot) { $sids += [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value }
     foreach ($s in $sids) {
@@ -467,15 +478,28 @@ function Invoke-Agent([string[]]$Arguments) {
     }
 }
 
-# Reset-InheritedAcl gives a file moved out of the staging folder the
-# permissions of its new folder. A move on the same volume keeps the
-# security descriptor, so without this the binaries would keep the staging
+# Set-InstalledSecurity makes BUILTIN\Administrators the owner of a folder the
+# installer created or a file it moved into place, then gives it the
+# permissions of its folder.
+# The owner: where an administrator owns what it creates (UAC off, the built-in
+# Administrator, the policy "Default owner for objects created by members of
+# the Administrators group: Object creator", the GitHub Windows runner), a new
+# folder or downloaded file belongs to that account, and Test-FolderTrust and
+# the agent's own trust check refuse the installation as "owned by" someone
+# else. The permissions: a move on the same volume keeps the security
+# descriptor, so without the reset the binaries would keep the staging
 # folder's SYSTEM-and-Administrators-only DACL, and `restow-agent status`
 # would not start for other users (the self-update's files inherit the bin
-# folder's permissions; both must end up the same).
-function Reset-InheritedAcl([string]$Path) {
+# folder's permissions; both must end up the same). The owner comes first:
+# the reset turns the CREATOR OWNER entry of Program Files into an entry for
+# the owner, which must then be Administrators and not the account.
+function Set-InstalledSecurity([string]$Path) {
     $ErrorActionPreference = 'Continue'
     $icacls = Join-Path ([Environment]::SystemDirectory) 'icacls.exe'
+    if (Test-CanOwnAsAdministrators) {
+        $null = & $icacls $Path /setowner '*S-1-5-32-544' /Q 2>&1
+        if ($LASTEXITCODE -ne 0) { Stop-Installer "cannot make Administrators the owner of $Path (icacls exit code $LASTEXITCODE)" }
+    }
     $null = & $icacls $Path /reset /Q 2>&1
     if ($LASTEXITCODE -ne 0) { Stop-Installer "cannot reset the permissions of $Path (icacls exit code $LASTEXITCODE)" }
 }
@@ -572,11 +596,8 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
     if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
         Stop-Installer 'PowerShell runs in Constrained Language Mode (AppLocker or WDAC). Install the agent by hand as described in the Restow agent documentation.'
     }
-    if (-not $RestowState.InstallRoot) {
-        $principal = New-Object System.Security.Principal.WindowsPrincipal([System.Security.Principal.WindowsIdentity]::GetCurrent())
-        if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
-            Stop-Installer 'this installer must run in a PowerShell started as administrator (right-click > Run as administrator).'
-        }
+    if ((-not $RestowState.InstallRoot) -and -not (Test-Elevated)) {
+        Stop-Installer 'this installer must run in a PowerShell started as administrator (right-click > Run as administrator).'
     }
     if ([Environment]::OSVersion.Version.Build -lt 14393) {
         Stop-Installer 'the Restow agent needs Windows 10 1607 or Windows Server 2016 or newer.'
@@ -638,7 +659,10 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
     Write-Host "Version:  $version"
     Write-Host ''
 
-    if (-not (Test-Path -LiteralPath $RestowState.InstallDir)) { $null = New-Item -ItemType Directory -Path $RestowState.InstallDir }
+    if (-not (Test-Path -LiteralPath $RestowState.InstallDir)) {
+        $null = New-Item -ItemType Directory -Path $RestowState.InstallDir
+        Set-InstalledSecurity $RestowState.InstallDir
+    }
     Test-FolderTrust $RestowState.InstallDir -Strict
     $stage = Join-Path $RestowState.InstallDir ('.stage-' + [Guid]::NewGuid().ToString('N').Substring(0, 16))
     New-PrivateFolder $stage
@@ -701,7 +725,10 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
             $svc = Get-Service -Name $RestowServiceName -ErrorAction SilentlyContinue
             if ($svc -and $svc.Status -ne 'Stopped') { Stop-Service -Name $RestowServiceName -Force }
         }
-        if (-not (Test-Path -LiteralPath $RestowState.BinDir)) { $null = New-Item -ItemType Directory -Path $RestowState.BinDir }
+        if (-not (Test-Path -LiteralPath $RestowState.BinDir)) {
+            $null = New-Item -ItemType Directory -Path $RestowState.BinDir
+            Set-InstalledSecurity $RestowState.BinDir
+        }
         Test-FolderTrust $RestowState.BinDir -Strict
         foreach ($name in @('restic.exe', 'restow-agent.exe')) {
             $dest = Join-Path $RestowState.BinDir $name
@@ -714,13 +741,13 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
                 if ($name -eq 'restic.exe') { Remove-Item -LiteralPath $aside -Force -ErrorAction SilentlyContinue }
             }
             Move-Item -LiteralPath (Join-Path $stage $name) -Destination $dest
-            Reset-InheritedAcl $dest
+            Set-InstalledSecurity $dest
             Write-Note $dest
         }
         if ($files -contains 'THIRD_PARTY_NOTICES.txt') {
             $notices = Join-Path $RestowState.InstallDir 'THIRD_PARTY_NOTICES.txt'
             Move-Item -LiteralPath (Join-Path $stage 'THIRD_PARTY_NOTICES.txt') -Destination $notices -Force
-            Reset-InheritedAcl $notices
+            Set-InstalledSecurity $notices
         }
         # The files at their final place, once more, right before anything runs them.
         foreach ($name in @('restow-agent.exe', 'restic.exe')) {

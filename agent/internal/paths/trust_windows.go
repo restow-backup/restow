@@ -167,11 +167,45 @@ func EnsureRootDir(dir string) (string, error) {
 		return "", err
 	}
 	for i := len(missing) - 1; i >= 0; i-- {
-		if err := os.Mkdir(missing[i], 0o755); err != nil && !os.IsExist(err) {
+		if err := MkdirTrusted(missing[i], 0o755); err != nil && !os.IsExist(err) {
 			return "", err
 		}
 	}
 	return TrustedDir(dir, false)
+}
+
+// MkdirTrusted creates one folder owned by BUILTIN\Administrators that
+// inherits the permissions of its parent (an owner and no DACL in the
+// security descriptor). Without the owner the folder would belong to the
+// creating account wherever administrators own what they create (UAC off,
+// the built-in Administrator, the policy "Default owner for objects created
+// by members of the Administrators group: Object creator"), and the trust
+// check would refuse the agent's own folder. A development layout run
+// without elevation cannot set that owner and gets a plain folder; perm is
+// for Unix.
+func MkdirTrusted(dir string, _ os.FileMode) error {
+	err := winapi.CreateDirectorySDDL(dir, OwnerAdministrators)
+	switch {
+	case err == nil:
+		return nil
+	case DevLayout() && winapi.IsErrno(err, winapi.ErrorInvalidOwner):
+		return os.Mkdir(dir, 0o755)
+	}
+	return &os.PathError{Op: "mkdir", Path: dir, Err: err}
+}
+
+// CreateTrusted creates a new file (it must not exist) owned by
+// BUILTIN\Administrators with the permissions it inherits from its folder,
+// opened for writing; see MkdirTrusted.
+func CreateTrusted(name string) (*os.File, error) {
+	h, err := winapi.CreateFileSDDL(name, OwnerAdministrators)
+	switch {
+	case err == nil:
+		return os.NewFile(uintptr(h), name), nil
+	case DevLayout() && winapi.IsErrno(err, winapi.ErrorInvalidOwner):
+		return os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	}
+	return nil, &os.PathError{Op: "create", Path: name, Err: err}
 }
 
 // EnsureProtectedDir creates dir (its parent must exist) with the given DACL

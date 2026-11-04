@@ -280,6 +280,16 @@ private repository.
   the next restart of Windows under their fixed names. An agent installed again before that
   restart was then deleted by it, and the service did not start any more. Such a file is now
   renamed to `<name>.old-<random>` first, and only that name is deleted at the restart.
+- Windows agent (preview): on a computer where an administrator owns what it creates (UAC
+  switched off, the built-in Administrator account, the policy "Default owner for objects
+  created by members of the Administrators group: Object creator"), the installer refused its
+  own folder: "C:\Program Files\Restow is owned by S-1-5-21-..., someone else may have
+  prepared it". The same held for `service install`, for hook scripts after
+  `restow-agent hooks scripts`, and for the service after `restow-agent update` run by an
+  administrator, which then did nothing and the machine showed as offline. The installer and
+  the agent now make Administrators the owner of every folder and file they create, keeping
+  the inherited permissions. Hook scripts you copy into `hooks.d` yourself belong to you on
+  such a computer; `icacls <file> /setowner *S-1-5-32-544` makes them usable.
 
 ### Upgrade Notes
 

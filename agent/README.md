@@ -345,8 +345,9 @@ cmdlet stops the hook with 1, a native program keeps its code (`cmd /c exit 7` g
 own `exit 5` gives 5. A native program failing in the middle of a command does not stop it
 (as `sh -c` without `set -e`). The `scripts` policy runs `.ps1` (through the same wrapper)
 and `.exe` files from `C:\ProgramData\Restow\state\hooks.d` that only SYSTEM,
-Administrators and TrustedInstaller can change; `.cmd` and `.bat` are not run (call them
-from a `.ps1`). A group policy with the execution policy `AllSigned` or `Restricted` wins
+Administrators and TrustedInstaller can change and that one of them owns (where
+administrators own what they create, run `icacls <file> /setowner *S-1-5-32-544` on a script
+you copied there); `.cmd` and `.bat` are not run (call them from a `.ps1`). A group policy with the execution policy `AllSigned` or `Restricted` wins
 over `-ExecutionPolicy Bypass`; the run log then names it. Each hook runs in its own Job
 Object: a timeout or a cancelled run ends the hook and everything it started at once,
 without a grace period; after a normal end, background processes it started live on.

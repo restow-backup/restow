@@ -15,6 +15,9 @@
 #    against the fake instance, a second run (repair), a pinned key that does
 #    not match, a tampered release (nothing installed), -Proxy with
 #    credentials, and -Uninstall.
+# 4b. The same into the real C:\Program Files\Restow (no service): the folders
+#    and binaries are owned by Administrators whatever owner the runner gives
+#    what an administrator creates.
 #
 # Options: -Vectors <n> generated vectors for step 2 (default 300; PowerShell
 # needs around a second per vector), -SkipInstall for steps 1 to 3 only.
@@ -232,6 +235,45 @@ if (-not $SkipInstall) {
         # -Uninstall
         $r = Invoke-Installer @{} @('-Uninstall')
         if ($r.Code -ne 0 -or (Test-Path (Join-Path $root 'Program Files\Restow'))) { Fail "uninstall: $($r.Out)" } else { Ok 'uninstall' }
+
+        # ---- 4b. the real folders, without RESTOW_INSTALL_ROOT ----------------------
+        # Where an administrator owns what it creates (the GitHub runner, UAC off, the
+        # policy "Object creator"), C:\Program Files\Restow, its bin folder and the
+        # binaries must still end up owned by Administrators; else the installer and
+        # the agent refuse their own installation. No service (RESTOW_SKIP_SERVICE),
+        # the state in a development folder.
+        $realDir = Join-Path $env:ProgramW6432 'Restow'
+        $principal = New-Object System.Security.Principal.WindowsPrincipal([System.Security.Principal.WindowsIdentity]::GetCurrent())
+        if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            Fail 'the test of the real folders needs an elevated PowerShell (the Windows runner is one)'
+        } elseif (Test-Path -LiteralPath $realDir) {
+            Fail "$realDir exists already; the test of the real folders needs a machine without the agent"
+        } else {
+            $probeDir = Join-Path $env:ProgramW6432 ('restow-owner-probe-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+            $null = New-Item -ItemType Directory -Path $probeDir
+            $probeOwner = (Get-Acl -LiteralPath $probeDir).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+            Remove-Item -LiteralPath $probeDir -Force
+            Write-Host "note: a folder this administrator creates in Program Files is owned by $probeOwner"
+            $realState = Join-Path $work 'real-state'
+            try {
+                $token2 = (Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$url/test/token").Content
+                $r = Invoke-Installer @{ RESTOW_INSTALL_ROOT = ''; RESTOW_TOKEN = $token2; RESTOW_AGENT_DIR = $realState } @()
+                if ($r.Code -ne 0) { Fail "installation into $realDir failed: $($r.Out)" }
+                else {
+                    Ok "installation into $realDir"
+                    foreach ($p in @($realDir, (Join-Path $realDir 'bin'), (Join-Path $realDir 'bin\restow-agent.exe'), (Join-Path $realDir 'bin\restic.exe'), (Join-Path $realDir 'THIRD_PARTY_NOTICES.txt'))) {
+                        $o = (Get-Acl -LiteralPath $p).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+                        if ($o -ne 'S-1-5-32-544') { Fail "$p is owned by $o, not by Administrators" } else { Ok "$p is owned by Administrators" }
+                    }
+                    $r = Invoke-Installer @{ RESTOW_INSTALL_ROOT = ''; RESTOW_AGENT_DIR = $realState } @()
+                    if ($r.Code -ne 0) { Fail "second run into ${realDir}: $($r.Out)" } else { Ok "second run into $realDir" }
+                }
+                $r = Invoke-Installer @{ RESTOW_INSTALL_ROOT = ''; RESTOW_AGENT_DIR = $realState } @('-Uninstall')
+                if ($r.Code -ne 0 -or (Test-Path -LiteralPath $realDir)) { Fail "uninstall of ${realDir}: $($r.Out)" } else { Ok "uninstall of $realDir" }
+            } finally {
+                if (Test-Path -LiteralPath $realDir) { Remove-Item -LiteralPath $realDir -Recurse -Force -ErrorAction SilentlyContinue }
+            }
+        }
     } finally {
         if ($fake -and -not $fake.HasExited) { Stop-Process -Id $fake.Id -Force }
         Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
