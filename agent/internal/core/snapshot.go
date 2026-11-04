@@ -36,15 +36,155 @@ type snapshotPlan struct {
 	// volumes are the volumes of the sources that are snapshotted (empty
 	// when unknown); excluded are those that are read live from the start
 	// (removable media, FAT, exFAT), with the reason in notes.
+	// Volumes mounted in a folder below a source that VSS cannot do are in
+	// excluded too, by that folder (C:\Data\Archive\).
 	volumes  []string
 	excluded []string
 	notes    []string
+	// vssExclude is what restic is told to read live
+	// (-o vss.exclude-volumes): excluded, with a mounted folder by its
+	// volume GUID path when known (restic compares the volume, and a folder
+	// name may hold the list's separator ";").
+	vssExclude []string
 	// volumesUnknown: the volume of at least one source could not be
 	// determined; restic may still have snapshotted it.
 	volumesUnknown bool
 	// unavailable is set when a snapshot is wanted but cannot be taken at
 	// all (for example without administrator rights); it is the message.
 	unavailable string
+}
+
+// volumeSystem is what planning a shadow copy asks of the machine's volumes:
+// Windows (winVolumes, snapshot_windows.go) or a fake in the tests.
+type volumeSystem interface {
+	// VolumePathName is the mount point of the volume a path is on (C:\,
+	// C:\Data\Archive\).
+	VolumePathName(path string) (string, error)
+	// DriveType and FileSystem describe the volume at a mount point or
+	// volume GUID path.
+	DriveType(root string) uint32
+	FileSystem(root string) (string, error)
+	// VolumeName is the volume GUID path (\\?\Volume{...}\) of the volume
+	// mounted at a drive root or folder.
+	VolumeName(mountPoint string) (string, error)
+	// MountPoints lists the folders of the volume of a drive root (C:\)
+	// that other volumes are mounted at, relative to the root
+	// (Data\Archive\); FindFirstVolumeMountPointW, the call restic makes.
+	MountPoints(root string) ([]string, error)
+}
+
+// planVolumes fills in the volumes of a backup that asks for a shadow copy
+// (docs/WINDOWS-AGENT.md, 17.1 and 17.2). Each source's volume is snapshotted
+// unless VSS certainly cannot do it (vssExcludeReason); restic is then told
+// to read it live. restic also snapshots the volumes mounted in folders of a
+// drive (vss.exclude-all-mount-points stays off) and reads a folder whose
+// volume it cannot snapshot from the live file system without a word in its
+// JSON output. The folders below a source are therefore looked at the same
+// way: one VSS cannot do is excluded and named among the volumes read live,
+// so the report does not claim a shadow copy for its files.
+func planVolumes(p *snapshotPlan, sys volumeSystem, sources []string) {
+	seen := map[string]bool{}
+	for _, s := range sources {
+		vol, err := sys.VolumePathName(s)
+		if err != nil || vol == "" {
+			p.volumesUnknown = true
+			continue
+		}
+		vol = restic.NormalizeVolume(vol)
+		key := strings.ToUpper(vol)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		fsName, ferr := sys.FileSystem(vol)
+		if ferr != nil {
+			fsName = ""
+		}
+		if reason := vssExcludeReason(sys.DriveType(vol), fsName); reason != "" {
+			p.excluded = append(p.excluded, vol)
+			p.vssExclude = append(p.vssExclude, vol)
+			p.notes = append(p.notes, fmt.Sprintf("%s is read without a shadow copy: %s.", vol, reason))
+			continue
+		}
+		p.volumes = append(p.volumes, vol)
+	}
+	// restic snapshots a path's drive (filepath.VolumeName) with the folders
+	// mounted on it; a drive read live as a whole needs no look inside.
+	var roots []string
+	for _, s := range sources {
+		root := driveRootOf(s)
+		if root == "" || containsFold(roots, root) || containsFold(p.excluded, root) {
+			continue
+		}
+		roots = append(roots, root)
+	}
+	for _, root := range roots {
+		rels, err := sys.MountPoints(root)
+		if err != nil {
+			p.notes = append(p.notes, fmt.Sprintf("The folders of %s that other volumes are mounted at could not be listed (%v): restic reads such a folder without a shadow copy when it cannot snapshot its volume.", root, err))
+			continue
+		}
+		for _, rel := range rels {
+			mp := root + strings.TrimLeft(rel, `\`)
+			if !strings.HasSuffix(mp, `\`) {
+				mp += `\`
+			}
+			if !belowAnySource(mp, sources) {
+				continue
+			}
+			key := strings.ToUpper(mp)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			target := mp
+			if id, err := sys.VolumeName(mp); err == nil && id != "" {
+				target = id
+			}
+			fsName, ferr := sys.FileSystem(target)
+			if ferr != nil {
+				fsName = ""
+			}
+			if reason := vssExcludeReason(sys.DriveType(target), fsName); reason != "" {
+				p.excluded = append(p.excluded, mp)
+				p.vssExclude = append(p.vssExclude, target)
+				p.notes = append(p.notes, fmt.Sprintf("%s (a volume mounted in a folder) is read without a shadow copy: %s.", mp, reason))
+			}
+		}
+	}
+}
+
+// driveRootOf is the drive root (C:\) of a drive path, else "".
+func driveRootOf(p string) string {
+	if len(p) >= 2 && p[1] == ':' && ((p[0] >= 'a' && p[0] <= 'z') || (p[0] >= 'A' && p[0] <= 'Z')) {
+		return strings.ToUpper(p[:1]) + `:\`
+	}
+	return ""
+}
+
+// belowAnySource reports whether the folder dir (with a trailing backslash)
+// is a source or lies below one, without case.
+func belowAnySource(dir string, sources []string) bool {
+	d := strings.ToUpper(dir)
+	for _, s := range sources {
+		s = strings.ToUpper(strings.ReplaceAll(s, "/", `\`))
+		if !strings.HasSuffix(s, `\`) {
+			s += `\`
+		}
+		if strings.HasPrefix(d, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsFold(list []string, v string) bool {
+	for _, l := range list {
+		if strings.EqualFold(l, v) {
+			return true
+		}
+	}
+	return false
 }
 
 // planSnapshotFn is planSnapshot (snapshot_windows.go, snapshot_other.go);

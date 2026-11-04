@@ -22,8 +22,13 @@ func TestClassifySnapshotError(t *testing.T) {
 		{"cleanup", `c:\`, `failed to delete VSS snapshot: VSS error: object not found`, snapCleanup, `C:\`},
 		{"mount point lookup", `c:\mnt\x`, `failed to get volume from mount point [c:\mnt\x]: access denied`, snapWarning, `c:\mnt\x`},
 		{"bad exclude list", "", `failed to parse vss.exclude-volumes [x]: no such volume`, snapWarning, ""},
+		// restic made the shadow copy of a volume mounted in a folder but cannot
+		// use it (restic 0.19.1 drops the error itself: %!(EXTRA ...)).
+		{"mount point snapshot unusable", `c:\data\archive\`, `VSS error: GetSnapshotProperties() for mount point c:\data\archive\ returned error: %!(EXTRA *ole.OleError=Exception occurred.)`, snapFailed, `C:\data\archive\`},
+		{"mount point snapshot unusable, folder from the text", "", `VSS error: GetSnapshotProperties() for mount point c:\data\archive\ returned error: `, snapFailed, `C:\data\archive\`},
 		{"an ordinary file error", `C:\Users\a\x.pst`, `open C:\Users\a\x.pst: The process cannot access the file`, snapNone, ""},
 		{"a file whose error mentions snapshots", `C:\x`, `read C:\x: failed to create snapshot for [c:\] is a file name`, snapNone, ""},
+		{"a file whose error mentions VSS", `C:\x`, `read C:\x: VSS error: GetSnapshotProperties() is a file name`, snapNone, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

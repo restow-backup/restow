@@ -239,6 +239,40 @@ func TestFallbackFailureIsTheCause(t *testing.T) {
 	}
 }
 
+// restic made the shadow copy of a volume mounted in a folder but cannot use
+// it (GetSnapshotProperties) and reads that folder live with exit code 0: the
+// folder is a failed volume and the run is partial, not green with a file
+// error beside it (K102).
+func TestMountPointSnapshotUnusableIsPartial(t *testing.T) {
+	withVSS(t, vssPlan)
+	fin, _ := backupWithPolicy(t, "vss-mount-props", "")
+	if fin.Status != api.StatusPartial || fin.SnapshotID == "" {
+		t.Fatalf("status %s snapshot %q errors %+v", fin.Status, fin.SnapshotID, fin.Errors)
+	}
+	if codes(fin.Errors) != "snapshot_failed" || fin.Errors[0].Path != `C:\data\archive\` || !strings.Contains(fin.Errors[0].Message, "live file system") {
+		t.Fatalf("errors %+v", fin.Errors)
+	}
+	if c := fin.Consistency; c == nil || c.State != "partial" || len(c.LiveFilesystems) != 1 || c.LiveFilesystems[0] != `C:\data\archive\` {
+		t.Fatalf("consistency %+v", fin.Consistency)
+	}
+}
+
+// The volumes the plan reads live reach restic as vss.exclude-volumes, a
+// mounted folder by its volume GUID path.
+func TestSnapshotExcludedVolumesReachRestic(t *testing.T) {
+	withVSS(t, snapshotPlan{method: api.SnapshotMethodVSS, requested: true, volumes: []string{`C:\`},
+		excluded: []string{`E:\`, `C:\Data\Archive\`}, vssExclude: []string{`E:\`, `\\?\Volume{aaaa}\`}})
+	fin, h := backupWithPolicy(t, "ok", "")
+	if fin.Status != api.StatusSucceeded || fin.Consistency == nil || fin.Consistency.State != "used" ||
+		strings.Join(fin.Consistency.LiveFilesystems, ";") != `E:\;C:\Data\Archive\` {
+		t.Fatalf("%s %+v", fin.Status, fin.Consistency)
+	}
+	args, _ := os.ReadFile(filepath.Join(h.dir, "backup-args.txt"))
+	if !strings.Contains(string(args), "vss.exclude-volumes=E:\\;\\\\?\\Volume{aaaa}\\\n") {
+		t.Fatalf("args:\n%s", args)
+	}
+}
+
 func TestSnapshotCleanupIsOnlyANote(t *testing.T) {
 	withVSS(t, vssPlan)
 	fin, _ := backupWithPolicy(t, "vss-cleanup", "")

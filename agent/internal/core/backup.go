@@ -279,7 +279,7 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	if plan.requested {
 		opts.UseFSSnapshot = true
 		opts.VSSTimeout = vssTimeout
-		opts.VSSExcludeVolumes = plan.excluded
+		opts.VSSExcludeVolumes = plan.vssExclude
 		rl.Infof("Backing up from a shadow copy (Volume Shadow Copy); if it fails, the backup %s.",
 			map[bool]string{true: "stops (policy)", false: "continues from the live file system and ends partial (policy)"}[failPolicy])
 	}

@@ -121,7 +121,7 @@ Harte Randbedingungen, die für alles Folgende gelten:
 | Ein unbekannter `-o vss.provider` ergibt je Volume `failed to create snapshot for [c:\]: invalid VSS provider "…"`, ohne dass eine Schattenkopie entstehen muss. | `vss_windows.go:1129-1175` |
 | restic fordert die Schattenkopie mit `SetContext(VSS_CTX_BACKUP)` (nicht dauerhaft) und `SetBackupState(false, false, VSS_BT_COPY, false)` an: Kopie-Sicherung ohne Komponentenauswahl der Writer. Ergebnis ist ein dateikonsistenter Zeitpunkt; SQL Server oder Exchange werden nicht als Anwendung gesichert, Transaktionsprotokolle nicht gekürzt. | `vss_windows.go:227, 947, 954` |
 | Im JSON-Modus schreibt restic keine Erfolgsmeldung ("creating VSS snapshot", "successfully created"); der Agent kann den Erfolg nur aus dem Fehlen eines Fehlers ableiten. | `cmd_backup.go:585-589` |
-| UNC-Pfade und nicht unterstützte Einhängepunkte werden ohne Schattenkopie und ohne Fehler gelesen. | `fs_local_vss.go:160-164, 225-232` |
+| UNC-Pfade und nicht unterstützte Einhängepunkte werden ohne Schattenkopie und ohne Fehler gelesen (eingehängte Ordner, die VSS sicher nicht kann, erkennt der Agent vorab, 17.1). | `fs_local_vss.go:160-164, 225-232` |
 | VSS nur mit amd64-restic auf 64-Bit-Windows (oder 386 auf 32 Bit); ein arm64-restic bekommt `executables compiled for arm64 can't use VSS`. | `vss_windows.go:888-900, 1248-1260` |
 | restic sichert und stellt Security Descriptors (Owner, Gruppe, DACL, SACL) wieder her, wenn es als Administrator läuft (sonst nur DACL); Vererbungs-Flags seit 0.19.0 korrekt. NTFS Extended Attributes seit 0.17.0. | CHANGELOG 0.17.0 #4708 und #4807, 0.19.0 #5427 und #5424; `doc/050_restore.rst:82-89` |
 | **Alternate Data Streams werden nicht gesichert** (Pfade mit `:` werden übersprungen, kein Changelog-Eintrag führt ADS ein). `Zone.Identifier` (Mark of the Web) geht damit verloren. | `internal/fs/node_windows.go:96, 346` |
@@ -1501,6 +1501,19 @@ Meldungstext und in den Erklärungsschritten. Das Feld `useVss` am Rechner bleib
   Schattenkopie: Dateisystem exFAT"). Das ist nur eine Abkürzung, keine Vorhersage: Ob der
   Anbieter ein Volume kann, hängt auch an ReFS-Version, VHD oder BitLocker-Zustand; was die
   Vorprüfung durchlässt, entscheidet restic (17.3, `snapshot_skipped`).
+- Eingehängte Ordner unter einer Quelle: restic macht von einem Laufwerk auch die Volumes
+  mit Schattenkopie, die in seinen Ordnern eingehängt sind (17.2), und liest einen solchen
+  Ordner, dessen Volume es nicht kann (`IsVolumeSupported` scheitert oder verneint),
+  **still** vom Live-Dateisystem: Der JSON-Modus meldet dazu nichts. Darum listet der Agent je
+  Laufwerk einer Quelle die eingehängten Ordner (`FindFirstVolumeMountPointW`, derselbe Aufruf
+  wie restic), nimmt die unter einer Quelle, bestimmt ihr Volume
+  (`GetVolumeNameForVolumeMountPointW`) und prüft es wie oben. Ein Wechseldatenträger, FAT32
+  oder exFAT geht mit seinem Volume-GUID-Pfad in `vss.exclude-volumes` (restic vergleicht das
+  Volume, und ein Ordnername darf `;` enthalten), steht im Lauf-Log ("C:\Daten\Archiv\ (ein
+  in einem Ordner eingehängtes Volume) ohne Schattenkopie: Dateisystem exFAT") und in
+  `liveFilesystems`. Bleibt die Grenze: Ein NTFS- oder ReFS-Volume in einem Ordner, das der
+  Anbieter trotzdem ablehnt, liest restic weiterhin ohne jedes Zeichen live; der Agent kann
+  `IsVolumeSupported` ohne eigene VSS-Sitzung nicht vorab fragen.
 
 ### 17.2 Aufruf
 
@@ -1541,6 +1554,7 @@ ohne Build-Tag):
 | sonst Text beginnt mit `failed to create snapshot for [` | Schattenkopie eines Volumes fehlgeschlagen, restic liest live | `FailedVolumes = append(…, {Volume, Message})`, **nicht** als Dateifehler gezählt |
 | Text beginnt mit `failed to delete VSS snapshot` | Schattenkopie blieb nach dem Lauf liegen | `CleanupFailed` |
 | `failed to get volume from mount point` / `failed to parse vss.exclude-volumes` | Konfigurationsproblem einzelner Einhängepunkte | Warnung im Log |
+| Text beginnt mit `VSS error:` (in restic 0.19.1 nur `VSS error: GetSnapshotProperties() for mount point <ordner> returned error: …`, `item` ist der Ordner) | Die Schattenkopie eines in einem Ordner eingehängten Volumes ist gemacht, aber nicht nutzbar; restic liest den Ordner live und endet mit Exit 0 | `FailedVolumes` mit dem Ordner (`C:\daten\archiv\`), also `snapshot_failed`, Lauf `partial` und Konsistenz `partial` wie bei einem Volume; unter `fail` hält der Agent restic an. Kein Dateifehler. Andere Dateifehler bleiben Dateifehler: Nur dieser Anfang zählt, nicht jeder Fehlereintrag eines Laufs mit `--use-fs-snapshot`. |
 | Exit 1 vor der ersten `status`-Zeile, `--use-fs-snapshot` war gesetzt, `Fatal`/`Stderr` enthält `VSS error`, einen `VSS_E_`-Code, `VssApi.dll`, `CoInitializeEx`, `CoInitializeSecurity` oder den rohen OLE-Text von `CoInitializeEx` (`Cannot change thread mode after it is set`, `0x80010106`, `Catastrophic failure`) | VSS gar nicht nutzbar (DLL, COM, Rechte, Dienst deaktiviert, Architektur) | `restic.Error` mit `SnapshotUnavailable() == true` |
 | Exit 1 vor der ersten `status`-Zeile, Text eines Repository- oder Netzfehlers (`unable to open`, `dial tcp`, `http response`, `Load(<…>)`, `i/o timeout`, `connection refused`, TLS) | nicht VSS | gewöhnlicher Fehler (`restic_exit_1` mit Hinweis) |
 | Exit 1 vor der ersten `status`-Zeile, `--use-fs-snapshot` war gesetzt, Text passt auf nichts davon | vermutlich nicht VSS: in restic 0.19.1 endet nur die VSS-Einrichtung (`HasSufficientPrivilegesForVSS`) einen Lauf, und deren Texte sind oben erfasst | gewöhnlicher Fehler (`restic_exit_1`), kein zweiter Lauf ohne VSS, kein `snapshot_unavailable`; das Lauf-Log nennt VSS als mögliche Ursache, falls es sich wiederholt. Die Wiederholung der Richtlinie läuft wieder mit Schattenkopie. |
@@ -2505,7 +2519,9 @@ geprüft sind die reinen Funktionen und die Politik mit einem falschen restic un
     Hinweis im Log, kein Fehler, auch mit `fail`.
 28. Eingehängter Ordner (Volume unter `C:\mnt\daten`) als Quelle: mit Laufwerksbuchstaben
     sichert der Agent das Laufwerk (Lauf-Log nennt beides), ohne Buchstaben endet der Lauf
-    `partial` mit `source_is_mount_point`. Eine Junction als Quelle wird über ihr Ziel
+    `partial` mit `source_is_mount_point`. Ein exFAT-Stick, eingehängt unter `C:\Daten\Stick` mit
+    `C:\Daten` als Quelle: `vss.exclude-volumes` nennt den Volume-GUID-Pfad, das Lauf-Log und
+    `liveFilesystems` nennen `C:\Daten\Stick\`, Lauf `succeeded` mit `state: "used"`. Eine Junction als Quelle wird über ihr Ziel
     gesichert; ein BitLocker-gesperrtes Datenlaufwerk ergibt `source_unreadable` (16.5).
 29. `--exclude-cloud-files` mit OneDrive (Nur-Online-Dateien): nichts wird heruntergeladen,
     lokal vorhandene Dateien sind im Snapshot; `--iexclude-file`: `c:\windows\temp` wird von

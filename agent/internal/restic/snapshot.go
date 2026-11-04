@@ -51,6 +51,14 @@ const (
 	vssDeletePrefix  = "failed to delete VSS snapshot"
 	vssMountPoint    = "failed to get volume from mount point"
 	vssParseExcludes = "failed to parse vss.exclude-volumes"
+	// vssErrorPrefix starts an entry restic writes for a volume mounted in a
+	// folder whose shadow copy it made but cannot use
+	// ("VSS error: GetSnapshotProperties() for mount point c:\mnt\x\
+	// returned error: ...", vss_windows.go:1074): restic reads that folder
+	// live and ends with exit code 0. Every other entry restic writes about a
+	// shadow copy starts with one of the prefixes above.
+	vssErrorPrefix      = "VSS error:"
+	vssMountPointMarker = "for mount point "
 )
 
 // classifySnapshotError sorts one restic error entry. volume is the volume
@@ -74,6 +82,21 @@ func classifySnapshotError(item, message string) (kind snapshotKind, volume stri
 		return snapCleanup, NormalizeVolume(item)
 	case strings.HasPrefix(msg, vssMountPoint), strings.HasPrefix(msg, vssParseExcludes):
 		return snapWarning, item
+	case strings.HasPrefix(msg, vssErrorPrefix):
+		volume = item
+		if volume == "" {
+			if i := strings.Index(msg, vssMountPointMarker); i >= 0 {
+				rest := msg[i+len(vssMountPointMarker):]
+				if j := strings.Index(rest, " returned"); j >= 0 {
+					volume = rest[:j]
+				} else if j := strings.IndexByte(rest, ' '); j >= 0 {
+					volume = rest[:j]
+				} else {
+					volume = rest
+				}
+			}
+		}
+		return snapFailed, UpperDrive(NormalizeVolume(volume))
 	}
 	return snapNone, ""
 }

@@ -71,6 +71,12 @@ backup)
       pid=$!
       wait
     fi ;;
+  vss-mount-props)
+    # restic 0.19.1 made the shadow copy of a volume mounted at c:\data\archive\
+    # but cannot use it (GetSnapshotProperties): it reads that folder live, exit 0.
+    if [ -n "$vss" ]; then
+      printf '%s\n' '{"message_type":"error","error":{"message":"VSS error: GetSnapshotProperties() for mount point c:\\data\\archive\\ returned error: %!(EXTRA *ole.OleError=Exception occurred.)"},"during":"archival","item":"c:\\data\\archive\\"}' >&2
+    fi ;;
   vss-cleanup)
     if [ -n "$vss" ]; then
       printf '%s\n' '{"message_type":"error","error":{"message":"failed to delete VSS snapshot: VSS error: busy"},"during":"archival","item":"c:\\"}' >&2

@@ -12,6 +12,7 @@ package winapi
 // Win32 error codes the agent tells apart (winerror.h).
 const (
 	ErrorFileNotFound              = 2
+	ErrorNoMoreFiles               = 18
 	ErrorAccessDenied              = 5
 	ErrorInvalidOwner              = 1307
 	ErrorFileExists                = 80

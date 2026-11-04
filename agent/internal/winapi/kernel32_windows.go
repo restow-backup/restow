@@ -29,7 +29,11 @@ var (
 	procGetVolumeInformationW      = kernel32.NewProc("GetVolumeInformationW")
 	procLocalFree                  = kernel32.NewProc("LocalFree")
 
-	procGetVolumePathNamesForVolumeNameW = kernel32.NewProc("GetVolumePathNamesForVolumeNameW")
+	procGetVolumePathNamesForVolumeNameW  = kernel32.NewProc("GetVolumePathNamesForVolumeNameW")
+	procGetVolumeNameForVolumeMountPointW = kernel32.NewProc("GetVolumeNameForVolumeMountPointW")
+	procFindFirstVolumeMountPointW        = kernel32.NewProc("FindFirstVolumeMountPointW")
+	procFindNextVolumeMountPointW         = kernel32.NewProc("FindNextVolumeMountPointW")
+	procFindVolumeMountPointClose         = kernel32.NewProc("FindVolumeMountPointClose")
 )
 
 // LockFileEx locks a byte range of an open file
@@ -381,3 +385,65 @@ func VolumePathNames(volume string) ([]string, error) {
 		buf = make([]uint16, need)
 	}
 }
+
+// withTrailingBackslash is what the volume mount point calls require.
+func withTrailingBackslash(p string) string {
+	if !strings.HasSuffix(p, `\`) {
+		return p + `\`
+	}
+	return p
+}
+
+// VolumeNameForMountPoint returns the volume GUID path (\\?\Volume{...}\)
+// of the volume mounted at a drive root (C:\) or folder (C:\Data\Archive\)
+// (https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getvolumenameforvolumemountpointw).
+func VolumeNameForMountPoint(mountPoint string) (string, error) {
+	p, err := utf16Ptr(withTrailingBackslash(mountPoint))
+	if err != nil {
+		return "", err
+	}
+	buf := make([]uint16, 64)
+	if _, err := call(procGetVolumeNameForVolumeMountPointW, uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf))); err != nil {
+		return "", err
+	}
+	return syscall.UTF16ToString(buf), nil
+}
+
+// VolumeMountPoints lists the folders of a volume (a volume GUID path or a
+// drive root) that other volumes are mounted at, relative to its root
+// (Data\Archive\), as restic enumerates them for its shadow copies
+// (https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-findfirstvolumemountpointw).
+// A volume without such folders gives an empty list.
+func VolumeMountPoints(volume string) ([]string, error) {
+	p, err := utf16Ptr(withTrailingBackslash(volume))
+	if err != nil {
+		return nil, err
+	}
+	if err := procFindFirstVolumeMountPointW.Find(); err != nil {
+		return nil, err
+	}
+	buf := make([]uint16, maxLongPath)
+	r, _, callErr := procFindFirstVolumeMountPointW.Call(uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	h := syscall.Handle(r)
+	if h == syscall.InvalidHandle {
+		err := lastError(callErr)
+		if IsErrno(err, ErrorNoMoreFiles) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer func() { _, _ = call(procFindVolumeMountPointClose, uintptr(h)) }()
+	out := []string{syscall.UTF16ToString(buf)}
+	for {
+		if _, err := call(procFindNextVolumeMountPointW, uintptr(h), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf))); err != nil {
+			if IsErrno(err, ErrorNoMoreFiles) {
+				return out, nil
+			}
+			return out, err
+		}
+		out = append(out, syscall.UTF16ToString(buf))
+	}
+}
+
+// maxLongPath is the longest path Windows knows (in UTF-16 units).
+const maxLongPath = 32768

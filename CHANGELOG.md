@@ -371,6 +371,14 @@ private repository.
   file that is still in use for a moment, and otherwise stops with a clear message to run the
   uninstall again later. Without a usable agent binary it stops the service with a time limit
   instead of waiting without an end.
+- Windows agent (preview): a volume mounted in a folder below a backup path (for example an
+  exFAT disk at `C:\Data\Archive`) that the shadow copy cannot cover was read from the live file
+  system without a word, and the run reported "Shadow copy (file consistent)" for its files too.
+  The agent now looks at the folders volumes are mounted at below each backup path, tells restic
+  to read a removable, FAT32 or exFAT one live and names it among the volumes read live. When
+  restic made such a folder's shadow copy but cannot use it ("VSS error:
+  GetSnapshotProperties() for mount point ..."), the run ends partial with `snapshot_failed` for
+  that folder instead of green with a file error beside it.
 - Windows agent (preview): the installer stopped only when Smart App Control was on, and
   installed without a word when it was in evaluation mode, which a freshly installed Windows 11
   starts in. Windows may switch Smart App Control on later by itself; it then blocks the unsigned

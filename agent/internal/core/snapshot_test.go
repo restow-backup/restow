@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -189,5 +190,105 @@ func TestSnapshotToLocalPathIsTheInverseOfSnapshotPathOf(t *testing.T) {
 	}
 	if runtime.GOOS == "windows" && snapshotToLocalPath("/C/Users/a.txt") != `C:\Users\a.txt` {
 		t.Fatal("snapshotToLocalPath does not use the Windows form on Windows")
+	}
+}
+
+// fakeVolumes is a machine's volumes for planVolumes.
+type fakeVolumes struct {
+	volumeOf map[string]string   // source -> its volume's mount point
+	mounts   map[string][]string // drive root -> folders other volumes are mounted at
+	ids      map[string]string   // mount point -> volume GUID path
+	fs       map[string]string   // mount point or GUID path -> file system
+	drive    map[string]uint32   // mount point or GUID path -> drive type
+	asked    []string            // drive roots whose mount points were listed
+	mountErr error
+}
+
+func (f *fakeVolumes) VolumePathName(p string) (string, error) {
+	if v, ok := f.volumeOf[p]; ok {
+		return v, nil
+	}
+	return "", errors.New("no such path")
+}
+func (f *fakeVolumes) DriveType(root string) uint32 {
+	if d, ok := f.drive[root]; ok {
+		return d
+	}
+	return winapi.DriveFixed
+}
+func (f *fakeVolumes) FileSystem(root string) (string, error) {
+	if s, ok := f.fs[root]; ok {
+		return s, nil
+	}
+	return "NTFS", nil
+}
+func (f *fakeVolumes) VolumeName(mp string) (string, error) {
+	if id, ok := f.ids[mp]; ok {
+		return id, nil
+	}
+	return "", errors.New("not a mount point")
+}
+func (f *fakeVolumes) MountPoints(root string) ([]string, error) {
+	f.asked = append(f.asked, root)
+	if f.mountErr != nil {
+		return nil, f.mountErr
+	}
+	return f.mounts[root], nil
+}
+
+// A volume VSS cannot snapshot, mounted in a folder below a source, is read
+// live by restic without a word: the plan excludes it by its volume and
+// names it among the volumes read live (K102).
+func TestPlanVolumesMountedFolders(t *testing.T) {
+	const archive, projects, usb = `\\?\Volume{aaaa}\`, `\\?\Volume{bbbb}\`, `\\?\Volume{cccc}\`
+	sys := &fakeVolumes{
+		volumeOf: map[string]string{`C:\Data`: `C:\`, `c:/Users`: `C:\`, `E:\Stick`: `E:\`},
+		mounts: map[string][]string{
+			`C:\`: {`Data\Archive\`, `Data\Projects\`, `Other\Usb\`, `Data\Card\`},
+			`E:\`: {`x\`},
+		},
+		ids: map[string]string{`C:\Data\Archive\`: archive, `C:\Data\Projects\`: projects, `C:\Other\Usb\`: usb},
+		fs:  map[string]string{archive: "exFAT", usb: "FAT32"},
+		// No volume GUID path known: the folder itself is asked and excluded.
+		drive: map[string]uint32{`E:\`: winapi.DriveRemovable, `C:\Data\Card\`: winapi.DriveRemovable},
+	}
+	p := snapshotPlan{method: api.SnapshotMethodVSS, requested: true}
+	planVolumes(&p, sys, []string{`C:\Data`, `c:/Users`, `E:\Stick`})
+	if !reflect.DeepEqual(p.volumes, []string{`C:\`}) {
+		t.Fatalf("volumes %q", p.volumes)
+	}
+	if want := []string{`E:\`, `C:\Data\Archive\`, `C:\Data\Card\`}; !reflect.DeepEqual(p.excluded, want) {
+		t.Fatalf("excluded %q, want %q", p.excluded, want)
+	}
+	// restic gets the mounted folder's volume GUID path, not its name.
+	if want := []string{`E:\`, archive, `C:\Data\Card\`}; !reflect.DeepEqual(p.vssExclude, want) {
+		t.Fatalf("vssExclude %q, want %q", p.vssExclude, want)
+	}
+	// E:\ is read live as a whole: its folders are not looked at; C:\ once.
+	if !reflect.DeepEqual(sys.asked, []string{`C:\`}) {
+		t.Fatalf("mount points listed for %q", sys.asked)
+	}
+	notes := strings.Join(p.notes, "\n")
+	if !strings.Contains(notes, `C:\Data\Archive\ (a volume mounted in a folder) is read without a shadow copy: file system exFAT`) || strings.Contains(notes, "Usb") || strings.Contains(notes, "Projects") {
+		t.Fatalf("notes:\n%s", notes)
+	}
+	// The report: C:\ from a shadow copy, the mounted exFAT folder live.
+	c := consistencyOf(p, restic.SnapshotOutcome{Requested: true}, false)
+	if c.State != api.ConsistencyUsed || !reflect.DeepEqual(c.LiveFilesystems, []string{`E:\`, `C:\Data\Archive\`, `C:\Data\Card\`}) {
+		t.Fatalf("consistency %+v", c)
+	}
+	// The whole drive as a source: every mounted folder on it counts.
+	p = snapshotPlan{method: api.SnapshotMethodVSS, requested: true}
+	sys.volumeOf[`C:\`] = `C:\`
+	planVolumes(&p, sys, []string{`C:\`})
+	if want := []string{`C:\Data\Archive\`, `C:\Other\Usb\`, `C:\Data\Card\`}; !reflect.DeepEqual(p.excluded, want) {
+		t.Fatalf("whole drive: excluded %q, want %q", p.excluded, want)
+	}
+	// Mount points that cannot be listed: a note, nothing else changes.
+	sys.mountErr = errors.New("access denied")
+	p = snapshotPlan{method: api.SnapshotMethodVSS, requested: true}
+	planVolumes(&p, sys, []string{`C:\Data`})
+	if !reflect.DeepEqual(p.volumes, []string{`C:\`}) || len(p.excluded) != 0 || !strings.Contains(strings.Join(p.notes, "\n"), "could not be listed (access denied)") {
+		t.Fatalf("listing failed: %+v", p)
 	}
 }
