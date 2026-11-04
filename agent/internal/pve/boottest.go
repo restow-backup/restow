@@ -25,10 +25,15 @@ import (
 // A boot test (docs/PVE.md, "Boot test") proves that a restore point boots: the
 // node restores it through the normal restore path to a temporary VMID in the
 // restore pool, on a storage of its own choice, cuts its network (every NIC
-// link_down=1, or an isolated bridge the node names), takes away everything
-// that reaches out of the guest (PCI and USB passthrough, host serial and
-// parallel ports, virtiofs, hook scripts), starts it and waits for the QEMU
-// guest agent to answer. A container is started and its init is looked at.
+// link_down=1, or an isolated bridge without uplink the node names), takes
+// away everything that reaches out of the guest (PCI and USB passthrough, host
+// serial and parallel ports, virtiofs, ivshmem, audio, the host's random
+// source, hugepages and NUMA binding, hook scripts), reads the configuration
+// back, starts it and waits for the QEMU guest agent to answer. A container is
+// started and its init is looked at. A VM with raw QEMU `args` or a disk on a
+// host path is not booted at all (skipped): the test can neither keep them
+// (they reach the host or a network) nor remove them (the copy may not boot
+// without them, which would be a false red).
 // The temporary guest is stopped and destroyed in every case; one that a crash
 // or a restart of the node left behind is found again by its tag and name (or
 // by the marker file) and destroyed when the service starts.
@@ -184,7 +189,9 @@ type BootTester struct {
 	MemAvailable func() (uint64, error)
 	// BackupRunning reports a backup on this node (default: the provider's job files).
 	BackupRunning func() bool
-	Logf          func(string, ...any)
+	// SysNet is where the network interfaces of the node are read (default /sys/class/net).
+	SysNet string
+	Logf   func(string, ...any)
 	// Poll is the interval of the status checks (default 5 s); TaskPoll the restore task's.
 	Poll     time.Duration
 	TaskPoll time.Duration
@@ -302,6 +309,11 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 		return BootTestResult{Message: "restore point: " + err.Error()}
 	}
 	conf := parseConfigText(rp.GuestConfig)
+	if p.Kind == "vm" {
+		if reason, msg := unisolatableVM(conf); reason != "" {
+			return skipped(reason, msg)
+		}
+	}
 	memMiB := guestMemoryMiB(conf)
 	maxMiB := p.MaxMemoryMiB
 	if maxMiB <= 0 {
@@ -329,6 +341,11 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 	}
 	if reason, msg := b.checkStorage(ctx, storage, p); reason != "" {
 		return skipped(reason, msg)
+	}
+	if bridge := strings.TrimSpace(b.State.BootTestBridge); bridge != "" {
+		if msg := b.bridgeIsolated(bridge); msg != "" {
+			return skipped("bridge_not_isolated", msg)
+		}
 	}
 	res := b.restoreAndBoot(ctx, p, rp, conf, rawLxcOptions(rp.GuestConfig), storage)
 	res.Storage = storage
@@ -478,6 +495,12 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *R
 		b.recordCreated(vmid, c)
 	}
 	if err := b.isolate(ctx, p, vmid); err != nil {
+		var skip *isolationSkip
+		if errors.As(err, &skip) {
+			b.logf("not started: %s", skip.message)
+			res.Outcome, res.Reason, res.Message = "skipped", skip.reason, skip.message
+			return res
+		}
 		// Never start a guest whose network could not be cut.
 		res.Outcome, res.Message = "", "isolating the temporary guest: "+err.Error()
 		return res
@@ -498,6 +521,12 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *R
 			return res
 		}
 		b.logf("start failed: %v", err)
+		if nodeResourcesRE.MatchString(err.Error()) {
+			// The node could not give the copy its memory beside the running guests: that says
+			// nothing about the restore point.
+			res.Outcome, res.Reason, res.Message = "skipped", "node_resources", "The node could not allocate the memory of the temporary guest: "+err.Error()
+			return res
+		}
 		res.Outcome, res.Reason, res.Message = "red", "start_failed", "The temporary guest did not start: "+err.Error()
 		return res
 	}
@@ -569,12 +598,108 @@ var (
 	passthroughRE   = regexp.MustCompile(`^(hostpci|usb|parallel|virtiofs)\d+$`)
 	serialRE        = regexp.MustCompile(`^serial\d+$`)
 	driveKeyRE      = regexp.MustCompile(`^(ide|sata|scsi)\d+$`)
+	numaNodeRE      = regexp.MustCompile(`^numa\d+$`)
 	ctDevRE         = regexp.MustCompile(`^dev\d+$`)
 	ctMountRE       = regexp.MustCompile(`^mp\d+$`)
 	bridgeOptionRE  = regexp.MustCompile(`(^|,)bridge=[^,]*`)
 	linkDownRE      = regexp.MustCompile(`(^|,)link_down=[^,]*`)
 	vlanTagOptionRE = regexp.MustCompile(`(^|,)(tag|trunks)=[^,]*`)
+	// The ports PVE itself puts on a bridge for guests: a VM's tap, a container's veth, the
+	// firewall bridge's fwpr. Anything else (a NIC, a bond, a VLAN, a VXLAN) is a way out.
+	guestPortRE = regexp.MustCompile(`^(tap\d+i\d+|veth\d+i\d+|fwpr\d+p\d+)$`)
+	// A start that failed for want of memory of the node (hugepages, a memory backend).
+	nodeResourcesRE = regexp.MustCompile(`(?i)hugepage|cannot allocate memory|out of memory|not enough memory|memory allocation|unable to allocate|failed to allocate`)
+	// The raw lxc.* lines that reach the host's devices, network or programs.
+	hostLxcRE = regexp.MustCompile(`^lxc\.(net|mount\.entry|mount\.auto|hook|cgroup2?\.devices)`)
 )
+
+// isolationSkip: the restored guest cannot be isolated without changing what it needs to boot;
+// the test is skipped with the reason.
+type isolationSkip struct{ reason, message string }
+
+func (e *isolationSkip) Error() string { return e.message }
+
+// unisolatableVM says why a VM configuration is never booted by a boot test: raw QEMU arguments
+// can add a disk of the host, a network or a device that no other key shows, and the copy may
+// need them to boot, so they can neither stay nor go. Arguments that only tune the CPU, the
+// firmware tables or the clock (safeQemuArgs) stay.
+func unisolatableVM(conf map[string]string) (reason, message string) {
+	if v := strings.TrimSpace(conf["args"]); v != "" && !safeQemuArgs(v) {
+		return "custom_qemu_args", fmt.Sprintf("The VM has raw QEMU arguments (args: %s), which can reach the host's disks, devices or a network; a boot test cannot isolate it without them and does not boot it with them.", v)
+	}
+	return "", ""
+}
+
+// safeQemuOptions are QEMU options that reach nothing outside the guest.
+var safeQemuOptions = map[string]bool{"-cpu": true, "-smbios": true, "-rtc": true, "-overcommit": true, "-msg": true}
+
+// safeQemuArgs: raw QEMU arguments made only of safeQemuOptions, each with at most one value
+// ("-cpu host,+invtsc"). Quotes or anything else make them unsafe.
+func safeQemuArgs(v string) bool {
+	if strings.ContainsAny(v, "\"'\\") {
+		return false
+	}
+	fields := strings.Fields(v)
+	for i := 0; i < len(fields); i++ {
+		if !safeQemuOptions[fields[i]] {
+			return false
+		}
+		if i+1 < len(fields) && !strings.HasPrefix(fields[i+1], "-") {
+			i++
+		}
+	}
+	return len(fields) > 0
+}
+
+// hostDisk is a disk of a restored VM configuration on an absolute host path
+// (/dev/disk/by-id/...). A disk that was backed up is restored onto the boot test storage, so
+// such a line is one the restore kept as it was: the copy would open the original's device.
+func hostDisk(conf map[string]string) (string, string) {
+	keys := make([]string, 0, len(conf))
+	for k := range conf {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := conf[k]
+		if !diskKeyRE.MatchString(k) || strings.Contains(v, "media=cdrom") {
+			continue
+		}
+		vol := mountVolume(v)
+		if strings.HasPrefix(vol, "/") {
+			return k, v
+		}
+	}
+	return "", ""
+}
+
+// isolatedKey says whether a key of a restored configuration reaches out of the guest and goes
+// before the start (and must be gone when the configuration is read back).
+func isolatedKey(kind, k, v string) bool {
+	if k == "hookscript" {
+		return true
+	}
+	if kind == "ct" {
+		return ctDevRE.MatchString(k) || (ctMountRE.MatchString(k) && !isVolumeMount(v))
+	}
+	switch {
+	case k == "args":
+		// Raw QEMU arguments may add a device, a disk or a network of their own.
+		return !safeQemuArgs(v)
+	case k == "ivshmem", k == "audio0", k == "rng0":
+		// Shared memory with the host or other guests; the host's sound and random source.
+		return true
+	case k == "hugepages", k == "keephugepages", numaNodeRE.MatchString(k):
+		// Pages and NUMA nodes of the host the running original holds; the copy runs on
+		// normal memory, which changes nothing a restore point proves.
+		return true
+	case passthroughRE.MatchString(k):
+		return true
+	case serialRE.MatchString(k) && strings.TrimSpace(v) != "socket":
+		return true
+	}
+	return false
+}
 
 // isolate makes the restored guest safe to start: no network to the outside, no host devices,
 // no hook script, no start on boot, the boot test's tag and name.
@@ -604,8 +729,7 @@ func (b *BootTester) isolate(ctx context.Context, p BootTestParams, vmid int) er
 	for _, k := range keys {
 		v := conf[k]
 		switch {
-		case k == "hookscript", p.Kind == "vm" && k == "args":
-			// Raw QEMU arguments may add a device or a network of their own.
+		case isolatedKey(p.Kind, k, v):
 			del = append(del, k)
 		case netKeyRE.MatchString(k):
 			switch {
@@ -617,18 +741,9 @@ func (b *BootTester) isolate(ctx context.Context, p BootTestParams, vmid int) er
 				// A container's interfaces go altogether: it needs none to start.
 				del = append(del, k)
 			}
-		case p.Kind == "vm" && passthroughRE.MatchString(k):
-			del = append(del, k)
-		case p.Kind == "vm" && serialRE.MatchString(k) && strings.TrimSpace(v) != "socket":
-			del = append(del, k)
 		case p.Kind == "vm" && driveKeyRE.MatchString(k) && strings.Contains(v, "media=cdrom") && !strings.HasPrefix(v, "none"):
 			// An ISO or the host's drive: the boot test needs neither (and a missing ISO stops the start).
 			args = append(args, "--"+k, "none,media=cdrom")
-		case p.Kind == "ct" && ctDevRE.MatchString(k):
-			del = append(del, k)
-		case p.Kind == "ct" && ctMountRE.MatchString(k) && strings.HasPrefix(strings.TrimSpace(v), "/"):
-			// A bind mount of a host folder.
-			del = append(del, k)
 		}
 	}
 	if p.Kind == "vm" && !agentEnabled(conf["agent"]) {
@@ -641,26 +756,84 @@ func (b *BootTester) isolate(ctx context.Context, p BootTestParams, vmid int) er
 	if _, err := b.command(ctx, cli, args...); err != nil {
 		return err
 	}
-	// Read back: no interface may reach a network.
+	if p.Kind == "vm" {
+		// Tagged and named by now, so its removal finds it ours.
+		if k, v := hostDisk(conf); k != "" {
+			return &isolationSkip{"host_disk", fmt.Sprintf("The restored VM has a disk on a host device (%s: %s); its copy would open the same device as the original.", k, v)}
+		}
+	}
+	// Read back: no interface may reach a network, nothing of the host may be left.
 	out, err = b.command(ctx, cli, "config", id)
 	if err != nil {
 		return err
 	}
-	after := parseConfigText(out)
-	for k, v := range after {
-		if !netKeyRE.MatchString(k) {
-			continue
-		}
-		if bridge != "" {
-			if !strings.Contains(","+v+",", ",bridge="+bridge+",") {
+	return b.checkIsolated(p.Kind, out, bridge)
+}
+
+// checkIsolated reads a temporary guest's configuration back after isolate(): an error names
+// what still reaches out of it.
+func (b *BootTester) checkIsolated(kind, text, bridge string) error {
+	after := parseConfigText(text)
+	keys := make([]string, 0, len(after))
+	for k := range after {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := after[k]
+		switch {
+		case netKeyRE.MatchString(k):
+			if bridge != "" {
+				if !strings.Contains(","+v+",", ",bridge="+bridge+",") {
+					return fmt.Errorf("%s is still connected: %s", k, v)
+				}
+			} else if kind == "ct" || !strings.Contains(","+v+",", ",link_down=1,") {
 				return fmt.Errorf("%s is still connected: %s", k, v)
 			}
-		} else if !strings.Contains(","+v+",", ",link_down=1,") {
-			return fmt.Errorf("%s is still connected: %s", k, v)
+		case isolatedKey(kind, k, v):
+			return fmt.Errorf("%s is still configured: %s", k, v)
+		case kind == "vm" && driveKeyRE.MatchString(k) && strings.Contains(v, "media=cdrom") && !strings.HasPrefix(v, "none"):
+			return fmt.Errorf("%s still holds a medium: %s", k, v)
+		}
+	}
+	if kind == "vm" {
+		if k, v := hostDisk(after); k != "" {
+			return fmt.Errorf("%s is a disk on a host device: %s", k, v)
+		}
+	}
+	for _, line := range rawLxcOptions(text).Lines {
+		if hostLxcRE.MatchString(line) {
+			return fmt.Errorf("the raw LXC option %q is still configured", line)
 		}
 	}
 	b.logf("network cut, host devices and hook script removed")
 	return nil
+}
+
+// bridgeIsolated says why the node's boot test bridge is no isolated network ("" when it is):
+// a Linux bridge whose ports are only those of guests (no NIC, bond, VLAN or tunnel).
+func (b *BootTester) bridgeIsolated(bridge string) string {
+	root := b.SysNet
+	if root == "" {
+		root = "/sys/class/net"
+	}
+	if strings.ContainsAny(bridge, "/.") || bridge == "" {
+		return fmt.Sprintf("The boot test bridge %q is no valid interface name (restow-pve config --boot-test-bridge).", bridge)
+	}
+	if _, err := os.Stat(filepath.Join(root, bridge, "bridge")); err != nil {
+		return fmt.Sprintf("The boot test bridge %s is no Linux bridge of this node (restow-pve config --boot-test-bridge); its isolation cannot be verified.", bridge)
+	}
+	ports, err := os.ReadDir(filepath.Join(root, bridge, "brif"))
+	if err != nil {
+		return fmt.Sprintf("The ports of the boot test bridge %s cannot be read (%v); its isolation cannot be verified.", bridge, err)
+	}
+	for _, port := range ports {
+		name := port.Name()
+		if !guestPortRE.MatchString(name) {
+			return fmt.Sprintf("The boot test bridge %s has the port %s (a network card, bond, VLAN or tunnel), so a temporary guest on it could reach a network; use a bridge without ports (bridge-ports none).", bridge, name)
+		}
+	}
+	return ""
 }
 
 func linkDown(v string) string {

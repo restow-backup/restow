@@ -40,10 +40,12 @@ type fakeNode struct {
 	// Behaviour of the next boot.
 	restoreExit    string
 	restoreConfig  map[string]string
-	agentAfter     int  // the guest agent answers from this ping on (0: never)
-	stopAfterPings int  // the guest stops after this many pings (0: never)
-	startFails     bool // `qm start` fails
-	ignoreLinkDown bool // `qm set` does not apply link_down (a broken isolation)
+	agentAfter     int             // the guest agent answers from this ping on (0: never)
+	stopAfterPings int             // the guest stops after this many pings (0: never)
+	startFails     bool            // `qm start` fails
+	startErr       string          // the message of the failed start (default: QEMU exited)
+	keepKeys       map[string]bool // `qm set --delete` does not remove these (a broken isolation)
+	ignoreLinkDown bool            // `qm set` does not apply link_down (a broken isolation)
 	initComm       string
 	destroyFails   bool
 	vzdumpRunning  bool
@@ -126,7 +128,9 @@ func (f *fakeNode) Run(ctx context.Context, name string, args ...string) (string
 			key := strings.TrimPrefix(args[i], "--")
 			if key == "delete" {
 				for _, k := range strings.Split(args[i+1], ",") {
-					delete(g.conf, k)
+					if !f.keepKeys[k] {
+						delete(g.conf, k)
+					}
 				}
 				continue
 			}
@@ -139,6 +143,9 @@ func (f *fakeNode) Run(ctx context.Context, name string, args ...string) (string
 		return "", nil
 	case "start":
 		if f.startFails {
+			if f.startErr != "" {
+				return "", errors.New(f.startErr)
+			}
 			return "", errors.New("start failed: QEMU exited with code 1")
 		}
 		g.status = "running"
@@ -606,6 +613,7 @@ func TestBootTestUsesTheIsolatedBridgeWhenTheNodeNamesOne(t *testing.T) {
 	f.agentAfter = 1
 	b := newTester(t, f)
 	b.State.BootTestBridge = "vmbr99"
+	fakeBridge(t, b, "vmbr99", "tap9000i0", "fwpr9002p0", "veth9003i0")
 	res, err := b.Run(context.Background(), vmParams())
 	if err != nil || res.Outcome != "green" {
 		t.Fatalf("%+v %v", res, err)

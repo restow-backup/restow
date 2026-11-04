@@ -699,8 +699,14 @@ What the guest's node does:
    exceed the job's limit, the node must have that much available plus 1 GiB (`MemAvailable`),
    and the boot test storage must hold the restore point's data plus a tenth and 1 GiB. The
    storage is the node's own choice (`--boot-test-storage`), by default its fleecing storage: a
-   thin, local storage every node with backups has. Otherwise the test is skipped with the
-   reason, which the guest's page shows.
+   thin, local storage every node with backups has. A VM with raw QEMU `args` that do more than
+   tune the CPU, SMBIOS or the clock (`-cpu`, `-smbios`, `-rtc`, `-overcommit`, `-msg`) is not
+   booted (`custom_qemu_args`): such arguments can add a host disk, a host device or a network
+   (`-drive file=/dev/...`, `-device vfio-pci`, `-netdev user`) that no other key shows, and the
+   copy may need them to boot. With `--boot-test-bridge` the bridge must be a Linux bridge whose
+   ports are only those of guests (`tap`, `veth`, `fwpr`); a network card, bond, VLAN or tunnel
+   on it skips the test (`bridge_not_isolated`). Otherwise the test is skipped with the reason,
+   which the guest's page shows.
 3. **Restore** through the normal restore path (the PVE API, a new VMID from the cluster, the
    pool `restow-restore`, no start; the original guest is never touched). A failing restore is
    red; a restore that ends with warnings (`WARNINGS: n`, for example the skipped raw `lxc.*`
@@ -710,14 +716,21 @@ What the guest's node does:
 4. **Isolate before the start.** The temporary guest gets the tag `restow-boottest` and the
    name `restow-boottest-<vmid>`; every NIC `link_down=1` (or the isolated bridge the node
    names with `--boot-test-bridge`; a container loses its interfaces); PCI and USB passthrough,
-   host serial and parallel ports, virtiofs, raw QEMU `args`, a container's device and bind
-   mounts and the hook script are removed; ISO drives are emptied; `onboot 0`, `protection 0`; the QEMU guest agent
-   device is switched on so an installed agent can answer. The configuration is read back; a
-   guest with a NIC still connected is never started.
+   host serial and parallel ports, virtiofs, `ivshmem`, `audio0`, `rng0` (the host's random
+   source), `hugepages`, `keephugepages` and the NUMA binding `numaN` (the running original holds
+   those pages; the copy runs on normal memory), a container's device and bind mounts and the
+   hook script are removed; ISO drives are emptied; `onboot 0`, `protection 0`; the QEMU guest
+   agent device is switched on so an installed agent can answer. The configuration is read
+   back; a guest with a NIC still connected, or with any of these keys (or a raw
+   `lxc.net`, `lxc.mount.entry` or `lxc.hook` line) left, is never started. A restored disk on
+   a host path (`scsi1: /dev/disk/by-id/...`) skips the test (`host_disk`): the copy would open
+   the original's device.
 5. **Boot and wait.** `qm start`, then every five seconds `qm guest cmd <id> ping`: green as
    soon as the agent answers (proof the operating system came up). A VM that stops on its own
    is red; one that keeps running without an answer until the wait is over is yellow
-   ("started, no answer": install the QEMU guest agent for proof). A container is green once
+   ("started, no answer": install the QEMU guest agent for proof). A start that fails because
+   the node cannot allocate the memory (hugepages, a memory backend) is skipped
+   (`node_resources`), not red. A container is green once
    `pct exec <id> -- cat /proc/1/comm` shows its init.
 6. **Destroy in every case**, with proof that the guest is the test's own, and leftovers when
    the service starts and before every boot test: see "Temporary guests of restore tests and
@@ -732,8 +745,9 @@ no new privilege.
 Not part of the test: a check of ports or applications inside the isolated network, a
 screenshot or serial console heuristic, Windows without the guest agent (yellow at best), and
 guests that need passthrough hardware to boot (a VM with PCI or USB passthrough, a device
-mapping, virtiofs or raw `args` is restored as root, and these are removed before its start, so
-a guest that needs them to boot may fail the test).
+mapping or virtiofs is restored as root, and these are removed before its start, so a guest
+that needs them to boot may fail the test), and VMs with raw QEMU `args` beyond CPU, SMBIOS and
+clock tuning (skipped).
 
 ## Security
 

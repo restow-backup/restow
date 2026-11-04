@@ -96,7 +96,7 @@ func TestABootTestOfAVMWithPassthrough(t *testing.T) {
 	if err != nil || res.Outcome != "green" || !res.CleanedUp || f.refusedRoot {
 		t.Fatalf("%+v %v", res, err)
 	}
-	for _, k := range []string{"--delete args,hostpci0,usb0,usb1,virtiofs0", "qm destroy 9001"} {
+	for _, k := range []string{"--delete hostpci0,usb0,usb1,virtiofs0", "qm destroy 9001"} {
 		if !strings.Contains(strings.Join(f.commands, "\n"), k) {
 			t.Fatalf("no %q in %v", k, f.commands)
 		}

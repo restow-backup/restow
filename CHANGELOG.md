@@ -340,6 +340,20 @@ private repository.
   restore left out, the original's host devices, or a container with a static IP whose original
   runs in the cluster ("the original CT 113 runs with 192.168.1.20; change the IP, then start
   it").
+- Proxmox VE: the boot test's isolation left keys in place that reach out of the guest, and
+  trusted the isolated bridge blindly. A VM with raw QEMU `args` (`-netdev user`, `-device
+  vfio-pci`, `-drive file=/dev/disk/by-id/...`) could boot with its own network or open the disk
+  the running original uses; `ivshmem`, `audio0`, `rng0`, `hugepages`, `keephugepages` and the
+  NUMA binding (`numa0: ...,hostnodes=1,policy=bind`) stayed, so a VM with 1 GiB pages beside its
+  running original often failed to start and the restore point read red. The read-back looked
+  at the NICs only. A VM whose `args` do more than tune the CPU, SMBIOS or the clock is now
+  skipped (`custom_qemu_args`) before anything is restored, a restored disk on a host path skips
+  the test (`host_disk`), the other keys are removed before the start, and the read-back fails
+  (the guest is never started) when any removed key, a device or bind mount point or a raw
+  `lxc.net`, `lxc.mount.entry` or `lxc.hook` line is still there. With `--boot-test-bridge` the
+  bridge may have only ports of guests (`tap`, `veth`, `fwpr`); a network card, bond, VLAN or
+  tunnel on it skips the test (`bridge_not_isolated`). A start that fails because the node
+  cannot allocate the memory is skipped (`node_resources`), not red.
 
 ### Upgrade Notes
 

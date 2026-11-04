@@ -172,7 +172,7 @@ that came to an outcome, with `result`:
 | `green` | `agent_answered`, `init_running` | the VM's QEMU guest agent answered `qm guest cmd <id> ping`; a container's `pct exec <id> -- cat /proc/1/comm` answered |
 | `yellow` | `no_guest_agent`, `init_unknown` | the guest started and kept running for `timeoutSeconds`, nothing inside answered |
 | `red` | `restore_failed`, `start_failed`, `guest_stopped` | the restore, the start or the boot failed |
-| `skipped` | `memory_limit`, `node_memory`, `storage_space`, `storage_content`, `no_storage`, `backup_running`, `boot_test_running`, `restores_off`, `boot_tests_off` | the node did not run it; `message` says why |
+| `skipped` | `memory_limit`, `node_memory`, `storage_space`, `storage_content`, `no_storage`, `backup_running`, `boot_test_running`, `restores_off`, `boot_tests_off`; since 0.5.0 also `custom_qemu_args` (raw QEMU `args` beyond `-cpu`, `-smbios`, `-rtc`), `host_disk` (a restored disk on a host path), `bridge_not_isolated` (`--boot-test-bridge` has a port that is no guest's), `node_resources` (the start failed for want of node memory) | the node did not run it, or did not start the copy; `message` says why |
 
 `status: "failed"` means the node could not carry the test out at all (its PVE API failed,
 the temporary guest could not be isolated); the server records the outcome `error`. Green,
