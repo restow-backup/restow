@@ -4,10 +4,10 @@ import {
   hashSecret,
   PVE_BOOT_TEST_CAPABILITY,
   PVE_RESTORE_TEST_EVERY_MS,
-  PVE_RESTORE_TEST_SKIP_RETRY_MS,
   parseArchiveName,
   pveGuestInRestorePool,
   pveNodeDeclares,
+  pveRestoreCheckSkipRetryMs,
 } from "@restow/core";
 import {
   type JobStartPauseState,
@@ -954,7 +954,30 @@ export async function taskResult(
       if (skipped) {
         // The node did not run the check (its target storage is missing, inactive, without the
         // guest's content type or too small; restores are off): not checked, which says nothing
-        // about the restore point. It is planned again after a day.
+        // about the restore point. It is planned again after a day, and after skips for the same
+        // reason in a row after 2, 4, then every 7 days: a cause that stays until an admin acts
+        // does not add a run "Not checked" to the history every day.
+        const before = await tx
+          .select({ stats: pveRuns.stats })
+          .from(pveRuns)
+          .where(
+            and(
+              eq(pveRuns.guestId, run.guestId),
+              eq(pveRuns.kind, "restore_test"),
+              sql`${pveRuns.id} <> ${run.id}`,
+              sql`${pveRuns.status} <> 'running'`,
+            ),
+          )
+          .orderBy(desc(pveRuns.startedAt))
+          .limit(8);
+        let inARow = 1;
+        for (const previous of before) {
+          const reason = (previous.stats as { skipped?: { reason?: unknown } }).skipped?.reason;
+          if (reason !== skipped.reason) {
+            break;
+          }
+          inARow++;
+        }
         await tx
           .update(pveRuns)
           .set({
@@ -968,7 +991,7 @@ export async function taskResult(
           .update(pveGuests)
           .set({
             lastRestoreTestAt: new Date(
-              now.getTime() - PVE_RESTORE_TEST_EVERY_MS + PVE_RESTORE_TEST_SKIP_RETRY_MS,
+              now.getTime() - PVE_RESTORE_TEST_EVERY_MS + pveRestoreCheckSkipRetryMs(inARow),
             ),
           })
           .where(eq(pveGuests.id, run.guestId));

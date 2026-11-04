@@ -895,6 +895,34 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       .where(eq(pveGuests.id, run?.guestId ?? ""));
     const since = at.getTime() - (guest?.lastRestoreTestAt?.getTime() ?? 0);
     expect(Math.round(since / (24 * 60 * 60 * 1000))).toBe(29);
+    // Skipped again for the same reason: 2, 4, then 7 days, not a new "Not checked" every day.
+    for (const waitDays of [2, 4, 7, 7]) {
+      const again = await service.restoreSnapshot(
+        shared.db,
+        fixture.tenantId,
+        first.snapshotId,
+        { targetStorage: "nfs-images", start: false },
+        actor(),
+        { restoreTest: true },
+      );
+      await call(node, "/heartbeat", { json: { helperVersion: "0.5.0", state: "idle" } });
+      const skippedAt = new Date();
+      await json(
+        await call(node, `/tasks/${again.taskId}/result`, {
+          json: {
+            status: "done",
+            result: { skipped: { reason: "storage_content", message: "no rootdir" } },
+          },
+        }),
+        204,
+      );
+      const [row] = await fixture.db
+        .select()
+        .from(pveGuests)
+        .where(eq(pveGuests.id, run?.guestId ?? ""));
+      const back = skippedAt.getTime() - (row?.lastRestoreTestAt?.getTime() ?? 0);
+      expect(Math.round(back / (24 * 60 * 60 * 1000)), `wait ${waitDays}`).toBe(30 - waitDays);
+    }
     // The guest's page says when a job's check cannot run on the node.
     const job = await service.saveJob(
       shared.db,

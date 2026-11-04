@@ -294,7 +294,9 @@ private repository.
   in the last ten minutes, with no restore or boot test waiting and no run going; a guest passed
   over is not counted as checked, and its page says why. A check restow-pve skips because of the
   target storage (missing, inactive, without the guest's content type, too small) reads "Not
-  checked" in grey, neither red nor green, and is tried again after a day.
+  checked" in grey, neither red nor green, and is tried again after a day; skipped again for
+  the same reason, after 2 and 4 days, then weekly, so a storage that stays missing does not
+  add a run "Not checked" to the history every day.
 - Proxmox VE: the list of VMs and containers showed a guest as green "Restore check passed" when
   its newest restore point had passed the read-back but failed its boot test, while Recovery
   readiness showed the same restore point red; the filter "OK" listed it too. The row now rates

@@ -15,6 +15,7 @@ import {
   pveBootTestTransient,
   pveNodeDeclares,
   pveRestoreCheckBlocker,
+  pveRestoreCheckSkipRetryMs,
   pveRestorePointPrivileged,
   pveRestorePointRating,
 } from "./boot-test.js";
@@ -311,5 +312,15 @@ describe("what a boot test's reason stands for", () => {
     expect(pveBootTestTransient({ outcome: "skipped", reason: "node_resources" })).toBe(true);
     expect(pveBootTestTransient({ outcome: "skipped", reason: "custom_qemu_args" })).toBe(false);
     expect(pveBootTestTransient({ outcome: "error", reason: "io_error" })).toBe(true);
+  });
+});
+
+describe("the wait after a skipped restore check", () => {
+  it("is a day, then doubles for the same reason in a row, at most a week", () => {
+    const day = 24 * 60 * 60 * 1000;
+    expect([1, 2, 3, 4, 5, 9].map((n) => pveRestoreCheckSkipRetryMs(n) / day)).toEqual([
+      1, 2, 4, 7, 7, 7,
+    ]);
+    expect(pveRestoreCheckSkipRetryMs(0)).toBe(day);
   });
 });

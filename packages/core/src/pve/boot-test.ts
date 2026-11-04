@@ -26,6 +26,23 @@ export const BOOT_TEST_WEEKLY_MS = 7 * 24 * 60 * 60 * 1000;
 export const PVE_RESTORE_TEST_EVERY_MS = 30 * 24 * 60 * 60 * 1000;
 /** A restore check the node could not carry out (skipped, with its reason) is tried again after. */
 export const PVE_RESTORE_TEST_SKIP_RETRY_MS = 24 * 60 * 60 * 1000;
+/** The longest wait after skips for the same reason in a row (a week). */
+export const PVE_RESTORE_TEST_SKIP_RETRY_MAX_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How long a skipped restore check waits before it is tried again: a day after the first skip,
+ * then doubling while the node skips it for the same reason (1, 2, 4, then every 7 days). A
+ * target storage that is missing stays missing until an admin acts, and each try writes a run
+ * "Not checked" into the guest's history. `inARow` counts this skip and the ones for the same
+ * reason right before it.
+ */
+export function pveRestoreCheckSkipRetryMs(inARow: number): number {
+  const n = Math.max(1, Math.floor(inARow));
+  return Math.min(
+    PVE_RESTORE_TEST_SKIP_RETRY_MS * 2 ** (n - 1),
+    PVE_RESTORE_TEST_SKIP_RETRY_MAX_MS,
+  );
+}
 /** A node silent for longer than this gets no new restore check or boot test. */
 export const PVE_NODE_SEEN_FOR_CHECKS_MS = 10 * 60 * 1000;
 

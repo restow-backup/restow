@@ -286,7 +286,9 @@ unique per installation).
   VM, `rootdir` for a container: a VM-only NFS storage cannot take a container)
   or lacks the space, it skips the check with the reason. The run then reads
   "Not checked: ..." (grey, neither red nor green: it says nothing about the
-  restore point), and the guest is tried again after a day. A job over VMs and
+  restore point), and the guest is tried again after a day; after further skips
+  for the same reason in a row after 2 and 4 days, then every 7 days, until the
+  check runs or the reason changes. A job over VMs and
   containers needs a target storage that takes both.
   Such a restore check is green only when the restore ran to
   `OK`, the temporary guest is gone again and nothing was left out. It is amber
