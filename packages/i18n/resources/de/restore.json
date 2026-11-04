@@ -32,6 +32,19 @@
       },
       "noBackup": "Noch keine Sicherung"
     },
+    "memberships": {
+      "title": "Teams & Websites",
+      "label": "Teams und Websites dieser Person",
+      "loadError": "Die Teams und Websites dieser Person konnten nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "empty": "Für diese Person sind keine Teams oder Websites bekannt. Der Verzeichnisabgleich liest sie aus den Inhabern und Mitgliedern der Microsoft-365-Gruppen.",
+      "open": "Sicherungsstände von {name} öffnen",
+      "more": "{count, plural, one {# weitere anzeigen} other {# weitere anzeigen}}",
+      "roles": {
+        "owner": "Inhaber",
+        "member": "Mitglied"
+      }
+    },
     "deleted": "In der Quelle gelöscht",
     "deletedShort": "Gelöscht",
     "empty": "Dieser Ordner ist zu diesem Sicherungsstand leer.",

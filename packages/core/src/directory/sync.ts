@@ -20,7 +20,11 @@
  * Microsoft 365 groups (their group mailboxes, kind `group`) come from a
  * second delta stream, `groups/delta`, read when the host asks for it and
  * planned apart like the sites (./group-mailboxes.ts); its delta link is
- * committed with the rows as well.
+ * committed with the rows as well. After that commit the run reads who owns and who is a member
+ * of each Microsoft 365 group (./memberships.ts) and hands it to the repository chunk by chunk:
+ * every group on a full enumeration and on the first run that does it, otherwise the groups the
+ * delta reported (membership changes alone do not wake the groups delta, so they show up with the
+ * next full enumeration, at least every 24 hours).
  *
  * Nothing here depends on Postgres: the worker implements the repository over
  * Drizzle, tests use {@link MemoryDirectoryRepository} and the fake Graph.
@@ -52,6 +56,13 @@ import {
   planGroupMailboxes,
 } from "./group-mailboxes.js";
 import { isLockedAnswer, type LockState, type LockTarget, recheckLocked } from "./locks.js";
+import {
+  type GroupMembership,
+  MEMBERSHIP_CHUNK,
+  type MembershipFailure,
+  membershipRoles,
+  readGroupMemberships,
+} from "./memberships.js";
 import {
   type DirectoryObjectKind,
   type DirectoryPlan,
@@ -99,6 +110,11 @@ export interface DirectorySnapshot {
   readonly knownGroups?: readonly KnownGroupMailbox[];
   /** Delta link of the groups stream; null or absent before the first group run. */
   readonly groupsDeltaLink?: string | null;
+  /**
+   * When the last run read the membership of every group; null or absent before the first
+   * one, which then reads all of them even when the groups delta is incremental.
+   */
+  readonly membershipsSyncedAt?: string | null;
 }
 
 /** Everything one run writes, in one transaction. */
@@ -132,6 +148,14 @@ export interface DirectoryRepository {
    * version no longer equals `expectedVersion`.
    */
   commit(commit: DirectoryCommit, expectedVersion: string): Promise<void>;
+  /**
+   * Replace the stored membership of each group of the chunk (and of its group-connected site,
+   * when `siteId` names one the source has): a person who is no longer listed loses the row.
+   * Absent: the host keeps no memberships and the run reads none.
+   */
+  writeMemberships?(memberships: readonly GroupMembership[]): Promise<void>;
+  /** Record that a run read the membership of every group, at `at` (see the snapshot). */
+  markMembershipsSynced?(at: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +176,12 @@ export type SyncWarning =
   | (GraphFailure & { readonly kind: "sites_unavailable" })
   /** The tenant's Microsoft 365 groups could not be read (mostly: no `Group.Read.All` consent). */
   | (GraphFailure & { readonly kind: "groups_unavailable" })
+  /**
+   * The owners or members of `groups` Microsoft 365 groups could not be read (status and message
+   * of the first); their stored memberships stay as they are. 401/403: the tenant has not granted
+   * Group.Read.All (or GroupMember.Read.All).
+   */
+  | (GraphFailure & { readonly kind: "memberships_unavailable"; readonly groups: number })
   | (GraphFailure & {
       /**
        * `lock_probe_failed`: a OneDrive or site known as locked (./locks.ts) could not be checked
@@ -199,6 +229,8 @@ export interface DirectorySyncResult {
   readonly sitesDiscovered: number | null;
   /** Microsoft 365 groups the groups delta reported; null when not read or not readable. */
   readonly groupsDiscovered: number | null;
+  /** Groups whose membership the run read and stored; null when it read none (or could not). */
+  readonly membershipsRead: number | null;
 }
 
 export interface DirectorySyncOptions {
@@ -216,6 +248,11 @@ export interface DirectorySyncOptions {
    * `group` objects (./group-mailboxes.ts). Off unless the host asks for it.
    */
   readonly groups?: boolean;
+  /**
+   * Also read the owners and members of the Microsoft 365 groups (./memberships.ts) and hand
+   * them to the repository's `writeMemberships`. Needs `groups`. Off unless the host asks for it.
+   */
+  readonly memberships?: boolean;
   readonly logger?: Logger;
   readonly progress?: ProgressReporter;
   readonly signal?: AbortSignal;
@@ -594,7 +631,8 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
     if (
       warning.kind !== "group_unresolved" &&
       warning.kind !== "sites_unavailable" &&
-      warning.kind !== "groups_unavailable"
+      warning.kind !== "groups_unavailable" &&
+      warning.kind !== "memberships_unavailable"
     ) {
       progress?.fail(warning.user ?? warning.userId, `${warning.kind}: ${warning.message}`);
     }
@@ -744,12 +782,32 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
   }
   progress?.advance(users.length);
 
+  const membershipsRead =
+    options.memberships === true && groupDiscovery && groupPlan
+      ? await syncMemberships({
+          client: options.client,
+          repository: options.repository,
+          discovery: groupDiscovery,
+          known: snapshot.knownGroups ?? [],
+          orphaned: groupPlan.orphanExternalIds,
+          complete:
+            options.full === true ||
+            groupDiscovery.mode !== "incremental" ||
+            !snapshot.membershipsSyncedAt,
+          startedAt,
+          warn,
+          progress,
+          signal,
+        })
+      : null;
+
   logger.info("directory sync finished", {
     mode: delta.mode,
     pages: delta.pages,
     ...plan.counts,
     sites: sitePlan?.discovered ?? undefined,
     groups: groupPlan?.discovered ?? undefined,
+    memberships: membershipsRead ?? undefined,
     warnings: warnings.length,
   });
   return {
@@ -769,7 +827,78 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
     ),
     sitesDiscovered: sitePlan?.discovered ?? null,
     groupsDiscovered: groupPlan?.discovered ?? null,
+    membershipsRead,
   };
+}
+
+/**
+ * Read and store the membership of the source's Microsoft 365 groups, after the groups
+ * themselves are committed (a new group's object exists by then). `complete` reads every
+ * current group, otherwise only those the delta reported. One chunk of groups is read and
+ * written at a time; a group Graph refuses keeps its rows and is counted into one warning.
+ * Returns the number of groups stored, or null when the repository keeps no memberships.
+ */
+async function syncMemberships(input: {
+  readonly client: GraphClient;
+  readonly repository: DirectoryRepository;
+  readonly discovery: GroupDiscovery;
+  readonly known: readonly KnownGroupMailbox[];
+  readonly orphaned: readonly string[];
+  readonly complete: boolean;
+  readonly startedAt: string;
+  readonly warn: (warning: SyncWarning) => void;
+  readonly progress: ProgressReporter | undefined;
+  readonly signal: AbortSignal | undefined;
+}): Promise<number | null> {
+  const write = input.repository.writeMemberships?.bind(input.repository);
+  if (!write) {
+    return null;
+  }
+  const ids = new Set(input.discovery.groups.map((group) => group.id));
+  if (input.complete) {
+    const gone = new Set([...input.orphaned, ...input.discovery.removedIds]);
+    for (const group of input.known) {
+      if (group.origin === "directory_sync" && group.status !== "orphaned") {
+        if (!gone.has(group.externalId)) {
+          ids.add(group.externalId);
+        }
+      }
+    }
+  }
+  if (ids.size === 0 && !input.complete) {
+    return 0;
+  }
+  input.progress?.phase("memberships");
+  const all = [...ids];
+  let stored = 0;
+  const failures: MembershipFailure[] = [];
+  for (let start = 0; start < all.length; start += MEMBERSHIP_CHUNK) {
+    throwIfAborted(input.signal);
+    const chunk = await readGroupMemberships(
+      input.client,
+      all.slice(start, start + MEMBERSHIP_CHUNK),
+    );
+    failures.push(...chunk.failed);
+    if (chunk.read.length > 0) {
+      throwIfAborted(input.signal);
+      await write(chunk.read);
+      stored += chunk.read.length;
+    }
+  }
+  const first = failures[0];
+  if (first) {
+    input.warn({
+      kind: "memberships_unavailable",
+      groups: failures.length,
+      status: first.status,
+      code: first.code,
+      message: first.message,
+    });
+  }
+  if (input.complete) {
+    await input.repository.markMembershipsSynced?.(input.startedAt);
+  }
+  return stored;
 }
 
 // ---------------------------------------------------------------------------
@@ -783,6 +912,11 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
   readonly sites = new Map<string, KnownSite>();
   readonly groups = new Map<string, KnownGroupMailbox>();
   groupsDeltaLink: string | null = null;
+  /** Per object external id (a group, or its site): Entra user id -> role. */
+  readonly memberships = new Map<string, Map<string, "owner" | "member">>();
+  membershipsSyncedAt: string | null = null;
+  /** The groups of every {@link writeMemberships} call, in order. */
+  readonly membershipWrites: string[][] = [];
   readonly commits: DirectoryCommit[] = [];
   deltaLink: string | null = null;
   lastFullSyncAt: string | null = null;
@@ -809,7 +943,23 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
       knownSites: [...this.sites.values()],
       knownGroups: [...this.groups.values()],
       groupsDeltaLink: this.groupsDeltaLink,
+      membershipsSyncedAt: this.membershipsSyncedAt,
     };
+  }
+
+  async writeMemberships(memberships: readonly GroupMembership[]): Promise<void> {
+    this.membershipWrites.push(memberships.map((membership) => membership.groupId));
+    for (const membership of memberships) {
+      const roles = membershipRoles(membership);
+      this.memberships.set(membership.groupId, roles);
+      if (membership.siteId && this.sites.has(membership.siteId)) {
+        this.memberships.set(membership.siteId, new Map(roles));
+      }
+    }
+  }
+
+  async markMembershipsSynced(at: string): Promise<void> {
+    this.membershipsSyncedAt = at;
   }
 
   async commit(commit: DirectoryCommit, expectedVersion: string): Promise<void> {

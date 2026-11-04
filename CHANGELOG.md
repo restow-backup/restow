@@ -124,6 +124,43 @@ private repository.
   some hundred mutated signatures, the signature fixtures, and a full installation against a
   test instance.
 
+- Restore explorer: a person's entry has a new area "Teams & sites" (#89) under Mail, Calendar,
+  Contacts and OneDrive. It lists the SharePoint sites and Microsoft 365 group mailboxes (Teams
+  included) the person owns or belongs to, owned ones first, each with the role (Owner or Member,
+  neutral, never green), its kind, its newest restore point, and "No backup yet" or "Removed"
+  where that applies. A click opens the site or group mailbox on its own restore points; it stays
+  listed under "SharePoint & Teams" as well, and a restore started from here follows exactly the
+  rules of that section. The area is shown to restore operators and administrators only, like
+  sites and group mailboxes everywhere else. Listed are objects that are protected or have a
+  restore point; a group nobody chose to back up that never was has nothing to restore. The list
+  comes from the api a page at a time (25 per page, "Show N more"), so a person in hundreds of
+  Teams does not load them all at once.
+- The directory sync stores who belongs to which Microsoft 365 group in the new table
+  `directory_memberships` (migration 0074, Row Level Security like the other tenant tables): the
+  owners (`/groups/{id}/owners`) and direct members (`/groups/{id}/members`) of every group,
+  users only, ids only, 999 per page and the rest on the next links, together with the group's
+  site (`/groups/{id}/sites/root`), three reads per group sent through `$batch` (throttled
+  answers waited out with Retry-After like every other Graph call). A group-connected site gets
+  the same rows as its group; someone listed as owner and member is an owner. A group that is
+  read again has its rows replaced: a person who left loses the row, a changed role is updated.
+  Every group is read on a full sync (at least every 24 hours) and on the first run with this
+  version; in between only the groups the groups delta reports, because a changed membership
+  alone does not show up in it. Rows of a group or site deleted at the source stay as last known,
+  next to its restore points, and go with the object or the person. Communication sites without
+  a group have none: Graph v1.0 does not expose their SharePoint groups.
+- No new permission: `Group.Read.All`, which the app has always required, covers owners and
+  members, and `Sites.Read.All` (or `Sites.ReadWrite.All`) the group's site. When Graph refuses
+  the membership (403 without the consent) or keeps throttling a group past the retries, the sync
+  does not fail: the stored rows stay, and the source shows one warning naming how many groups
+  could not be read ("Owners and members of the Microsoft 365 groups are not read: the tenant has
+  not granted Group.Read.All …"). A site Graph does not name keeps its rows.
+- The api answers `GET /api/v1/snapshots/people/memberships?key=user:<id>&after=&limit=`: one
+  page of a person's group mailboxes and sites with the role and each object as the explorer's
+  other lists return it (restore points, readiness, status), owned first, then by name, with a
+  keyset cursor. One query reads the page over the index on `(user_id, protected_object_id)`,
+  however many groups the tenant has, and one more loads its objects; for a viewer who does not
+  see sites the answer is an empty list.
+
 ### Changed
 
 - The storage growth chart of the start page and the capacity page share one module for what
@@ -215,8 +252,11 @@ private repository.
 
 ### Upgrade Notes
 
-One database migration runs on start: 0073 creates the new table `storage_samples` and rewrites
-nothing. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the fingerprint
+Two database migrations run on start: 0073 creates the new table `storage_samples` and 0074 the
+new table `directory_memberships`; neither rewrites anything. The first directory sync after the
+update reads the owners and members of every Microsoft 365 group once (three Graph reads per
+group, through `$batch`); until it has run, a person's "Teams & sites" is empty. Agents before
+0.5.0 ignore `snapshotOnFailure`, and the release key keeps the fingerprint
 `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
 
 ### Known Issues

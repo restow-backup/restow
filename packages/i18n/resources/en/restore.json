@@ -32,6 +32,19 @@
       },
       "noBackup": "No backup yet"
     },
+    "memberships": {
+      "title": "Teams & sites",
+      "label": "This person's Teams and sites",
+      "loadError": "The Teams and sites of this person could not be loaded.",
+      "retry": "Retry",
+      "empty": "No Teams or sites are known for this person. The directory sync reads them from the owners and members of the Microsoft 365 groups.",
+      "open": "Open the restore points of {name}",
+      "more": "{count, plural, one {Show # more} other {Show # more}}",
+      "roles": {
+        "owner": "Owner",
+        "member": "Member"
+      }
+    },
     "deleted": "Deleted in source",
     "deletedShort": "Deleted",
     "empty": "This folder is empty at this restore point.",

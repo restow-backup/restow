@@ -64,12 +64,22 @@ export interface DirectoryLastRun {
    * stored before group mailboxes existed.
    */
   readonly groupsDiscovered?: number | null;
+  /**
+   * Microsoft 365 groups whose owners and members the run read (#89); null when it read none,
+   * absent in runs stored before memberships existed.
+   */
+  readonly membershipsRead?: number | null;
 }
 
 export interface DirectoryState {
   readonly deltaLink: string | null;
   /** Delta link of the `groups/delta` stream (group mailboxes); null before the first run. */
   readonly groupsDeltaLink: string | null;
+  /**
+   * Start of the last run that read the owners and members of every Microsoft 365 group (#89);
+   * null before the first, which reads them all even between full enumerations.
+   */
+  readonly membershipsSyncedAt: string | null;
   /** Start of the last run that enumerated the whole directory. */
   readonly lastFullSyncAt: string | null;
   /** When an admin last asked for a full enumeration. */
@@ -82,6 +92,7 @@ export interface DirectoryState {
 export const EMPTY_DIRECTORY_STATE: DirectoryState = {
   deltaLink: null,
   groupsDeltaLink: null,
+  membershipsSyncedAt: null,
   lastFullSyncAt: null,
   fullSyncRequestedAt: null,
   sharedOrBlockedIds: [],
@@ -242,6 +253,7 @@ export function readDirectoryState(config: unknown): DirectoryState {
   return {
     deltaLink: asString(directory.deltaLink),
     groupsDeltaLink: asString(directory.groupsDeltaLink),
+    membershipsSyncedAt: asString(directory.membershipsSyncedAt),
     lastFullSyncAt: asString(directory.lastFullSyncAt),
     fullSyncRequestedAt: asString(directory.fullSyncRequestedAt),
     sharedOrBlockedIds: asStringList(directory.sharedOrBlockedIds),
@@ -257,6 +269,7 @@ export function writeDirectoryState(config: unknown, state: DirectoryState): Sou
     directory: {
       deltaLink: state.deltaLink,
       groupsDeltaLink: state.groupsDeltaLink,
+      membershipsSyncedAt: state.membershipsSyncedAt,
       lastFullSyncAt: state.lastFullSyncAt,
       fullSyncRequestedAt: state.fullSyncRequestedAt,
       sharedOrBlockedIds: [...state.sharedOrBlockedIds],

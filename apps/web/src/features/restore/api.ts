@@ -102,6 +102,38 @@ export function fetchPeople(params: {
   );
 }
 
+/** A group mailbox or site of a person's "Teams & sites" (#89), with their role in it. */
+export interface PersonMembership {
+  role: "owner" | "member";
+  /** The site or group mailbox with its restore points, as its own entry lists it. */
+  object: SnapshotObject;
+}
+
+export interface PersonMembershipsPage {
+  key: string;
+  items: PersonMembership[];
+  total: number;
+  /** The cursor of the next page; null on the last one. */
+  next: string | null;
+}
+
+/** The page size of a person's Teams and sites. */
+export const MEMBERSHIPS_PAGE_SIZE = 25;
+
+/** One page of the group mailboxes and sites a person (`user:<id>`) owns or belongs to. */
+export function fetchPersonMemberships(params: {
+  key: string;
+  after?: string | null;
+}): Promise<PersonMembershipsPage> {
+  return apiFetch<PersonMembershipsPage>(
+    `/snapshots/people/memberships${queryString({
+      key: params.key,
+      after: params.after ?? undefined,
+      limit: MEMBERSHIPS_PAGE_SIZE,
+    })}`,
+  );
+}
+
 export interface Snapshot {
   id: string;
   objectId: string;
@@ -489,6 +521,8 @@ export const restoreKeys = {
     ["tenant", tenantId, "restore", "people", section, q, kind] as const,
   personOf: (tenantId: TenantKey, objectId: string | null) =>
     ["tenant", tenantId, "restore", "person-of", objectId] as const,
+  memberships: (tenantId: TenantKey, key: string | null) =>
+    ["tenant", tenantId, "restore", "memberships", key] as const,
   snapshots: (tenantId: TenantKey, objectId: string | null) =>
     ["tenant", tenantId, "restore", "snapshots", objectId] as const,
   tree: (tenantId: TenantKey, snapshotId: string | null, path: string, sort: TreeSort) =>
