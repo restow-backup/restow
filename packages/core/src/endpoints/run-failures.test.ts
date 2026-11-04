@@ -94,6 +94,23 @@ describe("explaining the agent's run errors", () => {
     const unavailable = classifyRunError({ code: "snapshot_unavailable", message: "VSS error" });
     expect(unavailable.code).toBe("endpoint.snapshot_unavailable");
     expect(unavailable.transient).toBe(false);
+    // A machine-wide VSS failure (the service disabled, access denied) is fixed on the machine,
+    // not by waiting: the step is the service check, never "wait for the next run".
+    const steps = catalogEntry("endpoint.snapshot_unavailable")
+      ?.steps({})
+      .map((s) => s.id);
+    expect(steps).toContain("check_endpoint_snapshot_service");
+    expect(steps).not.toContain("wait_endpoint_retry");
+    expect(
+      failureOfRun([
+        { code: "snapshot_failed", path: "D:\\", message: "VSS_E_SNAPSHOT_SET_IN_PROGRESS" },
+        {
+          code: "snapshot_unavailable",
+          message:
+            "The file system snapshot (Volume Shadow Copy) cannot be used on this machine: the Volume Shadow Copy service (VSS) is disabled (C:\\: VSS error: UNKNOWN (0x80070422)).",
+        },
+      ]),
+    ).toMatchObject({ code: "endpoint.snapshot_unavailable", transient: false });
     // "No snapshot at all" decides before the files restic could not read.
     expect(
       failureOfRun([
