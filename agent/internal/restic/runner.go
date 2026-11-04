@@ -212,7 +212,13 @@ func (r *Runner) exec(ctx context.Context, spec execSpec) (*execResult, error) {
 		case errors.As(waitErr, &ee), errors.Is(waitErr, exec.ErrWaitDelay):
 			// Exit code taken from ProcessState above.
 		case ctx.Err() != nil:
-			res.ExitCode = exitKilledBySignal
+			// Go reports a cancelled command as the context's error even when
+			// it went on to exit by itself (restic finished before the
+			// interrupt took effect): its own exit code stays, so a caller can
+			// see what it really did. Without one it was killed.
+			if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+				res.ExitCode = exitKilledBySignal
+			}
 		default:
 			return res, waitErr
 		}

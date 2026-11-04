@@ -177,6 +177,11 @@ export function RunDetailView({
             <code className="font-mono text-xs" title={run.snapshotId}>
               {run.snapshotId.slice(0, 8)}
             </code>
+            {run.status === "failed" ? (
+              <span className="block text-xs text-muted-foreground">
+                {t("runs.facts.snapshotOfFailedRun")}
+              </span>
+            ) : null}
           </Fact>
         ) : null}
         {stats ? (

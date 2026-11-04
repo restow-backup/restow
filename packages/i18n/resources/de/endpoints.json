@@ -583,6 +583,7 @@
       "notFinished": "Läuft noch",
       "duration": "Dauer",
       "snapshot": "Snapshot",
+      "snapshotOfFailedRun": "Vor dem Abbruch des Laufs gespeichert. Er zählt nicht als erfolgreiche Sicherung; warum, steht in den Fehlern unten.",
       "filesProcessed": "Verarbeitete Dateien",
       "bytesProcessed": "Verarbeitete Daten",
       "filesNew": "Neue Dateien",

@@ -60,6 +60,16 @@ describe("RunDetailView", () => {
     expect(html).toContain("Secrets are never part of it.");
   });
 
+  it("says that the snapshot of a failed run does not count as a backup", () => {
+    const failed = render_(run({ status: "failed" }));
+    expect(failed).toContain("01234567");
+    expect(failed).toContain("It does not count as a successful backup");
+    expect(render_(run())).not.toContain("It does not count as a successful backup");
+    expect(render_(run({ status: "partial" }))).not.toContain(
+      "It does not count as a successful backup",
+    );
+  });
+
   it("says how consistent the files are: shadow copy, partly without, without", () => {
     const base = run().stats ?? {};
     const used = render_(

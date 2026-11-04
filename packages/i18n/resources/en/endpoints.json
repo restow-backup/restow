@@ -583,6 +583,7 @@
       "notFinished": "Still running",
       "duration": "Duration",
       "snapshot": "Snapshot",
+      "snapshotOfFailedRun": "Saved before the run was stopped. It does not count as a successful backup; the errors below say why.",
       "filesProcessed": "Files processed",
       "bytesProcessed": "Data processed",
       "filesNew": "New files",

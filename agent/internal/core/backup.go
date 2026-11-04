@@ -349,26 +349,46 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	logSnapshotOutcome(rl, snap)
 
 	if err != nil || context.Cause(sctx) == errSnapshotFailed {
+		// restic may have saved its snapshot before the stop took effect: it is
+		// in the repository whatever this run says, so it is reported with
+		// the run (keptSnapshot); unreported, the server would flag it as a
+		// snapshot no backup made.
+		kept := ""
+		if res != nil && res.SnapshotID != "" {
+			kept = res.SnapshotID
+		}
 		switch {
 		case rc.ctx.Err() != nil:
 			rc.stoppedOutcome(&out)
+			if kept != "" && out.Cancelled {
+				out.Errors[len(out.Errors)-1].Message = fmt.Sprintf("The backup was cancelled in Restow after restic had saved snapshot %s; it stays in the repository. The next scheduled run starts as usual.", shortID(kept))
+			}
 			rl.Warnf("The backup was interrupted; it resumes when the agent starts again.")
+			a.keptSnapshot(rl, &out, res, snap, "", plan, false)
 		case timedOut():
-			out.Errors = append(out.Errors, api.RunError{Code: "timeout",
-				Message: fmt.Sprintf("The backup did not finish within %s and was stopped. Check the network connection and the size of the backup set.", maxRunTime)})
-			rl.Errorf("%s", out.Errors[len(out.Errors)-1].Message)
+			msg := fmt.Sprintf("The backup did not finish within %s and was stopped. Check the network connection and the size of the backup set.", maxRunTime)
+			if kept != "" {
+				msg = fmt.Sprintf("The backup did not finish within %s and was stopped after restic had saved snapshot %s; it stays in the repository. Check the network connection and the size of the backup set.", maxRunTime, shortID(kept))
+			}
+			out.Errors = append(out.Errors, api.RunError{Code: "timeout", Message: msg})
+			rl.Errorf("%s", msg)
+			a.keptSnapshot(rl, &out, res, snap, "", plan, false)
 		case context.Cause(sctx) == errSnapshotFailed:
-			// Stopped under the policy fail. Should restic have finished first,
-			// its snapshot is reported with the failed run.
+			// Stopped under the policy fail. Should restic have saved its
+			// snapshot first, it is reported with the failed run and said
+			// to hold the volumes read live.
 			out.Status = api.StatusFailed
 			failed, machineWide := snapshotFailedErrors(snap, true)
+			if kept != "" {
+				for i := range failed {
+					failed[i].Message += fmt.Sprintf(" restic had already saved snapshot %s before it stopped, with these files read from the live file system: it stays in the repository and is reported with this failed run, but it is no backup the policy accepts.", shortID(kept))
+				}
+			}
 			out.Errors = append(out.Errors, failed...)
 			out.Errors = append(out.Errors, snapshotCleanupErrors(snap)...)
 			out.Consistency = consistencyOf(plan, snap, machineWide)
-			if err == nil && res != nil {
-				out.SnapshotID = res.SnapshotID
-			}
 			rl.Errorf("The backup was stopped because a shadow copy failed (policy for a failed file system snapshot: stop the backup).")
+			a.keptSnapshot(rl, &out, res, snap, "the policy for a failed file system snapshot does not accept it as a backup", plan, true)
 		case errors.As(err, &re):
 			msg := re.Error()
 			if hint := re.Hint(); hint != "" {
@@ -442,4 +462,30 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 		out.Activity = a.collectActivity(rc, res.SnapshotID, sources)
 	}
 	return out
+}
+
+// keptSnapshot reports the snapshot restic saved before a backup was stopped
+// (interrupted, timed out, stopped under the snapshot policy fail) with the
+// failed run: its id, its figures and, when the stop was the snapshot
+// policy's, its consistency is already set. Nothing is reported when restic
+// saved none. why says why it does not count, "" when only the run did not
+// end as planned.
+func (a *Agent) keptSnapshot(rl runLogger, out *runOutcome, res *restic.BackupResult, snap restic.SnapshotOutcome, why string, plan snapshotPlan, consistencySet bool) {
+	if res == nil || res.SnapshotID == "" {
+		return
+	}
+	s := res.Summary
+	out.SnapshotID = res.SnapshotID
+	out.Stats = &api.Stats{
+		FilesNew: s.FilesNew, FilesChanged: s.FilesChanged, FilesUnmodified: s.FilesUnmodified, DataAdded: s.DataAdded,
+		DataAddedPacked: s.DataAddedPacked, TotalFilesProcessed: s.TotalFilesProcessed, TotalBytesProcessed: s.TotalBytesProcessed,
+	}
+	if !consistencySet && plan.requested {
+		out.Consistency = consistencyOf(plan, snap, false)
+	}
+	if why != "" {
+		rl.Warnf("restic had already saved snapshot %s before it was stopped; it stays in the repository and is reported with this failed run: %s.", shortID(res.SnapshotID), why)
+		return
+	}
+	rl.Warnf("restic had already saved snapshot %s before it was stopped; it stays in the repository and is reported with this run.", shortID(res.SnapshotID))
 }

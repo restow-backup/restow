@@ -89,6 +89,17 @@ backup)
       pid=$!
       wait
     fi ;;
+  vss-failed-finished)
+    # restic had saved its snapshot when the agent's interrupt after the VSS
+    # error line arrived: it writes the summary and exits 0 (K104).
+    if [ -n "$vss" ]; then
+      finish() { kill $pid 2>/dev/null; echo '{"message_type":"summary","files_new":2,"files_changed":1,"files_unmodified":0,"data_added":4096,"total_files_processed":3,"total_bytes_processed":300,"snapshot_id":"dddd000000000000000000000000000000000000000000000000000000000000"}'; exit 0; }
+      trap finish INT
+      printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: timeout"},"during":"archival","item":"c:\\"}' >&2
+      sleep 30 &
+      pid=$!
+      wait
+    fi ;;
   vss-unusable)
     if [ -n "$vss" ]; then
       printf '%s\n' '{"message_type":"exit_error","code":1,"message":"Fatal: VSS error: CoInitializeSecurity failed: E_ACCESSDENIED"}' >&2

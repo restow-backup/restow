@@ -379,6 +379,14 @@ private repository.
   restic made such a folder's shadow copy but cannot use it ("VSS error:
   GetSnapshotProperties() for mount point ..."), the run ends partial with `snapshot_failed` for
   that folder instead of green with a file error beside it.
+- Windows agent (preview): under the policy "stop the backup" for a failed shadow copy, a restic
+  that had already saved its snapshot when the agent stopped it (a small backup set) left that
+  snapshot, with files read from the live file system, in the repository without the failed run
+  naming it; the server then flagged it as "Not reported by any backup" and retention never
+  removed it. The same held for a snapshot saved just before an interruption or the time limit.
+  The failed run now reports the snapshot with its figures, its error says that the snapshot
+  stays in the repository but is no backup the policy accepts, and the run details say so beside
+  the snapshot of a failed run.
 - Windows agent (preview): the installer stopped only when Smart App Control was on, and
   installed without a word when it was in evaluation mode, which a freshly installed Windows 11
   starts in. Windows may switch Smart App Control on later by itself; it then blocks the unsigned

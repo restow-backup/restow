@@ -92,6 +92,34 @@ func TestSnapshotFailedStopsUnderFail(t *testing.T) {
 	}
 }
 
+// Under the policy fail restic may have saved its snapshot (live-read
+// volumes and all) before the interrupt took effect: the failed run reports
+// it, so it is no unrecorded snapshot in the repository, and says that the
+// policy does not accept it (K104).
+func TestSnapshotSavedBeforeTheStopIsReported(t *testing.T) {
+	withVSS(t, vssPlan)
+	fin, h := backupWithPolicy(t, "vss-failed-finished", api.SnapshotOnFailureFail)
+	if fin.Status != api.StatusFailed || fin.SnapshotID != "dddd000000000000000000000000000000000000000000000000000000000000" {
+		t.Fatalf("status %s snapshot %q", fin.Status, fin.SnapshotID)
+	}
+	if codes(fin.Errors) != "snapshot_failed" || !strings.Contains(fin.Errors[0].Message, "stopped") ||
+		!strings.Contains(fin.Errors[0].Message, "already saved snapshot dddd0000") || !strings.Contains(fin.Errors[0].Message, "no backup the policy accepts") {
+		t.Fatalf("errors %+v", fin.Errors)
+	}
+	if fin.Stats == nil || fin.Stats.TotalFilesProcessed != 3 || fin.Stats.DataAdded != 4096 {
+		t.Fatalf("stats %+v", fin.Stats)
+	}
+	if c := fin.Consistency; c == nil || c.State != "partial" || len(c.LiveFilesystems) != 1 || c.LiveFilesystems[0] != `C:\` {
+		t.Fatalf("consistency %+v", fin.Consistency)
+	}
+	if !strings.Contains(fin.LogTail, "does not accept it as a backup") {
+		t.Fatalf("log:\n%s", fin.LogTail)
+	}
+	if st := h.statusAfterRun(); st.Interrupted {
+		t.Fatal("a stop under the policy is no interruption")
+	}
+}
+
 // The Volume Shadow Copy service is disabled: restic reports every volume
 // and ends with exit 0. The run carries one permanent snapshot_unavailable
 // that names the service, not a transient snapshot_failed per volume (K103).
