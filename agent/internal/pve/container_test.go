@@ -63,6 +63,64 @@ func TestContainerBackupLeavesOutLostAndFoundOfEveryFileSystem(t *testing.T) {
 	}
 }
 
+// In suspend and stop mode PVE passes "." only, with every backup=1 mount point copied or
+// mounted below it: their lost+found (host root, 0700) must be left out as well, or every backup
+// of an unprivileged container with an ext4 mount point ends incomplete.
+func TestContainerBackupLeavesOutLostAndFoundOfMountPointsInSuspendMode(t *testing.T) {
+	p, req, _, _ := fakeContainerBackup(t, ctSummary, "", 0)
+	req.Info.Sources = []string{"."}
+	req.GuestConfig = "arch: amd64\nrootfs: local-lvm:vm-105-disk-0,size=8G\n" +
+		"mp0: local-lvm:vm-105-disk-1,mp=/srv/data,backup=1,size=32G\n" +
+		"mp1: /mnt/host/media,mp=/srv/media\n" +
+		"mp2: local-lvm:vm-105-disk-2,mp=/srv/scratch,size=4G\n" +
+		"mp3: volume=local:105/vm-105-disk-3.raw,mp=/var/lib/db/,backup=1\n" +
+		"[snap1]\nmp4: local-lvm:vm-105-disk-4,mp=/old,backup=1\n"
+	if _, err := p.backupContainer(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := os.ReadFile(filepath.Join(filepath.Dir(req.Info.Directory), "args"))
+	dir := req.Info.Directory
+	for _, want := range []string{
+		"--exclude " + filepath.Join(dir, "lost+found"),
+		"--exclude " + filepath.Join(dir, "srv/data/lost+found"),
+		"--exclude " + filepath.Join(dir, "var/lib/db/lost+found"),
+	} {
+		if !strings.Contains(string(args), want) {
+			t.Errorf("restic arguments %q lack %q", args, want)
+		}
+	}
+	// A bind mount and a volume without backup=1 are not in the backup, nor is a snapshot's.
+	for _, not := range []string{"srv/media", "srv/scratch", "/old/"} {
+		if strings.Contains(string(args), not) {
+			t.Errorf("restic arguments %q name %q", args, not)
+		}
+	}
+	if !strings.HasSuffix(strings.TrimSpace(string(args)), "-- .") {
+		t.Errorf("restic arguments %q: the sources must stay \".\"", args)
+	}
+}
+
+func TestBackupMountPointsMirrorsTheServer(t *testing.T) {
+	conf := "rootfs: local-zfs:subvol-300-disk-0,size=8G\n" +
+		"mp1: local-zfs:subvol-300-disk-2,mp=/srv/media,backup=1\n" +
+		"mp0: local-zfs:subvol-300-disk-1,mp=/mnt/data,backup=1\n" +
+		"mp2: /dev/sdb1,mp=/mnt/dev,backup=1\n" +
+		"mp3: local-zfs:subvol-300-disk-3,mp=/mnt/data,backup=1\n"
+	got := backupMountPoints(conf)
+	if strings.Join(got, " ") != "/mnt/data /srv/media" {
+		t.Fatalf("backupMountPoints = %q", got)
+	}
+	if got := backupMountPoints(""); len(got) != 0 {
+		t.Fatalf("no configuration: %q", got)
+	}
+	// Snapshot mode: the per-source rule and the mount point name the same folder once.
+	args := strings.Join(containerBackupArgs("/mnt/vzsnap0", []string{".", "./mnt/data"}, []string{"/mnt/data"},
+		nil, 300, "r", "/c", 0), " ")
+	if strings.Count(args, "/mnt/vzsnap0/mnt/data/lost+found") != 1 {
+		t.Fatalf("args %q", args)
+	}
+}
+
 func TestContainerBackupWaitsForTheServersLock(t *testing.T) {
 	p, req, _, _ := fakeContainerBackup(t, ctSummary, "", 0)
 	if _, err := p.backupContainer(context.Background(), req); err != nil {

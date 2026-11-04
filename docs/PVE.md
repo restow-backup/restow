@@ -36,9 +36,10 @@ PVE node                                                 Restow instance
   over the directory PVE prepares, into one restic repository per guest
   (`pve-guests/<guest id>/` in the tenant's primary storage target). The node
   gets a credential per run that expires with the run and only adds data.
-  The `lost+found` at the root of the container and of each mount point is left
-  out (on ext4 it belongs to the host's root, which an unprivileged container's
-  ID map does not include). When restic cannot read some files (exit code 3),
+  The `lost+found` at the root of the container and of each mount point it
+  backs up (a volume with `backup=1`, in every backup mode) is left out (on ext4
+  it belongs to the host's root, which an unprivileged container's ID map does
+  not include). When restic cannot read some files (exit code 3),
   the restore point is kept; the run records how many there were and the
   first of them. VMs & containers then shows "Last backup incomplete" instead
   of "succeeded", the restore point carries "N items not readable", and the

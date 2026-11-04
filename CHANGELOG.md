@@ -430,6 +430,13 @@ private repository.
   any more, so every guest write went into the fleecing image, which can fill the thin pool it
   shares with the guests' disks. The read loop now stops at the first failed upload, and the
   backup ends at once with the upload's error.
+- Proxmox VE: every backup of an unprivileged container with an ext4 volume mount point ended
+  "Last backup incomplete" ("Succeeded with gaps", "could not read .../srv/data/lost+found") when
+  vzdump backed it up in suspend or stop mode, its fallback on storage without snapshots (dir,
+  NFS, CIFS, thick LVM). In those modes PVE copies or mounts every mount point below the backup
+  folder and names only `.`, so only the root file system's `lost+found` was left out. The node
+  now takes the mount points with `backup=1` from the container's configuration and leaves out
+  each one's `lost+found` in every mode; bind and device mount points are not in the backup.
 
 ### Upgrade Notes
 

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -137,8 +138,8 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 	if len(sources) == 0 {
 		sources = []string{"."}
 	}
-	args := containerBackupArgs(dir, sources, req.ExcludePatterns, req.VMID, creds.RunID,
-		filepath.Join(pointer.RunDir, "cache"), req.Info.BandwidthLimit)
+	args := containerBackupArgs(dir, sources, backupMountPoints(req.GuestConfig), req.ExcludePatterns, req.VMID,
+		creds.RunID, filepath.Join(pointer.RunDir, "cache"), req.Info.BandwidthLimit)
 	cmd := exec.CommandContext(ctx, creds.Restic, args...)
 	cmd.Dir = dir
 	cmd.Env = resticEnv(&creds.ResticAccess)
@@ -259,17 +260,20 @@ func readResticBackupOutput(r io.Reader, res *ctResult, reporter *ProgressReport
 // server's check or retention of the repository.
 const containerRetryLock = "15m"
 
-// containerBackupArgs is the restic command line of a container backup. Each
-// source is the root of one file system (the root fs and every mount point);
-// its lost+found is left out: on ext4 it belongs to the host's root, which an
-// unprivileged container's ID map does not include, so the mapped root cannot
-// read it (vzdump's own archives leave it out for the same reason).
+// containerBackupArgs is the restic command line of a container backup. The
+// lost+found of the root file system and of every mount point is left out: on
+// ext4 it belongs to the host's root, which an unprivileged container's ID map
+// does not include, so the mapped root cannot read it (vzdump's own archives
+// leave it out for the same reason). In snapshot mode PVE passes one source per
+// file system ("." and "./mnt/data"); in suspend and stop mode it passes "."
+// only, with every mount point copied or mounted below it, so the mount points
+// come from the guest's configuration (mounts) as well.
 //
 // --retry-lock (restic 0.16+, pinned 0.19.1 in tools.env) waits for an
 // exclusive lock the server holds while it checks or prunes the container's
 // repository, instead of failing the backup at once (as for machines and file
 // shares).
-func containerBackupArgs(dir string, sources, excludes []string, vmid int, runID, cacheDir string, bwlimitKiB uint64) []string {
+func containerBackupArgs(dir string, sources, mounts, excludes []string, vmid int, runID, cacheDir string, bwlimitKiB uint64) []string {
 	// No --no-scan: restic's scan gives the total its progress needs (#51).
 	args := []string{"backup", "--json", "--host", fmt.Sprintf("pve-ct-%d", vmid),
 		"--tag", fmt.Sprintf("vmid=%d", vmid), "--tag", "run=" + runID,
@@ -279,14 +283,56 @@ func containerBackupArgs(dir string, sources, excludes []string, vmid int, runID
 			args = append(args, "--exclude", e)
 		}
 	}
-	for _, src := range sources {
-		args = append(args, "--exclude", filepath.Join(dir, src, "lost+found"))
+	seen := map[string]bool{}
+	for _, fs := range append(append([]string{}, sources...), mounts...) {
+		lf := filepath.Join(dir, fs, "lost+found")
+		if !seen[lf] {
+			seen[lf] = true
+			args = append(args, "--exclude", lf)
+		}
 	}
 	if bwlimitKiB > 0 {
 		args = append(args, "--limit-upload", fmt.Sprint(max(1, bwlimitKiB/1024)))
 	}
 	args = append(args, "--")
 	return append(args, sources...)
+}
+
+// backupMountPoints are the paths of the mount points vzdump backs up with the
+// container, from its configuration: the volume mount points with backup=1
+// ("mp0: local-lvm:vm-105-disk-1,mp=/srv/data,backup=1"). Bind and device
+// mount points (a host path) are never part of the backup. As
+// containerBackupPaths of the server (apps/api/src/features/pve/files.ts).
+func backupMountPoints(guestConfig string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for k, v := range parseConfigText(guestConfig) {
+		if k == "rootfs" || !mpKeyRE.MatchString(k) || !isVolumeMount(v) || mountVolume(v) == "" {
+			continue
+		}
+		var path string
+		backup := false
+		for _, opt := range mountOptions(v) {
+			key, val, _ := strings.Cut(opt, "=")
+			switch strings.TrimSpace(key) {
+			case "mp":
+				path = strings.TrimSpace(val)
+			case "backup":
+				switch strings.TrimSpace(val) {
+				case "1", "yes", "true", "on":
+					backup = true
+				}
+			}
+		}
+		path = strings.TrimRight(path, "/")
+		if !backup || !strings.HasPrefix(path, "/") || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // unreadableItems lists the items restic reported as unreadable (JSON
