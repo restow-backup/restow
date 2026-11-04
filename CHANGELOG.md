@@ -316,6 +316,12 @@ private repository.
   amber instead of green or grey, the restore point's boot test says it, and the guest gets the
   state "Boot test guest left over" with a notice on its page, until an inventory of the node no
   longer lists that VMID or a later boot test there removed it.
+- Proxmox VE: a container backup that ran longer than 24 hours always failed. Its restic
+  credential expired a day after it was issued, so after that every request of restic (and its
+  progress reports) got 401, and the first backup of a large container over a slow link or with
+  a bandwidth limit started again from the beginning every day. The credential now lives as
+  long as its run: while the run is open and younger than 48 hours (when the worker closes it as
+  stale). A run that ended or was stopped keeps the 24 hours to release its lock.
 
 ### Upgrade Notes
 

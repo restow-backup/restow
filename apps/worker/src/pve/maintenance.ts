@@ -49,6 +49,7 @@ import {
   PVE_BOOT_TEST_CAPABILITY,
   PVE_BOOT_TEST_MAX_ATTEMPTS,
   PVE_RESTORE_TEST_EVERY_MS,
+  PVE_STALE_RUN_MS,
   protectionOnTargets,
   pveBootTestDue,
   pveBootTestOverdueMs,
@@ -169,7 +170,7 @@ function withGuestRepository<T>(deps: PveDeps, guestId: string, work: () => Prom
 }
 
 export const PVE_PASS_INTERVAL_MS = 5 * 60 * 1000;
-const STALE_RUN_MS = 48 * 60 * 60 * 1000;
+const STALE_RUN_MS = PVE_STALE_RUN_MS;
 const VERIFY_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
 const RESTORE_TEST_EVERY_MS = PVE_RESTORE_TEST_EVERY_MS;
 const TASK_TTL_MS = 12 * 60 * 60 * 1000;

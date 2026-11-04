@@ -128,6 +128,14 @@ except enrollment. Binary formats are defined in
 `/agent/pve/restic/:guestId/*` is the restic REST v2 backend of a container's
 repository, Basic `runId:token`, append-only.
 
+A run's credential (`expiresAt` in the answer: 24 hours after it was issued) lives as long as
+its run (since 0.5.0): while the run is open (`running`, no stop asked for) and younger than
+48 hours, the restic backend and `/runs/:id/progress` take it also past `expiresAt`, so a
+backup longer than a day is not cut off; a run older than 48 hours is refused even while it
+reads running (the worker closes it as stale). Once the run ended or was stopped, `expiresAt`
+bounds it: until then the node may still release its lock and clean up (read and delete
+its own locks only). The node never needs to renew it.
+
 ### Capabilities and task kinds
 
 The original task kinds are `backup`, `restore` and `refresh_inventory`; every node runs them.

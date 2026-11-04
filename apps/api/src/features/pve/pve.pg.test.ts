@@ -1155,6 +1155,77 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       attention: expect.arrayContaining(["last_backup_incomplete"]),
     });
   });
+  it("a container backup's restic credential lives with its open run, beyond 24 hours, at most 48 (S11)", async () => {
+    const { resolvePveRunCredential } = await import("./restic-route.js");
+    const opened = await json<{ runId: string }>(
+      await call(node, "/runs", {
+        json: {
+          vmid: 201,
+          kind: "ct",
+          archiveName: "ct/201/2026-10-12T22:00:00Z",
+          storageId: "restow",
+          startedAt: "2026-10-12T22:00:00Z",
+        },
+      }),
+      201,
+    );
+    const [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, opened.runId));
+    const guestId = row?.guestId ?? "";
+    const token = generateAgentSecret();
+    const hour = 3600_000;
+    // Issued 25 hours ago with the 24 hours of a credential: the run still runs.
+    const set = (startedHoursAgo: number, issuedHoursAgo = 25) =>
+      fixture.db
+        .update(pveRuns)
+        .set({
+          resticTokenHash: token.hash,
+          startedAt: new Date(Date.now() - startedHoursAgo * hour),
+          resticExpiresAt: new Date(Date.now() - (issuedHoursAgo - 24) * hour),
+        })
+        .where(eq(pveRuns.id, opened.runId));
+    const resolve = () =>
+      resolvePveRunCredential({ runId: opened.runId, token: token.value }, guestId, Date.now());
+    const progress = () =>
+      app.request(`/agent/pve/v1/runs/${opened.runId}/progress`, {
+        method: "POST",
+        headers: { ...basic(opened.runId, token.value), "content-type": "application/json" },
+        body: JSON.stringify({ bytesDone: 1 }),
+      });
+    await set(25);
+    expect(await resolve()).toMatchObject({ ok: true, access: { principal: "agent" } });
+    expect((await progress()).status).toBe(204);
+    // A run older than 48 hours is over, even while it still reads running.
+    await set(49, 49);
+    expect(await resolve()).toEqual({ ok: false, reason: "expired" });
+    expect((await progress()).status).toBe(401);
+    // Stopped in the UI: within its 24 hours it may still release its lock (closing) ...
+    await set(2, 2);
+    await fixture.db
+      .update(pveRuns)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(pveRuns.id, opened.runId));
+    expect(await resolve()).toMatchObject({ ok: true, access: { principal: "closing" } });
+    // ... but a stopped run does not live on past them.
+    await set(25);
+    expect(await resolve()).toEqual({ ok: false, reason: "expired" });
+    await fixture.db
+      .update(pveRuns)
+      .set({ cancelRequestedAt: null })
+      .where(eq(pveRuns.id, opened.runId));
+    // A run that ended: the cleanup right after its end is still allowed, as closing ...
+    await json(
+      await call(node, `/runs/${opened.runId}/finish`, {
+        json: { status: "failed", error: "test" },
+      }),
+      204,
+    );
+    await set(2, 2);
+    expect(await resolve()).toMatchObject({ ok: true, access: { principal: "closing" } });
+    // ... and refused once the credential's 24 hours are over.
+    await set(25);
+    expect(await resolve()).toEqual({ ok: false, reason: "expired" });
+  });
+
   it("a container boot test reads with its own run; a restore in the PVE UI gets one run and an end (S03)", async () => {
     const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
     const ctId = ct?.id ?? "";
