@@ -454,10 +454,51 @@ function Get-SystemArchitecture {
     return [string]$arch
 }
 
+# Get-Wow64Counterpart returns the SysWOW64 path of a path below System32, or ''.
+function Get-Wow64Counterpart([string]$File, [string]$WindowsDir) {
+    $sys32 = (Join-Path $WindowsDir 'System32').TrimEnd('\') + '\'
+    if (-not $File.StartsWith($sys32, [StringComparison]::OrdinalIgnoreCase)) { return '' }
+    return (Join-Path (Join-Path $WindowsDir 'SysWOW64') $File.Substring($sys32.Length))
+}
+
+# Get-RelaunchTokenFile returns the RESTOW_TOKEN_FILE for the 64-bit PowerShell
+# that a 32-bit host starts. A 32-bit program that writes C:\Windows\System32\...
+# really writes C:\Windows\SysWOW64\... (WOW64 file system redirection, and
+# config\systemprofile is not exempt), where the 64-bit child would not look. So
+# a path below System32 that exists as this 32-bit PowerShell sees it becomes
+# its SysWOW64 path, which names the same file in both views; one that is not
+# there for the 32-bit view (written through Sysnative) stays. A path through
+# Sysnative, which only a 32-bit program has, becomes the System32 path.
+function Get-RelaunchTokenFile([string]$File, [string]$WindowsDir) {
+    if (-not $File) { return $File }
+    $sysnative = (Join-Path $WindowsDir 'Sysnative').TrimEnd('\') + '\'
+    if ($File.StartsWith($sysnative, [StringComparison]::OrdinalIgnoreCase)) {
+        return (Join-Path (Join-Path $WindowsDir 'System32') $File.Substring($sysnative.Length))
+    }
+    $wow = Get-Wow64Counterpart $File $WindowsDir
+    if ($wow -and (Test-Path -LiteralPath $File -PathType Leaf)) { return $wow }
+    return $File
+}
+
+# Get-TokenFileProblem says why RESTOW_TOKEN_FILE cannot be read, or ''. A file
+# missing below System32 that exists below SysWOW64 was written by a 32-bit
+# program; the message names that file.
+function Get-TokenFileProblem([string]$File, [string]$WindowsDir) {
+    if (Test-Path -LiteralPath $File -PathType Leaf) { return '' }
+    $text = "RESTOW_TOKEN_FILE $File does not exist"
+    $wow = Get-Wow64Counterpart $File $WindowsDir
+    if ($wow -and (Test-Path -LiteralPath $wow -PathType Leaf)) {
+        $text += ", but $wow does: a 32-bit program that writes to System32 writes to SysWOW64 (WOW64 file system redirection). " +
+            "Set RESTOW_TOKEN_FILE to $wow, or let the 32-bit program write the file through $(Join-Path $WindowsDir 'Sysnative')"
+    }
+    return $text
+}
+
 function Read-EnrollmentToken {
     if ($env:RESTOW_TOKEN_FILE) {
         $file = $env:RESTOW_TOKEN_FILE
-        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { Stop-Installer "RESTOW_TOKEN_FILE $file does not exist" }
+        $problem = Get-TokenFileProblem $file $env:windir
+        if ($problem) { Stop-Installer $problem }
         $acl = Get-Acl -LiteralPath $file
         $trusted = Get-TrustedSidList
         foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
@@ -477,6 +518,29 @@ function Read-EnrollmentToken {
         finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
     }
     return ''
+}
+
+# Invoke-Relaunch starts the installer again in 64-bit PowerShell with the
+# environment variables in $Environment and returns its exit code; the
+# variables of this session are restored afterwards (the iex form runs in the
+# administrator's own session). Only the exit code counts: under 'Stop' a line
+# the child writes to stderr (a warning of the agent that the child passes on)
+# became a terminating NativeCommandError in this parent under Windows
+# PowerShell 5.1, which ended the child's pipeline in the middle of the
+# installation, for example after the enrollment and before the service start.
+function Invoke-Relaunch([string]$PowerShell, [string[]]$Arguments, [hashtable]$Environment) {
+    $ErrorActionPreference = 'Continue'
+    $saved = @{}
+    foreach ($k in $Environment.Keys) {
+        $saved[$k] = [Environment]::GetEnvironmentVariable($k, 'Process')
+        [Environment]::SetEnvironmentVariable($k, $Environment[$k], 'Process')
+    }
+    try {
+        & $PowerShell @Arguments | Out-Host
+        return $LASTEXITCODE
+    } finally {
+        foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process') }
+    }
 }
 
 function Invoke-Agent([string[]]$Arguments) {
@@ -602,21 +666,24 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
     if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
         if ($env:RESTOW_INSTALLER_RELAUNCHED -eq '1') { Stop-Installer 'cannot start the 64-bit PowerShell' }
         # A 32-bit host (Intune and many RMM tools): start again in 64-bit
-        # PowerShell; the options travel in the environment.
-        $env:RESTOW_INSTALLER_RELAUNCHED = '1'
-        if ($hooks) { $env:RESTOW_HOOKS = $hooks }
-        if ($doUninstall) { $env:RESTOW_UNINSTALL = '1' }
-        if ($proxy) { $env:RESTOW_PROXY = $proxy }
-        if ($pin) { $env:RESTOW_RELEASE_KEY_FINGERPRINT = $pin }
+        # PowerShell; the options travel in the environment of the child.
+        $childEnv = @{ RESTOW_INSTALLER_RELAUNCHED = '1' }
+        if ($hooks) { $childEnv['RESTOW_HOOKS'] = $hooks }
+        if ($doUninstall) { $childEnv['RESTOW_UNINSTALL'] = '1' }
+        if ($proxy) { $childEnv['RESTOW_PROXY'] = $proxy }
+        if ($pin) { $childEnv['RESTOW_RELEASE_KEY_FINGERPRINT'] = $pin }
+        if ($env:RESTOW_TOKEN_FILE) { $childEnv['RESTOW_TOKEN_FILE'] = Get-RelaunchTokenFile $env:RESTOW_TOKEN_FILE $env:windir }
         $ps64 = Join-Path $env:windir 'Sysnative\WindowsPowerShell\v1.0\powershell.exe'
+        if (-not (Test-Path -LiteralPath $ps64 -PathType Leaf)) { Stop-Installer "cannot start the 64-bit PowerShell ($ps64 does not exist)" }
         Write-Step 'Starting again in 64-bit PowerShell'
         if ($PSCommandPath) {
-            & $ps64 -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath
+            $psArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
         } else {
             $cmd = "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (irm -UseBasicParsing '$url/install/windows.ps1')"
-            & $ps64 -NoProfile -ExecutionPolicy Bypass -Command $cmd
+            $psArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd)
         }
-        if ($LASTEXITCODE -ne 0) { Stop-Installer "the 64-bit installer ended with exit code $LASTEXITCODE" }
+        $code = Invoke-Relaunch $ps64 $psArgs $childEnv
+        if ($code -ne 0) { Stop-Installer "the 64-bit installer ended with exit code $code" }
         return
     }
     if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
@@ -674,6 +741,13 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
         } catch [System.Management.Automation.ItemNotFoundException] {
         } catch [System.Management.Automation.PSArgumentException] {
         }
+    }
+
+    # A token file that cannot be read stops the installer before anything is
+    # installed (it is only needed when this computer is not enrolled yet).
+    if ($env:RESTOW_TOKEN_FILE -and -not (Test-Path -LiteralPath $stateFile)) {
+        $problem = Get-TokenFileProblem $env:RESTOW_TOKEN_FILE $env:windir
+        if ($problem) { Stop-Installer "$problem. Nothing was installed." }
     }
 
     # ---- 3. folders: refuse what someone else may have prepared ------------------

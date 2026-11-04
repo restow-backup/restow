@@ -12,6 +12,9 @@
 # 3b. -Proxy reaches the agent's own commands (enroll, status) and the
 #    session's environment is restored afterwards.
 # 3c. The installer enables TLS 1.2 itself (the -File form starts without it).
+# 3d. The restart of a 32-bit host: stderr of the 64-bit child is no error of
+#    the parent, the session's environment is restored, and a token file
+#    written by a 32-bit program to System32 is found below SysWOW64.
 # 4. A full installation below a prefix (RESTOW_INSTALL_ROOT, no service)
 #    against the fake instance, a second run (repair), a pinned key that does
 #    not match, a tampered release (nothing installed), -Proxy with
@@ -153,6 +156,60 @@ try {
     else { Ok 'download failures name TLS 1.2 only when TLS failed' }
 } finally {
     [Net.ServicePointManager]::SecurityProtocol = $savedProtocol
+}
+
+# ---- 3d. the restart of a 32-bit host in 64-bit PowerShell ---------------------------
+# Invoke-Relaunch judges only the exit code: a line on stderr of the child is no
+# error of the parent, even under 'Stop' (set above), and the session keeps its
+# own environment. cmd.exe stands in for the 64-bit PowerShell.
+$cmdExe = Join-Path ([Environment]::SystemDirectory) 'cmd.exe'
+$env:RESTOW_RELAUNCH_TEST = 'before'
+try {
+    $code = $null; $thrown = ''
+    try { $code = Invoke-Relaunch $cmdExe @('/c', 'echo WARNING: the backup repository is not usable yet 1>&2 & if %RESTOW_RELAUNCH_TEST%==child (exit 0) else (exit 9)') @{ RESTOW_RELAUNCH_TEST = 'child' } }
+    catch { $thrown = $_.Exception.Message }
+    if ($thrown) { Fail "a stderr line of the 64-bit child ended the parent: $thrown" }
+    elseif ($code -ne 0) { Fail "the 64-bit child did not get its environment or its exit code was lost (exit code $code)" }
+    elseif ($env:RESTOW_RELAUNCH_TEST -ne 'before') { Fail "the session's environment was not restored after the restart ($env:RESTOW_RELAUNCH_TEST)" }
+    else { Ok 'restart in 64-bit PowerShell: stderr is no error, environment restored' }
+    $code = Invoke-Relaunch $cmdExe @('/c', 'echo failed 1>&2 & exit 4') @{}
+    if ($code -ne 4) { Fail "the exit code of the 64-bit child was lost (got $code, want 4)" } else { Ok 'restart in 64-bit PowerShell keeps the exit code' }
+} finally {
+    Remove-Item Env:RESTOW_RELAUNCH_TEST -ErrorAction SilentlyContinue
+}
+
+# A token file written by a 32-bit program to System32 lies in SysWOW64; the
+# 64-bit child gets that path, and a missing file names it. A stand-in Windows
+# folder plays both views.
+$fakeWin = Join-Path ([IO.Path]::GetTempPath()) ('restow-wow64-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+try {
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $fakeWin 'System32\config\systemprofile'), (Join-Path $fakeWin 'SysWOW64\config\systemprofile')
+    $inSys32 = Join-Path $fakeWin 'System32\config\systemprofile\restow-enrollment.token'
+    $inWow = Join-Path $fakeWin 'SysWOW64\config\systemprofile\restow-enrollment.token'
+    Set-Content -LiteralPath $inSys32 -Value 'rset_x' -NoNewline
+    # The 32-bit view sees the file at the System32 path: the child gets the SysWOW64 path.
+    $got = Get-RelaunchTokenFile $inSys32 $fakeWin
+    if ($got -ne $inWow) { Fail "a token file the 32-bit host sees below System32 is not handed on as $inWow (got $got)" } else { Ok 'token file below System32 is handed on as its SysWOW64 path' }
+    Remove-Item -LiteralPath $inSys32
+    # Not there in the 32-bit view (written through Sysnative): unchanged.
+    $got = Get-RelaunchTokenFile $inSys32 $fakeWin
+    if ($got -ne $inSys32) { Fail "a token file missing in the 32-bit view was rewritten to $got" } else { Ok 'token file missing in the 32-bit view stays as it is' }
+    $viaSysnative = Join-Path $fakeWin 'Sysnative\config\systemprofile\restow-enrollment.token'
+    $got = Get-RelaunchTokenFile $viaSysnative $fakeWin
+    if ($got -ne $inSys32) { Fail "a Sysnative path is not handed on as the System32 path (got $got)" } else { Ok 'Sysnative path is handed on as the System32 path' }
+    $elsewhere = Join-Path $fakeWin 'restow-enrollment.token'
+    if ((Get-RelaunchTokenFile $elsewhere $fakeWin) -ne $elsewhere) { Fail 'a token file outside System32 was rewritten' }
+    # The 64-bit child: missing below System32, there below SysWOW64.
+    Set-Content -LiteralPath $inWow -Value 'rset_x' -NoNewline
+    $problem = Get-TokenFileProblem $inSys32 $fakeWin
+    if ($problem -notmatch [regex]::Escape("but $inWow does") -or $problem -notmatch 'Sysnative') { Fail "a missing token file does not name its SysWOW64 counterpart: $problem" } else { Ok 'missing token file names its SysWOW64 counterpart' }
+    Remove-Item -LiteralPath $inWow
+    $problem = Get-TokenFileProblem $inSys32 $fakeWin
+    if ($problem -notmatch 'does not exist' -or $problem -match 'SysWOW64') { Fail "a missing token file: $problem" } else { Ok 'missing token file without counterpart' }
+    Set-Content -LiteralPath $inSys32 -Value 'rset_x' -NoNewline
+    if (Get-TokenFileProblem $inSys32 $fakeWin) { Fail 'an existing token file is reported as a problem' }
+} finally {
+    Remove-Item -LiteralPath $fakeWin -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # ---- 4. full installation against the fake instance ------------------------------

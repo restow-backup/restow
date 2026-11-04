@@ -330,6 +330,16 @@ private repository.
   rotated copies are reset to SYSTEM and Administrators whenever they are opened, and an empty
   folder that a user created there is replaced (one with files is still refused, with the advice
   to delete it).
+- Windows agent (preview): the installer run from a 32-bit host (Intune, many RMM tools), which
+  starts itself again in 64-bit PowerShell, could stop in the middle of the installation, for
+  example after the enrollment and before the service was started, when the 64-bit run printed
+  a warning on stderr; Windows PowerShell 5.1 turned that line into an error of the 32-bit run.
+  Only the exit code of the 64-bit run counts now, and the options no longer stay behind in the
+  session's environment. A token file that the 32-bit program wrote to
+  `C:\Windows\System32\config\systemprofile` (where Windows puts it into `SysWOW64`) was reported
+  as missing after the service had been installed; the installer now hands the 64-bit run the
+  path it is really at, and a missing token file stops it before anything is installed, naming
+  the copy in `SysWOW64` if there is one.
 
 ### Upgrade Notes
 

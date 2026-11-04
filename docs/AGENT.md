@@ -87,7 +87,10 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
      `$env:RESTOW_TOKEN_FILE = 'C:\Windows\System32\config\systemprofile\restow-enrollment.token'`
      und `$env:RESTOW_RELEASE_KEY_FINGERPRINT = 'SHA256:...'` (Pin des Release-Schlüssels, den
      der Assistent vorbelegt); ein 32-Bit-RMM-Prozess schreibt die Datei über
-     `C:\Windows\Sysnative\config\systemprofile`. Statt `iex` gleichwertig: Datei laden,
+     `C:\Windows\Sysnative\config\systemprofile`. Schreibt er sie doch nach `System32` (die
+     Windows-Umleitung legt sie dann in `C:\Windows\SysWOW64\config\systemprofile` ab), findet
+     der Installer sie beim Neustart als 64-Bit-PowerShell dort, und fehlt die Datei, nennt er
+     vor jeder Installation das Gegenstück in `SysWOW64`. Statt `iex` gleichwertig: Datei laden,
      SHA-256 mit dem Wert im Assistenten vergleichen (`windows.sha256`, siehe unten), mit
      `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` starten. Das Skript
      schaltet TLS 1.2 für seine eigenen Downloads selbst ein (auch beim Neustart als

@@ -1108,7 +1108,11 @@ Begründungen:
   RMM-Werkzeuge laufen meist als SYSTEM und können dort schreiben. Ein 32-Bit-RMM-Prozess
   (Intune startet Skripte standardmäßig 32-bittig) sieht `System32` umgeleitet nach
   `SysWOW64`; die Doku nennt für diesen Fall `C:\Windows\Sysnative\config\systemprofile\…`
-  zum Schreiben der Datei. Der Installer selbst startet sich 64-bittig neu (14.2).
+  zum Schreiben der Datei. Der Installer selbst startet sich 64-bittig neu (14.2) und gibt
+  dabei einen Pfad unter `System32`, den der 32-Bit-Host sieht (also in `SysWOW64`), als
+  `SysWOW64`-Pfad weiter (`Get-RelaunchTokenFile`), einen `Sysnative`-Pfad als `System32`.
+  Fehlt die Datei, bricht der Installer vor jeder Installation ab und nennt ein vorhandenes
+  Gegenstück in `SysWOW64` (`Get-TokenFileProblem`).
 - Dokumentiert wird nur `RESTOW_TOKEN_FILE`. `RESTOW_TOKEN` als Variable bleibt für Tests,
   steht aber nicht in der Doku: getippt landet es im PSReadLine-Verlauf und in der
   Skriptblock-Protokollierung (Ereignis 4104). Der Token wird nie als Cmdlet- oder
@@ -1130,8 +1134,12 @@ jeder Schritt steht in `try`/`catch`, ein Fehler beendet das Skript mit Exit-Cod
      `$env:windir\Sysnative\WindowsPowerShell\v1.0\powershell.exe` neu. Weil der Skripttext
      für `-EncodedCommand` zu lang ist, lädt der Neustart das Skript per
      `iex (irm …)` mit derselben URL neu; Parameter werden vorher in die entsprechenden
-     `RESTOW_*`-Variablen übertragen, die der Kindprozess erbt. Ein zweiter 32-Bit-Start
-     bricht ab. Pfade kommen danach aus `[Environment]::GetFolderPath` bzw. `$env:ProgramW6432`,
+     `RESTOW_*`-Variablen übertragen, die nur der Kindprozess bekommt (`Invoke-Relaunch`
+     stellt die Umgebung der Sitzung danach wieder her). Wie bei `Invoke-Agent` gilt dort
+     `$ErrorActionPreference = 'Continue'` und nur der Exit-Code: unter `Stop` machte Windows
+     PowerShell 5.1 aus einer stderr-Zeile des Kindes (einer weitergereichten Warnung des
+     Agents) einen abbrechenden Fehler, der die Installation mittendrin beendete. Ein zweiter
+     32-Bit-Start bricht ab. Pfade kommen danach aus `[Environment]::GetFolderPath` bzw. `$env:ProgramW6432`,
      nie aus `$env:ProgramFiles` eines 32-Bit-Hosts.
    - Administrator und erhöht
      (`[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrators')`),
