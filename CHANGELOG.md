@@ -275,7 +275,8 @@ private repository.
   guest 105 could not be removed", "Restored, not started"), and the guest's page and panel
   list each line with what to do: the commands that put the mount points back as root and the
   warning that a bind mount put back shares the original's live data. Green is left for a
-  restore that ran to `OK` with nothing to report. The restore dialog says that IP addresses
+  restore that ran to `OK` with nothing to report; docs/PVE-PROTOCOL.md ("Task `restore`: the
+  result") lists each field restow-pve sends and what it does to the run. The restore dialog says that IP addresses
   stay the same and only the MAC addresses are new.
 - Proxmox VE: every boot test of a container, and every container restore started in the PVE
   UI, opened a run "Restore" that nothing ended. For 48 hours the guest counted as busy, so its

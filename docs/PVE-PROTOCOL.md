@@ -256,10 +256,11 @@ free one outside this list and asks again when PVE gave it away meanwhile; an ol
 ignores the field. A `targetVmid` an admin typed that belongs to such a guest is refused with
 409 `urn:restow:problem:pve-vmid-held` (`vmid`, `name`) unless the request says
 `confirmVmidReuse: true`. Should another guest still turn up under such a VMID (another kind;
-while the old one is absent, a VM with another SMBIOS UUID, a guest named
-`restow-boottest-`/`restow-restorecheck-`, tagged so or in the pool `restow-restore`), the
-inventory gives it a guest row of its own and the old row stays absent with its restore
-points (`retired_at`).
+while the old one is absent, a guest named `restow-boottest-`/`restow-restorecheck-`, tagged
+so or in the pool `restow-restore`, a container with another name, a VM whose SMBIOS UUID and
+name both differ), the inventory gives it a guest row of its own and the old row stays absent
+with its restore points (`retired_at`). A VM restored with `unique=1` into its own VMID (a new
+SMBIOS UUID, the same name) keeps its row.
 
 ### A restore check the node skips (0.5.0)
 
@@ -268,8 +269,49 @@ A restore check (`restore` with `restoreTest`) the node does not run is reported
 node), `storage_inactive`, `storage_content` (it holds no `images` for a VM or no `rootdir`
 for a container), `storage_space`, `restores_off`. The server records the run `failed` with
 `stats.skipped` and the message; the web app shows it as "Not checked: ..." in grey, never
-red and never green, and the guest's check is planned again after a day. The planner passes
-over nodes with restores off or silent for ten minutes, so `restores_off` is rare.
+red and never green, and the guest's check is planned again after a day, after further skips
+for the same reason in a row after 2 and 4 days, then every 7 days. The planner passes over
+nodes with restores off or silent for ten minutes, so `restores_off` is rare. (Only the PVE
+guest page reads restore check runs; every other reader of `pve_runs`, the overviews, the
+dashboard, the job lists and the statistics, reads backup runs and restores.)
+
+### Task `restore`: the result (0.5.0)
+
+A `restore` task (a restore, or with `restoreTest: true` a restore check) is reported `done`
+when PVE's restore task ended `OK` or `WARNINGS: n` (a success with warnings); any other exit
+status, and a guest whose configuration cannot be read afterwards, is `failed` with the
+error. Beside `done` the result says what the restore did not prove or left to do. The
+server keeps each field it can read (`restoreResultSchema`, apps/api pve/schemas.ts; an
+unreadable field is dropped, never the result) in the run's stats, and the web app
+(apps/web pve/run-status.ts) shows the run green only when none of the fields marked
+"amber" is there:
+
+| Field | Type | Sent by | Meaning | In the web app |
+| --- | --- | --- | --- | --- |
+| `vmid` | number | both | the VMID of the restored guest | named in the findings |
+| `upid` | string | both | PVE's task id of the restore | kept in the run's stats |
+| `warnings` | string[] (≤ 20) | both | the lines of the task log when PVE ended `WARNINGS: n` | amber, "Restored/Checked with warnings", the lines listed |
+| `omittedMounts` | string[] | both (containers) | bind and device mount points left out (their data is not in a backup; only root@pam may set them) | amber, "Restored/Checked without n mount points" |
+| `remountCommands` | string[] | restore | the `pct set` commands that put them back, as root | listed under the finding |
+| `skippedLxc` | string[] | both (containers) | raw `lxc.*` lines of the backup PVE restores only for root@pam | amber, listed |
+| `customIdmap` | boolean | both (containers) | among them a custom `lxc.idmap` | explained with the lines |
+| `keptDevices` | string[] | restore (VMs) | host devices (`hostpci`, `usb`) the copy has, as the original | amber, "check them before starting" |
+| `madeUnprivileged` | boolean | both (containers) | a privileged container restored unprivileged | named |
+| `onbootCleared` | boolean | both | the copy does not start with its node (`onboot=0`) | named |
+| `restoredAsRoot` | boolean | restore (VMs) | restored as root through `qmrestore` | kept in the run's stats |
+| `started` | boolean | restore with `start: true` only | whether the copy runs | `false`: amber, "Restored, not started" |
+| `startError` | string | restore with `start: true` only | why the start failed | amber, with the error |
+| `startSkipped` | string | restore with `start: true` only | why the node did not start it: `omitted_mounts`, `host_devices`, `static_ip` (the node's `startSkippedMessage` beside it is not kept) | amber, with the reason |
+| `disks` | number | check | the disks of the restored guest | kept in the run's stats |
+| `deleted` | boolean | check | whether the temporary guest was removed again | `false`: amber, "Temporary guest n could not be removed" |
+| `leftoverVmid` | number | check | the VMID of a temporary guest that is still there | named in that finding |
+| `skipped` | `{reason, message}` | check | the check did not run (see above) | grey, "Not checked" |
+
+A restore check never starts its copy (`start: false`), and a restore without "Start after
+the restore" has nothing to start: the server keeps `started`, `startError` and
+`startSkipped` only for a `restore` task whose params say `start: true`, so neither can read
+"not started". Green therefore means: the restore ran to `OK`, a check removed its guest
+again, and nothing of the table's amber fields is there.
 
 ### Tasks the node holds (0.5.0)
 
