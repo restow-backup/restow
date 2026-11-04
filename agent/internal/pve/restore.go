@@ -50,7 +50,8 @@ func (p *Provider) restoreVolumeInit(ctx context.Context, req ProviderRequest) (
 	if exe == "" {
 		exe, _ = os.Executable()
 	}
-	logFile, err := os.OpenFile(filepath.Join(p.restoreDir(), key+".log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	logPath := filepath.Join(p.restoreDir(), key+".log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -59,12 +60,23 @@ func (p *Provider) restoreVolumeInit(ctx context.Context, req ProviderRequest) (
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
+		removeRestoreFiles(p.restoreDir(), key)
 		return nil, err
 	}
 	_ = os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0o600)
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	deadline := time.Now().Add(60 * time.Second)
+	// Every way out but a served socket ends the server and removes its files: a detached server
+	// left running would serve for up to 48 hours, and its files would mark the node busy.
+	abandon := func() {
+		_ = cmd.Process.Kill()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
+		removeRestoreFiles(p.restoreDir(), key)
+	}
+	deadline := time.Now().Add(restoreServerStartTimeout)
 	for time.Now().Before(deadline) {
 		if c, err := net.Dial("unix", sock); err == nil {
 			_ = c.Close()
@@ -74,18 +86,32 @@ func (p *Provider) restoreVolumeInit(ctx context.Context, req ProviderRequest) (
 		}
 		select {
 		case err := <-done:
-			log, _ := readTail(filepath.Join(p.restoreDir(), key+".log"), 2048)
+			log, _ := readTail(logPath, 2048)
+			removeRestoreFiles(p.restoreDir(), key)
 			return nil, fmt.Errorf("the restore server ended: %v: %s", err, strings.TrimSpace(string(log)))
 		case <-time.After(200 * time.Millisecond):
 		case <-ctx.Done():
+			abandon()
 			return nil, ctx.Err()
 		}
 	}
-	_ = cmd.Process.Kill()
-	return nil, errors.New("the restore server did not start within 60 seconds")
+	abandon()
+	return nil, fmt.Errorf("the restore server did not start within %s", restoreServerStartTimeout)
 }
 
-// stopRestoreServers stops the restore servers of a volume (one device or all).
+// restoreServerStartTimeout is how long restore-vm-volume-init waits for the server's socket.
+var restoreServerStartTimeout = 60 * time.Second
+
+// removeRestoreFiles removes the pid file, socket and log of one restore server.
+func removeRestoreFiles(dir, key string) {
+	for _, ext := range []string{".pid", ".sock", ".log"} {
+		_ = os.Remove(filepath.Join(dir, key+ext))
+	}
+}
+
+// stopRestoreServers stops the restore servers of a volume (one device or all) and removes
+// their files. A pid file whose process is no restore server of that disk any more (it ended,
+// and the pid may belong to another process since) is removed without a signal.
 func (p *Provider) stopRestoreServers(volname, device string) {
 	prefix := restoreKey(volname, "")
 	entries, _ := os.ReadDir(p.restoreDir())
@@ -97,14 +123,11 @@ func (p *Provider) stopRestoreServers(volname, device string) {
 		if device != "" && name != restoreKey(volname, device)+".pid" {
 			continue
 		}
-		data, _ := os.ReadFile(filepath.Join(p.restoreDir(), name))
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 1 {
-			_ = syscall.Kill(pid, syscall.SIGTERM)
+		key := strings.TrimSuffix(name, ".pid")
+		if pid := readPID(filepath.Join(p.restoreDir(), name)); pid > 1 && liveProcess(pid, "restow-pve", "serve-restore", key) {
+			_ = signalProcess(pid)
 		}
-		base := strings.TrimSuffix(name, ".pid")
-		for _, ext := range []string{".pid", ".sock"} {
-			_ = os.Remove(filepath.Join(p.restoreDir(), base+ext))
-		}
+		removeRestoreFiles(p.restoreDir(), key)
 	}
 }
 

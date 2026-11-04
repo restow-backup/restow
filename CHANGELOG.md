@@ -246,12 +246,30 @@ private repository.
   docs/UPDATING.md gives the commands that remove old Restow images safely (only version tags
   older than the previous release, in the repositories of `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE`
   from `.env`), and its duplicated heading "Disk space" is gone.
+- Proxmox VE: after the first VM restore on a node (a restore into a new guest, a restore check or
+  a VM boot test) the node counted as busy until it rebooted. The restore server's log stayed in
+  `/run/restow-pve/restore`, and restow-pve took any file there for a running restore. Every
+  later boot test on the node was skipped with "A backup or a restore runs on this node", and the
+  self-update (the automatic one, **Update now** and `restow-pve update`) was refused with "a
+  backup or restore is running; the update waits". The node now counts only live work: a restore
+  server whose pid file names a running `restow-pve serve-restore` of that disk, and an open
+  backup job (younger than two days, or with a running provider). The cleanup of a restore
+  removes the log as well, and a restore server that fails to start, ends early or whose call is
+  cancelled is stopped and its files removed, so it no longer serves for up to two days. A pid
+  file is checked against `/proc/<pid>/cmdline` before restow-pve signals it, so a stale one
+  never stops another process that has the pid since.
 
 ### Upgrade Notes
 
 One database migration runs on start: 0073 creates the new table `storage_samples` and rewrites
 nothing. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the fingerprint
 `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
+
+- Proxmox VE nodes that ran a VM restore, restore check or VM boot test since their last reboot
+  refuse the update to this release: their current restow-pve still counts the leftover restore
+  log as a running restore (see Fixed). On such a node run `rm -f /run/restow-pve/restore/*.log`
+  as root once (or reboot it, or run the installer again), then the update installs by itself,
+  with **Update now** or with `/opt/restow-pve/bin/restow-pve update`.
 
 ### Known Issues
 

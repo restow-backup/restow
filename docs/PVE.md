@@ -339,7 +339,12 @@ API: `POST /api/v1/pve/guests/:id/cancel`, `POST /api/v1/pve/nodes/:id/queue/pau
 
 restow-pve looks for a newer signed release by itself (two minutes after it
 starts, then every six hours) and installs it only while no backup or restore
-runs on the node. Since 0.4.2 the server can also ask for it now:
+runs on the node. Only live work counts: an open backup (its job file in
+`/run/restow-pve/jobs`, younger than two days or with a running provider) or a
+restore server that serves a VM disk (`/run/restow-pve/restore/<key>.pid` naming
+a running `restow-pve serve-restore`). Logs, sockets and pid files a finished or
+interrupted restore left behind do not count; boot tests use the same check.
+Since 0.4.2 the server can also ask for it now:
 
 - **Update now** on the node (nodes table, next to the version, when a newer
   release is offered): the heartbeat says `update.now`, and the node installs the

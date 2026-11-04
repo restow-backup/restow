@@ -3,7 +3,6 @@
 package pve
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -76,17 +75,9 @@ var signalProcess = func(pid int) error { return syscall.Kill(pid, syscall.SIGTE
 // uploading, reports the run as failed (the server records it as cancelled), and vzdump goes on
 // with the next guest of its job. False when no provider of the guest runs.
 func stopProvider(l Layout, vmid int) bool {
-	data, err := os.ReadFile(l.providerPIDFile(vmid))
-	if err != nil {
-		return false
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || pid <= 1 {
-		return false
-	}
+	pid := readPID(l.providerPIDFile(vmid))
 	// A stale record may name a process that is no provider any more: never signal that.
-	cmdline, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cmdline"))
-	if err != nil || !bytes.Contains(cmdline, []byte("restow-pve")) || !bytes.Contains(cmdline, []byte("provider")) {
+	if pid <= 1 || !liveProcess(pid, "restow-pve", "provider") {
 		return false
 	}
 	return signalProcess(pid) == nil

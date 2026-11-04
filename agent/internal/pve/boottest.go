@@ -285,7 +285,7 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 func (b *BootTester) backupBusy(ctx context.Context) (string, string) {
 	running := b.BackupRunning
 	if running == nil {
-		running = func() bool { return len(activeRuns(b.Layout)) > 0 || busy(b.Layout) }
+		running = func() bool { return busy(b.Layout) }
 	}
 	if running() {
 		return "backup_running", "A backup or a restore runs on this node."
