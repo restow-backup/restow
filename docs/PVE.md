@@ -39,7 +39,16 @@ PVE node                                                 Restow instance
   The `lost+found` at the root of the container and of each mount point it
   backs up (a volume with `backup=1`, in every backup mode) is left out (on ext4
   it belongs to the host's root, which an unprivileged container's ID map does
-  not include). When restic cannot read some files (exit code 3),
+  not include). In snapshot mode restic reads PVE's snapshot mount
+  (`/mnt/vzsnap0`). In suspend and stop mode, PVE's fallback on storage without
+  snapshots (dir, NFS, CIFS, thick LVM), it hands over a copy in a folder that
+  is new on every run (`/var/tmp/vzdumptmp<pid>_<vmid>`); `restow-pve` mounts it
+  onto `/run/restow-pve/ctroot-<vmid>` in a mount namespace only restic sees, so
+  restic finds the last backup as its parent, and compares the copy's files by
+  size and modification time (`--ignore-inode --ignore-ctime`). Where PVE's
+  user namespace may not make a mount namespace, the task log says so and
+  restic reads the whole copy every time, as before.
+  When restic cannot read some files (exit code 3),
   the restore point is kept; the run records how many there were and the
   first of them. VMs & containers then shows "Last backup incomplete" instead
   of "succeeded", the restore point carries "N items not readable", and the

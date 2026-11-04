@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,7 +24,7 @@ func fakeContainerBackup(t *testing.T, stdout, stderr string, code int) (*Provid
 		t.Fatal(err)
 	}
 	script := filepath.Join(base, "restic")
-	body := "#!/bin/sh\necho \"$@\" > " + filepath.Join(base, "args") + "\ncat <<'OUT'\n" + stdout + "\nOUT\ncat >&2 <<'ERR'\n" + stderr + "\nERR\nexit " + string(rune('0'+code)) + "\n"
+	body := "#!/bin/sh\necho \"$@\" > " + filepath.Join(base, "args") + "\npwd > " + filepath.Join(base, "pwd") + "\ncat <<'OUT'\n" + stdout + "\nOUT\ncat >&2 <<'ERR'\n" + stderr + "\nERR\nexit " + string(rune('0'+code)) + "\n"
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +43,10 @@ func fakeContainerBackup(t *testing.T, stdout, stderr string, code int) (*Provid
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// The snapshot mount of these tests (containerBackupRoot).
+	old := vzsnapDir
+	vzsnapDir = root
+	t.Cleanup(func() { vzsnapDir = old })
 	req := ProviderRequest{StoreID: "restow", VMID: 200, Info: ProviderInfo{Directory: root, Sources: []string{".", "./mnt/data"}}}
 	return p, req, &log, runDir
 }
@@ -115,7 +121,7 @@ func TestBackupMountPointsMirrorsTheServer(t *testing.T) {
 	}
 	// Snapshot mode: the per-source rule and the mount point name the same folder once.
 	args := strings.Join(containerBackupArgs("/mnt/vzsnap0", []string{".", "./mnt/data"}, []string{"/mnt/data"},
-		nil, 300, "r", "/c", 0), " ")
+		nil, 300, "r", "/c", 0, false), " ")
 	if strings.Count(args, "/mnt/vzsnap0/mnt/data/lost+found") != 1 {
 		t.Fatalf("args %q", args)
 	}
@@ -169,5 +175,129 @@ func TestContainerBackupFailsOnOtherErrorsAndOnExit3WithoutSnapshot(t *testing.T
 	p, req, _, _ = fakeContainerBackup(t, "", `{"message_type":"exit_error","code":3,"message":"Warning"}`, 3)
 	if _, err := p.backupContainer(context.Background(), req); err == nil {
 		t.Fatal("exit 3 without a snapshot must fail")
+	}
+}
+
+func TestContainerBackupRootIsStableForCopies(t *testing.T) {
+	l := Layout{RunDir: "/run/restow-pve"}
+	if root, copied := containerBackupRoot(l, "/mnt/vzsnap0/", 105); copied || root != "/mnt/vzsnap0/" {
+		t.Fatalf("snapshot mount: %q %v", root, copied)
+	}
+	for _, dir := range []string{"/var/tmp/vzdumptmp1234_105", "/var/tmp/vzdumptmp98765_105", "/srv/tmp/vzdumptmp5_105"} {
+		if root, copied := containerBackupRoot(l, dir, 105); !copied || root != "/run/restow-pve/ctroot-105" {
+			t.Fatalf("%s: %q %v", dir, root, copied)
+		}
+	}
+	snap := strings.Join(containerBackupArgs("/mnt/vzsnap0", []string{"."}, nil, nil, 105, "r", "/c", 0, false), " ")
+	if strings.Contains(snap, "--ignore-inode") || strings.Contains(snap, "--ignore-ctime") {
+		t.Fatalf("snapshot mode compares inodes and ctimes: %q", snap)
+	}
+	cp := containerBackupArgs("/run/restow-pve/ctroot-105", []string{"."}, nil, nil, 105, "r", "/c", 0, true)
+	at := map[string]int{}
+	for i, a := range cp {
+		at[a] = i
+	}
+	if _, ok := at["--ignore-inode"]; !ok || at["--ignore-ctime"] == 0 || at["--ignore-ctime"] > at["--"] {
+		t.Fatalf("a copy is compared by size and mtime: %q", cp)
+	}
+}
+
+// Two suspend-mode backups get their copy in different folders; restic runs in the same
+// folder both times, so it finds the first as the parent of the second.
+func TestContainerBackupOfACopyRunsInTheSameFolderEveryTime(t *testing.T) {
+	var bound []string
+	old := bindStableRoot
+	bindStableRoot = func(dir, target string) error {
+		bound = append(bound, dir+" -> "+target)
+		return nil
+	}
+	t.Cleanup(func() { bindStableRoot = old })
+	var pwds []string
+	for _, run := range []string{"vzdumptmp1111_200", "vzdumptmp2222_200"} {
+		p, req, _, runDir := fakeContainerBackup(t, ctSummary, "", 0)
+		base := filepath.Dir(runDir)
+		req.Info.Directory = filepath.Join(base, run)
+		req.Info.Sources = []string{"."}
+		req.ExcludePatterns = []string{"/tmp/*"}
+		if err := os.MkdirAll(req.Info.Directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		// What backup_container_prepare creates (the tests' RunDir differs per run).
+		stable := p.Layout.ctStableRoot(200)
+		if err := os.MkdirAll(stable, 0o711); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.backupContainer(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+		pwd, _ := os.ReadFile(filepath.Join(base, "pwd"))
+		if strings.TrimSpace(string(pwd)) != stable {
+			t.Fatalf("restic ran in %q, not in the stable folder %q", pwd, stable)
+		}
+		pwds = append(pwds, strings.TrimPrefix(strings.TrimSpace(string(pwd)), base))
+		args, _ := os.ReadFile(filepath.Join(base, "args"))
+		for _, want := range []string{"--ignore-inode", "--ignore-ctime", "--exclude " + filepath.Join(stable, "tmp/*"),
+			"--exclude " + filepath.Join(stable, "lost+found")} {
+			if !strings.Contains(string(args), want) {
+				t.Errorf("restic arguments %q lack %q", args, want)
+			}
+		}
+		var res ctResult
+		if err := readJSON(filepath.Join(runDir, "result.json"), &res); err != nil {
+			t.Fatal(err)
+		}
+		if res.Root != stable {
+			t.Fatalf("the restore point records root %q, restic's path is %q", res.Root, stable)
+		}
+	}
+	if pwds[0] != pwds[1] || len(bound) != 2 || !strings.Contains(bound[0], "vzdumptmp1111_200 -> ") {
+		t.Fatalf("paths %q, bind mounts %q", pwds, bound)
+	}
+}
+
+func TestContainerBackupOfACopyFallsBackWithoutAMountNamespace(t *testing.T) {
+	old := bindStableRoot
+	bindStableRoot = func(dir, target string) error { return errors.New("operation not permitted") }
+	t.Cleanup(func() { bindStableRoot = old })
+	p, req, log, runDir := fakeContainerBackup(t, ctSummary, "", 0)
+	base := filepath.Dir(runDir)
+	req.Info.Directory = filepath.Join(base, "vzdumptmp3_200")
+	if err := os.MkdirAll(req.Info.Directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.backupContainer(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	pwd, _ := os.ReadFile(filepath.Join(base, "pwd"))
+	if strings.TrimSpace(string(pwd)) != req.Info.Directory {
+		t.Fatalf("restic ran in %q", pwd)
+	}
+	if !strings.Contains(log.String(), "info: backing up "+req.Info.Directory+" directly (operation not permitted)") {
+		t.Fatalf("log %q", log.String())
+	}
+}
+
+// The real mount namespace, where this test may make one (root, or a user namespace).
+func TestBindPrivateShowsTheCopyToResticOnly(t *testing.T) {
+	src, target := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "marker"), []byte("copy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := &Provider{Log: &bytes.Buffer{}}
+	var out bytes.Buffer
+	root, err := p.startContainerRestic(src, target, true, func(root string) error {
+		cmd := exec.Command("cat", "marker")
+		cmd.Dir = root
+		cmd.Stdout = &out
+		return cmd.Run()
+	})
+	if root != target {
+		t.Skipf("no mount namespace here: %s", p.Log.(*bytes.Buffer).String())
+	}
+	if err != nil || out.String() != "copy" {
+		t.Fatalf("restic saw %q in the stable folder: %v", out.String(), err)
+	}
+	if entries, _ := os.ReadDir(target); len(entries) != 0 {
+		t.Fatalf("the mount leaked into the process's own namespace: %v", entries)
 	}
 }

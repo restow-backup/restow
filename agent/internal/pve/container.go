@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -94,6 +95,11 @@ func (p *Provider) containerPrepare(ctx context.Context, req ProviderRequest) (a
 			return nil, fmt.Errorf("hand the run folder to uid %d: %w", uid, err)
 		}
 	}
+	// The mount point of a copy's stable folder (containerBackupRoot); only the backup's own
+	// mount namespace mounts anything on it.
+	if err := os.MkdirAll(p.Layout.ctStableRoot(req.VMID), 0o711); err != nil {
+		return nil, err
+	}
 	pointer, _ := json.Marshal(map[string]string{"runDir": runDir})
 	if err := os.WriteFile(p.ctPointer(req.StoreID, req.VMID), pointer, 0o444); err != nil {
 		return nil, err
@@ -138,23 +144,30 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 	if len(sources) == 0 {
 		sources = []string{"."}
 	}
-	args := containerBackupArgs(dir, sources, backupMountPoints(req.GuestConfig), req.ExcludePatterns, req.VMID,
-		creds.RunID, filepath.Join(pointer.RunDir, "cache"), req.Info.BandwidthLimit)
-	cmd := exec.CommandContext(ctx, creds.Restic, args...)
-	cmd.Dir = dir
-	cmd.Env = resticEnv(&creds.ResticAccess)
+	mounts := backupMountPoints(req.GuestConfig)
+	stable, copied := containerBackupRoot(p.Layout, dir, req.VMID)
+	var cmd *exec.Cmd
+	var stdout io.ReadCloser
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	stdout, err := cmd.StdoutPipe()
+	root, err := p.startContainerRestic(dir, stable, copied, func(root string) error {
+		args := containerBackupArgs(root, sources, mounts, req.ExcludePatterns, req.VMID, creds.RunID,
+			filepath.Join(pointer.RunDir, "cache"), req.Info.BandwidthLimit, copied)
+		cmd = exec.CommandContext(ctx, creds.Restic, args...)
+		cmd.Dir = root
+		cmd.Env = resticEnv(&creds.ResticAccess)
+		cmd.Stderr = &stderr
+		var err error
+		if stdout, err = cmd.StdoutPipe(); err != nil {
+			return err
+		}
+		return cmd.Start()
+	})
 	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("restic backup failed: %w", err)
 	}
 	reporter := StartProgress(ctx, intervalSeconds(creds.ProgressIntervalSeconds),
 		newRunCredentialSender(creds.ProgressURL, creds.Username, creds.Password))
-	res := ctResult{Root: dir, GuestConfig: req.GuestConfig, Firewall: req.Info.FirewallConfig}
+	res := ctResult{Root: root, GuestConfig: req.GuestConfig, Firewall: req.Info.FirewallConfig}
 	// restic's other lines (older versions report unreadable items on stdout).
 	others := readResticBackupOutput(stdout, &res, reporter)
 	err = cmd.Wait()
@@ -196,6 +209,61 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 	}
 	p.logf("info", "restic snapshot %s, %d MiB added", res.SnapshotID, res.BytesAdded>>20)
 	return map[string]any{}, nil
+}
+
+// vzsnapDir is where vzdump mounts a container's snapshot (snapshot mode): the same path on
+// every run, with the container's own file systems below it (tests point it elsewhere).
+var vzsnapDir = "/mnt/vzsnap0"
+
+// ctStableRoot is the folder a container's copy is backed up through (containerBackupRoot).
+func (l Layout) ctStableRoot(vmid int) string {
+	return filepath.Join(l.RunDir, fmt.Sprintf("ctroot-%d", vmid))
+}
+
+// containerBackupRoot is the folder restic backs a container up from. In snapshot mode it is
+// PVE's snapshot mount. In suspend and stop mode PVE hands over a copy in a folder that is new
+// on every run (/var/tmp/vzdumptmp<pid>_<vmid>): restic chooses the parent snapshot by host and
+// path, so it never found one and read and hashed the whole container every time, and every
+// file counted as new for the change rate. Such a copy (copied) is backed up through the
+// stable folder instead, the same on every run; its files are new inodes with a new ctime, so
+// restic compares them by size and mtime only (rsync keeps both).
+func containerBackupRoot(l Layout, dir string, vmid int) (stable string, copied bool) {
+	if filepath.Clean(dir) == filepath.Clean(vzsnapDir) {
+		return dir, false
+	}
+	return l.ctStableRoot(vmid), true
+}
+
+// bindStableRoot bind-mounts a copy onto the stable folder, for the calling thread only
+// (tests replace it).
+var bindStableRoot = bindPrivate
+
+// startContainerRestic runs start (which starts restic in the folder it gets) in the folder
+// containerBackupRoot chose and returns that folder. A copy is first bind-mounted onto the
+// stable folder in a mount namespace of a thread of its own, which restic inherits; when that
+// is not possible (no mount namespace for PVE's user namespace), restic runs in dir as before
+// and the line says why.
+func (p *Provider) startContainerRestic(dir, stable string, copied bool, start func(root string) error) (string, error) {
+	if !copied {
+		return dir, start(dir)
+	}
+	type result struct{ bindErr, err error }
+	ch := make(chan result, 1)
+	go func() {
+		// Never unlocked: the thread and its mount namespace end with this goroutine.
+		runtime.LockOSThread()
+		if err := bindStableRoot(dir, stable); err != nil {
+			ch <- result{bindErr: err}
+			return
+		}
+		ch <- result{err: start(stable)}
+	}()
+	r := <-ch
+	if r.bindErr == nil {
+		return stable, r.err
+	}
+	p.logf("info", "backing up %s directly (%v): restic finds no earlier backup of this copy and reads all of it", dir, r.bindErr)
+	return dir, start(dir)
 }
 
 // resticExitIncomplete is restic's exit code for a snapshot that was written
@@ -267,17 +335,22 @@ const containerRetryLock = "15m"
 // leave it out for the same reason). In snapshot mode PVE passes one source per
 // file system ("." and "./mnt/data"); in suspend and stop mode it passes "."
 // only, with every mount point copied or mounted below it, so the mount points
-// come from the guest's configuration (mounts) as well.
+// come from the guest's configuration (mounts) as well. dir is the folder restic
+// runs in (containerBackupRoot).
 //
 // --retry-lock (restic 0.16+, pinned 0.19.1 in tools.env) waits for an
 // exclusive lock the server holds while it checks or prunes the container's
 // repository, instead of failing the backup at once (as for machines and file
 // shares).
-func containerBackupArgs(dir string, sources, mounts, excludes []string, vmid int, runID, cacheDir string, bwlimitKiB uint64) []string {
+func containerBackupArgs(dir string, sources, mounts, excludes []string, vmid int, runID, cacheDir string, bwlimitKiB uint64, copied bool) []string {
 	// No --no-scan: restic's scan gives the total its progress needs (#51).
 	args := []string{"backup", "--json", "--host", fmt.Sprintf("pve-ct-%d", vmid),
 		"--tag", fmt.Sprintf("vmid=%d", vmid), "--tag", "run=" + runID,
 		"--cache-dir", cacheDir, "--retry-lock", containerRetryLock}
+	if copied {
+		// A fresh copy: new inodes and ctimes, the same size and mtime (containerBackupRoot).
+		args = append(args, "--ignore-inode", "--ignore-ctime")
+	}
 	for _, ex := range excludes {
 		if e := ExcludeToRestic(dir, ex); e != "" {
 			args = append(args, "--exclude", e)

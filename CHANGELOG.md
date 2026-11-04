@@ -437,6 +437,15 @@ private repository.
   folder and names only `.`, so only the root file system's `lost+found` was left out. The node
   now takes the mount points with `backup=1` from the container's configuration and leaves out
   each one's `lost+found` in every mode; bind and device mount points are not in the backup.
+- Proxmox VE: a container backed up in suspend or stop mode was read and hashed completely on
+  every run, hours for a large container, and every file counted as new or changed, which made
+  the change rate (the ransomware signal) meaningless for it. PVE hands over its copy in a folder
+  that is new on every run (`/var/tmp/vzdumptmp<pid>_<vmid>`), and restic chooses its parent
+  snapshot by host and path, so it never found one. The node now backs such a copy up through
+  the same folder every time, `/run/restow-pve/ctroot-<vmid>`, mounted in a mount namespace only
+  restic sees, and compares the copy's files by size and modification time; the restore point
+  records that folder, and older restore points restore as before. Where the mount namespace is
+  not possible the task log says so and the backup reads everything, as before.
 
 ### Upgrade Notes
 

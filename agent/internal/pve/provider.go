@@ -568,6 +568,8 @@ func (p *Provider) backupCleanup(ctx context.Context, req ProviderRequest) (any,
 		p.foldTaskLog(job)
 		_ = os.RemoveAll(job.RunDir)
 		_ = os.Remove(p.ctPointer(job.StoreID, job.VMID))
+		// Empty on the host: only the backup's own mount namespace mounted the copy on it.
+		_ = os.Remove(p.Layout.ctStableRoot(job.VMID))
 	}
 	if cerr != nil {
 		return nil, cerr
