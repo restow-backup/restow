@@ -583,6 +583,8 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(resolved).toMatchObject({
       snapshotId: second.snapshotId,
       firewallConfig: "[OPTIONS]\nenable: 1\n",
+      byteSize: data1.length,
+      resticTotalBytes: null,
     });
   });
 
@@ -1007,6 +1009,15 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       unreadablePaths: ["/var/lib/a", "/var/lib/b"],
     });
     expect(point?.byteSize).toBe(10_000_000);
+    // The node learns the size before a restore (its free-space checks).
+    const resolvedCt = await json<Record<string, unknown>>(
+      await call(node, `/restore-points?volname=${encodeURIComponent(point?.archiveName ?? "")}`),
+    );
+    expect(resolvedCt).toMatchObject({
+      kind: "ct",
+      byteSize: 10_000_000,
+      resticTotalBytes: 10_000_000,
+    });
     await json(
       await call(node, `/runs/${ct.runId}/finish`, { json: { status: "succeeded" } }),
       204,

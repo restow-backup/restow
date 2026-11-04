@@ -119,7 +119,7 @@ except enrollment. Binary formats are defined in
 | `POST /runs/:id/finish`, `POST /runs/:id/log` | end of the run, PVE task log |
 | `POST /runs/:id/progress` | `{bytesDone, bytesTotal?, bytesUploaded?}` → 204: how far a running backup is (since 0.4.0). Basic `nodeId:nodeSecret`, or the run's restic credential `runId:token` (the unprivileged container backup has no node secret). Reports closer than 2 s are dropped; 409 once the run ended. |
 | `POST /runs/:id/restic` | per-run restic credential of a container backup; since 0.4.0 also `{progressUrl, progressIntervalSeconds}` |
-| `GET /restore-points?volname=` | a restore point by its PVE volume name |
+| `GET /restore-points?volname=` | a restore point by its PVE volume name → `{snapshotId, kind, vmid, guestConfig, firewallConfig, devices: [{device, size}], resticSnapshotId, resticRoot, byteSize, resticTotalBytes}`. Since 0.5.0 `byteSize` is the restore point's size (a VM: its disk sizes summed; a container: the bytes of its files, restic's total; `0` when unknown, a container restore point of a node before 0.4.0) and `resticTotalBytes` a container's restic total (`null` when unknown and for VMs), for the node's free-space checks before a restore. |
 | `GET /snapshots/:id/disks/:device/hashes` | block hash list (`RSBH`) |
 | `GET /snapshots/:id/disks/:device/blocks?from=&count=` | up to 16 blocks of the synthetic full |
 | `POST /snapshots/:id/restic` | read credential for a container restore |

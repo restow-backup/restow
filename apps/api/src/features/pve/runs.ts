@@ -1296,6 +1296,14 @@ export async function resolveVolname(node: NodeContext, volname: string) {
     devices: snap.disks.map((d) => ({ device: d.device, size: d.size })),
     resticSnapshotId: snap.resticSnapshotId ?? "",
     resticRoot: snap.resticRoot ?? "",
+    // What the node checks free space against: a VM's disk sizes summed, a container's file
+    // bytes (restic's total); 0 when unknown (a container restore point of an older node).
+    byteSize: snap.byteSize,
+    // A container's restic total as the node reported it; null when unknown, and for VMs.
+    resticTotalBytes:
+      snap.kind === "ct" && typeof snap.stats.resticTotalBytes === "number"
+        ? snap.stats.resticTotalBytes
+        : null,
   };
 }
 
