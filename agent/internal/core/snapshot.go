@@ -39,6 +39,9 @@ type snapshotPlan struct {
 	volumes  []string
 	excluded []string
 	notes    []string
+	// volumesUnknown: the volume of at least one source could not be
+	// determined; restic may still have snapshotted it.
+	volumesUnknown bool
 	// unavailable is set when a snapshot is wanted but cannot be taken at
 	// all (for example without administrator rights); it is the message.
 	unavailable string
@@ -58,7 +61,11 @@ func snapshotFailPolicy(cfg *api.Config) bool {
 const snapshotLogHint = "Event Viewer > Windows Logs > Application, source VSS; as an administrator: vssadmin list writers"
 
 // consistencyOf rates what happened to the snapshot of a backup that got as
-// far as restic. unavailable: no snapshot could be taken at all.
+// far as restic. unavailable: no snapshot could be taken at all. "used"
+// needs at least one volume that really came from a snapshot; volumes read
+// live (failed, excluded from the start, not supported by the provider) are
+// listed in LiveFilesystems with any state, and when no volume is left the
+// state is "unavailable" with that list (docs/WINDOWS-AGENT.md, 17.5).
 func consistencyOf(plan snapshotPlan, out restic.SnapshotOutcome, unavailable bool) *api.Consistency {
 	c := &api.Consistency{Method: plan.method, State: api.ConsistencyOff}
 	if !plan.requested && plan.unavailable == "" {
@@ -73,38 +80,37 @@ func consistencyOf(plan snapshotPlan, out restic.SnapshotOutcome, unavailable bo
 		}
 		live = append(live, v)
 	}
-	failed := map[string]bool{}
+	notSnapshotted := map[string]bool{}
 	for _, f := range out.FailedVolumes {
 		add(f.Volume)
-		failed[strings.ToUpper(f.Volume)] = true
+		notSnapshotted[strings.ToUpper(f.Volume)] = true
 	}
 	for _, v := range out.SkippedVolumes {
 		add(v)
+		notSnapshotted[strings.ToUpper(v)] = true
 	}
 	for _, v := range plan.excluded {
 		add(v)
 	}
+	snapshotted := 0
+	for _, v := range plan.volumes {
+		if !notSnapshotted[strings.ToUpper(v)] {
+			snapshotted++
+		}
+	}
+	// Without any known volume (and none excluded) the plan says nothing:
+	// what restic did not report as failed or skipped came from a snapshot.
+	known := !plan.volumesUnknown && len(plan.volumes)+len(plan.excluded) > 0
 	switch {
 	case unavailable || plan.unavailable != "":
 		c.State = api.ConsistencyUnavailable
 		live = nil
+	case known && snapshotted == 0:
+		c.State = api.ConsistencyUnavailable
 	case len(out.FailedVolumes) == 0:
 		c.State = api.ConsistencyUsed
 	default:
 		c.State = api.ConsistencyPartial
-		// Every volume that was to be snapshotted failed: no snapshot at all.
-		if len(plan.volumes) > 0 {
-			all := true
-			for _, v := range plan.volumes {
-				if !failed[strings.ToUpper(v)] {
-					all = false
-					break
-				}
-			}
-			if all {
-				c.State = api.ConsistencyUnavailable
-			}
-		}
 	}
 	if len(live) > api.MaxLiveFilesystems {
 		live = live[:api.MaxLiveFilesystems]

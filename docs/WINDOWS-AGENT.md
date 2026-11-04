@@ -1474,9 +1474,14 @@ Feld nicht und läuft auf Linux/macOS ohnehin ohne Snapshot).
   - `{ code: "snapshot_cleanup_failed", path: "C:\\", message: "…" }`.
 - **Statistik** (umgesetzt als Berichtsfeld `consistency`, Form in Entscheidung 1):
   `stats.snapshot = { method: "vss" | "apfs" | "lvm" | "btrfs", state:
-  "used" | "partial" | "unavailable" | "off" }`. `used`: angefordert, kein Fehler
-  (übersprungene Volumes zählen nicht); `partial`: mindestens ein Volume ohne; `unavailable`:
-  ganz ohne; `off`: nicht angefordert.
+  "used" | "partial" | "unavailable" | "off" }`. `used`: angefordert, kein Fehler und
+  mindestens ein Volume wirklich aus einer Schattenkopie; vorab ausgeschlossene und vom
+  Anbieter nicht unterstützte Volumes stehen in `liveFilesystems`, werten aber nicht ab.
+  `partial`: mindestens ein Volume mit fehlgeschlagener Schattenkopie; `unavailable`: ganz ohne,
+  auch wenn jedes Volume der Quellen ausgeschlossen, übersprungen oder fehlgeschlagen ist (dann
+  mit der Liste in `liveFilesystems`); `off`: nicht angefordert. Vorher hieß ein Lauf, der nur
+  einen exFAT-Stick las, "Schattenkopie (dateikonsistent)". Wie die Oberfläche
+  `liveFilesystems` bei `used` zeigt, regelt der Server.
 - **Oberfläche:** "Schattenkopie (dateikonsistent)" bzw. "Ohne Schattenkopie". Nicht
   "konsistent": restic fordert eine Kopie-Sicherung ohne Writer-Komponenten an
   (`VSS_BT_COPY`, Abschnitt 1.2). Dateien offener Datenbanken (SQL Server, Exchange) sind
@@ -2372,7 +2377,8 @@ geprüft sind die reinen Funktionen und die Politik mit einem falschen restic un
     erhöhten Konsole (`backup-now` lehnt dort schon ab; sonst Hinweis im Log).
 26. Vorab ausgeschlossene Volumes: exFAT-USB-Stick und eine FAT32-Partition als Quelle;
     `-o vss.exclude-volumes=E:\` steht in der restic-Zeile, Hinweis im Log, Lauf `succeeded`
-    (`state: "used"`, `liveFilesystems: ["E:\\"]`), auch mit `fail`. Ob restic die Form
+    (nur der Stick als Quelle: `state: "unavailable"`, mit `C:\Users` zusammen: `state:
+    "used"`, beide mit `liveFilesystems: ["E:\\"]`), auch mit `fail`. Ob restic die Form
     `E:\` in `vss.exclude-volumes` annimmt oder `E:` verlangt, ist hier nicht geprüft.
 27. Vom Anbieter nicht unterstütztes Volume (eingehängte VHD, ReFS auf älterem Server): nur
     Hinweis im Log, kein Fehler, auch mit `fail`.

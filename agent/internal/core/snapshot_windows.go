@@ -32,6 +32,7 @@ func planSnapshot(cfg *api.Config, sources []string) snapshotPlan {
 	for _, s := range sources {
 		vol, err := winapi.VolumePathName(s)
 		if err != nil || vol == "" {
+			p.volumesUnknown = true
 			continue
 		}
 		vol = restic.NormalizeVolume(vol)

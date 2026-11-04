@@ -261,6 +261,11 @@ private repository.
   letter, and says so in the log; a volume without a drive letter is the run error
   `source_is_mount_point` (the run ends partial). A backup in which restic read no file at all
   from a folder that holds files ends partial as well.
+- Windows agent (preview): a backup that read no volume from a shadow copy reported the
+  consistency "Shadow copy (file consistent)", for example a job with only an exFAT disk or a
+  volume whose snapshot provider does not support it. Such a backup is now "Without a shadow
+  copy" with the volumes read live; "used" needs at least one volume that really came from a
+  shadow copy and lists the others it read live.
 
 ### Upgrade Notes
 
