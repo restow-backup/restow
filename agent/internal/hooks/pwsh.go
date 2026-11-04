@@ -24,7 +24,14 @@ import (
 // mysqldump, git or pg_dump only printed a warning or their progress. Instead
 // the default parameter value -ErrorAction Stop makes every cmdlet error
 // terminating (native programs have no such parameter), and the trap turns
-// any terminating error into exit 1 with its text on stderr.
+// any terminating error into exit 1 with its text on stderr. That includes
+// the statement-terminating errors that no preference governs: a .NET method
+// exception ([IO.Compression.ZipFile]::CreateFromDirectory on a missing
+// folder), a failed conversion, a division by zero, an unknown command. trap
+// and catch see those under the default preference Continue as well (only
+// SilentlyContinue and Ignore would swallow them), also from a child scope
+// (a .ps1, a script block): the hook ends with exit 1 before its next
+// statement runs. The Windows integration tests pin this.
 //
 // The exit line: $? is false after a native program that failed or that wrote
 // to stderr. A code other than 0 is kept; with code 0 the hook succeeded when

@@ -29,6 +29,15 @@ func TestPowerShellExitCodes(t *testing.T) {
 		`cmd /c "echo warn 1>&2"; Write-Output after`:                0,
 		`cmd /c "echo warn 1>&2"; Get-Item C:\does-not-exist-restow`: 1,
 		`$x = cmd /c "echo warn 1>&2 & echo out" 2>&1; $x`:           0,
+		// Statement-terminating errors (a .NET method exception, a failed
+		// conversion, a division by zero) reach the trap without
+		// $ErrorActionPreference = 'Stop': a dump that throws is no success
+		// because a later statement succeeded.
+		`[IO.File]::ReadAllText('C:\does-not-exist-restow'); Write-Output after`:                                                                                                          1,
+		`Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory('C:\does-not-exist-restow', "$env:TEMP\restow-x.zip"); Write-Output done`: 1,
+		`[int]'not a number'; Write-Output after`:                                      1,
+		`$zero = 0; 1 / $zero; Write-Output after`:                                     1,
+		`& { [IO.File]::ReadAllText('C:\does-not-exist-restow') }; Write-Output after`: 1,
 	} {
 		res, err := Run(context.Background(), Options{Kind: Pre, Command: cmd, Timeout: time.Minute})
 		if res.ExitCode != want {
