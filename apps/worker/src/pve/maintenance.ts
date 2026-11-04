@@ -43,6 +43,7 @@ import {
   deleteOnAllTargets,
   listLockFiles,
   loadManifest,
+  lockClockSkews,
   locksToRemove,
   mapChunkIds,
   measureRepositoryBytes,
@@ -69,11 +70,13 @@ import {
   resticCheck,
   resticErrorDetail,
   resticForget,
+  resticLockTime,
   resticPrune,
   resticSnapshots,
   resticUnlock,
   type StorageTargets,
   sampleDataBlocks,
+  storageStaleLocks,
   type TenantKeyring,
   withRepository,
 } from "@restow/core";
@@ -565,6 +568,13 @@ export async function pruneSnapshot(deps: PveDeps, snap: PveSnapshot, now: Date)
       .set({ status: "pruned", prunedAt: now })
       .where(and(eq(pveSnapshots.id, snap.id), eq(pveSnapshots.status, "active")))
       .returning();
+    if (row?.resticSnapshotId) {
+      // Its restic snapshot is forgotten by the next comparison of the repository.
+      await tx
+        .update(pveGuests)
+        .set({ repositoryReconciledAt: null })
+        .where(eq(pveGuests.id, snap.guestId));
+    }
     if (row) {
       await appendAuditEntry(tx, {
         tenantId: snap.tenantId,
@@ -584,10 +594,28 @@ export async function pruneSnapshot(deps: PveDeps, snap: PveSnapshot, now: Date)
   await deleteOnAllTargets(ctx.storage, snap.manifestPath, deps.runtime.logger);
 }
 
+/** A restic snapshot no restore point names is forgotten once it is this old (6 hours). */
+export const PVE_ORPHAN_SNAPSHOT_GRACE_MS = 6 * 60 * 60 * 1000;
+/** Each container repository is compared with its restore points at least this often. */
+export const PVE_RECONCILE_EVERY_MS = 24 * 60 * 60 * 1000;
+/** Comparisons that were not caused by a prune, per pass (after an update they drain). */
+export const PVE_RECONCILES_PER_PASS = 10;
+/** How long forget and prune wait for another run's lock before the pass leaves them. */
+export const PVE_FORGET_RETRY_LOCK = "2m";
+
+/** Whether a run of the guest is going or its node took on a backup of it (`guestBusy`). */
+async function guestIsBusy(deps: PveDeps, guestId: string, now: Date): Promise<boolean> {
+  const rows = await deps.providerDb.execute<{ busy: boolean }>(
+    sql`SELECT ${guestBusy(sql`${guestId}::uuid`, now)} AS busy`,
+  );
+  return rows.rows[0]?.busy === true;
+}
+
 export async function applyRetention(deps: PveDeps, now: Date): Promise<number> {
   const guests = await deps.providerDb.select().from(pveGuests);
   const mode = guests.length > 0 ? await retentionHoldMode(deps.providerDb) : null;
   let pruned = 0;
+  let reconciles = 0;
   // A "move" storage migration copies the containers' repositories file by file: retention
   // waits for it, so no restic file it listed is pruned away under it (per tenant, once a run).
   const migrating = new Map<string, boolean>();
@@ -600,6 +628,11 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
     if (busy) {
       continue;
     }
+    // A backup, restore, check or boot test of the guest runs (its restic holds or takes the
+    // repository's lock, a backup builds on the newest restore point): a later pass.
+    if (await guestIsBusy(deps, guest.id, now)) {
+      continue;
+    }
     const result = await withTenantTx(deps.db, guest.tenantId, async (tx) => {
       const holds = await loadRetentionHolds(tx, {
         tenantId: guest.tenantId,
@@ -609,7 +642,8 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
         mode: mode ?? DEFAULT_RETENTION_HOLD_MODE,
       });
       if (retentionHeld(holds, guest.id)) {
-        // Held on suspicion: no restore point goes, so no chunk reference is released either.
+        // Held on suspicion: no restore point goes, so no chunk reference is released either,
+        // and no restic snapshot is forgotten.
         return null;
       }
       const snaps = await tx
@@ -629,44 +663,175 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
         zone: tenant?.timeZone ?? DEFAULT_SCHEDULE_TIMEZONE,
       };
     });
-    if (result === null || result.snaps.length <= 1) {
+    if (result === null) {
       continue;
     }
-    const decision = applyRetentionPolicy(
-      result.snaps.map((s) => ({ id: s.id, time: s.backupAt })),
-      result.rules,
-      result.zone,
-    );
-    const forget: string[] = [];
-    for (const id of decision.remove) {
-      const snap = result.snaps.find((s) => s.id === id) as PveSnapshot;
-      try {
-        // A restore point the storage still locks stays until a later run (docs/STORAGE.md).
-        if (await pveSnapshotLocked(deps, guest, snap)) {
-          continue;
+    let prunedContainerPoint = false;
+    if (result.snaps.length > 1) {
+      const decision = applyRetentionPolicy(
+        result.snaps.map((s) => ({ id: s.id, time: s.backupAt })),
+        result.rules,
+        result.zone,
+      );
+      for (const id of decision.remove) {
+        const snap = result.snaps.find((s) => s.id === id) as PveSnapshot;
+        try {
+          // A restore point the storage still locks stays until a later run (docs/STORAGE.md).
+          if (await pveSnapshotLocked(deps, guest, snap)) {
+            continue;
+          }
+          await pruneSnapshot(deps, snap, now);
+          pruned++;
+          prunedContainerPoint ||= snap.resticSnapshotId !== null;
+        } catch (error) {
+          deps.runtime.logger.warn("pve retention: could not prune a restore point", {
+            snapshotId: id,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
-        await pruneSnapshot(deps, snap, now);
-        pruned++;
-        if (snap.resticSnapshotId) {
-          forget.push(snap.resticSnapshotId);
-        }
-      } catch (error) {
-        deps.runtime.logger.warn("pve retention: could not prune a restore point", {
-          snapshotId: id,
-          error: error instanceof Error ? error.message : String(error),
-        });
       }
     }
-    if (forget.length > 0) {
-      await forgetResticSnapshots(deps, guest, forget).catch((error) =>
-        deps.runtime.logger.warn("pve retention: restic forget failed", {
-          guestId: guest.id,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      );
+    // The restic snapshots of pruned restore points are forgotten by comparing the repository
+    // with the restore points: a forget that failed (a lock, the storage, a restart) is done by
+    // a later pass, and snapshots of runs that never committed go as well.
+    const due =
+      prunedContainerPoint ||
+      (guest.kind === "ct" &&
+        guest.repositorySecretId !== null &&
+        guest.repositoryReadyAt !== null &&
+        (guest.repositoryReconciledAt === null ||
+          now.getTime() - guest.repositoryReconciledAt.getTime() >= PVE_RECONCILE_EVERY_MS) &&
+        reconciles < PVE_RECONCILES_PER_PASS);
+    if (!due) {
+      continue;
     }
+    if (!prunedContainerPoint) {
+      reconciles++;
+    }
+    await reconcileGuestRepository(deps, guest, now).catch((error) =>
+      deps.runtime.logger.warn("pve retention: restic forget failed, tried again next pass", {
+        guestId: guest.id,
+        error: resticErrorDetail(error, 500),
+      }),
+    );
   }
   return pruned;
+}
+
+/**
+ * Compare a container repository with the guest's restore points and forget, then prune, every
+ * restic snapshot none of them holds (docs/PVE.md, "Retention"):
+ *
+ *   - the snapshot of a pruned restore point (also one pruned before 0.5.0, whose forget failed
+ *     and was never tried again);
+ *   - a snapshot no restore point names at all (a run that wrote it and never committed: a
+ *     late cancel, a refused commit, vzdump failing after the archive step) once it is
+ *     {@link PVE_ORPHAN_SNAPSHOT_GRACE_MS} old and its `run=` tag names no run still going.
+ *
+ * Never a snapshot an active (or unavailable) restore point names, nor one the storage still
+ * locks. Inside the guest's repository lock, after its stale locks are cleared; forget and
+ * prune wait {@link PVE_FORGET_RETRY_LOCK} for another run's lock. Only a pass that got
+ * through records the comparison (`repositoryReconciledAt`); a failed one is tried again by
+ * the next pass.
+ */
+export async function reconcileGuestRepository(
+  deps: PveDeps,
+  guest: PveGuest,
+  now: Date,
+): Promise<{ forgotten: string[] }> {
+  const access = await repositoryAccess(deps, guest);
+  if (!access) {
+    return { forgotten: [] };
+  }
+  const storage = await deps.runtime.storage.get(guest.tenantId);
+  const targets = [storage.primary, ...storage.copies];
+  // Claim the comparison: a prune that lands meanwhile sets it back to null.
+  await withTenantTx(deps.db, guest.tenantId, (tx) =>
+    tx.update(pveGuests).set({ repositoryReconciledAt: null }).where(eq(pveGuests.id, guest.id)),
+  );
+  const forgotten = await withGuestRepository(deps, guest.id, () =>
+    withRepository(access, async (session) => {
+      await clearStaleGuestLocks(deps, access, session, guest.id);
+      const listed = await resticSnapshots(session, { noLock: true });
+      const rows = await withTenantTx(deps.db, guest.tenantId, (tx) =>
+        tx
+          .select({
+            resticSnapshotId: pveSnapshots.resticSnapshotId,
+            status: pveSnapshots.status,
+          })
+          .from(pveSnapshots)
+          .where(and(eq(pveSnapshots.guestId, guest.id), isNotNull(pveSnapshots.resticSnapshotId))),
+      );
+      const running = await withTenantTx(deps.db, guest.tenantId, (tx) =>
+        tx
+          .select({ id: pveRuns.id })
+          .from(pveRuns)
+          .where(and(eq(pveRuns.guestId, guest.id), eq(pveRuns.status, "running"))),
+      );
+      const keep = new Set(
+        rows.filter((r) => r.status !== "pruned").map((r) => r.resticSnapshotId as string),
+      );
+      const pruned = new Set(
+        rows.filter((r) => r.status === "pruned").map((r) => r.resticSnapshotId as string),
+      );
+      const runningIds = new Set(running.map((r) => r.id));
+      const ids: string[] = [];
+      for (const snapshot of listed) {
+        if (keep.has(snapshot.id)) {
+          continue;
+        }
+        if (!pruned.has(snapshot.id)) {
+          // No restore point names it: a run that never committed. Only once it is old, and
+          // never while its run (or any run whose tag it carries) still goes.
+          const time = Date.parse(snapshot.time);
+          const run = snapshot.tags.find((tag) => tag.startsWith("run="))?.slice(4);
+          if (
+            !Number.isFinite(time) ||
+            now.getTime() - time < PVE_ORPHAN_SNAPSHOT_GRACE_MS ||
+            (run !== undefined && runningIds.has(run))
+          ) {
+            continue;
+          }
+        }
+        if (await protectionOnTargets(targets, `${access.prefix}snapshots/${snapshot.id}`)) {
+          continue;
+        }
+        ids.push(snapshot.id);
+      }
+      if (ids.length > 0) {
+        await resticForget(session, ids, {
+          retryLock: PVE_FORGET_RETRY_LOCK,
+          signal: deps.runtime.shutdownSignal,
+        });
+        await resticPrune(session, {
+          retryLock: PVE_FORGET_RETRY_LOCK,
+          signal: deps.runtime.shutdownSignal,
+        });
+      }
+      return ids;
+    }),
+  );
+  // The prune freed space the restic route never saw: measure the repository again.
+  const repositoryBytes =
+    forgotten.length > 0 ? await measureRepositoryBytes(access.storage, access.prefix) : null;
+  await withTenantTx(deps.db, guest.tenantId, (tx) =>
+    tx
+      .update(pveGuests)
+      .set({
+        repositoryReconciledAt: now,
+        ...(repositoryBytes !== null
+          ? { repositoryBytes, repositoryMeasuredAt: deps.runtime.now() }
+          : {}),
+      })
+      .where(and(eq(pveGuests.id, guest.id), isNull(pveGuests.repositoryReconciledAt))),
+  );
+  if (forgotten.length > 0) {
+    deps.runtime.logger.info("pve retention: restic snapshots forgotten", {
+      guestId: guest.id,
+      snapshots: forgotten.length,
+    });
+  }
+  return { forgotten };
 }
 
 /** Whether a target still locks the restore point's manifest or restic snapshot file. */
@@ -718,10 +883,26 @@ async function clearStaleGuestLocks(
 ): Promise<void> {
   try {
     const present = await listLockFiles(access.storage, access.prefix);
+    const now = deps.runtime.now();
+    // Only restow-pve and the server write here, so a lock's own time can be trusted: a lock
+    // is stale only when its storage time and its own time are both 30 minutes old. A storage
+    // whose clock lags (a NAS on local time as UTC) never gets a live lock taken away.
+    const lockTimes = new Map<string, Date | null>();
+    for (const lock of storageStaleLocks(present, now)) {
+      lockTimes.set(lock.name, await resticLockTime(session, lock.name));
+    }
+    const skews = lockClockSkews(present, lockTimes);
+    if (skews.length > 0) {
+      deps.runtime.logger.warn(
+        "pve: the storage time of a container repository's lock and the lock's own time differ by more than 30 minutes (is the storage's clock right?)",
+        { guestId, locks: skews.length, skewMinutes: Math.round((skews[0]?.skewMs ?? 0) / 60_000) },
+      );
+    }
     const stale = locksToRemove(present, {
       agentLocks: new Set(),
       agentActive: false,
-      now: deps.runtime.now(),
+      now,
+      lockTimes,
     });
     if (stale.length > 0) {
       await removeLockFiles(access.storage, access.prefix, stale);
@@ -742,29 +923,6 @@ async function clearStaleGuestLocks(
       detail: resticErrorDetail(error, 500),
     });
   });
-}
-
-async function forgetResticSnapshots(deps: PveDeps, guest: PveGuest, ids: string[]): Promise<void> {
-  const access = await repositoryAccess(deps, guest);
-  if (!access) {
-    return;
-  }
-  await withGuestRepository(deps, guest.id, () =>
-    withRepository(access, async (session) => {
-      // Stale locks only (a run that ended without releasing its lock), as for machines.
-      await clearStaleGuestLocks(deps, access, session, guest.id);
-      await resticForget(session, ids);
-      await resticPrune(session);
-    }),
-  );
-  // The prune freed space the restic route never saw: measure the repository again.
-  const repositoryBytes = await measureRepositoryBytes(access.storage, access.prefix);
-  await withTenantTx(deps.db, guest.tenantId, (tx) =>
-    tx
-      .update(pveGuests)
-      .set({ repositoryBytes, repositoryMeasuredAt: deps.runtime.now() })
-      .where(eq(pveGuests.id, guest.id)),
-  );
 }
 
 // ---------------------------------------------------------------------------

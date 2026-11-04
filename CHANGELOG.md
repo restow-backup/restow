@@ -329,6 +329,23 @@ private repository.
   repository's list and carries the tag of the restore point's run; a missing or foreign one
   fails the check. A list that cannot be read (network, storage) postpones the check instead of
   failing it.
+- Proxmox VE: the restic repository of a container grew for good. Retention marked restore
+  points pruned and then ran `restic forget` and `prune` once; when that failed (another run's
+  lock, a file restore reading the repository, the storage, a restart) it was only logged and
+  never tried again, and the snapshots of runs that never committed (a cancel at the end, a
+  refused commit, vzdump failing after the archive step) were never forgotten at all. The worker
+  now compares each container repository with its restore points after a prune and once a
+  day, and forgets every snapshot no active restore point holds: those of pruned points (also
+  ones pruned before this release), and after six hours those of runs that never committed and
+  no longer run. A pass that does not get through is repeated by the next one; forget and prune
+  wait two minutes for another run's lock. Retention now also leaves a guest alone while a run
+  of it is going.
+- Proxmox VE: a storage whose clock lags the server's by more than 30 minutes (a NAS set to
+  local time as UTC) made every live restic lock of a container repository look stale, and the
+  worker removed it and pruned while the node's restic was restoring, testing or backing up. A
+  lock of a container repository now counts as stale only when the time restic wrote into it is
+  30 minutes old as well; a disagreement of the two clocks is logged as a warning. Endpoint
+  repositories keep the storage rule, where an agent could plant a lock dated in the future.
 
 ### Upgrade Notes
 

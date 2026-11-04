@@ -338,6 +338,10 @@ export const pveGuests = pgTable(
     // every upload and measured again after a prune; null until first measured.
     repositoryBytes: bigint("repository_bytes", { mode: "number" }),
     repositoryMeasuredAt: timestamp("repository_measured_at", { withTimezone: true }),
+    // When the worker last compared the container repository's restic snapshots with the
+    // restore points and forgot those no restore point holds (0.5.0); null: due now (a restore
+    // point was pruned, or never compared yet).
+    repositoryReconciledAt: timestamp("repository_reconciled_at", { withTimezone: true }),
     // The new backup chains of the container's repository, newest first (at most
     // PVE_REPOSITORY_CHAINS_KEPT): shown on the guest page and in its history.
     repositoryChains: jsonb("repository_chains")

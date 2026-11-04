@@ -77,11 +77,13 @@ import {
   dropPveTokenSecrets,
   PVE_CHECK_LOCK_WAITS_PER_PASS,
   PVE_CHECK_RETRY_LOCK,
+  PVE_ORPHAN_SNAPSHOT_GRACE_MS,
   type PveDeps,
   planJobs,
   planRestoreTests,
   purgeDownloads,
   pvePass,
+  reconcileGuestRepository,
   VERIFY_GIVE_UP_MS,
   VERIFY_POSTPONE_MS,
   verifyDue,
@@ -1370,6 +1372,85 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     const row = async () => (await owner.select().from(pveGuests).where(eq(pveGuests.id, id)))[0];
     return { id, backup, listed, point, row };
   }
+
+  it.skipIf(!resticOk)(
+    "forgets the restic snapshots no restore point holds, again after a failed pass, never a running run's or an active one's (S09, S10)",
+    async () => {
+      const ct = await realContainer(320);
+      const runs = { active: randomUUID(), pruned: randomUUID(), orphan: randomUUID() };
+      const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+      // A backup of the container runs: its snapshot is written, its commit has not come yet.
+      const [running] = await owner
+        .insert(pveRuns)
+        .values({
+          tenantId,
+          clusterId,
+          nodeId: node?.id ?? null,
+          guestId: ct.id,
+          kind: "backup",
+          startedAt: new Date(),
+        })
+        .returning();
+      const ids = {
+        active: await ct.backup(runs.active),
+        pruned: await ct.backup(runs.pruned),
+        orphan: await ct.backup(runs.orphan),
+        running: await ct.backup(running?.id ?? ""),
+      };
+      await ct.point(1, ids.active, runs.active);
+      // Pruned before 0.5.0 (or its forget failed): the row says pruned, restic still has it.
+      await ct.point(2, ids.pruned, runs.pruned, "pruned");
+      const later = new Date(Date.now() + PVE_ORPHAN_SNAPSHOT_GRACE_MS + 60_000);
+
+      // The guest is busy (its backup runs): retention leaves it alone (S10).
+      await applyRetention(deps, later);
+      expect((await ct.listed()).sort()).toEqual(Object.values(ids).sort());
+
+      // The repository is held (a file restore reads it): the pass fails and records nothing.
+      const reading = await acquireEndpointRepositoryLock(
+        owner.$client,
+        pveGuestRepositoryLockKey(ct.id),
+        { mode: "shared" },
+      );
+      try {
+        await expect(
+          reconcileGuestRepository(
+            { ...deps, repositoryLockWaitMs: 300 },
+            (await ct.row()) as never,
+            new Date(),
+          ),
+        ).rejects.toThrow();
+      } finally {
+        await reading();
+      }
+      expect((await ct.row())?.repositoryReconciledAt).toBeNull();
+      expect(await ct.listed()).toContain(ids.pruned);
+
+      // The next pass forgets the same snapshot. A snapshot without a restore point that is
+      // younger than the grace stays (its commit may still come), as do the active and the
+      // running one.
+      const first = await reconcileGuestRepository(deps, (await ct.row()) as never, new Date());
+      expect(first.forgotten).toEqual([ids.pruned]);
+      expect((await ct.listed()).sort()).toEqual([ids.active, ids.orphan, ids.running].sort());
+      expect((await ct.row())?.repositoryReconciledAt).not.toBeNull();
+
+      // After the grace: the orphan of a run that never committed goes; the running run's
+      // snapshot stays while it runs.
+      const second = await reconcileGuestRepository(deps, (await ct.row()) as never, later);
+      expect(second.forgotten).toEqual([ids.orphan]);
+      expect((await ct.listed()).sort()).toEqual([ids.active, ids.running].sort());
+
+      // The run ended without a commit: a day later the pass of retention compares again.
+      await owner
+        .update(pveRuns)
+        .set({ status: "failed", finishedAt: new Date() })
+        .where(eq(pveRuns.id, running?.id ?? ""));
+      await applyRetention(deps, new Date(later.getTime() + DAY + 60_000));
+      expect(await ct.listed()).toEqual([ids.active]);
+      expect((await ct.row())?.repositoryBytes).toBeGreaterThan(0);
+    },
+    120_000,
+  );
 
   it.skipIf(!resticOk)(
     "a container check fails when its restic snapshot is gone or belongs to another run (S12)",

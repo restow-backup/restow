@@ -675,26 +675,60 @@ const FORGET_BATCH = 100;
 export async function resticForget(
   session: ResticSession,
   snapshotIds: readonly string[],
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; retryLock?: string } = {},
 ): Promise<number> {
   for (const id of snapshotIds) {
     if (!/^[0-9a-f]{8,64}$/.test(id)) {
       throw new TypeError("a snapshot id to forget must be 8 to 64 lower-case hex digits");
     }
   }
+  const retry = retryLockArgs(options.retryLock);
   for (let start = 0; start < snapshotIds.length; start += FORGET_BATCH) {
     const batch = snapshotIds.slice(start, start + FORGET_BATCH);
-    await runRestic(session, ["forget", "--", ...batch], { signal: options.signal });
+    await runRestic(session, ["forget", ...retry, "--", ...batch], { signal: options.signal });
   }
   return snapshotIds.length;
 }
 
-/** `restic prune`: remove the data no snapshot refers to any more (takes the exclusive lock). */
+/**
+ * `restic prune`: remove the data no snapshot refers to any more (takes the exclusive lock).
+ * `retryLock` waits that long for another run's lock (`--retry-lock`) before it gives up.
+ */
 export async function resticPrune(
   session: ResticSession,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; retryLock?: string } = {},
 ): Promise<void> {
-  await runRestic(session, ["prune"], { signal: options.signal });
+  await runRestic(session, ["prune", ...retryLockArgs(options.retryLock)], {
+    signal: options.signal,
+  });
+}
+
+function retryLockArgs(retryLock: string | undefined): string[] {
+  if (retryLock === undefined) {
+    return [];
+  }
+  if (!RETRY_LOCK.test(retryLock)) {
+    throw new TypeError("retryLock must look like 30s, 5m or 1h");
+  }
+  return [`--retry-lock=${retryLock}`];
+}
+
+/**
+ * The time a lock file says it was written (restic's own timestamp, from the clock of whoever
+ * wrote it), read without taking a lock; null when the file is gone or cannot be read.
+ */
+export async function resticLockTime(session: ResticSession, name: string): Promise<Date | null> {
+  if (!/^[0-9a-f]{64}$/.test(name)) {
+    throw new TypeError("a lock name must be 64 lower-case hex digits");
+  }
+  try {
+    const { stdout } = await runRestic(session, ["cat", "lock", "--no-lock", name]);
+    const parsed = JSON.parse(stdout) as { time?: unknown };
+    const time = typeof parsed.time === "string" ? new Date(parsed.time) : null;
+    return time && Number.isFinite(time.getTime()) ? time : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -189,6 +189,22 @@ unique per installation).
 - **Retention** runs on the server only. PVE's "remove" and prune are refused
   by the plugin. Pruning a restore point releases exactly the chunk references
   it holds; the storage check's garbage collection reclaims the chunks later.
+  Retention leaves a guest alone while a run of it is going (a backup, a
+  restore, a check, a boot test) or its node took on a backup of it, and tries
+  again in a later pass.
+- **A container's repository** is compared with the guest's restore points
+  (since 0.5.0): after a restore point was pruned, and at least once a day. The
+  worker lists the restic snapshots (`restic snapshots`) and forgets, then
+  prunes, every one no active restore point names: the snapshot of a pruned
+  restore point, also one whose forget failed before (a lock, the storage, a
+  restart: the next pass does it), and a snapshot no restore point names at all
+  (a run that wrote it and never committed: a late cancel, a refused commit,
+  vzdump failing after the archive step) once it is six hours old and its
+  `run=` tag names no run still going. A snapshot the storage still locks
+  stays. Forget and prune wait up to two minutes for another run's lock
+  (`--retry-lock`); a comparison that did not get through is repeated by the
+  next pass (every five minutes), at most ten a pass beside the ones a prune
+  asked for.
 - **Restore check.** The server reads a sample of the data blocks of a restore
   point back and compares them with the SHA-256 in the map (containers: `restic
   check` of 5 %). It checks
@@ -213,7 +229,15 @@ unique per installation).
   yet; the check waits for a later pass. A container check first removes stale
   restic locks (`restic unlock`: only locks no live run refreshes, i.e. older
   than 30 minutes or of a process that is gone), as retention does before
-  `forget`/`prune`, and then waits up to two minutes for a lock another run
+  `forget`/`prune`. A lock counts as stale only when both the time the storage
+  received it and the time restic wrote into it are more than 30 minutes old
+  (since 0.5.0), so a storage whose clock lags never has a live lock taken away;
+  when the two differ by more than 30 minutes the worker logs a warning about
+  the storage's clock. It then makes sure the restore point's restic snapshot
+  is in the repository and carries the tag of the restore point's run (a
+  missing or foreign snapshot fails the check, since `restic check` alone
+  passes without it; a snapshot list that could not be read postpones it), and
+  then waits up to two minutes for a lock another run
   holds (`--retry-lock`; only the first two locked repositories of a pass wait,
   so a pass stays bounded). A check another run's lock still keeps out, or one
   that was stopped before it finished, did not run: nothing is recorded as

@@ -3,6 +3,7 @@ import { MemoryStorage } from "../verify/testing.js";
 import {
   listLockFiles,
   listRepositoryObjects,
+  lockClockSkews,
   locksToRemove,
   measureRepositoryBytes,
   removeLockFiles,
@@ -63,6 +64,38 @@ describe("locks before maintenance", () => {
     const agentLocks = new Set([name("4")]);
     expect(locksToRemove(locks, { agentLocks, agentActive: false, now })).toEqual([name("4")]);
     expect(locksToRemove(locks, { agentLocks, agentActive: true, now })).toEqual([]);
+  });
+
+  it("keeps a live lock of a storage whose clock lags when its own time is fresh (Proxmox VE)", () => {
+    // The storage's clock is an hour behind: the lock restic wrote a minute ago looks an hour
+    // old by its storage time, and only its own time tells it is alive.
+    const locks = [
+      { name: name("a"), storedAt: at(61) },
+      { name: name("b"), storedAt: at(61) },
+      { name: name("c"), storedAt: at(61) },
+      { name: name("d"), storedAt: at(5) },
+    ];
+    const lockTimes = new Map<string, Date | null>([
+      [name("a"), at(1)],
+      [name("b"), at(40)],
+      [name("c"), null],
+      [name("d"), at(120)],
+    ]);
+    const context = { agentLocks: new Set<string>(), agentActive: true, now, lockTimes };
+    // a: fresh by its own time, kept. b: old by both, removed. c: unreadable, the storage time
+    // decides. d: fresh in the storage, kept whatever it says inside.
+    expect(locksToRemove(locks, context)).toEqual([name("b"), name("c")]);
+    // Without its own times (an endpoint's repository) the storage time alone decides.
+    expect(locksToRemove(locks, { ...context, lockTimes: undefined })).toEqual([
+      name("a"),
+      name("b"),
+      name("c"),
+    ]);
+    // The disagreement is reported: the storage clock (or the writer's) is off by an hour.
+    expect(lockClockSkews(locks, lockTimes)).toEqual([
+      { name: name("a"), skewMs: -60 * MINUTE },
+      { name: name("d"), skewMs: 115 * MINUTE },
+    ]);
   });
 
   it("deletes lock files by name", async () => {
