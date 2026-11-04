@@ -126,9 +126,9 @@
       "waiting_offline": "Wartet, Knoten nicht bereit",
       "waiting": "Wartet auf den Knoten",
       "failed": "Letzter Lauf fehlgeschlagen",
-      "boot_failed": "Boot-Test fehlgeschlagen",
+      "boot_failed": "Startprüfung fehlgeschlagen",
       "verify_failed": "Restore-Prüfung fehlgeschlagen",
-      "boot_unverified": "Boot-Test ohne Nachweis",
+      "boot_unverified": "Startprüfung ohne Nachweis",
       "verify_not_checked": "Nicht prüfbar",
       "verify_postponed": "Restore-Prüfung verschoben",
       "incomplete": "Sicherung unvollständig",
@@ -374,12 +374,12 @@
     },
     "restoreCheckSkipped": "Nicht geprüft: {reason, select, no_storage {Zielspeicher fehlt} storage_inactive {Zielspeicher nicht aktiv} storage_content {Zielspeicher nimmt diese Art Gast nicht auf} storage_space {zu wenig Platz} restores_off {Wiederherstellungen sind aus} other {nicht möglich}}",
     "restoreCheckBlocked": {
-      "restores_off": "Wiederherstellungsprüfung nicht möglich: Auf dem Knoten {node} sind Wiederherstellungen ausgeschaltet.",
-      "node_offline": "Wiederherstellungsprüfung wartet: Der Knoten {node} hat sich zuletzt nicht gemeldet.",
-      "no_node": "Wiederherstellungsprüfung nicht möglich: restow-pve ist auf dem Knoten des Gasts nicht installiert."
+      "restores_off": "Restore-Prüfung nicht möglich: Auf dem Knoten {node} sind Wiederherstellungen ausgeschaltet.",
+      "node_offline": "Restore-Prüfung wartet: Der Knoten {node} hat sich zuletzt nicht gemeldet.",
+      "no_node": "Restore-Prüfung nicht möglich: restow-pve ist auf dem Knoten des Gasts nicht installiert."
     },
-    "restoreCheckLast": "Letzte Wiederherstellungsprüfung",
-    "restoreCheckNone": "Monatliche Wiederherstellungsprüfung: noch keine"
+    "restoreCheckLast": "Letzte Restore-Prüfung",
+    "restoreCheckNone": "Monatliche Restore-Prüfung: noch keine"
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",
