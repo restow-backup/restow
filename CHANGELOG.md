@@ -10,6 +10,31 @@ private repository.
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-11-04
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.11 is a hotfix of 0.4.10 for Proxmox VE containers: a container repository that kept
+a lock a backup had left behind (one that ended without releasing it, for example when the PVE
+API went away during an update) had its restore check postponed as "repository locked" for
+good. The server now removes such leftover locks before it checks or prunes. The detail panel of
+a guest also stops calling a red boot test "Succeeded". No database migration, no agent change.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.9.0.
+
+### Added
+
+None.
+
+### Changed
+
+None.
+
 ### Fixed
 
 - Proxmox VE: a restore check of a container whose repository kept a lock a run had left behind
@@ -20,6 +45,36 @@ private repository.
   reports is logged instead of dropped.
 - Proxmox VE, detail panel of a guest: a boot test that ended red ("Did not boot") read
   "Succeeded" under Recent runs; it now says how it ended, as on the guest page.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.4.0 stays. Pull the images of 0.4.11 and restart as for any update.
+
+- restow-pve and the agents need no update in this release (no change to the agents or the
+  Proxmox VE plugin). Nodes still on 0.4.9 or older need 0.4.10 for the boot tests and restore
+  checks of containers with a bind mount point.
+- Containers whose checks were postponed as "repository locked" are checked again on the
+  worker's next pass (the postponed check is tried every ten minutes, a check that gave up after
+  a day); "Check now" on the guest starts one at once.
+
+### Known Issues
+
+- The known issues of 0.4.10 still apply.
+
+### Verification
+
+Before the tag: lint and typecheck of the worker and the web app; the worker's Proxmox VE tests
+against Postgres (18), among them the container check with a lock file stored weeks ago and a
+fresh one (the old one is removed, the fresh one stays; the test fails with the removal taken
+out); the web tests of Proxmox VE (99), among them the detail panel labelling a red boot test
+"Did not boot" (fails with the fix taken out); the release check
+(`scripts/ci/check-release.mjs --tag v0.4.11`) and the install script's test
+(`deploy/install/test.sh`).
 
 ## [0.4.10] - 2026-11-03
 
