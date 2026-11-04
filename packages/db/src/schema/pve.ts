@@ -367,10 +367,19 @@ export const pveGuests = pgTable(
     excludedAt: timestamp("excluded_at", { withTimezone: true }),
     excludedBy: text("excluded_by"),
     reportedAt: timestamp("reported_at", { withTimezone: true }),
+    // A VM's SMBIOS UUID as the inventory last reported it (restow-pve from 0.4.2), lower case;
+    // null for containers and from older nodes. Tells a VMID PVE gave to another VM (0.5.0).
+    smbiosUuid: text("smbios_uuid"),
+    // Set when the VMID came back as another guest (docs/PVE.md, "A VMID used again"): this row
+    // stays absent with its restore points, job and repository, and the new guest gets a row of
+    // its own. Only rows without it are unique per cluster and VMID.
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
     ...timestamps(),
   },
   (t) => [
-    uniqueIndex("pve_guests_cluster_vmid_uq").on(t.clusterId, t.vmid),
+    uniqueIndex("pve_guests_cluster_vmid_uq")
+      .on(t.clusterId, t.vmid)
+      .where(sql`${t.retiredAt} IS NULL`),
     index("pve_guests_tenant_idx").on(t.tenantId),
     index("pve_guests_job_idx").on(t.jobId),
   ],

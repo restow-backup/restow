@@ -53,6 +53,7 @@ import { withdrawQueued } from "./cancel.js";
 import { containerBackupPaths } from "./files.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
 import { browsableDisks } from "./vm-files.js";
+import { avoidVmids, heldVmid } from "./vmids.js";
 
 /**
  * The session side of the Proxmox VE feature (docs/PVE.md): clusters, nodes
@@ -68,6 +69,7 @@ export const PVE_PROBLEMS = {
   restoresOff: "urn:restow:problem:pve-restores-off",
   restowServer: "urn:restow:problem:pve-restow-server",
   excluded: "urn:restow:problem:pve-guest-excluded",
+  vmidHeld: "urn:restow:problem:pve-vmid-held",
 } as const;
 
 /** A guest an administrator excluded from backup is neither backed up nor put into a job. */
@@ -1269,7 +1271,14 @@ export async function restoreSnapshot(
   database: Database,
   tenantId: string,
   snapshotId: string,
-  input: { targetNode?: string; targetStorage: string; targetVmid?: number; start: boolean },
+  input: {
+    targetNode?: string;
+    targetStorage: string;
+    targetVmid?: number;
+    start: boolean;
+    /** Restore to `targetVmid` although a deleted guest Restow keeps had it. */
+    confirmVmidReuse?: boolean;
+  },
   actor: PveActor,
   options: { restoreTest?: boolean } = {},
   now: Date = new Date(),
@@ -1298,6 +1307,18 @@ export async function restoreSnapshot(
         detail: `Restores are switched off on node ${node.name} (restow-pve config --allow-restores).`,
       });
     }
+    // A VMID a deleted guest had whose restore points (or job) Restow keeps: the copy would
+    // take over that guest's history at the next inventory. Only when asked for anyway.
+    if (input.targetVmid !== undefined && !input.confirmVmidReuse) {
+      const held = await heldVmid(tx, guest.clusterId, input.targetVmid);
+      if (held) {
+        throw new ProblemError(409, "This VMID belongs to a deleted guest", {
+          type: PVE_PROBLEMS.vmidHeld,
+          detail: `VMID ${input.targetVmid} belonged to ${held.name ?? `guest ${input.targetVmid}`}, which Proxmox VE no longer has; Restow keeps its restore points. Choose another VMID, or confirm to use it anyway.`,
+          extensions: { vmid: input.targetVmid, name: held.name },
+        });
+      }
+    }
     const [task] = await tx
       .insert(pveTasks)
       .values({
@@ -1309,6 +1330,8 @@ export async function restoreSnapshot(
           volname: snap.archiveName,
           kind: snap.kind,
           targetVmid: input.targetVmid ?? 0,
+          // restow-pve from 0.5.0 picks a free VMID outside these (docs/PVE-PROTOCOL.md).
+          avoidVmids: await avoidVmids(tx, guest.clusterId),
           targetStorage: input.targetStorage,
           pool: RESTORE_POOL,
           start: input.start,

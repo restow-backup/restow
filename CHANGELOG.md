@@ -360,6 +360,14 @@ private repository.
   guest stays in the list with its node, reads "Node without restow-pve" (amber) and counts as
   unprotected; only a guest the cluster no longer has is absent. An older node keeps the
   previous behaviour.
+- Proxmox VE: a restore, restore check or boot test could take the VMID of a guest deleted in
+  PVE whose restore points Restow keeps (PVE hands out the lowest free VMID), and the next
+  inventory turned the copy into that guest: its restore points, job and repository, a backup
+  of the copy into the old guest's chain, and during a check the old guest briefly read present
+  under the temporary name. Restores, checks and boot tests now give the node the VMIDs to
+  leave alone (used by restow-pve from 0.5.0), a VMID typed into the restore dialog that
+  belonged to such a guest needs a confirmation, and another guest that still turns up under
+  such a VMID gets its own row while the old one stays absent with its restore points.
 
 ### Upgrade Notes
 

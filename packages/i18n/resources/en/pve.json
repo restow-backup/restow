@@ -399,6 +399,8 @@
     "targetStorage": "Target storage (Proxmox VE storage id)",
     "targetNode": "Target node",
     "vmid": "New ID (empty: next free one)",
+    "vmidHeld": "VMID {vmid} belonged to the guest {name}, which Proxmox VE no longer has; {appName} keeps its restore points. A copy under this VMID would be taken for that guest. Choose another VMID, or leave the field empty for a free one.",
+    "vmidReuse": "Use this VMID anyway",
     "start": "Start after the restore",
     "submit": "Restore",
     "queued": "Restore requested. The node starts it at its next check-in, usually within a minute.",

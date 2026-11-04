@@ -6,6 +6,7 @@ import {
   PVE_RESTORE_TEST_EVERY_MS,
   PVE_RESTORE_TEST_SKIP_RETRY_MS,
   parseArchiveName,
+  pveGuestInRestorePool,
   pveNodeDeclares,
 } from "@restow/core";
 import {
@@ -581,6 +582,51 @@ export interface InventoryGuestInput {
   smbiosUuid?: string | null;
 }
 
+/** Names restow-pve gives the temporary guests of boot tests and restore checks. */
+const TEMP_GUEST_NAME = /^restow-(boottest|restorecheck)-/;
+
+/**
+ * Whether a VMID the inventory reports belongs to another guest than the row Restow keeps for it
+ * (docs/PVE.md, "A VMID used again"). Only a row worth keeping counts (it holds restore points
+ * or a job; any other row is simply taken over): the kind differs, or, while the old guest is
+ * absent, a VM's SMBIOS UUID differs, or the guest is a temporary one (by its name or tag) or a
+ * restored copy in the pool restow-restore.
+ */
+export function pveVmidReused(
+  before: {
+    kind: string;
+    present: boolean;
+    smbiosUuid: string | null;
+    jobId: string | null;
+    holdsPoints: boolean;
+  },
+  reported: {
+    kind: string;
+    name: string;
+    pool: string;
+    tags: readonly string[];
+    smbiosUuid: string | null;
+  },
+): boolean {
+  if (!before.holdsPoints && before.jobId === null) {
+    return false;
+  }
+  if (before.kind !== reported.kind) {
+    return true;
+  }
+  if (before.present) {
+    return false;
+  }
+  return (
+    (reported.kind === "vm" &&
+      before.smbiosUuid !== null &&
+      reported.smbiosUuid !== null &&
+      before.smbiosUuid !== reported.smbiosUuid) ||
+    TEMP_GUEST_NAME.test(reported.name) ||
+    pveGuestInRestorePool({ pool: reported.pool || null, tags: reported.tags })
+  );
+}
+
 /** A guest of the cluster as /cluster/resources lists it (restow-pve from 0.5.0). */
 export interface ClusterGuestInput {
   vmid: number;
@@ -608,7 +654,40 @@ export async function reportInventory(
   // The VM this installation runs in carries the server's SMBIOS UUID (self-guest.ts).
   const own = await ownSmbiosUuid();
   await withTenantTx(db, node.tenantId, async (tx) => {
+    const vmids = guests.map((g) => g.vmid);
+    const existing =
+      vmids.length > 0
+        ? await tx
+            .select({
+              id: pveGuests.id,
+              vmid: pveGuests.vmid,
+              kind: pveGuests.kind,
+              present: pveGuests.present,
+              smbiosUuid: pveGuests.smbiosUuid,
+              jobId: pveGuests.jobId,
+              holdsPoints: sql<boolean>`EXISTS (SELECT 1 FROM pve_snapshots s WHERE s.guest_id = "pve_guests"."id" AND s.status <> 'pruned')`,
+            })
+            .from(pveGuests)
+            .where(
+              and(
+                eq(pveGuests.clusterId, node.clusterId),
+                inArray(pveGuests.vmid, vmids),
+                isNull(pveGuests.retiredAt),
+              ),
+            )
+        : [];
+    const known = new Map(existing.map((row) => [row.vmid, row]));
     for (const g of guests) {
+      const uuid = g.kind === "vm" ? normalizeSmbiosUuid(g.smbiosUuid) : null;
+      const before = known.get(g.vmid);
+      if (before && pveVmidReused(before, { ...g, smbiosUuid: uuid })) {
+        // Another guest under a VMID Restow still holds: the old row keeps its restore points,
+        // job and repository, absent; the new guest starts a row of its own.
+        await tx
+          .update(pveGuests)
+          .set({ retiredAt: now, present: false })
+          .where(eq(pveGuests.id, before.id));
+      }
       const values = {
         restowServerDetected:
           own !== null && g.kind === "vm" && normalizeSmbiosUuid(g.smbiosUuid) === own,
@@ -624,11 +703,17 @@ export async function reportInventory(
         disks: g.disks.slice(0, 64),
         present: true,
         reportedAt: now,
+        // An older node sends none: the one known stays.
+        ...(uuid ? { smbiosUuid: uuid } : {}),
       };
       await tx
         .insert(pveGuests)
         .values({ tenantId: node.tenantId, clusterId: node.clusterId, vmid: g.vmid, ...values })
-        .onConflictDoUpdate({ target: [pveGuests.clusterId, pveGuests.vmid], set: values });
+        .onConflictDoUpdate({
+          target: [pveGuests.clusterId, pveGuests.vmid],
+          targetWhere: sql`${pveGuests.retiredAt} IS NULL`,
+          set: values,
+        });
     }
     const listed = guests.map((g) => g.vmid);
     if (clusterGuests === null) {
@@ -694,6 +779,7 @@ async function sweepByClusterList(
             eq(pveGuests.vmid, g.vmid),
             eq(pveGuests.kind, g.type),
             eq(pveGuests.node, node.name),
+            isNull(pveGuests.retiredAt),
           ),
         );
       continue;
@@ -708,6 +794,7 @@ async function sweepByClusterList(
           eq(pveGuests.clusterId, node.clusterId),
           eq(pveGuests.vmid, g.vmid),
           eq(pveGuests.kind, g.type),
+          isNull(pveGuests.retiredAt),
         ),
       )
       .returning({ id: pveGuests.id });
@@ -937,7 +1024,13 @@ export async function guestForBackup(
     const [found] = await tx
       .select()
       .from(pveGuests)
-      .where(and(eq(pveGuests.clusterId, node.clusterId), eq(pveGuests.vmid, vmid)))
+      .where(
+        and(
+          eq(pveGuests.clusterId, node.clusterId),
+          eq(pveGuests.vmid, vmid),
+          isNull(pveGuests.retiredAt),
+        ),
+      )
       .limit(1);
     if (found) {
       return found;
@@ -953,7 +1046,13 @@ export async function guestForBackup(
     const [again] = await tx
       .select()
       .from(pveGuests)
-      .where(and(eq(pveGuests.clusterId, node.clusterId), eq(pveGuests.vmid, vmid)))
+      .where(
+        and(
+          eq(pveGuests.clusterId, node.clusterId),
+          eq(pveGuests.vmid, vmid),
+          isNull(pveGuests.retiredAt),
+        ),
+      )
       .limit(1);
     if (!again) {
       throw new Error("guest vanished");

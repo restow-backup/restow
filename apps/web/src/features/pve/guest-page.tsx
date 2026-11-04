@@ -41,6 +41,7 @@ import {
   SuspicionBadge,
   useObjectSuspicions,
 } from "@/features/suspicion";
+import { ApiError } from "@/lib/api";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
@@ -48,6 +49,7 @@ import {
   backupNow,
   fetchGuest,
   guestRefreshMs,
+  PVE_VMID_HELD_PROBLEM,
   type PveBootTestLeftover,
   type PveFollowUpAverage,
   type PveGuest,
@@ -97,6 +99,7 @@ function RestoreDialog({
   const [node, setNode] = React.useState(detail.guest.node ?? "");
   const [vmid, setVmid] = React.useState("");
   const [start, setStart] = React.useState(false);
+  const [reuseVmid, setReuseVmid] = React.useState(false);
   const mutation = useMutation({
     mutationFn: () =>
       restoreSnapshot(point.id, {
@@ -104,6 +107,7 @@ function RestoreDialog({
         targetNode: node || undefined,
         targetVmid: vmid ? Number(vmid) : undefined,
         start,
+        ...(reuseVmid ? { confirmVmidReuse: true } : {}),
       }),
     onSuccess: () => {
       toast.success(t("restore.queued"));
@@ -111,6 +115,11 @@ function RestoreDialog({
     },
   });
   const blocked = detail.guest.kind === "ct" && detail.guest.privileged;
+  // The VMID belonged to a deleted guest whose restore points Restow keeps: only when confirmed.
+  const held =
+    mutation.error instanceof ApiError && mutation.error.problem?.type === PVE_VMID_HELD_PROBLEM
+      ? mutation.error.problem
+      : null;
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent>
@@ -148,9 +157,32 @@ function RestoreDialog({
               type="number"
               min={100}
               value={vmid}
-              onChange={(e) => setVmid(e.target.value)}
+              onChange={(e) => {
+                setVmid(e.target.value);
+                // Another VMID: the earlier refusal and confirmation no longer apply.
+                setReuseVmid(false);
+                mutation.reset();
+              }}
             />
           </div>
+          {held || reuseVmid ? (
+            <div className="space-y-2 text-sm" data-slot="pve-restore-vmid-held">
+              <p className="text-warning-text">
+                {t("restore.vmidHeld", {
+                  vmid: vmid || String(held?.vmid ?? ""),
+                  name: typeof held?.name === "string" && held.name ? held.name : vmid,
+                })}
+              </p>
+              <label htmlFor="pve-restore-vmid-reuse" className="flex items-center gap-2">
+                <Checkbox
+                  id="pve-restore-vmid-reuse"
+                  checked={reuseVmid}
+                  onCheckedChange={(checked) => setReuseVmid(checked === true)}
+                />
+                {t("restore.vmidReuse")}
+              </label>
+            </div>
+          ) : null}
           <label htmlFor="pve-restore-start" className="flex items-center gap-2 text-sm">
             <Checkbox
               id="pve-restore-start"
@@ -162,7 +194,7 @@ function RestoreDialog({
           <p className="text-sm text-muted-foreground" data-slot="pve-restore-ip-note">
             {t("restore.ipNote")}
           </p>
-          {mutation.isError ? (
+          {mutation.isError && !held ? (
             <p className="text-sm text-destructive-text">{(mutation.error as Error).message}</p>
           ) : null}
           <DialogFooter>

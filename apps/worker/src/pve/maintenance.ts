@@ -603,6 +603,23 @@ export const PVE_RECONCILES_PER_PASS = 10;
 /** How long forget and prune wait for another run's lock before the pass leaves them. */
 export const PVE_FORGET_RETRY_LOCK = "2m";
 
+/**
+ * VMIDs a restore check or boot test must not take (the API's pve/vmids.ts, docs/PVE.md, "A VMID
+ * used again"): those of absent guests Restow keeps with restore points or a job.
+ */
+async function avoidVmids(
+  tx: { execute: Database["execute"] },
+  clusterId: string,
+): Promise<number[]> {
+  const rows = await tx.execute<{ vmid: number }>(sql`
+    SELECT DISTINCT g.vmid FROM pve_guests g
+     WHERE g.cluster_id = ${clusterId} AND g.present = false
+       AND (g.job_id IS NOT NULL OR EXISTS (
+         SELECT 1 FROM pve_snapshots s WHERE s.guest_id = g.id AND s.status <> 'pruned'))
+     ORDER BY g.vmid LIMIT 1000`);
+  return rows.rows.map((r) => Number(r.vmid));
+}
+
 /** Whether a run of the guest is going or its node took on a backup of it (`guestBusy`). */
 async function guestIsBusy(deps: PveDeps, guestId: string, now: Date): Promise<boolean> {
   const rows = await deps.providerDb.execute<{ busy: boolean }>(
@@ -1405,6 +1422,8 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
               volname: snap.archiveName,
               kind: snap.kind,
               targetVmid: 0,
+              // restow-pve from 0.5.0 picks a free VMID outside these (docs/PVE-PROTOCOL.md).
+              avoidVmids: await avoidVmids(tx, guest.clusterId),
               targetStorage: test.targetStorage,
               pool: "restow-restore",
               start: false,
@@ -1562,7 +1581,11 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
             nodeId: node.id,
             guestId: guest.id,
             kind: "boot_test",
-            params: { ...pveBootTestTaskParams(snap, guest.vmid, plan), jobId: job.id },
+            params: {
+              ...pveBootTestTaskParams(snap, guest.vmid, plan),
+              jobId: job.id,
+              avoidVmids: await avoidVmids(tx, guest.clusterId),
+            },
             expiresAt: new Date(now.getTime() + BOOT_TEST_TASK_TTL_MS),
           })
           .returning({ id: pveTasks.id });

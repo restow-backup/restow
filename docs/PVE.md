@@ -477,6 +477,18 @@ the cluster's list no longer names it. Without the list (an older restow-pve,
 or one that could not read it) a node's inventory only speaks for its own
 guests, as before: one it no longer lists reads absent.
 
+## A VMID used again
+
+PVE hands out the lowest free VMID (`/cluster/nextid`), which is often the one of a guest
+deleted in PVE whose restore points, job and repository Restow still keeps. A copy restored
+under it, or the temporary guest of a check or boot test, would take over that guest's
+history at the next inventory. So (since 0.5.0) restores, restore checks and boot tests tell
+the node to leave such VMIDs alone, a VMID typed into the restore dialog that belongs to such
+a guest needs a confirmation, and a different guest that still turns up under it (another
+kind; while the old one is absent: a VM with another SMBIOS UUID, a temporary guest by name
+or tag, a guest in `restow-restore`) gets a row of its own. The old guest stays in the list
+as "No longer reported", with its restore points.
+
 ## Restore
 
 From the guest's page: **Restore as a new guest**, with the target storage,

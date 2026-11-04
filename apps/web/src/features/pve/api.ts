@@ -624,9 +624,19 @@ export const savePveSettings = (input: Partial<PveInstallationSettings>) =>
     "/settings/pve",
     { method: "PUT", body: input },
   );
+/** The problem of a restore to a VMID a deleted guest had whose restore points Restow keeps. */
+export const PVE_VMID_HELD_PROBLEM = "urn:restow:problem:pve-vmid-held";
+
 export const restoreSnapshot = (
   id: string,
-  input: { targetStorage: string; targetNode?: string; targetVmid?: number; start: boolean },
+  input: {
+    targetStorage: string;
+    targetNode?: string;
+    targetVmid?: number;
+    start: boolean;
+    /** Use `targetVmid` although a deleted guest Restow keeps had it (servers from 0.5.0). */
+    confirmVmidReuse?: boolean;
+  },
 ) =>
   apiFetch<{ taskId: string }>(`/pve/snapshots/${encodeURIComponent(id)}/restore`, {
     method: "POST",

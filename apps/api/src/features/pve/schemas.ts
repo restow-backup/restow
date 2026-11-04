@@ -412,6 +412,8 @@ export const restoreSchema = z.object({
   targetStorage: storageId,
   targetVmid: vmid.optional(),
   start: z.boolean().default(false),
+  /** Use `targetVmid` although a deleted guest Restow keeps had it (409 otherwise). */
+  confirmVmidReuse: z.boolean().optional(),
 });
 
 // ---------------------------------------------------------------------------

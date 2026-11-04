@@ -239,6 +239,20 @@ in `/var/lib/restow-pve/pending-results.json` (at most 100) and sends the kept o
 again before every heartbeat, oldest first; a refusal (4xx) ends the attempts. A
 task the server delivers again while its result is kept is not run a second time.
 
+### VMIDs to leave alone (0.5.0)
+
+The params of `restore` (also a restore check) and `boot_test` carry `avoidVmids`: the
+VMIDs of guests PVE no longer has but Restow keeps, with restore points or a job (at most
+1000, lowest first). A node that picks the VMID itself (`targetVmid` 0, a boot test) takes a
+free one outside this list and asks again when PVE gave it away meanwhile; an older node
+ignores the field. A `targetVmid` an admin typed that belongs to such a guest is refused with
+409 `urn:restow:problem:pve-vmid-held` (`vmid`, `name`) unless the request says
+`confirmVmidReuse: true`. Should another guest still turn up under such a VMID (another kind;
+while the old one is absent, a VM with another SMBIOS UUID, a guest named
+`restow-boottest-`/`restow-restorecheck-`, tagged so or in the pool `restow-restore`), the
+inventory gives it a guest row of its own and the old row stays absent with its restore
+points (`retired_at`).
+
 ### A restore check the node skips (0.5.0)
 
 A restore check (`restore` with `restoreTest`) the node does not run is reported `done` with

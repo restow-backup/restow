@@ -399,6 +399,8 @@
     "targetStorage": "Zielspeicher (Proxmox-VE-Speicher-ID)",
     "targetNode": "Zielknoten",
     "vmid": "Neue ID (leer: nächste freie)",
+    "vmidHeld": "Die VMID {vmid} gehörte zum Gast {name}, den Proxmox VE nicht mehr hat; {appName} behält dessen Sicherungsstände. Eine Kopie unter dieser VMID würde für diesen Gast gehalten. Wählen Sie eine andere VMID, oder lassen Sie das Feld leer für eine freie.",
+    "vmidReuse": "Diese VMID trotzdem verwenden",
     "start": "Nach der Wiederherstellung starten",
     "submit": "Wiederherstellen",
     "queued": "Wiederherstellung angefordert. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute.",

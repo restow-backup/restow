@@ -2119,4 +2119,154 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(await guest(122)).toMatchObject({ present: false });
     expect(await guest(123)).toMatchObject({ present: true });
   });
+  it("a VMID PVE gave to another guest starts a row of its own; restores avoid such VMIDs (S13)", async () => {
+    const x = await json<Node>(await enroll(fixture.tenantId, "8".repeat(64), "pveX"), 201);
+    const inventory = (guests: unknown[]) => call(x, "/inventory", { json: { guests } });
+    let sequence = 0;
+    const withPoint = async (
+      vmid: number,
+      kind: "vm" | "ct",
+      extra: Partial<typeof pveGuests.$inferInsert> = {},
+    ) => {
+      const [guest] = await fixture.db
+        .insert(pveGuests)
+        .values({
+          tenantId: fixture.tenantId,
+          clusterId: x.clusterId,
+          vmid,
+          kind,
+          name: `old${vmid}`,
+          node: "pveX",
+          ...extra,
+        })
+        .returning();
+      const [point] = await fixture.db
+        .insert(pveSnapshots)
+        .values({
+          tenantId: fixture.tenantId,
+          clusterId: x.clusterId,
+          guestId: guest?.id ?? "",
+          sequence: ++sequence,
+          kind,
+          archiveName: `${kind}/${vmid}/2026-10-0${sequence}T10:00:00Z`,
+          storageId: "restow",
+          manifestPath: `pve/manifests/${randomUUID()}`,
+          backupAt: new Date(Date.now() - 86_400_000),
+        })
+        .returning();
+      return { guestId: guest?.id ?? "", pointId: point?.id ?? "" };
+    };
+    const rowsOf = (vmid: number) =>
+      fixture.db
+        .select()
+        .from(pveGuests)
+        .where(and(eq(pveGuests.clusterId, x.clusterId), eq(pveGuests.vmid, vmid)));
+    // CT 105 and VM 106 were deleted in PVE; Restow keeps their restore points. VM 107 too.
+    const ct105 = await withPoint(105, "ct", { present: false });
+    const vm106 = await withPoint(106, "vm", {
+      present: false,
+      smbiosUuid: "11111111-1111-4111-8111-111111111111",
+    });
+    const vm107 = await withPoint(107, "vm", { present: false });
+    const live = await withPoint(110, "ct");
+
+    // A restore (and a check, a boot test) tells the node which VMIDs to leave alone.
+    const restored = await service.restoreSnapshot(
+      shared.db,
+      fixture.tenantId,
+      live.pointId,
+      { targetStorage: "local-lvm", start: false },
+      actor(),
+    );
+    const [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, restored.taskId));
+    expect(task?.params.avoidVmids).toEqual([105, 106, 107]);
+    // A VMID such a guest had is refused unless confirmed.
+    await expect(
+      service.restoreSnapshot(
+        shared.db,
+        fixture.tenantId,
+        live.pointId,
+        { targetStorage: "local-lvm", targetVmid: 105, start: false },
+        actor(),
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      type: "urn:restow:problem:pve-vmid-held",
+      extensions: { vmid: 105, name: "old105" },
+    });
+    await expect(
+      service.restoreSnapshot(
+        shared.db,
+        fixture.tenantId,
+        live.pointId,
+        { targetStorage: "local-lvm", targetVmid: 105, start: false, confirmVmidReuse: true },
+        actor(),
+      ),
+    ).resolves.toMatchObject({ taskId: expect.any(String) });
+
+    // The inventory reports other guests under those VMIDs: a VM as 105, a VM with another
+    // SMBIOS UUID as 106, a boot test's temporary guest as 107. And CT 110 as before.
+    await json(
+      await inventory([
+        { vmid: 105, kind: "vm", name: "new-vm", node: "pveX" },
+        {
+          vmid: 106,
+          kind: "vm",
+          name: "other-vm",
+          node: "pveX",
+          smbiosUuid: "22222222-2222-4222-8222-222222222222",
+        },
+        {
+          vmid: 107,
+          kind: "vm",
+          name: "restow-boottest-110",
+          node: "pveX",
+          pool: "restow-restore",
+          tags: ["restow-boottest"],
+        },
+        { vmid: 110, kind: "ct", name: "old110", node: "pveX" },
+      ]),
+    );
+    for (const [vmid, old, name] of [
+      [105, ct105, "new-vm"],
+      [106, vm106, "other-vm"],
+      [107, vm107, "restow-boottest-110"],
+    ] as const) {
+      const rows = await rowsOf(vmid);
+      expect(rows).toHaveLength(2);
+      const kept = rows.find((r) => r.id === old.guestId);
+      const fresh = rows.find((r) => r.id !== old.guestId);
+      // The old guest stays absent with its name and restore points; the new one is its own.
+      expect(kept).toMatchObject({ present: false, name: `old${vmid}` });
+      expect(kept?.retiredAt).not.toBeNull();
+      expect(fresh).toMatchObject({ present: true, name, retiredAt: null });
+      const [point] = await fixture.db
+        .select()
+        .from(pveSnapshots)
+        .where(eq(pveSnapshots.id, old.pointId));
+      expect(point?.guestId).toBe(old.guestId);
+    }
+    // The next inventory updates the new rows, never the retired ones.
+    await json(
+      await inventory([
+        { vmid: 105, kind: "vm", name: "new-vm-renamed", node: "pveX" },
+        { vmid: 110, kind: "ct", name: "old110", node: "pveX" },
+      ]),
+    );
+    const again = await rowsOf(105);
+    expect(again.find((r) => r.id === ct105.guestId)).toMatchObject({ name: "old105" });
+    expect(again.find((r) => r.id !== ct105.guestId)).toMatchObject({ name: "new-vm-renamed" });
+
+    // The same guest back (same kind, no sign of another one): the old row is taken up again.
+    const ct120 = await withPoint(120, "ct", { present: false });
+    await json(
+      await inventory([
+        { vmid: 110, kind: "ct", name: "old110", node: "pveX" },
+        { vmid: 120, kind: "ct", name: "old120", node: "pveX" },
+      ]),
+    );
+    const back = await rowsOf(120);
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ id: ct120.guestId, present: true, retiredAt: null });
+  });
 });
