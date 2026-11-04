@@ -206,7 +206,28 @@ func TestStaleRestoreFilesDoNotMakeTheNodeBusy(t *testing.T) {
 	}
 }
 
-// Open backups: a fresh job file, or an old one whose guest has a live provider.
+// procTable points the process table at a folder of the test; procs maps a pid to its command
+// line (arguments separated by NUL).
+func procTable(t *testing.T, procs map[int]string) string {
+	t.Helper()
+	proc := t.TempDir()
+	for pid, cmdline := range procs {
+		_ = os.MkdirAll(filepath.Join(proc, strconv.Itoa(pid)), 0o700)
+		_ = os.WriteFile(filepath.Join(proc, strconv.Itoa(pid), "cmdline"), []byte(cmdline), 0o600)
+	}
+	old := procRoot
+	procRoot = proc
+	t.Cleanup(func() { procRoot = old })
+	return proc
+}
+
+// vzdumpWorker is the command line of a vzdump task's worker as PVE names it ($0).
+const vzdumpWorker = "task UPID:pve1:0003A1B2:01F2C3D4:6720A0B1:vzdump::root@pam:\x00"
+
+// Open backups: a job file whose guest has a live provider, or any job file while a vzdump task
+// runs (between the provider's calls). A job file a killed provider or a crashed node left
+// behind makes nothing busy, however young: it held back boot tests and self-updates for two
+// days.
 func TestOpenBackupsMakeTheNodeBusy(t *testing.T) {
 	run := t.TempDir()
 	l := Layout{RunDir: run}
@@ -216,18 +237,27 @@ func TestOpenBackupsMakeTheNodeBusy(t *testing.T) {
 	path := filepath.Join(dir, "restow-101.json")
 	_ = os.WriteFile(path, data, 0o600)
 	_ = os.WriteFile(filepath.Join(dir, "restow-102.log"), []byte("INFO: x"), 0o600)
-	if !busy(l) {
-		t.Fatal("an open backup does not make the node busy")
+	// Left by a provider that was killed (OOM, SIGKILL, a crash), one minute old: nothing runs.
+	proc := procTable(t, map[int]string{1: "/sbin/init\x00", 4242: "/usr/bin/kvm\x00-id\x00101\x00",
+		4300: "pvescheduler\x00", 4301: "task UPID:pve1:0003A1B2:01F2C3D4:6720A0B1:qmrestore:9001:root@pam:\x00"})
+	if busy(l) {
+		t.Fatal("the job file of a backup no process runs makes the node busy")
 	}
+	b := newTester(t, newFakeNode())
+	b.Layout, b.BackupRunning = l, nil
+	if reason, msg := b.backupBusy(context.Background()); reason != "" {
+		t.Fatalf("boot test held back by a crashed backup: %s %s", reason, msg)
+	}
+	// Between two calls of the provider (backup-init done, backup-vm not yet): vzdump runs.
+	_ = os.MkdirAll(filepath.Join(proc, "5000"), 0o700)
+	_ = os.WriteFile(filepath.Join(proc, "5000", "cmdline"), []byte(vzdumpWorker), 0o600)
+	if !busy(l) {
+		t.Fatal("an open backup of a running vzdump does not make the node busy")
+	}
+	_ = os.RemoveAll(filepath.Join(proc, "5000"))
+	// A provider that backs the guest up, also with a job file older than two days.
 	old := time.Now().Add(-49 * time.Hour)
 	_ = os.Chtimes(path, old, old)
-	proc := t.TempDir()
-	oldProc := procRoot
-	procRoot = proc
-	defer func() { procRoot = oldProc }()
-	if busy(l) {
-		t.Fatal("a job file older than two days without a provider makes the node busy")
-	}
 	_ = os.MkdirAll(filepath.Join(proc, "777"), 0o700)
 	_ = os.WriteFile(filepath.Join(proc, "777", "cmdline"), []byte("/opt/restow-pve/bin/restow-pve\x00provider\x00backup-vm"), 0o600)
 	_ = os.MkdirAll(filepath.Dir(l.providerPIDFile(101)), 0o700)

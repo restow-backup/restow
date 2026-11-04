@@ -407,10 +407,13 @@ starts, then every six hours) and installs it only while nothing works on the
 node: no task of the service runs or waits (a backup, a restore, a restore check,
 a boot test), no `vzdump` task of PVE runs, and no backup or restore of PVE is
 open. Only live work counts: an open backup (its job file in
-`/run/restow-pve/jobs`, younger than two days or with a running provider) or a
-restore server that serves a VM disk (`/run/restow-pve/restore/<key>.pid` naming
-a running `restow-pve serve-restore`). Logs, sockets and pid files a finished or
-interrupted restore left behind do not count; boot tests use the same check.
+`/run/restow-pve/jobs` with a running provider of that guest, or while a vzdump
+task runs on the node, whose worker process PVE names `task UPID:...:vzdump:...`)
+or a restore server that serves a VM disk (`/run/restow-pve/restore/<key>.pid`
+naming a running `restow-pve serve-restore`). Logs, sockets and pid files a
+finished or interrupted restore left behind do not count, nor does the job file
+of a backup whose provider was killed or whose node crashed (it is deleted after
+two days); boot tests use the same check.
 From that check until the restart the service starts no task (a task handed out
 meanwhile runs after the restart, or right away when the update fails). An offer
 that waited for work is tried again after 15 minutes, not six hours.

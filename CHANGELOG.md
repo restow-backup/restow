@@ -253,7 +253,9 @@ private repository.
   self-update (the automatic one, **Update now** and `restow-pve update`) was refused with "a
   backup or restore is running; the update waits". The node now counts only live work: a restore
   server whose pid file names a running `restow-pve serve-restore` of that disk, and an open
-  backup job (younger than two days, or with a running provider). The cleanup of a restore
+  backup job (with a running provider, or while a vzdump task runs on the node); the job file of
+  a backup whose provider was killed (OOM, a crash of the node) no longer holds back boot tests
+  and the self-update for two days. The cleanup of a restore
   removes the log as well, and a restore server that fails to start, ends early or whose call is
   cancelled is stopped and its files removed, so it no longer serves for up to two days. A pid
   file is checked against `/proc/<pid>/cmdline` before restow-pve signals it, so a stale one

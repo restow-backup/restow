@@ -227,7 +227,8 @@ func TestEnsurePluginLoadedWaitsWhileBusyAndRetriesAfterAFailure(t *testing.T) {
 	l := pluginLayout(t)
 	ctx := context.Background()
 	_, logf := collectLogs()
-	// A backup runs here: nothing is restarted, nothing remembered.
+	// A backup runs here (its job file, vzdump runs): nothing is restarted, nothing remembered.
+	procTable(t, map[int]string{5000: vzdumpWorker})
 	if err := os.MkdirAll(filepath.Join(l.RunDir, "jobs"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -117,16 +117,16 @@ func activeRuns(l Layout) []string {
 	return runs
 }
 
-// staleJobAge is how long a job file counts as an open backup without a provider process of its
-// guest (the provider's own stale bound, cleanupStaleJobs).
+// staleJobAge is when job-cleanup deletes a job file a backup left behind (a provider that was
+// killed, a node that crashed). It never makes a job count as open (openJobs).
 const staleJobAge = 48 * time.Hour
 
 // busy says whether a backup or a restore works on this node now: a restore server that
 // runs (its pid file names a live `restow-pve serve-restore` of that disk), a container restore
-// whose folder's owner runs (ctrestore.go), or an open backup
-// (a job file younger than staleJobAge, or one whose guest has a live provider process). Logs,
-// sockets and the files a finished or crashed restore left behind do not count: only live work
-// may hold back a self-update or a boot test.
+// whose folder's owner runs (ctrestore.go), or an open backup (a job file whose guest has a live
+// provider process, or any job file while a vzdump task runs on the node). Logs, sockets and the
+// files a finished or crashed backup or restore left behind do not count: only live work may
+// hold back a self-update or a boot test.
 func busy(l Layout) bool {
 	return len(liveRestoreServers(l)) > 0 || openJobs(l) > 0 || liveContainerRestores(restoreTmpOf(l)) > 0
 }
@@ -148,9 +148,13 @@ func liveRestoreServers(l Layout) []string {
 	return out
 }
 
-// openJobs counts the backups open on this node.
+// openJobs counts the backups open on this node: a job file (backup-init writes it, the end of
+// the backup removes it) whose guest has a live provider, or, between the provider's calls
+// (each is a process of its own), while a vzdump task runs on the node. A job file that a
+// killed provider or a crash of the node left behind counts for nothing, however young.
 func openJobs(l Layout) int {
 	n := 0
+	vzdump := -1 // vzdumpRuns, asked once
 	dir := filepath.Join(l.RunDir, "jobs")
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
@@ -161,12 +165,40 @@ func openJobs(l Layout) int {
 		if readJSON(filepath.Join(dir, e.Name()), &j) != nil || j.RunID == "" {
 			continue
 		}
-		info, err := e.Info()
-		if (err == nil && time.Since(info.ModTime()) < staleJobAge) || providerAlive(l, j.VMID) {
+		if providerAlive(l, j.VMID) {
 			n++
+			continue
 		}
+		if vzdump < 0 {
+			vzdump = 0
+			if vzdumpRuns() {
+				vzdump = 1
+			}
+		}
+		n += vzdump
 	}
 	return n
+}
+
+// vzdumpRuns says whether a vzdump task runs on this node. PVE names the worker process of every
+// task "task UPID:<node>:...:vzdump:<vmid or empty>:<user>:" (fork_worker sets $0), for a
+// backup job of the scheduler, a backup asked for through the API and the vzdump command alike;
+// it reads the process table, so it needs no PVE API.
+func vzdumpRuns() bool {
+	entries, err := os.ReadDir(procRoot)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if _, err := strconv.Atoi(e.Name()); err != nil {
+			continue
+		}
+		cmdline, err := os.ReadFile(filepath.Join(procRoot, e.Name(), "cmdline"))
+		if err == nil && bytes.HasPrefix(cmdline, []byte("task UPID:")) && bytes.Contains(cmdline, []byte(":vzdump:")) {
+			return true
+		}
+	}
+	return false
 }
 
 // providerAlive says whether a provider process backs up the guest now.

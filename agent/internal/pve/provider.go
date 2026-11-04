@@ -672,7 +672,7 @@ func (p *Provider) cleanupStaleJobs(storeid string) {
 		if !strings.HasPrefix(e.Name(), storeid+"-") {
 			continue
 		}
-		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > 48*time.Hour {
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > staleJobAge {
 			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
