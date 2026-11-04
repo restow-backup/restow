@@ -497,6 +497,13 @@ private repository.
   freeze switched off), with a failed freeze, or unknown (`vmConsistency`, with a line for the
   restore point where it is not frozen). A failed freeze, a failed thaw and a freeze without a
   logged thaw are warnings in the task log.
+- Proxmox VE: a PVE backup job onto the Restow storage with retention settings (the Retention
+  tab, `prune-backups`) failed every guest after Restow had committed its restore point: the
+  storage plugin died when vzdump pruned, so the PVE task ended with an error and the job mail
+  said failed while Restow showed the backup green. PVE's prune is now a no-op that removes
+  nothing and logs "restow: retention is managed in Restow; PVE's retention settings are
+  ignored", as the notes update does; `pvesm prune-backups` on the Restow storage lists nothing.
+  Retention stays Restow's.
 
 ### Upgrade Notes
 

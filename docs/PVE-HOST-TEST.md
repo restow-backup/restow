@@ -87,7 +87,11 @@ The script
    `ORACLE=1` compares the restored VM disk with the original bit for bit,
 6. checks that the token cannot delete the original VM (403) and that
    `pvesm free` of a restore point is refused,
-7. collects `restow-pve status/diagnose --json`, the journals of
+7. backs up the VM as a PVE backup job with retention would (`--remove 1
+   --prune-backups keep-last=1`): the backup must end OK, its log must say
+   "restow: retention is managed in Restow; PVE's retention settings are
+   ignored", and no restore point may be gone,
+8. collects `restow-pve status/diagnose --json`, the journals of
    `restow-pve`, `pvedaemon` and `pvestatd`, every task log and the restore
    server logs into **`/root/restow-pve-report-<time>.txt`** (secrets redacted).
 

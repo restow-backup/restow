@@ -209,9 +209,14 @@ unique per installation).
   changed blocks are uploaded all the same. Every 30th backup of a disk is a
   full read on purpose (verify read). The guest list shows "Incremental" or
   "Full read".
-- **Retention** runs on the server only. PVE's "remove" and prune are refused
-  by the plugin. Pruning a restore point releases exactly the chunk references
-  it holds; the storage check's garbage collection reclaims the chunks later.
+- **Retention** runs on the server only. Removing a restore point in PVE is
+  refused by the plugin. PVE's prune (the Retention tab of a PVE backup job onto
+  the Restow storage, `pvesm prune-backups`, the storage's Prune dialog) prunes
+  nothing: the plugin lists no backups and logs "restow: retention is managed in
+  Restow; PVE's retention settings are ignored", so such a job stays OK instead
+  of failing each guest after its restore point was committed. Pruning a
+  restore point releases exactly the chunk references it holds; the storage
+  check's garbage collection reclaims the chunks later.
 - **Restore check.** The server reads a sample of the data blocks of a restore
   point back and compares them with the SHA-256 in the map (containers: `restic
   check` of 5 %). It checks

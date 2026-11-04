@@ -159,8 +159,27 @@ eval { $plugin->parse_volname('images/vm-1-disk-0') };
 like($@, qr/unable to parse/, 'foreign volume names are refused');
 eval { $plugin->free_image('restow', {}, 'backup/vm/101/2026-10-03T22:00:00Z') };
 like($@, qr/retention is managed in Restow/, 'deleting a restore point is refused');
-eval { $plugin->prune_backups({}, 'restow', {}, 101, 'qemu', 0, sub { }) };
-like($@, qr/retention is managed in Restow/, 'pruning is refused');
+# vzdump of a PVE job with retention (prune-backups) prunes after every guest:
+# a no-op that lists nothing and logs one line, never an error that fails the
+# guest's backup after Restow committed its restore point.
+{
+    my @logged;
+    my $keep = { 'keep-daily' => 7, 'keep-last' => 3 };
+    my $list = eval { $plugin->prune_backups({ 'prune-backups' => 'keep-daily=7,keep-last=3' }, 'restow', $keep, 101, 'qemu', 0, sub { push @logged, [@_] }) };
+    is($@, '', 'pruning with retention settings does not die');
+    is_deeply($list, [], 'pruning lists no backups to keep or remove');
+    is(scalar(@logged), 1, 'pruning logs one line');
+    is($logged[0]->[0], 'info', 'the line is information');
+    like($logged[0]->[1], qr/retention is managed in Restow; PVE's retention settings are ignored/, 'the line says retention is managed in Restow');
+    my $out = '';
+    open(my $fh, '>', \$out) or die $!;
+    my $old = select($fh);
+    $list = eval { $plugin->prune_backups({}, 'restow', undef, undef, undef, 1, undef) };
+    select($old);
+    close($fh);
+    is_deeply($list, [], 'a dry run without a log function lists nothing');
+    like($out, qr/PVE's retention settings are ignored/, 'without a log function the line is printed');
+}
 # vzdump's notes (a job's notes template) are taken as a no-op, never an error
 # that ends the backup with "TASK WARNINGS"; protection stays refused.
 {

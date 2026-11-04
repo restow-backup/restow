@@ -371,8 +371,10 @@ crypto and no network code; it only turns callbacks into helper calls. Two point
 - *Robustness:* `status()` is polled by `pvestatd` every few seconds on every node [I]. It must return
   cached values from a local file the helper maintains and must never block on the network. `list_volumes`
   likewise reads a local cache, refreshed by the helper and on demand with a short timeout.
-  `free_image`/volume removal and `prune_backups` refuse with a clear message ("retention is managed in
-  Restow").
+  `free_image`/volume removal refuses with a clear message ("retention is managed in Restow").
+  `prune_backups` (vzdump of a PVE job with retention, `pvesm prune-backups`) prunes nothing, lists
+  nothing and logs "restow: retention is managed in Restow; PVE's retention settings are ignored":
+  dying there failed the guest's backup in PVE after its restore point was committed.
 
 **Server.** New module `apps/api/src/features/pve` and `packages/core/src/pve`, jobs under
 `apps/worker/src/pve`, schema in `packages/db`. It reuses enrollment, heartbeat, tasks, runs, failure
@@ -655,8 +657,8 @@ tenant, with a guest-to-tenant mapping by PVE pool. The helper then holds one se
 **Immutability.**
 
 - *Logical (phase 1):* nodes are append-only and cannot delete or overwrite; retention runs only on
-  the server. PVE's "remove backup" and prune are refused by the plugin and would be refused by the
-  server anyway.
+  the server. PVE's "remove backup" is refused by the plugin and would be refused by the server
+  anyway; PVE's prune is a no-op of the plugin that removes nothing.
 - *Physical (phase 2): S3 Object Lock for packs and manifests* of `pve-vm` snapshots. Today packs carry
   no retention and GC repacks (docs/ARCHITECTURE.md, docs/STORAGE.md). Required changes: set
   `RetainUntil` = (latest retention end of any snapshot referencing chunks in the pack) + safety margin,

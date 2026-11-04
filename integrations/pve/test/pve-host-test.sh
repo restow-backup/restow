@@ -273,6 +273,22 @@ case "$out" in
   *) bad "pvesm free was not refused" ;;
 esac
 
+section "5c. A PVE backup job with retention onto the Restow storage stays OK (prune is a no-op)"
+before=$(pvesm list "$STORAGE_ID" --vmid "$VM_ID" 2>/dev/null | awk 'NR > 1' | wc -l)
+_log="$WORK/vzdump-prune.log"
+log "\$ vzdump $VM_ID --storage $STORAGE_ID --mode snapshot --fleecing enabled=1,storage=$FLEECING --remove 1 --prune-backups keep-last=1"
+vzdump "$VM_ID" --storage "$STORAGE_ID" --mode snapshot --fleecing "enabled=1,storage=$FLEECING" --remove 1 --prune-backups keep-last=1 >"$_log" 2>&1
+rc=$?
+redact <"$_log" >>"$REPORT"
+if [ "$rc" = 0 ]; then ok "vzdump with retention (prune-backups) succeeded"; else bad "vzdump with retention (prune-backups) failed (exit $rc)"; fi
+if grep -q "retention is managed in Restow; PVE's retention settings are ignored" "$_log"; then
+  ok "the prune says that retention is managed in Restow"
+else
+  bad "the prune's line is missing from the task log"
+fi
+after=$(pvesm list "$STORAGE_ID" --vmid "$VM_ID" 2>/dev/null | awk 'NR > 1' | wc -l)
+if [ "$after" -gt "$before" ]; then ok "no restore point was pruned by PVE ($before before, $after after)"; else bad "restore points before $before, after $after"; fi
+
 # ---- 6. diagnostics -----------------------------------------------------------------
 section "6. Diagnostics"
 run /opt/restow-pve/bin/restow-pve status --json

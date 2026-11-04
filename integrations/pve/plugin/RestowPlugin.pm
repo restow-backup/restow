@@ -304,8 +304,22 @@ sub clone_image {
     die "restow: not supported\n";
 }
 
+# vzdump prunes the backups of a guest after each backup of a job with
+# "remove" (the default of a backup job made in the PVE UI), with the job's or
+# the storage's retention settings; pvesm prune-backups and the storage's
+# Prune dialog do the same. Restow keeps and removes restore points by its own
+# retention, so nothing is pruned here. Dying made vzdump report the guest's
+# backup as failed after Restow had committed its restore point: the prune is
+# taken as a no-op that lists nothing and says so in the task log.
 sub prune_backups {
-    die "restow: pruning is not done by Proxmox VE; retention is managed in Restow\n";
+    my ($class, $scfg, $storeid, $keep, $vmid, $type, $dryrun, $logfunc) = @_;
+    my $msg = "restow: retention is managed in Restow; PVE's retention settings are ignored";
+    if (ref($logfunc) eq 'CODE') {
+        $logfunc->('info', $msg);
+    } else {
+        print "$msg\n";
+    }
+    return [];
 }
 
 sub volume_snapshot {
