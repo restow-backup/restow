@@ -379,7 +379,10 @@ private repository.
   under the temporary name. Restores, checks and boot tests now give the node the VMIDs to
   leave alone (used by restow-pve from 0.5.0), a VMID typed into the restore dialog that
   belonged to such a guest needs a confirmation, and another guest that still turns up under
-  such a VMID gets its own row while the old one stays absent with its restore points.
+  such a VMID gets its own row while the old one stays absent with its restore points: another
+  kind, a temporary or restored guest, a container with another hostname, a VM with another
+  SMBIOS UUID and another name. A VM restored with "Unique" into its own VMID (a new SMBIOS
+  UUID, the same name) is the same guest back and keeps its history and job.
 - Proxmox VE: a backup stopped after it had committed its restore point, or whose vzdump failed
   afterwards (removing the fleecing image, for example), ended "Cancelled" or "Failed" next to a
   valid new restore point; a cancelled one did not move "Last backup", so the guest could turn

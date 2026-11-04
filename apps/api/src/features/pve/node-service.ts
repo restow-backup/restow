@@ -588,14 +588,23 @@ const TEMP_GUEST_NAME = /^restow-(boottest|restorecheck)-/;
 /**
  * Whether a VMID the inventory reports belongs to another guest than the row Restow keeps for it
  * (docs/PVE.md, "A VMID used again"). Only a row worth keeping counts (it holds restore points
- * or a job; any other row is simply taken over): the kind differs, or, while the old guest is
- * absent, a VM's SMBIOS UUID differs, or the guest is a temporary one (by its name or tag) or a
- * restored copy in the pool restow-restore.
+ * or a job; any other row is simply taken over): the kind differs; or, while the old guest is
+ * absent, the guest is a temporary one (by its name or tag) or a restored copy in the pool
+ * restow-restore, or its identity differs:
+ *
+ *   - a VM whose SMBIOS UUID differs and whose name differs as well. A restore with `unique=1`
+ *     (the PVE UI's "Unique", qmrestore --unique) of the deleted VM into its own VMID gives it a
+ *     new SMBIOS UUID but keeps its name: that is the same guest back, with its history and job;
+ *   - a container (which has no UUID), or a VM without one, whose name (its hostname) differs:
+ *     an unrelated container an admin created under the VMID of a deleted one.
+ *
+ * A name only counts when both sides have one.
  */
 export function pveVmidReused(
   before: {
     kind: string;
     present: boolean;
+    name: string | null;
     smbiosUuid: string | null;
     jobId: string | null;
     holdsPoints: boolean;
@@ -617,14 +626,19 @@ export function pveVmidReused(
   if (before.present) {
     return false;
   }
-  return (
-    (reported.kind === "vm" &&
-      before.smbiosUuid !== null &&
-      reported.smbiosUuid !== null &&
-      before.smbiosUuid !== reported.smbiosUuid) ||
+  if (
     TEMP_GUEST_NAME.test(reported.name) ||
     pveGuestInRestorePool({ pool: reported.pool || null, tags: reported.tags })
-  );
+  ) {
+    return true;
+  }
+  const oldName = before.name?.trim() ?? "";
+  const newName = reported.name.trim();
+  const nameDiffers = oldName !== "" && newName !== "" && oldName !== newName;
+  if (reported.kind === "vm" && before.smbiosUuid !== null && reported.smbiosUuid !== null) {
+    return before.smbiosUuid !== reported.smbiosUuid && nameDiffers;
+  }
+  return nameDiffers;
 }
 
 /** A guest of the cluster as /cluster/resources lists it (restow-pve from 0.5.0). */
@@ -663,6 +677,7 @@ export async function reportInventory(
               vmid: pveGuests.vmid,
               kind: pveGuests.kind,
               present: pveGuests.present,
+              name: pveGuests.name,
               smbiosUuid: pveGuests.smbiosUuid,
               jobId: pveGuests.jobId,
               holdsPoints: sql<boolean>`EXISTS (SELECT 1 FROM pve_snapshots s WHERE s.guest_id = "pve_guests"."id" AND s.status <> 'pruned')`,

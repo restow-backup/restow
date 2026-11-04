@@ -513,10 +513,17 @@ deleted in PVE whose restore points, job and repository Restow still keeps. A co
 under it, or the temporary guest of a check or boot test, would take over that guest's
 history at the next inventory. So (since 0.5.0) restores, restore checks and boot tests tell
 the node to leave such VMIDs alone, a VMID typed into the restore dialog that belongs to such
-a guest needs a confirmation, and a different guest that still turns up under it (another
-kind; while the old one is absent: a VM with another SMBIOS UUID, a temporary guest by name
-or tag, a guest in `restow-restore`) gets a row of its own. The old guest stays in the list
-as "No longer reported", with its restore points.
+a guest needs a confirmation, and a different guest that still turns up under it gets a row
+of its own. Different means another kind, or, while the old one is absent: a temporary guest
+by name or tag, a guest in `restow-restore`, a container with another name (hostname), or a
+VM whose SMBIOS UUID and name both differ (a VM without a known UUID: its name). The old guest
+stays in the list as "No longer reported", with its restore points.
+
+A restore with "Unique" (`unique=1`, `qmrestore --unique`) gives a VM a new SMBIOS UUID and
+new MAC addresses. Restored into the deleted VM's own VMID under its old name, it is the same
+guest back: it keeps its row, restore points and job, and its next backup builds on them.
+Under another name it is a guest of its own (rename it back before the next inventory to keep
+the history). A container keeps its row when it comes back under its hostname.
 
 ## Restore
 

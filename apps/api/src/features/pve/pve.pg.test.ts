@@ -2506,5 +2506,43 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     const back = await rowsOf(120);
     expect(back).toHaveLength(1);
     expect(back[0]).toMatchObject({ id: ct120.guestId, present: true, retiredAt: null });
+
+    // CT 121 was deleted and an admin created an unrelated container under its VMID (another
+    // hostname): it does not inherit the old job, restore points and repository. VM 122 was
+    // deleted and restored in the PVE UI with "Unique" into its own VMID: a new SMBIOS UUID,
+    // the same name, the same guest back with its history.
+    const ct121 = await withPoint(121, "ct", { present: false });
+    const vm122 = await withPoint(122, "vm", {
+      present: false,
+      smbiosUuid: "33333333-3333-4333-8333-333333333333",
+    });
+    await json(
+      await inventory([
+        { vmid: 110, kind: "ct", name: "old110", node: "pveX" },
+        { vmid: 121, kind: "ct", name: "intranet", node: "pveX" },
+        {
+          vmid: 122,
+          kind: "vm",
+          name: "old122",
+          node: "pveX",
+          smbiosUuid: "44444444-4444-4444-8444-444444444444",
+        },
+      ]),
+    );
+    const ctRows = await rowsOf(121);
+    expect(ctRows).toHaveLength(2);
+    expect(ctRows.find((r) => r.id === ct121.guestId)).toMatchObject({
+      present: false,
+      name: "old121",
+    });
+    expect(ctRows.find((r) => r.id === ct121.guestId)?.retiredAt).not.toBeNull();
+    const vmRows = await rowsOf(122);
+    expect(vmRows).toHaveLength(1);
+    expect(vmRows[0]).toMatchObject({
+      id: vm122.guestId,
+      present: true,
+      retiredAt: null,
+      smbiosUuid: "44444444-4444-4444-8444-444444444444",
+    });
   });
 });
