@@ -1319,6 +1319,13 @@ ab. Folgen im Agenten:
   Snapshot-Pfaden `/C/Users/…`: **kein Treffer**, die Ransomware-Auswertung hielte jede Datei
   für "außerhalb der Quellen". Neue Funktion `snapshotPathOf(osPath)` (`C:\Users` →
   `/C/Users`), getestet.
+- Der Rückweg für Dateien, die der Agent nach der Sicherung auf der Platte liest
+  (Stichproben für Restore-Tests, Entropie der Ransomware-Signale): `snapshotToLocalPath`
+  macht unter Windows aus `/C/Users/a.txt` wieder `C:\Users\a.txt` und aus `/C` `C:\`, nur
+  wenn das erste Segment ein einzelner Laufwerksbuchstabe ist. `filepath.FromSlash` ergäbe
+  `\C\Users\a.txt`, einen Pfad relativ zum aktuellen Laufwerk: Kein Windows-Rechner hätte
+  Stichproben oder Entropiewerte. Getestet als Umkehrung von `snapshotPathOf` (auch unter
+  Linux).
 - `restic/pattern.go:7-21` (`EscapeIncludePath`) escapt mit `\`; unter Windows wirkungslos
   (Abschnitt 1.2). Windows-Fassung: `[` wird `[[]`, `]` bleibt; `*` und `?` kommen in
   Windows-Dateinamen nicht vor. Restic-Muster unter Windows sind außerdem

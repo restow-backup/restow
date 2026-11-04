@@ -246,6 +246,10 @@ private repository.
   docs/UPDATING.md gives the commands that remove old Restow images safely (only version tags
   older than the previous release, in the repositories of `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE`
   from `.env`), and its duplicated heading "Disk space" is gone.
+- Windows agent (preview): a backup recorded no sample files for restore tests and no entropy for
+  the ransomware signals. The agent looked for `/C/Users/a.txt` from the snapshot at
+  `\C\Users\a.txt` instead of `C:\Users\a.txt`, found none of the files and wrote "No sample
+  files could be recorded", so a Windows machine never got a restore test.
 
 ### Upgrade Notes
 

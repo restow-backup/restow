@@ -1,7 +1,9 @@
 package core
 
 import (
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -124,5 +126,37 @@ func TestSnapshotPathOf(t *testing.T) {
 	within := underSourcesFor([]string{`c:\Users`}, true)
 	if !within("/C/Users/anna/a.txt") || within("/C/Windows/x") {
 		t.Fatal("underSources does not match Windows snapshot paths")
+	}
+}
+
+// The samples for restore tests and the entropy of the ransomware signals
+// read the files a snapshot names on the machine: on Windows /C/Users/... has
+// to become C:\Users\... again, else every file is "missing" there.
+func TestSnapshotToLocalPathIsTheInverseOfSnapshotPathOf(t *testing.T) {
+	for _, local := range []string{
+		`C:\Users\bob\a.docx`, `D:\`, `E:\Daten\Größe & Preis\Ünïcødé 名前.txt`, `C:\Program Files (x86)\x y\z`, `\\nas\share\a.txt`,
+	} {
+		snap := snapshotPathOf(local, true)
+		if got := snapshotToLocalPathFor(snap, true); got != local {
+			t.Errorf("%q -> %q -> %q", local, snap, got)
+		}
+	}
+	for snap, want := range map[string]string{
+		"/C":                  `C:\`,
+		"/c/users/x":          `C:\users\x`,
+		"/CD/x":               `\CD\x`, // not a drive letter
+		`//nas/share/a.txt`:   `\\nas\share\a.txt`,
+		"/1/x":                `\1\x`,
+		"/C/Users/bob/a.docx": `C:\Users\bob\a.docx`,
+	} {
+		if got := snapshotToLocalPathFor(snap, true); got != want {
+			t.Errorf("%q: %q, want %q", snap, got, want)
+		}
+	}
+	if got := snapshotToLocalPathFor("/srv/data/a.txt", false); got != filepath.FromSlash("/srv/data/a.txt") {
+		t.Fatal(got)
+	}
+	if runtime.GOOS == "windows" && snapshotToLocalPath("/C/Users/a.txt") != `C:\Users\a.txt` {
+		t.Fatal("snapshotToLocalPath does not use the Windows form on Windows")
 	}
 }

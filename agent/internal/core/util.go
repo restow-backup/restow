@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -178,8 +179,28 @@ func shortenMiddle(s string, limit int) string {
 }
 
 // snapshotToLocalPath maps a path as stored in a snapshot to the path on this
-// machine. On Linux and macOS they are identical.
-func snapshotToLocalPath(p string) string { return filepath.FromSlash(p) }
+// machine: on Linux and macOS they are identical, on Windows /C/Users/a.txt
+// is C:\Users\a.txt (snapshotPathOf the other way round).
+func snapshotToLocalPath(p string) string {
+	return snapshotToLocalPathFor(p, runtime.GOOS == "windows")
+}
+
+// snapshotToLocalPathFor is snapshotToLocalPath for the given system, so the
+// Windows form is tested everywhere. Only a first segment of a single drive
+// letter is a drive (/C/x -> C:\x, /C -> C:\); any other path only gets
+// backslashes (docs/WINDOWS-AGENT.md, 16.4).
+func snapshotToLocalPathFor(p string, windows bool) string {
+	if !windows {
+		return filepath.FromSlash(p)
+	}
+	if len(p) >= 2 && p[0] == '/' && isDriveLetterByte(p[1]) && (len(p) == 2 || p[2] == '/') {
+		rest := strings.TrimPrefix(p[2:], "/")
+		return strings.ToUpper(p[1:2]) + `:\` + strings.ReplaceAll(rest, "/", `\`)
+	}
+	return strings.ReplaceAll(p, "/", `\`)
+}
+
+func isDriveLetterByte(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
 
 // hashFile returns the SHA-256 (hex) and size of a file, stopping early when
 // done is closed.
