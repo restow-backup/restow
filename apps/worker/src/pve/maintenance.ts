@@ -70,6 +70,7 @@ import {
   resticErrorDetail,
   resticForget,
   resticPrune,
+  resticSnapshots,
   resticUnlock,
   type StorageTargets,
   sampleDataBlocks,
@@ -798,6 +799,13 @@ export async function verifySnapshot(
           // Stale locks only (a run that ended without releasing its lock, a restarted API):
           // never one a live run still refreshes.
           await clearStaleGuestLocks(deps, access, session, snap.guestId);
+          // The restore point's own restic snapshot must be there and be the one its run made:
+          // `restic check` only checks the snapshots it finds, so a missing one passes it.
+          const missing = await containerSnapshotProblem(snap, session);
+          if (missing) {
+            result.errors.push(missing);
+            return;
+          }
           await resticCheck(session, "5%", {
             signal: deps.runtime.shutdownSignal,
             retryLock: options.retryLock,
@@ -842,6 +850,51 @@ export async function verifySnapshot(
     }
   }
   return result;
+}
+
+/**
+ * What is wrong with the restic snapshot a container restore point names, or null when it is
+ * there: the repository's snapshot list (from the storage, not restic's local cache, which may
+ * still hold a snapshot file the storage lost) must contain it, and its `run=` tag (restow-pve
+ * tags every container backup with its run) must name the restore point's run. A list that
+ * could not be read says nothing about the restore point: the check did not run
+ * (`interrupted`) and is tried again. A repository that is not there or does not open with its
+ * password is a finding.
+ */
+async function containerSnapshotProblem(
+  snap: Pick<PveSnapshot, "resticSnapshotId" | "runId">,
+  session: Parameters<typeof resticSnapshots>[0],
+): Promise<string | null> {
+  const id = snap.resticSnapshotId;
+  if (!id) {
+    return "the restore point names no restic snapshot";
+  }
+  let listed: Awaited<ReturnType<typeof resticSnapshots>>;
+  try {
+    listed = await resticSnapshots(session, { noLock: true });
+  } catch (error) {
+    if (
+      error instanceof ResticError &&
+      (error.failure === "no_repository" || error.failure === "wrong_password")
+    ) {
+      throw error;
+    }
+    throw new ResticError(
+      `the snapshot list of the repository could not be read: ${resticErrorDetail(error, 600)}`,
+      error instanceof ResticError ? error.exitCode : null,
+      "interrupted",
+      error instanceof ResticError ? error.stderr : "",
+    );
+  }
+  const found = listed.find((s) => s.id === id);
+  if (!found) {
+    return `restic snapshot ${id.slice(0, 8)} of this restore point is not in the repository (unable to load snapshot: not found)`;
+  }
+  const run = found.tags.find((tag) => tag.startsWith("run="))?.slice(4);
+  if (run !== undefined && snap.runId && run !== snap.runId) {
+    return `restic snapshot ${id.slice(0, 8)} belongs to run ${run}, not to this restore point's run ${snap.runId}`;
+  }
+  return null;
 }
 
 /**

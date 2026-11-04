@@ -322,6 +322,13 @@ private repository.
   a bandwidth limit started again from the beginning every day. The credential now lives as
   long as its run: while the run is open and younger than 48 hours (when the worker closes it as
   stale). A run that ended or was stopped keeps the 24 hours to release its lock.
+- Proxmox VE: the check of a container restore point passed although its restic snapshot was
+  gone from the storage (a lifecycle rule, a cleanup by hand, a move that missed the file):
+  `restic check` checks only the snapshots it finds, and restoring or browsing the point then
+  failed with "no matching ID". The check now first makes sure the snapshot is in the
+  repository's list and carries the tag of the restore point's run; a missing or foreign one
+  fails the check. A list that cannot be read (network, storage) postpones the check instead of
+  failing it.
 
 ### Upgrade Notes
 
