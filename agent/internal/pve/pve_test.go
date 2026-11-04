@@ -530,3 +530,84 @@ func TestRestoreGuestGivesAContainerNewMACsAndNoOnboot(t *testing.T) {
 		t.Fatalf("VM form %v (qmrestore refuses other options beside archive)", vm)
 	}
 }
+
+// patternSource is a large disk that is never held in memory: every block reads as non-zero.
+type patternSource struct {
+	size    uint64
+	mu      sync.Mutex
+	reads   int
+	trimmed int
+}
+
+func (s *patternSource) Size() uint64 { return s.size }
+func (s *patternSource) ReadAt(p []byte, off uint64) error {
+	s.mu.Lock()
+	s.reads++
+	s.mu.Unlock()
+	for i := range p {
+		p[i] = byte(off/BlockSize) + 1
+	}
+	return nil
+}
+func (s *patternSource) Context(string) (uint32, bool)                        { return 0, false }
+func (s *patternSource) Extents(uint32, uint64, uint64) ([]nbd.Extent, error) { return nil, nil }
+func (s *patternSource) CanTrim() bool                                        { return true }
+func (s *patternSource) Trim(uint64, uint64) error {
+	s.mu.Lock()
+	s.trimmed++
+	s.mu.Unlock()
+	return nil
+}
+
+// countingSink fails from its failAt-th frame on (1-based).
+type countingSink struct {
+	mu     sync.Mutex
+	frames int
+	failAt int
+}
+
+func (s *countingSink) PutBlocks(context.Context, string, []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.frames++
+	if s.frames >= s.failAt {
+		return errors.New("409 the run is closed")
+	}
+	return nil
+}
+
+// An upload that fails for good stops the reading at once: the rest of a large disk is not read
+// for hours, and the error comes back without delay.
+func TestBackupDiskStopsReadingWhenTheUploadFails(t *testing.T) {
+	const blocks = 2000 // 8000 MiB
+	src := &patternSource{size: blocks * BlockSize}
+	sink := &countingSink{failAt: 1}
+	_, err := BackupDisk(context.Background(), src, sink, "run", DiskPlan{Device: "drive-scsi0", Size: src.size, BitmapMode: "new"}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "upload blocks") || !strings.Contains(err.Error(), "run is closed") {
+		t.Fatalf("err = %v", err)
+	}
+	if src.reads > 6*MaxBlocksPerFrame {
+		t.Fatalf("%d of %d blocks read after the first frame failed", src.reads, blocks)
+	}
+	if src.trimmed != 0 {
+		t.Fatalf("%d blocks trimmed that the server did not take", src.trimmed)
+	}
+	// The final frame fails: its error is returned, its blocks are not trimmed.
+	src = &patternSource{size: (MaxBlocksPerFrame + 4) * BlockSize}
+	sink = &countingSink{failAt: 2}
+	_, err = BackupDisk(context.Background(), src, sink, "run", DiskPlan{Device: "drive-scsi0", Size: src.size, BitmapMode: "new"}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "upload blocks") {
+		t.Fatalf("final frame: err = %v", err)
+	}
+	if src.trimmed != MaxBlocksPerFrame {
+		t.Fatalf("trimmed %d, want the %d blocks of the first frame", src.trimmed, MaxBlocksPerFrame)
+	}
+	// A cancelled backup still ends with the cancellation when no upload failed.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	src = &patternSource{size: 4 * BlockSize}
+	_, err = BackupDisk(ctx, src, &countingSink{failAt: 1 << 30}, "run", DiskPlan{Device: "d", Size: src.size, BitmapMode: "new"}, nil, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled: %v", err)
+	}
+}

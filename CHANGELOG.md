@@ -423,6 +423,13 @@ private repository.
   restore point and a container's restic credential now ride out a server restart like a
   backup's calls, and a failed read fails only the reads waiting for it: the blocks are fetched
   again (three attempts), and a fetch that keeps failing still ends the restore with its error.
+- Proxmox VE: after an upload failed for good (a run closed or cancelled on the server, a quota,
+  the end of the outage window), the VM backup went on reading, hashing and copying every
+  remaining block of the disk, possibly for hours on a disk of several TB, and only then
+  reported the error. All that time vzdump held the backup access open and no block was trimmed
+  any more, so every guest write went into the fleecing image, which can fill the thin pool it
+  shares with the guests' disks. The read loop now stops at the first failed upload, and the
+  backup ends at once with the upload's error.
 
 ### Upgrade Notes
 
