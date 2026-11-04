@@ -14,28 +14,41 @@ import { compareVersions, parseVersion, type SemVer } from "./semver.js";
  * hold for an image to be removed:
  *
  *   - every reference of the image (`name:tag`, `name@sha256:...`) is in a repository of
- *     this installation: the configured application and web repositories, their full and
- *     Community twins, the local names `source` mode builds (`restow`, `restow-web` and
- *     their `-community` twins) and the repositories of the images the compose project
- *     is configured with (api, edge, updater, mounter). An image without any reference
- *     (dangling) or with a reference anywhere else is never touched;
- *   - its release is known (the version label, RESTOW_VERSION or a version tag) and older
- *     than the previous version: the images of the version that runs now and of the
- *     version before it stay, so a manual rollback needs no download;
+ *     this installation: the Restow repositories (the configured application and web
+ *     repositories, their full and Community twins, the local names `source` mode builds:
+ *     `restow`, `restow-web` and their `-community` twins) or the repositories of the
+ *     Restow images the compose project is configured with (api, worker, scheduler,
+ *     updater, mounter) and the run used. The edge image is never one of them: an
+ *     override may run a stock Caddy there, and Caddy's versions are not Restow's. An
+ *     image without any reference (dangling) or with a reference anywhere else is never
+ *     touched;
+ *   - its release is known and older than the previous version: the images of the
+ *     version that runs now and of the version before it stay, so a manual rollback needs
+ *     no download. The release is the image's version label or RESTOW_VERSION; a version
+ *     tag counts only for an image whose names are all in the Restow repositories, as a
+ *     repository that is only known from the compose configuration may hold other
+ *     things with tags of their own;
  *   - no container of the Docker host uses it, running or stopped;
  *   - the compose project is not configured with it (api, worker, scheduler, edge,
  *     updater, mounter), and it is not one of the images the run replaced.
  *
- * It is removed by its ID, never forced. Anything that goes wrong is logged and ends
- * the cleanup; it never changes the outcome of the update.
+ * It is removed by its ID, never forced. Docker refuses that for an image with more than
+ * one name, so its other names are taken off first, one by one and each only after
+ * checking that it still names that image; the last name goes with the image. Anything
+ * that goes wrong is logged; it never changes the outcome of the update.
  */
 
 export interface ImageCleanupInput {
   images: readonly LocalImage[];
   /** IDs of the images any container uses. */
   inUse: ReadonlySet<string>;
-  /** The repositories of this installation (normalized, see {@link normalizeRepository}). */
+  /** The Restow repositories (normalized, see {@link normalizeRepository}). */
   repositories: ReadonlySet<string>;
+  /**
+   * Further repositories of this installation, known only from what it is configured
+   * with: their images go only by their version label or RESTOW_VERSION, never by a tag.
+   */
+  configuredRepositories?: ReadonlySet<string>;
   /** Image references that are kept whatever their version (configured, replaced). */
   keep: readonly (string | null)[];
   /** The version that runs now. */
@@ -87,13 +100,12 @@ export function repositoryOf(reference: string): string {
 }
 
 /**
- * The repositories of this installation: the configured ones, the other build's twins
- * of each, the local names `source` mode builds, and those of the given references.
+ * The Restow repositories of this installation: the configured ones, the other build's
+ * twins of each and the local names `source` mode builds.
  */
 export function installationRepositories(input: {
   imageRepository: string;
   webImageRepository: string;
-  references: readonly (string | null)[];
 }): Set<string> {
   const names = new Set<string>();
   const add = (name: string): void => {
@@ -119,9 +131,18 @@ export function installationRepositories(input: {
     add(local.app);
     add(local.web);
   }
-  for (const reference of input.references) {
+  return names;
+}
+
+/** The repositories of the given references (`name:tag`, `name@digest`; IDs and null skipped). */
+export function repositoriesOf(references: readonly (string | null)[]): Set<string> {
+  const names = new Set<string>();
+  for (const reference of references) {
     if (reference && !/^sha256:[0-9a-f]{64}$/.test(reference)) {
-      add(repositoryOf(reference));
+      const repository = repositoryOf(reference);
+      if (repository) {
+        names.add(repository);
+      }
     }
   }
   return names;
@@ -162,13 +183,19 @@ export function referenceMatches(reference: string, image: LocalImage): boolean 
   });
 }
 
-/** The release of an image: its version, else the version tag of its references. */
-export function releaseOf(image: LocalImage): SemVer | null {
+/**
+ * The release of an image: its version (label or RESTOW_VERSION), else, with `byTag`, the
+ * version tag of its references.
+ */
+export function releaseOf(image: LocalImage, byTag = true): SemVer | null {
   if (image.version) {
     const parsed = parseVersion(image.version);
     if (parsed) {
       return parsed;
     }
+  }
+  if (!byTag) {
+    return null;
   }
   for (const tag of image.tags) {
     const colon = tag.lastIndexOf(":");
@@ -190,13 +217,21 @@ function formatVersion(version: SemVer): string {
 /** Which images go (pure). */
 export function planImageCleanup(input: ImageCleanupInput): ImageCleanupPlan {
   const current = parseVersion(input.currentVersion);
+  const configured = input.configuredRepositories ?? new Set<string>();
+  const inRestow = (image: LocalImage): boolean =>
+    referencesOf(image).every((reference) => input.repositories.has(repositoryOf(reference)));
   const own = input.images.filter((image) => {
     const references = referencesOf(image);
     return (
       references.length > 0 &&
-      references.every((reference) => input.repositories.has(repositoryOf(reference)))
+      references.every((reference) => {
+        const repository = repositoryOf(reference);
+        return input.repositories.has(repository) || configured.has(repository);
+      })
     );
   });
+  // A version tag tells the release only in a Restow repository.
+  const release = (image: LocalImage): SemVer | null => releaseOf(image, inRestow(image));
 
   // The version before the current one: the one the run replaced, else the newest older
   // release that is present.
@@ -206,13 +241,13 @@ export function planImageCleanup(input: ImageCleanupInput): ImageCleanupPlan {
   }
   if (!previous && current) {
     for (const image of own) {
-      const release = releaseOf(image);
+      const version = release(image);
       if (
-        release &&
-        compareVersions(release, current) < 0 &&
-        (!previous || compareVersions(release, previous) > 0)
+        version &&
+        compareVersions(version, current) < 0 &&
+        (!previous || compareVersions(version, previous) > 0)
       ) {
-        previous = release;
+        previous = version;
       }
     }
   }
@@ -233,12 +268,12 @@ export function planImageCleanup(input: ImageCleanupInput): ImageCleanupPlan {
       plan.kept.push({ image, reason: "configured" });
       continue;
     }
-    const release = releaseOf(image);
-    if (!release) {
+    const version = release(image);
+    if (!version) {
       plan.kept.push({ image, reason: "unknown_version" });
       continue;
     }
-    if (!cutoff || compareVersions(release, cutoff) >= 0) {
+    if (!cutoff || compareVersions(version, cutoff) >= 0) {
       plan.kept.push({ image, reason: "current_or_previous" });
       continue;
     }
@@ -264,6 +299,7 @@ export interface ImageCleanupDeps {
     | "listImages"
     | "containerImageIds"
     | "removeImage"
+    | "untagImage"
     | "configImages"
     | "configUpdaterImage"
     | "configMounterImage"
@@ -277,7 +313,7 @@ export interface ImageCleanupRequest {
   webImageRepository: string;
   currentVersion: string;
   previousVersion: string | null;
-  /** References the run replaced or installed (kept whatever their version). */
+  /** Restow images the run replaced or installed (kept whatever their version). */
   keep: readonly (string | null)[];
   /** Checked before every removal: false stops the cleanup (a new run began, shutdown). */
   proceed: () => boolean;
@@ -297,9 +333,9 @@ export async function removeOldImages(
   const configured = await ops.configImages({});
   const updater = await ops.configUpdaterImage({});
   const mounter = await ops.configMounterImage({});
-  const keep = [
+  // The Restow images the project names; their repositories belong to the installation.
+  const restow = [
     configured.api,
-    configured.caddy,
     configured.worker,
     configured.scheduler,
     updater,
@@ -309,14 +345,16 @@ export async function removeOldImages(
   const repositories = installationRepositories({
     imageRepository: request.imageRepository,
     webImageRepository: request.webImageRepository,
-    references: keep,
   });
+  // The edge image is only kept: its repository is not taken for Restow's.
+  const keep = [...restow, configured.caddy];
   const images = await ops.listImages();
   const inUse = await ops.containerImageIds();
   const plan = planImageCleanup({
     images,
     inUse,
     repositories,
+    configuredRepositories: repositoriesOf(restow),
     keep,
     currentVersion: request.currentVersion,
     previousVersion: request.previousVersion,
@@ -330,6 +368,9 @@ export async function removeOldImages(
     }
     const name = referencesOf(image)[0] ?? image.id;
     try {
+      for (const reference of extraNames(image)) {
+        await ops.untagImage(reference, image.id);
+      }
       await ops.removeImage(image.id);
       result.removed += 1;
       result.bytes += image.bytes;
@@ -342,6 +383,24 @@ export async function removeOldImages(
     }
   }
   return result;
+}
+
+/**
+ * The names to take off an image before Docker removes it by ID without `--force`: all
+ * tags but the first, and the digests of any other repository. What stays is one tag
+ * and digests of its repository (or the digests of one repository), which Docker
+ * accepts. Each name taken off leaves the image at least one other.
+ */
+export function extraNames(image: LocalImage): string[] {
+  const anchor = image.tags[0] ?? image.digests[0];
+  if (!anchor) {
+    return [];
+  }
+  const repository = repositoryOf(anchor);
+  return [
+    ...image.tags.slice(1),
+    ...image.digests.filter((digest) => repositoryOf(digest) !== repository),
+  ];
 }
 
 function describeError(error: unknown): string {

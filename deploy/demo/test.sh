@@ -82,6 +82,11 @@ assert_before() {
 #   STUB_ROOT_AVAIL_KB  free space `df` reports for the data root (default 100 GiB)
 #   STUB_SEED_TAGS      the tags `docker image ls .../restow-demo-seed` lists (space-separated)
 #   STUB_RM_REFUSE      `docker image rm` of a reference containing this text fails
+#   STUB_CONTAINERS     the container IDs `compose ps --all --quiet` lists (space-separated)
+#   STUB_IMAGES_BEFORE  the image IDs `docker inspect --format {{.Image}}` prints the first
+#                       time (the demo's containers before the reset)
+#   STUB_IMAGES_AFTER   what it prints every later time (default STUB_IMAGES_BEFORE)
+#   STUB_DANGLING       image IDs that have no name (`{{len .RepoTags}}` is 0)
 # `compose config --images` prints the images the compose file would resolve: the
 # RESTOW_DEMO_*_IMAGE variables of the environment, else those of the env file, else
 # the defaults of docker-compose.yml, as docker compose does. `compose exec` answers
@@ -129,8 +134,25 @@ case "$1" in
     printf '%s\n' "${STUB_DOCKER_ROOT-/var/lib/docker-stub}"
     ;;
   builder) ;;
+  inspect)
+    if [ "$(grep -c '^docker inspect --format {{.Image}}' "$STUB_CALLS")" -le 1 ]; then
+      ids=${STUB_IMAGES_BEFORE:-}
+    else
+      ids=${STUB_IMAGES_AFTER-${STUB_IMAGES_BEFORE:-}}
+    fi
+    for id in $ids; do
+      printf '%s\n' "$id"
+    done
+    ;;
   image)
     ref=${*: -1}
+    if [[ $* == *"{{len .RepoTags}}"* ]]; then
+      case " ${STUB_DANGLING:-} " in
+        *" $ref "*) echo 0 ;;
+        *) echo 1 ;;
+      esac
+      exit 0
+    fi
     case $2 in
       ls)
         if [[ $ref == */restow-demo-seed ]]; then
@@ -168,6 +190,12 @@ case "$1" in
         action_args=""
       fi
     done
+    if [[ $* == *" ps --all --quiet"* ]]; then
+      for container in ${STUB_CONTAINERS:-}; do
+        printf '%s\n' "$container"
+      done
+      exit 0
+    fi
     if [[ $* == *" exec "* ]]; then
       case $action in
         restow-restore-roles | restow-restore-db | restow-shift | restow-swap | restow-tar-extract)
@@ -274,7 +302,7 @@ run_reset() {
     -u RESTOW_DEMO_COMPOSE_FILES -u RESTOW_DEMO_PUBLISH_PUBLIC \
     -u RESTOW_DEMO_TEMPLATES -u RESTOW_DEMO_TEMPLATE_MAX_AGE_DAYS \
     -u RESTOW_DEMO_TEMPLATE_MIN_FREE_MB -u RESTOW_DEMO_TEMPLATE_QUIET_SECONDS \
-    -u RESTOW_DEMO_MIN_FREE_MB \
+    -u RESTOW_DEMO_MIN_FREE_MB -u RESTOW_DEMO_PRUNE_BUILD_CACHE \
     PATH="$STUB_BIN:$PATH" \
     STUB_CALLS="$calls" STUB_ENV_FILE="$env_file" \
     RESTOW_DEMO_ENV_FILE="$env_file" RESTOW_DEMO_RESET_LOG="$log" \
@@ -441,9 +469,24 @@ assert_eq 1 "$STATUS" "RESTOW_DEMO_MIN_FREE_MB=4G: refused"
 assert_not_contains "docker pull" "$CALLS" "RESTOW_DEMO_MIN_FREE_MB=4G: nothing is pulled"
 assert_contains "RESTOW_DEMO_MIN_FREE_MB=4G is not a whole number" "$LOG" "RESTOW_DEMO_MIN_FREE_MB=4G: logged"
 
+# Space that cannot be measured counts as short (a daemon whose data root this shell
+# cannot see; `df` itself needs no access to the data root, only to the directories above).
 run_reset "$(new_env "RESTOW_DEMO_FOLLOW=beta")" STUB_DOCKER_ROOT=
-assert_eq 0 "$STATUS" "data root unknown: the reset goes on"
-assert_contains "could not measure the free space of Docker's data root (unknown); pulling anyway" "$LOG" "data root unknown: logged"
+assert_eq 1 "$STATUS" "data root unknown: the reset stops"
+assert_not_contains "docker pull" "$CALLS" "data root unknown: nothing is pulled"
+assert_not_contains "compose" "$CALLS" "data root unknown: the demo is not touched"
+assert_contains "could not measure the free space of Docker's data root (unknown); nothing was pulled or stopped" "$LOG" "data root unknown: logged"
+assert_contains "Set RESTOW_DEMO_MIN_FREE_MB=0" "$LOG" "data root unknown: says how to go on"
+
+run_reset "$(new_env "RESTOW_DEMO_FOLLOW=beta")" STUB_DOCKER_ROOT=/var/lib/docker-elsewhere STUB_DF_AVAIL_KB=
+assert_eq 1 "$STATUS" "df fails on the data root: the reset stops"
+assert_contains "could not measure the free space of Docker's data root (/var/lib/docker-elsewhere)" "$LOG" \
+  "df fails on the data root: logged"
+
+run_reset "$(new_env "RESTOW_DEMO_FOLLOW=beta" "RESTOW_DEMO_MIN_FREE_MB=0")" STUB_DOCKER_ROOT=
+assert_eq 0 "$STATUS" "RESTOW_DEMO_MIN_FREE_MB=0: the reset goes on"
+assert_contains "the free-space check is off (RESTOW_DEMO_MIN_FREE_MB=0)" "$LOG" "RESTOW_DEMO_MIN_FREE_MB=0: logged"
+assert_contains "docker pull --quiet $GHCR/restow-demo-seed:beta" "$CALLS" "RESTOW_DEMO_MIN_FREE_MB=0: pulls"
 
 # Default mode pulls nothing and checks nothing before it.
 run_reset "$(new_env)" STUB_ROOT_AVAIL_KB=1
@@ -464,8 +507,9 @@ assert_not_contains "image rm $GHCR/restow-demo-seed:beta" "$CALLS" "cleanup: th
 assert_not_contains "--force $GHCR" "$CALLS" "cleanup: nothing is forced"
 assert_not_contains "image rm sha256" "$CALLS" "cleanup: by reference, not by image id"
 assert_before "--wait web" "docker image rm $GHCR/restow:0.3.9" "$CALLS" "cleanup: only once the demo is back"
-assert_contains "docker image prune --force --filter until=24h" "$CALLS" "cleanup: dangling images older than a day"
+assert_not_contains "image prune" "$CALLS" "cleanup: no host-wide image prune"
 assert_contains "docker builder prune --force --filter until=24h" "$CALLS" "cleanup: build cache older than a day"
+assert_contains "removed the build cache older than a day (host-wide" "$LOG" "cleanup: the cache prune says it is host-wide"
 assert_contains "removed the images of earlier releases: $GHCR/restow:0.3.9" "$LOG" "cleanup: logged"
 assert_contains "(kept 0.4.3 and 0.4.2)" "$LOG" "cleanup: says what it keeps"
 assert_contains "MiB free on Docker's data root /var/lib/docker-stub (" "$LOG" "cleanup: the free space is logged"
@@ -479,6 +523,15 @@ assert_not_contains "image rm $GHCR/restow:0.5.0-rc.1" "$CALLS" "versions: the r
 assert_not_contains "image rm $GHCR/restow:0.5.1" "$CALLS" "versions: a newer release stays"
 assert_contains "(kept 0.5.0 and 0.5.0-rc.1)" "$LOG" "versions: logged"
 
+# Pre-releases sort by SemVer: rc.10 is newer than rc.9 and rc.2, not older.
+run_reset "$(new_env "RESTOW_DEMO_FOLLOW=beta")" STUB_VERSION=0.5.0-rc.10 \
+  STUB_SEED_TAGS="0.5.0-rc.2 0.5.0-rc.9 0.5.0-rc.10 0.5.0-beta.11 0.5.0-beta.2"
+assert_contains "image rm $GHCR/restow:0.5.0-rc.2"$'\n' "$CALLS"$'\n' "pre-releases: rc.2 goes"
+assert_contains "image rm $GHCR/restow:0.5.0-beta.11"$'\n' "$CALLS"$'\n' "pre-releases: beta.11 goes"
+assert_not_contains "image rm $GHCR/restow:0.5.0-rc.9" "$CALLS" "pre-releases: the one before (rc.9) stays"
+assert_not_contains "image rm $GHCR/restow:0.5.0-rc.10" "$CALLS" "pre-releases: the current one stays"
+assert_contains "(kept 0.5.0-rc.10 and 0.5.0-rc.9)" "$LOG" "pre-releases: logged"
+
 # Only the current and one earlier release: nothing to remove.
 run_reset "$(new_env "RESTOW_DEMO_FOLLOW=beta")" STUB_SEED_TAGS="0.4.2 0.4.3"
 assert_not_contains "image rm" "$CALLS" "two releases: nothing removed"
@@ -490,11 +543,39 @@ assert_eq 0 "$STATUS" "refused removal: the reset succeeds"
 assert_contains "could not remove (still in use?): $GHCR/restow:0.4.1" "$LOG" "refused removal: logged"
 assert_contains "image rm $GHCR/restow-web:0.4.1" "$CALLS" "refused removal: the others still go"
 
-# Default mode: no release images are removed (nothing was pulled), dangling ones and old cache are.
+# Default mode: no release images are removed (nothing was pulled), the old cache is.
 run_reset "$(new_env)" STUB_SEED_TAGS="0.4.1 0.4.2 0.4.3"
 assert_not_contains "image rm" "$CALLS" "default mode: no image is removed"
-assert_contains "docker image prune --force --filter until=24h" "$CALLS" "default mode: dangling images older than a day"
+assert_not_contains "image prune" "$CALLS" "default mode: no host-wide image prune"
 assert_contains "docker builder prune --force --filter until=24h" "$CALLS" "default mode: build cache older than a day"
+
+# The demo's own earlier images that lost their name (a loaded tarball moved the tag) go
+# by ID; one that still has a name, one a container runs now and any image the demo's
+# containers never ran (another project's) stay.
+OLD_APP=sha256:$(printf 'a%.0s' {1..64})
+OLD_SEED=sha256:$(printf 'b%.0s' {1..64})
+KEPT=sha256:$(printf 'c%.0s' {1..64})
+NEW_APP=sha256:$(printf 'd%.0s' {1..64})
+FOREIGN=sha256:$(printf 'e%.0s' {1..64})
+run_reset "$(new_env)" STUB_CONTAINERS="c1 c2 c3" \
+  STUB_IMAGES_BEFORE="$OLD_APP $OLD_SEED $KEPT" STUB_IMAGES_AFTER="$NEW_APP $KEPT" \
+  STUB_DANGLING="$OLD_APP $KEPT $FOREIGN"
+assert_eq 0 "$STATUS" "own images: the reset succeeds"
+assert_contains "docker compose -f $HERE/docker-compose.yml --env-file" "$CALLS" "own images: compose is asked"
+assert_contains "--profile seed --profile template ps --all --quiet" "$CALLS" "own images: the project's containers"
+assert_contains "docker image rm $OLD_APP"$'\n' "$CALLS"$'\n' "own images: the unnamed earlier image goes, by ID"
+assert_not_contains "image rm $OLD_SEED" "$CALLS" "own images: one that still has a name stays"
+assert_not_contains "image rm $KEPT" "$CALLS" "own images: one a container runs now stays"
+assert_not_contains "image rm $FOREIGN" "$CALLS" "own images: another project's stays"
+assert_not_contains "--force sha256" "$CALLS" "own images: never forced"
+assert_contains "removed the demo's earlier images that have no name any more: $OLD_APP" "$LOG" "own images: logged"
+assert_before "--wait web" "docker image rm $OLD_APP" "$CALLS" "own images: only once the demo is back"
+assert_before "ps --all --quiet" "down --volumes" "$CALLS" "own images: recorded before the teardown"
+
+run_reset "$(new_env "RESTOW_DEMO_PRUNE_BUILD_CACHE=false")"
+assert_eq 0 "$STATUS" "RESTOW_DEMO_PRUNE_BUILD_CACHE=false: the reset succeeds"
+assert_not_contains "builder prune" "$CALLS" "RESTOW_DEMO_PRUNE_BUILD_CACHE=false: the cache stays"
+assert_contains "build cache left alone (RESTOW_DEMO_PRUNE_BUILD_CACHE=false)" "$LOG" "RESTOW_DEMO_PRUNE_BUILD_CACHE=false: logged"
 
 # A reset that does not complete removes nothing.
 run_reset "$(new_env "RESTOW_DEMO_FOLLOW=beta")" STUB_SEED_TAGS="0.4.1 0.4.2 0.4.3" STUB_MISSING=postgres:16-alpine

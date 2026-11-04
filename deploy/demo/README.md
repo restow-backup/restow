@@ -272,8 +272,8 @@ Follow mode is one setting in `deploy/demo/.env`:
 In follow mode, every reset, before it touches the running project:
 
 1. checks that Docker's data root (`docker info`, `DockerRootDir`) has at least
-   `RESTOW_DEMO_MIN_FREE_MB` free (default 4096) and stops otherwise, before
-   anything is pulled (see "Disk space");
+   `RESTOW_DEMO_MIN_FREE_MB` free (default 4096) and stops otherwise, also when
+   the space cannot be measured, before anything is pulled (see "Disk space");
 2. pulls `restow-demo-seed:<RESTOW_DEMO_FOLLOW>` and reads the release version
    from its label. The moving tag is pulled for the demo's own seed image
    only: the application images are then pulled by that exact version, so
@@ -531,8 +531,9 @@ write, so a visitor cannot install or remove a key either.
    restore that fails is never published either: the run falls back to the
    full seed of steps 3 to 5;
 7. after the demo is back, frees disk space (see "Disk space"): in follow mode
-   the images of earlier releases, always dangling images and build cache
-   older than a day. Nothing of it can fail the reset.
+   the images of earlier releases, always the demo's own earlier images that
+   have no name any more and the build cache older than a day (host-wide).
+   Nothing of it can fail the reset.
 
 The log ends with how the demo came back ("seeded from scratch" or
 "restored from template ...") and how long it was offline.
@@ -557,7 +558,7 @@ It logs to `/var/log/restow-demo-reset.log` (override with
 compose file itself at another file for a test run (the services still read
 `env_file: .env` next to the compose file). `RESTOW_DEMO_FOLLOW`,
 `RESTOW_DEMO_FOLLOW_REGISTRY` (see "Following the releases"),
-`RESTOW_DEMO_MIN_FREE_MB` (see "Disk space"), `RESTOW_DEMO_PUBLISH_PUBLIC` and the `RESTOW_DEMO_TEMPLATE*` settings (see
+`RESTOW_DEMO_MIN_FREE_MB`, `RESTOW_DEMO_PRUNE_BUILD_CACHE` (see "Disk space"), `RESTOW_DEMO_PUBLISH_PUBLIC` and the `RESTOW_DEMO_TEMPLATE*` settings (see
 "Fast reset") come from the environment of the run if set there, otherwise
 from that file; the script reads them as plain `NAME=value` lines and never
 sources the file. `deploy/demo/test.sh` tests all of this against a stub
@@ -727,8 +728,12 @@ therefore:
   `RESTOW_DEMO_MIN_FREE_MB` (default 4096) it logs
   `only <n> MiB free on Docker's data root ..., less than RESTOW_DEMO_MIN_FREE_MB=...;
   nothing was pulled or stopped` and exits: the demo keeps running what it ran.
-  When the free space cannot be read (Docker on another machine, say), it logs
-  that and goes on.
+  Free space that cannot be read counts as too little: the reset logs
+  `could not measure the free space of Docker's data root ...` and exits the same
+  way. A user in the `docker` group can measure it (`df` needs no access to
+  `/var/lib/docker` itself, only to the directories above it), so this means a
+  Docker daemon whose data root the shell cannot see (one on another machine,
+  say); `RESTOW_DEMO_MIN_FREE_MB=0` turns the check off there.
 - **removes old releases after a successful reset.** In follow mode, once `web`
   is back up and the reset is complete, it removes the four images
   (`restow`, `restow-web`, `restow-demo-seed`, `restow-demo-dovecot`) of every
@@ -743,17 +748,33 @@ therefore:
   stack on the same host keeps only for a rollback goes as well (it carries the
   same name); pull it again if you need it. Production installations clean up
   their own old images ([docs/UPDATING.md](../../docs/UPDATING.md#old-images)).
-- **removes what nobody uses after every successful reset** (also with loaded
-  images): `docker image prune --force --filter until=24h` (images without a name
-  that no container uses, such as those a `docker load` of a new tarball
-  replaced) and `docker builder prune --force --filter until=24h` (build cache).
+- **removes its own earlier images that have no name any more after every
+  successful reset** (also with loaded images). Before it tears the project
+  down it notes the image IDs the demo's containers run
+  (`docker compose ps --all --quiet`, `docker inspect`); afterwards it removes,
+  by ID and never forced, those of them that none of its containers runs now
+  and that no name refers to any more, such as the ones a `docker load` of a new
+  tarball took the `:local` tag from. It does not run `docker image prune`:
+  that removes every project's images without a name, and on a host shared with
+  a production stack one of them can be that stack's previous image, its way
+  back. Images without a name from before this cleanup existed are not the
+  demo's as far as the script can tell; remove them by hand once
+  (`docker image ls --filter dangling=true`, then `docker image rm <ID>`).
+- **removes the build cache older than a day** with
+  `docker builder prune --force --filter until=24h`. Docker keeps no project
+  with build cache, so this is **host-wide**: it also takes the old cache of a
+  co-hosted production stack built from source (its next build takes longer;
+  no image and nothing it runs is touched). The demo host itself never builds
+  (see "Images"). `RESTOW_DEMO_PRUNE_BUILD_CACHE=false` leaves the cache alone,
+  and the log line says that the prune is host-wide.
 
 The log names what was removed, what was kept, and the free space before and after.
 A reset that fails removes nothing.
 
 | Setting | Default | |
 | --- | --- | --- |
-| `RESTOW_DEMO_MIN_FREE_MB` | `4096` | free space on Docker's data root a follow-mode reset needs before it pulls |
+| `RESTOW_DEMO_MIN_FREE_MB` | `4096` | free space on Docker's data root a follow-mode reset needs before it pulls; `0` turns the check off |
+| `RESTOW_DEMO_PRUNE_BUILD_CACHE` | `true` | `false`: leave the build cache alone (its prune is host-wide) |
 
 ## The seed and the synthetic mail
 

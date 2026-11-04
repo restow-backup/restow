@@ -11,6 +11,7 @@ import {
   type DockerOps,
   type DumpVerification,
   IMAGE_ID,
+  IMAGE_TAG_OR_DIGEST,
   type LocalImage,
   OpsError,
   PullError,
@@ -377,6 +378,29 @@ export class CliDockerOps implements DockerOps {
     // Never --force: Docker keeps an image a container (running or stopped) uses.
     const result = await this.docker(["image", "rm", id], { timeoutMs: TIMEOUTS.removeImage });
     this.expectSuccess(result, "Removing the image");
+  }
+
+  async untagImage(reference: string, id: string): Promise<void> {
+    if (!IMAGE_ID.test(id)) {
+      throw new OpsError("The image ID is not valid.");
+    }
+    if (!IMAGE_TAG_OR_DIGEST.test(reference) || IMAGE_ID.test(reference)) {
+      throw new OpsError("The image name is not valid.");
+    }
+    // The name must still refer to the image the cleanup chose: a pull since may have
+    // moved a tag to another image, and that one must keep it.
+    const inspect = await this.docker(["image", "inspect", "--format", "{{.Id}}", reference], {
+      timeoutMs: TIMEOUTS.quick,
+    });
+    this.expectSuccess(inspect, "Inspecting the image");
+    if (inspect.stdout.trim() !== id) {
+      throw new OpsError("The image name was not removed.", "It refers to another image by now.");
+    }
+    // Never --force. With another name left Docker only untags the image.
+    const result = await this.docker(["image", "rm", reference], {
+      timeoutMs: TIMEOUTS.removeImage,
+    });
+    this.expectSuccess(result, "Removing an image name");
   }
 
   // -- Database -------------------------------------------------------------

@@ -437,7 +437,45 @@ export class FakeDockerOps implements DockerOps {
         `conflict: unable to delete ${id.slice(7, 19)} - image is being used by a container`,
       );
     }
+    const image = this.imageStore[index] as LocalImage;
+    // Like Docker: by ID only an image with one name (one tag, digests of its repository).
+    const repositories = new Set(
+      [...image.tags, ...image.digests].map((reference) => fakeRepositoryOf(reference)),
+    );
+    if (image.tags.length > 1 || repositories.size > 1) {
+      throw new OpsError(
+        "Removing the image failed (exit code 1).",
+        `conflict: unable to delete ${id.slice(7, 19)} (must be forced) - image is referenced in multiple repositories`,
+      );
+    }
     this.imageStore.splice(index, 1);
+  }
+
+  async untagImage(reference: string, id: string): Promise<void> {
+    this.hit("untagImage", reference);
+    const image = this.imageStore.find(
+      (entry) => entry.tags.includes(reference) || entry.digests.includes(reference),
+    );
+    if (!image) {
+      throw new OpsError(
+        "Inspecting the image failed (exit code 1).",
+        `No such image: ${reference}`,
+      );
+    }
+    if (image.id !== id) {
+      throw new OpsError("The image name was not removed.", "It refers to another image by now.");
+    }
+    image.tags = image.tags.filter((entry) => entry !== reference);
+    image.digests = image.digests.filter((entry) => entry !== reference);
+    if (image.tags.length === 0) {
+      // Docker drops the digests of the repository whose last tag went, and the image
+      // itself with its last name (unless a container uses it).
+      const repository = fakeRepositoryOf(reference);
+      image.digests = image.digests.filter((entry) => fakeRepositoryOf(entry) !== repository);
+      if (image.digests.length === 0 && !this.usedImageIds().has(image.id)) {
+        this.imageStore.splice(this.imageStore.indexOf(image), 1);
+      }
+    }
   }
 
   // -- Database -------------------------------------------------------------
@@ -956,4 +994,11 @@ export async function waitForCall(harness: Harness, prefix: string, count = 1): 
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`No call ${prefix} was made.`);
+}
+
+/** The repository of an image name in the fake image store (no tag, no digest). */
+function fakeRepositoryOf(reference: string): string {
+  const name = reference.split("@")[0] ?? reference;
+  const colon = name.lastIndexOf(":");
+  return colon > name.lastIndexOf("/") ? name.slice(0, colon) : name;
 }

@@ -84,7 +84,12 @@ describe("LocalRunner", () => {
     for (const argv of [
       ["docker", "rmi", id],
       ["docker", "image", "rm", "-f", id],
-      ["docker", "image", "rm", "ghcr.io/restow-backup/restow:0.1.0"],
+      // A bare name (`:latest`), several names, a name with a flag.
+      ["docker", "image", "rm", "ghcr.io/restow-backup/restow"],
+      ["docker", "image", "rm", "restow:0.1.0", "restow:0.2.0"],
+      ["docker", "image", "rm", "--force", "restow:0.1.0"],
+      ["docker", "image", "rm", "restow:0.1.0", id],
+      ["docker", "image", "rm", "restow:*"],
       ["docker", "image", "remove", "--force", id],
       ["docker", "image", "rm"],
       ["docker", "image", "prune", "-a", "-f"],
@@ -100,6 +105,16 @@ describe("LocalRunner", () => {
       timeoutMs: 5000,
     });
     expect(allowed.stdout).toBe(`image\nrm\n${id}\n`);
+    // One name with a tag or digest: how the cleanup takes the extra names off an image.
+    const { assertImageCommandAllowed } = await import("./ops.js");
+    for (const reference of [
+      "ghcr.io/restow-backup/restow:0.1.0",
+      "restow:local",
+      "registry.example.com:5000/acme/restow-web-community:0.5.0-rc.1",
+      `ghcr.io/restow-backup/restow@sha256:${"b".repeat(64)}`,
+    ]) {
+      expect(() => assertImageCommandAllowed(["docker", "image", "rm", reference])).not.toThrow();
+    }
   });
 
   it("runs in the project directory", async () => {

@@ -229,6 +229,8 @@ describe("HelperRunner", () => {
       ["docker", "image", "rm", "--force", `sha256:${"a".repeat(64)}`],
       ["docker", "image", "prune", "--all", "--force"],
       ["docker", "system", "prune"],
+      ["docker", "image", "rm", "ghcr.io/restow-backup/restow"],
+      ["docker", "image", "rm", "-f", "restow:0.1.0"],
     ]) {
       await expect(runner.run({ argv, timeoutMs: 1000 })).rejects.toThrow(/only removed by ID/);
     }

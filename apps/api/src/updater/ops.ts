@@ -31,18 +31,30 @@ export interface CommandSpec {
   maxOutputBytes?: number;
 }
 
-/** An image ID as Docker prints it with `--no-trunc`; the only form an image is removed by. */
+/** An image ID as Docker prints it with `--no-trunc`; the form an image is removed by. */
 export const IMAGE_ID = /^sha256:[0-9a-f]{64}$/;
 
 /**
- * The one way a runner removes images: `docker image rm <ID>...`, by full image ID and
- * never forced (the image cleanup, image-cleanup.ts). `rmi`, the prune commands and
- * `compose ... --rmi` delete images by name or by pattern; no runner runs them. Throws.
+ * One name of an image with an explicit tag or digest, as `docker image inspect` prints
+ * RepoTags and RepoDigests (`ghcr.io/restow-backup/restow:0.4.0`, `restow:local`,
+ * `registry.example.com:5000/acme/restow@sha256:...`): what the image cleanup untags.
+ * Never a bare name (that would mean `:latest`), never anything that starts with `-`.
+ */
+export const IMAGE_TAG_OR_DIGEST =
+  /^(?:[a-z0-9][a-z0-9.-]{0,252}(?::[0-9]{1,5})?\/)?[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:\/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}|@sha256:[0-9a-f]{64})$/;
+
+/**
+ * The two ways a runner removes images (the image cleanup, image-cleanup.ts), never
+ * forced: `docker image rm <ID>...` by full image ID, and `docker image rm <name:tag>`
+ * (or `<name@digest>`) with exactly one name, which the cleanup uses only to take the
+ * extra names off an image it is about to remove by ID (Docker refuses to remove an
+ * image with several names by ID without `--force`). `rmi`, the prune commands and
+ * `compose ... --rmi` delete images by pattern; no runner runs them. Throws.
  */
 export function assertImageCommandAllowed(argv: readonly string[]): void {
   const [, command, sub, ...rest] = argv;
   const refuse = (): never => {
-    throw new Error("Images are only removed by ID, one by one, never forced or pruned.");
+    throw new Error("Images are only removed by ID or one name at a time, never forced or pruned.");
   };
   if (command === "rmi") {
     refuse();
@@ -57,7 +69,9 @@ export function assertImageCommandAllowed(argv: readonly string[]): void {
     refuse();
   }
   if (command === "image" && (sub === "rm" || sub === "remove")) {
-    if (rest.length === 0 || rest.some((value) => !IMAGE_ID.test(value))) {
+    const byId = rest.length > 0 && rest.every((value) => IMAGE_ID.test(value));
+    const oneName = rest.length === 1 && IMAGE_TAG_OR_DIGEST.test(rest[0] ?? "");
+    if (!byId && !oneName) {
       refuse();
     }
   }
@@ -256,10 +270,18 @@ export interface DockerOps {
   containerImageIds(): Promise<Set<string>>;
   /**
    * Remove one image by its ID (`sha256:<64 hex>`), never forced: Docker itself refuses an
-   * image a container uses or one that is referenced from several repositories. Throws
-   * OpsError when it was not removed.
+   * image a container uses or one that has more than one name (several tags, or digests
+   * of several repositories; see {@link untagImage}). Throws OpsError when it was not
+   * removed.
    */
   removeImage(id: string): Promise<void>;
+  /**
+   * Take one name (`name:tag` or `name@sha256:...`, {@link IMAGE_TAG_OR_DIGEST}) off the image
+   * with the given ID, never forced; only after checking that the name still refers to
+   * that image. The image cleanup calls it only for names of an image that keeps at least
+   * one other name, so Docker only untags and deletes nothing. Throws OpsError.
+   */
+  untagImage(reference: string, id: string): Promise<void>;
 
   /** Number of applied database migrations. Throws when it cannot be read. */
   migrationCount(): Promise<number>;

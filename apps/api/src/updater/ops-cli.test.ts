@@ -707,6 +707,24 @@ describe("images of the cleanup", () => {
     runner.answer(() => ({ exitCode: 1, errorTail: "conflict: image is being used" }));
     await expect(ops.removeImage(ID_B)).rejects.toThrow(/Removing the image failed/);
   });
+
+  it("takes one name off an image only while it still names that image, never forced", async () => {
+    const name = "ghcr.io/restow-backup/restow:0.4";
+    runner.answer((spec) => (spec.argv[2] === "inspect" ? { stdout: `${ID_A}\n` } : undefined));
+    await ops.untagImage(name, ID_A);
+    expect(runner.argvs).toEqual([
+      ["docker", "image", "inspect", "--format", "{{.Id}}", name],
+      ["docker", "image", "rm", name],
+    ]);
+    // The tag moved to another image meanwhile: it stays where it is.
+    await expect(ops.untagImage(name, ID_B)).rejects.toThrow(/was not removed/);
+    expect(runner.argvs).toHaveLength(3);
+    for (const value of ["ghcr.io/restow-backup/restow", "--force", "-f", `${name} x`, ID_A, ""]) {
+      await expect(ops.untagImage(value, ID_A)).rejects.toBeInstanceOf(OpsError);
+    }
+    await expect(ops.untagImage(name, "nope")).rejects.toBeInstanceOf(OpsError);
+    expect(runner.argvs).toHaveLength(3);
+  });
 });
 
 describe("error handling", () => {

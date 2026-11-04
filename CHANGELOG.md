@@ -129,19 +129,26 @@ private repository.
   now and of the version before it, for a rollback by hand. Only Restow's own images go: every
   name of the image must be in a repository of the installation (application and web image, the
   other build's twins, the local names of `source` mode, the images Compose resolves for api,
-  edge, updater and mounter), its release must be older than the previous one, no container may
-  use it (running or stopped, of any project) and the project must not be configured with it. It
-  is removed by its image ID, never forced; the command runners refuse `docker image rm` by name
-  or with `--force`, `rmi`, `image`, `builder` and `system prune` and `--rmi`. Nothing is
+  worker, scheduler, updater and mounter; the edge image is only kept, as an override may run a
+  stock Caddy there), its release must be older than the previous one (by its version label or
+  `RESTOW_VERSION`; by a version tag only in the Restow repositories), no container may use it
+  (running or stopped, of any project) and the project must not be configured with it. It is
+  removed by its image ID, never forced; an image with several names first loses the others,
+  each only while it still names that image. The command runners refuse `docker image rm` with
+  anything but image IDs or one name with a tag or digest, `--force`, `rmi`, `image`, `builder`
+  and `system prune` and `--rmi`. Nothing is
   removed after a failed, rolled back or interrupted run, and a removal that fails is logged and
   leaves the update succeeded. The run's log says how many images went and their size, the finish
   step carries the numbers. docs/UPDATING.md, "Old images".
 - Public demo: in follow mode `reset.sh` checks the free space on Docker's data root before it
-  pulls a release (`RESTOW_DEMO_MIN_FREE_MB`, default 4096) and stops with a log line while the
-  demo keeps running when it is short. After a successful reset it removes the images of the
-  releases it followed before, except the one before the current release, and after every
-  successful reset dangling images and build cache older than a day (deploy/demo/README.md,
-  "Disk space").
+  pulls a release (`RESTOW_DEMO_MIN_FREE_MB`, default 4096, `0` turns it off) and stops with a
+  log line while the demo keeps running when it is short or cannot be measured. After a
+  successful reset it removes the images of the releases it followed before, except the one
+  before the current release (in SemVer order, `rc.10` after `rc.9`), and after every
+  successful reset the demo's own earlier images that have no name any more (by ID, never
+  `docker image prune`, which would also take a co-hosted production stack's) and the build
+  cache older than a day, host-wide (`RESTOW_DEMO_PRUNE_BUILD_CACHE=false` leaves it alone;
+  deploy/demo/README.md, "Disk space").
 
 ### Changed
 
@@ -236,8 +243,9 @@ private repository.
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
   its disk ran full and PostgreSQL stopped. Both now clean up after a successful update or reset
   (see Added). For updates by hand (`docker compose pull` and `up -d`, `install.sh`),
-  docs/UPDATING.md gives the commands that remove old Restow images safely, and its duplicated
-  heading "Disk space" is gone.
+  docs/UPDATING.md gives the commands that remove old Restow images safely (only version tags
+  older than the previous release, in the repositories of `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE`
+  from `.env`), and its duplicated heading "Disk space" is gone.
 
 ### Upgrade Notes
 
