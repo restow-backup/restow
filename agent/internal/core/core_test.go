@@ -235,18 +235,41 @@ func TestOnlyUnreadableSourcesFailTheRun(t *testing.T) {
 	}
 }
 
-// Safety net: a snapshot without a single file from a folder that holds
-// files (restic stored a link or mount point instead) is not green.
-func TestSnapshotWithoutFilesFromAFolderWithFilesIsPartial(t *testing.T) {
+// Safety net: a snapshot without a single file from a linked folder that
+// holds files (restic stored a link or mount point instead) is not green.
+func TestSnapshotWithoutFilesFromALinkedFolderWithFilesIsPartial(t *testing.T) {
 	h := newHarness(t)
 	if err := os.WriteFile(filepath.Join(h.src, "a.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	link := filepath.Join(filepath.Dir(h.src), "src-link")
+	if err := os.Symlink(h.src, link); err != nil {
+		t.Fatal(err)
+	}
+	h.srv.Config.Paths = []string{link}
 	h.env("FAKE_BACKUP=link-only")
 	h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
 	h.start()
 	fin := h.waitRun(1).Finish
 	if fin.Status != api.StatusPartial || len(fin.Errors) != 1 || fin.Errors[0].Code != "source_unreadable" || !strings.Contains(fin.Errors[0].Message, "no file") {
+		t.Fatalf("finish: %s %+v", fin.Status, fin.Errors)
+	}
+}
+
+// A plain folder whose files the job's exclusions leave out (a log folder
+// with only *.log files, a size limit) gives an empty snapshot: that is the
+// backup the job asks for, not a partial run on every schedule.
+func TestSnapshotWithoutFilesFromAnExcludedPlainFolderSucceeds(t *testing.T) {
+	h := newHarness(t)
+	if err := os.WriteFile(filepath.Join(h.src, "a.log"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.srv.Config.Excludes = []string{"*.log"}
+	h.env("FAKE_BACKUP=link-only")
+	h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
+	h.start()
+	fin := h.waitRun(1).Finish
+	if fin.Status != api.StatusSucceeded || len(fin.Errors) != 0 {
 		t.Fatalf("finish: %s %+v", fin.Status, fin.Errors)
 	}
 }

@@ -1473,8 +1473,13 @@ ab. Folgen im Agenten:
   der Lauf-Fehler `source_is_mount_point` ("geben Sie dem Volume einen Laufwerksbuchstaben und
   sichern Sie es darüber"); andere Links (etwa WSL-Symlinks) sind `source_unreadable`. Junctions
   *innerhalb* einer Quelle bleiben Links, wie restic sie sichert.
-- **Sicherheitsnetz:** Hat restic keine einzige Datei verarbeitet, obwohl eine Quelle eine Datei
-  ist oder direkt eine enthält, ist das `source_unreadable` und der Lauf `partial`.
+- **Sicherheitsnetz:** Hat restic keine einzige Datei verarbeitet, obwohl eine Quelle, die als
+  Link oder eingehängter Ordner eingetragen ist (symbolischer Link, Junction, Volume, oben
+  aufgelöst), eine Datei ist oder direkt eine enthält, ist das `source_unreadable` und der Lauf
+  `partial`. Ein gewöhnlicher Ordner zählt nicht: Lassen die Ausschlüsse des Jobs (Muster,
+  Größengrenze, reine Online-Dateien) nichts von ihm übrig, ist der leere Snapshot die Sicherung,
+  die der Job verlangt, und der Lauf bleibt `succeeded`. Ein Link in einem Ordner *über* einer
+  Quelle ist keine Ursache: Den löst das System für restic auf wie für jedes Programm.
 
 Getestet mit einem nachgebildeten Dateisystem (gesperrt, nicht bereit, kein Zugriff, Junction,
 Junction auf Junction, Volume mit und ohne Buchstaben, unbekannter Tag, Schleife), dem Parser

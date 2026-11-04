@@ -260,7 +260,8 @@ private repository.
   green. The agent now backs up the junction's target and the mounted volume by its drive
   letter, and says so in the log; a volume without a drive letter is the run error
   `source_is_mount_point` (the run ends partial). A backup in which restic read no file at all
-  from a folder that holds files ends partial as well.
+  from such a linked folder that holds files ends partial as well; a plain folder whose files
+  the job's exclusions leave out is no error.
 - Windows agent (preview): a backup that read no volume from a shadow copy reported the
   consistency "Shadow copy (file consistent)", for example a job with only an exFAT disk or a
   volume whose snapshot provider does not support it. Such a backup is now "Without a shadow

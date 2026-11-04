@@ -177,7 +177,7 @@ func TestClassifyReparse(t *testing.T) {
 	}
 }
 
-func TestSourcesWithFiles(t *testing.T) {
+func TestLinkedSourcesWithFiles(t *testing.T) {
 	root := t.TempDir()
 	withFile := filepath.Join(root, "with")
 	onlyDirs := filepath.Join(root, "dirs")
@@ -186,8 +186,19 @@ func TestSourcesWithFiles(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(withFile, "a.txt"), []byte("x"), 0o644)
 	single := filepath.Join(root, "single.txt")
 	_ = os.WriteFile(single, []byte("x"), 0o644)
-	errs := sourcesWithFiles([]string{withFile, onlyDirs, single, filepath.Join(root, "gone")})
-	if len(errs) != 2 || errs[0].Path != withFile || errs[1].Path != single || errs[0].Code != "source_unreadable" {
+	plain := filepath.Join(root, "logs")
+	_ = os.MkdirAll(plain, 0o755)
+	_ = os.WriteFile(filepath.Join(plain, "x.log"), []byte("x"), 0o644)
+	resolved := []sourceNote{
+		{Configured: "/configured/with", Resolved: withFile, Kind: "symbolic link"},
+		{Configured: "/configured/dirs", Resolved: onlyDirs, Kind: "junction"},
+		{Configured: "/configured/single", Resolved: single, Kind: "symbolic link"},
+	}
+	errs := linkedSourcesWithFiles(resolved, []string{withFile, onlyDirs, single, plain, filepath.Join(root, "gone")})
+	// The plain folder whose files the exclusions may have left out is no
+	// error; the linked ones with files are.
+	if len(errs) != 2 || errs[0].Path != "/configured/with" || errs[1].Path != "/configured/single" ||
+		errs[0].Code != "source_unreadable" || !strings.Contains(errs[0].Message, "backed up as "+withFile) {
 		t.Fatalf("%+v", errs)
 	}
 }

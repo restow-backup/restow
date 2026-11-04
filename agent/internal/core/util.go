@@ -302,33 +302,66 @@ func sourceUnreadable(configured, at string, err error) api.RunError {
 		Message: fmt.Sprintf("The backup path %s cannot be read%s: %v. The drive may be locked (BitLocker), offline or not ready, or the agent has no access to it. It was not backed up.", configured, where, cause)}
 }
 
-// sourcesWithFiles returns a run error for each source that is a file or
-// holds a file directly, for a backup in which restic processed no file at
-// all.
-func sourcesWithFiles(sources []string) []api.RunError {
+// linkedSourcesWithFiles is the safety net of a backup in which restic
+// processed no file at all: it returns a run error for each source that was
+// configured as a link or mount point (a symbolic link, junction or mounted
+// volume that splitSources resolved) and that is a file or holds a file
+// directly. Only there can "no file" mean that restic stored the link
+// instead of following it; a link in a folder above a source is followed by
+// the system for restic as for everyone. A plain folder whose files the
+// job's exclusions (patterns, the size limit, online-only cloud files) leave
+// out is a correct empty backup and no error.
+func linkedSourcesWithFiles(resolved []sourceNote, sources []string) []api.RunError {
 	var errs []api.RunError
+	seen := map[string]bool{}
+	check := func(configured, src string) {
+		if seen[src] {
+			return
+		}
+		seen[src] = true
+		if !holdsFile(src) {
+			return
+		}
+		name := src
+		if configured != src {
+			name = configured + " (backed up as " + src + ")"
+		}
+		errs = append(errs, api.RunError{Code: "source_unreadable", Path: configured,
+			Message: fmt.Sprintf("restic backed up no file from %s, although it contains files and is configured as a link or mounted volume. restic may have stored the link instead of following it, or the exclusions of the backup job leave nothing of it.", name)})
+	}
 	for _, src := range sources {
-		st, err := os.Stat(src)
-		if err != nil {
-			continue
-		}
-		hasFile := st.Mode().IsRegular()
-		if st.IsDir() {
-			if entries, err := os.ReadDir(src); err == nil {
-				for _, e := range entries {
-					if e.Type().IsRegular() {
-						hasFile = true
-						break
-					}
-				}
+		for _, r := range resolved {
+			if r.Resolved == src {
+				check(r.Configured, src)
 			}
-		}
-		if hasFile {
-			errs = append(errs, api.RunError{Code: "source_unreadable", Path: src,
-				Message: fmt.Sprintf("restic backed up no file from %s, although it contains files. It may be a link or mounted volume that restic does not follow, or the exclusions of the backup job leave nothing of it.", src)})
 		}
 	}
 	return errs
+}
+
+// holdsFile reports whether a path is a regular file or a folder with a
+// regular file directly in it.
+func holdsFile(src string) bool {
+	st, err := os.Stat(src)
+	if err != nil {
+		return false
+	}
+	if st.Mode().IsRegular() {
+		return true
+	}
+	if !st.IsDir() {
+		return false
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			return true
+		}
+	}
+	return false
 }
 
 // capErrors limits the number of reported errors and says how many were

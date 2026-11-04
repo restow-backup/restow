@@ -190,7 +190,7 @@ func (a *Agent) doBackup(rc *runContext) runOutcome {
 	}
 
 	if proceed {
-		out = a.backupStep(rc, out, sources)
+		out = a.backupStep(rc, out, sources, split.resolved)
 		// A hook that was not allowed or a source that could not be read makes a
 		// good backup partial: it is not what was configured.
 		if refused && out.Status == api.StatusSucceeded {
@@ -222,7 +222,7 @@ func (a *Agent) doBackup(rc *runContext) runOutcome {
 	return out
 }
 
-func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) runOutcome {
+func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string, resolved []sourceNote) runOutcome {
 	rl, cfg := rc.rl, rc.cfg
 	// A previous run that was cut short may have left a lock; restic removes
 	// only provably stale ones.
@@ -419,11 +419,12 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 		out.Errors = append(out.Errors, api.RunError{Path: e.Path, Message: e.Message, Code: e.During})
 	}
 	out.Unlisted = res.ErrorCount - len(res.Errors)
-	// Safety net: a snapshot without a single file although a source holds
-	// files is no backup of it (a link or mount point restic did not follow).
+	// Safety net: a snapshot without a single file although a source reached
+	// through a link or mount point holds files is no backup of it (restic
+	// did not follow it). A plain folder the exclusions empty is no error.
 	var emptySources []api.RunError
 	if s.TotalFilesProcessed == 0 {
-		emptySources = sourcesWithFiles(sources)
+		emptySources = linkedSourcesWithFiles(resolved, sources)
 		for _, e := range emptySources {
 			rl.Errorf("%s", e.Message)
 		}
