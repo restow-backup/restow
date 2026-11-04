@@ -112,7 +112,7 @@ func (b *BootTester) command(ctx context.Context, name string, args ...string) (
 	return out, err
 }
 
-// bootTestPVE is what a boot test needs of the local PVE API.
+// bootTestPVE is what a boot test and a restore task need of the local PVE API.
 type bootTestPVE interface {
 	NextID(ctx context.Context) (int, error)
 	RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, start bool, mounts map[string]string) (string, error)
@@ -121,6 +121,8 @@ type bootTestPVE interface {
 	Storages(ctx context.Context, node string) ([]Storage, error)
 	Guests(ctx context.Context) ([]Resource, error)
 	ActiveTasks(ctx context.Context, node, typeFilter string) ([]NodeTask, error)
+	GuestConfig(ctx context.Context, node, kind string, vmid int) (map[string]any, error)
+	DeleteGuest(ctx context.Context, node, kind string, vmid int) (string, error)
 }
 
 // BootTestParams is the task the server sends.
@@ -151,6 +153,11 @@ type BootTestResult struct {
 	Storage     string   `json:"storage,omitempty"`
 	CleanedUp   bool     `json:"cleanedUp"`
 	Log         string   `json:"log"`
+	// Warnings are the warning lines of a restore that ended "WARNINGS: n" (the test went on).
+	Warnings []string `json:"warnings,omitempty"`
+	// SkippedLxc are the raw lxc.* lines of a container's backup, which PVE restores only for
+	// root@pam (the temporary container ran without them).
+	SkippedLxc []string `json:"skippedLxc,omitempty"`
 }
 
 func (r BootTestResult) asMap() map[string]any {
@@ -315,7 +322,7 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 	if reason, msg := b.checkStorage(ctx, storage, p); reason != "" {
 		return skipped(reason, msg)
 	}
-	res := b.restoreAndBoot(ctx, p, conf, storage)
+	res := b.restoreAndBoot(ctx, p, conf, rawLxcOptions(rp.GuestConfig), storage)
 	res.Storage = storage
 	return res
 }
@@ -387,7 +394,7 @@ func (b *BootTester) poll() time.Duration {
 	return 5 * time.Second
 }
 
-func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, conf map[string]string, storage string) (res BootTestResult) {
+func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, conf map[string]string, lxc lxcOptions, storage string) (res BootTestResult) {
 	vmid, err := b.PVE.NextID(ctx)
 	if err != nil {
 		return BootTestResult{Message: "no free VMID: " + err.Error()}
@@ -436,13 +443,30 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, conf 
 		res.Outcome, res.Message = "", "waiting for the restore: "+err.Error()
 		return res
 	}
-	if exit != "OK" {
-		tail, _ := b.PVE.TaskLogTail(ctx, b.State.NodeName, upid, 20)
-		b.logf("restore ended with %q: %s", exit, lastLines(tail, 8))
-		res.Outcome, res.Reason, res.Message = "red", "restore_failed", fmt.Sprintf("The restore ended with %q: %s", exit, lastLines(tail, 3))
-		return res
+	if p.Kind == "ct" && len(lxc.Lines) > 0 {
+		res.SkippedLxc = lxc.Lines
 	}
-	b.logf("restored")
+	if exit != "OK" {
+		tail, _ := b.PVE.TaskLogTail(ctx, b.State.NodeName, upid, 200)
+		if !TaskWarnings(exit) {
+			b.logf("restore ended with %q: %s", exit, lastLines(tail, 8))
+			msg := fmt.Sprintf("The restore ended with %q: %s", exit, lastLines(tail, 3))
+			if p.Kind == "ct" && lxc.IDMap {
+				msg += " (" + idmapHint + ")"
+			}
+			res.Outcome, res.Reason, res.Message = "red", "restore_failed", msg
+			return res
+		}
+		// The restore ran to its end and warned beside it (PVE skipped what only root@pam may
+		// restore): the test goes on; isolate() reads the configuration of the guest first.
+		res.Warnings = WarningLines(tail, 10)
+		b.logf("restored with warnings: %s", strings.Join(res.Warnings, " | "))
+	} else {
+		b.logf("restored")
+	}
+	if len(res.SkippedLxc) > 0 {
+		b.logf("PVE restores raw LXC options only for root@pam; the temporary container runs without: %s", strings.Join(res.SkippedLxc, " | "))
+	}
 	if err := b.isolate(ctx, p, vmid); err != nil {
 		// Never start a guest whose network could not be cut.
 		res.Outcome, res.Message = "", "isolating the temporary guest: "+err.Error()

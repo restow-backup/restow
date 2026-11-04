@@ -231,8 +231,9 @@ func TestSMBIOSUUIDAndWarningLines(t *testing.T) {
 			t.Fatalf("uuid of %v = %q", conf, got)
 		}
 	}
-	if !VzdumpWarnings("WARNINGS: 2") || VzdumpWarnings("OK") || VzdumpWarnings("job errors") {
-		t.Fatal("VzdumpWarnings")
+	if !TaskWarnings("WARNINGS: 2") || !TaskWarnings(" warnings: 13 ") || TaskWarnings("OK") || TaskWarnings("job errors") ||
+		TaskWarnings("WARNINGS") || TaskWarnings("WARNINGS: 1, and an error") {
+		t.Fatal("TaskWarnings")
 	}
 	lines := WarningLines("INFO: a\nWARN: one\nwarning: two\nTASK WARNINGS: 2\n", 10)
 	if len(lines) != 2 || lines[0] != "WARN: one" {

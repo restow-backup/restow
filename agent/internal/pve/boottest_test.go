@@ -52,6 +52,8 @@ type fakeNode struct {
 	// of a bind mount point ("only possible for root").
 	restoreMounts map[string]string
 	refusedBind   bool
+	// taskLog is the log tail of every task ("error: chunk missing" when empty).
+	taskLog string
 }
 
 func newFakeNode() *fakeNode {
@@ -169,6 +171,9 @@ func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, 
 	f.restoreMounts = mounts
 	conf := map[string]string{}
 	for k, v := range f.restoreConfig {
+		if strings.HasPrefix(k, "lxc.") {
+			continue // PVE restores raw LXC options only for root@pam
+		}
 		if kind == "ct" && mounts != nil && mpKeyRE.MatchString(k) {
 			continue // named mount points replace those of the backup
 		}
@@ -194,7 +199,35 @@ func (f *fakeNode) WaitTask(context.Context, string, string, time.Duration) (str
 }
 
 func (f *fakeNode) TaskLogTail(context.Context, string, string, int) (string, error) {
+	if f.taskLog != "" {
+		return f.taskLog, nil
+	}
 	return "error: chunk missing\n", nil
+}
+
+func (f *fakeNode) GuestConfig(_ context.Context, _, _ string, vmid int) (map[string]any, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	g := f.guests[vmid]
+	if g == nil {
+		return nil, &PVEAPIError{Status: 500, Message: fmt.Sprintf("Configuration file 'nodes/pve1/qemu-server/%d.conf' does not exist", vmid)}
+	}
+	out := map[string]any{}
+	for k, v := range g.conf {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (f *fakeNode) DeleteGuest(_ context.Context, node, _ string, vmid int) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commands = append(f.commands, fmt.Sprintf("api-delete %d", vmid))
+	if f.guests[vmid] == nil {
+		return "", &PVEAPIError{Status: 500, Message: "does not exist"}
+	}
+	delete(f.guests, vmid)
+	return fmt.Sprintf("UPID:%s:0000AAAA:00BBBBBB:6700001:qmdestroy:%d:restow@pve!pve1:", node, vmid), nil
 }
 
 func (f *fakeNode) Storages(context.Context, string) ([]Storage, error) { return f.storages, nil }

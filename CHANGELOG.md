@@ -270,6 +270,17 @@ private repository.
   it again when the service starts and reports how it really ended. Every `qm` and `pct` call
   of a boot test has a deadline now (a hung storage blocked the node's only task worker, and
   every backup of the node waited behind it), and so has the boot as a whole.
+- Proxmox VE: a restore task that PVE ended with `WARNINGS: n` counted as failed. PVE ends so a
+  restore by the node's API token of a container with raw `lxc.*` lines (GPU or Coral
+  passthrough, `/dev/net/tun` for Docker or Tailscale, a custom idmap): it skips those lines,
+  which it restores only for root@pam, and creates the container completely. Every restore of
+  such a container failed although the container was there, its restore checks failed and left
+  their restored copy behind, and its boot tests were red with "restore_failed". A restore with
+  warnings now succeeds with them (`result.warnings`, the warning lines of the task log) once the
+  guest's configuration can be read; the skipped lines are listed (`skippedLxc`, to add as root),
+  a restore check goes on to remove its guest, and a boot test goes on to the boot. Any other
+  exit status but `OK` still fails; a failed restore of a container with a custom `lxc.idmap`
+  says that the default map was used.
 
 ### Upgrade Notes
 

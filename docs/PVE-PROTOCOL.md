@@ -184,6 +184,23 @@ call as a restore task, into the pool `restow-restore`, `start=0`) and `qm`/`pct
 everything else (`config`, `set`, `start`, `status`, `guest cmd ... ping`, `exec`, `stop`,
 `destroy`), so the node's API token needs no new privilege.
 
+### Task `restore`
+
+`params`: `{volname, kind: "vm"|"ct", targetVmid?, targetStorage, pool?, start, restoreTest}`.
+A restore into a new guest, or with `restoreTest` a restore check: the guest is restored into
+the pool `restow-restore` and removed again. The result carries `vmid` and `upid` (the PVE
+restore task), and:
+
+| Field | Meaning |
+| --- | --- |
+| `warnings` | the restore task ended `WARNINGS: n` (since 0.5.0): it ran to its end and warned beside it; the warning lines of its log (at most ten). The task is `done`; the server shows "Restored with warnings" (amber). Any other exit status but `OK` fails the task. |
+| `skippedLxc` | the raw `lxc.*` lines of the container's backup (GPU or TUN passthrough, a custom idmap). PVE restores them only for root@pam and skips them for the node's token ("skipping custom lxc options, restore manually as root"); add them as root. `customIdmap: true` when an `lxc.idmap` is among them: the restored container uses the default map, so its files belong to the ids of that map. |
+| `omittedMounts` | the mount points a check left out (bind and device mount points). |
+| `disks`, `deleted` | a check: the disks of the restored guest, and whether it was removed. |
+
+A boot test's result carries `warnings` and `skippedLxc` the same way; a restore with warnings
+goes on to the boot and is never red for the warnings alone.
+
 ### A server restart during a backup
 
 The calls of a running backup (`incremental`, the base `hashes`, `blocks`, `commit`,

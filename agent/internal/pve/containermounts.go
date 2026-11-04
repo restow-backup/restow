@@ -95,3 +95,33 @@ func mountOptions(value string) []string {
 func isVolumeMount(value string) bool {
 	return !strings.HasPrefix(mountVolume(value), "/")
 }
+
+// lxcOptions are the raw lxc.* lines of a container configuration. PVE restores them only for
+// root@pam: the token's restore skips them with "skipping custom lxc options, restore manually
+// as root" and ends "WARNINGS: 1" (GPU or TUN passthrough, a custom idmap).
+type lxcOptions struct {
+	Lines []string
+	// IDMap: a custom lxc.idmap among them. The restored container uses the default map, so
+	// its files belong to the ids of that map.
+	IDMap bool
+}
+
+// rawLxcOptions reads the lxc.* lines of a configuration text up to its first snapshot section
+// (they may repeat, so parseConfigText's map does not hold them).
+func rawLxcOptions(text string) lxcOptions {
+	var out lxcOptions
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			break
+		}
+		if !strings.HasPrefix(line, "lxc.") {
+			continue
+		}
+		out.Lines = append(out.Lines, line)
+		if strings.HasPrefix(line, "lxc.idmap") {
+			out.IDMap = true
+		}
+	}
+	return out
+}

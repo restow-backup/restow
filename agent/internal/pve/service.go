@@ -493,17 +493,6 @@ type backupParams struct {
 	VerifyRead bool   `json:"verifyRead"`
 }
 
-type restoreParams struct {
-	Volname       string `json:"volname"`
-	Kind          string `json:"kind"`
-	TargetVMID    int    `json:"targetVmid"`
-	TargetStorage string `json:"targetStorage"`
-	Pool          string `json:"pool"`
-	Start         bool   `json:"start"`
-	// RestoreTest deletes the guest again after a successful restore.
-	RestoreTest bool `json:"restoreTest"`
-}
-
 func (s *Service) runTask(ctx context.Context, t Task) {
 	// A task whose result is still waiting to be sent ran already: the server delivered it
 	// again because the result never reached it. It is not run a second time.
@@ -572,10 +561,14 @@ func (s *Service) resume(ctx context.Context, e inflightTask) (map[string]any, e
 	return nil, fmt.Errorf("a task of kind %q cannot be waited for again", e.Kind)
 }
 
-// VzdumpWarnings says whether a vzdump exit status is "WARNINGS: n": the backup ran to its
-// end, and vzdump logged warnings beside it (notes, a hook script, the log file).
-func VzdumpWarnings(exit string) bool {
-	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(exit)), "WARNINGS")
+var taskWarningsRE = regexp.MustCompile(`^WARNINGS:\s*\d+$`)
+
+// TaskWarnings says whether the exit status of a PVE task is "WARNINGS: n": the task ran to its
+// end and logged warnings beside it. vzdump ends so for a notes template or a hook script; a
+// restore ends so when it skipped what only root@pam may restore (raw lxc.* keys) or its
+// autostart failed. Any other status but "OK" is an error.
+func TaskWarnings(exit string) bool {
+	return taskWarningsRE.MatchString(strings.ToUpper(strings.TrimSpace(exit)))
 }
 
 // WarningLines picks the warning lines of a task log tail (at most max, the last ones).
@@ -637,47 +630,7 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 		}
 		return s.finishBackup(ctx, upid)
 	case "restore":
-		if !s.State.RestoresAllowed() {
-			return nil, errors.New("restores are switched off on this node")
-		}
-		var p restoreParams
-		if err := json.Unmarshal(t.Params, &p); err != nil || p.Volname == "" || p.TargetStorage == "" {
-			return nil, errors.New("invalid restore task")
-		}
-		if p.Pool == "" {
-			p.Pool = "restow-restore"
-		}
-		vmid := p.TargetVMID
-		if vmid == 0 {
-			var err error
-			if vmid, err = s.PVE.NextID(ctx); err != nil {
-				return nil, err
-			}
-		}
-		archive := s.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")
-		var mounts map[string]string
-		var omitted []string
-		if p.RestoreTest && p.Kind == "ct" {
-			// A check leaves bind and device mount points out (TestRestoreMounts).
-			rp, err := s.Server.ResolveVolname(ctx, p.Volname)
-			if err != nil {
-				return nil, fmt.Errorf("restore point: %w", err)
-			}
-			if mounts, omitted, err = TestRestoreMounts(parseConfigText(rp.GuestConfig), p.TargetStorage); err != nil {
-				return nil, err
-			}
-			if len(omitted) > 0 {
-				s.Logf("restore test of %s: left out (not part of the backup): %s", p.Volname, strings.Join(omitted, ", "))
-			}
-		}
-		upid, err := s.PVE.RestoreGuest(ctx, s.State.NodeName, p.Kind, vmid, archive, p.TargetStorage, p.Pool, p.Start && !p.RestoreTest, mounts)
-		if err != nil {
-			return nil, err
-		}
-		st := restoreState{VMID: vmid, UPID: upid, OmittedMounts: omitted}
-		s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: vmid,
-			StartedAt: time.Now().UTC().Format(time.RFC3339), Restore: &st})
-		return s.finishRestore(ctx, t.ID, p, st)
+		return s.restoreTask(ctx, t)
 	case "boot_test":
 		var p BootTestParams
 		if err := json.Unmarshal(t.Params, &p); err != nil {
@@ -692,14 +645,6 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 	return nil, fmt.Errorf("unknown task kind %q", t.Kind)
 }
 
-// restoreState is what a restore task knows once PVE runs its restore (kept with the task in
-// inflight.json, so the service can wait for it again after a restart).
-type restoreState struct {
-	VMID          int      `json:"vmid"`
-	UPID          string   `json:"upid"`
-	OmittedMounts []string `json:"omittedMounts,omitempty"`
-}
-
 // finishBackup waits for a vzdump task and makes the task's result of its end.
 func (s *Service) finishBackup(ctx context.Context, upid string) (map[string]any, error) {
 	exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
@@ -711,7 +656,7 @@ func (s *Service) finishBackup(ctx context.Context, upid string) (map[string]any
 		return result, nil
 	}
 	tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 200)
-	if VzdumpWarnings(exit) {
+	if TaskWarnings(exit) {
 		// vzdump finished the backup and warned about something beside it: the task is done;
 		// the server decides by the run's restore point whether the backup succeeded, and
 		// shows the warnings with it (docs/PVE-PROTOCOL.md, "Task results").
@@ -719,35 +664,4 @@ func (s *Service) finishBackup(ctx context.Context, upid string) (map[string]any
 		return result, nil
 	}
 	return result, fmt.Errorf("vzdump ended with %q: %s", exit, lastLines(tail, 8))
-}
-
-// finishRestore waits for the restore task and ends the restore (a check deletes its guest).
-func (s *Service) finishRestore(ctx context.Context, taskID string, p restoreParams, st restoreState) (map[string]any, error) {
-	vmid, upid := st.VMID, st.UPID
-	exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
-	result := map[string]any{"vmid": vmid, "upid": upid}
-	if len(st.OmittedMounts) > 0 {
-		result["omittedMounts"] = st.OmittedMounts
-	}
-	if err != nil {
-		return result, err
-	}
-	if exit != "OK" {
-		tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 20)
-		return result, fmt.Errorf("restore ended with %q: %s", exit, lastLines(tail, 8))
-	}
-	if p.RestoreTest {
-		conf, cerr := s.PVE.GuestConfig(ctx, s.State.NodeName, p.Kind, vmid)
-		result["disks"] = len(GuestDisks(p.Kind, conf))
-		if dupid, derr := s.PVE.DeleteGuest(ctx, s.State.NodeName, p.Kind, vmid); derr == nil {
-			_, _ = s.PVE.WaitTask(ctx, s.State.NodeName, dupid, 5*time.Second)
-			result["deleted"] = true
-		} else {
-			s.Logf("restore test: could not delete guest %d: %v", vmid, derr)
-		}
-		if cerr != nil {
-			return result, fmt.Errorf("the restored guest has no readable configuration: %w", cerr)
-		}
-	}
-	return result, nil
 }

@@ -432,6 +432,15 @@ guest out of the pool once you accept it. Restores started from the PVE UI
 (storage `restow` > Backups > Restore) work through the same plugin, with the
 admin's own PVE permissions.
 
+A restore task that PVE ends with `WARNINGS: n` ran to its end and warned beside it: Restow
+shows "Restored with warnings" (amber) with the warning lines, never a plain success and never
+a failure. The usual cause is a container with raw `lxc.*` lines (GPU or Coral passthrough with
+`lxc.cgroup2.devices.allow` and `lxc.mount.entry`, `/dev/net/tun` for Docker or Tailscale, a
+custom `lxc.idmap`): PVE restores those only for root@pam and skips them for the node's API
+token. The result names the skipped lines (`skippedLxc`); add them to the restored container as
+root (`/etc/pve/lxc/<vmid>.conf`). With a custom `lxc.idmap` the restored container uses the
+default map, so files owned by ids outside it cannot be unpacked; the failed restore says so.
+
 ### Files of a container
 
 **Servers & clients › File restore** lists every container with a restore
@@ -619,7 +628,8 @@ What the guest's node does:
    reason, which the guest's page shows.
 3. **Restore** through the normal restore path (the PVE API, a new VMID from the cluster, the
    pool `restow-restore`, no start; the original guest is never touched). A failing restore is
-   red. A container with a bind or device mount point is restored with its rootfs and volume
+   red; a restore that ends with warnings (`WARNINGS: n`, for example the skipped raw `lxc.*`
+   lines of a container) goes on to the boot, and the result carries the warnings. A container with a bind or device mount point is restored with its rootfs and volume
    mount points named explicitly and without the bind and device ones: PVE restores those
    only for root@pam, not for the node's API token, and their data is not in the backup. The
    restore check (`restoreTest`) does the same; the log names what was left out.
