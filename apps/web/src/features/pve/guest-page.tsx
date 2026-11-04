@@ -386,21 +386,33 @@ function chainTarget(
     : chain.target.name;
 }
 
+/** The i18n key of a chain record's reason (`guest.chain.<key>`, `<key>Title`). */
+function chainKey(reason: PveRepositoryChain["reason"]): string {
+  return reason === "points_lost" ? "pointsLost" : reason;
+}
+
 /**
- * The newest new backup chain of a container (docs/PVE.md, "Repository problems"): the repository
- * was missing on the primary when a backup began, or an administrator reset it.
+ * The newest change of a container's backup chain (docs/PVE.md, "Repository problems"): the
+ * repository was missing on the primary when a backup began, an administrator reset it, or the
+ * repository repair found it lost (a new chain begins) or rebuilt it without some restore points
+ * (the chain goes on).
  */
 export function RepositoryChainNotice({ chain }: { chain: PveRepositoryChain }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
   const language = i18n.resolvedLanguage ?? i18n.language;
   const date = formatDateTime(chain.at, language);
   const target = chainTarget(chain, t);
+  const key = chainKey(chain.reason);
   return (
-    <Alert variant={chain.reason === "reset" ? "info" : "warning"} data-slot="pve-repository-chain">
+    <Alert
+      variant={chain.reason === "reset" ? "info" : "warning"}
+      data-slot="pve-repository-chain"
+      data-reason={chain.reason}
+    >
       <History />
-      <AlertTitle>{t(`guest.chain.${chain.reason}Title`, { date })}</AlertTitle>
+      <AlertTitle>{t(`guest.chain.${key}Title`, { date })}</AlertTitle>
       <AlertDescription>
-        {t(`guest.chain.${chain.reason}`, {
+        {t(`guest.chain.${key}`, {
           target,
           count: chain.unavailablePoints,
           actor: chain.actor ?? t("guest.chain.someone"),
@@ -411,23 +423,27 @@ export function RepositoryChainNotice({ chain }: { chain: PveRepositoryChain }) 
 }
 
 /** The problem types the guest page explains (docs/PVE.md, "Repository problems"). */
-const PROBLEM_KEYS: Record<string, "elsewhere" | "split" | "missing"> = {
+const PROBLEM_KEYS: Record<string, "elsewhere" | "split" | "missing" | "repairFailed"> = {
   "pve-repository-elsewhere": "elsewhere",
   "pve-repository-split": "split",
   "pve-repository-missing": "missing",
+  "pve-repository-repair-failed": "repairFailed",
 };
 
 /**
  * Why the last backup of a container was refused for its repository, and the way out: the
- * repository repair under Storage, or a reset of the repository (docs/PVE.md, "Repository
+ * repository repair under Repositories, or a reset of the repository (docs/PVE.md, "Repository
  * problems").
  */
 export function RepositoryProblemNotice({ problem }: { problem: PveRepositoryProblem }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
-  const kind = PROBLEM_KEYS[problem.type];
-  if (!kind) {
+  const found = PROBLEM_KEYS[problem.type];
+  if (!found) {
     return null;
   }
+  // Split with no other holder: the primary has data without config or keys, nothing elsewhere.
+  const kind = found === "split" && problem.heldBy === null ? "splitPrimaryOnly" : found;
+  const titleKind = kind === "splitPrimaryOnly" ? "split" : kind;
   const language = i18n.resolvedLanguage ?? i18n.language;
   const target =
     problem.heldBy === null
@@ -438,7 +454,7 @@ export function RepositoryProblemNotice({ problem }: { problem: PveRepositoryPro
   return (
     <Alert variant="destructive" data-slot="pve-repository-problem" data-problem={kind}>
       <History />
-      <AlertTitle>{t(`guest.repositoryProblem.${kind}Title`)}</AlertTitle>
+      <AlertTitle>{t(`guest.repositoryProblem.${titleKind}Title`)}</AlertTitle>
       <AlertDescription>
         <p>
           {t(`guest.repositoryProblem.${kind}`, {
@@ -997,7 +1013,9 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                             ? "guest.chain.historyMissing"
                             : row.chain.reason === "lost"
                               ? "guest.chain.historyLost"
-                              : "guest.chain.historyReset",
+                              : row.chain.reason === "points_lost"
+                                ? "guest.chain.historyPointsLost"
+                                : "guest.chain.historyReset",
                           {
                             target: chainTarget(row.chain, t),
                             actor: row.chain.actor ?? t("guest.chain.someone"),

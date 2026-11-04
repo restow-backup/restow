@@ -171,6 +171,7 @@ export const FAILURE_CODES = [
   "share.repository_locked",
   "share.repository_damaged",
   "share.repository_unavailable",
+  "share.repository_repair_running",
   "share.quota_exceeded",
   "share.out_of_memory",
   "share.timeout",

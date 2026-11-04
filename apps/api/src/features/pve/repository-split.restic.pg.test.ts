@@ -15,11 +15,21 @@ import { spawn } from "node:child_process";
  *
  * Each of these is asserted the other way round here: promoting is refused; a run whose target
  * stops being the primary in the middle (the same role flip 0.4.1 did, written straight to the
- * database) gets 403 for its writes (restic stops at once) and writes nothing to the new primary; the repository found
- * on another target, split across targets or missing is refused with its own problem (never a
- * 500, never a silent new chain, no orphan secret); restores read from the target that holds
- * the repository; a reset moves data-only leftovers aside and the next backup begins a new
- * chain. Without the fix, the first `expect` on each of these fails.
+ * database) gets 403 for its writes (restic stops at once) and writes nothing to the new
+ * primary; the repository found on another target, split across targets or missing is refused
+ * with its own problem (never a 500, never a silent new chain, no orphan secret); restores read
+ * from the target that holds the repository; a reset moves the leftovers aside and the next
+ * backup begins a new chain.
+ *
+ * Not every assertion fails on 0.4.x by itself: there the restic route resolved the primary
+ * through a cache of up to a minute, so a flip seconds into a run left all of its writes on the
+ * old primary, and "NFW-01 got nothing" held on the old code as well. The last test therefore
+ * takes the old code path on purpose (a run with no target recorded, as every run before 0.5.0,
+ * and the cache dropped at the flip, as its expiry would) and shows the split it makes: config,
+ * keys and the first pack on the installation default, the other packs, index and snapshot on
+ * NFW-01, and a committed restore point. That is the layout the repair's own test
+ * (apps/worker/src/handlers/repository-repair.pg.test.ts, CT 109) rebuilds; here the 0.5.0
+ * credential path is run on it.
  *
  * Needs Postgres (RESTOW_TEST_DATABASE_URL, a superuser) and restic (RESTIC_BINARY, else PATH).
  */
@@ -30,7 +40,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import { resticBinary } from "@restow/core";
-import { auditLog, pveGuests, pveRuns, pveSnapshots, secrets, storageTargets } from "@restow/db";
+import {
+  auditLog,
+  pveGuests,
+  pveRuns,
+  pveSnapshots,
+  secrets,
+  storageRepositoryRepairs,
+  storageTargets,
+} from "@restow/db";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -101,6 +119,8 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
   /** Flip the copy to primary after this many data uploads (null: never). */
   let flipAfterDataUploads: number | null = null;
   let dataUploads = 0;
+  /** At the flip, also take the old code path: drop the run's target and the cached store. */
+  let flipTheOldWay = false;
   const refusedWrites: { status: number; type: string | null }[] = [];
   const actor = () => ({
     label: "admin@contoso.example",
@@ -294,6 +314,15 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
         if (flipAfterDataUploads !== null && dataUploads === flipAfterDataUploads) {
           flipAfterDataUploads = null;
           await flipLikeV041();
+          if (flipTheOldWay) {
+            // A run as before 0.5.0 (no target recorded: the route writes to whatever is the
+            // primary now), and the store cache gone as after its minute.
+            await fixture.db
+              .update(pveRuns)
+              .set({ storageTarget: null, storageGeneration: null })
+              .where(and(eq(pveRuns.tenantId, fixture.tenantId), eq(pveRuns.status, "running")));
+            store.forgetTenantChunkStore(fixture.tenantId);
+          }
         }
       }
     });
@@ -332,6 +361,8 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
           { vmid: 100, kind: "ct", name: "ct100", node: "pve1", status: "running" },
           { vmid: 102, kind: "ct", name: "ct102", node: "pve1", status: "running" },
           { vmid: 103, kind: "ct", name: "ct103", node: "pve1", status: "running" },
+          { vmid: 104, kind: "ct", name: "ct104", node: "pve1", status: "running" },
+          { vmid: 106, kind: "ct", name: "ct106", node: "pve1", status: "running" },
         ],
       }),
     );
@@ -525,4 +556,125 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
     const [event] = await audits("pve.repository.reinitialized");
     expect(event?.details).toMatchObject({ reason: "missing", unavailablePoints: 0 });
   }, 300_000);
+
+  it("moves a whole leftover aside after a reset; a failed or a running repair holds backups", async () => {
+    const dir106 = await data("ct106", 1);
+    const first = await backUp(106, dir106);
+    expect(first.snapshotId, first.resticOut).not.toBeNull();
+    // A reset, then the next backup: the old repository (config, keys, data) is moved aside,
+    // never deleted (0.4.x deleted it), and a new chain begins.
+    await repository.resetGuestRepository(
+      shared.db,
+      fixture.tenantId,
+      first.guestId,
+      "ct106",
+      actor(),
+    );
+    const second = await backUp(106, dir106);
+    expect(second.credentialStatus).toBe(200);
+    expect(second.snapshotId, second.resticOut).not.toBeNull();
+    const orphaned = (await readdir(join(copyDir, "pve-guests"))).filter((name) =>
+      name.startsWith(`${first.guestId}.orphaned-`),
+    );
+    expect(orphaned).toHaveLength(1);
+    expect(await files(join(copyDir, "pve-guests", orphaned[0] as string))).toEqual(
+      expect.arrayContaining([
+        "config",
+        expect.stringMatching(/^keys\//),
+        expect.stringMatching(/^snapshots\//),
+      ]),
+    );
+
+    // The repair could not rebuild it: refused even though config and keys are on the primary.
+    const failed = {
+      at: "2026-11-04T10:00:00.000Z",
+      type: "pve-repository-repair-failed",
+      heldBy: null,
+      activePoints: 1,
+    };
+    await fixture.db
+      .update(pveGuests)
+      .set({ repositoryProblem: failed })
+      .where(eq(pveGuests.id, first.guestId));
+    repository.forgetCheckedRuns();
+    const refused = await backUp(106, dir106);
+    expect(refused.credentialStatus).toBe(409);
+    expect(refused.body?.type).toBe("urn:restow:problem:pve-repository-repair-failed");
+    expect((await guestRow(first.guestId))?.repositoryProblem).toEqual(failed);
+    await fixture.db
+      .update(pveGuests)
+      .set({ repositoryProblem: null })
+      .where(eq(pveGuests.id, first.guestId));
+
+    // A repair is queued: backups get no credential until it has ended.
+    const [repair] = await fixture.db
+      .insert(storageRepositoryRepairs)
+      .values({ tenantId: fixture.tenantId, kind: "apply", requestedBy: "admin@contoso.example" })
+      .returning();
+    const waiting = await backUp(106, dir106);
+    expect(waiting.credentialStatus).toBe(409);
+    expect(waiting.body?.type).toBe("urn:restow:problem:storage-repair-running");
+    await fixture.db
+      .delete(storageRepositoryRepairs)
+      .where(eq(storageRepositoryRepairs.id, repair?.id as string));
+    const after = await backUp(106, dir106);
+    expect(after.credentialStatus).toBe(200);
+    expect(after.snapshotId, after.resticOut).not.toBeNull();
+  }, 300_000);
+
+  it("shows the split the old code path makes, and refuses it with the 0.5.0 credential", async () => {
+    // Back to the state of 2026-10-16: the installation default is the primary, NFW-01 a copy.
+    await fixture.db
+      .update(storageTargets)
+      .set({ role: "copy" })
+      .where(eq(storageTargets.id, copyId));
+    store.forgetTenantChunkStore(fixture.tenantId);
+    const dir104 = await data("ct104", 24);
+    dataUploads = 0;
+    flipTheOldWay = true;
+    flipAfterDataUploads = 1;
+    let first: Awaited<ReturnType<typeof backUp>>;
+    try {
+      first = await backUp(104, dir104);
+    } finally {
+      flipTheOldWay = false;
+      flipAfterDataUploads = null;
+    }
+    // On the old path the run finishes and its restore point is committed: it looks fine.
+    expect(first.resticCode, first.resticOut).toBe(0);
+    expect(first.snapshotId).not.toBeNull();
+    expect(await pointStatus(first.snapshotId as string)).toBe("active");
+    const g104 = first.guestId;
+    const onDefault = await files(join(fixture.storageDir, "pve-guests", g104));
+    const onNfw = await files(join(copyDir, "pve-guests", g104));
+    // The installation default: config, keys and the first pack, no index, no snapshot.
+    expect(onDefault).toContain("config");
+    expect(onDefault.some((key) => key.startsWith("keys/"))).toBe(true);
+    expect(onDefault.some((key) => key.startsWith("data/"))).toBe(true);
+    expect(onDefault.some((key) => key.startsWith("snapshots/"))).toBe(false);
+    // NFW-01, the new primary: the other packs, the index and the snapshot, no config, no key.
+    expect(onNfw).not.toContain("config");
+    expect(onNfw.some((key) => key.startsWith("keys/"))).toBe(false);
+    expect(onNfw.some((key) => key.startsWith("data/"))).toBe(true);
+    expect(onNfw.some((key) => key.startsWith("index/"))).toBe(true);
+    expect(onNfw.some((key) => key.startsWith("snapshots/"))).toBe(true);
+
+    // 0.5.0: the next backup is refused as split, naming where the config lies; no 500, no
+    // new chain, no orphan secret, the restore point stays.
+    const secretsBefore = await secretCount();
+    const second = await backUp(104, dir104);
+    expect(second.credentialStatus).toBe(409);
+    expect(second.body?.type).toBe("urn:restow:problem:pve-repository-split");
+    expect(second.body?.detail).toContain("the installation default");
+    expect((await guestRow(g104))?.repositoryProblem).toMatchObject({
+      type: "pve-repository-split",
+      heldBy: "installation_default",
+      activePoints: 1,
+    });
+    expect(await secretCount()).toBe(secretsBefore);
+    expect(await pointStatus(first.snapshotId as string)).toBe("active");
+    expect(
+      (await audits("pve.repository.reinitialized")).filter((event) => event.target === g104),
+    ).toHaveLength(0);
+  }, 600_000);
 });

@@ -39,6 +39,7 @@ import {
   pveRuns,
   pveSnapshots,
   pveTasks,
+  repositoryRepairActive,
   storageGeneration,
 } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
@@ -52,6 +53,7 @@ import { checkArchiveName, guestForBackup } from "./node-service.js";
 import {
   ensureGuestRepository,
   guestRepositoryPrefix,
+  repositoryRepairRunning,
   storageSwitchedDuringRun,
 } from "./repository.js";
 import { verifyAfterBackup } from "./settings.js";
@@ -1211,6 +1213,11 @@ async function pinRunTarget(
     const generation = await storageGeneration(tx, tenantId);
     if (row?.target) {
       return { target: row.target, generation };
+    }
+    // A backup waits for the repository repair: it may be merging or moving aside this very
+    // repository (docs/STORAGE.md, "Repository repair").
+    if (chosen === null && (await repositoryRepairActive(tx, tenantId))) {
+      throw repositoryRepairRunning();
     }
     const target = chosen ?? (await currentPrimaryTarget(tx, tenantId));
     await tx

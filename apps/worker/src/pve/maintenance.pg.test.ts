@@ -687,6 +687,105 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     await owner.delete(pveGuests).where(eq(pveGuests.id, guest));
   });
 
+  /** A container with a stored repository password and one active restore point. */
+  async function containerWithPoint(vmid: number, snapshotId = "f".repeat(64)) {
+    const keys = await deps.runtime.keyrings.get(tenantId);
+    const secretId = randomUUID();
+    await owner.insert(secrets).values({
+      id: secretId,
+      tenantId,
+      kind: "pve_ct_repository",
+      ciphertext: sealSecret(keys.current, secretId, "repository-password"),
+    });
+    const [ct] = await owner
+      .insert(pveGuests)
+      .values({ tenantId, clusterId, vmid, kind: "ct", node: "pve1", repositorySecretId: secretId })
+      .returning();
+    const [point] = await owner
+      .insert(pveSnapshots)
+      .values({
+        tenantId,
+        clusterId,
+        guestId: ct?.id ?? "",
+        sequence: 1,
+        kind: "ct",
+        archiveName: `ct/${vmid}/2026-10-16T14:07:57Z`,
+        storageId: "restow",
+        resticSnapshotId: snapshotId,
+        manifestPath: `tenants/${tenantId}/manifests/${randomUUID()}`,
+        backupAt: clock,
+      })
+      .returning();
+    return { guest: ct?.id ?? "", point };
+  }
+
+  it("searches the dropped installation default and keeps the API's more specific finding", async () => {
+    const defaults = new LocalStorageBackend(join(work, "installation-default"));
+    const withDefault: PveDeps = { ...deps, installationDefault: async () => defaults };
+    const { guest, point } = await containerWithPoint(331);
+    // CT 100 after 0.4.1's promotion: complete on the installation default only.
+    await defaults.put(`pve-guests/${guest}/config`, Buffer.from("config"));
+    await defaults.put(`pve-guests/${guest}/keys/${"a".repeat(64)}`, Buffer.from("key"));
+    const found = await verifySnapshot(withDefault, point as never);
+    expect(found.errors).toEqual([expect.stringContaining("but on the installation default")]);
+    const [row] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guest));
+    expect(row?.repositoryProblem).toMatchObject({
+      type: "pve-repository-elsewhere",
+      heldBy: "installation_default",
+    });
+    // Where the default cannot be searched (here: none given), what the API recorded stays.
+    const blind: PveDeps = { ...deps, installationDefault: async () => null };
+    const vague = await verifySnapshot(blind, point as never);
+    expect(vague.errors).toEqual([expect.stringContaining("on no storage target")]);
+    const [after] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guest));
+    expect(after?.repositoryProblem).toMatchObject({
+      type: "pve-repository-elsewhere",
+      heldBy: "installation_default",
+    });
+    await owner.delete(pveGuests).where(eq(pveGuests.id, guest));
+  });
+
+  it("refuses after a failed repair even with config and a key on the primary", async () => {
+    const { guest, point } = await containerWithPoint(332);
+    await completeRepository(guest);
+    const problem = {
+      at: clock.toISOString(),
+      type: "pve-repository-repair-failed",
+      heldBy: null,
+      activePoints: 1,
+    };
+    await owner
+      .update(pveGuests)
+      .set({ repositoryProblem: problem })
+      .where(eq(pveGuests.id, guest));
+    const result = await verifySnapshot(deps, point as never);
+    expect(result.errors).toEqual([expect.stringContaining("repository repair could not rebuild")]);
+    const [row] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guest));
+    expect(row?.repositoryProblem).toEqual(problem);
+    await owner.delete(pveGuests).where(eq(pveGuests.id, guest));
+  });
+
+  it("refuses while an active restore point's snapshot lies only on another target", async () => {
+    const defaults = new LocalStorageBackend(join(work, "installation-default-split"));
+    const withDefault: PveDeps = { ...deps, installationDefault: async () => defaults };
+    const snapshotId = "d".repeat(64);
+    const { guest, point } = await containerWithPoint(333, snapshotId);
+    // Config and a key on the primary, the snapshot on the installation default: a prune on
+    // the primary would remove the packs that snapshot needs.
+    await completeRepository(guest);
+    await defaults.put(`pve-guests/${guest}/snapshots/${snapshotId}`, Buffer.from("snapshot"));
+    const result = await verifySnapshot(withDefault, point as never);
+    expect(result.errors).toEqual([
+      expect.stringContaining("lie on the installation default but not on the primary"),
+    ]);
+    const [row] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guest));
+    expect(row?.repositoryProblem).toMatchObject({
+      type: "pve-repository-split",
+      heldBy: "installation_default",
+    });
+    await owner.delete(pveGuests).where(eq(pveGuests.id, guest));
+  });
+
   it("checks a container repository only while the file restore does not read it (#62)", async () => {
     const keys = await deps.runtime.keyrings.get(tenantId);
     const secretId = randomUUID();

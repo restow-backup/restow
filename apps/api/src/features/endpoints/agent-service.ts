@@ -30,6 +30,7 @@ import {
   resticInit,
   restoreTestAlreadyWaiting,
   restoreTestRetry,
+  type StorageBackend,
   SUPPORTED_ENDPOINT_OS,
   sealEndpointPassword,
   toFailureRecord,
@@ -47,6 +48,7 @@ import {
   endpoints,
   endpointTasks,
   type JobStartPauseState,
+  lockTenantStorage,
   NOT_PAUSED,
   readJobStartPause,
   tenants,
@@ -286,6 +288,8 @@ export async function enrollEndpoint(
   const repositoryPassword = randomBytes(32).toString("base64url");
   let secretId: string | null = null;
   let endpointCreated = false;
+  /** The target `restic init` and the password file went to: the one a failure cleans up. */
+  let initBackend: StorageBackend | null = null;
   try {
     const [tenant] = await providerDb
       .select({ status: tenants.status, timeZone: tenants.timeZone })
@@ -313,6 +317,12 @@ export async function enrollEndpoint(
     });
     secretId = stored.id;
     await withTenantTx(db, tenantId, async (tx) => {
+      // The lock every change of the primary takes (docs/STORAGE.md, "Runs and storage
+      // changes"): a promotion, "keep" or "move" either committed before this (the target
+      // resolved below is the new primary) or sees this active machine and refuses. Without it a
+      // switch could commit between the two, and `restic init` would go to the old primary while
+      // the agent writes everything else to the new one.
+      await lockTenantStorage(tx, tenantId);
       await tx.insert(endpoints).values({
         id: endpointId,
         tenantId,
@@ -354,6 +364,7 @@ export async function enrollEndpoint(
       { id: endpointId, tenantId, repositorySecretId: stored.id },
       { forWrite: true },
     );
+    initBackend = access.storage;
     await withRepository(access, (session) => resticInit(session));
     // The password also lies next to the repository, sealed with the tenant key, so the
     // master key and the storage are enough to restore without this database.
@@ -401,9 +412,11 @@ export async function enrollEndpoint(
       if (secretId) {
         await removeSecret(tenantId, secretId);
       }
-      const targets = await tenantStorage(db, tenantId).catch(() => null);
-      if (targets) {
-        await removeRepositoryObjects(targets.storage, `endpoints/${endpointId}/`);
+      // Where init wrote, not whatever is the primary by now.
+      const backend =
+        initBackend ?? (await tenantStorage(db, tenantId).catch(() => null))?.storage ?? null;
+      if (backend) {
+        await removeRepositoryObjects(backend, `endpoints/${endpointId}/`);
       }
       await releaseToken(claimed.id);
     } catch {

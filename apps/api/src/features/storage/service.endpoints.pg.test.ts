@@ -26,6 +26,7 @@ import {
   pveRuns,
   secrets,
   storageMigrations,
+  storageRepositoryRepairs,
   storageTargets,
   tenants,
 } from "@restow/db";
@@ -310,27 +311,105 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
     ]);
   });
 
-  it("refuses to promote while a container's repository is being created (a password, no ready time)", async () => {
+  it("refuses to promote while a file share's repository is being created (its password is stored before restic init)", async () => {
     await primaryAt(join(root, "primary-creating"));
     const copy = await primaryAt(join(root, "copy-creating"), "copy");
-    const [cluster] = await db
-      .insert(pveClusters)
-      .values({ tenantId, name: "lab", fingerprint: randomUUID(), storageId: "restow" })
-      .returning();
     const [secret] = await db
       .insert(secrets)
-      .values({ tenantId, kind: "pve_ct_repository", ciphertext: "sealed" })
+      .values({ tenantId, kind: "file_share_repository", ciphertext: "sealed" })
       .returning();
-    await db.insert(pveGuests).values({
+    await db.insert(fileShares).values({
       tenantId,
-      clusterId: cluster?.id as string,
-      vmid: 300,
-      kind: "ct",
+      name: "Creating",
+      protocol: "nfs",
+      server: "1.1.1.1",
+      exportPath: "/srv/creating",
+      nfsVersion: "4.1",
       repositorySecretId: secret?.id as string,
     });
     const error = await refusal(promoteTarget(db, tenantId, copy, actor));
     expect(error.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
-    expect(error.extensions?.repositories).toMatchObject({ containers: true });
+    expect(error.extensions?.repositories).toMatchObject({ fileShares: true });
+  });
+
+  it("refuses to promote while a container's first backup is in its credential or init step (the run is running)", async () => {
+    // A container records its password only together with its ready time, after restic init:
+    // while it creates its repository, only its running run stands for it.
+    await primaryAt(join(root, "primary-first-run"));
+    const copy = await primaryAt(join(root, "copy-first-run"), "copy");
+    const [cluster] = await db
+      .insert(pveClusters)
+      .values({ tenantId, name: "lab", fingerprint: randomUUID(), storageId: "restow" })
+      .returning();
+    const [guest] = await db
+      .insert(pveGuests)
+      .values({ tenantId, clusterId: cluster?.id as string, vmid: 300, kind: "ct" })
+      .returning();
+    await db.insert(pveRuns).values({
+      tenantId,
+      clusterId: cluster?.id as string,
+      guestId: guest?.id as string,
+      kind: "backup",
+      status: "running",
+    });
+    const error = await refusal(promoteTarget(db, tenantId, copy, actor));
+    expect(error.type).toBe("urn:restow:problem:storage-switch-blocked-by-runs");
+    expect(error.detail).toContain("container or VM");
+  });
+
+  it("refuses to promote or keep while a repository repair is queued or running", async () => {
+    await primaryAt(join(root, "primary-repairing"));
+    const copy = await primaryAt(join(root, "copy-repairing"), "copy");
+    const [repair] = await db
+      .insert(storageRepositoryRepairs)
+      .values({ tenantId, kind: "apply", requestedBy: "admin@contoso.example" })
+      .returning();
+    try {
+      const promoted = await refusal(promoteTarget(db, tenantId, copy, actor));
+      expect(promoted.type).toBe("urn:restow:problem:storage-switch-blocked-by-repair");
+      const moved = await refusal(replace("move", "while-repairing"));
+      expect(moved.type).toBe("urn:restow:problem:storage-switch-blocked-by-repair");
+    } finally {
+      await db
+        .delete(storageRepositoryRepairs)
+        .where(eq(storageRepositoryRepairs.id, repair?.id as string));
+    }
+  });
+
+  it("keeps a retired location while only it holds a moved-aside repository folder", async () => {
+    const oldDir = join(root, "old-aside");
+    const newDir = join(root, "new-aside");
+    const old = await primaryAt(oldDir);
+    const [cluster] = await db
+      .insert(pveClusters)
+      .values({ tenantId, name: "lab", fingerprint: randomUUID(), storageId: "restow" })
+      .returning();
+    // A guest whose repository the repair found lost: no password, no ready time any more.
+    const [guest] = await db
+      .insert(pveGuests)
+      .values({ tenantId, clusterId: cluster?.id as string, vmid: 109, kind: "ct" })
+      .returning();
+    const aside = join(oldDir, "pve-guests", `${guest?.id}.orphaned-2026-11-04T10-00-00-000Z`);
+    await mkdir(join(aside, "data", "ab"), { recursive: true });
+    await writeFile(join(aside, "data", "ab", "ab".repeat(32)), "pack");
+    await db.update(storageTargets).set({ role: "previous" }).where(eq(storageTargets.id, old));
+    await db.insert(storageTargets).values({
+      tenantId,
+      kind: "local",
+      role: "primary",
+      status: "ok",
+      config: { basePath: newDir },
+    });
+    const error = await refusal(deleteTarget(db, tenantId, old, actor));
+    expect(error.type).toBe("urn:restow:problem:storage-previous-holds-moved-aside");
+    expect(error.extensions?.folders).toEqual([
+      `pve-guests/${guest?.id}.orphaned-2026-11-04T10-00-00-000Z/`,
+    ]);
+    // Once it is elsewhere too, the location can go.
+    const copied = join(newDir, "pve-guests", `${guest?.id}.orphaned-2026-11-04T10-00-00-000Z`);
+    await mkdir(join(copied, "data", "ab"), { recursive: true });
+    await writeFile(join(copied, "data", "ab", "ab".repeat(32)), "pack");
+    await deleteTarget(db, tenantId, old, actor);
   });
 
   it("refuses to promote or keep while a backup run is running", async () => {

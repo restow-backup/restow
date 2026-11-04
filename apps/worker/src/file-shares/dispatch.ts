@@ -63,6 +63,7 @@ import {
   fileShareSnapshots,
   fileShares,
   lockTenantStorage,
+  repositoryRepairActive,
   secrets,
   storageGeneration,
   tenants,
@@ -343,6 +344,14 @@ export function shareSpecOf(share: FileShare, address: string, password: string 
 }
 
 /** The repository of a share is not complete on the run's target (docs/FILESHARES.md 5.4). */
+/** A backup asked for its target while a repository repair of the tenant is queued or running. */
+export class RepositoryRepairRunningError extends Error {
+  constructor() {
+    super("a repository repair of this tenant is queued or running");
+    this.name = "RepositoryRepairRunningError";
+  }
+}
+
 export class ShareRepositoryUnavailableError extends Error {
   constructor(
     readonly reason: "elsewhere" | "split" | "missing",
@@ -510,6 +519,11 @@ export async function pinShareRun(
   }
   const pinned = await withTenantTx(deps.db, run.tenantId, async (tx) => {
     await lockTenantStorage(tx, run.tenantId);
+    // A backup waits for the repository repair: it may be merging or moving aside this
+    // repository (docs/STORAGE.md, "Repository repair").
+    if (run.kind === "backup" && (await repositoryRepairActive(tx, run.tenantId))) {
+      throw new RepositoryRepairRunningError();
+    }
     const target = chosen ?? (await currentPrimaryTarget(tx, run.tenantId));
     const generation = await storageGeneration(tx, run.tenantId);
     await tx
@@ -709,7 +723,15 @@ export async function startRun(
   }
 
   let repositoryShare = source;
-  const pinnedStorage = await pinShareRun(deps, run, source.id);
+  let pinnedStorage: Awaited<ReturnType<typeof pinShareRun>>;
+  try {
+    pinnedStorage = await pinShareRun(deps, run, source.id);
+  } catch (error) {
+    if (error instanceof RepositoryRepairRunningError) {
+      return fail(deps, run, shareCause("share.repository_repair_running"));
+    }
+    throw error;
+  }
   if (run.kind === "backup") {
     try {
       repositoryShare = await ensureShareRepository(deps, source, pinnedStorage.storage);

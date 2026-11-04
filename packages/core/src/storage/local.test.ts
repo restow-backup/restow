@@ -133,3 +133,26 @@ describe("listing a prefix (only its folder is walked)", () => {
     }
   });
 });
+
+describe("the state of the root (an unmounted share is no empty target)", () => {
+  it("tells a missing, an empty and a filled root apart", async () => {
+    const base = await mkdtemp(join(tmpdir(), "restow-local-root-"));
+    try {
+      const mountpoint = join(base, "mnt");
+      const backend = new LocalStorageBackend(mountpoint);
+      expect(await backend.rootState()).toBe("missing");
+      // A listing of the same root answers "nothing", which is why the state is asked first.
+      expect(await backend.list("pve-guests/")).toEqual([]);
+      await backend.put("pve-guests/a/config", Buffer.from("c"));
+      expect(await backend.rootState()).toBe("present");
+      await backend.delete("pve-guests/a/config");
+      await rm(join(mountpoint, "pve-guests"), { recursive: true, force: true });
+      expect(await backend.rootState()).toBe("empty");
+      // A write in flight alone is not content.
+      await writeFile(join(mountpoint, ".x.restow-tmp"), "t");
+      expect(await backend.rootState()).toBe("empty");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+});

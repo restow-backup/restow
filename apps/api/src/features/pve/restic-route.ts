@@ -81,7 +81,8 @@ export async function resolvePveRunCredential(
   const prefix = guestRepositoryPrefix(guestId);
   // Every request of a run goes to the one target its credential was issued for
   // (docs/STORAGE.md, "Runs and storage changes"). A backup whose target stopped being the
-  // primary gets 409 for every write instead of writing the rest of its backup elsewhere.
+  // primary gets 403 for every write (restic takes it as final) instead of writing the rest of
+  // its backup elsewhere.
   const pinned = run.storageTarget ? storeTarget(store, run.storageTarget) : null;
   let refuseWrites: ReturnType<typeof storageSwitchedDuringRun> | undefined;
   let storage: StorageBackend;

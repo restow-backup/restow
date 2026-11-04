@@ -4,7 +4,20 @@
  * newest completed scan. The worker does the work (apps/worker handlers/repository-repair.ts).
  * Runs when RESTOW_TEST_DATABASE_URL points at Postgres.
  */
-import { createDb, type Database, providers, storageRepositoryRepairs, tenants } from "@restow/db";
+import {
+  createDb,
+  type Database,
+  fileShareRuns,
+  fileShares,
+  providers,
+  pveClusters,
+  pveGuests,
+  pveRuns,
+  storageMigrations,
+  storageRepositoryRepairs,
+  storageTargets,
+  tenants,
+} from "@restow/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
@@ -115,5 +128,88 @@ describe.skipIf(!testDatabaseAdminUrl)("queueing a repository scan and repair", 
       ),
     );
     expect(stale.type).toBe("urn:restow:problem:storage-repair-needs-scan");
+  });
+
+  it("refuses a repair while a backup, a file share run or a storage migration is active", async () => {
+    const newest = await requestRepositoryScan(db, tenantId, actor);
+    await db
+      .update(storageRepositoryRepairs)
+      .set({ status: "completed", result: { repositories: [] } })
+      .where(eq(storageRepositoryRepairs.id, newest.id));
+    const ask = () =>
+      requestRepositoryRepair(
+        db,
+        tenantId,
+        { scanId: newest.id, confirm: REPAIR_CONFIRMATION },
+        actor,
+      );
+
+    // A VM backup counts as well: any Proxmox VE backup writes to the primary.
+    const [cluster] = await db
+      .insert(pveClusters)
+      .values({ tenantId, name: "lab", fingerprint: "f".repeat(64), storageId: "restow" })
+      .returning();
+    const [vm] = await db
+      .insert(pveGuests)
+      .values({ tenantId, clusterId: cluster?.id as string, vmid: 200, kind: "vm" })
+      .returning();
+    const [backup] = await db
+      .insert(pveRuns)
+      .values({
+        tenantId,
+        clusterId: cluster?.id as string,
+        guestId: vm?.id as string,
+        kind: "backup",
+        status: "running",
+      })
+      .returning();
+    const byBackup = await refusal(ask());
+    expect(byBackup.status).toBe(409);
+    expect(byBackup.type).toBe("urn:restow:problem:storage-repair-blocked");
+    expect(byBackup.extensions?.reason).toBe("runs");
+    await db.delete(pveRuns).where(eq(pveRuns.id, backup?.id as string));
+
+    const [share] = await db
+      .insert(fileShares)
+      .values({
+        tenantId,
+        name: "Projects",
+        protocol: "nfs",
+        server: "1.1.1.1",
+        exportPath: "/srv/projects",
+        nfsVersion: "4.1",
+      })
+      .returning();
+    const [shareRun] = await db
+      .insert(fileShareRuns)
+      .values({
+        tenantId,
+        fileShareId: share?.id as string,
+        lockShareId: share?.id as string,
+        kind: "backup",
+        status: "running",
+      })
+      .returning();
+    expect((await refusal(ask())).extensions?.reason).toBe("runs");
+    await db.delete(fileShareRuns).where(eq(fileShareRuns.id, shareRun?.id as string));
+
+    const [destination] = await db
+      .insert(storageTargets)
+      .values({ tenantId, kind: "local", role: "copy", config: { basePath: "/srv/new" } })
+      .returning();
+    const [migration] = await db
+      .insert(storageMigrations)
+      .values({
+        tenantId,
+        destinationTargetId: destination?.id as string,
+        mode: "move",
+        status: "copying",
+      })
+      .returning();
+    expect((await refusal(ask())).extensions?.reason).toBe("migration");
+    await db.delete(storageMigrations).where(eq(storageMigrations.id, migration?.id as string));
+
+    // Nothing active: queued.
+    expect(await ask()).toMatchObject({ kind: "apply", status: "queued" });
   });
 });

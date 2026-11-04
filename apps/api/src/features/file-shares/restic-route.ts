@@ -185,8 +185,8 @@ export async function resolveFileShareCredential(
 /**
  * The target a run reads and writes (docs/STORAGE.md, "Runs and storage changes"): the one it
  * was pinned to when the dispatcher started it. A backup whose target stopped being the
- * primary has its writes refused (409); a run from before 0.5.0 (none recorded) uses the
- * primary, a restore of one the target that holds the repository.
+ * primary has its writes refused (403, which restic takes as final); a run from before 0.5.0
+ * (none recorded) uses the primary, a restore of one the target that holds the repository.
  */
 export async function pinnedShareStorage(
   run: FileShareRunCredential,

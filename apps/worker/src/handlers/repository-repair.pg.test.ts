@@ -30,12 +30,15 @@ import {
   type TenantKeyring,
 } from "@restow/core";
 import {
+  acquireEndpointRepositoryLock,
   auditLog,
   createDb,
   type Database,
   deriveAuthLogin,
   pveClusters,
+  pveGuestRepositoryLockKey,
   pveGuests,
+  pveRuns,
   pveSnapshots,
   type RoleLogin,
   type StorageRepositoryRepairEntry,
@@ -45,7 +48,7 @@ import {
   storageTargets,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { dropTestDatabase } from "../testing/database.js";
 import {
@@ -270,18 +273,28 @@ describe.skipIf(!canRun)("the repository repair rebuilds split repositories", ()
     if (work) await rm(work, { recursive: true, force: true });
   });
 
-  async function queue(kind: "scan" | "apply", scanId: string | null = null): Promise<string> {
+  /** Queue a scan or repair and run one pass; the finished row. */
+  async function run(kind: "scan" | "apply", scanId: string | null = null, with_ = deps) {
     const [row] = await owner
       .insert(storageRepositoryRepairs)
       .values({ tenantId, kind, scanId, requestedBy: "admin@contoso.example" })
       .returning();
-    expect(await repositoryRepairPass(deps)).toBe(1);
+    expect(await repositoryRepairPass(with_)).toBe(1);
     const [done] = await owner
       .select()
       .from(storageRepositoryRepairs)
       .where(eq(storageRepositoryRepairs.id, row?.id as string));
-    expect(done?.status, done?.errorMessage ?? "").toBe("completed");
-    return row?.id as string;
+    return done as NonNullable<typeof done>;
+  }
+
+  async function queue(
+    kind: "scan" | "apply",
+    scanId: string | null = null,
+    with_ = deps,
+  ): Promise<string> {
+    const done = await run(kind, scanId, with_);
+    expect(done.status, done.errorMessage ?? "").toBe("completed");
+    return done.id;
   }
 
   async function result<T>(id: string): Promise<T[]> {
@@ -428,4 +441,250 @@ describe.skipIf(!canRun)("the repository repair rebuilds split repositories", ()
     expect(done?.status).toBe("failed");
     expect(done?.errorMessage).toContain("no completed scan");
   });
+
+  async function guestRow(guestId: string) {
+    const [row] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guestId));
+    return row;
+  }
+
+  async function pointRow(pointId: string) {
+    const [row] = await owner.select().from(pveSnapshots).where(eq(pveSnapshots.id, pointId));
+    return row;
+  }
+
+  const nfw = () => new LocalStorageBackend(nfwDir);
+
+  /** The first pack of a repository folder (restic creates every shard folder, most empty). */
+  async function firstPack(repo: string): Promise<{ shard: string; pack: string }> {
+    for (const shard of (await readdir(join(repo, "data"))).sort()) {
+      const [pack] = await readdir(join(repo, "data", shard));
+      if (pack) {
+        return { shard, pack };
+      }
+    }
+    throw new Error(`no pack in ${repo}`);
+  }
+
+  it("never acts on a place it could not read, nor on what changed since the scan", async () => {
+    // CT 120: complete on the installation default only. CT 121: on no target at all, while
+    // its restore point still refers to it.
+    const ct120 = await container(120, defaultDir);
+    const ct121 = await container(121, nfwDir);
+    await rm(ct121.repo, { recursive: true, force: true });
+    const firstScanId = await queue("scan");
+    const first = new Map(
+      (await result<StorageRepositoryScanEntry>(firstScanId)).map((e) => [e.ownerId, e]),
+    );
+    expect(first.get(ct120.guestId)?.class).toBe("elsewhere");
+    expect(first.get(ct121.guestId)?.class).toBe("missing");
+
+    // The share of the installation default is not mounted: an empty folder.
+    const away = `${defaultDir}.away`;
+    await cp(defaultDir, away, { recursive: true });
+    await rm(defaultDir, { recursive: true, force: true });
+    await mkdir(defaultDir, { recursive: true });
+    try {
+      const refused = await run("apply", firstScanId);
+      expect(refused.status).toBe("failed");
+      expect(refused.errorMessage).toContain('"Installation default" could not be read');
+      expect(refused.errorMessage).toContain("empty");
+      // A scan now says so, and a repair of that scan is refused.
+      const blind = await run("scan");
+      expect(blind.status).toBe("completed");
+      expect(blind.result?.unreachable).toEqual([
+        expect.objectContaining({ id: "installation_default" }),
+      ]);
+      const onBlind = await run("apply", blind.id);
+      expect(onBlind.status).toBe("failed");
+      expect(onBlind.errorMessage).toContain("the scan could not read");
+    } finally {
+      await rm(defaultDir, { recursive: true, force: true });
+      await cp(away, defaultDir, { recursive: true });
+      await rm(away, { recursive: true, force: true });
+    }
+    // Nothing happened: no file on NFW-01, every restore point active.
+    expect(await nfw().list(`pve-guests/${ct120.guestId}/`)).toEqual([]);
+    expect((await pointRow(ct120.pointId))?.status).toBe("active");
+    expect((await pointRow(ct121.pointId))?.status).toBe("active");
+
+    // A scan, then the repository changes (one pack lands on NFW-01: split now, not elsewhere).
+    const scanId = await queue("scan");
+    const { shard, pack } = await firstPack(ct120.repo);
+    await mkdir(join(nfwDir, "pve-guests", ct120.guestId, "data", shard), { recursive: true });
+    await cp(
+      join(ct120.repo, "data", shard, pack),
+      join(nfwDir, "pve-guests", ct120.guestId, "data", shard, pack),
+    );
+    const applied = new Map(
+      (await result<StorageRepositoryRepairEntry>(await queue("apply", scanId))).map((e) => [
+        e.ownerId,
+        e,
+      ]),
+    );
+    expect(applied.get(ct120.guestId)).toMatchObject({ outcome: "unchanged" });
+    expect(applied.get(ct120.guestId)?.detail).toContain("not what the confirmed scan found");
+    expect(await nfw().head(`pve-guests/${ct120.guestId}/config`)).toBeNull();
+    // On no target: left as it is, never marked lost by the repair.
+    expect(applied.get(ct121.guestId)).toMatchObject({ outcome: "unchanged", lostPoints: 0 });
+    expect((await pointRow(ct121.pointId))?.status).toBe("active");
+    expect((await guestRow(ct121.guestId))?.repositorySecretId).not.toBeNull();
+    // Out of the way of the tests below.
+    await owner.delete(pveGuests).where(inArray(pveGuests.id, [ct120.guestId, ct121.guestId]));
+  }, 300_000);
+
+  it("copies config and keys last and takes them away again when the result is not sound", async () => {
+    const ct122 = await container(122, defaultDir);
+    const scanId = await queue("scan");
+    const broken: RepairDeps = {
+      ...deps,
+      restic: {
+        check: async () => {
+          throw new Error("pack 1234 is missing");
+        },
+        snapshots: async () => [],
+      },
+    };
+    const failed = new Map(
+      (await result<StorageRepositoryRepairEntry>(await queue("apply", scanId, broken))).map(
+        (e) => [e.ownerId, e],
+      ),
+    );
+    expect(failed.get(ct122.guestId)).toMatchObject({ outcome: "failed" });
+    expect(failed.get(ct122.guestId)?.movedTo).toContain(`pve-guests/${ct122.guestId}.orphaned-`);
+    const prefix = `pve-guests/${ct122.guestId}/`;
+    const onNfw = await nfw().list(prefix);
+    // The data is there, but nothing that opens it.
+    expect(onNfw.some((key) => key.startsWith(`${prefix}data/`))).toBe(true);
+    expect(onNfw).not.toContain(`${prefix}config`);
+    expect(onNfw.some((key) => key.startsWith(`${prefix}keys/`))).toBe(false);
+    // Moved aside, not deleted.
+    const aside = failed.get(ct122.guestId)?.movedTo as string;
+    expect(await nfw().head(`${aside}config`)).not.toBeNull();
+    // Backups, retention and the check refuse on the guest until a repair succeeds.
+    expect((await guestRow(ct122.guestId))?.repositoryProblem).toMatchObject({
+      type: "pve-repository-repair-failed",
+      activePoints: 1,
+    });
+    expect((await pointRow(ct122.pointId))?.status).toBe("active");
+
+    // Repaired for real: the mark goes, restic reads every pack.
+    const again = await queue("scan");
+    const merged = new Map(
+      (await result<StorageRepositoryRepairEntry>(await queue("apply", again))).map((e) => [
+        e.ownerId,
+        e,
+      ]),
+    );
+    expect(merged.get(ct122.guestId)).toMatchObject({ outcome: "merged", lostPoints: 0 });
+    expect((await guestRow(ct122.guestId))?.repositoryProblem).toBeNull();
+    await ok(
+      ["-r", join(nfwDir, "pve-guests", ct122.guestId), "check", "--read-data"],
+      ct122.password,
+    );
+  }, 300_000);
+
+  it("stops at a file it cannot copy and verify, before config and keys", async () => {
+    const ct123 = await container(123, defaultDir);
+    // Damage one pack on the only place that holds it: its name no longer matches its content.
+    const { shard, pack } = await firstPack(ct123.repo);
+    await writeFile(join(ct123.repo, "data", shard, pack), randomBytes(64));
+    const scanId = await queue("scan");
+    const applied = new Map(
+      (await result<StorageRepositoryRepairEntry>(await queue("apply", scanId))).map((e) => [
+        e.ownerId,
+        e,
+      ]),
+    );
+    expect(applied.get(ct123.guestId)).toMatchObject({ outcome: "failed" });
+    expect(applied.get(ct123.guestId)?.detail).toContain("could not be copied and verified");
+    const prefix = `pve-guests/${ct123.guestId}/`;
+    const onNfw = await nfw().list(prefix);
+    expect(onNfw).not.toContain(`${prefix}config`);
+    expect(onNfw.some((key) => key.startsWith(`${prefix}keys/`))).toBe(false);
+    expect((await guestRow(ct123.guestId))?.repositoryProblem).toMatchObject({
+      type: "pve-repository-repair-failed",
+    });
+    await owner.delete(pveGuests).where(eq(pveGuests.id, ct123.guestId));
+  }, 300_000);
+
+  it("refuses while a backup runs, and waits for a repository's lock", async () => {
+    const ct124 = await container(124, defaultDir);
+    const scanId = await queue("scan");
+    const [backup] = await owner
+      .insert(pveRuns)
+      .values({ tenantId, clusterId, guestId: ct124.guestId, kind: "backup", status: "running" })
+      .returning();
+    const refused = await run("apply", scanId);
+    expect(refused.status).toBe("failed");
+    expect(refused.errorMessage).toContain("a Proxmox VE backup of this tenant is running");
+    expect(await nfw().list(`pve-guests/${ct124.guestId}/`)).toEqual([]);
+    await owner.delete(pveRuns).where(eq(pveRuns.id, backup?.id as string));
+
+    // Retention or a file restore holds the repository: the repair does not go past it.
+    const release = await acquireEndpointRepositoryLock(
+      appDb.$client,
+      pveGuestRepositoryLockKey(ct124.guestId),
+      { mode: "exclusive" },
+    );
+    try {
+      const busy = new Map(
+        (
+          await result<StorageRepositoryRepairEntry>(
+            await queue("apply", await queue("scan"), { ...deps, repositoryLockWaitMs: 200 }),
+          )
+        ).map((e) => [e.ownerId, e]),
+      );
+      expect(busy.get(ct124.guestId)).toMatchObject({ outcome: "failed" });
+      expect(busy.get(ct124.guestId)?.detail).toContain("busy");
+      expect(await nfw().list(`pve-guests/${ct124.guestId}/`)).toEqual([]);
+    } finally {
+      await release();
+    }
+    await owner.delete(pveGuests).where(eq(pveGuests.id, ct124.guestId));
+  }, 300_000);
+
+  it("marks only points from before the repair lost, and says the chain goes on", async () => {
+    const ct125 = await container(125, defaultDir);
+    const missingPoint = async (createdAt: Date, sequence: number) => {
+      const id = randomUUID();
+      await owner.insert(pveSnapshots).values({
+        id,
+        manifestPath: manifestKey(tenantId, id),
+        tenantId,
+        clusterId,
+        guestId: ct125.guestId,
+        sequence,
+        kind: "ct",
+        archiveName: `ct/125/${createdAt.toISOString()}`,
+        storageId: "restow",
+        resticSnapshotId: "e".repeat(64),
+        backupAt: createdAt,
+        createdAt,
+      });
+      return id;
+    };
+    // Its snapshot is in no part of the repository.
+    const before = await missingPoint(new Date(clock.getTime() - 3_600_000), 2);
+    // Committed after the repair began (it lists restic's snapshots later): not judged.
+    const after = await missingPoint(new Date(clock.getTime() + 3_600_000), 3);
+    const scanId = await queue("scan");
+    const applied = new Map(
+      (await result<StorageRepositoryRepairEntry>(await queue("apply", scanId))).map((e) => [
+        e.ownerId,
+        e,
+      ]),
+    );
+    expect(applied.get(ct125.guestId)).toMatchObject({ outcome: "merged", lostPoints: 1 });
+    expect((await pointRow(before))?.status).toBe("unavailable");
+    expect((await pointRow(after))?.status).toBe("active");
+    expect((await pointRow(ct125.pointId))?.status).toBe("active");
+    const guest = await guestRow(ct125.guestId);
+    expect(guest?.repositoryChains[0]).toMatchObject({
+      reason: "points_lost",
+      unavailablePoints: 1,
+    });
+    // The chain goes on: the repository stays recorded.
+    expect(guest?.repositoryReadyAt).not.toBeNull();
+    expect(guest?.repositorySecretId).not.toBeNull();
+  }, 300_000);
 });

@@ -274,7 +274,13 @@ export type PveDiskState = Record<
  */
 export type PveRepositoryChain = {
   at: string;
-  reason: "missing" | "reset" | "lost";
+  /**
+   * `missing`: a backup found the repository nowhere and began a new chain; `reset`: an
+   * administrator reset it; `lost`: the repository repair found it on no target and the next
+   * backup begins a new chain; `points_lost`: the repair rebuilt the repository (its chain goes
+   * on), but some restore points' snapshots were in none of its parts.
+   */
+  reason: "missing" | "reset" | "lost" | "points_lost";
   target: {
     name: string;
     kind: string | null;
@@ -301,6 +307,15 @@ export type PveRepositoryProblem = {
   /** Restore points that still refer to the repository. */
   activePoints: number;
 };
+
+/**
+ * The problem type the repository repair records when it could not rebuild a container's
+ * repository (a file that could not be copied and verified, or restic found the result not
+ * sound). Unlike the others it is not cleared by a backup that finds `config` and a key on the
+ * primary: those may be what the failed repair left there, next to data that is not. Backups,
+ * retention and the check refuse until a repair succeeds or the repository is reset.
+ */
+export const PVE_REPOSITORY_REPAIR_FAILED = "pve-repository-repair-failed";
 
 /** How many chain changes a guest keeps (newest first). */
 export const PVE_REPOSITORY_CHAINS_KEPT = 10;

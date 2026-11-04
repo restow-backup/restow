@@ -11,6 +11,7 @@ import {
 import {
   type Database,
   PVE_REPOSITORY_CHAINS_KEPT,
+  PVE_REPOSITORY_REPAIR_FAILED,
   type PveGuest,
   type PveRepositoryChain,
   type PveRepositoryProblem,
@@ -22,7 +23,6 @@ import { db as defaultDb } from "../../db.js";
 import { loadTenantDek, readSecret, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
-import { removeRepositoryObjects } from "../endpoints/repository.js";
 import { type DestinationDeps, destinationRecord } from "../storage/destination.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
 import {
@@ -49,7 +49,10 @@ import {
  *   - `pve-repository-split`: data without `config` on the primary, or parts on another target
  *     (a run that straddled a storage change; the repair rebuilds it where it can);
  *   - `pve-repository-missing`: on no target, while restore points still refer to it (the way
- *     out is "Reset repository", which makes them unavailable).
+ *     out is "Reset repository", which makes them unavailable);
+ *   - `pve-repository-repair-failed`: the repository repair could not rebuild it. Refused even
+ *     when `config` and a key are on the primary: they may sit next to data that is not whole.
+ *     A repair that succeeds, or a reset, clears it.
  *
  * Only when the repository is on no target and no restore point refers to it does a new chain
  * begin without asking (nothing is lost by it). Never before 0.5.0 did the server ask: a
@@ -65,6 +68,7 @@ export const PVE_REPOSITORY_PROBLEMS = {
   confirmName: "urn:restow:problem:pve-repository-confirm-name",
   leftover: "urn:restow:problem:pve-repository-leftover",
   initFailed: "urn:restow:problem:pve-repository-init-failed",
+  repairFailed: `urn:restow:problem:${PVE_REPOSITORY_REPAIR_FAILED}`,
 } as const;
 
 /** The problem a run gets when its storage target stopped being the primary. */
@@ -79,6 +83,17 @@ export function storageSwitchedDuringRun(status: 403 | 409 = 409): ProblemError 
     type: STORAGE_SWITCHED_PROBLEM,
     detail:
       "The primary storage target of this tenant changed while this run was going. The run stops here instead of writing the rest of its backup to another target; the next run uses the new primary.",
+  });
+}
+
+/** The problem a backup gets while a repository repair of the tenant is queued or running. */
+export const REPOSITORY_REPAIR_RUNNING_PROBLEM = "urn:restow:problem:storage-repair-running";
+
+export function repositoryRepairRunning(): ProblemError {
+  return new ProblemError(409, "Repository repair running", {
+    type: REPOSITORY_REPAIR_RUNNING_PROBLEM,
+    detail:
+      "A repository repair of this tenant is queued or running (Repositories › Repository repair). Backups wait for it: it may be rebuilding or moving aside the repository this backup would write to. The next scheduled backup runs as usual.",
   });
 }
 
@@ -270,7 +285,7 @@ async function refuse(
   if (kind === "elsewhere") {
     throw new ProblemError(409, "Repository on another storage target", {
       type: PVE_REPOSITORY_PROBLEMS.elsewhere,
-      detail: `The repository of this container is not on the current primary storage target but on ${where}. Move the backups to the primary (storage, replace the primary with "move", or run the repository repair), or reset the repository on the guest page to begin a new backup chain.`,
+      detail: `The repository of this container is not on the current primary storage target but on ${where}. Bring it to the primary (Repositories › Repository repair, or replace the primary with "move"), or reset the repository on the guest page to begin a new backup chain.`,
       extensions: { heldBy: where, activePoints },
     });
   }
@@ -281,13 +296,13 @@ async function refuse(
         where
           ? `parts of it lie on ${where}`
           : "the primary holds its data but not its config or keys"
-      }. A backup that ran while the primary storage target changed wrote to two targets. Run the repository repair (storage), which rebuilds it on the primary where the parts allow; or reset the repository on the guest page to begin a new backup chain.`,
+      }. A backup that ran while the primary storage target changed wrote to two targets. Run the repository repair (Repositories › Repository repair), which rebuilds it on the primary where the parts allow; or reset the repository on the guest page to begin a new backup chain.`,
       extensions: { heldBy: where, activePoints },
     });
   }
   throw new ProblemError(409, "Repository missing", {
     type: PVE_REPOSITORY_PROBLEMS.missing,
-    detail: `The repository of this container is on no storage target of this tenant, but ${activePoints} restore point(s) still refer to it. If an old storage location still has it, attach it read-only and run the repository repair (storage). Otherwise reset the repository on the guest page: its restore points become unavailable and the next backup begins a new chain.`,
+    detail: `The repository of this container is on no storage target of this tenant, but ${activePoints} restore point(s) still refer to it. If an old storage location still has it, attach it read-only and run the repository repair (Repositories › Repository repair). Otherwise reset the repository on the guest page: its restore points become unavailable and the next backup begins a new chain.`,
     extensions: { activePoints },
   });
 }
@@ -352,14 +367,27 @@ export async function moveRepositoryAside(
   return destination;
 }
 
+/** Whether `files` are only what a `restic init` writes (and the password file next to it). */
+function onlyEmptyRepository(prefix: string, files: readonly string[]): boolean {
+  return files.every(
+    (key) =>
+      key === `${prefix}config` ||
+      key.startsWith(`${prefix}keys/`) ||
+      key === `${prefix}${REPOSITORY_PASSWORD_FILE}`,
+  );
+}
+
 /**
  * Create the repository on `primary` (the target the run was pinned to) with a new password.
  *
- *   - A complete repository left at the prefix by an earlier chain (after a reset, or a
- *     creation that never got recorded) is removed first; no active restore point refers to it.
+ *   - What an earlier chain left at the prefix (after a reset, or after the repair found the
+ *     repository lost) is moved aside to `<prefix>.orphaned-<time>/` first, never deleted: no
+ *     active restore point refers to it, but it may be half of a split repository that is still
+ *     wanted. Only an empty repository (config, keys and password file, no data: a creation that
+ *     never got recorded) is removed.
  *   - Data without `config` (a split repository) is refused with `pve-repository-split`:
  *     `restic init` would fail on it ("repository already contains snapshots", the HTTP 500 of
- *     0.4.x). Right after a reset (no active restore point), it is moved aside instead.
+ *     0.4.x), unless it is right after a reset (no active restore point): moved aside as above.
  *   - The password is stored only once `restic init` succeeded, so a failed attempt leaves
  *     no orphan secret behind.
  */
@@ -386,9 +414,13 @@ async function createRepository(
           "The container has restore points, but its repository is not recorded as ready. Reset the repository on the guest page to begin a new backup chain.",
       });
     }
-    if (hasConfig) {
-      await removeRepositoryObjects(primary, prefix);
-    } else if (afterReset && active === 0) {
+    if (hasConfig && onlyEmptyRepository(prefix, files)) {
+      for (const key of files) {
+        await primary.delete(key).catch((error: unknown) => {
+          throw unreachable(error);
+        });
+      }
+    } else if (hasConfig || (afterReset && active === 0)) {
       await moveRepositoryAside(primary, prefix, now).catch((error: unknown) => {
         throw unreachable(error);
       });
@@ -471,6 +503,14 @@ export async function ensureGuestRepository(
     throw storageSwitchedDuringRun();
   }
   const prefix = guestRepositoryPrefix(guest.id);
+  if (run.write && guest.repositoryProblem?.type === PVE_REPOSITORY_REPAIR_FAILED) {
+    throw new ProblemError(409, "Repository repair failed", {
+      type: PVE_REPOSITORY_PROBLEMS.repairFailed,
+      detail:
+        "The repository repair could not rebuild the repository of this container on the primary storage target, so backups are refused: the next one would build on data that is not whole. See the result of the last repair under Repositories › Repository repair. Repair again once the missing parts are attached, or reset the repository on the guest page to begin a new backup chain.",
+      extensions: { activePoints: guest.repositoryProblem.activePoints },
+    });
+  }
   if (guest.repositorySecretId && guest.repositoryReadyAt) {
     const password = await readSecret(database, { id: guest.repositorySecretId, tenantId });
     if (password) {
@@ -573,8 +613,8 @@ export async function ensureGuestRepository(
  * Reset a container's repository (an administrator, typed confirmation and a recent sign-in
  * checked by the route): its restore points become unavailable at once, and the next backup
  * begins a new chain in a new repository. Whatever of the old repository is on the primary is
- * removed by that backup before it creates the new one (`createRepository`; immutable storage
- * keeps what it must); a retired target is never touched.
+ * moved aside by that backup before it creates the new one (`createRepository`: never deleted);
+ * a retired target is never touched.
  */
 export async function resetGuestRepository(
   database: Database,

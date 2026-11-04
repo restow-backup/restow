@@ -1,14 +1,17 @@
 import {
   type Database,
+  lockTenantStorage,
   type StorageRepositoryRepair,
   type StorageRepositoryRepairResult,
+  storageMigrations,
   storageRepositoryRepairs,
 } from "@restow/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "../../lib/audit.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { hasRunningRepositoryRun, UNFINISHED_MIGRATION_STATUSES } from "./service.js";
 
 /**
  * The repository repair of a tenant from the API side (docs/STORAGE.md, "Repository repair"):
@@ -73,6 +76,17 @@ function inProgress(): ProblemError {
     type: `${PROBLEM_PREFIX}repair-in-progress`,
     detail: "A repository scan or repair of this tenant is queued or running. Wait for it to end.",
     extensions: { code: "repair_in_progress" },
+  });
+}
+
+function repairBlocked(what: "runs" | "migration"): ProblemError {
+  return new ProblemError(409, "The repair has to wait", {
+    type: `${PROBLEM_PREFIX}repair-blocked`,
+    detail:
+      what === "runs"
+        ? "A Proxmox VE backup or a file share run of this tenant is running. The repair would rebuild or move aside repositories while they are written to. Wait for it to end, then repair."
+        : "A storage migration of this tenant is active. It copies the repositories itself; repair once it has ended.",
+    extensions: { code: "repair_blocked", reason: what },
   });
 }
 
@@ -142,7 +156,11 @@ export async function requestRepositoryScan(
 
 /**
  * Queue the repair of a completed scan: the typed confirmation must match, and the scan must
- * be the tenant's newest (a repair decided on an older picture would surprise).
+ * be the tenant's newest (a repair decided on an older picture would surprise). Refused while a
+ * backup or file share run of the tenant is running or a storage migration is active. Queued
+ * under the tenant's storage lock: from then on, backups get no credential and the primary does
+ * not change until the repair has ended (@restow/db `repositoryRepairActive`); the worker checks
+ * again when it starts.
  */
 export async function requestRepositoryRepair(
   db: Database,
@@ -159,6 +177,23 @@ export async function requestRepositoryRepair(
   }
   try {
     return await withTenantTx(db, tenantId, async (tx) => {
+      await lockTenantStorage(tx, tenantId);
+      if (await hasRunningRepositoryRun(tx, tenantId)) {
+        throw repairBlocked("runs");
+      }
+      const [migration] = await tx
+        .select({ id: storageMigrations.id })
+        .from(storageMigrations)
+        .where(
+          and(
+            eq(storageMigrations.tenantId, tenantId),
+            inArray(storageMigrations.status, [...UNFINISHED_MIGRATION_STATUSES]),
+          ),
+        )
+        .limit(1);
+      if (migration) {
+        throw repairBlocked("migration");
+      }
       const [scan] = await tx
         .select()
         .from(storageRepositoryRepairs)

@@ -416,7 +416,11 @@ export interface RepositoryRepairRun<T> {
   startedAt: string | null;
   finishedAt: string | null;
   errorMessage: string | null;
-  result: { repositories: T[] } | null;
+  result: {
+    repositories: T[];
+    /** The places a scan could not read; a repair refuses to apply such a scan. */
+    unreachable?: { id: string; name: string; reason: string }[];
+  } | null;
 }
 
 export interface RepositoryRepairs {

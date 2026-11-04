@@ -43,6 +43,7 @@ import {
   packs,
   pveGuests,
   pveRuns,
+  repositoryRepairActive,
   type StorageMigration,
   type StorageTarget,
   snapshots,
@@ -420,10 +421,13 @@ function switchBlockedByRepositories(
 
 /**
  * Which restic repositories the tenant has that a switch copying nothing would leave behind:
- * a container's and a file share's (created at the first backup: a recorded password counts as
- * well as a finished creation, so a creation in flight is not missed) and a machine's, also of
- * a revoked machine: after a promotion away from the installation default nothing used to keep
- * the old location attached, and its backups became unreadable. Indexed existence checks.
+ * a container's (once created: its password is recorded together with its ready time, after
+ * `restic init`; while its first backup creates it, its running run refuses the switch,
+ * `hasRunningRepositoryRun`), a file share's (also while it is created: its password is stored
+ * before `restic init`) and a machine's, also of a revoked machine: after a promotion away from
+ * the installation default nothing used to keep the old location attached, and its backups
+ * became unreadable. A container with a password but no ready time is counted too (neither
+ * 0.4.12 nor 0.5.0 leaves one; it costs nothing to include). Indexed existence checks.
  */
 async function tenantResticRepositories(
   tx: DbExecutor,
@@ -480,7 +484,7 @@ async function assertNoResticRepositories(
  * targets (docs/STORAGE.md, "Runs and storage changes"). Read under the tenant's storage lock,
  * which credential issue takes too.
  */
-async function hasRunningRepositoryRun(tx: DbExecutor, tenantId: string): Promise<boolean> {
+export async function hasRunningRepositoryRun(tx: DbExecutor, tenantId: string): Promise<boolean> {
   const [guestRun] = await tx
     .select({ id: pveRuns.id })
     .from(pveRuns)
@@ -512,8 +516,18 @@ function switchBlockedByRuns(): ProblemError {
   return new ProblemError(409, "Backups are running", {
     type: `${PROBLEM_PREFIX}switch-blocked-by-runs`,
     detail:
-      "A container backup or a file share run of this tenant is running. It writes to the current primary until it ends; switching now would split its backup between two storage targets. Wait for it to finish (or stop it), then try again.",
+      "A Proxmox VE backup (container or VM) or a file share run of this tenant is running. It writes to the current primary until it ends; switching now would split its backup between two storage targets. Wait for it to finish (or stop it), then try again.",
     extensions: { code: "switch_blocked_by_runs" },
+  });
+}
+
+/** A change of the primary while a repository repair is queued or running. */
+function switchBlockedByRepair(): ProblemError {
+  return new ProblemError(409, "A repository repair is running", {
+    type: `${PROBLEM_PREFIX}switch-blocked-by-repair`,
+    detail:
+      "A repository repair of this tenant is queued or running (Repositories › Repository repair). It rebuilds repositories on the current primary; changing the primary now would leave them half rebuilt. Wait for it to end, then try again.",
+    extensions: { code: "switch_blocked_by_repair" },
   });
 }
 
@@ -571,6 +585,19 @@ function previousHoldsExclusiveData(check: ExclusiveObjectsCheck): ProblemError 
       code: "previous_holds_exclusive_data",
       exclusiveKeys: check.exclusiveKeys,
       exclusiveKeysOmitted: check.exclusiveKeysOmitted,
+    },
+  });
+}
+
+function previousHoldsMovedAside(folders: readonly string[]): ProblemError {
+  return new ProblemError(409, "Retired target still holds moved-aside repositories", {
+    type: `${PROBLEM_PREFIX}previous-holds-moved-aside`,
+    detail:
+      'This location holds repository folders that the repository repair or a new backup chain moved aside (<prefix>.orphaned-<time>/), and no other target has them. They are kept so that an operator can still recover them; a "move" does not copy them. Copy them elsewhere, or delete them by hand once they are not needed, then remove this location.',
+    extensions: {
+      code: "previous_holds_moved_aside",
+      folders: folders.slice(0, 20),
+      foldersOmitted: Math.max(0, folders.length - 20),
     },
   });
 }
@@ -1232,6 +1259,9 @@ async function startReplacePrimaryTx(
     if (mode === "keep" && (await hasRunningRepositoryRun(tx, tenantId))) {
       throw switchBlockedByRuns();
     }
+    if (await repositoryRepairActive(tx, tenantId)) {
+      throw switchBlockedByRepair();
+    }
     const currentPrimary = rows.find((row) => row.role === "primary") ?? null;
 
     let secretRef: string | null = null;
@@ -1860,6 +1890,68 @@ async function resticRepositoryPrefixes(db: Database, tenantId: string): Promise
   });
 }
 
+/** Where each kind of the tenant's restic repositories lies, and every owner id of that kind. */
+async function repositoryOwnerIds(
+  db: Database,
+  tenantId: string,
+): Promise<{ top: string; ids: ReadonlySet<string> }[]> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const [machines, guests, shares] = await Promise.all([
+      tx.select({ id: endpoints.id }).from(endpoints).where(eq(endpoints.tenantId, tenantId)),
+      tx.select({ id: pveGuests.id }).from(pveGuests).where(eq(pveGuests.tenantId, tenantId)),
+      tx.select({ id: fileShares.id }).from(fileShares).where(eq(fileShares.tenantId, tenantId)),
+    ]);
+    return [
+      { top: "endpoints/", ids: new Set(machines.map((row) => row.id)) },
+      { top: "pve-guests/", ids: new Set(guests.map((row) => row.id)) },
+      { top: "file-shares/", ids: new Set(shares.map((row) => row.id)) },
+    ];
+  });
+}
+
+/**
+ * The tenant's moved-aside repository folders (`<prefix>.orphaned-<time>/`: what the repository
+ * repair or a new backup chain set aside instead of deleting) that `backend` holds and none of
+ * `others` holds whole. Neither a `move` nor the repair copies them, so a retired target may be
+ * the only place left that has them.
+ */
+async function exclusiveMovedAsideFolders(
+  db: Database,
+  tenantId: string,
+  backend: StorageBackend,
+  others: readonly StorageBackend[],
+): Promise<string[]> {
+  const folders: string[] = [];
+  for (const { top, ids } of await repositoryOwnerIds(db, tenantId)) {
+    if (ids.size === 0) {
+      continue;
+    }
+    const byFolder = new Map<string, string[]>();
+    for (const key of await backend.list(top)) {
+      const end = key.indexOf("/", top.length);
+      const folder = end < 0 ? null : key.slice(top.length, end);
+      const marker = folder?.indexOf(".orphaned-") ?? -1;
+      if (!folder || marker < 0 || !ids.has(folder.slice(0, marker))) {
+        continue;
+      }
+      const prefix = `${top}${folder}/`;
+      byFolder.set(prefix, [...(byFolder.get(prefix) ?? []), key]);
+    }
+    for (const [prefix, keys] of byFolder) {
+      const elsewhere = new Set<string>();
+      for (const other of others) {
+        for (const key of await other.list(prefix)) {
+          elsewhere.add(key);
+        }
+      }
+      if (keys.some((key) => !elsewhere.has(key))) {
+        folders.push(prefix);
+      }
+    }
+  }
+  return folders;
+}
+
 /**
  * Whether every pack, manifest and wrapped key this `previous` target holds
  * that still matters also exists on the tenant's current primary or a copy (a
@@ -1882,7 +1974,12 @@ async function previousTargetExclusiveObjects(
   row: StorageTarget,
   rows: readonly StorageTarget[],
   deps: StorageDeps,
-): Promise<ExclusiveObjectsCheck & { readonly endpointRepositories: readonly string[] }> {
+): Promise<
+  ExclusiveObjectsCheck & {
+    readonly endpointRepositories: readonly string[];
+    readonly movedAside: readonly string[];
+  }
+> {
   const previousBackend = await openPreviousTarget(db, tenantId, row, deps);
   const [primary, copies, live] = await Promise.all([
     openEffectivePrimary(db, tenantId, rows, deps),
@@ -1927,7 +2024,9 @@ async function previousTargetExclusiveObjects(
         endpointKeys.push(prefix);
       }
     }
+    const movedAside = await exclusiveMovedAsideFolders(db, tenantId, previousBackend, others);
     return {
+      movedAside,
       exclusive: checks.some((check) => check.exclusive),
       exclusiveKeys: checks.flatMap((check) => check.exclusiveKeys),
       exclusiveKeysOmitted: checks.reduce((sum, check) => sum + check.exclusiveKeysOmitted, 0),
@@ -1968,6 +2067,9 @@ export async function deleteTarget(
     const exclusive = await previousTargetExclusiveObjects(db, tenantId, row, rows, deps);
     if (exclusive.endpointRepositories.length > 0) {
       throw previousHoldsEndpointRepositories(exclusive.endpointRepositories);
+    }
+    if (exclusive.movedAside.length > 0) {
+      throw previousHoldsMovedAside(exclusive.movedAside);
     }
     if (exclusive.exclusive) {
       throw previousHoldsExclusiveData(exclusive);
@@ -2387,6 +2489,9 @@ export async function promoteTarget(
     }
     if (await hasRunningRepositoryRun(tx, tenantId)) {
       throw switchBlockedByRuns();
+    }
+    if (await repositoryRepairActive(tx, tenantId)) {
+      throw switchBlockedByRepair();
     }
     const demoted = await tx
       .update(storageTargets)

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   blocksSwitch,
   planRepositories,
+  planRepositoriesOf,
   type RepositoryOwner,
   type RepositorySource,
 } from "./storage-migration-restic.js";
@@ -147,5 +148,42 @@ describe("planRepositories", () => {
     await expect(
       planRepositories([owner], [{ ...primary, backend: broken }, other]),
     ).rejects.toThrow("ECONNREFUSED");
+  });
+});
+
+describe("a place that cannot be read (an unmounted share lists as an empty folder)", () => {
+  it("is named by a scan, fails a repair's plan, and stays empty-as-usual for a move", async () => {
+    await primary.backend.put(`${PREFIX}config`, Buffer.from("config"));
+    await file(primary.backend, "keys", "key");
+    await file(primary.backend, "snapshots", "snapshot");
+    // The installation default's folder is gone (not mounted); optional, as after 0.4.1.
+    const absent: RepositorySource = { ...other, optional: true };
+    const scan = await planRepositoriesOf([owner], [primary, absent], primary, {
+      unreachable: "record",
+    });
+    expect(scan.unreachable).toEqual([
+      expect.objectContaining({
+        id: "installation_default",
+        reason: expect.stringContaining("does not exist"),
+      }),
+    ]);
+    expect(scan.plans[0]?.class).toBe("ok");
+    await expect(
+      planRepositoriesOf([owner], [primary, absent], primary, { unreachable: "strict" }),
+    ).rejects.toThrow(/"Installation default" could not be read/);
+    // An optional place that throws counts as empty for a move, as before.
+    const throwing: RepositorySource = {
+      ...absent,
+      backend: {
+        ...absent.backend,
+        list: async () => {
+          throw new Error("ECONNREFUSED");
+        },
+      } as StorageBackend,
+    };
+    expect((await planRepositories([owner], [primary, throwing]))[0]?.class).toBe("ok");
+    await expect(
+      planRepositoriesOf([owner], [primary, throwing], primary, { unreachable: "strict" }),
+    ).rejects.toThrow(/ECONNREFUSED/);
   });
 });

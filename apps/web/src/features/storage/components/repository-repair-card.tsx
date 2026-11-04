@@ -34,6 +34,7 @@ import {
   requestRepositoryScan,
   storageKeys,
 } from "../api";
+import { storageErrorKey } from "../presenters";
 import type {
   RepositoryClass,
   RepositoryHolding,
@@ -215,7 +216,9 @@ function RepairDialog({ scanId, onClose }: { scanId: string; onClose: () => void
           </div>
           {mutation.isError && !isRecentSignInRequired(mutation.error) ? (
             <p className="text-sm text-destructive-text">
-              {(mutation.error as Error).message || t("repair.failed")}
+              {storageErrorKey(mutation.error).startsWith("storage:")
+                ? t(storageErrorKey(mutation.error))
+                : (mutation.error as Error).message || t("repair.failed")}
             </p>
           ) : null}
           <DialogFooter>
@@ -271,7 +274,10 @@ export function RepositoryRepairCard() {
     (status) => status === "queued" || status === "running",
   );
   const entries = data?.scan?.result?.repositories ?? [];
-  const actionable = entries.some((entry) => entry.class !== "ok" && entry.class !== "missing");
+  const unreachable = data?.scan?.result?.unreachable ?? [];
+  const actionable =
+    unreachable.length === 0 &&
+    entries.some((entry) => entry.class !== "ok" && entry.class !== "missing");
   return (
     <Card data-slot="storage-repository-repair">
       <CardHeader>
@@ -312,6 +318,19 @@ export function RepositoryRepairCard() {
         </div>
         {data?.scan?.status === "failed" ? (
           <p className="text-sm text-destructive-text">{data.scan.errorMessage}</p>
+        ) : null}
+        {data?.scan?.status === "completed" && unreachable.length > 0 ? (
+          <p className="text-sm text-destructive-text" data-slot="storage-repair-unreachable">
+            {t("repair.unreachable", {
+              names: unreachable
+                .map((source) =>
+                  source.id === "installation_default"
+                    ? t("repair.installationDefault")
+                    : source.name,
+                )
+                .join(", "),
+            })}
+          </p>
         ) : null}
         {data?.scan?.status === "completed" ? <ScanTable entries={entries} /> : null}
         {data?.repair ? (

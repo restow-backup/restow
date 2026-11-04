@@ -238,6 +238,18 @@ export class LocalStorageBackend implements StorageBackend {
     }
   }
 
+  async rootState(): Promise<"present" | "empty" | "missing"> {
+    try {
+      const entries = await readdir(this.root);
+      return entries.some((name) => !isTempName(name)) ? "present" : "empty";
+    } catch (error) {
+      if (isNotFound(error)) {
+        return "missing";
+      }
+      throw error;
+    }
+  }
+
   async delete(key: string): Promise<void> {
     try {
       await rm(this.pathFor(key));

@@ -294,27 +294,99 @@ function holding(source: RepositorySource, prefix: string, keys: readonly string
   } satisfies StorageRepositoryHolding;
 }
 
+/** A source a plan could not read (`planRepositoriesOf`). */
+export interface UnreachableSource {
+  readonly id: string;
+  readonly name: string;
+  readonly reason: string;
+}
+
+/** How a plan treats a source it cannot read. */
+export interface PlanOptions {
+  /**
+   * `fail` (default): a source that does not answer fails the plan, an optional one counts as
+   * empty (a `move`). `record`: every source that does not answer, or whose folder is empty or
+   * missing (a share that is not mounted), is left out and named in `unreachable` (a scan).
+   * `strict`: any of these, optional ones included, fails the plan (the repair's apply: it acts
+   * on what it sees, and must never take an absent share for an empty one).
+   */
+  readonly unreachable?: "fail" | "record" | "strict";
+}
+
+/** Why a source cannot be listed right now, or null when it can. */
+async function unreadable(source: RepositorySource): Promise<string | null> {
+  try {
+    const state = await source.backend.rootState?.();
+    if (state === "missing") {
+      return "its folder does not exist (a share that is not mounted?)";
+    }
+    if (state === "empty") {
+      return "its folder is empty (a share that is not mounted?)";
+    }
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 /**
  * Classify every repository of `owners` across `sources` and collect its files (see the module
  * comment). `reference` is the source the repository should be complete on (the primary for a
  * scan, the source primary for a move); `ok` means it is, and nothing from another source of
- * its chain is missing there. Sources that do not answer fail the whole plan: a repository
- * must never be judged on half the facts.
+ * its chain is missing there. Sources that do not answer fail the whole plan unless `options`
+ * say otherwise: a repository must never be judged on half the facts.
  */
 export async function planRepositories(
   owners: readonly RepositoryOwner[],
   sources: readonly RepositorySource[],
   reference: RepositorySource | null = sources[0] ?? null,
 ): Promise<RepositoryPlan[]> {
+  return (await planRepositoriesOf(owners, sources, reference)).plans;
+}
+
+/** {@link planRepositories} with the sources it could not read (see {@link PlanOptions}). */
+export async function planRepositoriesOf(
+  owners: readonly RepositoryOwner[],
+  sources: readonly RepositorySource[],
+  reference: RepositorySource | null = sources[0] ?? null,
+  options: PlanOptions = {},
+): Promise<{ plans: RepositoryPlan[]; unreachable: UnreachableSource[] }> {
+  const mode = options.unreachable ?? "fail";
+  const unreachable: UnreachableSource[] = [];
+  const skip = (source: RepositorySource, reason: string) => {
+    if (mode === "strict") {
+      throw new Error(
+        `storage target "${source.name}" could not be read: ${reason}. Nothing was changed; repair again once it answers.`,
+      );
+    }
+    unreachable.push({ id: source.id, name: source.name, reason });
+  };
   if (owners.length === 0) {
-    return [];
+    return { plans: [], unreachable };
   }
   const prefixes = owners.map((owner) => owner.prefix);
   const listings: { source: RepositorySource; byPrefix: Map<string, string[]> }[] = [];
   for (const source of sources) {
-    const byPrefix = source.optional
-      ? await listRepositories(source.backend, prefixes).catch(() => new Map<string, string[]>())
-      : await listRepositories(source.backend, prefixes);
+    if (mode !== "fail") {
+      const reason = await unreadable(source);
+      if (reason) {
+        skip(source, reason);
+        continue;
+      }
+    }
+    let byPrefix: Map<string, string[]>;
+    try {
+      byPrefix = await listRepositories(source.backend, prefixes);
+    } catch (error) {
+      if (mode === "fail" && !source.optional) {
+        throw error;
+      }
+      if (mode !== "fail") {
+        skip(source, error instanceof Error ? error.message : String(error));
+        continue;
+      }
+      byPrefix = new Map<string, string[]>();
+    }
     listings.push({ source, byPrefix });
   }
   const plans: RepositoryPlan[] = [];
@@ -397,7 +469,7 @@ export async function planRepositories(
       missingOnReference: complete ? missingOnReference : 0,
     });
   }
-  return plans;
+  return { plans, unreachable };
 }
 
 /**

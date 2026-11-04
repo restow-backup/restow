@@ -49,6 +49,7 @@ import {
   endpointRepositoryLocks,
   endpointRuns,
   endpoints,
+  storageLockKey,
 } from "@restow/db";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -229,6 +230,51 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
     });
     await fixture?.cleanup();
     if (work) await rm(work, { recursive: true, force: true });
+  });
+
+  it("enrolls under the tenant's storage lock, so no change of the primary splits the new repository", async () => {
+    // A promotion, "keep" or "move" holds this lock while it switches the primary.
+    const client = await fixture.db.$client.connect();
+    let answered = false;
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        storageLockKey(fixture.tenantId),
+      ]);
+      const created = await service.createEnrollmentToken(
+        shared.db,
+        fixture.tenantId,
+        { profile: "server", os: "linux" },
+        actor(),
+        { url: "https://restow.test.example", configured: true },
+      );
+      const pending = fetch(`http://127.0.0.1:${port}/agent/v1/enroll`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: created.token,
+          hostname: "web-locked",
+          os: "linux",
+          arch: "amd64",
+          agentVersion: "0.1.0",
+          osVersion: "test",
+        }),
+      }).then((response) => {
+        answered = true;
+        return response;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      // Waiting for the switch: no endpoint, no repository yet.
+      expect(answered).toBe(false);
+      expect(
+        await fixture.db.select().from(endpoints).where(eq(endpoints.hostname, "web-locked")),
+      ).toHaveLength(0);
+      await client.query("COMMIT");
+      const response = await pending;
+      expect(response.status).toBe(201);
+    } finally {
+      client.release();
+    }
   });
 
   it("backs up with the agent's credentials, also incrementally", async () => {

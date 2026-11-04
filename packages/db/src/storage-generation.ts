@@ -68,3 +68,19 @@ export async function currentPrimaryTarget(
   const id = result.rows[0]?.id;
   return typeof id === "string" ? id : INSTALLATION_DEFAULT_TARGET;
 }
+
+/**
+ * Whether a repository repair (docs/STORAGE.md, "Repository repair") of the tenant is queued or
+ * running. Credential issue and every change of the primary refuse while one is, under
+ * {@link lockTenantStorage}, which the repair's request takes as well: a repair never merges or
+ * moves aside a repository a run writes to, and never works on a primary that is switching.
+ */
+export async function repositoryRepairActive(
+  tx: StorageGenerationExecutor,
+  tenantId: string,
+): Promise<boolean> {
+  const result = await tx.execute(
+    sql`select 1 as active from storage_repository_repairs where tenant_id = ${tenantId}::uuid and kind = 'apply' and status in ('queued', 'running') limit 1`,
+  );
+  return result.rows.length > 0;
+}

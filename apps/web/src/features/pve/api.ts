@@ -374,7 +374,7 @@ export interface PveOpenTask {
  */
 export interface PveRepositoryChain {
   at: string;
-  reason: "missing" | "reset" | "lost";
+  reason: "missing" | "reset" | "lost" | "points_lost";
   /** Where the repository was looked for; `location` is null for the installation default. */
   target: {
     name: string;

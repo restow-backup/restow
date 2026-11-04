@@ -362,6 +362,13 @@ export interface StorageRepositoryRepairEntry {
 
 export interface StorageRepositoryRepairResult {
   readonly repositories: readonly (StorageRepositoryScanEntry | StorageRepositoryRepairEntry)[];
+  /** The places a scan listed (ids), the primary first. Absent on results before 0.5.0's fix. */
+  readonly sources?: readonly string[];
+  /**
+   * The places a scan could not read (an error, or the empty or missing folder of a share that
+   * is not mounted). A repair refuses to apply a scan with any: it was decided on half the facts.
+   */
+  readonly unreachable?: readonly { id: string; name: string; reason: string }[];
 }
 
 /**

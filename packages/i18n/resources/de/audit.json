@@ -436,7 +436,7 @@
       },
       "repository": {
         "merged": "Repository aus seinen Teilen auf dem primären Repository wieder aufgebaut",
-        "lost": "Repository verloren: seine Wiederherstellungspunkte wurden unverfügbar"
+        "lost": "Repository verloren: seine Sicherungsstände wurden unverfügbar"
       }
     },
     "tenant": {
