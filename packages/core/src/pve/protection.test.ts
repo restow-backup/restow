@@ -4,6 +4,7 @@ import {
   pveGuestBackable,
   pveGuestCounted,
   pveGuestExcluded,
+  pveGuestInRestorePool,
   pveGuestIsRestowServer,
   pveJobOfGuest,
   pveRestorePointReadiness,
@@ -13,11 +14,15 @@ import {
 
 const NOW = new Date("2026-10-07T12:00:00.000Z");
 
-const guest = (extra: Partial<Parameters<typeof pveJobOfGuest>[0]> = {}) => ({
+const guest = (
+  extra: Partial<Parameters<typeof pveJobOfGuest>[0]> = {},
+): Parameters<typeof pveJobOfGuest>[0] => ({
   jobId: null,
   kind: "vm" as const,
   template: false,
   present: true,
+  pool: null,
+  tags: [],
   ...extra,
 });
 
@@ -57,6 +62,35 @@ describe("when a guest is protected", () => {
     // Still backable: its restore points stay restorable.
     expect(pveGuestBackable(guest({ excludedAt }))).toBe(true);
     expect(pveGuestCounted(guest())).toBe(true);
+  });
+});
+
+describe("guests Restow made (restored copies, temporary guests of checks and boot tests)", () => {
+  const own = { id: "own", enabled: true, scopeAll: false };
+  const all = { id: "all", enabled: true, scopeAll: true };
+
+  it("are not taken by the job for all guests and count nowhere while in no job", () => {
+    const restored = guest({ kind: "ct", pool: "restow-restore" });
+    expect(pveGuestInRestorePool(restored)).toBe(true);
+    expect(pveJobOfGuest(restored, [all])).toBeNull();
+    // Not "unprotected" or "in no job" either: it is not a guest to protect.
+    expect(pveGuestCounted(restored)).toBe(false);
+    // A leftover boot test or restore check guest, by its tag, also outside the pool.
+    for (const tag of ["restow-boottest", "restow-restorecheck"]) {
+      const temporary = guest({ tags: ["prod", tag] });
+      expect(pveGuestInRestorePool(temporary)).toBe(true);
+      expect(pveGuestCounted(temporary)).toBe(false);
+      expect(pveJobOfGuest(temporary, [all])).toBeNull();
+    }
+    // Moved out of the pool: an ordinary guest, the job for all guests takes it.
+    expect(pveJobOfGuest(guest({ kind: "ct", pool: "prod" }), [all])).toBe(all);
+    expect(pveGuestInRestorePool(guest({ tags: null }))).toBe(false);
+  });
+
+  it("are backed up when someone put them into a job", () => {
+    const restored = guest({ kind: "ct", pool: "restow-restore", jobId: "own" });
+    expect(pveGuestCounted(restored)).toBe(true);
+    expect(pveJobOfGuest(restored, [own, all])).toBe(own);
   });
 });
 

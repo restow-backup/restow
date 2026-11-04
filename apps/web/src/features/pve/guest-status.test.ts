@@ -45,6 +45,20 @@ const keys = (g: PveGuest, node?: Parameters<typeof guestStatuses>[1]) =>
   guestStatuses(g, node).map((s) => s.key);
 
 describe("guest states", () => {
+  it("shows a restored copy in restow-restore in no job as such, never as unprotected", () => {
+    const restored = testGuest({
+      jobId: null,
+      lastSuccessAt: null,
+      lastRunStatus: null,
+      attention: ["restore_pool"],
+    });
+    const statuses = guestStatuses(restored);
+    expect(statuses.map((s) => s.key)).toEqual(["restore_pool"]);
+    expect(statuses[0]).toMatchObject({ tone: "muted", problem: false });
+    expect(matchesStateFilter(statuses, "no_backup")).toBe(false);
+    expect(matchesStateFilter(statuses, "problems")).toBe(false);
+  });
+
   it("names a boot test's temporary guest that is still on the node, amber and a problem", () => {
     const statuses = guestStatuses(testGuest({ attention: ["boot_test_leftover"] }));
     expect(statuses[0]).toEqual({ key: "boot_test_leftover", tone: "warning", problem: true });

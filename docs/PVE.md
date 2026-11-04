@@ -468,7 +468,12 @@ restic 0.17 on). Points without either figure show neither.
 From the guest's page: **Restore as a new guest**, with the target storage,
 optionally another node of the cluster, a VMID (else the next free one) and
 whether to start it. The restore lands in the pool `restow-restore`; move the
-guest out of the pool once you accept it. Restores started from the PVE UI
+guest out of the pool once you accept it. While it is in that pool and in no
+job, a job for "all guests" does not back it up and it counts nowhere as
+unprotected or without a job (the list shows "Restored, in restow-restore");
+the same holds for a temporary guest of a restore check or boot test that is
+still there (tagged `restow-boottest` or `restow-restorecheck`). Put into a job
+by hand, it is backed up like any other guest. Restores started from the PVE UI
 (storage `restow` > Backups > Restore) work through the same plugin, with the
 admin's own PVE permissions.
 

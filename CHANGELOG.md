@@ -346,6 +346,13 @@ private repository.
   lock of a container repository now counts as stale only when the time restic wrote into it is
   30 minutes old as well; a disagreement of the two clocks is logged as a warning. Endpoint
   repositories keep the storage rule, where an agent could plant a lock dated in the future.
+- Proxmox VE: guests in the pool `restow-restore` (a restored copy not yet accepted, a leftover
+  temporary guest of a restore check or boot test) were taken by a job for "all guests": a
+  restored copy was backed up as a second guest with the original's name, a boot test's guest
+  got a backup planned that failed once it was gone, and both counted as unprotected or "in no
+  job". Such a guest in no job is now left out of the job for all guests and every count, and
+  the list shows it as "Restored, in restow-restore (move it out of the pool to protect it)". A
+  guest put into a job by hand is still backed up.
 
 ### Upgrade Notes
 

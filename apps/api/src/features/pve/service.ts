@@ -2,7 +2,9 @@ import {
   enrollmentTokenExpiry,
   generateEnrollmentToken,
   pveBootTestRating,
+  pveGuestBackable,
   pveGuestCounted,
+  pveGuestInRestorePool,
   pveGuestExcluded,
   pveGuestIsRestowServer,
   pveJobOfGuest,
@@ -460,6 +462,10 @@ function guestDto(
   }
   if (!g.present) {
     attention.push("absent");
+  }
+  // A restored copy or a temporary guest in no job: not backed up, and not to be (docs/PVE.md).
+  if (pveGuestBackable(g) && g.jobId === null && pveGuestInRestorePool(g)) {
+    attention.push("restore_pool");
   }
   if (pveSelfBackupBlocked(g)) {
     attention.push("restow_server");

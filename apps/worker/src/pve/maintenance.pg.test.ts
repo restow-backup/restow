@@ -320,6 +320,15 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       excludedAt: clock,
     }));
     expect(coveredBy(job as never, excluded)).toHaveLength(0);
+    // A restored copy in the pool restow-restore, or a leftover temporary guest, is not taken by
+    // the job for all guests; put into a job by hand, that job backs it up (S14).
+    const all = await owner.select().from(pveGuests);
+    const restored = all.map((guest) => ({ ...guest, pool: "restow-restore" }));
+    expect(coveredBy(job as never, restored)).toHaveLength(0);
+    const temporary = all.map((guest) => ({ ...guest, tags: ["restow-boottest"] }));
+    expect(coveredBy(job as never, temporary)).toHaveLength(0);
+    const assigned = restored.map((guest) => ({ ...guest, jobId: job?.id ?? null }));
+    expect(coveredBy(job as never, assigned)).toHaveLength(1);
     expect(await planJobs(deps, clock)).toBe(1);
     expect(await planJobs(deps, clock)).toBe(0);
     const tasks = await owner.select().from(pveTasks);

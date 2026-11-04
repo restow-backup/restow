@@ -47,6 +47,7 @@ export const GUEST_STATUS_ORDER = [
   "never",
   "cancelled",
   "template",
+  "restore_pool",
   "absent",
   "verified",
   "succeeded",
@@ -110,6 +111,9 @@ export const GUEST_STATUS_META: Record<GuestStatusKey, StatusMeta> = {
   excluded: { tone: "muted", problem: false, group: "excluded" },
   cancelled: { tone: "muted", problem: false, group: null },
   template: { tone: "muted", problem: false, group: null },
+  // A restored copy (or a leftover temporary guest) in the pool restow-restore, in no job: not
+  // backed up on purpose until someone moves it out of the pool or puts it into a job.
+  restore_pool: { tone: "muted", problem: false, group: null },
   absent: { tone: "muted", problem: false, group: null },
   verified: { tone: "success", problem: false, group: "ok" },
   succeeded: { tone: "outline", problem: false, group: "ok" },
@@ -217,8 +221,14 @@ export function guestStatuses(guest: StatusGuest, node?: StatusNode): GuestStatu
   if (excluded) {
     keys.add("excluded");
   }
-  // Excluded guests are not "not backed up yet" or "in no job": that is what was asked for.
-  const backable = guest.present && !(guest.kind === "vm" && guest.template) && !excluded;
+  const restorePool = (guest.attention ?? []).includes("restore_pool");
+  if (restorePool) {
+    keys.add("restore_pool");
+  }
+  // Excluded guests are not "not backed up yet" or "in no job": that is what was asked for. Nor
+  // are the guests Restow restored into its pool.
+  const backable =
+    guest.present && !(guest.kind === "vm" && guest.template) && !excluded && !restorePool;
   if (backable && (guest.attention ?? []).includes("no_job")) {
     keys.add("no_job");
   }

@@ -139,6 +139,7 @@
       "never": "Not backed up yet",
       "cancelled": "Cancelled",
       "template": "Template",
+      "restore_pool": "Restored, in restow-restore (move it out of the pool to protect it)",
       "absent": "No longer reported",
       "verified": "Restore check passed",
       "succeeded": "Backed up",

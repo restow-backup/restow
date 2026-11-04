@@ -341,6 +341,8 @@ async function tenantCandidates(
       present: pveGuests.present,
       jobId: pveGuests.jobId,
       excludedAt: pveGuests.excludedAt,
+      pool: pveGuests.pool,
+      tags: pveGuests.tags,
       createdAt: pveGuests.createdAt,
       lastSuccessAt: pveGuests.lastSuccessAt,
       newest:

@@ -1,5 +1,6 @@
 import {
   pveGuestBackable,
+  pveGuestCounted,
   pveGuestExcluded,
   pveJobOfGuest,
   pveRestorePointRating,
@@ -259,7 +260,8 @@ export async function loadGuestProtection(
 
   for (const guest of guests) {
     const excluded = pveGuestBackable(guest) && pveGuestExcluded(guest);
-    const backable = pveGuestBackable(guest) && !excluded;
+    // A guest to protect: not excluded, and no restored copy or temporary guest in no job.
+    const backable = pveGuestCounted(guest);
     const job = pveJobOfGuest(guest, jobs);
     const inJob = job !== null;
     const snapshot = newestBy.get(guest.id) ?? null;

@@ -139,6 +139,7 @@
       "never": "Noch nicht gesichert",
       "cancelled": "Abgebrochen",
       "template": "Vorlage",
+      "restore_pool": "Wiederhergestellt, in restow-restore (zum Schützen aus dem Pool verschieben)",
       "absent": "Nicht mehr gemeldet",
       "verified": "Restore-Prüfung bestanden",
       "succeeded": "Gesichert",
