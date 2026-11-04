@@ -28,6 +28,8 @@ export class FakeMembershipDirectory {
   pageSize = 999;
   /** Owners and members of every group answer 403 (no Group.Read.All / GroupMember.Read.All). */
   refuse = false;
+  /** Owners and members of these groups answer 403 (hidden membership, say). */
+  readonly refuseGroups = new Set<string>();
   /** Sites answer 403 (no Sites.Read.All). */
   refuseSites = false;
   /** Sub-requests of these groups answer 429 this many more times before they succeed. */
@@ -95,7 +97,7 @@ export class FakeMembershipDirectory {
         ? { status: 200, json: { id: group.siteId } }
         : { status: 404, json: graphError("itemNotFound", "no site") };
     }
-    if (this.refuse) {
+    if (this.refuse || this.refuseGroups.has(groupId)) {
       return {
         status: 403,
         json: graphError("Authorization_RequestDenied", "Insufficient privileges"),

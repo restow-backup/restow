@@ -144,8 +144,14 @@ private repository.
   the same rows as its group; someone listed as owner and member is an owner. A group that is
   read again has its rows replaced: a person who left loses the row, a changed role is updated.
   Every group is read on a full sync (at least every 24 hours) and on the first run with this
-  version; in between only the groups the groups delta reports, because a changed membership
-  alone does not show up in it. Rows of a group or site deleted at the source stay as last known,
+  version; in between the groups the groups delta reports (a changed membership alone does not
+  show up in it) and the groups an earlier run could not finish: refused, throttled past the
+  retries, or whose site the sites listing did not have yet (a Team created a moment ago). Those
+  are read again on every following run until they succeed, not only by the next full sync; with
+  more than 1000 of them the next run reads every group. What a run reads is written at the end
+  of each chunk of 50 groups and as soon as it holds 20,000 rows, as the difference to the stored
+  rows in statements of at most 5000 rows, so an "All employees" group with tens of thousands of
+  members neither fills the memory nor becomes one huge statement. Rows of a group or site deleted at the source stay as last known,
   next to its restore points, and go with the object or the person. Communication sites without
   a group have none: Graph v1.0 does not expose their SharePoint groups.
 - No new permission: `Group.Read.All`, which the app has always required, covers owners and
@@ -153,13 +159,19 @@ private repository.
   the membership (403 without the consent) or keeps throttling a group past the retries, the sync
   does not fail: the stored rows stay, and the source shows one warning naming how many groups
   could not be read ("Owners and members of the Microsoft 365 groups are not read: the tenant has
-  not granted Group.Read.All …"). A site Graph does not name keeps its rows.
+  not granted Group.Read.All …"). When a whole chunk is refused with 401/403 the run stops asking
+  for the rest, so a missing consent costs one chunk per run. A site Graph does not name keeps its
+  rows. Until every group has been read, and while groups wait to be read again, a person's
+  "Teams & sites" says that the list may be incomplete ("… that is no proof" when it is empty)
+  instead of presenting it as a complete result; the api answers `complete: false` for it.
 - The api answers `GET /api/v1/snapshots/people/memberships?key=user:<id>&after=&limit=`: one
   page of a person's group mailboxes and sites with the role and each object as the explorer's
   other lists return it (restore points, readiness, status), owned first, then by name, with a
   keyset cursor. One query reads the page over the index on `(user_id, protected_object_id)`,
   however many groups the tenant has, and one more loads its objects; for a viewer who does not
-  see sites the answer is an empty list.
+  see sites the answer is an empty list. Each membership is one button whose accessible name is
+  its content (name, kind, role, "No backup yet" or "Removed"), and the area is labelled by its
+  heading.
 
 ### Changed
 
@@ -255,9 +267,9 @@ private repository.
 Two database migrations run on start: 0073 creates the new table `storage_samples` and 0074 the
 new table `directory_memberships`; neither rewrites anything. The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per
-group, through `$batch`); until it has run, a person's "Teams & sites" is empty. Agents before
-0.5.0 ignore `snapshotOnFailure`, and the release key keeps the fingerprint
-`SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
+group, through `$batch`); until it has run, a person's "Teams & sites" is empty and says that it
+may be incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
+fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
 
 ### Known Issues
 

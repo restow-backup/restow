@@ -1,4 +1,9 @@
-import { expandSeries, type RecurringEventLike } from "@restow/core";
+import {
+  expandSeries,
+  membershipsComplete,
+  type RecurringEventLike,
+  readDirectoryState,
+} from "@restow/core";
 import {
   chunkIdsFromDriver,
   type Database,
@@ -11,7 +16,7 @@ import {
   sources,
   users,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, type SQL, sql } from "drizzle-orm";
 import { type AuditEvent, audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -1972,6 +1977,13 @@ export interface PersonMembershipsPageDto {
   total: number;
   /** The cursor of the next page; null on the last one. */
   next: string | null;
+  /**
+   * Whether the directory sync has read the owners and members of every Microsoft 365 group of
+   * the tenant's Microsoft 365 sources, with nothing left to read again. False: the list may be
+   * missing entries (never read yet, the permission is missing, or Graph refused some groups),
+   * so an empty list does not prove that the person belongs to nothing.
+   */
+  complete: boolean;
 }
 
 interface MembershipCursor {
@@ -2023,9 +2035,23 @@ export async function listPersonMemberships(
 ): Promise<PersonMembershipsPageDto> {
   const userId = query.key.slice("user:".length);
   if (!seesAllObjects(viewer)) {
-    return { key: query.key, items: [], total: 0, next: null };
+    return { key: query.key, items: [], total: 0, next: null, complete: true };
   }
   return withTenantTx(db, tenantId, async (tx) => {
+    // A paused source keeps what it read last and is not waited for; one awaiting consent is.
+    const directorySources = await tx
+      .select({ config: sources.config })
+      .from(sources)
+      .where(
+        and(
+          eq(sources.tenantId, tenantId),
+          eq(sources.kind, "m365"),
+          ne(sources.status, "disabled"),
+        ),
+      );
+    const complete = directorySources.every((source) =>
+      membershipsComplete(readDirectoryState(source.config)),
+    );
     const cursor = query.after ? decodeMembershipCursor(query.after) : null;
     const after = cursor
       ? sql`WHERE (m.rank, m.sort_name, m.id) > (${cursor.rank}, ${cursor.name}, ${cursor.id}::uuid)`
@@ -2081,6 +2107,7 @@ export async function listPersonMemberships(
         result.rows.length > query.limit && last
           ? encodeMembershipCursor({ rank: Number(last.rank), name: last.sort_name, id: last.id })
           : null,
+      complete,
     };
   });
 }

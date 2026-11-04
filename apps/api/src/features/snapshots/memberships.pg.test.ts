@@ -11,6 +11,7 @@
  * skipped; docs/TESTING.md lists it under integration.
  */
 import { randomUUID } from "node:crypto";
+import { readDirectoryState, writeDirectoryState } from "@restow/core";
 import {
   createDb,
   type Database,
@@ -261,7 +262,7 @@ describe.skipIf(!testDatabaseAdminUrl)("a person's Teams and sites, against Post
     );
     expect(forRestorer.items).toHaveLength(5);
     const forPerson = await listPersonMemberships(db, f.tenantId, f.anna, query());
-    expect(forPerson).toEqual({ key: personKey, items: [], total: 0, next: null });
+    expect(forPerson).toEqual({ key: personKey, items: [], total: 0, next: null, complete: true });
     // A person without memberships has an empty list, not an error.
     const nobody = await listPersonMemberships(
       db,
@@ -270,6 +271,36 @@ describe.skipIf(!testDatabaseAdminUrl)("a person's Teams and sites, against Post
       personMembershipsQuerySchema.parse({ key: `user:${randomUUID()}` }),
     );
     expect(nobody.items).toEqual([]);
+  });
+
+  it("says whether the memberships are complete, so an empty list is no proof of none", async () => {
+    const setState = async (state: Partial<ReturnType<typeof readDirectoryState>>) => {
+      const [source] = await db.select().from(sources).where(eq(sources.id, m365));
+      await db
+        .update(sources)
+        .set({
+          config: writeDirectoryState(source?.config, {
+            ...readDirectoryState(source?.config),
+            ...state,
+          }),
+        })
+        .where(eq(sources.id, m365));
+    };
+    const nobody = personMembershipsQuerySchema.parse({ key: `user:${randomUUID()}` });
+    // Never read: the sync has not got to the memberships yet (or may not read them).
+    expect((await listPersonMemberships(db, f.tenantId, f.admin, nobody)).complete).toBe(false);
+    await setState({ membershipsSyncedAt: "2026-11-01T10:00:00.000Z", membershipsRetryIds: [] });
+    const read = await listPersonMemberships(db, f.tenantId, f.admin, nobody);
+    expect(read).toMatchObject({ items: [], complete: true });
+    expect((await listPersonMemberships(db, f.tenantId, f.admin, query())).complete).toBe(true);
+    // Some groups were refused or throttled: they wait for the next run.
+    await setState({ membershipsRetryIds: ["g-0003"] });
+    expect((await listPersonMemberships(db, f.tenantId, f.admin, nobody)).complete).toBe(false);
+    // A paused source is not waited for.
+    await db.update(sources).set({ status: "disabled" }).where(eq(sources.id, m365));
+    expect((await listPersonMemberships(db, f.tenantId, f.admin, nobody)).complete).toBe(true);
+    await db.update(sources).set({ status: "active" }).where(eq(sources.id, m365));
+    await setState({ membershipsSyncedAt: null, membershipsRetryIds: [] });
   });
 
   it("refuses a key that is no person and a cursor it did not hand out", async () => {

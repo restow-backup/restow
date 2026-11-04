@@ -87,7 +87,7 @@ function membership(index: number, over: Partial<PersonMembership> = {}): Person
 }
 
 /** The memberships endpoint over `items`, `pageSize` at a time. */
-function stubMemberships(items: PersonMembership[], pageSize = 25) {
+function stubMemberships(items: PersonMembership[], pageSize = 25, complete = true) {
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
     const url = new URL(String(input), "http://localhost");
     asked.push(url);
@@ -97,6 +97,7 @@ function stubMemberships(items: PersonMembership[], pageSize = 25) {
       items: items.slice(start, start + pageSize),
       total: items.length,
       next: start + pageSize < items.length ? String(start + pageSize) : null,
+      complete,
     });
   });
 }
@@ -135,16 +136,23 @@ describe("a person's Teams and sites", () => {
     await waitFor(() => slots("person-membership").length === 3, { what: "the memberships" });
     expect(asked[0]?.pathname).toBe("/api/v1/snapshots/people/memberships");
     expect(asked[0]?.searchParams.get("key")).toBe("user:u1");
-    expect(document.querySelector("h3")?.textContent).toBe("Teams & sites");
+    const heading = document.querySelector("h3");
+    expect(heading?.textContent).toBe("Teams & sites");
+    expect(slots("person-memberships")[0]?.getAttribute("aria-labelledby")).toBe(heading?.id);
 
     const [site, group, gone] = slots("person-membership");
     expect(site?.textContent).toContain("Projekt Nordlicht");
     expect(site?.textContent).toContain("SharePoint site");
     expect(site?.textContent).toContain("Owner");
-    expect(site?.getAttribute("aria-label")).toBe("Open the restore points of Projekt Nordlicht");
+    // The accessible name is the content: name, kind, role and state reach a screen reader too.
+    for (const button of [site, group, gone]) {
+      expect(button?.hasAttribute("aria-label")).toBe(false);
+      expect(button?.textContent).toContain("opens the restore points");
+    }
     expect(group?.textContent).toContain("Member");
     expect(group?.textContent).toContain("No backup yet");
     expect(gone?.textContent).toContain("Removed");
+    expect(slots("person-memberships-incomplete")).toHaveLength(0);
     // A role is no proof of anything: neutral, never green.
     const owner = [...document.querySelectorAll('[data-slot="badge"]')].find(
       (node) => node.textContent === "Owner",
@@ -178,7 +186,27 @@ describe("a person's Teams and sites", () => {
     });
     await waitFor(() => slots("person-memberships-empty").length === 1, { what: "the empty text" });
     expect(slots("person-memberships-empty")[0]?.textContent).toContain(
-      "No Teams or sites are known for this person",
+      "No Teams or sites are known for this person.",
+    );
+  });
+
+  it("does not present a list as complete while the sync has not read every group", async () => {
+    stubMemberships([], 25, false);
+    mounted = mount(<PersonMemberships personKey="user:u1" onOpen={() => {}} />, {
+      session: SESSION,
+    });
+    await waitFor(() => slots("person-memberships-empty").length === 1, { what: "the empty text" });
+    expect(slots("person-memberships-empty")[0]?.textContent).toContain("that is no proof");
+    await mounted.unmount();
+    document.body.innerHTML = "";
+
+    stubMemberships([membership(1)], 25, false);
+    mounted = mount(<PersonMemberships personKey="user:u2" onOpen={() => {}} />, {
+      session: SESSION,
+    });
+    await waitFor(() => slots("person-membership").length === 1, { what: "the memberships" });
+    expect(slots("person-memberships-incomplete")[0]?.textContent).toContain(
+      "This list may be incomplete",
     );
   });
 
@@ -187,7 +215,7 @@ describe("a person's Teams and sites", () => {
     vi.stubGlobal("fetch", async () =>
       failing
         ? problem("urn:restow:problem:internal", 500)
-        : json({ key: "user:u1", items: [membership(1)], total: 1, next: null }),
+        : json({ key: "user:u1", items: [membership(1)], total: 1, next: null, complete: true }),
     );
     mounted = mount(<PersonMemberships personKey="user:u1" onOpen={() => {}} />, {
       session: SESSION,

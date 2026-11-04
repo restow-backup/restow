@@ -20,8 +20,9 @@
  * exposes (their SharePoint groups are reachable only through the SharePoint REST API), so they
  * get no rows (docs/MICROSOFT.md).
  *
- * Nothing here touches a database; ./sync.ts hands the result to the repository chunk by chunk,
- * so memory stays at one chunk of groups.
+ * Nothing here touches a database; ./sync.ts hands the result to the repository group by group
+ * as each is read, and writes whenever the rows it holds reach {@link MEMBERSHIP_FLUSH_ROWS}, so
+ * memory stays at the first pages of one chunk plus the largest single group.
  */
 import type { BatchRequest, BatchResponse, GraphClient } from "../graph/client.js";
 import { isGraphError } from "../graph/errors.js";
@@ -36,6 +37,13 @@ import {
 
 /** Groups read per chunk (three sub-requests each, so a chunk is a handful of `$batch` calls). */
 export const MEMBERSHIP_CHUNK = 50;
+
+/**
+ * Membership rows (people per group, twice for a group with a site) the sync holds before it
+ * writes them, so a chunk of "all employees" groups with tens of thousands of members each is
+ * written in parts instead of all at once.
+ */
+export const MEMBERSHIP_FLUSH_ROWS = 20_000;
 
 /** The membership of one Microsoft 365 group as Graph listed it. */
 export interface GroupMembership {
@@ -63,6 +71,17 @@ export interface MembershipFailure {
 export interface MembershipChunk {
   readonly read: readonly GroupMembership[];
   readonly failed: readonly MembershipFailure[];
+}
+
+/** One group of a chunk, as soon as it is read: its membership, or why it could not be read. */
+export type MembershipOutcome =
+  | { readonly read: GroupMembership; readonly failed?: undefined }
+  | { readonly read?: undefined; readonly failed: MembershipFailure };
+
+/** The rows a membership becomes: one per person, for the group and again for its site. */
+export function membershipRowCount(membership: GroupMembership): number {
+  const people = membership.owners.length + membership.members.length;
+  return membership.siteId ? people * 2 : people;
 }
 
 type Role = "owner" | "member";
@@ -126,13 +145,15 @@ async function userIdsOf(client: GraphClient, first: CollectionPage<DirectoryObj
 }
 
 /**
- * Read the membership of `groupIds` (one chunk; see {@link MEMBERSHIP_CHUNK}). Network errors
- * and an aborted job propagate; Graph's answers become `read` or `failed`.
+ * Read the membership of `groupIds` (one chunk; see {@link MEMBERSHIP_CHUNK}), yielding each
+ * group as soon as its listings are complete, so the caller can write before the rest of the
+ * chunk's large groups are paged through. Network errors and an aborted job propagate; Graph's
+ * answers become `read` or `failed`; a group that is gone yields nothing.
  */
-export async function readGroupMemberships(
+export async function* groupMembershipsOf(
   client: GraphClient,
   groupIds: readonly string[],
-): Promise<MembershipChunk> {
+): AsyncGenerator<MembershipOutcome> {
   const requests: BatchRequest[] = groupIds.flatMap((groupId, index) => [
     { id: `${index}:owners`, method: "GET", url: groupOwnersUrl(groupId) },
     { id: `${index}:members`, method: "GET", url: groupMembersUrl(groupId) },
@@ -145,26 +166,32 @@ export async function readGroupMemberships(
     // A `$batch` Graph refused as a whole (throttled past the retries, say): the chunk keeps
     // its stored rows and the run goes on.
     if (isGraphError(error)) {
-      return { read: [], failed: groupIds.map((groupId) => failureOf(groupId, null, error)) };
+      for (const groupId of groupIds) {
+        yield { failed: failureOf(groupId, null, error) };
+      }
+      return;
     }
     throw error;
   }
   const byId = new Map(responses.map((response) => [response.id, response]));
-  const read: GroupMembership[] = [];
-  const failed: MembershipFailure[] = [];
   for (const [index, groupId] of groupIds.entries()) {
     const owners = byId.get(`${index}:owners`) ?? null;
     const members = byId.get(`${index}:members`) ?? null;
     const site = byId.get(`${index}:site`) ?? null;
+    // The batch's answers of this group are no longer needed once it is read.
+    byId.delete(`${index}:owners`);
+    byId.delete(`${index}:members`);
+    byId.delete(`${index}:site`);
     if (owners?.status === 404 || members?.status === 404) {
       // Deleted since the groups delta listed it; the next delta orphans it.
       continue;
     }
     const refused = [owners, members].find((response) => !response || !ok(response.status));
     if (refused !== undefined) {
-      failed.push(failureOf(groupId, refused));
+      yield { failed: failureOf(groupId, refused) };
       continue;
     }
+    let membership: GroupMembership;
     try {
       const ownerIds = await userIdsOf(
         client,
@@ -180,7 +207,7 @@ export async function readGroupMemberships(
           : site?.status === 404
             ? null
             : undefined;
-      read.push({ groupId, owners: ownerIds, members: memberIds, siteId });
+      membership = { groupId, owners: ownerIds, members: memberIds, siteId };
     } catch (error) {
       if (!isGraphError(error)) {
         throw error;
@@ -188,7 +215,25 @@ export async function readGroupMemberships(
       if (error.status === 404) {
         continue;
       }
-      failed.push(failureOf(groupId, null, error));
+      yield { failed: failureOf(groupId, null, error) };
+      continue;
+    }
+    yield { read: membership };
+  }
+}
+
+/** Read the membership of `groupIds` (one chunk) at once; see {@link groupMembershipsOf}. */
+export async function readGroupMemberships(
+  client: GraphClient,
+  groupIds: readonly string[],
+): Promise<MembershipChunk> {
+  const read: GroupMembership[] = [];
+  const failed: MembershipFailure[] = [];
+  for await (const outcome of groupMembershipsOf(client, groupIds)) {
+    if (outcome.read) {
+      read.push(outcome.read);
+    } else {
+      failed.push(outcome.failed);
     }
   }
   return { read, failed };

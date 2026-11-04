@@ -51,6 +51,7 @@ import {
   type KnownObject,
   type KnownSite,
   type Logger,
+  type MembershipsRecord,
   membershipRoles,
   type NewlyActiveObject,
   needsFirstBackup,
@@ -104,6 +105,11 @@ type Env = Record<string, string | undefined>;
 
 /** Rows per statement for batched reads and writes. */
 const ROW_BATCH = 500;
+/**
+ * Membership rows per DELETE or INSERT statement (#89): a few hundred kilobytes of array
+ * literals at most, whatever the size of the group.
+ */
+export const MEMBERSHIP_WRITE_SLICE = 5000;
 
 /**
  * Builds the Graph client for a source, reporting every throttling wait to
@@ -281,21 +287,25 @@ export class PgDirectoryRepository implements DirectoryRepository {
         knownGroups,
         groupsDeltaLink: state.groupsDeltaLink,
         membershipsSyncedAt: state.membershipsSyncedAt,
+        membershipsRetryIds: state.membershipsRetryIds,
       };
     });
   }
 
   /**
-   * Replace the stored membership of each group of the chunk and of its group-connected site
+   * Replace the stored membership of each group of the part and of its group-connected site
    * (#89), in one tenant-pinned transaction: rows of people no longer listed go, new ones come,
-   * a changed role is updated, everything else stays untouched. A group or site the source does
-   * not have as an object, and a person not in the directory table, are skipped.
+   * a changed role is updated, everything else stays untouched. The difference to the stored
+   * rows is worked out here and sent in slices of {@link MEMBERSHIP_WRITE_SLICE} rows, so a group
+   * with tens of thousands of members is several bounded statements, not one huge parameter.
+   * A group the source does not have as an object, and a person not in the directory table,
+   * are skipped. Returns the groups whose site is not (yet) an object of the source.
    */
-  async writeMemberships(memberships: readonly GroupMembership[]): Promise<void> {
+  async writeMemberships(memberships: readonly GroupMembership[]): Promise<readonly string[]> {
     if (memberships.length === 0) {
-      return;
+      return [];
     }
-    await this.run(async (tx) => {
+    return this.run(async (tx) => {
       const externalIds = [
         ...new Set(
           memberships.flatMap((membership) =>
@@ -340,52 +350,97 @@ export class PgDirectoryRepository implements DirectoryRepository {
         }
       }
 
-      const targets: string[] = [];
-      const objectIds: string[] = [];
-      const userIds: string[] = [];
-      const roles: string[] = [];
+      // Object id -> (user id -> role), as Graph lists it now.
+      const wanted = new Map<string, Map<string, "owner" | "member">>();
+      const siteMissing: string[] = [];
       for (const membership of memberships) {
         const group = objects.get(`group:${membership.groupId}`);
         // An unknown site (undefined) keeps its rows; a group without one has nothing to add.
         const site = membership.siteId ? objects.get(`site:${membership.siteId}`) : undefined;
-        const owners = membershipRoles(membership);
+        if (membership.siteId && !site) {
+          // Not listed by the sites discovery yet (a Team created a moment ago): next run.
+          siteMissing.push(membership.groupId);
+        }
+        const roles = membershipRoles(membership);
         for (const objectId of [group, site]) {
-          if (!objectId || targets.includes(objectId)) {
+          if (!objectId || wanted.has(objectId)) {
             continue;
           }
-          targets.push(objectId);
-          for (const [entraId, role] of owners) {
+          const rows = new Map<string, "owner" | "member">();
+          for (const [entraId, role] of roles) {
             const userId = people.get(entraId);
             if (userId) {
-              objectIds.push(objectId);
-              userIds.push(userId);
-              roles.push(role);
+              rows.set(userId, role);
             }
+          }
+          wanted.set(objectId, rows);
+        }
+      }
+      if (wanted.size === 0) {
+        return siteMissing;
+      }
+
+      const removed: Array<[string, string]> = [];
+      const upserts: Array<[string, string, "owner" | "member"]> = [];
+      const stored = new Map<string, Map<string, string>>();
+      for (const batch of chunks([...wanted.keys()])) {
+        const rows = await tx
+          .select({
+            objectId: directoryMemberships.protectedObjectId,
+            userId: directoryMemberships.userId,
+            role: directoryMemberships.role,
+          })
+          .from(directoryMemberships)
+          .where(
+            and(
+              eq(directoryMemberships.tenantId, this.tenantId),
+              inArray(directoryMemberships.protectedObjectId, batch),
+            ),
+          );
+        for (const row of rows) {
+          let byUser = stored.get(row.objectId);
+          if (!byUser) {
+            byUser = new Map();
+            stored.set(row.objectId, byUser);
+          }
+          byUser.set(row.userId, row.role);
+        }
+      }
+      for (const [objectId, rows] of wanted) {
+        const before = stored.get(objectId) ?? new Map<string, string>();
+        for (const userId of before.keys()) {
+          if (!rows.has(userId)) {
+            removed.push([objectId, userId]);
+          }
+        }
+        for (const [userId, role] of rows) {
+          if (before.get(userId) !== role) {
+            upserts.push([objectId, userId, role]);
           }
         }
       }
-      if (targets.length === 0) {
-        return;
+      for (let i = 0; i < removed.length; i += MEMBERSHIP_WRITE_SLICE) {
+        const slice = removed.slice(i, i + MEMBERSHIP_WRITE_SLICE);
+        await tx.execute(sql`
+          DELETE FROM directory_memberships d
+          USING unnest(
+            ${arrayLiteral(slice.map(([objectId]) => objectId))}::uuid[],
+            ${arrayLiteral(slice.map(([, userId]) => userId))}::uuid[]
+          ) AS n(object_id, user_id)
+          WHERE d.tenant_id = ${this.tenantId}::uuid
+            AND d.protected_object_id = n.object_id
+            AND d.user_id = n.user_id
+        `);
       }
-      await tx.execute(sql`
-        DELETE FROM directory_memberships d
-        WHERE d.tenant_id = ${this.tenantId}::uuid
-          AND d.protected_object_id = ANY(${arrayLiteral(targets)}::uuid[])
-          AND NOT EXISTS (
-            SELECT 1
-            FROM unnest(${arrayLiteral(objectIds)}::uuid[], ${arrayLiteral(userIds)}::uuid[])
-              AS n(object_id, user_id)
-            WHERE n.object_id = d.protected_object_id AND n.user_id = d.user_id
-          )
-      `);
-      if (objectIds.length > 0) {
+      for (let i = 0; i < upserts.length; i += MEMBERSHIP_WRITE_SLICE) {
+        const slice = upserts.slice(i, i + MEMBERSHIP_WRITE_SLICE);
         await tx.execute(sql`
           INSERT INTO directory_memberships (tenant_id, protected_object_id, user_id, role)
           SELECT ${this.tenantId}::uuid, n.object_id, n.user_id, n.role
           FROM unnest(
-            ${arrayLiteral(objectIds)}::uuid[],
-            ${arrayLiteral(userIds)}::uuid[],
-            ${arrayLiteral(roles)}::text[]
+            ${arrayLiteral(slice.map(([objectId]) => objectId))}::uuid[],
+            ${arrayLiteral(slice.map(([, userId]) => userId))}::uuid[],
+            ${arrayLiteral(slice.map(([, , role]) => role))}::text[]
           )
             AS n(object_id, user_id, role)
           ON CONFLICT (protected_object_id, user_id) DO UPDATE
@@ -393,16 +448,24 @@ export class PgDirectoryRepository implements DirectoryRepository {
             WHERE ${directoryMemberships}.role IS DISTINCT FROM excluded.role
         `);
       }
+      return siteMissing;
     });
   }
 
-  async markMembershipsSynced(at: string): Promise<void> {
+  async recordMemberships(record: MembershipsRecord): Promise<void> {
     await this.run(async (tx) => {
       const source = await selectSource(tx, this.tenantId, this.sourceId, true);
       const state = readDirectoryState(source.config);
       await tx
         .update(sources)
-        .set({ config: writeDirectoryState(source.config, { ...state, membershipsSyncedAt: at }) })
+        .set({
+          config: writeDirectoryState(source.config, {
+            ...state,
+            membershipsSyncedAt:
+              record.syncedAt === undefined ? state.membershipsSyncedAt : record.syncedAt,
+            membershipsRetryIds: record.retryIds,
+          }),
+        })
         .where(eq(sources.id, this.sourceId));
     });
   }

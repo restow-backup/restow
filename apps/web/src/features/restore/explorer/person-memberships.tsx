@@ -1,4 +1,5 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Info } from "lucide-react";
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
 import { RelativeTime, StatusBadge } from "@/components/kit";
@@ -15,7 +16,9 @@ import { cn } from "@/lib/utils";
  * first, a page at a time from the API (`GET /snapshots/people/memberships`). Each leads to the
  * object's own entry in "SharePoint & Teams", with its restore points; a restore from there
  * follows the same rules as from that section. Only restore operators and administrators see
- * sites and group mailboxes, so the page shows this area to them alone.
+ * sites and group mailboxes, so the page shows this area to them alone. While the directory sync
+ * has not read every group (never yet, the permission is missing, or Graph refused some), the
+ * area says that the list may be incomplete: an empty list is no proof that there is nothing.
  */
 export function PersonMemberships({
   personKey,
@@ -29,14 +32,16 @@ export function PersonMemberships({
   const memberships = usePersonMemberships(personKey);
   const items = memberships.data?.pages.flatMap((page) => page.items) ?? [];
   const total = memberships.data?.pages[0]?.total ?? 0;
+  const complete = memberships.data?.pages[0]?.complete ?? true;
+  const titleId = useId();
 
   return (
     <section
-      aria-label={t("explorer.memberships.label")}
+      aria-labelledby={titleId}
       className="mt-3 border-t pt-3 text-sm"
       data-slot="person-memberships"
     >
-      <h3 className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+      <h3 id={titleId} className="px-2 pb-1 text-xs font-medium text-muted-foreground">
         {t("explorer.memberships.title")}
       </h3>
       {memberships.isPending ? (
@@ -58,16 +63,27 @@ export function PersonMemberships({
         </div>
       ) : items.length === 0 ? (
         <p className="px-2 text-xs text-muted-foreground" data-slot="person-memberships-empty">
-          {t("explorer.memberships.empty")}
+          {t(complete ? "explorer.memberships.empty" : "explorer.memberships.emptyIncomplete")}
         </p>
       ) : (
-        <ul className="space-y-0.5">
-          {items.map((membership) => (
-            <li key={membership.object.id}>
-              <MembershipItem membership={membership} onOpen={onOpen} />
-            </li>
-          ))}
-        </ul>
+        <>
+          {complete ? null : (
+            <p
+              className="flex items-start gap-1.5 px-2 pb-1 text-xs text-muted-foreground"
+              data-slot="person-memberships-incomplete"
+            >
+              <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span>{t("explorer.memberships.incomplete")}</span>
+            </p>
+          )}
+          <ul className="space-y-0.5">
+            {items.map((membership) => (
+              <li key={membership.object.id}>
+                <MembershipItem membership={membership} onOpen={onOpen} />
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {memberships.hasNextPage ? (
         <Button
@@ -102,7 +118,6 @@ function MembershipItem({
       data-slot="person-membership"
       data-kind={object.kind}
       data-role={role}
-      aria-label={t("explorer.memberships.open", { name })}
       className={cn(
         "flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left",
         "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -130,6 +145,8 @@ function MembershipItem({
           <StatusBadge tone="muted">{t("explorer.areas.noBackup")}</StatusBadge>
         ) : null}
       </span>
+      {/* The accessible name is the content (name, kind, role, state), plus where it leads. */}
+      <span className="sr-only">{t("explorer.memberships.open")}</span>
       <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
     </button>
   );

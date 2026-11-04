@@ -465,7 +465,13 @@ deren Inhaber und Mitglieder und legt sie in `directory_memberships` ab (Migrati
 `0074_directory_memberships`, Row Level Security wie jede Mandantentabelle; Code: Graph-Aufrufe in
 `packages/core/src/graph/resources/groups.ts`, Lesen in `packages/core/src/directory/memberships.ts`,
 Schreiben in `apps/worker/src/handlers/directory.ts` `writeMemberships`). Je Gruppe drei Aufrufe,
-gebündelt per `$batch`, 50 Gruppen je Abschnitt, jeder Abschnitt in einer eigenen Transaktion:
+gebündelt per `$batch`, 50 Gruppen je Abschnitt. Geschrieben wird am Ende jedes Abschnitts und
+zusätzlich, sobald die gelesenen Gruppen 20 000 Zeilen erreichen (`MEMBERSHIP_FLUSH_ROWS`; eine
+Gruppe mit Website zählt doppelt), jeweils in einer eigenen Transaktion. Darin rechnet der Worker
+den Unterschied zu den gespeicherten Zeilen aus und schickt Löschungen und Einfügungen in Scheiben
+zu 5000 Zeilen (`MEMBERSHIP_WRITE_SLICE`); eine Gruppe „Alle Mitarbeitenden" mit Zehntausenden
+Mitgliedern wird so zu mehreren begrenzten Anweisungen statt einem riesigen Parameter, und im
+Speicher liegen höchstens die ersten Seiten eines Abschnitts plus die größte einzelne Gruppe:
 
 | Aufruf (Graph v1.0) | Anwendungsberechtigung laut Referenz | bei Restow vorhanden über |
 | --- | --- | --- |
@@ -484,16 +490,29 @@ damit die Teams einer Person auch nach dem Löschen eines Teams wiederherstellba
 sie gehen mit dem Objekt oder der Person.
 
 - Wann: bei jedem vollen Abgleich (spätestens alle 24 Stunden) und beim ersten Lauf mit dieser
-  Version alle Gruppen (`sources.config.directory.membershipsSyncedAt`), dazwischen nur die
-  Gruppen, die der Delta-Strom meldet. Eine geänderte Mitgliedschaft allein weckt `groups/delta`
-  nicht (Mitglieder sind nicht ausgewählt), sie erscheint also mit dem nächsten vollen Abgleich.
+  Version alle Gruppen (`sources.config.directory.membershipsSyncedAt`), dazwischen die Gruppen,
+  die der Delta-Strom meldet, und die, die ein früherer Lauf nicht abschließen konnte
+  (`membershipsRetryIds`: verweigert, über die Wiederholungen hinaus gedrosselt, oder ihre Website
+  war noch kein Objekt der Quelle, weil `getAllSites` die Website eines eben angelegten Teams
+  noch nicht listet). Diese liest jeder folgende Lauf erneut, bis sie gelingen, nicht erst der
+  nächste volle. Sind es mehr als 1000 (`MEMBERSHIP_RETRY_LIMIT`), merkt sich der Lauf sie nicht
+  einzeln, sondern setzt `membershipsSyncedAt` zurück, und der nächste Lauf liest alle Gruppen.
+  Eine geänderte Mitgliedschaft allein weckt `groups/delta` nicht (Mitglieder sind nicht
+  ausgewählt), sie erscheint also mit dem nächsten vollen Abgleich.
 - Throttling: derselbe Graph-Client (Retry-After plus Jitter); gedrosselte Antworten im `$batch`
   werden einzeln wiederholt. Bleibt eine Gruppe nach den Wiederholungen gedrosselt (429/5xx) oder
   verweigert Graph sie (403 ohne Zustimmung), behält sie ihre Zeilen, und der Abgleich meldet
   **eine** Warnung `memberships_unavailable` mit der Zahl der Gruppen („Inhaber und Mitglieder
   der Microsoft-365-Gruppen werden nicht gelesen: Der Tenant hat der App der Sicherung
-  Group.Read.All nicht erteilt …" bei 401/403). Der Abgleich schlägt deshalb nie fehl. Eine
+  Group.Read.All nicht erteilt …" bei 401/403). Der Abgleich schlägt deshalb nie fehl, und die
+  betroffenen Gruppen liest der nächste Lauf erneut. Verweigert Graph einen ganzen Abschnitt mit
+  401/403 (die Berechtigung fehlt), fragt der Lauf die übrigen Gruppen nicht mehr an und lässt sie
+  ebenso dem nächsten Lauf; ohne Zustimmung kostet ein Lauf so nur einen Abschnitt. Eine
   Gruppe, die inzwischen gelöscht ist (404), wird übergangen; der nächste Delta-Lauf verwaist sie.
+- Vollständigkeit im Explorer: Solange eine nicht pausierte Microsoft-365-Quelle des Mandanten
+  noch nie alle Gruppen gelesen hat oder Gruppen zum erneuten Lesen vormerkt, liefert die API
+  `complete: false`, und der Bereich „Teams & Websites" sagt, dass die Liste unvollständig sein
+  kann; eine leere Liste heißt dann ausdrücklich nicht „keine Mitgliedschaften".
   Verweigert Graph nur die Website (ohne `Sites.Read.All`), behält die Website ihre Zeilen.
 - Kommunikationswebsites ohne Gruppe bekommen **keine** Zeilen: Graph v1.0 nennt ihre
   SharePoint-Gruppen (Besitzer, Mitglieder, Besucher) nicht; das ginge nur über die

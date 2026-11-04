@@ -115,6 +115,11 @@ export interface PersonMembershipsPage {
   total: number;
   /** The cursor of the next page; null on the last one. */
   next: string | null;
+  /**
+   * Whether the directory sync has read every Microsoft 365 group with nothing left to read
+   * again; false: the list may be missing entries (an empty one proves nothing).
+   */
+  complete: boolean;
 }
 
 /** The page size of a person's Teams and sites. */

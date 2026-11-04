@@ -3,7 +3,8 @@
  * Postgres: {@link PgDirectoryRepository} stores owners and members of a group on its `group`
  * object and on its group-connected `site` object, skips people not in the directory and
  * communication sites without a group, replaces a group's rows when it is read again (a person
- * who left loses the row, a changed role is updated), records the complete pass in
+ * who left loses the row, a changed role is updated) also for a group of thousands of members
+ * written in slices, records the complete pass and the groups to read again in
  * `sources.config.directory`, and keeps the rows when Graph refuses the membership.
  *
  * Graph is the core package's fake: an empty users delta, a sites listing, `groups/delta` and
@@ -35,7 +36,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FakeGroupDirectory } from "../../../../packages/core/src/backup/groups/testing/fake-group.js";
 import { createFakeGraph } from "../../../../packages/core/src/graph/testing/fake-graph.js";
 import { FakeMembershipDirectory } from "../../../../packages/core/src/graph/testing/fake-memberships.js";
-import { PgDirectoryRepository } from "./directory.js";
+import { MEMBERSHIP_WRITE_SLICE, PgDirectoryRepository } from "./directory.js";
 import { tenantRunner } from "./framework.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -238,6 +239,12 @@ describe.skipIf(!adminUrl)("directory sync of memberships against Postgres", () 
     await syncDirectory({ client: graph.client(), repository, groups: true, memberships: true });
     const before = await rows(sourceId);
     expect(before).toHaveLength(3);
+    const state = async () => {
+      const [stored] = await db.select().from(sources).where(eq(sources.id, sourceId));
+      return readDirectoryState(stored?.config);
+    };
+    // Without the sites listing the Team's site is no object yet: its group is read again.
+    expect((await state()).membershipsRetryIds).toEqual(["g-project"]);
 
     members.refuse = true;
     const result = await syncDirectory({
@@ -250,7 +257,46 @@ describe.skipIf(!adminUrl)("directory sync of memberships against Postgres", () 
     expect(result.warnings.map((warning) => warning.kind)).toEqual(["memberships_unavailable"]);
     expect(result.warnings[0]).toMatchObject({ groups: 2, status: 403 });
     expect(await rows(sourceId)).toEqual(before);
+    // Both are read again by the next run, not only by the next full one.
+    expect([...(await state()).membershipsRetryIds].sort()).toEqual(["g-board", "g-project"]);
+    expect((await state()).membershipsSyncedAt).not.toBeNull();
   });
+
+  it("stores a group of thousands of members across Graph pages and write slices", async () => {
+    const { tenantId, sourceId, repository, groups, members } = await setup();
+    const size = MEMBERSHIP_WRITE_SLICE + 1200;
+    const crowd = Array.from({ length: size }, (_, index) => `u-crowd-${index}`);
+    for (let i = 0; i < crowd.length; i += 1000) {
+      await db.insert(users).values(
+        crowd.slice(i, i + 1000).map((entraObjectId) => ({
+          tenantId,
+          entraObjectId,
+          email: `${entraObjectId}@contoso.example`,
+        })),
+      );
+    }
+    members.set("g-board", { owners: ["u-crowd-0"], members: crowd, siteId: null });
+    const graph = graphFor(groups, members);
+    await syncDirectory({ client: graph.client(), repository, groups: true, memberships: true });
+    const boardRows = async () =>
+      (await rows(sourceId)).filter((row) => row.startsWith("g-board "));
+    let board = await boardRows();
+    expect(board).toHaveLength(size);
+    expect(board).toContain("g-board u-crowd-0 owner");
+    expect(board).toContain(`g-board u-crowd-${size - 1} member`);
+    // Read 999 at a time: the first page in the batch, the rest on the next links.
+    expect(graph.callsTo("GET", "/groups/g-board/members")).toHaveLength(Math.ceil(size / 999) - 1);
+
+    // Most of them leave and someone else owns it: deletes and the role change in slices too.
+    members.set("g-board", { owners: ["u-crowd-1"], members: crowd.slice(0, 1500), siteId: null });
+    groups.changes = [unified("g-board", "Board")];
+    await syncDirectory({ client: graph.client(), repository, groups: true, memberships: true });
+    board = await boardRows();
+    expect(board).toHaveLength(1500);
+    expect(board).toContain("g-board u-crowd-0 member");
+    expect(board).toContain("g-board u-crowd-1 owner");
+    expect(board).not.toContain("g-board u-crowd-1500 member");
+  }, 60_000);
 
   it("drops the rows of a person who leaves the directory table", async () => {
     const { sourceId, repository, groups, members, userIds } = await setup();

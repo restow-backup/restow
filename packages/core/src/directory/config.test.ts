@@ -105,6 +105,7 @@ describe("sync state in sources.config", () => {
       deltaLink: "https://graph/users/delta?$deltatoken=A",
       groupsDeltaLink: "https://graph/groups/delta?$deltatoken=G",
       membershipsSyncedAt: "2026-09-22T00:00:00.000Z",
+      membershipsRetryIds: ["g-1"],
       lastFullSyncAt: "2026-09-22T00:00:00.000Z",
       fullSyncRequestedAt: null,
       sharedOrBlockedIds: ["user-shared"],

@@ -21,10 +21,11 @@
  * second delta stream, `groups/delta`, read when the host asks for it and
  * planned apart like the sites (./group-mailboxes.ts); its delta link is
  * committed with the rows as well. After that commit the run reads who owns and who is a member
- * of each Microsoft 365 group (./memberships.ts) and hands it to the repository chunk by chunk:
+ * of each Microsoft 365 group (./memberships.ts) and hands it to the repository part by part:
  * every group on a full enumeration and on the first run that does it, otherwise the groups the
  * delta reported (membership changes alone do not wake the groups delta, so they show up with the
- * next full enumeration, at least every 24 hours).
+ * next full enumeration, at least every 24 hours), plus the groups the last run could not finish
+ * (refused, throttled past the retries, or their site not yet an object), until they succeed.
  *
  * Nothing here depends on Postgres: the worker implements the repository over
  * Drizzle, tests use {@link MemoryDirectoryRepository} and the fake Graph.
@@ -47,7 +48,7 @@ import {
   type UserDeltaEntry,
   usersDelta,
 } from "../graph/resources/users.js";
-import type { ProtectionConfig } from "./config.js";
+import { MEMBERSHIP_RETRY_LIMIT, type ProtectionConfig } from "./config.js";
 import {
   discoverGroupMailboxes,
   type GroupDiscovery,
@@ -58,10 +59,12 @@ import {
 import { isLockedAnswer, type LockState, type LockTarget, recheckLocked } from "./locks.js";
 import {
   type GroupMembership,
+  groupMembershipsOf,
   MEMBERSHIP_CHUNK,
+  MEMBERSHIP_FLUSH_ROWS,
   type MembershipFailure,
   membershipRoles,
-  readGroupMemberships,
+  membershipRowCount,
 } from "./memberships.js";
 import {
   type DirectoryObjectKind,
@@ -115,6 +118,16 @@ export interface DirectorySnapshot {
    * one, which then reads all of them even when the groups delta is incremental.
    */
   readonly membershipsSyncedAt?: string | null;
+  /** Groups the last run could not finish; read again whatever the delta reports. */
+  readonly membershipsRetryIds?: readonly string[];
+}
+
+/** What a run records about the memberships it read (see {@link DirectoryRepository}). */
+export interface MembershipsRecord {
+  /** The new `membershipsSyncedAt`; undefined keeps the stored one. */
+  readonly syncedAt?: string | null;
+  /** The groups the next run reads again (replaces the stored list). */
+  readonly retryIds: readonly string[];
 }
 
 /** Everything one run writes, in one transaction. */
@@ -151,11 +164,12 @@ export interface DirectoryRepository {
   /**
    * Replace the stored membership of each group of the chunk (and of its group-connected site,
    * when `siteId` names one the source has): a person who is no longer listed loses the row.
-   * Absent: the host keeps no memberships and the run reads none.
+   * Returns the groups whose site is not (yet) an object of the source, so the run reads them
+   * again next time. Absent: the host keeps no memberships and the run reads none.
    */
-  writeMemberships?(memberships: readonly GroupMembership[]): Promise<void>;
-  /** Record that a run read the membership of every group, at `at` (see the snapshot). */
-  markMembershipsSynced?(at: string): Promise<void>;
+  writeMemberships?(memberships: readonly GroupMembership[]): Promise<readonly string[]>;
+  /** Record the run's membership state (see the snapshot). */
+  recordMemberships?(record: MembershipsRecord): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -790,6 +804,7 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
           discovery: groupDiscovery,
           known: snapshot.knownGroups ?? [],
           orphaned: groupPlan.orphanExternalIds,
+          retryIds: snapshot.membershipsRetryIds ?? [],
           complete:
             options.full === true ||
             groupDiscovery.mode !== "incremental" ||
@@ -834,9 +849,13 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
 /**
  * Read and store the membership of the source's Microsoft 365 groups, after the groups
  * themselves are committed (a new group's object exists by then). `complete` reads every
- * current group, otherwise only those the delta reported. One chunk of groups is read and
- * written at a time; a group Graph refuses keeps its rows and is counted into one warning.
- * Returns the number of groups stored, or null when the repository keeps no memberships.
+ * current group, otherwise those the delta reported and those the last run could not finish.
+ * One chunk of groups is read at a time, and what is read is written at the end of each chunk
+ * or as soon as it holds {@link MEMBERSHIP_FLUSH_ROWS} rows. A group Graph refuses keeps its rows,
+ * is counted into one warning and read again on the next run; when a whole chunk is refused
+ * with 401/403 (the permission is missing) the run stops asking and leaves the rest for the
+ * next run as well. Returns the number of groups stored, or null when the repository keeps no
+ * memberships.
  */
 async function syncMemberships(input: {
   readonly client: GraphClient;
@@ -844,6 +863,7 @@ async function syncMemberships(input: {
   readonly discovery: GroupDiscovery;
   readonly known: readonly KnownGroupMailbox[];
   readonly orphaned: readonly string[];
+  readonly retryIds: readonly string[];
   readonly complete: boolean;
   readonly startedAt: string;
   readonly warn: (warning: SyncWarning) => void;
@@ -854,9 +874,14 @@ async function syncMemberships(input: {
   if (!write) {
     return null;
   }
+  const gone = new Set([...input.orphaned, ...input.discovery.removedIds]);
   const ids = new Set(input.discovery.groups.map((group) => group.id));
+  for (const id of input.retryIds) {
+    if (!gone.has(id)) {
+      ids.add(id);
+    }
+  }
   if (input.complete) {
-    const gone = new Set([...input.orphaned, ...input.discovery.removedIds]);
     for (const group of input.known) {
       if (group.origin === "directory_sync" && group.status !== "orphaned") {
         if (!gone.has(group.externalId)) {
@@ -866,37 +891,89 @@ async function syncMemberships(input: {
     }
   }
   if (ids.size === 0 && !input.complete) {
+    if (input.retryIds.length > 0) {
+      // Everything left to read again is gone.
+      await input.repository.recordMemberships?.({ retryIds: [] });
+    }
     return 0;
   }
   input.progress?.phase("memberships");
   const all = [...ids];
   let stored = 0;
   const failures: MembershipFailure[] = [];
-  for (let start = 0; start < all.length; start += MEMBERSHIP_CHUNK) {
+  const retry = new Set<string>();
+  const held: GroupMembership[] = [];
+  let heldRows = 0;
+  const flush = async () => {
+    if (held.length === 0) {
+      return;
+    }
     throwIfAborted(input.signal);
-    const chunk = await readGroupMemberships(
+    const part = held.splice(0);
+    heldRows = 0;
+    for (const groupId of await write(part)) {
+      retry.add(groupId);
+    }
+    stored += part.length;
+  };
+  let start = 0;
+  for (; start < all.length; start += MEMBERSHIP_CHUNK) {
+    throwIfAborted(input.signal);
+    let read = 0;
+    const refused: MembershipFailure[] = [];
+    for await (const outcome of groupMembershipsOf(
       input.client,
       all.slice(start, start + MEMBERSHIP_CHUNK),
-    );
-    failures.push(...chunk.failed);
-    if (chunk.read.length > 0) {
-      throwIfAborted(input.signal);
-      await write(chunk.read);
-      stored += chunk.read.length;
+    )) {
+      if (outcome.failed) {
+        refused.push(outcome.failed);
+        continue;
+      }
+      read += 1;
+      held.push(outcome.read);
+      heldRows += membershipRowCount(outcome.read);
+      if (heldRows >= MEMBERSHIP_FLUSH_ROWS) {
+        await flush();
+      }
     }
+    await flush();
+    failures.push(...refused);
+    for (const failure of refused) {
+      retry.add(failure.groupId);
+    }
+    if (
+      read === 0 &&
+      refused.length > 0 &&
+      refused.every((failure) => failure.status === 401 || failure.status === 403)
+    ) {
+      // Nothing of a whole chunk could be read for lack of permission: the rest would answer
+      // the same. They wait for the next run, which asks again.
+      start += MEMBERSHIP_CHUNK;
+      break;
+    }
+  }
+  const unread = all.slice(start);
+  for (const groupId of unread) {
+    retry.add(groupId);
   }
   const first = failures[0];
   if (first) {
     input.warn({
       kind: "memberships_unavailable",
-      groups: failures.length,
+      groups: failures.length + unread.length,
       status: first.status,
       code: first.code,
       message: first.message,
     });
   }
-  if (input.complete) {
-    await input.repository.markMembershipsSynced?.(input.startedAt);
+  if (retry.size > MEMBERSHIP_RETRY_LIMIT) {
+    // Too many to remember one by one: the next run reads every group again.
+    await input.repository.recordMemberships?.({ syncedAt: null, retryIds: [] });
+  } else if (input.complete || retry.size > 0 || input.retryIds.length > 0) {
+    await input.repository.recordMemberships?.({
+      ...(input.complete ? { syncedAt: input.startedAt } : {}),
+      retryIds: [...retry],
+    });
   }
   return stored;
 }
@@ -915,6 +992,7 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
   /** Per object external id (a group, or its site): Entra user id -> role. */
   readonly memberships = new Map<string, Map<string, "owner" | "member">>();
   membershipsSyncedAt: string | null = null;
+  membershipsRetryIds: readonly string[] = [];
   /** The groups of every {@link writeMemberships} call, in order. */
   readonly membershipWrites: string[][] = [];
   readonly commits: DirectoryCommit[] = [];
@@ -944,22 +1022,30 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
       knownGroups: [...this.groups.values()],
       groupsDeltaLink: this.groupsDeltaLink,
       membershipsSyncedAt: this.membershipsSyncedAt,
+      membershipsRetryIds: this.membershipsRetryIds,
     };
   }
 
-  async writeMemberships(memberships: readonly GroupMembership[]): Promise<void> {
+  async writeMemberships(memberships: readonly GroupMembership[]): Promise<readonly string[]> {
     this.membershipWrites.push(memberships.map((membership) => membership.groupId));
+    const siteMissing: string[] = [];
     for (const membership of memberships) {
       const roles = membershipRoles(membership);
       this.memberships.set(membership.groupId, roles);
       if (membership.siteId && this.sites.has(membership.siteId)) {
         this.memberships.set(membership.siteId, new Map(roles));
+      } else if (membership.siteId) {
+        siteMissing.push(membership.groupId);
       }
     }
+    return siteMissing;
   }
 
-  async markMembershipsSynced(at: string): Promise<void> {
-    this.membershipsSyncedAt = at;
+  async recordMemberships(record: MembershipsRecord): Promise<void> {
+    if (record.syncedAt !== undefined) {
+      this.membershipsSyncedAt = record.syncedAt;
+    }
+    this.membershipsRetryIds = [...record.retryIds];
   }
 
   async commit(commit: DirectoryCommit, expectedVersion: string): Promise<void> {
