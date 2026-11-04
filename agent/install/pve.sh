@@ -616,7 +616,7 @@ uninstall() {
     "$PVE_BIN" uninstall --yes || true
   else
     rm -f "$ROOT/etc/systemd/system/restow-pve.service" "$PLUGIN_FILE" "$PROVIDER_FILE"
-    rm -rf "$PREFIX" "$ROOT/etc/restow-pve" "$ROOT/var/lib/restow-pve"
+    rm -rf "$PREFIX" "$ROOT/etc/restow-pve" "$ROOT/var/lib/restow-pve" "$ROOT/var/cache/restow-pve"
   fi
   if [ -z "$SKIP_SERVICE" ]; then systemctl daemon-reload 2>/dev/null || true; fi
   [ -z "$SKIP_SERVICE" ] && restart_pve_daemons

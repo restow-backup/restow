@@ -488,6 +488,7 @@ func (s *Service) ReportInventory(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	var guests []InventoryGuest
+	containers := map[int]bool{}
 	for _, r := range res {
 		if r.Node != s.State.NodeName {
 			continue
@@ -495,6 +496,7 @@ func (s *Service) ReportInventory(ctx context.Context) (int, error) {
 		kind := "vm"
 		if r.Type == "lxc" {
 			kind = "ct"
+			containers[r.VMID] = true
 		}
 		g := InventoryGuest{VMID: r.VMID, Kind: kind, Name: r.Name, Node: r.Node, Status: r.Status,
 			Template: r.Template == 1, Pool: r.Pool, Tags: splitTags(r.Tags)}
@@ -509,6 +511,7 @@ func (s *Service) ReportInventory(ctx context.Context) (int, error) {
 		}
 		guests = append(guests, g)
 	}
+	pruneContainerCaches(s.Layout, containers)
 	return len(guests), s.Server.ReportInventory(ctx, guests)
 }
 

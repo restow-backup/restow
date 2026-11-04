@@ -15,7 +15,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Container backups go through restic into one repository per guest that the
@@ -82,7 +84,7 @@ func (p *Provider) containerPrepare(ctx context.Context, req ProviderRequest) (a
 	}
 	_ = os.Chmod(p.Layout.RunDir, 0o711)
 	runDir := filepath.Join(p.Layout.RunDir, "run-"+job.RunID)
-	if err := os.MkdirAll(filepath.Join(runDir, "cache"), 0o700); err != nil {
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		return nil, err
 	}
 	creds := ctCredentials{ResticAccess: *access, RunID: job.RunID, VMID: req.VMID, Restic: p.resticBinary()}
@@ -90,17 +92,21 @@ func (p *Provider) containerPrepare(ctx context.Context, req ProviderRequest) (a
 	if err := os.WriteFile(filepath.Join(runDir, "credentials.json"), data, 0o400); err != nil {
 		return nil, err
 	}
-	for _, path := range []string{runDir, filepath.Join(runDir, "cache"), filepath.Join(runDir, "credentials.json")} {
+	for _, path := range []string{runDir, filepath.Join(runDir, "credentials.json")} {
 		if err := os.Chown(path, uid, -1); err != nil {
 			return nil, fmt.Errorf("hand the run folder to uid %d: %w", uid, err)
 		}
+	}
+	cacheDir, note := p.prepareContainerCache(req.VMID, uid)
+	if note != "" {
+		p.logf("info", "%s", note)
 	}
 	// The mount point of a copy's stable folder (containerBackupRoot); only the backup's own
 	// mount namespace mounts anything on it.
 	if err := os.MkdirAll(p.Layout.ctStableRoot(req.VMID), 0o711); err != nil {
 		return nil, err
 	}
-	pointer, _ := json.Marshal(map[string]string{"runDir": runDir})
+	pointer, _ := json.Marshal(map[string]string{"runDir": runDir, "cacheDir": cacheDir})
 	if err := os.WriteFile(p.ctPointer(req.StoreID, req.VMID), pointer, 0o444); err != nil {
 		return nil, err
 	}
@@ -126,6 +132,8 @@ func ExcludeToRestic(root, pattern string) string {
 func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (any, error) {
 	var pointer struct {
 		RunDir string `json:"runDir"`
+		// CacheDir is the guest's restic cache; "" runs restic with --no-cache.
+		CacheDir string `json:"cacheDir"`
 	}
 	if err := readJSON(p.ctPointer(req.StoreID, req.VMID), &pointer); err != nil {
 		return nil, fmt.Errorf("the container backup was not prepared: %w", err)
@@ -151,7 +159,7 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 	var stderr bytes.Buffer
 	root, err := p.startContainerRestic(dir, stable, copied, func(root string) error {
 		args := containerBackupArgs(root, sources, mounts, req.ExcludePatterns, req.VMID, creds.RunID,
-			filepath.Join(pointer.RunDir, "cache"), req.Info.BandwidthLimit, copied)
+			pointer.CacheDir, req.Info.BandwidthLimit, copied)
 		cmd = exec.CommandContext(ctx, creds.Restic, args...)
 		cmd.Dir = root
 		cmd.Env = resticEnv(&creds.ResticAccess)
@@ -209,6 +217,77 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 	}
 	p.logf("info", "restic snapshot %s, %d MiB added", res.SnapshotID, res.BytesAdded>>20)
 	return map[string]any{}, nil
+}
+
+// ctCacheMinFree is the free space the cache's file system needs, or restic runs without a cache.
+const ctCacheMinFree = 1 << 30
+
+// ctCacheDir is the restic cache of a container, kept between its backups.
+func (l Layout) ctCacheDir(vmid int) string {
+	if l.CacheDir == "" {
+		return ""
+	}
+	return filepath.Join(l.CacheDir, fmt.Sprintf("ct-%d", vmid))
+}
+
+// prepareContainerCache hands the container's restic cache to the uid its backup runs as
+// (the mapped container root) and returns it, or "" for --no-cache with the reason. The cache
+// stays between backups, so restic does not download the repository's index and the parent's
+// trees again on every run, and it lives on disk, not in /run (a tmpfs of a tenth of the RAM).
+// After a change of the ID map the cache is handed to the new uid; links in it are never
+// followed.
+func (p *Provider) prepareContainerCache(vmid, uid int) (string, string) {
+	dir := p.Layout.ctCacheDir(vmid)
+	if dir == "" {
+		return "", ""
+	}
+	if err := os.MkdirAll(p.Layout.CacheDir, 0o711); err != nil {
+		return "", fmt.Sprintf("restic runs without a cache: %v", err)
+	}
+	_ = os.Chmod(p.Layout.CacheDir, 0o711)
+	if _, avail, err := statfs(p.Layout.CacheDir); err == nil && avail < ctCacheMinFree {
+		return "", fmt.Sprintf("restic runs without a cache: %s has %s free (it needs %s)", p.Layout.CacheDir, gbString(avail), gbString(ctCacheMinFree))
+	}
+	if st, err := os.Lstat(dir); err == nil && !st.IsDir() {
+		_ = os.Remove(dir)
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return "", fmt.Sprintf("restic runs without a cache: %v", err)
+	}
+	st, err := os.Lstat(dir)
+	if err != nil {
+		return "", fmt.Sprintf("restic runs without a cache: %v", err)
+	}
+	if sys, ok := st.Sys().(*syscall.Stat_t); ok && int(sys.Uid) != uid {
+		err := filepath.WalkDir(dir, func(path string, _ os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			return os.Lchown(path, uid, -1)
+		})
+		if err != nil {
+			return "", fmt.Sprintf("restic runs without a cache: hand %s to uid %d: %v", dir, uid, err)
+		}
+	}
+	_ = os.Chmod(dir, 0o700)
+	return dir, ""
+}
+
+// pruneContainerCaches removes the restic caches of containers that are not on this node
+// (any more): removed, or migrated to another node.
+func pruneContainerCaches(l Layout, here map[int]bool) {
+	if l.CacheDir == "" {
+		return
+	}
+	entries, _ := os.ReadDir(l.CacheDir)
+	for _, e := range entries {
+		rest, ok := strings.CutPrefix(e.Name(), "ct-")
+		vmid, err := strconv.Atoi(rest)
+		if !ok || err != nil || here[vmid] {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(l.CacheDir, e.Name()))
+	}
 }
 
 // vzsnapDir is where vzdump mounts a container's snapshot (snapshot mode): the same path on
@@ -345,8 +424,13 @@ const containerRetryLock = "15m"
 func containerBackupArgs(dir string, sources, mounts, excludes []string, vmid int, runID, cacheDir string, bwlimitKiB uint64, copied bool) []string {
 	// No --no-scan: restic's scan gives the total its progress needs (#51).
 	args := []string{"backup", "--json", "--host", fmt.Sprintf("pve-ct-%d", vmid),
-		"--tag", fmt.Sprintf("vmid=%d", vmid), "--tag", "run=" + runID,
-		"--cache-dir", cacheDir, "--retry-lock", containerRetryLock}
+		"--tag", fmt.Sprintf("vmid=%d", vmid), "--tag", "run=" + runID}
+	if cacheDir != "" {
+		args = append(args, "--cache-dir", cacheDir)
+	} else {
+		args = append(args, "--no-cache")
+	}
+	args = append(args, "--retry-lock", containerRetryLock)
 	if copied {
 		// A fresh copy: new inodes and ctimes, the same size and mtime (containerBackupRoot).
 		args = append(args, "--ignore-inode", "--ignore-ctime")

@@ -624,7 +624,7 @@ func cmdUninstall(layout pve.Layout, args []string, stdout, stderr io.Writer) in
 	root := os.Getenv("RESTOW_PVE_ROOT")
 	paths := []string{
 		root + "/etc/systemd/system/restow-pve.service",
-		filepath.Dir(layout.StateFile), layout.DataDir, layout.RunDir, layout.RestoreTmp,
+		filepath.Dir(layout.StateFile), layout.DataDir, layout.RunDir, layout.RestoreTmp, layout.CacheDir,
 	}
 	for _, f := range pve.PluginFiles {
 		paths = append(paths, pve.PluginPath(layout, f))

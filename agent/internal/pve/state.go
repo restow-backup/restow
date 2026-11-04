@@ -31,6 +31,8 @@ type Layout struct {
 	ProviderDir string
 	// RestoreTmp is the default folder for temporary container restores.
 	RestoreTmp string
+	// CacheDir holds the restic cache of every container (ct-<vmid>), kept between backups.
+	CacheDir string
 }
 
 // DefaultLayout is the layout of an installed node.
@@ -44,6 +46,7 @@ func DefaultLayout() Layout {
 		PluginDir:   root + "/usr/share/perl5/PVE/Storage/Custom",
 		ProviderDir: root + "/usr/share/perl5/PVE/BackupProvider/Plugin",
 		RestoreTmp:  root + "/var/tmp/restow-pve",
+		CacheDir:    root + "/var/cache/restow-pve",
 	}
 }
 

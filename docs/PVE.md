@@ -47,7 +47,10 @@ PVE node                                                 Restow instance
   restic finds the last backup as its parent, and compares the copy's files by
   size and modification time (`--ignore-inode --ignore-ctime`). Where PVE's
   user namespace may not make a mount namespace, the task log says so and
-  restic reads the whole copy every time, as before.
+  restic reads the whole copy every time, as before. restic keeps its cache per
+  container in `/var/cache/restow-pve/ct-<vmid>` (owned by the uid the backup
+  runs as), so a backup does not download the repository's index again; with
+  less than 1 GB free there it runs without a cache.
   When restic cannot read some files (exit code 3),
   the restore point is kept; the run records how many there were and the
   first of them. VMs & containers then shows "Last backup incomplete" instead
@@ -715,7 +718,9 @@ restow-pve uninstall --yes   remove helper, plugin and credentials (backups stay
 Files: `/etc/restow-pve/state.json` (node secret and API token, root 0600, local
 disk), `/var/lib/restow-pve` (block hash caches, journal, the caches the plugin
 reads; `boottest/current.json` names the temporary guest of a running boot test),
-`/run/restow-pve` (per-job state, `boottest.lock`), `journalctl -u restow-pve`.
+`/run/restow-pve` (per-job state, `boottest.lock`), `/var/cache/restow-pve`
+(the restic cache of each container, `ct-<vmid>`, kept between its backups and
+removed when the container is no longer on the node), `journalctl -u restow-pve`.
 
 ## Boot test
 

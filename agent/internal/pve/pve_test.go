@@ -239,6 +239,8 @@ func (f *fakeRestow) handler(t *testing.T) http.Handler {
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			f.logs = append(f.logs, in.Log)
 			w.WriteHeader(204)
+		case strings.HasSuffix(p, "/restic"):
+			_ = json.NewEncoder(w).Encode(ResticAccess{RepositoryURL: "https://restow.example/r", Username: "u", Password: "p"})
 		case strings.HasSuffix(p, "/incremental"):
 			var in struct{ Devices []DeviceSize }
 			_ = json.NewDecoder(r.Body).Decode(&in)

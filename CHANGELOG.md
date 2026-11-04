@@ -446,6 +446,12 @@ private repository.
   restic sees, and compares the copy's files by size and modification time; the restore point
   records that folder, and older restore points restore as before. Where the mount namespace is
   not possible the task log says so and the backup reads everything, as before.
+- Proxmox VE: every container backup started with an empty restic cache in `/run/restow-pve`,
+  a tmpfs of a tenth of the node's RAM, and downloaded the repository's index and the parent's
+  trees again, which for a container with millions of files could fill `/run` during the backup.
+  The cache now stays between backups in `/var/cache/restow-pve/ct-<vmid>`, owned by the uid the
+  backup runs as (handed to the new uid after a change of the ID map), and goes when the
+  container is no longer on the node; with less than 1 GB free there restic runs without a cache.
 
 ### Upgrade Notes
 

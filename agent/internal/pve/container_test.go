@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func fakeContainerBackup(t *testing.T, stdout, stderr string, code int) (*Provid
 	t.Helper()
 	base := t.TempDir()
 	runDir := filepath.Join(base, "run-1")
-	if err := os.MkdirAll(filepath.Join(runDir, "cache"), 0o700); err != nil {
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	script := filepath.Join(base, "restic")
@@ -299,5 +300,122 @@ func TestBindPrivateShowsTheCopyToResticOnly(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(target); len(entries) != 0 {
 		t.Fatalf("the mount leaked into the process's own namespace: %v", entries)
+	}
+}
+
+// The restic cache of a container is kept on disk between its backups (not in the run folder
+// on /run, which backup_cleanup removes), owned by the uid the backup runs as.
+func TestContainerCacheIsKeptBetweenBackups(t *testing.T) {
+	f := &fakeRestow{commits: map[string]string{}}
+	p := testProvider(t, f, &memSource{})
+	ctx := context.Background()
+	backup := func() (runDir, cacheDir string) {
+		if _, err := p.Handle(ctx, "backup-init", ProviderRequest{StoreID: "restow", VMID: 105, VMType: "lxc"}); err != nil {
+			t.Fatal(err)
+		}
+		uid := os.Getuid()
+		if _, err := p.Handle(ctx, "backup-container-prepare", ProviderRequest{StoreID: "restow", VMID: 105, VMType: "lxc",
+			Info: ProviderInfo{BackupUserID: &uid, Directory: "/var/tmp/vzdumptmp1_105"}}); err != nil {
+			t.Fatal(err)
+		}
+		var pointer struct{ RunDir, CacheDir string }
+		if err := readJSON(p.ctPointer("restow", 105), &pointer); err != nil {
+			t.Fatal(err)
+		}
+		return pointer.RunDir, pointer.CacheDir
+	}
+	runDir, cacheDir := backup()
+	if cacheDir != filepath.Join(p.Layout.CacheDir, "ct-105") || strings.HasPrefix(cacheDir, p.Layout.RunDir) {
+		t.Fatalf("cache %q (run folder %q)", cacheDir, runDir)
+	}
+	if st, err := os.Stat(cacheDir); err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("cache folder: %v %v", st, err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "index"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Handle(ctx, "backup-cleanup", ProviderRequest{StoreID: "restow", VMID: 105, VMType: "lxc"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(runDir); !os.IsNotExist(err) {
+		t.Fatalf("the run folder must go at cleanup: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "index")); err != nil {
+		t.Fatalf("the cache must stay: %v", err)
+	}
+	if _, again := backup(); again != cacheDir {
+		t.Fatalf("the next backup uses %q, not %q", again, cacheDir)
+	}
+}
+
+func TestContainerCacheFollowsTheIDMapAndNeverALink(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("needs root to hand files to another uid")
+	}
+	root := t.TempDir()
+	p := &Provider{Layout: Layout{CacheDir: filepath.Join(root, "cache")}}
+	dir, note := p.prepareContainerCache(105, 100000)
+	if dir == "" {
+		t.Fatal(note)
+	}
+	outside := filepath.Join(root, "host-file")
+	if err := os.WriteFile(outside, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "repo", "data"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "repo", "link")); err != nil {
+		t.Fatal(err)
+	}
+	// A new ID map: the backup runs as 200000 now.
+	if got, note := p.prepareContainerCache(105, 200000); got != dir {
+		t.Fatalf("%q %s", got, note)
+	}
+	for _, path := range []string{dir, filepath.Join(dir, "repo"), filepath.Join(dir, "repo", "data"), filepath.Join(dir, "repo", "link")} {
+		var st syscall.Stat_t
+		if err := syscall.Lstat(path, &st); err != nil || st.Uid != 200000 {
+			t.Fatalf("%s: uid %d %v", path, st.Uid, err)
+		}
+	}
+	var st syscall.Stat_t
+	if err := syscall.Stat(outside, &st); err != nil || st.Uid != 0 {
+		t.Fatalf("a link in the cache was followed: uid %d %v", st.Uid, err)
+	}
+	if info, _ := os.Stat(p.Layout.CacheDir); info.Mode().Perm() != 0o711 {
+		t.Fatalf("cache parent mode %v", info.Mode())
+	}
+}
+
+func TestContainerCacheNeedsSpace(t *testing.T) {
+	old := statfs
+	statfs = func(string) (uint64, uint64, error) { return 8 << 30, 512 << 20, nil }
+	t.Cleanup(func() { statfs = old })
+	p := &Provider{Layout: Layout{CacheDir: t.TempDir()}}
+	dir, note := p.prepareContainerCache(105, os.Getuid())
+	if dir != "" || !strings.Contains(note, "without a cache") {
+		t.Fatalf("%q %q", dir, note)
+	}
+	args := strings.Join(containerBackupArgs("/mnt/vzsnap0", []string{"."}, nil, nil, 105, "r", dir, 0, false), " ")
+	if !strings.Contains(args, "--no-cache") || strings.Contains(args, "--cache-dir") {
+		t.Fatalf("args %q", args)
+	}
+}
+
+func TestContainerCachesOfGuestsGoneFromTheNodeAreRemoved(t *testing.T) {
+	l := Layout{CacheDir: t.TempDir()}
+	for _, name := range []string{"ct-105", "ct-106", "ct-107", "other"} {
+		if err := os.Mkdir(filepath.Join(l.CacheDir, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pruneContainerCaches(l, map[int]bool{105: true, 107: true})
+	entries, _ := os.ReadDir(l.CacheDir)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if strings.Join(names, " ") != "ct-105 ct-107 other" {
+		t.Fatalf("left %q", names)
 	}
 }

@@ -506,8 +506,8 @@ keys anyway.
 - `backup_get_mechanism(lxc)` returns `directory`.
 - `backup_container_prepare` (root): the helper fetches a short-lived **per-run** restic-REST credential
   and the repository password for this guest's repository. It writes them to
-  `/run/restow-pve/run-<id>/` with owner `backup-user-id` and mode 0400, and prepares a restic cache dir
-  owned by that uid (or uses `--no-cache`).
+  `/run/restow-pve/run-<id>/` with owner `backup-user-id` and mode 0400, and hands the guest's persistent
+  restic cache dir `/var/cache/restow-pve/ct-<vmid>` to that uid (or uses `--no-cache` below 1 GB free).
 - `backup_container` (as uid 100000 in the user namespace): runs `restic backup` on `directory` for each
   entry of `sources`, translates `$exclude_patterns` (vzdump globs) to restic `--exclude`, and tags
   `vmid=<id>`, `cluster=<id>`, `run=<id>`. It also stores `pct.conf` and the firewall config as files in
