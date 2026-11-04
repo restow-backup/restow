@@ -327,8 +327,9 @@ private repository.
   `restic check` checks only the snapshots it finds, and restoring or browsing the point then
   failed with "no matching ID". The check now first makes sure the snapshot is in the
   repository's list and carries the tag of the restore point's run; a missing or foreign one
-  fails the check. A list that cannot be read (network, storage) postpones the check instead of
-  failing it.
+  fails the check. A list the network or the storage did not deliver this time postpones the
+  check instead of failing it; a restic that cannot be started (missing, not executable) or a
+  damaged repository fails it with restic's words.
 - Proxmox VE: the restic repository of a container grew for good. Retention marked restore
   points pruned and then ran `restic forget` and `prune` once; when that failed (another run's
   lock, a file restore reading the repository, the storage, a restart) it was only logged and

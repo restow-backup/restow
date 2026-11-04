@@ -1672,6 +1672,72 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     120_000,
   );
 
+  it("a container check whose restic cannot start or reads a damaged repository is a finding, not postponed", async () => {
+    const damaged = join(work, "restic-damaged.sh");
+    await writeFile(
+      damaged,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "snapshots" ]; then echo "Fatal: unable to open config file: config or key is damaged: ciphertext verification failed" >&2; exit 1; fi',
+        "exit 0",
+      ].join("\n"),
+    );
+    await chmod(damaged, 0o755);
+    const before = process.env.RESTIC_BINARY;
+    try {
+      let vmid = 330;
+      for (const binary of [damaged, join(work, "no-such-restic")]) {
+        process.env.RESTIC_BINARY = binary;
+        const keys = await deps.runtime.keyrings.get(tenantId);
+        const secretId = randomUUID();
+        await owner.insert(secrets).values({
+          id: secretId,
+          tenantId,
+          kind: "pve_ct_repository",
+          ciphertext: sealSecret(keys.current, secretId, "repository-password"),
+        });
+        const [ct] = await owner
+          .insert(pveGuests)
+          .values({
+            tenantId,
+            clusterId,
+            vmid,
+            kind: "ct",
+            node: "pve1",
+            repositorySecretId: secretId,
+          })
+          .returning();
+        const [point] = await owner
+          .insert(pveSnapshots)
+          .values({
+            tenantId,
+            clusterId,
+            guestId: ct?.id ?? "",
+            sequence: 1,
+            kind: "ct",
+            archiveName: `ct/${vmid}/2026-10-10T11:00:00Z`,
+            storageId: "restow",
+            manifestPath: "unused",
+            resticSnapshotId: "e".repeat(64),
+            backupAt: clock,
+          })
+          .returning();
+        vmid++;
+        const result = await verifySnapshot(deps, point as never);
+        // Recorded as a failed check with restic's words, never "check did not run".
+        expect(result.errors.join("\n")).toMatch(
+          binary === damaged ? /ciphertext verification failed/ : /ENOENT/,
+        );
+      }
+    } finally {
+      if (before === undefined) {
+        delete process.env.RESTIC_BINARY;
+      } else {
+        process.env.RESTIC_BINARY = before;
+      }
+    }
+  });
+
   it("postpones a container check whose snapshot list could not be read, never fails it (S12)", async () => {
     const fake = join(work, "restic-unreachable.sh");
     await writeFile(

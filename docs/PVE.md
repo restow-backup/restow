@@ -244,11 +244,15 @@ unique per installation).
   `forget`/`prune`. A lock counts as stale only when both the time the storage
   received it and the time restic wrote into it are more than 30 minutes old
   (since 0.5.0), so a storage whose clock lags never has a live lock taken away;
+  a lock whose own time could not be read at that moment stays for the next
+  pass, and goes unread only once the storage received it more than a day ago;
   when the two differ by more than 30 minutes the worker logs a warning about
   the storage's clock. It then makes sure the restore point's restic snapshot
   is in the repository and carries the tag of the restore point's run (a
   missing or foreign snapshot fails the check, since `restic check` alone
-  passes without it; a snapshot list that could not be read postpones it), and
+  passes without it; a snapshot list the storage or the network did not deliver
+  this time postpones it, while a restic that cannot be started or a damaged
+  repository fails it with restic's words), and
   then waits up to two minutes for a lock another run
   holds (`--retry-lock`; only the first two locked repositories of a pass wait,
   so a pass stays bounded). A check another run's lock still keeps out, or one

@@ -1058,9 +1058,12 @@ export async function verifySnapshot(
  * there: the repository's snapshot list (from the storage, not restic's local cache, which may
  * still hold a snapshot file the storage lost) must contain it, and its `run=` tag (restow-pve
  * tags every container backup with its run) must name the restore point's run. A list that
- * could not be read says nothing about the restore point: the check did not run
- * (`interrupted`) and is tried again. A repository that is not there or does not open with its
- * password is a finding.
+ * could not be read for a passing reason (the storage or the network did not answer, restic
+ * was stopped) says nothing about the restore point: the check did not run (`interrupted`) and
+ * is tried again. Everything else is a finding: a repository that is not there or does not
+ * open with its password, a restic that cannot be started (missing, not executable), and any
+ * other failure of restic (a damaged config or snapshot file); postponing those would keep the
+ * check "not run" until it gives up, without ever saying what is wrong.
  */
 async function containerSnapshotProblem(
   snap: Pick<PveSnapshot, "resticSnapshotId" | "runId">,
@@ -1074,10 +1077,7 @@ async function containerSnapshotProblem(
   try {
     listed = await resticSnapshots(session, { noLock: true });
   } catch (error) {
-    if (
-      error instanceof ResticError &&
-      (error.failure === "no_repository" || error.failure === "wrong_password")
-    ) {
+    if (!resticListTransient(error)) {
       throw error;
     }
     throw new ResticError(
@@ -1096,6 +1096,31 @@ async function containerSnapshotProblem(
     return `restic snapshot ${id.slice(0, 8)} belongs to run ${run}, not to this restore point's run ${snap.runId}`;
   }
   return null;
+}
+
+/**
+ * restic's words for a storage or network that did not answer this time (the REST bridge
+ * answers 5xx when the storage fails), as opposed to a repository that is broken or missing.
+ */
+const TRANSIENT_RESTIC =
+  /connection (refused|reset)|broken pipe|timed? ?out|deadline exceeded|temporary failure|no such host|network is unreachable|unexpected EOF|server closed|unexpected HTTP response \((5\d\d|429)\)|\b(50[234]|429) /i;
+
+/**
+ * Whether a failed `restic snapshots` says nothing about the repository: restic was stopped,
+ * another run held a lock, or the storage or network did not answer. A process that could not
+ * be started (ENOENT, EACCES) is not passing; neither is any other failure of restic.
+ */
+function resticListTransient(error: unknown): boolean {
+  if (!(error instanceof ResticError)) {
+    return false;
+  }
+  if (error.failure === "killed" || error.failure === "interrupted" || error.failure === "locked") {
+    return true;
+  }
+  if (error.failure !== "other") {
+    return false;
+  }
+  return TRANSIENT_RESTIC.test(`${error.stderr}\n${error.message}`);
 }
 
 /**
