@@ -1470,7 +1470,9 @@ const PVE_RESTORE_REUSE_MS = 6 * 60 * 60 * 1000;
 /**
  * A read credential for a container restore point. The restore's run is the run of the task the
  * node was given (a restore, a restore check, or a boot test, which restores through PVE the same
- * way); a restore started in the PVE UI gets a run of its own (origin `pve`), one per restore
+ * way) for this very restore point (its `volname`, a boot test's `snapshotId`): a restore of
+ * another restore point of the guest started in the PVE UI while such a task waits in the
+ * node's queue is not that task's; a restore started in the PVE UI gets a run of its own (origin `pve`), one per restore
  * point and node however often it asks. The answer carries the run's id (also its restic user
  * name): the node reports a PVE-origin restore's end with `POST /runs/:id/restore-end`.
  */
@@ -1498,6 +1500,7 @@ export async function restoreRestic(
           eq(pveTasks.guestId, snap.guestId),
           inArray(pveTasks.kind, ["restore", "boot_test"]),
           eq(pveTasks.status, "delivered"),
+          sql`(${pveTasks.params}->>'volname' = ${snap.archiveName} OR ${pveTasks.params}->>'snapshotId' = ${snap.id})`,
         ),
       )
       .orderBy(desc(pveTasks.deliveredAt))

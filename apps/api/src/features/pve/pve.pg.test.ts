@@ -1323,6 +1323,8 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       json<{ runId: string; username: string }>(
         await call(node, `/snapshots/${snapshotId}/restic`, { json: {} }),
       );
+    const runRowOf = async (id: string) =>
+      (await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, id)))[0];
     // A boot test of the container restores through PVE: the credential is its run's.
     const [task] = await fixture.db
       .insert(pveTasks)
@@ -1355,6 +1357,43 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(await restoreRuns()).toHaveLength(before);
     await fixture.db.delete(pveRuns).where(eq(pveRuns.id, bootRun?.id ?? ""));
     await fixture.db.delete(pveTasks).where(eq(pveTasks.id, task?.id ?? ""));
+    // A restore check of another restore point of the guest waits in the node's queue: a
+    // restore of this one started in the PVE UI meanwhile is not that check's.
+    const [otherTask] = await fixture.db
+      .insert(pveTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        nodeId: node.nodeId,
+        guestId: ctId,
+        kind: "restore",
+        status: "delivered",
+        deliveredAt: new Date(),
+        params: { volname: "ct/200/2020-01-01T00:00:00Z", kind: "ct", restoreTest: true },
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      })
+      .returning();
+    const [checkRun] = await fixture.db
+      .insert(pveRuns)
+      .values({
+        tenantId: fixture.tenantId,
+        clusterId: node.clusterId,
+        nodeId: node.nodeId,
+        guestId: ctId,
+        kind: "restore_test",
+        taskId: otherTask?.id ?? null,
+      })
+      .returning();
+    const fromUi = await credential();
+    expect(fromUi.runId).not.toBe(checkRun?.id);
+    expect(await runRowOf(fromUi.runId)).toMatchObject({
+      kind: "restore",
+      origin: "pve",
+      taskId: null,
+      snapshotId,
+    });
+    await fixture.db.delete(pveRuns).where(eq(pveRuns.id, fromUi.runId));
+    await fixture.db.delete(pveRuns).where(eq(pveRuns.id, checkRun?.id ?? ""));
+    await fixture.db.delete(pveTasks).where(eq(pveTasks.id, otherTask?.id ?? ""));
     // A restore in the PVE UI: one run, however often it asks.
     const first = await credential();
     const again = await credential();

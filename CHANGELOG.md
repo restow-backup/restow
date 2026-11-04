@@ -282,7 +282,8 @@ private repository.
   restore points were not checked; with boot tests after every backup that was always the case.
   Then the run turned green, also when the restore had failed. A boot test now reads under its
   own run and opens none. A restore started in the PVE UI gets one run however often PVE asks
-  for the credential, keeps the guest's checks out for two hours at most, and ends as PVE ended
+  for the credential (never the run of a check or boot test of another restore point of the
+  guest that waits on the node meanwhile), keeps the guest's checks out for two hours at most, and ends as PVE ended
   it once restow-pve from 0.5.0 reports it: green only for `OK`, amber for `WARNINGS: n`, failed
   otherwise. Without a report it fails after 48 hours, never green.
 - Proxmox VE: the monthly restore check of a job was planned for the first due guest whatever
