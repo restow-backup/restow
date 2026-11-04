@@ -114,7 +114,8 @@ function RestoreDialog({
       onClose();
     },
   });
-  const blocked = detail.guest.kind === "ct" && detail.guest.privileged;
+  // By the restore point's own configuration (a server before 0.5.0: the guest's flag).
+  const blocked = point.privileged ?? (detail.guest.kind === "ct" && detail.guest.privileged);
   // The VMID belonged to a deleted guest whose restore points Restow keeps: only when confirmed.
   const held =
     mutation.error instanceof ApiError && mutation.error.problem?.type === PVE_VMID_HELD_PROBLEM

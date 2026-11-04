@@ -5,6 +5,7 @@ import {
   pveJobOfGuest,
   pveNodeDeclares,
   pveRestoreCheckBlocker,
+  pveRestorePointPrivileged,
 } from "@restow/core";
 import {
   type Database,
@@ -57,14 +58,22 @@ export type BootTestBlocker =
   | "template"
   | null;
 
+/**
+ * `point` is the restore point to test (for a guest's page: its newest); whether it is of a
+ * privileged container is read from its own configuration (pveRestorePointPrivileged).
+ */
 export function bootTestBlocker(
   guest: Pick<PveGuest, "kind" | "privileged" | "template">,
   node: Pick<PveNode, "facts"> | null,
+  point: Pick<PveSnapshot, "kind" | "guestConfig"> | null,
 ): BootTestBlocker {
   if (guest.kind === "vm" && guest.template) {
     return "template";
   }
-  if (guest.kind === "ct" && guest.privileged) {
+  if (
+    guest.kind === "ct" &&
+    (point ? pveRestorePointPrivileged(point, guest.privileged) : guest.privileged)
+  ) {
     return "privileged";
   }
   if (!node) {
@@ -95,13 +104,33 @@ export async function guestNode(tx: Transaction, guest: PveGuest): Promise<PveNo
   return node ?? null;
 }
 
+/** Why a restore point of a privileged container is not restored (restore, check, boot test). */
+export const PRIVILEGED_CONTAINER_DETAIL =
+  "Restow restores containers only as unprivileged; this restore point is of a privileged container (files with ids above 65535 and device nodes would not restore). Restore it by hand (docs/PVE.md).";
+
+/** The newest active restore point of a guest (its configuration decides "privileged"). */
+async function newestPoint(
+  tx: Transaction,
+  guest: PveGuest,
+): Promise<Pick<PveSnapshot, "kind" | "guestConfig"> | null> {
+  if (!guest.lastSnapshotId) {
+    return null;
+  }
+  const [point] = await tx
+    .select({ kind: pveSnapshots.kind, guestConfig: pveSnapshots.guestConfig })
+    .from(pveSnapshots)
+    .where(and(eq(pveSnapshots.id, guest.lastSnapshotId), eq(pveSnapshots.status, "active")))
+    .limit(1);
+  return point ?? null;
+}
+
 const BLOCKER_DETAIL: Record<Exclude<BootTestBlocker, null>, string> = {
   no_node: "restow-pve is not enrolled on the guest's node.",
   node_unsupported:
     "restow-pve on the guest's node does not run boot tests (update it, or it switched them off with restow-pve config --boot-tests=false).",
   restores_off:
     "Restores are switched off on the guest's node (restow-pve config --allow-restores).",
-  privileged: "PVE refuses to restore privileged containers from a backup provider.",
+  privileged: PRIVILEGED_CONTAINER_DETAIL,
   template: "VM templates are not backed up.",
 };
 
@@ -130,7 +159,7 @@ export async function requestBootTest(
       throw new ProblemError(404, "Guest not found");
     }
     const node = await guestNode(tx, guest);
-    const blocker = bootTestBlocker(guest, node);
+    const blocker = bootTestBlocker(guest, node, snap);
     if (blocker || !node) {
       throw new ProblemError(409, "No boot test possible", {
         type: PVE_BOOT_TEST_PROBLEMS.unsupported,
@@ -437,7 +466,7 @@ export async function guestBootTestFacts(
   const jobs = await tx.select().from(pveJobs);
   const job = pveJobOfGuest(guest, jobs);
   return {
-    blocker: bootTestBlocker(guest, node),
+    blocker: bootTestBlocker(guest, node, await newestPoint(tx, guest)),
     schedule: pveBootTestPlan(job?.settings.bootTest).schedule,
     lastBootTestAt: guest.lastBootTestAt?.toISOString() ?? null,
   };
@@ -454,7 +483,7 @@ export async function guestRestoreCheckFacts(
   now: Date = new Date(),
 ): Promise<{
   enabled: boolean;
-  blocker: "no_node" | "restores_off" | "node_offline" | null;
+  blocker: "privileged" | "no_node" | "restores_off" | "node_offline" | null;
   node: string | null;
   lastRestoreTestAt: string | null;
 }> {
@@ -462,9 +491,13 @@ export async function guestRestoreCheckFacts(
   const test = pveJobOfGuest(guest, jobs)?.settings.restoreTest;
   const enabled = Boolean(test?.enabled && test.targetStorage);
   const node = enabled ? await guestNode(tx, guest) : null;
+  // The planner passes over a guest whose newest restore point is of a privileged container
+  // (apps/worker pve/maintenance.ts): the page says it is not checked, and why.
+  const point = enabled && guest.kind === "ct" ? await newestPoint(tx, guest) : null;
+  const privileged = point !== null && pveRestorePointPrivileged(point, guest.privileged);
   return {
     enabled,
-    blocker: enabled ? pveRestoreCheckBlocker(node, now) : null,
+    blocker: !enabled ? null : privileged ? "privileged" : pveRestoreCheckBlocker(node, now),
     node: guest.node,
     lastRestoreTestAt: guest.lastRestoreTestAt?.toISOString() ?? null,
   };

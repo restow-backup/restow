@@ -9,6 +9,7 @@ import {
   pveGuestIsRestowServer,
   pveJobOfGuest,
   pveNextRunAt,
+  pveRestorePointPrivileged,
   pveRestorePointReadiness,
   pveSelfBackupBlocked,
 } from "@restow/core";
@@ -48,6 +49,7 @@ import {
   bootTestLeftovers,
   guestBootTestFacts,
   guestRestoreCheckFacts,
+  PRIVILEGED_CONTAINER_DETAIL,
 } from "./boot-tests.js";
 import { withdrawQueued } from "./cancel.js";
 import { containerBackupPaths } from "./files.js";
@@ -998,6 +1000,8 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         unreadable: unreadableItems(s.stats),
         consistency: typeof s.stats.consistency === "string" ? s.stats.consistency : null,
         stats: s.stats,
+        // Of a privileged container: Restow does not restore it (PRIVILEGED_CONTAINER_DETAIL).
+        privileged: pveRestorePointPrivileged(s, guest.privileged),
         // What a container restore point holds, as paths in the container (#59, #62).
         contents: s.kind === "ct" ? containerBackupPaths(s.guestConfig) : null,
         // Whether its files can be browsed and downloaded: a container's restic snapshot (#62),
@@ -1294,11 +1298,12 @@ export async function restoreSnapshot(
       throw new ProblemError(404, "Restore point not found");
     }
     const guest = await loadGuest(tx, snap.guestId);
-    if (snap.kind === "ct" && guest.privileged) {
+    // Decided by the restore point's own configuration: a container converted since is
+    // restored as the point was.
+    if (pveRestorePointPrivileged(snap, guest.privileged)) {
       throw new ProblemError(409, "Privileged container", {
         type: PVE_PROBLEMS.privilegedRestore,
-        detail:
-          "PVE refuses to restore privileged containers from a backup provider. Restore it by hand as unprivileged (docs/PVE.md).",
+        detail: PRIVILEGED_CONTAINER_DETAIL,
       });
     }
     const node = await nodeFor(tx, guest.clusterId, input.targetNode ?? guest.node);

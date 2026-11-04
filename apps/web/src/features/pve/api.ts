@@ -316,6 +316,11 @@ export interface PveRestorePoint {
   contents?: string[] | null;
   /** Whether its files can be browsed and downloaded (containers, 0.4.0 on). */
   browsable?: boolean;
+  /**
+   * Of a privileged container, by its own configuration: Restow restores containers only as
+   * unprivileged, so it is not restored, checked or boot-tested. Missing before 0.5.0.
+   */
+  privileged?: boolean;
   disks: {
     device: string;
     size: number;
@@ -462,7 +467,7 @@ export interface PveGuestDetail {
    */
   restoreCheck?: {
     enabled: boolean;
-    blocker: "no_node" | "restores_off" | "node_offline" | null;
+    blocker: "privileged" | "no_node" | "restores_off" | "node_offline" | null;
     node: string | null;
     lastRestoreTestAt: string | null;
   };

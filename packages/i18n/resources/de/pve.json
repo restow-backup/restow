@@ -308,7 +308,7 @@
       "no_node": "Keine Startprüfung möglich: restow-pve ist auf dem Knoten des Gasts nicht installiert.",
       "node_unsupported": "Keine Startprüfung möglich: restow-pve auf dem Knoten des Gasts führt keine Startprüfungen aus (aktualisieren Sie es, oder sie sind dort ausgeschaltet).",
       "restores_off": "Keine Startprüfung möglich: Wiederherstellungen sind auf dem Knoten des Gasts ausgeschaltet.",
-      "privileged": "Keine Startprüfung möglich: Proxmox VE kann privilegierte Container nicht über eine Backup-Schnittstelle wiederherstellen.",
+      "privileged": "Keine Startprüfung: {appName} stellt Container nur unprivilegiert wieder her, und der neueste Sicherungsstand ist von einem privilegierten Container (Dateien mit IDs über 65535 und Gerätedateien ließen sich nicht wiederherstellen).",
       "template": "Keine Startprüfung für VM-Vorlagen."
     },
     "bootTestLeftover": {
@@ -386,6 +386,7 @@
     },
     "restoreCheckSkipped": "Nicht geprüft: {reason, select, no_storage {Zielspeicher fehlt} storage_inactive {Zielspeicher nicht aktiv} storage_content {Zielspeicher nimmt diese Art Gast nicht auf} storage_space {zu wenig Platz} restores_off {Wiederherstellungen sind aus} other {nicht möglich}}",
     "restoreCheckBlocked": {
+      "privileged": "Nicht geprüft: privilegierter Container. {appName} stellt Container nur unprivilegiert wieder her, und der neueste Sicherungsstand ist von einem privilegierten Container (Dateien mit IDs über 65535 und Gerätedateien ließen sich nicht wiederherstellen).",
       "restores_off": "Restore-Prüfung nicht möglich: Auf dem Knoten {node} sind Wiederherstellungen ausgeschaltet.",
       "node_offline": "Restore-Prüfung wartet: Der Knoten {node} hat sich zuletzt nicht gemeldet.",
       "no_node": "Restore-Prüfung nicht möglich: restow-pve ist auf dem Knoten des Gasts nicht installiert."
@@ -404,7 +405,7 @@
     "start": "Nach der Wiederherstellung starten",
     "submit": "Wiederherstellen",
     "queued": "Wiederherstellung angefordert. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute.",
-    "privileged": "Privilegierte Container kann Proxmox VE aus einer Backup-Schnittstelle nicht wiederherstellen.",
+    "privileged": "{appName} stellt Container nur unprivilegiert wieder her; dieser Sicherungsstand ist von einem privilegierten Container (Dateien mit IDs über 65535 und Gerätedateien ließen sich nicht wiederherstellen). Stellen Sie ihn von Hand wieder her (docs/PVE.md).",
     "ipNote": "IP-Adressen bleiben gleich: die in der Konfiguration und die im Gast eingestellten. Nur die MAC-Adressen sind neu. Bevor die Kopie neben dem Original läuft, ändern Sie ihre Adressen oder trennen Sie sie vom Netz."
   },
   "readiness": {

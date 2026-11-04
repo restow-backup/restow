@@ -62,6 +62,7 @@ import {
   pveNextRunAt,
   pveNodeDeclares,
   pveRestoreCheckBlocker,
+  pveRestorePointPrivileged,
   pveSelfBackupBlocked,
   ResticError,
   removeLockFiles,
@@ -126,6 +127,7 @@ import {
   withTenantTx,
 } from "../handlers/framework.js";
 import { hasActiveMigration } from "../handlers/storage-migration.js";
+import type { TenantTx } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
 import {
   DEFAULT_RETENTION_HOLD_MODE,
@@ -1364,7 +1366,6 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
         .filter(
           (g) =>
             g.lastSnapshotId !== null &&
-            !(g.kind === "ct" && g.privileged) &&
             (g.lastRestoreTestAt === null ||
               g.lastRestoreTestAt.getTime() < now.getTime() - RESTORE_TEST_EVERY_MS),
         )
@@ -1409,6 +1410,12 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
           .from(pveSnapshots)
           .where(eq(pveSnapshots.id, guest.lastSnapshotId as string));
         if (snap?.status !== "active") {
+          continue;
+        }
+        // Restow restores containers only as unprivileged: a restore point of a privileged one
+        // is passed over and not counted as checked; the guest's page says so (API
+        // guestRestoreCheckFacts, blocker "privileged").
+        if (pveRestorePointPrivileged(snap, guest.privileged)) {
           continue;
         }
         const [task] = await tx
@@ -1461,6 +1468,37 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
 // Boot tests (docs/PVE.md, "Boot test")
 // ---------------------------------------------------------------------------
 
+/** The guests whose newest restore point is of a privileged container (pveRestorePointPrivileged). */
+async function privilegedNewest(tx: TenantTx, guests: readonly PveGuest[]): Promise<Set<string>> {
+  const ids = guests
+    .filter((g) => g.kind === "ct" && g.lastSnapshotId !== null)
+    .map((g) => g.lastSnapshotId as string);
+  if (ids.length === 0) {
+    return new Set();
+  }
+  const points = new Map(
+    (
+      await tx
+        .select({
+          id: pveSnapshots.id,
+          kind: pveSnapshots.kind,
+          guestConfig: pveSnapshots.guestConfig,
+        })
+        .from(pveSnapshots)
+        .where(inArray(pveSnapshots.id, ids))
+    ).map((p) => [p.id, p]),
+  );
+  return new Set(
+    guests
+      .filter((g) => {
+        if (g.kind !== "ct") return false;
+        const point = g.lastSnapshotId ? points.get(g.lastSnapshotId) : undefined;
+        return point ? pveRestorePointPrivileged(point, g.privileged) : g.privileged;
+      })
+      .map((g) => g.id),
+  );
+}
+
 /** A node silent for longer than this gets no new boot test (it would only wait and expire). */
 const BOOT_TEST_NODE_SEEN_MS = 10 * 60 * 1000;
 /** A boot test waits this long for its node. */
@@ -1486,7 +1524,7 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
     }
     n += await withTenantTx(deps.db, job.tenantId, async (tx) => {
       const guests = coveredBy(job, await tx.select().from(pveGuests)).filter(
-        (g) => g.lastSnapshotId !== null && !(g.kind === "ct" && g.privileged),
+        (g) => g.lastSnapshotId !== null,
       );
       if (guests.length === 0) {
         return 0;
@@ -1526,7 +1564,9 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
           .where(and(eq(pveSnapshots.guestId, guest.id), eq(pveSnapshots.status, "active")))
           .orderBy(desc(pveSnapshots.sequence))
           .limit(1);
-        if (!snap) {
+        // A restore point of a privileged container is not booted (the guest's page says why:
+        // bootTestBlocker "privileged").
+        if (!snap || pveRestorePointPrivileged(snap, guest.privileged)) {
           continue;
         }
         // By guest first: pve_runs_guest_started_idx reads the guest's runs, not every run.
@@ -1705,9 +1745,13 @@ export async function alertBootTestsSkipped(deps: PveDeps, now: Date): Promise<n
       continue;
     }
     n += await withTenantTx(deps.db, job.tenantId, async (tx) => {
-      const guests = coveredBy(job, await tx.select().from(pveGuests)).filter(
-        (g) => g.lastSnapshotId !== null && !(g.kind === "ct" && g.privileged),
+      const all = coveredBy(job, await tx.select().from(pveGuests)).filter(
+        (g) => g.lastSnapshotId !== null,
       );
+      // A guest whose newest restore point is of a privileged container gets no boot test, so
+      // none is missing.
+      const privileged = await privilegedNewest(tx, all);
+      const guests = all.filter((g) => !privileged.has(g.id));
       let raised = 0;
       for (const guest of guests) {
         const rated = (r: { stats: Record<string, unknown> }) => {

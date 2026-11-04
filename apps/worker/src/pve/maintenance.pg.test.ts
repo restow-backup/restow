@@ -79,6 +79,7 @@ import {
   PVE_CHECK_RETRY_LOCK,
   PVE_ORPHAN_SNAPSHOT_GRACE_MS,
   type PveDeps,
+  planBootTests,
   planJobs,
   planRestoreTests,
   purgeDownloads,
@@ -732,6 +733,101 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       .update(pveGuests)
       .set({ jobId: null, lastRestoreTestAt: null })
       .where(eq(pveGuests.id, guestId));
+    await owner.delete(pveJobs).where(eq(pveJobs.id, jobId));
+  });
+
+  it("passes over a restore point of a privileged container by its own configuration, not the guest's flag (S21)", async () => {
+    await owner.delete(pveTasks);
+    await owner.delete(pveRuns).where(eq(pveRuns.status, "running"));
+    const [job] = await owner
+      .insert(pveJobs)
+      .values({
+        tenantId,
+        name: "containers with restore check",
+        scopeAll: false,
+        schedule: { kind: "daily", timeOfDay: "03:00", timeZone: "UTC" },
+        settings: { restoreTest: { enabled: true, targetStorage: "local-lvm" } },
+      })
+      .returning();
+    const jobId = job?.id ?? "";
+    const [pve1] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: clock, facts: { restoresAllowed: true } })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    // 211 is unprivileged now, but its newest restore point is of the privileged container it
+    // was; it waits longest. 210 is privileged now, its newest restore point unprivileged.
+    const container = async (vmid: number, privileged: boolean, guestConfig: string) => {
+      const [guest] = await owner
+        .insert(pveGuests)
+        .values({ tenantId, clusterId, vmid, kind: "ct", node: "pve1", jobId, privileged })
+        .returning();
+      const [point] = await owner
+        .insert(pveSnapshots)
+        .values({
+          tenantId,
+          clusterId,
+          guestId: guest?.id ?? "",
+          sequence: 1,
+          kind: "ct",
+          archiveName: `ct/${vmid}/2026-10-20T22:00:00Z`,
+          storageId: "restow",
+          manifestPath: `ct-${vmid}`,
+          guestConfig,
+          backupAt: new Date(clock.getTime() - DAY),
+        })
+        .returning();
+      await owner
+        .update(pveGuests)
+        .set({ lastSnapshotId: point?.id ?? null })
+        .where(eq(pveGuests.id, guest?.id ?? ""));
+      return guest?.id ?? "";
+    };
+    const wasPrivileged = await container(211, false, "arch: amd64\nhostname: old\n");
+    const nowPrivileged = await container(210, true, "arch: amd64\nunprivileged: 1\n");
+    await owner
+      .update(pveGuests)
+      .set({ lastRestoreTestAt: new Date(clock.getTime() - 40 * DAY) })
+      .where(eq(pveGuests.id, nowPrivileged));
+    const restoreTasks = async (id: string) =>
+      owner
+        .select()
+        .from(pveTasks)
+        .where(and(eq(pveTasks.guestId, id), eq(pveTasks.kind, "restore")));
+    expect(await planRestoreTests(deps, clock)).toBe(1);
+    expect(await restoreTasks(wasPrivileged)).toHaveLength(0);
+    const [stamped] = await owner.select().from(pveGuests).where(eq(pveGuests.id, wasPrivileged));
+    expect(stamped?.lastRestoreTestAt).toBeNull();
+    expect(await restoreTasks(nowPrivileged)).toEqual([
+      expect.objectContaining({
+        params: expect.objectContaining({ kind: "ct", restoreTest: true }),
+      }),
+    ]);
+    // The same for boot tests: only the unprivileged restore point is booted.
+    await owner
+      .update(pveJobs)
+      .set({ settings: { bootTest: { schedule: "weekly" } } })
+      .where(eq(pveJobs.id, jobId));
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: clock, facts: { restoresAllowed: true, capabilities: ["boot_test"] } })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    await owner.delete(pveRuns).where(inArray(pveRuns.guestId, [wasPrivileged, nowPrivileged]));
+    await owner.delete(pveTasks);
+    await planBootTests(deps, clock);
+    const bootTasks = await owner.select().from(pveTasks).where(eq(pveTasks.kind, "boot_test"));
+    expect(bootTasks.map((t) => t.guestId)).not.toContain(wasPrivileged);
+    expect(bootTasks.map((t) => t.guestId)).toContain(nowPrivileged);
+    await owner.delete(pveRuns).where(inArray(pveRuns.guestId, [wasPrivileged, nowPrivileged]));
+    await owner.delete(pveTasks);
+    await owner
+      .update(pveGuests)
+      .set({ lastSnapshotId: null })
+      .where(inArray(pveGuests.id, [wasPrivileged, nowPrivileged]));
+    await owner
+      .delete(pveSnapshots)
+      .where(inArray(pveSnapshots.guestId, [wasPrivileged, nowPrivileged]));
+    await owner.delete(pveGuests).where(inArray(pveGuests.id, [wasPrivileged, nowPrivileged]));
     await owner.delete(pveJobs).where(eq(pveJobs.id, jobId));
   });
 

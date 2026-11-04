@@ -121,4 +121,24 @@ describe("RestoreCheckFacts", () => {
       "Not checked: not enough space",
     );
   });
+
+  it("says a privileged container's restore point is not checked, and that Restow decides it", () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => {
+      root?.render(
+        <I18nextProvider i18n={i18n}>
+          <RestoreCheckFacts
+            facts={{ enabled: true, blocker: "privileged", node: "pve1", lastRestoreTestAt: null }}
+          />
+        </I18nextProvider>,
+      );
+    });
+    const line = host.querySelector('[data-slot="pve-restore-check-facts"]');
+    expect(line?.textContent).toMatch(
+      /^Not checked: privileged container\. .+ restores containers only as unprivileged/,
+    );
+    expect(line?.textContent).not.toContain("Proxmox VE cannot");
+  });
 });

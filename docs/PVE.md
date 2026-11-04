@@ -800,8 +800,13 @@ guests that need passthrough hardware to boot (removed for the test, so they may
 ## Known limits of this release
 
 Not possible: backing up VM templates (PVE disables fleecing for them), live
-restore (PVE refuses it for providers), restoring privileged containers (PVE
-refuses it; restore by hand as unprivileged), restoring single files back into
+restore (PVE refuses it for providers), restoring restore points of privileged
+containers (Restow restores containers only as unprivileged, and files with ids
+above 65535 and device nodes would not restore; restore such a point by hand).
+Whether a restore point is of a privileged container is read from its own
+configuration (`unprivileged: 1` or not), not from what the guest is now; the
+restore, the monthly restore check and the boot test pass it over, and the
+guest's page says "Not checked: privileged container". Restoring single files back into
 a running guest (they are browsed and downloaded as a ZIP, see "Files of a
 container" and "Files of a VM"), files of VMs on btrfs, ZFS, ReFS, LVM thin or
 RAID volumes, BitLocker or LUKS, NTFS-compressed or EFS files (see "Files of a

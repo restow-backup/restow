@@ -393,6 +393,15 @@ private repository.
   the size of one got "volume not found". The server now lists every restore point of one VMID
   on request and the cluster's in pages (docs/PVE-PROTOCOL.md); restow-pve from 0.5.0 uses both.
   An older node gets the newest 10,000 as before.
+- Proxmox VE: whether a container's restore point could be restored was decided by what the
+  guest is now, not by the restore point: after a container was converted, an old restore point
+  of the privileged container was allowed (and its files with ids above 65535 and device nodes
+  would not have restored), a newer unprivileged one was refused. The refusal blamed PVE, though
+  the rule is Restow's own (it restores containers only as unprivileged), and the monthly restore
+  check skipped such a container for good without a word. The restore point's own configuration
+  decides now, for the restore, the restore check and the boot test; the text says that Restow
+  restores containers only as unprivileged and why, and the guest's page says "Not checked:
+  privileged container".
 
 ### Upgrade Notes
 

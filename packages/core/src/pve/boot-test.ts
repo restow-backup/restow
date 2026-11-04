@@ -49,6 +49,29 @@ export function pveRestoreCheckBlocker(
   return null;
 }
 
+/**
+ * Whether a restore point is of a privileged container. Restow restores containers only as
+ * unprivileged (the node sends `unprivileged=1`): files with ids above 65535 and device nodes
+ * of a privileged one would not restore, so its restore, restore check and boot test are not
+ * started. Decided by the restore point's own configuration (`unprivileged: 1` in its main
+ * section, before any `[snapshot]` section), not by what the guest is now; `fallback` (the
+ * inventory's flag) only when the restore point carries no configuration.
+ */
+export function pveRestorePointPrivileged(
+  point: { readonly kind: string; readonly guestConfig: string },
+  fallback: boolean,
+): boolean {
+  if (point.kind !== "ct") {
+    return false;
+  }
+  const main = point.guestConfig.split(/^\[/m)[0] ?? "";
+  if (main.trim() === "") {
+    return fallback;
+  }
+  const line = /^unprivileged:\s*(\S+)\s*$/m.exec(main);
+  return line?.[1] !== "1";
+}
+
 export type PveBootTestScheduleKind = "off" | "weekly" | "after_backup";
 export type PveBootTestOutcomeKind = "green" | "yellow" | "red" | "skipped" | "error";
 

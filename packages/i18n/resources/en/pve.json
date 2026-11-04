@@ -308,7 +308,7 @@
       "no_node": "No boot test possible: restow-pve is not installed on the guest's node.",
       "node_unsupported": "No boot test possible: restow-pve on the guest's node does not run boot tests (update it, or they are switched off there).",
       "restores_off": "No boot test possible: restores are switched off on the guest's node.",
-      "privileged": "No boot test possible: Proxmox VE cannot restore privileged containers from a backup interface.",
+      "privileged": "No boot test: {appName} restores containers only as unprivileged, and the newest restore point is of a privileged container (files with ids above 65535 and device nodes would not restore).",
       "template": "No boot test for VM templates."
     },
     "bootTestLeftover": {
@@ -386,6 +386,7 @@
     },
     "restoreCheckSkipped": "Not checked: {reason, select, no_storage {target storage missing} storage_inactive {target storage inactive} storage_content {target storage takes no guests of this kind} storage_space {not enough space} restores_off {restores are off} other {not possible}}",
     "restoreCheckBlocked": {
+      "privileged": "Not checked: privileged container. {appName} restores containers only as unprivileged, and the newest restore point is of a privileged container (files with ids above 65535 and device nodes would not restore).",
       "restores_off": "Restore check not possible: restores are switched off on node {node}.",
       "node_offline": "Restore check waits: node {node} has not reported lately.",
       "no_node": "Restore check not possible: restow-pve is not installed on the guest's node."
@@ -404,7 +405,7 @@
     "start": "Start after the restore",
     "submit": "Restore",
     "queued": "Restore requested. The node starts it at its next check-in, usually within a minute.",
-    "privileged": "Proxmox VE cannot restore privileged containers from a backup interface.",
+    "privileged": "{appName} restores containers only as unprivileged; this restore point is of a privileged container (files with ids above 65535 and device nodes would not restore). Restore it by hand (docs/PVE.md).",
     "ipNote": "IP addresses stay the same: those in the configuration and those set inside the guest. Only the MAC addresses are new. Before the copy runs next to the original, change its addresses or keep it off the network."
   },
   "readiness": {

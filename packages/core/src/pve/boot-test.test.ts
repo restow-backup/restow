@@ -13,6 +13,7 @@ import {
   pveBootTestTaskParams,
   pveNodeDeclares,
   pveRestoreCheckBlocker,
+  pveRestorePointPrivileged,
   pveRestorePointRating,
 } from "./boot-test.js";
 
@@ -245,5 +246,28 @@ describe("pveBootTestRetry", () => {
     expect(pveBootTestOverdueMs("after_backup")).toBe(2 * 24 * 60 * 60 * 1000);
     expect(pveBootTestOverdueMs("weekly")).toBe(8 * 24 * 60 * 60 * 1000);
     expect(pveBootTestOverdueMs("off")).toBeNull();
+  });
+});
+
+describe("a restore point of a privileged container", () => {
+  const ct = (guestConfig: string) => ({ kind: "ct", guestConfig });
+
+  it("is decided by the restore point's own configuration, not by the guest now", () => {
+    expect(pveRestorePointPrivileged(ct("arch: amd64\nunprivileged: 1\n"), true)).toBe(false);
+    expect(pveRestorePointPrivileged(ct("arch: amd64\nhostname: db\n"), false)).toBe(true);
+    expect(pveRestorePointPrivileged(ct("arch: amd64\nunprivileged: 0\n"), false)).toBe(true);
+    // Only the main section counts, not a snapshot's.
+    expect(
+      pveRestorePointPrivileged(ct("arch: amd64\n\n[before-upgrade]\nunprivileged: 1\n"), false),
+    ).toBe(true);
+    expect(pveRestorePointPrivileged(ct("unprivileged: 1\n\n[old]\narch: amd64\n"), true)).toBe(
+      false,
+    );
+  });
+
+  it("falls back to the inventory's flag without a configuration, and never blocks a VM", () => {
+    expect(pveRestorePointPrivileged(ct(""), true)).toBe(true);
+    expect(pveRestorePointPrivileged(ct(""), false)).toBe(false);
+    expect(pveRestorePointPrivileged({ kind: "vm", guestConfig: "" }, true)).toBe(false);
   });
 });
