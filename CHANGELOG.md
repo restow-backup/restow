@@ -354,6 +354,15 @@ private repository.
   bridge may have only ports of guests (`tap`, `veth`, `fwpr`); a network card, bond, VLAN or
   tunnel on it skips the test (`bridge_not_isolated`). A start that fails because the node
   cannot allocate the memory is skipped (`node_resources`), not red.
+- Proxmox VE: the boot test's space check counted only the restore point's data, also on thick
+  storage. On a `lvm` storage or a `zfspool` without "Thin provision" (zvols with a
+  refreservation of their full size) a VM with a 500 GiB disk and 40 GiB of data passed the
+  check, the restore then failed with "insufficient free space", and the boot test was red
+  (`restore_failed`, the notification `boot_test.failed`), which blamed the restore point. The
+  check now asks for the full size of the disks on thick storage (for a container its rootfs
+  and volume mount points) and for the data on thin storage, reading `sparse` and
+  `preallocation` from `/etc/pve/storage.cfg`; an unknown storage counts as thick. A restore
+  that runs out of space anyway is skipped (`storage_space`), never red.
 
 ### Upgrade Notes
 

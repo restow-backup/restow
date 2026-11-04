@@ -191,7 +191,9 @@ type BootTester struct {
 	BackupRunning func() bool
 	// SysNet is where the network interfaces of the node are read (default /sys/class/net).
 	SysNet string
-	Logf   func(string, ...any)
+	// StorageConfig is the cluster's storage configuration (default /etc/pve/storage.cfg).
+	StorageConfig string
+	Logf          func(string, ...any)
 	// Poll is the interval of the status checks (default 5 s); TaskPoll the restore task's.
 	Poll     time.Duration
 	TaskPoll time.Duration
@@ -339,7 +341,7 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 	if storage == "" {
 		return skipped("no_storage", "This node has no storage for boot tests (restow-pve config --boot-test-storage).")
 	}
-	if reason, msg := b.checkStorage(ctx, storage, p); reason != "" {
+	if reason, msg := b.checkStorage(ctx, storage, p, conf, rp); reason != "" {
 		return skipped(reason, msg)
 	}
 	if bridge := strings.TrimSpace(b.State.BootTestBridge); bridge != "" {
@@ -372,7 +374,7 @@ func (b *BootTester) backupBusy(ctx context.Context) (string, string) {
 	return "", ""
 }
 
-func (b *BootTester) checkStorage(ctx context.Context, name string, p BootTestParams) (string, string) {
+func (b *BootTester) checkStorage(ctx context.Context, name string, p BootTestParams, conf map[string]string, rp *RestorePoint) (string, string) {
 	list, err := b.PVE.Storages(ctx, b.State.NodeName)
 	if err != nil {
 		b.logf("storages unknown: %v", err)
@@ -392,13 +394,20 @@ func (b *BootTester) checkStorage(ctx context.Context, name string, p BootTestPa
 		if s.Content != "" && !strings.Contains(","+s.Content+",", ","+want+",") {
 			return "storage_content", fmt.Sprintf("The boot test storage %s does not hold %s.", name, want)
 		}
-		need := p.DataBytes
-		if need == 0 {
-			need = p.DiskBytes
+		data, disks := p.DataBytes, p.DiskBytes
+		if p.Kind == "ct" {
+			if sum := containerVolumeBytes(conf); sum > 0 {
+				disks = sum
+			}
+			if data == 0 && rp != nil {
+				data = rp.ByteSize
+			}
 		}
+		need, basis := RestoreSpaceNeed(p.Kind, s, b.storageOptions(name), data, disks)
 		need += need/10 + bootTestStorageMarginBytes
+		b.logf("the restore needs about %d MiB on %s (%s): %d MiB free", need>>20, name, basis, s.Avail>>20)
 		if s.Avail < need {
-			return "storage_space", fmt.Sprintf("The boot test storage %s has %d MiB free; the restore needs about %d MiB.", name, s.Avail>>20, need>>20)
+			return "storage_space", fmt.Sprintf("The boot test storage %s has %d MiB free; the restore needs about %d MiB (%s).", name, s.Avail>>20, need>>20, basis)
 		}
 		return "", ""
 	}
@@ -473,6 +482,12 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *R
 		tail := b.taskLog(ctx, upid, 200)
 		if !TaskWarnings(exit) {
 			b.logf("restore ended with %q: %s", exit, lastLines(tail, 8))
+			if outOfSpaceRE.MatchString(exit + "\n" + tail) {
+				// The node had too little room (the boot test storage, or the temporary folder of
+				// a container restore): nothing is wrong with the restore point.
+				res.Outcome, res.Reason, res.Message = "skipped", "storage_space", fmt.Sprintf("The restore ran out of space on the node (the boot test storage %s or the temporary folder): %s", storage, lastLines(tail, 3))
+				return res
+			}
 			msg := fmt.Sprintf("The restore ended with %q: %s", exit, lastLines(tail, 3))
 			if p.Kind == "ct" && lxc.IDMap {
 				msg += " (" + idmapHint + ")"
@@ -607,6 +622,8 @@ var (
 	// The ports PVE itself puts on a bridge for guests: a VM's tap, a container's veth, the
 	// firewall bridge's fwpr. Anything else (a NIC, a bond, a VLAN, a VXLAN) is a way out.
 	guestPortRE = regexp.MustCompile(`^(tap\d+i\d+|veth\d+i\d+|fwpr\d+p\d+)$`)
+	// A restore that failed for want of space on the node, not for its restore point.
+	outOfSpaceRE = regexp.MustCompile(`(?i)no space left|insufficient free space|out of space|not enough (free )?space|lvcreate .*failed|refreservation|disk quota exceeded|ENOSPC`)
 	// A start that failed for want of memory of the node (hugepages, a memory backend).
 	nodeResourcesRE = regexp.MustCompile(`(?i)hugepage|cannot allocate memory|out of memory|not enough memory|memory allocation|unable to allocate|failed to allocate`)
 	// The raw lxc.* lines that reach the host's devices, network or programs.

@@ -697,7 +697,15 @@ What the guest's node does:
    `vzdump` task of PVE, skips the test ("A backup runs on this node").
 2. **Resources first.** The guest's memory (from the restore point's configuration) must not
    exceed the job's limit, the node must have that much available plus 1 GiB (`MemAvailable`),
-   and the boot test storage must hold the restore point's data plus a tenth and 1 GiB. The
+   and the boot test storage must hold what the restore allocates there plus a tenth and 1 GiB:
+   on a thin storage (`lvmthin`, `rbd`, `btrfs`, a `zfspool` with `sparse 1`, a container's
+   subvolumes on a `zfspool`, a file storage without `preallocation full` or `falloc`) the
+   restore point's data, on a thick one (`lvm`, a `zfspool` without `sparse`, whose zvols get a
+   refreservation of their full size, a preallocating or unknown storage) the full size of its
+   disks (a container: rootfs and volume mount points). The options come from
+   `/etc/pve/storage.cfg`, which the service reads as root. A restore that still runs out of
+   space (`insufficient free space`, `out of space`, `No space left on device`) skips the test
+   (`storage_space`) instead of making it red. The
    storage is the node's own choice (`--boot-test-storage`), by default its fleecing storage: a
    thin, local storage every node with backups has. A VM with raw QEMU `args` that do more than
    tune the CPU, SMBIOS or the clock (`-cpu`, `-smbios`, `-rtc`, `-overcommit`, `-msg`) is not
