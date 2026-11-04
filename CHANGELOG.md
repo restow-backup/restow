@@ -313,6 +313,14 @@ private repository.
   starting, access denied, an unexpected provider error, a wrong restic architecture or an
   unknown provider) and reports one "snapshot_unavailable" with the cause, under both policies,
   and its run log points to the service "Volume Shadow Copy" in services.msc.
+- Agent: `restow-agent enroll` used up the one-time token before it created the agent's folders
+  and stored the credentials. A state folder that someone else had prepared (refused on
+  Windows), a full disk or an unusable DPAPI then ended with "The token is used up" and an
+  endpoint on the server that no machine could use; every retry left another one. The agent now
+  creates its folders, protects a test secret and writes it next to the state file before it
+  contacts the server, and stops with "The token was not used" when that fails; an existing
+  enrollment stays untouched until the new one is stored. Should storing fail afterwards all the
+  same, the message names the new endpoint to delete in the UI.
 
 ### Upgrade Notes
 

@@ -112,6 +112,25 @@ func TestEnrollRefusals(t *testing.T) {
 	}
 }
 
+// A state folder that cannot be created fails the enrollment before the
+// server sees the one-time token (K113).
+func TestEnrollChecksTheStateFolderFirst(t *testing.T) {
+	c := newCLI(t)
+	if err := os.MkdirAll(filepath.Join(c.dir, "agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(c.dir, "agent", "state"), []byte("in the way"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, se, code := c.run("enroll", "--allow-insecure-http", "--force")
+	if code != exitError || !strings.Contains(se, "could not be stored") || !strings.Contains(se, "The token was not used") {
+		t.Fatalf("exit %d\n%s", code, se)
+	}
+	if len(c.srv.Enrollments) != 0 {
+		t.Fatalf("the server got %d enrollments", len(c.srv.Enrollments))
+	}
+}
+
 func TestEnrollRejectedToken(t *testing.T) {
 	c := newCLI(t)
 	t.Setenv("RESTOW_TOKEN", "rset_this_token_was_never_issued")

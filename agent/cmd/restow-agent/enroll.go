@@ -148,6 +148,19 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 	if hostname == "" {
 		hostname = sysinfo.Hostname()
 	}
+	// The token can be used once: everything local that the enrollment needs
+	// is checked before the server sees it, so a folder someone else
+	// prepared, a full disk or an unusable DPAPI fails without using it up
+	// and without leaving an endpoint on the server (an existing state stays).
+	if err := layout.Ensure(); err != nil {
+		fmt.Fprintf(stderr, "Cannot create the agent directories: %v\nThe token was not used. Fix the problem and run the command again.\n", err)
+		return exitError
+	}
+	if err := state.CheckWritable(layout.StateFile()); err != nil {
+		fmt.Fprintf(stderr, "The credentials could not be stored in %s: %v\nThe token was not used. Fix the problem (permissions, disk space) and run the command again.\n", layout.StateFile(), err)
+		return exitError
+	}
+
 	ctx, cancel := signalContext()
 	defer cancel()
 	ectx, ecancel := context.WithTimeout(ctx, 3*time.Minute)
@@ -191,12 +204,12 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 		AgentSecret: resp.AgentSecret, RepositoryURL: resp.Repository.URL, RepositoryPassword: resp.Repository.Password,
 	}
 	redact.Add(st.Secrets()...)
-	if err := layout.Ensure(); err != nil {
-		fmt.Fprintf(stderr, "Cannot create the agent directories: %v\n", err)
-		return exitError
-	}
 	if err := st.Save(layout.StateFile()); err != nil {
-		fmt.Fprintf(stderr, "Enrolled, but the credentials could not be stored in %s: %v\nThe token is used up. Fix the problem (permissions, disk space) and create a new token.\n", layout.StateFile(), err)
+		// The agent API has no call to withdraw an enrollment with its own
+		// credentials, so the new endpoint stays on the server.
+		fmt.Fprintf(stderr, "Enrolled as endpoint %s, but the credentials could not be stored in %s: %v\n"+
+			"The token is used up, and the endpoint now exists on the server without a machine that can use it: delete it in the Restow UI (Endpoints). "+
+			"Fix the problem (permissions, disk space), create a new token and run the command again.\n", st.EndpointID, layout.StateFile(), err)
 		return exitError
 	}
 	eventlog.Info(eventlog.IDEnrolled, fmt.Sprintf("This computer was enrolled at %s as endpoint %s.", st.ServerURL, st.EndpointID))
