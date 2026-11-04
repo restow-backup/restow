@@ -89,3 +89,47 @@ describe("local storage backend", () => {
     }
   });
 });
+
+describe("listing a prefix (only its folder is walked)", () => {
+  it("lists what lies under the prefix, also one that ends inside a name, and nothing else", async () => {
+    const root = await mkdtemp(join(tmpdir(), "restow-local-list-"));
+    try {
+      const backend = new LocalStorageBackend(root);
+      const keys = [
+        "pve-guests/a/config",
+        "pve-guests/a/data/ab/abcd",
+        "pve-guests/a.orphaned-2026/config",
+        "pve-guests/b/config",
+        "tenants/t/packs/ab/one",
+      ];
+      for (const key of keys) {
+        await backend.put(key, Buffer.from(key));
+      }
+      expect(await backend.list("pve-guests/a/")).toEqual([
+        "pve-guests/a/config",
+        "pve-guests/a/data/ab/abcd",
+      ]);
+      expect(await backend.list("pve-guests/a")).toEqual([
+        "pve-guests/a.orphaned-2026/config",
+        "pve-guests/a/config",
+        "pve-guests/a/data/ab/abcd",
+      ]);
+      expect(await backend.list("pve-guests/a/keys/")).toEqual([]);
+      expect(await backend.list("nothing/here/")).toEqual([]);
+      expect(await backend.list("")).toEqual([...keys].sort());
+      // A walk starts inside the root only.
+      await expect(backend.list("../outside/")).rejects.toThrow(/escapes the root/);
+      // Every folder walked is below the prefix's own: the packs are never read for it.
+      const spy = vi.spyOn(
+        backend as unknown as { walk: (dir: string, out: string[]) => Promise<void> },
+        "walk",
+      );
+      await backend.list("pve-guests/a/");
+      expect(spy.mock.calls.every(([dir]) => dir.startsWith(join(root, "pve-guests", "a")))).toBe(
+        true,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
