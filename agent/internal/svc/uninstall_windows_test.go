@@ -3,11 +3,13 @@
 package svc
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/restow-backup/restow/agent/internal/paths"
 	"github.com/restow-backup/restow/agent/internal/winapi"
@@ -105,5 +107,57 @@ func TestUninstallReportsAFileItCannotMoveAside(t *testing.T) {
 	err := Uninstall(UninstallOptions{Layout: layout, Files: []string{f}, Dirs: []string{}, SkipService: true})
 	if err == nil || !strings.Contains(err.Error(), "delete it after the next restart") {
 		t.Fatalf("%v", err)
+	}
+}
+
+// stuckManager is a service control manager whose service does not stop in
+// time (a backup or a post hook still ending).
+type stuckManager struct{ deleted bool }
+
+func (f *stuckManager) Name() string         { return "Windows service control manager" }
+func (f *stuckManager) Install(string) error { return nil }
+func (f *stuckManager) Start() error         { return nil }
+func (f *stuckManager) Stop() error          { return ErrStillRunning }
+func (f *stuckManager) Restart() error       { return ErrStillRunning }
+func (f *stuckManager) Status() Info         { return Info{State: Running, PID: 4242, Detail: "stopping"} }
+func (f *stuckManager) Uninstall() error {
+	return stopAndConfirm(func() error { return nil }, func() (bool, uint32, error) { return false, 4242, nil }, 20*time.Millisecond, time.Millisecond)
+}
+func (f *stuckManager) UninstallFromInside() error      { f.deleted = true; return nil }
+func (f *stuckManager) Refresh(string) (bool, error)    { return false, nil }
+func (f *stuckManager) ReloadFromInside() (bool, error) { return false, nil }
+func (f *stuckManager) Program() (string, error)        { return "", nil }
+
+// A service that does not stop in time removes nothing: not the service, not
+// the state with the credentials, not the data, logs or binaries (K118).
+func TestUninstallRemovesNothingWhileTheAgentRuns(t *testing.T) {
+	root := t.TempDir()
+	layout := paths.Layout{StateDir: filepath.Join(root, "s"), DataDir: filepath.Join(root, "d"), LogDir: filepath.Join(root, "l")}
+	bin := filepath.Join(root, "bin")
+	agent := filepath.Join(bin, "restow-agent.exe")
+	for _, d := range []string{layout.StateDir, layout.DataDir, layout.LogDir, bin} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := filepath.Join(layout.StateDir, "state.json")
+	for _, f := range []string{state, agent} {
+		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := &stuckManager{}
+	var out strings.Builder
+	err := Uninstall(UninstallOptions{Layout: layout, Files: []string{agent}, Dirs: []string{bin}, Out: &out, Manager: m})
+	if !errors.Is(err, ErrStillRunning) || !strings.Contains(err.Error(), "nothing was removed") || !strings.Contains(err.Error(), "4242") {
+		t.Fatalf("err %v", err)
+	}
+	for _, p := range []string{state, layout.DataDir, layout.LogDir, agent} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s was removed while the agent still runs", p)
+		}
+	}
+	if m.deleted || strings.Contains(out.String(), "removed") {
+		t.Fatalf("something was removed:\n%s", out.String())
 	}
 }

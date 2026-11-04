@@ -799,8 +799,23 @@ Wettlauf mit dem Ende des Dienstes.
 ### 9.4 Deinstallation
 
 - **Von Hand über den Installer** (`windows.ps1 -Uninstall`, empfohlener Weg): Das Skript
-  ruft `restow-agent.exe uninstall --keep-binaries`, wartet auf das Ende des Prozesses und
-  löscht danach `C:\Program Files\Restow` selbst. Kein Rest, kein Hilfsprozess.
+  merkt sich vorher die Prozess-ID des Dienstes (`Win32_Service.ProcessId`), ruft
+  `restow-agent.exe uninstall --keep-binaries`, wartet auf das Ende des Dienstprozesses und
+  jedes Prozesses aus `restow-agent.exe` (`Wait-AgentExit`) und löscht danach
+  `C:\Program Files\Restow` selbst, mit einigen Versuchen für eine Datei, die einen Moment
+  noch in Gebrauch ist (`Remove-FolderWithRetry`); bleibt sie es, nennt es den Ordner statt
+  einer PowerShell-Ausnahme. Kein Rest, kein Hilfsprozess. Ohne brauchbares Binary stoppt es
+  den Dienst selbst (`ServiceController.Stop` mit 120 s Frist, nicht das unbegrenzt wartende
+  `Stop-Service`) und wartet ebenso, bevor es den Dienst und `C:\ProgramData\Restow` löscht.
+- **Dienst hört nicht auf:** Läuft beim Deinstallieren eine Sicherung (restic hat bis 45 s
+  zum Beenden) oder ein Post-Hook und ist der Dienst nach 90 s nicht gestoppt, gibt
+  `scm.Uninstall` `svc.ErrStillRunning` zurück und löscht den Dienst nicht, und
+  `svc.Uninstall` entfernt **nichts** (weder Zustand noch Daten, Logs oder Binaries):
+  "the Restow agent is still running …; nothing was removed". Früher ging die
+  Deinstallation trotz der Zeitüberschreitung weiter, löschte den Zustand mit den
+  Zugangsdaten, und der Installer scheiterte dann mit einer Ausnahme an der laufenden
+  `restow-agent.exe`. Der Installer wartet in diesem Fall noch bis zu 120 s auf das Ende und
+  versucht es einmal neu; danach bricht er mit dem Hinweis ab, es später erneut zu tun.
 - **Von Hand über das Binary** (`restow-agent.exe uninstall`, erhöht) und **aus dem Dienst**
   (Aufgabe `uninstall` vom Server, `UninstallFromInside`): Ablauf wie `svc.Uninstall`
   (`internal/svc/uninstall.go`): Dienst stoppen bzw. löschen, Logger und Laufsperre

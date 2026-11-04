@@ -79,9 +79,14 @@ func Uninstall(o UninstallOptions) error {
 		} else {
 			err = m.Uninstall()
 		}
-		if err != nil {
+		switch {
+		case errors.Is(err, ErrStillRunning):
+			// Nothing may go while the agent still runs: it may be writing its
+			// state, and its files cannot be deleted (K118).
+			return fmt.Errorf("%w; nothing was removed. Run the uninstall again when the agent has stopped", err)
+		case err != nil:
 			errs = append(errs, err)
-		} else {
+		default:
 			fmt.Fprintf(out, "removed the %s service\n", m.Name())
 		}
 	}

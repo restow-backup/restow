@@ -362,6 +362,15 @@ private repository.
   and 536870914 (0x20000002) for a usage or configuration error; codes from this range have no
   Windows text, so the event shows the number, which docs/WINDOWS-AGENT.md (section 9.2)
   explains. The restart after an update keeps the code 3.
+- Windows agent (preview): an uninstall while a backup or a post hook was still ending went on
+  after the service had not stopped within 90 seconds. It deleted the enrollment and the data
+  while the agent still ran, and the installer's `-Uninstall` then failed with a PowerShell
+  error on the running `restow-agent.exe`, leaving the computer half removed. A service that
+  does not stop now removes nothing ("the Restow agent is still running ...; nothing was
+  removed"); the installer waits for the agent's process to end, tries once more, retries a
+  file that is still in use for a moment, and otherwise stops with a clear message to run the
+  uninstall again later. Without a usable agent binary it stops the service with a time limit
+  instead of waiting without an end.
 
 ### Upgrade Notes
 

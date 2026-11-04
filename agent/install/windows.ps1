@@ -652,34 +652,91 @@ function Set-InstalledSecurity([string]$Path) {
     if ($LASTEXITCODE -ne 0) { Stop-Installer "cannot reset the permissions of $Path (icacls exit code $LASTEXITCODE)" }
 }
 
+# Get-ServiceProcessId returns the process id of the running service, or 0.
+function Get-ServiceProcessId {
+    if ($RestowState.SkipService) { return 0 }
+    try {
+        $cim = Get-CimInstance -ClassName Win32_Service -Filter "Name='$($RestowServiceName)'" -ErrorAction Stop
+        if ($cim -and $cim.ProcessId) { return [int]$cim.ProcessId }
+    } catch { }
+    return 0
+}
+
+# Wait-AgentExit waits up to $Seconds until the service process $ProcessId
+# (0: none) and every process started from $Exe have ended, and returns
+# whether they did. While a backup ends (restic has up to 45 s) or a post hook
+# runs, the agent's files cannot be deleted.
+function Wait-AgentExit([int]$ProcessId, [string]$Exe, [int]$Seconds) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ($true) {
+        $left = @()
+        if ($ProcessId -gt 0 -and (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { $left += $ProcessId }
+        if ($Exe) {
+            $left += @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path -eq $Exe } | ForEach-Object { $_.Id })
+        }
+        if ($left.Count -eq 0) { return $true }
+        if ((Get-Date) -gt $deadline) { return $false }
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+# Remove-FolderWithRetry removes a folder; a file that is still in use for a
+# moment (the agent has just ended, an antivirus scan) gets a few more tries.
+function Remove-FolderWithRetry([string]$Path, [int]$Seconds) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ($true) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            return
+        } catch {
+            if ((Get-Date) -gt $deadline) {
+                Stop-Installer "cannot remove $Path ($($_.Exception.Message)). A program still uses a file in it; close it or restart Windows, then run the uninstall again."
+            }
+            Start-Sleep -Seconds 1
+        }
+    }
+}
+
 function Remove-RestowInstallation {
     Write-Step 'Removing the Restow agent'
     $agent = $RestowState.AgentExe
+    $stillRunning = 'the Restow agent is still running (a backup or a hook may still be ending); nothing more was removed. Wait until it has ended, or stop the service RestowAgent, and run the uninstall again.'
+    # Taken before the service is stopped: afterwards the service has no process id.
+    $servicePid = Get-ServiceProcessId
     $usable = $false
     if (Test-Path -LiteralPath $agent -PathType Leaf) {
         try { Test-FolderTrust $RestowState.BinDir -Strict; $usable = $true } catch { Write-Warn $_.Exception.Message }
     }
     if ($usable) {
+        # The agent stops the service and removes nothing while it still runs.
         $code = Invoke-Agent @('uninstall', '--yes', '--keep-binaries')
-        if ($code -ne 0) { Write-Warn "restow-agent uninstall ended with exit code $code" }
+        if ($code -ne 0) {
+            if (-not (Wait-AgentExit $servicePid $agent 120)) { Stop-Installer $stillRunning }
+            $code = Invoke-Agent @('uninstall', '--yes', '--keep-binaries')
+            if ($code -ne 0) { Write-Warn "restow-agent uninstall ended with exit code $code" }
+        }
     } else {
         # The binary is missing or not trustworthy: remove by hand, never run it.
         if (-not $RestowState.SkipService) {
             $svc = Get-Service -Name $RestowServiceName -ErrorAction SilentlyContinue
             if ($svc) {
-                Stop-Service -Name $RestowServiceName -Force -ErrorAction SilentlyContinue
+                # Stop-Service would wait without an end; the service gets 120 s.
+                try { $svc.Stop() } catch { }
+                try { $svc.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(120)) } catch { }
+                if (-not (Wait-AgentExit $servicePid '' 15)) { Stop-Installer $stillRunning }
                 $cim = Get-CimInstance -ClassName Win32_Service -Filter "Name='$($RestowServiceName)'" -ErrorAction SilentlyContinue
                 if ($cim) { $null = Invoke-CimMethod -InputObject $cim -MethodName Delete }
             }
         }
         if (Test-Path -LiteralPath $RestowState.DataRoot) {
             Test-FolderTrust $RestowState.DataRoot
-            Remove-Item -LiteralPath $RestowState.DataRoot -Recurse -Force
+            Remove-FolderWithRetry $RestowState.DataRoot 15
         }
     }
     if (Test-Path -LiteralPath $RestowState.InstallDir) {
+        if (-not (Wait-AgentExit $servicePid $agent 60)) { Stop-Installer $stillRunning }
         Test-FolderTrust $RestowState.InstallDir
-        Remove-Item -LiteralPath $RestowState.InstallDir -Recurse -Force
+        Remove-FolderWithRetry $RestowState.InstallDir 15
         Write-Note "removed $($RestowState.InstallDir)"
     }
     Write-Host ''

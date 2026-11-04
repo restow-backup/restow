@@ -12,6 +12,8 @@
 # 3b. -Proxy reaches the agent's own commands (enroll, status) and the
 #    session's environment is restored afterwards.
 # 3c. The installer enables TLS 1.2 itself (the -File form starts without it).
+# 3f. The uninstall waits for the agent's process and retries a folder whose
+#    file is in use, with a clear message when it stays in use.
 # 3e. The text of a failed enrollment depends on the agent's exit code, and
 #    restow-agent status --json decides whether the computer is enrolled.
 # 3d. The restart of a 32-bit host: stderr of the 64-bit child is no error of
@@ -251,6 +253,33 @@ try {
     $RestowState.AgentExe = $null
     Remove-Item -LiteralPath $fakeAgentDir -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+# ---- 3f. uninstall waits for the agent and for files in use ---------------------------
+# A process that runs (ping stands in for the agent) is waited for, by its id and
+# by its program file; a file in use stops the removal with a clear message.
+$ping = Join-Path ([Environment]::SystemDirectory) 'PING.EXE'
+$proc = Start-Process -FilePath $ping -ArgumentList @('-n', '60', '127.0.0.1') -PassThru -WindowStyle Hidden
+try {
+    if (Wait-AgentExit $proc.Id '' 1) { Fail 'Wait-AgentExit did not see the running process (by id)' }
+    elseif (Wait-AgentExit 0 $ping 1) { Fail 'Wait-AgentExit did not see the running process (by program file)' }
+    else { Ok 'uninstall waits for a running agent process' }
+} finally {
+    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+}
+$proc.WaitForExit(10000) | Out-Null
+if (-not (Wait-AgentExit $proc.Id $ping 5)) { Fail 'Wait-AgentExit waits for a process that has ended' } else { Ok 'an ended agent process lets the uninstall go on' }
+$busy = Join-Path ([IO.Path]::GetTempPath()) ('restow-busy-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+$null = New-Item -ItemType Directory -Force -Path $busy
+$stream = [System.IO.File]::Open((Join-Path $busy 'restow-agent.exe'), 'Create', 'ReadWrite', 'None')
+try {
+    $msg = ''
+    try { Remove-FolderWithRetry $busy 2 } catch { $msg = $_.Exception.Message }
+    if ($msg -notmatch 'still uses a file' -or -not (Test-Path -LiteralPath $busy)) { Fail "a folder with a file in use: $msg" } else { Ok 'a file in use stops the removal with a clear message' }
+} finally {
+    $stream.Dispose()
+}
+Remove-FolderWithRetry $busy 5
+if (Test-Path -LiteralPath $busy) { Fail 'the folder was not removed once the file was closed' } else { Ok 'the folder is removed once the file is free' }
 
 # ---- 4. full installation against the fake instance ------------------------------
 if (-not $SkipInstall) {

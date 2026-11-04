@@ -25,6 +25,7 @@ const (
 	ErrorServiceAlreadyRunning     = 1056
 	ErrorServiceDoesNotExist       = 1060
 	ErrorServiceNotActive          = 1062
+	ErrorServiceCannotAcceptCtrl   = 1061
 	ErrorFailedServiceControllerCx = 1063
 	ErrorServiceSpecificError      = 1066
 	ErrorServiceMarkedForDelete    = 1072
