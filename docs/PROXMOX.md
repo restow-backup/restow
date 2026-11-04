@@ -530,12 +530,13 @@ keys anyway.
 **Restore as new guest from Restow (the main path):**
 
 1. The admin picks a restore point in Restow. Options: target node (default: original node), target
-   storage, new VMID (default: next free id), start after restore (off), keep MACs (off; PVE's `unique`
-   regenerates them).
+   storage, new VMID (default: next free id), start after restore (off). Both kinds get new MAC
+   addresses (PVE's `unique=1`); IP addresses in the configuration and inside the guest stay the same.
 2. The server queues task `restore` to that node's helper.
 3. The helper calls `POST /nodes/{node}/qemu` with `vmid=<new>`, `archive=restow:backup/vm/101/<time>`,
    `storage=<target>`, `unique=1`, `pool=restow-restore`, optionally `bwlimit`. For CTs it calls
-   `POST /nodes/{node}/lxc` with `ostemplate=<archive>`, `restore=1`, `unprivileged=1`.
+   `POST /nodes/{node}/lxc` with `ostemplate=<archive>`, `restore=1`, `unprivileged=1`, `unique=1`
+   (a random `hwaddr` for every interface) and `onboot=0`.
 4. PVE calls the plugin. `restore_vm_init` lists the devices and sizes; `restore_vm_volume_init` makes
    the helper start an NBD server that serves the synthetic full of that disk and returns
    `nbd+unix:///drive-scsi0?socket=/run/restow-pve/restore-<id>.sock`. The server reads the map and

@@ -432,6 +432,11 @@ guest out of the pool once you accept it. Restores started from the PVE UI
 (storage `restow` > Backups > Restore) work through the same plugin, with the
 admin's own PVE permissions.
 
+The restored guest gets new MAC addresses (PVE's `unique=1`, for VMs and containers); a
+container does not start with its node (`onboot 0`, the result says so when the original did).
+IP addresses stay the same, in the configuration (a container's `ip=`) and inside the guest:
+change them before the copy runs beside the original.
+
 A restore task that PVE ends with `WARNINGS: n` ran to its end and warned beside it: Restow
 shows "Restored with warnings" (amber) with the warning lines, never a plain success and never
 a failure. The usual cause is a container with raw `lxc.*` lines (GPU or Coral passthrough with

@@ -257,7 +257,8 @@ func (p *PVEAPI) StartBackup(ctx context.Context, node string, vmid int, storage
 }
 
 // RestoreGuest creates a new guest from a backup volume; returns the task UPID.
-// It never passes force and always targets a new VMID. mounts are a container's rootfs
+// It never passes force and always targets a new VMID, with new MAC addresses (unique=1); a
+// container also with onboot=0. mounts are a container's rootfs
 // and mpN parameters (TestRestoreMounts); nil keeps the mount points of the backup.
 func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, start bool, mounts map[string]string) (string, error) {
 	form := url.Values{"vmid": {fmt.Sprint(vmid)}, "storage": {storage}}
@@ -268,6 +269,10 @@ func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, 
 		form.Set("ostemplate", archive)
 		form.Set("restore", "1")
 		form.Set("unprivileged", "1")
+		// A new hwaddr for every interface (as unique=1 does for a VM), and no start with the
+		// node: the copy must not come up beside the original with its MAC address.
+		form.Set("unique", "1")
+		form.Set("onboot", "0")
 		for k, v := range mounts {
 			form.Set(k, v)
 		}

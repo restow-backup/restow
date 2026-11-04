@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -492,4 +493,37 @@ func TestParsers(t *testing.T) {
 		t.Fatal("privileges")
 	}
 	_ = filepath.Join
+}
+
+// A container restore asks PVE for new MAC addresses and no start with the node, as a VM restore
+// gets new MAC addresses: the copy must not come up beside the original with its identity.
+func TestRestoreGuestGivesAContainerNewMACsAndNoOnboot(t *testing.T) {
+	var mu sync.Mutex
+	forms := map[string]url.Values{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		mu.Lock()
+		forms[r.URL.Path] = r.PostForm
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": "UPID:pve1:1:2:3:vzrestore:124:restow@pve!t:"})
+	}))
+	defer ts.Close()
+	api, err := NewPVEAPI(ts.URL, "restow@pve!t", "x", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := api.RestoreGuest(ctx, "pve1", "ct", 124, "restow:backup/ct/113/x", "local-lvm", "restow-restore", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.RestoreGuest(ctx, "pve1", "vm", 125, "restow:backup/vm/101/x", "local-lvm", "restow-restore", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	ct, vm := forms["/api2/json/nodes/pve1/lxc"], forms["/api2/json/nodes/pve1/qemu"]
+	if ct.Get("unique") != "1" || ct.Get("onboot") != "0" || ct.Get("restore") != "1" || ct.Get("ostemplate") != "restow:backup/ct/113/x" {
+		t.Fatalf("container form %v", ct)
+	}
+	if vm.Get("unique") != "1" || vm.Get("archive") != "restow:backup/vm/101/x" || vm.Has("onboot") {
+		t.Fatalf("VM form %v (qmrestore refuses other options beside archive)", vm)
+	}
 }

@@ -99,7 +99,7 @@ func TestRestoreCheckOfAContainerLeavesItsBindMountOut(t *testing.T) {
 // A container with GPU and TUN passthrough through raw lxc.* keys: PVE restores those only for
 // root@pam, skips them for the node's token and ends the restore "WARNINGS: 1". The container is
 // there, so the restore succeeded, with the warnings and the skipped lines.
-const lxcGuestConfig = "arch: amd64\nhostname: jellyfin\nmemory: 2048\nunprivileged: 1\n" +
+const lxcGuestConfig = "arch: amd64\nhostname: jellyfin\nmemory: 2048\nonboot: 1\nunprivileged: 1\n" +
 	"rootfs: local-lvm:vm-114-disk-0,size=8G\nnet0: name=eth0,bridge=vmbr0,ip=dhcp\n" +
 	"lxc.cgroup2.devices.allow: c 226:* rwm\nlxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir\n" +
 	"lxc.cgroup2.devices.allow: c 10:200 rwm\n"
@@ -150,8 +150,8 @@ func TestARestoreEndingWithWarningsSucceedsWithThem(t *testing.T) {
 			if result["deleted"] != true || len(f.guests) != 0 {
 				t.Fatalf("the check's guest is left: %v %v", result, f.guests)
 			}
-		} else if len(f.guests) != 1 {
-			t.Fatalf("restored guests: %v", f.guests)
+		} else if len(f.guests) != 1 || result["onbootCleared"] != true {
+			t.Fatalf("restored guests: %v, result %v", f.guests, result)
 		}
 	}
 }

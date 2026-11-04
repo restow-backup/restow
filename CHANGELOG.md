@@ -281,6 +281,14 @@ private repository.
   a restore check goes on to remove its guest, and a boot test goes on to the boot. Any other
   exit status but `OK` still fails; a failed restore of a container with a custom `lxc.idmap`
   says that the default map was used.
+- Proxmox VE: a container restored as a new guest kept the original's MAC addresses and
+  `onboot`. Only VMs were restored with `unique=1`. "Start after restore" brought up a copy with
+  the production container's MAC (and, with a static configuration, its IP) beside the running
+  original, and a copy without the start came up so at the next reboot of the node; the same held
+  for the copies restore checks left behind. Container restores, checks and boot tests now ask
+  PVE for new MAC addresses (`unique=1`) and `onboot=0`; the result says when the original
+  started with its node (`onbootCleared`). IP addresses stay the same, which docs/PVE.md now
+  says.
 
 ### Upgrade Notes
 

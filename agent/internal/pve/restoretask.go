@@ -37,6 +37,8 @@ type restoreState struct {
 	// CustomIDMap: among them a custom lxc.idmap.
 	SkippedLxc  []string `json:"skippedLxc,omitempty"`
 	CustomIDMap bool     `json:"customIdmap,omitempty"`
+	// OnbootCleared: the container started with its node; the restored copy does not (onboot=0).
+	OnbootCleared bool `json:"onbootCleared,omitempty"`
 }
 
 func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, error) {
@@ -62,6 +64,7 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	var mounts map[string]string
 	var omitted []string
 	var lxc lxcOptions
+	onboot := false
 	if p.Kind == "ct" {
 		rp, err := b.Resolve(ctx, p.Volname)
 		if err != nil {
@@ -69,6 +72,7 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 		}
 		// PVE restores raw lxc.* keys only for root@pam; the token's restore skips them.
 		lxc = rawLxcOptions(rp.GuestConfig)
+		onboot = parseConfigText(rp.GuestConfig)["onboot"] == "1"
 		if len(lxc.Lines) > 0 {
 			s.Logf("restore of %s: PVE restores raw LXC options only for root@pam; add them as root: %s", p.Volname, strings.Join(lxc.Lines, " | "))
 		}
@@ -86,7 +90,7 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	if err != nil {
 		return nil, err
 	}
-	st := restoreState{VMID: vmid, UPID: upid, OmittedMounts: omitted, SkippedLxc: lxc.Lines, CustomIDMap: lxc.IDMap}
+	st := restoreState{VMID: vmid, UPID: upid, OmittedMounts: omitted, SkippedLxc: lxc.Lines, CustomIDMap: lxc.IDMap, OnbootCleared: onboot}
 	s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: vmid,
 		StartedAt: time.Now().UTC().Format(time.RFC3339), Restore: &st})
 	return s.finishRestore(ctx, t.ID, p, st)
@@ -100,6 +104,9 @@ func (s *Service) finishRestore(ctx context.Context, taskID string, p restorePar
 	result := map[string]any{"vmid": vmid, "upid": upid}
 	if len(st.OmittedMounts) > 0 {
 		result["omittedMounts"] = st.OmittedMounts
+	}
+	if st.OnbootCleared {
+		result["onbootCleared"] = true
 	}
 	if err != nil {
 		return result, err
