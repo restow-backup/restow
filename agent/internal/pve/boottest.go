@@ -62,6 +62,9 @@ type ExecRunner struct{}
 func (ExecRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	// A qm or pct stuck in the kernel (a hung NFS storage) may outlive its kill: Wait returns
+	// anyway, so a deadline really ends the call.
+	cmd.WaitDelay = 10 * time.Second
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(out))
 	if err != nil {
@@ -71,6 +74,42 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) (string,
 		return text, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, text)
 	}
 	return text, nil
+}
+
+// cliTimeouts bound every qm and pct call: a call that hangs (a storage that does not answer)
+// must not block the node's only task worker. Tests shorten them.
+var cliTimeouts = struct {
+	// Short: config, set, status, guest cmd (the agent's ping), exec, list.
+	Short time.Duration
+	// Long: start, stop, shutdown, destroy, unlock.
+	Long time.Duration
+	// Restore: qmrestore as root.
+	Restore time.Duration
+}{Short: 60 * time.Second, Long: 5 * time.Minute, Restore: 48 * time.Hour}
+
+// cliTimeout is the deadline of one qm or pct call.
+func cliTimeout(name string, args []string) time.Duration {
+	if name == "qmrestore" {
+		return cliTimeouts.Restore
+	}
+	if len(args) > 0 {
+		switch args[0] {
+		case "start", "stop", "shutdown", "destroy", "unlock", "reboot":
+			return cliTimeouts.Long
+		}
+	}
+	return cliTimeouts.Short
+}
+
+// command runs a qm or pct command with its deadline (cliTimeout).
+func (b *BootTester) command(ctx context.Context, name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, cliTimeout(name, args))
+	defer cancel()
+	out, err := b.Cmd.Run(ctx, name, args...)
+	if err != nil && ctx.Err() == context.DeadlineExceeded {
+		return out, fmt.Errorf("%s %s did not end within %s: %w", name, strings.Join(args, " "), minutes(cliTimeout(name, args)), err)
+	}
+	return out, err
 }
 
 // bootTestPVE is what a boot test needs of the local PVE API.
@@ -410,24 +449,42 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, conf 
 		return res
 	}
 	cli := b.cli(p.Kind)
-	if _, err := b.Cmd.Run(ctx, cli, "start", strconv.Itoa(vmid)); err != nil {
+	timeout := defaultBootTestTimeout
+	if p.TimeoutSeconds > 0 {
+		timeout = time.Duration(p.TimeoutSeconds) * time.Second
+	}
+	// The boot phase as a whole has a deadline too: each call has its own, but a node whose qm
+	// or pct calls all run into theirs would otherwise take far longer than the wait.
+	bootLimit := bootPhaseLimit(timeout)
+	bootCtx, cancelBoot := context.WithTimeout(ctx, bootLimit)
+	defer cancelBoot()
+	if _, err := b.command(bootCtx, cli, "start", strconv.Itoa(vmid)); err != nil {
+		if ctx.Err() == nil && bootCtx.Err() != nil {
+			res.Outcome, res.Message = "", fmt.Sprintf("the boot phase did not end within %s (qm or pct did not answer)", minutes(bootLimit))
+			return res
+		}
 		b.logf("start failed: %v", err)
 		res.Outcome, res.Reason, res.Message = "red", "start_failed", "The temporary guest did not start: "+err.Error()
 		return res
 	}
 	started := b.now()
 	b.logf("started")
-	timeout := defaultBootTestTimeout
-	if p.TimeoutSeconds > 0 {
-		timeout = time.Duration(p.TimeoutSeconds) * time.Second
+	outcome := b.waitForBoot(bootCtx, p.Kind, vmid, started, timeout)
+	if outcome.outcome == "" && ctx.Err() == nil && bootCtx.Err() != nil {
+		outcome.message = fmt.Sprintf("the boot phase did not end within %s (qm or pct did not answer)", minutes(bootLimit))
 	}
-	outcome := b.waitForBoot(ctx, p.Kind, vmid, started, timeout)
 	res.Outcome, res.Reason, res.Message, res.GuestAgent = outcome.outcome, outcome.reason, outcome.message, outcome.agent
 	if outcome.outcome == "green" {
 		secs := b.now().Sub(started).Seconds()
 		res.BootSeconds = &secs
 	}
 	return res
+}
+
+// bootPhaseLimit bounds the start and the wait for the boot: twice the wait plus five minutes
+// for the start and the calls around it.
+func bootPhaseLimit(timeout time.Duration) time.Duration {
+	return 2*timeout + 5*time.Minute
 }
 
 type bootOutcome struct {
@@ -440,19 +497,25 @@ func (b *BootTester) waitForBoot(ctx context.Context, kind string, vmid int, sta
 	cli := b.cli(kind)
 	for {
 		if kind == "vm" {
-			if _, err := b.Cmd.Run(ctx, "qm", "guest", "cmd", id, "ping"); err == nil {
+			if _, err := b.command(ctx, "qm", "guest", "cmd", id, "ping"); err == nil {
 				b.logf("the QEMU guest agent answered")
 				return bootOutcome{"green", "agent_answered", "The restored VM booted: its QEMU guest agent answered.", true}
 			}
-		} else if out, err := b.Cmd.Run(ctx, "pct", "exec", id, "--", "cat", "/proc/1/comm"); err == nil && strings.TrimSpace(out) != "" {
+		} else if out, err := b.command(ctx, "pct", "exec", id, "--", "cat", "/proc/1/comm"); err == nil && strings.TrimSpace(out) != "" {
 			b.logf("init runs: %s", strings.TrimSpace(out))
 			return bootOutcome{"green", "init_running", fmt.Sprintf("The restored container started: its init (%s) runs.", strings.TrimSpace(out)), false}
 		}
-		if st, err := b.Cmd.Run(ctx, cli, "status", id); err == nil && !strings.Contains(st, "running") {
+		st, err := b.command(ctx, cli, "status", id)
+		if err == nil && !strings.Contains(st, "running") {
 			b.logf("the guest stopped: %s", st)
 			return bootOutcome{"red", "guest_stopped", "The temporary guest stopped while it booted (" + strings.TrimSpace(st) + ").", false}
 		}
 		if b.now().Sub(started) >= timeout {
+			if err != nil {
+				// "Kept running" needs a status that says so.
+				b.logf("the state of the guest is unknown: %v", err)
+				return bootOutcome{"", "", "the state of the temporary guest is unknown: " + err.Error(), false}
+			}
 			if kind == "vm" {
 				b.logf("no answer of the guest agent within %s", timeout)
 				return bootOutcome{"yellow", "no_guest_agent", fmt.Sprintf("The restored VM started and kept running for %s, but its QEMU guest agent did not answer (not installed?).", timeout), false}
@@ -484,7 +547,7 @@ var (
 func (b *BootTester) isolate(ctx context.Context, p BootTestParams, vmid int) error {
 	id := strconv.Itoa(vmid)
 	cli := b.cli(p.Kind)
-	out, err := b.Cmd.Run(ctx, cli, "config", id)
+	out, err := b.command(ctx, cli, "config", id)
 	if err != nil {
 		return err
 	}
@@ -540,11 +603,11 @@ func (b *BootTester) isolate(ctx context.Context, p BootTestParams, vmid int) er
 	if len(del) > 0 {
 		args = append(args, "--delete", strings.Join(del, ","))
 	}
-	if _, err := b.Cmd.Run(ctx, cli, args...); err != nil {
+	if _, err := b.command(ctx, cli, args...); err != nil {
 		return err
 	}
 	// Read back: no interface may reach a network.
-	out, err = b.Cmd.Run(ctx, cli, "config", id)
+	out, err = b.command(ctx, cli, "config", id)
 	if err != nil {
 		return err
 	}
@@ -590,7 +653,7 @@ func (b *BootTester) destroy(ctx context.Context, kind string, vmid int) bool {
 	if !b.exists(ctx, kind, vmid) {
 		return true
 	}
-	if _, err := b.Cmd.Run(ctx, cli, "stop", id, "--skiplock", "1"); err != nil {
+	if _, err := b.command(ctx, cli, "stop", id, "--skiplock", "1"); err != nil {
 		b.logf("stop: %v", err)
 	}
 	args := []string{"destroy", id, "--purge", "1", "--destroy-unreferenced-disks", "1"}
@@ -599,7 +662,7 @@ func (b *BootTester) destroy(ctx context.Context, kind string, vmid int) bool {
 	} else {
 		args = append(args, "--force", "1")
 	}
-	if _, err := b.Cmd.Run(ctx, cli, args...); err != nil {
+	if _, err := b.command(ctx, cli, args...); err != nil {
 		b.logf("destroy: %v", err)
 	}
 	if b.exists(ctx, kind, vmid) {
@@ -611,7 +674,7 @@ func (b *BootTester) destroy(ctx context.Context, kind string, vmid int) bool {
 }
 
 func (b *BootTester) exists(ctx context.Context, kind string, vmid int) bool {
-	_, err := b.Cmd.Run(ctx, b.cli(kind), "config", strconv.Itoa(vmid))
+	_, err := b.command(ctx, b.cli(kind), "config", strconv.Itoa(vmid))
 	return err == nil
 }
 

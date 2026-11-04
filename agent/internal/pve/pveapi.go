@@ -30,7 +30,21 @@ type PVEAPI struct {
 	auth    string
 	http    *http.Client
 	timeout time.Duration
+
+	// WaitOutage is how long WaitTask rides out a PVE API that does not answer (default
+	// DefaultWaitOutage): a pveproxy restart (an upgrade of pve-manager, a renewed certificate)
+	// must not end the wait for a backup or restore that PVE goes on with.
+	WaitOutage time.Duration
+	// sleep and now are replaced by tests.
+	sleep func(ctx context.Context, d time.Duration) error
+	now   func() time.Time
 }
+
+// DefaultWaitOutage is how long WaitTask keeps asking while the PVE API does not answer.
+const DefaultWaitOutage = 10 * time.Minute
+
+// maxWaitBackoff bounds the pause between two status calls while the PVE API does not answer.
+const maxWaitBackoff = 30 * time.Second
 
 // PVEAPIError is an error answer of the PVE API.
 type PVEAPIError struct {
@@ -282,22 +296,91 @@ type TaskStatus struct {
 	ExitStatus string `json:"exitstatus"`
 }
 
-// WaitTask polls a task until it stops and returns its exit status ("OK" on success).
+// TaskStatus reads the status of a task.
+func (p *PVEAPI) TaskStatus(ctx context.Context, node, upid string) (TaskStatus, error) {
+	var st TaskStatus
+	err := p.call(ctx, http.MethodGet, "/nodes/"+url.PathEscape(node)+"/tasks/"+url.PathEscape(upid)+"/status", nil, &st)
+	return st, err
+}
+
+// WaitTask polls a task until it stops and returns its exit status ("OK" on success). A PVE API
+// that does not answer (no connection, a timeout, 5xx including pveproxy's 595 and 596) is
+// asked again with a growing pause for up to WaitOutage of failures in a row; an answer of PVE
+// itself (401, 403, 404, another 4xx) ends the wait at once.
 func (p *PVEAPI) WaitTask(ctx context.Context, node, upid string, poll time.Duration) (string, error) {
+	if poll <= 0 {
+		poll = 5 * time.Second
+	}
+	outage := p.WaitOutage
+	if outage <= 0 {
+		outage = DefaultWaitOutage
+	}
+	var failingSince time.Time
+	backoff := poll
 	for {
-		var st TaskStatus
-		if err := p.call(ctx, http.MethodGet, "/nodes/"+url.PathEscape(node)+"/tasks/"+url.PathEscape(upid)+"/status", nil, &st); err != nil {
+		st, err := p.TaskStatus(ctx, node, upid)
+		wait := poll
+		switch {
+		case err == nil:
+			failingSince, backoff = time.Time{}, poll
+			if st.Status == "stopped" {
+				return st.ExitStatus, nil
+			}
+		case ctx.Err() != nil:
+			return "", ctx.Err()
+		case !transientPVEError(err):
+			return "", err
+		default:
+			if failingSince.IsZero() {
+				failingSince = p.clock()
+			}
+			if p.clock().Sub(failingSince) >= outage {
+				return "", fmt.Errorf("the PVE API did not answer for %s; task %s may still run: %w", minutes(outage), upid, err)
+			}
+			backoff = min(2*backoff, maxWaitBackoff)
+			wait = max(backoff, poll)
+		}
+		if err := p.pause(ctx, wait); err != nil {
 			return "", err
 		}
-		if st.Status == "stopped" {
-			return st.ExitStatus, nil
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(poll):
-		}
 	}
+}
+
+// transientPVEError says whether a failed call of the PVE API may succeed when asked again: no
+// answer at all, or a 5xx of pveproxy (595 and 596 are its own for a backend it cannot reach).
+func transientPVEError(err error) bool {
+	var pe *PVEAPIError
+	if errors.As(err, &pe) {
+		return pe.Status >= 500
+	}
+	return true
+}
+
+func (p *PVEAPI) clock() time.Time {
+	if p.now != nil {
+		return p.now()
+	}
+	return time.Now()
+}
+
+func (p *PVEAPI) pause(ctx context.Context, d time.Duration) error {
+	if p.sleep != nil {
+		return p.sleep(ctx, d)
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
+
+// minutes writes a duration for a message ("10 min", "45 s").
+func minutes(d time.Duration) string {
+	if d >= time.Minute {
+		return fmt.Sprintf("%d min", int(d.Round(time.Minute)/time.Minute))
+	}
+	return fmt.Sprintf("%d s", int(d.Round(time.Second)/time.Second))
 }
 
 // NodeTask is one entry of GET /nodes/{node}/tasks.

@@ -18,11 +18,12 @@ import (
 // fakeVzdump is the part of the PVE API a backup task uses: it starts vzdump and ends it
 // with `exit` and the task log `log`.
 type fakeVzdump struct {
-	mu     sync.Mutex
-	exit   string
-	log    []string
-	forms  []url.Values
-	starts int
+	mu      sync.Mutex
+	running bool // the task runs on (its status says "running")
+	exit    string
+	log     []string
+	forms   []url.Values
+	starts  int
 }
 
 func (f *fakeVzdump) handler(w http.ResponseWriter, r *http.Request) {
@@ -36,6 +37,8 @@ func (f *fakeVzdump) handler(w http.ResponseWriter, r *http.Request) {
 		f.forms = append(f.forms, form)
 		f.starts++
 		answer("UPID:pve1:0001:vzdump:101:root@pam:")
+	case strings.HasSuffix(r.URL.Path, "/status") && f.running:
+		answer(map[string]any{"status": "running"})
 	case strings.HasSuffix(r.URL.Path, "/status"):
 		answer(map[string]any{"status": "stopped", "exitstatus": f.exit})
 	case strings.HasSuffix(r.URL.Path, "/log"):
@@ -234,5 +237,76 @@ func TestSMBIOSUUIDAndWarningLines(t *testing.T) {
 	lines := WarningLines("INFO: a\nWARN: one\nwarning: two\nTASK WARNINGS: 2\n", 10)
 	if len(lines) != 2 || lines[0] != "WARN: one" {
 		t.Fatalf("lines = %v", lines)
+	}
+}
+
+// restow-pve stops while vzdump runs (systemctl restart, the installer, a self-update): the task
+// is not reported failed, which would close the healthy backup's run in Restow. The service
+// waits for the vzdump task again when it starts and reports how it really ended.
+func TestAServiceStopDuringABackupReportsNothingAndTheRestartWaitsAgain(t *testing.T) {
+	vz := &fakeVzdump{running: true, exit: "OK"}
+	res := &fakeResults{}
+	s := newTaskService(t, vz, res)
+	s.PVE.sleep = func(ctx context.Context, d time.Duration) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Millisecond):
+			return nil
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.runTask(ctx, backupTask("task-1"))
+	}()
+	for i := 0; i < 500 && s.inflight("task-1") == nil; i++ {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	res.mu.Lock()
+	got := len(res.got)
+	res.mu.Unlock()
+	if got != 0 || len(s.loadPending()) != 0 {
+		t.Fatalf("a result was reported or kept: %v %v", res.got, s.loadPending())
+	}
+	e := s.inflight("task-1")
+	if e == nil || e.UPID != "UPID:pve1:0001:vzdump:101:root@pam:" || e.Kind != "backup" || e.VMID != 101 {
+		t.Fatalf("inflight %+v", e)
+	}
+
+	// vzdump finished meanwhile; the service starts again.
+	vz.mu.Lock()
+	vz.running = false
+	vz.mu.Unlock()
+	s.Interval, s.BusyInterval = 10*time.Millisecond, 10*time.Millisecond
+	ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		_ = s.Run(ctx)
+	}()
+	for i := 0; i < 500; i++ {
+		res.mu.Lock()
+		got = len(res.got)
+		res.mu.Unlock()
+		if got > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-stopped
+	if len(res.got) != 1 || res.got[0]["status"] != "done" || res.ids[0] != "task-1" {
+		t.Fatalf("results = %v %v", res.ids, res.got)
+	}
+	if vz.starts != 1 {
+		t.Fatalf("vzdump started %d times", vz.starts)
+	}
+	if s.inflight("task-1") != nil {
+		t.Fatal("the task is still kept as running")
 	}
 }

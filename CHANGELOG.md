@@ -258,6 +258,18 @@ private repository.
   cancelled is stopped and its files removed, so it no longer serves for up to two days. A pid
   file is checked against `/proc/<pid>/cmdline` before restow-pve signals it, so a stale one
   never stops another process that has the pid since.
+- Proxmox VE: one failed status call of the PVE API failed a running backup or restore. During a
+  long vzdump or restore pveproxy restarts now and then (an upgrade of pve-manager, a renewed
+  certificate); restow-pve then reported the task failed, the server closed the backup's run,
+  and the backup vzdump went on with was refused at its commit after hours of upload. A restart
+  of restow-pve itself (`systemctl restart restow-pve`, which `restow-pve config` asks for, the
+  installer, a self-update) did the same with "context canceled". The wait now asks again for
+  up to ten minutes while the PVE API does not answer (no connection, a timeout, 5xx including
+  595 and 596) and ends at once only on an answer of PVE itself. A stop of the service reports
+  nothing: the node keeps the running PVE task in `/var/lib/restow-pve/inflight.json`, waits for
+  it again when the service starts and reports how it really ended. Every `qm` and `pct` call
+  of a boot test has a deadline now (a hung storage blocked the node's only task worker, and
+  every backup of the node waited behind it), and so has the boot as a whole.
 
 ### Upgrade Notes
 

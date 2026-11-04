@@ -219,6 +219,11 @@ func (s *Service) Run(ctx context.Context) error {
 	if !s.State.BootTestsDisabled {
 		s.bootTester().Cleanup(ctx)
 	}
+	// Backups and restores PVE went on with while the service was stopped are waited for again.
+	for _, e := range loadInflight(s.Layout) {
+		s.Logf("task %s (%s): waiting again for %s, which PVE started before restow-pve stopped", e.TaskID, e.Kind, e.UPID)
+		s.enqueue([]Task{{ID: e.TaskID, Kind: e.Kind, Params: e.Params}})
+	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -504,6 +509,7 @@ func (s *Service) runTask(ctx context.Context, t Task) {
 	// again because the result never reached it. It is not run a second time.
 	if s.pendingResult(t.ID) {
 		s.Logf("task %s ran already; its result is sent again", t.ID)
+		s.dropInflight(t.ID)
 		s.flushResults(ctx)
 		return
 	}
@@ -513,7 +519,24 @@ func (s *Service) runTask(ctx context.Context, t Task) {
 		delete(s.cancelled, t.ID)
 		s.mu.Unlock()
 	}()
-	result, err := s.task(ctx, t)
+	var result map[string]any
+	var err error
+	if e := s.inflight(t.ID); e != nil {
+		result, err = s.resume(ctx, *e)
+	} else {
+		result, err = s.task(ctx, t)
+	}
+	if err != nil && ctx.Err() != nil {
+		// The service stops (systemctl restart, the installer, a self-update, a reboot): that
+		// says nothing about the task. A PVE task that runs is waited for again after the
+		// restart; a task that had not started one is delivered again by the server.
+		if e := s.inflight(t.ID); e != nil {
+			s.Logf("task %s (%s): the service stops; %s is waited for again after the restart", t.ID, t.Kind, e.UPID)
+		} else {
+			s.Logf("task %s (%s) was interrupted by the stop of the service; no result is reported", t.ID, t.Kind)
+		}
+		return
+	}
 	status, msg := "done", ""
 	if err != nil {
 		status, msg = "failed", err.Error()
@@ -525,6 +548,28 @@ func (s *Service) runTask(ctx context.Context, t Task) {
 		s.Logf("task %s (%s) done with warnings: %s", t.ID, t.Kind, strings.Join(w, " | "))
 	}
 	s.reportResult(ctx, PendingResult{TaskID: t.ID, Status: status, Error: msg, Result: result})
+	s.dropInflight(t.ID)
+}
+
+// resume waits again for the PVE task of a backup or restore that ran when the service stopped,
+// and ends the task as it would have ended without the stop.
+func (s *Service) resume(ctx context.Context, e inflightTask) (map[string]any, error) {
+	switch e.Kind {
+	case "backup":
+		if s.startedVzdump(e.TaskID, e.UPID, e.VMID) {
+			if err := s.PVE.StopTask(ctx, s.State.NodeName, e.UPID); err != nil {
+				s.Logf("stopping %s: %v", e.UPID, err)
+			}
+		}
+		return s.finishBackup(ctx, e.UPID)
+	case "restore":
+		var p restoreParams
+		if err := json.Unmarshal(e.Params, &p); err != nil || e.Restore == nil {
+			return nil, errors.New("invalid restore task")
+		}
+		return s.finishRestore(ctx, e.TaskID, p, *e.Restore)
+	}
+	return nil, fmt.Errorf("a task of kind %q cannot be waited for again", e.Kind)
 }
 
 // VzdumpWarnings says whether a vzdump exit status is "WARNINGS: n": the backup ran to its
@@ -582,29 +627,15 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 			return nil, err
 		}
 		s.Logf("backup of %d started: %s", p.VMID, upid)
+		s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: p.VMID,
+			StartedAt: time.Now().UTC().Format(time.RFC3339)})
 		if s.startedVzdump(t.ID, upid, p.VMID) {
 			// Cancelled while vzdump was being started.
 			if err := s.PVE.StopTask(ctx, s.State.NodeName, upid); err != nil {
 				s.Logf("stopping %s: %v", upid, err)
 			}
 		}
-		exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
-		if err != nil {
-			return nil, err
-		}
-		result := map[string]any{"upid": upid, "exitStatus": exit}
-		if exit == "OK" {
-			return result, nil
-		}
-		tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 200)
-		if VzdumpWarnings(exit) {
-			// vzdump finished the backup and warned about something beside it: the task is done;
-			// the server decides by the run's restore point whether the backup succeeded, and
-			// shows the warnings with it (docs/PVE-PROTOCOL.md, "Task results").
-			result["warnings"] = WarningLines(tail, 10)
-			return result, nil
-		}
-		return result, fmt.Errorf("vzdump ended with %q: %s", exit, lastLines(tail, 8))
+		return s.finishBackup(ctx, upid)
 	case "restore":
 		if !s.State.RestoresAllowed() {
 			return nil, errors.New("restores are switched off on this node")
@@ -643,32 +674,10 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
-		result := map[string]any{"vmid": vmid, "upid": upid}
-		if len(omitted) > 0 {
-			result["omittedMounts"] = omitted
-		}
-		if err != nil {
-			return result, err
-		}
-		if exit != "OK" {
-			tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 20)
-			return result, fmt.Errorf("restore ended with %q: %s", exit, lastLines(tail, 8))
-		}
-		if p.RestoreTest {
-			conf, cerr := s.PVE.GuestConfig(ctx, s.State.NodeName, p.Kind, vmid)
-			result["disks"] = len(GuestDisks(p.Kind, conf))
-			if dupid, derr := s.PVE.DeleteGuest(ctx, s.State.NodeName, p.Kind, vmid); derr == nil {
-				_, _ = s.PVE.WaitTask(ctx, s.State.NodeName, dupid, 5*time.Second)
-				result["deleted"] = true
-			} else {
-				s.Logf("restore test: could not delete guest %d: %v", vmid, derr)
-			}
-			if cerr != nil {
-				return result, fmt.Errorf("the restored guest has no readable configuration: %w", cerr)
-			}
-		}
-		return result, nil
+		st := restoreState{VMID: vmid, UPID: upid, OmittedMounts: omitted}
+		s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: vmid,
+			StartedAt: time.Now().UTC().Format(time.RFC3339), Restore: &st})
+		return s.finishRestore(ctx, t.ID, p, st)
 	case "boot_test":
 		var p BootTestParams
 		if err := json.Unmarshal(t.Params, &p); err != nil {
@@ -681,4 +690,64 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 		return map[string]any{"guests": n}, err
 	}
 	return nil, fmt.Errorf("unknown task kind %q", t.Kind)
+}
+
+// restoreState is what a restore task knows once PVE runs its restore (kept with the task in
+// inflight.json, so the service can wait for it again after a restart).
+type restoreState struct {
+	VMID          int      `json:"vmid"`
+	UPID          string   `json:"upid"`
+	OmittedMounts []string `json:"omittedMounts,omitempty"`
+}
+
+// finishBackup waits for a vzdump task and makes the task's result of its end.
+func (s *Service) finishBackup(ctx context.Context, upid string) (map[string]any, error) {
+	exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{"upid": upid, "exitStatus": exit}
+	if exit == "OK" {
+		return result, nil
+	}
+	tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 200)
+	if VzdumpWarnings(exit) {
+		// vzdump finished the backup and warned about something beside it: the task is done;
+		// the server decides by the run's restore point whether the backup succeeded, and
+		// shows the warnings with it (docs/PVE-PROTOCOL.md, "Task results").
+		result["warnings"] = WarningLines(tail, 10)
+		return result, nil
+	}
+	return result, fmt.Errorf("vzdump ended with %q: %s", exit, lastLines(tail, 8))
+}
+
+// finishRestore waits for the restore task and ends the restore (a check deletes its guest).
+func (s *Service) finishRestore(ctx context.Context, taskID string, p restoreParams, st restoreState) (map[string]any, error) {
+	vmid, upid := st.VMID, st.UPID
+	exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
+	result := map[string]any{"vmid": vmid, "upid": upid}
+	if len(st.OmittedMounts) > 0 {
+		result["omittedMounts"] = st.OmittedMounts
+	}
+	if err != nil {
+		return result, err
+	}
+	if exit != "OK" {
+		tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 20)
+		return result, fmt.Errorf("restore ended with %q: %s", exit, lastLines(tail, 8))
+	}
+	if p.RestoreTest {
+		conf, cerr := s.PVE.GuestConfig(ctx, s.State.NodeName, p.Kind, vmid)
+		result["disks"] = len(GuestDisks(p.Kind, conf))
+		if dupid, derr := s.PVE.DeleteGuest(ctx, s.State.NodeName, p.Kind, vmid); derr == nil {
+			_, _ = s.PVE.WaitTask(ctx, s.State.NodeName, dupid, 5*time.Second)
+			result["deleted"] = true
+		} else {
+			s.Logf("restore test: could not delete guest %d: %v", vmid, derr)
+		}
+		if cerr != nil {
+			return result, fmt.Errorf("the restored guest has no readable configuration: %w", cerr)
+		}
+	}
+	return result, nil
 }

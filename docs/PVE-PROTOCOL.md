@@ -219,6 +219,26 @@ a warning); warnings are added once. A committed restore point is never failed b
 a task: a task that fails or expires leaves its committed runs succeeded, and a task
 whose run is still open does not expire. 404 only for a task the node never had.
 
+A backup or restore task waits for its PVE task (vzdump, qmrestore, vzrestore) through
+`GET /nodes/{node}/tasks/{upid}/status`. Since 0.5.0 a PVE API that does not answer (no
+connection, a timeout, 5xx including pveproxy's 595 and 596: pveproxy restarts during an upgrade
+of pve-manager or a certificate renewal) is asked again with a growing pause (up to 30 seconds)
+for up to ten minutes of failures in a row; then the task fails with "the PVE API did not answer
+for 10 min; task <upid> may still run". An answer of PVE itself (401, 403, 404, another 4xx)
+ends the wait at once. Before, the first failed call failed the task, and the server closed the
+healthy backup's run.
+
+When restow-pve stops while a PVE task of its own runs (`systemctl restart restow-pve`, the
+installer, a self-update, a reboot), it reports no result: the stop says nothing about the task.
+The node keeps the task it waits for (`{taskId, kind, params, upid, vmid, startedAt}`, for a
+restore also the target VMID and what the restore left out) in
+`/var/lib/restow-pve/inflight.json` from the moment PVE started it, and waits for it again when
+the service starts; the result then says how the task really ended. A task that had not started
+its PVE task yet is delivered again by the server (after 30 minutes, as any delivered task
+without a result). Every `qm` and `pct` call has a deadline (60 seconds for `config`, `set`,
+`status`, `guest cmd`, `exec`; five minutes for `start`, `stop`, `destroy`, `unlock`), and a boot
+test's start and boot together at most twice its wait plus five minutes.
+
 The node (since 0.4.2) keeps a result the server could not take (unreachable, 5xx)
 in `/var/lib/restow-pve/pending-results.json` (at most 100) and sends the kept ones
 again before every heartbeat, oldest first; a refusal (4xx) ends the attempts. A
