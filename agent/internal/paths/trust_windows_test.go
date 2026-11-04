@@ -103,3 +103,71 @@ func TestCreatedFoldersAndFilesAreOwnedByAdministrators(t *testing.T) {
 		t.Errorf("the created file is not trusted: %v", err)
 	}
 }
+
+// A folder of the layout that a user created before the agent protected the
+// folder above it is replaced when it is empty and refused when it holds
+// something; agent.log loses the read access it inherited (K114).
+func TestProtectedFoldersAndFilesReplaceWhatUsersPrepared(t *testing.T) {
+	if elevated, err := winapi.TokenElevated(); err != nil || !elevated {
+		t.Fatalf("this test needs an elevated administrator (the Windows runner is one): %v", err)
+	}
+	root := filepath.Join(ProgramDataDir(), "RestowProtectTest-"+strconv.FormatInt(time.Now().UnixNano(), 36))
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	// As the 0.5.0 previews left it: created with the permissions of
+	// ProgramData, with a folder that belongs to Users.
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	empty, full := filepath.Join(root, "state"), filepath.Join(root, "data")
+	for _, d := range []string{empty, full} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(full, "x"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{empty, full} {
+		if out, err := exec.Command("icacls", d, "/setowner", "*S-1-5-32-545").CombinedOutput(); err != nil {
+			t.Fatalf("icacls /setowner: %v %s", err, out)
+		}
+	}
+	if err := EnsureProtectedDir(root, ProtectedSDDL); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureProtectedDir(empty, ProtectedSDDL); err != nil {
+		t.Fatalf("an empty folder of Users was not replaced: %v", err)
+	}
+	if owner, sddl := securityOf(t, empty); owner != winapi.SIDAdministrators || !strings.Contains(sddl, "D:P") || strings.Contains(sddl, ";BU)") {
+		t.Fatalf("replaced folder: %s %s", owner, sddl)
+	}
+	err := EnsureProtectedDir(full, ProtectedSDDL)
+	if err == nil || !strings.Contains(err.Error(), "someone else may have prepared it") {
+		t.Fatalf("a folder of Users with files was accepted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(full, "x")); err != nil {
+		t.Fatal("the folder of Users was changed")
+	}
+
+	logs := filepath.Join(root, "logs")
+	if err := os.Mkdir(logs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(logs, "agent.log")
+	if err := os.WriteFile(log, []byte("line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// What agent.log inherited from ProgramData: Users may read it.
+	if out, err := exec.Command("icacls", log, "/grant", "*S-1-5-32-545:R").CombinedOutput(); err != nil {
+		t.Fatalf("icacls /grant: %v %s", err, out)
+	}
+	if _, sddl := securityOf(t, log); !strings.Contains(sddl, ";BU)") {
+		t.Fatalf("Users have no access before ProtectFile: %s", sddl)
+	}
+	if err := ProtectFile(log); err != nil {
+		t.Fatal(err)
+	}
+	if _, sddl := securityOf(t, log); !strings.Contains(sddl, "D:P") || strings.Contains(sddl, ";BU)") || strings.Contains(sddl, "ID;") {
+		t.Fatalf("agent.log after ProtectFile: %s", sddl)
+	}
+}

@@ -349,5 +349,9 @@ const ProtectedSDDL = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
 // may list this folder (only this folder) to read status.json.
 const DataDirSDDL = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;;0x1200a9;;;BU)"
 
+// PrivateFileSDDL is the DACL of the agent's private files (agent.log):
+// SYSTEM and Administrators only, nothing inherited.
+const PrivateFileSDDL = "D:P(A;;FA;;;SY)(A;;FA;;;BA)"
+
 // StatusFileSDDL is the DACL of status.json: readable by Users.
 const StatusFileSDDL = "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;BU)"

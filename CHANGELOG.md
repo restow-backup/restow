@@ -321,6 +321,15 @@ private repository.
   contacts the server, and stops with "The token was not used" when that fails; an existing
   enrollment stays untouched until the new one is stored. Should storing fail afterwards all the
   same, the message names the new endpoint to delete in the UI.
+- Windows agent (preview): a service that started before the machine was enrolled (an expired
+  token, then a restart of Windows) wrote `agent.log` before it protected its folders, so
+  `C:\ProgramData\Restow\logs` got the permissions of `C:\ProgramData`: every user could read
+  the log and create `C:\ProgramData\Restow\state` themselves, which the next enrollment then
+  refused. `restow-agent service install` and the service now create `C:\ProgramData\Restow`
+  with `state`, `data` and `logs` protected before anything is written, `agent.log` and its
+  rotated copies are reset to SYSTEM and Administrators whenever they are opened, and an empty
+  folder that a user created there is replaced (one with files is still refused, with the advice
+  to delete it).
 
 ### Upgrade Notes
 

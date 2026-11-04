@@ -482,7 +482,7 @@ Normalfall.
 | `C:\ProgramData\Restow\data\status.json` | Laufzeitstatus ohne Geheimnisse | Ordner `data`: SY, BA Vollzugriff, `BU` nur "Ordner auflisten" (dieser Ordner); Datei `status.json`: zusätzlich `(A;;FR;;;BU)` |
 | `C:\ProgramData\Restow\data\{cache,tmp,restic-tmp,outbox}` | restic-Cache, temporäre Kopien, unzustellte Berichte | `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)` |
 | `C:\ProgramData\Restow\data\run.lock` | Laufsperre | wie `data` |
-| `C:\ProgramData\Restow\logs\agent.log` | Agent-Log, rotiert wie heute (`internal/logging/rotate.go`) | `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)` |
+| `C:\ProgramData\Restow\logs\agent.log` | Agent-Log, rotiert wie heute (`internal/logging/rotate.go`) | Ordner `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`; `agent.log` und die rotierten Kopien bei jedem Öffnen `D:P(A;;FA;;;SY)(A;;FA;;;BA)` (`paths.ProtectFile`), so verliert auch eine ältere Datei die von `C:\ProgramData` geerbten Leserechte der Benutzer |
 | Registry `HKLM\SYSTEM\CurrentControlSet\Services\RestowAgent` | Dienst, optional `Environment` (Proxy ohne Zugangsdaten, Abschnitt 12.5) | Standard des SCM (für Benutzer lesbar) |
 | Ereignisanzeige, Protokoll "Anwendung", Quelle `Restow` | Sicherheitsrelevante Ereignisse (Abschnitt 9.5) | Standard |
 
@@ -492,7 +492,17 @@ geschützt (Flag `P`), Eigentümer `BA`. Ein schon vorhandener Ordner, dessen Ei
 SYSTEM, Administratoren oder TrustedInstaller ist oder der ein Reparse-Point ist, wird
 abgelehnt und nicht repariert: das entspricht `EnsureRootDir`
 (`agent/internal/paths/trust_unix.go:119-160`), dort "someone else may have prepared it".
-Der Installer prüft das selbst in PowerShell, bevor der Agent existiert (Abschnitt 14.2).
+Nur ein **leerer** Ordner eines anderen Eigentümers wird gelöscht und geschützt neu angelegt
+(von ihm wird nichts benutzt). Der Installer prüft das selbst in PowerShell, bevor der Agent
+existiert (Abschnitt 14.2).
+
+Die Reihenfolge schließt das Fenster, in dem Benutzer vorgreifen könnten: `service install`
+legt `C:\ProgramData\Restow` mit `state`, `data` und `logs` geschützt an, bevor der Dienst
+existiert, und der Dienst ruft `Layout.Ensure` als Erstes auf, noch vor dem Agent-Log
+(`cmd/restow-agent/run.go`). Früher legte das Log `logs` mit `os.MkdirAll` und den Rechten
+von `C:\ProgramData` an, wenn der Dienst vor der Anmeldung startete (Token abgelaufen,
+Neustart); Benutzer konnten dann `agent.log` lesen und `state` selbst anlegen. Kann der Dienst
+seine Ordner nicht anlegen, schreibt er kein Log-File, sondern das Ereignis 1002 und endet.
 
 `paths.go`: `WindowsInstallDir`, `InstallDirFor("windows")`, `Default()` mit Windows-Zweig,
 `InstalledAgentBinary()`/`InstalledResticBinary()` mit `.exe`. `CommandLink` und die

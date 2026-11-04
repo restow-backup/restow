@@ -212,6 +212,10 @@ func CreateTrusted(name string) (*os.File, error) {
 // set in the same call, or, when it exists, checks that it is a real folder
 // owned by a trusted principal and resets its DACL to sddl (like chmod on
 // Unix). A folder owned by someone else is refused: they may have prepared it.
+// An empty one is replaced by a protected folder instead (a user could create
+// C:\ProgramData\Restow\state before the agent protected the folder above
+// it, as earlier 0.5.0 versions left it when the service started before the
+// enrollment); nothing of it is used.
 func EnsureProtectedDir(dir, sddl string) error {
 	err := winapi.CreateDirectorySDDL(dir, OwnerAdministrators+sddl)
 	if err == nil {
@@ -220,7 +224,10 @@ func EnsureProtectedDir(dir, sddl string) error {
 	if !winapi.IsErrno(err, winapi.ErrorAlreadyExists) {
 		return &os.PathError{Op: "mkdir", Path: dir, Err: err}
 	}
-	if err := checkOwnedFolder(dir); err != nil {
+	if foreign, err := checkOwnedFolder(dir); err != nil {
+		if foreign && replaceEmptyFolder(dir, sddl) {
+			return nil
+		}
 		return err
 	}
 	if err := winapi.SetFileDACL(dir, sddl); err != nil {
@@ -229,32 +236,63 @@ func EnsureProtectedDir(dir, sddl string) error {
 	return nil
 }
 
-func checkOwnedFolder(dir string) error {
+// replaceEmptyFolder removes dir when it holds nothing and creates it again
+// owned by Administrators with sddl. A folder that is not empty, or one that
+// someone created again in between, stays and is refused by the caller.
+func replaceEmptyFolder(dir, sddl string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) > 0 {
+		return false
+	}
+	if err := os.Remove(dir); err != nil {
+		return false
+	}
+	return winapi.CreateDirectorySDDL(dir, OwnerAdministrators+sddl) == nil
+}
+
+// checkOwnedFolder checks that dir is a real folder owned by a trusted
+// principal; foreign reports that it is a real folder owned by someone else.
+func checkOwnedFolder(dir string) (foreign bool, err error) {
 	h, err := winapi.OpenNoFollow(dir)
 	if err != nil {
-		return &os.PathError{Op: "open", Path: dir, Err: err}
+		return false, &os.PathError{Op: "open", Path: dir, Err: err}
 	}
 	defer syscall.CloseHandle(h)
 	var fi syscall.ByHandleFileInformation
 	if err := syscall.GetFileInformationByHandle(h, &fi); err != nil {
-		return &os.PathError{Op: "stat", Path: dir, Err: err}
+		return false, &os.PathError{Op: "stat", Path: dir, Err: err}
 	}
 	if fi.FileAttributes&winapi.FileAttributeReparsePoint != 0 {
-		return untrusted(dir, "is a symbolic link, junction or mount point")
+		return false, untrusted(dir, "is a symbolic link, junction or mount point")
 	}
 	if fi.FileAttributes&winapi.FileAttributeDirectory == 0 {
-		return untrusted(dir, "is not a folder")
+		return false, untrusted(dir, "is not a folder")
 	}
 	sddl, err := winapi.HandleSDDL(h)
 	if err != nil {
-		return err
+		return false, err
 	}
 	info, err := ParseSDDL(sddl)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !trustedSet()[info.Owner] {
-		return untrusted(dir, fmt.Sprintf("is owned by %s; someone else may have prepared it", describeSID(info.Owner)))
+		return true, untrusted(dir, fmt.Sprintf("is owned by %s; someone else may have prepared it. "+
+			"If you did not create it, delete it as an administrator and run the command again", describeSID(info.Owner)))
+	}
+	return false, nil
+}
+
+// ProtectFile resets the DACL of a file the agent writes and that must stay
+// private (agent.log and its rotated copies) to SYSTEM and Administrators,
+// replacing what it inherited or had from before. A development layout
+// keeps the permissions it has.
+func ProtectFile(path string) error {
+	if DevLayout() {
+		return nil
+	}
+	if err := winapi.SetFileDACL(path, PrivateFileSDDL); err != nil {
+		return &os.PathError{Op: "set permissions", Path: path, Err: err}
 	}
 	return nil
 }
