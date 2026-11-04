@@ -76,8 +76,36 @@ type Service struct {
 
 	// Owned by the heartbeat loop.
 	lastInvent   time.Time
-	pveVersion   string
 	lastProblems []string
+	// pveVersion is the node's PVE version as the last heartbeat read it (s.mu; the worker reads
+	// it for vzdump's parameters).
+	pveVersion string
+}
+
+func (s *Service) setPVEVersion(v string) {
+	s.mu.Lock()
+	s.pveVersion = v
+	s.mu.Unlock()
+}
+
+func (s *Service) knownPVEVersion() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pveVersion
+}
+
+// backupPVEVersion is the PVE version a backup starts vzdump with: the heartbeat's, else asked
+// for now ("" when the API does not say).
+func (s *Service) backupPVEVersion(ctx context.Context) string {
+	if v := s.knownPVEVersion(); v != "" {
+		return v
+	}
+	v, err := s.PVE.Version(ctx)
+	if err != nil {
+		return ""
+	}
+	s.setPVEVersion(v)
+	return v
 }
 
 // lazyLocked creates the task state; s.mu is held.
@@ -318,7 +346,7 @@ func (s *Service) Problems(ctx context.Context) []string {
 		}
 		return out
 	}
-	s.pveVersion = v
+	s.setPVEVersion(v)
 	if !VersionAtLeast(v, 8, 4) {
 		out = append(out, "pve.version_unsupported")
 	}
@@ -384,13 +412,14 @@ func (s *Service) Tick(ctx context.Context) error {
 	if s.Busy() {
 		state = "running"
 	}
+	pveVersion := s.knownPVEVersion()
 	hb, err := s.Server.Heartbeat(ctx, HeartbeatRequest{
-		HelperVersion: buildinfo.Version, PVEVersion: s.pveVersion, FleecingStorage: s.State.FleecingStorage,
+		HelperVersion: buildinfo.Version, PVEVersion: pveVersion, FleecingStorage: s.State.FleecingStorage,
 		PluginLoaded: !contains(problems, "pve.plugin_not_loaded"), State: state, Problems: problems,
 		RestoresAllowed: s.State.RestoresAllowed(), ActiveRuns: activeRuns(s.Layout),
 		Capabilities: s.Capabilities(),
 	})
-	status := ServiceStatus{LastHeartbeat: time.Now().UTC().Format(time.RFC3339), PVEVersion: s.pveVersion, Problems: problems}
+	status := ServiceStatus{LastHeartbeat: time.Now().UTC().Format(time.RFC3339), PVEVersion: pveVersion, Problems: problems}
 	if err != nil {
 		status.LastError = err.Error()
 		_ = writeJSONAtomic(s.Layout.ServiceStatus(), status, 0o644)
@@ -673,7 +702,7 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 		if s.isCancelled(t.ID) {
 			return nil, ErrCancelled
 		}
-		upid, err := s.PVE.StartBackup(ctx, s.State.NodeName, p.VMID, s.State.StorageID, mode, fleecing)
+		upid, err := s.PVE.StartBackup(ctx, s.State.NodeName, p.VMID, s.State.StorageID, mode, fleecing, s.backupPVEVersion(ctx))
 		if err != nil {
 			// No backup ran, so no full read is owed to it.
 			_ = os.Remove(s.Layout.forceNewFile(p.VMID))

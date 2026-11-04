@@ -34,6 +34,10 @@ type fakeVzdump struct {
 	paths         []string
 	// runningPolls status answers say "running" before the task stops.
 	runningPolls int
+	// version is what GET /version answers ("" a 404); refuseNotificationMode: POST vzdump
+	// with notification-mode fails PVE's parameter check (400).
+	version                string
+	refuseNotificationMode bool
 }
 
 func (f *fakeVzdump) handler(w http.ResponseWriter, r *http.Request) {
@@ -46,12 +50,20 @@ func (f *fakeVzdump) handler(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		form, _ := url.ParseQuery(string(body))
 		f.forms = append(f.forms, form)
+		if f.refuseNotificationMode && form.Has("notification-mode") {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": nil, "errors": map[string]string{
+				"notification-mode": "property is not defined in schema and the schema does not allow additional properties"}})
+			return
+		}
 		f.starts++
 		if f.startAnswer != "" {
 			answer(f.startAnswer)
 			return
 		}
 		answer("UPID:pve1:0001:vzdump:101:root@pam:")
+	case strings.HasSuffix(r.URL.Path, "/version") && f.version != "":
+		answer(map[string]any{"version": f.version, "release": f.version[:3]})
 	case strings.HasSuffix(r.URL.Path, "/cluster/resources") && f.resourcesFail:
 		w.WriteHeader(http.StatusForbidden)
 	case strings.HasSuffix(r.URL.Path, "/cluster/resources"):
@@ -140,7 +152,7 @@ func backupTask(id string) Task {
 func TestStartBackupAsksForNoNotes(t *testing.T) {
 	vz := &fakeVzdump{exit: "OK"}
 	s := newTaskService(t, vz, &fakeResults{})
-	if _, err := s.PVE.StartBackup(context.Background(), "pve1", 101, "restow", "snapshot", ""); err != nil {
+	if _, err := s.PVE.StartBackup(context.Background(), "pve1", 101, "restow", "snapshot", "", "8.4.1"); err != nil {
 		t.Fatal(err)
 	}
 	form := vz.forms[0]
@@ -149,6 +161,58 @@ func TestStartBackupAsksForNoNotes(t *testing.T) {
 	}
 	if form.Get("storage") != "restow" || form.Get("vmid") != "101" {
 		t.Fatalf("form = %v", form)
+	}
+}
+
+// A backup task asks vzdump for no notification: it reads the PVE version when the heartbeat
+// has not, and leaves the parameter out when the version stays unknown.
+func TestBackupTaskSendsNoPVENotification(t *testing.T) {
+	for _, tc := range []struct {
+		name, heartbeat, api, want string
+	}{
+		{"version from the heartbeat", "9.0.6", "", "legacy-sendmail"},
+		{"version asked for by the task", "", "8.4.1", "legacy-sendmail"},
+		{"version unknown", "", "", ""},
+		{"PVE older than 8.1", "8.0.4", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vz := &fakeVzdump{exit: "OK", version: tc.api}
+			res := &fakeResults{}
+			s := newTaskService(t, vz, res)
+			s.setPVEVersion(tc.heartbeat)
+			s.runTask(context.Background(), backupTask("task-1"))
+			if len(vz.forms) != 1 {
+				t.Fatalf("vzdump calls = %d", len(vz.forms))
+			}
+			got, set := vz.forms[0]["notification-mode"]
+			if (tc.want == "" && set) || (tc.want != "" && (len(got) != 1 || got[0] != tc.want)) {
+				t.Fatalf("notification-mode = %v (set %v), want %q", got, set, tc.want)
+			}
+			if _, ok := vz.forms[0]["mailto"]; ok {
+				t.Fatalf("vzdump was given a mailto: %v", vz.forms[0])
+			}
+			if len(res.got) != 1 || res.got[0]["status"] != "done" {
+				t.Fatalf("results = %v", res.got)
+			}
+		})
+	}
+}
+
+// A PVE that refuses notification-mode still backs up: vzdump is started again without it.
+func TestBackupRunsWhenPVERefusesNotificationMode(t *testing.T) {
+	vz := &fakeVzdump{exit: "OK", refuseNotificationMode: true}
+	res := &fakeResults{}
+	s := newTaskService(t, vz, res)
+	s.setPVEVersion("9.9.0")
+	s.runTask(context.Background(), backupTask("task-1"))
+	if len(vz.forms) != 2 || !vz.forms[0].Has("notification-mode") || vz.forms[1].Has("notification-mode") {
+		t.Fatalf("vzdump forms = %v", vz.forms)
+	}
+	if vz.forms[1].Get("vmid") != "101" || vz.forms[1].Get("storage") != "restow" {
+		t.Fatalf("second form = %v", vz.forms[1])
+	}
+	if len(res.got) != 1 || res.got[0]["status"] != "done" {
+		t.Fatalf("results = %v", res.got)
 	}
 }
 

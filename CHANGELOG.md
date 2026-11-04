@@ -504,6 +504,13 @@ private repository.
   nothing and logs "restow: retention is managed in Restow; PVE's retention settings are
   ignored", as the notes update does; `pvesm prune-backups` on the Restow storage lists nothing.
   Retention stays Restow's.
+- Proxmox VE: every backup Restow started sent a Proxmox VE notification. From PVE 8.1 on,
+  vzdump without `mailto` notifies after every backup, also a successful one, and the default
+  matcher mails it to root@pam: an hourly job for 30 guests meant about 720 mails a day, and
+  admins who muted them lost PVE's real alerts as well. restow-pve now starts vzdump on PVE 8.1
+  and newer with `notification-mode=legacy-sendmail` and no `mailto`, so PVE sends nothing for
+  it; Restow reports the outcome itself. A PVE that refused the parameter would get the backup
+  started again without it, never a failed backup. Backups started in PVE notify as before.
 
 ### Upgrade Notes
 

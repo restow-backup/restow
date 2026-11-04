@@ -289,6 +289,26 @@ fi
 after=$(pvesm list "$STORAGE_ID" --vmid "$VM_ID" 2>/dev/null | awk 'NR > 1' | wc -l)
 if [ "$after" -gt "$before" ]; then ok "no restore point was pruned by PVE ($before before, $after after)"; else bad "restore points before $before, after $after"; fi
 
+section "5d. A backup as restow-pve starts it sends no PVE notification (notification-mode legacy-sendmail)"
+# The same call restow-pve makes on PVE 8.1 and newer: legacy-sendmail without mailto sends
+# nothing. PVE must take the parameter from the node's token; if a version refuses it, report
+# the answer (docs/PVE.md, "Notifications of vzdump").
+out=$(api POST "/nodes/$NODE/vzdump" -d "vmid=$VM_ID" -d "storage=$STORAGE_ID" -d mode=snapshot -d remove=0 \
+  --data-urlencode "fleecing=enabled=1,storage=$FLEECING" -d notification-mode=legacy-sendmail)
+log "$out"
+upid=$(printf '%s' "$out" | sed -n 's/.*"data":"\(UPID:[^"]*\)".*/\1/p')
+if [ -n "$upid" ]; then
+  exit_status=$(wait_task "$upid")
+  task_log "$upid"
+  case "$exit_status" in
+    OK) ok "vzdump with notification-mode legacy-sendmail" ;;
+    *) bad "vzdump with notification-mode legacy-sendmail ended with $exit_status" ;;
+  esac
+else
+  bad "PVE refused notification-mode legacy-sendmail: $out"
+fi
+log "check root@pam's mailbox (and the notification targets): no mail for this backup expected"
+
 # ---- 6. diagnostics -----------------------------------------------------------------
 section "6. Diagnostics"
 run /opt/restow-pve/bin/restow-pve status --json

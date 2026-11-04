@@ -621,3 +621,28 @@ func TestBackupDiskStopsReadingWhenTheUploadFails(t *testing.T) {
 		t.Fatalf("cancelled: %v", err)
 	}
 }
+
+// vzdump of PVE 8.1 and newer notifies after every backup unless notification-mode is
+// legacy-sendmail without mailto; an older PVE does not know the parameter and refuses it.
+func TestVzdumpFormNotificationModePerPVEVersion(t *testing.T) {
+	for _, tc := range []struct {
+		version string
+		quiet   bool
+	}{
+		{"9.1.2", true}, {"9.0.0", true}, {"8.4.14", true}, {"8.1.3", true},
+		{"8.0.4", false}, {"7.4-17", false}, {"", false}, {"unknown", false},
+	} {
+		form := vzdumpForm(101, "restow", "snapshot", "local-lvm", tc.version)
+		got := form.Get("notification-mode")
+		if tc.quiet && got != "legacy-sendmail" || !tc.quiet && form.Has("notification-mode") {
+			t.Errorf("PVE %q: notification-mode = %q", tc.version, got)
+		}
+		if form.Has("mailto") || form.Has("mailnotification") {
+			t.Errorf("PVE %q: vzdump is given a mail target: %v", tc.version, form)
+		}
+		if form.Get("vmid") != "101" || form.Get("storage") != "restow" || form.Get("mode") != "snapshot" ||
+			form.Get("remove") != "0" || form.Get("fleecing") != "enabled=1,storage=local-lvm" {
+			t.Errorf("PVE %q: form = %v", tc.version, form)
+		}
+	}
+}

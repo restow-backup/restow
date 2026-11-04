@@ -245,7 +245,39 @@ func (p *PVEAPI) NextID(ctx context.Context) (int, error) {
 // StartBackup starts vzdump for one guest onto the Restow storage and returns the task UPID.
 // It asks for no notes: the Restow storage keeps none (restore points are named and described
 // in Restow), and a notes template made vzdump end every backup with "TASK WARNINGS: 1".
-func (p *PVEAPI) StartBackup(ctx context.Context, node string, vmid int, storage, mode, fleecing string) (string, error) {
+// pveVersion is the node's PVE version ("" unknown); see vzdumpForm for what it changes.
+func (p *PVEAPI) StartBackup(ctx context.Context, node string, vmid int, storage, mode, fleecing, pveVersion string) (string, error) {
+	form := vzdumpForm(vmid, storage, mode, fleecing, pveVersion)
+	path := "/nodes/" + url.PathEscape(node) + "/vzdump"
+	var upid string
+	err := p.call(ctx, http.MethodPost, path, form, &upid)
+	if notificationModeRefused(err) {
+		// A PVE that does not take the parameter (its parameter check started no task): the
+		// backup runs without it and PVE may notify (docs/PVE.md, "Notifications of vzdump").
+		form.Del("notification-mode")
+		err = p.call(ctx, http.MethodPost, path, form, &upid)
+	}
+	if err != nil {
+		return "", err
+	}
+	return checkUPID("vzdump", upid)
+}
+
+// notificationModeRefused says whether PVE's parameter check refused notification-mode.
+func notificationModeRefused(err error) bool {
+	var pe *PVEAPIError
+	return errors.As(err, &pe) && pe.Status == http.StatusBadRequest && strings.Contains(pe.Message, "notification-mode:")
+}
+
+// vzdumpForm is the form of POST /nodes/{node}/vzdump for one guest. From PVE 8.1 on, vzdump
+// without mailto sends a notification through PVE's notification system after every backup,
+// also a successful one (notification-mode "auto"): the default matcher mails it to root@pam,
+// one mail per guest and run. Restow reports every outcome itself, so it asks for
+// notification-mode "legacy-sendmail", which mails only to a mailto (none is passed; one
+// in /etc/vzdump.conf is the admin's own choice). A PVE older than 8.1, or one whose version is
+// unknown, gets no such parameter: it would refuse the call, and a backup must not fail for a
+// notification (StartBackup also starts it again without the parameter when PVE refuses it).
+func vzdumpForm(vmid int, storage, mode, fleecing, pveVersion string) url.Values {
 	form := url.Values{
 		"vmid":    {fmt.Sprint(vmid)},
 		"storage": {storage},
@@ -255,11 +287,10 @@ func (p *PVEAPI) StartBackup(ctx context.Context, node string, vmid int, storage
 	if fleecing != "" {
 		form.Set("fleecing", "enabled=1,storage="+fleecing)
 	}
-	var upid string
-	if err := p.call(ctx, http.MethodPost, "/nodes/"+url.PathEscape(node)+"/vzdump", form, &upid); err != nil {
-		return "", err
+	if VersionAtLeast(pveVersion, 8, 1) {
+		form.Set("notification-mode", "legacy-sendmail")
 	}
-	return checkUPID("vzdump", upid)
+	return form
 }
 
 // NoTaskError is the answer of a call that starts a PVE task when it is no UPID. vzdump answers

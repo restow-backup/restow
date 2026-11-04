@@ -271,6 +271,31 @@ unique per installation).
   restore point was committed succeeded: the run keeps the warning lines and
   the guest shows "Succeeded with warnings" (amber, not failed, not green).
   Protection of a restore point is still refused in PVE (Restow holds them).
+- **Notifications of vzdump.** From PVE 8.1 on, vzdump sends a notification
+  after every backup (also a successful one) through PVE's notification system,
+  which mails root@pam by default. Restow reports every outcome itself, so on
+  PVE 8.1 and newer restow-pve starts vzdump with
+  `notification-mode=legacy-sendmail` and no `mailto`: PVE sends nothing for a
+  backup Restow started. A `mailto` in `/etc/vzdump.conf` still gets its mail
+  (the admin's own choice). Backups started in PVE (a PVE backup job, the PVE
+  UI) notify as that job says. Should a PVE version refuse the parameter,
+  restow-pve starts the backup again without it (the backup does not fail for
+  it) and PVE notifies as before; please report that version. To silence
+  successful backups on such a version, let the matcher that mails root@pam
+  (by default `default-matcher` in `/etc/pve/notifications.cfg`, Datacenter >
+  Notifications) leave them out:
+
+  ```
+  matcher: default-matcher
+          mode all
+          match-field exact:type=vzdump
+          match-severity info
+          invert-match 1
+          target mail-to-root
+  ```
+
+  This drops the mails of every successful backup on the cluster, also those of
+  PVE backup jobs; failed backups are still mailed.
 - **Boot test** (off by default): weekly, or after every backup, the guest's
   node boots the newest restore point in isolation and destroys it again; see
   "Boot test" below.

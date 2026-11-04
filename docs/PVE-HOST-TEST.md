@@ -91,7 +91,10 @@ The script
    --prune-backups keep-last=1`): the backup must end OK, its log must say
    "restow: retention is managed in Restow; PVE's retention settings are
    ignored", and no restore point may be gone,
-8. collects `restow-pve status/diagnose --json`, the journals of
+8. backs up the VM once more with the token, as restow-pve does on PVE 8.1
+   and newer (`notification-mode=legacy-sendmail`, no `mailto`): PVE must take
+   the parameter and the backup must end OK,
+9. collects `restow-pve status/diagnose --json`, the journals of
    `restow-pve`, `pvedaemon` and `pvestatd`, every task log and the restore
    server logs into **`/root/restow-pve-report-<time>.txt`** (secrets redacted).
 
@@ -119,6 +122,11 @@ It ends with `PASS n, FAIL m`. **Paste the report file back.**
 - PVE's restore dialog: whether `subtype`/`format` of the listing are enough to
   offer the right restore (VM vs CT).
 - Privilege names on 9.2 (R9): `restow-pve diagnose` lists missing ones.
+- Notifications on 8.4 and 9.x: after step 8, root@pam's mailbox (and every
+  notification target) must have no mail for that backup. If PVE refused
+  `notification-mode` (step 8 fails), restow-pve starts its backups without it;
+  report the version (docs/PVE.md, "Notifications of vzdump", has a matcher
+  that silences successful backups).
 - Uninstall: `sh pve.sh --uninstall` removes everything; remove the storage with
   `pvesm remove restow` on the last node.
 

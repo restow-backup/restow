@@ -328,7 +328,9 @@ Key decisions:
    "request a backup or a restore" (section 2.8).
 3. **Restow schedules.** The scheduler plans per-guest backup runs from Restow jobs (kind `pve`). The
    helper starts them as `POST /nodes/{local}/vzdump` with `vmid`, `storage=<restow storeid>`,
-   `mode` (default `snapshot`), `fleecing=enabled=1,storage=<node fleecing storage>`, `notes-template`.
+   `mode` (default `snapshot`), `fleecing=enabled=1,storage=<node fleecing storage>`, `remove=0`, no
+   notes template, and from PVE 8.1 on `notification-mode=legacy-sendmail` without `mailto` (no PVE
+   notification per guest; Restow reports the outcome).
    Backups that an admin starts from the PVE UI (or a PVE backup job) onto the Restow storage also work.
    They are reported as runs with origin `pve` and keep the same block-map chain.
 4. **One helper process tree per node, with no long-lived state in Perl.** Each Perl callback runs
