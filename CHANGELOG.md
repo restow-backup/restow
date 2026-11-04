@@ -222,6 +222,10 @@ private repository.
 
 ### Fixed
 
+- The API now writes an unexpected error to its log before it answers with HTTP 500: the method,
+  the path, the error's name and message (with secrets masked) and the first frames of its stack.
+  Until now such a request failed in the browser while `docker compose logs api` showed nothing,
+  so the cause could not be found without a debugger.
 - The page "Restow is temporarily unavailable" (the edge's page while the server restarts or is
   updated) speaks the language the app shows. It followed only the browser's language, so a
   German browser got it in German even where Restow was set to English, as on the public demo,
