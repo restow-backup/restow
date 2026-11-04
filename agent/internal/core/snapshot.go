@@ -260,14 +260,16 @@ func consistencyOf(plan snapshotPlan, out restic.SnapshotOutcome, unavailable bo
 }
 
 // snapshotFailedErrors are the run errors for the volumes whose snapshot
-// failed; under continue restic read them live. A failure whose text says
-// that the Volume Shadow Copy service cannot be used on the machine at all
-// (disabled, access denied, restic.MachineWideCause) is no transient
-// snapshot_failed of a volume: those volumes become one snapshot_unavailable
-// with the cause, so the run tells the administrator to start the service
-// instead of waiting for the next try. machineWide reports that case.
-func snapshotFailedErrors(out restic.SnapshotOutcome, stopped bool) (errs []api.RunError, machineWide bool) {
-	cause, machine, single := out.SplitMachineWide()
+// failed; under continue restic read them live. A failure that shows that the
+// Volume Shadow Copy service cannot be used on the machine at all (a disabled
+// service; access denied on every planned volume; restic.SplitMachineWide)
+// is no transient snapshot_failed of a volume: those volumes become one
+// snapshot_unavailable with the cause, so the run tells the administrator to
+// start the service instead of waiting for the next try. machineWide reports
+// that case. With a volume that did get its shadow copy it never applies: the
+// failed one is a snapshot_failed and the consistency partial.
+func snapshotFailedErrors(out restic.SnapshotOutcome, plan snapshotPlan, stopped bool) (errs []api.RunError, machineWide bool) {
+	cause, machine, single := out.SplitMachineWide(plan.plannedVolumes())
 	if len(machine) > 0 {
 		vols := make([]string, len(machine))
 		for i, f := range machine {
@@ -284,6 +286,9 @@ func snapshotFailedErrors(out restic.SnapshotOutcome, stopped bool) (errs []api.
 	}
 	for _, f := range single {
 		msg := fmt.Sprintf("The shadow copy of %s could not be created (%s). ", f.Volume, f.Message)
+		if c := restic.MachineWideCause(f.Message); c != "" {
+			msg += fmt.Sprintf("Should every volume fail like this, the likely cause is that %s. ", c)
+		}
 		if stopped {
 			msg += "The backup was stopped, as the policy for a failed file system snapshot asks."
 		} else {
@@ -326,15 +331,24 @@ func unavailableError(msg string, fallback bool) api.RunError {
 	return api.RunError{Code: "snapshot_unavailable", Message: msg}
 }
 
+// plannedVolumes are the volumes the backup asked a shadow copy of, or nil
+// when the volume of a source is unknown (restic may have snapshotted more).
+func (p snapshotPlan) plannedVolumes() []string {
+	if p.volumesUnknown {
+		return nil
+	}
+	return p.volumes
+}
+
 // logSnapshotOutcome writes one line per volume to the run log.
-func logSnapshotOutcome(rl runLogger, out restic.SnapshotOutcome) {
+func logSnapshotOutcome(rl runLogger, out restic.SnapshotOutcome, plan snapshotPlan) {
 	for _, v := range out.SkippedVolumes {
 		rl.Infof("%s was backed up without a shadow copy: the snapshot provider does not support this volume.", v)
 	}
 	for _, f := range out.FailedVolumes {
 		rl.Warnf("The shadow copy of %s failed (%s); see %s.", f.Volume, f.Message, snapshotLogHint)
 	}
-	if cause, _, _ := out.SplitMachineWide(); cause != "" {
+	if cause, _, _ := out.SplitMachineWide(plan.plannedVolumes()); cause != "" {
 		rl.Warnf("The Volume Shadow Copy service cannot be used on this machine: %s. Check the service \"Volume Shadow Copy\" (VSS) in services.msc; see %s.", cause, snapshotLogHint)
 	}
 	for _, f := range out.CleanupFailed {

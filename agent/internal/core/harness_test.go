@@ -63,10 +63,14 @@ backup)
       printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},"during":"archival","item":"c:\\"}' >&2
       printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [d:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},"during":"archival","item":"d:\\"}' >&2
     fi ;;
-  vss-disabled-wait)
+  vss-denied-wait|vss-disabled-wait)
     if [ -n "$vss" ]; then
       trap 'kill $pid 2>/dev/null; echo interrupted >&2; exit 130' INT
-      printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: E_ACCESSDENIED (0x80070005)"},"during":"archival","item":"c:\\"}' >&2
+      if [ "$FAKE_BACKUP" = vss-denied-wait ]; then
+        printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: E_ACCESSDENIED (0x80070005)"},"during":"archival","item":"c:\\"}' >&2
+      else
+        printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},"during":"archival","item":"c:\\"}' >&2
+      fi
       sleep 30 &
       pid=$!
       wait

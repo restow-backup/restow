@@ -310,9 +310,12 @@ private repository.
   "stop the backup" every run then failed with that wording, and the service was never named.
   restic only notices this at the first volume and still ends with exit code 0. The agent now
   recognises the texts that concern the whole machine (service disabled, not installed or not
-  starting, access denied, an unexpected provider error, a wrong restic architecture or an
-  unknown provider) and reports one "snapshot_unavailable" with the cause, under both policies,
-  and its run log points to the service "Volume Shadow Copy" in services.msc.
+  starting, a wrong restic architecture or an unknown provider; access denied only when every
+  volume of the backup got it) and reports one "snapshot_unavailable" with the cause, under
+  both policies, and its run log points to the service "Volume Shadow Copy" in services.msc. A
+  volume whose shadow copy failed while another one got its shadow copy stays a
+  "snapshot_failed" of that volume, with the consistency "partly without a shadow copy" and the
+  volume listed.
 - Agent: `restow-agent enroll` used up the one-time token before it created the agent's folders
   and stored the credentials. A state folder that someone else had prepared (refused on
   Windows), a full disk or an unusable DPAPI then ended with "The token is used up" and an

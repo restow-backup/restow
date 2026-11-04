@@ -134,38 +134,76 @@ func (o *SnapshotOutcome) record(item, message string) (snapshotKind, bool) {
 // whose error restic writes per volume and ends with exit code 0. restic
 // prints an HRESULT it has no name for as "UNKNOWN (0x80070422)".
 //
-// A failure of every volume is no such marker by itself: a second backup
-// program taking a shadow copy at the same time (VSS_E_SNAPSHOT_SET_IN_PROGRESS)
-// or a writer in a bad state fails every volume as well and passes.
-var vssMachineMarkers = []struct{ marker, cause string }{
-	{"0x80070422", "the Volume Shadow Copy service (VSS) is disabled"},
-	{"0x80070424", "the Volume Shadow Copy service (VSS) is not installed"},
-	{"0x8007042c", "a service the Volume Shadow Copy service (VSS) depends on did not start"},
-	{"0x80070005", "Windows denied the agent access to the Volume Shadow Copy service"},
-	{"e_accessdenied", "Windows denied the agent access to the Volume Shadow Copy service"},
-	{"0x8004230f", "the shadow copy provider reported an unexpected error (VSS_E_UNEXPECTED_PROVIDER_ERROR)"},
-	{"vss_e_unexpected_provider_error", "the shadow copy provider reported an unexpected error (VSS_E_UNEXPECTED_PROVIDER_ERROR)"},
-	{"can't use vss", "restic.exe was built for another processor architecture than this Windows"},
-	{"failed to detect windows architecture", "restic could not detect the processor architecture of Windows"},
-	{"invalid vss provider", "the configured shadow copy provider does not exist on this machine"},
+// certain: the text alone proves it (a disabled or missing service, a
+// restic.exe of another architecture, a provider that does not exist: no
+// volume of the machine can get a shadow copy). Access denied is no such
+// proof, as it can concern one volume or its provider; it counts only when
+// every planned volume failed with it (SplitMachineWide).
+//
+// A failure of every volume is no marker by itself: a second backup program
+// taking a shadow copy at the same time (VSS_E_SNAPSHOT_SET_IN_PROGRESS), a
+// writer in a bad state or a provider fault (VSS_E_UNEXPECTED_PROVIDER_ERROR,
+// often one volume's storage) fails every volume as well and passes.
+var vssMachineMarkers = []struct {
+	marker, cause string
+	certain       bool
+}{
+	{"0x80070422", "the Volume Shadow Copy service (VSS) is disabled", true},
+	{"0x80070424", "the Volume Shadow Copy service (VSS) is not installed", true},
+	{"0x8007042c", "a service the Volume Shadow Copy service (VSS) depends on did not start", true},
+	{"can't use vss", "restic.exe was built for another processor architecture than this Windows", true},
+	{"failed to detect windows architecture", "restic could not detect the processor architecture of Windows", true},
+	{"invalid vss provider", "the configured shadow copy provider does not exist on this machine", true},
+	{"0x80070005", "Windows denied the agent access to the Volume Shadow Copy service", false},
+	{"e_accessdenied", "Windows denied the agent access to the Volume Shadow Copy service", false},
 }
 
-// MachineWideCause returns why the Volume Shadow Copy service cannot be used
-// on the machine at all when a volume's failure text says so, else "".
-func MachineWideCause(message string) string {
+// machineWideMarker returns the cause a volume's failure text names, and
+// whether the text alone proves that VSS cannot be used on the machine.
+func machineWideMarker(message string) (cause string, certain bool) {
 	m := strings.ToLower(message)
 	for _, k := range vssMachineMarkers {
 		if strings.Contains(m, k.marker) {
-			return k.cause
+			return k.cause, k.certain
 		}
 	}
-	return ""
+	return "", false
+}
+
+// MachineWideCause returns why the Volume Shadow Copy service cannot be used
+// on the machine at all when a volume's failure text may say so, else "".
+func MachineWideCause(message string) string {
+	cause, _ := machineWideMarker(message)
+	return cause
 }
 
 // SplitMachineWide separates the failed volumes whose text says that VSS
 // cannot be used on the machine at all (with the first such cause) from the
-// failures of single shadow copies.
-func (o SnapshotOutcome) SplitMachineWide() (cause string, machine, single []VolumeFailure) {
+// failures of single shadow copies. planned are the volumes the backup asked
+// a shadow copy of (nil when not all are known). It is machine-wide only when
+// a failure's text proves it (a disabled service), or when every planned
+// volume failed with a marker such as access denied: a volume that restic did
+// snapshot shows that VSS works on the machine, so with C:\ snapshotted a
+// failure of D:\ stays a failure of D:\.
+func (o SnapshotOutcome) SplitMachineWide(planned []string) (cause string, machine, single []VolumeFailure) {
+	proven := false
+	marked := map[string]bool{}
+	for _, f := range o.FailedVolumes {
+		if c, certain := machineWideMarker(f.Message); c != "" {
+			marked[strings.ToUpper(NormalizeVolume(f.Volume))] = true
+			proven = proven || certain
+		}
+	}
+	all := len(planned) > 0
+	for _, v := range planned {
+		if !marked[strings.ToUpper(NormalizeVolume(v))] {
+			all = false
+			break
+		}
+	}
+	if !proven && !all {
+		return "", nil, o.FailedVolumes
+	}
 	for _, f := range o.FailedVolumes {
 		if c := MachineWideCause(f.Message); c != "" {
 			if cause == "" {

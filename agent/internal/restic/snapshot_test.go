@@ -71,7 +71,6 @@ func TestMachineWideCause(t *testing.T) {
 		`failed to create snapshot for [c:\]: VSS error: GatherWriterMetadata() failed: UNKNOWN (0x8007042c)`:                                                                     "depends on",
 		`failed to create snapshot for [c:\]: VSS error: InitializeForBackup() failed: E_ACCESSDENIED (0x80070005)`:                                                               "denied",
 		`failed to create snapshot for [c:\]: VSS error: The caller does not have sufficient backup privileges or is not an administrator: E_ACCESSDENIED (0x80070005)`:           "denied",
-		`failed to create snapshot for [c:\]: VSS error: DoSnapshotSet() failed: VSS_E_UNEXPECTED_PROVIDER_ERROR (0x8004230f)`:                                                    "provider",
 		`failed to create snapshot for [c:\]: VSS error: executables compiled for 386 can't use VSS on other architectures. Please use an executable compiled for your platform.`: "architecture",
 		`failed to create snapshot for [c:\]: invalid VSS provider "{00000000-0000-0000-0000-000000000001}"`:                                                                      "provider",
 	} {
@@ -85,6 +84,8 @@ func TestMachineWideCause(t *testing.T) {
 		`failed to create snapshot for [c:\]: VSS error: GatherWriterMetadata() deadline exceeded`,
 		`failed to create snapshot for [c:\]: VSS error: async operation failed: VSS_E_WRITERERROR_TIMEOUT (0x800423f2)`,
 		`failed to create snapshot for [c:\]: VSS error: DoSnapshotSet() failed: VSS_E_INSUFFICIENT_STORAGE (0x8004231f)`,
+		// A provider fault is often one volume's storage.
+		`failed to create snapshot for [c:\]: VSS error: DoSnapshotSet() failed: VSS_E_UNEXPECTED_PROVIDER_ERROR (0x8004230f)`,
 	} {
 		if got := MachineWideCause(msg); got != "" {
 			t.Errorf("%s: %q", msg, got)
@@ -95,9 +96,34 @@ func TestMachineWideCause(t *testing.T) {
 		{`D:\`, `failed to create snapshot for [d:\]: VSS error: timeout`},
 		{`E:\`, `failed to create snapshot for [e:\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)`},
 	}}
-	cause, machine, single := o.SplitMachineWide()
+	// A disabled service proves it by itself, whatever else failed.
+	cause, machine, single := o.SplitMachineWide(nil)
 	if !strings.Contains(cause, "disabled") || len(machine) != 2 || len(single) != 1 || single[0].Volume != `D:\` {
 		t.Fatalf("%q %+v %+v", cause, machine, single)
+	}
+	denied := func(v string) VolumeFailure {
+		return VolumeFailure{v, `failed to create snapshot for [` + strings.ToLower(v) + `]: VSS error: InitializeForBackup() failed: E_ACCESSDENIED (0x80070005)`}
+	}
+	// C:\ was snapshotted (restic says nothing about it), D:\ was denied:
+	// VSS works on the machine, so it is a failure of D:\ alone.
+	mixed := SnapshotOutcome{FailedVolumes: []VolumeFailure{denied(`D:\`)}}
+	if cause, machine, single := mixed.SplitMachineWide([]string{`C:\`, `D:\`}); cause != "" || len(machine) != 0 || len(single) != 1 {
+		t.Fatalf("mixed: %q %+v %+v", cause, machine, single)
+	}
+	// Without knowing the planned volumes, access denied proves nothing.
+	if cause, _, single := mixed.SplitMachineWide(nil); cause != "" || len(single) != 1 {
+		t.Fatalf("unknown volumes: %q %+v", cause, single)
+	}
+	// Every planned volume denied: machine-wide.
+	every := SnapshotOutcome{FailedVolumes: []VolumeFailure{denied(`C:\`), denied(`D:\`)}}
+	if cause, machine, single := every.SplitMachineWide([]string{`c:`, `D:\`}); !strings.Contains(cause, "denied") || len(machine) != 2 || len(single) != 0 {
+		t.Fatalf("every: %q %+v %+v", cause, machine, single)
+	}
+	// A mounted folder below C:\ that failed with access denied is no planned
+	// volume: with C:\ snapshotted it stays the folder's own failure.
+	folder := SnapshotOutcome{FailedVolumes: []VolumeFailure{{`C:\Data\Archive\`, `VSS error: GetSnapshotProperties() for mount point c:\data\archive\ returned error: E_ACCESSDENIED (0x80070005)`}}}
+	if cause, _, single := folder.SplitMachineWide([]string{`C:\`}); cause != "" || len(single) != 1 {
+		t.Fatalf("folder: %q %+v", cause, single)
 	}
 }
 

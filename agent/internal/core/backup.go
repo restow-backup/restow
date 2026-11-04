@@ -346,7 +346,7 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	} else if errors.As(err, &re) && re.SnapshotOutcome != nil {
 		snap = *re.SnapshotOutcome
 	}
-	logSnapshotOutcome(rl, snap)
+	logSnapshotOutcome(rl, snap, plan)
 
 	if err != nil || context.Cause(sctx) == errSnapshotFailed {
 		// restic may have saved its snapshot before the stop took effect: it is
@@ -378,7 +378,7 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 			// snapshot first, it is reported with the failed run and said
 			// to hold the volumes read live.
 			out.Status = api.StatusFailed
-			failed, machineWide := snapshotFailedErrors(snap, true)
+			failed, machineWide := snapshotFailedErrors(snap, plan, true)
 			if kept != "" {
 				for i := range failed {
 					failed[i].Message += fmt.Sprintf(" restic had already saved snapshot %s before it stopped, with these files read from the live file system: it stays in the repository and is reported with this failed run, but it is no backup the policy accepts.", shortID(kept))
@@ -405,7 +405,7 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	for _, w := range res.Warnings {
 		rl.Warnf("%s", w)
 	}
-	snapErrors, machineWide := snapshotFailedErrors(snap, false)
+	snapErrors, machineWide := snapshotFailedErrors(snap, plan, false)
 	snapErrors = append(snapErrors, snapshotCleanupErrors(snap)...)
 	out.Consistency = consistencyOf(plan, snap, snapUnavailable || machineWide)
 	s := res.Summary

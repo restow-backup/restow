@@ -80,11 +80,12 @@ func TestSnapshotRunErrors(t *testing.T) {
 		FailedVolumes: []restic.VolumeFailure{{Volume: `C:\`, Message: "failed to create snapshot for [c:\\]: timeout"}},
 		CleanupFailed: []restic.VolumeFailure{{Volume: `D:\`, Message: "failed to delete VSS snapshot: busy"}},
 	}
-	f, mw := snapshotFailedErrors(out, false)
+	cd := snapshotPlan{method: api.SnapshotMethodVSS, requested: true, volumes: []string{`C:\`, `D:\`}}
+	f, mw := snapshotFailedErrors(out, cd, false)
 	if mw || len(f) != 1 || f[0].Code != "snapshot_failed" || f[0].Path != `C:\` || !strings.Contains(f[0].Message, "live file system") {
 		t.Fatalf("%+v", f)
 	}
-	if s, _ := snapshotFailedErrors(out, true); !strings.Contains(s[0].Message, "stopped") {
+	if s, _ := snapshotFailedErrors(out, cd, true); !strings.Contains(s[0].Message, "stopped") {
 		t.Fatalf("%+v", s)
 	}
 	// The service is disabled: one permanent snapshot_unavailable for both
@@ -94,12 +95,31 @@ func TestSnapshotRunErrors(t *testing.T) {
 		{Volume: `D:\`, Message: "failed to create snapshot for [d:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},
 	}}
 	for _, stopped := range []bool{false, true} {
-		f, mw = snapshotFailedErrors(disabled, stopped)
+		f, mw = snapshotFailedErrors(disabled, cd, stopped)
 		if !mw || len(f) != 1 || f[0].Code != "snapshot_unavailable" || f[0].Path != "" ||
 			!strings.Contains(f[0].Message, "service (VSS) is disabled") || !strings.Contains(f[0].Message, `C:\, D:\`) ||
 			!strings.Contains(f[0].Message, map[bool]string{false: "ran without it", true: "stopped"}[stopped]) {
 			t.Fatalf("stopped %v: %+v", stopped, f)
 		}
+	}
+	// C:\ got its shadow copy, D:\ was denied access (K-W10): no machine-wide
+	// outage, but a snapshot_failed of D:\ and a partial consistency that
+	// still lists D:\ as read live.
+	deniedD := restic.SnapshotOutcome{Requested: true, FailedVolumes: []restic.VolumeFailure{
+		{Volume: `D:\`, Message: "failed to create snapshot for [d:\\]: VSS error: InitializeForBackup() failed: E_ACCESSDENIED (0x80070005)"},
+	}}
+	f, mw = snapshotFailedErrors(deniedD, cd, false)
+	if mw || len(f) != 1 || f[0].Code != "snapshot_failed" || f[0].Path != `D:\` {
+		t.Fatalf("one volume denied: %v %+v", mw, f)
+	}
+	if got := consistencyOf(cd, deniedD, mw); got.State != api.ConsistencyPartial || !reflect.DeepEqual(got.LiveFilesystems, []string{`D:\`}) {
+		t.Fatalf("one volume denied: %+v", *got)
+	}
+	// Both volumes denied: Windows refuses the agent the service.
+	deniedBoth := deniedD
+	deniedBoth.FailedVolumes = append([]restic.VolumeFailure{{Volume: `C:\`, Message: "failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: E_ACCESSDENIED (0x80070005)"}}, deniedD.FailedVolumes...)
+	if f, mw = snapshotFailedErrors(deniedBoth, cd, false); !mw || len(f) != 1 || f[0].Code != "snapshot_unavailable" || !strings.Contains(f[0].Message, "denied") {
+		t.Fatalf("both denied: %v %+v", mw, f)
 	}
 	c := snapshotCleanupErrors(out)
 	if len(c) != 1 || c[0].Code != "snapshot_cleanup_failed" || c[0].Path != `D:\` {

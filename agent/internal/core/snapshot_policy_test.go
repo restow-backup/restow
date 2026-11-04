@@ -144,17 +144,39 @@ func TestSnapshotServiceDisabledContinue(t *testing.T) {
 	}
 }
 
-func TestSnapshotServiceDeniedStopsUnderFail(t *testing.T) {
+// Under fail restic stops at the first failed volume. A disabled service
+// proves by itself that no volume can get a shadow copy: one permanent
+// snapshot_unavailable.
+func TestSnapshotServiceDisabledStopsUnderFail(t *testing.T) {
 	withVSS(t, vssPlan)
 	fin, _ := backupWithPolicy(t, "vss-disabled-wait", api.SnapshotOnFailureFail)
 	if fin.Status != api.StatusFailed || fin.SnapshotID != "" {
 		t.Fatalf("status %s snapshot %q", fin.Status, fin.SnapshotID)
 	}
-	if codes(fin.Errors) != "snapshot_unavailable" || !strings.Contains(fin.Errors[0].Message, "denied the agent access") ||
+	if codes(fin.Errors) != "snapshot_unavailable" || !strings.Contains(fin.Errors[0].Message, "service (VSS) is disabled") ||
 		!strings.Contains(fin.Errors[0].Message, "stopped") {
 		t.Fatalf("errors %+v", fin.Errors)
 	}
 	if c := fin.Consistency; c == nil || c.State != "unavailable" {
+		t.Fatalf("consistency %+v", fin.Consistency)
+	}
+}
+
+// Access denied on the first volume proves no machine-wide outage: D:\ was
+// never tried, and access denied also concerns single volumes. The run
+// reports the volume with restic's text and names the likely cause should
+// it happen on every volume.
+func TestSnapshotDeniedOnTheFirstVolumeStopsUnderFail(t *testing.T) {
+	withVSS(t, vssPlan)
+	fin, _ := backupWithPolicy(t, "vss-denied-wait", api.SnapshotOnFailureFail)
+	if fin.Status != api.StatusFailed || fin.SnapshotID != "" {
+		t.Fatalf("status %s snapshot %q", fin.Status, fin.SnapshotID)
+	}
+	if codes(fin.Errors) != "snapshot_failed" || fin.Errors[0].Path != `C:\` || !strings.Contains(fin.Errors[0].Message, "E_ACCESSDENIED") ||
+		!strings.Contains(fin.Errors[0].Message, "denied the agent access") || !strings.Contains(fin.Errors[0].Message, "stopped") {
+		t.Fatalf("errors %+v", fin.Errors)
+	}
+	if c := fin.Consistency; c == nil || c.State != "partial" {
 		t.Fatalf("consistency %+v", fin.Consistency)
 	}
 }
