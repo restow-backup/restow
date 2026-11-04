@@ -39,6 +39,7 @@ import { recordBootTestResult } from "./boot-tests.js";
 import { cancelOrders, taskCancelledOrFailed } from "./cancel.js";
 import type { NodeContext } from "./node-auth.js";
 import { endedStatus, finishFailedTaskRun, settleLateBackupResult } from "./runs.js";
+import { restoreResultSchema } from "./schemas.js";
 import { normalizeSmbiosUuid, ownSmbiosUuid } from "./self-guest.js";
 
 /**
@@ -750,12 +751,18 @@ export async function taskResult(
       .where(and(eq(pveRuns.taskId, task.id), eq(pveRuns.status, "running")))
       .limit(1);
     if (run && (run.kind === "restore" || run.kind === "restore_test")) {
+      // The run succeeded; what the result says beside it (warnings, mount points left out, a
+      // guest the check could not remove, ...) stays with it and makes it amber in the UI.
+      const parsed = restoreResultSchema.safeParse(input.result ?? {});
+      const result = parsed.success
+        ? Object.fromEntries(Object.entries(parsed.data).filter(([, v]) => v !== undefined))
+        : {};
       await tx
         .update(pveRuns)
         .set({
           status: "succeeded",
           finishedAt: now,
-          stats: { ...run.stats, ...(input.result ?? {}) },
+          stats: { ...run.stats, ...result },
         })
         .where(eq(pveRuns.id, run.id));
       if (run.kind === "restore_test") {

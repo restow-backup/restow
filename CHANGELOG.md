@@ -264,6 +264,17 @@ private repository.
   backup, a false alert and a second backup the same night). A task the server closed this way
   is withdrawn from the node. A restore or boot test that never reached the node now expires as
   well.
+- Proxmox VE: a restore or restore check that succeeded showed plain green, whatever it
+  reported beside it. Nothing read what the node sent: mount points left out of a container
+  (bind and device mount points are not in a backup), raw LXC options PVE skipped for the
+  node's token, the restore task's warnings, host devices the copy shares with the original, a
+  temporary guest the check could not remove, or a start that did not happen. Such a run is now
+  amber with what it was ("Checked without 1 mount point", "Restored with warnings", "Temporary
+  guest 105 could not be removed", "Restored, not started"), and the guest's page and panel
+  list each line with what to do: the commands that put the mount points back as root and the
+  warning that a bind mount put back shares the original's live data. Green is left for a
+  restore that ran to `OK` with nothing to report. The restore dialog says that IP addresses
+  stay the same and only the MAC addresses are new.
 
 ### Upgrade Notes
 

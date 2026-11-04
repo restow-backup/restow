@@ -343,7 +343,33 @@
     "verifyNotCheckedLocked": "Could not check: repository locked",
     "verifyNotCheckedInterrupted": "Could not check: check interrupted",
     "verifyPostponedLocked": "Check postponed: repository locked",
-    "verifyPostponedInterrupted": "Check postponed: check interrupted"
+    "verifyPostponedInterrupted": "Check postponed: check interrupted",
+    "restoreFinding": {
+      "leftover": "Temporary guest {vmid} could not be removed",
+      "notStarted": "Restored, not started",
+      "checkedWithoutMounts": "Checked without {count, plural, one {# mount point} other {# mount points}}",
+      "restoredWithoutMounts": "Restored without {count, plural, one {# mount point} other {# mount points}}",
+      "checkedWithWarnings": "Checked with warnings",
+      "restoredWithWarnings": "Restored with warnings",
+      "leftoverDetail": "The temporary guest {vmid} of this check is still there (in the pool restow-restore). restow-pve removes it when its service starts next; you can also remove it in Proxmox VE.",
+      "startFailed": "The copy was restored but did not start: {error}",
+      "startSkipped": {
+        "omitted_mounts": "The copy was restored but not started, because mount points were left out: its services would start without their data.",
+        "other": "The copy was restored but not started."
+      },
+      "omittedMountsCheck": "The check did not cover {count, plural, one {this mount point} other {these mount points}}: bind and device mount points are not part of a Proxmox VE backup.",
+      "omittedMountsRestore": "Restored without {count, plural, one {this mount point} other {these mount points}}: bind and device mount points are not part of a Proxmox VE backup, and only root@pam may set them.",
+      "remount": "To put them back, run as root on the node:",
+      "sharedData": "A bind mount point put back shares the live data of the original guest: do not run both on the same data. On another node its host path may not exist.",
+      "copyCommands": "Copy commands",
+      "copyLines": "Copy lines",
+      "warningsDetail": "Proxmox VE ended the restore with {count, plural, one {a warning} other {# warnings}}:",
+      "skippedLxcDetail": "Proxmox VE restores raw LXC options only for root@pam and skipped these. Add them to the copy as root if it needs them:",
+      "customIdmap": "Among them is a custom lxc.idmap: the copy uses the default map, so its files belong to the IDs of that map.",
+      "keptDevicesDetail": "The copy uses the same host devices as the original. Check them before you start it while the original runs:",
+      "madeUnprivileged": "The original is a privileged container; the copy was restored unprivileged.",
+      "onbootCleared": "Unlike the original, the copy does not start with its node (onboot=0)."
+    }
   },
   "restore": {
     "title": "Restore as a new guest",
@@ -354,7 +380,8 @@
     "start": "Start after the restore",
     "submit": "Restore",
     "queued": "Restore requested. The node starts it at its next check-in, usually within a minute.",
-    "privileged": "Proxmox VE cannot restore privileged containers from a backup interface."
+    "privileged": "Proxmox VE cannot restore privileged containers from a backup interface.",
+    "ipNote": "IP addresses stay the same: those in the configuration and those set inside the guest. Only the MAC addresses are new. Before the copy runs next to the original, change its addresses or keep it off the network."
   },
   "readiness": {
     "overdue": "Overdue",

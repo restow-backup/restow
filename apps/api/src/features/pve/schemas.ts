@@ -136,6 +136,48 @@ export const taskResultSchema = z.object({
     .transform((v) => v ?? undefined),
 });
 
+/** A list of short lines from the node; an unreadable one is dropped, never the whole result. */
+const lines = (max: number) => z.array(z.string().max(1000)).max(max).optional().catch(undefined);
+
+/**
+ * What a restore task's result says beside "done" (docs/PVE-PROTOCOL.md, "Task `restore`"),
+ * as the node fills it: each field optional, an unreadable field dropped. A restore or restore
+ * check that has any of `warnings`, `skippedLxc`, `omittedMounts`, `keptDevices`, a guest it
+ * could not remove (`deleted: false`) or a start that did not happen is shown amber, never
+ * green (apps/web pve/run-status.ts).
+ */
+export const restoreResultSchema = z
+  .object({
+    vmid: z.number().int().min(0).optional().catch(undefined),
+    upid: z.string().max(200).optional().catch(undefined),
+    exitStatus: z.string().max(200).optional().catch(undefined),
+    /** The restore task ended `WARNINGS: n`: the warning lines of its log. */
+    warnings: lines(20),
+    /** Raw `lxc.*` lines PVE restores only for root@pam (skipped for the node's token). */
+    skippedLxc: lines(64),
+    customIdmap: z.boolean().optional().catch(undefined),
+    /** Bind and device mount points left out (their data is not in the backup). */
+    omittedMounts: lines(64),
+    /** A restore into a new guest: the commands that put them back, as root. */
+    remountCommands: lines(64),
+    /** Host devices (PCI, USB) the copy uses, as the original does. */
+    keptDevices: lines(64),
+    madeUnprivileged: z.boolean().optional().catch(undefined),
+    onbootCleared: z.boolean().optional().catch(undefined),
+    restoredAsRoot: z.boolean().optional().catch(undefined),
+    /** A check: the disks of the restored guest and whether it was removed again. */
+    disks: z.number().int().min(0).optional().catch(undefined),
+    deleted: z.boolean().optional().catch(undefined),
+    leftoverVmid: z.number().int().min(0).optional().catch(undefined),
+    /** "Start after the restore": whether the copy runs, and why not. */
+    started: z.boolean().optional().catch(undefined),
+    startError: z.string().max(2000).optional().catch(undefined),
+    startSkipped: z.string().max(200).optional().catch(undefined),
+  })
+  .strip();
+
+export type PveRestoreResult = z.infer<typeof restoreResultSchema>;
+
 export const openRunSchema = z.object({
   vmid,
   kind: z.enum(["vm", "ct"]),

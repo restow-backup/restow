@@ -235,7 +235,15 @@ unique per installation).
   the guests are checked in a line of its own.
 
   A job can also restore one guest a month into `restow-restore`, check it and
-  delete it again.
+  delete it again. Such a restore check is green only when the restore ran to
+  `OK`, the temporary guest is gone again and nothing was left out. It is amber
+  (succeeded, but no full proof) when the run says what it could not cover:
+  "Checked without 1 mount point" (a bind or device mount point, whose data is
+  not in a PVE backup), "Checked with warnings" (the restore ended `WARNINGS: n`,
+  raw `lxc.*` options PVE skipped for the node's token), or "Temporary guest 105
+  could not be removed" (restow-pve removes it when its service starts next).
+  The run on the guest's page and in its panel lists each line. A failed check
+  is red.
 - **Warnings of vzdump.** restow-pve asks vzdump for no notes (from 0.4.2), and
   the storage plugin takes a notes update (a PVE backup job with a notes
   template) as a no-op that it logs, instead of an error: such backups used to
@@ -426,6 +434,33 @@ whether to start it. The restore lands in the pool `restow-restore`; move the
 guest out of the pool once you accept it. Restores started from the PVE UI
 (storage `restow` > Backups > Restore) work through the same plugin, with the
 admin's own PVE permissions.
+
+IP addresses stay the same: those in the guest's configuration and those set
+inside the guest. Only the MAC addresses are new (PVE regenerates them for a
+restore into a new guest). Before you start the copy next to the original,
+change its addresses or keep it off the network; the dialog says so.
+
+A restore is green only when it ran to `OK` with nothing to report. It is amber
+when it did, but left something to do, and the run on the guest's page lists
+it with what to do:
+
+- **Restored without N mount points**: bind and device mount points are not in
+  a PVE backup and only root@pam may set them, so the copy has none. The run
+  names the lines (`mp0: /mnt/paperless,mp=/data`) and the `pct set` commands
+  that put them back as root. A bind mount point put back shares the
+  original's live data: never run both on the same data. On another node the
+  host path may not exist.
+- **Restored with warnings**: the restore task ended `WARNINGS: n` (its warning
+  lines), PVE skipped raw `lxc.*` options for the node's token (add them as
+  root; a custom `lxc.idmap` among them means the copy uses the default map),
+  or the copy uses the same host devices (PCI, USB) as the original (check them
+  before both run).
+- **Restored, not started**: "Start after the restore" was asked for, but the
+  copy did not start (the run says why).
+
+A copy restored unprivileged from a privileged container, and one that no
+longer starts with its node (`onboot=0`), say so in the run as well, without
+turning it amber.
 
 ### Files of a container
 

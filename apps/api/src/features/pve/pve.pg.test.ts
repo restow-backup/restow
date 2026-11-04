@@ -769,6 +769,53 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     ).toBe(409);
   });
 
+  it("keeps what a restore check reported beside its success: a guest it could not remove, mount points left out (S04)", async () => {
+    const queued = await service.restoreSnapshot(
+      shared.db,
+      fixture.tenantId,
+      first.snapshotId,
+      { targetStorage: "local-lvm", start: false },
+      actor(),
+      { restoreTest: true },
+    );
+    await call(node, "/heartbeat", { json: { helperVersion: "0.5.0", state: "idle" } });
+    await json(
+      await call(node, `/tasks/${queued.taskId}/result`, {
+        json: {
+          status: "done",
+          result: {
+            vmid: 9105,
+            upid: "UPID:pve1:000A:qmrestore:9105:root@pam:",
+            deleted: false,
+            leftoverVmid: 9105,
+            omittedMounts: ["mp0: /srv/share,mp=/data"],
+            warnings: ["WARN: unable to set acl"],
+            // Unreadable fields are dropped, the rest is kept.
+            skippedLxc: "not a list",
+            somethingElse: { nested: true },
+          },
+        },
+      }),
+      204,
+    );
+    const [run] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.taskId, queued.taskId));
+    expect(run?.status).toBe("succeeded");
+    expect(run?.stats).toMatchObject({
+      vmid: 9105,
+      deleted: false,
+      leftoverVmid: 9105,
+      omittedMounts: ["mp0: /srv/share,mp=/data"],
+      warnings: ["WARN: unable to set acl"],
+    });
+    expect(run?.stats.skippedLxc).toBeUndefined();
+    expect(run?.stats.somethingElse).toBeUndefined();
+    // The guest's page gets all of it (the web shows it amber, run-status.ts).
+    const detail = await service.guestDetail(shared.db, fixture.tenantId, run?.guestId ?? "");
+    const shown = detail.runs.find((r) => r.id === run?.id);
+    expect(shown?.stats).toMatchObject({ deleted: false, omittedMounts: [expect.any(String)] });
+    expect(shown?.warnings).toEqual(["WARN: unable to set acl"]);
+  });
+
   it("shows a container's backup as queued, then running, and closes a run whose end the node never reported", async () => {
     const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
     const ctId = ct?.id ?? "";

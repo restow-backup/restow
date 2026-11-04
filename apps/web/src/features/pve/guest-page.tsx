@@ -67,7 +67,8 @@ import { BootTestBadge, BootTestFacts } from "./boot-test.js";
 import { CancelBackupButton, CancelledBadge, CancellingBadge } from "./cancel-controls.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { pveTo } from "./paths.js";
-import { runStatusKey, runTone } from "./run-status.js";
+import { RestoreFindings } from "./restore-findings.js";
+import { runStatusLabel, runTone } from "./run-status.js";
 import { RestowServerNote, useSelfBackupGuard } from "./self-backup.js";
 
 /** File restore with this container chosen, as `<Link>` takes it. */
@@ -152,6 +153,9 @@ function RestoreDialog({
             />
             {t("restore.start")}
           </label>
+          <p className="text-sm text-muted-foreground" data-slot="pve-restore-ip-note">
+            {t("restore.ipNote")}
+          </p>
           {mutation.isError ? (
             <p className="text-sm text-destructive-text">{(mutation.error as Error).message}</p>
           ) : null}
@@ -317,12 +321,13 @@ function RunStatus({ run, name }: { run: PveRun; name: string }) {
   if (run.status === "cancelled") {
     return <CancelledBadge by={run.cancelledBy} />;
   }
+  const status = runStatusLabel(run);
   return (
     <div className="space-y-1.5">
       {run.status === "running" && run.cancelRequestedAt ? (
         <CancellingBadge by={run.cancelledBy} />
       ) : (
-        <Badge variant={runTone(run)}>{t(runStatusKey(run))}</Badge>
+        <Badge variant={runTone(run)}>{t(status.key, status.values)}</Badge>
       )}
       {run.status === "running" && run.kind === "backup" ? (
         <BackupProgress progress={run.progress} name={name} node={run.node} />
@@ -339,6 +344,10 @@ function RunNote({ run }: { run: PveRun }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   if (run.error) {
     return <span title={run.error}>{run.error}</span>;
+  }
+  if (run.kind === "restore" || run.kind === "restore_test") {
+    // What a restore reported beside its success, each with what to do.
+    return <RestoreFindings run={run} />;
   }
   if (run.warnings && run.warnings.length > 0) {
     return <span title={run.warnings.join("\n")}>{run.warnings[0]}</span>;

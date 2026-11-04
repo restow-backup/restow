@@ -340,14 +340,16 @@ export interface PveRun {
   error: string | null;
   /** vzdump's warnings beside a backup that committed its restore point (servers from 0.4.2). */
   warnings?: string[];
-  stats?: {
-    resticUnreadable?: number;
-    /** The first items restic could not read (nodes from 0.4.0 on). */
-    unreadablePaths?: string[];
-    consistency?: string | null;
-    /** The outcome of a boot test run. */
-    bootTest?: PveBootTest;
-  } | null;
+  stats?:
+    | ({
+        resticUnreadable?: number;
+        /** The first items restic could not read (nodes from 0.4.0 on). */
+        unreadablePaths?: string[];
+        consistency?: string | null;
+        /** The outcome of a boot test run. */
+        bootTest?: PveBootTest;
+      } & PveRestoreResult)
+    | null;
   /** How far the run is while it runs; missing on servers before 0.4.0. */
   progress?: PveRunProgress | null;
   /** The node a running run runs on and its restow-pve version; missing on servers before 0.4.1. */
@@ -355,6 +357,35 @@ export interface PveRun {
   /** When a stop was asked for (0.4.2) and by whom: "Cancelling" while running, then "Cancelled by". */
   cancelRequestedAt?: string | null;
   cancelledBy?: string | null;
+}
+
+/**
+ * What a restore or restore check reported beside its success (servers from 0.5.0,
+ * docs/PVE-PROTOCOL.md "Task `restore`"); any of it makes the run amber (run-status.ts).
+ */
+export interface PveRestoreResult {
+  /** The new guest's VMID. */
+  vmid?: number;
+  /** The restore task ended "WARNINGS: n": its warning lines. */
+  warnings?: string[];
+  /** Raw lxc.* lines PVE restores only for root@pam. */
+  skippedLxc?: string[];
+  customIdmap?: boolean;
+  /** Bind and device mount points left out, as configuration lines ("mp0: /srv/a,mp=/data"). */
+  omittedMounts?: string[];
+  /** The commands that put them back, as root (a restore into a new guest). */
+  remountCommands?: string[];
+  /** Host devices the copy uses, as the original does. */
+  keptDevices?: string[];
+  madeUnprivileged?: boolean;
+  onbootCleared?: boolean;
+  /** A restore check: whether its temporary guest was removed again. */
+  deleted?: boolean;
+  leftoverVmid?: number;
+  /** "Start after the restore": whether the copy runs, and why not. */
+  started?: boolean;
+  startError?: string;
+  startSkipped?: string;
 }
 
 /** A task that waits for the guest's node (backup, restore, boot test). */

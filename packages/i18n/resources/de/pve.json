@@ -343,7 +343,33 @@
     "verifyNotCheckedLocked": "Nicht prüfbar: Repository gesperrt",
     "verifyNotCheckedInterrupted": "Nicht prüfbar: Prüfung unterbrochen",
     "verifyPostponedLocked": "Prüfung verschoben: Repository gesperrt",
-    "verifyPostponedInterrupted": "Prüfung verschoben: Prüfung unterbrochen"
+    "verifyPostponedInterrupted": "Prüfung verschoben: Prüfung unterbrochen",
+    "restoreFinding": {
+      "leftover": "Temporärer Gast {vmid} konnte nicht entfernt werden",
+      "notStarted": "Wiederhergestellt, nicht gestartet",
+      "checkedWithoutMounts": "Geprüft ohne {count, plural, one {# Einhängepunkt} other {# Einhängepunkte}}",
+      "restoredWithoutMounts": "Wiederhergestellt ohne {count, plural, one {# Einhängepunkt} other {# Einhängepunkte}}",
+      "checkedWithWarnings": "Geprüft mit Warnungen",
+      "restoredWithWarnings": "Wiederhergestellt mit Warnungen",
+      "leftoverDetail": "Der temporäre Gast {vmid} dieser Prüfung ist noch vorhanden (im Pool restow-restore). restow-pve entfernt ihn beim nächsten Start seines Dienstes; Sie können ihn auch in Proxmox VE entfernen.",
+      "startFailed": "Die Kopie wurde wiederhergestellt, ist aber nicht gestartet: {error}",
+      "startSkipped": {
+        "omitted_mounts": "Die Kopie wurde wiederhergestellt, aber nicht gestartet, weil Einhängepunkte ausgelassen wurden: Ihre Dienste würden ohne ihre Daten starten.",
+        "other": "Die Kopie wurde wiederhergestellt, aber nicht gestartet."
+      },
+      "omittedMountsCheck": "Die Prüfung hat {count, plural, one {diesen Einhängepunkt} other {diese Einhängepunkte}} nicht erfasst: Bind- und Geräte-Einhängepunkte gehören nicht zu einer Proxmox-VE-Sicherung.",
+      "omittedMountsRestore": "Wiederhergestellt ohne {count, plural, one {diesen Einhängepunkt} other {diese Einhängepunkte}}: Bind- und Geräte-Einhängepunkte gehören nicht zu einer Proxmox-VE-Sicherung, und nur root@pam darf sie setzen.",
+      "remount": "Um sie wieder einzuhängen, führen Sie als root auf dem Knoten aus:",
+      "sharedData": "Ein wieder eingehängter Bind-Einhängepunkt teilt die laufenden Daten des Originals: Betreiben Sie nicht beide auf denselben Daten. Auf einem anderen Knoten gibt es den Pfad des Hosts unter Umständen nicht.",
+      "copyCommands": "Befehle kopieren",
+      "copyLines": "Zeilen kopieren",
+      "warningsDetail": "Proxmox VE hat die Wiederherstellung mit {count, plural, one {einer Warnung} other {# Warnungen}} beendet:",
+      "skippedLxcDetail": "Proxmox VE stellt rohe LXC-Optionen nur für root@pam wieder her und hat diese ausgelassen. Ergänzen Sie sie als root in der Kopie, falls sie sie braucht:",
+      "customIdmap": "Darunter ist eine eigene lxc.idmap: Die Kopie verwendet die Standardzuordnung, ihre Dateien gehören also den IDs dieser Zuordnung.",
+      "keptDevicesDetail": "Die Kopie verwendet dieselben Geräte des Hosts wie das Original. Prüfen Sie sie, bevor Sie die Kopie starten, während das Original läuft:",
+      "madeUnprivileged": "Das Original ist ein privilegierter Container; die Kopie wurde unprivilegiert wiederhergestellt.",
+      "onbootCleared": "Anders als das Original startet die Kopie nicht mit ihrem Knoten (onboot=0)."
+    }
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",
@@ -354,7 +380,8 @@
     "start": "Nach der Wiederherstellung starten",
     "submit": "Wiederherstellen",
     "queued": "Wiederherstellung angefordert. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute.",
-    "privileged": "Privilegierte Container kann Proxmox VE aus einer Backup-Schnittstelle nicht wiederherstellen."
+    "privileged": "Privilegierte Container kann Proxmox VE aus einer Backup-Schnittstelle nicht wiederherstellen.",
+    "ipNote": "IP-Adressen bleiben gleich: die in der Konfiguration und die im Gast eingestellten. Nur die MAC-Adressen sind neu. Bevor die Kopie neben dem Original läuft, ändern Sie ihre Adressen oder trennen Sie sie vom Netz."
   },
   "readiness": {
     "overdue": "Überfällig",
