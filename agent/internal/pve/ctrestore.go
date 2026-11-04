@@ -165,6 +165,8 @@ func (p *Provider) sweepRestoreFolders(base string) {
 			}
 		}
 		p.logf("info", "removing %s, left by a restore that ended without its cleanup", folder)
+		// Its PVE task has ended (its worker is gone): the service reports how.
+		leaveRestoreEnd(p.Layout, folder)
 		_ = os.RemoveAll(folder)
 	}
 }
@@ -231,6 +233,9 @@ func (p *Provider) restoreContainerInit(ctx context.Context, req ProviderRequest
 		_ = os.RemoveAll(folder)
 		return nil, err
 	}
+	if access.RunID != "" {
+		p.keepRestoreRun(folder, access.RunID, req.Volname, restoreOwner())
+	}
 	// The sources were relative to the backup folder ("." and the mount
 	// points), so the snapshot's tree is the container root itself.
 	cmd := exec.CommandContext(ctx, p.resticBinary(), containerRestoreArgs(rp.ResticSnapshot, target)...)
@@ -260,6 +265,9 @@ func (p *Provider) restoreContainerCleanup(req ProviderRequest) error {
 		if err != nil {
 			return err
 		}
+		// PVE's restore task goes on for a moment after the cleanup: the service waits for its
+		// end and reports it.
+		leaveRestoreEnd(p.Layout, folder)
 		return os.RemoveAll(folder)
 	}
 	owner := restoreOwner()
@@ -272,6 +280,7 @@ func (p *Provider) restoreContainerCleanup(req ProviderRequest) error {
 		folder := filepath.Join(base, e.Name())
 		data, _ := os.ReadFile(filepath.Join(folder, "owner"))
 		if f := strings.Fields(string(data)); len(f) == 2 && f[0] == strconv.Itoa(owner) {
+			leaveRestoreEnd(p.Layout, folder)
 			_ = os.RemoveAll(folder)
 		}
 	}

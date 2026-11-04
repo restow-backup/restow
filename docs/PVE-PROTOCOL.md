@@ -289,6 +289,30 @@ them for the run. A VM reports the bytes read of its disks (the changed
 blocks only when the bitmap is reused) and the bytes uploaded; a container
 forwards restic's `status` lines (`bytes_done`, `total_bytes`).
 
+## The end of a container restore (0.5.0)
+
+`POST /snapshots/:id/restic` names the run a container restore reads for (`runId`). A
+restore started in the PVE UI has no task whose result would end that run, and the provider
+is gone before PVE's restore task ends, so the node reports it with
+`POST /runs/:id/restore-end`:
+
+- `restore-container-init` keeps `{runId, volname, upid, workerPid, at}` in `run.json` of its
+  restore folder (beside `owner`, outside the archive directory). The UPID is the PVE task of
+  the worker that restores, read from its process title (`task UPID:...`, the provider's
+  parent or an ancestor of it); without one nothing is kept.
+- `restore-container-cleanup`, and the sweep of a folder whose worker is gone, turn it into
+  `/var/lib/restow-pve/restore-ends/<run id>.json` before they remove the folder.
+- After every heartbeat the service reads PVE's status of each recorded task. Once it has
+  stopped it sends `{status, exitStatus, warnings?, error?}`: `succeeded` for `OK`, `warnings`
+  for `WARNINGS: n` (with the warning lines of the task log), `failed` for anything else (with
+  the end of the log), and drops the record; a refusal (4xx) drops it as well, a server that
+  does not answer gets it again after the next heartbeat. A record of a task PVE does not know
+  and one older than 48 hours are dropped unreported.
+
+A run that belongs to a task (a restore, a restore check or a boot test) is ended by the
+task's result; its `restore-end` changes nothing. A server before 0.5.0 sends no `runId`, and
+nothing is recorded.
+
 ## Cancel orders (0.4.2)
 
 A backup stopped in the web app reaches the node with its heartbeat; restow-pve 0.4.2

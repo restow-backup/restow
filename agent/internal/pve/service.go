@@ -476,6 +476,7 @@ func (s *Service) Tick(ctx context.Context) error {
 		}
 	}
 	_ = writeJSONAtomic(s.Layout.ServiceStatus(), status, 0o644)
+	s.reportRestoreEnds(ctx)
 	handled := s.applyCancel(ctx, hb.Cancel)
 	s.enqueue(s.withoutCancelled(ctx, hb.Tasks, hb.Cancel, handled))
 	// "Update now": installed only while nothing runs here (no task, no backup PVE started).

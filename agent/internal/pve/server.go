@@ -621,6 +621,9 @@ type ResticAccess struct {
 	// credential (backup runs, servers from 0.4.0 on; empty otherwise).
 	ProgressURL             string `json:"progressUrl,omitempty"`
 	ProgressIntervalSeconds int    `json:"progressIntervalSeconds,omitempty"`
+	// RunID is the run a container restore reads for (POST /snapshots/:id/restic, servers from
+	// 0.5.0; "" from older ones): its end is reported with RestoreEnd (restoreend.go).
+	RunID string `json:"runId,omitempty"`
 }
 
 // RunRestic fetches the per-run restic credential of a container backup.
