@@ -73,6 +73,29 @@ backup)
       printf '%s\n' '{"message_type":"exit_error","code":1,"message":"Fatal: VSS error: CoInitializeSecurity failed: E_ACCESSDENIED"}' >&2
       exit 1
     fi ;;
+  vss-unusable-then-fail)
+    if [ -n "$vss" ]; then
+      printf '%s\n' '{"message_type":"exit_error","code":1,"message":"Fatal: VSS error: CoInitializeSecurity failed: E_ACCESSDENIED"}' >&2
+    else
+      echo 'Fatal: unable to open repository at rest:https://x/: Head "https://x/config": dial tcp 10.0.0.5:443: connect: connection refused' >&2
+    fi
+    exit 1 ;;
+  net-once)
+    # The REST server is briefly unreachable while restic opens the repository.
+    if [ ! -f "$FAKE_DIR/net-once" ]; then
+      : > "$FAKE_DIR/net-once"
+      echo 'Fatal: unable to open config file: Stat: Get "https://x/config": dial tcp 10.0.0.5:443: i/o timeout' >&2
+      exit 1
+    fi ;;
+  net-flaky)
+    # Two different network texts on two calls.
+    if [ ! -f "$FAKE_DIR/net-flaky" ]; then
+      : > "$FAKE_DIR/net-flaky"
+      echo 'Fatal: unable to open repository at rest:https://x/: dial tcp 10.0.0.5:443: connect: connection refused' >&2
+    else
+      echo 'Fatal: unable to open config file: Stat: Get "https://x/config": dial tcp 10.0.0.5:443: i/o timeout' >&2
+    fi
+    exit 1 ;;
   odd-once)
     if [ -n "$vss" ]; then echo 'Fatal: something odd' >&2; exit 1; fi ;;
   odd-always)

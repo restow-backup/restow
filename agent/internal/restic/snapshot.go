@@ -138,14 +138,31 @@ const (
 	// service cannot be used at all.
 	SnapshotFaultCertain
 	// SnapshotFaultPossible: restic ended with exit code 1 before reading
-	// anything, with a text that matches nothing known. A second run
-	// without the snapshot tells (docs/WINDOWS-AGENT.md, 17.3).
+	// anything, with a text that matches nothing known, neither VSS nor the
+	// repository or the network. It is an ordinary failure: in restic 0.19
+	// the only fatal VSS path is its setup (HasSufficientPrivilegesForVSS),
+	// whose texts are known; the agent only says in the log that VSS may be
+	// the cause should it repeat (docs/WINDOWS-AGENT.md, 17.3).
 	SnapshotFaultPossible
 )
 
 // vssSetupMarkers are texts of restic's VSS setup (HasSufficientPrivilegesForVSS
-// and the VSS errors of vss_windows.go), compared without case.
-var vssSetupMarkers = []string{"vss error", "vss_e_", "vssapi.dll", "coinitializeex", "coinitializesecurity", "can't use vss"}
+// and the VSS errors of vss_windows.go), compared without case, including
+// the raw OLE errors of CoInitializeEx (go-ole's OleError is the system's
+// text of the HRESULT, for example RPC_E_CHANGED_MODE).
+var vssSetupMarkers = []string{
+	"vss error", "vss_e_", "vssapi.dll", "coinitializeex", "coinitializesecurity", "can't use vss",
+	"cannot change thread mode after it is set", "0x80010106", "catastrophic failure", "0x8000ffff",
+}
+
+// repositoryMarkers are texts of failures of the repository or the network
+// (restic's "unable to open config file", "Load(<key/...>)", the HTTP
+// client): such a failure is never put down to the snapshot.
+var repositoryMarkers = []string{
+	"unable to open", "dial tcp", "http response", "load(<", "i/o timeout", "connection refused",
+	"connection reset", "no such host", "x509:", "tls:", "server response unexpected",
+	"unexpected http", "repository", "context deadline exceeded", "eof",
+}
 
 // snapshotFaultOf rates a failed `restic backup` that ran with
 // --use-fs-snapshot. sawProgress is whether restic reported any status
@@ -158,6 +175,11 @@ func snapshotFaultOf(exitCode int, sawProgress bool, fatal string, stderr []stri
 	for _, m := range vssSetupMarkers {
 		if strings.Contains(text, m) {
 			return SnapshotFaultCertain
+		}
+	}
+	for _, m := range repositoryMarkers {
+		if strings.Contains(text, m) {
+			return SnapshotFaultNone
 		}
 	}
 	return SnapshotFaultPossible

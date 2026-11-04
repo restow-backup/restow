@@ -239,7 +239,9 @@ host name recorded at enrollment and the tag `restow-agent`.
   for [c:\]: ...`). `continue` (default): the run ends `partial` with `snapshot_failed` for
   each such volume; when VSS cannot be used at all (service disabled, COM, no rights,
   restic's `VSS error` before any progress) the agent runs restic once more without
-  `--use-fs-snapshot` and reports `snapshot_unavailable`. `fail`: the agent stops restic
+  `--use-fs-snapshot` and reports `snapshot_unavailable` when that run succeeds (when it
+  fails, its error is the cause). Any other early failure, a network or repository error
+  among them, is an ordinary failure; it is never blamed on VSS. `fail`: the agent stops restic
   (CTRL_BREAK) at the first failed volume, or does not back up at all; the run ends
   `failed`. A volume the provider does not support (`Snapshots are not supported for
   volume`) is only a note in the run log, under both policies. A shadow copy restic could

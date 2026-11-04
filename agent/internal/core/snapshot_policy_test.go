@@ -98,7 +98,8 @@ func TestSnapshotUnavailableFallsBack(t *testing.T) {
 	if fin.Status != api.StatusPartial || fin.SnapshotID == "" {
 		t.Fatalf("status %s snapshot %q errors %+v", fin.Status, fin.SnapshotID, fin.Errors)
 	}
-	if codes(fin.Errors) != "snapshot_unavailable" || !strings.Contains(fin.Errors[0].Message, "CoInitializeSecurity") {
+	if codes(fin.Errors) != "snapshot_unavailable" || !strings.Contains(fin.Errors[0].Message, "restic could not initialise the Volume Shadow Copy service: Fatal: VSS error: CoInitializeSecurity") ||
+		!strings.Contains(fin.Errors[0].Message, "ran without it") {
 		t.Fatalf("errors %+v", fin.Errors)
 	}
 	if c := fin.Consistency; c == nil || c.State != "unavailable" {
@@ -129,12 +130,19 @@ func TestSnapshotUnavailableFailsUnderFail(t *testing.T) {
 }
 
 func TestUnknownFailureWithSnapshot(t *testing.T) {
-	// An unknown exit 1 before any progress: the second run without the
-	// snapshot tells whether it was the snapshot.
+	// An unknown exit 1 before any progress is an ordinary failure: no
+	// second run without the snapshot, no snapshot_unavailable as its
+	// explanation (docs/WINDOWS-AGENT.md, 17.3).
 	withVSS(t, vssPlan)
-	fin, _ := backupWithPolicy(t, "odd-once", "")
-	if fin.Status != api.StatusPartial || codes(fin.Errors) != "snapshot_unavailable" {
+	fin, h := backupWithPolicy(t, "odd-once", "")
+	if fin.Status != api.StatusFailed || codes(fin.Errors) != "restic_exit_1" {
 		t.Fatalf("odd-once: %s %+v", fin.Status, fin.Errors)
+	}
+	if n := strings.Count(h.commands(), "backup\n"); n != 1 {
+		t.Fatalf("restic backup ran %d times:\n%s", n, h.commands())
+	}
+	if !strings.Contains(fin.LogTail, "Volume Shadow Copy service") {
+		t.Fatalf("the log does not mention VSS as a possible cause:\n%s", fin.LogTail)
 	}
 }
 
@@ -143,6 +151,52 @@ func TestUnknownFailureNotTheSnapshot(t *testing.T) {
 	fin, _ := backupWithPolicy(t, "odd-always", "")
 	if fin.Status != api.StatusFailed || codes(fin.Errors) != "restic_exit_1" {
 		t.Fatalf("odd-always: %s %+v", fin.Status, fin.Errors)
+	}
+}
+
+// A network blip while restic opens the repository is no VSS failure: the
+// run fails like any other (the retry makes the backup, with the shadow
+// copy), and nothing says "shadow copy not available".
+func TestNetworkFailureIsNeverBlamedOnTheSnapshot(t *testing.T) {
+	for _, fake := range []string{"net-once", "net-flaky"} {
+		t.Run(fake, func(t *testing.T) {
+			withVSS(t, vssPlan)
+			fin, h := backupWithPolicy(t, fake, "")
+			if fin.Status != api.StatusFailed || codes(fin.Errors) != "restic_exit_1" || fin.Consistency != nil {
+				t.Fatalf("%s %+v %+v", fin.Status, fin.Errors, fin.Consistency)
+			}
+			if n := strings.Count(h.commands(), "backup\n"); n != 1 {
+				t.Fatalf("restic backup ran %d times:\n%s", n, h.commands())
+			}
+			if !strings.Contains(fin.Errors[0].Message, "could not be reached") {
+				t.Fatalf("no network hint: %s", fin.Errors[0].Message)
+			}
+			args, _ := os.ReadFile(filepath.Join(h.dir, "backup-args.txt"))
+			if !strings.Contains(string(args), "--use-fs-snapshot") {
+				t.Fatal("ran without the shadow copy")
+			}
+			if fake == "net-once" {
+				// The retry succeeds with the shadow copy, green.
+				h.srv.QueueTask(task("t-2", api.TaskBackupNow, nil))
+				fin = h.waitRun(2).Finish
+				if fin.Status != api.StatusSucceeded || len(fin.Errors) != 0 || fin.Consistency == nil || fin.Consistency.State != "used" {
+					t.Fatalf("retry: %s %+v %+v", fin.Status, fin.Errors, fin.Consistency)
+				}
+			}
+		})
+	}
+}
+
+// restic could not set up VSS and the backup without it failed too: the
+// second failure is the cause, not "shadow copy not available".
+func TestFallbackFailureIsTheCause(t *testing.T) {
+	withVSS(t, vssPlan)
+	fin, h := backupWithPolicy(t, "vss-unusable-then-fail", "")
+	if fin.Status != api.StatusFailed || codes(fin.Errors) != "restic_exit_1" || !strings.Contains(fin.Errors[0].Message, "connection refused") {
+		t.Fatalf("%s %+v", fin.Status, fin.Errors)
+	}
+	if n := strings.Count(h.commands(), "backup\n"); n != 2 {
+		t.Fatalf("restic backup ran %d times:\n%s", n, h.commands())
 	}
 }
 

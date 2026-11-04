@@ -304,35 +304,37 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	res, err := rc.runner.Backup(sctx, opts)
 	snapUnavailable := plan.unavailable != ""
 
-	// The snapshot cannot be used at all: under continue the backup runs
-	// again without it (both runs count against the maximum run time).
+	// The snapshot cannot be used at all (restic's own VSS setup failed):
+	// under continue the backup runs again without it (both runs count
+	// against the maximum run time). Only that evidence leads to a backup
+	// without a shadow copy; an unknown early failure is an ordinary failure
+	// (docs/WINDOWS-AGENT.md, 17.3).
 	var re *restic.Error
 	if err != nil && plan.requested && rc.ctx.Err() == nil && !timedOut() && errors.As(err, &re) && re.Snapshot != restic.SnapshotFaultNone {
 		reason := re.Message
 		if reason == "" {
-			reason = "restic could not start the shadow copy"
+			reason = "no error message"
 		}
 		switch {
-		case failPolicy && re.SnapshotUnavailable():
+		case !re.SnapshotUnavailable():
+			rl.Infof("restic ended before reading anything; should this repeat with the shadow copy, its cause may be the Volume Shadow Copy service (%s).", snapshotLogHint)
+		case failPolicy:
 			reporter.Stop()
-			e := snapshotUnavailableError(reason, false)
+			e := vssSetupFailedError(reason, false)
 			rl.Errorf("%s See %s.", e.Message, snapshotLogHint)
 			out.Errors = append(out.Errors, e)
 			out.Consistency = consistencyOf(plan, restic.SnapshotOutcome{}, true)
 			return out
-		case failPolicy:
-			// Not known to be the snapshot: an ordinary failure below.
 		default:
-			rl.Warnf("restic could not use the shadow copy (%s); backing up again without it. See %s.", reason, snapshotLogHint)
-			first := re
+			rl.Warnf("restic could not initialise the Volume Shadow Copy service (%s); backing up again without it. See %s.", reason, snapshotLogHint)
 			opts.UseFSSnapshot, opts.OnSnapshotFailed = false, nil
 			res, err = rc.runner.Backup(sctx, opts)
-			var second *restic.Error
-			sameFailure := err != nil && errors.As(err, &second) && second.ExitCode == first.ExitCode &&
-				second.Fatal == first.Fatal && second.Message == first.Message
-			if first.SnapshotUnavailable() || !sameFailure {
+			if err == nil {
+				// Only a backup that was made without the shadow copy says so.
 				snapUnavailable = true
-				out.Errors = append(out.Errors, snapshotUnavailableError(reason, true))
+				out.Errors = append(out.Errors, vssSetupFailedError(reason, true))
+			} else {
+				rl.Warnf("The backup without the shadow copy failed as well; its error below is the cause of this run.")
 			}
 		}
 	}

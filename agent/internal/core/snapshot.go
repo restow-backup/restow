@@ -146,9 +146,19 @@ func snapshotCleanupErrors(out restic.SnapshotOutcome) []api.RunError {
 	return errs
 }
 
-// snapshotUnavailableError is the run error for a backup without any snapshot.
+// snapshotUnavailableError is the run error for a backup without any
+// snapshot that the agent knew of beforehand (no rights for it).
 func snapshotUnavailableError(reason string, fallback bool) api.RunError {
-	msg := "The file system snapshot (Volume Shadow Copy) cannot be used on this machine: " + reason + ". "
+	return unavailableError("The file system snapshot (Volume Shadow Copy) cannot be used on this machine: "+reason+". ", fallback)
+}
+
+// vssSetupFailedError is the run error for a backup whose restic could not
+// set up the shadow copy (VssApi.dll, COM, a VSS error), with restic's text.
+func vssSetupFailedError(text string, fallback bool) api.RunError {
+	return unavailableError("restic could not initialise the Volume Shadow Copy service: "+strings.TrimSuffix(strings.TrimSpace(text), ".")+". ", fallback)
+}
+
+func unavailableError(msg string, fallback bool) api.RunError {
 	if fallback {
 		msg += "The backup ran without it, from the live file system."
 	} else {

@@ -1426,8 +1426,9 @@ ohne Build-Tag):
 | sonst Text beginnt mit `failed to create snapshot for [` | Schattenkopie eines Volumes fehlgeschlagen, restic liest live | `FailedVolumes = append(…, {Volume, Message})`, **nicht** als Dateifehler gezählt |
 | Text beginnt mit `failed to delete VSS snapshot` | Schattenkopie blieb nach dem Lauf liegen | `CleanupFailed` |
 | `failed to get volume from mount point` / `failed to parse vss.exclude-volumes` | Konfigurationsproblem einzelner Einhängepunkte | Warnung im Log |
-| Exit 1 vor der ersten `status`-Zeile, `--use-fs-snapshot` war gesetzt, `Fatal`/`Stderr` enthält `VSS error`, einen `VSS_E_`-Code, `VssApi.dll`, `CoInitializeEx` oder `CoInitializeSecurity` | VSS gar nicht nutzbar (DLL, COM, Rechte, Dienst deaktiviert, Architektur) | `restic.Error` mit `SnapshotUnavailable() == true` |
-| Exit 1 vor der ersten `status`-Zeile, `--use-fs-snapshot` war gesetzt, Exit nicht 10, 11 oder 12, Text passt auf nichts davon | vielleicht VSS, vielleicht nicht | Rückfall wie bei "nicht nutzbar" (17.4); `snapshot_unavailable` nur, wenn der zweite Lauf ohne VSS nicht mit derselben `Fatal`-Meldung scheitert, sonst normaler `restic_error` |
+| Exit 1 vor der ersten `status`-Zeile, `--use-fs-snapshot` war gesetzt, `Fatal`/`Stderr` enthält `VSS error`, einen `VSS_E_`-Code, `VssApi.dll`, `CoInitializeEx`, `CoInitializeSecurity` oder den rohen OLE-Text von `CoInitializeEx` (`Cannot change thread mode after it is set`, `0x80010106`, `Catastrophic failure`) | VSS gar nicht nutzbar (DLL, COM, Rechte, Dienst deaktiviert, Architektur) | `restic.Error` mit `SnapshotUnavailable() == true` |
+| Exit 1 vor der ersten `status`-Zeile, Text eines Repository- oder Netzfehlers (`unable to open`, `dial tcp`, `http response`, `Load(<…>)`, `i/o timeout`, `connection refused`, TLS) | nicht VSS | gewöhnlicher Fehler (`restic_exit_1` mit Hinweis) |
+| Exit 1 vor der ersten `status`-Zeile, `--use-fs-snapshot` war gesetzt, Text passt auf nichts davon | vermutlich nicht VSS: in restic 0.19.1 endet nur die VSS-Einrichtung (`HasSufficientPrivilegesForVSS`) einen Lauf, und deren Texte sind oben erfasst | gewöhnlicher Fehler (`restic_exit_1`), kein zweiter Lauf ohne VSS, kein `snapshot_unavailable`; das Lauf-Log nennt VSS als mögliche Ursache, falls es sich wiederholt. Die Wiederholung der Richtlinie läuft wieder mit Schattenkopie. |
 
 Die Texte sind restics eigene Formate (`fs_local_vss.go:199-204`, `:119`,
 `vss_windows.go:199, 219, 966-972, 797-861`) und werden mit Testdaten aus genau diesen
@@ -1451,7 +1452,7 @@ Richtlinie gilt für APFS und LVM/btrfs.
 | --- | --- | --- |
 | Ein Volume ohne Schattenkopie (`FailedVolumes`, restic Exit 0 oder 3) | Snapshot bleibt. Status `partial`, Fehler `snapshot_failed` je Volume. | Der Agent bricht restic ab, sobald der erste solche Eintrag kommt (CTRL_BREAK, 12.1; restic legt bei Abbruch keinen Snapshot an, `cmd_backup.go:697-701`). Status `failed`, Fehler `snapshot_failed`. Schon hochgeladene Daten ohne Snapshot räumt das nächste `prune` des Servers weg. |
 | Volume vom Anbieter nicht unterstützt (`SkippedVolumes`) | nur Lauf-Log | nur Lauf-Log |
-| VSS gar nicht nutzbar (17.3, oder Agent ohne Rechte) | Der Agent startet restic sofort ein zweites Mal ohne `--use-fs-snapshot`. Status höchstens `partial`, Fehler `snapshot_unavailable`. | Status `failed`, Fehler `snapshot_unavailable`. |
+| VSS gar nicht nutzbar (17.3, oder Agent ohne Rechte) | Der Agent startet restic sofort ein zweites Mal ohne `--use-fs-snapshot`. Gelingt das, Status höchstens `partial` und Fehler `snapshot_unavailable` ("restic could not initialise the Volume Shadow Copy service: <restics Text>"). Scheitert auch der zweite Lauf, ist dessen Fehler die Ursache des Laufs, ohne `snapshot_unavailable`. | Status `failed`, Fehler `snapshot_unavailable`. |
 | Schattenkopie nicht gelöscht | Status bleibt, Fehler `snapshot_cleanup_failed` (Hinweis, keine Abwertung). | ebenso |
 
 Der eigene Abbruch bei `fail` läuft über `context.WithCancelCause` mit einer eigenen Ursache
@@ -2231,8 +2232,10 @@ Fehlerpolitik, Server, Oberfläche und i18n folgen im nächsten Schritt.
   wird wie bisher protokolliert). Unter `fail` bricht der Agent restic über
   `context.WithCancelCause` mit eigener Ursache ab, das zählt weder als Unterbrechung noch als
   `restic_error`. Unter `continue` startet er bei "VSS nicht nutzbar" restic ein zweites Mal
-  ohne `--use-fs-snapshot`; bei einem unbekannten Exit 1 nur dann `snapshot_unavailable`, wenn
-  der zweite Lauf nicht mit derselben Meldung scheitert.
+  ohne `--use-fs-snapshot` und meldet `snapshot_unavailable` nur, wenn dieser Lauf gelingt.
+  Ein unbekannter Exit 1 ist seit dem Audit zu 0.5.0 ein gewöhnlicher Fehler: Vorher führte
+  auch ein kurzer Netzfehler beim Öffnen des Repositorys zu einer Sicherung ohne Schattenkopie
+  und zur Erklärung "Schattenkopien nicht nutzbar" (17.3).
 - Pfade (16): Quellen der anderen Pfadform werden übersprungen und einmal protokolliert
   (`ownFormSources`), `snapshotPathOf` (`C:\Users` -> `/C/Users`) für die Ransomware-Auswertung,
   `verify.go` prüft Snapshot-Pfade mit `path.Clean`, Restore unter Windows mit `--iinclude` und

@@ -266,6 +266,15 @@ private repository.
   volume whose snapshot provider does not support it. Such a backup is now "Without a shadow
   copy" with the volumes read live; "used" needs at least one volume that really came from a
   shadow copy and lists the others it read live.
+- Windows agent (preview): a short network or server failure while restic opened the
+  repository (exit code 1 before any progress) was put down to the shadow copy. The agent backed
+  up again without it, so a backup with a shadow copy became a live one, and the run was
+  explained as "File system snapshots cannot be used on the machine"; when the second attempt
+  failed too, the error said the backup ran without a shadow copy although none was made. Only
+  restic's own messages of the Volume Shadow Copy setup lead to the backup without it now
+  ("restic could not initialise the Volume Shadow Copy service: ..."), and only a backup that
+  was made reports that; any other early failure is an ordinary failure whose retry uses the
+  shadow copy again.
 
 ### Upgrade Notes
 
