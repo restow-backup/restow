@@ -178,6 +178,15 @@ unique per installation).
   6 monthly restore points) and the optional monthly restore check. The worker
   turns a due job into one backup task per guest for the node that hosts it;
   the node starts `vzdump` with the Restow storage and its fleecing storage.
+- **Job settings** (`settings` of `POST /api/v1/pve/jobs` and
+  `PATCH /api/v1/pve/jobs/:id`): `mode`, `retention` (`keepDaily`,
+  `keepWeekly`, `keepMonthly`), `restoreTest` (`enabled`, `targetStorage`) and
+  `bootTest` (`schedule`, `maxMemoryMiB`, `timeoutSeconds`). There is no upload
+  limit for Proxmox VE backups yet, and the full read comes every 30th backup:
+  `bandwidthKbps` and `verifyReadEvery` are refused with 422 ("not supported
+  for Proxmox VE jobs yet"). Up to 0.4 they were taken and stored but never
+  applied; a job that still holds them no longer shows them, and its next save
+  drops them.
 - **Backups started in PVE** (the PVE UI or a PVE backup job onto the Restow
   storage) work the same way and show up as runs started in PVE.
 - **Incremental or not.** A VM's dirty bitmap lives in QEMU's memory. After a

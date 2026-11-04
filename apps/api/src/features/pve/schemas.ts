@@ -353,6 +353,22 @@ const retention = z.object({
   keepMonthly: z.number().int().min(0).max(240),
 });
 
+/**
+ * Job settings an earlier Restow took and stored but never applied: no upload limit reached the
+ * node, and its full read stays every 30th backup. Refused with 422 until they work, and left out
+ * of every job the API shows, so a job saved with them before can be edited as it is.
+ */
+export const UNSUPPORTED_PVE_JOB_SETTINGS = ["bandwidthKbps", "verifyReadEvery"] as const;
+
+/** A job's stored settings without {@link UNSUPPORTED_PVE_JOB_SETTINGS}. */
+export function supportedJobSettings<T extends object>(settings: T): T {
+  const out = { ...settings } as Record<string, unknown>;
+  for (const key of UNSUPPORTED_PVE_JOB_SETTINGS) {
+    delete out[key];
+  }
+  return out as T;
+}
+
 export const jobSchema = z.object({
   name,
   scopeAll: z.boolean().default(false),
@@ -362,11 +378,9 @@ export const jobSchema = z.object({
     .object({
       mode: z.enum(["snapshot", "suspend", "stop"]).optional(),
       retention: retention.optional(),
-      verifyReadEvery: z.number().int().min(1).max(365).optional(),
       restoreTest: z
         .object({ enabled: z.boolean(), targetStorage: storageId.optional() })
         .optional(),
-      bandwidthKbps: z.number().int().min(0).nullable().optional(),
       bootTest: z
         .object({
           schedule: z.enum(["off", "weekly", "after_backup"]),

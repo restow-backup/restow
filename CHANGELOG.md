@@ -381,6 +381,11 @@ private repository.
   system without the 64bit feature as 12 bytes instead of 16; and it skipped a block whose first
   bytes looked like the journal's magic number, keeping an older copy. It now replays as the
   kernel and e2fsck do, tested against journals written by debugfs.
+- Proxmox VE: the job settings `bandwidthKbps` and `verifyReadEvery` were taken by the API and
+  stored, but never applied: backups uploaded without a limit and the full read stayed every
+  30th backup, and nothing said so. A job that sets either is now refused with 422 and a text
+  that names it ("not supported for Proxmox VE jobs yet"); a job saved with them before no
+  longer shows them and can be edited as it is. The web app never offered either.
 
 ### Upgrade Notes
 

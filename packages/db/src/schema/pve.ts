@@ -167,16 +167,15 @@ export const pveNodes = pgTable(
 /** Retention of a job's restore points (as for endpoints: daily, weekly, monthly). */
 export type PveRetention = { keepDaily: number; keepWeekly: number; keepMonthly: number };
 
-/** What a PVE job does. */
+/**
+ * What a PVE job does. A job saved before 0.5.0 may still hold `verifyReadEvery` and
+ * `bandwidthKbps`, which were never applied; the API refuses them and does not show them.
+ */
 export type PveJobSettings = {
   mode?: PveBackupMode;
   retention?: PveRetention;
-  /** Force a full read ("verify read") every this many backups; default 30. */
-  verifyReadEvery?: number;
   /** Monthly restore test into the restore pool (needs capacity; off by default). */
   restoreTest?: { enabled: boolean; targetStorage?: string };
-  /** Upload limit in kbit/s; null = unlimited. */
-  bandwidthKbps?: number | null;
   /** Boot tests of the job's guests (docs/PVE.md, "Boot test"); off by default. */
   bootTest?: PveBootTestSettings;
 };

@@ -1991,6 +1991,49 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     await fixture.db.update(pveSnapshots).set({ verifyRequestedAt: null });
   });
 
+  it("hides the never applied bandwidthKbps and verifyReadEvery of a stored job, and drops them on its next save", async () => {
+    const job = await service.saveJob(
+      shared.db,
+      fixture.tenantId,
+      null,
+      {
+        name: "Stored before 0.5.0",
+        scopeAll: false,
+        schedule: null,
+        enabled: true,
+        settings: { mode: "snapshot" },
+      },
+      actor(),
+    );
+    // An earlier Restow took both and stored them.
+    await fixture.db
+      .update(pveJobs)
+      .set({ settings: { mode: "snapshot", bandwidthKbps: 20000, verifyReadEvery: 7 } as never })
+      .where(eq(pveJobs.id, job.id));
+    const listed = (await service.overview(shared.db, fixture.tenantId)).jobs.find(
+      (j) => j.id === job.id,
+    );
+    expect(listed?.settings).toEqual({ mode: "snapshot" });
+    // The web form sends back what it read with its own change: the request passes the
+    // route's check (routes.jobs.test.ts) and the stored keys are gone.
+    const { jobSchema } = await import("./schemas.js");
+    const input = jobSchema.parse({
+      name: "Renamed",
+      scopeAll: false,
+      schedule: null,
+      enabled: true,
+      settings: { ...listed?.settings, retention: { keepDaily: 3, keepWeekly: 0, keepMonthly: 0 } },
+    });
+    const saved = await service.saveJob(shared.db, fixture.tenantId, job.id, input, actor());
+    expect(saved.name).toBe("Renamed");
+    const [row] = await fixture.db.select().from(pveJobs).where(eq(pveJobs.id, job.id));
+    expect(row?.settings).toEqual({
+      mode: "snapshot",
+      retention: { keepDaily: 3, keepWeekly: 0, keepMonthly: 0 },
+    });
+    await service.deleteJob(shared.db, fixture.tenantId, job.id, actor());
+  });
+
   it("plans a job on weekdays or monthly, like a mail job (E1)", async () => {
     const now = new Date("2026-10-21T12:00:00Z"); // a Wednesday
     const job = await service.saveJob(

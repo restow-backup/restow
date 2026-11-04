@@ -52,6 +52,7 @@ import {
 import { withdrawQueued } from "./cancel.js";
 import { containerBackupPaths } from "./files.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
+import { supportedJobSettings } from "./schemas.js";
 import { browsableDisks } from "./vm-files.js";
 import { avoidVmids, heldVmid } from "./vmids.js";
 
@@ -545,7 +546,7 @@ export function jobDto(j: PveJob, facts: { guests?: number; round?: JobRound | n
     name: j.name,
     scopeAll: j.scopeAll,
     schedule: j.schedule,
-    settings: j.settings,
+    settings: supportedJobSettings(j.settings),
     enabled: j.enabled,
     recommended: j.recommended,
     nextRunAt: j.nextRunAt?.toISOString() ?? null,
