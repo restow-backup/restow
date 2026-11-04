@@ -125,6 +125,7 @@ func (b *BootTester) command(ctx context.Context, name string, args ...string) (
 // bootTestPVE is what a boot test and a restore task need of the local PVE API.
 type bootTestPVE interface {
 	NextID(ctx context.Context) (int, error)
+	VMIDFree(ctx context.Context, vmid int) (bool, error)
 	RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, mounts map[string]string) (string, error)
 	WaitTask(ctx context.Context, node, upid string, poll time.Duration) (string, error)
 	TaskLogTail(ctx context.Context, node, upid string, lines int) (string, error)
@@ -151,6 +152,9 @@ type BootTestParams struct {
 	DataBytes uint64 `json:"dataBytes"`
 	// DiskBytes is the size of all disks of the restore point.
 	DiskBytes uint64 `json:"diskBytes"`
+	// AvoidVMIDs are VMIDs the temporary guest must not take: guests PVE no longer has whose
+	// restore points or job Restow keeps (servers from 0.5.0).
+	AvoidVMIDs []int `json:"avoidVmids"`
 }
 
 // BootTestResult is what the node reports (the task's result).
@@ -475,7 +479,7 @@ func (b *BootTester) poll() time.Duration {
 
 func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *RestorePoint, conf map[string]string, lxc lxcOptions, storage string) (res BootTestResult) {
 	sp := restoreSpec{Purpose: PurposeBootTest, Kind: p.Kind, SourceVMID: p.VMID, Storage: storage, Pool: BootTestPool,
-		Archive: b.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")}
+		Archive: b.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/"), Avoid: vmidSet(p.AvoidVMIDs)}
 	if p.Kind == "ct" {
 		mounts, omitted, err := RestoreMounts(conf, storage, b.mountSizing(ctx, storage, rp))
 		if err != nil {

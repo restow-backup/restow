@@ -150,8 +150,9 @@ type restoreSpec struct {
 	Archive    string
 	Storage    string
 	Pool       string
-	// VMID is a target the task names; 0 takes the cluster's next free VMID.
-	VMID int
+	// VMID is a target the task names; 0 takes the cluster's next free VMID outside Avoid.
+	VMID  int
+	Avoid map[int]bool
 	// Params are a container's rootfs, mpN (and the name of a temporary one).
 	Params map[string]string
 	// Root restores a VM as root through qmrestore: its configuration holds what PVE lets only
@@ -171,7 +172,7 @@ func (b *BootTester) startRestore(ctx context.Context, sp restoreSpec) (vmid int
 	for attempt := 1; ; attempt++ {
 		vmid = sp.VMID
 		if vmid == 0 {
-			if vmid, err = b.PVE.NextID(ctx); err != nil {
+			if vmid, err = b.nextVMID(ctx, sp.Avoid); err != nil {
 				return 0, "", fmt.Errorf("no free VMID: %w", err)
 			}
 		}
@@ -209,6 +210,51 @@ func (b *BootTester) startRestore(ctx context.Context, sp restoreSpec) (vmid int
 		}
 		b.logf("VMID %d was taken meanwhile; asking for another one", vmid)
 	}
+}
+
+// maxVMIDProbes bounds the VMIDs nextVMID asks the cluster about beyond its first answer.
+const maxVMIDProbes = 64
+
+// vmidSet makes a set of a list of VMIDs.
+func vmidSet(ids []int) map[int]bool {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make(map[int]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
+}
+
+// nextVMID is a free VMID outside avoid: the cluster's next free one (/cluster/nextid), else
+// the next ones upwards that the cluster says are free (GET /cluster/nextid?vmid=N), skipping
+// the avoided ones without asking. A restore under the VMID of a guest Restow still keeps would
+// take over that guest's history at the next inventory.
+func (b *BootTester) nextVMID(ctx context.Context, avoid map[int]bool) (int, error) {
+	first, err := b.PVE.NextID(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if !avoid[first] {
+		return first, nil
+	}
+	n := first
+	for probes := 0; probes < maxVMIDProbes; probes++ {
+		for avoid[n] {
+			n++
+		}
+		free, err := b.PVE.VMIDFree(ctx, n)
+		if err != nil {
+			return 0, err
+		}
+		if free {
+			b.logf("VMID %d belongs to a guest Restow keeps; taking %d", first, n)
+			return n, nil
+		}
+		n++
+	}
+	return 0, fmt.Errorf("no free VMID above %d outside the ones Restow keeps after %d attempts", first, maxVMIDProbes)
 }
 
 // vmidTaken says whether PVE refused a restore because the VMID exists already.

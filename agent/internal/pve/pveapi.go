@@ -242,6 +242,21 @@ func (p *PVEAPI) NextID(ctx context.Context) (int, error) {
 	return int(n), err
 }
 
+// VMIDFree asks the cluster whether vmid is free (GET /cluster/nextid?vmid=N, which PVE answers
+// with the VMID when it is free and refuses with "VM N already exists" when it is not).
+func (p *PVEAPI) VMIDFree(ctx context.Context, vmid int) (bool, error) {
+	var out json.Number
+	err := p.call(ctx, http.MethodGet, "/cluster/nextid", url.Values{"vmid": {strconv.Itoa(vmid)}}, &out)
+	if err == nil {
+		return true, nil
+	}
+	var pe *PVEAPIError
+	if errors.As(err, &pe) && pe.Status == http.StatusBadRequest && strings.Contains(pe.Message, "already exists") {
+		return false, nil
+	}
+	return false, err
+}
+
 // StartBackup starts vzdump for one guest onto the Restow storage and returns the task UPID.
 // It asks for no notes: the Restow storage keeps none (restore points are named and described
 // in Restow), and a notes template made vzdump end every backup with "TASK WARNINGS: 1".

@@ -4,8 +4,12 @@ package pve
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -77,7 +81,8 @@ type fakeNode struct {
 	ctime          int64
 	rootTasks      []NodeTask // the tasks of root's qmrestore
 	nextUPID       int
-	refusedRoot    bool // the token's restore was refused a key only root@pam may restore
+	refusedRoot    bool  // the token's restore was refused a key only root@pam may restore
+	probed         []int // the VMIDs VMIDFree was asked about
 }
 
 func newFakeNode() *fakeNode {
@@ -323,6 +328,14 @@ func (f *fakeNode) NextID(context.Context) (int, error) {
 	id := f.nextID
 	f.nextID++
 	return id, nil
+}
+
+func (f *fakeNode) VMIDFree(_ context.Context, vmid int) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.probed = append(f.probed, vmid)
+	_, taken := f.guests[vmid]
+	return !taken, nil
 }
 
 func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, archive, storage, pool string, mounts map[string]string) (string, error) {
@@ -976,5 +989,98 @@ func TestGuestMemoryAndCapabilities(t *testing.T) {
 	s.State.BootTestsDisabled = true
 	if caps := s.Capabilities(); caps == nil || len(caps) != 0 {
 		t.Fatalf("caps %v (never null)", caps)
+	}
+}
+
+// A temporary guest never takes the VMID of a guest Restow keeps: /cluster/nextid answers 105,
+// which the server listed, so the boot test takes 106; one the cluster has (another guest) is
+// passed over as well. An answer outside the list is taken without asking again.
+func TestBootTestAvoidsTheVMIDsRestowKeeps(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		avoid  []int
+		taken  []int
+		want   int
+		probed int
+	}{
+		{"the next free VMID is kept by Restow", []int{105}, nil, 106, 1},
+		{"the one above is another guest", []int{105, 107}, []int{106}, 108, 2},
+		{"nothing to avoid", []int{200}, nil, 105, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeNode()
+			f.nextID = 105
+			f.restoreConfig = parseConfigText(vmConfig)
+			f.agentAfter = 1
+			for _, id := range tc.taken {
+				f.guests[id] = &fakeGuest{kind: "vm", node: "pve1", status: "running"}
+			}
+			b := newTester(t, f)
+			p := vmParams()
+			p.AvoidVMIDs = tc.avoid
+			res, err := b.Run(context.Background(), p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.TempVMID != tc.want || res.Outcome != "green" {
+				t.Fatalf("temporary VMID %d (%s), want %d: %+v", res.TempVMID, res.Outcome, tc.want, res)
+			}
+			if len(f.probed) != tc.probed {
+				t.Fatalf("asked about %v", f.probed)
+			}
+		})
+	}
+}
+
+// A restore and a restore check without targetVmid avoid them as well.
+func TestRestoreAvoidsTheVMIDsRestowKeeps(t *testing.T) {
+	const conf = "hostname: web\nrootfs: local-lvm:vm-114-disk-0,size=8G\n"
+	f := newFakeNode()
+	f.nextID = 105
+	f.restoreConfig = parseConfigText(conf)
+	s := restoreService(t, f, "ct", conf)
+	params, _ := json.Marshal(map[string]any{"volname": "backup/ct/114/2030-01-01T00:00:00Z", "kind": "ct",
+		"targetStorage": "local-lvm", "restoreTest": true, "avoidVmids": []int{105, 106}})
+	result, err := s.task(context.Background(), Task{ID: "t1", Kind: "restore", Params: params})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["vmid"] != 107 {
+		t.Fatalf("vmid = %v, want 107 (%v)", result["vmid"], result)
+	}
+}
+
+// GET /cluster/nextid?vmid=N: the VMID back when it is free, 400 "VM N already exists" when it
+// is not, any other error is one.
+func TestVMIDFreeAsksTheCluster(t *testing.T) {
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
+		switch r.URL.Query().Get("vmid") {
+		case "106":
+			_, _ = io.WriteString(w, `{"data":"106"}`)
+		case "107":
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"data":null,"errors":{"vmid":"VM 107 already exists"}}`)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+	api, err := NewPVEAPI(srv.URL, "restow@pve!t", "x", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if free, err := api.VMIDFree(context.Background(), 106); !free || err != nil {
+		t.Fatalf("106: %v %v", free, err)
+	}
+	if free, err := api.VMIDFree(context.Background(), 107); free || err != nil {
+		t.Fatalf("107: %v %v", free, err)
+	}
+	if _, err := api.VMIDFree(context.Background(), 108); err == nil {
+		t.Fatal("108: no error for a 500")
+	}
+	if asked[0] != "GET /api2/json/cluster/nextid?vmid=106" {
+		t.Fatalf("asked %v", asked)
 	}
 }

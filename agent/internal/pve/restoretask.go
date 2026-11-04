@@ -26,6 +26,8 @@ type restoreParams struct {
 	Start         bool   `json:"start"`
 	// RestoreTest deletes the guest again after a successful restore.
 	RestoreTest bool `json:"restoreTest"`
+	// AvoidVMIDs are VMIDs a restore without targetVmid must not take (servers from 0.5.0).
+	AvoidVMIDs []int `json:"avoidVmids"`
 	// DataBytes is what the restore writes (a VM's stored, non-zero data; optional, else the
 	// check of the target storage counts the full disks on a thin storage as well).
 	DataBytes uint64 `json:"dataBytes"`
@@ -73,7 +75,7 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	b := s.bootTester()
 	_, source, _ := ParseVolname(p.Volname)
 	sp := restoreSpec{Kind: p.Kind, SourceVMID: source, Storage: p.TargetStorage, Pool: p.Pool, VMID: p.TargetVMID,
-		Archive: s.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")}
+		Archive: s.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/"), Avoid: vmidSet(p.AvoidVMIDs)}
 	if p.RestoreTest {
 		sp.Purpose = PurposeRestoreCheck
 	}
