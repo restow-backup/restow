@@ -744,8 +744,9 @@ carries all of them.
   (`D:\`) are not reported as data folders yet. Hooks under
   Windows: only `.ps1` and `.exe` in the `scripts` policy, no grace period on a timeout. The
   proxy is a fixed URL without credentials (no WPAD/PAC, no NTLM or Kerberos). After an
-  uninstall through the agent itself, `restow-agent.exe` stays until the next restart
-  (the installer's `-Uninstall` removes everything). The restore target defaults to
+  uninstall through the agent itself, `restow-agent.exe` stays, renamed to
+  `restow-agent.exe.old-<hex>`, until the next restart (the installer's `-Uninstall` removes
+  everything); installing again before that restart is safe. The restore target defaults to
   `C:\Restow-Restore-<time>`, not into a backed-up folder as on Unix. Tests that use `/bin/sh`
   stand-ins carry `//go:build unix`; new Linux-only code needs `//go:build linux`, new
   macOS-only code `//go:build darwin`, or `GOOS=windows go vet` fails.

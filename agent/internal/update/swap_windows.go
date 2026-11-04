@@ -95,9 +95,20 @@ func commitFile(staged, dest string, keepPrev bool) (swap, error) {
 }
 
 // removeOrLater deletes path, or marks it for deletion at the next reboot
-// when a running process still holds it.
+// when a running process still holds it. A fixed name (restow-agent.exe) is
+// renamed to <name>.old-<hex> first and only that name is marked: Windows
+// deletes whatever has the marked name at the restart.
 func removeOrLater(path string) {
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		_ = winapi.MoveFileEx(path, "", winapi.MoveFileDelayUntilReboot)
+	err := os.Remove(path)
+	if err == nil || os.IsNotExist(err) {
+		return
 	}
+	if !strings.Contains(filepath.Base(path), ".old-") {
+		aside := path + ".old-" + randomSuffix()
+		if moveRetry(path, aside) != nil {
+			return
+		}
+		path = aside
+	}
+	_ = winapi.MoveFileEx(path, "", winapi.MoveFileDelayUntilReboot)
 }

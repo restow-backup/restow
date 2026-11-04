@@ -275,6 +275,11 @@ private repository.
   ("restic could not initialise the Volume Shadow Copy service: ..."), and only a backup that
   was made reports that; any other early failure is an ordinary failure whose retry uses the
   shadow copy again.
+- Windows agent (preview): removing the agent with `restow-agent.exe uninstall` or a server
+  uninstall task marked `restow-agent.exe` (and `restic.exe` when it was in use) for deletion at
+  the next restart of Windows under their fixed names. An agent installed again before that
+  restart was then deleted by it, and the service did not start any more. Such a file is now
+  renamed to `<name>.old-<random>` first, and only that name is deleted at the restart.
 
 ### Upgrade Notes
 

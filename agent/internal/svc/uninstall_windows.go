@@ -3,6 +3,8 @@
 package svc
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -113,17 +115,24 @@ func Uninstall(o UninstallOptions) error {
 		if f == "" {
 			continue
 		}
-		err := os.Remove(f)
+		err := removeFile(f)
 		switch {
 		case err == nil:
 			fmt.Fprintf(out, "removed %s\n", f)
 		case os.IsNotExist(err):
 		case strings.EqualFold(f, self) || winapi.IsErrno(err, winapi.ErrorAccessDenied):
-			// The running agent (or a file still in use): delete at the next restart.
-			if derr := winapi.MoveFileEx(f, "", winapi.MoveFileDelayUntilReboot); derr != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", f, derr))
-			} else {
-				fmt.Fprintf(out, "%s is deleted at the next restart of Windows\n", f)
+			// The running agent (or a file still in use): delete at the next
+			// restart, under a name of its own. The fixed name is free at once,
+			// so an agent installed again before the restart is not deleted
+			// with it.
+			aside, derr := removeAtReboot(f)
+			switch {
+			case derr != nil && aside == "":
+				errs = append(errs, fmt.Errorf("%s is in use and cannot be deleted now; delete it after the next restart of Windows: %w", f, derr))
+			case derr != nil:
+				errs = append(errs, derr)
+			default:
+				fmt.Fprintf(out, "%s is deleted at the next restart of Windows (as %s)\n", f, filepath.Base(aside))
 				later = true
 			}
 		default:
@@ -137,9 +146,37 @@ func Uninstall(o UninstallOptions) error {
 		if os.Remove(d) == nil {
 			fmt.Fprintf(out, "removed %s\n", d)
 		} else if later {
-			// Registered after the file, so Windows deletes the file first.
-			_ = winapi.MoveFileEx(d, "", winapi.MoveFileDelayUntilReboot)
+			// Registered after the files, so Windows deletes them first; a
+			// folder that is not empty then (a new installation) stays.
+			_ = moveFileEx(d, "", winapi.MoveFileDelayUntilReboot)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// Seams for the tests: what deleting at the next restart is made of.
+var (
+	moveFileEx = winapi.MoveFileEx
+	renameFile = os.Rename
+	removeFile = os.Remove
+)
+
+// removeAtReboot renames a file that cannot be deleted now to
+// <name>.old-<16 hex> in the same folder (a running .exe can be renamed, not
+// deleted) and has Windows delete that name at the next restart
+// (MOVEFILE_DELAY_UNTIL_REBOOT). The fixed name is never registered: Windows
+// would delete whatever has that name at the restart. It returns the new name.
+func removeAtReboot(path string) (string, error) {
+	var rnd [8]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return "", err
+	}
+	aside := path + ".old-" + hex.EncodeToString(rnd[:])
+	if err := renameFile(path, aside); err != nil {
+		return "", err
+	}
+	if err := moveFileEx(aside, "", winapi.MoveFileDelayUntilReboot); err != nil {
+		return aside, fmt.Errorf("%s was renamed to %s but cannot be marked for deletion: %w", path, aside, err)
+	}
+	return aside, nil
 }

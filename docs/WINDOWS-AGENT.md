@@ -749,10 +749,15 @@ Wettlauf mit dem Ende des Dienstes.
   (Aufgabe `uninstall` vom Server, `UninstallFromInside`): Ablauf wie `svc.Uninstall`
   (`internal/svc/uninstall.go`): Dienst stoppen bzw. löschen, Logger und Laufsperre
   **schließen**, dann `C:\ProgramData\Restow` entfernen, dann `restic.exe` und
-  `THIRD_PARTY_NOTICES.txt`. Die laufende `restow-agent.exe` und der Ordner
-  `C:\Program Files\Restow` werden mit `MoveFileExW(…, MOVEFILE_DELAY_UNTIL_REBOOT)` zum
-  Löschen beim nächsten Neustart vorgemerkt. Bis dahin bleibt eine Datei ohne Dienst liegen;
-  `status` des Installers und die Doku sagen das. Kein `cmd /c ping … & rd`: das Muster
+  `THIRD_PARTY_NOTICES.txt`. Die laufende `restow-agent.exe` (und eine Datei, die noch in
+  Gebrauch ist, etwa `restic.exe`) wird zuerst im selben Ordner in
+  `<name>.old-<16 hex>` umbenannt, und nur dieser Name wird mit
+  `MoveFileExW(…, MOVEFILE_DELAY_UNTIL_REBOOT)` zum Löschen beim nächsten Neustart vorgemerkt,
+  danach die Ordner `bin` und `C:\Program Files\Restow` (ein Ordner, der beim Neustart nicht
+  leer ist, bleibt). Nie der feste Pfad: Windows löscht beim Neustart, was dann unter dem
+  vorgemerkten Namen liegt, also einen Agenten, der vor dem Neustart neu installiert wurde.
+  Dieselbe Regel gilt für die Selbstaktualisierung (`removeOrLater`). Bis zum Neustart bleibt
+  eine Datei ohne Dienst liegen; `status` des Installers und die Doku sagen das. Kein `cmd /c ping … & rd`: das Muster
   scheitert an Gos Quoting der Argumente, öffnet ein Konsolenfenster und ist zugleich die
   typische Selbstlöschung von Schadsoftware, die Defender- und EDR-Heuristiken auslöst.
 - **Logs bei Deinstallation aus dem Dienst:** `UninstallFromInside` behält unter Windows
