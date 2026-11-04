@@ -21,16 +21,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@better-auth/passkey": "^1.7.12",
-    "@better-auth/utils": "0.5.0",
-    "@hono/node-server": "^1.13.0",
+    "@better-auth/passkey": "^1.7.15",
+    "@better-auth/utils": "0.5.1",
+    "@hono/node-server": "^2.1.6",
     "@react-pdf/renderer": "^4.9.0",
     "@restow/core": "workspace:*",
     "@restow/db": "workspace:*",
     "@restow/i18n": "workspace:*",
-    "better-auth": "^1.7.12",
+    "better-auth": "^1.7.15",
     "drizzle-orm": "^0.45.4",
-    "hono": "^4.13.13",
+    "hono": "^4.13.16",
     "imapflow": "^1.0.171",
     "mailparser": "^3.12.4",
     "nodemailer": "^10.2.1",
@@ -47,6 +47,6 @@
     "@types/sanitize-html": "^2.16.2",
     "@types/smtp-server": "^3.5.13",
     "tsx": "^4.19.0",
-    "unpdf": "^1.9.1"
+    "unpdf": "^2.0.1"
   }
 }

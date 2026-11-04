@@ -219,6 +219,16 @@ private repository.
   modules (79 or 80 per target; three only in `restic.exe`, FUSE and xattr only on Linux and
   macOS), and `scripts/restic-licenses.mjs check` compares each restic binary with the modules
   listed for its target.
+- Dependencies: better-auth and its passkey plugin 1.7.15, `@better-auth/utils` 0.5.1, hono
+  4.13.16, `@aws-sdk/client-s3` 3.1161.0, i18next 26.6.0, react-i18next 17.1.10,
+  `@tanstack/react-query` 5.105.1, react-hook-form 7.91.0, react-resizable-panels 4.16.0,
+  lucide-react 1.66.0 and cn 0.5.1 (Dependabot #95), and two major updates: `@hono/node-server`
+  2 (2.1.6, Dependabot #87), the HTTP server of the api, the updater and the mounter, and unpdf 2
+  (2.0.1, Dependabot #90), which reads the rendered PDF reports back in the tests only. With
+  `@hono/node-server` 2 a request whose path holds a raw backslash is answered with 400 before it
+  reaches a route, and a response without a body no longer carries `Content-Type: text/plain`;
+  the advisory GHSA-rmxm-3fg6-px4f (its static file middleware, which Restow does not use) is
+  closed with it.
 
 ### Fixed
 
