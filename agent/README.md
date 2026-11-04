@@ -141,7 +141,9 @@ when it differs from a pin. Options: `-Hooks off|scripts|any`, `-Proxy http://pr
 (Intune runs scripts 32-bit by default) is fine: the installer starts itself again as
 64-bit; write the token file there to `C:\Windows\Sysnative\config\systemprofile\`. Where
 `iex (irm ...)` is blocked (AMSI, ASR, EDR), download `windows.ps1`, compare its SHA-256 and
-run it with `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1`. Neither
+run it with `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` (the script
+enables TLS 1.2 for its own downloads; a download that fails while setting up TLS names TLS
+1.2 and `SchUseStrongCrypto` as the cause). Neither
 `restow-agent.exe` nor the script carry an Authenticode signature in this preview; see
 "Known limits" for Defender and Smart App Control.
 

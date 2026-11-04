@@ -89,7 +89,15 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
      der Assistent vorbelegt); ein 32-Bit-RMM-Prozess schreibt die Datei über
      `C:\Windows\Sysnative\config\systemprofile`. Statt `iex` gleichwertig: Datei laden,
      SHA-256 mit dem Wert im Assistenten vergleichen (`windows.sha256`, siehe unten), mit
-     `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` starten.
+     `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` starten. Das Skript
+     schaltet TLS 1.2 für seine eigenen Downloads selbst ein (auch beim Neustart als
+     64-Bit-PowerShell); nur der Abruf mit `irm` braucht die Zeile `SecurityProtocol` davor.
+     Scheitert ein Download trotzdem beim Aufbau von TLS ("The underlying connection was
+     closed"), nennt der Installer TLS 1.2 als Ursache; auf Windows Server 2016 und älteren
+     Windows-10-Versionen hilft dann starke Kryptografie für das .NET Framework
+     (`SchUseStrongCrypto = 1` unter
+     `HKLM:\SOFTWARE\Microsoft\.NETFramework\v4.0.30319` und
+     `HKLM:\SOFTWARE\WOW6432Node\Microsoft\.NETFramework\v4.0.30319`).
 
    Die Adresse steht in einfachen Anführungszeichen und muss eine reine Origin sein
    (Schema, Host, Port); der Server baut keinen Befehl aus etwas anderem.

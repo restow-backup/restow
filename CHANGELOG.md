@@ -290,6 +290,13 @@ private repository.
   the agent now make Administrators the owner of every folder and file they create, keeping
   the inherited permissions. Hook scripts you copy into `hooks.d` yourself belong to you on
   such a computer; `icacls <file> /setowner *S-1-5-32-544` makes them usable.
+- Windows agent (preview): the documented alternative to `iex`, downloading `windows.ps1` and
+  running it with `powershell -File`, failed on Windows PowerShell 5.1 without strong
+  cryptography (Windows Server 2016, older Windows 10) against an instance that speaks TLS 1.2
+  only, and so did the restart of a 32-bit host in 64-bit PowerShell: only the `iex` command
+  line enabled TLS 1.2, in the caller's own session. The installer enables TLS 1.2 itself now,
+  and a download that fails while setting up TLS says that TLS 1.2 is needed instead of
+  asking to check the network.
 
 ### Upgrade Notes
 

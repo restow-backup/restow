@@ -14,7 +14,7 @@
 #   $env:RESTOW_RELEASE_KEY_FINGERPRINT = 'SHA256:...'
 #
 # Instead of iex you can download this file, compare its SHA-256 with the
-# value in the Restow UI and run it with:
+# value in the Restow UI and run it with (it enables TLS 1.2 itself):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1
 #
 # What it does: downloads the agent and restic from your Restow instance into
@@ -401,6 +401,31 @@ function New-PrivateFolder([string]$Path) {
     }
 }
 
+# Enable-Tls12 switches TLS 1.2 on for this PowerShell. Windows PowerShell 5.1
+# runs on the .NET Framework, which offers only SSL 3 and TLS 1.0 unless
+# SchUseStrongCrypto is set (Server 2016, Windows 10 1607 and many other builds).
+# The iex command line sets it in the administrator's own session, but the
+# -File form and the 64-bit relaunch start a new PowerShell without it, and
+# every download from a TLS-1.2-only instance would fail. -bor keeps what is
+# already on (TLS 1.3); SystemDefault (0) leaves the choice to Windows, which
+# offers TLS 1.2 on every supported version, and stays as it is.
+function Enable-Tls12 {
+    try {
+        $current = [Net.ServicePointManager]::SecurityProtocol
+        if ([int]$current -ne 0) {
+            [Net.ServicePointManager]::SecurityProtocol = $current -bor [Net.SecurityProtocolType]::Tls12
+        }
+    } catch { }
+}
+
+# Get-DownloadHint explains a download that failed while setting up TLS.
+function Get-DownloadHint([string]$Message, [string]$Url) {
+    if ($Message -match 'underlying connection was closed|SSL/TLS|secure channel|Authentication failed because the remote party') {
+        return " TLS could not be set up with $Url. The Restow instance needs TLS 1.2: on Windows Server 2016 and older Windows 10, switch on strong cryptography for the .NET Framework (SchUseStrongCrypto, see the Restow agent documentation) or run the install command shown in the Restow UI, which enables TLS 1.2 first."
+    }
+    return " Check that this computer can reach $Url over HTTPS."
+}
+
 function Invoke-Download([string]$Url, [string]$OutFile) {
     $params = @{ Uri = $Url; OutFile = $OutFile; UseBasicParsing = $true; TimeoutSec = 900 }
     if ($RestowState.EffectiveProxy) { $params.Proxy = $RestowState.EffectiveProxy }
@@ -543,6 +568,7 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
     Set-StrictMode -Version 2
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
+    Enable-Tls12
 
     # Options from the environment (the iex form has no parameters).
     $hooks = $HooksOption
@@ -672,7 +698,7 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
         Write-Step 'Verifying the release signature'
         $sumsFile = Join-Path $stage 'SHA256SUMS'
         $sigFile = Join-Path $stage 'SHA256SUMS.sig'
-        try { Invoke-Download "$base/SHA256SUMS" $sumsFile } catch { Stop-Installer "cannot download $base/SHA256SUMS ($($_.Exception.Message)). Check that this computer can reach $url over HTTPS." }
+        try { Invoke-Download "$base/SHA256SUMS" $sumsFile } catch { Stop-Installer ("cannot download $base/SHA256SUMS ($($_.Exception.Message))." + (Get-DownloadHint $_.Exception.Message $url)) }
         $haveSig = $true
         try { Invoke-Download "$base/SHA256SUMS.sig" $sigFile } catch { $haveSig = $false }
         $sumsBytes = [System.IO.File]::ReadAllBytes($sumsFile)
@@ -710,7 +736,7 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
             if (-not $want) { Stop-Installer "SHA256SUMS has no entry for $target/$name. Nothing was installed." }
             $expected[$name] = $want
             $out = Join-Path $stage $name
-            try { Invoke-Download "$base/$target/$name" $out } catch { Stop-Installer "cannot download $base/$target/$name ($($_.Exception.Message))" }
+            try { Invoke-Download "$base/$target/$name" $out } catch { Stop-Installer ("cannot download $base/$target/$name ($($_.Exception.Message))." + (Get-DownloadHint $_.Exception.Message $url)) }
             $have = Get-FileSha256 $out
             if ($have -ne $want) { Stop-Installer "checksum mismatch for $name (expected $want, got $have). Nothing was installed." }
             Write-Note "${name}: OK"

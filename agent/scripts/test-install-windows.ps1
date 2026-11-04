@@ -11,6 +11,7 @@
 #    ssh-keygen (internal/release/testdata) and refuses every bad fixture.
 # 3b. -Proxy reaches the agent's own commands (enroll, status) and the
 #    session's environment is restored afterwards.
+# 3c. The installer enables TLS 1.2 itself (the -File form starts without it).
 # 4. A full installation below a prefix (RESTOW_INSTALL_ROOT, no service)
 #    against the fake instance, a second run (repair), a pinned key that does
 #    not match, a tampered release (nothing installed), -Proxy with
@@ -123,6 +124,35 @@ try {
     foreach ($k in $before.Keys) { [Environment]::SetEnvironmentVariable($k, $before[$k], 'Process') }
     $RestowState.AgentExe = $null
     $RestowState.EffectiveProxy = ''
+}
+
+# ---- 3c. TLS 1.2 also for -File and the 64-bit relaunch -----------------------------
+# A new Windows PowerShell 5.1 starts with SSL 3 and TLS 1.0 where SchUseStrongCrypto
+# is not set; only the iex command line enabled TLS 1.2, in the caller's session.
+$savedProtocol = [Net.ServicePointManager]::SecurityProtocol
+try {
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Ssl3 -bor [Net.SecurityProtocolType]::Tls }
+    catch { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls }
+    $legacy = [Net.ServicePointManager]::SecurityProtocol
+    # An invalid -Hooks stops the installer right after its first steps.
+    $stopped = ''
+    try { Invoke-RestowInstaller -HooksOption 'bogus' -UninstallOption $false -ProxyOption '' -PinOption '' } catch { $stopped = $_.Exception.Message }
+    $after = [Net.ServicePointManager]::SecurityProtocol
+    if ($stopped -notmatch '-Hooks must be') { Fail "the installer did not stop at the invalid -Hooks: $stopped" }
+    if (($after -band [Net.SecurityProtocolType]::Tls12) -eq 0) { Fail "the installer did not enable TLS 1.2 (protocols: $after)" }
+    elseif (($after -band $legacy) -ne $legacy) { Fail "enabling TLS 1.2 dropped protocols that were on ($legacy -> $after)" }
+    else { Ok "the installer enables TLS 1.2 itself ($legacy -> $after)" }
+    $systemDefault = $true
+    try { [Net.ServicePointManager]::SecurityProtocol = 0 } catch { $systemDefault = $false }
+    if ($systemDefault) {
+        Enable-Tls12
+        if ([int][Net.ServicePointManager]::SecurityProtocol -ne 0) { Fail 'Enable-Tls12 replaced SystemDefault (the choice of Windows)' } else { Ok 'SystemDefault stays the choice of Windows' }
+    }
+    if ((Get-DownloadHint 'The underlying connection was closed: An unexpected error occurred on a send.' 'https://x') -notmatch 'TLS 1.2') { Fail 'a TLS failure is not explained' }
+    elseif ((Get-DownloadHint 'Unable to connect to the remote server' 'https://x') -match 'TLS') { Fail 'a connection failure is blamed on TLS' }
+    else { Ok 'download failures name TLS 1.2 only when TLS failed' }
+} finally {
+    [Net.ServicePointManager]::SecurityProtocol = $savedProtocol
 }
 
 # ---- 4. full installation against the fake instance ------------------------------

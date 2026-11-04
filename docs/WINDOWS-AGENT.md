@@ -1069,7 +1069,13 @@ Begründungen:
 
 - `SecurityProtocol = 'Tls12'` steht vor `irm`, weil Windows PowerShell 5.1 auf Server 2016
   ohne `SchUseStrongCrypto` nur TLS 1.0 anbietet; der Abruf des Skripts selbst würde sonst
-  scheitern.
+  scheitern. Das gilt nur für die Sitzung, in der die Zeile läuft: `-File windows.ps1` und
+  der Neustart als 64-Bit-PowerShell beginnen ohne. Darum schaltet `Invoke-RestowInstaller`
+  als Erstes TLS 1.2 selbst dazu (`Enable-Tls12`: `SecurityProtocol -bor Tls12`, was schon
+  an ist, etwa TLS 1.3, bleibt; `SystemDefault` bleibt unverändert die Wahl von Windows),
+  und ein Download, der beim Aufbau von TLS scheitert, nennt TLS 1.2 und `SchUseStrongCrypto`
+  statt "prüfen Sie die Verbindung" (`Get-DownloadHint`). Getestet in
+  `test-install-windows.ps1`, Schritt 3c, ausgehend von SSL 3 und TLS 1.0.
 - `-UseBasicParsing`: ohne es braucht PowerShell 5.1 die Internet-Explorer-Engine, die auf
   Server Core fehlt.
 - `iex` eines Strings unterliegt nicht der Ausführungsrichtlinie (anders als eine
