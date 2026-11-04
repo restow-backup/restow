@@ -1075,6 +1075,118 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       attention: expect.arrayContaining(["last_backup_incomplete"]),
     });
   });
+  it("a container boot test reads with its own run; a restore in the PVE UI gets one run and an end (S03)", async () => {
+    const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
+    const ctId = ct?.id ?? "";
+    const [point] = await fixture.db
+      .select()
+      .from(pveSnapshots)
+      .where(and(eq(pveSnapshots.guestId, ctId), eq(pveSnapshots.status, "active")))
+      .orderBy(desc(pveSnapshots.sequence))
+      .limit(1);
+    const snapshotId = point?.id ?? "";
+    // The container's repository exists (a restore only reads it).
+    const { storeSecret } = await import("../../lib/secrets.js");
+    const secret = await storeSecret(shared.db, {
+      tenantId: fixture.tenantId,
+      kind: "pve_ct_repository",
+      plaintext: "repository-password",
+    });
+    await fixture.db
+      .update(pveGuests)
+      .set({ repositorySecretId: secret.id, repositoryReadyAt: new Date() })
+      .where(eq(pveGuests.id, ctId));
+    const restoreRuns = async () =>
+      fixture.db
+        .select()
+        .from(pveRuns)
+        .where(and(eq(pveRuns.guestId, ctId), eq(pveRuns.kind, "restore")));
+    const before = (await restoreRuns()).length;
+    const credential = async () =>
+      json<{ runId: string; username: string }>(
+        await call(node, `/snapshots/${snapshotId}/restic`, { json: {} }),
+      );
+    // A boot test of the container restores through PVE: the credential is its run's.
+    const [task] = await fixture.db
+      .insert(pveTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        nodeId: node.nodeId,
+        guestId: ctId,
+        kind: "boot_test",
+        status: "delivered",
+        deliveredAt: new Date(),
+        params: { snapshotId },
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      })
+      .returning();
+    const [bootRun] = await fixture.db
+      .insert(pveRuns)
+      .values({
+        tenantId: fixture.tenantId,
+        clusterId: node.clusterId,
+        nodeId: node.nodeId,
+        guestId: ctId,
+        kind: "boot_test",
+        taskId: task?.id ?? null,
+        snapshotId,
+      })
+      .returning();
+    const forBoot = await credential();
+    expect(forBoot.runId).toBe(bootRun?.id);
+    expect(forBoot.username).toBe(bootRun?.id);
+    expect(await restoreRuns()).toHaveLength(before);
+    await fixture.db.delete(pveRuns).where(eq(pveRuns.id, bootRun?.id ?? ""));
+    await fixture.db.delete(pveTasks).where(eq(pveTasks.id, task?.id ?? ""));
+    // A restore in the PVE UI: one run, however often it asks.
+    const first = await credential();
+    const again = await credential();
+    expect(again.runId).toBe(first.runId);
+    expect(await restoreRuns()).toHaveLength(before + 1);
+    const end = (runId: string, body: unknown) =>
+      call(node, `/runs/${runId}/restore-end`, { json: body });
+    const runRow = async (id: string) =>
+      (await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, id)))[0];
+    expect((await end(first.runId, { status: "succeeded", exitStatus: "OK" })).status).toBe(204);
+    expect(await runRow(first.runId)).toMatchObject({
+      kind: "restore",
+      origin: "pve",
+      status: "succeeded",
+      errorMessage: null,
+    });
+    // PVE's "WARNINGS: n" is a success with warnings (amber), never plain green.
+    const warned = await credential();
+    expect(warned.runId).not.toBe(first.runId);
+    await end(warned.runId, {
+      status: "warnings",
+      exitStatus: "WARNINGS: 1",
+      warnings: ["WARN: unable to restore acl"],
+    });
+    expect(await runRow(warned.runId)).toMatchObject({ status: "succeeded" });
+    expect((await runRow(warned.runId))?.stats.warnings).toEqual(["WARN: unable to restore acl"]);
+    // Succeeded only with "OK": anything else fails with what PVE said.
+    const broken = await credential();
+    await end(broken.runId, {
+      status: "succeeded",
+      exitStatus: "unable to restore CT 9007 - command 'tar' failed",
+    });
+    expect(await runRow(broken.runId)).toMatchObject({
+      status: "failed",
+      errorMessage: expect.stringContaining("command 'tar' failed"),
+    });
+    // Idempotent, and never for a backup run.
+    expect((await end(broken.runId, { status: "succeeded", exitStatus: "OK" })).status).toBe(204);
+    expect((await runRow(broken.runId))?.status).toBe("failed");
+    const [backup] = await fixture.db
+      .select()
+      .from(pveRuns)
+      .where(and(eq(pveRuns.guestId, ctId), eq(pveRuns.kind, "backup")))
+      .limit(1);
+    expect((await end(backup?.id ?? "", { status: "succeeded", exitStatus: "OK" })).status).toBe(
+      409,
+    );
+  });
+
   it("counts a job's scheduled round: how many of its guests are done, run and wait (#53)", async () => {
     const job = await service.saveJob(
       shared.db,

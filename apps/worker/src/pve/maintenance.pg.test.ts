@@ -445,6 +445,38 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       .where(eq(pveGuests.id, guestId));
   });
 
+  it("a restore started in the PVE UI keeps the guest's checks out for two hours at most (S03)", async () => {
+    const [run] = await owner
+      .insert(pveRuns)
+      .values({
+        tenantId,
+        clusterId,
+        guestId,
+        kind: "restore",
+        origin: "pve",
+        startedAt: new Date(clock.getTime() - 30 * 60 * 1000),
+      })
+      .returning();
+    await owner.update(pveGuests).set({ lastVerifyAt: null });
+    await owner.update(pveSnapshots).set({ verifyRequestedAt: null });
+    // Going on: the restore reads the repository now.
+    expect(await verifyDue(deps, clock)).toBe(0);
+    // Its end was never reported (an older node): after two hours it no longer counts.
+    await owner
+      .update(pveRuns)
+      .set({ startedAt: new Date(clock.getTime() - 3 * 60 * 60 * 1000) })
+      .where(eq(pveRuns.id, run?.id ?? ""));
+    expect(await verifyDue(deps, clock)).toBe(1);
+    // A restore of Restow's own (a task) keeps the guest busy while it runs.
+    await owner
+      .update(pveRuns)
+      .set({ origin: "restow" })
+      .where(eq(pveRuns.id, run?.id ?? ""));
+    await owner.update(pveGuests).set({ lastVerifyAt: null });
+    expect(await verifyDue(deps, clock)).toBe(0);
+    await owner.delete(pveRuns).where(eq(pveRuns.id, run?.id ?? ""));
+  });
+
   it("plans no backup of the Restow server's own VM until an admin confirmed it", async () => {
     await owner.delete(pveTasks);
     await owner

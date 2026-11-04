@@ -38,7 +38,7 @@ import {
   pveSnapshots,
   pveTasks,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -1367,7 +1367,16 @@ export async function restoreBlocks(
   return Buffer.concat(parts);
 }
 
-/** A read credential for a container restore point (a restore run is recorded). */
+/** A restore started in the PVE UI asks for its credential again within this time: the same run. */
+const PVE_RESTORE_REUSE_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * A read credential for a container restore point. The restore's run is the run of the task the
+ * node was given (a restore, a restore check, or a boot test, which restores through PVE the same
+ * way); a restore started in the PVE UI gets a run of its own (origin `pve`), one per restore
+ * point and node however often it asks. The answer carries the run's id (also its restic user
+ * name): the node reports a PVE-origin restore's end with `POST /runs/:id/restore-end`.
+ */
 export async function restoreRestic(
   node: NodeContext,
   snapshotId: string,
@@ -1390,7 +1399,7 @@ export async function restoreRestic(
         and(
           eq(pveTasks.nodeId, node.nodeId),
           eq(pveTasks.guestId, snap.guestId),
-          eq(pveTasks.kind, "restore"),
+          inArray(pveTasks.kind, ["restore", "boot_test"]),
           eq(pveTasks.status, "delivered"),
         ),
       )
@@ -1406,6 +1415,28 @@ export async function restoreRestic(
         return existing.id;
       }
     }
+    if (!task) {
+      // Started in PVE: the run it opened before, while it is still going.
+      const [open] = await tx
+        .select({ id: pveRuns.id })
+        .from(pveRuns)
+        .where(
+          and(
+            eq(pveRuns.guestId, snap.guestId),
+            eq(pveRuns.nodeId, node.nodeId),
+            eq(pveRuns.kind, "restore"),
+            eq(pveRuns.origin, "pve"),
+            eq(pveRuns.status, "running"),
+            eq(pveRuns.snapshotId, snap.id),
+            gt(pveRuns.startedAt, new Date(now.getTime() - PVE_RESTORE_REUSE_MS)),
+          ),
+        )
+        .orderBy(desc(pveRuns.startedAt))
+        .limit(1);
+      if (open) {
+        return open.id;
+      }
+    }
     const [run] = await tx
       .insert(pveRuns)
       .values({
@@ -1413,7 +1444,7 @@ export async function restoreRestic(
         clusterId: node.clusterId,
         nodeId: node.nodeId,
         guestId: snap.guestId,
-        kind: "restore",
+        kind: task?.kind === "boot_test" ? "boot_test" : "restore",
         origin: task ? "restow" : "pve",
         archiveName: snap.archiveName,
         storageId: snap.storageId,
@@ -1424,5 +1455,63 @@ export async function restoreRestic(
       .returning();
     return (run as PveRun).id;
   });
-  return issueResticCredential(node.tenantId, runId, snap.guestId, instanceUrl, now);
+  return {
+    ...(await issueResticCredential(node.tenantId, runId, snap.guestId, instanceUrl, now)),
+    runId,
+  };
+}
+
+/** How a container restore started in the PVE UI ended (`POST /runs/:id/restore-end`). */
+export interface RestoreEndInput {
+  status: "succeeded" | "warnings" | "failed";
+  /** PVE's exit status of the restore task: "OK", "WARNINGS: n" or an error text. */
+  exitStatus: string;
+  warnings?: string[];
+  error?: string;
+}
+
+const WARNINGS_EXIT = /^WARNINGS: \d+$/;
+
+/**
+ * The end of a restore the node's storage plugin served without a task of Restow (a restore in
+ * the PVE UI): green only for PVE's exit status `OK`, amber for `WARNINGS: n` (the warning lines
+ * are kept), else failed with what PVE said. A run that belongs to a task ends with the task's
+ * result instead; a run that ended already stays as it is.
+ */
+export async function finishPveRestore(
+  node: NodeContext,
+  runId: string,
+  input: RestoreEndInput,
+  now: Date = new Date(),
+): Promise<void> {
+  await withTenantTx(db, node.tenantId, async (tx) => {
+    const run = await loadRun(tx, node, runId);
+    if (run.kind !== "restore" && run.kind !== "restore_test" && run.kind !== "boot_test") {
+      throw problem(409, "Not a restore run", "This run is not a restore.");
+    }
+    if (run.status !== "running" || run.taskId !== null) {
+      return;
+    }
+    const exit = input.exitStatus.trim();
+    const ok = exit === "OK" && input.status === "succeeded";
+    const warned = WARNINGS_EXIT.test(exit) && input.status !== "failed";
+    const status = ok || warned ? "succeeded" : endedStatus(run, "failed");
+    const warnings = warned ? (input.warnings ?? []).map((w) => w.slice(0, 1000)).slice(0, 20) : [];
+    await tx
+      .update(pveRuns)
+      .set({
+        status,
+        finishedAt: now,
+        errorMessage:
+          status === "succeeded"
+            ? null
+            : (input.error ?? "").slice(0, 2000) || `restore ended with "${exit.slice(0, 200)}"`,
+        stats: {
+          ...run.stats,
+          exitStatus: exit.slice(0, 200),
+          ...(warned ? { warnings: warnings.length > 0 ? warnings : [exit] } : {}),
+        },
+      })
+      .where(and(eq(pveRuns.id, run.id), eq(pveRuns.status, "running")));
+  });
 }

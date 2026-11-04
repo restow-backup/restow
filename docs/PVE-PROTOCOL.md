@@ -122,7 +122,8 @@ except enrollment. Binary formats are defined in
 | `GET /restore-points?volname=` | a restore point by its PVE volume name → `{snapshotId, kind, vmid, guestConfig, firewallConfig, devices: [{device, size}], resticSnapshotId, resticRoot, byteSize, resticTotalBytes}`. Since 0.5.0 `byteSize` is the restore point's size (a VM: its disk sizes summed; a container: the bytes of its files, restic's total; `0` when unknown, a container restore point of a node before 0.4.0) and `resticTotalBytes` a container's restic total (`null` when unknown and for VMs), for the node's free-space checks before a restore. |
 | `GET /snapshots/:id/disks/:device/hashes` | block hash list (`RSBH`) |
 | `GET /snapshots/:id/disks/:device/blocks?from=&count=` | up to 16 blocks of the synthetic full |
-| `POST /snapshots/:id/restic` | read credential for a container restore |
+| `POST /snapshots/:id/restic` | read credential for a container restore; since 0.5.0 also `runId`, the run it reads for (the same as its user name). The run is the one of the task the node was given for the guest (a restore, a restore check or a boot test); without such a task (a restore started in the PVE UI) a run of origin `pve`, the same one for every call for that restore point within six hours while it runs. |
+| `POST /runs/:id/restore-end` | `{status: succeeded\|warnings\|failed, exitStatus, warnings?, error?}` → 204 (since 0.5.0): the end of a container restore started in the PVE UI, `exitStatus` PVE's exit status of the restore task. The run succeeds only with `OK`; `WARNINGS: n` is a success with warnings (amber, `warnings` the lines of the task log); anything else fails it with `error` or the exit status. For a run that belongs to a task (its task result ends it) and a run that ended already: 204, nothing changes. 409 for a run that is not a restore. |
 
 `/agent/pve/restic/:guestId/*` is the restic REST v2 backend of a container's
 repository, Basic `runId:token`, append-only.
@@ -251,6 +252,11 @@ Backups are not judged by the list; their runs tell (`activeRuns`). Without the 
 helper before 0.5.0) a delivered task expires only while no run of it is open, as before.
 A restore, restore check or boot test that was never delivered expires at `expiresAt`
 whatever its run says: that run was only created with the task.
+
+A container restore started in the PVE UI has no task: the node reports its end with
+`POST /runs/:id/restore-end`. Its run keeps the guest's restore checks waiting for two
+hours at most (its restic holds only a shared lock); a node that never reports the end
+leaves it to the 48 hours below.
 
 How the server ends a run whose result never came: a backup run succeeds when it committed
 its restore point, else fails. A restore or restore check run fails with "The node never

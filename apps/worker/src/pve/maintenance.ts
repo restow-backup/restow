@@ -865,6 +865,12 @@ export const VERIFY_GIVE_UP_MS = 2 * 60 * 60 * 1000;
 const VERIFY_AFTER_GIVE_UP_MS = 24 * 60 * 60 * 1000;
 /** A run older than this is closed as stale anyway (bounds the index range of the busy test). */
 const BUSY_RUN_MS = STALE_RUN_MS;
+/**
+ * A container restore started in the PVE UI keeps the guest busy this long at most: its end may
+ * never be reported (an older node), and its restic restore holds only a shared lock, which a
+ * check waits out (`--retry-lock`) or postpones.
+ */
+const PVE_RESTORE_BUSY_MS = 2 * 60 * 60 * 1000;
 
 type VerifyOutcome = "checked" | "later" | "postponed" | "not_checked";
 
@@ -988,14 +994,17 @@ async function verifyOne(
 
 /**
  * Whether the guest `guestId` (a column) is busy: a run of it is going (a backup, a restore,
- * a boot test: its restic holds or will take the repository's lock), or its node took on a
- * backup of it that has not started its run yet. Indexed (pve_runs_guest_started_idx,
+ * a boot test: its restic holds or will take the repository's lock; a restore started in the PVE
+ * UI for `PVE_RESTORE_BUSY_MS` at most), or its node took on a backup of it that has not started
+ * its run yet. Indexed (pve_runs_guest_started_idx,
  * pve_tasks_open_backup_idx), one probe per candidate row.
  */
 function guestBusy(guestId: SQL, now: Date): SQL {
   const runsSince = new Date(now.getTime() - BUSY_RUN_MS);
+  const pveRestoreSince = new Date(now.getTime() - PVE_RESTORE_BUSY_MS);
   return sql`(EXISTS (SELECT 1 FROM ${pveRuns} r
-      WHERE r.guest_id = ${guestId} AND r.started_at > ${runsSince} AND r.status = 'running')
+      WHERE r.guest_id = ${guestId} AND r.started_at > ${runsSince} AND r.status = 'running'
+        AND NOT (r.kind = 'restore' AND r.origin = 'pve' AND r.started_at <= ${pveRestoreSince}))
     OR EXISTS (SELECT 1 FROM ${pveTasks} t
       WHERE t.guest_id = ${guestId} AND t.kind = 'backup' AND t.status = 'delivered'
         AND (t.expires_at IS NULL OR t.expires_at > ${now})))`;

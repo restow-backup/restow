@@ -25,6 +25,7 @@ import {
 import {
   commitRun,
   diskHashes,
+  finishPveRestore,
   finishRun,
   MAX_FRAME_BYTES,
   openRun,
@@ -49,6 +50,7 @@ import {
   logSchema,
   openRunSchema,
   progressSchema,
+  restoreEndSchema,
   runParamSchema,
   snapshotDiskParamSchema,
   snapshotParamSchema,
@@ -75,7 +77,8 @@ import {
  *   POST /runs/:runId/incremental                     which disks have a base (query_incremental)
  *   PUT  /runs/:runId/blocks                          one frame of blocks (binary)
  *   POST /runs/:runId/commit                          seal the restore point (idempotent by commit id)
- *   POST /runs/:runId/finish                          end of the run
+ *   POST /runs/:runId/finish                          end of the run (backups)
+ *   POST /runs/:runId/restore-end                     end of a container restore started in PVE
  *   POST /runs/:runId/log                             the PVE task log
  *   POST /runs/:runId/progress                        how far a backup is (node or run credential)
  *   POST /runs/:runId/restic                          per-run restic credential (containers)
@@ -231,6 +234,12 @@ pveNodeRoutes.post("/runs/:runId/commit", async (c) => {
 pveNodeRoutes.post("/runs/:runId/finish", async (c) => {
   const { runId } = parseOrProblem(runParamSchema, c.req.param());
   await finishRun(c.get("node"), runId, await parseJsonBody(c.req, finishSchema));
+  return c.body(null, 204);
+});
+
+pveNodeRoutes.post("/runs/:runId/restore-end", async (c) => {
+  const { runId } = parseOrProblem(runParamSchema, c.req.param());
+  await finishPveRestore(c.get("node"), runId, await parseJsonBody(c.req, restoreEndSchema));
   return c.body(null, 204);
 });
 

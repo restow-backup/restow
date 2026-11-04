@@ -275,6 +275,14 @@ private repository.
   warning that a bind mount put back shares the original's live data. Green is left for a
   restore that ran to `OK` with nothing to report. The restore dialog says that IP addresses
   stay the same and only the MAC addresses are new.
+- Proxmox VE: every boot test of a container, and every container restore started in the PVE
+  UI, opened a run "Restore" that nothing ended. For 48 hours the guest counted as busy, so its
+  restore points were not checked; with boot tests after every backup that was always the case.
+  Then the run turned green, also when the restore had failed. A boot test now reads under its
+  own run and opens none. A restore started in the PVE UI gets one run however often PVE asks
+  for the credential, keeps the guest's checks out for two hours at most, and ends as PVE ended
+  it once restow-pve from 0.5.0 reports it: green only for `OK`, amber for `WARNINGS: n`, failed
+  otherwise. Without a report it fails after 48 hours, never green.
 
 ### Upgrade Notes
 

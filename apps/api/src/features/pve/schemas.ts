@@ -276,6 +276,14 @@ export const finishSchema = z.object({
     .transform((v) => v ?? undefined),
 });
 
+/** The end of a container restore started in the PVE UI (docs/PVE-PROTOCOL.md). */
+export const restoreEndSchema = z.object({
+  status: z.enum(["succeeded", "warnings", "failed"]),
+  exitStatus: z.string().max(2000),
+  warnings: z.array(z.string().max(1000)).max(20).optional(),
+  error: nodeErrorText.optional(),
+});
+
 export const logSchema = z.object({ log: z.string().max(256 * 1024) });
 
 export const runParamSchema = z.object({ runId: uuid });
