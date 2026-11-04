@@ -193,6 +193,16 @@ unique per installation).
   the node starts `vzdump` with the Restow storage and its fleecing storage.
 - **Backups started in PVE** (the PVE UI or a PVE backup job onto the Restow
   storage) work the same way and show up as runs started in PVE.
+- **One vzdump at a time per node.** vzdump holds one lock per node for all its
+  backups and waits for it up to `lockwait` (3 hours by default). A Restow
+  backup that starts while a PVE backup job runs on the node waits for it; the
+  node's log says "waiting for another backup on node ...", the run's log says
+  from when it waited, and a lock timeout fails with a message that names the
+  other job. Keep the schedules of Restow jobs and PVE backup jobs apart.
+- **A guest that migrated** between two inventories is not backed up on its old
+  node: vzdump starts nothing there, and the task fails with "guest 101 now
+  runs on node pve2; Restow backs it up there after the next inventory" (the
+  node sends its inventory at once).
 - **Incremental or not.** A VM's dirty bitmap lives in QEMU's memory. After a
   VM stop and start, a `stop` mode backup, a disk resize or move, or a backup of
   a powered-off VM (PVE starts it paused), the whole disk is read again; only

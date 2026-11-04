@@ -32,6 +32,8 @@ type fakeVzdump struct {
 	resources     []Resource
 	resourcesFail bool
 	paths         []string
+	// runningPolls status answers say "running" before the task stops.
+	runningPolls int
 }
 
 func (f *fakeVzdump) handler(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +56,10 @@ func (f *fakeVzdump) handler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	case strings.HasSuffix(r.URL.Path, "/cluster/resources"):
 		answer(f.resources)
-	case strings.HasSuffix(r.URL.Path, "/status") && f.running:
+	case strings.HasSuffix(r.URL.Path, "/status") && (f.running || f.runningPolls > 0):
+		if f.runningPolls > 0 {
+			f.runningPolls--
+		}
 		answer(map[string]any{"status": "running"})
 	case strings.HasSuffix(r.URL.Path, "/status"):
 		answer(map[string]any{"status": "stopped", "exitstatus": f.exit})
@@ -72,7 +77,7 @@ func (f *fakeVzdump) handler(w http.ResponseWriter, r *http.Request) {
 // fakeResults is the Restow server's task result endpoint: it refuses `fail` results with 503,
 // then takes them.
 type fakeResults struct {
-	mu   sync.Mutex
+	mu          sync.Mutex
 	fail        int
 	got         []map[string]any
 	ids         []string

@@ -316,6 +316,7 @@ func (p *Provider) backupInit(ctx context.Context, req ProviderRequest) (any, er
 		return nil, err
 	}
 	p.logf("info", "Restow run %s, archive %s", run.RunID, name)
+	p.takeLockWaitNote(req.VMID)
 	return map[string]any{"archiveName": name}, nil
 }
 

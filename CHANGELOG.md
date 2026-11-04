@@ -480,6 +480,14 @@ private repository.
   in the cluster", or, when the cluster cannot be read, that the guest is probably no longer on
   the node; it never stops a task that does not exist, and a full read asked for with the
   backup is not left over for the next one.
+- Proxmox VE: a Restow backup that started while a Proxmox VE backup job ran on the same node
+  waited up to three hours for vzdump's lock of the node (`lockwait`) without a word, and then
+  failed with `vzdump ended with "can't acquire lock '/var/run/vzdump.lock' - got timeout"`. The
+  node now reads the task's log while it waits; the service's log says "waiting for another
+  backup on node pve1 (a Proxmox VE backup job holds vzdump's lock)", and the run's log says from
+  when the backup waited. A lock timeout fails with "another Proxmox VE backup job held the
+  backup lock of node pve1 for all of vzdump's lock wait ...; move the schedule of the Restow job
+  or of the PVE backup job". PVE's own lock wait stays as configured.
 
 ### Upgrade Notes
 

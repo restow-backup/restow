@@ -606,7 +606,7 @@ func (s *Service) resume(ctx context.Context, e inflightTask) (map[string]any, e
 				s.Logf("stopping %s: %v", e.UPID, err)
 			}
 		}
-		return s.finishBackup(ctx, e.UPID)
+		return s.finishBackup(ctx, e.UPID, e.VMID)
 	case "restore":
 		var p restoreParams
 		if err := json.Unmarshal(e.Params, &p); err != nil || e.Restore == nil {
@@ -690,7 +690,7 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 				s.Logf("stopping %s: %v", upid, err)
 			}
 		}
-		return s.finishBackup(ctx, upid)
+		return s.finishBackup(ctx, upid, p.VMID)
 	case "restore":
 		return s.restoreTask(ctx, t)
 	case "boot_test":
@@ -731,9 +731,66 @@ func (s *Service) whereIsGuest(ctx context.Context, vmid int) error {
 	return fmt.Errorf("guest %d was not found in the cluster", vmid)
 }
 
+// backupTaskPoll is how often a running vzdump task is asked for its status, lockWaitPoll how
+// often its log is read for a wait on the node's backup lock (tests shorten them).
+var (
+	backupTaskPoll = 5 * time.Second
+	lockWaitPoll   = time.Minute
+)
+
+// watchLockWait reads the log of the vzdump task upid of guest vmid while it runs and says once
+// when it waits for the node's backup lock (another backup, a PVE backup job, holds it), in the
+// service's log and, through a note backup_init takes, in the run's log. The returned function
+// stops it.
+func (s *Service) watchLockWait(ctx context.Context, upid string, vmid int) func() {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(lockWaitPoll)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+			tail, err := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 50)
+			if err != nil {
+				continue
+			}
+			if !vzdumpLockState(tail) {
+				if vzdumpBackupBegun(tail) {
+					// The lock is taken (or was free): nothing more to watch.
+					return
+				}
+				continue
+			}
+			s.Logf("backup of %d: waiting for another backup on node %s (a Proxmox VE backup job holds vzdump's lock)", vmid, s.State.NodeName)
+			if vmid > 0 {
+				note := s.Layout.lockWaitNote(vmid)
+				_ = os.MkdirAll(filepath.Dir(note), 0o700)
+				_ = os.WriteFile(note, []byte(time.Now().UTC().Format(time.RFC3339)), 0o600)
+			}
+			return
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
 // finishBackup waits for a vzdump task and makes the task's result of its end.
-func (s *Service) finishBackup(ctx context.Context, upid string) (map[string]any, error) {
-	exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
+func (s *Service) finishBackup(ctx context.Context, upid string, vmid int) (map[string]any, error) {
+	stop := s.watchLockWait(ctx, upid, vmid)
+	exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, backupTaskPoll)
+	stop()
+	if vmid > 0 {
+		// Taken by backup_init when the backup got the lock; a note of a backup that never got it
+		// would only mislead a later run.
+		_ = os.Remove(s.Layout.lockWaitNote(vmid))
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -748,6 +805,9 @@ func (s *Service) finishBackup(ctx context.Context, upid string) (map[string]any
 		// shows the warnings with it (docs/PVE-PROTOCOL.md, "Task results").
 		result["warnings"] = WarningLines(tail, 10)
 		return result, nil
+	}
+	if err := lockTimeoutError(exit, s.State.NodeName); err != nil {
+		return result, err
 	}
 	return result, fmt.Errorf("vzdump ended with %q: %s", exit, lastLines(tail, 8))
 }
