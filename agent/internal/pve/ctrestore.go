@@ -235,6 +235,7 @@ func (p *Provider) restoreContainerInit(ctx context.Context, req ProviderRequest
 	// points), so the snapshot's tree is the container root itself.
 	cmd := exec.CommandContext(ctx, p.resticBinary(), containerRestoreArgs(rp.ResticSnapshot, target)...)
 	cmd.Env = resticEnv(access)
+	stopResticGently(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

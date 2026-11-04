@@ -452,6 +452,14 @@ private repository.
   The cache now stays between backups in `/var/cache/restow-pve/ct-<vmid>`, owned by the uid the
   backup runs as (handed to the new uid after a change of the ID map), and goes when the
   container is no longer on the node; with less than 1 GB free there restic runs without a cache.
+- Proxmox VE: a container backup or restore that was stopped (cancelled in Restow, a stopped
+  vzdump or restore task) killed restic with SIGKILL, which left its lock in the container's
+  repository: the server's check and retention of it waited until the lock was stale, 30
+  minutes. restic is now asked to stop with SIGINT and removes its lock; it is killed only
+  after 15 seconds. restic's error output is also read while it runs, in bounded memory: after
+  a change of the ID map, with millions of unreadable files, the provider kept every error line
+  and could use gigabytes on the node; it now counts them and keeps the first 20, and a line
+  longer than 1 MiB no longer stops the reading.
 
 ### Upgrade Notes
 

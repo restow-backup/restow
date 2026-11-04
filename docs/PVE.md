@@ -318,7 +318,9 @@ with the operate permission). Every stop asks first and is audited
   ends the guest, removes its snapshot and the fleecing image. A backup started
   in PVE (a PVE backup job of several guests): the node ends the provider of that
   guest with SIGTERM, so vzdump goes on with the other guests; when no provider
-  of it runs, it stops a vzdump task that backs up this guest alone.
+  of it runs, it stops a vzdump task that backs up this guest alone. A stopped
+  provider asks restic to stop with SIGINT (killed after 15 seconds), so restic
+  removes its lock from the container's repository.
 - **Older nodes.** The server refuses every upload of a cancelled run (blocks,
   commit, restic), so a node before 0.4.2 ends the backup at its next call.
   The restic credential of a cancelled or ended run still opens the repository

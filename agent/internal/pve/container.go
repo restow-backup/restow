@@ -3,8 +3,6 @@
 package pve
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -156,14 +154,16 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 	stable, copied := containerBackupRoot(p.Layout, dir, req.VMID)
 	var cmd *exec.Cmd
 	var stdout io.ReadCloser
-	var stderr bytes.Buffer
+	errs := &resticErrors{}
+	stderr := errs.stderr()
 	root, err := p.startContainerRestic(dir, stable, copied, func(root string) error {
 		args := containerBackupArgs(root, sources, mounts, req.ExcludePatterns, req.VMID, creds.RunID,
 			pointer.CacheDir, req.Info.BandwidthLimit, copied)
 		cmd = exec.CommandContext(ctx, creds.Restic, args...)
 		cmd.Dir = root
 		cmd.Env = resticEnv(&creds.ResticAccess)
-		cmd.Stderr = &stderr
+		cmd.Stderr = stderr
+		stopResticGently(cmd)
 		var err error
 		if stdout, err = cmd.StdoutPipe(); err != nil {
 			return err
@@ -177,8 +177,9 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 		newRunCredentialSender(creds.ProgressURL, creds.Username, creds.Password))
 	res := ctResult{Root: root, GuestConfig: req.GuestConfig, Firewall: req.Info.FirewallConfig}
 	// restic's other lines (older versions report unreadable items on stdout).
-	others := readResticBackupOutput(stdout, &res, reporter)
+	readResticBackupOutput(stdout, &res, reporter, errs)
 	err = cmd.Wait()
+	stderr.Flush()
 	reporter.Stop()
 	// Exit 3: restic wrote the snapshot but could not read some items. The
 	// restore point is kept and the run says what is missing; any other
@@ -187,28 +188,30 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 	if err != nil {
 		var exitErr *exec.ExitError
 		if !errors.As(err, &exitErr) || exitErr.ExitCode() != resticExitIncomplete {
-			return nil, fmt.Errorf("restic backup failed: %v: %s", err, lastLines(stderr.String(), 10))
+			return nil, fmt.Errorf("restic backup failed: %v: %s", err, errs.lastLines(10))
 		}
 		incomplete = true
 	}
 	if res.SnapshotID == "" {
 		if incomplete {
-			return nil, fmt.Errorf("restic backup failed: exit status 3 without a snapshot: %s", lastLines(stderr.String(), 10))
+			return nil, fmt.Errorf("restic backup failed: exit status 3 without a snapshot: %s", errs.lastLines(10))
 		}
 		return nil, errors.New("restic reported no snapshot")
 	}
 	if incomplete {
-		items := unreadableItems(stderr.Bytes(), others)
-		res.Unreadable = len(items)
+		count, items := errs.result()
+		res.Unreadable = count
 		res.UnreadablePaths = items[:min(len(items), maxReportedUnreadable)]
 		for i, item := range items {
 			if i == maxLoggedUnreadable {
-				p.logf("warn", "... and %d more", len(items)-maxLoggedUnreadable)
 				break
 			}
 			p.logf("warn", "could not read %s", item)
 		}
-		res.Remark = unreadableRemark(items)
+		if logged := min(len(items), maxLoggedUnreadable); count > logged {
+			p.logf("warn", "... and %d more", count-logged)
+		}
+		res.Remark = unreadableRemark(count, items)
 		p.logf("warn", "%s", res.Remark)
 	}
 	data, _ := json.Marshal(res)
@@ -357,12 +360,16 @@ const maxReportedUnreadable = 20
 
 // readResticBackupOutput reads `restic backup --json` while it runs: the
 // status lines become progress (bytes read of the total restic's scan
-// found), the summary goes into res, and every other line is returned.
-func readResticBackupOutput(r io.Reader, res *ctResult, reporter *ProgressReporter) []byte {
-	var others bytes.Buffer
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 1<<20), 1<<20)
-	for sc.Scan() {
+// found), the summary goes into res, and every other line goes to errs (older
+// restic reports unreadable items on stdout). A line longer than
+// maxResticLine is skipped; reading goes on, so restic never blocks on a
+// full pipe and the summary is never lost.
+func readResticBackupOutput(r io.Reader, res *ctResult, reporter *ProgressReporter, errs *resticErrors) {
+	lw := &lineWriter{fn: func(line []byte, truncated bool) {
+		if truncated {
+			errs.line(line, true, false)
+			return
+		}
 		var m struct {
 			MessageType string `json:"message_type"`
 			SnapshotID  string `json:"snapshot_id"`
@@ -375,11 +382,8 @@ func readResticBackupOutput(r io.Reader, res *ctResult, reporter *ProgressReport
 			FilesChange uint64 `json:"files_changed"`
 			FilesTotal  uint64 `json:"total_files_processed"`
 		}
-		line := sc.Bytes()
 		if json.Unmarshal(line, &m) != nil {
-			others.Write(line)
-			others.WriteByte('\n')
-			continue
+			return
 		}
 		switch m.MessageType {
 		case "status":
@@ -394,13 +398,11 @@ func readResticBackupOutput(r io.Reader, res *ctResult, reporter *ProgressReport
 			res.BytesAddedPacked = m.DataPacked
 			res.FilesNew, res.FilesChanged, res.FilesTotal = m.FilesNew, m.FilesChange, m.FilesTotal
 		default:
-			others.Write(line)
-			others.WriteByte('\n')
+			errs.line(line, false, false)
 		}
-	}
-	// Drain what is left, so restic never blocks on a full pipe.
-	_, _ = io.Copy(io.Discard, r)
-	return others.Bytes()
+	}}
+	_, _ = io.Copy(lw, r)
+	lw.Flush()
 }
 
 // containerRetryLock is how long a container backup waits for the lock of the
@@ -492,48 +494,16 @@ func backupMountPoints(guestConfig string) []string {
 	return out
 }
 
-// unreadableItems lists the items restic reported as unreadable (JSON
-// message_type "error"), from stderr (restic 0.19) and stdout (older restic),
-// each once, in restic's order.
-func unreadableItems(streams ...[]byte) []string {
-	var items []string
-	seen := map[string]bool{}
-	for _, stream := range streams {
-		sc := bufio.NewScanner(bytes.NewReader(stream))
-		sc.Buffer(make([]byte, 1<<20), 1<<20)
-		for sc.Scan() {
-			var m struct {
-				MessageType string `json:"message_type"`
-				Item        string `json:"item"`
-				Error       struct {
-					Message string `json:"message"`
-				} `json:"error"`
-			}
-			if json.Unmarshal(sc.Bytes(), &m) != nil || m.MessageType != "error" {
-				continue
-			}
-			item := m.Item
-			if item == "" {
-				item = m.Error.Message
-			}
-			if item != "" && !seen[item] {
-				seen[item] = true
-				items = append(items, item)
-			}
-		}
-	}
-	return items
-}
-
-// unreadableRemark is the one line the restore point records about what it misses.
-func unreadableRemark(items []string) string {
-	switch len(items) {
-	case 0:
+// unreadableRemark is the one line the restore point records about what it misses: count
+// items, the first of which are items.
+func unreadableRemark(count int, items []string) string {
+	switch {
+	case count == 0 || len(items) == 0:
 		return "restic could not read some items; the restore point is incomplete"
-	case 1:
+	case count == 1:
 		return fmt.Sprintf("restic could not read 1 item (%s); the restore point is incomplete", items[0])
 	default:
-		return fmt.Sprintf("restic could not read %d items (first: %s); the restore point is incomplete", len(items), items[0])
+		return fmt.Sprintf("restic could not read %d items (first: %s); the restore point is incomplete", count, items[0])
 	}
 }
 
