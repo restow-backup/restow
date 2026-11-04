@@ -171,7 +171,7 @@ func (b *BootTester) startRestore(ctx context.Context, sp restoreSpec) (vmid int
 		if sp.Root {
 			upid, err = b.startRootRestore(ctx, sp, vmid)
 		} else {
-			upid, err = b.PVE.RestoreGuest(ctx, b.State.NodeName, sp.Kind, vmid, sp.Archive, sp.Storage, sp.Pool, false, sp.Params)
+			upid, err = b.PVE.RestoreGuest(ctx, b.State.NodeName, sp.Kind, vmid, sp.Archive, sp.Storage, sp.Pool, sp.Params)
 		}
 		if err == nil {
 			if sp.Purpose != "" {
@@ -628,4 +628,46 @@ func (b *BootTester) Cleanup(ctx context.Context) {
 func tempTagged(g Resource) bool {
 	return (hasTag(g.Tags, BootTestTag) && strings.HasPrefix(g.Name, BootTestNamePrefix)) ||
 		(hasTag(g.Tags, RestoreCheckTag) && strings.HasPrefix(g.Name, RestoreCheckNamePrefix))
+}
+
+// startGuest starts a guest as root and waits (at most a minute) until it runs.
+func (b *BootTester) startGuest(ctx context.Context, kind string, vmid int) error {
+	id := strconv.Itoa(vmid)
+	if _, err := b.command(ctx, b.cli(kind), "start", id); err != nil {
+		return err
+	}
+	deadline := b.now().Add(time.Minute)
+	var last string
+	for {
+		st, err := b.command(ctx, b.cli(kind), "status", id)
+		if err == nil && strings.Contains(st, "status: running") {
+			return nil
+		}
+		last = strings.TrimSpace(st)
+		if err != nil {
+			last = err.Error()
+		}
+		if !b.now().Before(deadline) {
+			return fmt.Errorf("the guest does not run a minute after its start (%s)", last)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(b.poll()):
+		}
+	}
+}
+
+// guestRunning says whether a guest of the cluster runs (known: the cluster could be asked).
+func (b *BootTester) guestRunning(ctx context.Context, vmid int) (running, known bool) {
+	guests, err := b.PVE.Guests(ctx)
+	if err != nil {
+		return false, false
+	}
+	for _, g := range guests {
+		if g.VMID == vmid {
+			return g.Status == "running", true
+		}
+	}
+	return false, true
 }

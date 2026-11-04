@@ -260,10 +260,10 @@ func (p *PVEAPI) StartBackup(ctx context.Context, node string, vmid int, storage
 }
 
 // RestoreGuest creates a new guest from a backup volume; returns the task UPID.
-// It never passes force and always targets a new VMID, with new MAC addresses (unique=1); a
-// container also with onboot=0. mounts are a container's rootfs
+// It never passes force nor start and always targets a new VMID, with new MAC addresses
+// (unique=1); a container also with onboot=0. mounts are a container's rootfs
 // and mpN parameters (TestRestoreMounts); nil keeps the mount points of the backup.
-func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, start bool, mounts map[string]string) (string, error) {
+func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, mounts map[string]string) (string, error) {
 	form := url.Values{"vmid": {fmt.Sprint(vmid)}, "storage": {storage}}
 	if pool != "" {
 		form.Set("pool", pool)
@@ -283,9 +283,8 @@ func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, 
 		form.Set("archive", archive)
 		form.Set("unique", "1")
 	}
-	if start {
-		form.Set("start", "1")
-	}
+	// Never start=1: PVE would start the guest in a task of its own whose failure the restore
+	// task does not show, and the start needs VM.PowerMgmt. restow-pve starts it as root.
 	var upid string
 	return upid, p.call(ctx, http.MethodPost, fmt.Sprintf("/nodes/%s/%s", url.PathEscape(node), apiType(kind)), form, &upid)
 }

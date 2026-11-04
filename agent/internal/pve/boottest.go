@@ -118,7 +118,7 @@ func (b *BootTester) command(ctx context.Context, name string, args ...string) (
 // bootTestPVE is what a boot test and a restore task need of the local PVE API.
 type bootTestPVE interface {
 	NextID(ctx context.Context) (int, error)
-	RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, start bool, mounts map[string]string) (string, error)
+	RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, mounts map[string]string) (string, error)
 	WaitTask(ctx context.Context, node, upid string, poll time.Duration) (string, error)
 	TaskLogTail(ctx context.Context, node, upid string, lines int) (string, error)
 	Storages(ctx context.Context, node string) ([]Storage, error)

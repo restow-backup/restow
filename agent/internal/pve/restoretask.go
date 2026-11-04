@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -47,6 +48,8 @@ type restoreState struct {
 	// as the original (a restore into a new guest).
 	Root        bool     `json:"root,omitempty"`
 	KeptDevices []string `json:"keptDevices,omitempty"`
+	// StaticIPs are the static addresses of a container's interfaces (ip=, ip6=).
+	StaticIPs []string `json:"staticIps,omitempty"`
 }
 
 func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, error) {
@@ -68,7 +71,7 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	if p.RestoreTest {
 		sp.Purpose = PurposeRestoreCheck
 	}
-	var omitted, rootKeys []string
+	var omitted, rootKeys, staticIPs []string
 	var lxc lxcOptions
 	onboot, madeUnprivileged := false, false
 	rp, err := b.Resolve(ctx, p.Volname)
@@ -90,6 +93,7 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 			s.Logf("restore of %s: PVE restores raw LXC options only for root@pam; add them as root: %s", p.Volname, strings.Join(lxc.Lines, " | "))
 		}
 		conf := parseConfigText(rp.GuestConfig)
+		staticIPs = containerStaticIPs(conf)
 		onboot = conf["onboot"] == "1"
 		madeUnprivileged = conf["unprivileged"] != "1"
 		// Every container restore names its rootfs and volume mount points and leaves the bind
@@ -121,7 +125,8 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 		return nil, err
 	}
 	st := restoreState{VMID: vmid, UPID: upid, OmittedMounts: omitted, SkippedLxc: lxc.Lines, CustomIDMap: lxc.IDMap,
-		OnbootCleared: onboot, SourceVMID: source, MadeUnprivileged: madeUnprivileged, Root: sp.Root}
+		OnbootCleared: onboot, SourceVMID: source, MadeUnprivileged: madeUnprivileged, Root: sp.Root,
+		StaticIPs: staticIPs}
 	if !p.RestoreTest {
 		st.KeptDevices = hostDeviceKeys(rootKeys)
 	}
@@ -213,7 +218,84 @@ func (s *Service) finishRestore(ctx context.Context, taskID string, p restorePar
 	if cerr != nil {
 		return result, fmt.Errorf("the restored guest has no readable configuration: %w", cerr)
 	}
+	if p.Start && !p.RestoreTest {
+		s.startRestored(ctx, p, st, result)
+	}
 	return result, nil
+}
+
+// startRestored starts a restored guest as root when the task asks for it and the copy may
+// run: not without the mount points the restore left out, not with the original's host
+// devices, and a container not with a static IP its running original uses. The restore itself
+// succeeded either way; the result says whether the guest started (`started`, `startError`) or
+// why it was not started (`startSkipped`, `startSkippedMessage`).
+func (s *Service) startRestored(ctx context.Context, p restoreParams, st restoreState, result map[string]any) {
+	b := s.bootTester()
+	skip := func(reason, msg string) {
+		result["started"], result["startSkipped"], result["startSkippedMessage"] = false, reason, msg
+		s.Logf("restore of %s: the guest %d is not started: %s", p.Volname, st.VMID, msg)
+	}
+	switch {
+	case len(st.OmittedMounts) > 0:
+		skip("omitted_mounts", "the restore left mount points out ("+mountKeys(st.OmittedMounts)+"); put them back, then start it")
+		return
+	case len(st.KeptDevices) > 0:
+		skip("host_devices", "restored with host devices "+strings.Join(st.KeptDevices, ", ")+" that the original also uses; check them before starting")
+		return
+	case p.Kind == "ct" && len(st.StaticIPs) > 0 && st.SourceVMID > 0:
+		running, known := b.guestRunning(ctx, st.SourceVMID)
+		if running || !known {
+			msg := fmt.Sprintf("the original CT %d runs with %s; change the IP, then start it", st.SourceVMID, strings.Join(st.StaticIPs, ", "))
+			if !known {
+				msg = fmt.Sprintf("the original CT %d may run with %s (its state is unknown); change the IP, then start it", st.SourceVMID, strings.Join(st.StaticIPs, ", "))
+			}
+			skip("static_ip", msg)
+			return
+		}
+	}
+	if err := b.startGuest(ctx, p.Kind, st.VMID); err != nil {
+		result["started"], result["startError"] = false, err.Error()
+		s.Logf("restore of %s: the guest %d did not start: %v", p.Volname, st.VMID, err)
+		return
+	}
+	result["started"] = true
+}
+
+// mountKeys are the keys of left-out mount point lines ("mp0, mp2").
+func mountKeys(lines []string) string {
+	var keys []string
+	for _, l := range lines {
+		k, _, _ := strings.Cut(l, ":")
+		keys = append(keys, k)
+	}
+	return strings.Join(keys, ", ")
+}
+
+// containerStaticIPs are the static addresses of a container's interfaces.
+func containerStaticIPs(conf map[string]string) []string {
+	var out []string
+	keys := make([]string, 0, len(conf))
+	for k := range conf {
+		if netKeyRE.MatchString(k) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		for _, opt := range strings.Split(conf[k], ",") {
+			key, v, ok := strings.Cut(strings.TrimSpace(opt), "=")
+			if !ok || (key != "ip" && key != "ip6") {
+				continue
+			}
+			switch v {
+			case "", "dhcp", "auto", "manual":
+				continue
+			}
+			addr, _, _ := strings.Cut(v, "/")
+			out = append(out, addr)
+		}
+	}
+	return out
 }
 
 // idmapHint explains a container restore that failed with a custom lxc.idmap in its backup.

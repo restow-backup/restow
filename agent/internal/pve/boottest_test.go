@@ -270,12 +270,9 @@ func (f *fakeNode) NextID(context.Context) (int, error) {
 	return id, nil
 }
 
-func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, archive, storage, pool string, start bool, mounts map[string]string) (string, error) {
+func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, archive, storage, pool string, mounts map[string]string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if start {
-		return "", errors.New("a boot test must not start the guest with the restore")
-	}
 	if f.restoreErr != nil {
 		return "", f.restoreErr
 	}

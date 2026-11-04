@@ -432,6 +432,16 @@ guest out of the pool once you accept it. Restores started from the PVE UI
 (storage `restow` > Backups > Restore) work through the same plugin, with the
 admin's own PVE permissions.
 
+**Start after restore** never asks PVE for `start=1` (PVE would start the guest in a task of
+its own, whose failure the restore does not show, and the start needs `VM.PowerMgmt`). After a
+successful restore the node starts the copy as root (`qm start` / `pct start`) and waits up to a
+minute until it runs; the result says `started: true`, or `started: false` with the error
+(`startError`), and the restore stays successful. The copy is not started, with the reason
+(`startSkipped`), when the restore left mount points out (`omitted_mounts`), when it has the
+original's host devices (`host_devices`), or when a container has a static IP (`ip=`) and its
+original runs in the cluster (`static_ip`: "the original CT 113 runs with 192.168.1.20; change
+the IP, then start it").
+
 The restored guest gets new MAC addresses (PVE's `unique=1`, for VMs and containers); a
 container does not start with its node (`onboot 0`, the result says so when the original did).
 IP addresses stay the same, in the configuration (a container's `ip=`) and inside the guest:

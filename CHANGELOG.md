@@ -330,6 +330,16 @@ private repository.
   (`restoredAsRoot`); a copy restored with the original's host devices (`keptDevices`) is never
   started by the restore. A boot test removes the devices, and now also raw `args`, before the
   start. The node's role is not widened.
+- Proxmox VE: "Start after restore" was never verified. PVE starts the guest of a restore with
+  `start=1` in a task of its own, so the restore read succeeded although the start failed (a
+  bridge or VLAN missing on another node, a busy passthrough device), and the start may need
+  `VM.PowerMgmt`, which the node's role does not hold. restow-pve now always restores without
+  start and, when asked, starts the copy as root afterwards and waits until it runs: the result
+  says `started`, or `started: false` with `startError`, and the restore stays successful. A
+  copy that may not run is not started, with the reason (`startSkipped`): mount points the
+  restore left out, the original's host devices, or a container with a static IP whose original
+  runs in the cluster ("the original CT 113 runs with 192.168.1.20; change the IP, then start
+  it").
 
 ### Upgrade Notes
 

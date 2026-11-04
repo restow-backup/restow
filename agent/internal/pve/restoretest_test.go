@@ -208,3 +208,79 @@ func TestAContainerVolumeOfSizeZero(t *testing.T) {
 		t.Fatalf("%+v %v", res, err)
 	}
 }
+
+func startTaskOf(kind string) Task {
+	params, _ := json.Marshal(map[string]any{"volname": "backup/" + kind + "/114/2030-01-01T00:00:00Z", "kind": kind,
+		"targetStorage": "local-lvm", "start": true})
+	return Task{ID: "t-start", Kind: "restore", Params: params}
+}
+
+// "Start after restore": PVE is never asked for start=1 (its start task's failure would not show
+// in the restore task, and it needs VM.PowerMgmt); the node starts the copy as root and says
+// whether it runs. A start that fails leaves the restore succeeded.
+func TestStartAfterRestoreIsVerified(t *testing.T) {
+	f := newFakeNode()
+	f.restoreConfig = parseConfigText(plainVMConfig)
+	s := restoreService(t, f, "vm", plainVMConfig)
+	result, err := s.task(context.Background(), startTaskOf("vm"))
+	if err != nil || result["started"] != true || f.guests[9001].status != "running" {
+		t.Fatalf("%v %v", result, err)
+	}
+	if !strings.Contains(strings.Join(f.commands, "\n"), "qm start 9001") {
+		t.Fatalf("commands %v", f.commands)
+	}
+
+	f = newFakeNode()
+	f.restoreConfig = parseConfigText(plainVMConfig)
+	f.startFails = true
+	s = restoreService(t, f, "vm", plainVMConfig)
+	result, err = s.task(context.Background(), startTaskOf("vm"))
+	if err != nil || result["started"] != false || !strings.Contains(fmt.Sprint(result["startError"]), "QEMU exited") {
+		t.Fatalf("%v %v", result, err)
+	}
+}
+
+// A copy that may not run is not started, with the reason.
+func TestStartAfterRestoreIsRefusedWhereTheCopyMayNotRun(t *testing.T) {
+	const staticCT = "hostname: dns\nunprivileged: 1\nrootfs: local-lvm:vm-114-disk-0,size=4G\n" +
+		"net0: name=eth0,bridge=vmbr0,hwaddr=BC:24:11:00:00:20,ip=192.168.1.20/24,gw=192.168.1.1\n"
+	cases := []struct {
+		name, kind, conf, reason string
+		original                 string // status of CT 114 in the cluster
+	}{
+		{"a static IP the running original uses", "ct", staticCT, "static_ip", "running"},
+		{"mount points left out", "ct", "hostname: x\nunprivileged: 1\nrootfs: local-lvm:vm-114-disk-0,size=4G\nmp0: /mnt/data,mp=/data\n", "omitted_mounts", ""},
+		{"host devices of the original", "vm", passthroughVMConfig, "host_devices", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFakeNode()
+			f.restoreConfig = parseConfigText(c.conf)
+			if c.original != "" {
+				f.guests[114] = &fakeGuest{kind: c.kind, node: "pve1", conf: map[string]string{"hostname": "dns"}, status: c.original}
+			}
+			s := restoreService(t, f, c.kind, c.conf)
+			result, err := s.task(context.Background(), startTaskOf(c.kind))
+			if err != nil || result["started"] != false || result["startSkipped"] != c.reason || result["startSkippedMessage"] == "" {
+				t.Fatalf("%v %v", result, err)
+			}
+			for _, cmd := range f.commands {
+				if strings.Contains(cmd, " start 9001") {
+					t.Fatalf("started: %v", f.commands)
+				}
+			}
+		})
+	}
+	// The original is stopped: the copy with its IP may start.
+	f := newFakeNode()
+	f.restoreConfig = parseConfigText(staticCT)
+	f.guests[114] = &fakeGuest{kind: "ct", node: "pve1", conf: map[string]string{"hostname": "dns"}, status: "stopped"}
+	s := restoreService(t, f, "ct", staticCT)
+	result, err := s.task(context.Background(), startTaskOf("ct"))
+	if err != nil || result["started"] != true {
+		t.Fatalf("%v %v", result, err)
+	}
+	if msg := fmt.Sprint(containerStaticIPs(parseConfigText(staticCT + "net1: name=eth1,bridge=vmbr1,ip=dhcp,ip6=fd00::5/64\n"))); msg != "[192.168.1.20 fd00::5]" {
+		t.Fatalf("static IPs %s", msg)
+	}
+}

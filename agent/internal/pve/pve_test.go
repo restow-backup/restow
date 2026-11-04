@@ -513,15 +513,18 @@ func TestRestoreGuestGivesAContainerNewMACsAndNoOnboot(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := api.RestoreGuest(ctx, "pve1", "ct", 124, "restow:backup/ct/113/x", "local-lvm", "restow-restore", false, nil); err != nil {
+	if _, err := api.RestoreGuest(ctx, "pve1", "ct", 124, "restow:backup/ct/113/x", "local-lvm", "restow-restore", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.RestoreGuest(ctx, "pve1", "vm", 125, "restow:backup/vm/101/x", "local-lvm", "restow-restore", false, nil); err != nil {
+	if _, err := api.RestoreGuest(ctx, "pve1", "vm", 125, "restow:backup/vm/101/x", "local-lvm", "restow-restore", nil); err != nil {
 		t.Fatal(err)
 	}
 	ct, vm := forms["/api2/json/nodes/pve1/lxc"], forms["/api2/json/nodes/pve1/qemu"]
 	if ct.Get("unique") != "1" || ct.Get("onboot") != "0" || ct.Get("restore") != "1" || ct.Get("ostemplate") != "restow:backup/ct/113/x" {
 		t.Fatalf("container form %v", ct)
+	}
+	if ct.Has("start") || vm.Has("start") {
+		t.Fatalf("a restore asked PVE to start the guest: %v %v", ct, vm)
 	}
 	if vm.Get("unique") != "1" || vm.Get("archive") != "restow:backup/vm/101/x" || vm.Has("onboot") {
 		t.Fatalf("VM form %v (qmrestore refuses other options beside archive)", vm)
