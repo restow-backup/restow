@@ -449,11 +449,11 @@
       },
       "source_unreadable": {
         "title": "A backup folder could not be read",
-        "why": "{has_path, select, yes {The backup path {path}} other {A backup path}} exists on the machine but could not be backed up, so it is missing from this backup. Usual reasons are a drive locked by BitLocker, a drive that is offline or not ready, missing permissions of the agent, or a link that restic does not follow. The other paths were backed up; the run is partial."
+        "why": "{has_path, select, yes {The backup path {path}} other {A backup path}} exists on the machine but could not be backed up, so it is missing from this backup. Usual reasons are a drive locked by BitLocker, a drive that is offline or not ready, missing permissions of the agent, or a link that restic does not follow. Any other paths of the run that could be read were backed up."
       },
       "source_is_mount_point": {
         "title": "A backup folder is a volume without a drive letter",
-        "why": "{has_path, select, yes {{path}} other {A backup path}} is a folder at which a volume without a drive letter is mounted. restic would back up only the mount point, not the files on the volume, so it was not backed up. The other paths were backed up; the run is partial."
+        "why": "{has_path, select, yes {{path}} other {A backup path}} is a folder at which a volume without a drive letter is mounted. restic would back up only the mount point, not the files on the volume, so it was not backed up. Any other paths of the run that could be read were backed up."
       },
       "timeout": {
         "title": "The run took too long",
