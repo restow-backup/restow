@@ -98,7 +98,6 @@
     "sizeHint": "In Proxmox VE eingestellte Disk-Größe: was zugewiesen ist, nicht was belegt ist.",
     "backup": "Sicherung",
     "backupContains": "{size} im Backup",
-    "backupAdded": "+{size} neu im letzten Lauf",
     "backupFirst": "Erste Sicherung am {date}: {size} gespeichert",
     "backupFollowUp": "Durchschnitt je Folgesicherung: +{size} (letzte {count, plural, one {# Sicherung} other {# Sicherungen}})",
     "backupNone": "Noch keine Sicherung",

@@ -60,6 +60,37 @@ describe("newDataRows", () => {
     expect(newDataRows([point(3, 32 * GiB, "first"), point(4, MiB)]).rows[0]?.cut).toBe(false);
   });
 
+  it("cuts a machine's backup far above the rest although it has no type", () => {
+    // A machine's first snapshot of 50 GB next to follow-ups of about 200 MB.
+    const machine = [point(1, 50 * GiB), point(2, 210 * MiB), point(3, 180 * MiB), point(4, MiB)];
+    const { rows, ticks } = newDataRows(machine);
+    const top = ticks.at(-1) ?? 0;
+    expect(ticks).toEqual(byteAxisTicks(210 * MiB));
+    expect(rows[0]).toMatchObject({ series: "backup", bytes: 50 * GiB, cut: true, backup: top });
+    expect(rows.slice(1).some((row) => row.cut)).toBe(false);
+  });
+
+  it("cuts every untyped backup above the first large step, not only the largest", () => {
+    const { rows } = newDataRows([
+      point(1, 50 * GiB),
+      point(2, 40 * GiB),
+      point(3, 210 * MiB),
+      point(4, 180 * MiB),
+    ]);
+    expect(rows.map((row) => row.cut)).toEqual([true, true, false, false]);
+  });
+
+  it("keeps untyped backups on one scale without a large step or with too few below it", () => {
+    // Follow-ups of different size, no step of more than the factor between neighbours.
+    const spread = newDataRows([point(1, 600 * MiB), point(2, 200 * MiB), point(3, 60 * MiB)]);
+    expect(spread.rows.some((row) => row.cut)).toBe(false);
+    expect(spread.ticks).toEqual(byteAxisTicks(600 * MiB));
+    // A single backup below the step: nothing to compare it with.
+    expect(newDataRows([point(1, 50 * GiB), point(2, MiB)]).rows.some((row) => row.cut)).toBe(
+      false,
+    );
+  });
+
   it("puts a machine's untyped points into one series", () => {
     const { rows } = newDataRows([point(1, MiB), point(2, 2 * MiB)]);
     expect(rows.map((row) => row.series)).toEqual(["backup", "backup"]);

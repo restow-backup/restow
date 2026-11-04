@@ -93,14 +93,37 @@ export interface NewDataRow {
 }
 
 /**
+ * The backups without a type (a machine's restore points) that stand far above the rest, like
+ * the first backup of a machine: sorted by size, everything above the first step where one
+ * backup is more than {@link NEW_DATA_CAP_FACTOR} times the next. At least two backups stay
+ * below the step, as for typed ones. Without a type it is not known which backup was the full
+ * one (retention may have removed it), so they are found by size and not named "First backup".
+ */
+function untypedOutliers(points: readonly NewDataPoint[]): Set<NewDataPoint> {
+  const sorted = points
+    .filter((point) => point.type === undefined)
+    .sort((a, b) => b.added - a.added);
+  for (let index = 0; index + 2 < sorted.length; index += 1) {
+    const next = sorted[index + 1]?.added ?? 0;
+    if (next > 0 && (sorted[index]?.added ?? 0) > next * NEW_DATA_CAP_FACTOR) {
+      return new Set(sorted.slice(0, index + 1));
+    }
+  }
+  return new Set();
+}
+
+/**
  * The chart's rows and its axis: each backup with the height of its bar (cut at the axis top
- * when it is a full backup far above the follow-ups), and the ticks of the byte axis.
+ * when it is a full backup far above the follow-ups, or for a machine's untyped backups one far
+ * above the rest), and the ticks of the byte axis.
  */
 export function newDataRows(points: readonly NewDataPoint[]): {
   rows: NewDataRow[];
   ticks: number[];
 } {
-  const isFull = (point: NewDataPoint) => point.type === "first" || point.type === "full_read";
+  const outliers = untypedOutliers(points);
+  const isFull = (point: NewDataPoint) =>
+    point.type === "first" || point.type === "full_read" || outliers.has(point);
   const followUps = points.filter((point) => !isFull(point));
   const followUpMax = Math.max(0, ...followUps.map((point) => point.added));
   const fullMax = Math.max(0, ...points.filter(isFull).map((point) => point.added));

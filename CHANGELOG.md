@@ -131,7 +131,10 @@ private repository.
   Screen readers get a sentence with the range and the newest figure, and "Show as table" lists
   every bar with its time, type and size. A machine's Snapshots tab shows the same chart over
   its newest 30 snapshots that carry what they added, from the snapshot list the tab loads
-  anyway (restic runs once). The chart is a kit part (`NewDataChart`) on the shared chart card.
+  anyway (restic runs once). A machine's snapshots carry no type, so there a backup is cut when
+  it stands more than four times above the next smaller one (its first backup, typically) and at
+  least two backups remain below it; it is named with its real size like a guest's. The chart is
+  a kit part (`NewDataChart`) on the shared chart card.
 
 ### Changed
 
