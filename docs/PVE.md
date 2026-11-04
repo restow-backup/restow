@@ -365,7 +365,10 @@ with the operate permission). Every stop asks first and is audited
   itself only when it is its own: stopping the task of a PVE backup job (root@pam)
   needs `Sys.Modify`, which the node's token does not hold. When no provider is
   found, the log says that the backup ends at its next upload, which the server
-  refuses (below). A stopped
+  refuses (below). A restore or restore check that runs (also one the node waits
+  for again after a restart) has its restore task stopped: as the node's token,
+  or as root (`pvesh`) for a VM restored as root; a check then removes its
+  guest. A stopped
   provider asks restic to stop with SIGINT (killed after 15 seconds), so restic
   removes its lock from the container's repository.
 - **Older nodes.** The server refuses every upload of a cancelled run (blocks,

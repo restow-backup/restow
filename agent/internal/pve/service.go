@@ -235,9 +235,9 @@ func (s *Service) isCancelled(id string) bool {
 	return s.cancelled[id]
 }
 
-// startedVzdump records the vzdump task of the running task. True when the task was cancelled
-// meanwhile: the caller stops the vzdump task at once.
-func (s *Service) startedVzdump(id, upid string, vmid int) bool {
+// startedTask records the PVE task (vzdump, a restore) of the running task. True when the task
+// was cancelled meanwhile: the caller stops the PVE task at once.
+func (s *Service) startedTask(id, upid string, vmid int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lazyLocked()
@@ -783,7 +783,7 @@ func (s *Service) runTask(ctx context.Context, t Task) {
 func (s *Service) resume(ctx context.Context, e inflightTask) (map[string]any, error) {
 	switch e.Kind {
 	case "backup":
-		if s.startedVzdump(e.TaskID, e.UPID, e.VMID) {
+		if s.startedTask(e.TaskID, e.UPID, e.VMID) {
 			if err := s.PVE.StopTask(ctx, s.State.NodeName, e.UPID); err != nil {
 				s.Logf("stopping %s: %v", e.UPID, err)
 			}
@@ -793,6 +793,11 @@ func (s *Service) resume(ctx context.Context, e inflightTask) (map[string]any, e
 		var p restoreParams
 		if err := json.Unmarshal(e.Params, &p); err != nil || e.Restore == nil {
 			return nil, errors.New("invalid restore task")
+		}
+		// Cancelled in Restow while it waited in the queue: its restore task is stopped, and
+		// the wait reports how it ended (a check still removes its guest).
+		if s.startedTask(e.TaskID, e.UPID, e.Restore.VMID) {
+			s.stopRestoreTask(ctx, e.TaskID, e.UPID)
 		}
 		return s.finishRestore(ctx, e.TaskID, p, *e.Restore)
 	}
@@ -868,7 +873,7 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 		s.Logf("backup of %d started: %s", p.VMID, upid)
 		s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: p.VMID,
 			StartedAt: time.Now().UTC().Format(time.RFC3339)})
-		if s.startedVzdump(t.ID, upid, p.VMID) {
+		if s.startedTask(t.ID, upid, p.VMID) {
 			// Cancelled while vzdump was being started.
 			if err := s.PVE.StopTask(ctx, s.State.NodeName, upid); err != nil {
 				s.Logf("stopping %s: %v", upid, err)

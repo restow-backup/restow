@@ -420,6 +420,14 @@ func (f *fakeNode) WaitTask(_ context.Context, _, upid string, _ time.Duration) 
 	if f.waitErr != nil {
 		return "", f.waitErr
 	}
+	f.mu.Lock()
+	for _, stopped := range f.stoppedTasks {
+		if stopped == upid {
+			f.mu.Unlock()
+			return "interrupted by signal", nil
+		}
+	}
+	f.mu.Unlock()
 	exit := f.restoreExit
 	if f.refusedBind {
 		exit = "unable to restore CT 9001 - restoring 'mp1' to bind mount is only possible for root"

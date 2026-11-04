@@ -319,13 +319,17 @@ nothing is recorded.
 A backup stopped in the web app reaches the node with its heartbeat; restow-pve 0.4.2
 heartbeats every 15 seconds while a task runs or waits (every minute otherwise).
 
-- `cancel.tasks`: delivered backup tasks with a cancel request. A task still in the
-  node's queue is dropped and reported as `failed` (`/tasks/:id/result`); the server
-  records it as `cancelled`. A task in the same answer's `tasks` never enters the queue
-  and is reported so as well (0.5.0). The running one: its vzdump task is stopped
-  (`DELETE /nodes/{node}/tasks/{upid}` of the local PVE API). A queued task whose PVE task
-  already runs (one the node waits for again after a restart, 0.5.0) stays queued: when
-  the node takes it up it stops that vzdump task and reports how it ended.
+- `cancel.tasks`: delivered tasks with a cancel request. A task still in the node's queue
+  is dropped and reported as `failed` (`/tasks/:id/result`); the server records it as
+  `cancelled`. A task in the same answer's `tasks` never enters the queue and is reported
+  so as well (0.5.0). The running one: its vzdump task is stopped (`DELETE
+  /nodes/{node}/tasks/{upid}` of the local PVE API). Since 0.5.0 a running restore or
+  restore check has its restore task stopped the same way; a restore task of root@pam (a VM
+  the node restored as root) is stopped as root (`pvesh delete /nodes/{node}/tasks/{upid}`),
+  since the node's token may not stop another user's task. The task then ends `failed`
+  with "cancelled in Restow: ..." and a check still removes its guest. A queued backup or
+  restore whose PVE task already runs (one the node waits for again after a restart, 0.5.0)
+  stays queued: when the node takes it up it stops that PVE task and reports how it ended.
 - `cancel.runs`: running backup runs with a cancel request. With `taskId` it is the
   node's running task (as above). Without (a backup started in PVE, also a vzdump task
   of several guests, whose task id is empty): the node sends SIGTERM to the provider

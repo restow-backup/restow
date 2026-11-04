@@ -475,6 +475,14 @@ private repository.
   container provider that holds that guest's backup open, so another container's provider is
   never stopped. The node stops only vzdump tasks of its own, and when it finds no provider the
   log says that the backup ends at its next upload, which the server refuses.
+- Proxmox VE: a restore or restore check that the server withdrew (cancelled in Restow, or
+  closed by the server) ran on to its end on the node, which logged "it will not start" or "its
+  PVE task is stopped when the node takes it up again" although nothing stopped it: only backups
+  had their PVE task recorded. A check still restored, tested and removed its guest. restow-pve
+  now stops the restore task of a running restore or check, also of one it waits for again after
+  a restart, as its token or, for a VM restored as root, as root; one cancelled before PVE was
+  asked never starts. The task ends failed with "cancelled in Restow", and a check still removes
+  its guest.
 - Proxmox VE: a backup of a guest that had just migrated to another node (live migration, HA,
   maintenance mode, between two inventories) failed with "PVE API answered 400 ... unable to
   parse worker upid". vzdump answers `OK` and starts nothing for a guest that is not on its

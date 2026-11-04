@@ -135,11 +135,11 @@ type current struct {
 }
 
 // applyCancel carries out the server's cancel orders: a queued task is dropped (and reported as
-// failed, which the server records as cancelled), the running one's vzdump task is stopped
-// through the PVE API, and a backup started in PVE is stopped through its provider (or a vzdump
-// task of the node's own that backs up this guest alone). A queued task whose PVE task runs
-// already (waited for again after a restart) stays queued, marked cancelled: its wait stops the
-// vzdump task and reports how it ended. Each order is acted on once. It returns the task ids
+// failed, which the server records as cancelled), the running one's vzdump or restore task is
+// stopped, and a backup started in PVE is stopped through its provider (or a vzdump task of the
+// node's own that backs up this guest alone). A queued task whose PVE task runs already (a
+// backup or restore waited for again after a restart) stays queued, marked cancelled: its wait
+// stops the PVE task and reports how it ended. Each order is acted on once. It returns the task ids
 // it found queued or running.
 func (s *Service) applyCancel(ctx context.Context, orders *CancelOrders) map[string]bool {
 	handled := map[string]bool{}
@@ -213,7 +213,8 @@ func (s *Service) withoutCancelled(ctx context.Context, tasks []Task, orders *Ca
 	return out
 }
 
-// stopCurrent stops the running task `id` (its vzdump task); false when it is not the one.
+// stopCurrent stops the running task `id` (its vzdump or restore task); false when it is not
+// the one.
 func (s *Service) stopCurrent(ctx context.Context, id string, vmid int) bool {
 	s.mu.Lock()
 	s.lazyLocked()
@@ -236,8 +237,13 @@ func (s *Service) stopCurrent(ctx context.Context, id string, vmid int) bool {
 		return true
 	}
 	if upid == "" {
-		// Not started yet: the task ends as soon as it would start vzdump (task()).
+		// Not started yet: the task ends as soon as it would start vzdump or the restore
+		// (task(), restoreTask()).
 		s.Logf("task %s was cancelled in Restow; it will not start", id)
+		return true
+	}
+	if cur.kind == "restore" {
+		s.stopRestoreTask(ctx, id, upid)
 		return true
 	}
 	s.Logf("task %s was cancelled in Restow: stopping %s", id, upid)

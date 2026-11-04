@@ -414,3 +414,68 @@ func TestTheRemovalWaitsWhenTheRestoreTaskIsUnknown(t *testing.T) {
 		t.Fatalf("guests %v", f.guests)
 	}
 }
+
+// A restore check that PVE still ran when the service stopped is cancelled in Restow while it
+// waits in the queue after the restart: its restore task is stopped (the node said so), the
+// task ends cancelled, and its guest is removed.
+func TestACancelledRestoreWaitedForAgainStopsItsRestoreTask(t *testing.T) {
+	f := newFakeNode()
+	f.restoreConfig = parseConfigText(plainVMConfig)
+	f.restoreRunning = true
+	f.waitErr = context.Canceled
+	s := restoreService(t, f, "vm", plainVMConfig)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the service stops while the restore runs
+	task := checkTask(t, "vm")
+	s.runTask(ctx, task)
+	e := s.inflight(task.ID)
+	if e == nil || len(f.guests) != 1 {
+		t.Fatalf("inflight %v, guests %v", e, f.guests)
+	}
+	// After the restart: queued again, then cancelled in Restow.
+	f.mu.Lock()
+	f.waitErr = nil
+	f.mu.Unlock()
+	s.enqueue([]Task{task})
+	s.applyCancel(context.Background(), &CancelOrders{Tasks: []string{task.ID}})
+	s.mu.Lock()
+	s.queue, s.cur = nil, &current{id: task.ID, kind: task.Kind}
+	s.mu.Unlock()
+	result, err := s.resume(context.Background(), *e)
+	if err == nil || len(f.stoppedTasks) != 1 || f.stoppedTasks[0] != e.UPID {
+		t.Fatalf("result %v, err %v, stopped %v", result, err, f.stoppedTasks)
+	}
+	if result["deleted"] != true || len(f.guests) != 0 {
+		t.Fatalf("result %v, guests %v", result, f.guests)
+	}
+}
+
+// A restore cancelled before PVE was asked never starts; a running one whose task is root's
+// (a VM restored as root) is stopped as root, which the node's token may not do.
+func TestACancelledRestoreIsStoppedAsWhoRunsIt(t *testing.T) {
+	f := newFakeNode()
+	f.restoreConfig = parseConfigText(plainVMConfig)
+	s := restoreService(t, f, "vm", plainVMConfig)
+	task := restoreTaskOf(t, "vm", false)
+	s.mu.Lock()
+	s.lazyLocked()
+	s.cur = &current{id: task.ID, kind: task.Kind}
+	s.mu.Unlock()
+	s.applyCancel(context.Background(), &CancelOrders{Tasks: []string{task.ID}})
+	if _, err := s.task(context.Background(), task); !errors.Is(err, ErrCancelled) || len(f.guests) != 0 {
+		t.Fatalf("err %v, guests %v, commands %v", err, f.guests, f.commands)
+	}
+
+	const upid = "UPID:pve1:0000CCCC:00DDDDDD:70000001:qmrestore:9001:root@pam:"
+	f = newFakeNode()
+	f.tasks = map[string]string{upid: "running"}
+	s = restoreService(t, f, "vm", passthroughVMConfig)
+	s.mu.Lock()
+	s.lazyLocked()
+	s.cur = &current{id: "t-root", kind: "restore", upid: upid, vmid: 9001}
+	s.mu.Unlock()
+	s.applyCancel(context.Background(), &CancelOrders{Tasks: []string{"t-root"}})
+	if fmt.Sprint(f.stoppedBy) != "[root]" || f.tasks[upid] != "stopped" {
+		t.Fatalf("stopped by %v, task %s, commands %v", f.stoppedBy, f.tasks[upid], f.commands)
+	}
+}

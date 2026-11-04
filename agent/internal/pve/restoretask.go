@@ -129,7 +129,15 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 			sp.Params[k] = v
 		}
 	}
+	if s.isCancelled(t.ID) {
+		// Cancelled in Restow before PVE was asked: nothing is restored.
+		return nil, ErrCancelled
+	}
 	vmid, upid, err := b.startRestore(ctx, sp)
+	if err == nil && s.startedTask(t.ID, upid, vmid) {
+		// Cancelled while the restore was asked for: its task is stopped at once.
+		s.stopRestoreTask(ctx, t.ID, upid)
+	}
 	if err != nil {
 		if p.RestoreTest && vmid > 0 {
 			// Only a guest proven ours goes (a restore the refused call started all the same).
@@ -148,6 +156,19 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: vmid,
 		StartedAt: time.Now().UTC().Format(time.RFC3339), Restore: &st})
 	return s.finishRestore(ctx, t.ID, p, st)
+}
+
+// stopRestoreTask stops the restore task of a restore or restore check cancelled in Restow: as
+// the node's token, or as root for a task of root@pam (a VM restored as root), which the token
+// may not stop. The wait for the task then reports how it ended.
+func (s *Service) stopRestoreTask(ctx context.Context, taskID, upid string) {
+	if upid == "" || strings.HasPrefix(upid, cliUPIDPrefix) {
+		return // qmrestore ended already
+	}
+	s.Logf("task %s was cancelled in Restow: stopping %s", taskID, upid)
+	if err := s.bootTester().stopPVETask(ctx, upid); err != nil {
+		s.Logf("stopping %s: %v", upid, err)
+	}
 }
 
 // skippedCheck is the result of a restore check the node did not run (docs/PVE-PROTOCOL.md, "A
