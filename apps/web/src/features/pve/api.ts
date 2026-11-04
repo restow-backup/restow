@@ -292,6 +292,13 @@ export interface PveOverview {
   restorePool: string;
 }
 
+/** The fs-freeze of a VM restore point (docs/PVE.md, "File restore of a VM"). */
+export interface PveVmConsistency {
+  state: "frozen" | "stopped" | "no_agent" | "crash_consistent" | "freeze_failed" | "unknown";
+  /** The node's line about it, in English (the error of a failed freeze). */
+  detail?: string;
+}
+
 export interface PveRestorePoint {
   id: string;
   sequence: number;
@@ -307,6 +314,11 @@ export interface PveRestorePoint {
   /** Items a container backup could not read (0 when complete). */
   unreadable?: number;
   consistency?: string | null;
+  /**
+   * A VM's: whether PVE froze its file systems through the guest agent for the backup, as
+   * vzdump's log says (restow-pve 0.5.0 on); null when it was not recorded.
+   */
+  vmConsistency?: PveVmConsistency | null;
   /** The first unreadable items, when the node named them (0.4.0 on). */
   stats?: { unreadablePaths?: string[] } | null;
   /**

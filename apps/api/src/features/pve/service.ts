@@ -999,6 +999,8 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         backupType: backupType(s, firstSequence),
         unreadable: unreadableItems(s.stats),
         consistency: typeof s.stats.consistency === "string" ? s.stats.consistency : null,
+        // A VM's fs-freeze (restow-pve 0.5.0 on); null when the node did not record it.
+        vmConsistency: s.kind === "vm" ? (s.stats.vmConsistency ?? null) : null,
         stats: s.stats,
         // Of a privileged container: Restow does not restore it (PRIVILEGED_CONTAINER_DETAIL).
         privileged: pveRestorePointPrivileged(s, guest.privileged),

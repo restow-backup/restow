@@ -32,6 +32,8 @@ import {
   type PveSnapshot,
   type PveSnapshotDisk,
   type PveTask,
+  type PveVmConsistency,
+  type PveVmConsistencyState,
   pveGuests,
   pveRunBlocks,
   pveRuns,
@@ -431,6 +433,39 @@ export interface CommitInput {
   resticUnreadable?: number;
   resticUnreadablePaths?: string[];
   consistency?: string;
+  /** VM backups (restow-pve 0.5.0 on): the guest agent's fs-freeze, from vzdump's log. */
+  vmConsistency?: VmConsistencyReport;
+}
+
+/** What the node reports about a VM's fs-freeze (commit and task log). */
+export interface VmConsistencyReport {
+  state: PveVmConsistencyState;
+  detail?: string;
+  warnings?: string[];
+}
+
+/** What a VM restore point records about its fs-freeze. */
+function recordedConsistency(report: VmConsistencyReport): PveVmConsistency {
+  return { state: report.state, ...(report.detail ? { detail: report.detail } : {}) };
+}
+
+/**
+ * The run warnings of a VM's fs-freeze: a freeze that was issued and failed (the restore point
+ * is crash-consistent although the guest agent should have frozen it) and the problems around
+ * it (a thaw that failed or was never logged). The backup succeeded with warnings (amber), as
+ * for vzdump's own warnings; a guest without an agent is a state of the restore point, no
+ * warning of the run.
+ */
+export function vmConsistencyWarnings(report: VmConsistencyReport | undefined): string[] {
+  if (!report) {
+    return [];
+  }
+  return [
+    ...(report.state === "freeze_failed"
+      ? [report.detail || "The guest agent could not freeze the file systems for the backup."]
+      : []),
+    ...(report.warnings ?? []),
+  ];
 }
 
 /**
@@ -729,7 +764,16 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
               : {}),
           }
         : {}),
+      // Whether PVE froze the VM's file systems (an older node sends nothing: not recorded).
+      ...(kind === "vm" && input.vmConsistency
+        ? { vmConsistency: recordedConsistency(input.vmConsistency) }
+        : {}),
     };
+    const freezeWarnings = kind === "vm" ? vmConsistencyWarnings(input.vmConsistency) : [];
+    const runStats: Record<string, unknown> = { ...run.stats, ...stats };
+    if (freezeWarnings.length > 0) {
+      runStats.warnings = mergeWarnings(stringList(run.stats.warnings), freezeWarnings);
+    }
     // The new restore point is checked on the worker's next PVE pass (docs/PVE.md, "Restore
     // check"), unless the installation switched that off; the weekly check stays either way.
     const checkNow = await verifyAfterBackup(providerDb);
@@ -761,7 +805,7 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
       });
       await tx
         .update(pveRuns)
-        .set({ snapshotId, commitId: input.commitId, stats: { ...run.stats, ...stats } })
+        .set({ snapshotId, commitId: input.commitId, stats: runStats })
         .where(eq(pveRuns.id, run.id));
       const diskState = { ...guest.diskState };
       for (const d of disks) {
@@ -980,14 +1024,54 @@ export async function finishRun(
   });
 }
 
-export async function runLog(node: NodeContext, runId: string, log: string): Promise<void> {
+/**
+ * The PVE task log of a run, and for a VM backup what the whole log says about the fs-freeze
+ * (restow-pve 0.5.0 on, `backup_handle_log_file` after the commit): it completes a restore point
+ * whose commit said `unknown` or nothing, and its warnings (a failed freeze or thaw) join the
+ * run's. A state the commit recorded is kept: the freeze lines come before backup_vm.
+ */
+export async function runLog(
+  node: NodeContext,
+  runId: string,
+  log: string,
+  vmConsistency?: VmConsistencyReport,
+): Promise<void> {
   await withTenantTx(db, node.tenantId, async (tx) => {
-    await loadRun(tx, node, runId);
-    await tx
-      .update(pveRuns)
-      .set({ logTail: log.slice(-20 * 1024) })
-      .where(eq(pveRuns.id, runId));
+    const run = await loadRun(tx, node, runId);
+    const update: Partial<typeof pveRuns.$inferInsert> = { logTail: log.slice(-20 * 1024) };
+    if (vmConsistency && run.kind === "backup" && run.snapshotId) {
+      const [point] = await tx
+        .select({ kind: pveSnapshots.kind, stats: pveSnapshots.stats })
+        .from(pveSnapshots)
+        .where(eq(pveSnapshots.id, run.snapshotId))
+        .limit(1);
+      if (point?.kind === "vm") {
+        const recorded = point.stats.vmConsistency;
+        if (vmConsistency.state !== "unknown" && (!recorded || recorded.state === "unknown")) {
+          await tx
+            .update(pveSnapshots)
+            .set({
+              stats: sql`${pveSnapshots.stats} || jsonb_build_object('vmConsistency', ${JSON.stringify(recordedConsistency(vmConsistency))}::jsonb)`,
+            })
+            .where(eq(pveSnapshots.id, run.snapshotId));
+          update.stats = { ...run.stats, vmConsistency: recordedConsistency(vmConsistency) };
+        }
+        const added = vmConsistencyWarnings(vmConsistency);
+        if (added.length > 0) {
+          const base = update.stats ?? run.stats;
+          update.stats = {
+            ...base,
+            warnings: mergeWarnings(stringList(run.stats.warnings), added),
+          };
+        }
+      }
+    }
+    await tx.update(pveRuns).set(update).where(eq(pveRuns.id, runId));
   });
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
 /**

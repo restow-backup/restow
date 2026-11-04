@@ -275,6 +275,32 @@
       "full_read": "Full read"
     },
     "unreadable": "{count, plural, one {# item} other {# items}} not readable",
+    "consistency": {
+      "frozen": {
+        "label": "File systems frozen",
+        "hint": "The QEMU guest agent froze the guest's file systems for the backup, so they were consistent."
+      },
+      "stopped": {
+        "label": "Guest stopped",
+        "hint": "The guest did not run during the backup, so its disks were at rest."
+      },
+      "no_agent": {
+        "label": "Guest agent did not answer",
+        "hint": "The VM is set up with the QEMU guest agent, but the agent did not answer, so the file systems were not frozen. The restore point is crash-consistent, as after a power cut. Check that qemu-guest-agent runs in the guest."
+      },
+      "crash_consistent": {
+        "label": "Crash-consistent",
+        "hint": "The file systems were not frozen: the VM has no guest agent enabled, or the freeze is switched off in its options. The restore point is as after a power cut: ext journals are replayed for the file restore, XFS and NTFS can lack the last writes. Restore the whole VM for those."
+      },
+      "freeze_failed": {
+        "label": "Freeze failed",
+        "hint": "The guest agent was asked to freeze the file systems and failed (for example a VSS writer error in Windows or a timeout). PVE went on without the freeze, so the restore point is only crash-consistent. The run shows it as a warning."
+      },
+      "unknown": {
+        "label": "Consistency unknown",
+        "hint": "vzdump's log of the backup does not say whether the file systems were frozen."
+      }
+    },
     "succeededWithGaps": "Succeeded with gaps ({count, plural, one {# item} other {# items}} could not be read)",
     "diskAllocated": "Disk: {size} allocated",
     "unreadablePaths": "Not read: {paths}",

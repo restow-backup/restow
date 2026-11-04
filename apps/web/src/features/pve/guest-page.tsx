@@ -327,7 +327,34 @@ function PointType({ point }: { point: PveRestorePoint }) {
           {t("guest.unreadable", { count: unreadable })}
         </Badge>
       ) : null}
+      <PointConsistency point={point} />
     </div>
+  );
+}
+
+/**
+ * Whether PVE froze a VM's file systems for its restore point. A failed freeze and a guest
+ * agent that did not answer are amber: the point is only crash-consistent although the VM is
+ * set up for a freeze. A frozen or stopped guest is a plain fact, never green: it says nothing
+ * about whether the point can be restored. Nothing for a container or an unrecorded point.
+ */
+export function PointConsistency({ point }: { point: Pick<PveRestorePoint, "vmConsistency"> }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const consistency = point.vmConsistency;
+  if (!consistency) {
+    return null;
+  }
+  const warn = consistency.state === "freeze_failed" || consistency.state === "no_agent";
+  const hint = t(`guest.consistency.${consistency.state}.hint`);
+  return (
+    <Badge
+      variant={warn ? "warning" : "outline"}
+      title={consistency.detail ? `${hint}\n${consistency.detail}` : hint}
+      data-slot="pve-point-consistency"
+      data-state={consistency.state}
+    >
+      {t(`guest.consistency.${consistency.state}.label`)}
+    </Badge>
   );
 }
 

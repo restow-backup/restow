@@ -297,6 +297,17 @@ unique per installation).
   restore point was committed succeeded: the run keeps the warning lines and
   the guest shows "Succeeded with warnings" (amber, not failed, not green).
   Protection of a restore point is still refused in PVE (Restow holds them).
+- **Freeze of a VM.** Each VM restore point says whether PVE froze the guest's
+  file systems for it (`vmConsistency`, from vzdump's log; restow-pve 0.5.0 and
+  newer, an older node records nothing and the list shows nothing): "File
+  systems frozen", "Guest stopped", "Crash-consistent" (no agent enabled, or
+  the freeze switched off), "Guest agent did not answer" and "Freeze failed"
+  (both amber), or "Consistency unknown". None of them is green: a freeze says
+  nothing about whether the point restores. A failed freeze, and a thaw that
+  failed or was never logged, are warnings of the run, which then shows
+  "Succeeded with warnings". The commit records the state; the task log, sent
+  after it, completes a state the commit could not read (`unknown`) and adds
+  its warnings, but never replaces a recorded state.
 - **Boot test** (off by default): weekly, or after every backup, the guest's
   node boots the newest restore point in isolation and destroys it again; see
   "Boot test" below.

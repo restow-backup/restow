@@ -249,8 +249,8 @@ pveNodeRoutes.post("/runs/:runId/restore-end", async (c) => {
 
 pveNodeRoutes.post("/runs/:runId/log", async (c) => {
   const { runId } = parseOrProblem(runParamSchema, c.req.param());
-  const { log } = await parseJsonBody(c.req, logSchema);
-  await runLog(c.get("node"), runId, log);
+  const { log, vmConsistency } = await parseJsonBody(c.req, logSchema);
+  await runLog(c.get("node"), runId, log, vmConsistency);
   return c.body(null, 204);
 });
 

@@ -1404,7 +1404,10 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
   // --- 0.4.2: late task results, vzdump warnings, the Restow server's own VM, restore checks ---
 
   /** An incremental VM backup of 101 that changed nothing: a quick restore point. */
-  async function quickCommit(time: string): Promise<{ runId: string; snapshotId: string }> {
+  async function quickCommit(
+    time: string,
+    extra: Record<string, unknown> = {},
+  ): Promise<{ runId: string; snapshotId: string }> {
     const run = await openRun(time);
     await json(
       await call(node, `/runs/${run.runId}/incremental`, {
@@ -1429,6 +1432,7 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
           ],
           guestConfig: "scsi0: x\n",
           firewallConfig: null,
+          ...extra,
         },
       }),
     );
@@ -1524,6 +1528,92 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(row?.stats.warnings?.[0]).toContain("WARNINGS");
     const [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, oldTask));
     expect(task?.status).toBe("done");
+  });
+
+  it("records a VM restore point's fs-freeze; a failed freeze is a warning of the run (S-C3)", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const pointOf = async (snapshotId: string) => {
+      const guest = await service.guestDetail(shared.db, fixture.tenantId, vm?.id ?? "");
+      return guest.snapshots.find((p) => p.id === snapshotId);
+    };
+    // restow-pve 0.5.0: the guest agent was asked to freeze and failed; vzdump went on.
+    await queuedBackup();
+    const detail =
+      "the guest agent could not freeze the file systems (VM 101 qmp command 'guest-fsfreeze-freeze' failed - got timeout); the restore point is crash-consistent";
+    const failed = await quickCommit("2026-10-14T23:00:00Z", {
+      consistency: detail,
+      vmConsistency: { state: "freeze_failed", detail },
+    });
+    await json(
+      await call(node, `/runs/${failed.runId}/finish`, { json: { status: "succeeded" } }),
+      204,
+    );
+    let [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, failed.runId));
+    expect(row?.status).toBe("succeeded");
+    expect(row?.stats.warnings).toEqual([detail]);
+    expect((await pointOf(failed.snapshotId))?.vmConsistency).toEqual({
+      state: "freeze_failed",
+      detail,
+    });
+
+    // A frozen guest is no warning; the whole log's thaw problem, sent with the task log, is.
+    await queuedBackup();
+    const frozen = await quickCommit("2026-10-14T23:10:00Z", {
+      vmConsistency: { state: "frozen", detail: "the guest agent froze the file systems" },
+    });
+    await json(
+      await call(node, `/runs/${frozen.runId}/finish`, { json: { status: "succeeded" } }),
+      204,
+    );
+    [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, frozen.runId));
+    expect(row?.stats.warnings).toBeUndefined();
+    const thaw =
+      "the guest agent could not thaw the file systems (timeout); check that the guest can write";
+    await json(
+      await call(node, `/runs/${frozen.runId}/log`, {
+        json: {
+          log: "INFO: issuing guest-agent 'fs-freeze' command\n",
+          vmConsistency: { state: "freeze_failed", detail: "later", warnings: [thaw] },
+        },
+      }),
+      204,
+    );
+    [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, frozen.runId));
+    // The state the commit recorded stays; the log's warnings join the run's.
+    expect((await pointOf(frozen.snapshotId))?.vmConsistency?.state).toBe("frozen");
+    expect(row?.stats.warnings).toEqual(["later", thaw]);
+
+    // The commit could not read vzdump's log (unknown): the task log completes it.
+    await queuedBackup();
+    const unknown = await quickCommit("2026-10-14T23:20:00Z", {
+      vmConsistency: { state: "unknown" },
+    });
+    expect((await pointOf(unknown.snapshotId))?.vmConsistency).toEqual({ state: "unknown" });
+    await json(
+      await call(node, `/runs/${unknown.runId}/finish`, { json: { status: "succeeded" } }),
+      204,
+    );
+    await json(
+      await call(node, `/runs/${unknown.runId}/log`, {
+        json: { log: "x", vmConsistency: { state: "no_agent", detail: "no answer" } },
+      }),
+      204,
+    );
+    expect((await pointOf(unknown.snapshotId))?.vmConsistency).toEqual({
+      state: "no_agent",
+      detail: "no answer",
+    });
+    [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, unknown.runId));
+    expect(row?.stats.warnings).toBeUndefined();
+
+    // An older node sends nothing, a malformed value is dropped: not recorded, never a state.
+    await queuedBackup();
+    const old = await quickCommit("2026-10-14T23:30:00Z", { vmConsistency: { state: "glacial" } });
+    expect((await pointOf(old.snapshotId))?.vmConsistency).toBeNull();
+    await json(
+      await call(node, `/runs/${old.runId}/finish`, { json: { status: "succeeded" } }),
+      204,
+    );
   });
 
   it("a late result settles a committed run the server closed meanwhile, and never fails it (C6)", async () => {

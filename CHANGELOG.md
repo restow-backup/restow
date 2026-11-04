@@ -381,6 +381,12 @@ private repository.
   system without the 64bit feature as 12 bytes instead of 16; and it skipped a block whose first
   bytes looked like the journal's magic number, keeping an older copy. It now replays as the
   kernel and e2fsck do, tested against journals written by debugfs.
+- Proxmox VE: the server took no consistency from a VM backup, so a restore point whose
+  fs-freeze failed or was skipped looked like a frozen one. It now records the `vmConsistency`
+  restow-pve 0.5.0 sends with the commit (completed from the task log when the commit could not
+  tell), shows it with each VM restore point on the guest page ("Freeze failed" and "Guest agent
+  did not answer" amber, the others neutral, none green) and makes a failed freeze or thaw a
+  warning of the run: "Succeeded with warnings" instead of plain green.
 - Proxmox VE: the job settings `bandwidthKbps` and `verifyReadEvery` were taken by the API and
   stored, but never applied: backups uploaded without a limit and the full read stayed every
   30th backup, and nothing said so. A job that sets either is now refused with 422 and a text

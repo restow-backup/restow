@@ -275,6 +275,32 @@
       "full_read": "Vollständig gelesen"
     },
     "unreadable": "{count, plural, one {# Element} other {# Elemente}} nicht lesbar",
+    "consistency": {
+      "frozen": {
+        "label": "Dateisysteme eingefroren",
+        "hint": "Der QEMU-Gast-Agent hat die Dateisysteme des Gasts für die Sicherung eingefroren, sie waren also konsistent."
+      },
+      "stopped": {
+        "label": "Gast gestoppt",
+        "hint": "Der Gast lief während der Sicherung nicht, seine Disks waren also in Ruhe."
+      },
+      "no_agent": {
+        "label": "Gast-Agent antwortete nicht",
+        "hint": "Die VM ist mit dem QEMU-Gast-Agenten eingerichtet, der Agent hat aber nicht geantwortet, deshalb wurden die Dateisysteme nicht eingefroren. Der Sicherungsstand ist absturzkonsistent, wie nach einem Stromausfall. Prüfen Sie, ob qemu-guest-agent im Gast läuft."
+      },
+      "crash_consistent": {
+        "label": "Absturzkonsistent",
+        "hint": "Die Dateisysteme wurden nicht eingefroren: Die VM hat keinen Gast-Agenten eingeschaltet, oder das Einfrieren ist in seinen Optionen abgeschaltet. Der Sicherungsstand ist wie nach einem Stromausfall: ext-Journale werden für die Dateiwiederherstellung nachgespielt, XFS und NTFS können die letzten Schreibvorgänge vermissen. Stellen Sie dafür die ganze VM wieder her."
+      },
+      "freeze_failed": {
+        "label": "Einfrieren gescheitert",
+        "hint": "Der Gast-Agent sollte die Dateisysteme einfrieren und ist gescheitert (zum Beispiel ein Fehler eines VSS-Writers unter Windows oder eine Zeitüberschreitung). PVE hat ohne Einfrieren weitergemacht, der Sicherungsstand ist also nur absturzkonsistent. Der Lauf zeigt das als Warnung."
+      },
+      "unknown": {
+        "label": "Konsistenz unbekannt",
+        "hint": "Das vzdump-Log der Sicherung sagt nicht, ob die Dateisysteme eingefroren wurden."
+      }
+    },
     "succeededWithGaps": "Mit Lücken erfolgreich ({count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gelesen werden)",
     "diskAllocated": "Disk: {size} zugewiesen",
     "unreadablePaths": "Nicht gelesen: {paths}",

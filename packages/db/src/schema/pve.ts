@@ -420,6 +420,27 @@ export const pveTasks = pgTable(
   ],
 );
 
+/**
+ * The consistency states of a VM restore point (restow-pve's ClassifyVMConsistency): `frozen`
+ * (fs-freeze and thaw issued), `stopped` (the guest did not run), `no_agent` (the agent is
+ * configured but did not answer), `crash_consistent` (no agent enabled, or the freeze switched
+ * off), `freeze_failed` (the freeze was issued and failed) or `unknown` (the log says nothing).
+ */
+export const PVE_VM_CONSISTENCY_STATES = [
+  "frozen",
+  "stopped",
+  "no_agent",
+  "crash_consistent",
+  "freeze_failed",
+  "unknown",
+] as const;
+export type PveVmConsistencyState = (typeof PVE_VM_CONSISTENCY_STATES)[number];
+export type PveVmConsistency = {
+  state: PveVmConsistencyState;
+  /** The node's line about it (the error of a failed freeze). */
+  detail?: string;
+};
+
 /** What the server recorded at the incremental query, per disk. */
 export type PveRunDevice = { size: number; baseSnapshotId: string | null };
 
@@ -448,6 +469,12 @@ export type PveRunStats = {
   /** The first of those items (nodes from 0.4 on). */
   unreadablePaths?: string[];
   consistency?: string | null;
+  /**
+   * VM backups (restow-pve 0.5.0 on): whether PVE froze the guest's file systems through the
+   * QEMU guest agent, as vzdump's log of the backup says (docs/PVE.md, "File restore of a VM").
+   * Missing for a container and for a restore point of an older node.
+   */
+  vmConsistency?: PveVmConsistency;
   /**
    * The warning lines vzdump logged beside a backup that committed its restore point ("TASK
    * WARNINGS"): the run succeeded with warnings.

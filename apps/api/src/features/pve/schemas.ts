@@ -4,6 +4,7 @@ import {
   MIN_BOOT_TEST_MEMORY_MIB,
   MIN_BOOT_TEST_TIMEOUT_SECONDS,
 } from "@restow/core";
+import { PVE_VM_CONSISTENCY_STATES } from "@restow/db";
 import { z } from "zod";
 import { MAX_BROWSE_LIMIT, MAX_DOWNLOAD_PATHS, snapshotPath } from "../endpoints/schemas.js";
 
@@ -223,6 +224,33 @@ export const incrementalSchema = z.object({
     .max(64),
 });
 
+/**
+ * What vzdump's log says about a VM's fs-freeze (restow-pve 0.5.0 on, docs/PVE-PROTOCOL.md):
+ * the state, the node's line and the problems around the freeze (a failed or missing thaw). A
+ * malformed value is dropped, so the restore point records nothing rather than a wrong state.
+ */
+export const vmConsistencySchema = z
+  .object({
+    state: z.enum(PVE_VM_CONSISTENCY_STATES),
+    detail: z
+      .string()
+      .max(64 * 1024)
+      .transform((s) => s.trim().slice(0, 500))
+      .optional(),
+    warnings: z
+      .array(z.string().max(64 * 1024))
+      .max(100)
+      .transform((lines) =>
+        lines
+          .map((w) => w.trim().slice(0, 500))
+          .filter(Boolean)
+          .slice(0, 5),
+      )
+      .optional(),
+  })
+  .optional()
+  .catch(undefined);
+
 /** How many unreadable items a container restore point names. */
 export const UNREADABLE_PATHS_KEPT = 20;
 
@@ -283,6 +311,8 @@ export const commitSchema = z.object({
     .max(1000)
     .transform((paths) => paths.slice(0, UNREADABLE_PATHS_KEPT))
     .optional(),
+  /** VM backups: the guest agent's fs-freeze, from vzdump's log of the running backup. */
+  vmConsistency: vmConsistencySchema,
 });
 
 /**
@@ -313,7 +343,11 @@ export const restoreEndSchema = z.object({
   error: nodeErrorText.optional(),
 });
 
-export const logSchema = z.object({ log: z.string().max(256 * 1024) });
+export const logSchema = z.object({
+  log: z.string().max(256 * 1024),
+  /** VM backups: the fs-freeze read from the whole task log (restow-pve 0.5.0 on). */
+  vmConsistency: vmConsistencySchema,
+});
 
 export const runParamSchema = z.object({ runId: uuid });
 export const taskParamSchema = z.object({ taskId: uuid });
