@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -384,15 +385,28 @@ func minutes(d time.Duration) string {
 
 // NodeTask is one entry of GET /nodes/{node}/tasks.
 type NodeTask struct {
-	UPID   string `json:"upid"`
-	Type   string `json:"type"`
-	Status string `json:"status"`
-	ID     string `json:"id"`
+	UPID      string `json:"upid"`
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	ID        string `json:"id"`
+	User      string `json:"user"`
+	StartTime int64  `json:"starttime"`
 }
 
 // ActiveTasks lists the tasks running on a node now, of one type (vzdump, qmrestore, ...).
 func (p *PVEAPI) ActiveTasks(ctx context.Context, node, typeFilter string) ([]NodeTask, error) {
 	form := url.Values{"source": {"active"}}
+	if typeFilter != "" {
+		form.Set("typefilter", typeFilter)
+	}
+	var out []NodeTask
+	return out, p.call(ctx, http.MethodGet, "/nodes/"+url.PathEscape(node)+"/tasks", form, &out)
+}
+
+// RecentTasks lists the tasks of a node of one type for one guest, running or ended (newest
+// first; reading the tasks of other users needs Sys.Audit on the node, which the token holds).
+func (p *PVEAPI) RecentTasks(ctx context.Context, node, typeFilter string, vmid int) ([]NodeTask, error) {
+	form := url.Values{"source": {"all"}, "limit": {"20"}, "vmid": {strconv.Itoa(vmid)}}
 	if typeFilter != "" {
 		form.Set("typefilter", typeFilter)
 	}

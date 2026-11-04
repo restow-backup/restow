@@ -437,6 +437,17 @@ container does not start with its node (`onboot 0`, the result says so when the 
 IP addresses stay the same, in the configuration (a container's `ip=`) and inside the guest:
 change them before the copy runs beside the original.
 
+A VM whose configuration holds what PVE restores only for root@pam is restored as root with
+`qmrestore <storage>:backup/<volume> <vmid> --storage <target> --unique 1 --pool
+restow-restore` (never `--force`, never `--start`): PCI passthrough (`hostpciN`, also a mapped
+one: a mapping needs `Mapping.Use`, which the node's token does not hold), USB host and mapped
+devices (`usbN`, not `spice`), `virtiofsN`, serial and parallel ports on host devices, raw
+`args` and a hook script. The node's API token restores everything else; no role is widened. The
+result says so (`restoredAsRoot`); a copy restored with host devices (`keptDevices`: they are the
+original's, which may use them now) is never started by the restore: check them before you
+start it. Restore tests and boot tests of such a VM take the same way; a boot test removes the
+devices before the start.
+
 A container is restored with its rootfs and its volume mount points named explicitly (the same
 options, each a new volume on the target storage) and without its bind and device mount points
 (`mp0: /mnt/paperless,mp=/data`, `mp1: /dev/sdb1,mp=...`): PVE restores those only for root@pam,
@@ -689,8 +700,8 @@ What the guest's node does:
 4. **Isolate before the start.** The temporary guest gets the tag `restow-boottest` and the
    name `restow-boottest-<vmid>`; every NIC `link_down=1` (or the isolated bridge the node
    names with `--boot-test-bridge`; a container loses its interfaces); PCI and USB passthrough,
-   host serial and parallel ports, virtiofs, a container's device and bind mounts and the hook
-   script are removed; ISO drives are emptied; `onboot 0`, `protection 0`; the QEMU guest agent
+   host serial and parallel ports, virtiofs, raw QEMU `args`, a container's device and bind
+   mounts and the hook script are removed; ISO drives are emptied; `onboot 0`, `protection 0`; the QEMU guest agent
    device is switched on so an installed agent can answer. The configuration is read back; a
    guest with a NIC still connected is never started.
 5. **Boot and wait.** `qm start`, then every five seconds `qm guest cmd <id> ping`: green as
@@ -710,7 +721,9 @@ no new privilege.
 
 Not part of the test: a check of ports or applications inside the isolated network, a
 screenshot or serial console heuristic, Windows without the guest agent (yellow at best), and
-guests that need passthrough hardware to boot (removed for the test, so they may fail it).
+guests that need passthrough hardware to boot (a VM with PCI or USB passthrough, a device
+mapping, virtiofs or raw `args` is restored as root, and these are removed before its start, so
+a guest that needs them to boot may fail the test).
 
 ## Security
 

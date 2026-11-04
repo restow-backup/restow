@@ -62,6 +62,9 @@ type fakeNode struct {
 	tasks          map[string]string // UPID -> "running" | "stopped"
 	stoppedTasks   []string
 	ctime          int64
+	rootTasks      []NodeTask // the tasks of root's qmrestore
+	nextUPID       int
+	refusedRoot    bool // the token's restore was refused a key only root@pam may restore
 }
 
 func newFakeNode() *fakeNode {
@@ -71,7 +74,10 @@ func newFakeNode() *fakeNode {
 	}
 }
 
-func (f *fakeNode) Run(_ context.Context, name string, args ...string) (string, error) {
+func (f *fakeNode) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if name == "qmrestore" {
+		return f.qmrestore(ctx, args)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.commands = append(f.commands, name+" "+strings.Join(args, " "))
@@ -166,6 +172,94 @@ func (f *fakeNode) Run(_ context.Context, name string, args ...string) (string, 
 	return "", fmt.Errorf("unknown verb %s", verb)
 }
 
+// qmrestore <archive> <vmid> --storage S --unique 1 --pool P, as root: everything of the
+// backup is restored. With restoreRunning it runs until its task is stopped or ctx ends.
+func (f *fakeNode) qmrestore(ctx context.Context, args []string) (string, error) {
+	f.mu.Lock()
+	f.commands = append(f.commands, "qmrestore "+strings.Join(args, " "))
+	out, err, upid := f.qmrestoreLocked(args)
+	f.mu.Unlock()
+	if upid == "" || err != nil {
+		return out, err
+	}
+	for {
+		f.mu.Lock()
+		st := f.tasks[upid]
+		f.mu.Unlock()
+		if st != "running" {
+			return "TASK ERROR: interrupted by signal", errors.New("exit status 255")
+		}
+		select {
+		case <-ctx.Done():
+			return "TASK ERROR: interrupted by signal", ctx.Err()
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+// qmrestoreLocked restores; the UPID is returned while the restore runs on. f.mu is held.
+func (f *fakeNode) qmrestoreLocked(args []string) (string, error, string) {
+	out, err := f.qmrestoreNow(args)
+	if err == nil && f.restoreRunning {
+		return out, nil, f.rootTasks[len(f.rootTasks)-1].UPID
+	}
+	return out, err, ""
+}
+
+func (f *fakeNode) qmrestoreNow(args []string) (string, error) {
+	vmid, err := strconv.Atoi(args[1])
+	if err != nil {
+		return "", err
+	}
+	if _, taken := f.guests[vmid]; taken {
+		return "unable to restore VM " + args[1] + " - VM " + args[1] + " already exists on node 'pve1'", errors.New("exit status 255")
+	}
+	opts := map[string]string{}
+	for i := 2; i+1 < len(args); i += 2 {
+		opts[strings.TrimPrefix(args[i], "--")] = args[i+1]
+	}
+	if opts["unique"] != "1" || opts["force"] != "" || opts["start"] != "" {
+		return "", fmt.Errorf("qmrestore %v: unique without force and start expected", args)
+	}
+	conf := map[string]string{}
+	for k, v := range f.restoreConfig {
+		conf[k] = v
+	}
+	if f.ctime != 0 {
+		conf["meta"] = fmt.Sprintf("creation-qemu=9.0.2,ctime=%d", f.ctime)
+	}
+	f.nextUPID++
+	upid := fmt.Sprintf("UPID:pve1:0000CCCC:00DDDDDD:%08X:qmrestore:%d:root@pam:", 0x70000000+f.nextUPID, vmid)
+	if f.tasks == nil {
+		f.tasks = map[string]string{}
+	}
+	f.tasks[upid] = "stopped"
+	f.rootTasks = append(f.rootTasks, NodeTask{UPID: upid, Type: "qmrestore", ID: args[1], User: "root@pam", Status: "stopped"})
+	if f.restoreRunning {
+		f.tasks[upid] = "running"
+		conf["lock"] = "create"
+		f.guests[vmid] = &fakeGuest{kind: "vm", node: "pve1", conf: conf, status: "stopped"}
+		return "", nil
+	}
+	if f.restoreExit != "OK" && !TaskWarnings(f.restoreExit) {
+		return "restore failed\nTASK ERROR: " + f.restoreExit, errors.New("exit status 255")
+	}
+	f.guests[vmid] = &fakeGuest{kind: "vm", node: "pve1", pool: opts["pool"], conf: conf, status: "stopped"}
+	return "progress 100% (read 34359738368 bytes)\nTASK " + f.restoreExit, nil
+}
+
+func (f *fakeNode) RecentTasks(_ context.Context, _, typeFilter string, vmid int) ([]NodeTask, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []NodeTask
+	for _, t := range f.rootTasks {
+		if (typeFilter == "" || t.Type == typeFilter) && t.ID == strconv.Itoa(vmid) {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
 // --- the PVE API part ---
 
 func (f *fakeNode) NextID(context.Context) (int, error) {
@@ -187,6 +281,17 @@ func (f *fakeNode) RestoreGuest(_ context.Context, node, kind string, vmid int, 
 	}
 	if _, taken := f.guests[vmid]; taken {
 		return "", fmt.Errorf("unable to create VM %d - VM %d already exists on node 'pve1'", vmid, vmid)
+	}
+	if kind == "vm" && len(rootOnlyVMKeys(f.restoreConfig)) > 0 {
+		// PVE's restore permission check: only root may restore host devices, mappings without
+		// Mapping.Use, virtiofs, raw args.
+		f.refusedRoot = true
+		upid := fmt.Sprintf("UPID:%s:0000AAAA:00BBBBBB:6700000:qmrestore:%d:restow@pve!pve1:", node, vmid)
+		if f.tasks == nil {
+			f.tasks = map[string]string{}
+		}
+		f.tasks[upid] = "stopped"
+		return upid, nil
 	}
 	f.restoreMounts = mounts
 	conf := map[string]string{}
@@ -235,6 +340,9 @@ func (f *fakeNode) WaitTask(_ context.Context, _, upid string, _ time.Duration) 
 	exit := f.restoreExit
 	if f.refusedBind {
 		exit = "unable to restore CT 9001 - restoring 'mp1' to bind mount is only possible for root"
+	}
+	if f.refusedRoot {
+		exit = "only root can set 'hostpci0' config for non-mapped devices"
 	}
 	if exit != "OK" && !TaskWarnings(exit) {
 		// A restore that fails removes the guest it was creating.
@@ -430,7 +538,9 @@ func TestBootTestGreenWhenTheGuestAgentAnswers(t *testing.T) {
 		t.Fatalf("commands on the original guest: %v", cmds)
 	}
 	all := strings.Join(f.commands, "\n")
-	if !strings.Contains(all, "restore vm 9001 restow:backup/vm/101/2030-01-01T00:00:00Z local-lvm restow-restore") {
+	// Its passthrough devices are restored only for root: qmrestore as root, never --force
+	// nor --start; the PVE API's restore is not tried for it.
+	if !strings.Contains(all, "qmrestore restow:backup/vm/101/2030-01-01T00:00:00Z 9001 --storage local-lvm --unique 1 --pool restow-restore") || f.refusedRoot {
 		t.Fatalf("restore: %s", all)
 	}
 	if !strings.Contains(res.Log, "QEMU guest agent answered") {

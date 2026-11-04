@@ -179,10 +179,11 @@ the temporary guest could not be isolated); the server records the outcome `erro
 yellow and red become the restore point's boot test (`pve_snapshots.boot_test`); skipped and
 error stay with the run.
 
-What the node does: see PVE.md, "Boot test". It uses the PVE API for the restore (the same
-call as a restore task, into the pool `restow-restore`, `start=0`) and `qm`/`pct` as root for
-everything else (`config`, `set`, `start`, `status`, `guest cmd ... ping`, `exec`, `stop`,
-`destroy`), so the node's API token needs no new privilege.
+What the node does: see PVE.md, "Boot test". It restores as a restore task does (the PVE API
+into the pool `restow-restore`, `start=0`; a VM with what PVE restores only for root@pam through
+`qmrestore` as root) and uses `qm`/`pct` as root for everything else (`config`, `set`, `start`,
+`status`, `guest cmd ... ping`, `exec`, `unlock`, `stop`, `destroy`), so the node's API token
+needs no new privilege.
 
 ### Task `restore`
 
@@ -198,6 +199,8 @@ restore task), and:
 | `omittedMounts` | the bind and device mount points the restore left out, as configuration lines (`mp0: /mnt/paperless,mp=/data`; before 0.5.0 a check only, as `mp0 (/mnt/paperless)`). Every container restore names rootfs and its volume mount points itself, so PVE takes none from the backup. |
 | `remountCommands` | a restore into a new guest: the commands that put the left-out mount points back as root (`pct set <vmid> -mp0 /mnt/paperless,mp=/data`). A bind mount point put back shares the original's live data; on another node the host path may not exist. |
 | `madeUnprivileged` | the container was privileged and is restored unprivileged. |
+| `restoredAsRoot` | a VM with PCI or USB passthrough, a device mapping, virtiofs, host serial or parallel ports, raw `args` or a hook script, which PVE restores only for root@pam: restored with `qmrestore ... --unique 1 --pool restow-restore` as root (since 0.5.0; `upid` is root's task). |
+| `keptDevices` | a restore into a new guest restored as root: the keys that bind the copy to host devices of the original (`hostpci0`, `usb0`, ...). The copy is not started by the restore. |
 | `onbootCleared` | the container started with its node; the copy does not (`onboot=0`). |
 | `disks`, `deleted`, `leftoverVmid` | a check: the disks of the restored guest, and whether it was removed. `deleted: true` only once its configuration is gone (since 0.5.0); `deleted: false` with `leftoverVmid` when it is still there (the node removes it when its service starts; the server shows it amber). The check's guest is removed on every way out, also when the restore failed. |
 

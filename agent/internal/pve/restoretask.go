@@ -43,6 +43,10 @@ type restoreState struct {
 	SourceVMID int `json:"sourceVmid,omitempty"`
 	// MadeUnprivileged: the container was privileged; it is restored unprivileged.
 	MadeUnprivileged bool `json:"madeUnprivileged,omitempty"`
+	// Root: restored as root through qmrestore; KeptDevices are the host devices the copy has,
+	// as the original (a restore into a new guest).
+	Root        bool     `json:"root,omitempty"`
+	KeptDevices []string `json:"keptDevices,omitempty"`
 }
 
 func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, error) {
@@ -64,14 +68,22 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 	if p.RestoreTest {
 		sp.Purpose = PurposeRestoreCheck
 	}
-	var omitted []string
+	var omitted, rootKeys []string
 	var lxc lxcOptions
 	onboot, madeUnprivileged := false, false
-	if p.Kind == "ct" {
-		rp, err := b.Resolve(ctx, p.Volname)
-		if err != nil {
-			return nil, fmt.Errorf("restore point: %w", err)
+	rp, err := b.Resolve(ctx, p.Volname)
+	if err != nil {
+		return nil, fmt.Errorf("restore point: %w", err)
+	}
+	if p.Kind == "vm" {
+		// PCI or USB passthrough, a device mapping, virtiofs, host ports, raw arguments: PVE
+		// restores those only for root@pam, so the node restores such a VM as root.
+		if rootKeys = rootOnlyVMKeys(parseConfigText(rp.GuestConfig)); len(rootKeys) > 0 {
+			sp.Root = true
+			s.Logf("restore of %s: %s, which PVE restores only for root@pam: restoring as root", p.Volname, strings.Join(rootKeys, ", "))
 		}
+	}
+	if p.Kind == "ct" {
 		// PVE restores raw lxc.* keys only for root@pam; the token's restore skips them.
 		lxc = rawLxcOptions(rp.GuestConfig)
 		if len(lxc.Lines) > 0 {
@@ -109,7 +121,10 @@ func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, erro
 		return nil, err
 	}
 	st := restoreState{VMID: vmid, UPID: upid, OmittedMounts: omitted, SkippedLxc: lxc.Lines, CustomIDMap: lxc.IDMap,
-		OnbootCleared: onboot, SourceVMID: source, MadeUnprivileged: madeUnprivileged}
+		OnbootCleared: onboot, SourceVMID: source, MadeUnprivileged: madeUnprivileged, Root: sp.Root}
+	if !p.RestoreTest {
+		st.KeptDevices = hostDeviceKeys(rootKeys)
+	}
 	s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: vmid,
 		StartedAt: time.Now().UTC().Format(time.RFC3339), Restore: &st})
 	return s.finishRestore(ctx, t.ID, p, st)
@@ -131,6 +146,13 @@ func (s *Service) finishRestore(ctx context.Context, taskID string, p restorePar
 	}
 	if st.MadeUnprivileged {
 		result["madeUnprivileged"] = true
+	}
+	if st.Root {
+		result["restoredAsRoot"] = true
+	}
+	if len(st.KeptDevices) > 0 {
+		// Restored with the host devices the original uses: check them before starting.
+		result["keptDevices"] = st.KeptDevices
 	}
 	if len(st.OmittedMounts) > 0 && !p.RestoreTest {
 		// The copy runs without them until they are put back (as root); a bind mount point
@@ -161,7 +183,7 @@ func (s *Service) finishRestore(ctx context.Context, taskID string, p restorePar
 		return result, err
 	}
 	if exit != "OK" {
-		tail, _ := b.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 200)
+		tail := b.taskLog(ctx, upid, 200)
 		if !TaskWarnings(exit) {
 			msg := fmt.Sprintf("restore ended with %q: %s", exit, lastLines(tail, 8))
 			if st.CustomIDMap {

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/lock"
@@ -65,6 +66,8 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) (string,
 	// A qm or pct stuck in the kernel (a hung NFS storage) may outlive its kill: Wait returns
 	// anyway, so a deadline really ends the call.
 	cmd.WaitDelay = 10 * time.Second
+	// A deadline or a stop asks first (qmrestore then stops its task), then kills.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(out))
 	if err != nil {
@@ -124,6 +127,7 @@ type bootTestPVE interface {
 	GuestConfig(ctx context.Context, node, kind string, vmid int) (map[string]any, error)
 	TaskStatus(ctx context.Context, node, upid string) (TaskStatus, error)
 	StopTask(ctx context.Context, node, upid string) error
+	RecentTasks(ctx context.Context, node, typeFilter string, vmid int) ([]NodeTask, error)
 }
 
 // BootTestParams is the task the server sends.
@@ -189,6 +193,9 @@ type BootTester struct {
 	mu      sync.Mutex
 	log     []string
 	testing bool // a boot test runs (its lines say so)
+	// The output and result of root restores whose PVE task was not found (cliUPIDPrefix).
+	cliOut map[string]string
+	cliRes map[string]cliResult
 }
 
 const (
@@ -413,6 +420,13 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *R
 			sp.Params[k] = v
 		}
 	}
+	if p.Kind == "vm" {
+		if keys := rootOnlyVMKeys(conf); len(keys) > 0 {
+			// PVE restores these only for root@pam; isolate() removes them before the start.
+			sp.Root = true
+			b.logf("the VM has %s, which PVE restores only for root@pam: restoring as root", strings.Join(keys, ", "))
+		}
+	}
 	b.logf("restoring the %s to a temporary guest on %s", p.Kind, storage)
 	vmid, upid, err := b.startRestore(ctx, sp)
 	if vmid > 0 {
@@ -439,7 +453,7 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *R
 		res.SkippedLxc = lxc.Lines
 	}
 	if exit != "OK" {
-		tail, _ := b.PVE.TaskLogTail(ctx, b.State.NodeName, upid, 200)
+		tail := b.taskLog(ctx, upid, 200)
 		if !TaskWarnings(exit) {
 			b.logf("restore ended with %q: %s", exit, lastLines(tail, 8))
 			msg := fmt.Sprintf("The restore ended with %q: %s", exit, lastLines(tail, 3))
@@ -590,7 +604,8 @@ func (b *BootTester) isolate(ctx context.Context, p BootTestParams, vmid int) er
 	for _, k := range keys {
 		v := conf[k]
 		switch {
-		case k == "hookscript":
+		case k == "hookscript", p.Kind == "vm" && k == "args":
+			// Raw QEMU arguments may add a device or a network of their own.
 			del = append(del, k)
 		case netKeyRE.MatchString(k):
 			switch {

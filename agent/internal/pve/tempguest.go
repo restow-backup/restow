@@ -4,10 +4,12 @@ package pve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -135,6 +137,9 @@ type restoreSpec struct {
 	VMID int
 	// Params are a container's rootfs, mpN (and the name of a temporary one).
 	Params map[string]string
+	// Root restores a VM as root through qmrestore: its configuration holds what PVE lets only
+	// root@pam restore (rootOnlyVMKeys).
+	Root bool
 }
 
 // maxVMIDAttempts: /cluster/nextid hands out the same VMID to two restores that start in the
@@ -163,7 +168,11 @@ func (b *BootTester) startRestore(ctx context.Context, sp restoreSpec) (vmid int
 				return 0, "", fmt.Errorf("marker of the temporary guest: %w", err)
 			}
 		}
-		upid, err = b.PVE.RestoreGuest(ctx, b.State.NodeName, sp.Kind, vmid, sp.Archive, sp.Storage, sp.Pool, false, sp.Params)
+		if sp.Root {
+			upid, err = b.startRootRestore(ctx, sp, vmid)
+		} else {
+			upid, err = b.PVE.RestoreGuest(ctx, b.State.NodeName, sp.Kind, vmid, sp.Archive, sp.Storage, sp.Pool, false, sp.Params)
+		}
 		if err == nil {
 			if sp.Purpose != "" {
 				m.UPID = upid
@@ -190,14 +199,170 @@ func vmidTaken(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "already exists")
 }
 
-// waitRestore waits for a restore task.
+// waitRestore waits for a restore task and returns its exit status.
 func (b *BootTester) waitRestore(ctx context.Context, upid string) (string, error) {
+	if strings.HasPrefix(upid, cliUPIDPrefix) {
+		r, ok := b.takeCLI(upid)
+		if !ok {
+			return "", errors.New("the restore through qmrestore ended before restow-pve restarted; how it ended is unknown")
+		}
+		return cliExit(r), nil
+	}
 	poll := b.TaskPoll
 	if poll <= 0 {
 		poll = 5 * time.Second
 	}
 	return b.PVE.WaitTask(ctx, b.State.NodeName, upid, poll)
 }
+
+// taskLog is the end of a restore task's log.
+func (b *BootTester) taskLog(ctx context.Context, upid string, lines int) string {
+	if strings.HasPrefix(upid, cliUPIDPrefix) {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return lastLines(b.cliOut[upid], lines)
+	}
+	tail, _ := b.PVE.TaskLogTail(ctx, b.State.NodeName, upid, lines)
+	return tail
+}
+
+// cliUPIDPrefix names a root restore whose PVE task was not found: its outcome is qmrestore's.
+const cliUPIDPrefix = "cli:"
+
+type cliResult struct {
+	out string
+	err error
+}
+
+// startRootRestore runs `qmrestore <archive> <vmid> --storage S --unique 1 --pool P` as root
+// (never --force, never --start) and returns the UPID of its task once PVE lists it: the wait,
+// a removal and a restart of the service then follow the task as for any restore.
+func (b *BootTester) startRootRestore(ctx context.Context, sp restoreSpec, vmid int) (string, error) {
+	since := time.Now().Add(-5 * time.Second)
+	args := []string{sp.Archive, strconv.Itoa(vmid), "--storage", sp.Storage, "--unique", "1"}
+	if sp.Pool != "" {
+		args = append(args, "--pool", sp.Pool)
+	}
+	b.logf("restoring as root: qmrestore %s", strings.Join(args, " "))
+	done := make(chan cliResult, 1)
+	go func() {
+		out, err := b.command(ctx, "qmrestore", args...)
+		done <- cliResult{out, err}
+	}()
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case r := <-done:
+			if upid := b.findRootRestore(ctx, vmid, since); upid != "" {
+				return upid, nil
+			}
+			if r.err != nil && !strings.Contains(r.out, "TASK ") {
+				// qmrestore ended before PVE ran a task (the VMID exists, a refused option).
+				if out := lastLines(r.out, 3); out != "" && !strings.Contains(r.err.Error(), out) {
+					return "", fmt.Errorf("qmrestore: %w: %s", r.err, out)
+				}
+				return "", fmt.Errorf("qmrestore: %w", r.err)
+			}
+			upid := cliUPIDPrefix + strconv.Itoa(vmid)
+			b.mu.Lock()
+			if b.cliOut == nil {
+				b.cliOut, b.cliRes = map[string]string{}, map[string]cliResult{}
+			}
+			b.cliOut[upid], b.cliRes[upid] = r.out, r
+			b.mu.Unlock()
+			return upid, nil
+		case <-tick.C:
+			if upid := b.findRootRestore(ctx, vmid, since); upid != "" {
+				return upid, nil
+			}
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+}
+
+func (b *BootTester) takeCLI(upid string) (cliResult, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, ok := b.cliRes[upid]
+	delete(b.cliRes, upid)
+	return r, ok
+}
+
+// findRootRestore finds the qmrestore task root started for the VMID since then.
+func (b *BootTester) findRootRestore(ctx context.Context, vmid int, since time.Time) string {
+	tasks, err := b.PVE.RecentTasks(ctx, b.State.NodeName, "qmrestore", vmid)
+	if err != nil {
+		return ""
+	}
+	for _, t := range tasks {
+		if t.ID != strconv.Itoa(vmid) || !strings.HasPrefix(t.User, "root@pam") {
+			continue
+		}
+		if started, ok := upidStart(t.UPID); ok && started.Before(since) {
+			continue
+		}
+		return t.UPID
+	}
+	return ""
+}
+
+var taskEndRE = regexp.MustCompile(`^TASK (OK|WARNINGS: \d+|ERROR: .*)$`)
+
+// cliExit is the exit status of a task from the output of the command that ran it.
+func cliExit(r cliResult) string {
+	lines := strings.Split(strings.TrimSpace(r.out), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if m := taskEndRE.FindStringSubmatch(strings.TrimSpace(lines[i])); m != nil {
+			return strings.TrimPrefix(m[1], "ERROR: ")
+		}
+	}
+	if r.err == nil {
+		return "OK"
+	}
+	return lastLines(r.out, 3)
+}
+
+// rootOnlyVMKeys are the keys of a VM configuration that PVE restores only for root@pam (its
+// restore permission check, check_restore_permissions and check_mapping_access): PCI
+// passthrough (a mapped device needs Mapping.Use, which the node's token does not hold), USB
+// host and mapped devices, virtiofs, serial and parallel ports on host devices, raw QEMU
+// arguments and a hook script.
+func rootOnlyVMKeys(conf map[string]string) []string {
+	var out []string
+	for k, v := range conf {
+		switch {
+		case hostpciRE.MatchString(k), virtiofsRE.MatchString(k), k == "args", k == "hookscript":
+			out = append(out, k)
+		case usbRE.MatchString(k) && !strings.Contains(v, "spice"):
+			out = append(out, k)
+		case (serialRE.MatchString(k) || parallelRE.MatchString(k)) && strings.HasPrefix(strings.TrimSpace(v), "/dev"):
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// hostDeviceKeys are the root-only keys that bind the guest to a device of the host (or run
+// arbitrary QEMU arguments): a restored copy with them is not started by the restore.
+func hostDeviceKeys(keys []string) []string {
+	var out []string
+	for _, k := range keys {
+		if k != "hookscript" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+var (
+	hostpciRE  = regexp.MustCompile(`^hostpci\d+$`)
+	usbRE      = regexp.MustCompile(`^usb\d+$`)
+	virtiofsRE = regexp.MustCompile(`^virtiofs\d+$`)
+	parallelRE = regexp.MustCompile(`^parallel\d+$`)
+)
 
 var metaCTimeRE = regexp.MustCompile(`(?:^|,)ctime=(\d+)`)
 

@@ -318,6 +318,18 @@ private repository.
   them (zfspool, dir, btrfs), else with the size the restore point knows; with nothing to size it
   the restore fails before it starts and names the storage type (a boot test: an error, not
   red). A privileged container restored unprivileged says so (`madeUnprivileged`).
+- Proxmox VE: VMs with PCI or USB passthrough (`hostpci0: 0000:01:00.0`, `usb0: host=1-2`), a
+  device mapping (`hostpci0: mapping=gpu`), virtiofs, serial or parallel ports on host devices
+  or raw `args` could not be restored by the node's API token: PVE's restore permission check
+  lets only root@pam restore these (a mapping needs `Mapping.Use`, which the token does not
+  hold). Every restore into a new guest, restore test and boot test of such a VM failed, and the
+  boot tests were red although the backup was fine (the isolation that removes the devices came
+  only after the restore). restow-pve now restores such a VM as root with `qmrestore ...
+  --unique 1 --pool restow-restore` (never `--force`, never `--start`) and follows root's restore
+  task like any other (wait, stop, removal, restart of the service). The result says so
+  (`restoredAsRoot`); a copy restored with the original's host devices (`keptDevices`) is never
+  started by the restore. A boot test removes the devices, and now also raw `args`, before the
+  start. The node's role is not widened.
 
 ### Upgrade Notes
 

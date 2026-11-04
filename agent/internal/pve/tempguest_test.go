@@ -33,6 +33,17 @@ func TestDeleteParametersGoIntoTheQueryString(t *testing.T) {
 	}
 }
 
+// plainVMConfig is a VM without anything only root@pam may restore: the token restores it.
+const plainVMConfig = `boot: order=scsi0
+cores: 2
+memory: 4096
+name: web01
+net0: virtio=BC:24:11:00:00:01,bridge=vmbr0,firewall=1
+onboot: 1
+protection: 1
+scsi0: local-lvm:vm-101-disk-0,size=32G
+`
+
 func checkTask(t *testing.T, kind string) Task {
 	t.Helper()
 	params, _ := json.Marshal(map[string]any{"volname": "backup/" + kind + "/101/2030-01-01T00:00:00Z", "kind": kind,
@@ -44,9 +55,9 @@ func checkTask(t *testing.T, kind string) Task {
 // restored copy; the check clears it and removes the guest, and says so only once it is gone.
 func TestRestoreCheckRemovesAProtectedGuest(t *testing.T) {
 	f := newFakeNode()
-	f.restoreConfig = parseConfigText(vmConfig) // protection: 1, onboot: 1
+	f.restoreConfig = parseConfigText(plainVMConfig) // protection: 1, onboot: 1
 	f.ctime = 1_900_000_100
-	s := restoreService(t, f, "vm", vmConfig)
+	s := restoreService(t, f, "vm", plainVMConfig)
 	result, err := s.task(context.Background(), checkTask(t, "vm"))
 	if err != nil {
 		t.Fatal(err)
@@ -70,9 +81,9 @@ func TestRestoreCheckRemovesAProtectedGuest(t *testing.T) {
 // marker, so the next start of the service removes it.
 func TestRestoreCheckSaysWhenItsGuestStays(t *testing.T) {
 	f := newFakeNode()
-	f.restoreConfig = parseConfigText(vmConfig)
+	f.restoreConfig = parseConfigText(plainVMConfig)
 	f.destroyFails = true
-	s := restoreService(t, f, "vm", vmConfig)
+	s := restoreService(t, f, "vm", plainVMConfig)
 	result, err := s.task(context.Background(), checkTask(t, "vm"))
 	if err != nil {
 		t.Fatal(err)
@@ -96,10 +107,10 @@ func TestRestoreCheckSaysWhenItsGuestStays(t *testing.T) {
 // before it removes anything (no destroy under a running restore).
 func TestRestoreCheckStopsARunningRestoreBeforeItRemovesTheGuest(t *testing.T) {
 	f := newFakeNode()
-	f.restoreConfig = parseConfigText(vmConfig)
+	f.restoreConfig = parseConfigText(plainVMConfig)
 	f.restoreRunning = true
 	f.waitErr = errors.New("PVE API GET /nodes/pve1/tasks/x/status: 403 Permission check failed")
-	s := restoreService(t, f, "vm", vmConfig)
+	s := restoreService(t, f, "vm", plainVMConfig)
 	result, err := s.task(context.Background(), checkTask(t, "vm"))
 	if err == nil || result["deleted"] != true {
 		t.Fatalf("result %v, err %v", result, err)
@@ -121,10 +132,10 @@ func TestRestoreCheckStopsARunningRestoreBeforeItRemovesTheGuest(t *testing.T) {
 // restore asks for another VMID.
 func TestARestoreRetriesWhenItsVMIDWasTaken(t *testing.T) {
 	f := newFakeNode()
-	f.restoreConfig = parseConfigText(vmConfig)
+	f.restoreConfig = parseConfigText(plainVMConfig)
 	f.guests[9001] = &fakeGuest{kind: "vm", node: "pve2", pool: "restow-restore", conf: map[string]string{"name": "restow-boottest-55", "tags": BootTestTag}}
 	f.ctime = 1_900_000_100
-	s := restoreService(t, f, "vm", vmConfig)
+	s := restoreService(t, f, "vm", plainVMConfig)
 	result, err := s.task(context.Background(), checkTask(t, "vm"))
 	if err != nil || result["vmid"] != 9002 || result["deleted"] != true {
 		t.Fatalf("result %v, err %v", result, err)
@@ -134,7 +145,7 @@ func TestARestoreRetriesWhenItsVMIDWasTaken(t *testing.T) {
 	}
 	// A boot test retries the same way, and a refused restore is an error, never red.
 	f = newFakeNode()
-	f.restoreConfig = parseConfigText(vmConfig)
+	f.restoreConfig = parseConfigText(plainVMConfig)
 	f.agentAfter = 1
 	f.guests[9001] = &fakeGuest{kind: "vm", node: "pve2", pool: "restow-restore", conf: map[string]string{"name": "x"}}
 	b := newTester(t, f)
@@ -191,10 +202,10 @@ func TestTheServiceRemovesLeftoversWhenItStartsWithEverythingOff(t *testing.T) {
 // cleanup at the start leaves its guest to it, and it removes the guest when it ends.
 func TestARestoreCheckIsWaitedForAgainAfterARestart(t *testing.T) {
 	f := newFakeNode()
-	f.restoreConfig = parseConfigText(vmConfig)
+	f.restoreConfig = parseConfigText(plainVMConfig)
 	f.restoreRunning = true
 	f.waitErr = context.Canceled
-	s := restoreService(t, f, "vm", vmConfig)
+	s := restoreService(t, f, "vm", plainVMConfig)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // the service stops while the restore runs
 	task := checkTask(t, "vm")
