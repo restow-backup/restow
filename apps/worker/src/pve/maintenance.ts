@@ -289,9 +289,18 @@ export async function planJobs(deps: PveDeps, now: Date): Promise<number> {
 // Stale runs
 // ---------------------------------------------------------------------------
 
+/** What `closeRun` needs of a run. */
+const closeRunColumns = {
+  id: pveRuns.id,
+  tenantId: pveRuns.tenantId,
+  kind: pveRuns.kind,
+  snapshotId: pveRuns.snapshotId,
+  taskId: pveRuns.taskId,
+};
+
 export async function closeStaleRuns(deps: PveDeps, now: Date): Promise<number> {
   const stale = await deps.providerDb
-    .select({ id: pveRuns.id, tenantId: pveRuns.tenantId, snapshotId: pveRuns.snapshotId })
+    .select(closeRunColumns)
     .from(pveRuns)
     .where(
       and(
@@ -332,7 +341,7 @@ const ACTIVE_RUNS_GRACE_MS = 10 * 60 * 1000;
 export async function closeRunsNodesDropped(deps: PveDeps, now: Date): Promise<number> {
   const fresh = new Date(now.getTime() - ACTIVE_RUNS_FRESH_MS).toISOString();
   const dropped = await deps.providerDb
-    .select({ id: pveRuns.id, tenantId: pveRuns.tenantId, snapshotId: pveRuns.snapshotId })
+    .select(closeRunColumns)
     .from(pveRuns)
     .innerJoin(pveNodes, eq(pveNodes.id, pveRuns.nodeId))
     .where(
@@ -374,7 +383,7 @@ const CANCEL_SILENT_NODE_MS = 15 * 60 * 1000;
 export async function closeCancelledRunsOfSilentNodes(deps: PveDeps, now: Date): Promise<number> {
   const silentSince = new Date(now.getTime() - CANCEL_SILENT_NODE_MS);
   const stuck = await deps.providerDb
-    .select({ id: pveRuns.id, tenantId: pveRuns.tenantId, snapshotId: pveRuns.snapshotId })
+    .select(closeRunColumns)
     .from(pveRuns)
     .leftJoin(pveNodes, eq(pveNodes.id, pveRuns.nodeId))
     .where(
@@ -407,33 +416,82 @@ export async function closeCancelledRunsOfSilentNodes(deps: PveDeps, now: Date):
   return closed;
 }
 
+/** Why a restore, restore check or boot test run the server closed has no result. */
+export const PVE_RESULT_NEVER_REPORTED =
+  "The node never reported the result (restarted or unreachable).";
+
 /**
- * Close a run that is still `running`: succeeded when its restore point was committed,
- * else failed with `message`; what it staged is released. False when it ended meanwhile.
+ * Close a run that is still `running`; what it staged is released. False when it ended
+ * meanwhile.
+ *
+ * Only a backup run can have succeeded: its snapshotId is the restore point it committed. A
+ * restore, restore check or boot test names the restore point it reads from the start, so
+ * without the node's result it failed ({@link PVE_RESULT_NEVER_REPORTED}); a boot test gets the
+ * outcome `error` (never a rating of the restore point), and the task of such a run is closed
+ * with it. A run stopped in the UI ends cancelled.
  */
 async function closeRun(
   deps: PveDeps,
-  run: { id: string; tenantId: string; snapshotId: string | null },
+  run: {
+    id: string;
+    tenantId: string;
+    kind: string;
+    snapshotId: string | null;
+    taskId: string | null;
+  },
   now: Date,
   message: string,
 ): Promise<boolean> {
+  const backup = run.kind === "backup";
+  const committed = backup && run.snapshotId !== null;
+  const error = backup ? message : PVE_RESULT_NEVER_REPORTED;
+  const cancelledOrFailed = sql<
+    "failed" | "cancelled"
+  >`CASE WHEN ${pveRuns.cancelRequestedAt} IS NOT NULL THEN 'cancelled' ELSE 'failed' END`;
   const staged = await withTenantTx(deps.db, run.tenantId, async (tx) => {
     const [updated] = await tx
       .update(pveRuns)
       .set({
-        // A run stopped in the UI ends cancelled, not failed.
-        status: run.snapshotId
-          ? "succeeded"
-          : sql<
-              "failed" | "cancelled"
-            >`CASE WHEN ${pveRuns.cancelRequestedAt} IS NOT NULL THEN 'cancelled' ELSE 'failed' END`,
+        status: committed ? "succeeded" : run.kind === "boot_test" ? "failed" : cancelledOrFailed,
         finishedAt: now,
-        errorMessage: run.snapshotId ? null : message,
+        errorMessage: committed ? null : error,
+        ...(run.kind === "boot_test"
+          ? {
+              // The same record as a boot test the node could not carry out (API boot-tests.ts).
+              stats: sql`${pveRuns.stats} || jsonb_build_object('bootTest', ${JSON.stringify({
+                outcome: "error",
+                reason: "node_error",
+                message: error,
+                checkedAt: now.toISOString(),
+                durationMs: 0,
+                bootSeconds: null,
+                guestAgent: false,
+                tempVmid: null,
+                storage: null,
+                cleanedUp: false,
+                runId: run.id,
+              })}::jsonb)`,
+            }
+          : {}),
       })
       .where(and(eq(pveRuns.id, run.id), eq(pveRuns.status, "running")))
       .returning({ id: pveRuns.id });
     if (!updated) {
       return null;
+    }
+    if (!backup && run.taskId) {
+      await tx
+        .update(pveTasks)
+        .set({
+          status: sql<
+            "failed" | "cancelled"
+          >`CASE WHEN ${pveTasks.cancelRequestedAt} IS NOT NULL THEN 'cancelled' ELSE 'failed' END`,
+          finishedAt: now,
+          errorMessage: error,
+        })
+        .where(
+          and(eq(pveTasks.id, run.taskId), inArray(pveTasks.status, ["pending", "delivered"])),
+        );
     }
     const rows = await tx
       .delete(pveRunBlocks)

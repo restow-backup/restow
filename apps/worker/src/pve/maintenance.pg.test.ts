@@ -507,6 +507,98 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     expect(chunk?.refcount).toBe(0);
   });
 
+  it("closes a restore, restore check or boot test that never reported failed, never succeeded, with its task (S02)", async () => {
+    const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    const nodeId = node?.id ?? "";
+    const snapshotId = await commit(40, [blockOf(4)], new Date(clock.getTime() - 4 * DAY));
+    const startedAt = new Date(clock.getTime() - 3 * DAY);
+    const open = async (kind: "restore" | "restore_test" | "boot_test" | "backup") => {
+      const [task] = await owner
+        .insert(pveTasks)
+        .values({
+          tenantId,
+          nodeId,
+          guestId,
+          kind: kind === "restore_test" ? "restore" : kind,
+          status: "delivered",
+          params: { snapshotId },
+          deliveredAt: startedAt,
+          expiresAt: new Date(startedAt.getTime() + DAY),
+        })
+        .returning();
+      const [run] = await owner
+        .insert(pveRuns)
+        .values({
+          tenantId,
+          clusterId,
+          guestId,
+          nodeId,
+          kind,
+          snapshotId,
+          taskId: task?.id ?? null,
+          startedAt,
+        })
+        .returning();
+      return { runId: run?.id ?? "", taskId: task?.id ?? "" };
+    };
+    const restore = await open("restore");
+    const check = await open("restore_test");
+    const boot = await open("boot_test");
+    // A backup that committed its restore point did succeed, whatever came after.
+    const backup = await open("backup");
+    expect(await closeStaleRuns(deps, clock)).toBe(4);
+    const row = async (id: string) =>
+      (await owner.select().from(pveRuns).where(eq(pveRuns.id, id)))[0];
+    const taskOf = async (id: string) =>
+      (await owner.select().from(pveTasks).where(eq(pveTasks.id, id)))[0];
+    const never = "The node never reported the result (restarted or unreachable).";
+    for (const { runId, taskId } of [restore, check, boot]) {
+      expect(await row(runId)).toMatchObject({ status: "failed", errorMessage: never });
+      expect(await taskOf(taskId)).toMatchObject({ status: "failed", errorMessage: never });
+    }
+    // A boot test gets the outcome "error": no rating of the restore point, never green.
+    expect((await row(boot.runId))?.stats.bootTest).toMatchObject({
+      outcome: "error",
+      reason: "node_error",
+      message: never,
+    });
+    const [snap] = await owner.select().from(pveSnapshots).where(eq(pveSnapshots.id, snapshotId));
+    expect(snap?.bootTest).toBeNull();
+    expect(await row(backup.runId)).toMatchObject({ status: "succeeded", errorMessage: null });
+    expect((await taskOf(backup.taskId))?.status).toBe("delivered");
+    // A restore stopped in the UI whose node stays silent ends cancelled.
+    const stopped = await open("restore");
+    await owner
+      .update(pveRuns)
+      .set({ cancelRequestedAt: new Date(clock.getTime() - DAY) })
+      .where(eq(pveRuns.id, stopped.runId));
+    await owner
+      .update(pveTasks)
+      .set({ cancelRequestedAt: new Date(clock.getTime() - DAY) })
+      .where(eq(pveTasks.id, stopped.taskId));
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: new Date(clock.getTime() - 2 * DAY) })
+      .where(eq(pveNodes.id, nodeId));
+    expect(await closeCancelledRunsOfSilentNodes(deps, clock)).toBe(1);
+    expect((await row(stopped.runId))?.status).toBe("cancelled");
+    expect((await taskOf(stopped.taskId))?.status).toBe("cancelled");
+    await owner.update(pveNodes).set({ lastSeenAt: clock }).where(eq(pveNodes.id, nodeId));
+    const ids = [restore, check, boot, backup, stopped];
+    await owner.delete(pveRuns).where(
+      inArray(
+        pveRuns.id,
+        ids.map((x) => x.runId),
+      ),
+    );
+    await owner.delete(pveTasks).where(
+      inArray(
+        pveTasks.id,
+        ids.map((x) => x.taskId),
+      ),
+    );
+  });
+
   it("closes a backup run its node no longer lists, after a grace, and only with a fresh list (#46)", async () => {
     const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
     const nodeId = node?.id ?? "";

@@ -1255,6 +1255,99 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     ).toBe(404);
   });
 
+  it("judges delivered tasks by the list the node holds: a queued backup never expires, a lost restore check fails (S02)", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    await fixture.db.delete(pveTasks).where(eq(pveTasks.guestId, vm?.id ?? ""));
+    const beat = async (heldTasks?: { current?: string; queued: string[] }) =>
+      json<{ tasks: { id: string }[]; cancel: { tasks: string[] } }>(
+        // A running node takes no new task, so only the expiry acts here.
+        await call(node, "/heartbeat", {
+          json: { helperVersion: "0.5.0", state: "running", ...(heldTasks ? { heldTasks } : {}) },
+        }),
+      );
+    const taskRow = async (id: string) =>
+      (await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, id)))[0];
+    const runOf = async (taskId: string) =>
+      (await fixture.db.select().from(pveRuns).where(eq(pveRuns.taskId, taskId)))[0];
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 60 * 60 * 1000);
+    // A backup that waits in the node's queue behind a long one, past its expiry (K86).
+    const backup = await queuedBackup();
+    await fixture.db
+      .update(pveTasks)
+      .set({ expiresAt: hoursAgo(1) })
+      .where(eq(pveTasks.id, backup));
+    const listed = await beat({ current: randomUUID(), queued: [backup] });
+    expect((await taskRow(backup))?.status).toBe("delivered");
+    expect(listed.cancel.tasks).not.toContain(backup);
+    const [facts] = await fixture.db
+      .select({ facts: pveNodes.facts })
+      .from(pveNodes)
+      .where(eq(pveNodes.id, node.nodeId));
+    expect(facts?.facts.heldTasks).toContain(backup);
+    // The node no longer lists it (it dropped it): it expires, and the node is told to drop it.
+    const gone = await beat({ queued: [] });
+    expect((await taskRow(backup))?.status).toBe("failed");
+    expect(gone.cancel.tasks).toContain(backup);
+    // A restore check the node was given, but which it no longer holds (restow-pve restarted).
+    const check = await service.restoreSnapshot(
+      shared.db,
+      fixture.tenantId,
+      first.snapshotId,
+      { targetStorage: "local-lvm", start: false },
+      actor(),
+      { restoreTest: true },
+    );
+    await fixture.db
+      .update(pveTasks)
+      .set({ status: "delivered", deliveredAt: new Date(Date.now() - 5 * 60 * 1000) })
+      .where(eq(pveTasks.id, check.taskId));
+    // Just delivered: it may still be on its way to the node.
+    await beat({ queued: [] });
+    expect((await taskRow(check.taskId))?.status).toBe("delivered");
+    // An older helper sends no list: nothing is judged by it.
+    await fixture.db
+      .update(pveTasks)
+      .set({ deliveredAt: hoursAgo(1) })
+      .where(eq(pveTasks.id, check.taskId));
+    await beat();
+    expect((await taskRow(check.taskId))?.status).toBe("delivered");
+    // Listed: it waits.
+    await beat({ queued: [check.taskId] });
+    expect((await taskRow(check.taskId))?.status).toBe("delivered");
+    const lost = await beat({ queued: [] });
+    expect(await taskRow(check.taskId)).toMatchObject({
+      status: "failed",
+      errorMessage: "The node no longer holds this task (restow-pve restarted).",
+    });
+    expect(await runOf(check.taskId)).toMatchObject({
+      kind: "restore_test",
+      status: "failed",
+      errorMessage: "The node no longer holds this task (restow-pve restarted).",
+    });
+    expect(lost.cancel.tasks).toContain(check.taskId);
+    // A restore the node never got (it was offline) expires; its run is only a placeholder.
+    const offline = await service.restoreSnapshot(
+      shared.db,
+      fixture.tenantId,
+      first.snapshotId,
+      { targetStorage: "local-lvm", start: false },
+      actor(),
+    );
+    await fixture.db
+      .update(pveTasks)
+      .set({ expiresAt: hoursAgo(1) })
+      .where(eq(pveTasks.id, offline.taskId));
+    const late = await beat();
+    expect((await taskRow(offline.taskId))?.status).toBe("failed");
+    expect(await runOf(offline.taskId)).toMatchObject({
+      kind: "restore",
+      status: "failed",
+      errorMessage: "The node did not run the task in time.",
+    });
+    // Never delivered: nothing to drop on the node.
+    expect(late.cancel.tasks).not.toContain(offline.taskId);
+  });
+
   it("finds the Restow server's own VM by its SMBIOS UUID and backs it up only when confirmed (C7)", async () => {
     const { resetOwnSmbiosUuid } = await import("./self-guest.js");
     const uuid = "7b0e3c5a-1d2f-4e6a-9b8c-0d1e2f3a4b5c";

@@ -57,9 +57,14 @@ export const pveEnrollFailures = new FailureTracker(20);
 export const DEFAULT_STORAGE_ID = "restow";
 
 const REDELIVER_AFTER_MS = 30 * 60 * 1000;
+/** A delivered task the node's list does not show yet may still be on its way to the node. */
+const HELD_TASKS_GRACE_MS = 10 * 60 * 1000;
+const TASK_EXPIRED = "The node did not run the task in time.";
+export const TASK_NO_LONGER_HELD = "The node no longer holds this task (restow-pve restarted).";
 const BOOT_TEST_UNSUPPORTED =
   "The node does not run boot tests (restow-pve too old, or boot tests switched off on the node).";
 const MAX_TASKS = 5;
+const MAX_CANCEL_ORDERS = 128;
 /** A node that has not called for this long is offline. */
 export const NODE_ONLINE_MS = 3 * 60 * 1000;
 
@@ -271,6 +276,7 @@ export interface HeartbeatInput {
   restoresAllowed: boolean;
   activeRuns?: string[];
   capabilities?: string[];
+  heldTasks?: { current?: string | null; queued: string[] };
 }
 
 /** Whether an update pauses new job starts (#46); unreadable counts as not paused. */
@@ -292,6 +298,15 @@ export async function nodeHeartbeat(
   // them on the first heartbeat after the pause.
   const pause = await startPause();
   const paused = pause.paused;
+  // The tasks the node holds (restow-pve from 0.5.0); null from an older helper.
+  const held = input.heldTasks
+    ? new Set(
+        [input.heldTasks.current, ...input.heldTasks.queued].filter((id): id is string =>
+          Boolean(id),
+        ),
+      )
+    : null;
+  const listed = held && held.size > 0 ? [...held] : null;
   const result = await withTenantTx(db, node.tenantId, async (tx) => {
     const [nodeRow] = await tx
       .update(pveNodes)
@@ -309,6 +324,7 @@ export async function nodeHeartbeat(
             : {}),
           // An older node sends none: it gets none of the newer task kinds.
           capabilities: (input.capabilities ?? []).slice(0, 32),
+          ...(held ? { heldTasks: [...held], heldTasksAt: now.toISOString() } : {}),
         },
         lastSeenAt: now,
       })
@@ -320,24 +336,52 @@ export async function nodeHeartbeat(
     // Tasks nobody picked up in time fail (one with a cancel request ends cancelled).
     const expired = await tx
       .update(pveTasks)
-      .set({
-        status: taskCancelledOrFailed(),
-        finishedAt: now,
-        errorMessage: "The node did not run the task in time.",
-      })
+      .set({ status: taskCancelledOrFailed(), finishedAt: now, errorMessage: TASK_EXPIRED })
       .where(
         and(
           eq(pveTasks.nodeId, node.nodeId),
           inArray(pveTasks.status, ["pending", "delivered"]),
           lt(pveTasks.expiresAt, now),
-          // A task the node is working on did run in time: its run ends it (or the worker
-          // closes a run its node no longer lists), never the expiry.
-          sql`NOT EXISTS (SELECT 1 FROM pve_runs r WHERE r.task_id = "pve_tasks"."id" AND r.status = 'running')`,
+          // A task the node lists is waiting in its queue or running: it is not late.
+          listed ? notInArray(pveTasks.id, listed) : undefined,
+          or(
+            // A restore, restore check or boot test the node never got: its run is only the
+            // placeholder created with the task.
+            and(eq(pveTasks.status, "pending"), ne(pveTasks.kind, "backup")),
+            // A task the node is working on did run in time: its run ends it (or the worker
+            // closes a run its node no longer lists), never the expiry.
+            sql`NOT EXISTS (SELECT 1 FROM pve_runs r WHERE r.task_id = "pve_tasks"."id" AND r.status = 'running')`,
+          ),
         ),
       )
       .returning();
     for (const task of expired) {
-      await finishFailedTaskRun(tx, task, "The node did not run the task in time.", now);
+      await finishFailedTaskRun(tx, task, TASK_EXPIRED, now);
+    }
+    // A restore, restore check or boot test the node was given but no longer holds is lost (the
+    // helper restarted, its queue is in memory): no result will come, so it fails now instead of
+    // after 48 hours. Backups are not judged by the list: their runs tell.
+    const lost = held
+      ? await tx
+          .update(pveTasks)
+          .set({
+            status: taskCancelledOrFailed(),
+            finishedAt: now,
+            errorMessage: TASK_NO_LONGER_HELD,
+          })
+          .where(
+            and(
+              eq(pveTasks.nodeId, node.nodeId),
+              eq(pveTasks.status, "delivered"),
+              ne(pveTasks.kind, "backup"),
+              lt(pveTasks.deliveredAt, new Date(now.getTime() - HELD_TASKS_GRACE_MS)),
+              listed ? notInArray(pveTasks.id, listed) : undefined,
+            ),
+          )
+          .returning()
+      : [];
+    for (const task of lost) {
+      await finishFailedTaskRun(tx, task, TASK_NO_LONGER_HELD, now);
     }
     // A boot test queued for a node that no longer announces them (an older helper after a
     // reinstall, or boot tests switched off on the node) fails instead of being delivered.
@@ -361,8 +405,14 @@ export async function nodeHeartbeat(
         await finishFailedTaskRun(tx, task, BOOT_TEST_UNSUPPORTED, now);
       }
     }
-    // What the node is to stop: delivered tasks and running backups with a cancel request.
-    const cancel = await cancelOrders(tx, node.nodeId);
+    // What the node is to stop: delivered tasks and running backups with a cancel request, and
+    // every delivered task the server just closed, so the node drops a copy it still queues.
+    const orders = await cancelOrders(tx, node.nodeId);
+    const closedHere = [...expired, ...lost].filter((t) => t.deliveredAt !== null).map((t) => t.id);
+    const cancel = {
+      ...orders,
+      tasks: [...new Set([...orders.tasks, ...closedHere])].slice(0, MAX_CANCEL_ORDERS),
+    };
     // A node that was busy did not take new work; the state tells. A paused queue hands out
     // no backup (the admin resumes it on the node's page).
     const queuePaused = nodeRow?.queuePausedAt != null;

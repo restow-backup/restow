@@ -66,6 +66,17 @@ export const heartbeatSchema = z.object({
    * ["boot_test"]); absent from older helpers, which then never get such a task.
    */
   capabilities: z.array(z.string().max(64)).max(32).optional(),
+  /**
+   * The tasks the node holds (docs/PVE-PROTOCOL.md, "Tasks the node holds"): the one it runs and
+   * the ones in its local queue, with those whose result it keeps to send again. Absent from
+   * older helpers, whose delivered tasks are then judged by their runs alone.
+   */
+  heldTasks: z
+    .object({
+      current: z.string().uuid().nullish(),
+      queued: z.array(z.string().uuid()).max(64).default([]),
+    })
+    .optional(),
 });
 
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

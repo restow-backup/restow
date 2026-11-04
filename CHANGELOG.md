@@ -253,6 +253,17 @@ private repository.
   restore task the server closed because it expired. The server took the restore point a
   restore reads for one a backup had committed. Such a run now ends failed with the node's
   error, or cancelled when it was stopped, and "Last backup" moves only for backups.
+- Proxmox VE: a restore, restore check or boot test whose result never came (restow-pve was
+  restarted while it ran or waited, or the node was offline) showed as succeeded after 48
+  hours, and until then it kept the guest's checks and the node's boot tests waiting. Such a
+  run now ends failed ("The node never reported the result"), a boot test with the outcome
+  "error", which rates nothing, and its task is closed with it. restow-pve from 0.5.0 reports
+  in every heartbeat which tasks it holds: a restore, restore check or boot test it no longer
+  holds fails within minutes instead of 48 hours, and a backup that waits in the node's queue
+  behind a long one no longer expires after 12 hours while it still runs later (a failed
+  backup, a false alert and a second backup the same night). A task the server closed this way
+  is withdrawn from the node. A restore or boot test that never reached the node now expires as
+  well.
 
 ### Upgrade Notes
 

@@ -107,7 +107,7 @@ except enrollment. Binary formats are defined in
 | --- | --- |
 | `POST /enroll/preflight` | `{token}` → `{expiresAt, pveTokenId, pveTokenSecret}`: the installer's check before it changes anything. 401 when the token is unknown, used, revoked or expired. `pveTokenId`/`pveTokenSecret` are the existing PVE API token an admin gave for this enrollment, else `null`. Does not use the token up. |
 | `POST /enroll` | `{token, clusterName, clusterFingerprint, nodeName, pveVersion, helperVersion, fleecingStorage}` → `{nodeId, nodeSecret, clusterId, storageId, createdCluster}` |
-| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update, cancel, queuePaused}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts, or the node's queue is paused (`queuePaused`, 0.4.2), the answer holds no backup task. Nodes with boot tests also send `capabilities` (below). Since 0.4.2: `update` is `{version, now}` (`now`: install it once idle, "Update now" or the fleet phase of an update), and `cancel` is `{tasks: [taskId], runs: [{id, vmid, taskId}]}`, what was stopped in the web app (see "Cancel orders"). |
+| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update, cancel, queuePaused}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts, or the node's queue is paused (`queuePaused`, 0.4.2), the answer holds no backup task. Nodes with boot tests also send `capabilities` (below); since 0.5.0 nodes send `heldTasks` (see "Tasks the node holds"). Since 0.4.2: `update` is `{version, now}` (`now`: install it once idle, "Update now" or the fleet phase of an update), and `cancel` is `{tasks: [taskId], runs: [{id, vmid, taskId}]}`, what was stopped in the web app (see "Cancel orders"). |
 | `POST /inventory` | `{guests: [...]}` of this node; since 0.4.2 a VM carries `smbiosUuid` (the `uuid` of its `smbios1`), which finds the Restow server's own VM (PVE.md) |
 | `POST /tasks/:id/result` | `{status: done\|failed, error, result}`; see "Task results" |
 | `GET /listing` | restore points of the cluster for the plugin |
@@ -229,6 +229,35 @@ The node (since 0.4.2) keeps a result the server could not take (unreachable, 5x
 in `/var/lib/restow-pve/pending-results.json` (at most 100) and sends the kept ones
 again before every heartbeat, oldest first; a refusal (4xx) ends the attempts. A
 task the server delivers again while its result is kept is not run a second time.
+
+### Tasks the node holds (0.5.0)
+
+restow-pve keeps its queue in memory: a task it was given and had not finished when it
+restarted is gone, and no result will come for it. From 0.5.0 every heartbeat carries
+`heldTasks: {current, queued}`, the id of the task it runs (or `null`) and the ids of the
+tasks in its local queue, with those whose result it keeps to send again (at most 64). The
+server keeps the list with its time in the node's facts (`heldTasks`, `heldTasksAt`) and,
+with that heartbeat,
+
+- never expires a delivered task the list names: a backup waiting behind a long one is not
+  late, however long it waits;
+- fails a delivered restore, restore check or boot test that the list does not name and that
+  was delivered more than ten minutes before, with "The node no longer holds this task
+  (restow-pve restarted)."; its run ends as below;
+- puts every delivered task it closed with this heartbeat (expired or lost) into
+  `cancel.tasks`, so a node that still queues a copy drops it instead of running it.
+
+Backups are not judged by the list; their runs tell (`activeRuns`). Without the field (a
+helper before 0.5.0) a delivered task expires only while no run of it is open, as before.
+A restore, restore check or boot test that was never delivered expires at `expiresAt`
+whatever its run says: that run was only created with the task.
+
+How the server ends a run whose result never came: a backup run succeeds when it committed
+its restore point, else fails. A restore or restore check run fails with "The node never
+reported the result (restarted or unreachable).", a boot test run gets the outcome `error`
+with that message (no rating of the restore point); their task is closed with them. A run
+stopped in the UI ends `cancelled`. Without a list this happens 48 hours after the run
+started.
 
 ### Progress and compatibility
 

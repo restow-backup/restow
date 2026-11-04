@@ -29,4 +29,20 @@ describe("runTone: green only for proof", () => {
   it("running work is informational", () => {
     expect(runTone(run({ status: "running" }))).toBe("info");
   });
+
+  it("a boot test is green only with its outcome; one closed without a result never is", () => {
+    expect(runTone(run({ kind: "boot_test", status: "succeeded" }))).toBe("muted");
+    expect(
+      runTone(
+        run({
+          kind: "boot_test",
+          status: "failed",
+          stats: { bootTest: { outcome: "error" } as never },
+        }),
+      ),
+    ).toBe("muted");
+    expect(
+      runTone(run({ kind: "boot_test", stats: { bootTest: { outcome: "green" } as never } })),
+    ).toBe("success");
+  });
 });

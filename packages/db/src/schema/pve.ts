@@ -117,6 +117,14 @@ export type PveNodeFacts = {
    * `boot_test`). The server hands a node only what it declared; an older node never gets one.
    */
   capabilities?: string[];
+  /**
+   * The tasks the node holds, as of `heldTasksAt`: the one it runs and the ones in its local
+   * queue (restow-pve from 0.5.0; absent from older helpers). A delivered task it lists never
+   * expires; a delivered restore, restore check or boot test it no longer lists has been lost
+   * (the helper restarted) and fails.
+   */
+  heldTasks?: string[];
+  heldTasksAt?: string;
 };
 
 /** A node with restow-pve. */

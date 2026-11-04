@@ -12,8 +12,13 @@ export function runTone(
   if (run.status === "running") {
     return "info";
   }
-  if (run.kind === "boot_test" && run.stats?.bootTest) {
-    return bootTestVariant(run.stats.bootTest.outcome);
+  if (run.kind === "boot_test") {
+    // Without an outcome nothing was proven (a run an older server closed as stale).
+    return run.stats?.bootTest
+      ? bootTestVariant(run.stats.bootTest.outcome)
+      : run.status === "failed"
+        ? "destructive"
+        : "muted";
   }
   if (run.status === "failed") {
     return "destructive";
