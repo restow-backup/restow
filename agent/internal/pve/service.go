@@ -80,6 +80,42 @@ type Service struct {
 	// pveVersion is the node's PVE version as the last heartbeat read it (s.mu; the worker reads
 	// it for vzdump's parameters).
 	pveVersion string
+	// cleanupPending: a temporary guest is left that a removal could not decide about or remove
+	// (s.mu); the worker tries again (retryCleanup).
+	cleanupPending bool
+}
+
+// cleanupRetry is when the worker tries a leftover temporary guest again: after Min, then
+// doubling up to Max, until nothing is left. Tests shorten it.
+var cleanupRetry = struct{ Min, Max time.Duration }{Min: time.Minute, Max: 30 * time.Minute}
+
+func (s *Service) setCleanupPending(v bool) {
+	s.mu.Lock()
+	s.cleanupPending = v
+	s.mu.Unlock()
+}
+
+func (s *Service) isCleanupPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cleanupPending
+}
+
+// retryCleanup runs the cleanup of temporary guests again, between tasks (never beside a boot
+// test or a restore, and not beside a self-update), and returns the wait before the next try.
+func (s *Service) retryCleanup(ctx context.Context, wait time.Duration) time.Duration {
+	s.updateMu.Lock()
+	done := s.bootTester().Cleanup(ctx)
+	s.updateMu.Unlock()
+	s.setCleanupPending(!done)
+	if done {
+		s.Logf("the leftover temporary guests are removed")
+		return cleanupRetry.Min
+	}
+	if wait *= 2; wait > cleanupRetry.Max {
+		wait = cleanupRetry.Max
+	}
+	return wait
 }
 
 func (s *Service) setPVEVersion(v string) {
@@ -217,8 +253,22 @@ func (s *Service) startedVzdump(id, upid string, vmid int) bool {
 
 // work runs the queued tasks one after another until ctx ends. It takes a task only while no
 // self-update runs (updateMu): an update that found the node idle restarts it before the next.
+// Between tasks it tries again to remove a temporary guest a removal had to leave (PVE did not
+// answer, its restore task could not be stopped, the destroy failed).
 func (s *Service) work(ctx context.Context) {
+	wait := cleanupRetry.Min
+	var retry <-chan time.Time
 	for {
+		if retry == nil && s.isCleanupPending() {
+			retry = time.After(wait)
+		}
+		select {
+		case <-retry:
+			retry = nil
+			wait = s.retryCleanup(ctx, wait)
+			continue
+		default:
+		}
 		s.mu.Lock()
 		s.lazyLocked()
 		waiting := len(s.queue) > 0
@@ -229,6 +279,9 @@ func (s *Service) work(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-wake:
+			case <-retry:
+				retry = nil
+				wait = s.retryCleanup(ctx, wait)
 			}
 			continue
 		}
@@ -244,6 +297,9 @@ func (s *Service) work(ctx context.Context) {
 		s.mu.Unlock()
 		if next != nil {
 			s.runTask(ctx, *next)
+			if (next.Kind == "boot_test" || next.Kind == "restore") && s.bootTester().leftovers() {
+				s.setCleanupPending(true)
+			}
 		}
 		s.updateMu.Unlock()
 	}
@@ -327,8 +383,12 @@ func (s *Service) Run(ctx context.Context) error {
 		s.BusyInterval = 15 * time.Second
 	}
 	// A boot test or restore check the last run of the service could not finish leaves a
-	// temporary guest; it goes also when boot tests or restores are switched off since.
-	s.bootTester().Cleanup(ctx)
+	// temporary guest; it goes also when boot tests or restores are switched off since. While
+	// PVE does not answer yet (the node boots, pveproxy restarts) nothing is decided: the worker
+	// tries again until it is gone.
+	if !s.bootTester().Cleanup(ctx) {
+		s.setCleanupPending(true)
+	}
 	// Backups and restores PVE went on with while the service was stopped are waited for again.
 	for _, e := range loadInflight(s.Layout) {
 		s.Logf("task %s (%s): waiting again for %s, which PVE started before restow-pve stopped", e.TaskID, e.Kind, e.UPID)

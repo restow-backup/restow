@@ -585,14 +585,23 @@ The monthly restore test of a backup job (`restoreTest`) and a boot test restore
   tag and the name of a temporary guest in `restow-restore`, or its marker's restore task still
   runs for it, or it has the creation time (a container: the name) the marker recorded. A guest
   in the pool without that proof is never touched (real restores land there too; a VMID may
-  have been given to another guest since): its marker is dropped and the log says why.
+  have been given to another guest since): its marker is dropped and the log says why. When
+  PVE cannot be asked (the node boots, pveproxy restarts, an API error), that proves nothing
+  either way: the guest is not touched, its marker stays, and the service tries again.
 - **Removal in every case.** Also after a failed restore, a restore with warnings, a wait that
-  ended or a cancelled test: a restore task that still runs is stopped first (and waited for),
-  then `qm|pct unlock`, `set --protection 0`, `stop`, and `qm destroy --purge 1
-  --destroy-unreferenced-disks 1 --skiplock 1` or `pct destroy --purge 1
-  --destroy-unreferenced-disks 1 --force 1`, as root. It counts only when the guest's
-  configuration is gone afterwards: a restore test then reports `deleted: true`, else `deleted:
-  false` with `leftoverVmid`, and the marker stays.
+  ended or a cancelled test: a restore task that still runs is stopped first (and waited for, at
+  most two minutes), then `qm|pct unlock`, `set --protection 0`, `stop`, and `qm destroy --purge
+  1 --destroy-unreferenced-disks 1 --skiplock 1` or `pct destroy --purge 1
+  --destroy-unreferenced-disks 1 --force 1`, as root. The node's token stops its own restore
+  tasks through the API; a restore task of root@pam (a VM restored as root with `qmrestore`)
+  needs `Sys.Modify`, which the token does not hold, so the node stops it as root with `pvesh
+  delete /nodes/<node>/tasks/<upid>`. While the task's state is unknown or it cannot be stopped,
+  nothing is destroyed under it: the guest stays and is tried again. A removal counts only when
+  the guest's configuration is gone afterwards: a restore test then reports `deleted: true`,
+  else `deleted: false` with `leftoverVmid`, and the marker stays.
+- **Tried again until gone.** Leftovers are removed when the service starts and before every
+  boot test; one that could not be decided or removed then is tried again between tasks, after
+  a minute and then less often (at most every 30 minutes), until it is gone.
 - **Not in the inventory.** The node leaves these guests out of the inventory it sends: those
   tagged and named so, and those in `restow-restore` with the tag, the name or a marker of the
   node (a restore still running). They are no guests of a job, never count as unprotected and

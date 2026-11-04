@@ -479,67 +479,114 @@ func (b *BootTester) gone(ctx context.Context, kind string, vmid int) (bool, err
 	return false, err
 }
 
+// ownership is what owned found out about a guest.
+type ownership int
+
+const (
+	// notOurs: proven not a temporary guest of this node (another node's guest, one without
+	// tag and name, the VMID given to another guest): left alone, its marker dropped.
+	notOurs ownership = iota
+	// ours: proven a temporary guest of this node; it is removed.
+	ours
+	// ownershipUnknown: PVE could not be asked (pveproxy restarts, the node boots, a timeout).
+	// That proves nothing either way: the guest is left alone and its marker kept, so the
+	// removal is tried again.
+	ownershipUnknown
+)
+
 // owned says whether the guest of the VMID is a temporary guest of this node (see the top of
 // this file), and why not.
-func (b *BootTester) owned(ctx context.Context, kind string, vmid int, m *tempMarker) (bool, string) {
+func (b *BootTester) owned(ctx context.Context, kind string, vmid int, m *tempMarker) (ownership, string) {
+	guests, err := b.PVE.Guests(ctx)
+	if err != nil {
+		return ownershipUnknown, "the guests of the cluster are unknown: " + err.Error()
+	}
 	var res *Resource
-	if guests, err := b.PVE.Guests(ctx); err == nil {
-		for i := range guests {
-			if guests[i].VMID == vmid {
-				res = &guests[i]
-			}
+	for i := range guests {
+		if guests[i].VMID == vmid {
+			res = &guests[i]
 		}
-	} else {
-		return false, "the guests of the cluster are unknown: " + err.Error()
 	}
 	if res != nil && res.Node != b.State.NodeName {
-		return false, "it runs on node " + res.Node
+		return notOurs, "it runs on node " + res.Node
 	}
-	if res != nil && res.Pool == BootTestPool {
-		if tempTagged(*res) {
-			return true, ""
-		}
+	if res != nil && res.Pool == BootTestPool && tempTagged(*res) {
+		return ours, ""
 	}
 	if m == nil {
-		return false, "it carries neither the tag nor the name of a temporary guest"
+		return notOurs, "it carries neither the tag nor the name of a temporary guest"
 	}
 	conf, err := b.PVE.GuestConfig(ctx, b.State.NodeName, kind, vmid)
 	if err != nil {
-		return false, "its configuration is unknown: " + err.Error()
+		return ownershipUnknown, "its configuration is unknown: " + err.Error()
 	}
 	if strings.TrimSpace(fmt.Sprint(conf["lock"])) == "create" {
 		// A restore creates it (or one that failed left it): ours when that is the restore
 		// task the marker names, and no other restore runs for the VMID.
-		upid := m.UPID
-		if upid == "" {
-			upid = b.recoverRestoreTask(ctx, vmid, m)
-		}
-		if upid != "" && strings.Contains(upid, ":"+strconv.Itoa(vmid)+":") {
-			if st, err := b.PVE.TaskStatus(ctx, b.State.NodeName, upid); err == nil &&
-				(st.Status == "running" || b.recoverRestoreTask(ctx, vmid, m) == "") {
-				return true, ""
-			}
-		}
-		return false, "a restore that is not ours creates it"
+		return b.ownedWhileCreated(ctx, vmid, m)
 	}
 	if res == nil || res.Pool != BootTestPool {
-		return false, "it is not in the pool " + BootTestPool
+		return notOurs, "it is not in the pool " + BootTestPool
 	}
 	if m.CTime != 0 && metaCTime(conf) == m.CTime {
-		return true, ""
+		return ours, ""
 	}
 	if kind == "ct" && m.Name != "" && strings.TrimSpace(fmt.Sprint(conf["hostname"])) == m.Name {
-		return true, ""
+		return ours, ""
 	}
-	return false, "nothing proves it is the guest the marker recorded (the VMID may have been given to another guest since)"
+	return notOurs, "nothing proves it is the guest the marker recorded (the VMID may have been given to another guest since)"
+}
+
+// ownedWhileCreated decides about a guest a restore creates (lock: create): ours when the
+// marker's restore task runs for it, or that task ended and no other restore runs for the VMID.
+func (b *BootTester) ownedWhileCreated(ctx context.Context, vmid int, m *tempMarker) (ownership, string) {
+	id := strconv.Itoa(vmid)
+	upid := m.UPID
+	if upid == "" {
+		var err error
+		if upid, err = b.recoverRestoreTask(ctx, vmid, m); err != nil {
+			return ownershipUnknown, "the running tasks of the node are unknown: " + err.Error()
+		}
+	}
+	running := false
+	switch {
+	case upid == cliUPIDPrefix+id:
+		// qmrestore as root, whose PVE task was not found: the command has ended.
+	case upid != "" && strings.Contains(upid, ":"+id+":"):
+		st, err := b.PVE.TaskStatus(ctx, b.State.NodeName, upid)
+		if err != nil && !noSuchTask(err) {
+			return ownershipUnknown, "the state of its restore task is unknown: " + err.Error()
+		}
+		running = err == nil && st.Status == "running"
+	default:
+		return notOurs, "a restore that is not ours creates it"
+	}
+	if running {
+		return ours, ""
+	}
+	other, err := b.recoverRestoreTask(ctx, vmid, m)
+	if err != nil {
+		return ownershipUnknown, "the running tasks of the node are unknown: " + err.Error()
+	}
+	if other == "" || other == upid {
+		return ours, ""
+	}
+	return notOurs, "a restore that is not ours creates it"
+}
+
+// noSuchTask says whether PVE does not know the task at all (no task log: it never ran here).
+func noSuchTask(err error) bool {
+	var pe *PVEAPIError
+	return errors.As(err, &pe) && strings.Contains(pe.Message, "no such task")
 }
 
 // recoverRestoreTask finds the restore task a refused or timed-out restore call may have started
 // all the same: one running for the VMID, started by this node's token or root since the marker.
-func (b *BootTester) recoverRestoreTask(ctx context.Context, vmid int, m *tempMarker) string {
+// An error means the running tasks are unknown.
+func (b *BootTester) recoverRestoreTask(ctx context.Context, vmid int, m *tempMarker) (string, error) {
 	tasks, err := b.PVE.ActiveTasks(ctx, b.State.NodeName, "")
 	if err != nil {
-		return ""
+		return "", err
 	}
 	since, _ := time.Parse(time.RFC3339, m.StartedAt)
 	for _, t := range tasks {
@@ -549,9 +596,9 @@ func (b *BootTester) recoverRestoreTask(ctx context.Context, vmid int, m *tempMa
 		if started, ok := upidStart(t.UPID); ok && !since.IsZero() && started.Before(since.Add(-time.Minute)) {
 			continue
 		}
-		return t.UPID
+		return t.UPID, nil
 	}
-	return ""
+	return "", nil
 }
 
 // upidStart is the start time in a UPID (UPID:node:pid:pstart:starttime:type:id:user:).
@@ -568,16 +615,22 @@ func upidStart(upid string) (time.Time, bool) {
 }
 
 // removeTemp removes a temporary guest once it is proven ours; true when it is gone. A guest
-// that is not proven ours is left alone and its marker dropped (the marker no longer names it).
+// proven not ours is left alone and its marker dropped (the marker no longer names it). When
+// that cannot be decided (PVE does not answer) or its restore task cannot be stopped, the guest
+// is left alone and the marker kept: the removal is tried again (Cleanup).
 func (b *BootTester) removeTemp(ctx context.Context, kind string, vmid int) bool {
 	m := b.readMarker(vmid)
 	if g, err := b.gone(ctx, kind, vmid); err == nil && g {
 		b.dropMarker(vmid)
 		return true
 	}
-	if ok, why := b.owned(ctx, kind, vmid, m); !ok {
+	switch own, why := b.owned(ctx, kind, vmid, m); own {
+	case notOurs:
 		b.logf("guest %d is not removed: %s", vmid, why)
 		b.dropMarker(vmid)
+		return false
+	case ownershipUnknown:
+		b.logf("guest %d is not removed now: %s; the removal is tried again", vmid, why)
 		return false
 	}
 	id := strconv.Itoa(vmid)
@@ -586,11 +639,18 @@ func (b *BootTester) removeTemp(ctx context.Context, kind string, vmid int) bool
 	if m != nil {
 		upid = m.UPID
 		if upid == "" {
-			upid = b.recoverRestoreTask(ctx, vmid, m)
+			var err error
+			if upid, err = b.recoverRestoreTask(ctx, vmid, m); err != nil {
+				b.logf("guest %d is not removed now: the running tasks of the node are unknown: %v; the removal is tried again", vmid, err)
+				return false
+			}
 		}
 	}
-	if upid != "" {
-		b.stopTask(ctx, upid)
+	if upid != "" && !b.stopTask(ctx, upid) {
+		// Destroying the guest under a running restore races with it: the restore may write on
+		// or leave a half-made guest and volumes behind.
+		b.logf("guest %d is not removed now: its restore task %s may still run; the removal is tried again", vmid, upid)
+		return false
 	}
 	if _, err := b.command(ctx, cli, "unlock", id); err != nil {
 		b.logf("unlock: %v", err)
@@ -611,7 +671,7 @@ func (b *BootTester) removeTemp(ctx context.Context, kind string, vmid int) bool
 		b.logf("destroy: %v", err)
 	}
 	if g, err := b.gone(ctx, kind, vmid); err != nil || !g {
-		b.logf("the temporary guest %d is still there; it is removed on the next start of the service", vmid)
+		b.logf("the temporary guest %d is still there; the removal is tried again", vmid)
 		return false
 	}
 	b.dropMarker(vmid)
@@ -620,27 +680,77 @@ func (b *BootTester) removeTemp(ctx context.Context, kind string, vmid int) bool
 }
 
 // stopTask stops a restore task that still runs and waits (at most two minutes) until PVE says
-// it stopped: removing the guest under a running restore would race with it.
-func (b *BootTester) stopTask(ctx context.Context, upid string) {
+// it stopped. True only when the task is known not to run (any more): it ended, PVE never ran
+// it, or its qmrestore command has ended. False when its state is unknown, the stop was refused
+// or the task still runs: the caller then leaves the guest alone.
+func (b *BootTester) stopTask(ctx context.Context, upid string) bool {
+	if strings.HasPrefix(upid, cliUPIDPrefix) {
+		// Recorded only once qmrestore returned (startRootRestore); a stop of the service ends
+		// the command with the service's processes.
+		return true
+	}
 	st, err := b.PVE.TaskStatus(ctx, b.State.NodeName, upid)
-	if err != nil || st.Status != "running" {
-		return
+	if err != nil {
+		if noSuchTask(err) {
+			return true
+		}
+		b.logf("the state of the restore task %s is unknown: %v", upid, err)
+		return false
+	}
+	if st.Status != "running" {
+		return true
 	}
 	b.logf("stopping the restore task %s", upid)
-	if err := b.PVE.StopTask(ctx, b.State.NodeName, upid); err != nil {
+	if err := b.stopPVETask(ctx, upid); err != nil {
 		b.logf("stopping %s: %v", upid, err)
+		return false
 	}
 	deadline := b.now().Add(2 * time.Minute)
-	for b.now().Before(deadline) {
-		if st, err := b.PVE.TaskStatus(ctx, b.State.NodeName, upid); err == nil && st.Status == "stopped" {
-			return
+	for {
+		if st, err := b.PVE.TaskStatus(ctx, b.State.NodeName, upid); err == nil && st.Status != "running" {
+			return true
+		}
+		if !b.now().Before(deadline) {
+			b.logf("the restore task %s still runs two minutes after it was stopped", upid)
+			return false
 		}
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-time.After(b.poll()):
 		}
 	}
+}
+
+// stopPVETask asks PVE to stop a task (DELETE /nodes/{node}/tasks/{upid}). The node's token may
+// stop its own tasks only: a task of root@pam (a VM the node restored as root with qmrestore)
+// needs Sys.Modify, which the token does not hold, so PVE refuses with 403. Such a task, and one
+// the API could not stop, is stopped as root through pvesh (the same call, run as root@pam on
+// this node, also while pveproxy does not answer).
+func (b *BootTester) stopPVETask(ctx context.Context, upid string) error {
+	var apiErr error
+	if upidUser(upid) != "root@pam" {
+		if apiErr = b.PVE.StopTask(ctx, b.State.NodeName, upid); apiErr == nil {
+			return nil
+		}
+	}
+	if _, err := b.command(ctx, "pvesh", "delete", "/nodes/"+b.State.NodeName+"/tasks/"+upid); err != nil {
+		if apiErr != nil {
+			return fmt.Errorf("%v; as root: %w", apiErr, err)
+		}
+		return fmt.Errorf("as root: %w", err)
+	}
+	return nil
+}
+
+// upidUser is the user in a UPID (UPID:node:pid:pstart:starttime:type:id:user:), "" when the
+// UPID cannot be read.
+func upidUser(upid string) string {
+	parts := strings.Split(upid, ":")
+	if len(parts) < 8 || parts[0] != "UPID" {
+		return ""
+	}
+	return parts[7]
 }
 
 // cleanupContext is the context a removal runs in: it goes on when the task's own context ends
@@ -656,7 +766,9 @@ func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // Cleanup removes what earlier boot tests and restore checks left behind: the guests of the
 // markers, and every guest of this node in the restore pool that carries the tag and the name
 // of a temporary guest. A guest a recorded task still waits for (inflight.json) is left to it.
-func (b *BootTester) Cleanup(ctx context.Context) {
+// True when nothing is left to try again: no marker outside those tasks remains and the
+// cluster's guests could be listed (the service tries again while it is false).
+func (b *BootTester) Cleanup(ctx context.Context) bool {
 	skip := inflightVMIDs(b.Layout)
 	for _, m := range b.markers() {
 		if skip[m.VMID] {
@@ -669,8 +781,11 @@ func (b *BootTester) Cleanup(ctx context.Context) {
 	}
 	guests, err := b.PVE.Guests(ctx)
 	if err != nil {
-		return
+		b.logf("leftover temporary guests: the guests of the cluster are unknown: %v; tried again", err)
+		return false
 	}
+	// A tagged guest of this node in the pool is ours (owned): one that stays is tried again.
+	done := true
 	for _, g := range guests {
 		if g.Node != b.State.NodeName || g.Pool != BootTestPool || skip[g.VMID] {
 			continue
@@ -683,8 +798,22 @@ func (b *BootTester) Cleanup(ctx context.Context) {
 			kind = "ct"
 		}
 		b.logf("removing the leftover temporary guest %d (%s)", g.VMID, g.Name)
-		b.removeTemp(ctx, kind, g.VMID)
+		if !b.removeTemp(ctx, kind, g.VMID) {
+			done = false
+		}
 	}
+	return done && !b.leftovers()
+}
+
+// leftovers says whether a marker of a temporary guest remains that no recorded task waits for.
+func (b *BootTester) leftovers() bool {
+	skip := inflightVMIDs(b.Layout)
+	for id := range b.markedVMIDs() {
+		if !skip[id] {
+			return true
+		}
+	}
+	return false
 }
 
 // tempTagged: the guest carries the tag and the name of a temporary guest of one purpose.

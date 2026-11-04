@@ -81,7 +81,14 @@ type fakeNode struct {
 	ctime          int64
 	rootTasks      []NodeTask // the tasks of root's qmrestore
 	nextUPID       int
-	refusedRoot    bool  // the token's restore was refused a key only root@pam may restore
+	refusedRoot    bool // the token's restore was refused a key only root@pam may restore
+	// guestsErr: the cluster's guest list fails (pveproxy restarts, the node boots);
+	// activeTasksErr: the node's running tasks cannot be listed; pveshFails: root's pvesh
+	// cannot reach the cluster file system; stoppedBy: who stopped each task (token, root).
+	guestsErr      error
+	activeTasksErr error
+	pveshFails     bool
+	stoppedBy      []string
 	probed         []int // the VMIDs VMIDFree was asked about
 }
 
@@ -99,6 +106,17 @@ func (f *fakeNode) Run(ctx context.Context, name string, args ...string) (string
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.commands = append(f.commands, name+" "+strings.Join(args, " "))
+	if name == "pvesh" {
+		// pvesh delete /nodes/<node>/tasks/<upid>: root stops any task.
+		if len(args) != 2 || args[0] != "delete" || !strings.HasPrefix(args[1], "/nodes/"+f.name+"/tasks/") {
+			return "", fmt.Errorf("unknown pvesh call %v", args)
+		}
+		if f.pveshFails {
+			return "", errors.New("pvesh delete: exit status 255: ipcc_send_rec[1] failed: Connection refused")
+		}
+		f.stopLocked(strings.TrimPrefix(args[1], "/nodes/"+f.name+"/tasks/"), "root")
+		return "", nil
+	}
 	if name == "lxc-info" {
 		// lxc-info -n <id> -p -H
 		id, _ := strconv.Atoi(args[1])
@@ -431,15 +449,27 @@ func (f *fakeNode) TaskStatus(_ context.Context, _, upid string) (TaskStatus, er
 		}
 		return TaskStatus{Status: "stopped", ExitStatus: f.restoreExit}, nil
 	}
-	return TaskStatus{}, &PVEAPIError{Status: 404, Message: "no such task"}
+	// PVE answers a UPID without a task log so (raise_param_exc in read_task_status).
+	return TaskStatus{}, &PVEAPIError{Status: 400, Message: "400 Parameter verification failed.; upid: no such task"}
 }
 
-// StopTask stops a restore task: PVE removes the guest it was creating.
+// StopTask stops a restore task through the API as the node's token: PVE removes the guest it
+// was creating. Another user's task (root@pam's qmrestore) needs Sys.Modify: refused.
 func (f *fakeNode) StopTask(_ context.Context, _, upid string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.commands = append(f.commands, "stoptask "+upid)
+	if upidUser(upid) == "root@pam" {
+		return &PVEAPIError{Status: 403, Message: "403 Permission check failed (/nodes/pve1, Sys.Modify)"}
+	}
+	f.stopLocked(upid, "token")
+	return nil
+}
+
+// stopLocked stops a task; f.mu is held.
+func (f *fakeNode) stopLocked(upid, by string) {
 	f.stoppedTasks = append(f.stoppedTasks, upid)
+	f.stoppedBy = append(f.stoppedBy, by)
 	if f.tasks[upid] == "running" {
 		f.tasks[upid] = "stopped"
 		for id, g := range f.guests {
@@ -448,7 +478,6 @@ func (f *fakeNode) StopTask(_ context.Context, _, upid string) error {
 			}
 		}
 	}
-	return nil
 }
 
 func (f *fakeNode) TaskLogTail(context.Context, string, string, int) (string, error) {
@@ -477,6 +506,9 @@ func (f *fakeNode) Storages(context.Context, string) ([]Storage, error) { return
 func (f *fakeNode) Guests(context.Context) ([]Resource, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.guestsErr != nil {
+		return nil, f.guestsErr
+	}
 	var out []Resource
 	for id, g := range f.guests {
 		typ := "qemu"
@@ -490,6 +522,9 @@ func (f *fakeNode) Guests(context.Context) ([]Resource, error) {
 }
 
 func (f *fakeNode) ActiveTasks(context.Context, string, string) ([]NodeTask, error) {
+	if f.activeTasksErr != nil {
+		return nil, f.activeTasksErr
+	}
 	if f.vzdumpRunning {
 		return []NodeTask{{Type: "vzdump", Status: "running"}}, nil
 	}

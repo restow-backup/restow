@@ -303,7 +303,12 @@ private repository.
   running restore task, or the creation time the marker recorded), with a running restore task
   stopped first, the lock and the protection cleared, and the removal counted only when the
   guest is gone (`deleted: false` with `leftoverVmid` otherwise). Leftovers go when the service
-  starts, also with boot tests or restores switched off. A VMID that another restore got at the
+  starts, also with boot tests or restores switched off. When PVE cannot be asked (the node
+  boots and pveproxy is not up yet, pveproxy restarts), the marker stays and the service tries
+  again between tasks until the guest is gone, instead of forgetting a guest it could not yet
+  prove its own. A restore task of root@pam (a VM restored as root) is stopped as root with
+  `pvesh`, which the node's token may not do, and nothing is destroyed while the restore may
+  still run. A VMID that another restore got at the
   same moment is asked for again instead of failing, and a boot test whose restore PVE never ran
   ends with an error, never red. DELETE parameters go into the query string.
 - Proxmox VE: a restore into a new guest of a container with a bind or device mount point still

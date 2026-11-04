@@ -85,8 +85,8 @@ func TestAPlainVMIsRestoredByTheToken(t *testing.T) {
 }
 
 // The boot test of such a VM: restored as root, the devices removed before the start, green.
-// When its wait ends while the restore runs, root's restore task is stopped before the guest
-// is removed.
+// When its wait ends while the restore runs, root's restore task is stopped (as root) before the
+// guest is removed.
 func TestABootTestOfAVMWithPassthrough(t *testing.T) {
 	f := newFakeNode()
 	f.restoreConfig = parseConfigText(passthroughVMConfig)
@@ -111,8 +111,9 @@ func TestABootTestOfAVMWithPassthrough(t *testing.T) {
 	if err == nil || res.Outcome != "" || !res.CleanedUp || len(f.guests) != 0 {
 		t.Fatalf("%+v %v, guests %v", res, err, f.guests)
 	}
-	if len(f.stoppedTasks) != 1 || !strings.Contains(f.stoppedTasks[0], ":qmrestore:9001:root@pam:") {
-		t.Fatalf("stopped %v", f.stoppedTasks)
+	// The token may not stop root's task (Sys.Modify): root stops it through pvesh.
+	if len(f.stoppedTasks) != 1 || !strings.Contains(f.stoppedTasks[0], ":qmrestore:9001:root@pam:") || f.stoppedBy[0] != "root" {
+		t.Fatalf("stopped %v by %v", f.stoppedTasks, f.stoppedBy)
 	}
 }
 
