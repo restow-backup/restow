@@ -33,7 +33,11 @@ export class FakeImapAccount implements ImapRestoreSession {
   private readonly boxes = new Map<string, FakeMailbox>();
   private nextUid = 1;
   closed = false;
-  /** When set, the server stores (and returns) different bytes than it was given. */
+  /**
+   * When set, the server stores (and returns) different bytes than it was
+   * given, as a server that re-renders what it stores (Exchange over IMAP)
+   * does; {@link rerenderHeaders} is such a function.
+   */
   mangle: ((content: Buffer) => Buffer) | null = null;
   /** When set, APPEND to this mailbox is refused. */
   refuseAppendTo: string | null = null;
@@ -106,6 +110,23 @@ export class FakeImapAccount implements ImapRestoreSession {
       .map((message) => message.uid);
   }
 
+  async findSimilar(
+    mailbox: string,
+    message: { readonly internalDate: Date | undefined; readonly size: number },
+  ): Promise<number[]> {
+    // SEARCH ON <day of the internal date> LARGER size-1 SMALLER size+1
+    this.commands.push(`SEARCH ${mailbox} similar ${message.size}`);
+    this.assertConnected();
+    const day = message.internalDate?.toISOString().slice(0, 10);
+    return this.box(mailbox)
+      .messages.filter(
+        (stored) =>
+          stored.content.length === message.size &&
+          (day === undefined || stored.internalDate?.toISOString().slice(0, 10) === day),
+      )
+      .map((stored) => stored.uid);
+  }
+
   async deleteMessages(mailbox: string, uids: readonly number[]): Promise<void> {
     this.commands.push(`DELETE ${mailbox} ${uids.join(",")}`);
     const doomed = new Set(uids);
@@ -148,6 +169,19 @@ export class FakeImapAccount implements ImapRestoreSession {
       throw new Error("Connection not available");
     }
   }
+}
+
+/** Re-render a message as Exchange over IMAP does: new header order and a server header, same Message-ID. */
+export function rerenderHeaders(content: Buffer): Buffer {
+  const text = content.toString("utf8");
+  const split = text.indexOf("\r\n\r\n");
+  const head = split === -1 ? text : text.slice(0, split);
+  const body = split === -1 ? "" : text.slice(split);
+  const lines = head.split("\r\n").reverse();
+  return Buffer.from(
+    [`X-MS-Exchange-Organization-Network-Message-Id: ${lines.length}`, ...lines].join("\r\n") +
+      body,
+  );
 }
 
 function headerMessageId(content: Buffer): string | undefined {

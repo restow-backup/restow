@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RestoreTarget } from "../engine/types.js";
 import { must } from "../graph/testing/fake-graph.js";
 import { appendableFlags, ImapRestoreEngine, targetMailboxComponents } from "./imap.js";
-import { FakeImapAccount } from "./testing/fake-imap.js";
+import { FakeImapAccount, rerenderHeaders } from "./testing/fake-imap.js";
 import {
   corruptStoredObject,
   createSnapshotFixture,
@@ -173,10 +173,25 @@ describe("ImapRestoreEngine", () => {
     expect(target.messages(`${RESTORE_FOLDER}.Sent.2025`)).toHaveLength(1);
     expect(target.messages("INBOX")).toHaveLength(0);
 
+    // The job's own record says what the first attempt restored.
+    const appends = target.commands.filter((command) => command.startsWith("APPEND")).length;
     const retry = await engineFor(target).run(fixture.ctx, request);
-    expect(retry.restored).toBe(0);
-    expect(retry.skipped).toBe(4);
-    expect(retry.items.find((item) => item.status === "skipped")?.reason).toMatch(
+    expect(retry.restored).toBe(4);
+    expect(retry.skipped).toBe(0);
+    expect(
+      retry.items
+        .filter((item) => item.type !== "folder")
+        .every((item) => item.reason === "restored by an earlier attempt of this job"),
+    ).toBe(true);
+    expect(target.commands.filter((command) => command.startsWith("APPEND"))).toHaveLength(appends);
+
+    // Without the record (an attempt that ended before it was saved) the
+    // Message-ID check of the restore mailbox finds the same work.
+    await fixture.ctx.cursor.clear();
+    const unrecorded = await engineFor(target).run(fixture.ctx, request);
+    expect(unrecorded.restored).toBe(0);
+    expect(unrecorded.skipped).toBe(4);
+    expect(unrecorded.items.find((item) => item.status === "skipped")?.reason).toMatch(
       /job was retried/,
     );
   });
@@ -192,6 +207,13 @@ describe("ImapRestoreEngine", () => {
     const request = restoreRequestFor(fixture, { mode: "replace" });
 
     await engineFor(target).run(fixture.ctx, request);
+    const recorded = await engineFor(target).run(fixture.ctx, request);
+    expect(
+      recorded.items
+        .filter((item) => item.type !== "folder")
+        .every((item) => item.reason?.includes('ran as "rename" instead')),
+    ).toBe(true);
+    await fixture.ctx.cursor.clear();
     const retry = await engineFor(target).run(fixture.ctx, request);
 
     expect(retry.restored).toBe(0);
@@ -219,6 +241,7 @@ describe("ImapRestoreEngine", () => {
 
     await engineFor(target).run(fixture.ctx, request);
     clock = new Date(NOW.getTime() + 7 * 60_000);
+    await fixture.ctx.cursor.clear();
     const retry = await engineFor(target).run(fixture.ctx, request);
 
     expect(retry.restored).toBe(0);
@@ -397,14 +420,95 @@ describe("ImapRestoreEngine", () => {
     const mailbox = `${RESTORE_FOLDER}.INBOX`;
     expect(target.messages(mailbox)).toHaveLength(1);
 
-    // The retry runs on a fresh connection and skips what the first attempt appended.
+    // The retry runs on a fresh connection and knows what the first attempt appended.
     target.connectionLost = false;
     target.dropAfterAppends = null;
     const report = await engineFor(target).run(fixture.ctx, request);
     expect(report.failures).toEqual([]);
-    expect(report.restored).toBe(2);
-    expect(report.skipped).toBe(1);
+    expect(report.restored).toBe(3);
+    expect(report.skipped).toBe(0);
+    expect(
+      report.items.filter((i) => i.reason === "restored by an earlier attempt of this job"),
+    ).toHaveLength(1);
     expect(target.messages(mailbox)).toHaveLength(3);
+  });
+
+  it("restores exactly once into a server that re-renders what it stores, with or without the job's record", async () => {
+    const ten = Array.from({ length: 10 }, (_, i) =>
+      message("INBOX", `mail/INBOX/${i + 1}.eml`, i + 1),
+    );
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna",
+      now: () => NOW,
+      objects: ten,
+    });
+    const mailbox = `${RESTORE_FOLDER}.INBOX`;
+    for (const keepRecord of [true, false]) {
+      const target = new FakeImapAccount({ delimiter: "." });
+      target.mangle = rerenderHeaders;
+      target.dropAfterAppends = 5;
+      const request = restoreRequestFor(fixture, { mode: "rename" });
+      await expect(engineFor(target).run(fixture.ctx, request)).rejects.toThrow(
+        /connection was lost/,
+      );
+      expect(target.messages(mailbox)).toHaveLength(5);
+      if (!keepRecord) {
+        // An attempt that ended before its record was saved.
+        await fixture.ctx.cursor.clear();
+      }
+
+      target.connectionLost = false;
+      target.dropAfterAppends = null;
+      const retry = await engineFor(target).run(fixture.ctx, request);
+
+      expect(retry.failures, String(keepRecord)).toEqual([]);
+      expect(target.messages(mailbox), String(keepRecord)).toHaveLength(10);
+      expect(retry.restored + retry.skipped, String(keepRecord)).toBe(10);
+      if (!keepRecord) {
+        expect(retry.items.filter((item) => item.status === "skipped")).toHaveLength(5);
+        expect(retry.items.find((item) => item.status === "skipped")?.reason).toMatch(
+          /server re-rendered the message/,
+        );
+      }
+    }
+  });
+
+  it("does not append a message without Message-ID again when the job is retried", async () => {
+    const plain = (uid: number): FixtureObject => {
+      const base = message("INBOX", `mail/INBOX/${uid}.eml`, uid);
+      const { messageId: _id, ...metadata } = base.metadata ?? {};
+      return {
+        ...base,
+        content: `Subject: Scan ${uid}\r\nDate: Thu, 15 Jan 2026 10:30:00 +0000\r\n\r\npage ${uid}\r\n`,
+        metadata,
+      };
+    };
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna",
+      now: () => NOW,
+      objects: [plain(1), plain(2), plain(3)],
+    });
+    const target = new FakeImapAccount({ delimiter: "." });
+    target.dropAfterAppends = 2;
+    const request = restoreRequestFor(fixture, { mode: "rename" });
+    await expect(engineFor(target).run(fixture.ctx, request)).rejects.toThrow(
+      /connection was lost/,
+    );
+    // The attempt ended before its record was saved.
+    await fixture.ctx.cursor.save({ restoreProgress: { job: request.restoreJobId, items: {} } });
+
+    target.connectionLost = false;
+    target.dropAfterAppends = null;
+    const retry = await engineFor(target).run(fixture.ctx, request);
+
+    const mailbox = `${RESTORE_FOLDER}.INBOX`;
+    expect(target.messages(mailbox)).toHaveLength(3);
+    expect(retry.restored).toBe(3);
+    expect(
+      retry.items.filter((item) => item.reason?.includes("found by its content")),
+    ).toHaveLength(2);
   });
 
   it("logs out when the job is cancelled mid-restore", async () => {
@@ -573,6 +677,7 @@ describe("ImapRestoreEngine with two backed-up messages sharing a Message-ID", (
     // Both were restored by the earlier attempt: nothing is written again.
     const target = new FakeImapAccount({ delimiter: "." });
     await engineFor(target).run(fixture.ctx, request);
+    await fixture.ctx.cursor.clear();
     const retry = await engineFor(target).run(fixture.ctx, request);
     expect(retry.skipped).toBe(2);
     for (const skipped of retry.items) {
@@ -583,6 +688,7 @@ describe("ImapRestoreEngine with two backed-up messages sharing a Message-ID", (
     expect(contents(target, mailbox)).toEqual([direct, listCopy]);
 
     // The earlier attempt restored only the list copy: the direct one follows now.
+    await fixture.ctx.cursor.clear();
     const partial = new FakeImapAccount({ delimiter: "." });
     await partial.ensureMailbox(mailbox);
     const earlier = partial.seed(mailbox, listCopy);

@@ -47,6 +47,7 @@ import {
 } from "./common.js";
 import { imapFlagsOf, imapInternalDateOf } from "./conventions.js";
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
+import { RESTORED_BY_EARLIER_ATTEMPT, RestoreProgress } from "./progress.js";
 import {
   describeRestoreError,
   failureCodeOf,
@@ -79,6 +80,15 @@ export interface ImapRestoreSession {
   ensureMailbox(path: string): Promise<string>;
   /** UIDs of messages in `mailbox` whose Message-ID header equals `messageId`. */
   findByMessageId(mailbox: string, messageId: string): Promise<number[]>;
+  /**
+   * UIDs of messages in `mailbox` that may be `message` (same internal date
+   * day and size), for a message without Message-ID on a retried job; the
+   * caller compares SHA-256. Sessions that cannot search omit it.
+   */
+  findSimilar?(
+    mailbox: string,
+    message: { readonly internalDate: Date | undefined; readonly size: number },
+  ): Promise<number[]>;
   /** APPEND one message; the UID is known when the server supports UIDPLUS. */
   append(
     mailbox: string,
@@ -216,6 +226,7 @@ export class ImapRestoreEngine implements RestoreEngine {
       mode,
     });
 
+    const progress = await RestoreProgress.open(ctx.cursor, request.restoreJobId);
     const session = await this.options.imap(ctx, request.protectedObject, request.target);
     try {
       const run = new ImapRestoreRun(
@@ -226,9 +237,16 @@ export class ImapRestoreEngine implements RestoreEngine {
         mode === "rename" ? restoreFolderNameFor(ctx, request) : null,
         mode,
         legacyReplace,
+        progress,
       );
       await run.restorePlan(plan);
     } finally {
+      // What this attempt restored stays known to the next one, also when it failed.
+      await progress.flush().catch((error: unknown) =>
+        logger.warn("could not save the restore progress", {
+          error: describeRestoreError(error),
+        }),
+      );
       await session.close();
     }
 
@@ -259,9 +277,14 @@ class ImapRestoreRun {
     private readonly mode: "rename" | "skip",
     /** The stored request asked for the discontinued "replace" mode; ran as "rename" instead. */
     private readonly legacyReplace: boolean,
+    /** What earlier attempts of this job restored (./progress.ts). */
+    private readonly progress: RestoreProgress,
   ) {
     this.reader = chunkReaderFor(ctx);
   }
+
+  /** Copies of messages without Message-ID this run took as an earlier attempt's, per mailbox. */
+  private readonly takenSimilar = new Map<string, Set<number>>();
 
   /** Prepend {@link LEGACY_REPLACE_MODE_NOTE} for a job that asked for the discontinued "replace" mode. */
   private withLegacyReplaceNote(note: string | undefined): string | undefined {
@@ -390,6 +413,40 @@ class ImapRestoreRun {
       const existing = await duplicates.existing(mailbox, (messageId) =>
         session.findByMessageId(mailbox, messageId),
       );
+      const recorded = this.progress.get(message.path);
+      if (recorded?.state === "done") {
+        // This job's own record: restored by an earlier attempt, with its verdict.
+        const uid = Number(recorded.targetRef?.slice(recorded.targetRef.lastIndexOf(":") + 1));
+        if (Number.isInteger(uid) && uid > 0) {
+          duplicates.claim(uid);
+        } else {
+          await duplicates.claimEarlierCopy((copy) => this.sameContent(mailbox, copy, message));
+        }
+        duplicates.settle();
+        ledger.restored(message, {
+          targetRef: recorded.targetRef ?? mailbox,
+          bytes: message.size,
+          verified: recorded.verified,
+          note: this.withLegacyReplaceNote(RESTORED_BY_EARLIER_ATTEMPT),
+        });
+        return;
+      }
+      if (duplicates.messageId === undefined && this.progress.isRetry) {
+        const earlier = await this.earlierCopyWithoutMessageId(mailbox, message);
+        if (earlier !== undefined) {
+          duplicates.settle();
+          ledger.restored(message, {
+            targetRef: `${mailbox}:${earlier}`,
+            bytes: message.size,
+            verified: true,
+            note: this.withLegacyReplaceNote(
+              `${RESTORED_BY_EARLIER_ATTEMPT} (found by its content, it has no Message-ID)`,
+            ),
+          });
+          await this.progress.done(message.path, true, `${mailbox}:${earlier}`);
+          return;
+        }
+      }
       if (existing.length > 0 && this.mode === "skip") {
         duplicates.settle();
         ledger.skipped(
@@ -403,8 +460,12 @@ class ImapRestoreRun {
       if (existing.length > 0 && this.mode === "rename") {
         // The restore mailbox belongs to this job: what it holds under this
         // Message-ID was restored by an earlier attempt, message for message.
-        const earlier = await duplicates.claimEarlierCopy((uid) =>
-          this.sameContent(mailbox, uid, message),
+        // A copy known to differ is taken too (a server that re-renders what
+        // it stores, such as Exchange over IMAP), but only while unclaimed
+        // copies are left: each copy stands for one message.
+        const earlier = await duplicates.claimEarlierCopy(
+          (uid) => this.sameContent(mailbox, uid, message),
+          { acceptDiffering: true },
         );
         if (earlier !== undefined) {
           duplicates.settle();
@@ -414,7 +475,9 @@ class ImapRestoreRun {
             this.legacyNote(
               earlier.confirmed
                 ? "this message was already restored into this mailbox, with the same content (the job was retried)"
-                : "a message with this Message-ID was already restored into this mailbox (the job was retried)",
+                : earlier.differs
+                  ? "a message with this Message-ID was already restored into this mailbox (the job was retried); the server re-rendered the message, so its content could not be compared"
+                  : "a message with this Message-ID was already restored into this mailbox (the job was retried)",
             ),
             `${mailbox}:${earlier.copy}`,
           );
@@ -443,6 +506,11 @@ class ImapRestoreRun {
         notes.push(`${withheld.join(" ")} not set again`);
       }
       duplicates.settle();
+      await this.progress.done(
+        message.path,
+        verified,
+        uid === undefined ? undefined : `${mailbox}:${uid}`,
+      );
       ledger.restored(message, {
         targetRef: uid === undefined ? mailbox : `${mailbox}:${uid}`,
         bytes: content.length,
@@ -472,6 +540,34 @@ class ImapRestoreRun {
         cause: error,
       });
     }
+  }
+
+  /**
+   * On a retried job, a message without Message-ID cannot be found by it: a
+   * stored message of the same internal date and size whose SHA-256 is the
+   * backup's, and that no other message of this run took, is the copy an
+   * earlier attempt appended.
+   */
+  private async earlierCopyWithoutMessageId(
+    mailbox: string,
+    message: ManifestObject,
+  ): Promise<number | undefined> {
+    if (this.session.findSimilar === undefined || message.sha256 === undefined) {
+      return undefined;
+    }
+    const taken = this.takenSimilar.get(mailbox) ?? new Set<number>();
+    this.takenSimilar.set(mailbox, taken);
+    const candidates = await this.session.findSimilar(mailbox, {
+      internalDate: imapInternalDateOf(message),
+      size: message.size,
+    });
+    for (const uid of candidates) {
+      if (!taken.has(uid) && (await this.sameContent(mailbox, uid, message)) === true) {
+        taken.add(uid);
+        return uid;
+      }
+    }
+    return undefined;
   }
 
   /**

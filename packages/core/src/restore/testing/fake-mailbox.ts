@@ -183,11 +183,31 @@ export class FakeMailbox {
     this.faults.push({ method, path, after, times });
   }
 
+  /**
+   * The attempt stops (a drain for an update, a shutdown) when it sends the
+   * `nth` call of `method` on a path matching `path`: that call is never
+   * carried out.
+   */
+  interruptAt(method: string, path: RegExp, nth = 1): void {
+    this.interruptions.push({ method, path, remaining: nth });
+  }
+
+  private readonly interruptions: Array<{ method: string; path: RegExp; remaining: number }> = [];
+
   private withFaults(route: FixtureRoute): FixtureRoute {
     const { respond } = route;
     return {
       ...route,
       respond: (call, index) => {
+        const stop = this.interruptions.find(
+          (entry) =>
+            entry.remaining > 0 &&
+            entry.method === call.method &&
+            entry.path.test(new URL(call.url).pathname),
+        );
+        if (stop !== undefined && --stop.remaining === 0) {
+          throw Object.assign(new Error("the job was stopped"), { name: "JobAbortedError" });
+        }
         const result =
           typeof respond === "function"
             ? respond(call, index)

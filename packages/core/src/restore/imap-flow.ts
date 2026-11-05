@@ -138,6 +138,23 @@ export class ImapFlowRestoreSession implements ImapRestoreSession {
     });
   }
 
+  async findSimilar(
+    mailbox: string,
+    message: { readonly internalDate: Date | undefined; readonly size: number },
+  ): Promise<number[]> {
+    return this.withMailbox(mailbox, async () => {
+      const found = await this.client.search(
+        {
+          ...(message.internalDate ? { on: message.internalDate } : {}),
+          larger: Math.max(0, message.size - 1),
+          smaller: message.size + 1,
+        },
+        { uid: true },
+      );
+      return Array.isArray(found) ? found : [];
+    });
+  }
+
   async append(
     mailbox: string,
     content: Buffer,

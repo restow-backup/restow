@@ -54,7 +54,7 @@ import type { Contact, Event, Message } from "@microsoft/microsoft-graph-types";
 import type { ChunkReader } from "../engine/chunkstore.js";
 import type { JobContext, Logger, RestoreEngine, RestoreRequest } from "../engine/types.js";
 import type { GraphClient } from "../graph/client.js";
-import { isGraphError } from "../graph/errors.js";
+import { isGraphError, isNotFound } from "../graph/errors.js";
 import {
   type CalendarInfo,
   calendarPath,
@@ -83,6 +83,7 @@ import {
   toCreatableContact,
 } from "../graph/resources/contacts.js";
 import {
+  type AttachmentMeta,
   addFileAttachment,
   base64Length,
   createMessageFromJson,
@@ -137,6 +138,7 @@ import {
   type MimeOutline,
   outlineMime,
 } from "./mime-parts.js";
+import { RESTORED_BY_EARLIER_ATTEMPT, RestoreProgress } from "./progress.js";
 import {
   describeRestoreError,
   failureCodeOf,
@@ -225,7 +227,9 @@ export class ExchangeRestoreEngine implements RestoreEngine {
         restoreJobId: request.restoreJobId,
       });
     }
+    const progress = await RestoreProgress.open(ctx.cursor, request.restoreJobId);
     const session = new ExchangeRestoreSession({
+      progress,
       ctx,
       client: await this.options.graph(ctx, request.protectedObject),
       userId,
@@ -256,10 +260,19 @@ export class ExchangeRestoreEngine implements RestoreEngine {
       mode,
     });
 
-    if (group) {
-      await this.restoreIntoGroup(ctx, plan, folders, session, ledger);
-    } else {
-      await this.restorePlan(ctx, plan, folders, session, ledger);
+    try {
+      if (group) {
+        await this.restoreIntoGroup(ctx, plan, folders, session, ledger);
+      } else {
+        await this.restorePlan(ctx, plan, folders, session, ledger);
+      }
+    } finally {
+      // What this attempt restored stays known to the next one, also when it failed.
+      await progress.flush().catch((error: unknown) =>
+        logger.warn("could not save the restore progress", {
+          error: describeRestoreError(error),
+        }),
+      );
     }
 
     ledger.settle(expected);
@@ -403,6 +416,8 @@ interface SessionOptions {
   readonly reader: ChunkReader;
   readonly ledger: RestoreLedger;
   readonly logger: Logger;
+  /** What earlier attempts of this job restored (./progress.ts). */
+  readonly progress: RestoreProgress;
 }
 
 /** The backed-up shape of a calendar item: a bare event or an event with its exceptions. */
@@ -466,6 +481,8 @@ interface ImportedMessage {
    * once more). Says so on the item.
    */
   readonly recovered?: { readonly adopted: boolean; readonly note: string };
+  /** A message an earlier attempt created: the attachments it has already. */
+  readonly present?: readonly AttachmentMeta[];
 }
 
 /** What Graph says about a message a create made, for the checks after it. */
@@ -628,7 +645,7 @@ export class ExchangeRestoreSession {
     attachments: readonly ManifestObject[],
     duplicates: DuplicateSlot<string>,
   ): Promise<void> {
-    const { ctx, client, userId, ledger } = this.o;
+    const { ctx, client, userId, ledger, progress } = this.o;
     throwIfAborted(ctx);
     const skipAttachments = (reason: string): void => {
       for (const attachment of attachments) {
@@ -638,6 +655,7 @@ export class ExchangeRestoreSession {
 
     const isJson = messageFormatOf(message) === "json";
     const messageId = duplicates.messageId;
+    const recorded = progress.get(message.path);
     let imported: ImportedMessage;
     try {
       const folderId = await this.mailFolderFor(this.o.catalog.mailFolderChain(message));
@@ -646,25 +664,91 @@ export class ExchangeRestoreSession {
           (duplicate) => duplicate.id,
         ),
       );
-      let earlier: string | undefined;
-      if (existing.length > 0 && this.o.mode === "skip") {
-        earlier = existing[0];
-      } else if (existing.length > 0 && this.o.mode === "rename") {
-        earlier = (await duplicates.claimEarlierCopy(async () => undefined))?.copy;
-      }
-      if (earlier !== undefined) {
+      if (recorded?.state === "done") {
+        // This job's own record: restored by an earlier attempt, with its verdict.
+        if (existing.length > 0) {
+          await duplicates.claimEarlierCopy(async () => undefined);
+        }
         duplicates.settle();
-        ledger.skipped(
-          message,
-          "exists",
-          this.legacyNote(this.skipReason("a message with this Message-ID", "folder")),
-          earlier,
-        );
-        skipAttachments("the message already exists in the target folder");
+        ledger.restored(message, {
+          targetRef: recorded.targetRef,
+          bytes: message.size,
+          verified: recorded.verified,
+          note: this.withLegacyReplaceNote(RESTORED_BY_EARLIER_ATTEMPT),
+        });
+        for (const attachment of attachments) {
+          if (isJson) {
+            ledger.restored(attachment, {
+              bytes: attachment.size,
+              note: RESTORED_BY_EARLIER_ATTEMPT,
+            });
+          } else {
+            ledger.skipped(attachment, "exists", "contained in the restored message's MIME");
+          }
+        }
         return;
       }
-      imported = await this.importMessage(message, folderId, isJson, duplicates);
-      duplicates.wrote(folderId, imported.created.id);
+      const resumed =
+        recorded?.state === "created" ? await this.existingMessage(recorded.targetRef) : undefined;
+      if (resumed !== undefined) {
+        duplicates.claim(resumed.id);
+        imported = await this.completeEarlier(
+          message,
+          isJson,
+          resumed,
+          "an earlier attempt of this job created the message and was interrupted; what was missing was added now",
+        );
+      } else {
+        let earlier: string | undefined;
+        if (existing.length > 0 && this.o.mode === "skip") {
+          earlier = existing[0];
+        } else if (existing.length > 0 && this.o.mode === "rename") {
+          earlier = (await duplicates.claimEarlierCopy(async () => undefined))?.copy;
+        }
+        const copy =
+          earlier !== undefined &&
+          this.o.mode === "rename" &&
+          this.hasPartsToAdd(message, attachments, isJson)
+            ? await this.existingMessage(earlier)
+            : undefined;
+        if (copy !== undefined) {
+          // The restore folder belongs to this job: the copy is an earlier
+          // attempt's, which may have ended before its attachments followed.
+          imported = await this.completeEarlier(
+            message,
+            isJson,
+            copy,
+            "found in the restore folder from an earlier attempt of this job; what was missing was added now",
+          );
+        } else if (earlier !== undefined) {
+          if (this.o.mode === "rename") {
+            // An earlier attempt may have ended before the flags followed the create.
+            await patchMessage(client, userId, earlier, messageFlagsOf(message)).catch(
+              (error: unknown) => {
+                if (isAbortError(error)) {
+                  throw error;
+                }
+              },
+            );
+          }
+          duplicates.settle();
+          ledger.skipped(
+            message,
+            "exists",
+            this.legacyNote(this.skipReason("a message with this Message-ID", "folder")),
+            earlier,
+          );
+          skipAttachments("the message already exists in the target folder");
+          return;
+        } else {
+          imported = await this.importMessage(message, folderId, isJson, duplicates);
+          duplicates.wrote(folderId, imported.created.id);
+          if (this.hasPartsToAdd(message, attachments, isJson)) {
+            // Long work follows (attachments): a retry must know the message exists.
+            await progress.created(message.path, imported.created.id);
+          }
+        }
+      }
     } catch (error) {
       duplicates.settle();
       if (isAbortError(error)) {
@@ -696,8 +780,16 @@ export class ExchangeRestoreSession {
       );
     }
 
+    let attachmentsComplete = true;
     if (imported.mimeParts !== undefined) {
-      problems.push(...(await this.addMimeAttachments(message, created.id, imported.mimeParts)));
+      const mimeProblems = await this.addMimeAttachments(
+        message,
+        created.id,
+        imported.mimeParts,
+        imported.present,
+      );
+      attachmentsComplete = mimeProblems.length === 0;
+      problems.push(...mimeProblems);
       notes.push(
         "Exchange takes at most 4 MB in one request, so the message was created from its header and body and its attachments were added one by one; the header lines Exchange does not take (Received, References and similar) and the exact MIME stay in the backup (download it as EML for the original bytes)",
       );
@@ -707,13 +799,20 @@ export class ExchangeRestoreSession {
     let attachmentFailures = 0;
     const taken = new Set<string>();
     for (const attachment of attachments) {
-      const outcome = await this.addAttachment(created.id, attachment, isJson, taken);
+      const outcome = await this.addAttachment(
+        created.id,
+        attachment,
+        isJson,
+        taken,
+        imported.present,
+      );
       if (outcome.failed) {
         attachmentFailures++;
       }
       recorders.push(outcome.record);
     }
     if (attachmentFailures > 0) {
+      attachmentsComplete = false;
       problems.push(
         `${attachmentFailures} of ${attachments.length} attachments could not be added`,
       );
@@ -742,20 +841,77 @@ export class ExchangeRestoreSession {
     }
     duplicates.settle();
 
+    const verified =
+      problems.length > 0
+        ? false
+        : messageId === undefined || imported.recovered?.adopted
+          ? undefined
+          : true;
+    if (attachmentsComplete) {
+      await progress.done(message.path, verified, created.id);
+    } else {
+      // A retry adds what is still missing to this message instead of a new one.
+      await progress.created(message.path, created.id);
+    }
     ledger.restored(message, {
       targetRef: created.id,
       bytes: message.size,
-      verified:
-        problems.length > 0
-          ? false
-          : messageId === undefined || imported.recovered?.adopted
-            ? undefined
-            : true,
+      verified,
       note: this.withLegacyReplaceNote([...problems, ...notes].join("; ") || undefined),
     });
     for (const record of recorders) {
       record();
     }
+  }
+
+  /** Whether attachments follow the create (a JSON message with attachments, a MIME too large for one request). */
+  private hasPartsToAdd(
+    message: ManifestObject,
+    attachments: readonly ManifestObject[],
+    isJson: boolean,
+  ): boolean {
+    return isJson
+      ? attachments.length > 0
+      : base64Length(message.size) > MIME_IMPORT_LIMIT_BASE64_BYTES;
+  }
+
+  /** A message by id as the checks after a create need it, or undefined when it is gone. */
+  private async existingMessage(id: string): Promise<(Message & { id: string }) | undefined> {
+    try {
+      const found = await getMessage(this.o.client, this.o.userId, id, {
+        select: CREATED_MESSAGE_SELECT,
+      });
+      return { ...found, id };
+    } catch (error) {
+      if (isNotFound(error)) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * A message an earlier attempt of this job created, to be finished: its
+   * attachments are listed so only the missing ones are added.
+   */
+  private async completeEarlier(
+    message: ManifestObject,
+    isJson: boolean,
+    existing: Message & { id: string },
+    note: string,
+  ): Promise<ImportedMessage> {
+    const { client, userId, reader } = this.o;
+    const large = !isJson && base64Length(message.size) > MIME_IMPORT_LIMIT_BASE64_BYTES;
+    const mimeParts = large ? await outlineMime(reader.objectStream(message)) : undefined;
+    return {
+      created: existing,
+      fromJson: isJson || large,
+      droppedHeaders: 0,
+      sentTimes: {},
+      ...(mimeParts ? { mimeParts } : {}),
+      present: await collect(listAttachments(client, userId, existing.id)),
+      recovered: { adopted: true, note },
+    };
   }
 
   /**
@@ -909,8 +1065,24 @@ export class ExchangeRestoreSession {
     source: Readable,
     reopen: (() => Readable) | undefined,
     taken: Set<string>,
-  ): Promise<{ id: string | undefined }> {
+    present?: readonly AttachmentMeta[],
+  ): Promise<{ id: string | undefined; existed?: boolean }> {
     const { client, userId } = this.o;
+    const match = (attachment: AttachmentMeta): boolean => {
+      const size = attachment.size ?? -1;
+      return (
+        attachment.name === file.name &&
+        !taken.has(attachment.id) &&
+        size >= file.size &&
+        size <= file.size + 64 * 1024
+      );
+    };
+    // A message an earlier attempt created may hold this attachment already.
+    const already = present?.find(match);
+    if (already !== undefined) {
+      taken.add(already.id);
+      return { id: already.id, existed: true };
+    }
     try {
       const added = await addFileAttachment(client, userId, messageGraphId, file, source);
       if (added.id !== undefined) {
@@ -922,13 +1094,7 @@ export class ExchangeRestoreSession {
         throw error;
       }
       for await (const attachment of listAttachments(client, userId, messageGraphId)) {
-        const size = attachment.size ?? -1;
-        if (
-          attachment.name === file.name &&
-          !taken.has(attachment.id) &&
-          size >= file.size &&
-          size <= file.size + 64 * 1024
-        ) {
+        if (match(attachment)) {
           taken.add(attachment.id);
           return { id: attachment.id };
         }
@@ -973,6 +1139,7 @@ export class ExchangeRestoreSession {
     message: ManifestObject,
     messageGraphId: string,
     outline: MimeOutline,
+    present?: readonly AttachmentMeta[],
   ): Promise<string[]> {
     const { ctx, reader } = this.o;
     const failed: string[] = [];
@@ -1000,6 +1167,7 @@ export class ExchangeRestoreSession {
             content,
             undefined,
             taken,
+            present,
           );
         } catch (error) {
           if (isAbortError(error)) {
@@ -1032,6 +1200,7 @@ export class ExchangeRestoreSession {
     attachment: ManifestObject,
     ownerIsJson: boolean,
     taken: Set<string>,
+    present?: readonly AttachmentMeta[],
   ): Promise<{ failed: boolean; record: AttachmentRecorder }> {
     const { ctx, reader, ledger } = this.o;
     throwIfAborted(ctx);
@@ -1068,6 +1237,7 @@ export class ExchangeRestoreSession {
         stream,
         () => reader.objectStream(attachment),
         taken,
+        present,
       );
       return {
         failed: false,
@@ -1075,7 +1245,11 @@ export class ExchangeRestoreSession {
           ledger.restored(attachment, {
             targetRef: added.id,
             bytes: attachment.size,
-            note: isItem ? "an attached item is restored as a message file (.eml)" : undefined,
+            note:
+              [
+                ...(added.existed ? ["added by an earlier attempt of this job"] : []),
+                ...(isItem ? ["an attached item is restored as a message file (.eml)"] : []),
+              ].join("; ") || undefined,
           }),
       };
     } catch (error) {

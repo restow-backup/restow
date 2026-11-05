@@ -543,6 +543,21 @@ private repository.
   with the same `transactionId`, so Exchange returns the one it made. A message without
   Message-ID and a contact that is not found are never sent again but reported, so that no second
   copy is made.
+- Mail restore: a restore job that was retried (after an update's drain, an expired attempt or a
+  lost IMAP connection) only had the target to tell what its earlier attempt had done, and that was
+  not enough. Into a server that re-renders what it stores (Exchange over IMAP) every message the
+  first attempt had appended was appended again, as was every message without Message-ID; in
+  Exchange a message whose create had gone through but whose attachments or flags never followed
+  was skipped as "already restored", without its attachments and without a failure. A restore job
+  now keeps its own record of what it restored in the job's cursor (a finished message, or one
+  that exists but still waits for its attachments). A retry reports what an earlier attempt
+  restored as "restored by an earlier attempt of this job" with that attempt's verdict, finishes a
+  message that still lacks attachments (only the missing ones are added) and never restores a
+  message twice. For the moments the record does not cover yet, a rename-mode retry now also takes
+  a copy that the server re-rendered (only for a Message-ID that occurs once in the restore, so two
+  different messages with the same Message-ID are still both restored), finds an IMAP message
+  without Message-ID by date, size and SHA-256, and adds missing attachments to an Exchange message
+  it finds in its restore folder.
 - Mail restore: a message that Exchange created as a draft (a MIME import whose header lacks Date
   or From, for example) counted as confirmed as soon as its Message-ID matched, although it was
   no draft in the backup and Outlook shows it as an unsent draft. The draft state of every

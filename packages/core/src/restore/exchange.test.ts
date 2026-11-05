@@ -526,10 +526,14 @@ describe("ExchangeRestoreEngine", () => {
     const retry = await engineFor(mailbox).run(fixture.ctx, request);
 
     expect(retry.failures).toEqual([]);
+    // The message is in the job's own record; the contact is found by name and address.
     expect(retry.items.filter((item) => item.status === "skipped").map((item) => item.id)).toEqual([
-      "AAMk1",
       "C1",
     ]);
+    expect(retry.items.find((item) => item.id === "AAMk1")).toMatchObject({
+      status: "restored",
+      reason: "restored by an earlier attempt of this job",
+    });
     expect(mailbox.messages.size).toBe(1);
     expect(mailbox.contacts.size).toBe(1);
     expect(mailbox.events.size).toBe(1);
@@ -1344,6 +1348,113 @@ describe("ExchangeRestoreEngine", () => {
     });
   });
 
+  it("finishes a message an interrupted attempt created without all its attachments", async () => {
+    const report: FixtureObject = {
+      path: "mail/Posteingang/Report.0050.json",
+      type: "mail",
+      id: "AAMk50",
+      metadata: {
+        format: "json",
+        messageId: "<report-50@example.org>",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        isDraft: "false",
+        isRead: "true",
+      },
+      content: JSON.stringify({
+        subject: "Report",
+        internetMessageId: "<report-50@example.org>",
+        isDraft: false,
+        receivedDateTime: "2026-03-02T08:15:42Z",
+      }),
+    };
+    const attachment = (name: string, content: string): FixtureObject => ({
+      path: `mail/Posteingang/Report.0050.attachments/${name}.aa`,
+      type: "attachment",
+      id: `AAMk50/${name}`,
+      metadata: { messagePath: report.path, name, contentType: "text/plain" },
+      content,
+    });
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      now: () => NOW,
+      objects: [report, attachment("a.txt", "first"), attachment("b.txt", "second")],
+    });
+    for (const keepRecord of [true, false]) {
+      const mailbox = new FakeMailbox();
+      mailbox.interruptAt("POST", /\/attachments$/, 2);
+      const request = restoreRequestFor(fixture, { mode: "rename" });
+      await expect(engineFor(mailbox).run(fixture.ctx, request)).rejects.toThrow(/stopped/);
+      expect(must([...mailbox.messages.values()][0]).attachments).toHaveLength(1);
+      if (!keepRecord) {
+        await fixture.ctx.cursor.clear();
+      }
+
+      const retry = await engineFor(mailbox).run(fixture.ctx, request);
+
+      expect(retry.failures, String(keepRecord)).toEqual([]);
+      expect(mailbox.messages.size, String(keepRecord)).toBe(1);
+      const message = must([...mailbox.messages.values()][0]);
+      expect(
+        message.attachments.map((a) => a.name),
+        String(keepRecord),
+      ).toEqual(["a.txt", "b.txt"]);
+      const item = must(retry.items.find((entry) => entry.id === "AAMk50"));
+      expect(item, String(keepRecord)).toMatchObject({ status: "restored", verified: false });
+      expect(item.reason, String(keepRecord)).toMatch(
+        keepRecord
+          ? /earlier attempt of this job created the message/
+          : /found in the restore folder/,
+      );
+      expect(retry.items.find((entry) => entry.id === "AAMk50/a.txt")?.reason).toMatch(
+        /added by an earlier attempt/,
+      );
+      // The finished message is done: a third attempt restores nothing again.
+      const third = await engineFor(mailbox).run(fixture.ctx, request);
+      expect(third.items.find((entry) => entry.id === "AAMk50")?.reason).toBe(
+        "restored by an earlier attempt of this job",
+      );
+      expect(message.attachments).toHaveLength(2);
+      await fixture.ctx.cursor.clear();
+    }
+  });
+
+  it("does not create a message without Message-ID again on a retry it already restored", async () => {
+    const anonymous: FixtureObject = {
+      path: "mail/Archiv/Scan.0051.eml",
+      type: "mail",
+      id: "AAMk51",
+      content:
+        "Subject: Scan\r\nFrom: scanner@example.org\r\nDate: Thu, 15 Jan 2026 10:30:00 +0000\r\n\r\npage\r\n",
+      metadata: {
+        folderPath: "Archiv",
+        format: "mime",
+        isDraft: "false",
+      },
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      now: () => NOW,
+      objects: [anonymous, kickoff],
+    });
+    const mailbox = new FakeMailbox();
+    // The attempt stops when it creates the second message, after the first was restored.
+    mailbox.interruptAt("POST", /\/messages$/, 2);
+    const request = restoreRequestFor(fixture, { mode: "rename" });
+    await expect(engineFor(mailbox).run(fixture.ctx, request)).rejects.toThrow(/stopped/);
+    expect(mailbox.messages.size).toBe(1);
+
+    const retry = await engineFor(mailbox).run(fixture.ctx, request);
+
+    expect(retry.failures).toEqual([]);
+    expect(mailbox.messages.size).toBe(2);
+    expect(retry.items.find((item) => item.id === "AAMk51")?.reason).toBe(
+      "restored by an earlier attempt of this job",
+    );
+  });
+
   it("explains a message Graph refuses as too large", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",
@@ -1432,6 +1543,11 @@ describe("ExchangeRestoreEngine", () => {
     const retried = new FakeMailbox();
     const request = restoreRequestFor(fixture, { mode: "rename" });
     await engineFor(retried).run(fixture.ctx, request);
+    const recorded = await engineFor(retried).run(fixture.ctx, request);
+    expect(recorded.restored).toBe(2);
+    expect(retried.messages.size).toBe(2);
+    // Without the job's record (an attempt that ended before it was saved), by Message-ID.
+    await fixture.ctx.cursor.clear();
     const retry = await engineFor(retried).run(fixture.ctx, request);
     expect(retry.skipped).toBe(2);
     expect(retried.messages.size).toBe(2);
@@ -1443,12 +1559,14 @@ describe("ExchangeRestoreEngine", () => {
     const replayed = new FakeMailbox();
     const legacyRequest = restoreRequestFor(fixture, { mode: "replace" });
     await engineFor(replayed).run(fixture.ctx, legacyRequest);
+    await fixture.ctx.cursor.clear();
     const legacyRetry = await engineFor(replayed).run(fixture.ctx, legacyRequest);
     expect(legacyRetry.skipped).toBe(2);
     expect(
       legacyRetry.items.every((skipped) => skipped.reason?.includes('ran as "rename" instead')),
     ).toBe(true);
 
+    await fixture.ctx.cursor.clear();
     const partial = new FakeMailbox();
     const restoreFolder = partial.addFolder(RESTORE_FOLDER, null);
     const inbox = partial.addFolder("Posteingang", restoreFolder.id);

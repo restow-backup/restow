@@ -42,6 +42,8 @@ export interface EarlierCopy<Id> {
   readonly copy: Id;
   /** True when the target confirmed that it holds the backed-up content. */
   readonly confirmed: boolean;
+  /** True when the target holds other bytes (accepted only with `acceptDiffering`). */
+  readonly differs?: boolean;
 }
 
 /** One message's view of its group; call {@link settle} however the message ends. */
@@ -57,12 +59,17 @@ export interface DuplicateSlot<Id> {
    * "rename": the copy an earlier attempt of this job restored for this
    * message, if any. A copy whose content `sameContent` confirms is preferred;
    * one it cannot judge (undefined) is accepted unconfirmed; one known to
-   * differ never is. The copy is claimed: it stands for no other message of
-   * this run.
+   * differ only with `acceptDiffering` (a server that re-renders what it
+   * stores) and only for a Message-ID the plan holds once, where the copy can
+   * be no other message's. The copy is claimed: it stands for no other
+   * message of this run.
    */
   claimEarlierCopy(
     sameContent: (copy: Id) => Promise<boolean | undefined>,
+    options?: { readonly acceptDiffering?: boolean },
   ): Promise<EarlierCopy<Id> | undefined>;
+  /** Take `copy` (one the job's own record names) out of the copies other messages may claim. */
+  claim(copy: Id): void;
   /**
    * After a create whose outcome is unknown (Graph did not answer): the copy
    * under this Message-ID in `container` that neither the target had before
@@ -167,9 +174,10 @@ export class MessageIdDuplicates<Id> {
         const found = await lookup(messageId);
         return found.find((copy) => !before.includes(copy) && !ours.includes(copy));
       },
-      claimEarlierCopy: async (sameContent) => {
+      claimEarlierCopy: async (sameContent, options = {}) => {
         const copies = state.copies ?? [];
         let accepted: EarlierCopy<Id> | undefined;
+        let differing: EarlierCopy<Id> | undefined;
         for (const copy of copies) {
           const same = await sameContent(copy);
           if (same === true) {
@@ -179,12 +187,24 @@ export class MessageIdDuplicates<Id> {
           if (same === undefined && accepted === undefined) {
             accepted = { copy, confirmed: false };
           }
+          if (same === false && differing === undefined) {
+            differing = { copy, confirmed: false, differs: true };
+          }
+        }
+        // Only for a Message-ID the plan holds once: with several messages
+        // under it, a differing copy may be another message's, and taking it
+        // would leave this one unrestored.
+        if (accepted === undefined && options.acceptDiffering === true && !shared) {
+          accepted = differing;
         }
         if (accepted !== undefined) {
           const claimed = accepted.copy;
           state.copies = copies.filter((copy) => copy !== claimed);
         }
         return accepted;
+      },
+      claim: (copy) => {
+        state.copies = (state.copies ?? []).filter((candidate) => candidate !== copy);
       },
       wrote: (container, copy) => {
         if (!shared || copy === undefined || messageId === undefined) {
