@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadManifest } from "../../engine/snapshot.js";
 import type { ProtectedObjectRef } from "../../engine/types.js";
-import { createFakeGraph, type FakeGraph, must } from "../../graph/testing/fake-graph.js";
+import {
+  createFakeGraph,
+  type FakeGraph,
+  graphError,
+  must,
+} from "../../graph/testing/fake-graph.js";
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { chunkReaderFor } from "../../restore/common.js";
 import { calendarFactsOf, folderSegmentsOf } from "../../restore/conventions.js";
@@ -193,8 +198,10 @@ describe("GroupMailboxBackupEngine", () => {
       format: "mime",
       messageId: postMessageId("P1"),
       [POST_META.threadId]: "T1",
-      missingAttachments: JSON.stringify(["Shared doc"]),
+      // A link attachment: recorded by name, its file lives in OneDrive or SharePoint.
+      referenceAttachments: JSON.stringify(["Shared doc"]),
     });
+    expect(p1.metadata?.missingAttachments).toBeUndefined();
     const mime = await text(p1);
     expect(mime).toContain("From: Anna Admin <anna@contoso.example>");
     expect(mime).toContain("To: Project Phoenix <phoenix@contoso.example>");
@@ -360,6 +367,90 @@ describe("GroupMailboxBackupEngine", () => {
     const after = await manifestOf(healed.snapshotId);
     expect(byId(after, "P1").metadata?.[POST_META.attachmentsNotBackedUp]).toBeUndefined();
     expect(await text(byId(after, "P1"))).toContain("plan.pdf");
+  });
+
+  it("embeds a forwarded mail (item attachment) and a file listed without bytes, and records links", async () => {
+    const forwarded = "From: carol@example.test\r\nSubject: Original offer\r\n\r\nThe offer.\r\n";
+    group.addPost("T1", {
+      id: "P9",
+      from: { emailAddress: { name: "Bob", address: "bob@contoso.example" } },
+      body: "<p>See the forwarded offer.</p>",
+      receivedDateTime: "2026-09-20T09:00:00Z",
+      attachments: [
+        {
+          id: "IA1",
+          name: "Original offer",
+          contentType: "message/rfc822",
+          odataType: "#microsoft.graph.itemAttachment",
+          bytes: new Uint8Array(Buffer.from(forwarded)),
+        },
+        {
+          id: "FA1",
+          name: "large.pdf",
+          contentType: "application/pdf",
+          bytes: new Uint8Array(Buffer.from("%PDF-1.7 large")),
+          withoutContentBytes: true,
+        },
+        {
+          id: "RA1",
+          name: "Budget.xlsx",
+          contentType: "application/vnd.ms-excel",
+          odataType: "#microsoft.graph.referenceAttachment",
+          bytes: new Uint8Array(),
+        },
+      ],
+    });
+    const result = await engine().run(fixture.ctx, fixture.protectedObject);
+    expect(result.failures).toEqual([]);
+    const post = byId(await manifestOf(result.snapshotId), "P9");
+    const eml = await text(post);
+    expect(eml).toContain("Content-Type: message/rfc822");
+    expect(eml).toContain("Subject: Original offer");
+    expect(eml).toContain("large.pdf");
+    expect(post.metadata?.[POST_META.attachmentsNotBackedUp]).toBeUndefined();
+    expect(post.metadata?.referenceAttachments).toBe(JSON.stringify(["Budget.xlsx"]));
+  });
+
+  it("warns about a post attachment that cannot be read and reads it again next run", async () => {
+    const attachment = {
+      id: "IA2",
+      name: "Forwarded",
+      contentType: "message/rfc822",
+      odataType: "#microsoft.graph.itemAttachment",
+      bytes: new Uint8Array(Buffer.from("Subject: Forwarded\r\n\r\nHi\r\n")),
+      valueResponse: {
+        status: 500,
+        json: graphError("ErrorInternalServerError", "An internal server error occurred."),
+      },
+    };
+    group.addPost("T1", {
+      id: "P10",
+      from: { emailAddress: { name: "Bob", address: "bob@contoso.example" } },
+      body: "<p>fwd</p>",
+      receivedDateTime: "2026-09-20T10:00:00Z",
+      attachments: [attachment],
+    });
+    const result = await engine().run(fixture.ctx, fixture.protectedObject);
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        itemRef: CONVERSATIONS_PATH,
+        cause: expect.objectContaining({
+          code: "graph.group_post_attachments_unreadable",
+          params: { count: 1 },
+        }),
+      }),
+    ]);
+    expect(byId(await manifestOf(result.snapshotId), "P10").metadata).toMatchObject({
+      missingAttachments: JSON.stringify(["Forwarded"]),
+      [POST_META.attachmentsNotBackedUp]: "true",
+    });
+
+    attachment.valueResponse = undefined as never;
+    const healed = await engine().run(fixture.ctx, fixture.protectedObject);
+    expect(healed.failures).toEqual([]);
+    const post = byId(await manifestOf(healed.snapshotId), "P10");
+    expect(post.metadata?.[POST_META.attachmentsNotBackedUp]).toBeUndefined();
+    expect(await text(post)).toContain("Subject: Forwarded");
   });
 
   it("warns once that attachments of group events are not backed up", async () => {

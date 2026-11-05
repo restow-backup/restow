@@ -563,14 +563,20 @@ Wiederherstellung, Download, Export, Restore-Prüfung und Aufbewahrung unveränd
   Threads nehmen ihre Beiträge mit. Graph liefert keine MIME-Form von Beiträgen; Restow baut sie
   deterministisch (`From`, ggf. `Sender`, `To` = Gruppenadresse, `Cc` = vom Beitrag hinzugefügte
   Teilnehmer, `Subject`/`Thread-Topic` = Thema, `Date`, eine aus der Post-ID abgeleitete
-  `Message-ID`, Text/HTML, Dateianhänge als MIME-Teile). Verweigert Graph die Erweiterung um
-  Anhänge, werden die Beiträge ohne Anhänge gesichert und `missingAttachments` nennt das;
-  Link- und Elementanhänge werden namentlich vermerkt. Ein so gesicherter Beitrag trägt
+  `Message-ID`, Text/HTML, Anhänge als MIME-Teile). Dateianhänge kommen mit `contentBytes` aus
+  der Erweiterung oder, wenn Graph sie ohne liefert, über
+  `/threads/{id}/posts/{id}/attachments/{id}/$value`; Elementanhänge (eine als Anlage
+  weitergeleitete Mail, ein Termin) über dasselbe `/$value` als MIME und eingebettet als
+  `message/rfc822`; Linkanhänge haben keinen Inhalt in Graph v1.0 und stehen namentlich in
+  `referenceAttachments` (die Datei liegt in OneDrive oder SharePoint). Verweigert Graph die
+  Erweiterung um Anhänge, werden die Beiträge ohne Anhänge gesichert und `missingAttachments`
+  nennt das; ebenso jeder Anhang, dessen Abruf scheitert. Ein so gesicherter Beitrag trägt
   `attachmentsNotBackedUp: "true"` (`hasAttachments` bleibt, wie Graph es meldet), und jeder Lauf,
-  dessen Sicherungsstand solche Beiträge hat, endet mit einer Warnung
-  `graph.group_post_attachments_refused` (Element `mail/Conversations`, mit der Anzahl), nie
-  einfach grün. Threads mit solchen Beiträgen werden erneut gelesen, solange Graph die
-  Erweiterung nicht verweigert; gibt Graph die Anhänge später heraus, kommen sie dazu.
+  dessen Sicherungsstand solche Beiträge hat, endet mit einer Warnung (Element
+  `mail/Conversations`, mit der Anzahl): `graph.group_post_attachments_refused` bei verweigerter
+  Erweiterung, `graph.group_post_attachments_unreadable` bei gescheitertem Abruf, nie einfach
+  grün. Threads mit solchen Beiträgen werden erneut gelesen, solange Graph die Erweiterung nicht
+  verweigert; gibt Graph die Anhänge später heraus, kommen sie dazu.
 - Eine gelöschte Gruppe schlägt mit `graph.group_unavailable` fehl (die nächste Synchronisierung
   verwaist sie). Throttling wie bei Postfächern (derselbe Graph-Client, Parallelität über die
   Gruppen statt innerhalb einer).

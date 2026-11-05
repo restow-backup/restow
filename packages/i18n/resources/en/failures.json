@@ -137,6 +137,10 @@
         "title": "Attachments of group posts were not backed up",
         "why": "{count, plural, one {# post} other {# posts}} in this group's conversations {count, plural, one {has} other {have}} attachments that Microsoft Graph refused to the app. {appName} backed up the posts without these attachments; a restore or an export brings them back without them. If Graph hands the attachments out later, {appName} adds them on the next run."
       },
+      "group_post_attachments_unreadable": {
+        "title": "Attachments of group posts could not be read",
+        "why": "{count, plural, one {# post} other {# posts}} in this group's conversations {count, plural, one {has} other {have}} attachments (a mail forwarded as an attachment, for example) that Microsoft did not deliver when asked. {appName} backed up the posts without these attachments and reads them again on the next run."
+      },
       "group_calendar_windowed": {
         "title": "The group calendar was read within a time window only",
         "why": "Microsoft Graph refused the full event list of this group calendar to the app. {appName} therefore read it through the calendar view{has_windowStart, select, yes { from {windowStart}{has_windowEnd, select, yes { to {windowEnd}} other {}}} other { (five years back to two years ahead)}}. Events outside this window stay in the backup as they were last backed up; this run does not see changes or deletions there."

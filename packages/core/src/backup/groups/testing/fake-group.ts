@@ -31,9 +31,14 @@ export interface FakePostAttachment {
   id: string;
   name: string;
   contentType: string;
+  /** A file's content, or for an item attachment the MIME Graph serves for `/$value`. */
   bytes: Uint8Array;
   isInline?: boolean;
   odataType?: string;
+  /** As Graph does for large files: listed by the expansion without `contentBytes`. */
+  withoutContentBytes?: boolean;
+  /** Served for `/attachments/{id}/$value` instead of the bytes (e.g. a 500). */
+  valueResponse?: FixtureResponse;
 }
 
 export interface FakePost {
@@ -175,6 +180,33 @@ export class FakeGroupMailbox {
             },
           };
     }
+    match = /^\/threads\/([^/]+)\/posts\/([^/]+)\/attachments\/([^/]+)\/\$value$/.exec(path);
+    if (match) {
+      const thread = this.threads.get(decodeURIComponent(match[1] ?? ""));
+      const post = thread?.posts.find((p) => p.id === decodeURIComponent(match?.[2] ?? ""));
+      const attachment = post?.attachments?.find(
+        (a) => a.id === decodeURIComponent(match?.[3] ?? ""),
+      );
+      if (!attachment) {
+        return this.notFound("attachment");
+      }
+      if (attachment.valueResponse) {
+        return attachment.valueResponse;
+      }
+      if (attachment.odataType === "#microsoft.graph.referenceAttachment") {
+        return { status: 400, json: graphError("ErrorInvalidRequest", "no content") };
+      }
+      return {
+        status: 200,
+        headers: {
+          "content-type":
+            attachment.odataType === "#microsoft.graph.itemAttachment"
+              ? "message/rfc822"
+              : attachment.contentType,
+        },
+        bytes: attachment.bytes,
+      };
+    }
     match = /^\/threads\/([^/]+)\/posts$/.exec(path);
     if (match) {
       const thread = this.threads.get(decodeURIComponent(match[1] ?? ""));
@@ -276,7 +308,7 @@ export class FakeGroupMailbox {
               isInline: attachment.isInline ?? false,
               size: attachment.bytes.length,
               ...((attachment.odataType ?? "#microsoft.graph.fileAttachment") ===
-              "#microsoft.graph.fileAttachment"
+                "#microsoft.graph.fileAttachment" && !attachment.withoutContentBytes
                 ? { contentBytes: Buffer.from(attachment.bytes).toString("base64") }
                 : {}),
             }) as Attachment,

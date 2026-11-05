@@ -618,7 +618,11 @@ private repository.
 - Group backup: when Microsoft Graph refused the attachments of group conversation posts to
   Restow, the posts were backed up without their files and the run was green. Such a run now
   ends with a warning naming the number of posts concerned, and the posts are marked as backed
-  up without attachments. Once Graph hands the attachments out, the next run adds them.
+  up without attachments. Once Graph hands the attachments out, the next run adds them. A mail
+  forwarded as an attachment to a post, and a file Graph lists without its content, were left
+  out silently as well; they are now read on their own and kept with the post, a OneDrive or
+  SharePoint link attachment is recorded by name, and an attachment that cannot be read ends
+  the run with a warning and is read again on the next run.
 - Group backup: when Microsoft Graph refused the full event list of a group calendar and Restow
   read it through the calendar view (five years back to two years ahead), every backed-up event
   outside that window was removed from the new restore point, although it still existed. Such

@@ -137,6 +137,10 @@
         "title": "Anhänge von Gruppenbeiträgen wurden nicht gesichert",
         "why": "{count, plural, one {# Beitrag} other {# Beiträge}} in den Unterhaltungen dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge, die Microsoft Graph der App verweigert hat. {appName} hat die Beiträge ohne diese Anhänge gesichert; eine Wiederherstellung oder ein Export bringt sie ohne Anhänge zurück. Gibt Graph die Anhänge später heraus, holt {appName} sie beim nächsten Lauf nach."
       },
+      "group_post_attachments_unreadable": {
+        "title": "Anhänge von Gruppenbeiträgen ließen sich nicht lesen",
+        "why": "{count, plural, one {# Beitrag} other {# Beiträge}} in den Unterhaltungen dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge (zum Beispiel eine als Anlage weitergeleitete Mail), die Microsoft beim Abruf nicht ausgeliefert hat. {appName} hat die Beiträge ohne diese Anhänge gesichert und liest sie beim nächsten Lauf erneut."
+      },
       "group_calendar_windowed": {
         "title": "Der Gruppenkalender wurde nur in einem Zeitfenster gelesen",
         "why": "Microsoft Graph hat der App die vollständige Terminliste dieses Gruppenkalenders verweigert. {appName} hat ihn deshalb über die Kalenderansicht{has_windowStart, select, yes { vom {windowStart}{has_windowEnd, select, yes { bis zum {windowEnd}} other {}}} other { (fünf Jahre zurück bis zwei Jahre voraus)}} gelesen. Termine außerhalb dieses Fensters bleiben so in der Sicherung, wie sie zuletzt gesichert wurden; Änderungen oder Löschungen dort sieht dieser Lauf nicht."
