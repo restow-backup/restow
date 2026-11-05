@@ -1265,15 +1265,22 @@ describe("ExchangeBackupEngine", () => {
       expect(manifest.objects.find((o) => o.id === "AAMkMsg4")).toBeUndefined();
       expect(readState(manifest.state).mailMimeServerErrors).toEqual({ AAMkMsg4: 2 });
 
-      // The third run in a row: the content is kept as JSON, marked as a server error.
+      // The third run in a row: the content is kept as JSON, marked as a server error, and
+      // the run says so (no original file for EML, MBOX or PST export yet).
       const third = await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
-      expect(third.failures).toEqual([]);
       manifest = await manifestOf(third.snapshotId);
       const json = byId(manifest, "AAMkMsg4");
+      expect(third.failures.map((f) => [f.itemRef, f.cause?.code])).toEqual([
+        [json.path, "graph.mail_stored_without_mime"],
+      ]);
       expect(messageFormatOf(json)).toBe("json");
       expect(json.metadata?.[META.formatReason]).toBe("server_error");
       expect(readState(manifest.state).mailRetry).toEqual({});
       expect(readState(manifest.state).mailMimeServerErrors).toEqual({});
+
+      // Still refused: the JSON copy stays, and so does the warning.
+      const again = await engine.run(newContext({ jobId: "job-3b" }), mailbox, {});
+      expect(again.failures.map((f) => f.cause?.code)).toEqual(["graph.mail_stored_without_mime"]);
 
       // Exchange hands out the MIME again: the next incremental run replaces the JSON.
       fake("AAMkMsg4").mimeUnavailable = undefined;

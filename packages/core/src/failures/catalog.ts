@@ -225,6 +225,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("wait_automatic")],
   },
+  "graph.mail_stored_without_mime": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic")],
+  },
   "graph.item_not_found": {
     category: "microsoft",
     transient: true,

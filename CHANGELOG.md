@@ -530,10 +530,11 @@ private repository.
   later incremental run asked for its MIME again. A plain 500 (without a conversion code) is
   now asked again twice with backoff; if it stays, the message is an item failure that the next
   run retries, and only after three runs in a row is its content kept as JSON. Every JSON copy
-  now records why (too large, conversion refused, server error), each one is logged and counted
-  in the run's summary, and a JSON copy stored after a server error or by an earlier version
-  without a reason gets its MIME asked for again on the next runs and is replaced by it when
-  Microsoft hands it out.
+  now records why (too large, conversion refused, server error) and is logged. A copy stored
+  after server errors ends the run with a warning on the message, in every run until its MIME
+  arrives, since it has no original file for export yet. Such a copy, and one stored by an
+  earlier version without a reason, gets its MIME asked for again on the next runs and is
+  replaced by it when Microsoft hands it out.
 - Mail backup: one message that a Dovecot or Gmail server cannot read blocked the whole folder
   over IMAP, on every run. Such servers refuse a whole `UID FETCH` ("Some messages could not be
   FETCHed") when one message of the set is broken; the metadata request for all new messages

@@ -145,6 +145,10 @@
         "title": "Der Inhalt einer geänderten Nachricht ließ sich nicht prüfen",
         "why": "Diese Nachricht wurde seit dem letzten Lauf geändert. Ob nur Markierung, Lesestatus oder Kategorie oder auch ihr Inhalt (Text, Anhänge) betroffen ist, konnte {appName} nicht prüfen, weil Microsoft auf die Abfrage nicht geantwortet hat. Die Sicherung behält die zuletzt gesicherte Fassung, und der nächste Lauf prüft die Nachricht erneut und lädt sie neu, wenn sich ihr Inhalt geändert hat."
       },
+      "mail_stored_without_mime": {
+        "title": "Eine Nachricht ist vorerst ohne ihre Originaldatei gesichert",
+        "why": "Microsoft hat die Originaldatei (MIME) dieser Nachricht über mehrere Läufe hinweg mit einem Serverfehler verweigert. {appName} hat ihren Inhalt deshalb als JSON gesichert (Text, Kopfzeilen und jeder Anhang einzeln): Sie lässt sich wiederherstellen, aber ein Export als EML, MBOX oder PST hat bis dahin keine Originaldatei. Die nächsten Läufe fragen die Originaldatei erneut an und ersetzen die JSON-Kopie, sobald Microsoft sie herausgibt."
+      },
       "item_not_found": {
         "title": "Das Element wurde inzwischen bei Microsoft geändert oder gelöscht",
         "why": "{appName} hatte dieses Element aufgelistet, konnte es danach aber nicht lesen, weil es dazwischen bei Microsoft verschoben oder gelöscht wurde. Der nächste Lauf sieht den neuen Stand."

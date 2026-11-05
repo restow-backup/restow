@@ -134,7 +134,12 @@ ein Ordner liefert, bleibt ein Ordnerfehler.
   500 für die JSON-Form auf Dauer) fragt jeder inkrementelle Lauf noch einmal nach dem MIME
   (höchstens 200 je Ordner und Lauf); kommt es, ersetzt es die JSON-Kopie samt Anhängen, sonst
   bleibt die Kopie unverändert. Jede JSON-Sicherung steht im Protokoll ("message stored as JSON
-  instead of MIME" mit Grund) und gezählt im Abschluss des Laufs (`jsonFallbacks`).
+  instead of MIME" mit Grund) und gezählt im Abschluss des Laufs (`jsonFallbacks`). Eine nach
+  Serverfehlern gesicherte JSON-Kopie (`server_error`) ist außerdem eine Warnung
+  `graph.mail_stored_without_mime` an der Nachricht, im Lauf, der sie speichert, und in jedem
+  Lauf, dessen erneute MIME-Abfrage wieder scheitert: Bis das MIME kommt, hat die Nachricht keine
+  Originaldatei für EML-, MBOX- oder PST-Export, der Lauf ist also nicht grün. `too_large` und
+  `conversion_refused` sind endgültige Antworten von Exchange und bleiben grün.
   Jeder Dateianhang der JSON-Form trägt seine Content-ID (`metadata.contentId`, gelesen mit dem
   Typ-Cast-`$select` `microsoft.graph.fileAttachment/contentId`, weil `contentId` nur am
   abgeleiteten Typ steht); der Restore setzt sie wieder, sonst zeigen die `cid:`-Bilder im

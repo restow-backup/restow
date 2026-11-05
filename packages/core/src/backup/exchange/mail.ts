@@ -864,10 +864,34 @@ export function needsMimeAgain(object: ManifestObject | undefined): boolean {
   );
 }
 
-/** Count a JSON fallback of this run and say so in the log. */
-function noteJsonFallback(run: BackupRun, entry: MailDeltaEntry, reason: string): void {
+/** Why a message stands in the restore point without its MIME for now. */
+const STORED_WITHOUT_MIME =
+  "Microsoft has refused the message's original file (MIME) with a server error for several runs; its content is backed up as JSON without the original file, and the next runs ask for the MIME again";
+
+/**
+ * Count a JSON fallback of this run and say so in the log. One stored after server errors
+ * (not a final refusal) is also a warning on the message: it has no original file for EML,
+ * MBOX or PST export until Microsoft hands out the MIME again.
+ */
+function noteJsonFallback(
+  run: BackupRun,
+  entry: MailDeltaEntry,
+  reason: string,
+  itemRef: string,
+): void {
   run.jsonFallbacks[reason] = (run.jsonFallbacks[reason] ?? 0) + 1;
   run.logger.info("message stored as JSON instead of MIME", { messageId: entry.id, reason });
+  if (!FINAL_JSON_REASONS.has(reason)) {
+    warnStoredWithoutMime(run, itemRef);
+  }
+}
+
+function warnStoredWithoutMime(run: BackupRun, itemRef: string): void {
+  run.warn(
+    itemRef,
+    STORED_WITHOUT_MIME,
+    buildCause("graph.mail_stored_without_mime", {}, { message: STORED_WITHOUT_MIME }),
+  );
 }
 
 /**
@@ -898,6 +922,7 @@ async function askMimeAgain(
         messageId: entry.id,
       });
       carryMessage(run, folder, entry, existing, mtime);
+      warnStoredWithoutMime(run, existing.path);
       return;
     }
     throw error;
@@ -961,7 +986,12 @@ async function fetchMessage(
       metadata[META.protection] = protection;
     }
     await storeJsonMessage(run, folder, entry, existing, content, { mtime, metadata });
-    noteJsonFallback(run, entry, content.fallbackReason);
+    noteJsonFallback(
+      run,
+      entry,
+      content.fallbackReason,
+      mailJsonObjectPath(folder.path, entry.subject, entry.id),
+    );
     return;
   }
   await storeMimeMessage(run, folder, entry, existing, mtime, metadata, content.stream);

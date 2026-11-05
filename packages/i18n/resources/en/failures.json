@@ -145,6 +145,10 @@
         "title": "The content of a changed message could not be checked",
         "why": "This message changed since the last run. {appName} could not check whether only its flag, read state or category changed or its content (text, attachments) too, because Microsoft did not answer the request. The backup keeps the copy last backed up, and the next run checks the message again and downloads it again if its content changed."
       },
+      "mail_stored_without_mime": {
+        "title": "A message is backed up without its original file for now",
+        "why": "Microsoft refused the original file (MIME) of this message with a server error over several runs. {appName} therefore backed up its content as JSON (text, headers and each attachment on its own): it can be restored, but an export as EML, MBOX or PST has no original file until then. The next runs ask for the original file again and replace the JSON copy as soon as Microsoft hands it out."
+      },
       "item_not_found": {
         "title": "The item was changed or deleted at Microsoft in the meantime",
         "why": "{appName} listed this item but could not read it afterwards, because it was moved or deleted at Microsoft in between. The next run sees the new state."

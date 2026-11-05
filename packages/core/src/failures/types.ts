@@ -68,6 +68,9 @@ export const FAILURE_CODES = [
   // A changed message whose content Graph did not let the backup check: kept as stored,
   // checked again next run (backup/exchange/mail.ts).
   "graph.mail_content_unchecked",
+  // A message whose MIME Graph refused with server errors for several runs, stored as JSON
+  // for now and asked again on later runs (backup/exchange/mail.ts).
+  "graph.mail_stored_without_mime",
   "graph.item_not_found",
   "graph.item_too_large",
   "graph.item_unreadable",
