@@ -804,6 +804,57 @@ describe("OneDriveBackupEngine", () => {
     expect(state(manifest).retry).toEqual(["01Q3"]);
   });
 
+  it("asks Graph once more for an entry without a facet and never skips it in silence", async () => {
+    const at = { driveId: DRIVE, id: "01ROOT", path: "/drive/root:" };
+    // A partial entry: Graph names the item but not what it is.
+    const bare = { id: "01BARE", name: "bare.txt", parentReference: at };
+    const bareFile = q3Item({
+      ...bare,
+      size: 4,
+      cTag: '"c:{BARE},1"',
+      file: { mimeType: "text/plain" },
+      "@microsoft.graph.downloadUrl": downloadLink("bare"),
+    });
+    // A kind the classifier does not know (a personal OneDrive album, the bundle facet).
+    const album = {
+      id: "01ALBUM",
+      name: "Holiday",
+      parentReference: at,
+      bundle: { childCount: 2 },
+    };
+    const graph = createFakeGraph([
+      { url: deltaUrl(null), respond: { status: 200, json: fixture.initialPage1 } },
+      {
+        url: deltaUrl("NEXT1"),
+        respond: {
+          status: 200,
+          json: { ...fixture.initialPage2, value: [...fixture.initialPage2.value, bare, album] },
+        },
+      },
+      { url: deltaUrl("DELTA1"), respond: { status: 200, json: page([], "DELTA2") } },
+      ...contentRoutes({ ...CONTENT, bare: "bare" }),
+      itemAnswer("01BARE", bareFile),
+      itemAnswer("01ALBUM", album as DriveDeltaItem),
+    ]);
+    const engine = harness.engine(graph);
+    const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const manifest = await harness.manifest(first);
+    expect((await harness.readObject(objectAt(manifest, "bare.txt"))).toString()).toBe("bare");
+    expect(paths(manifest)).not.toContain("Holiday");
+    expect(first.failures).toHaveLength(1);
+    expect(must(first.failures[0])).toMatchObject({
+      itemRef: "Holiday",
+      cause: { code: "graph.item_incomplete" },
+    });
+    expect(state(manifest).retry).toEqual(["01ALBUM"]);
+
+    // The next run asks again (once) and still reports it.
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures.map((f) => f.cause?.code)).toEqual(["graph.item_incomplete"]);
+    expect(graph.callsTo("GET", "/items/01ALBUM")).toHaveLength(2);
+    expect(state(await harness.manifest(second)).retry).toEqual(["01ALBUM"]);
+  });
+
   it("reports a download that breaks off mid-stream as an item failure and carries on", async () => {
     const graph = createFakeGraph(initialRoutes());
     const client = graph.client({

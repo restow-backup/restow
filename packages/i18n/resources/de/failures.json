@@ -163,7 +163,7 @@
       },
       "item_incomplete": {
         "title": "Microsoft hat das Element unvollständig gemeldet",
-        "why": "Microsoft hat dieses Element ohne Namen oder ohne seinen Ordner gemeldet. Ohne diese Angaben kann {appName} es nicht einordnen. Das passiert meist, wenn das Element gerade verschoben, umbenannt oder hochgeladen wird; der nächste Lauf versucht es erneut."
+        "why": "Microsoft hat dieses Element ohne Namen, ohne seinen Ordner oder ohne Angabe, ob es eine Datei, ein Ordner oder eine Verknüpfung ist, gemeldet. Ohne diese Angaben kann {appName} es nicht einordnen und nicht sichern. Das passiert meist, wenn das Element gerade verschoben, umbenannt oder hochgeladen wird; der nächste Lauf versucht es erneut. Bleibt der Fehler, prüfen Sie das Element in OneDrive oder SharePoint."
       },
       "subscription_failed": {
         "title": "Microsoft 365 sendet für dieses Postfach keine Änderungsbenachrichtigungen",

@@ -163,7 +163,7 @@
       },
       "item_incomplete": {
         "title": "Microsoft reported the item incompletely",
-        "why": "Microsoft reported this item without a name or without its folder. Without them {appName} cannot place it. This usually happens while the item is being moved, renamed or uploaded; the next run tries again."
+        "why": "Microsoft reported this item without a name, without its folder or without saying whether it is a file, a folder or a shortcut. Without them {appName} cannot place it or back it up. This usually happens while the item is being moved, renamed or uploaded; the next run tries again. If the failure stays, check the item in OneDrive or SharePoint."
       },
       "subscription_failed": {
         "title": "Microsoft 365 does not send change notifications for this mailbox",

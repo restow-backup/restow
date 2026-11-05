@@ -391,7 +391,6 @@ export class DriveBackupRun {
   private downloaded = 0;
   private reused = 0;
   private vanished = 0;
-  private skipped = 0;
   private seen = 0;
   private itemsSinceCheckpoint = 0;
   private bytesSinceCheckpoint = 0;
@@ -629,7 +628,6 @@ export class DriveBackupRun {
       downloaded: this.downloaded,
       reused: this.reused,
       vanished: this.vanished,
-      skipped: this.skipped,
       failures: this.failures.length,
       fullResyncRequired: this.retryOverflow,
       newBytes: bytes,
@@ -654,7 +652,31 @@ export class DriveBackupRun {
     options: { retry?: boolean } = {},
   ): Promise<void> {
     let item = delta;
-    const kind = classifyItem(item);
+    let kind = classifyItem(item);
+    if (kind === "unknown" && options.retry !== true) {
+      // No facet that says what it is (a partial entry, or a kind this
+      // classifier does not know): asked once more, getItem names them all.
+      // A retried item has just come from getItem.
+      const current = await this.fetchItem(item.id);
+      if (current.gone) {
+        return;
+      }
+      if (current.item === undefined) {
+        this.recordFailure(item.id, this.knownPath(item.id), current.error);
+        return;
+      }
+      item = { ...item, ...current.item };
+      kind = classifyItem(item);
+    }
+    if (kind === "unknown") {
+      // Never skipped in silence: reported, and fetched again by the next run.
+      this.recordFailure(
+        item.id,
+        item.name || this.knownPath(item.id),
+        incompleteItem("Graph returned the item without a file, folder or shortcut facet"),
+      );
+      return;
+    }
     if (kind === "root") {
       this.tree.rootId = item.id;
       return;
@@ -709,10 +731,7 @@ export class DriveBackupRun {
     kind: DriveItemKind,
     options: { retry?: boolean },
   ): Promise<void> {
-    if (kind === "unknown") {
-      this.skipped++;
-      this.logger.warn("item has no file, folder or shortcut facet, skipped", { itemId: item.id });
-      this.ctx.progress.advance(1);
+    if (kind === "unknown" || kind === "root" || kind === "deleted") {
       return;
     }
     const placed = await this.place(item);

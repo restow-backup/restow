@@ -619,6 +619,11 @@ private repository.
   change. Restow now asks Microsoft for sharing changes too and records the current sharing
   without downloading the file again; a sharing change that cannot be read is reported as a
   failed item and read again on the next run.
+- OneDrive and SharePoint backup: an item that Microsoft listed without saying whether it is a
+  file, a folder or a shortcut was skipped with a line in the log only, and the run was green; a
+  new file that arrived this way was missing from every restore point until it changed again.
+  Restow now asks Microsoft for the item itself and backs it up; an item that still cannot be
+  told apart is reported as a failed item and tried again on the next run.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
