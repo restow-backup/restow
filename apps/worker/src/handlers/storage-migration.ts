@@ -112,6 +112,7 @@ import { and, eq, inArray, ne } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
 import { processDefaultStorage } from "../default-storage.js";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
+import { archiveRecordRetention } from "./archive-records.js";
 import {
   type AbortReason,
   abortReasonOf,
@@ -424,7 +425,9 @@ async function buildItemList(
         .where(eq(packs.tenantId, tenantId)),
     ),
     liveSnapshotIds(run, tenantId),
-    metadataMirrorItems(tenantId, sources.source),
+    metadataMirrorItems(tenantId, sources.source, {
+      archiveRetention: archiveRecordRetention(run, tenantId),
+    }),
     tenantRepositoryOwners(run, tenantId).then(async (owners) =>
       (await planRepositories(owners, sources.repositories)).flatMap((plan) => plan.items),
     ),

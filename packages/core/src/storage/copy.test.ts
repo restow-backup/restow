@@ -1,9 +1,13 @@
+import type { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { archiveItemKey } from "../archive/layout.js";
 import { sha256 } from "../crypto.js";
 import { JobAbortedError } from "../engine/chunkstore.js";
 import { manifestKey, packKey, partialManifestKey, wrappedKeyKey } from "../engine/layout.js";
 import { MemoryStorage } from "../verify/testing.js";
+import type { PutOptions } from "./backend.js";
 import {
+  type ArchiveRecordRetention,
   checkCopyCompleteness,
   checkSourceExclusiveObjects,
   destinationObjectKeys,
@@ -40,6 +44,43 @@ async function seededPrimary() {
   await primary.put(partialManifestKey(TENANT, "snap-2"), bytes("partial"));
   await primary.put(wrappedKeyKey(TENANT, 1), bytes("wrapped-dek", 60));
   return { primary, packs };
+}
+
+/** A memory target that remembers the retention each object was written with (an Object Lock bucket). */
+class LockingStorage extends MemoryStorage {
+  readonly retainedUntil = new Map<string, Date | undefined>();
+
+  override async put(key: string, data: Buffer | Readable, options?: PutOptions): Promise<void> {
+    this.retainedUntil.set(key, options?.retainUntil);
+    await super.put(key, data);
+  }
+}
+
+const ITEM_KEPT = "0b6f6a8e-3f0c-4c55-9d43-1b8f0f6c1a01";
+const ITEM_HELD = "0b6f6a8e-3f0c-4c55-9d43-1b8f0f6c1a02";
+const ITEM_DELETED = "0b6f6a8e-3f0c-4c55-9d43-1b8f0f6c1a03";
+const RETAIN = new Date("2035-01-01T00:00:00.000Z");
+
+/** A primary with sealed archive records: two items the catalog holds, one it deleted. */
+async function archivePrimary() {
+  const { primary, packs } = await seededPrimary();
+  const received = new Date("2026-03-01T10:00:00.000Z");
+  const records = [ITEM_KEPT, ITEM_HELD, ITEM_DELETED].map((id) =>
+    archiveItemKey(TENANT, received, id),
+  );
+  for (const key of records) {
+    await primary.put(key, bytes(`record ${key}`, 80));
+  }
+  const catalog = new Map<string, Date | null>([
+    [ITEM_KEPT, RETAIN],
+    [ITEM_HELD, null],
+  ]);
+  const lookups: string[][] = [];
+  const retention: ArchiveRecordRetention = async (ids) => {
+    lookups.push([...ids]);
+    return new Map(ids.flatMap((id) => (catalog.has(id) ? [[id, catalog.get(id) ?? null]] : [])));
+  };
+  return { primary, packs, records, retention, lookups };
 }
 
 describe("mirrorObjects", () => {
@@ -210,6 +251,34 @@ describe("mirrorTenantStorage", () => {
     }
   });
 
+  it("mirrors sealed archive records with their retention, not those of deleted items", async () => {
+    const { primary, packs, records, retention } = await archivePrimary();
+    const copy = new LockingStorage();
+    const report = await mirrorTenantStorage({
+      tenantId: TENANT,
+      storage: { primary, copies: [copy] },
+      packs,
+      archiveRetention: retention,
+    });
+    expect(report.complete).toBe(true);
+    const [kept, held, deleted] = records as [string, string, string];
+    expect((await copy.get(kept)).equals(await primary.get(kept))).toBe(true);
+    expect(copy.retainedUntil.get(kept)).toEqual(RETAIN);
+    expect(await copy.head(held)).not.toBeNull();
+    expect(copy.retainedUntil.get(held)).toBeUndefined();
+    expect(await copy.head(deleted)).toBeNull();
+
+    // A second run finds them present (verified by hash in a full run).
+    const again = await mirrorTenantStorage({
+      tenantId: TENANT,
+      storage: { primary, copies: [copy] },
+      packs,
+      archiveRetention: retention,
+      verify: "hash",
+    });
+    expect(again.copies[0]).toMatchObject({ copied: 0, repaired: 0, failed: 0 });
+  });
+
   it("does nothing without copies", async () => {
     const { primary, packs } = await seededPrimary();
     expect(
@@ -239,6 +308,7 @@ describe("checkCopyCompleteness", () => {
       packs: { expected: 3, present: 1, bytesExpected: 303, bytesMissing: 203 },
       manifests: { expected: 1, present: 0 },
       keys: { expected: 1, present: 1 },
+      archive: { expected: 0, present: 0 },
       missingSample: [
         manifestKey(TENANT, "snap-1"),
         packKey(TENANT, "bb22"),
@@ -257,6 +327,36 @@ describe("checkCopyCompleteness", () => {
     expect(complete.complete).toBe(true);
     expect(complete.packs.bytesMissing).toBe(0);
   });
+  it("counts sealed archive records, not those of items the catalog deleted", async () => {
+    const { primary, packs, records, retention } = await archivePrimary();
+    const copy = new MemoryStorage();
+    const before = await checkCopyCompleteness({
+      tenantId: TENANT,
+      source: primary,
+      target: copy,
+      packs,
+      archiveRetention: retention,
+    });
+    expect(before.archive).toEqual({ expected: 2, present: 0 });
+    expect(before.missingSample).toEqual(expect.arrayContaining(records.slice(0, 2)));
+    expect(before.missingSample).not.toContain(records[2]);
+
+    await mirrorTenantStorage({
+      tenantId: TENANT,
+      storage: { primary, copies: [copy] },
+      packs,
+      archiveRetention: retention,
+    });
+    const after = await checkCopyCompleteness({
+      tenantId: TENANT,
+      source: primary,
+      target: copy,
+      packs,
+      archiveRetention: retention,
+    });
+    expect(after.archive).toEqual({ expected: 2, present: 2 });
+    expect(after.complete).toBe(true);
+  });
 });
 
 describe("destinationObjectKeys", () => {
@@ -271,6 +371,14 @@ describe("destinationObjectKeys", () => {
     expect(keys.has(manifestKey(TENANT, "snap-1"))).toBe(true);
     expect(keys.has(wrappedKeyKey(TENANT, 1))).toBe(true);
     expect(keys.has(packKey("another-tenant", "dd44"))).toBe(false);
+  });
+
+  it("lists the sealed archive records too (a resumed migration must not skip one)", async () => {
+    const { primary, records } = await archivePrimary();
+    const keys = await destinationObjectKeys(TENANT, primary);
+    for (const key of records) {
+      expect(keys.has(key)).toBe(true);
+    }
   });
 
   it("is empty for a target that holds nothing of the tenant yet", async () => {

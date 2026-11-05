@@ -333,7 +333,7 @@
   },
   "completeness": {
     "title": "Kopie {name} prüfen",
-    "description": "Vergleicht die Kopie mit dem primären Repository: Jedes Pack, jedes Backup-Manifest und jeder Schlüssel muss vorhanden sein.",
+    "description": "Vergleicht die Kopie mit dem primären Repository: Jedes Pack, jedes Backup-Manifest, jeder Schlüssel und jeder versiegelte Archivdatensatz muss vorhanden sein.",
     "checking": "Kopie wird mit dem primären Repository verglichen …",
     "complete": {
       "title": "Die Kopie ist vollständig",
@@ -341,11 +341,13 @@
     },
     "incomplete": {
       "title": "Die Kopie ist noch nicht vollständig",
-      "description": "Es fehlen noch {bytes} Backup-Daten. Der Kopierlauf spiegelt sie; neue Backups erreichen die Kopie sofort."
+      "description": "Es fehlen noch {bytes} Backup-Daten. Der Kopierlauf spiegelt sie; neue Backups erreichen die Kopie sofort.",
+      "objects": "Es fehlen noch Objekte, die unten gezählt sind. Der Kopierlauf spiegelt sie; neue Backups und Archivelemente erreichen die Kopie sofort."
     },
     "packs": "Packs (Backup-Daten)",
     "manifests": "Backup-Manifeste",
     "keys": "Verschlüsselte Schlüssel",
+    "archive": "Versiegelte Archivdatensätze",
     "count": "{present} von {expected}",
     "listingOnly": "Die Vollständigkeit wird per Auflistung geprüft. Kopierlauf und Speicherprüfung prüfen die Inhalte per Prüfsumme.",
     "again": "Erneut prüfen"

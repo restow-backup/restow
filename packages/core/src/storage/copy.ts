@@ -12,6 +12,8 @@
  *   tenants/<tid>/packs/...                   every pack the chunk index knows
  *   tenants/<tid>/manifests/<snap>.json.zst   every committed manifest on the primary
  *   tenants/<tid>/keys/<version>              every wrapped DEK on the primary
+ *   tenants/<tid>/archive/<y>/<m>/<id>.json   every sealed archive record of an item the
+ *                                             catalog still holds, with its retention
  *
  * In-progress manifest checkpoints (`.partial`) are skipped: they are transient.
  * Deleting on the copy is left to garbage collection, which sweeps every target
@@ -22,6 +24,7 @@
  * match the hash recorded when the pack was written, so the mirror never
  * spreads damage from the primary to the copy.
  */
+import { archiveItemIdOfKey, archivePrefix } from "../archive/layout.js";
 import { sha256 } from "../crypto.js";
 import { JobAbortedError } from "../engine/chunkstore.js";
 import { keyPrefix, manifestPrefix, packPrefix } from "../engine/layout.js";
@@ -38,7 +41,22 @@ export interface MirrorItem {
   readonly size: number | null;
   /** Expected SHA-256 (hex) of the whole object, when the index recorded it. */
   readonly sha256: string | null;
+  /**
+   * Object-lock retention to write the copy with (an archive record's `retention_until`):
+   * a record copied to a WORM target is locked there as long as on the target it was
+   * first written to. Absent for chunk store objects (the target's own setting locks them).
+   */
+  readonly retainUntil?: Date | null;
 }
+
+/**
+ * The retention of the archive items behind sealed records, by item id: the catalog's
+ * `retention_until` (null = unlimited). An id the map lacks is an item the catalog no longer
+ * holds (deleted after its retention), whose record is not copied.
+ */
+export type ArchiveRecordRetention = (
+  itemIds: readonly string[],
+) => Promise<ReadonlyMap<string, Date | null>>;
 
 /**
  * How objects already on the copy are checked: `size` compares sizes (cheap,
@@ -244,7 +262,12 @@ export async function mirrorItem(
   }
   const expectedHash = hashHex(source.bytes);
   try {
-    await options.target.put(item.key, source.bytes);
+    const retainUntil = item.retainUntil;
+    await options.target.put(
+      item.key,
+      source.bytes,
+      retainUntil && retainUntil.getTime() > Date.now() ? { retainUntil } : undefined,
+    );
     const written = await options.target.get(item.key);
     if (hashHex(written) !== expectedHash) {
       return result(
@@ -348,16 +371,65 @@ export function packMirrorItems(
     .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 }
 
-/** Committed manifests and wrapped keys on the primary (no recorded hash; compared with the source). */
+/** Item ids per retention lookup. */
+const ARCHIVE_LOOKUP_BATCH = 1000;
+
+/**
+ * The sealed archive records on `source` (no recorded hash; compared with the source), each
+ * with its item's retention when `retention` is given. Without it every record is listed and
+ * none carries a retention; with it only records of items the catalog still holds.
+ */
+export async function archiveMirrorItems(
+  tenantId: string,
+  source: StorageBackend,
+  retention?: ArchiveRecordRetention,
+): Promise<MirrorItem[]> {
+  const records = (await source.list(archivePrefix(tenantId))).flatMap((key) => {
+    const id = archiveItemIdOfKey(tenantId, key);
+    return id === null ? [] : [{ key, id }];
+  });
+  if (!retention) {
+    return records.map(({ key }) => ({ key, size: null, sha256: null }));
+  }
+  const items: MirrorItem[] = [];
+  for (let i = 0; i < records.length; i += ARCHIVE_LOOKUP_BATCH) {
+    const batch = records.slice(i, i + ARCHIVE_LOOKUP_BATCH);
+    const found = await retention(batch.map((record) => record.id));
+    for (const record of batch) {
+      if (found.has(record.id)) {
+        items.push({
+          key: record.key,
+          size: null,
+          sha256: null,
+          retainUntil: found.get(record.id) ?? null,
+        });
+      }
+    }
+  }
+  return items;
+}
+
+export interface MetadataMirrorOptions {
+  /** The archive records' retention (archive_items); see {@link archiveMirrorItems}. */
+  readonly archiveRetention?: ArchiveRecordRetention;
+}
+
+/**
+ * Committed manifests, wrapped keys and sealed archive records on the primary (no recorded
+ * hash; compared with the source).
+ */
 export async function metadataMirrorItems(
   tenantId: string,
   source: StorageBackend,
+  options: MetadataMirrorOptions = {},
 ): Promise<MirrorItem[]> {
-  const manifests = (await source.list(manifestPrefix(tenantId))).filter(
-    (key) => !key.endsWith(PARTIAL_MANIFEST_SUFFIX),
-  );
-  const keys = await source.list(keyPrefix(tenantId));
-  return [...keys, ...manifests].map((key) => ({ key, size: null, sha256: null }));
+  const [listed, keys, archive] = await Promise.all([
+    source.list(manifestPrefix(tenantId)),
+    source.list(keyPrefix(tenantId)),
+    archiveMirrorItems(tenantId, source, options.archiveRetention),
+  ]);
+  const manifests = listed.filter((key) => !key.endsWith(PARTIAL_MANIFEST_SUFFIX));
+  return [...[...keys, ...manifests].map((key) => ({ key, size: null, sha256: null })), ...archive];
 }
 
 /**
@@ -546,6 +618,8 @@ export interface TenantMirrorOptions {
   readonly storage: StorageTargets;
   /** Every pack the chunk index knows for the tenant. */
   readonly packs: readonly Pick<PackRecord, "path" | "size" | "sha256">[];
+  /** The archive records' retention (archive_items); see {@link archiveMirrorItems}. */
+  readonly archiveRetention?: ArchiveRecordRetention;
   readonly verify?: MirrorVerifyMode;
   readonly concurrency?: number;
   readonly signal?: AbortSignal;
@@ -562,8 +636,8 @@ export interface TenantMirrorReport {
 
 /**
  * Mirror a tenant's store onto every copy target. Wrapped keys go first (a
- * copy without keys is useless for a standalone restore), then manifests, then
- * packs.
+ * copy without keys is useless for a standalone restore), then manifests and
+ * sealed archive records (with their retention), then packs.
  */
 export async function mirrorTenantStorage(
   options: TenantMirrorOptions,
@@ -574,7 +648,9 @@ export async function mirrorTenantStorage(
   }
   options.progress?.phase("enumerate");
   const items = [
-    ...(await metadataMirrorItems(tenantId, storage.primary)),
+    ...(await metadataMirrorItems(tenantId, storage.primary, {
+      archiveRetention: options.archiveRetention,
+    })),
     ...packMirrorItems(options.packs),
   ];
   options.progress?.total(items.length * storage.copies.length);
@@ -624,12 +700,46 @@ export interface CopyCompleteness {
   };
   readonly manifests: CompletenessCount;
   readonly keys: CompletenessCount;
+  /** Sealed archive records (tenants/<tid>/archive/). */
+  readonly archive: CompletenessCount;
   /** A few missing keys, for the operator (capped). */
   readonly missingSample: readonly string[];
   readonly checkedAt: string;
 }
 
 const MISSING_SAMPLE = 10;
+
+/**
+ * The sealed archive records of `sourceKeys` present on the target. A record the target lacks
+ * is expected only while the catalog holds its item (when `retention` is given); the missing
+ * ones expected are appended to `missing`.
+ */
+async function countArchiveRecords(
+  tenantId: string,
+  sourceKeys: readonly string[],
+  onTarget: ReadonlySet<string>,
+  missing: string[],
+  retention: ArchiveRecordRetention | undefined,
+): Promise<CompletenessCount> {
+  const records = sourceKeys.flatMap((key) => {
+    const id = archiveItemIdOfKey(tenantId, key);
+    return id === null ? [] : [{ key, id }];
+  });
+  const absent = records.filter((record) => !onTarget.has(record.key));
+  let gone = 0;
+  for (let i = 0; i < absent.length; i += ARCHIVE_LOOKUP_BATCH) {
+    const batch = absent.slice(i, i + ARCHIVE_LOOKUP_BATCH);
+    const live = retention ? await retention(batch.map((record) => record.id)) : null;
+    for (const record of batch) {
+      if (live && !live.has(record.id)) {
+        gone++;
+      } else {
+        missing.push(record.key);
+      }
+    }
+  }
+  return { expected: records.length - gone, present: records.length - absent.length };
+}
 
 /**
  * Does the copy hold everything the primary holds? Compares listings only (no
@@ -641,19 +751,29 @@ export async function checkCopyCompleteness(options: {
   readonly source: StorageBackend;
   readonly target: StorageBackend;
   readonly packs: readonly Pick<PackRecord, "path" | "size">[];
+  /** Records of items the catalog no longer holds are not expected (see {@link archiveMirrorItems}). */
+  readonly archiveRetention?: ArchiveRecordRetention;
   readonly now?: () => Date;
 }): Promise<CopyCompleteness> {
   const { tenantId, source, target } = options;
-  const [targetPacks, targetManifests, targetKeys, sourceManifests, sourceKeys] = await Promise.all(
-    [
-      target.list(packPrefix(tenantId)),
-      target.list(manifestPrefix(tenantId)),
-      target.list(keyPrefix(tenantId)),
-      source.list(manifestPrefix(tenantId)),
-      source.list(keyPrefix(tenantId)),
-    ],
-  );
-  const onTarget = new Set([...targetPacks, ...targetManifests, ...targetKeys]);
+  const [
+    targetPacks,
+    targetManifests,
+    targetKeys,
+    targetArchive,
+    sourceManifests,
+    sourceKeys,
+    sourceArchive,
+  ] = await Promise.all([
+    target.list(packPrefix(tenantId)),
+    target.list(manifestPrefix(tenantId)),
+    target.list(keyPrefix(tenantId)),
+    target.list(archivePrefix(tenantId)),
+    source.list(manifestPrefix(tenantId)),
+    source.list(keyPrefix(tenantId)),
+    source.list(archivePrefix(tenantId)),
+  ]);
+  const onTarget = new Set([...targetPacks, ...targetManifests, ...targetKeys, ...targetArchive]);
   const missing: string[] = [];
   const count = (expected: readonly string[]): CompletenessCount => {
     let present = 0;
@@ -669,6 +789,13 @@ export async function checkCopyCompleteness(options: {
 
   const keys = count(sourceKeys);
   const manifests = count(sourceManifests.filter((key) => !key.endsWith(PARTIAL_MANIFEST_SUFFIX)));
+  const archive = await countArchiveRecords(
+    tenantId,
+    sourceArchive,
+    onTarget,
+    missing,
+    options.archiveRetention,
+  );
   let bytesExpected = 0;
   let bytesMissing = 0;
   for (const pack of options.packs) {
@@ -684,14 +811,15 @@ export async function checkCopyCompleteness(options: {
     packs: { ...packs, bytesExpected, bytesMissing },
     manifests,
     keys,
+    archive,
     missingSample: missing.slice(0, MISSING_SAMPLE),
     checkedAt: (options.now ?? (() => new Date()))().toISOString(),
   };
 }
 
 /**
- * Every key `target` currently holds across the three prefixes a mirror ever
- * writes (packs, manifests, wrapped keys) for one tenant: a listing only, no
+ * Every key `target` currently holds across the four prefixes a mirror ever
+ * writes (packs, manifests, wrapped keys, archive records) for one tenant: a listing only, no
  * reads. Lets a caller that resumes a checkpointed mirror pass tell a
  * genuinely new object — written to the source between two executions,
  * sorting at or below whatever key the checkpoint remembers as done — apart
@@ -705,10 +833,11 @@ export async function destinationObjectKeys(
   tenantId: string,
   target: StorageBackend,
 ): Promise<ReadonlySet<string>> {
-  const [packKeys, manifestKeys, wrappedKeys] = await Promise.all([
+  const [packKeys, manifestKeys, wrappedKeys, archiveKeys] = await Promise.all([
     target.list(packPrefix(tenantId)),
     target.list(manifestPrefix(tenantId)),
     target.list(keyPrefix(tenantId)),
+    target.list(archivePrefix(tenantId)),
   ]);
-  return new Set([...packKeys, ...manifestKeys, ...wrappedKeys]);
+  return new Set([...packKeys, ...manifestKeys, ...wrappedKeys, ...archiveKeys]);
 }

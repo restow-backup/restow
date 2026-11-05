@@ -591,6 +591,15 @@ private repository.
   and the item could never be read back. The commit now checks after taking its references that
   every chunk still exists; if one is gone it releases them, stores the mail again (the missing
   chunks are written anew) and commits then.
+- Mail archive and storage: the sealed record of each archived mail
+  (`tenants/<tid>/archive/`) was never copied after it was written. A copy target added later
+  never received the records written before it, a `move` of the primary left them only on the
+  old location, the completeness check before promoting a copy did not count them, and the old
+  location could be removed while it held the only copy of years of records with their Object
+  Lock retention. The copy mirror of the storage check, the migration and the completeness
+  check now include them, each written with the item's retention (records of items deleted
+  after their retention are left out), and removing an old location is refused while it holds
+  a record no current target has. The copy dialog lists "Sealed archive records".
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

@@ -165,6 +165,7 @@ function CompletenessReport({ completeness }: { completeness: CopyCompleteness }
     ["packs", completeness.packs],
     ["manifests", completeness.manifests],
     ["keys", completeness.keys],
+    ["archive", completeness.archive],
   ];
 
   return (
@@ -180,9 +181,11 @@ function CompletenessReport({ completeness }: { completeness: CopyCompleteness }
           <TriangleAlert />
           <AlertTitle>{t("completeness.incomplete.title")}</AlertTitle>
           <AlertDescription>
-            {t("completeness.incomplete.description", {
-              bytes: formatBytes(completeness.packs.bytesMissing, language),
-            })}
+            {completeness.packs.bytesMissing > 0
+              ? t("completeness.incomplete.description", {
+                  bytes: formatBytes(completeness.packs.bytesMissing, language),
+                })
+              : t("completeness.incomplete.objects")}
           </AlertDescription>
         </Alert>
       )}

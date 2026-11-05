@@ -57,6 +57,7 @@
  * by SHA-256.
  */
 import {
+  type ArchiveRecordRetention,
   type CatalogChunk,
   type CatalogPack,
   type GcBlocker,
@@ -91,6 +92,7 @@ import {
 import { and, asc, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
+import { archiveRecordRetention } from "./archive-records.js";
 import {
   abandonedCheckpointProbe,
   discardAbandonedSnapshots,
@@ -972,6 +974,7 @@ export async function mirrorCopies(
   ctx: Pick<WorkerJobContext, "tenantId" | "storage" | "signal" | "logger" | "now">,
   catalog: Pick<PackCatalog, "listPacks">,
   mode: ScrubJobPayload["mode"],
+  archiveRetention?: ArchiveRecordRetention,
 ): Promise<CopyMirrorSummary | null> {
   const storage = ctx.storage;
   if (storage.copies.length === 0) {
@@ -982,6 +985,7 @@ export async function mirrorCopies(
     tenantId: ctx.tenantId,
     storage,
     packs: await catalog.listPacks(),
+    archiveRetention,
     verify: mode === "full" ? "hash" : "size",
     signal: ctx.signal,
     logger,
@@ -1029,7 +1033,10 @@ export const scrubHandler: JobHandler<"scrub"> = {
     );
     // A recheck reads a handful of packs again; bringing every copy up to date waits for the next
     // scheduled check.
-    const copies = mode === "recheck" ? null : await mirrorCopies(ctx, catalog, mode);
+    const copies =
+      mode === "recheck"
+        ? null
+        : await mirrorCopies(ctx, catalog, mode, archiveRecordRetention(run, ctx.tenantId));
     const previous = await loadPreviousScrub(run, ctx.tenantId);
     // A storage migration reads the primary's packs to copy them elsewhere
     // and, once verified, retires it to `previous`; garbage collection must

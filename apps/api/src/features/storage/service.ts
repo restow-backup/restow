@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  type ArchiveRecordRetention,
+  archive,
   type CopyCompleteness,
   checkCopyCompleteness,
   checkSourceExclusiveObjects,
@@ -34,6 +36,7 @@ import {
   wrappedKeyKey,
 } from "@restow/core";
 import {
+  archiveItems,
   type Database,
   endpoints,
   fileShareRuns,
@@ -583,7 +586,7 @@ function previousHoldsExclusiveData(check: ExclusiveObjectsCheck): ProblemError 
   return new ProblemError(409, "Retired target still holds exclusive data", {
     type: `${PROBLEM_PREFIX}previous-holds-exclusive-data`,
     detail:
-      'This location still holds packs no other target has. Removing it now would make the snapshots that need them unrestorable. Run a "move" replacement first to copy them onto the current primary, then remove this location.',
+      'This location still holds packs, backup manifests, keys or sealed archive records no other target has. Removing it now would make the snapshots that need them unrestorable, or lose the archive records with their retention. Run a "move" replacement first to copy them onto the current primary, then remove this location.',
     extensions: {
       code: "previous_holds_exclusive_data",
       exclusiveKeys: check.exclusiveKeys,
@@ -1879,6 +1882,77 @@ async function liveExclusiveObjectKeys(
   });
 }
 
+/** The catalog's retention of archive items by id (core `ArchiveRecordRetention`). */
+function archiveRecordRetention(db: Database, tenantId: string): ArchiveRecordRetention {
+  return async (itemIds) => {
+    const ids = itemIds.filter((id) => UUID_PATTERN.test(id));
+    const found = new Map<string, Date | null>();
+    if (ids.length === 0) {
+      return found;
+    }
+    const rows = await withTenantTx(db, tenantId, (tx) =>
+      tx
+        .select({ id: archiveItems.id, retentionUntil: archiveItems.retentionUntil })
+        .from(archiveItems)
+        .where(and(eq(archiveItems.tenantId, tenantId), inArray(archiveItems.id, ids))),
+    );
+    for (const row of rows) {
+      found.set(row.id, row.retentionUntil);
+    }
+    return found;
+  };
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_EXCLUSIVE_KEYS = 20;
+const ARCHIVE_LOOKUP_BATCH = 1000;
+
+/**
+ * Sealed archive records (tenants/<tid>/archive/) that `previous` holds and no current
+ * target does, of items the catalog still holds: the records are the archive's storage
+ * source of truth (packages/core/src/archive/FORMAT.md) and carry its retention, so a
+ * location that is their only copy must not be removed. A record of an item deleted after
+ * its retention does not count.
+ */
+async function exclusiveArchiveRecords(
+  tenantId: string,
+  previous: StorageBackend,
+  others: readonly StorageBackend[],
+  retention: ArchiveRecordRetention,
+): Promise<ExclusiveObjectsCheck> {
+  const candidates = await checkSourceExclusiveObjects({
+    source: previous,
+    others,
+    prefix: archive.archivePrefix(tenantId),
+    maxReportedKeys: Number.MAX_SAFE_INTEGER,
+    isLive: (key) => archive.archiveItemIdOfKey(tenantId, key) !== null,
+  });
+  const exclusiveKeys: string[] = [];
+  let exclusiveKeysOmitted = 0;
+  const keys = candidates.exclusiveKeys;
+  for (let i = 0; i < keys.length; i += ARCHIVE_LOOKUP_BATCH) {
+    const batch = keys.slice(i, i + ARCHIVE_LOOKUP_BATCH);
+    const live = await retention(
+      batch.map((key) => archive.archiveItemIdOfKey(tenantId, key) as string),
+    );
+    for (const key of batch) {
+      if (!live.has(archive.archiveItemIdOfKey(tenantId, key) as string)) {
+        continue;
+      }
+      if (exclusiveKeys.length < MAX_EXCLUSIVE_KEYS) {
+        exclusiveKeys.push(key);
+      } else {
+        exclusiveKeysOmitted++;
+      }
+    }
+  }
+  return {
+    exclusive: exclusiveKeys.length > 0 || exclusiveKeysOmitted > 0,
+    exclusiveKeys,
+    exclusiveKeysOmitted,
+  };
+}
+
 /**
  * The storage prefixes of the tenant's restic repositories: machines (also revoked ones),
  * containers and file shares.
@@ -1998,8 +2072,8 @@ async function exclusiveMovedAsideFolders(
 }
 
 /**
- * Whether every pack, manifest and wrapped key this `previous` target holds
- * that still matters also exists on the tenant's current primary or a copy (a
+ * Whether every pack, manifest, wrapped key and sealed archive record this
+ * `previous` target holds that still matters also exists on the tenant's current primary or a copy (a
  * fresh, real-storage listing — "Probes and listings talk to real storage, so
  * they never run inside a database transaction", the same rule
  * `completenessOf` and `promoteTarget` follow). A manifest is exactly as
@@ -2042,11 +2116,17 @@ async function previousTargetExclusiveObjects(
     { prefix: keyPrefix(tenantId), isLive: (key) => live.keys.has(key) },
   ];
   try {
-    const checks = await Promise.all(
-      prefixes.map(({ prefix, isLive }) =>
+    const checks = await Promise.all([
+      ...prefixes.map(({ prefix, isLive }) =>
         checkSourceExclusiveObjects({ source: previousBackend, others, prefix, isLive }),
       ),
-    );
+      exclusiveArchiveRecords(
+        tenantId,
+        previousBackend,
+        others,
+        archiveRecordRetention(db, tenantId),
+      ),
+    ]);
     // A restic repository (a machine's, docs/AGENT.md; a container's; a file share's) of which
     // this location holds any file no other target has: not only its `config` (a run split by
     // a switch left early packs here while `config` is on the new primary too), every data,
@@ -2455,6 +2535,7 @@ async function completenessOf(
       source: primary.backend,
       target: copy.backend,
       packs: knownPacks,
+      archiveRetention: archiveRecordRetention(db, tenantId),
       now: deps.now,
     });
   } catch (error) {

@@ -471,6 +471,12 @@ Wann was:
   Datensatz je Objekt: `tenants/<tid>/archive/<jahr>/<monat>/<archive_item_id>.json`
   (Format: `packages/core/src/archive/FORMAT.md`). Auf einem S3-Ziel mit Object Lock
   (Compliance-Modus) trägt dieser Datensatz eine Retention bis zum Fristende des Archivs.
+  Seit 0.5.0 kopieren der Kopie-Spiegel der Speicherprüfung, die Speichermigration (`move`)
+  und die Vollständigkeitsprüfung vor dem Hochstufen einer Kopie auch diese Datensätze, jeden
+  mit dem Fristende seiner Katalogzeile (`retention_until`); ein Repository mit Datensätzen,
+  die kein anderes Ziel hat, lässt sich nicht entfernen (docs/STORAGE.md, "Copies and the
+  archive"). Vorher erreichten Datensätze ein später hinzugefügtes Ziel nie, und nach einem
+  `move` lagen die älteren nur noch auf dem alten Ziel.
 - **Seit 0.4.0** lässt sich Object Lock je Repository einschalten (docs/STORAGE.md,
   "Immutable backups"). Dann sind auch die Packs des Chunk-Stores gesperrt, also auch die
   Inhalte archivierter Mails: für die Frist des Repositories (1 bis 3650 Tage), verlängert,
