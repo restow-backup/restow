@@ -669,6 +669,14 @@ private repository.
   now raises `verify.red` again with the "a restore would not be complete" wording
   (`previousRedReason: "outdated"` in its details), or `verify.yellow` for the new cause. Damage
   the storage check finds still raises `scrub.corrupt`.
+- History: a restore check that rated a backup red (a pack the storage check found damaged, a
+  backup more than seven days old, a failed test restore) was listed as a neutral "Completed"
+  whenever none of its sampled items failed, next to "Completed with failed items" for a red
+  check that did fail items; the rating was only in the run's detail. A finished mail restore
+  check now takes its state from its rating: red reads "Check failed: not restorable" (state
+  `failed`), yellow "Check needs attention" (`partial`), green "Restorable"; the run carries
+  `checkReadiness`. A check that could not complete still reads "Not completed, will be
+  repeated".
 - Mail archive: an announced Graph message that could not be fetched other than with 404 (a
   403 for an item the app may not read, a 5xx) stayed pending for good at the head of the
   queue. A pass in which no announced message could be fetched failed and skipped the

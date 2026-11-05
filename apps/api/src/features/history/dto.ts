@@ -117,6 +117,11 @@ export interface RunDto {
    * never as failed.
    */
   checkIncomplete: boolean;
+  /**
+   * The rating a finished restore check recorded (jobs DTO `checkReadiness`): red makes the run
+   * `failed`, yellow `partial` (0.5.0). Null for every other run.
+   */
+  checkReadiness: "green" | "yellow" | "red" | null;
   /** A failed run that Graph or the storage held back (jobs DTO `serviceLimited`). */
   serviceLimited: boolean;
   /**
@@ -379,6 +384,26 @@ export function stateOfJob(status: JobStatusName, failedItems: number): RunState
   }
 }
 
+/**
+ * The state of a mail run. A finished restore check reads by its rating, not only by whether an
+ * item failed: red (a damaged pack, a backup too old, a failed test restore) is `failed`, yellow
+ * `partial`, so a check that proved the backup not restorable never reads "Completed".
+ */
+export function stateOfMailRun(
+  dto: Pick<JobDto, "status" | "queue" | "checkReadiness"> & {
+    progress: { failed: number } | null;
+  },
+): RunState {
+  const state = stateOfJob(dto.status, dto.progress?.failed ?? 0);
+  if (dto.queue !== "verify" || dto.status !== "completed") {
+    return state;
+  }
+  if (dto.checkReadiness === "red") {
+    return "failed";
+  }
+  return dto.checkReadiness === "yellow" ? "partial" : state;
+}
+
 export function stateOfEndpointRun(status: EndpointRun["status"]): RunState {
   return status === "running" ? "running" : status;
 }
@@ -468,7 +493,7 @@ export interface MailRunInput {
 /** A mail run (a `jobs` row with its progress and object). */
 export function mailRun(input: MailRunInput): RunDto {
   const { row, dto, job } = input;
-  const state = stateOfJob(dto.status, dto.progress?.failed ?? 0);
+  const state = stateOfMailRun(dto);
   const running = state === "running";
   const finished = isFinished(state);
   const progress = row.progress;
@@ -494,6 +519,7 @@ export function mailRun(input: MailRunInput): RunDto {
     type: dto.queue,
     state,
     checkIncomplete: dto.checkIncomplete,
+    checkReadiness: dto.checkReadiness,
     serviceLimited: dto.serviceLimited,
     notBackedUp: dto.notBackedUp,
     attempt: mailCheckAttempt(dto.queue, dto.status, dto.failure),
@@ -607,6 +633,7 @@ export function endpointRun(input: EndpointRunInput): RunDto {
     type: run.kind,
     state,
     checkIncomplete: incomplete,
+    checkReadiness: null,
     serviceLimited: false,
     notBackedUp: null,
     attempt: endpointCheckAttempt(run.kind, input.taskParams),
@@ -714,6 +741,7 @@ export function shareRun(input: ShareRunInput): RunDto {
     type: copy ? "copy" : run.kind,
     state,
     checkIncomplete: false,
+    checkReadiness: null,
     serviceLimited: false,
     notBackedUp: null,
     attempt: null,

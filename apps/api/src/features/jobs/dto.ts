@@ -131,6 +131,11 @@ export interface JobDto {
    */
   checkIncomplete: boolean;
   /**
+   * The rating a finished restore check (queue `verify`) recorded (`payload.result.readiness`);
+   * null for every other job, a check that could not complete, and while the job runs.
+   */
+  checkReadiness: "green" | "yellow" | "red" | null;
+  /**
    * A failed backup that Graph or the storage held back (throttled, unavailable, "slow down";
    * @restow/core `SERVICE_LIMIT_CAUSES`): no fault of the object, the next scheduled run tries
    * again. Shown as held back, not failed, and left out of the failed counts. Backups only
@@ -308,6 +313,16 @@ export function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+/** The rating a finished restore check stored, if it is one. */
+function checkReadinessOf(payload: Record<string, unknown> | null): JobDto["checkReadiness"] {
+  const result = record(payload?.result);
+  const readiness = result?.readiness;
+  return result?.incomplete !== true &&
+    (readiness === "green" || readiness === "yellow" || readiness === "red")
+    ? readiness
+    : null;
+}
+
 function text(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
@@ -483,6 +498,7 @@ export function toJobDto(row: JobViewRow, itemCauses: ItemCauseCountDto[] = []):
     retryable: isRetryable(job, object),
     checkIncomplete:
       job.queue === "verify" && !running && record(payload?.result)?.incomplete === true,
+    checkReadiness: job.queue === "verify" && !running ? checkReadinessOf(payload) : null,
     serviceLimited: isServiceLimitedBackup(job),
     notBackedUp: notBackedUpOf(job),
   };
