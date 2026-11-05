@@ -19,6 +19,7 @@ import {
 import type { FetchLike } from "../backup/imap/oauth2.js";
 import type { ImapAccountConfig } from "../backup/imap/types.js";
 import type { JobContext, ProtectedObjectRef, RestoreTarget } from "../engine/types.js";
+import { isGmailSystemMailbox } from "./gmail.js";
 import { ImapRestoreError, type ImapRestoreSession, type ImapSessionFactory } from "./imap.js";
 
 /**
@@ -35,6 +36,8 @@ export type ImapFlowClient = Pick<
   | "getMailboxLock"
   | "search"
   | "append"
+  | "messageCopy"
+  | "mailbox"
   | "fetchOne"
   | "logout"
   | "close"
@@ -57,6 +60,9 @@ export class ImapFlowRestoreSession implements ImapRestoreSession {
   private readonly known = new Map<string, string>();
   private readonly specialUse = new Map<string, string>();
 
+  /** Gmail: `[Gmail]/All Mail` with `\All` in LIST (./gmail.ts). */
+  isGmail = false;
+
   private constructor(
     private readonly client: ImapFlowClient,
     readonly delimiter: string,
@@ -71,6 +77,9 @@ export class ImapFlowRestoreSession implements ImapRestoreSession {
     session.specialUse.set("\\inbox", "INBOX");
     for (const box of listed) {
       session.known.set(box.path, box.path);
+      if (box.specialUse?.toLowerCase() === "\\all" && isGmailSystemMailbox(box.path)) {
+        session.isGmail = true;
+      }
       if (box.specialUse && box.specialUse.toLowerCase() !== "\\inbox") {
         const key = box.specialUse.toLowerCase();
         if (!session.specialUse.has(key)) {
@@ -166,6 +175,23 @@ export class ImapFlowRestoreSession implements ImapRestoreSession {
       throw new ImapRestoreError(`the server rejected the APPEND to ${mailbox}`);
     }
     return { uid: result.uid };
+  }
+
+  async copy(mailbox: string, uid: number, destination: string): Promise<void> {
+    await this.withMailbox(mailbox, async () => {
+      const result = await this.client.messageCopy(String(uid), destination, { uid: true });
+      if (result === false) {
+        throw new ImapRestoreError(`the server refused to COPY message ${uid} to ${destination}`);
+      }
+    });
+  }
+
+  async permanentFlags(mailbox: string): Promise<readonly string[] | undefined> {
+    return this.withMailbox(mailbox, async () => {
+      const opened = this.client.mailbox;
+      const flags = opened ? opened.permanentFlags : undefined;
+      return flags === undefined ? undefined : [...flags];
+    });
   }
 
   async fetchSha256(mailbox: string, uid: number): Promise<string | null> {

@@ -1519,6 +1519,87 @@ describe("ExchangeRestoreEngine", () => {
     expect(client.patches).toEqual([{ isRead: false, flag: { flagStatus: "flagged" } }]);
   });
 
+  it("restores a per-label Gmail backup once per message, its labels as categories", async () => {
+    const gmail = (
+      mailbox: string,
+      uid: number,
+      id: string,
+      specialUse?: string,
+      flags = "\\Seen",
+    ): FixtureObject => ({
+      path: `mail/${mailbox}/${uid}.eml`,
+      type: "message",
+      id: `imap:${mailbox}:9:${uid}`,
+      content: mimeMessage({ messageId: `<${id}@example.org>`, subject: `Gmail ${id}` }),
+      metadata: {
+        mailbox,
+        delimiter: "/",
+        uid: String(uid),
+        uidValidity: "9",
+        flags,
+        messageId: `<${id}@example.org>`,
+        ...(specialUse ? { specialUse } : {}),
+      },
+    });
+    const folder = (mailbox: string, specialUse?: string): FixtureObject => ({
+      path: `mail/${mailbox}`,
+      type: "folder",
+      id: `imap:${mailbox}:9`,
+      content: "",
+      metadata: {
+        mailbox,
+        delimiter: "/",
+        uidValidity: "9",
+        ...(specialUse ? { specialUse } : {}),
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna@gmail.example",
+      objects: [
+        folder("[Gmail]/All Mail", "\\All"),
+        folder("[Gmail]/Important", "\\Important"),
+        gmail("INBOX", 1, "a", "\\Inbox"),
+        gmail("[Gmail]/All Mail", 11, "a", "\\All"),
+        gmail("Kunden", 21, "a"),
+        gmail("[Gmail]/Important", 31, "a", "\\Important"),
+        gmail("[Gmail]/All Mail", 12, "b", "\\All"),
+        gmail("[Gmail]/Sent Mail", 41, "c", "\\Sent"),
+        gmail("[Gmail]/All Mail", 13, "c", "\\All"),
+      ],
+    });
+    const mailbox = new FakeMailbox();
+    mailbox.addFolder("Archive", null, "wk-archive");
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip", target: { type: "other", ref: USER } }),
+    );
+
+    expect(report.failures).toEqual([]);
+    // Three messages, three creates: not one per label plus one for All Mail.
+    expect(mailbox.messages.size).toBe(3);
+    expect(report.restored).toBe(3);
+    const a = must([...mailbox.messages.values()].find((m) => m.subject === "Gmail a"));
+    expect(a.parentFolderId).toBe("wk-inbox");
+    expect(a.patches).toEqual([
+      { isRead: true, flag: { flagStatus: "notFlagged" }, categories: ["Kunden", "Important"] },
+    ]);
+    const b = must([...mailbox.messages.values()].find((m) => m.subject === "Gmail b"));
+    expect(b.parentFolderId).toBe("wk-archive");
+    const c = must([...mailbox.messages.values()].find((m) => m.subject === "Gmail c"));
+    expect(c.parentFolderId).toBe("wk-sentitems");
+    const item = (path: string) => must(report.items.find((entry) => entry.path === path));
+    expect(item("mail/INBOX/1.eml").reason).toMatch(
+      /Gmail labels kept as categories: Kunden, Important/,
+    );
+    expect(item("mail/Kunden/21.eml")).toMatchObject({ status: "skipped", code: "exists" });
+    expect(item("mail/Kunden/21.eml").reason).toMatch(
+      /label "Kunden" is kept as the category "Kunden"/,
+    );
+    expect(item("mail/[Gmail]/Important").reason).toMatch(/is a label, not a folder/);
+  });
+
   it("explains a message Graph refuses as too large", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",

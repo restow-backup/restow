@@ -47,6 +47,13 @@ import {
 } from "./common.js";
 import { imapFlagsOf, imapInternalDateOf } from "./conventions.js";
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
+import {
+  type GmailUnit,
+  gmailLabelFolderNote,
+  placedIn,
+  planGmailMail,
+  reportGmailCopies,
+} from "./gmail.js";
 import { RESTORED_BY_EARLIER_ATTEMPT, RestoreProgress } from "./progress.js";
 import {
   describeRestoreError,
@@ -89,6 +96,23 @@ export interface ImapRestoreSession {
     mailbox: string,
     message: { readonly internalDate: Date | undefined; readonly size: number },
   ): Promise<number[]>;
+  /**
+   * True for a Gmail account (`[Gmail]/All Mail` with `\All` in LIST): a
+   * message is restored once and gets its other labels by {@link copy}
+   * (./gmail.ts). Sessions that cannot tell omit it.
+   */
+  readonly isGmail?: boolean;
+  /**
+   * COPY one message into another mailbox. Only used on Gmail, where a COPY
+   * adds a label to the same message instead of making a second one. Never
+   * removes the message from its mailbox (no MOVE).
+   */
+  copy?(mailbox: string, uid: number, destination: string): Promise<void>;
+  /**
+   * PERMANENTFLAGS of `mailbox` (contains `\*` when new keywords are kept),
+   * or undefined when the server does not say. Sessions that cannot tell omit it.
+   */
+  permanentFlags?(mailbox: string): Promise<readonly string[] | undefined>;
   /** APPEND one message; the UID is known when the server supports UIDPLUS. */
   append(
     mailbox: string,
@@ -174,7 +198,10 @@ export function targetMailboxComponents(
     return [asComponent(restoreFolder, delimiter), ...clean(names)];
   }
   if (anchor !== undefined) {
-    const anchorPath = session.specialUseMailbox?.(anchor);
+    // Gmail's All Mail goes into an archive mailbox where the target has no \All.
+    const anchorPath =
+      session.specialUseMailbox?.(anchor) ??
+      (anchor.toLowerCase() === "\\all" ? session.specialUseMailbox?.("\\Archive") : undefined);
     if (anchorPath !== undefined) {
       const anchorComponents =
         delimiter.length === 0
@@ -335,11 +362,21 @@ class ImapRestoreRun {
     }
     if (plan.mail.length > 0) {
       this.ctx.progress.phase("mail");
-      const duplicates = new MessageIdDuplicates<number>(plan.mail, (message) =>
+      // A Gmail message once, not once per label (./gmail.ts).
+      const gmail = planGmailMail(
+        plan.mail,
+        this.catalog,
+        this.session.isGmail === true ? "gmail" : "imap",
+      );
+      const duplicates = new MessageIdDuplicates<number>(gmail.mail, (message) =>
         this.mailboxPath(message),
       );
-      for (const message of plan.mail) {
+      for (const message of gmail.mail) {
         await this.restoreMessage(message, duplicates.slot(message));
+        const unit = gmail.units.get(message.path);
+        if (unit !== undefined) {
+          await this.finishGmailMessage(unit);
+        }
       }
     }
     const foreign = [
@@ -389,6 +426,15 @@ class ImapRestoreRun {
 
   private async recreateFolder(folder: ManifestObject): Promise<void> {
     throwIfAborted(this.ctx);
+    const label = gmailLabelFolderNote(
+      folder,
+      this.catalog,
+      this.session.isGmail === true ? "gmail" : "imap",
+    );
+    if (label !== undefined) {
+      this.ledger.skipped(folder, "exists", this.legacyNote(label));
+      return;
+    }
     try {
       const mailbox = await this.mailboxFor(folder);
       this.ledger.restored(folder, { targetRef: mailbox, bytes: 0, verified: true });
@@ -487,11 +533,19 @@ class ImapRestoreRun {
 
       // Reading verifies size and SHA-256; nothing is written before it succeeded.
       const content = await this.reader.readObjectToBuffer(message);
-      const { flags, withheld } = appendableFlags(imapFlagsOf(message));
+      const appendable = appendableFlags(imapFlagsOf(message));
+      const { withheld } = appendable;
+      const notes: string[] = [];
+      const { flags, dropped } = await this.keepableFlags(mailbox, appendable.flags);
+      if (dropped.length > 0) {
+        this.droppedKeywords.set(message.path, dropped);
+        notes.push(
+          `the keywords ${dropped.join(" ")} are not kept: the server takes no new keywords in this mailbox`,
+        );
+      }
       const { uid } = await session.append(mailbox, content, flags, imapInternalDateOf(message));
       duplicates.wrote(mailbox, uid);
 
-      const notes: string[] = [];
       let verified: boolean | undefined;
       if (uid !== undefined && session.fetchSha256 !== undefined) {
         const stored = await session.fetchSha256(mailbox, uid);
@@ -525,6 +579,103 @@ class ImapRestoreRun {
       this.throwIfConnectionLost(error);
       ledger.failed(message, this.legacyReplaceError(error), failureCodeOf(error));
     }
+  }
+
+  /** Keywords a mailbox would not keep, by the message they were meant for. */
+  private readonly droppedKeywords = new Map<string, string[]>();
+  private readonly permanentFlagsByMailbox = new Map<string, readonly string[] | undefined>();
+
+  /**
+   * The flags `mailbox` keeps: a server whose PERMANENTFLAGS lack `\*` drops
+   * new keywords without a word, so they are not sent and the caller says so.
+   */
+  private async keepableFlags(
+    mailbox: string,
+    flags: readonly string[],
+  ): Promise<{ flags: string[]; dropped: string[] }> {
+    const keywords = flags.filter((flag) => !flag.startsWith("\\"));
+    if (keywords.length === 0 || this.session.permanentFlags === undefined) {
+      return { flags: [...flags], dropped: [] };
+    }
+    if (!this.permanentFlagsByMailbox.has(mailbox)) {
+      this.permanentFlagsByMailbox.set(mailbox, await this.session.permanentFlags(mailbox));
+    }
+    const permanent = this.permanentFlagsByMailbox.get(mailbox);
+    if (permanent === undefined || permanent.includes("\\*")) {
+      return { flags: [...flags], dropped: [] };
+    }
+    const known = new Set(permanent.map((flag) => flag.toLowerCase()));
+    const dropped = keywords.filter((keyword) => !known.has(keyword.toLowerCase()));
+    return { flags: flags.filter((flag) => !dropped.includes(flag)), dropped };
+  }
+
+  /**
+   * After a Gmail message was written once: its other labels into a Gmail
+   * account by COPY, and the outcome of the objects that stood for its other
+   * labels (./gmail.ts).
+   */
+  private async finishGmailMessage(unit: GmailUnit): Promise<void> {
+    const outcome = this.ledger.resultOf(unit.object.path);
+    const kept = new Map<string, string>();
+    const lost = new Map<string, string>();
+    const notes: string[] = [];
+    let labelFailed = false;
+    if (outcome?.status === "restored") {
+      const dropped = new Set(this.droppedKeywords.get(unit.object.path) ?? []);
+      const asKeywords: string[] = [];
+      for (const { label, keyword } of unit.keywords) {
+        if (dropped.has(keyword)) {
+          lost.set(label, "the server takes no new keywords");
+        } else {
+          kept.set(label, `is kept as the keyword "${keyword}"`);
+          asKeywords.push(keyword);
+        }
+      }
+      if (asKeywords.length > 0) {
+        notes.push(`Gmail labels kept as keywords: ${asKeywords.join(" ")}`);
+      }
+      const ref = outcome.targetRef ?? "";
+      const split = ref.lastIndexOf(":");
+      const mailbox = split === -1 ? ref : ref.slice(0, split);
+      const uid = split === -1 ? Number.NaN : Number(ref.slice(split + 1));
+      const added: string[] = [];
+      for (const place of unit.copyLabels) {
+        const name = place.label.replace(/^\\+/, "");
+        if (!Number.isInteger(uid) || uid <= 0 || this.session.copy === undefined) {
+          lost.set(
+            place.label,
+            "the server did not name the restored message, so no label was added",
+          );
+          labelFailed = true;
+          continue;
+        }
+        try {
+          const destination = await this.mailboxFor(placedIn(unit.object, place));
+          await this.session.copy(mailbox, uid, destination);
+          kept.set(place.label, `was added to it (COPY to ${destination})`);
+          added.push(name);
+        } catch (error) {
+          if (isAbortError(error)) {
+            throw error;
+          }
+          this.throwIfConnectionLost(error);
+          lost.set(place.label, describeRestoreError(error));
+          labelFailed = true;
+        }
+      }
+      if (added.length > 0) {
+        notes.push(`Gmail labels added: ${added.join(", ")}`);
+      }
+      if (lost.size > 0) {
+        notes.push(
+          `Gmail labels not kept: ${[...lost.entries()].map(([label, why]) => `${label.replace(/^\\+/, "")} (${why})`).join(", ")}`,
+        );
+      }
+      if (notes.length > 0) {
+        this.ledger.amendRestored(unit.object.path, notes.join("; "), labelFailed);
+      }
+    }
+    reportGmailCopies(unit, outcome, { kept, lost }, this.ledger);
   }
 
   /**

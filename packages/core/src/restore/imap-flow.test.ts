@@ -59,6 +59,10 @@ class FakeImapFlow extends EventEmitter {
   async getMailboxLock(path: string): Promise<{ path: string; release(): void }> {
     this.locks++;
     this.calls.push(`LOCK ${path}`);
+    this.mailbox = {
+      path,
+      ...(this.permanentFlags ? { permanentFlags: this.permanentFlags } : {}),
+    };
     return { path, release: () => this.locks-- };
   }
 
@@ -77,6 +81,19 @@ class FakeImapFlow extends EventEmitter {
       `APPEND ${path} ${flags.join(" ")} ${date?.toISOString() ?? "-"} ${content.length}`,
     );
     return this.appendResult;
+  }
+
+  /** What SELECT reported for the mailbox the last lock opened. */
+  mailbox: { path: string; permanentFlags?: Set<string> } | false = false;
+  permanentFlags: Set<string> | undefined = new Set(["\\Seen", "\\*"]);
+
+  async messageCopy(
+    range: string,
+    destination: string,
+    options: { uid?: boolean },
+  ): Promise<{ path: string; destination: string } | false> {
+    this.calls.push(`COPY ${range} ${destination} uid=${options.uid === true}`);
+    return { path: "INBOX", destination };
   }
 
   async fetchOne(uid: string): Promise<{ source: Buffer } | false> {
@@ -115,6 +132,28 @@ describe("ImapFlowRestoreSession", () => {
     expect(session.specialUseMailbox("\\sent")).toBe("INBOX.Sent");
     expect(session.specialUseMailbox("\\Inbox")).toBe("INBOX");
     expect(session.specialUseMailbox("\\Trash")).toBeUndefined();
+  });
+
+  it("knows a Gmail account by All Mail, copies by UID and reads PERMANENTFLAGS", async () => {
+    const gmail: Box[] = [
+      { path: "INBOX", delimiter: "/", specialUse: "\\Inbox" },
+      { path: "[Gmail]/All Mail", delimiter: "/", specialUse: "\\All" },
+      { path: "Work", delimiter: "/" },
+    ];
+    const fake = new FakeImapFlow({} as ImapFlowOptions, gmail);
+    const session = await ImapFlowRestoreSession.open(asClient(fake));
+    expect(session.isGmail).toBe(true);
+    await session.copy("INBOX", 41, "Work");
+    expect(fake.calls).toContain("COPY 41 Work uid=true");
+    expect(await session.permanentFlags("INBOX")).toEqual(["\\Seen", "\\*"]);
+    fake.permanentFlags = undefined;
+    expect(await session.permanentFlags("INBOX")).toBeUndefined();
+    expect(fake.locks).toBe(0);
+
+    const plain = await ImapFlowRestoreSession.open(
+      asClient(new FakeImapFlow({} as ImapFlowOptions, namespaced)),
+    );
+    expect(plain.isGmail).toBe(false);
   });
 
   it("creates missing levels once and keeps the name the server gave them", async () => {

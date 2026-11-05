@@ -133,6 +133,7 @@ import {
   referenceAttachmentsOf,
 } from "./conventions.js";
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
+import { finishGmailMessageForExchange, gmailLabelFolderNote, planGmailMail } from "./gmail.js";
 import {
   forEachMimeAttachment,
   graphMessageFromMime,
@@ -350,15 +351,21 @@ export class ExchangeRestoreEngine implements RestoreEngine {
     }
     if (plan.mail.length > 0 || plan.orphanAttachments.length > 0) {
       ctx.progress.phase("mail");
-      const duplicates = new MessageIdDuplicates<string>(plan.mail, (message) =>
+      // A Gmail message once, not once per label; labels become categories (./gmail.ts).
+      const gmail = planGmailMail(plan.mail, plan.catalog, "exchange");
+      const duplicates = new MessageIdDuplicates<string>(gmail.mail, (message) =>
         JSON.stringify(plan.catalog.mailFolderChain(message)),
       );
-      for (const message of plan.mail) {
+      for (const message of gmail.mail) {
         await session.restoreMessage(
           message,
           plan.attachmentsByMessage.get(message.path) ?? [],
           duplicates.slot(message),
         );
+        const unit = gmail.units.get(message.path);
+        if (unit !== undefined) {
+          finishGmailMessageForExchange(unit, ledger);
+        }
       }
       for (const attachment of plan.orphanAttachments) {
         ledger.skipped(
@@ -616,6 +623,11 @@ export class ExchangeRestoreSession {
   async restoreFolder(folder: ManifestObject): Promise<void> {
     const { ctx, catalog, ledger } = this.o;
     throwIfAborted(ctx);
+    const label = gmailLabelFolderNote(folder, catalog, "exchange");
+    if (label !== undefined) {
+      ledger.skipped(folder, "exists", this.legacyNote(label));
+      return;
+    }
     try {
       let targetRef: string | null;
       switch (folderKindOf(folder)) {

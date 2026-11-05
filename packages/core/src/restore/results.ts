@@ -196,6 +196,44 @@ export class RestoreLedger {
     this.progress.advance(1, bytes);
   }
 
+  /** The outcome recorded last for an object, if any. */
+  resultOf(path: string): RestoreItemResult | undefined {
+    for (let index = this.results.length - 1; index >= 0; index--) {
+      const result = this.results[index];
+      if (result?.path === path) {
+        return result;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Add to the reason of a restored item what a later step found (its Gmail
+   * labels, say), and take back its confirmation when that step failed.
+   */
+  amendRestored(path: string, note: string, unverified = false): void {
+    for (let index = this.results.length - 1; index >= 0; index--) {
+      const result = this.results[index];
+      if (result?.path !== path) {
+        continue;
+      }
+      if (result.status !== "restored") {
+        return;
+      }
+      const becomesUnverified = unverified && result.code !== "unverified";
+      this.results[index] = {
+        ...result,
+        code: becomesUnverified ? "unverified" : result.code,
+        verified: unverified ? false : result.verified,
+        reason: result.reason ? `${result.reason}; ${note}` : note,
+      };
+      if (becomesUnverified && result.type !== "folder") {
+        this.unverifiedCount++;
+      }
+      return;
+    }
+  }
+
   skipped(
     object: ManifestObject,
     code: Exclude<RestoreItemCode, "restored" | "unverified">,

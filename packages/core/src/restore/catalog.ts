@@ -76,6 +76,8 @@ const SPECIAL_USE_WELL_KNOWN: Readonly<Record<string, string>> = {
   "\\trash": "deleteditems",
   "\\junk": "junkemail",
   "\\archive": "archive",
+  // Gmail's All Mail: a mailbox for mail that has no other folder (./gmail.ts).
+  "\\all": "archive",
 };
 
 /** An object an IMAP backup or a mailbox import wrote (docs: conventions, IMAP). */
@@ -109,8 +111,8 @@ export class SnapshotCatalog {
   /** Real display names of mail and contact folders by area and recorded folder path. */
   private readonly displayNames = new Map<string, string>();
 
-  private constructor(objects: readonly ManifestObject[]) {
-    for (const object of objects) {
+  private constructor(private readonly all: readonly ManifestObject[]) {
+    for (const object of all) {
       const type = objectTypeOf(object);
       if (type === "mail" && object.id !== undefined) {
         this.messagePathById.set(object.id, object.path);
@@ -148,6 +150,11 @@ export class SnapshotCatalog {
 
   static of(manifest: Pick<SnapshotManifest, "objects">): SnapshotCatalog {
     return new SnapshotCatalog(manifest.objects);
+  }
+
+  /** Every object of the snapshot. */
+  objects(): readonly ManifestObject[] {
+    return this.all;
   }
 
   /**

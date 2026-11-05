@@ -572,6 +572,18 @@ private repository.
   no draft in the backup and Outlook shows it as an unsent draft. The draft state of every
   restored message is now compared with the backup (`isDraft` of an Exchange backup, `\Draft` of
   an IMAP backup or import); a difference makes it "Not confirmed" with the reason.
+- Mail restore of a Gmail or Google Workspace backup: every message came back once per label and
+  once more for "All Mail". Gmail shows a message in every mailbox that is one of its labels, and
+  each mailbox was restored on its own, so a whole-account restore into another server or into
+  Microsoft 365 (a migration, or after the account was lost) wrote a message with three labels
+  four times; into Gmail itself it also came back as separate copies. Each message is now restored
+  once, into the folder its labels point to (Inbox, then Sent, Drafts, Trash, Spam, then its first
+  own label, else the archive), and its other labels follow: into Gmail as labels again, on
+  another IMAP server as keywords, in Microsoft 365 as categories; Starred becomes the flag. A
+  server that keeps no new keywords is not sent any, and the result names the labels that are
+  lost. The objects of the backup that stood for the other labels are listed as skipped with
+  what became of their label, and Gmail's Important and Starred are not created as folders on
+  another server.
 - Restore into another IMAP account: the target was stored as the bare login and looked up without
   order, source or status, so with two IMAP sources that know the same login (an old and a new
   server during a migration) a restore could write into the wrong server while the job reported

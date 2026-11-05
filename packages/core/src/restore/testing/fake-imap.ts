@@ -25,7 +25,28 @@ export interface FakeImapOptions {
   readonly mailboxes?: Readonly<Record<string, string | undefined>>;
   /** Pretend the server lacks UIDPLUS: APPEND reports no UID. */
   readonly noUidPlus?: boolean;
+  /**
+   * Behave like Gmail: the `[Gmail]` mailboxes exist, every message is in
+   * `[Gmail]/All Mail`, and a COPY adds a label (the message appears in the
+   * destination too) instead of making a second message.
+   */
+  readonly gmail?: boolean;
+  /** PERMANENTFLAGS of every mailbox; undefined: the server does not say. */
+  readonly permanentFlags?: readonly string[];
 }
+
+/** The mailboxes of a new Gmail account, as its LIST names them. */
+export const GMAIL_MAILBOXES: Readonly<Record<string, string | undefined>> = {
+  "[Gmail]/All Mail": "\\All",
+  "[Gmail]/Sent Mail": "\\Sent",
+  "[Gmail]/Drafts": "\\Drafts",
+  "[Gmail]/Trash": "\\Trash",
+  "[Gmail]/Spam": "\\Junk",
+  "[Gmail]/Important": "\\Important",
+  "[Gmail]/Starred": "\\Flagged",
+};
+
+const GMAIL_ALL_MAIL = "[Gmail]/All Mail";
 
 export class FakeImapAccount implements ImapRestoreSession {
   readonly delimiter: string;
@@ -48,9 +69,51 @@ export class FakeImapAccount implements ImapRestoreSession {
   constructor(private readonly options: FakeImapOptions = {}) {
     this.delimiter = options.delimiter ?? "/";
     this.boxes.set("INBOX", { path: "INBOX", specialUse: "\\Inbox", messages: [] });
-    for (const [path, specialUse] of Object.entries(options.mailboxes ?? {})) {
+    const initial = options.gmail
+      ? { ...GMAIL_MAILBOXES, ...options.mailboxes }
+      : options.mailboxes;
+    for (const [path, specialUse] of Object.entries(initial ?? {})) {
       this.boxes.set(path, { path, specialUse, messages: [] });
     }
+  }
+
+  get isGmail(): boolean {
+    return this.options.gmail === true;
+  }
+
+  /** Every distinct message of the account (on Gmail: once, whatever its labels). */
+  distinctMessages(): StoredMessage[] {
+    const seen = new Map<number, StoredMessage>();
+    for (const box of this.boxes.values()) {
+      for (const message of box.messages) {
+        seen.set(message.uid, message);
+      }
+    }
+    return [...seen.values()];
+  }
+
+  async permanentFlags(mailbox: string): Promise<readonly string[] | undefined> {
+    this.commands.push(`SELECT ${mailbox}`);
+    this.box(mailbox);
+    return this.options.permanentFlags;
+  }
+
+  async copy(mailbox: string, uid: number, destination: string): Promise<void> {
+    this.commands.push(`COPY ${mailbox} ${uid} ${destination}`);
+    this.assertConnected();
+    const message = this.box(mailbox).messages.find((candidate) => candidate.uid === uid);
+    if (!message) {
+      throw new Error(`NO no message ${uid} in ${mailbox}`);
+    }
+    const target = this.box(destination);
+    if (this.options.gmail) {
+      // Gmail: the same message gets the destination's label.
+      if (!target.messages.includes(message) && destination !== GMAIL_ALL_MAIL) {
+        target.messages.push(message);
+      }
+      return;
+    }
+    target.messages.push({ ...message, uid: this.nextUid++ });
   }
 
   /** Mailbox paths, sorted. */
@@ -151,7 +214,19 @@ export class FakeImapAccount implements ImapRestoreSession {
     }
     const uid = this.nextUid++;
     const stored = this.mangle ? this.mangle(content) : content;
-    this.box(mailbox).messages.push({ uid, content: stored, flags: [...flags], internalDate });
+    const kept =
+      this.options.permanentFlags?.includes("\\*") === false
+        ? flags.filter(
+            (flag) => flag.startsWith("\\") || this.options.permanentFlags?.includes(flag),
+          )
+        : flags;
+    const message = { uid, content: stored, flags: [...kept], internalDate };
+    this.box(mailbox).messages.push(message);
+    const use = this.box(mailbox).specialUse?.toLowerCase();
+    if (this.options.gmail && mailbox !== GMAIL_ALL_MAIL && use !== "\\trash" && use !== "\\junk") {
+      // Gmail: a message appended to a label is in All Mail as well, once.
+      this.box(GMAIL_ALL_MAIL).messages.push(message);
+    }
     return { uid: this.options.noUidPlus ? undefined : uid };
   }
 
