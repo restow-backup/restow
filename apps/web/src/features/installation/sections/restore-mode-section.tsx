@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime } from "@/lib/format";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
-import { AccessNote, blockFor, useInstallationAccess } from "../access";
+import { type AccessBlock, AccessNote, blockFor, useInstallationAccess } from "../access";
 import {
   endFormReady,
   type RestoreModeView,
@@ -105,7 +105,9 @@ export function RestoreModeContent({ view }: { view: RestoreModeView }) {
         ) : null}
       </Card>
 
-      {active ? null : ownerBlock ? null : <StartForm />}
+      {active ? null : <StartForm block={ownerBlock} />}
+
+      {active ? <ChecklistCard source={active.source} /> : null}
 
       <TargetsCard view={view} />
 
@@ -191,7 +193,42 @@ export function RestoreModeContent({ view }: { view: RestoreModeView }) {
   );
 }
 
-function StartForm() {
+/**
+ * What to check before ending restore mode, in the order it is worth doing it. A restore from a
+ * dump in the setup wizard or with install.sh (source `setup`) brings the whole installation of
+ * another server, so the users, the address and the mail settings are on the list as well.
+ */
+export function ChecklistCard({ source }: { source: string }) {
+  const { t } = useTranslation("installation");
+  const items = [
+    "compare",
+    "importKeys",
+    "testRestore",
+    ...(source === "setup" ? ["users", "address", "mail", "agents", "nodes"] : []),
+    "end",
+  ];
+  return (
+    <Card data-testid="restore-mode-checklist">
+      <CardHeader>
+        <CardTitle>{t("restoreMode.checklist.title")}</CardTitle>
+        <CardDescription>{t("restoreMode.checklist.description")}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ol className="list-decimal space-y-1 pl-5 text-sm">
+          {items.map((item) => (
+            <li key={item}>{t(`restoreMode.checklist.items.${item}`)}</li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Switching restore mode on by hand. Only the owner may (the API refuses the others); everyone
+ * else sees the form closed, with the sentence that says so.
+ */
+function StartForm({ block }: { block: AccessBlock | null }) {
   const { t } = useTranslation("installation");
   const identity = useConfirmIdentity();
   const start = useStartRestoreMode();
@@ -207,14 +244,15 @@ function StartForm() {
         },
       },
     );
-  const ready = startFormReady(reason) && !start.isPending;
+  const ready = block === null && startFormReady(reason) && !start.isPending;
   return (
     <Card>
       <CardHeader>
         <CardTitle>{t("restoreMode.start.title")}</CardTitle>
         <CardDescription>{t("restoreMode.start.description")}</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <AccessNote block={block} level="owner" />
         <form
           className="space-y-4"
           onSubmit={(event) => {
@@ -232,6 +270,7 @@ function StartForm() {
               onChange={(event) => setReason(event.target.value)}
               maxLength={500}
               autoComplete="off"
+              disabled={block !== null}
             />
           </div>
           {start.isError && !isRecentSignInRequired(start.error) ? (
@@ -319,6 +358,8 @@ function sourceText(t: (key: string) => string, source: string): string {
       return t("restoreMode.state.sources.api");
     case "detected":
       return t("restoreMode.state.sources.detected");
+    case "setup":
+      return t("restoreMode.state.sources.setup");
     default:
       return t("restoreMode.state.sources.other");
   }

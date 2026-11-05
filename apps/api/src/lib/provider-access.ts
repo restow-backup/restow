@@ -118,6 +118,17 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "GET /api/v1/setup/state",
   "POST /api/v1/setup",
   "POST /api/v1/setup/token",
+  // Restoring an installation from a dump in the wizard (routes/setup-restore.ts): the setup token.
+  "GET /api/v1/setup/restore",
+  "POST /api/v1/setup/restore/uploads",
+  "PUT /api/v1/setup/restore/uploads/:id",
+  "POST /api/v1/setup/restore/uploads/:id/complete",
+  "POST /api/v1/setup/restore/start",
+  "POST /api/v1/setup/restore/activate",
+  "POST /api/v1/setup/restore/abort",
+  // A worker node joins with its one-time token (features/cluster/join-routes.ts).
+  "GET /api/v1/cluster-join/version",
+  "POST /api/v1/cluster-join",
   "GET /api/v1/accounts/set-password/:token",
   "POST /api/v1/accounts/set-password",
   "GET /api/v1/openapi.json",
@@ -279,6 +290,12 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/restore-mode/start": own(),
   "POST /api/v1/restore-mode/import-keys": own(),
   "POST /api/v1/restore-mode/end": own(),
+  // Installation > Cluster (features/cluster): worker nodes get the master key and database
+  // logins, so everything about them, reading included, is the owner's.
+  "GET /api/v1/cluster": own(),
+  "POST /api/v1/cluster/join-tokens": own(),
+  "DELETE /api/v1/cluster/join-tokens/:id": own(),
+  "DELETE /api/v1/cluster/nodes/:id": own(),
   "GET /api/v1/updates": view(PROVIDER),
   "PATCH /api/v1/updates/settings": own(),
   "POST /api/v1/updates/check": own(),

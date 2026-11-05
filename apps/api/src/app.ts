@@ -21,6 +21,12 @@ import { mountPath as backupJobsMountPath } from "./features/backup-jobs/meta.js
 import { backupJobsRoutes } from "./features/backup-jobs/routes.js";
 import { mountPath as capacityMountPath } from "./features/capacity/meta.js";
 import { capacityRoutes } from "./features/capacity/routes.js";
+import { clusterJoinRoutes } from "./features/cluster/join-routes.js";
+import {
+  joinMountPath as clusterJoinMountPath,
+  mountPath as clusterMountPath,
+} from "./features/cluster/meta.js";
+import { clusterRoutes } from "./features/cluster/routes.js";
 import { mountPath as dashboardMountPath } from "./features/dashboard/meta.js";
 import { dashboardRoutes } from "./features/dashboard/routes.js";
 import { mountPath as directoryMountPath } from "./features/directory/meta.js";
@@ -97,6 +103,7 @@ import { mountPath as tenantJobsMountPath } from "./features/tenant-jobs/meta.js
 import { tenantJobsRoutes } from "./features/tenant-jobs/routes.js";
 import { mountPath as tenantsMountPath } from "./features/tenants/meta.js";
 import { tenantsRoutes } from "./features/tenants/routes.js";
+import { updaterClient } from "./features/updates/instance.js";
 import { INTERNAL_MOUNT_PATH, internalRoutes, isUpdater } from "./features/updates/internal.js";
 import { maintenanceMountPath, mountPath as updatesMountPath } from "./features/updates/meta.js";
 import { maintenanceRoutes, updatesRoutes } from "./features/updates/routes.js";
@@ -113,7 +120,8 @@ import { requestBodyLimit } from "./middleware/body-limit.js";
 import { demoGuard } from "./middleware/demo-guard.js";
 import { errorHandler, notFoundHandler } from "./problem.js";
 import { me } from "./routes/me.js";
-import { setup } from "./routes/setup.js";
+import { isConfigured, loadSettings, setup } from "./routes/setup.js";
+import { buildSetupRestoreRoutes } from "./routes/setup-restore.js";
 import { status } from "./routes/status.js";
 import { v1, versionSource } from "./routes/v1.js";
 
@@ -197,8 +205,19 @@ export function buildApp() {
   // better-auth owns every route under /api/auth/*.
   app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
+  // Restoring an installation from a dump in the setup wizard: before the setup routes, whose
+  // JSON-only guard would refuse the raw parts of an upload (routes/setup-restore.ts).
+  app.route(
+    `${API_V1}/setup/restore`,
+    buildSetupRestoreRoutes({
+      updater: updaterClient,
+      configured: async () => isConfigured(await loadSettings()),
+    }),
+  );
   // Public installation setup (runs before any operator account exists).
   app.route(`${API_V1}/setup`, setup);
+  // A worker node on another host joins with its one-time token (features/cluster), no session.
+  app.route(`${API_V1}${clusterJoinMountPath}`, clusterJoinRoutes);
   // Identity of the signed-in user: role, tenants, enabled features.
   app.route(`${API_V1}/me`, me);
 
@@ -274,6 +293,7 @@ export function buildApp() {
   app.route(`${API_V1}${endpointsMountPath}`, endpointsRoutes);
   app.route(`${API_V1}${updatesMountPath}`, updatesRoutes);
   app.route(`${API_V1}${restoreModeMountPath}`, restoreModeRoutes);
+  app.route(`${API_V1}${clusterMountPath}`, clusterRoutes);
   app.route(`${API_V1}${maintenanceMountPath}`, maintenanceRoutes);
   app.route(`${API_V1}${mountsMountPath}`, mountsRoutes);
   app.route(`${API_V1}${pveMountPath}`, pveRoutes);

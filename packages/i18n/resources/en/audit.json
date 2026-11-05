@@ -163,7 +163,8 @@
     "warning": "Warnings",
     "database": "Database",
     "suspicion": "Ransomware detection",
-    "installation": "Installation"
+    "installation": "Installation",
+    "cluster": "Worker nodes"
   },
   "events": {
     "account": {
@@ -724,6 +725,17 @@
         "ended": "Restore mode ended",
         "keys_imported": "Key version taken from storage"
       }
+    },
+    "cluster": {
+      "join_token": {
+        "created": "Join token for a worker node issued",
+        "revoked": "Join token for a worker node revoked"
+      },
+      "node": {
+        "joined": "Worker node joined",
+        "join_refused": "Join of a worker node refused",
+        "removed": "Worker node removed"
+      }
     }
   },
   "targetTypes": {
@@ -777,7 +789,9 @@
     "service": "Service",
     "database": "Database",
     "dump": "Database backup",
-    "restore_point": "Restore point"
+    "restore_point": "Restore point",
+    "cluster_join_token": "Join token",
+    "cluster_node": "Worker node"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
   "export": {

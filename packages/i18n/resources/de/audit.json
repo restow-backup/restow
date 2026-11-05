@@ -163,7 +163,8 @@
     "warning": "Warnungen",
     "database": "Datenbank",
     "suspicion": "Ransomware-Erkennung",
-    "installation": "Installation"
+    "installation": "Installation",
+    "cluster": "Worker-Knoten"
   },
   "events": {
     "account": {
@@ -724,6 +725,17 @@
         "ended": "Wiederherstellungsmodus beendet",
         "keys_imported": "Schlüsselversion aus dem Speicher übernommen"
       }
+    },
+    "cluster": {
+      "join_token": {
+        "created": "Beitrittstoken für einen Worker-Knoten ausgestellt",
+        "revoked": "Beitrittstoken für einen Worker-Knoten widerrufen"
+      },
+      "node": {
+        "joined": "Worker-Knoten beigetreten",
+        "join_refused": "Beitritt eines Worker-Knotens abgelehnt",
+        "removed": "Worker-Knoten entfernt"
+      }
     }
   },
   "targetTypes": {
@@ -777,7 +789,9 @@
     "service": "Dienst",
     "database": "Datenbank",
     "dump": "Datenbanksicherung",
-    "restore_point": "Sicherungsstand"
+    "restore_point": "Sicherungsstand",
+    "cluster_join_token": "Beitrittstoken",
+    "cluster_node": "Worker-Knoten"
   },
   "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde.",
   "export": {

@@ -27,6 +27,36 @@ import {
 // db package ships the `drizzle` and `sql` folders (see package.json "files").
 const migrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
 const rlsFile = fileURLToPath(new URL("../sql/rls.sql", import.meta.url));
+const journalFile = fileURLToPath(new URL("../drizzle/meta/_journal.json", import.meta.url));
+
+/**
+ * How many migrations this build ships (drizzle/meta/_journal.json): a database that has applied
+ * more comes from a newer release, and this build must not run on it (a restored dump of a newer
+ * installation, features/setup-restore).
+ */
+export function shippedMigrationCount(): number {
+  const journal = JSON.parse(readFileSync(journalFile, "utf8")) as { entries?: unknown[] };
+  return Array.isArray(journal.entries) ? journal.entries.length : 0;
+}
+
+/**
+ * The migrations a database has applied (`drizzle.__drizzle_migrations`); null when it has none
+ * of Restow's migrations at all (an empty database, or not a Restow database).
+ */
+export async function appliedMigrationCount(db: {
+  query<R extends Record<string, unknown>>(text: string): Promise<{ rows: R[] }>;
+}): Promise<number | null> {
+  const { rows } = await db.query<{ present: boolean }>(
+    "SELECT to_regclass('drizzle.__drizzle_migrations') IS NOT NULL AS present",
+  );
+  if (rows[0]?.present !== true) {
+    return null;
+  }
+  const counted = await db.query<{ count: string }>(
+    "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
+  );
+  return Number(counted.rows[0]?.count ?? 0);
+}
 
 export interface MigrationOptions {
   /**

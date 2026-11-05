@@ -12,6 +12,43 @@ private repository.
 
 ### Added
 
+- The setup wizard and `install.sh` ask first, after the language, what to set up: a new
+  installation, a restore of an installation from a database dump, or a worker for an existing
+  installation on another host (with the note that real replication, a second server that takes
+  over, is in development).
+
+- Restore an installation from a database dump (docs/DATABASE.md, "Restore an installation from
+  a dump"), in the setup wizard (upload the dump in parts or pick one the updater kept) and with
+  `install.sh --restore <dump> [--env-from <old .env>]`. The dump goes into a database of its own
+  while worker and scheduler stay stopped; `restow restore prepare` migrates it, switches restore
+  mode on in it before anything else (source `setup`), checks that `RESTOW_MASTER_KEY` opens
+  every tenant key and the installation's secrets (a wrong key is refused and nothing changes;
+  install.sh exit code 11) and compares the storage targets of the restored configuration; after
+  the report and a confirmation `restow restore activate` makes it the live database, and only
+  then worker and scheduler start. The setup token is still required; the first admin and the
+  other steps of a new installation are skipped, the dump brings its users. Installation ›
+  Restore mode lists what to check before ending it, and an administrator who is not the owner
+  sees the switch closed with the reason. Without the updater the wizard shows the restore by
+  hand on that server (`install.sh --restore` is for a fresh host); when an activation does not
+  finish, its last step shows the updater's reason and the commands to finish or undo it, and a
+  plain `install.sh` run over an interrupted `install.sh --restore` starts nothing (`--restore`
+  again undoes it and starts over).
+
+- Installation › Cluster and worker nodes on other hosts (docs/SIZING.md, "Several hosts: worker
+  nodes"): the nodes with their processes and releases, what a node needs per storage target,
+  how the database is reachable, and one-time join tokens (shown once, single use, short-lived,
+  revocable, audited) for `install.sh --join` on the new host, which runs only a worker (and a
+  standby scheduler with `--standby-scheduler`) from the new signed release asset
+  `docker-compose.worker.yml`. A node gets database logins of its own (removed with the node),
+  the master key and the storage settings, never the owner's credentials: its installation login
+  switches to a node role without the sign-in tables, the provider team, the join tokens or
+  CREATE on the database, and join tokens are stored as a hash keyed with a secret no node gets.
+  `install.sh --allow-worker <address>` on the main host publishes PostgreSQL with TLS for that
+  host only (by default it is not published); `install.sh --update-worker` updates a node. The
+  worker and the standby scheduler of a node check every 30 seconds and do no work, and take or
+  keep no scheduler leadership, while the database is newer than their image or an update to
+  another release is under way on the main host.
+
 - Restore mode after restoring a database dump (docs/STORAGE.md, "Restore mode and progress
   markers"): while it is on, Restow deletes nothing (no retention, no clean-up, no purge, no
   restic forget or prune), holds every job created before the restore instead of resuming it,

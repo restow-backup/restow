@@ -199,6 +199,42 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
   return (await response.json()) as T;
 }
 
+/**
+ * PUT raw bytes (`application/octet-stream`) against `/api/v1` and decode the JSON answer;
+ * errors are the same `ApiError`/`NetworkError` as {@link apiFetch}. No tenant header.
+ */
+export async function apiPutBytes<T>(
+  path: string,
+  body: Blob,
+  init: { headers?: Record<string, string>; signal?: AbortSignal } = {},
+): Promise<T> {
+  const headers = new Headers({
+    accept: "application/json",
+    "content-type": "application/octet-stream",
+    ...init.headers,
+  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "PUT",
+      credentials: "include",
+      headers,
+      body,
+      signal: init.signal,
+    });
+  } catch (cause) {
+    throw new NetworkError(cause);
+  }
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      await readProblem(response),
+      `Request to ${path} failed with status ${response.status}`,
+    );
+  }
+  return (await response.json()) as T;
+}
+
 // --- Contract types -----------------------------------------------------------
 
 export type OperatingMode = "local" | "public";
@@ -315,6 +351,17 @@ export interface SetupState {
    * public: the login page prefills them for a one-click demo sign-in.
    */
   demo: { enabled: boolean; email: string | null; password: string | null };
+  /**
+   * Restoring an installation from a database dump in the wizard: possible when the opt-in
+   * updater answers, and how a restore stands. Absent on older servers.
+   */
+  restore?: {
+    available: boolean;
+    status: string | null;
+    phase: string | null;
+    /** Why the restore failed or needs attention (failed, needs_attention only). */
+    message?: string | null;
+  };
 }
 
 export interface SmtpSetup {

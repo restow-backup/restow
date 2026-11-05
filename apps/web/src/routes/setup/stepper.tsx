@@ -2,25 +2,26 @@ import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
-import { STEP_KEYS, type StepKey } from "@/routes/setup/schema";
+import type { StepKey } from "@/routes/setup/schema";
 
 /**
- * The steps the wizard shows and counts: the ones that apply here (no setup
- * token step where none is asked for, no notice step where it counts as
- * accepted), each with its place in `STEP_KEYS`. The current step is always
- * shown, so the count never jumps.
+ * The steps the wizard shows and counts: those of the chosen kind that apply
+ * here (no setup token step where none is asked for, no notice step where it
+ * counts as accepted), each with its place in `keys`. The current step is
+ * always shown, so the count never jumps.
  */
 export function shownSteps(
+  keys: readonly StepKey[],
   applies: (key: StepKey) => boolean,
   activeIndex: number,
 ): { key: StepKey; index: number }[] {
-  return STEP_KEYS.map((key, index) => ({ key, index })).filter(
-    (step) => step.index === activeIndex || applies(step.key),
-  );
+  return keys
+    .map((key, index) => ({ key, index }))
+    .filter((step) => step.index === activeIndex || applies(step.key));
 }
 
 interface StepperProps {
-  /** The current step's place in `STEP_KEYS`. */
+  /** The current step's place in the steps of the chosen kind. */
   activeIndex: number;
   /** The steps to show ({@link shownSteps}). */
   steps: readonly { key: StepKey; index: number }[];
@@ -59,7 +60,7 @@ export function Stepper({ activeIndex, steps, onSelect }: StepperProps) {
               )}
               <span className="sr-only">{t(`step.${key}`)}</span>
             </button>
-            {/* Seven steps do not fit with every name written out: the active one is named. */}
+            {/* Eight steps do not fit with every name written out: the active one is named. */}
             <span
               aria-hidden="true"
               className={cn("hidden text-xs", state === "active" && "text-foreground sm:inline")}

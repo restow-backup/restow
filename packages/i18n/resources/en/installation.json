@@ -22,7 +22,8 @@
     "agentPolicy": "Agent policy",
     "proxmox": "Proxmox VE",
     "pricing": "Prices",
-    "restoreMode": "Restore mode"
+    "restoreMode": "Restore mode",
+    "cluster": "Cluster"
   },
   "descriptions": {
     "server": "How browsers reach this server, whether passkeys are offered and the installation's time zone. Applies to {scope, select, organisation {your organisation} other {all tenants}}.",
@@ -41,7 +42,8 @@
     "agentPolicy": "Backup window, missed backups, bandwidth, AC power and retries of servers and clients, and what tenants may change.",
     "proxmox": "How the restore points of VMs and containers are checked, for {scope, select, organisation {your organisation} other {all tenants}}.",
     "pricing": "What you charge your customers per month: per mailbox and per GB or TB of backups. The dashboard and each tenant's overview show what it comes to at these prices. Nothing is billed.",
-    "restoreMode": "After restoring a database dump: nothing is deleted until a provider owner has checked the restored database."
+    "restoreMode": "After restoring a database dump: nothing is deleted until a provider owner has checked the restored database.",
+    "cluster": "Worker nodes on other hosts: what they need, one-time join tokens, removing a node."
   },
   "access": {
     "owner": "You can look at these settings. Changing them needs the Owner role in the provider team.",
@@ -591,6 +593,11 @@
         "succeeded": "{location} was removed.",
         "failed": "{location} could not be removed."
       }
+    },
+    "restored": {
+      "title": "After restoring a dump",
+      "description": "Restored a dump of this database by hand? Restore mode keeps everything that deletes paused until an owner has checked the restored data.",
+      "open": "Open restore mode"
     }
   },
   "pricing": {
@@ -646,7 +653,8 @@
         "cli": "Switched on with the command line",
         "api": "Switched on in the web interface",
         "detected": "Switched on by itself: a storage target shows progress the database does not have",
-        "other": "Switched on"
+        "other": "Switched on",
+        "setup": "Switched on by a restore from a dump (setup wizard or install.sh), before anything else ran"
       }
     },
     "start": {
@@ -750,6 +758,95 @@
       "unreachable": "A storage target could not be read. Accept it as unreachable below, or wait until it answers, then end restore mode.",
       "unknown_key_versions": "Key versions in storage are not in the database. Import them first (Import keys), then end restore mode.",
       "changed": "Restore mode was ended meanwhile."
+    },
+    "checklist": {
+      "title": "Before you end restore mode",
+      "description": "Work through these, then end restore mode below.",
+      "items": {
+        "compare": "Compare the storage with the database again (above): every target matches, or what is ahead is understood.",
+        "importKeys": "Import key versions found in storage, so newer backups stay readable.",
+        "testRestore": "Test a restore point of every tenant.",
+        "users": "Check the users and owners: they came with the dump, passkeys only work on the address they were made for.",
+        "address": "Check the address of this installation (Server) and the sign-in settings.",
+        "mail": "Check the notification mail and send a test message.",
+        "agents": "If the address changed, point the agents and the nodes to the new one.",
+        "nodes": "Let the worker nodes of the old installation join again (Cluster).",
+        "end": "End restore mode below, in your own words what you checked."
+      }
+    }
+  },
+  "cluster": {
+    "intro": "Worker nodes are hosts that run more workers for this installation: they work on the same database and the same storage. The database, the web interface, the updater and the mounter stay on this host.",
+    "loadError": "The cluster could not be loaded.",
+    "replication": {
+      "title": "Real replication is in development",
+      "text": "A second server that takes over when this one fails (active/passive with database replication) is in development. Worker nodes add capacity; when this host is down, they wait for it."
+    },
+    "nodes": {
+      "title": "Nodes",
+      "description": "This host and the worker nodes that joined, with their processes. This installation runs {version}.",
+      "main": "This host (main)",
+      "outdated": "other release",
+      "versionMismatch": "waits for an update",
+      "noProcesses": "No process reports in right now.",
+      "process": "{role}: {state}, last report {when}",
+      "running": "running",
+      "gone": "not reporting",
+      "update": "Run on that host: sudo bash install.sh --update-worker",
+      "remove": "Remove node",
+      "confirmTitle": "Remove the node {name}?",
+      "confirmDescription": "Its database logins are dropped and its connections ended: it can no longer work for this installation. Stop it on its host as well. What it knew, the master key above all, cannot be taken back."
+    },
+    "requirements": {
+      "title": "What a worker node needs",
+      "description": "The same release as this host, the database over TLS from the new host, and every storage target reachable from there.",
+      "storage": "Storage targets",
+      "noTargets": "There are no storage targets yet.",
+      "installationDefault": "Installation default",
+      "kinds": {
+        "s3": "S3: reachable from any host",
+        "directory": "directory: must exist at the same path on the worker host",
+        "volume": "inside a volume of this host: no other host reaches it"
+      },
+      "volumeBlocks": "A storage target lives inside a volume of this host. Move it to S3 or to a shared directory before a node can join.",
+      "database": "Database",
+      "exposed": "Reachable for worker nodes at {address} ({ssl}).",
+      "sslOn": "TLS on",
+      "sslOff": "TLS off",
+      "notExposed": "Not reachable from the network (the default). Nodes cannot join until it is.",
+      "howToExpose": "Run on this host, once per worker host (TLS, only the nodes' own logins, only from that address):",
+      "version": "Nodes must run release {version}, the release of this host."
+    },
+    "join": {
+      "title": "Join token for a new node",
+      "description": "A one-time token for install.sh --join on the new host. It carries no secret: it lets that host fetch its own configuration once, over TLS.",
+      "nodeName": "Name of the node",
+      "address": "Address of the new host (recommended)",
+      "ttl": "Valid for",
+      "ttlOption": "{minutes, plural, =15 {15 minutes} =60 {1 hour} =240 {4 hours} =1440 {24 hours} other {# minutes}}",
+      "standby": "Also run a standby scheduler on the node",
+      "issue": "Issue join token",
+      "createdTitle": "Join token issued",
+      "createdOnce": "It is shown only now and works once, until {when}. Run on the new host:",
+      "hide": "Hide",
+      "blockedVolume": "No node can join while a storage target lives inside a volume of this host.",
+      "blockedDatabase": "The database is not reachable from the network yet: run the command above on this host first.",
+      "open": "Open join tokens",
+      "tokenRow": "for {name}, valid until {when}",
+      "revoke": "Revoke"
+    },
+    "security": {
+      "title": "Security",
+      "logins": "Each node gets database logins of its own; removing the node drops them. They can do what a worker does, but cannot read or change sign-ins, the provider team or join tokens.",
+      "masterKey": "A node holds the master key: it opens every backup. The master key cannot be rotated yet, so removing a node does not take it back. Only join hosts you trust as much as this one.",
+      "singleInstance": "Single instance, on this host only: the database, the api with its migrations, the web edge, the updater, the mounter (file shares), the journal mail receiver, server-folder imports and storage inside volumes of this host."
+    },
+    "errors": {
+      "database_not_exposed": "The database is not reachable from the network yet. Run install.sh --allow-worker on this host first.",
+      "volume_targets": "A storage target lives inside a volume of this host; no node could reach it.",
+      "name_in_use": "A node with this name is active already.",
+      "not_found": "It is gone already.",
+      "owner_missing": "The api lacks the owner connection of the database (DATABASE_MIGRATION_URL)."
     }
   }
 }

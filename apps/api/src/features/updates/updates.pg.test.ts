@@ -135,6 +135,7 @@ function idleState(over: Partial<StateView> = {}): StateView {
     restart: null,
     projectDir: null,
     database: null,
+    restore: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...over,
   };
@@ -253,6 +254,25 @@ class ScriptedUpdater implements UpdaterClient {
     throw new Error("not scripted");
   }
 
+  // A restore from a dump (updater/restore.ts) is not part of these tests.
+  async startDumpUpload(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async putDumpPart(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async completeDumpUpload(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async startRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async activateRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async abortRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
   async deleteDump(): Promise<never> {
     throw new Error("not scripted");
   }

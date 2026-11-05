@@ -313,6 +313,12 @@ may always go.
 
 - **With the command line, before the worker starts** (the rollback procedure):
   `docker compose run --rm --no-deps --entrypoint restow api restore-mode on --reason "..."`.
+- **By a restore from a dump** in the setup wizard or with `install.sh --restore` (source
+  `setup`, [DATABASE.md](DATABASE.md#restore-an-installation-from-a-dump)): `restow restore
+  prepare` switches it on in the restored database as the first thing it writes there, before
+  the master key and the storage are checked and long before the restored database goes live.
+  Installation › Restore mode then lists what to check, the users, the address and the mail
+  settings included.
 - **By itself.** Every storage target carries progress markers:
 
   ```

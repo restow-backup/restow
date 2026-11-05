@@ -18,6 +18,8 @@ import { CliDockerOps } from "./ops-cli.js";
 import { Preflight } from "./preflight.js";
 import { Redactor } from "./redact.js";
 import { ServiceRestarter } from "./restart.js";
+import { DatabaseRestorer } from "./restore.js";
+import { CliRestoreOps } from "./restore-ops.js";
 import { HelperRunner } from "./runner-helper.js";
 import { LocalRunner } from "./runner-local.js";
 import { EngineSelfRecreateLauncher, MOUNTER_RECREATE_TARGET } from "./self-recreate.js";
@@ -27,6 +29,7 @@ import { ArchiveSourceProvider } from "./source.js";
 import { formatAllowEntry } from "./source-policy.js";
 import { UpdateSpaceProbe } from "./space.js";
 import { StatusStore } from "./store.js";
+import { DumpUploads } from "./uploads.js";
 
 /**
  * Entry point of the `updater` role (`ROLE=updater`, compose profile `updater`).
@@ -166,6 +169,8 @@ async function main(): Promise<void> {
   });
   // The database location (database.ts): created below, after the engine it must not overlap.
   let mover: DatabaseMover | null = null;
+  // A restore from a dump in the setup wizard (restore.ts): created below as well.
+  let restorer: DatabaseRestorer | null = null;
   const api = new HttpApiClient({ apiUrl: config.apiUrl, secret, redactor });
   const source = new ArchiveSourceProvider({
     stateDir: config.stateDir,
@@ -189,7 +194,9 @@ async function main(): Promise<void> {
     otherActivity: () =>
       mover?.active()
         ? "The database is being moved, or an old copy of it is being removed."
-        : null,
+        : restorer?.active()
+          ? "A database dump is being restored."
+          : null,
   });
   const launcher = new EngineSelfRecreateLauncher({
     engine: engineClient,
@@ -264,7 +271,12 @@ async function main(): Promise<void> {
     ops,
     updateActive: () => {
       const { phase } = engine.view();
-      return phase === "scheduled" || phase === "running" || mover?.active() === true;
+      return (
+        phase === "scheduled" ||
+        phase === "running" ||
+        mover?.active() === true ||
+        restorer?.active() === true
+      );
     },
     clock: systemClock,
     logger,
@@ -309,10 +321,56 @@ async function main(): Promise<void> {
       if (store.state.selfUpdate?.status === "pending") {
         return "The updater is replacing itself.";
       }
+      if (restorer?.active()) {
+        return "A database dump is being restored.";
+      }
       return null;
     },
   });
   await mover.init();
+
+  // Restoring a dump in the setup wizard (restore.ts, docs/DATABASE.md), never next to an
+  // update, a move, a restart, a start of the mounter or the updater replacing itself.
+  const uploads = new DumpUploads({
+    directory: dumps.directory,
+    version: config.version,
+    now: () => systemClock.now(),
+    freeBytes: (dir) => ops.freeBytes(dir),
+  });
+  restorer = new DatabaseRestorer({
+    ops,
+    restore: new CliRestoreOps({
+      runner,
+      redactor,
+      projectName,
+      composeFile: config.composeFile,
+      dumpsDir: dumps.directory,
+      postgres: async () => postgresSettings(await envFile.read()),
+    }),
+    dumps,
+    stateFile: path.join(config.stateDir, "restore.json"),
+    clock: systemClock,
+    logger,
+    redactor,
+    healthTimeoutSeconds: config.healthTimeoutSeconds,
+    otherActivity: () => {
+      const { phase } = engine.view();
+      if (phase === "scheduled" || phase === "running") {
+        return `An update is ${phase}; restore after it.`;
+      }
+      if (mover?.active()) {
+        return "The database is being moved.";
+      }
+      if (restarter.view()?.status === "running") {
+        return "A service is being restarted.";
+      }
+      if (store.state.selfUpdate?.status === "pending") {
+        return "The updater is replacing itself.";
+      }
+      return null;
+    },
+  });
+  await restorer.init();
 
   const app = buildServer({
     engine,
@@ -328,6 +386,8 @@ async function main(): Promise<void> {
     mounterEnable: mounterEnabler,
     database: mover,
     dumps,
+    restorer,
+    uploads,
   });
   const server = serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
     logger.info(

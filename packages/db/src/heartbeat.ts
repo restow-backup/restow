@@ -114,13 +114,38 @@ export function serviceVersion(env: Record<string, string | undefined> = process
   return value ? value : "0.0.0-dev";
 }
 
+/**
+ * Which host a process runs on (docs/SIZING.md, "Several hosts: worker nodes"): a worker node
+ * that joined an installation gets `RESTOW_NODE_ID` (its `cluster_nodes.id`) and
+ * `RESTOW_NODE_NAME` in its `.env`; the main host has neither. Inside a container
+ * `os.hostname()` is the container id, so the node's name stands in for it.
+ */
+export interface NodeIdentity {
+  readonly nodeId: string | null;
+  readonly nodeName: string | null;
+}
+
+const NODE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function nodeIdentity(env: Record<string, string | undefined> = process.env): NodeIdentity {
+  const id = env.RESTOW_NODE_ID?.trim() ?? "";
+  const name = env.RESTOW_NODE_NAME?.trim() ?? "";
+  return {
+    nodeId: NODE_ID.test(id) ? id.toLowerCase() : null,
+    nodeName: name.length > 0 ? name.slice(0, 63) : null,
+  };
+}
+
 export interface ServiceHeartbeatReporterOptions {
   store: HeartbeatStore;
   role: ServiceRole;
   /** The state to report with the next beat (`state` plus whatever the role documents). */
   details: () => ServiceHeartbeatDetails;
   version?: string;
+  /** Default: the node's name (RESTOW_NODE_NAME), else `os.hostname()`. */
   hostname?: string | null;
+  /** Default: RESTOW_NODE_ID; reported as `details.nodeId` (null on the main host). */
+  nodeId?: string | null;
   /** Stable for the lifetime of the process; random per start by default. */
   instanceId?: string;
   intervalMs?: number;
@@ -137,6 +162,7 @@ export class ServiceHeartbeatReporter {
   private readonly details: () => ServiceHeartbeatDetails;
   private readonly version: string;
   private readonly hostname: string | null;
+  private readonly nodeId: string | null;
   private readonly intervalMs: number;
   private readonly onError: (error: unknown) => void;
   private readonly startedAt: Date;
@@ -151,9 +177,11 @@ export class ServiceHeartbeatReporter {
     this.details = options.details;
     this.instanceId = options.instanceId ?? `${options.role}-${randomUUID()}`;
     this.version = options.version ?? serviceVersion();
+    const node = nodeIdentity();
     this.hostname = heartbeatHostname(
-      options.hostname === undefined ? osHostname() : options.hostname,
+      options.hostname === undefined ? (node.nodeName ?? osHostname()) : options.hostname,
     );
+    this.nodeId = options.nodeId === undefined ? node.nodeId : options.nodeId;
     this.intervalMs = options.intervalMs ?? HEARTBEAT_INTERVAL_MS;
     this.onError = options.onError ?? (() => undefined);
     this.startedAt = (options.now ?? (() => new Date()))();
@@ -198,7 +226,7 @@ export class ServiceHeartbeatReporter {
           version: this.version,
           hostname: this.hostname,
           startedAt: this.startedAt,
-          details: this.details(),
+          details: this.nodeId ? { ...this.details(), nodeId: this.nodeId } : this.details(),
         });
       } catch (error) {
         this.onError(error);

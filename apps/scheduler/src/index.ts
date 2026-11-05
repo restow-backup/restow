@@ -6,6 +6,11 @@
 // finish the in-flight tick, release the lock, drain the queue client, close the
 // pools. The process refuses to start when its application pool could bypass
 // Row Level Security (packages/db/src/roles.ts).
+//
+// A standby scheduler on a worker node of another host (docs/SIZING.md) runs the node's image,
+// which may be older than the main host's: it does not stand for election while the database is
+// newer than its image or an update to another release is under way, and gives the leadership up
+// (by stopping; it restarts into that wait) as soon as either holds (packages/db node-guard.ts).
 
 import {
   assertDatabaseRoles,
@@ -13,10 +18,15 @@ import {
   createDb,
   grantQueueAccess,
   heartbeatStore,
+  idleWhileHeld,
+  nodeHold,
+  nodeIdentity,
   readJobStartPause,
   retryConcurrentSetup,
   ServiceHeartbeatReporter,
   safeErrorMessage,
+  serviceVersion,
+  startNodeWatch,
 } from "@restow/db";
 import PgBoss from "pg-boss";
 import { loadConfig } from "./config.js";
@@ -41,6 +51,32 @@ async function main(): Promise<void> {
   const db = createDb(config.databaseUrl, { max: config.dbPool.app });
   const providerDb = createDb(config.databaseProviderUrl, { max: config.dbPool.installation });
   const roles = await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
+  // On a worker node: no election while the node is held (node-guard.ts), not even pg-boss.
+  const node = nodeIdentity();
+  const ownVersion = serviceVersion();
+  if (node.nodeId) {
+    const hold = await nodeHold(providerDb.$client, ownVersion);
+    if (hold) {
+      logger.warn("this node's scheduler stands by without election until the hold is gone", {
+        reason: hold.reason,
+        applied: hold.applied,
+        shipped: hold.shipped,
+        updateTo: hold.updateTo,
+      });
+      const idle = new ServiceHeartbeatReporter({
+        store: heartbeatStore(providerDb),
+        role: "scheduler",
+        details: () => ({ state: hold.reason, leader: false }),
+      });
+      await idle.start();
+      await idleWhileHeld({
+        check: () => nodeHold(providerDb.$client, ownVersion),
+        beat: () => idle.beat(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      });
+      await idle.stop();
+    }
+  }
   // This process has just started, so the restart requests recorded for its role are
   // followed (packages/db restart-requests.ts); cleared before it does any work of its own.
   try {
@@ -176,7 +212,28 @@ async function main(): Promise<void> {
   // mode detected later holds only jobs from before this process (packages/db restore-mode.ts
   // `detectedHoldBoundary`).
   await heartbeat.start();
+  // On a node, the hold is asked before every election and now and then while running: the lock
+  // is never taken or kept while the database is newer than this image or an update runs.
+  if (node.nodeId && (await nodeHold(providerDb.$client, ownVersion))) {
+    logger.warn("this node's scheduler is held; stopping before the election");
+    await shutdown("SIGTERM");
+    return;
+  }
   await election.start();
+  if (node.nodeId) {
+    startNodeWatch({
+      check: () => nodeHold(providerDb.$client, ownVersion),
+      onHold: (hold) => {
+        logger.warn("this node's scheduler is held; giving up leadership and stopping", {
+          reason: hold.reason,
+          updateTo: hold.updateTo,
+        });
+        void shutdown("SIGTERM");
+      },
+      onError: (err) =>
+        logger.warn("the node's hold could not be checked", { err: errorMessage(err) }),
+    });
+  }
 }
 
 main().catch((err) => {

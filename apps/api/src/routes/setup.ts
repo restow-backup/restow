@@ -48,6 +48,7 @@ import {
   setupRequestSchema,
   toStoredSmtpSecurity,
 } from "../schemas.js";
+import { restoreAvailability, restoreInProgress } from "./setup-restore.js";
 
 /**
  * Installation setup (docs/ARCHITECTURE.md, Setup and operating modes).
@@ -151,6 +152,18 @@ interface SetupStateResponse {
    * or when the operator left a variable unset.
    */
   demo: { enabled: boolean; email: string | null; password: string | null };
+  /**
+   * Restoring an installation from a database dump in the wizard (routes/setup-restore.ts):
+   * possible when the opt-in updater answers; how a restore stands (no report: that needs the
+   * setup token). Off once configured and in demo mode.
+   */
+  restore: {
+    available: boolean;
+    status: string | null;
+    phase: string | null;
+    /** Why it failed or needs attention (failed, needs_attention only); else null. */
+    message: string | null;
+  };
 }
 
 interface SetupResultResponse {
@@ -180,7 +193,7 @@ interface SetupResultResponse {
 }
 
 /** The installation's settings row (installation-level: the installation pool). */
-async function loadSettings(): Promise<Settings | null> {
+export async function loadSettings(): Promise<Settings | null> {
   const rows = await providerDb.select().from(settings).limit(1);
   return rows[0] ?? null;
 }
@@ -481,6 +494,9 @@ setup.get("/state", async (c) => {
     demo: config.demo.enabled
       ? { enabled: true, email: config.demo.email ?? null, password: config.demo.password ?? null }
       : { enabled: false, email: null, password: null },
+    restore: tokenRequired
+      ? await restoreAvailability()
+      : { available: false, status: null, phase: null, message: null },
   };
   return c.json(body);
 });
@@ -505,6 +521,13 @@ setup.post("/", async (c) => {
   // Before anything else, server side: the wizard's UI order is no protection
   // against a client that skips its first steps.
   assertSetupToken(c.req.header(SETUP_TOKEN_HEADER), c.req.header("x-restow-demo-seed-token"));
+  // A restore from a dump runs (routes/setup-restore.ts): a new installation now would race it.
+  if (!config.demo.enabled && (await restoreInProgress())) {
+    throw new ProblemError(409, "A restore is in progress", {
+      type: "urn:restow:problem:restore-in-progress",
+      detail: "A database dump is being restored into this installation; finish or abort it first.",
+    });
+  }
   const body = await readJsonBody(c.req);
   const acceptance = config.demo.enabled ? null : requireAcceptance(body);
   // Checked before anything is written: without the master key the SMTP

@@ -203,6 +203,114 @@ before the restore are held, new backups run.
   move left under Installation, Database) is a restored dump as well and triggers restore
   mode.
 
+## Restore an installation from a dump
+
+A new server that takes over an installation from a dump of its database (pg_dump -Fc): the old
+server is gone, or the installation moves. The first question of the setup wizard and of
+`install.sh` offers it (2: "Restore an installation"). What it needs:
+
+- the **same `RESTOW_MASTER_KEY`** as the old installation in `.env` (and its
+  `BETTER_AUTH_SECRET`, or sign-ins with an authenticator app fail; an owner then gets access
+  again with `restow admin recover`), and
+- the **dump**: uploaded in the wizard, one the updater kept (only when its volume survived on
+  this host), or a file on the host for `install.sh --restore`.
+
+The order keeps the restored data safe: no worker and no scheduler, which run the deleting
+passes, start on restored data before restore mode is on in it.
+
+1. Worker and scheduler are stopped; the dump is restored into a database of its own,
+   `restow_restore` (`pg_restore --no-owner --no-acl --exit-on-error`): the live database stays
+   the fresh one.
+2. `restow restore prepare` on it: refused when it is no Restow database, newer than this release
+   or without a finished setup; migrated to this release, the roles of this server provisioned;
+   **restore mode switched on** (source `setup`) as the first thing written; then
+   `RESTOW_MASTER_KEY` must unwrap every tenant key and open every installation secret and one
+   secret per tenant. A wrong key refuses (`master_key_mismatch`): the scratch database is
+   dropped, nothing changed, start again with the right key (install.sh: exit code 11). Last,
+   every storage target of the restored configuration is compared with the database (progress
+   markers), and the report says what was found.
+3. The operator reads the report and activates: the api stops, `restow restore activate`
+   renames the fresh database to `restow_before_restore_<time>` and `restow_restore` to `restow`,
+   the api starts on it, and only then worker and scheduler.
+4. Sign in with an account of the restored installation (no setup token, no first admin: the dump
+   brought its users) and work through Installation › Restore mode before ending it.
+
+With the updater the wizard does all of it. Without it, on a **fresh host** (no installation
+yet), the install script does:
+
+```sh
+sudo bash install.sh --restore /path/to/restow.dump --env-from /path/to/old/.env
+```
+
+It refuses a host that runs an installation already, also one whose setup has not run yet: there,
+restore by hand (below). Worker nodes of the old installation join again (their database logins
+are not part of a dump).
+
+### Restoring a dump by hand
+
+On an installation whose setup has not run (the wizard shows these steps when the updater does not
+answer):
+
+```sh
+cd /opt/restow
+# 1. Replace RESTOW_MASTER_KEY and BETTER_AUTH_SECRET in .env with the old installation's
+sudo nano .env
+# 2. Restore the dump into a database of its own, worker and scheduler stopped
+sudo docker compose stop api worker scheduler
+sudo docker compose exec -T postgres psql -U restow -d postgres -c "CREATE DATABASE restow_restore"
+sudo docker compose exec -T postgres pg_restore -U restow -d restow_restore --no-owner --no-acl --exit-on-error < restow.dump
+# 3. Restore mode on, master key and storage checked; read the report
+sudo docker compose run --rm --no-deps --entrypoint restow api restore prepare
+# 4. Make it the live database, then start everything
+sudo docker compose run --rm --no-deps --entrypoint restow api restore activate
+sudo docker compose up -d
+```
+
+The master key goes into `.env` first: `restore prepare` checks it against the restored keys and
+refuses (exit code 3, nothing changed) when it does not open them. `restow restore abort` drops
+the scratch database again; `docker compose up -d` then starts the fresh installation as before.
+
+### An interrupted restore
+
+`install.sh --restore` leaves `.restore-in-progress` in the installation directory until the
+restored database is live. A run cut off before that (Ctrl-C or a lost SSH session during
+`pg_restore`, at the confirmation, or inside `restore activate`) leaves the marker, the `.env`
+with the old master key and a scratch database that may be half filled. Then:
+
+- A plain `install.sh` refuses to start anything (exit code 8) and says how to go on: worker and
+  scheduler never start on a half-restored database.
+- `install.sh --restore <dump> --env-from <old .env>` again removes what the interrupted run left
+  (`docker compose down -v`, `.env`, the marker: all of it was that run's own, on a fresh host)
+  and restores from the start.
+- If the report said the restored database was prepared, finish by hand instead:
+  `docker compose run --rm --no-deps --entrypoint restow api restore activate` (it completes a
+  swap cut off half way, or answers that the restored database is live already), then
+  `docker compose up -d` and `rm .restore-in-progress`.
+
+### When a restore needs attention
+
+The wizard's last step reads the updater's restore status. When the activation or the start after
+it failed, or the updater restarted in the middle, the restore ends `needs_attention`: worker and
+scheduler stay stopped, and the api may run on the fresh database again (with a new setup token
+in its log). The step shows the updater's reason and these commands:
+
+```sh
+cd /opt/restow
+# finish it: activate again (resumable; "live already" when the swap was done), then start all
+sudo docker compose run --rm --no-deps --entrypoint restow api restore activate
+sudo docker compose up -d
+# or undo it (before the swap): drop the restored database, start the fresh installation again
+sudo docker compose run --rm --no-deps --entrypoint restow api restore abort
+sudo docker compose up -d
+```
+
+`docker compose logs updater` has the details of the failed step.
+
+**Never `pg_restore --clean --if-exists` onto a migrated database of a newer release:** the tables
+of the newer migrations stay while the restored migration journal says they do not exist, and the
+next migration fails. Restore into a fresh database instead (above, or drop and create `restow`
+first, docs/UPDATING.md).
+
 ## Not covered
 
 - The updater's dumps stay in its volume (`restow-updater`, `/state/dumps`), on

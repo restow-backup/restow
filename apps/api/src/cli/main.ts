@@ -1,10 +1,27 @@
 import { createInterface } from "node:readline/promises";
 import type { AdminSummary, RecoveryResult } from "./admin-recovery.js";
 import {
+  parseClusterCommand,
+  parseNodeCommand,
+  parseRestoreCommand,
+  type RestoreCommand,
+  RestoreUsageError,
+} from "./restore-args.js";
+import {
   parseRestoreModeCommand,
   type RestoreModeCommand,
   RestoreModeUsageError,
 } from "./restore-mode-args.js";
+
+/** The scratch database a restore is prepared in (features/setup-restore/report.ts). */
+const SCRATCH_DATABASE = "restow_restore";
+const RESTORE_KINDS: ReadonlySet<string> = new Set([
+  "restore-prepare",
+  "restore-activate",
+  "restore-abort",
+  "node-check",
+  "cluster-override",
+]);
 
 /**
  * `restow`: maintenance commands an operator runs on the server, in the api
@@ -64,6 +81,30 @@ Commands:
       default) data in storage the database does not know stays for good;
       "release" lets the clean-ups remove it again.
 
+  restore prepare [--database restow_restore] [--dump-name <file>] [--json]
+      After a database dump of an installation was restored into the
+      scratch database (the setup wizard and install.sh --restore do that):
+      migrate it to this release, switch restore mode on in it, check that
+      RESTOW_MASTER_KEY opens its keys and secrets and compare its storage
+      targets. Exit code 0 ok, 3 the master key does not match, 4 the dump
+      is refused (newer release, no Restow database, no setup), 1 error.
+
+  restore activate [--database restow_restore] [--json]
+      Make the prepared scratch database the live database (api, worker
+      and scheduler stopped); the fresh database is kept aside.
+
+  restore abort [--database restow_restore]
+      Drop the scratch database; the live database is unchanged.
+
+  node check [--json]
+      On a worker node (install.sh --join): check the encrypted database
+      connection, the roles, the schema version, the master key and every
+      storage target before the worker starts.
+
+  cluster database-override --file <override> (--bind <address> --port <port> | --remove)
+      Used by install.sh --allow-worker: publish PostgreSQL with TLS for
+      worker nodes in docker-compose.override.yml, or take that out again.
+
   help
       Show this text.
 
@@ -83,7 +124,8 @@ export type Command =
       passwordStdin: boolean;
       yes: boolean;
     }
-  | RestoreModeCommand;
+  | RestoreModeCommand
+  | RestoreCommand;
 
 /** A command line that cannot be run; printed with the usage, exit code 64. */
 export class UsageError extends Error {
@@ -104,6 +146,20 @@ export function parseCommand(args: readonly string[]): Command {
       return parseRestoreModeCommand(action, rest);
     } catch (error) {
       if (error instanceof RestoreModeUsageError) {
+        throw new UsageError(error.message);
+      }
+      throw error;
+    }
+  }
+  if (group === "restore" || group === "node" || group === "cluster") {
+    try {
+      return group === "restore"
+        ? parseRestoreCommand(action, rest, SCRATCH_DATABASE)
+        : group === "node"
+          ? parseNodeCommand(action, rest)
+          : parseClusterCommand(action, rest);
+    } catch (error) {
+      if (error instanceof RestoreUsageError) {
         throw new UsageError(error.message);
       }
       throw error;
@@ -276,6 +332,14 @@ async function run(command: Command): Promise<number> {
   if (command.kind === "help") {
     process.stdout.write(USAGE);
     return 0;
+  }
+  // A restore and the node check bring their own connections (the scratch database, the node's).
+  if (RESTORE_KINDS.has(command.kind)) {
+    const { runRestoreCommand } = await import("./restore.js");
+    return runRestoreCommand(command as RestoreCommand, {
+      out: (text) => process.stdout.write(text),
+      err: (text) => process.stderr.write(text),
+    });
   }
   // Configuration and database only now: `restow help` works anywhere.
   const { config, missingRequiredConfig } = await import("../config.js");

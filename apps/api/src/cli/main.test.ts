@@ -205,3 +205,68 @@ describe("formatRecovery", () => {
     expect(text).toContain("set up an authenticator app");
   });
 });
+
+describe("restore and node commands", () => {
+  it("parses restore prepare with its defaults and options", () => {
+    expect(parseCommand(["restore", "prepare"])).toEqual({
+      kind: "restore-prepare",
+      database: "restow_restore",
+      dumpName: null,
+      via: "command line",
+      json: false,
+    });
+    expect(
+      parseCommand([
+        "restore",
+        "prepare",
+        "--json",
+        "--dump-name=restow-20261105-120000-uploaded-to-0.5.0.dump",
+        "--via",
+        "install.sh",
+        "--database",
+        "restow_restore",
+      ]),
+    ).toEqual({
+      kind: "restore-prepare",
+      database: "restow_restore",
+      dumpName: "restow-20261105-120000-uploaded-to-0.5.0.dump",
+      via: "install.sh",
+      json: true,
+    });
+  });
+
+  it("parses restore activate and abort, and node check", () => {
+    expect(parseCommand(["restore", "activate", "--json"])).toEqual({
+      kind: "restore-activate",
+      database: "restow_restore",
+      json: true,
+    });
+    expect(parseCommand(["restore", "abort"])).toEqual({
+      kind: "restore-abort",
+      database: "restow_restore",
+    });
+    expect(parseCommand(["node", "check"])).toEqual({ kind: "node-check", json: false });
+  });
+
+  it("refuses unknown restore commands, options and unsafe names", () => {
+    for (const args of [
+      ["restore"],
+      ["restore", "start"],
+      ["restore", "prepare", "--force"],
+      ["restore", "prepare", "--database", "Restow; DROP"],
+      ["restore", "prepare", "--dump-name", "../etc/passwd"],
+      ["restore", "prepare", "--database"],
+      ["node"],
+      ["node", "join"],
+      ["node", "check", "--all"],
+    ]) {
+      expect(() => parseCommand(args), args.join(" ")).toThrow(UsageError);
+    }
+  });
+
+  it("documents them", () => {
+    expect(USAGE).toContain("restore prepare");
+    expect(USAGE).toContain("restore activate");
+    expect(USAGE).toContain("node check");
+  });
+});

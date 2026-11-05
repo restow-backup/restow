@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import {
   CircleCheck,
   CircleDashed,
@@ -16,7 +17,7 @@ import { Field, messageId } from "@/components/forms/field";
 import { ConfirmDialog } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,8 +25,10 @@ import { ProgressBar } from "@/features/updates/progress-bar";
 import { ApiError, errorMessageKey } from "@/lib/api";
 import { formatBytes, formatRelative } from "@/lib/format";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
+import { cn } from "@/lib/utils";
 
 import { AccessNote, useInstallationAccess } from "../access";
+import { installationSectionTo } from "../paths";
 import {
   DATABASE_BUSY_PROBLEM,
   DATABASE_DIRECTORY_INVALID_PROBLEM,
@@ -91,7 +94,32 @@ export function DatabaseContent({ view, away = false }: { view: DatabaseView; aw
       {view.move ? <MoveCard move={view.move} away={away} /> : null}
       <MoveFormCard view={view} />
       <OldCopiesCard view={view} />
+      <RestoredDumpCard />
     </div>
+  );
+}
+
+/**
+ * Where to go after restoring a dump of this database by hand: restore mode keeps everything
+ * that deletes paused until an owner has checked the restored data (docs/DATABASE.md).
+ */
+function RestoredDumpCard() {
+  const { t } = useTranslation("installation");
+  return (
+    <Card data-slot="restored-dump">
+      <CardHeader>
+        <CardTitle>{t("database.restored.title")}</CardTitle>
+        <CardDescription>{t("database.restored.description")}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Link
+          to={installationSectionTo("restore-mode")}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-fit")}
+        >
+          {t("database.restored.open")}
+        </Link>
+      </CardContent>
+    </Card>
   );
 }
 

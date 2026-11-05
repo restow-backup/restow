@@ -876,6 +876,8 @@ jobs:
           cp reports/smoke-report-community-arm64/smoke-report-community-arm64.md assets/smoke-report-community-arm64.md
           cp deploy/release/docker-compose.yml assets/docker-compose.yml
           cp deploy/release/.env.example assets/env.example
+          # A worker node of another host (install.sh --join, docs/SIZING.md): signed in SHA256SUMS too.
+          cp deploy/release/docker-compose.worker.yml assets/docker-compose.worker.yml
           # The server install script and its own checksum file (for `sha256sum -c` right
           # after the download); both are listed in SHA256SUMS below and so signed with it.
           cp deploy/install/install.sh assets/install.sh
@@ -938,7 +940,7 @@ jobs:
               echo "Release signing key (agent/release-signing.pub): $(ssh-keygen -l -f agent/release-signing.pub)"
               echo
             fi
-            echo "docker-compose.yml and env.example are the release stack (deploy/release/); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
+            echo "docker-compose.yml and env.example are the release stack (deploy/release/), docker-compose.worker.yml the stack of a worker node on another host (install.sh --join); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
           } >> notes.md
 
           (cd assets && sha256sum -- * > SHA256SUMS)

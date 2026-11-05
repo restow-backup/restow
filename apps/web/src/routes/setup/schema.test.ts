@@ -7,10 +7,12 @@ import {
   initialSetupValues,
   ORGANISATION_NAME_MAX_LENGTH,
   publicUrlReason,
+  SETUP_KINDS,
   SETUP_LANGUAGES,
   type SetupFormValues,
   STEP_FIELDS,
   STEP_KEYS,
+  STEPS_BY_KIND,
   setupFormSchema,
 } from "./schema";
 
@@ -42,9 +44,10 @@ function issuePaths(values: SetupFormValues): string[] {
 }
 
 describe("STEP_KEYS", () => {
-  it("starts with the language, then the setup token and the operator notice, and ends with the review", () => {
+  it("starts with the language and the question what to set up, then the setup token and the operator notice, and ends with the review", () => {
     expect(STEP_KEYS).toEqual([
       "language",
+      "kind",
       "token",
       "disclaimer",
       "mode",
@@ -52,6 +55,31 @@ describe("STEP_KEYS", () => {
       "mail",
       "review",
     ]);
+  });
+
+  it("asks what to set up first, after the language, on every path", () => {
+    expect([...SETUP_KINDS]).toEqual(["new", "restore", "worker"]);
+    for (const kind of SETUP_KINDS) {
+      expect(STEPS_BY_KIND[kind].slice(0, 2)).toEqual(["language", "kind"]);
+    }
+  });
+
+  it("restores without the notice, the mode, a first admin or the mail, but with the setup token", () => {
+    expect([...STEPS_BY_KIND.restore]).toEqual([
+      "language",
+      "kind",
+      "token",
+      "restoreSource",
+      "restoreRun",
+      "restoreDone",
+    ]);
+    for (const step of ["disclaimer", "mode", "admin", "mail", "review"] as const) {
+      expect(STEPS_BY_KIND.restore as readonly string[]).not.toContain(step);
+    }
+  });
+
+  it("explains a worker node without the token or any form", () => {
+    expect([...STEPS_BY_KIND.worker]).toEqual(["language", "kind", "workerInfo"]);
   });
 
   it("offers English and German", () => {

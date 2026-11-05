@@ -11,25 +11,37 @@ import { PASSWORD_MIN_LENGTH } from "@/lib/password";
  */
 
 /**
- * The language comes first, so the whole wizard runs in the language the
- * operator reads. It lives in the app's i18n instance (the wizard's one source
- * of truth for it, also when the language switcher in the header is used), not
- * in the form; it travels with the setup request. Then the setup token: proof
- * that whoever sets up has access to the server (apps/api lib/setup-token.ts),
- * and the operator responsibility notice (apps/api lib/disclaimer.ts). Neither
- * of those is part of the form: the token travels as a header, the acceptance
- * with the setup request, and the server refuses the setup without either.
+ * What the wizard sets up, its first question after the language: a new installation, a restore
+ * of an installation from a database dump (apps/api routes/setup-restore.ts), or a worker for an
+ * existing installation on another host (install.sh --join does that; the wizard explains it).
  */
-export const STEP_KEYS = [
-  "language",
-  "token",
-  "disclaimer",
-  "mode",
-  "admin",
-  "mail",
-  "review",
-] as const;
-export type StepKey = (typeof STEP_KEYS)[number];
+export const SETUP_KINDS = ["new", "restore", "worker"] as const;
+export type SetupKind = (typeof SETUP_KINDS)[number];
+
+/**
+ * The steps of each kind. The language comes first, so the whole wizard runs in the language
+ * the operator reads, the kind question in it included. It lives in the app's i18n instance (the
+ * wizard's one source of truth for it, also when the language switcher in the header is used),
+ * not in the form; it travels with the setup request. Then the setup token: proof that whoever
+ * sets up has access to the server (apps/api lib/setup-token.ts); a restore needs it as well,
+ * or anyone who reaches a fresh installation could restore a dump of their own into it. A new
+ * installation continues with the operator responsibility notice (apps/api lib/disclaimer.ts),
+ * the mode, the first admin, the mail and the review; a restore with the dump, its run and
+ * report, and the end (no notice, mode, admin or mail: the dump brings its users and
+ * settings). Neither the token nor the notice is part of the form: the token travels as a
+ * header, the acceptance with the setup request, and the server refuses the setup without
+ * either.
+ */
+export const STEPS_BY_KIND = {
+  new: ["language", "kind", "token", "disclaimer", "mode", "admin", "mail", "review"],
+  restore: ["language", "kind", "token", "restoreSource", "restoreRun", "restoreDone"],
+  worker: ["language", "kind", "workerInfo"],
+} as const satisfies Record<SetupKind, readonly string[]>;
+
+export type StepKey = (typeof STEPS_BY_KIND)[SetupKind][number];
+
+/** The steps of a new installation (the wizard's default path). */
+export const STEP_KEYS: readonly StepKey[] = STEPS_BY_KIND.new;
 
 /** The languages the wizard offers; the language of the operator's own organisation. */
 export const SETUP_LANGUAGES = ["en", "de"] as const;
@@ -154,10 +166,7 @@ export const setupFormSchema = z
 export type SetupFormValues = z.infer<typeof setupFormSchema>;
 
 /** Which form fields each step validates before it lets the user continue. */
-export const STEP_FIELDS: Record<
-  Exclude<StepKey, "language" | "token" | "disclaimer" | "review">,
-  readonly FieldPath[]
-> = {
+export const STEP_FIELDS: Record<"mode" | "admin" | "mail", readonly FieldPath[]> = {
   mode: ["operatingMode", "publicUrl", "timeZone"],
   admin: ["organisationName", "admin.name", "admin.email", "admin.password", "admin.confirm"],
   mail: [

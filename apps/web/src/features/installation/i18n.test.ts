@@ -240,6 +240,14 @@ describe("installation translations", () => {
       kind: "conflict",
       object: "file-shares/1/restow-repository-password.json",
       checked: "Compared the restore points.",
+      // Installation > Cluster.
+      role: "worker",
+      state: "running",
+      address: "10.0.0.5:5432",
+      ssl: "TLS on",
+      minutes: 60,
+      storage: 120,
+      database: 80,
     };
     for (const language of ["en", "de"]) {
       await i18n.changeLanguage(language);

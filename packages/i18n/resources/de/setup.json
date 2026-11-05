@@ -9,7 +9,12 @@
     "mode": "Betriebsmodus",
     "admin": "Organisation und Admin",
     "mail": "Mail-Transport",
-    "review": "Überprüfung"
+    "review": "Überprüfung",
+    "kind": "Was einrichten",
+    "restoreSource": "Dump",
+    "restoreRun": "Wiederherstellung",
+    "restoreDone": "Fertig",
+    "workerInfo": "Worker-Knoten"
   },
   "language": {
     "title": "Wählen Sie Ihre Sprache",
@@ -230,5 +235,158 @@
     "administratorExists": "Eine frühere, nicht abgeschlossene Einrichtung hat bereits einen Administrator angelegt. Fahren Sie mit dessen E-Mail-Adresse und Passwort fort.",
     "configurationIncomplete": "Die Serverkonfiguration ist unvollständig. Setzen Sie {settings} in der Serverumgebung, starten Sie {appName} neu und schließen Sie dann die Einrichtung ab.",
     "ownOrganisationFailed": "Die Einrichtung ist gespeichert, Ihre eigene Organisation konnte aber nicht angelegt werden. Legen Sie sie auf der Übersicht an."
+  },
+  "kind": {
+    "title": "Was möchten Sie einrichten?",
+    "description": "Eine neue Installation, die Wiederherstellung einer bestehenden aus einem Datenbank-Dump oder einen Worker für eine Installation, die anderswo läuft.",
+    "new": {
+      "title": "Eine neue Installation",
+      "description": "{appName} von Grund auf einrichten: Betriebsart, Ihre Organisation, der erste Administrator und die Benachrichtigungs-Mail."
+    },
+    "restore": {
+      "title": "Eine Installation wiederherstellen",
+      "description": "Eine Installation aus einem Dump ihrer Datenbank (pg_dump -Fc) zurückholen, mit dem Hauptschlüssel, mit dem sie erstellt wurde. Ihre Benutzer, Mandanten und Einstellungen kommen mit; der Wiederherstellungsmodus ist an, bis Sie sie geprüft haben.",
+      "withoutUpdater": "Im Assistenten braucht das den Updater auf diesem Server; ohne ihn zeigen die nächsten Schritte, wie Sie mit install.sh wiederherstellen."
+    },
+    "worker": {
+      "title": "Einen Worker zu einer bestehenden Installation hinzufügen",
+      "description": "Weitere Worker auf einem anderen Host für eine Installation betreiben, die es schon gibt (er nutzt die Datenbank und den Speicher dieser Installation).",
+      "note": "Echte Replikation, ein zweiter Server, der übernimmt, wenn der erste ausfällt (aktiv/passiv mit Datenbank-Replikation), ist in Entwicklung. Ein Worker-Knoten bringt nur mehr Kapazität."
+    }
+  },
+  "restoreSource": {
+    "title": "Dump zum Wiederherstellen wählen",
+    "description": "Der Dump der Datenbank der alten Installation wird zuerst in eine eigene Datenbank zurückgespielt; an dieser Installation ändert sich nichts, bis Sie den Bericht gelesen und die Wiederherstellung aktiviert haben.",
+    "loading": "Der Updater wird gefragt …",
+    "bring": {
+      "title": "Was Sie brauchen",
+      "masterKey": "Denselben RESTOW_MASTER_KEY wie die alte Installation, in der .env dieses Servers. Ohne ihn sind die wiederhergestellten Backups nicht lesbar, und die Wiederherstellung wird abgelehnt.",
+      "authSecret": "BETTER_AUTH_SECRET der alten Installation in derselben .env, damit Anmeldungen mit einer Authenticator-App weiter funktionieren.",
+      "dump": "Einen Dump der Datenbank der alten Installation (pg_dump -Fc), etwa einen, den der Updater vor einem Update aufbewahrt hat."
+    },
+    "kept": {
+      "title": "Vom Updater aufbewahrte Dumps",
+      "note": "Der Updater bewahrt die Dumps der letzten Updates in seinem eigenen Volume auf; sie sind nur hier, wenn dieses Volume noch auf diesem Host liegt.",
+      "none": "Der Updater hat hier keine Dumps. Laden Sie den Dump unten hoch."
+    },
+    "upload": {
+      "label": "Dump hochladen",
+      "hint": "Er wird in Teilen hochgeladen; der Server braucht etwa das Dreifache seiner Größe an freiem Speicherplatz.",
+      "hashing": "Datei wird gelesen: {done} von {total}",
+      "uploading": "Wird hochgeladen: {done} von {total}",
+      "checking": "Upload wird geprüft …"
+    },
+    "start": "Diesen Dump wiederherstellen",
+    "failed": "Die Wiederherstellung konnte nicht gestartet werden. Versuchen Sie es erneut.",
+    "unavailable": {
+      "why": "Der Updater antwortet auf diesem Server nicht, darum kann der Assistent hier keinen Dump wiederherstellen.",
+      "manual": "Stellen Sie stattdessen auf diesem Server von Hand wieder her. Tragen Sie zuerst den Hauptschlüssel der alten Installation in die .env ein; Worker und Scheduler bleiben angehalten, bis die wiederhergestellte Datenbank die laufende ist:",
+      "manualAbort": "Lehnt prepare den Dump ab (unter anderem bei einem falschen Hauptschlüssel), hat sich an dieser Installation nichts geändert: Verwerfen Sie die wiederhergestellte Datenbank mit restore abort, starten Sie alles mit docker compose up -d wieder und versuchen Sie es erneut.",
+      "updater": "Oder schalten Sie den Updater ein, laden Sie diese Seite neu und stellen Sie hier wieder her:",
+      "freshHost": "Auf einem neuen Server ohne Installation erledigt das Installationsskript all das selbst (hier lehnt es ab, weil dieser Server schon eine Installation hat):"
+    }
+  },
+  "restoreRun": {
+    "title": "Wiederherstellen und prüfen",
+    "description": "Worker und Scheduler bleiben angehalten, während der Dump zurückgespielt, migriert und geprüft wird: Es wird nichts gelöscht. Der Wiederherstellungsmodus wird in den wiederhergestellten Daten vor allem anderen eingeschaltet.",
+    "loading": "Der Stand der Wiederherstellung wird gelesen …",
+    "phase": {
+      "restoring": "Der Dump wird in eine eigene Datenbank zurückgespielt …",
+      "preparing": "Er wird migriert, der Wiederherstellungsmodus eingeschaltet, Hauptschlüssel und Speicher werden geprüft …",
+      "awaiting_confirmation": "Bereit zum Aktivieren.",
+      "activating": "Wird aktiviert …",
+      "starting": "Wird gestartet …"
+    },
+    "report": {
+      "title": "Was der Dump enthält",
+      "address": "Adresse",
+      "noAddress": "keine gespeichert",
+      "accounts": "Konten",
+      "accountsValue": "{users} ({owners} Inhaber)",
+      "tenants": "Mandanten",
+      "migrations": "Datenbankversion",
+      "migrationsValue": "{restored} Migrationen im Dump, {shipped} in diesem Release",
+      "keys": "Hauptschlüssel",
+      "keysValue": "öffnet {keys} Mandantenschlüssel und {secrets} Geheimnis(se)",
+      "storage": "{count} Speicherziel(e) verglichen: {ahead} der Datenbank voraus, {unreachable} nicht erreichbar",
+      "markers": "Speicher {storage}, Datenbank {database}",
+      "storageNotChecked": "Der Speicher wurde nicht verglichen: {error}",
+      "nodes": "Der Dump nennt {count} Worker-Knoten; ihr Datenbankzugang ist nicht Teil eines Dumps. Lassen Sie sie unter Installation › Cluster erneut beitreten."
+    },
+    "outcome": {
+      "ok": "stimmt überein",
+      "ahead": "der Datenbank voraus",
+      "unreachable": "nicht erreichbar",
+      "foreign": "einer anderen Installation",
+      "none": "noch kein Fortschritt"
+    },
+    "restoreModeOn": "Der Wiederherstellungsmodus ist in den wiederhergestellten Daten an: Aufbewahrung, Aufräumen und Löschläufe ruhen, bis ein Inhaber ihn unter Installation › Wiederherstellungsmodus beendet.",
+    "acceptUnreachable": "Einige Speicherziele waren nicht lesbar. Ich fahre ohne sie fort und prüfe sie danach.",
+    "confirm": "Ich habe den Bericht gelesen. Die wiederhergestellte Installation soll die laufende werden.",
+    "activate": "Aktivieren",
+    "abort": "Abbrechen",
+    "activateFailed": "Die Wiederherstellung konnte nicht aktiviert werden. Versuchen Sie es erneut.",
+    "aborted": "Die Wiederherstellung wurde abgebrochen. An dieser Installation hat sich nichts geändert.",
+    "startAgain": "Neu beginnen",
+    "refused": {
+      "nothingChanged": "An dieser Installation wurde nichts geändert.",
+      "master_key_mismatch": {
+        "title": "Der Hauptschlüssel passt nicht",
+        "text": "Der RESTOW_MASTER_KEY dieses Servers öffnet die Schlüssel des Dumps nicht: Er gehört zu einem anderen Hauptschlüssel. Tragen Sie den Hauptschlüssel der alten Installation in die .env ein, starten Sie neu und beginnen Sie erneut."
+      },
+      "dump_too_new": {
+        "title": "Der Dump stammt aus einem neueren Release",
+        "text": "Installieren Sie dieses Release oder ein neueres und stellen Sie dann erneut wieder her."
+      },
+      "not_restow": {
+        "title": "Das ist keine Datenbank von {appName}",
+        "text": "Der Dump enthält keine Datenbank von {appName}. Wählen Sie den Dump der alten Installation."
+      },
+      "setup_incomplete": {
+        "title": "Der Dump enthält keine abgeschlossene Einrichtung",
+        "text": "Darin gibt es nichts wiederherzustellen. Richten Sie stattdessen eine neue Installation ein."
+      }
+    },
+    "failed": {
+      "title": "Die Wiederherstellung ist fehlgeschlagen",
+      "text": "Der Dump konnte nicht zurückgespielt oder geprüft werden. An dieser Installation wurde nichts geändert; das Protokoll des Updaters nennt die Einzelheiten."
+    },
+    "needs_attention": {
+      "title": "Die Wiederherstellung braucht Aufmerksamkeit",
+      "text": "Ein Schritt nach der Aktivierung ist fehlgeschlagen oder wurde unterbrochen. Worker und Scheduler bleiben angehalten. Folgen Sie den Schritten der Dokumentation (Eine Installation aus einem Dump wiederherstellen)."
+    }
+  },
+  "restoreDone": {
+    "title": "Die wiederhergestellte Installation startet",
+    "description": "Die wiederhergestellte Datenbank wird die laufende, dann startet die Anwendung darauf neu.",
+    "waiting": "Es wird gewartet, bis die wiederhergestellte Installation antwortet …",
+    "attention": {
+      "title": "Die Wiederherstellung braucht Ihre Aufmerksamkeit",
+      "text": "Die Aktivierung der wiederhergestellten Datenbank ist nicht fertig geworden. Worker und Scheduler bleiben angehalten, es wird also nichts gelöscht; diese Seite kann sie nicht abschließen, schließen Sie sie auf dem Server ab.",
+      "reason": "Der Updater meldet: {message}",
+      "finish": "Zum Abschließen: Aktivieren Sie erneut (das vollendet eine unterbrochene Aktivierung oder bestätigt, dass die wiederhergestellte Datenbank schon läuft), dann starten Sie alles:",
+      "abort": "Oder machen Sie es rückgängig: Verwerfen Sie die wiederhergestellte Datenbank und starten Sie die neue Installation wieder (ihr neues Setup-Token steht im Log der api):",
+      "docs": "Die Einzelheiten stehen in der Dokumentation (Datenbank, „When a restore needs attention“)."
+    },
+    "live": "Die wiederhergestellte Installation läuft, mit eingeschaltetem Wiederherstellungsmodus.",
+    "next": {
+      "signIn": "Melden Sie sich mit einem Konto der wiederhergestellten Installation an.",
+      "restoreMode": "Öffnen Sie Installation › Wiederherstellungsmodus: Vergleichen Sie den Speicher erneut, übernehmen Sie im Speicher gefundene Schlüsselversionen, testen Sie einen Wiederherstellungspunkt je Mandant, prüfen Sie die Benutzer, die Adresse und die Mail-Einstellungen.",
+      "end": "Beenden Sie den Wiederherstellungsmodus dort, sobald alles geprüft ist."
+    },
+    "signIn": "Zur Anmeldung"
+  },
+  "workerInfo": {
+    "title": "Einen Worker zu einer bestehenden Installation hinzufügen",
+    "description": "Ein Worker-Knoten betreibt weder diese Weboberfläche noch eine eigene Datenbank: Er wird auf dem neuen Host mit dem Installationsskript und einem Beitrittstoken eingerichtet.",
+    "notHere": "Richten Sie diesen Host nicht als eigene Installation ein. Führen Sie stattdessen das Installationsskript darauf aus, wie unten gezeigt.",
+    "steps": {
+      "cluster": "Öffnen Sie in der bestehenden Installation Installation › Cluster (nur Inhaber). Dort steht, was ein Worker-Knoten braucht.",
+      "database": "Lassen Sie den neuen Host die Datenbank dort erreichen, mit TLS und nur von diesem Host: auf dem bestehenden Server sudo bash install.sh --allow-worker <Adresse des neuen Hosts>.",
+      "token": "Stellen Sie dort ein Beitrittstoken aus. Es wird einmal angezeigt, gilt einmal und läuft nach einer Stunde ab.",
+      "run": "Führen Sie auf dem neuen Host das Installationsskript mit der Adresse der Installation und dem Token aus:"
+    },
+    "requirements": "Speicherziele müssen vom neuen Host aus erreichbar sein: S3 oder ein Verzeichnis unter demselben Pfad auf beiden Hosts. Beide Hosts laufen mit demselben Release.",
+    "replication": "Echte Replikation, ein zweiter Server, der übernimmt, wenn der erste ausfällt (aktiv/passiv mit Datenbank-Replikation), ist in Entwicklung. Ein Worker-Knoten bringt mehr Kapazität; Datenbank, Weboberfläche und Updater bleiben auf dem Haupt-Host."
   }
 }

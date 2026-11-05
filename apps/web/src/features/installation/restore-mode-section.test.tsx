@@ -280,8 +280,76 @@ describe("Installation > Restore mode", () => {
       session: providerSession("read_only"),
     });
     await flush(8);
-    expect(document.querySelector("#restore-mode-reason")).toBeNull();
+    // The switch is there, closed, with the sentence that says who may use it.
+    expect(document.querySelector<HTMLInputElement>("#restore-mode-reason")?.disabled).toBe(true);
+    expect(buttonByText(document.body, "Switch restore mode on")?.disabled).toBe(true);
+    expect(document.querySelector('[data-slot="access-note"]')).not.toBeNull();
     expect(buttonByText(document.body, "Compare now")?.disabled).toBe(true);
+  });
+
+  it("shows the switch closed to an administrator, with the note that it is the owner's", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "GET /settings": () => json(SETTINGS),
+        "GET /restore-mode": () => json({ ...ACTIVE, active: null }),
+      }).mock,
+    );
+    mounted = await openInstallation("/installation/restore-mode", {
+      session: providerSession("administrator"),
+    });
+    await flush(8);
+    const note = document.querySelector('[data-slot="access-note"]');
+    expect(note?.getAttribute("data-reason")).toBe("role");
+    expect(document.querySelector<HTMLInputElement>("#restore-mode-reason")?.disabled).toBe(true);
+    expect(buttonByText(document.body, "Compare now")?.disabled).toBe(false);
+  });
+
+  it("lists what to check before ending it, with the users, address and mail after a restore from a dump", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "GET /settings": () => json(SETTINGS),
+        "GET /restore-mode": () => json(ACTIVE),
+      }).mock,
+    );
+    mounted = await openInstallation("/installation/restore-mode", {
+      session: providerSession("owner"),
+    });
+    await flush(8);
+    const detected = text(document.querySelector('[data-testid="restore-mode-checklist"]'));
+    expect(detected).toContain("Before you end restore mode");
+    expect(detected).toContain("Test a restore point of every tenant.");
+    expect(detected).not.toContain("Check the notification mail");
+    await mounted.unmount();
+
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "GET /settings": () => json(SETTINGS),
+        "GET /restore-mode": () =>
+          json({
+            ...ACTIVE,
+            active: {
+              ...ACTIVE.active,
+              source: "setup",
+              detection: null,
+              activatedBy: {
+                label: "setup (restore from restow-20261101-020000-0.4.12-to-0.5.0.dump)",
+              },
+            },
+          }),
+      }).mock,
+    );
+    mounted = await openInstallation("/installation/restore-mode", {
+      session: providerSession("owner"),
+    });
+    await flush(8);
+    expect(text()).toContain("Switched on by a restore from a dump (setup wizard or install.sh)");
+    const setup = text(document.querySelector('[data-testid="restore-mode-checklist"]'));
+    expect(setup).toContain("Check the users and owners");
+    expect(setup).toContain("Check the notification mail and send a test message.");
+    expect(setup).toContain("point the agents and the nodes to the new one");
   });
 
   it("needs a reason to switch it on", () => {

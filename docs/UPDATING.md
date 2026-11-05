@@ -1063,7 +1063,9 @@ the exact file name and the previous image references):
 docker compose --profile updater cp updater:/state/dumps/<file> ./<file>
 # stop the application and restore
 docker compose stop api worker scheduler
-docker compose exec -T postgres pg_restore -U restow -d restow --clean --if-exists < <file>
+# into a fresh database: --clean onto the newer schema would keep its newer tables
+docker compose exec -T postgres psql -U restow -d postgres -c "DROP DATABASE restow WITH (FORCE)" -c "CREATE DATABASE restow"
+docker compose exec -T postgres pg_restore -U restow -d restow --no-owner --no-acl --exit-on-error < <file>
 # put the previous images back into .env (RESTOW_IMAGE, RESTOW_WEB_IMAGE), then switch
 # restore mode on with that image, before the worker and the scheduler start
 # (only when the previous image is 0.5.0 or later, see below):
@@ -1148,6 +1150,15 @@ a release without a web digest keeps the web edge as it is, and the run says so.
 
 ## After the update
 
+**Worker nodes** on other hosts (docs/SIZING.md, "Several hosts: worker nodes") are not updated
+by the updater: run `sudo bash install.sh --update-worker` on each of them. While an update
+started here is under way (from its announcement until the fleet phase ends), the worker and the
+standby scheduler of a node of the old release stop working, and a node scheduler gives its
+leadership up, so no old scheduler takes over while the main host's is stopped. After the update a
+node whose image is older than the migrated database does no work (both check every 30 seconds;
+Installation › Cluster shows it as waiting for an update). After `install.sh --update` (nothing
+announced) a node stops within 30 seconds of the migration.
+
 ```sh
 curl -fsS http://127.0.0.1:3000/healthz
 curl -fsS http://127.0.0.1:3000/readyz
@@ -1224,8 +1235,11 @@ migrations, so going back needs no restore, or starts as Community with
   nothing until a provider owner has checked the restored database:
 
   1. Stop the application: `docker compose stop api worker scheduler`.
-  2. Restore the dump:
-     `docker compose exec -T postgres pg_restore -U restow -d restow --clean --if-exists < restow-YYYY-MM-DD.dump`.
+  2. Restore the dump into a fresh database (`--clean` onto the newer schema would keep the
+     tables of its newer migrations, and the next migration fails):
+     `docker compose exec -T postgres psql -U restow -d postgres -c "DROP DATABASE restow WITH (FORCE)" -c "CREATE DATABASE restow"`,
+     then `docker compose exec -T postgres pg_restore -U restow -d restow --no-owner --no-acl --exit-on-error < restow-YYYY-MM-DD.dump`
+     (the api provisions the roles and grants again when it starts).
   3. Switch restore mode on with the image you roll back to (`git checkout vPREVIOUS`
      and `docker compose build`, or the previous tags in `RESTOW_IMAGE` and
      `RESTOW_WEB_IMAGE`), while only postgres runs:
@@ -1265,7 +1279,8 @@ migrations, so going back needs no restore, or starts as Community with
 
   ```sh
   docker compose stop api worker scheduler
-  docker compose exec -T postgres pg_restore -U restow -d restow --clean --if-exists < restow-YYYY-MM-DD.dump
+  docker compose exec -T postgres psql -U restow -d postgres -c "DROP DATABASE restow WITH (FORCE)" -c "CREATE DATABASE restow"
+  docker compose exec -T postgres pg_restore -U restow -d restow --no-owner --no-acl --exit-on-error < restow-YYYY-MM-DD.dump
   docker compose exec -T postgres psql -U restow -d restow -c "UPDATE schedules SET enabled = false WHERE kind IN ('scrub', 'retention')"
   docker compose up -d api scheduler web
   ```

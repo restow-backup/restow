@@ -10,6 +10,7 @@ import {
   Info,
   Layers,
   Mail,
+  Network,
   Server,
   ShieldAlert,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { RansomwareSection } from "@/features/suspicion/components/ransomware-se
 import { UpdatesSection } from "@/features/updates/updates-section";
 import { extensionInstallationSections, type InstallationSectionSpec } from "@/lib/extensions";
 
+import { ClusterSection } from "./sections/cluster-section";
 import { DatabaseSection } from "./sections/database-section";
 import { EditionSection } from "./sections/edition-section";
 import { MicrosoftAppSection } from "./sections/microsoft-app-section";
@@ -38,7 +40,8 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  *
  *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
  *   40 Journal receiving (Business)    50 Default repository & network shares
- *   55 Database      57 Ransomware detection   58 Agent policy   59 Proxmox VE
+ *   54 Cluster   55 Database   56 Restore mode   57 Ransomware detection   58 Agent policy
+ *   59 Proxmox VE
  *   60 Provider API (Service Provider) 65 Prices 70 Updates
  *   80 License (extension) or Edition  90 About
  *
@@ -85,6 +88,16 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     icon: HardDrive,
     order: 50,
     component: RepositorySection,
+  },
+  {
+    // Worker nodes on other hosts and their one-time join tokens (docs/SIZING.md, "Several
+    // hosts: worker nodes"); the owner's only.
+    id: "cluster",
+    labelKey: "installation:sections.cluster",
+    descriptionKey: "installation:descriptions.cluster",
+    icon: Network,
+    order: 54,
+    component: ClusterSection,
   },
   {
     // Where the database keeps its data, the disks, moving it (docs/DATABASE.md).

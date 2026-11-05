@@ -25,6 +25,15 @@ export const JOB_QUEUES = [
   "export",
 ] as const satisfies readonly JobQueue[];
 
+/**
+ * Queues a worker node on another host does not consume (docs/SIZING.md, "Several hosts: worker
+ * nodes"): their jobs need what only the main host has. `import` reads the server-side import
+ * folder (IMPORT_DIR, a directory of the main host). File share jobs, which start runners through
+ * the mounter, are not in this list: they have queues of their own that a node never registers.
+ * A node gets this list as RESTOW_WORKER_EXCLUDE_QUEUES when it joins.
+ */
+export const MAIN_HOST_QUEUES = ["import"] as const satisfies readonly JobQueue[];
+
 export function isJobQueue(value: string): value is JobQueue {
   return (JOB_QUEUES as readonly string[]).includes(value);
 }

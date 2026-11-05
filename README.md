@@ -326,6 +326,19 @@ passkeys are not offered; `--http-local` is a deprecated name for it),
 (for tests and unsigned mirrors only, never for production). Its log is
 `/var/log/restow-install.log`, without secrets.
 
+Its first question (from 0.5.0) is what to set up: a new installation (`--new`), a
+**restore** of an installation from a dump of its database (`--restore <file>`, with the old
+master key typed at a hidden prompt or taken from the old `.env` with `--env-from <file>`;
+restore mode is on before anything starts, and a master key that does not open the dump undoes
+the run with exit code 11; see [docs/DATABASE.md](docs/DATABASE.md#restore-an-installation-from-a-dump)),
+or a **worker node** for an existing installation on another host (`--join <https address>
+--join-token <token> [--node-name <name>] [--standby-scheduler] [--join-ca <file>]`, with a
+token from Installation › Cluster; `--update-worker` brings a node to the main host's release).
+On the main host, `--allow-worker <address>` (and `--disallow-worker`, `--database-address`,
+`--database-port`) lets a worker host reach PostgreSQL over TLS; by default it is not published.
+Real replication (a second server that takes over) is in development; see
+[docs/SIZING.md](docs/SIZING.md#several-hosts-worker-nodes).
+
 Running the script again is safe: it finds the installation, never changes
 `.env`, a secret or data, checks the images named in `.env` and makes sure the
 stack runs. It brings `docker-compose.yml` to the checked file of the release

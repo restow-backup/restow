@@ -22,7 +22,8 @@
     "agentPolicy": "Richtlinie der Agenten",
     "proxmox": "Proxmox VE",
     "pricing": "Preise",
-    "restoreMode": "Wiederherstellungsmodus"
+    "restoreMode": "Wiederherstellungsmodus",
+    "cluster": "Cluster"
   },
   "descriptions": {
     "server": "Wie Browser diesen Server erreichen, ob Passkeys angeboten werden und die Zeitzone der Installation. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
@@ -41,7 +42,8 @@
     "agentPolicy": "Sicherungsfenster, verpasste Sicherungen, Bandbreite, Netzteil und Wiederholungen der Server und Clients, und was Mandanten ändern dürfen.",
     "proxmox": "Wie die Sicherungsstände von VMs und Containern geprüft werden, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts.",
-    "restoreMode": "Nach dem Zurückspielen eines Datenbank-Dumps: Nichts wird gelöscht, bis ein Provider-Inhaber die zurückgespielte Datenbank geprüft hat."
+    "restoreMode": "Nach dem Zurückspielen eines Datenbank-Dumps: Nichts wird gelöscht, bis ein Provider-Inhaber die zurückgespielte Datenbank geprüft hat.",
+    "cluster": "Worker-Knoten auf anderen Hosts: was sie brauchen, Einmal-Beitrittstoken, einen Knoten entfernen."
   },
   "access": {
     "owner": "Sie können diese Einstellungen ansehen. Zum Ändern brauchen Sie die Rolle Inhaber im Provider-Team.",
@@ -591,6 +593,11 @@
         "succeeded": "{location} wurde entfernt.",
         "failed": "{location} konnte nicht entfernt werden."
       }
+    },
+    "restored": {
+      "title": "Nach dem Zurückspielen eines Dumps",
+      "description": "Haben Sie einen Dump dieser Datenbank von Hand zurückgespielt? Der Wiederherstellungsmodus hält alles an, was löscht, bis ein Inhaber die wiederhergestellten Daten geprüft hat.",
+      "open": "Wiederherstellungsmodus öffnen"
     }
   },
   "pricing": {
@@ -646,7 +653,8 @@
         "cli": "Mit der Kommandozeile eingeschaltet",
         "api": "In der Weboberfläche eingeschaltet",
         "detected": "Von selbst eingeschaltet: Ein Speicherziel zeigt einen Stand, den die Datenbank nicht kennt",
-        "other": "Eingeschaltet"
+        "other": "Eingeschaltet",
+        "setup": "Eingeschaltet durch eine Wiederherstellung aus einem Dump (Einrichtungsassistent oder install.sh), bevor irgendetwas anderes lief"
       }
     },
     "start": {
@@ -750,6 +758,95 @@
       "unreachable": "Ein Speicherziel konnte nicht gelesen werden. Akzeptieren Sie es unten als nicht erreichbar oder warten Sie, bis es antwortet, und beenden Sie dann den Wiederherstellungsmodus.",
       "unknown_key_versions": "Im Speicher liegen Schlüsselversionen, die nicht in der Datenbank sind. Übernehmen Sie sie zuerst (Schlüssel übernehmen) und beenden Sie dann den Wiederherstellungsmodus.",
       "changed": "Der Wiederherstellungsmodus wurde inzwischen beendet."
+    },
+    "checklist": {
+      "title": "Bevor Sie den Wiederherstellungsmodus beenden",
+      "description": "Arbeiten Sie diese Punkte ab und beenden Sie den Wiederherstellungsmodus dann unten.",
+      "items": {
+        "compare": "Vergleichen Sie den Speicher erneut mit der Datenbank (oben): Jedes Ziel stimmt überein, oder was voraus ist, ist erklärt.",
+        "importKeys": "Übernehmen Sie im Speicher gefundene Schlüsselversionen, damit neuere Backups lesbar bleiben.",
+        "testRestore": "Testen Sie einen Wiederherstellungspunkt je Mandant.",
+        "users": "Prüfen Sie die Benutzer und Inhaber: Sie kamen mit dem Dump, Passkeys funktionieren nur unter der Adresse, für die sie angelegt wurden.",
+        "address": "Prüfen Sie die Adresse dieser Installation (Server) und die Anmelde-Einstellungen.",
+        "mail": "Prüfen Sie die Benachrichtigungs-Mail und senden Sie eine Test-Nachricht.",
+        "agents": "Hat sich die Adresse geändert, stellen Sie die Agenten und die Knoten auf die neue um.",
+        "nodes": "Lassen Sie die Worker-Knoten der alten Installation erneut beitreten (Cluster).",
+        "end": "Beenden Sie den Wiederherstellungsmodus unten und beschreiben Sie in eigenen Worten, was Sie geprüft haben."
+      }
+    }
+  },
+  "cluster": {
+    "intro": "Worker-Knoten sind Hosts, die weitere Worker für diese Installation betreiben: Sie arbeiten auf derselben Datenbank und demselben Speicher. Datenbank, Weboberfläche, Updater und Mounter bleiben auf diesem Host.",
+    "loadError": "Der Cluster konnte nicht geladen werden.",
+    "replication": {
+      "title": "Echte Replikation ist in Entwicklung",
+      "text": "Ein zweiter Server, der übernimmt, wenn dieser ausfällt (aktiv/passiv mit Datenbank-Replikation), ist in Entwicklung. Worker-Knoten bringen mehr Kapazität; ist dieser Host nicht erreichbar, warten sie auf ihn."
+    },
+    "nodes": {
+      "title": "Knoten",
+      "description": "Dieser Host und die beigetretenen Worker-Knoten mit ihren Prozessen. Diese Installation läuft mit {version}.",
+      "main": "Dieser Host (Haupt-Host)",
+      "outdated": "anderes Release",
+      "versionMismatch": "wartet auf ein Update",
+      "noProcesses": "Gerade meldet sich kein Prozess.",
+      "process": "{role}: {state}, letzte Meldung {when}",
+      "running": "läuft",
+      "gone": "meldet sich nicht",
+      "update": "Führen Sie auf diesem Host aus: sudo bash install.sh --update-worker",
+      "remove": "Knoten entfernen",
+      "confirmTitle": "Den Knoten {name} entfernen?",
+      "confirmDescription": "Seine Datenbank-Anmeldungen werden gelöscht und seine Verbindungen beendet: Er kann nicht mehr für diese Installation arbeiten. Halten Sie ihn auch auf seinem Host an. Was er kannte, vor allem den Hauptschlüssel, lässt sich nicht zurücknehmen."
+    },
+    "requirements": {
+      "title": "Was ein Worker-Knoten braucht",
+      "description": "Dasselbe Release wie dieser Host, die Datenbank über TLS vom neuen Host aus und jedes Speicherziel von dort erreichbar.",
+      "storage": "Speicherziele",
+      "noTargets": "Es gibt noch keine Speicherziele.",
+      "installationDefault": "Standard der Installation",
+      "kinds": {
+        "s3": "S3: von jedem Host erreichbar",
+        "directory": "Verzeichnis: muss auf dem Worker-Host unter demselben Pfad liegen",
+        "volume": "in einem Volume dieses Hosts: kein anderer Host erreicht es"
+      },
+      "volumeBlocks": "Ein Speicherziel liegt in einem Volume dieses Hosts. Verlegen Sie es auf S3 oder in ein geteiltes Verzeichnis, bevor ein Knoten beitreten kann.",
+      "database": "Datenbank",
+      "exposed": "Für Worker-Knoten erreichbar unter {address} ({ssl}).",
+      "sslOn": "TLS an",
+      "sslOff": "TLS aus",
+      "notExposed": "Nicht aus dem Netzwerk erreichbar (die Voreinstellung). Knoten können erst beitreten, wenn sie es ist.",
+      "howToExpose": "Führen Sie auf diesem Host einmal je Worker-Host aus (TLS, nur die eigenen Anmeldungen der Knoten, nur von dieser Adresse):",
+      "version": "Knoten müssen mit Release {version} laufen, dem Release dieses Hosts."
+    },
+    "join": {
+      "title": "Beitrittstoken für einen neuen Knoten",
+      "description": "Ein Einmal-Token für install.sh --join auf dem neuen Host. Es trägt kein Geheimnis: Es lässt diesen Host einmal seine eigene Konfiguration über TLS abholen.",
+      "nodeName": "Name des Knotens",
+      "address": "Adresse des neuen Hosts (empfohlen)",
+      "ttl": "Gültig für",
+      "ttlOption": "{minutes, plural, =15 {15 Minuten} =60 {1 Stunde} =240 {4 Stunden} =1440 {24 Stunden} other {# Minuten}}",
+      "standby": "Auf dem Knoten auch einen Scheduler in Bereitschaft betreiben",
+      "issue": "Beitrittstoken ausstellen",
+      "createdTitle": "Beitrittstoken ausgestellt",
+      "createdOnce": "Es wird nur jetzt angezeigt und gilt einmal, bis {when}. Führen Sie auf dem neuen Host aus:",
+      "hide": "Ausblenden",
+      "blockedVolume": "Kein Knoten kann beitreten, solange ein Speicherziel in einem Volume dieses Hosts liegt.",
+      "blockedDatabase": "Die Datenbank ist noch nicht aus dem Netzwerk erreichbar: Führen Sie zuerst den Befehl oben auf diesem Host aus.",
+      "open": "Offene Beitrittstoken",
+      "tokenRow": "für {name}, gültig bis {when}",
+      "revoke": "Widerrufen"
+    },
+    "security": {
+      "title": "Sicherheit",
+      "logins": "Jeder Knoten bekommt eigene Datenbank-Anmeldungen; das Entfernen des Knotens löscht sie. Sie können, was ein Worker kann, aber weder Anmeldedaten, das Provider-Team noch Beitrittstokens lesen oder ändern.",
+      "masterKey": "Ein Knoten kennt den Hauptschlüssel: Er öffnet jedes Backup. Der Hauptschlüssel lässt sich noch nicht wechseln, das Entfernen eines Knotens nimmt ihn also nicht zurück. Lassen Sie nur Hosts beitreten, denen Sie so vertrauen wie diesem.",
+      "singleInstance": "Nur einmal, nur auf diesem Host: die Datenbank, die API mit ihren Migrationen, der Web-Eingang, der Updater, der Mounter (Dateifreigaben), der Empfang von Journal-Mails, Importe aus dem Server-Ordner und Speicher in Volumes dieses Hosts."
+    },
+    "errors": {
+      "database_not_exposed": "Die Datenbank ist noch nicht aus dem Netzwerk erreichbar. Führen Sie zuerst install.sh --allow-worker auf diesem Host aus.",
+      "volume_targets": "Ein Speicherziel liegt in einem Volume dieses Hosts; kein Knoten könnte es erreichen.",
+      "name_in_use": "Ein Knoten mit diesem Namen ist bereits aktiv.",
+      "not_found": "Er ist bereits weg.",
+      "owner_missing": "Der API fehlt die Eigentümer-Verbindung der Datenbank (DATABASE_MIGRATION_URL)."
     }
   }
 }

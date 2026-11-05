@@ -32,7 +32,11 @@ import { tenants } from "./tenants.js";
  * worker, the api and the command line read and write them on the installation pool.
  */
 
-export const RESTORE_MODE_SOURCES = ["cli", "api", "detected"] as const;
+/**
+ * `setup`: switched on by a restore from a database dump in the setup wizard or `install.sh
+ * --restore`, in the restored database before anything else writes to it.
+ */
+export const RESTORE_MODE_SOURCES = ["cli", "api", "detected", "setup"] as const;
 export type RestoreModeSource = (typeof RESTORE_MODE_SOURCES)[number];
 
 /** What happens, after restore mode ends, to data in storage the database has no row for. */
@@ -105,7 +109,10 @@ export const installationRestoreMode = pgTable(
     uniqueIndex("installation_restore_mode_active_uq")
       .on(t.singleton)
       .where(sql`${t.endedAt} IS NULL`),
-    check("installation_restore_mode_source", sql`${t.source} IN ('cli', 'api', 'detected')`),
+    check(
+      "installation_restore_mode_source",
+      sql`${t.source} IN ('cli', 'api', 'detected', 'setup')`,
+    ),
     check(
       "installation_restore_mode_storage_only_data",
       sql`${t.storageOnlyData} IS NULL OR ${t.storageOnlyData} IN ('keep', 'release')`,

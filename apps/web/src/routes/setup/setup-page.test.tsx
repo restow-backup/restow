@@ -155,8 +155,12 @@ async function passTokenStep(): Promise<void> {
   await click(button("Next"));
 }
 
-/** The first step: the language is preselected, so continuing is all it takes. */
+/**
+ * The first two steps: the language is preselected, and so is a new installation in the
+ * question what to set up, so continuing is all it takes.
+ */
 async function passLanguageStep(): Promise<void> {
+  await click(button("Next"));
   await click(button("Next"));
 }
 
@@ -231,7 +235,7 @@ describe("setup wizard, language step", () => {
   it("is the first step, with two choices that each name themselves in their own language", async () => {
     await mount(freshState);
 
-    expect(container.textContent).toContain("Step 1 of 7");
+    expect(container.textContent).toContain("Step 1 of 8");
     expect(container.textContent).toContain("Choose your language");
     // Each card is in its own language, whatever the page speaks right now.
     expect(container.textContent).toContain("English");
@@ -264,13 +268,17 @@ describe("setup wizard, language step", () => {
     expect(languageRadio("de").checked).toBe(true);
     expect(languageRadio("en").checked).toBe(false);
     // The texts of the step itself are German at once, not only after a click.
-    expect(container.textContent).toContain("Schritt 1 von 7");
+    expect(container.textContent).toContain("Schritt 1 von 8");
     expect(container.textContent).toContain("Wählen Sie Ihre Sprache");
     expect(container.textContent).not.toContain("Choose your language");
     expect(document.documentElement.lang).toBe("de");
 
     await click(button("Weiter"));
-    expect(container.textContent).toContain("Schritt 2 von 7");
+    // What to set up: asked in the chosen language, a new installation preselected.
+    expect(container.textContent).toContain("Schritt 2 von 8");
+    expect(container.textContent).toContain("Was möchten Sie einrichten?");
+    await click(button("Weiter"));
+    expect(container.textContent).toContain("Schritt 3 von 8");
     expect(container.textContent).toContain("Bestätigen Sie, dass Sie diesen Server betreiben");
     expect(container.textContent).toContain("Einmal-Code");
   });
@@ -291,7 +299,7 @@ describe("setup wizard, language step", () => {
 
     expect(languageRadio("de").checked).toBe(true);
     expect(container.textContent).toContain("Wählen Sie Ihre Sprache");
-    expect(container.textContent).toContain("Schritt 1 von 7");
+    expect(container.textContent).toContain("Schritt 1 von 8");
     expect(container.textContent).not.toContain("Choose your language");
     expect(localStorage.getItem("restow.language")).toBe("de");
 
@@ -315,8 +323,9 @@ describe("setup wizard, language step", () => {
     await mount(freshState);
     await click(languageRadio("de"));
     await click(button("Weiter"));
+    await click(button("Weiter"));
 
-    expect(container.textContent).toContain("Schritt 2 von 7");
+    expect(container.textContent).toContain("Schritt 3 von 8");
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await type("setup-token", TOKEN);
     await click(button("Weiter"));
@@ -333,7 +342,7 @@ describe("setup wizard, language step", () => {
     await type("smtp-host", "mail.example.com");
     await type("smtp-from", "restow@example.com");
     await click(button("Weiter"));
-    expect(container.textContent).toContain("Schritt 7 von 7");
+    expect(container.textContent).toContain("Schritt 8 von 8");
     // The review names the language the operator picked.
     expect(container.textContent).toContain("Sprache");
     expect(container.textContent).toContain("Deutsch");
@@ -358,7 +367,7 @@ describe("setup wizard, setup token step", () => {
     await mount(freshState);
     await passLanguageStep();
 
-    expect(container.textContent).toContain("Step 2 of 7");
+    expect(container.textContent).toContain("Step 3 of 8");
     expect(container.textContent).toContain("Confirm that you run this server");
     // What it is: a one-time code that proves the operator runs the server.
     expect(container.textContent).toContain("one-time code that proves you operate this server");
@@ -388,7 +397,7 @@ describe("setup wizard, setup token step", () => {
     await click(button("Next"));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Enter the setup token.");
-    expect(container.textContent).toContain("Step 2 of 7");
+    expect(container.textContent).toContain("Step 3 of 8");
   });
 
   it("stays on the step when the server refuses the token", async () => {
@@ -409,7 +418,7 @@ describe("setup wizard, setup token step", () => {
     const headers = new Headers((fetchMock.mock.calls[0][1] as RequestInit).headers);
     expect(headers.get("x-restow-setup-token")).toBe("WRONG-TOKEN");
     expect(container.textContent).toContain("This is not the setup token of this server.");
-    expect(container.textContent).toContain("Step 2 of 7");
+    expect(container.textContent).toContain("Step 3 of 8");
   });
 
   it("moves on to the notice once the server accepts the token", async () => {
@@ -419,7 +428,7 @@ describe("setup wizard, setup token step", () => {
     await passTokenStep();
 
     expect(requests()).toEqual(["POST /setup/token"]);
-    expect(container.textContent).toContain("Step 3 of 7");
+    expect(container.textContent).toContain("Step 4 of 8");
     expect(container.textContent).toContain("Your responsibility as operator");
   });
 
@@ -427,11 +436,12 @@ describe("setup wizard, setup token step", () => {
     await mount(demoState);
 
     // The language is the first step everywhere; the steps that do not apply are passed
-    // over, and neither shown nor counted: five steps, not seven, and no jump from 1 to 4.
+    // over, and neither shown nor counted: five steps, not eight, and no jump from 1 to 5.
     expect(container.textContent).toContain("Step 1 of 5");
     expect(container.textContent).toContain("Choose your language");
     expect(container.querySelectorAll("ol[aria-label] > li")).toHaveLength(5);
-    await passLanguageStep();
+    // The demo installs its one account: no question what to set up either.
+    await click(button("Next"));
 
     expect(container.textContent).toContain("Step 2 of 5");
     expect(container.textContent).toContain("How do you run Restow?");
@@ -495,7 +505,7 @@ describe("setup wizard, operator notice step", () => {
     await click(button("Continue"));
 
     expect(requests()).toEqual(["POST /setup/token"]);
-    expect(container.textContent).toContain("Step 4 of 7");
+    expect(container.textContent).toContain("Step 5 of 8");
     expect(container.textContent).toContain("How do you run Restow?");
   });
 });
@@ -508,7 +518,7 @@ describe("setup wizard, organisation and first admin", () => {
     await click(checkbox());
     await click(button("Continue"));
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 5 of 7");
+    expect(container.textContent).toContain("Step 6 of 8");
   }
 
   it("asks for the name of the organisation next to the first admin", async () => {
@@ -527,17 +537,17 @@ describe("setup wizard, organisation and first admin", () => {
     await type("admin-confirm", "correct-horse-battery-1");
 
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 5 of 7");
+    expect(container.textContent).toContain("Step 6 of 8");
     expect(container.textContent).toContain("This field is required.");
 
     // Only blanks do not count as a name.
     await type("organisation-name", "   ");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 5 of 7");
+    expect(container.textContent).toContain("Step 6 of 8");
 
     await type("organisation-name", "Example IT Services GmbH");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 6 of 7");
+    expect(container.textContent).toContain("Step 7 of 8");
   });
 });
 
@@ -555,7 +565,7 @@ describe("setup wizard, skipping the mail transport", () => {
     await type("admin-password", "correct-horse-battery-1");
     await type("admin-confirm", "correct-horse-battery-1");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 6 of 7");
+    expect(container.textContent).toContain("Step 7 of 8");
   }
 
   it("offers 'Skip for now' and says what does not work without mail and where to set it up", async () => {
@@ -576,6 +586,7 @@ describe("setup wizard, skipping the mail transport", () => {
     await mount(freshState);
     await click(languageRadio("de"));
     await click(button("Weiter"));
+    await click(button("Weiter"));
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await type("setup-token", TOKEN);
     await click(button("Weiter"));
@@ -589,7 +600,7 @@ describe("setup wizard, skipping the mail transport", () => {
     await type("admin-confirm", "correct-horse-battery-1");
     await click(button("Weiter"));
 
-    expect(container.textContent).toContain("Schritt 6 von 7");
+    expect(container.textContent).toContain("Schritt 7 von 8");
     expect(button("Später einrichten")).toBeTruthy();
     expect(container.textContent).toContain("Mail ist optional.");
     expect(container.textContent).toContain(
@@ -597,7 +608,7 @@ describe("setup wizard, skipping the mail transport", () => {
     );
 
     await click(button("Später einrichten"));
-    expect(container.textContent).toContain("Schritt 7 von 7");
+    expect(container.textContent).toContain("Schritt 8 von 8");
     expect(container.textContent).toContain("Nicht eingerichtet");
   });
 
@@ -607,7 +618,7 @@ describe("setup wizard, skipping the mail transport", () => {
     // Nothing was typed: the transport form is empty and would not validate.
     await click(button("Skip for now"));
 
-    expect(container.textContent).toContain("Step 7 of 7");
+    expect(container.textContent).toContain("Step 8 of 8");
     expect(container.textContent).toContain("Mail transport");
     expect(container.textContent).toContain("Not set up");
     // No test message without a transport.
@@ -662,18 +673,18 @@ describe("setup wizard, skipping the mail transport", () => {
     await click(button("Skip for now"));
     await click(button("Back"));
 
-    expect(container.textContent).toContain("Step 6 of 7");
+    expect(container.textContent).toContain("Step 7 of 8");
     expect(container.textContent).toContain("You skipped this step.");
 
     // Next means "set it up now": the empty form is refused in place.
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 6 of 7");
+    expect(container.textContent).toContain("Step 7 of 8");
     expect(container.textContent).toContain("This field is required.");
 
     await type("smtp-host", "mail.example.com");
     await type("smtp-from", "restow@example.com");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 7 of 7");
+    expect(container.textContent).toContain("Step 8 of 8");
     expect(container.textContent).toContain("SMTP server");
     expect(container.textContent).not.toContain("Not set up");
   });
@@ -697,7 +708,7 @@ describe("setup wizard, finishing", () => {
     await type("smtp-host", "mail.example.com");
     await type("smtp-from", "restow@example.com");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 7 of 7");
+    expect(container.textContent).toContain("Step 8 of 8");
   }
 
   it("sends the token as a header and the accepted notice in the body", async () => {
@@ -755,7 +766,7 @@ describe("setup wizard, finishing", () => {
 
     await click(button("Finish setup"));
 
-    expect(container.textContent).toContain("Step 2 of 7");
+    expect(container.textContent).toContain("Step 3 of 8");
     expect(container.textContent).toContain("The setup token has changed");
     // Everything entered so far is still there.
     expect(container.querySelector<HTMLInputElement>("#setup-token")?.value).toBe(TOKEN);
@@ -768,7 +779,7 @@ describe("setup wizard, finishing", () => {
     // Back on the review, the token problem is not shown again as a failed setup.
     await click(button("Next"));
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 7 of 7");
+    expect(container.textContent).toContain("Step 8 of 8");
     expect(container.textContent).not.toContain("The setup could not be saved.");
   });
 
@@ -784,7 +795,7 @@ describe("setup wizard, finishing", () => {
 
     await click(button("Finish setup"));
 
-    expect(container.textContent).toContain("Step 3 of 7");
+    expect(container.textContent).toContain("Step 4 of 8");
     expect(container.textContent).toContain("The notice was updated. Reload the page");
     expect(button("Reload")).toBeTruthy();
     expect(checkbox().getAttribute("aria-checked")).toBe("false");
@@ -805,7 +816,7 @@ describe("setup wizard, mail transports", () => {
     await type("admin-password", "correct-horse-battery-1");
     await type("admin-confirm", "correct-horse-battery-1");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 6 of 7");
+    expect(container.textContent).toContain("Step 7 of 8");
   }
 
   it("offers SMTP only while no backup app registration exists, and says where the others are", async () => {
@@ -852,5 +863,232 @@ describe("setup wizard, mail transports", () => {
     );
     const shown = warning.mock.calls.map(([message]) => String(message)).join("\n");
     expect(shown).not.toContain("535");
+  });
+});
+
+describe("setup wizard, what to set up", () => {
+  const DUMP = "restow-20261101-020000-0.4.12-to-0.5.0.dump";
+  const operation = (over: Record<string, unknown>) => ({
+    id: "r1",
+    status: "running",
+    phase: "restoring",
+    dump: DUMP,
+    startedAt: "2026-11-05T09:00:00.000Z",
+    finishedAt: null,
+    report: null,
+    message: null,
+    servicesStopped: true,
+    ...over,
+  });
+  const refusedReport = {
+    ok: false,
+    refusal: { code: "master_key_mismatch", message: "RESTOW_MASTER_KEY does not open them." },
+    dumpName: DUMP,
+    migrations: { restored: 79, shipped: 80, after: 80 },
+    installation: {
+      publicUrl: "https://backup.example.com",
+      operatingMode: "public",
+      setupCompletedAt: null,
+    },
+    counts: { users: 2, providerOwners: 1, tenants: 3, storageTargets: 2, clusterNodes: 0 },
+    restoreMode: { id: "rm1", created: true },
+    keys: {
+      tenantKeys: { checked: 3, failed: 3 },
+      installationSecrets: { checked: 1, failed: 1 },
+      tenantSecrets: { checked: 0, failed: 0 },
+    },
+    storage: { checked: false, targets: [], unreachable: 0, ahead: 0, error: null },
+    preparedAt: "2026-11-05T09:01:00.000Z",
+  };
+
+  async function settle(): Promise<void> {
+    for (let round = 0; round < 6; round += 1) {
+      await act(async () => {
+        await flush();
+      });
+    }
+  }
+
+  function kindRadio(kind: "new" | "restore" | "worker"): HTMLInputElement {
+    const radio = container.querySelector<HTMLInputElement>(
+      `input[name="setup-kind"][value="${kind}"]`,
+    );
+    if (!radio) {
+      throw new Error(`expected the choice ${kind}`);
+    }
+    return radio;
+  }
+
+  it("is the first question after the language, with the three choices and the note on replication", async () => {
+    await mount({ ...freshState, restore: { available: true, status: null, phase: null } });
+    await click(button("Next"));
+
+    expect(container.textContent).toContain("Step 2 of 8");
+    expect(container.textContent).toContain("What do you want to set up?");
+    expect(container.textContent).toContain("A new installation");
+    expect(container.textContent).toContain("Restore an installation");
+    expect(container.textContent).toContain("Add a worker to an existing installation");
+    expect(container.textContent).toContain(
+      "active/passive with database replication), is in development",
+    );
+    expect(kindRadio("new").checked).toBe(true);
+    // Nothing asked of the server yet, not even the token.
+    expect(container.textContent).not.toContain("Confirm that you run this server");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("restores without the notice and without a first admin, and refuses a wrong master key", async () => {
+    let runs = 0;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const path = String(url).replace(/^.*\/api\/v1/, "");
+      const method = init?.method ?? "GET";
+      if (method === "POST" && path === "/setup/token") {
+        return new Response(null, { status: 204 });
+      }
+      if (method === "GET" && path === "/setup/restore") {
+        runs += 1;
+        return json(200, {
+          available: true,
+          reason: null,
+          dumps: [{ file: DUMP, bytes: 4096, createdAt: "2026-11-01T02:00:00.000Z" }],
+          operation:
+            runs > 1
+              ? operation({ status: "refused", phase: "preparing", report: refusedReport })
+              : null,
+          partBytes: 33554432,
+        });
+      }
+      if (method === "POST" && path === "/setup/restore/start") {
+        return json(202, { operation: operation({}) });
+      }
+      return json(500, { type: "about:blank", title: "unexpected", status: 500 });
+    });
+    await mount({ ...freshState, restore: { available: true, status: null, phase: null } });
+    await click(button("Next"));
+    await click(kindRadio("restore"));
+    await click(button("Next"));
+
+    // The setup token still comes first: a fresh installation is reachable by anyone.
+    expect(container.textContent).toContain("Step 3 of 6");
+    expect(container.textContent).toContain("Confirm that you run this server");
+    await type("setup-token", TOKEN);
+    await click(button("Next"));
+    await settle();
+
+    expect(container.textContent).toContain("Choose the dump to restore");
+    expect(container.textContent).toContain("The same RESTOW_MASTER_KEY as the old installation");
+    expect(container.textContent).not.toContain("Your responsibility as operator");
+    const dump = container.querySelector<HTMLInputElement>(
+      `input[name="restore-dump"][value="${DUMP}"]`,
+    );
+    if (!dump) {
+      throw new Error("expected the kept dump");
+    }
+    await click(dump);
+    await click(button("Restore this dump"));
+    await settle();
+
+    expect(container.textContent).toContain("The master key does not match");
+    expect(container.textContent).toContain("Nothing of this installation was changed.");
+    expect(container.textContent).toContain("Start again");
+    // No first admin, no notice, and the setup of a new installation was never sent.
+    expect(container.textContent).not.toContain("Organisation and admin");
+    expect(container.querySelector("#admin-email")).toBeNull();
+    expect(requests()).not.toContain("POST /setup");
+    const start = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/setup/restore/start"),
+    );
+    const startInit = (start?.[1] ?? {}) as RequestInit;
+    expect(new Headers(startInit.headers).get("x-restow-setup-token")).toBe(TOKEN);
+    expect(JSON.parse(String(startInit.body))).toEqual({ dump: DUMP });
+  });
+
+  it("without the updater, shows the restore by hand on this server, not install.sh alone", async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const path = String(url).replace(/^.*\/api\/v1/, "");
+      const method = init?.method ?? "GET";
+      if (method === "POST" && path === "/setup/token") {
+        return new Response(null, { status: 204 });
+      }
+      if (method === "GET" && path === "/setup/restore") {
+        return json(200, {
+          available: false,
+          reason: "updater_disabled",
+          dumps: [],
+          operation: null,
+          partBytes: 33554432,
+        });
+      }
+      return json(500, { type: "about:blank", title: "unexpected", status: 500 });
+    });
+    await mount({ ...freshState, restore: { available: false, status: null, phase: null } });
+    await click(button("Next"));
+    await click(kindRadio("restore"));
+    await click(button("Next"));
+    await type("setup-token", TOKEN);
+    await click(button("Next"));
+    await settle();
+
+    const text = container.textContent ?? "";
+    // The old master key goes into .env before anything is restored.
+    expect(text).toContain("Replace RESTOW_MASTER_KEY and BETTER_AUTH_SECRET in .env");
+    expect(text.indexOf("sudo nano .env")).toBeLessThan(
+      text.indexOf("CREATE DATABASE restow_restore"),
+    );
+    expect(text).toContain("restow api restore prepare");
+    expect(text).toContain("restow api restore activate");
+    // install.sh --restore is offered for a fresh server only.
+    expect(text).toContain("On a fresh server without an installation");
+    expect(text.indexOf("install.sh --restore")).toBeGreaterThan(text.indexOf("restore activate"));
+  });
+
+  it("says when the activation needs attention instead of waiting for ever", async () => {
+    sessionStorage.setItem("restow.setup.restoreActivated", "1");
+    try {
+      fetchMock.mockImplementation(async (url: string) => {
+        const path = String(url).replace(/^.*\/api\/v1/, "");
+        if (path === "/setup/state") {
+          return json(200, {
+            ...freshState,
+            restore: {
+              available: true,
+              status: "needs_attention",
+              phase: "starting",
+              message: "The api did not become healthy on the restored database.",
+            },
+          });
+        }
+        return json(500, { type: "about:blank", title: "unexpected", status: 500 });
+      });
+      await mount(freshState);
+      await settle();
+
+      const text = container.textContent ?? "";
+      expect(text).toContain("The restore needs attention");
+      expect(text).toContain("Worker and scheduler stay stopped");
+      expect(text).toContain("The api did not become healthy on the restored database.");
+      expect(text).toContain("restow api restore activate");
+      expect(text).toContain("restow api restore abort");
+      expect(text).not.toContain("Waiting for the restored installation to answer");
+    } finally {
+      sessionStorage.removeItem("restow.setup.restoreActivated");
+    }
+  });
+
+  it("explains a worker node: the command for the new host, not a setup here", async () => {
+    await mount(freshState);
+    await click(button("Next"));
+    await click(kindRadio("worker"));
+    await click(button("Next"));
+
+    expect(container.textContent).toContain("Step 3 of 3");
+    expect(container.textContent).toContain("sudo bash install.sh --join https://");
+    expect(container.textContent).toContain("Installation › Cluster");
+    expect(container.textContent).toContain(
+      "Do not set up this host as an installation of its own.",
+    );
+    expect(container.textContent).toContain("is in development");
+    expect(container.textContent).not.toContain("Confirm that you run this server");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
