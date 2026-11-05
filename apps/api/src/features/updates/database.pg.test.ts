@@ -104,6 +104,7 @@ function stateView(over: Partial<StateView> = {}): StateView {
     restart: null,
     projectDir: "/opt/restow",
     database: databaseView(),
+    restore: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...over,
   };
@@ -170,6 +171,25 @@ class ScriptedUpdater implements UpdaterClient {
     return new Response(this.dump, {
       headers: { "content-length": String(this.dump.length), "x-updater-internal": "1" },
     });
+  }
+  // A restore from a dump (updater/restore.ts) is not part of these tests.
+  async startDumpUpload(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async putDumpPart(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async completeDumpUpload(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async startRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async activateRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async abortRestore(): Promise<never> {
+    throw new Error("not scripted");
   }
   async deleteDump(file: string) {
     if (this.refuse) {

@@ -34,6 +34,7 @@ import {
   SUPPORTED_ENDPOINT_OS,
   sealEndpointPassword,
   toFailureRecord,
+  withDeletionPermit,
 } from "@restow/core";
 import {
   type Endpoint,
@@ -59,6 +60,7 @@ import { loadTenantDek, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { emitWebhookEvent } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
+import { RESTORE_MODE_TASK_HOLD_MESSAGE, restoreModeTaskHoldBefore } from "../restore-mode/hold.js";
 import { type AgentContext, FailureTracker } from "./agent-auth.js";
 import { agentActor, auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "./audit.js";
 import { type AgentCancelOrders, agentCancelOrders } from "./cancel.js";
@@ -416,7 +418,10 @@ export async function enrollEndpoint(
       const backend =
         initBackend ?? (await tenantStorage(db, tenantId).catch(() => null))?.storage ?? null;
       if (backend) {
-        await removeRepositoryObjects(backend, `endpoints/${endpointId}/`);
+        // In restore mode only what this request wrote may go (storage/deletion-guard.ts).
+        await withDeletionPermit({ pass: "enrollment_cleanup", tenantId }, () =>
+          removeRepositoryObjects(backend, `endpoints/${endpointId}/`),
+        ).catch(() => removeRepositoryObjects(backend, `endpoints/${endpointId}/`));
       }
       await releaseToken(claimed.id);
     } catch {
@@ -531,6 +536,8 @@ export async function heartbeat(
   // The answer says so, and an agent from 0.4.0 also holds back its scheduled backups.
   const pause = await agentStartPause();
   const startsPaused = pause.paused;
+  // Restore mode: tasks from the restored dump are never handed out (restore-mode/hold.ts).
+  const holdBefore = await restoreModeTaskHoldBefore();
   const answer = await withTenantTx(db, agent.tenantId, async (tx) => {
     const nextRunAt = input.nextRunAt ? new Date(input.nextRunAt) : null;
     const facts = agentFactsOf(input, now, agent.os);
@@ -566,6 +573,31 @@ export async function heartbeat(
           lt(endpointTasks.expiresAt, now),
         ),
       );
+
+    if (holdBefore) {
+      // A task from before the restore, waiting or delivered without a run: a restore, an
+      // uninstall or a backup the agent may have done already in the timeline the database lost.
+      await tx
+        .update(endpointTasks)
+        .set({
+          status: "cancelled",
+          finishedAt: now,
+          errorMessage: RESTORE_MODE_TASK_HOLD_MESSAGE,
+        })
+        .where(
+          and(
+            eq(endpointTasks.endpointId, agent.endpointId),
+            lt(endpointTasks.createdAt, holdBefore),
+            or(
+              eq(endpointTasks.status, "pending"),
+              and(
+                eq(endpointTasks.status, "delivered"),
+                sql`NOT EXISTS (SELECT 1 FROM ${endpointRuns} r WHERE r.task_id = ${endpointTasks.id})`,
+              ),
+            ),
+          ),
+        );
+    }
 
     const redeliverBefore = new Date(now.getTime() - REDELIVER_AFTER_MS);
     const waiting = await tx

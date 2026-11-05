@@ -162,7 +162,9 @@
     "file_share": "File shares",
     "warning": "Warnings",
     "database": "Database",
-    "suspicion": "Ransomware detection"
+    "suspicion": "Ransomware detection",
+    "installation": "Installation",
+    "cluster": "Worker nodes"
   },
   "events": {
     "account": {
@@ -473,6 +475,9 @@
       },
       "agent_policy": {
         "updated": "Agent policy of the tenant changed"
+      },
+      "key_mirror": {
+        "conflict": "Wrapped key in storage differs (not overwritten)"
       }
     },
     "verify": {
@@ -712,6 +717,25 @@
       "false_alarm": "Suspicious restore point marked as a false alarm",
       "false_alarm_revoked": "False alarm of a restore point taken back",
       "hold_released": "Retention hold of an object released"
+    },
+    "installation": {
+      "restore_mode": {
+        "started": "Restore mode switched on",
+        "detected": "Restore mode switched on by itself (storage ahead of the database)",
+        "ended": "Restore mode ended",
+        "keys_imported": "Key version taken from storage"
+      }
+    },
+    "cluster": {
+      "join_token": {
+        "created": "Join token for a worker node issued",
+        "revoked": "Join token for a worker node revoked"
+      },
+      "node": {
+        "joined": "Worker node joined",
+        "join_refused": "Join of a worker node refused",
+        "removed": "Worker node removed"
+      }
     }
   },
   "targetTypes": {
@@ -765,7 +789,9 @@
     "service": "Service",
     "database": "Database",
     "dump": "Database backup",
-    "restore_point": "Restore point"
+    "restore_point": "Restore point",
+    "cluster_join_token": "Join token",
+    "cluster_node": "Worker node"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
   "export": {

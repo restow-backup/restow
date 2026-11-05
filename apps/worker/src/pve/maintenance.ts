@@ -46,6 +46,7 @@ import {
   DEFAULT_SCHEDULE_TIMEZONE,
   decodeBlockMap,
   deleteOnAllTargets,
+  deletionDecision,
   INSTALLATION_DEFAULT_TARGET_ID,
   isDeleteRefused,
   isObjectLocked,
@@ -89,6 +90,7 @@ import {
   sampleDataBlocks,
   storageStaleLocks,
   type TenantKeyring,
+  withDeletionPermit,
   withRepository,
 } from "@restow/core";
 import {
@@ -703,7 +705,9 @@ export async function pruneSnapshot(deps: PveDeps, snap: PveSnapshot, now: Date)
     return;
   }
   await ctx.index.releaseReferences(refs);
-  await deleteOnAllTargets(ctx.storage, snap.manifestPath, deps.runtime.logger);
+  await withDeletionPermit({ pass: "pve_retention", tenantId: snap.tenantId }, () =>
+    deleteOnAllTargets(ctx.storage, snap.manifestPath as string, deps.runtime.logger),
+  );
 }
 
 /** A restic snapshot no restore point names is forgotten once it is this old (6 hours). */
@@ -801,6 +805,13 @@ async function retainGuest(
         { tenantId: guest.tenantId },
       );
     }
+    return 0;
+  }
+  // Restore mode after restoring a database dump (docs/STORAGE.md): no restore point is pruned
+  // and no restic snapshot forgotten; the restored database lacks every backup made after the
+  // dump, and the comparison would take their restic snapshots for orphans after 6 hours.
+  const deletions = await deletionDecision({ pass: "pve_retention", tenantId: guest.tenantId });
+  if (!deletions.allowed) {
     return 0;
   }
   // A backup, restore, check or boot test of the guest runs (its restic holds or takes the
@@ -927,6 +938,21 @@ export async function reconcileGuestRepository(
   if (!access) {
     return { forgotten: [], deletesRefused: false };
   }
+  // Restore mode (storage/deletion-guard.ts): nothing is forgotten, the comparison stays due.
+  const decision = await deletionDecision({
+    pass: "pve_reconcile_forget",
+    tenantId: guest.tenantId,
+  });
+  if (!decision.allowed) {
+    deps.runtime.logger.warn("pve retention: restic forget held, deleting is paused", {
+      guestId: guest.id,
+      reason: decision.reason,
+    });
+    return { forgotten: [], deletesRefused: false };
+  }
+  // A restore mode that ended with "keep": restic snapshots without a restore point from before
+  // its end stay for good (they may be backups made after the restored dump).
+  const keepUnknownBefore = decision.keepUnknownBefore?.getTime() ?? null;
   const storage = await deps.runtime.storage.get(guest.tenantId);
   const targets = [storage.primary, ...storage.copies];
   // Claim the comparison with a value only this pass writes: due again after the retry delay
@@ -947,29 +973,33 @@ export async function reconcileGuestRepository(
     return { forgotten: [], deletesRefused: false };
   }
   const signal = deps.runtime.shutdownSignal;
-  const forgotten = await withGuestRepository(deps, guest.id, () =>
-    withRepository(access, async (session) => {
-      // Stale locks only (a run that ended without releasing its lock), as for machines.
-      const { deletesRefused } = await clearStaleGuestLocks(deps, access, session, guest.id, {
-        unlock: true,
-      });
-      if (deletesRefused) {
-        deps.runtime.logger.warn(
-          "pve retention: the storage of a container repository refuses deletes, restic forget and prune are left out",
-          { guestId: guest.id },
-        );
-        return null;
-      }
-      const listed = await resticSnapshots(session, {
-        noLock: true,
-        signal,
-        timeoutMs: PVE_LIST_TIMEOUT_MS,
-      });
-      // The restore points and the running runs in one statement, so both come from the same
-      // moment: read one after the other, a run committing in between was neither running nor
-      // a restore point yet, and the snapshot it just committed was forgotten as an orphan.
-      const facts = await withTenantTx(deps.db, guest.tenantId, (tx) =>
-        tx.execute<{ source: "point" | "run"; id: string; status: string }>(sql`
+  // restic's deletes through the loopback carry this permit.
+  const forgotten = await withDeletionPermit(
+    { pass: "pve_reconcile_forget", tenantId: guest.tenantId },
+    () =>
+      withGuestRepository(deps, guest.id, () =>
+        withRepository(access, async (session) => {
+          // Stale locks only (a run that ended without releasing its lock), as for machines.
+          const { deletesRefused } = await clearStaleGuestLocks(deps, access, session, guest.id, {
+            unlock: true,
+          });
+          if (deletesRefused) {
+            deps.runtime.logger.warn(
+              "pve retention: the storage of a container repository refuses deletes, restic forget and prune are left out",
+              { guestId: guest.id },
+            );
+            return null;
+          }
+          const listed = await resticSnapshots(session, {
+            noLock: true,
+            signal,
+            timeoutMs: PVE_LIST_TIMEOUT_MS,
+          });
+          // The restore points and the running runs in one statement, so both come from the same
+          // moment: read one after the other, a run committing in between was neither running nor
+          // a restore point yet, and the snapshot it just committed was forgotten as an orphan.
+          const facts = await withTenantTx(deps.db, guest.tenantId, (tx) =>
+            tx.execute<{ source: "point" | "run"; id: string; status: string }>(sql`
           SELECT 'point' AS source, s.restic_snapshot_id AS id, s.status::text AS status
             FROM pve_snapshots s
            WHERE s.guest_id = ${guest.id} AND s.restic_snapshot_id IS NOT NULL
@@ -977,48 +1007,50 @@ export async function reconcileGuestRepository(
           SELECT 'run' AS source, r.id::text AS id, r.status::text AS status
             FROM pve_runs r
            WHERE r.guest_id = ${guest.id} AND r.status = 'running'`),
-      );
-      const points = facts.rows.filter((r) => r.source === "point");
-      const keep = new Set(points.filter((r) => r.status !== "pruned").map((r) => r.id));
-      const pruned = new Set(points.filter((r) => r.status === "pruned").map((r) => r.id));
-      const runningIds = new Set(facts.rows.filter((r) => r.source === "run").map((r) => r.id));
-      const ids: string[] = [];
-      for (const snapshot of listed) {
-        if (keep.has(snapshot.id)) {
-          continue;
-        }
-        if (!pruned.has(snapshot.id)) {
-          // No restore point names it: a run that never committed. Only once it is old, and
-          // never while its run (or any run whose tag it carries) still goes.
-          const time = Date.parse(snapshot.time);
-          const run = snapshot.tags.find((tag) => tag.startsWith("run="))?.slice(4);
-          if (
-            !Number.isFinite(time) ||
-            now.getTime() - time < PVE_ORPHAN_SNAPSHOT_GRACE_MS ||
-            (run !== undefined && runningIds.has(run))
-          ) {
-            continue;
+          );
+          const points = facts.rows.filter((r) => r.source === "point");
+          const keep = new Set(points.filter((r) => r.status !== "pruned").map((r) => r.id));
+          const pruned = new Set(points.filter((r) => r.status === "pruned").map((r) => r.id));
+          const runningIds = new Set(facts.rows.filter((r) => r.source === "run").map((r) => r.id));
+          const ids: string[] = [];
+          for (const snapshot of listed) {
+            if (keep.has(snapshot.id)) {
+              continue;
+            }
+            if (!pruned.has(snapshot.id)) {
+              // No restore point names it: a run that never committed. Only once it is old, and
+              // never while its run (or any run whose tag it carries) still goes.
+              const time = Date.parse(snapshot.time);
+              const run = snapshot.tags.find((tag) => tag.startsWith("run="))?.slice(4);
+              if (
+                !Number.isFinite(time) ||
+                now.getTime() - time < PVE_ORPHAN_SNAPSHOT_GRACE_MS ||
+                (run !== undefined && runningIds.has(run)) ||
+                (keepUnknownBefore !== null && time < keepUnknownBefore)
+              ) {
+                continue;
+              }
+            }
+            if (await protectionOnTargets(targets, `${access.prefix}snapshots/${snapshot.id}`)) {
+              continue;
+            }
+            ids.push(snapshot.id);
           }
-        }
-        if (await protectionOnTargets(targets, `${access.prefix}snapshots/${snapshot.id}`)) {
-          continue;
-        }
-        ids.push(snapshot.id);
-      }
-      if (ids.length > 0) {
-        await resticForget(session, ids, {
-          retryLock: PVE_FORGET_RETRY_LOCK,
-          signal,
-          timeoutMs: PVE_FORGET_TIMEOUT_MS,
-        });
-        await resticPrune(session, {
-          retryLock: PVE_FORGET_RETRY_LOCK,
-          signal,
-          timeoutMs: PVE_PRUNE_TIMEOUT_MS,
-        });
-      }
-      return ids;
-    }),
+          if (ids.length > 0) {
+            await resticForget(session, ids, {
+              retryLock: PVE_FORGET_RETRY_LOCK,
+              signal,
+              timeoutMs: PVE_FORGET_TIMEOUT_MS,
+            });
+            await resticPrune(session, {
+              retryLock: PVE_FORGET_RETRY_LOCK,
+              signal,
+              timeoutMs: PVE_PRUNE_TIMEOUT_MS,
+            });
+          }
+          return ids;
+        }),
+      ),
   );
   if (forgotten === null) {
     // Left claimed: tried again after PVE_RECONCILE_RETRY_MS (the storage may allow it by then).

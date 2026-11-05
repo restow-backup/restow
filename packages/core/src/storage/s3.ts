@@ -31,12 +31,18 @@ import {
 } from "@aws-sdk/client-s3";
 import {
   type HeadResult,
+  isObjectNotFound,
   ObjectLockedError,
   type ObjectLockMode,
   type ObjectRetention,
   type PutOptions,
   type StorageBackend,
 } from "./backend.js";
+import {
+  assertDeletionPermitted,
+  assertKeyWritePermitted,
+  noteStorageWrite,
+} from "./deletion-guard.js";
 import { isTransientTransferError, pauseBeforeRetry } from "./transfer.js";
 
 const MIB = 1024 * 1024;
@@ -172,11 +178,20 @@ export class S3StorageBackend implements StorageBackend {
   }
 
   async put(key: string, data: Buffer | Readable, options?: PutOptions): Promise<void> {
+    await assertKeyWritePermitted(key, data, () =>
+      this.get(key).catch((error: unknown) => {
+        if (isObjectNotFound(error)) {
+          return null;
+        }
+        throw error;
+      }),
+    );
     if (Buffer.isBuffer(data)) {
       await this.putObject(key, data, options);
-      return;
+    } else {
+      await this.putStream(key, data, options);
     }
-    await this.putStream(key, data, options);
+    noteStorageWrite(key);
   }
 
   private objectLock(options: PutOptions | undefined) {
@@ -480,6 +495,7 @@ export class S3StorageBackend implements StorageBackend {
   }
 
   async delete(key: string): Promise<void> {
+    assertDeletionPermitted(key);
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: this.keyFor(key) }));
   }
 
@@ -558,6 +574,7 @@ export class S3StorageBackend implements StorageBackend {
    * locked nothing is deleted and {@link ObjectLockedError} says until when.
    */
   async deleteAllVersions(key: string, now: Date): Promise<void> {
+    assertDeletionPermitted(key);
     const versions = await this.versionsOf(key);
     let lockedUntil = 0;
     for (const version of versions) {

@@ -1,17 +1,29 @@
 import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import type { z } from "zod";
 import {
   type MoveCheck,
   type MoveRequest,
   moveCheckSchema,
 } from "../../updater/database-protocol.js";
 import {
+  type DumpInfo,
+  dumpInfoSchema,
   type RestartableService,
   type ScheduleRequest,
   type StateView,
   stateViewSchema,
   UPDATER_AUTH_SCHEME,
 } from "../../updater/protocol.js";
+import {
+  type RestoreStart,
+  type restoreActorSchema,
+  type UploadStart,
+  type UploadView,
+  uploadViewSchema,
+} from "../../updater/restore-protocol.js";
+
+type RestoreActor = z.infer<typeof restoreActorSchema>;
 
 /**
  * The api's side of the updater (docs/ARCHITECTURE.md, Updates): a small HTTP
@@ -93,7 +105,25 @@ export interface UpdaterClient {
   downloadDump(file: string): Promise<Response | null>;
   /** Delete a pre-update dump. */
   deleteDump(file: string): Promise<StateView>;
+  /** Begin uploading a dump for a restore (updater/uploads.ts). */
+  startDumpUpload(input: UploadStart): Promise<UploadView>;
+  /** One part of an upload, at `offset`. */
+  putDumpPart(id: string, offset: number, part: Uint8Array): Promise<UploadView>;
+  /** The whole dump arrived: it becomes a dump of the updater. */
+  completeDumpUpload(id: string): Promise<DumpInfo>;
+  /** Restore a dump into the scratch database and prepare it (updater/restore.ts). */
+  startRestore(request: RestoreStart): Promise<StateView>;
+  /** Put the prepared restore live. */
+  activateRestore(request: {
+    acceptUnreachable: boolean;
+    requestedBy: RestoreActor;
+  }): Promise<StateView>;
+  /** Drop the prepared restore again. */
+  abortRestore(request: { requestedBy: RestoreActor }): Promise<StateView>;
 }
+
+/** How long the api waits for one part of a dump upload (32 MiB to the updater's disk). */
+export const UPLOAD_PART_TIMEOUT_MS = 300_000;
 
 /**
  * How long the api waits for the database checks: the updater measures the data directory
@@ -206,6 +236,7 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
     path: string,
     body?: unknown,
     requestTimeoutMs: number = timeoutMs,
+    raw?: Uint8Array,
   ): Promise<unknown> {
     if (!base) {
       throw new UpdaterUnavailableError("disabled");
@@ -220,9 +251,13 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
         method,
         headers: {
           authorization: `${UPDATER_AUTH_SCHEME} ${secret}`,
-          ...(body === undefined ? {} : { "content-type": "application/json" }),
+          ...(raw
+            ? { "content-type": "application/octet-stream" }
+            : body === undefined
+              ? {}
+              : { "content-type": "application/json" }),
         },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: raw ? raw : body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(requestTimeoutMs),
         redirect: "error",
       });
@@ -430,6 +465,70 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
         ),
       );
     },
+    async startDumpUpload(input) {
+      const parsed = uploadViewSchema.safeParse(
+        await request("POST", "/v1/dumps/uploads", input, ACTION_TIMEOUT_MS),
+      );
+      if (!parsed.success) {
+        throw new UpdaterUnavailableError("incompatible");
+      }
+      return parsed.data;
+    },
+    async putDumpPart(id, offset, part) {
+      const parsed = uploadViewSchema.safeParse(
+        await request(
+          "PUT",
+          `/v1/dumps/uploads/${encodeURIComponent(id)}?offset=${offset}`,
+          undefined,
+          UPLOAD_PART_TIMEOUT_MS,
+          part,
+        ),
+      );
+      if (!parsed.success) {
+        throw new UpdaterUnavailableError("incompatible");
+      }
+      return parsed.data;
+    },
+    async completeDumpUpload(id) {
+      const parsed = dumpInfoSchema.safeParse(
+        (
+          (await request(
+            "POST",
+            `/v1/dumps/uploads/${encodeURIComponent(id)}/complete`,
+            {},
+            UPLOAD_PART_TIMEOUT_MS,
+          )) as { dump?: unknown } | null
+        )?.dump,
+      );
+      if (!parsed.success) {
+        throw new UpdaterUnavailableError("incompatible");
+      }
+      return parsed.data;
+    },
+    async startRestore(restoreRequest) {
+      return remember(
+        toState(await request("POST", "/v1/database/restore", restoreRequest, ACTION_TIMEOUT_MS)),
+      );
+    },
+    async activateRestore(activateRequest) {
+      return remember(
+        toState(
+          await request(
+            "POST",
+            "/v1/database/restore/activate",
+            activateRequest,
+            ACTION_TIMEOUT_MS,
+          ),
+        ),
+      );
+    },
+    async abortRestore(abortRequest) {
+      return remember(
+        toState(
+          await request("POST", "/v1/database/restore/abort", abortRequest, ACTION_TIMEOUT_MS),
+        ),
+      );
+    },
   };
 }
 
@@ -466,6 +565,24 @@ export const disabledUpdaterClient: UpdaterClient = {
     throw new UpdaterUnavailableError("disabled");
   },
   downloadDump: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  startDumpUpload: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  putDumpPart: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  completeDumpUpload: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  startRestore: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  activateRestore: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  abortRestore: async () => {
     throw new UpdaterUnavailableError("disabled");
   },
   deleteDump: async () => {

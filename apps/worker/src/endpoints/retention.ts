@@ -31,6 +31,7 @@ import {
   auditSnapshots,
   DEFAULT_ENDPOINT_RETENTION,
   DEFAULT_SCHEDULE_TIMEZONE,
+  deletionDecision,
   type EndpointJobPayload,
   isValidTimeZone,
   listRepositoryObjects,
@@ -44,6 +45,7 @@ import {
   resticUnlock,
   type SnapshotFlag,
   splitLockedSnapshots,
+  withDeletionPermit,
   withRepository,
 } from "@restow/core";
 import { type Endpoint, endpointRuns, endpointSnapshotFlags, endpoints, tenants } from "@restow/db";
@@ -214,9 +216,23 @@ export async function endpointRetention(
     );
     return;
   }
-  // Never beside the check or a restore test of the same repository.
-  await withMaintenanceLock(deps, endpointId, "exclusive", () =>
-    retain(deps, payload, endpoint, access),
+  // Restore mode after restoring a database dump (docs/STORAGE.md): restic forget and prune do
+  // not run while the restored database may lack holds and decisions made after the dump.
+  const deletions = await deletionDecision({ pass: "endpoint_retention", tenantId });
+  if (!deletions.allowed) {
+    deps.runtime.logger.warn("endpoint retention held: deleting is paused", {
+      tenantId,
+      endpointId,
+      reason: deletions.reason,
+    });
+    return;
+  }
+  // Never beside the check or a restore test of the same repository. restic's deletes through
+  // the loopback carry this permit (storage/deletion-guard.ts).
+  await withDeletionPermit({ pass: "endpoint_retention", tenantId }, () =>
+    withMaintenanceLock(deps, endpointId, "exclusive", () =>
+      retain(deps, payload, endpoint, access),
+    ),
   );
 }
 

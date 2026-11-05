@@ -9,7 +9,12 @@
     "mode": "Operating mode",
     "admin": "Organisation and admin",
     "mail": "Mail transport",
-    "review": "Review"
+    "review": "Review",
+    "kind": "What to set up",
+    "restoreSource": "Dump",
+    "restoreRun": "Restore",
+    "restoreDone": "Done",
+    "workerInfo": "Worker node"
   },
   "language": {
     "title": "Choose your language",
@@ -230,5 +235,158 @@
     "administratorExists": "An earlier, unfinished setup already created an administrator. Continue with that administrator's email and password.",
     "configurationIncomplete": "The server configuration is incomplete. Set {settings} in the server environment and restart {appName}, then finish the setup.",
     "ownOrganisationFailed": "The setup is saved, but your own organisation could not be created. Create it from the overview."
+  },
+  "kind": {
+    "title": "What do you want to set up?",
+    "description": "A new installation, a restore of an existing one from a database dump, or a worker for an installation that runs elsewhere.",
+    "new": {
+      "title": "A new installation",
+      "description": "Set up {appName} from scratch: operating mode, your organisation, the first administrator and the notification mail."
+    },
+    "restore": {
+      "title": "Restore an installation",
+      "description": "Bring back an installation from a dump of its database (pg_dump -Fc), with the master key it was created with. Its users, tenants and settings come with it; restore mode is on until you have checked it.",
+      "withoutUpdater": "In the wizard this needs the updater on this server; without it the next steps show how to restore with install.sh."
+    },
+    "worker": {
+      "title": "Add a worker to an existing installation",
+      "description": "Run more workers on another host for an installation that exists already (it shares the database and the storage of that installation).",
+      "note": "Real replication, a second server that takes over when the first fails (active/passive with database replication), is in development. A worker node adds capacity only."
+    }
+  },
+  "restoreSource": {
+    "title": "Choose the dump to restore",
+    "description": "The dump of the old installation's database is restored into a database of its own first; nothing of this installation changes until you have read the report and activated it.",
+    "loading": "Asking the updater …",
+    "bring": {
+      "title": "What you need",
+      "masterKey": "The same RESTOW_MASTER_KEY as the old installation, in the .env of this server. Without it the restored backups cannot be read, and the restore is refused.",
+      "authSecret": "BETTER_AUTH_SECRET of the old installation in the same .env, so sign-ins with an authenticator app keep working.",
+      "dump": "A dump of the old installation's database (pg_dump -Fc), for example one the updater kept before an update."
+    },
+    "kept": {
+      "title": "Dumps the updater kept",
+      "note": "The updater keeps the dumps of the last updates in its own volume; they are here only when that volume is still on this host.",
+      "none": "The updater has no dumps here. Upload the dump below."
+    },
+    "upload": {
+      "label": "Upload a dump",
+      "hint": "It is uploaded in parts; the server needs about three times its size in free disk space.",
+      "hashing": "Reading the file: {done} of {total}",
+      "uploading": "Uploading: {done} of {total}",
+      "checking": "Checking the upload …"
+    },
+    "start": "Restore this dump",
+    "failed": "The restore could not be started. Try again.",
+    "unavailable": {
+      "why": "The updater does not answer on this server, so the wizard cannot restore a dump here.",
+      "manual": "Restore by hand on this server instead. Put the old installation's master key into .env first; worker and scheduler stay stopped until the restored database is live:",
+      "manualAbort": "If prepare refuses the dump (a wrong master key, among others), nothing of this installation changed: drop the restored database with restore abort, start everything again with docker compose up -d, and try again.",
+      "updater": "Or switch the updater on, reload this page and restore here:",
+      "freshHost": "On a fresh server without an installation, the install script does all of this itself (here it refuses, as this server holds an installation already):"
+    }
+  },
+  "restoreRun": {
+    "title": "Restore and check",
+    "description": "Worker and scheduler stay stopped while the dump is restored, migrated and checked: nothing is deleted. Restore mode is switched on in the restored data before anything else.",
+    "loading": "Reading the state of the restore …",
+    "phase": {
+      "restoring": "Restoring the dump into a database of its own …",
+      "preparing": "Migrating it, switching restore mode on, checking the master key and the storage …",
+      "awaiting_confirmation": "Ready to activate.",
+      "activating": "Activating …",
+      "starting": "Starting …"
+    },
+    "report": {
+      "title": "What the dump holds",
+      "address": "Address",
+      "noAddress": "none saved",
+      "accounts": "Accounts",
+      "accountsValue": "{users} ({owners} owner(s))",
+      "tenants": "Tenants",
+      "migrations": "Database version",
+      "migrationsValue": "{restored} migrations in the dump, {shipped} in this release",
+      "keys": "Master key",
+      "keysValue": "opens {keys} tenant key(s) and {secrets} secret(s)",
+      "storage": "{count} storage target(s) compared: {ahead} ahead of the database, {unreachable} unreachable",
+      "markers": "storage {storage}, database {database}",
+      "storageNotChecked": "The storage was not compared: {error}",
+      "nodes": "The dump names {count} worker node(s); their database access is not part of a dump. Join them again under Installation › Cluster."
+    },
+    "outcome": {
+      "ok": "matches",
+      "ahead": "ahead of the database",
+      "unreachable": "unreachable",
+      "foreign": "another installation's",
+      "none": "no progress yet"
+    },
+    "restoreModeOn": "Restore mode is on in the restored data: retention, clean-ups and purges are paused until an owner ends it under Installation › Restore mode.",
+    "acceptUnreachable": "Some storage targets could not be read. I go ahead without them and check them afterwards.",
+    "confirm": "I have read the report. Make the restored installation the live one.",
+    "activate": "Activate",
+    "abort": "Abort",
+    "activateFailed": "The restore could not be activated. Try again.",
+    "aborted": "The restore was aborted. Nothing of this installation changed.",
+    "startAgain": "Start again",
+    "refused": {
+      "nothingChanged": "Nothing of this installation was changed.",
+      "master_key_mismatch": {
+        "title": "The master key does not match",
+        "text": "RESTOW_MASTER_KEY of this server does not open the keys of the dump: it belongs to another master key. Put the old installation's master key into the .env, restart and start again."
+      },
+      "dump_too_new": {
+        "title": "The dump is from a newer release",
+        "text": "Install that release or a newer one, then restore again."
+      },
+      "not_restow": {
+        "title": "This is not a database of {appName}",
+        "text": "The dump holds no database of {appName}. Choose the dump of the old installation."
+      },
+      "setup_incomplete": {
+        "title": "The dump holds no finished setup",
+        "text": "There is nothing to restore in it. Set up a new installation instead."
+      }
+    },
+    "failed": {
+      "title": "The restore failed",
+      "text": "The dump could not be restored or checked. Nothing of this installation was changed; the updater log has the details."
+    },
+    "needs_attention": {
+      "title": "The restore needs attention",
+      "text": "A step after the activation failed or was interrupted. Worker and scheduler stay stopped. Follow the steps in the documentation (Restore an installation from a dump)."
+    }
+  },
+  "restoreDone": {
+    "title": "The restored installation starts",
+    "description": "The restored database becomes the live one, then the application starts again on it.",
+    "waiting": "Waiting for the restored installation to answer …",
+    "attention": {
+      "title": "The restore needs attention",
+      "text": "The activation of the restored database did not finish. Worker and scheduler stay stopped, so nothing is deleted; this page cannot finish it, finish it on the server.",
+      "reason": "The updater reports: {message}",
+      "finish": "To finish it: activate again (it completes an interrupted activation, or confirms that the restored database is live already), then start everything:",
+      "abort": "Or undo it: drop the restored database and start the fresh installation again (its new setup token is in the api's log):",
+      "docs": "The documentation has the details (Database, \"When a restore needs attention\")."
+    },
+    "live": "The restored installation runs, with restore mode on.",
+    "next": {
+      "signIn": "Sign in with an account of the restored installation.",
+      "restoreMode": "Go to Installation › Restore mode: compare the storage again, import key versions found in storage, test a restore point of every tenant, check the users, the address and the mail settings.",
+      "end": "End restore mode there once everything is checked."
+    },
+    "signIn": "Go to sign-in"
+  },
+  "workerInfo": {
+    "title": "Add a worker to an existing installation",
+    "description": "A worker node runs neither this web interface nor its own database: it is set up on the new host with the install script and a join token.",
+    "notHere": "Do not set up this host as an installation of its own. Run the install script on it as shown below instead.",
+    "steps": {
+      "cluster": "On the existing installation, open Installation › Cluster (owners only). It shows what a worker node needs.",
+      "database": "Let the new host reach the database there, with TLS and only from that host: on the existing server, sudo bash install.sh --allow-worker <address of the new host>.",
+      "token": "Issue a join token there. It is shown once, works once and expires after an hour.",
+      "run": "Run the install script on the new host with the address of the installation and the token:"
+    },
+    "requirements": "Storage targets must be reachable from the new host: S3, or a directory at the same path on both hosts. Both hosts run the same release.",
+    "replication": "Real replication, a second server that takes over when the first fails (active/passive with database replication), is in development. A worker node adds capacity; the database, the web interface and the updater stay on the main host."
   }
 }

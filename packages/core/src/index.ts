@@ -65,10 +65,13 @@ export * from "./secret-seal.js";
 // Storage targets
 export * from "./storage/backend.js";
 export * from "./storage/copy.js";
+export * from "./storage/deletion-guard.js";
 export * from "./storage/factory.js";
 export * from "./storage/immutability.js";
 export * from "./storage/installation-default.js";
 export * from "./storage/local.js";
+export * from "./storage/progress-marker.js";
+export * from "./storage/restore-mode-guard.js";
 export * from "./storage/s3.js";
 export * from "./storage/transfer.js";
 export * from "./storage/write-once.js";

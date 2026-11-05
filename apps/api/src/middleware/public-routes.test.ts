@@ -15,6 +15,13 @@ import { CROSS_SITE_PROBLEM, UNSUPPORTED_MEDIA_TYPE_PROBLEM } from "./browser-re
 const BROWSER_GUARDED: Readonly<Record<string, string>> = {
   "POST /api/v1/setup": "/api/v1/setup",
   "POST /api/v1/setup/token": "/api/v1/setup/token",
+  "POST /api/v1/setup/restore/uploads": "/api/v1/setup/restore/uploads",
+  "POST /api/v1/setup/restore/uploads/:id/complete":
+    "/api/v1/setup/restore/uploads/0123456789abcdef0123456789abcdef/complete",
+  "POST /api/v1/setup/restore/start": "/api/v1/setup/restore/start",
+  "POST /api/v1/setup/restore/activate": "/api/v1/setup/restore/activate",
+  "POST /api/v1/setup/restore/abort": "/api/v1/setup/restore/abort",
+  "POST /api/v1/cluster-join": "/api/v1/cluster-join",
   "POST /api/v1/accounts/set-password": "/api/v1/accounts/set-password",
   "POST /agent/v1/enroll": "/agent/v1/enroll",
   "POST /agent/pve/v1/enroll": "/agent/pve/v1/enroll",
@@ -23,6 +30,8 @@ const BROWSER_GUARDED: Readonly<Record<string, string>> = {
 
 /** Protected some other way, which a page on another site cannot meet either. */
 const OTHERWISE_PROTECTED: Readonly<Record<string, string>> = {
+  "PUT /api/v1/setup/restore/uploads/:id":
+    "same origin with a raw part (application/octet-stream, never a simple cross-site request) and the setup token",
   "POST /api/auth/*": "better-auth's own CSRF and origin checks (Fetch Metadata, Origin)",
   "POST /agent/v1/heartbeat": "HTTP Basic with the agent's secret",
   "POST /agent/v1/runs": "HTTP Basic with the agent's secret",

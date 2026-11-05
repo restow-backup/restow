@@ -288,9 +288,14 @@
 	# routes nobody signs in for (sign-in, the setup wizard, set-password links, the
 	# Microsoft Graph notification hooks of the archive capture) get the api's default of
 	# 1 MiB right here; everything else under /api is bounded by the
-	# largest body the api accepts at all, an import upload segment (32 MiB).
+	# largest body the api accepts at all, an import upload segment (32 MiB). The one public
+	# exception is a part of a database dump uploaded for a restore in the setup wizard (up to
+	# 32 MiB, behind the setup token; apps/api/src/routes/setup-restore.ts).
 	handle /api/* {
-		@api_public path /api/auth/* /api/v1/setup /api/v1/setup/* /api/v1/accounts/* /api/v1/hooks/*
+		@api_public {
+			path /api/auth/* /api/v1/setup /api/v1/setup/* /api/v1/accounts/* /api/v1/hooks/*
+			not path /api/v1/setup/restore/uploads/*
+		}
 		request_body @api_public {
 			max_size 1MiB
 		}

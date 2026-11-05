@@ -32,6 +32,7 @@ import {
   mailfiles,
   type ProtectedObjectRef,
   type RestoreSelection,
+  withDeletionPermit,
 } from "@restow/core";
 import {
   archiveItemOfMailbox,
@@ -437,8 +438,14 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
       const progress = { ...ctx, progress: recorder };
       const segments = new mailfiles.SegmentStore({ storage: ctx.storage.primary, keys: ctx.keys });
       const scope = { tenantId: ctx.tenantId, kind: "export" as const, id: row.id };
-      // A retry starts the file over: leftovers of the failed attempt must not mix in.
-      await segments.delete(scope);
+      // A retry starts the file over: leftovers of the failed attempt must not mix in. In restore
+      // mode only an export requested after it began may do so (storage/deletion-guard.ts).
+      const resetPermit = {
+        pass: "export_reset" as const,
+        tenantId: ctx.tenantId,
+        createdAt: row.createdAt ?? null,
+      };
+      await withDeletionPermit(resetPermit, () => segments.delete(scope));
       // What is left of the tenant's room for exports: nothing is written when there is none.
       const usedByOtherExports = await store.usedBytes(row.id);
       const room = maxTenantBytes - usedByOtherExports;
@@ -549,7 +556,9 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
               ? (written.reason as unknown)
               : null;
         if (failure !== null) {
-          await segments.delete(scope).catch(() => undefined);
+          await withDeletionPermit(resetPermit, () => segments.delete(scope)).catch(
+            () => undefined,
+          );
           if (outOfRoom) {
             logger.warn("export stopped: it does not fit the export storage limit", {
               limitBytes: maxTenantBytes,
@@ -602,7 +611,9 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
         });
         if (!recorded.accepted) {
           // Another export finished first and took the room this one measured at its start.
-          await segments.delete(scope).catch(() => undefined);
+          await withDeletionPermit(resetPermit, () => segments.delete(scope)).catch(
+            () => undefined,
+          );
           throw quotaExceeded(recorded.usedBytes);
         }
         await store.persistJobResult(ctx.jobId, {

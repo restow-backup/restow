@@ -21,6 +21,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { Readable } from "node:stream";
 import type { StorageBackend } from "../storage/backend.js";
+import { bindDeletionContext } from "../storage/deletion-guard.js";
 import { handleResticRequest } from "./restic-rest.js";
 import { parseBasicAuthorization } from "./tokens.js";
 
@@ -93,8 +94,11 @@ export async function serveMaintenanceRepository(
 ): Promise<LoopbackRepository> {
   const password = randomBytes(32).toString("base64url");
   let served = 0;
+  // restic's requests run in the deletion context of the operation that started restic: a
+  // forget or prune deletes only under that pass's permit (storage/deletion-guard.ts).
+  const inContext = bindDeletionContext();
   const server: Server = createServer((req, res) => {
-    void (async () => {
+    void inContext(async () => {
       const credentials = parseBasicAuthorization(req.headers.authorization);
       if (
         !credentials ||
@@ -128,7 +132,7 @@ export async function serveMaintenanceRepository(
         }
         res.end("internal error\n");
       }
-    })();
+    });
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

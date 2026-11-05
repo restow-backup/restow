@@ -24,11 +24,13 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  deletionDecision,
   endpointPrefix,
   lockedErrorOf,
   resticCacheBase,
   type StorageBackend,
   type StorageTargets,
+  withDeletionPermit,
 } from "@restow/core";
 import {
   type Endpoint,
@@ -203,28 +205,43 @@ export async function endpointRemoval(
     return { state: "held", heldBy };
   }
 
+  // Restore mode after restoring a database dump (docs/STORAGE.md): nothing is deleted; the
+  // removal is looked at again a day later.
+  const deletions = await deletionDecision({ pass: "endpoint_removal", tenantId });
+  if (!deletions.allowed) {
+    await saveRemoval(deps, endpoint, removal, new Date(now.getTime() + DAY_MS), null);
+    deps.runtime.logger.warn("removed machine's backups held: deleting is paused", {
+      tenantId,
+      endpointId,
+      reason: deletions.reason,
+    });
+    return { state: "skipped" };
+  }
+
   const targets = repositoryTargets(await deps.runtime.storage.get(tenantId));
   const prefix = endpointPrefix(endpointId);
   let result: Awaited<ReturnType<typeof deleteUnder>>;
   try {
-    result = await withMaintenanceLock(deps, endpointId, "exclusive", async () => {
-      const total = {
-        deleted: 0,
-        locked: 0,
-        lockedUntil: null as Date | null,
-        unknownUntil: false,
-      };
-      for (const backend of targets) {
-        const part = await deleteUnder(deps, tenantId, backend, prefix);
-        total.deleted += part.deleted;
-        total.locked += part.locked;
-        total.unknownUntil ||= part.unknownUntil;
-        if (part.lockedUntil && (!total.lockedUntil || part.lockedUntil > total.lockedUntil)) {
-          total.lockedUntil = part.lockedUntil;
+    result = await withDeletionPermit({ pass: "endpoint_removal", tenantId }, () =>
+      withMaintenanceLock(deps, endpointId, "exclusive", async () => {
+        const total = {
+          deleted: 0,
+          locked: 0,
+          lockedUntil: null as Date | null,
+          unknownUntil: false,
+        };
+        for (const backend of targets) {
+          const part = await deleteUnder(deps, tenantId, backend, prefix);
+          total.deleted += part.deleted;
+          total.locked += part.locked;
+          total.unknownUntil ||= part.unknownUntil;
+          if (part.lockedUntil && (!total.lockedUntil || part.lockedUntil > total.lockedUntil)) {
+            total.lockedUntil = part.lockedUntil;
+          }
         }
-      }
-      return total;
-    });
+        return total;
+      }),
+    );
   } catch (error) {
     // Recorded for the list of removals; pg-boss and the scheduler try again.
     await saveRemoval(

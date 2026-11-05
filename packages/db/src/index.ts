@@ -48,12 +48,17 @@ export * from "./installation-secrets.js";
 export * from "./job-start-pause.js";
 // The manifest index as versions: mirroring a snapshot, retention, the 0.3.5 conversion, reading.
 export * from "./manifest-versions.js";
+// The database logins of worker nodes on other hosts (Installation > Cluster).
+export * from "./node-guard.js";
+export * from "./node-roles.js";
 // How many connections each pool may open (RESTOW_DB_POOL_MAX and its siblings).
 export * from "./pool-size.js";
 // The lock that keeps the server's own work on one endpoint repository from overlapping.
 export * from "./repository-lock.js";
 // Services that need a manual restart, and why (the Updates tab shows them).
 export * from "./restart-requests.js";
+// Restore mode after restoring a database dump: the state, the progress values, the findings.
+export * from "./restore-mode.js";
 // The database roles and the startup check of the pools.
 export * from "./roles.js";
 // The throughput history of runs (sparklines and the run drawer's charts).

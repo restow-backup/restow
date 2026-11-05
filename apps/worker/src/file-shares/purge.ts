@@ -10,12 +10,17 @@
  * repository (and an earlier chain at the share's first prefix) stays where it is, with its
  * sealed password next to it, and only Restow's records of the share go. The audit entry counts
  * what was kept (`kept`).
+ *
+ * In restore mode (a database dump was restored, docs/STORAGE.md) nothing is purged: the job
+ * fails with the deletion guard's refusal and is tried again; the api does not queue a purge
+ * meanwhile.
  */
 import {
   type FileShareJobPayload,
   fileShareRepositoryPrefix,
   isDeleteRefused,
   lockedErrorOf,
+  withDeletionPermit,
 } from "@restow/core";
 import { fileShareRuns, fileShares, secrets } from "@restow/db";
 import { and, eq, inArray } from "drizzle-orm";
@@ -66,34 +71,37 @@ export async function purgeShare(
   let objects = 0;
   let kept = 0;
   let locked = 0;
-  let lockedUntil: Date | null = null;
-  for (const prefix of prefixes) {
-    for (const key of await targets.primary.list(prefix)) {
-      if (writeOnce) {
-        kept++;
-        continue;
-      }
-      try {
-        await targets.primary.delete(key);
-        objects++;
-      } catch (error) {
-        // A write-once share the probe has not seen yet: kept, like everything there.
-        if (isDeleteRefused(error)) {
+  let lockedUntil = null as Date | null;
+  // Throws DeletionsHeldError in restore mode: the share, its rows and its backups all stay.
+  await withDeletionPermit({ pass: "file_share_purge", tenantId }, async () => {
+    for (const prefix of prefixes) {
+      for (const key of await targets.primary.list(prefix)) {
+        if (writeOnce) {
           kept++;
           continue;
         }
-        // Immutable backups (docs/STORAGE.md): what is still locked cannot be purged yet.
-        const refusal = lockedErrorOf(error);
-        if (!refusal) {
-          throw error;
-        }
-        locked++;
-        if (refusal.retainUntil && (!lockedUntil || refusal.retainUntil > lockedUntil)) {
-          lockedUntil = refusal.retainUntil;
+        try {
+          await targets.primary.delete(key);
+          objects++;
+        } catch (error) {
+          // A write-once share the probe has not seen yet: kept, like everything there.
+          if (isDeleteRefused(error)) {
+            kept++;
+            continue;
+          }
+          // Immutable backups (docs/STORAGE.md): what is still locked cannot be purged yet.
+          const refusal = lockedErrorOf(error);
+          if (!refusal) {
+            throw error;
+          }
+          locked++;
+          if (refusal.retainUntil && (!lockedUntil || refusal.retainUntil > lockedUntil)) {
+            lockedUntil = refusal.retainUntil;
+          }
         }
       }
     }
-  }
+  });
   if (kept > 0) {
     deps.runtime.logger.warn(
       "file share purge: the storage is write-once, the share's repository stays where it is",

@@ -746,6 +746,54 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   Browser-Schutz der Session-Routen (`requireSameOrigin`: Cross-Site 403, Body nicht JSON
   415). Der Demo-Modus hat kein Setup-Token; dort richtet nur der Seed mit seinem
   Seed-Token ein.
+- Wiederherstellungsmodus (`apps/api/src/cli/restore-mode.ts`, `apps/api/src/features/restore-mode`,
+  docs/STORAGE.md „Restore mode and progress markers“): Nach dem Zurückspielen eines
+  Datenbank-Dumps löscht die Installation nichts, bis ein Provider-Owner die Datenbank geprüft
+  hat. `restow restore-mode status|on|check|import-keys|off` läuft im api-Image auch ohne
+  laufenden Server (`docker compose run --rm --no-deps --entrypoint restow api restore-mode on
+  --reason "..."`, vor dem Start von Worker und Scheduler); `off` verlangt die Adresse eines
+  aktiven Owners und eine Beschreibung des Geprüften und schreibt wie die Seite unter
+  Installation › Wiederherstellungsmodus `installation.restore_mode.ended` in die
+  Installationskette. Jede Löschung läuft über den Deletion Guard (`@restow/core`
+  storage/deletion-guard.ts), die Speicher-Backends prüfen ihn selbst; Fortschrittsmarker je
+  Speicherziel lassen den Worker eine ältere Datenbank selbst erkennen.
+- Was eingerichtet wird (erste Frage nach der Sprache, `STEPS_BY_KIND` in
+  `apps/web/src/routes/setup/schema.ts`, die erste Frage von `install.sh`): (1) eine neue
+  Installation, (2) die Wiederherstellung einer Installation aus einem Datenbank-Dump oder (3) ein
+  Worker für eine bestehende Installation auf einem anderen Host. Die Wiederherstellung
+  (`apps/api/src/features/setup-restore`, `apps/api/src/routes/setup-restore.ts`,
+  `apps/api/src/updater/restore.ts`, docs/DATABASE.md „Restore an installation from a dump“)
+  verlangt ebenfalls das Setup-Token, überspringt Betreiberhinweis, Betriebsart, ersten Admin und
+  Mail (der Dump bringt seine Benutzer mit) und läuft über den Updater: Worker und Scheduler
+  angehalten, Dump in die eigene Datenbank `restow_restore`, `restow restore prepare` (migrieren,
+  Wiederherstellungsmodus mit Quelle `setup` als erster Schreibvorgang, Prüfung, dass
+  `RESTOW_MASTER_KEY` alle Mandantenschlüssel und die Installationsgeheimnisse öffnet, sonst
+  `master_key_mismatch` und nichts geändert, Vergleich der Speicherziele), Bericht, Bestätigung,
+  `restow restore activate` (Umbenennen, die frische Datenbank bleibt als
+  `restow_before_restore_<Zeit>`), erst dann Worker und Scheduler. Ohne Updater zeigt der
+  Assistent die Wiederherstellung von Hand auf diesem Server (`install.sh --restore` nur für einen
+  neuen Host). Bleibt eine Aktivierung `needs_attention`, zeigt der letzte Schritt den Grund aus
+  dem öffentlichen Setup-Zustand und die Befehle zum Abschließen. `POST /api/v1/setup` antwortet während einer
+  Wiederherstellung 409 `restore-in-progress`.
+- Worker-Knoten (`apps/api/src/features/cluster`, Installation › Cluster, docs/SIZING.md
+  „Several hosts: worker nodes“): Der Inhaber stellt ein Einmal-Beitrittstoken aus (`rsj_…`,
+  nur ein Hash gespeichert, einmal gültig, 15 Minuten bis 24 Stunden, optional an die Adresse
+  gebunden, widerrufbar, auditiert; gespeichert als HMAC mit einem aus `BETTER_AUTH_SECRET`
+  abgeleiteten Schlüssel, den kein Knoten bekommt, sodass eine untergeschobene Zeile kein Token
+  trifft); `install.sh --join` löst es über TLS ein
+  (`POST /api/v1/cluster-join`, öffentlich, je IP begrenzt) und bekommt eine Allowlist: eigene
+  Datenbank-Anmeldungen des Knotens (`restow_node_<id>_app|_inst`, Mitglieder von
+  `restow_nodes`, die beim Anmelden per `ALTER ROLE … SET role` zur Mandantenrolle bzw. zur
+  Knotenrolle `<Installationsrolle>_node` wechseln; `packages/db/src/node-roles.ts`). Die
+  Knotenrolle hat BYPASSRLS und die Tabellenrechte der Installationsrolle ohne die
+  better-auth-Tabellen, das Provider-Team und die Beitrittstokens (nur Lesen von
+  `cluster_nodes`), ohne CREATE auf der Datenbank und ohne eigene Objekte. Dazu die CA der Datenbank, den
+  Hauptschlüssel und die Speichereinstellungen, nie die Owner-Verbindung oder
+  `BETTER_AUTH_SECRET`. Entfernen löscht die Anmeldungen. Nur einmal auf dem Haupt-Host:
+  Datenbank, api mit Migrationen, Caddy, Updater, Mounter, Journal-SMTP-Empfang, Importe aus dem
+  Server-Ordner, Speicher in Docker-Volumes. PostgreSQL wird standardmäßig nicht veröffentlicht;
+  `install.sh --allow-worker <IP>` schaltet TLS und eine auf den Worker-Host beschränkte
+  `pg_hba.conf` ein. Echte Failover-Replikation (aktiv/passiv) ist in Entwicklung.
 - Admin-Wiederherstellung (`apps/api/src/cli`): Ein verlorener Owner wird über
   die Kommandozeile des Servers wiederhergestellt, nie über den Wizard:
   `docker compose exec api restow admin recover --email <owner>` (Liste:

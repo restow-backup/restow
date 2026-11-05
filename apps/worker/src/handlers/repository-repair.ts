@@ -44,6 +44,7 @@
  * one scan or repair at a time per tenant (a unique index).
  */
 import {
+  deletionDecision,
   INSTALLATION_DEFAULT_TARGET_ID,
   isWriteRefused,
   type MirrorItem,
@@ -57,6 +58,7 @@ import {
   resticErrorDetail,
   resticSnapshots,
   type StorageBackend,
+  withDeletionPermit,
   withRepository,
 } from "@restow/core";
 import {
@@ -686,6 +688,28 @@ function holdingsKey(holdings: StorageRepositoryScanEntry["holdings"]): string {
 
 /** Rebuild what can be rebuilt, mark what is lost (see the module comment). */
 export async function applyRepair(
+  deps: RepairDeps,
+  row: Pick<StorageRepositoryRepair, "id" | "tenantId" | "requestedBy" | "scanId"> & {
+    startedAt?: Date | null;
+  },
+): Promise<StorageRepositoryRepairResult> {
+  // Restore mode after restoring a database dump (docs/STORAGE.md): a repair moves repositories
+  // aside and deletes what it moved; a scan still runs, a repair waits.
+  const decision = await deletionDecision({
+    pass: "repository_repair_apply",
+    tenantId: row.tenantId,
+  });
+  if (!decision.allowed) {
+    throw new Error(
+      "deleting is paused (restore mode after restoring a database dump): nothing was changed. Repair again once a provider owner has ended restore mode.",
+    );
+  }
+  return withDeletionPermit({ pass: "repository_repair_apply", tenantId: row.tenantId }, () =>
+    applyRepairWithPermit(deps, row),
+  );
+}
+
+async function applyRepairWithPermit(
   deps: RepairDeps,
   row: Pick<StorageRepositoryRepair, "id" | "tenantId" | "requestedBy" | "scanId"> & {
     startedAt?: Date | null;

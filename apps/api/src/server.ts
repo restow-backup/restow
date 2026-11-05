@@ -153,6 +153,16 @@ try {
   );
 }
 
+// Restore mode after restoring a database dump (features/restore-mode, docs/STORAGE.md): every
+// storage delete of this process goes through the deletion guard.
+{
+  const { installDeletionEnforcement } = await import("@restow/core");
+  const { apiRestoreModeGuard } = await import("./features/restore-mode/instance.js");
+  const guard = apiRestoreModeGuard();
+  installDeletionEnforcement(guard);
+  guard.start();
+}
+
 const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(
     `${config.productName} API (${config.nodeEnv}) listening on http://localhost:${info.port}`,

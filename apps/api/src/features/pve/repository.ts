@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  deletionDecision,
   freshRepositoryPrefix,
   INSTALLATION_DEFAULT_TARGET_ID,
   isWriteRefused,
@@ -9,6 +10,7 @@ import {
   resticInit,
   type StorageBackend,
   sealEndpointPassword,
+  withDeletionPermit,
   withRepository,
   writeRefusalCode,
 } from "@restow/core";
@@ -458,17 +460,26 @@ async function createRepository(
     if (clear === null) {
       await refuse(database, tenantId, guest, "split", null, active, now);
     }
-    if (writeOnce) {
-      fresh = { prefix: await nextPrefix(primary, guest, prefix), why: "write_once" };
+    // Restore mode after restoring a database dump (docs/STORAGE.md): what lies at the prefix may
+    // be a chain the restored database does not know (backups made after the dump). Nothing is
+    // moved or deleted: the new chain begins under a fresh prefix, as on write-once storage.
+    const held = !(await deletionDecision({ pass: "pve_chain_clear", tenantId })).allowed;
+    if (writeOnce || held) {
+      fresh = {
+        prefix: await nextPrefix(primary, guest, prefix),
+        why: writeOnce ? "write_once" : "restore_mode",
+      };
     } else {
       try {
-        if (clear === "delete") {
-          for (const key of files) {
-            await primary.delete(key);
+        await withDeletionPermit({ pass: "pve_chain_clear", tenantId }, async () => {
+          if (clear === "delete") {
+            for (const key of files) {
+              await primary.delete(key);
+            }
+          } else {
+            await moveRepositoryAside(primary, prefix, now);
           }
-        } else {
-          await moveRepositoryAside(primary, prefix, now);
-        }
+        });
       } catch (error) {
         if (!isWriteRefused(error)) {
           throw unreachable(error);

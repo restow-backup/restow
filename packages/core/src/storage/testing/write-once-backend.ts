@@ -1,5 +1,6 @@
 import type { Readable } from "node:stream";
 import type { HeadResult, PutOptions, StorageBackend } from "../backend.js";
+import { assertDeletionPermitted } from "../deletion-guard.js";
 
 /** An error as a write-once NFS share answers it (EPERM, "Operation not permitted"). */
 export function writeOnceRefusal(syscall: string, key: string): NodeJS.ErrnoException {
@@ -51,6 +52,7 @@ export class WriteOnceBackend implements StorageBackend {
   }
 
   async delete(key: string): Promise<void> {
+    assertDeletionPermitted(key);
     if ((await this.inner.head(key)) === null) {
       return;
     }

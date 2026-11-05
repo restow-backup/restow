@@ -92,6 +92,25 @@ export interface StorageBackend {
 }
 
 /**
+ * The backend a wrapper (progress markers, storage/progress-marker.ts) delegates to, under this
+ * symbol, so a caller that looks for a particular backend class can see through it.
+ */
+export const WRAPPED_BACKEND: unique symbol = Symbol.for("restow.storage.wrappedBackend");
+
+/** `backend` without the wrappers that carry {@link WRAPPED_BACKEND}. */
+export function unwrapBackend(backend: StorageBackend): StorageBackend {
+  let current = backend;
+  for (let depth = 0; depth < 8; depth++) {
+    const inner = (current as { [WRAPPED_BACKEND]?: StorageBackend })[WRAPPED_BACKEND];
+    if (!inner) {
+      break;
+    }
+    current = inner;
+  }
+  return current;
+}
+
+/**
  * Whether a backend's error says that the object does not exist: S3's
  * NoSuchKey / NotFound (HTTP 404) or a missing file (ENOENT). Anything else, a
  * network error, a timeout, a 5xx, throttling, denied access or a missing

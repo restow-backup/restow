@@ -431,6 +431,76 @@ describe.skipIf(!canRun)("stopping Proxmox VE backups against Postgres", () => {
     ]);
   });
 
+  it("never hands out a task from before restore mode's hold point, also not again", async () => {
+    // Restored from a dump: a restore over the guest that is still pending there, and one the
+    // node took 40 minutes ago with no run left in the database. Both are from the old timeline.
+    const hour = 3_600_000;
+    const [pending] = await fixture.db
+      .insert(pveTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        nodeId: node.nodeId,
+        guestId: vm,
+        kind: "restore",
+        params: { snapshotId: randomUUID() },
+        createdAt: new Date(Date.now() - hour),
+        expiresAt: new Date(Date.now() + 24 * hour),
+      })
+      .returning();
+    const [delivered] = await fixture.db
+      .insert(pveTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        nodeId: node.nodeId,
+        guestId: ct,
+        kind: "restore",
+        params: { snapshotId: randomUUID() },
+        status: "delivered",
+        createdAt: new Date(Date.now() - hour),
+        deliveredAt: new Date(Date.now() - 40 * 60_000),
+        expiresAt: new Date(Date.now() + 24 * hour),
+      })
+      .returning();
+    await fixture.db.execute(sql`
+      INSERT INTO installation_restore_mode (source, reason, activated_by, hold_jobs_before)
+      VALUES ('cli', 'rollback', '{"label":"cli"}'::jsonb, now() - interval '30 minutes')`);
+    const { apiRestoreModeGuard } = await import("../restore-mode/instance.js");
+    apiRestoreModeGuard().forgetChecks();
+    try {
+      const queued = await service.backupNow(
+        shared.db,
+        fixture.tenantId,
+        vm,
+        { verifyRead: false },
+        actor(),
+      );
+      const hb = await beat();
+      expect(hb.tasks.map((task) => task.id)).toEqual([queued.taskId]);
+      // The delivered one goes out as a cancel order, so the node drops a copy it still queues.
+      expect(hb.cancel.tasks).toContain(delivered?.id);
+      for (const id of [pending?.id, delivered?.id]) {
+        const [row] = await fixture.db
+          .select()
+          .from(pveTasks)
+          .where(eq(pveTasks.id, id as string));
+        expect(row).toMatchObject({
+          status: "cancelled",
+          errorMessage: expect.stringContaining("from before the database restore"),
+        });
+      }
+      expect((await beat()).tasks).toEqual([]);
+    } finally {
+      await fixture.db.execute(sql`DELETE FROM installation_restore_mode`);
+      // Leave no open task or run for the cases after this one.
+      await fixture.db.execute(sql`
+        UPDATE pve_tasks SET status = 'done', finished_at = now()
+         WHERE status IN ('pending', 'delivered')`);
+      await fixture.db.execute(sql`
+        UPDATE pve_runs SET status = 'cancelled', finished_at = now() WHERE status = 'running'`);
+      apiRestoreModeGuard().forgetChecks();
+    }
+  });
+
   it("tells the node to update now, on request and while the fleet phase of an update holds", async () => {
     expect((await beat()).update).toEqual({ version: "9.0.0", now: false });
     // The inventory says which release the node runs and that it is behind (0.4.3).

@@ -41,11 +41,11 @@ import {
   webhookDeliveries,
   webhooks,
 } from "@restow/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { alertOverdueBackups } from "../overdue.js";
 import { shareCatalog } from "./catalog.js";
-import { shareRepositoryAccess } from "./common.js";
+import { keepSharePasswordFile, shareRepositoryAccess } from "./common.js";
 import { dispatchPass, ensureShareRepository } from "./dispatch.js";
 import { endRun, processFinish } from "./finish.js";
 import { shareRetention, shareVerify } from "./maintenance.js";
@@ -274,6 +274,57 @@ describe.skipIf(!adminUrl)("file share jobs of the worker against Postgres", () 
       });
       // Nothing more fits while both run.
       expect((await dispatchPass(fixture.deps)).started).toBe(0);
+    });
+
+    it("holds runs from before restore mode began and starts the ones queued after", async () => {
+      // A restore into the share and a mirror copy that ran after the dump are queued again in
+      // the restored database: they are cancelled with the explanation, never started.
+      const a = await readyShare({ allowRestore: true });
+      const b = await readyShare();
+      const c = await readyShare();
+      const snap = await snapshot(a.id, 1);
+      const hold = new Date(fixture.clock.now.getTime() - 5 * MINUTE);
+      const oldRestore = await insertRun({
+        fileShareId: a.id,
+        kind: "restore",
+        sourceSnapshotId: snap.id,
+        params: { destination: "original" },
+        queuedAt: new Date(hold.getTime() - 3 * MINUTE),
+      });
+      const oldRunning = await insertRun({
+        fileShareId: c.id,
+        status: "running",
+        queuedAt: new Date(hold.getTime() - 4 * MINUTE),
+        startedAt: new Date(hold.getTime() - 4 * MINUTE),
+        lastProgressAt: new Date(fixture.clock.now.getTime()),
+      });
+      const newBackup = await insertRun({
+        fileShareId: b.id,
+        queuedAt: new Date(hold.getTime() + MINUTE),
+      });
+      const deps = { ...fixture.deps, holdRunsBefore: async () => hold };
+      const summary = await dispatchPass(deps);
+      expect(summary).toMatchObject({ held: 1, started: 1 });
+      expect(fixture.runner.started.map((request) => request.runId)).toEqual([newBackup.id]);
+      expect(await run(oldRestore.id)).toMatchObject({
+        status: "cancelled",
+        errorMessage: expect.stringContaining("from before the database restore"),
+        failure: expect.objectContaining({ code: "job.restore_mode_hold" }),
+      });
+      // The monitor ends a run from before the hold that is still open, and stops its runner.
+      await fileShareMonitor(deps);
+      expect((await run(oldRunning.id)).status).toBe("cancelled");
+      expect(fixture.runner.stopped).toContain(oldRunning.id);
+      expect((await run(newBackup.id)).status).toBe("starting");
+      // Restore mode off: nothing is held.
+      const later = await insertRun({
+        fileShareId: a.id,
+        queuedAt: new Date(hold.getTime() - MINUTE),
+      });
+      expect((await dispatchPass({ ...fixture.deps, holdRunsBefore: async () => null })).held).toBe(
+        0,
+      );
+      expect((await run(later.id)).status).not.toBe("cancelled");
     });
 
     it("puts the run back when the mounter is not there, and fails it when the mounter refuses", async () => {
@@ -877,6 +928,47 @@ describe.skipIf(!adminUrl)("file share jobs of the worker against Postgres", () 
         { sequence: 2, status: "active" },
       ]);
       expect(await withRepository(access, (session) => resticSnapshots(session))).toHaveLength(1);
+    }, 120_000);
+  });
+
+  describe.skipIf(!resticAvailable)("a repository the restored database does not know", () => {
+    it("keeps the repository and its sealed password byte for byte, and begins next to it", async () => {
+      // The share existed in the dump; its first backup (secret, restic init, the sealed password)
+      // ran after the dump.
+      const s = await addShare(fixture, tenant);
+      const ready = await ensureShareRepository(fixture.deps, s);
+      const primary = (await fixture.deps.runtime.storage.get(tenant)).primary;
+      const documentKey = `file-shares/${s.id}/restow-repository-password.json`;
+      const document = await primary.get(documentKey);
+      const config = await primary.get(`file-shares/${s.id}/config`);
+      // The dump is restored: the share is there, its repository secret is not.
+      await fixture.owner
+        .update(fileShares)
+        .set({ repositorySecretId: null, repositoryReadyAt: null, repositoryPrefix: null })
+        .where(eq(fileShares.id, s.id));
+      const stale = await share(s.id);
+      const again = await ensureShareRepository(fixture.deps, stale);
+      // A new repository under a fresh prefix, with its own password; the old one is untouched.
+      expect(again.repositoryPrefix).toBe(`file-shares/${s.id}.chain-2/`);
+      expect(again.repositorySecretId).not.toBe(ready.repositorySecretId);
+      expect((await primary.get(documentKey)).equals(document)).toBe(true);
+      expect((await primary.get(`file-shares/${s.id}/config`)).equals(config)).toBe(true);
+      expect(await primary.head(`file-shares/${s.id}.chain-2/config`)).not.toBeNull();
+      // Asked to keep another password at the old prefix, the document is never replaced; the
+      // difference is reported once.
+      const oldAccess = await shareRepositoryAccess(fixture.deps, {
+        ...again,
+        repositoryPrefix: null,
+      });
+      await keepSharePasswordFile(fixture.deps, again, oldAccess);
+      await keepSharePasswordFile(fixture.deps, again, oldAccess);
+      expect((await primary.get(documentKey)).equals(document)).toBe(true);
+      const findings = await fixture.owner.execute(
+        sql`SELECT kind, key_version, object_key FROM key_mirror_findings WHERE tenant_id = ${tenant}::uuid`,
+      );
+      expect(findings.rows).toEqual([
+        { kind: "conflict", key_version: 0, object_key: documentKey },
+      ]);
     }, 120_000);
   });
 

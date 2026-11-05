@@ -38,6 +38,8 @@ export const REPORT_EVENTS = [
   "update.available",
   "installation.disk_low",
   "installation.app_secret_expiring",
+  "installation.restore_mode",
+  "installation.key_mirror_conflict",
 ] as const;
 
 export type ReportEvent = (typeof REPORT_EVENTS)[number];
@@ -140,6 +142,13 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // The same for the central backup app registration (Settings, Microsoft 365, or the
   // environment): apps/api features/updates/secret-watch.ts, once per stage and date.
   "installation.app_secret_expiring": { group: "system", level: "warning" },
+  // Restore mode came on by itself: a storage target shows progress the database does not have
+  // (a database dump was restored). Nothing is deleted until a provider owner ends it
+  // (docs/STORAGE.md, "Restore mode and progress markers"); once per restore mode.
+  "installation.restore_mode": { group: "system", level: "error" },
+  // A wrapped tenant key in storage differs from the database's under the same version: never
+  // overwritten, reported once per stored content (apps/worker handlers/framework.ts).
+  "installation.key_mirror_conflict": { group: "system", level: "error" },
 };
 
 /**
@@ -152,6 +161,8 @@ export const INSTALLATION_REPORT_EVENTS: readonly ReportEvent[] = [
   "update.available",
   "installation.disk_low",
   "installation.app_secret_expiring",
+  "installation.restore_mode",
+  "installation.key_mirror_conflict",
 ];
 
 export function isInstallationReportEvent(event: string): boolean {

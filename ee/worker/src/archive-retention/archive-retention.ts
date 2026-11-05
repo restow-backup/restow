@@ -40,6 +40,13 @@
  * verify.ts) still links the next entry and counts the position; a gap without a tombstone
  * remains tampering.
  *
+ * Restore mode (0.5.0, docs/STORAGE.md "Restore mode and progress markers"): after a database
+ * dump was restored the database lacks the legal holds and policy changes made after the dump,
+ * so nothing is deleted: no row, no chunk reference, no sealed record. The run asks the
+ * deletion guard first (pass `archive_retention`) and skips cleanly; every batch and every
+ * deletion of queued sealed records runs under that pass's permit again, because restore mode
+ * may come on while the run goes. Records already queued stay queued until it is ended.
+ *
  * Legal hold coverage: a tenant-wide hold (no `protected_object_id`) blocks
  * every item; a hold scoped to a mailbox blocks items captured for that
  * mailbox and journal reports assigned to it (archive_item_mailboxes). A hold scoped to a search query (`legal_holds.scope`) is not
@@ -48,10 +55,13 @@
  */
 import {
   type archive,
+  deletionDecision,
+  deletionsHeldErrorOf,
   isObjectNotFound,
   JobAbortedError,
   lockedErrorOf,
   type StorageTargets,
+  withDeletionPermit,
 } from "@restow/core";
 import {
   archiveChainTombstones,
@@ -88,9 +98,14 @@ export interface ArchiveRetentionSummary {
   /** Sealed records still queued after the run (deferred, or no storage given). */
   readonly recordsPending: number;
   readonly dryRun: boolean;
+  /** Nothing was deleted: deleting is paused (restore mode after restoring a database dump). */
+  readonly restoreMode?: boolean;
 }
 
-const DEFAULT_ARCHIVE_POLICY: archive.RetentionPolicy = { mode: "end_of_year", years: 8 };
+const DEFAULT_ARCHIVE_POLICY: archive.RetentionPolicy = {
+  mode: "end_of_year",
+  years: 8,
+};
 
 async function loadArchivePolicy(
   providerDb: Database,
@@ -181,6 +196,30 @@ export async function runArchiveRetention(
   run: ArchiveRetentionRunOptions = {},
 ): Promise<ArchiveRetentionSummary> {
   const policy = await loadArchivePolicy(providerDb, tenantId);
+  // Restore mode after restoring a database dump (docs/STORAGE.md): the restored database lacks
+  // the legal holds and policy changes made after the dump. Nothing is deleted, not even the
+  // sealed records queued before.
+  if (!options.dryRun) {
+    const decision = await deletionDecision({
+      pass: "archive_retention",
+      tenantId,
+    });
+    if (!decision.allowed) {
+      return {
+        policyYears: policy.years,
+        policyMode: policy.mode,
+        candidates: 0,
+        deleted: 0,
+        held: 0,
+        chunkReferencesReleased: 0,
+        recordsDeleted: 0,
+        recordsDeferred: 0,
+        recordsPending: await queuedRecordCount(providerDb, tenantId),
+        dryRun: options.dryRun,
+        restoreMode: true,
+      };
+    }
+  }
   const currentTime = now();
   const batchSize = Math.max(1, run.batchSize ?? ARCHIVE_RETENTION_BATCH);
 
@@ -233,10 +272,12 @@ export async function runArchiveRetention(
       deleted += free?.value ?? 0;
       held += page.length - (free?.value ?? 0);
     } else {
-      const removed = await providerDb.transaction(async (tx) => {
-        // The row goes, its chain link stays: a tombstone per deleted row, in the same
-        // statement (and so at the same full timestamp precision) as the delete.
-        const rows = await tx.execute<DeletedRow>(sql`
+      // The permit is asked again per batch: restore mode may come on while the run goes.
+      const removed = await withDeletionPermit({ pass: "archive_retention", tenantId }, () =>
+        providerDb.transaction(async (tx) => {
+          // The row goes, its chain link stays: a tombstone per deleted row, in the same
+          // statement (and so at the same full timestamp precision) as the delete.
+          const rows = await tx.execute<DeletedRow>(sql`
           with deleted as (
             delete from ${archiveItems}
              where ${archiveItems.tenantId} = ${tenantId}::uuid
@@ -256,49 +297,54 @@ export async function runArchiveRetention(
           select id, item_hash, chain_hash, prev_chain_hash, received_at::text,
                  created_at::text, retention_until::text, storage_path, chunks
             from deleted`);
-        // Exactly the references the writer took for these items (one per chunk occurrence,
-        // archive/writer.ts), in this transaction: a row deleted releases them once, a row kept
-        // never. Chunks shared with a backup or another item keep theirs; garbage collection
-        // decides after its grace period.
-        const references = rows.rows.flatMap((row) => row.chunks ?? []);
-        await releaseChunkReferences(tx, tenantId, references);
-        // The sealed record goes from storage after the commit; until then it is queued.
-        if (rows.rows.length > 0) {
-          await tx
-            .insert(archiveRecordDeletions)
-            .values(
-              rows.rows.map((row) => ({ tenantId, itemId: row.id, storagePath: row.storage_path })),
-            )
-            .onConflictDoNothing();
-        }
-        for (const row of rows.rows) {
-          await appendAuditEntry(tx, {
-            tenantId,
-            actor: "system",
-            action: "archive.item.deleted",
-            target: row.id,
-            targetType: "archive_item",
-            details: {
-              itemHash: row.item_hash,
-              chainHash: row.chain_hash,
-              retentionUntil: row.retention_until
-                ? new Date(row.retention_until).toISOString()
-                : null,
-              policyYears: policy.years,
-              policyMode: policy.mode,
-              deleted: {
-                row: true,
-                chunkReferencesReleased: row.chunks?.length ?? 0,
-                // Deleted on every target right after this commit; a refusal is audited
-                // (archive.record.deletion_deferred) and retried by the next run.
-                sealedRecord: "queued",
-                storagePath: row.storage_path,
+          // Exactly the references the writer took for these items (one per chunk occurrence,
+          // archive/writer.ts), in this transaction: a row deleted releases them once, a row kept
+          // never. Chunks shared with a backup or another item keep theirs; garbage collection
+          // decides after its grace period.
+          const references = rows.rows.flatMap((row) => row.chunks ?? []);
+          await releaseChunkReferences(tx, tenantId, references);
+          // The sealed record goes from storage after the commit; until then it is queued.
+          if (rows.rows.length > 0) {
+            await tx
+              .insert(archiveRecordDeletions)
+              .values(
+                rows.rows.map((row) => ({
+                  tenantId,
+                  itemId: row.id,
+                  storagePath: row.storage_path,
+                })),
+              )
+              .onConflictDoNothing();
+          }
+          for (const row of rows.rows) {
+            await appendAuditEntry(tx, {
+              tenantId,
+              actor: "system",
+              action: "archive.item.deleted",
+              target: row.id,
+              targetType: "archive_item",
+              details: {
+                itemHash: row.item_hash,
+                chainHash: row.chain_hash,
+                retentionUntil: row.retention_until
+                  ? new Date(row.retention_until).toISOString()
+                  : null,
+                policyYears: policy.years,
+                policyMode: policy.mode,
+                deleted: {
+                  row: true,
+                  chunkReferencesReleased: row.chunks?.length ?? 0,
+                  // Deleted on every target right after this commit; a refusal is audited
+                  // (archive.record.deletion_deferred) and retried by the next run.
+                  sealedRecord: "queued",
+                  storagePath: row.storage_path,
+                },
               },
-            },
-          });
-        }
-        return { rows: rows.rows, references: references.length };
-      });
+            });
+          }
+          return { rows: rows.rows, references: references.length };
+        }),
+      );
       deleted += removed.rows.length;
       referencesReleased += removed.references;
       // Not returned: a hold covers it (checked in the DELETE itself), or it is already gone.
@@ -314,7 +360,11 @@ export async function runArchiveRetention(
     ? { deleted: 0, deferred: 0, pending: 0 }
     : run.storage
       ? await deleteQueuedRecords(providerDb, tenantId, run.storage, run)
-      : { deleted: 0, deferred: 0, pending: await queuedRecordCount(providerDb, tenantId) };
+      : {
+          deleted: 0,
+          deferred: 0,
+          pending: await queuedRecordCount(providerDb, tenantId),
+        };
   return {
     policyYears: policy.years,
     policyMode: policy.mode,
@@ -418,31 +468,38 @@ async function deleteQueuedRecords(
       attempts: number;
       error: string;
     }[] = [];
-    for (const entry of page) {
-      const problems: string[] = [];
-      for (const [index, target] of targets.entries()) {
-        try {
-          await target.delete(entry.storagePath);
-        } catch (error) {
-          if (isObjectNotFound(error)) {
-            continue;
+    // Under the pass's permit, asked again per page (restore mode may come on meanwhile).
+    await withDeletionPermit({ pass: "archive_retention", tenantId }, async () => {
+      for (const entry of page) {
+        const problems: string[] = [];
+        for (const [index, target] of targets.entries()) {
+          try {
+            await target.delete(entry.storagePath);
+          } catch (error) {
+            if (isObjectNotFound(error)) {
+              continue;
+            }
+            // Restore mode came on while the run went: stop, the record stays queued.
+            if (deletionsHeldErrorOf(error)) {
+              throw error;
+            }
+            const locked = lockedErrorOf(error);
+            problems.push(
+              `${index === 0 ? "primary" : `copy ${index}`}: ${
+                locked
+                  ? `locked${locked.retainUntil ? ` until ${locked.retainUntil.toISOString()}` : ""}`
+                  : safeErrorMessage(error)
+              }`,
+            );
           }
-          const locked = lockedErrorOf(error);
-          problems.push(
-            `${index === 0 ? "primary" : `copy ${index}`}: ${
-              locked
-                ? `locked${locked.retainUntil ? ` until ${locked.retainUntil.toISOString()}` : ""}`
-                : safeErrorMessage(error)
-            }`,
-          );
+        }
+        if (problems.length === 0) {
+          done.push(entry);
+        } else {
+          refused.push({ ...entry, error: problems.join("; ") });
         }
       }
-      if (problems.length === 0) {
-        done.push(entry);
-      } else {
-        refused.push({ ...entry, error: problems.join("; ") });
-      }
-    }
+    });
     await providerDb.transaction(async (tx) => {
       if (done.length > 0) {
         await tx.delete(archiveRecordDeletions).where(
@@ -457,13 +514,20 @@ async function deleteQueuedRecords(
           action: "archive.records.deleted",
           target: null,
           targetType: "archive_item",
-          details: { items: done.map((entry) => entry.itemId), targets: targets.length },
+          details: {
+            items: done.map((entry) => entry.itemId),
+            targets: targets.length,
+          },
         });
       }
       for (const entry of refused) {
         await tx
           .update(archiveRecordDeletions)
-          .set({ attempts: entry.attempts + 1, lastError: entry.error, updatedAt: new Date() })
+          .set({
+            attempts: entry.attempts + 1,
+            lastError: entry.error,
+            updatedAt: new Date(),
+          })
           .where(eq(archiveRecordDeletions.id, entry.id));
         if (entry.attempts === 0) {
           await appendAuditEntry(tx, {

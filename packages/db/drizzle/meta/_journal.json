@@ -624,6 +624,20 @@
       "when": 1793892545308,
       "tag": "0088_archive_capture_gap_spacing",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1793892605308,
+      "tag": "0089_restore_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1793892665308,
+      "tag": "0090_cluster_nodes",
+      "breakpoints": true
     }
   ]
 }

@@ -374,6 +374,7 @@ const GC_SKIP_REASONS = new Set([
   "sample_run",
   "disabled",
   "partial_manifest_unreadable",
+  "restore_mode",
   "backup_running",
   "restore_running",
   "verify_running",

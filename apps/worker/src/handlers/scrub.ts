@@ -69,6 +69,7 @@ import {
   type ArchiveRecordRetention,
   type CatalogChunk,
   type CatalogPack,
+  deletionDecision,
   findMissingManifests,
   type GcBlocker,
   isPersistentlyUnreadable,
@@ -104,6 +105,7 @@ import {
 import { and, asc, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
+import { pruneTenantProgressMarkers } from "../restore-mode.js";
 import { archiveRecordRetention, pgArchiveRecordCatalog } from "./archive-records.js";
 import {
   abandonedCheckpointProbe,
@@ -1234,11 +1236,16 @@ export const scrubHandler: JobHandler<"scrub"> = {
     // Snapshots whose job ended for good but whose own cleanup did not run
     // (a crash between the last attempt and its bookkeeping, or a job
     // cancelled while it waited for a retry): nothing resumes them.
-    const abandonedSnapshots = await discardAbandonedSnapshots(
-      run,
-      { tenantId: ctx.tenantId, storage: ctx.storage, logger: ctx.logger },
-      { tenant: true },
-    );
+    // Deleting is paused after restoring a database dump (restore mode, docs/STORAGE.md):
+    // no abandoned checkpoint, no collection, no orphan sweep. The check itself runs.
+    const deletions = await deletionDecision({ pass: "gc_repack", tenantId: ctx.tenantId });
+    const abandonedSnapshots = deletions.allowed
+      ? await discardAbandonedSnapshots(
+          run,
+          { tenantId: ctx.tenantId, storage: ctx.storage, logger: ctx.logger },
+          { tenant: true },
+        )
+      : 0;
     // A recheck reads a handful of packs again; bringing every copy up to date waits for the next
     // scheduled check.
     const copies =
@@ -1277,7 +1284,7 @@ export const scrubHandler: JobHandler<"scrub"> = {
         previouslyCorrupt: previous.corrupt,
         previouslySuperseded: previous.superseded,
         gc:
-          migrationActive || writeOnce
+          migrationActive || writeOnce || !deletions.allowed
             ? null
             : {
                 cutoff: gcCutoff(ctx.now()),
@@ -1301,11 +1308,21 @@ export const scrubHandler: JobHandler<"scrub"> = {
             { signal: ctx.signal },
           );
     const affectedObjects = await persistReport(run, ctx, report, copies, manifests);
+    // Old progress markers go on mutable targets (docs/STORAGE.md, "Restore mode and progress
+    // markers"); never in restore mode, never on write-once storage.
+    if (deletions.allowed && !writeOnce && mode === "full") {
+      await pruneTenantProgressMarkers(ctx).catch((error: unknown) =>
+        ctx.logger.warn("old progress markers could not be removed", {
+          errorMessage: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
     return {
       summary: {
         mode,
         ...(migrationActive ? { migrationActive: true } : {}),
         ...(writeOnce ? { writeOnce: true } : {}),
+        ...(deletions.allowed ? {} : { restoreMode: true }),
         ...(copies ? { copies } : {}),
         packsTotal: report.packsTotal,
         packsChecked: report.packsChecked,

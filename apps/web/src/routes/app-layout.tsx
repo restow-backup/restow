@@ -28,6 +28,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { toast } from "@/components/ui/sonner";
 import { DisclaimerDialog } from "@/features/disclaimer/disclaimer-dialog";
 import { LiveChannelProvider } from "@/features/history/live/provider";
+import { RestoreModeBanner } from "@/features/installation/restore-mode-banner";
 import { jobsOverviewArea, TenantJobsOverview } from "@/features/tenant-jobs";
 import {
   MaintenanceBanner,
@@ -150,6 +151,8 @@ export function ShellFrame({ children }: { children: React.ReactNode }) {
                   <MaintenanceBanner />
                   <TopBar />
                 </div>
+                {/* Restore mode after restoring a database dump: provider administrators only. */}
+                <RestoreModeBanner />
                 {/* A service that needs a restart: provider administrators only, scrolls away. */}
                 <RestartBanner />
                 <ShellMain>{children}</ShellMain>

@@ -76,7 +76,7 @@ export async function currentDefaultStorage(): Promise<ReadableStorage> {
 }
 
 /** The tenant's secrets, opened inside the caller's tenant transaction. */
-function tenantSecretReader(tx: DbExecutor, tenantId: string): SecretReader {
+export function tenantSecretReader(tx: DbExecutor, tenantId: string): SecretReader {
   return {
     async get(secretId) {
       const [row] = await tx

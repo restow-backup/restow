@@ -353,3 +353,98 @@ longer finish in the night, or a single database host no longer holds the `chunk
 memory, the way on is a second installation for a separate group of customers, not a bigger
 `WORKER_CONCURRENCY`. Restow has no sharding of one installation across databases. Plan the
 split before the first backups, because moving a tenant later means backing it up again.
+
+## Several hosts: worker nodes
+
+When one host no longer has the CPU, memory or network for the backups, more workers can run on
+other hosts: **worker nodes**. They work on the same database and the same storage as the main
+host; nothing is split per node. Real failover replication, a second server that takes over when
+the main host fails (active/passive with PostgreSQL replication), is **in development**. A worker
+node adds capacity only: while the main host is down, the nodes wait for it.
+
+### What stays on the main host (single instance)
+
+- **PostgreSQL** and the **api** with the migrations (its entrypoint migrates as the owner; only
+  one process may).
+- The **web edge** (Caddy) and the address of the installation.
+- The **updater** (it updates the main host only; see below) and the **mounter** (file share
+  backups and NFS shares: their runners use the main host's Docker and the internal `runners`
+  network).
+- The **journal SMTP receiver** of the archive (port 2525 of the api).
+- **Server-folder imports** (`IMPORT_DIR`, the `import` queue: `MAIN_HOST_QUEUES` in
+  `@restow/core`; a node gets `RESTOW_WORKER_EXCLUDE_QUEUES=import`).
+- **Storage inside a Docker volume of the main host** (the default `restow-data` volume, any
+  target under `/data`): no other host reaches it. A join is refused while any target lives there.
+
+Everything else runs on a node: backups, restores, exports, checks, retention, the archive
+capture, Proxmox VE maintenance, repository repairs. With `--standby-scheduler` a node also runs a
+scheduler on stand-by: schedulers elect one leader with an advisory lock in the database, so a
+second one takes over when the main host's stops.
+
+### Requirements
+
+- **The same release** on every host. The updater updates only the main host; after each update
+  run `sudo bash install.sh --update-worker` on every node. The worker and the standby scheduler
+  of a node check at start and every 30 seconds (packages/db `node-guard.ts`) and stop working
+  while the database has migrations their image does not know (heartbeat state
+  `version_mismatch`) or while an update to another release is under way on the main host (an
+  update started from the web interface: the job-start pause in phase `announced` or `fleet`,
+  heartbeat state `update_announced`); Installation › Cluster shows such a node as waiting for an
+  update. A standby scheduler of a node does not stand for election then, and a leader gives its
+  leadership up, so an old-release scheduler never plans jobs on a migrated schema. An update
+  with `install.sh --update` announces nothing: there a node notices only the migrated database,
+  within 30 seconds, and its worker then shuts down as on any stop.
+- **The database over the network, with TLS.** By default PostgreSQL is not published at all. On
+  the main host, `sudo bash install.sh --allow-worker <address of the worker host>
+  [--database-address <address of the main host>]` creates a CA and a server certificate in
+  `postgres-tls/`, writes a `pg_hba.conf` that admits only the node logins (`+restow_nodes`) over
+  TLS with SCRAM and only from that address, publishes the port on the given address in
+  `docker-compose.override.yml` and sets `RESTOW_CLUSTER_DB_ADDRESS`. `--disallow-worker
+  <address>` takes it back; the last one unpublishes the port. Open the port in the firewall for
+  the worker hosts only.
+- **Every storage target reachable from the node:** S3 from anywhere; a directory target at the
+  same path on the node (mount the same NFS export there, for example); never a Docker volume.
+
+### Joining
+
+1. Installation › Cluster (owners only, with a recent sign-in) shows the nodes, these
+   requirements per target and how the database is reachable.
+2. It issues a one-time **join token** (`rsj_...`): shown once, single use, valid for 15 minutes
+   to 24 hours (one hour by default), optionally bound to the node's address, revocable, audited
+   (`cluster.join_token.created`, `.revoked`). Only a keyed hash of it is stored (HMAC-SHA256 with
+   a key the api derives from `BETTER_AUTH_SECRET`, which no node gets): a row that the api did
+   not write, planted by anyone who could write the table, matches no token.
+3. On the new host: `sudo bash install.sh --join https://<installation> --join-token <token>
+   --node-name <name> [--standby-scheduler] [--join-ca <ca.crt>]`. The script checks the release
+   of the installation (`GET /api/v1/cluster-join/version`, HTTPS only), downloads and verifies
+   the signed `docker-compose.worker.yml` of that release, and redeems the token once over TLS
+   (`POST /api/v1/cluster-join`). The token itself carries no secret: the answer does, over that
+   connection only, and install.sh writes it into `/opt/restow-node/.env` (mode 0600).
+4. It runs `restow node check` (TLS, roles, schema version, master key, every storage target) and
+   starts the worker. The node appears under Installation › Cluster (`cluster.node.joined`).
+
+### What a node gets, and the security model
+
+The join's answer is an allowlist: the node's **own two database logins**
+(`restow_node_<id>_app` and `_inst`, members of `restow_nodes`, while `session_user` still names
+the node), the database's CA, `RESTOW_MASTER_KEY`, the
+storage settings of the environment (`STORAGE_*`, `S3_*`), `ENTRA_*` when set, the image, the
+address and the node's id and name. Never the owner's connection (`DATABASE_MIGRATION_URL`), the
+main host's own logins or `BETTER_AUTH_SECRET`.
+
+The `_app` login switches to the tenant role at login (Row Level Security as on the main host).
+The `_inst` login does **not** get the api's installation role: it switches to the **node role**
+`<installation role>_node` (packages/db `roles.ts`, `nodeInstallationRoleName`), NOLOGIN with
+BYPASSRLS for the cross-tenant work of a worker, created by the first join and renewed by every
+migration. It has the installation role's table rights minus what only the api needs: nothing on
+better-auth's tables (`user`, `account`, `session`, `two_factor`, `passkey`, `verification`,
+...), the provider team (`provider_members`, `provider_member_tenants`) or the join tokens, only a
+read of `cluster_nodes` (`restow node check`), no CREATE on the database, and it owns nothing (the
+pg-boss tables are the installation role's; it reads and writes their rows). A worker host that is
+taken over can therefore neither plant a join token that survives its removal nor change a
+password hash, a second factor or a provider membership to sign in as an owner.
+
+Removing a node (Installation › Cluster) drops its logins and ends their sessions
+(`cluster.node.removed`). What it knew cannot be taken back: a node holds the master key, which
+opens every backup and cannot be rotated yet, and the storage credentials. Join only hosts you
+trust with the backups as much as the main host.

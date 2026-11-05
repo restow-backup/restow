@@ -495,7 +495,9 @@ export class SnapshotWriter {
   }
 
   private async deletePartial(): Promise<void> {
-    await deletePartialManifest(this.cleanupEnv(), this.snapshotId);
+    // This writer has just committed the snapshot: its checkpoint is superseded by the manifest
+    // it wrote, so it goes in restore mode as well (a pass for rows created after now).
+    await deletePartialManifest(this.cleanupEnv(), this.snapshotId, this.ctx.now());
   }
 
   /**

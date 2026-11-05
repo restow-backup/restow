@@ -42,6 +42,7 @@
  */
 import type { ProgressReporter, RecoveryReadiness, StorageTargets } from "../engine/types.js";
 import { buildCause } from "../failures/classify.js";
+import { deletionDecision, deletionsHeldErrorOf } from "../storage/deletion-guard.js";
 import type { CatalogPack, PackReadFailure, PackUnreadableState } from "./catalog.js";
 import { throwIfAborted } from "./errors.js";
 import {
@@ -73,7 +74,13 @@ import { newSeed, seededRandom } from "./random.js";
 import { type ReadinessReason, worstReadiness } from "./readiness.js";
 import { READINESS_REPORT_FORMAT } from "./report.js";
 
-export type GcSkipReason = "sample_run" | "disabled" | "partial_manifest_unreadable" | GcBlocker;
+export type GcSkipReason =
+  | "sample_run"
+  | "disabled"
+  | "partial_manifest_unreadable"
+  /** Deleting is paused after restoring a database dump (storage/deletion-guard.ts). */
+  | "restore_mode"
+  | GcBlocker;
 
 /** The run of failed reads of an unreadable pack, as a report states it. */
 export type UnreadableRun = {
@@ -190,6 +197,9 @@ async function runGc(
   if (blocker) {
     return { status: "skipped", reason: blocker };
   }
+  if (!(await deletionDecision({ pass: "gc_repack", tenantId: env.tenantId })).allowed) {
+    return { status: "skipped", reason: "restore_mode" };
+  }
   const held = await chunksHeldByPartialManifests(env.storage, env.tenantId, env.keys, {
     abandoned: options.gc.abandonedCheckpoint,
     logger: env.logger,
@@ -200,15 +210,24 @@ async function runGc(
     });
     return { status: "skipped", reason: "partial_manifest_unreadable" };
   }
-  const summary = await collectGarbage(env, {
-    cutoff: options.gc.cutoff,
-    keep: held.ids,
-    blockedBy: options.gc.blockedBy,
-    exclude: new Set(flagged.map((pack) => pack.path)),
-    minDeadFraction: options.gc.minDeadFraction,
-    packIdGenerator: options.packIdGenerator,
-    supersededGraceMs: options.gc.supersededGraceMs,
-  });
+  let summary: GcSummary;
+  try {
+    summary = await collectGarbage(env, {
+      cutoff: options.gc.cutoff,
+      keep: held.ids,
+      blockedBy: options.gc.blockedBy,
+      exclude: new Set(flagged.map((pack) => pack.path)),
+      minDeadFraction: options.gc.minDeadFraction,
+      packIdGenerator: options.packIdGenerator,
+      supersededGraceMs: options.gc.supersededGraceMs,
+    });
+  } catch (error) {
+    // Restore mode came on while collection was starting.
+    if (deletionsHeldErrorOf(error)) {
+      return { status: "skipped", reason: "restore_mode" };
+    }
+    throw error;
+  }
   return { status: "completed", ...summary };
 }
 

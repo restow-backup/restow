@@ -1103,6 +1103,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("wait_automatic"), step("worker_resources")],
   },
+  "job.restore_mode_hold": {
+    category: "system",
+    transient: false,
+    retryable: true,
+    steps: () => [step("start_again_if_needed")],
+  },
   unknown: {
     category: "system",
     transient: false,

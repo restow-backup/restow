@@ -27,6 +27,14 @@ import {
 } from "./protocol.js";
 import type { Redactor } from "./redact.js";
 import { RestartRefusedError, type ServiceRestarter } from "./restart.js";
+import { type DatabaseRestorer, RestoreRefusedError } from "./restore.js";
+import {
+  restoreAbortSchema,
+  restoreActivateSchema,
+  restoreStartSchema,
+  uploadStartSchema,
+} from "./restore-protocol.js";
+import { type DumpUploads, UploadError } from "./uploads.js";
 
 /**
  * The updater's HTTP API (JSON, internal Docker network only):
@@ -45,6 +53,13 @@ import { RestartRefusedError, type ServiceRestarter } from "./restart.js";
  *   POST /v1/database/old-copies/:id/remove   remove an old copy a move left: { requestedBy }
  *   GET  /v1/dumps/:file     download a pre-update dump (streamed)
  *   DELETE /v1/dumps/:file   delete a pre-update dump
+ *   POST /v1/dumps/uploads                  begin uploading a dump for a restore: { bytes, sha256 }
+ *   PUT  /v1/dumps/uploads/:id?offset=N     one part (at most 32 MiB, application/octet-stream)
+ *   POST /v1/dumps/uploads/:id/complete     check the checksum; the upload becomes a dump
+ *   POST /v1/database/restore               restore a dump into the scratch database and prepare
+ *                                           it (restore.ts; 202): { dump, requestedBy }
+ *   POST /v1/database/restore/activate      put the prepared restore live: { acceptUnreachable, requestedBy }
+ *   POST /v1/database/restore/abort         drop it again: { requestedBy }
  *
  * Everything under /v1 needs `Authorization: Bearer <shared secret>`. Errors are
  * `{ "code": "...", "message": "..." }`; nothing in a response carries the secret.
@@ -74,6 +89,10 @@ export interface ServerDeps {
   database?: DatabaseMover;
   /** The pre-update dumps, for download and deletion; without it the routes are not found. */
   dumps?: DumpStore;
+  /** A restore from a dump (restore.ts); without it the restore routes are not found. */
+  restorer?: DatabaseRestorer;
+  /** Dumps uploaded for a restore (uploads.ts); without it the upload routes are not found. */
+  uploads?: DumpUploads;
 }
 
 const actorBodySchema = z
@@ -136,6 +155,7 @@ export function buildServer(deps: ServerDeps): Hono {
       restart: deps.restarter?.view() ?? null,
       projectDir: deps.projectDir ?? null,
       database: deps.database ? await deps.database.view(refresh) : null,
+      restore: deps.restorer?.view() ?? null,
       serverTime: deps.clock.now().toISOString(),
     };
   };
@@ -364,6 +384,7 @@ export function buildServer(deps: ServerDeps): Hono {
   /** The dump a `needs_attention` run still refers to: the operator restores from it. */
   const protectedDump = (): string | null =>
     deps.engine.view().history[0]?.recovery?.dumpFile ?? null;
+  const restoreDump = (): string | null => deps.restorer?.protectedDump() ?? null;
 
   app.get("/v1/dumps/:file", async (c) => {
     const dumps = deps.dumps;
@@ -411,12 +432,147 @@ export function buildServer(deps: ServerDeps): Hono {
         "The last update needs this dump to restore the database (it ended needing attention).",
       );
     }
+    if (restoreDump() === name) {
+      return fail("blocked", "A restore uses this dump.");
+    }
     if (!(await dumps.remove(name))) {
       return fail("not_found", "There is no such dump.");
     }
     deps.preflight.invalidate();
     deps.logger.info(`The dump ${name} was deleted, as an administrator asked.`);
     return c.json(await stateView(false));
+  });
+
+  // -- Restore from a dump (restore.ts, uploads.ts; the setup wizard) -------------
+
+  const uploadFailed = (error: unknown): Response => {
+    if (error instanceof UploadError) {
+      return fail(error.code, error.message);
+    }
+    throw error;
+  };
+
+  app.post("/v1/dumps/uploads", async (c) => {
+    const uploads = deps.uploads;
+    if (!uploads) {
+      return fail("not_found", "This updater takes no uploads.");
+    }
+    if (deps.restorer?.active()) {
+      return fail("busy", "A restore is running.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = uploadStartSchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    try {
+      return c.json(await uploads.start(parsed.data), 201);
+    } catch (error) {
+      return uploadFailed(error);
+    }
+  });
+
+  app.put("/v1/dumps/uploads/:id", async (c) => {
+    const uploads = deps.uploads;
+    if (!uploads) {
+      return fail("not_found", "This updater takes no uploads.");
+    }
+    const offset = Number(c.req.query("offset") ?? "");
+    if (!Number.isSafeInteger(offset) || offset < 0) {
+      return fail("invalid_request", "The part needs its offset (?offset=N).");
+    }
+    try {
+      return c.json(await uploads.append(c.req.param("id"), offset, c.req.raw.body));
+    } catch (error) {
+      return uploadFailed(error);
+    }
+  });
+
+  app.post("/v1/dumps/uploads/:id/complete", async (c) => {
+    const uploads = deps.uploads;
+    if (!uploads) {
+      return fail("not_found", "This updater takes no uploads.");
+    }
+    try {
+      const dump = await uploads.complete(c.req.param("id"));
+      deps.preflight.invalidate();
+      return c.json({ dump });
+    } catch (error) {
+      return uploadFailed(error);
+    }
+  });
+
+  const restoreFailed = (error: unknown): Response => {
+    if (error instanceof RestoreRefusedError) {
+      return fail(error.code, error.message);
+    }
+    throw error;
+  };
+
+  app.post("/v1/database/restore", async (c) => {
+    const restorer = deps.restorer;
+    if (!restorer) {
+      return fail("not_found", "This updater cannot restore a dump.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = restoreStartSchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    try {
+      await restorer.start(parsed.data);
+    } catch (error) {
+      return restoreFailed(error);
+    }
+    return c.json(await stateView(false), 202);
+  });
+
+  app.post("/v1/database/restore/activate", async (c) => {
+    const restorer = deps.restorer;
+    if (!restorer) {
+      return fail("not_found", "This updater cannot restore a dump.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = restoreActivateSchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    try {
+      await restorer.activate(parsed.data);
+    } catch (error) {
+      return restoreFailed(error);
+    }
+    return c.json(await stateView(false), 202);
+  });
+
+  app.post("/v1/database/restore/abort", async (c) => {
+    const restorer = deps.restorer;
+    if (!restorer) {
+      return fail("not_found", "This updater cannot restore a dump.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = restoreAbortSchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    try {
+      await restorer.abort(parsed.data);
+    } catch (error) {
+      return restoreFailed(error);
+    }
+    return c.json(await stateView(false), 202);
   });
 
   app.notFound(() => fail("not_found", "There is nothing at this path."));

@@ -6,6 +6,7 @@ import {
   publicMoveSchema,
   updateSpaceSchema,
 } from "./database-protocol.js";
+import { restoreRecordSchema } from "./restore-protocol.js";
 
 /**
  * The contract between the updater process (ROLE=updater, this directory), the
@@ -573,6 +574,11 @@ export const stateViewSchema = z.object({
    * an updater that predates it (0.4.0).
    */
   database: databaseViewSchema.nullable().default(null),
+  /**
+   * A restore from a database dump of the setup wizard (restore.ts); null when there was none
+   * since the updater's state was created, and from an updater that predates it (0.5.0).
+   */
+  restore: restoreRecordSchema.nullable().default(null),
   serverTime: iso,
 });
 export type StateView = z.infer<typeof stateViewSchema>;

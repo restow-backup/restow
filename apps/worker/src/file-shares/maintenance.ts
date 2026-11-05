@@ -24,6 +24,7 @@ import {
   DEFAULT_SCHEDULE_TIMEZONE,
   DEFAULT_SHARE_CHECK_SUBSET_PERCENT,
   DEFAULT_SHARE_RETENTION,
+  deletionDecision,
   type FileShareJobPayload,
   isValidTimeZone,
   listRepositoryObjects,
@@ -39,6 +40,7 @@ import {
   restoreTestSamples,
   SHARE_NO_SAMPLES,
   splitLockedSnapshots,
+  withDeletionPermit,
   withRepository,
 } from "@restow/core";
 import {
@@ -264,7 +266,24 @@ export async function shareRetention(
     );
     return;
   }
-  await withShareMaintenanceLock(deps, share.id, "exclusive", () => retain(deps, share, access));
+  // Restore mode after restoring a database dump (docs/STORAGE.md): the restored database lacks
+  // the restore points and holds made after the dump; restic forget and prune do not run.
+  const deletions = await deletionDecision({
+    pass: "file_share_retention",
+    tenantId: share.tenantId,
+  });
+  if (!deletions.allowed) {
+    deps.runtime.logger.warn("file share retention held: deleting is paused", {
+      tenantId: share.tenantId,
+      fileShareId: share.id,
+      reason: deletions.reason,
+    });
+    return;
+  }
+  // restic's deletes through the loopback carry this permit (storage/deletion-guard.ts).
+  await withDeletionPermit({ pass: "file_share_retention", tenantId: share.tenantId }, () =>
+    withShareMaintenanceLock(deps, share.id, "exclusive", () => retain(deps, share, access)),
+  );
 }
 
 async function retain(

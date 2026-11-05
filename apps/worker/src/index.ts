@@ -75,6 +75,7 @@ import {
   ENDPOINT_QUEUES,
   EnvKeyProvider,
   FILE_SHARE_QUEUES,
+  installDeletionEnforcement,
   type KeyProvider,
   kekFromBase64,
   LocalStorageBackend,
@@ -92,10 +93,12 @@ import {
   dbPoolSizesFromEnv,
   grantQueueAccess,
   heartbeatStore,
+  nodeIdentity,
   readJobStartPause,
   retryConcurrentSetup,
   ServiceHeartbeatReporter,
   safeErrorMessage,
+  serviceVersion,
   workerPoolWarning,
 } from "@restow/db";
 import { configureProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
@@ -131,10 +134,26 @@ import { retentionTasks } from "./handlers/retention.js";
 import { emitJobWebhook, webhooksHandler } from "./handlers/webhooks.js";
 import { JobPauseGate } from "./job-pause.js";
 import { startManifestConversion } from "./manifest-conversion.js";
+import {
+  consumedHandlers,
+  excludedQueues,
+  idleWhileHeld,
+  nodeHold,
+  startNodeWatch,
+} from "./node-guard.js";
 import { startPveMaintenance } from "./pve/maintenance.js";
 import { pgBossQueueOptions, QUEUE_NAMES, queuePriority } from "./queues.js";
 import { startJobReconciler } from "./reconcile.js";
 import { raiseJobFinished } from "./reporting.js";
+import {
+  checkAtStart,
+  configureRestoreModeRuntime,
+  createWorkerRestoreModeGuard,
+  RestoreModeJobHold,
+  reportKeyMirrorFinding,
+  resolveKeyMirrorFinding,
+  withTenantProgressMarkers,
+} from "./restore-mode.js";
 import { configureSuspicionHolds } from "./suspicion/holds.js";
 import { startSuspicionScan } from "./suspicion/scan.js";
 
@@ -280,6 +299,45 @@ async function main(): Promise<void> {
   const db = createDb(config.databaseUrl, { max: config.dbPool.app });
   const providerDb = createDb(config.databaseProviderUrl, { max: config.dbPool.installation });
   const roles = await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
+  // A worker node on another host (node-guard.ts, docs/SIZING.md): queues of the main host are
+  // left to it, and an image older than the database, or one the main host is being updated
+  // away from, does no work at all.
+  const node = nodeIdentity();
+  const excluded = excludedQueues();
+  const ownVersion = serviceVersion();
+  if (node.nodeId) {
+    const hold = await nodeHold(providerDb.$client, ownVersion);
+    if (hold) {
+      logger.error(
+        hold.reason === "version_mismatch"
+          ? "the database belongs to a newer release than this node's image: no work until the node is updated (install.sh --update-worker)"
+          : "the main host is being updated to another release: no work until it is done or the node is updated (install.sh --update-worker)",
+        {
+          reason: hold.reason,
+          applied: hold.applied,
+          shipped: hold.shipped,
+          updateTo: hold.updateTo,
+          node: node.nodeName,
+        },
+      );
+      const idle = new ServiceHeartbeatReporter({
+        store: heartbeatStore(providerDb),
+        role: "worker",
+        details: () => ({
+          state: hold.reason,
+          applied: hold.applied,
+          shipped: hold.shipped,
+        }),
+      });
+      await idle.start();
+      await idleWhileHeld({
+        check: () => nodeHold(providerDb.$client, ownVersion),
+        beat: () => idle.beat(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      });
+      await idle.stop();
+    }
+  }
   // This process has just started, so the restart requests recorded for its role are
   // followed (packages/db restart-requests.ts); cleared before it does any work of its own.
   try {
@@ -313,6 +371,23 @@ async function main(): Promise<void> {
   });
   const keyProvider = createKeyProvider(config);
   const shutdown = new AbortController();
+  // Restore mode after restoring a database dump (restore-mode.ts, docs/STORAGE.md): every
+  // storage delete goes through the deletion guard, which compares the tenant's storage with
+  // the database first and refuses while restore mode is on.
+  const restoreMode = createWorkerRestoreModeGuard({
+    providerDb,
+    storageOf: (tenantId) => storage.get(tenantId),
+    logger: logger.child({ component: "restore-mode" }),
+    processStartedAt: startedAt,
+  });
+  installDeletionEnforcement(restoreMode.guard);
+  configureRestoreModeRuntime({ providerDb });
+  const stopRestoreModeWatch = restoreMode.guard.start();
+  const jobHold = new RestoreModeJobHold(
+    providerDb,
+    () => restoreMode.guard.restoreMode(),
+    logger.child({ component: "restore-mode" }),
+  );
   // New job starts paused for an update (#46, job-pause.ts): queues are taken off, and in
   // drain mode running jobs checkpoint and stop. Finishing and watching what runs stays on.
   const jobPause = new JobPauseGate({
@@ -324,6 +399,8 @@ async function main(): Promise<void> {
       FILE_SHARE_QUEUES.purge,
       ENDPOINT_QUEUES.monitor,
     ]),
+    // Restore mode holds every job created before it began, on every queue.
+    hold: (queue, job) => jobHold.holdIfBeforeRestore(queue, job),
   });
 
   const keyrings = new TenantCache<TenantKeyring>((tenantId) =>
@@ -336,7 +413,7 @@ async function main(): Promise<void> {
     const run = tenantRunner(db, tenantId);
     const keys = await keyrings.get(tenantId);
     const tenantLogger = logger.child({ tenantId });
-    const targets = await resolveTenantStorage({
+    const resolved = await resolveTenantStorage({
       run,
       tenantId,
       secretReader: new PgSecretReader(run, tenantId, keys),
@@ -344,7 +421,35 @@ async function main(): Promise<void> {
       defaultWriteOnce: () => installationDefault.writeOnce(),
       logger: tenantLogger,
     });
-    await mirrorTenantKeys({ run, tenantId, storage: targets, logger: tenantLogger });
+    // Every write of the tenant's data records the database's progress first (progress markers).
+    const targets = withTenantProgressMarkers(resolved, {
+      tenantId,
+      providerDb,
+      installationId: () => restoreMode.store.installationId(),
+      version: process.env.RESTOW_VERSION ?? null,
+      // A marker value of this installation taken already: the storage is ahead; restore
+      // mode comes on and the value is lifted above the storage's.
+      onCollision: async (id, target, seq, ours) => {
+        await restoreMode.guard.markerCollision(id, target, seq, ours);
+      },
+      // The first allocation for the tenant in this process waits for one comparison of its
+      // targets (the original backends: the comparison only reads).
+      beforeFirstAllocation: (id, compare) =>
+        restoreMode.guard.compareBeforeFirstAllocation(id, compare),
+    });
+    // A stored key that differs from the database's is never overwritten; it is reported.
+    await mirrorTenantKeys({
+      run,
+      tenantId,
+      storage: targets,
+      logger: tenantLogger,
+      unwraps: async (wrapped) => {
+        await keyProvider.unwrapDek(wrapped);
+        return true;
+      },
+      report: (finding) => reportKeyMirrorFinding(providerDb, finding, tenantLogger),
+      resolve: (input) => resolveKeyMirrorFinding(providerDb, input, tenantLogger),
+    });
     return targets;
   });
 
@@ -425,8 +530,13 @@ async function main(): Promise<void> {
       { onRetry: onSetupRetry },
     );
   }
+  // Before the first job: is any tenant's storage ahead of the database (a restored dump)?
+  await checkAtStart(restoreMode.guard, providerDb, logger.child({ component: "restore-mode" }));
+  const consumed = consumedHandlers(registry.list(), excluded);
   logger.info("worker started", {
-    queues: [...QUEUE_NAMES],
+    queues: [...QUEUE_NAMES].filter((queue) => !excluded.has(queue)),
+    excludedQueues: [...excluded],
+    node: node.nodeName,
     handlers: registry.queues(),
     storageTarget: config.storage.target,
     defaultCopies: defaultStorage.copies.length,
@@ -442,7 +552,7 @@ async function main(): Promise<void> {
     logger.warn(poolWarning, { concurrency: config.concurrency, dbPoolMax: config.dbPool.app });
   }
 
-  for (const handler of registry.list()) {
+  for (const handler of consumed) {
     const slots = handler.concurrency ?? config.concurrency;
     for (let slot = 0; slot < slots; slot++) {
       await gatedBoss.work(
@@ -457,7 +567,7 @@ async function main(): Promise<void> {
       priority: queuePriority(handler.queue),
     });
   }
-  const idle = QUEUE_NAMES.filter((queue) => !registry.get(queue));
+  const idle = QUEUE_NAMES.filter((queue) => !registry.get(queue) && !excluded.has(queue));
   if (idle.length > 0) {
     logger.warn("queues without a handler in this build", { queues: idle });
   }
@@ -471,18 +581,26 @@ async function main(): Promise<void> {
   );
 
   // File shares (docs/FILESHARES.md 8): queued runs, the dispatcher that starts runners through
-  // the mounter, the monitor, retention, checks, restore checks, the catalog and the purge.
-  await registerFileShareJobs(
-    gatedBoss,
-    {
-      db,
-      providerDb,
-      runtime,
-      startsPaused: () => jobPause.paused(),
-      runner: runnerClientFromEnv(process.env, { demo: process.env.RESTOW_DEMO === "true" }),
-    },
-    { pollingIntervalSeconds: config.pollSeconds },
-  );
+  // the mounter, the monitor, retention, checks, restore checks, the catalog and the purge. The
+  // mounter runs on the main host only, so a worker node leaves them to the main host's worker.
+  if (!node.nodeId) {
+    await registerFileShareJobs(
+      gatedBoss,
+      {
+        db,
+        providerDb,
+        runtime,
+        startsPaused: () => jobPause.paused(),
+        // Restore mode: runs from the restored dump are held, never started (file-shares/hold.ts).
+        holdRunsBefore: async () => {
+          const state = await restoreMode.guard.restoreMode();
+          return state.active ? state.holdJobsBefore : null;
+        },
+        runner: runnerClientFromEnv(process.env, { demo: process.env.RESTOW_DEMO === "true" }),
+      },
+      { pollingIntervalSeconds: config.pollSeconds },
+    );
+  }
 
   // Proxmox VE guests (docs/PVE.md): job planning, retention, verify and restore checks,
   // one pass every five minutes in one worker at a time.
@@ -515,7 +633,10 @@ async function main(): Promise<void> {
     // Installation-level (packages/db roles.ts): the installation pool.
     store: heartbeatStore(providerDb),
     role: "worker",
-    details: () => ({ state: stopping ? "stopping" : "running", queues: registry.queues() }),
+    details: () => ({
+      state: stopping ? "stopping" : "running",
+      queues: consumed.map((handler) => handler.queue),
+    }),
     onError: (error) => {
       logger.warn("heartbeat failed", { errorMessage: safeErrorMessage(error) });
     },
@@ -529,6 +650,8 @@ async function main(): Promise<void> {
     logger: logger.child({ component: "reconcile" }),
     // A job it ends for good is announced like one a worker finished (webhook, bell).
     onJobFinished: runtime.onJobFinished,
+    // Restore mode: orphans from before the restored dump are cancelled, not requeued.
+    hold: jobHold,
   });
 
   const stop = async (signal: NodeJS.Signals): Promise<void> => {
@@ -542,6 +665,7 @@ async function main(): Promise<void> {
     shutdown.abort("shutdown");
     jobPause.stop();
     stopReconciler();
+    stopRestoreModeWatch();
     try {
       await heartbeat.beat();
       await boss.stop({ graceful: true, wait: true, timeout: config.shutdownTimeoutMs });
@@ -561,6 +685,27 @@ async function main(): Promise<void> {
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, (received) => {
       void stop(received);
+    });
+  }
+  // A node stops working once the main host is being updated to another release or was
+  // updated past its image; it starts again into the idle state above (restart: unless-stopped)
+  // until the hold is gone or it is updated as well.
+  if (node.nodeId) {
+    startNodeWatch({
+      check: () => nodeHold(providerDb.$client, ownVersion),
+      onHold: (hold) => {
+        logger.error("the main host is being or was updated to another release; stopping work", {
+          reason: hold.reason,
+          applied: hold.applied,
+          shipped: hold.shipped,
+          updateTo: hold.updateTo,
+        });
+        void stop("SIGTERM");
+      },
+      onError: (error) =>
+        logger.warn("the node's hold could not be checked", {
+          errorMessage: safeErrorMessage(error),
+        }),
     });
   }
 }

@@ -93,7 +93,12 @@ export async function raiseUpdateAvailable(
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 export interface InstallationEventInput {
-  event: "update.available" | "installation.disk_low" | "installation.app_secret_expiring";
+  event:
+    | "update.available"
+    | "installation.disk_low"
+    | "installation.app_secret_expiring"
+    | "installation.restore_mode"
+    | "installation.key_mirror_conflict";
   level: "info" | "warning" | "error";
   /** English, for the log and the delivery log; the bell and the mails translate the event. */
   message: string;

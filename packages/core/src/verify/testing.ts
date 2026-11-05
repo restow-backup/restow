@@ -21,6 +21,11 @@ import type {
 } from "../engine/types.js";
 import type { ManifestObject } from "../manifest.js";
 import type { HeadResult, StorageBackend } from "../storage/backend.js";
+import {
+  assertDeletionPermitted,
+  assertKeyWritePermitted,
+  noteStorageWrite,
+} from "../storage/deletion-guard.js";
 
 export const TEST_TENANT = "0f0e0d0c-0b0a-4908-8706-050403020100";
 export const TEST_DEK: Dek = { version: 1, material: Buffer.alloc(32, 0x3c) };
@@ -54,7 +59,9 @@ export class MemoryStorage implements StorageBackend {
 
   async put(key: string, data: Buffer | Readable): Promise<void> {
     const bytes = Buffer.isBuffer(data) ? Buffer.from(data) : await collect(data);
+    await assertKeyWritePermitted(key, bytes, async () => this.files.get(key)?.bytes ?? null);
     this.files.set(key, { bytes, modified: this.clock() });
+    noteStorageWrite(key);
   }
 
   async get(key: string): Promise<Buffer> {
@@ -95,6 +102,7 @@ export class MemoryStorage implements StorageBackend {
   }
 
   async delete(key: string): Promise<void> {
+    assertDeletionPermitted(key);
     this.files.delete(key);
   }
 

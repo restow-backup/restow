@@ -68,7 +68,7 @@ import {
   storageGeneration,
   tenants,
 } from "@restow/db";
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import { processDefaultStorage } from "../default-storage.js";
 import {
   freshTenantStorage,
@@ -86,6 +86,7 @@ import {
   shareRepositoryPrefix,
 } from "./common.js";
 import { endRun } from "./finish.js";
+import { holdFileShareRun } from "./hold.js";
 
 export const DISPATCH_INTERVAL_MS = 15_000;
 const LOCK_KEY = 0x66736431; // "fsd1"
@@ -98,6 +99,8 @@ export interface DispatchSummary {
   requeued: number;
   skipped: number;
   upToDate: number;
+  /** Queued before restore mode's hold point: from the restored dump, cancelled, not started. */
+  held: number;
 }
 
 type StartOutcome = "started" | "failed" | "requeued" | "skipped" | "up_to_date";
@@ -110,7 +113,29 @@ const isUniqueViolation = (error: unknown): boolean =>
 
 /** One dispatcher pass: start what the limits allow. */
 export async function dispatchPass(deps: FileShareDeps): Promise<DispatchSummary> {
-  const summary: DispatchSummary = { started: 0, failed: 0, requeued: 0, skipped: 0, upToDate: 0 };
+  const summary: DispatchSummary = {
+    started: 0,
+    failed: 0,
+    requeued: 0,
+    skipped: 0,
+    upToDate: 0,
+    held: 0,
+  };
+  // Restore mode: a run queued before its hold point is from the restored dump (a restore into
+  // the share or a mirror copy that ran already in the timeline the database lost). It is never
+  // started; an administrator starts it again if it is still needed.
+  const holdBefore = (await deps.holdRunsBefore?.()) ?? null;
+  if (holdBefore) {
+    const stale = await deps.providerDb
+      .select({ id: fileShareRuns.id, tenantId: fileShareRuns.tenantId, kind: fileShareRuns.kind })
+      .from(fileShareRuns)
+      .where(and(eq(fileShareRuns.status, "queued"), lt(fileShareRuns.queuedAt, holdBefore)));
+    for (const run of stale) {
+      if (await holdFileShareRun(deps, run)) {
+        summary.held++;
+      }
+    }
+  }
   if (!deps.runner.enabled) {
     return summary;
   }
@@ -392,6 +417,10 @@ function targetLabel(target: ResolvedStorageTarget): string {
  * prefix without `config` and without any restore point referring to it (a first run that
  * straddled a storage change, leftovers an operator cannot delete there) is left where it is: the
  * repository begins under a fresh prefix (`file-shares/<id>.chain-<n>/`), recorded on the share.
+ *
+ * A complete repository at the prefix for which the database holds no password (after restoring
+ * a database dump taken before the share's first backup) is never given a new password: it and
+ * its sealed password document stay, and the repository begins under a fresh prefix too.
  */
 export async function ensureShareRepository(
   deps: FileShareDeps,
@@ -425,6 +454,20 @@ export async function ensureShareRepository(
     fresh = await freshRepositoryPrefix(primary, "file_share", share.id, prefix);
     deps.runtime.logger.warn(
       "file share repository: leftovers on write-once storage stay where they are, a new repository begins under a fresh prefix",
+      { tenantId: share.tenantId, fileShareId: share.id, previousPrefix: prefix, prefix: fresh },
+    );
+    prefix = fresh;
+    hasConfig = false;
+  }
+  if (hasConfig && !share.repositorySecretId) {
+    // A complete repository the database has no password for: its first backup ran after the
+    // database dump that was restored (or the share's secret is gone). A new password would not
+    // open it, and the sealed password document next to it may be the only copy of the right
+    // one. The repository and its document stay as they are; this share's backups begin under a
+    // fresh prefix next to it.
+    fresh = await freshRepositoryPrefix(primary, "file_share", share.id, prefix);
+    deps.runtime.logger.error(
+      "file share repository: storage holds a repository the database has no password for; it is kept, a new repository begins under a fresh prefix",
       { tenantId: share.tenantId, fileShareId: share.id, previousPrefix: prefix, prefix: fresh },
     );
     prefix = fresh;
@@ -915,7 +958,10 @@ export function startFileShareDispatcher(
       }
       try {
         const summary = await dispatchPass(deps);
-        if (summary.started + summary.failed + summary.requeued + summary.upToDate > 0) {
+        if (
+          summary.started + summary.failed + summary.requeued + summary.upToDate + summary.held >
+          0
+        ) {
           deps.runtime.logger.info("file share dispatcher pass", { ...summary });
         }
       } finally {
