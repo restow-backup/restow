@@ -34,11 +34,11 @@
  * copy of every message not read again yet, until the new read covers the
  * folder, so the restore point is never worse than the last one and the
  * re-read goes on where it stopped); a dropped connection is re-opened. The
- * job checkpoints (packs, partial manifest, cursor) after every folder that
- * changed something and, while downloading, every few hundred messages but at
- * most once a minute, so a restarted worker resumes without downloading
- * anything it already stored. Every checkpoint rewrites the whole object list,
- * so an unchanged folder (redone cheaply after a crash) gets none.
+ * job checkpoints (packs, partial manifest, cursor) after a folder that
+ * changed something and, while downloading, every few hundred messages, both
+ * at most once a minute, so a restarted worker redoes at most a minute of
+ * work. Every checkpoint rewrites the whole object list, so an unchanged
+ * folder (redone cheaply after a crash) gets none.
  */
 import { chunkDataStats, JobAbortedError } from "../../engine/chunkstore.js";
 import { SnapshotWriter } from "../../engine/snapshot.js";
@@ -1637,10 +1637,24 @@ class BackupRun {
     );
   }
 
+  /**
+   * The checkpoint after a folder that changed something: at most once per
+   * `checkpointMinIntervalMs` as well. A first backup of thousands of small folders would
+   * otherwise rewrite the growing object list once per folder (quadratic again); a crash
+   * redoes at most that interval's folders, and their downloads dedupe.
+   */
+  private folderCheckpointDue(): boolean {
+    return this.ctx.now().getTime() - this.lastCheckpointAt >= this.limits.checkpointMinIntervalMs;
+  }
+
   private async checkpoint(reason: "interval" | "folder" | "failure"): Promise<void> {
     await this.gate.exclusive(async () => {
       if (reason === "interval" && !this.checkpointDue()) {
         return; // another worker just checkpointed
+      }
+      if (reason === "folder" && !this.folderCheckpointDue()) {
+        this.logger.debug("imap folder checkpoint deferred (one came less than the interval ago)");
+        return;
       }
       await this.writer.checkpoint(this.cursor());
       this.messagesSinceCheckpoint = 0;

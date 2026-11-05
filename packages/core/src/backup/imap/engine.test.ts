@@ -578,6 +578,47 @@ describe("ImapBackupEngine", () => {
       expect(checkpoints.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
 
+    it("checkpoints a first backup of many small folders by time, not once per folder", async () => {
+      for (let f = 1; f <= 200; f++) {
+        const folder = server.addFolder(`Archiv ${String(f).padStart(3, "0")}`);
+        folder.add(eml(`a${f}`));
+        folder.add(eml(`b${f}`));
+      }
+      // 50 ms per message: 200 folders of 2 messages take 20 s, less than one interval.
+      let clock = Date.parse("2026-09-22T10:00:00Z");
+      server.onDelivered = () => {
+        clock += 50;
+      };
+      const checkpoints = vi.spyOn(SnapshotWriter.prototype, "checkpoint");
+      const result = await engine({
+        limits: { checkpointEveryMessages: 250, checkpointMinIntervalMs: 60_000 },
+      }).run(context({ now: () => new Date(clock) }), protectedObject, {});
+      server.onDelivered = null;
+      expect(result.failures).toEqual([]);
+      expect(messages(await manifestOf(result.snapshotId))).toHaveLength(400);
+      expect(checkpoints.mock.calls.length).toBe(0);
+    });
+
+    it("still checkpoints after a folder once a minute has passed", async () => {
+      for (let f = 1; f <= 30; f++) {
+        const folder = server.addFolder(`Archiv ${String(f).padStart(3, "0")}`);
+        folder.add(eml(`a${f}`));
+        folder.add(eml(`b${f}`));
+      }
+      // 10 s per message: 20 s per folder, so every third folder may checkpoint.
+      let clock = Date.parse("2026-09-22T10:00:00Z");
+      server.onDelivered = () => {
+        clock += 10_000;
+      };
+      const checkpoints = vi.spyOn(SnapshotWriter.prototype, "checkpoint");
+      await engine({
+        maxConnections: 1,
+        limits: { checkpointEveryMessages: 250, checkpointMinIntervalMs: 60_000 },
+      }).run(context({ now: () => new Date(clock) }), protectedObject, {});
+      server.onDelivered = null;
+      expect(checkpoints.mock.calls.length).toBe(10);
+    });
+
     it("resumes correctly after a crash that followed skipped checkpoints", async () => {
       for (const name of ["A", "B", "C"]) {
         const folder = server.addFolder(name);

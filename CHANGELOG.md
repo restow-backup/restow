@@ -568,7 +568,8 @@ private repository.
   object list to every storage target; a nightly run over a large mailbox without new mail
   uploaded about as many partial manifests as it had folders, and a first backup grew with the
   square of the mailbox size. A folder without changes now writes no checkpoint, and checkpoints
-  during a download come at most once a minute and less often as the restore point grows.
+  after a folder and during a download come at most once a minute, during a download also less
+  often as the restore point grows.
 - Mail backup: a Gmail or Google Workspace account was downloaded and stored once per label plus
   once more in All Mail, because Gmail shows every label as an IMAP folder. A first backup
   transferred several times the mailbox size against Gmail's daily download limit, every newly
