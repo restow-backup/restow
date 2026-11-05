@@ -497,6 +497,17 @@ private repository.
   German browser got it in German even where Restow was set to English, as on the public demo,
   which starts in English. The app now keeps its language in a cookie `restow_lang` that the
   edge reads first; without it the browser's language counts as before.
+- Retention: a tenant with more than 65,535 active restore points (about 500 protected objects
+  under the default tiers) could not run retention at all. The run and its preview asked for the
+  checked restore points with one bind parameter per restore point, which PostgreSQL refuses past
+  65,535; since nothing was pruned, the count only grew and every daily run failed. The failure
+  also stopped every task after it: the mail-file sweep, the renewal and check of Object Lock
+  and the archive deletion run. The checked restore points are now read by a join, the per-object
+  check states take one array parameter, and each retention task runs on its own: a failing task
+  is recorded with its error, the others still run, and the job ends failed instead of succeeded.
+  The job keeps what every task did in `payload.result` (items deleted, records deferred, Object
+  Lock renewals), also when it ends failed; before, a failed job carried only "retention tasks
+  failed: snapshots".
 - Mail archive: a request to look at a mailbox now, made while a pass over it was still running,
   was overwritten by the pass's own next time when the pass ended. It happened when the IDLE
   watch of an IMAP account began during the account's pass, when new mail was announced by IDLE
@@ -835,6 +846,247 @@ private repository.
   sends only what it lacks, up to six times per fragment with a growing pause; a file reads that
   part again from its backup, also one the session lost. When it gives up, the upload session is
   cancelled. The same applies to attachments from 3 MB that are added to restored messages.
+- Mail archive: a resync asked for while a pass ran that a change notification or IDLE had
+  started was still lost. The end of that pass cleared the mailbox's "new mail" mark, and the
+  next pass then counted as a scheduled one because the request was only looked at when the mark
+  was set: Graph skipped the full catch-up, IMAP did not rescan, and the request was removed as
+  if it had been carried out. A resync request now decides the next pass by itself, keeps the
+  mailbox marked until it ran, and only the pass that ran as that resync clears it (a request
+  made during that pass stays for the next one).
+- Mail archive (security): any mail that carried an `X-MS-Journal-Report` header, or whose first
+  part merely looked like a journal report's envelope (`Sender:`, `Message-ID:`, a recipient
+  line), was processed as an Exchange journal report, also at the archive address of an IMAP
+  account. An outsider who mailed an archived user whose provider copies mail to the archive
+  could so plant an item labelled `journal` into every mailbox of the tenant the forged envelope
+  named, and the mail the user actually received was replaced by its attachment. Only a mail
+  with the header sent to the tenant's journal address alone is now taken as a journal report;
+  everything else, a copy to an account address always, is archived as received (source
+  `smtp_forward`) and, when it is built like a report, flagged `journal-shaped`. docs/IMAP.md
+  describes how to restrict port 25 to Exchange Online.
+- Mail archive: capture from a mailbox (Graph and IMAP) skipped every mail whose Message-ID the
+  archive already held for the mailbox, before downloading it. A second mail with the same
+  Message-ID and other content (a ticket or notification system that reuses its ids, a resend
+  with edited content, a sender who copies an archived mail's id on purpose) was therefore never
+  archived and only counted as skipped, although the archive's own rule keeps both and flags
+  `message-id-conflict`. A Message-ID now skips the download only together with a cheap check
+  that it is the same mail: for IMAP the size (RFC822.SIZE) or the Date header (ENVELOPE),
+  for Graph the Date header (`sentDateTime`). Anything else is downloaded and decided by the
+  append, which merges a true duplicate and keeps a different mail. A rescan after a
+  UIDVALIDITY change still downloads nothing that is archived already, also on Exchange, whose
+  RFC822.SIZE is an estimate unless `EnableExactRFC822Size` is set (by size alone it would have
+  downloaded the whole mailbox again after every mailbox move).
+- Mail archive: the one-time takeover of a mailbox's existing mail (the backfill) could restart
+  forever or never run. Its position lived only in the job's cursor, and a continuation after the
+  time budget (2 hours for Graph, 30 minutes for IMAP, the latter only checked between folders)
+  is a new job with an empty cursor, so every continuation started again with the first folder:
+  quadratic work, and for a large mailbox a backfill that never got past its biggest folder. The
+  backfill was also queued exactly once, at activation: a failed enqueue, a job that used up its
+  retries during an outage, or a run skipped while the stream was off left the stream
+  "taking over" for good with no alert, and its older mail never reached the archive. The
+  position is now kept on the capture stream (migration 0080 `backfill_cursor`), IMAP also stops
+  inside a large folder, every capture pass queues the backfill again when none is queued or
+  running (after a failed job, and after one that ended waiting to retry what the server
+  refused, once an hour: before, such a job ended plainly completed and the next pass queued a
+  new one at once, hitting an account under Gmail's cap again on every pass; it now lists what
+  waits as failed items), a failed backfill job can be retried under Jobs,
+  and a takeover not done after 48 hours or whose last job failed is shown as stuck on the
+  archive page and raises the capture alert `backfill_stalled`.
+- Mail archive: IMAP capture dropped mail with only a warning in the log, and the account stayed
+  "live". The takeover of the existing mail marked a folder done on any NO to EXAMINE, a
+  throttling cap such as Gmail's "[OVERQUOTA] Account exceeded command or bandwidth limits"
+  included, and gave up a message the server listed but did not deliver after one try; live
+  capture never reads below that point, so the folder's or message's older mail never reached
+  the archive. The catch-up skipped folders whose STATUS or EXAMINE failed and dropped the count
+  of messages it gave up on. Now a server limit stops the takeover and the catch-up without
+  counting against any folder (on STATUS, EXAMINE or FETCH; Gmail's cap lasts hours while a
+  takeover downloads the account, and every live pass would have counted it), the next job or
+  pass resumes; a folder refused otherwise and an undelivered message are tried again by the
+  next jobs and only given up after three. The takeover counts a folder as a gap of its own (`backfill_folder`,
+  migration 0087), apart from the live capture's: a live pass that only asked STATUS no longer
+  resets its attempts (a folder that refuses EXAMINE was never given up), and failures of both
+  no longer add up, so a folder refused for two passes is not given up and then marked done by
+  the next live pass with its older mail missing; only a takeover of that older mail (the
+  backfill, or a resync that reads the folder from the start) resolves it. Whatever is given up,
+  by the takeover or the catch-up, is kept as a
+  capture gap (migration 0081 `archive_capture_gaps`): the archive page shows the way and the
+  mailbox as incomplete with the count, `GET /api/v1/archive/capture/mailboxes/:objectId/gaps`
+  lists them, the capture alert `capture_gap` names them, and a gap that is taken in later is
+  resolved.
+- Mail archive: Graph capture lost old mail that a user moved into a folder made while the
+  takeover of the existing mail ran. The takeover fixed its folder list when it started, and the
+  catch-up's first look at the new folder left every mail received before capture started to the
+  takeover, then stored the folder's delta link, so nobody ever read those mails again (certain
+  without change notifications). The catch-up now remembers the folders the mailbox had when
+  capture started and reads a folder made later in full, and the takeover lists the folders again
+  before it reports completed and takes over the new ones.
+- Mail archive: the takeover of a Microsoft 365 mailbox's existing mail skipped one older mail
+  for every mail the user deleted or moved out of the part of a folder already read. It paged
+  each folder with Graph's nextLink, which for a folder's messages is an offset (`$skip`), over
+  hours or days of continuations; each removal shifted the rest by one, and the catch-up leaves
+  mail received before capture started to the takeover, so those mails never reached the
+  archive (an Inbox of 80,000 mails with 40 newer mails deleted meanwhile lost about 40). The
+  takeover now pages by received time, oldest first, and asks each page afresh from the last
+  one's time; a takeover in progress pages its current folder again from the start (held mail
+  is skipped without a download).
+- Mail archive: Graph capture dropped for good every message whose MIME export failed and logged
+  it as "too large for a MIME export". Two transient HTTP 500 on `$value` in a row, and items
+  Exchange cannot convert to MIME (IRM, corrupt items), ended up there as well as mail over
+  ~150 MB, and the message was marked handled, so no later pass asked for it again. A 5xx now
+  keeps the message pending (a catch-up and the takeover put it into the pending list) and it is
+  fetched again on the next passes, given up only after three failures; a message too large or
+  not convertible is recorded as an open capture gap at once (`too_large`, `not_convertible`,
+  `export_failed`), shown on the archive page and named by the capture alert.
+  Attempts counted once per pass, with no time between them, so an outage of minutes still lost
+  mail for good: with a full batch of 500 announced messages passes ran back to back, and
+  Exchange answering 500 on `$value` for two minutes during a backlog made 600 fetchable messages
+  gaps nobody asked for again; an IMAP folder or message the takeover gave up after three jobs
+  (about half an hour) was just as final. An attempt now counts at most once an hour (migration
+  0088), so a gap opens after two hours of failures at the earliest; a pending message that
+  failed or whose export failed waits before its next fetch (10 minutes, doubling, at most an
+  hour; the mailbox is due again then), also when passes run back to back; and an open gap that
+  may succeed later is asked for again once a day: an undelivered IMAP message, the older mail
+  of a folder the takeover gave up (read from its first UID), a Graph message whose export or
+  fetch failed. One too large or not convertible is not.
+- Mail archive: a captured mail could be committed with a chunk that existed nowhere. Capture
+  reuses a chunk the store already holds, also one an expired backup left unreferenced, and
+  scrub's garbage collection does not wait for continuous capture or the journal receiver: when
+  it collected such a chunk between the upload and the commit, the reference landed on nothing
+  and the item could never be read back. The commit now checks after taking its references that
+  every chunk still exists; if one is gone it releases them, stores the mail again (the missing
+  chunks are written anew) and commits then.
+- Mail archive and storage: the sealed record of each archived mail
+  (`tenants/<tid>/archive/`) was never copied after it was written. A copy target added later
+  never received the records written before it, a `move` of the primary left them only on the
+  old location, the completeness check before promoting a copy did not count them, and the old
+  location could be removed while it held the only copy of years of records with their Object
+  Lock retention. The copy mirror of the storage check, the migration and the completeness
+  check now include them, each written with the item's retention (records of items deleted
+  after their retention are left out), and removing an old location is refused while it holds
+  a record no current target has. The copy dialog lists "Sealed archive records". The storage
+  check's mirror reads the records from the catalog, a page at a time, instead of listing the
+  whole archive prefix and looking up every record's retention on every check (for a tenant
+  with millions of archived mails: a listing of several hundred MB in the worker, thousands of
+  catalog queries and a check of every record on every copy each time, so the check ran for
+  hours and the pack mirror and garbage collection after it were delayed): a scheduled check
+  copies only the records written since the last one reached, a full check and the first check
+  after a copy is added or changed go through every record.
+- Mail archive: the deletion run after the retention period read the legal holds and every
+  due item of a tenant once (a whole capture year under the default "end of year" rule) and
+  then deleted item by item. A legal hold placed while it ran did not stop it for the items it
+  had not reached yet, the list of all due items sat in the worker's memory, and a cancelled
+  job did not stop. The run now reads the due items in batches of 500 in retention order (an
+  index, migration 0082), checks the legal hold inside the delete statement itself and writes
+  the audit entries in the same transaction, and stops between batches when the job is
+  cancelled.
+- Mail archive: the first deletion after the retention period made the archive check report a
+  broken chain for good. The deletion run removed the item and with it its chain link, so the
+  check recomputed the next entry against a predecessor that was gone, and every daily anchor
+  after the deletion pointed at a shifted position; a real deletion by hand could no longer be
+  told apart. The run now keeps the link of each deleted item as a tombstone (hash, time,
+  previous and own chain hash, position; no content; migration 0083, append-only), written in
+  the same statement as the delete. The check walks items and tombstones together, counts them
+  for the anchors (so do the nightly anchors) and reports "deleted after the retention period"
+  separately from a break; a row removed without a tombstone is still a break. The next capture
+  after a deleted newest item links to its tombstone.
+- Mail archive: the deletion run after the retention period removed only the item's row in the
+  database. The chunk references the item held were never released, so storage only grew, and
+  its sealed record stayed on the primary and every copy, so the "deleted" mail could still be
+  rebuilt, while the audit log said it was deleted. The run now releases exactly the item's
+  references in the same transaction (chunks a backup or another item still uses keep theirs;
+  garbage collection decides), and deletes the sealed record on the primary and every copy. A
+  target that refuses (Object Lock still active, an outage) keeps the record queued (migration
+  0084) for the next run; the run reports it as deferred and audits it, never as deleted.
+- Restore check: the attachments of Exchange messages stored as JSON with separate attachments
+  (messages too large for a MIME export) and the earlier versions of OneDrive files were never
+  read back, not by the weekly check and not by a health check, although the health check is
+  described as reading every object. A message whose attachment chunk was missing from the
+  chunk index was rated green. A sampled message now has its attachments read with it and a
+  sampled file three of its versions (the newest, the oldest and one at random; OneDrive keeps
+  up to 500, and reading all of a sampled 1 GB file would read hundreds of GB and run the weekly
+  check into its deadline); a failing attachment or version counts against the message or
+  file with its cause ("items missing" and so on). The health check reads every attachment and
+  version, also one whose message is not in the snapshot, and the versions of a file emptied to
+  0 bytes (they hold its real data; the empty file itself is no item to read).
+- Restore check: a backup whose run could not back up some items (a folder denied on every run,
+  hundreds of failed messages) was rated green as long as what it held read back fine, on the
+  readiness page, in the tenant rating, the statistics and the `verify.completed` webhook; only
+  the run in History said "partial". The rating now takes the failed items of the run that made
+  the checked backup into account: yellow ("the backup is incomplete") while items failed, red
+  for items that failed in each of the last three runs. Green needs an intact read-back of a
+  complete backup. The `job.completed` webhook of a backup now carries `failedItems`.
+- Restore check: a backup whose manifest was deleted on every storage target (a lifecycle rule
+  on the manifests prefix, a cleanup by hand) kept its last green rating for good. Every check
+  ended "not completed", which rates nothing, and the storage check read only packs; an object
+  no longer backed up (removed from its source, in no job) stayed green forever, although
+  nothing could be restored from that backup. A manifest that no target has, while the same
+  targets still hold the tenant's keys or other manifests, is now evidence: red "the index of
+  the latest backup is gone" (`manifest_missing`); an emptied or unmounted target still leaves
+  the check incomplete. The storage check asks every target for the manifest of each active
+  backup (a sample run: the newest of each object) and files the same red finding, named by the
+  `scrub.corrupt` alert. Three checks of the same backup in a row that could not complete now
+  rate it yellow ("the last checks could not complete", `check_incomplete`) with a "needs
+  attention" alert, so an old green no longer counts as proof while nobody can read the backup.
+- Restore check: a mailbox whose backups stopped right after a green check (an expired Entra
+  secret, say) stayed green on the readiness page, in the tenant rating, the integration API and
+  the statistics until the next weekly check, although the check itself rates a backup older
+  than 48 hours yellow and one older than 7 days red. The age of the newest backup was rated only
+  when a check ran. It is now judged when the view is built, the worse of the check's rating and
+  the age counts, and the reason ("the latest backup is n hours old") is listed with the current
+  age. Objects removed from their source or in no backup job are still rated without it. The
+  same rule applies wherever an object's rating is shown: the integration API (`/v1/objects`,
+  `/v1/users`), the directory's mailbox list and a backup job's members, which still showed the
+  stored green until the next check.
+- Restore check: a rating that stayed red or yellow raised nothing when its cause got worse. A
+  mailbox red only because its newest backup was too old ("Backup too old") gave no new alert
+  when the next check found messages missing, unreadable or different, its manifest unreadable
+  or the test restore failing, so the operator kept acting on "merely too old"; a yellow that
+  gained a new cause (a pack the storage check cannot read, items the backup could not back up,
+  an unconfirmed test restore, checks that could not complete) was just as quiet. Such a check
+  now raises `verify.red` again with the "a restore would not be complete" wording
+  (`previousRedReason: "outdated"` in its details), or `verify.yellow` for the new cause. Damage
+  the storage check finds still raises `scrub.corrupt`.
+- History: a restore check that rated a backup red (a pack the storage check found damaged, a
+  backup more than seven days old, a failed test restore) was listed as a neutral "Completed"
+  whenever none of its sampled items failed, next to "Completed with failed items" for a red
+  check that did fail items; the rating was only in the run's detail. A finished mail restore
+  check now takes its state from its rating: red reads "Check failed: not restorable" (state
+  `failed`), yellow "Check needs attention" (`partial`), green "Restorable"; the run carries
+  `checkReadiness`. A check that could not complete still reads "Not completed, will be
+  repeated".
+- Mail archive: an announced Graph message that could not be fetched other than with 404 (a
+  403 for an item the app may not read, a 5xx) stayed pending for good at the head of the
+  queue. A pass in which no announced message could be fetched failed and skipped the
+  catch-up, so a single such message could put the mailbox's capture into error with backoff,
+  and 500 of them blocked every newer notification. Such a pass now succeeds and runs the
+  catch-up; each pending message counts its failed attempts (migration 0085), those tried least
+  come first, and after five failures the message is recorded as an open capture gap
+  (`fetch_failed`) and left to the catch-up. The catch-up and the takeover no longer fail on
+  such a message either: a 403 (or 400, 409, 422) on its MIME export failed the catch-up at
+  that message on every pass, its delta position was never saved and newer mail of the folder
+  was blocked; it is now counted like a failed export and given up as a gap (`fetch_failed`)
+  after three attempts, and the run goes on.
+- Mail archive: IMAP capture left out every folder whose name was a Drafts name (Drafts,
+  Entwürfe, Brouillons, Borradores, Bozze, Concepten) wherever it sat, so the received mail a user
+  filed under "Kunden/Bozze" or "Projekte/Acme/Drafts" never reached the archive, without a
+  warning. Only the folder marked `\Drafts` is now left out; a server that marks none has a
+  folder skipped by its name only at the top level or directly under INBOX. Drafts in any other
+  folder are still skipped by their `\Draft` flag.
+- Mail archive: a journal report Exchange sent again, because Restow's 250 was lost or came
+  after Exchange's timeout, became a second item: search, export and archive restore showed the
+  mail twice for every mailbox it belonged to. Each journal item now keeps the hash of its report
+  as delivered, transport fields (Received, Return-Path, DKIM and ARC signatures) left out
+  (migration 0086 `report_hash`, unique per tenant); the same report again is answered with 250
+  before it is parsed and adds nothing, also when both deliveries arrive at once. Another report
+  for the same mail (other recipients, another journal rule) stays an item of its own.
+- Mail archive: the archive check with a content sample counted a storage outage as failed
+  integrity. Every read error, a 503 or a timeout of the storage and a reader that could not
+  be opened included, made the sampled messages content failures ("Check not passed"), and the
+  audit entry `archive.chain.verified` recorded `ok: false` with their ids; a chunk really
+  missing or damaged got the same label "Not readable from storage". Only evidence now fails
+  the sample, each with its cause: missing, damaged or different from its checksum. A message
+  storage did not deliver is not checked; the check then reads "Not checked, please run again"
+  (`ok: null`) instead of failed, and the audit entry records the cause per failed item and the
+  number not checked.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
@@ -1584,7 +1836,7 @@ private repository.
 
 ### Upgrade Notes
 
-Seven database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+Sixteen database migrations run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
@@ -1609,7 +1861,17 @@ as write-once only once a test of this version found it so: after the update, ru
 repository (and on the installation default) that lies on a WORM share, so that retention stops
 trying to delete there and a reset begins its new chain under a fresh prefix at once. 0079
 creates the new table `job_cursor_entries` (a restore job's record of what it restored) and a
-trigger on `jobs` that empties it for a job that ends; nothing is rewritten. The first directory sync after the
+trigger on `jobs` that empties it for a job that ends; nothing is rewritten. 0080 to 0088 serve
+the mail archive: 0080 adds the nullable column `archive_capture_streams.backfill_cursor`; 0081
+creates the type `archive_capture_gap_kind` and the table `archive_capture_gaps`, 0083 the table
+`archive_chain_tombstones` and 0084 the table `archive_record_deletions`, all new and empty; 0082
+adds a partial index on `archive_items` (tenant, end of retention, id) for the items with an end
+of retention, and 0086 the nullable column `archive_items.report_hash` with a unique partial index
+on it; 0085 adds the columns `attempts` (0 for the existing rows), `last_error` and
+`last_attempt_at` to `archive_capture_pending`; 0087 adds the value `backfill_folder` to
+`archive_capture_gap_kind`, and 0088 the column `archive_capture_gaps.last_attempt_at`, taken from
+`last_seen_at` for gaps already recorded. Building the two indexes reads the rows of
+`archive_items` once, and new captures wait for it meanwhile; no table is rewritten. The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the

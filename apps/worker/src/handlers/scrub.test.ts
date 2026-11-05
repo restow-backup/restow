@@ -14,6 +14,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  archive,
   type ChunkIndex,
   type ChunkLocation,
   ChunkReader,
@@ -35,14 +36,20 @@ import {
   wrappedKeyKey,
 } from "@restow/core";
 import {
+  archiveItems,
   createDb,
   type Database,
   jobs,
+  notifications,
   packs,
+  protectedObjects,
   providers,
+  snapshots,
+  sources,
   storageMigrations,
   storageTargets,
   tenants,
+  verifyReports,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { and, eq } from "drizzle-orm";
@@ -495,6 +502,159 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
     await index.addReferences(live.flatMap((object) => object.chunks));
     return { index, live };
   }
+
+  it("files a red finding for a backup whose manifest is gone from storage that still holds the tenant", async () => {
+    const tenant = await createTenant();
+    const { tenantId } = tenant;
+    const [source] = await db
+      .insert(sources)
+      .values({ tenantId, kind: "m365", name: "M365", status: "active" })
+      .returning();
+    const [object] = await db
+      .insert(protectedObjects)
+      .values({
+        tenantId,
+        sourceId: source?.id as string,
+        kind: "mailbox",
+        externalId: "anna@example.org",
+      })
+      .returning();
+    const objectId = object?.id as string;
+    const now = new Date("2026-10-01T03:00:00.000Z");
+    const [older, newest] = await db
+      .insert(snapshots)
+      .values(
+        [1, 2].map((sequence) => ({
+          id: randomUUID(),
+          tenantId,
+          protectedObjectId: objectId,
+          sequence,
+          status: "active" as const,
+          completedAt: new Date(now.getTime() - (3 - sequence) * 3_600_000),
+        })),
+      )
+      .returning({ id: snapshots.id });
+    for (const row of [older, newest]) {
+      await db
+        .update(snapshots)
+        .set({ manifestPath: manifestKey(tenantId, row?.id as string) })
+        .where(eq(snapshots.id, row?.id as string));
+    }
+    // The wrapped key the worker mirrors to every target, and only the older manifest.
+    await tenant.storage.primary.put(wrappedKeyKey(tenantId, 1), Buffer.from("wrapped"));
+    await tenant.storage.primary.put(manifestKey(tenantId, older?.id as string), Buffer.from("m"));
+
+    // A sample run asks for the newest manifest of each object.
+    const report = (await scrubAt(tenant, now, "sample")) as ScrubReport & {
+      manifests?: { checked: number; missing: { snapshotId: string }[] };
+    };
+    expect(report.manifests).toMatchObject({
+      checked: 1,
+      missing: [{ snapshotId: newest?.id, protectedObjectId: objectId }],
+    });
+    const findings = await db
+      .select({ readiness: verifyReports.recoveryReadiness, details: verifyReports.details })
+      .from(verifyReports)
+      .where(eq(verifyReports.tenantId, tenantId));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.readiness).toBe("red");
+    expect(findings[0]?.details).toMatchObject({
+      origin: "scrub",
+      reasons: [{ code: "manifest_missing", severity: "red", count: 1 }],
+      manifests: [{ snapshotId: newest?.id }],
+    });
+    const raised = await db
+      .select({ event: notifications.event })
+      .from(notifications)
+      .where(eq(notifications.tenantId, tenantId));
+    expect(raised.map((row) => row.event)).toContain(SCRUB_EVENTS.corrupt);
+
+    // An emptied target proves nothing: no further finding.
+    for (const key of await tenant.storage.primary.list(`tenants/${tenantId}/`)) {
+      await tenant.storage.primary.delete(key);
+    }
+    const emptied = (await scrubAt(
+      tenant,
+      new Date(now.getTime() + 60_000),
+      "sample",
+    )) as ScrubReport & { manifests?: { missing: unknown[] } };
+    expect(emptied.manifests?.missing).toEqual([]);
+    expect(
+      await db
+        .select({ id: verifyReports.id })
+        .from(verifyReports)
+        .where(eq(verifyReports.tenantId, tenantId)),
+    ).toHaveLength(1);
+  });
+
+  it("mirrors only the archive records written since the last scheduled check, every one on a full check", async () => {
+    const tenant = await createTenant();
+    const copy = new LocalStorageBackend(join(root, `${tenant.tenantId}-copy`));
+    const withCopy = { ...tenant, storage: { ...tenant.storage, copies: [copy] } };
+    const archived = async (count: number, at: Date) => {
+      for (let n = 0; n < count; n++) {
+        const id = randomUUID();
+        const key = archive.archiveItemKey(tenant.tenantId, at, id);
+        await tenant.storage.primary.put(key, Buffer.from(`sealed record ${id}`));
+        await db.insert(archiveItems).values({
+          id,
+          tenantId: tenant.tenantId,
+          messageId: `<${id}@contoso.example>`,
+          itemHash: `hash-${id}`,
+          prevChainHash: null,
+          chainHash: `chain-${id}`,
+          receivedAt: at,
+          capturedVia: "journal",
+          storagePath: key,
+          createdAt: at,
+        });
+      }
+    };
+    const archiveHeads = () => {
+      const seen: string[] = [];
+      const head = copy.head.bind(copy);
+      copy.head = async (key: string) => {
+        if (key.includes("/archive/")) {
+          seen.push(key);
+        }
+        return head(key);
+      };
+      return seen;
+    };
+    const day = (n: number) => new Date(Date.UTC(2026, 9, n, 12));
+    await archived(1200, day(1));
+    // The first scheduled check knows no position yet: every record, a page at a time.
+    let seen = archiveHeads();
+    const first = await scrubAt(withCopy, day(2), "sample");
+    expect(seen).toHaveLength(1200);
+    expect((first as { copies?: unknown }).copies).toMatchObject({ complete: true, copied: 1200 });
+    // A second one with nothing new looks at no record; one after three new looks at three.
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(3), "sample");
+    expect(seen).toHaveLength(0);
+    await archived(3, day(3));
+    seen = archiveHeads();
+    const third = await scrubAt(withCopy, day(4), "sample");
+    expect(seen).toHaveLength(3);
+    expect((third as { copies?: unknown }).copies).toMatchObject({ complete: true, copied: 3 });
+    // A full check sweeps every record again (verified by hash).
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(5), "full");
+    expect(seen).toHaveLength(1203);
+    // A record younger than the settle time waits for the next check.
+    await archived(1, new Date(day(6).getTime() - 60_000));
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(6), "sample");
+    expect(seen).toHaveLength(0);
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(7), "sample");
+    expect(seen).toHaveLength(1);
+    // A copy added later receives every record written before it, on its first scheduled check.
+    const second = new LocalStorageBackend(join(root, `${tenant.tenantId}-copy-2`));
+    const both = { ...tenant, storage: { ...tenant.storage, copies: [copy, second] } };
+    await scrubAt(both, day(8), "sample");
+    expect((await second.list(archive.archivePrefix(tenant.tenantId))).length).toBe(1204);
+  });
 
   it("deletes no pack a running restore or verify of the tenant reads", async () => {
     const tenant = await createTenant();

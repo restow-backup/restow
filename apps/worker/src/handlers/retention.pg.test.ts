@@ -27,6 +27,7 @@ import {
   backupJobs,
   createDb,
   type Database,
+  jobs,
   legalHolds,
   protectedObjects,
   providers,
@@ -41,7 +42,12 @@ import { runMigrations } from "@restow/db/migrate";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import type { WorkerJobContext } from "./framework.js";
-import { pgRetentionStore, retentionTasks } from "./retention.js";
+import {
+  createRetentionHandler,
+  pgRetentionStore,
+  RetentionTaskRegistry,
+  retentionTasks,
+} from "./retention.js";
 
 /** A storage backend that is never actually touched: dry runs never prune. */
 class UnusedStorage implements StorageBackend {
@@ -493,4 +499,111 @@ describe.skipIf(!adminUrl)("pgRetentionStore against Postgres", () => {
       await db.$client.end();
     }
   }, 60_000);
+  it("keeps what the other tasks did in the job row of a run whose snapshot task failed", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    try {
+      const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+        .returning();
+      const tenantId = tenant?.id as string;
+      const ctx = jobContext(db, tenantId);
+      await db.insert(jobs).values({
+        id: ctx.jobId,
+        tenantId,
+        queue: "retention",
+        status: "active",
+        payload: { jobId: ctx.jobId, tenantId },
+      });
+      const registry = new RetentionTaskRegistry([
+        {
+          name: "snapshots",
+          run: async () => {
+            throw new Error("the storage is not reachable");
+          },
+        },
+        { name: "archive", run: async () => ({ deleted: 500, deferredRecords: 3 }) },
+      ]);
+      await expect(
+        createRetentionHandler(registry).run(ctx, { jobId: ctx.jobId, tenantId }),
+      ).rejects.toThrow(/retention tasks failed: snapshots/);
+      const [row] = await db.select().from(jobs).where(eq(jobs.id, ctx.jobId));
+      expect((row?.payload as { result?: unknown } | undefined)?.result).toMatchObject({
+        failed: ["snapshots"],
+        snapshots: { status: "failed", error: expect.stringContaining("not reachable") },
+        archive: { deleted: 500, deferredRecords: 3 },
+      });
+    } finally {
+      await db.$client.end();
+    }
+  }, 60_000);
+
+  it("runs for a tenant with more restore points than one statement has bind parameters", async () => {
+    // One bind parameter per active restore point fails past 65,535 of them,
+    // and since nothing is then pruned the run fails every day after.
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    try {
+      const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+        .returning();
+      const tenantId = tenant?.id as string;
+      const [source] = await db
+        .insert(sources)
+        .values({ tenantId, kind: "m365", name: "Contoso M365", status: "active" })
+        .returning();
+      const [mailbox] = await db
+        .insert(protectedObjects)
+        .values({
+          tenantId,
+          sourceId: source?.id as string,
+          kind: "mailbox",
+          externalId: "many@contoso.example",
+        })
+        .returning();
+      const objectId = mailbox?.id as string;
+      await db.insert(retentionPolicies).values({
+        tenantId,
+        name: "Standard",
+        isDefault: true,
+        appliesTo: { target: "snapshots", preset: "30d" },
+      });
+      await db.$client.query(
+        `INSERT INTO snapshots (tenant_id, protected_object_id, sequence, manifest_path, status, byte_size, completed_at)
+         SELECT $1, $2, g, 'many-' || g, 'active', 10, $3::timestamptz - (70000 - g) * interval '1 minute'
+           FROM generate_series(1, 70000) AS g`,
+        [tenantId, objectId, daysAgo(400).toISOString()],
+      );
+      const [oldest] = await db
+        .select({ id: snapshots.id })
+        .from(snapshots)
+        .where(and(eq(snapshots.protectedObjectId, objectId), eq(snapshots.sequence, 1)));
+      await db.insert(verifyReports).values({
+        tenantId,
+        protectedObjectId: objectId,
+        snapshotId: oldest?.id ?? null,
+        kind: "verify",
+        recoveryReadiness: "green",
+        checkedAt: daysAgo(399),
+      });
+
+      const task = retentionTasks.list().find((t) => t.name === "snapshots");
+      if (!task) {
+        throw new Error("snapshots task not registered");
+      }
+      const summary = (await task.run(jobContext(db, tenantId), { dryRun: true })) as {
+        candidates: number;
+        held: number;
+      };
+      // Everything is past 30 days: only the newest and the sole verified
+      // restore point (found through the join) are kept.
+      expect(summary).toMatchObject({ candidates: 69_998, held: 0 });
+    } finally {
+      await db.$client.end();
+    }
+  }, 120_000);
 });

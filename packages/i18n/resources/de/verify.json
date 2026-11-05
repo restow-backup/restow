@@ -148,6 +148,7 @@
   "reason": {
     "no_snapshot": "Es gibt keine abgeschlossene Sicherung.",
     "manifest_unreadable": "Das Verzeichnis der letzten Sicherung ist nicht lesbar.",
+    "manifest_missing": "Das Verzeichnis der letzten Sicherung fehlt auf jedem Speicherziel, obwohl die übrigen Daten dort liegen. Die Sicherung lässt sich nicht wiederherstellen.",
     "items_missing": "{count, plural, one {# Element verweist} other {# Elemente verweisen}} auf Daten, die im Chunk-Index oder im Speicher fehlen.",
     "items_unreadable": "{count, plural, one {# Element ist} other {# Elemente sind}} im Speicher beschädigt: Die Daten lassen sich nicht öffnen oder entschlüsseln.",
     "items_mismatched": "{count, plural, one {# Element kam} other {# Elemente kamen}} anders zurück, als es gesichert wurde.",
@@ -161,6 +162,9 @@
     "nothing_to_verify": "Die letzte Sicherung enthält Daten ({size}) einer Art, die eine Prüfung nicht zurücklesen kann.",
     "nothing_to_verify_unsized": "Die letzte Sicherung enthält nichts, was geprüft werden könnte.",
     "test_restore_unconfirmed": "Das Prüfziel hat {count, plural, one {# wiederhergestelltes Element} other {# wiederhergestellte Elemente}} nicht bestätigt.",
+    "backup_incomplete": "Der Lauf, der diese Sicherung erstellt hat, konnte {count, plural, one {# Element} other {# Elemente}} nicht sichern; {count, plural, one {es fehlt} other {sie fehlen}} in der Sicherung.",
+    "backup_incomplete_persistent": "{count, plural, one {# Element konnte} other {# Elemente konnten}} in den letzten drei Läufen in Folge nicht gesichert werden; eine Wiederherstellung wäre unvollständig.",
+    "check_incomplete": "{count, plural, one {Die letzte Prüfung} other {Die letzten # Prüfungen}} dieser Sicherung {count, plural, one {konnte} other {konnten}} nicht abgeschlossen werden, weil der Speicher nicht geantwortet hat; ein früheres Ergebnis belegt nicht mehr, dass sie sich wiederherstellen lässt.",
     "unknown": "Der Befund „{code}“ stammt von einer neueren Version und kann hier nicht beschrieben werden."
   },
   "storage": {

@@ -109,6 +109,20 @@ Postgres-Service bereit und setzt die Variable.
 - `verify`-Job wöchentlich je geschütztem Objekt: zufällig 20 Mails und 20 Dateien (dazu
   wenige Kalender- und Kontaktelemente) aus dem letzten Snapshot über den Restore-Pfad
   zurücklesen, mit dem Manifest vergleichen, Ergebnis speichern, Recovery-Readiness anzeigen.
+  Zu einer gezogenen Mail, die als JSON mit getrennten Anhängen gesichert ist (zu groß für MIME),
+  werden alle Anhänge mitgelesen, zu einer gezogenen OneDrive-Datei von ihren früheren Versionen
+  die neueste, die älteste und eine zufällige (OneDrive hält bis zu 500 Versionen; alle zu lesen
+  hieße, für eine Datei von 1 GB Hunderte GB zu lesen); ein fehlerhafter Anhang oder eine
+  fehlerhafte Version zählt gegen die Mail bzw. Datei (seit 0.5.0).
+  Die Integritätsprüfung (Health Check) liest jedes Objekt mit Inhalt, Anhänge und Versionen
+  eingeschlossen, auch die Versionen einer Datei, die auf 0 Byte geleert wurde (sie werden dann
+  als eigene Elemente gelesen).
+  Grün setzt seit 0.5.0 auch eine vollständige Sicherung voraus: Hat der Lauf, der den geprüften
+  Sicherungsstand erstellt hat, Elemente nicht sichern können (`jobs.item_failure_summary`), ist
+  die Bewertung gelb ("Sicherung unvollständig"), rot für Elemente, die in den letzten drei
+  Läufen in Folge fehlschlugen. Das gilt für die Bewertung je Objekt, die Übersicht des
+  Mandanten, die Statistik und `verify.completed`; `job.completed` einer Sicherung nennt
+  `failedItems`.
   Rot nur mit Beleg: Daten fehlen (ein Chunk, den der Index nicht kennt, oder eine Datendatei,
   die jedes Speicherziel als nicht vorhanden meldet), stimmen nicht (Hash oder Größe, ein Chunk,
   der nicht der ist, den seine ID nennt) oder lassen sich nicht dekodieren (beschädigtes Pack,
@@ -116,12 +130,32 @@ Postgres-Service bereit und setzt die Variable.
   (Netzwerkfehler, Zeitüberschreitung, 5xx, Drosselung, unbekannter Fehler, ein Manifest, das der
   Speicher nicht liefert), ist "nicht abgeschlossen": kein Bericht, keine Benachrichtigung, der
   Job wird mit Backoff wiederholt, der letzte Versuch endet ohne Bewertung, und die nächste
-  geplante Prüfung versucht es erneut. Eine zu alte neueste Sicherung (sieben Tage oder mehr) ist
-  ein eigener roter Grund ("Sicherung zu alt").
+  geplante Prüfung versucht es erneut. Seit 0.5.0 bleibt ein altes Grün dabei nicht beliebig
+  stehen: Endet die Prüfung derselben Sicherung dreimal in Folge so (jeweils der letzte Versuch),
+  wird sie gelb ("die letzten Prüfungen konnten nicht abgeschlossen werden", `check_incomplete`) mit der Meldung "braucht
+  Aufmerksamkeit". Ein Manifest, das jedes Speicherziel als nicht vorhanden meldet, ist Beleg,
+  wenn dieselben Ziele die übrigen Daten des Mandanten noch halten (seine Schlüssel unter
+  `tenants/<tid>/keys/` oder ein anderes Manifest): rot `manifest_missing`; ein geleertes oder
+  nicht eingehängtes Ziel bleibt "nicht abgeschlossen". Eine zu alte neueste Sicherung (sieben Tage oder mehr) ist
+  ein eigener roter Grund ("Sicherung zu alt"). Seit 0.5.0 bewerten die Readiness-Seite, die
+  Bewertung des Mandanten, die Integrations-API (`/v1/objects`, `/v1/users`), die Postfachliste
+  des Verzeichnisses, die Mitglieder eines Sicherungsauftrags und die Statistik das Alter der
+  neuesten Sicherung beim Anzeigen, nicht nur bei der Prüfung (alle über
+  `verificationStateNow`/`withBackupAgeNow` in `verification-state.ts`): Hören die Sicherungen nach einer grünen
+  Prüfung auf, wird das Objekt nach 48 Stunden gelb und nach sieben Tagen rot, ohne auf die
+  nächste Prüfung zu warten (nicht für Objekte, die ohne Alter bewertet werden).
+  Benachrichtigt wird bei jeder Änderung der Bewertung und, seit 0.5.0, auch bei gleicher
+  Bewertung mit schlimmerer Ursache: rot erst nur "Sicherung zu alt", dann fehlende oder
+  beschädigte Daten (erneut `verify.red`), gelb mit einem neuen Grund, der Aufmerksamkeit
+  braucht (erneut `verify.yellow`).
   Ein zusätzlicher Test-Restore in ein Prüfziel (Testpostfach des Mandanten) ist als
   optionale Sonde vorgesehen, in 0.1.0 aber nicht verdrahtet: Die Prüfung stellt nichts in ein
   Microsoft-365- oder IMAP-Ziel wieder her.
-- Scrub: Pack-Integrität (SHA-256), Stichprobe wöchentlich, alles monatlich.
+- Scrub: Pack-Integrität (SHA-256), Stichprobe wöchentlich, alles monatlich. Seit 0.5.0 fragt
+  der Scrub außerdem jedes Ziel nach dem Manifest jeder aktiven Sicherung (Stichprobe: der
+  neuesten je Objekt; nicht während einer Speichermigration und nicht für Sicherungen vor einem
+  Austausch mit "keep"); fehlt es auf jedem Ziel bei sonst vorhandenen Daten des Mandanten,
+  bekommt das Objekt einen roten Befund `manifest_missing` und `scrub.corrupt` nennt die Zahl.
 - Kettenprüfung Archiv: auf Abruf (API und Schaltfläche auf der Archiv-Seite). Ein täglicher
   automatischer Lauf ist Zielbild und in 0.1.0 nicht umgesetzt.
 

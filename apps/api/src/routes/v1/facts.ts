@@ -4,7 +4,10 @@ import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { parseReasons } from "../../features/verify/details.js";
 import { isOverdue, objectStateOf } from "../../features/verify/summary.js";
-import { loadObjectVerifications } from "../../features/verify/verification-state.js";
+import {
+  loadObjectVerifications,
+  withBackupAgeNow,
+} from "../../features/verify/verification-state.js";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { component } from "./components.js";
 import { readinessSchema, readinessStateSchema, timestampSchema } from "./schemas.js";
@@ -181,10 +184,12 @@ export function readinessOf(
   const checkedAt = facts.verify?.checkedAt ?? null;
   const retained = status === "orphaned";
   const withoutAge = retained || (withoutJob && status === "active");
+  // The backup's age now, not at the check (verification-state.ts withBackupAgeNow), as the
+  // readiness page rates it: a mailbox whose backups stopped turns yellow and red here too.
   const rating = facts.verify
     ? withoutAge
       ? readinessWithoutFreshness(parseReasons(facts.verify.reasons))
-      : facts.verify.rating
+      : withBackupAgeNow(facts.verify.rating, facts.snapshot?.completedAt, now, false)
     : null;
   return {
     state: objectStateOf(rating, facts.snapshot !== null),

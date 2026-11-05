@@ -54,6 +54,7 @@ import {
 import {
   type Database,
   type Job,
+  jobs,
   protectedObjects,
   safeErrorMessage,
   settings,
@@ -190,6 +191,8 @@ type JobSummary = Pick<
   Partial<Pick<Job, "failure">> & {
     /** A completed restore's stored counters (restore-outcome.ts); loaded when left out. */
     readonly restoreResult?: RestoreCounts | null;
+    /** A backup's failed items (`jobs.item_failure_summary`); loaded when left out. */
+    readonly itemFailureSummary?: Job["itemFailureSummary"];
   };
 
 /**
@@ -254,6 +257,11 @@ export function jobEventData(job: JobSummary): Record<string, unknown> {
       // Why it failed, machine-readable: a stable code (e.g. graph.consent_missing), whether
       // waiting alone may help, and the parameters a ticket needs (permission, host, ...).
       failure: job.status === "failed" ? (job.failure ?? null) : null,
+      // A completed backup that could not back up some items is no complete backup: the
+      // receiver sees how many (the run lists them), not just "completed".
+      ...(job.queue === "backup" && job.status === "completed"
+        ? { failedItems: job.itemFailureSummary?.total ?? 0 }
+        : {}),
       ...(restoreResult
         ? {
             result: {
@@ -274,13 +282,27 @@ export async function emitJobWebhook(
   tenantId: string,
   finished: JobSummary,
 ): Promise<EmittedWebhookEvent | null> {
-  const job =
+  const withRestore =
     finished.restoreResult === undefined
       ? {
           ...finished,
           restoreResult: await withTenantTx(db, tenantId, (tx) => loadRestoreCounts(tx, finished)),
         }
       : finished;
+  const job =
+    withRestore.queue === "backup" && withRestore.itemFailureSummary === undefined
+      ? {
+          ...withRestore,
+          itemFailureSummary: await withTenantTx(db, tenantId, async (tx) => {
+            const [row] = await tx
+              .select({ summary: jobs.itemFailureSummary })
+              .from(jobs)
+              .where(eq(jobs.id, withRestore.id))
+              .limit(1);
+            return row?.summary ?? null;
+          }),
+        }
+      : withRestore;
   const event = jobWebhookEvent(job);
   if (!event) {
     return null;

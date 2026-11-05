@@ -36,11 +36,24 @@ export interface FakeMessage {
   folderId: string;
   internetMessageId?: string;
   receivedDateTime?: string;
+  /** The Date header; defaults to the one of `mime` (or of the generated mail). */
+  sentDateTime?: string;
   isDraft?: boolean;
   /** The MIME `$value` returns; defaults to a small generated mail. */
   mime?: string;
   /** `$value` answers 413 (too large for a MIME export). */
   tooLarge?: boolean;
+  /**
+   * `$value` answers this error every time, as Exchange does for an item it cannot convert
+   * (`{ status: 500, code: "ErrorMimeContentConversionFailed" }`) or a corrupt one
+   * (`ErrorCorruptData`).
+   */
+  mimeError?: { status: number; code: string };
+  /**
+   * Reading the item (`GET /messages/{id}`, also inside `$batch`) answers 403
+   * `ErrorAccessDenied` every time, as Graph does for an item the app may not read.
+   */
+  accessDenied?: boolean;
 }
 
 export interface FakeSubscription {
@@ -128,6 +141,13 @@ export class FakeMailboxGraph {
     for (const message of messages) {
       this.addMessage(userId, message);
     }
+  }
+
+  /** A folder created later (a user makes one during the backfill). */
+  addFolder(userId: string, folder: FakeFolder): void {
+    const state = this.mailbox(userId);
+    state.folders.push(folder);
+    state.log.set(folder.id, []);
   }
 
   addMessage(userId: string, message: FakeMessage): void {
@@ -275,6 +295,12 @@ export class FakeMailboxGraph {
       if (message.tooLarge) {
         return json(413, graphError("ErrorMessageSizeExceeded", "too large"));
       }
+      if (message.mimeError) {
+        return json(
+          message.mimeError.status,
+          graphError(message.mimeError.code, "The MIME content of the item could not be produced."),
+        );
+      }
       return { status: 200, text: message.mime ?? defaultMime(message) };
     }
     const attachments = /^\/messages\/([^/]+)\/attachments$/.exec(rest);
@@ -284,6 +310,12 @@ export class FakeMailboxGraph {
     const message = /^\/messages\/([^/]+)$/.exec(rest);
     if (message) {
       const found = state.messages.get(message[1] as string);
+      if (found?.accessDenied) {
+        return json(
+          403,
+          graphError("ErrorAccessDenied", "Access is denied. Check credentials and try again."),
+        );
+      }
       return found ? json(200, this.messageJson(found)) : notFound("message");
     }
     return notFound(rest);
@@ -302,10 +334,18 @@ export class FakeMailboxGraph {
   }
 
   private messageJson(message: FakeMessage) {
+    // Graph's sentDateTime is the Date header of the MIME it exports.
+    const date = /^Date:\s*(.+)$/im.exec(message.mime ?? defaultMime(message))?.[1]?.trim();
+    const parsed = date ? new Date(date) : null;
     return {
       id: message.id,
       internetMessageId: message.internetMessageId ?? `<${message.id}@fake.example>`,
       receivedDateTime: message.receivedDateTime ?? "2026-11-02T08:00:00Z",
+      sentDateTime:
+        message.sentDateTime ??
+        (parsed && !Number.isNaN(parsed.getTime())
+          ? parsed.toISOString().replace(".000Z", "Z")
+          : "2026-11-02T08:00:00Z"),
       isDraft: message.isDraft ?? false,
       parentFolderId: message.folderId,
     };
@@ -346,17 +386,53 @@ export class FakeMailboxGraph {
     return json(200, body);
   }
 
+  /**
+   * `/mailFolders/{id}/messages` as Graph answers it: newest first unless `$orderby`
+   * (`receivedDateTime asc|desc`) says otherwise, `$filter=receivedDateTime ge <time>`, and a
+   * nextLink that is the same query with an offset (`$skip`), evaluated afresh on every page:
+   * a message removed from the part already paged shifts the rest, as on Graph.
+   */
   private listing(state: MailboxState, userId: string, folderId: string, url: URL) {
     if (!state.log.has(folderId)) {
       return notFound("folder");
     }
     const skip = Number(url.searchParams.get("$skip") ?? 0);
-    const ids = [...state.messages.values()].filter((m) => m.folderId === folderId);
-    const page = ids.slice(skip, skip + this.pageSize);
+    const top = Math.min(Number(url.searchParams.get("$top") ?? this.pageSize), this.pageSize);
+    const filter = url.searchParams.get("$filter");
+    const since = filter ? /^receivedDateTime ge (\S+)$/.exec(filter)?.[1] : undefined;
+    if (filter && since === undefined) {
+      return json(400, graphError("ErrorInvalidUrlQueryFilter", `unsupported $filter ${filter}`));
+    }
+    const orderby = url.searchParams.get("$orderby") ?? "receivedDateTime desc";
+    const ascending = /^receivedDateTime asc$/i.test(orderby);
+    const received = (m: FakeMessage) =>
+      new Date(m.receivedDateTime ?? "2026-11-02T08:00:00Z").getTime();
+    const ids = [...state.messages.values()]
+      .filter((m) => m.folderId === folderId)
+      .filter((m) => since === undefined || received(m) >= new Date(since).getTime())
+      // Stable within one second, by insertion: what Graph's order of equal times looks like.
+      .map((m, position) => ({ m, position }))
+      .sort((a, b) =>
+        received(a.m) === received(b.m)
+          ? a.position - b.position
+          : ascending
+            ? received(a.m) - received(b.m)
+            : received(b.m) - received(a.m),
+      )
+      .map(({ m }) => m);
+    const page = ids.slice(skip, skip + top);
     const body: Record<string, unknown> = { value: page.map((m) => this.messageJson(m)) };
-    if (skip + this.pageSize < ids.length) {
-      body["@odata.nextLink"] =
-        `${BASE}/users/${encodeURIComponent(userId)}/mailFolders/${encodeURIComponent(folderId)}/messages?$skip=${skip + this.pageSize}`;
+    if (skip + top < ids.length) {
+      const next = new URL(
+        `${BASE}/users/${encodeURIComponent(userId)}/mailFolders/${encodeURIComponent(folderId)}/messages`,
+      );
+      for (const [key, value] of url.searchParams) {
+        if (key !== "$skip") {
+          next.searchParams.set(key, value);
+        }
+      }
+      next.searchParams.set("$skip", String(skip + top));
+      body["@odata.nextLink"] = next.toString();
     }
     return json(200, body);
   }

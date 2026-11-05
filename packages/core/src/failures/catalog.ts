@@ -584,6 +584,26 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
       step("restore_from_copy", "storage"),
     ],
   },
+  // The manifest is gone from every target that still holds the tenant's keys or other
+  // manifests: deleted (a lifecycle rule, a cleanup), the backup cannot be restored.
+  "verify.manifest_missing": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [
+      step("check_storage_health", "storage"),
+      step("restore_from_copy", "storage"),
+      step("run_backup_again", "jobs"),
+    ],
+  },
+  // The last checks of the backup could not complete one after the other (the storage did
+  // not answer): an earlier green rating no longer proves it restorable.
+  "verify.check_incomplete": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_storage_health", "storage")],
+  },
   "verify.no_snapshot": {
     category: "verify",
     transient: false,
@@ -601,6 +621,20 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     transient: false,
     retryable: false,
     steps: () => [step("run_backup_again", "jobs")],
+  },
+  // The run that made the checked backup could not back up some items: they are missing from
+  // it (the run lists them with their causes); red once the same items failed run after run.
+  "verify.backup_incomplete": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("open_item_at_source", "source"), step("run_backup_again", "jobs")],
+  },
+  "verify.backup_incomplete_persistent": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("open_item_at_source", "source"), step("run_backup_again", "jobs")],
   },
   // Nothing to restore (only default folders or system pages, 0 bytes): no failure. An admin
   // confirms it as empty, or the next backup that holds content ends it.

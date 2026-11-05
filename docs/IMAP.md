@@ -315,8 +315,10 @@ weitergeleitete Kopie (`.forward`, siehe "Weiterleitung"). Beide dürfen zusamme
 beide erfassen, liegt einmal im Archiv.
 
 **Was erfasst wird.** Jeder auswählbare Ordner, auch Gesendet, Papierkorb und Spam; Entwürfe
-nicht (Ordner mit `\Drafts` oder dem Namen Drafts/Entwürfe, und jede Mail mit dem Flag
-`\Draft`). Bei Gmail und Google Workspace erscheint jede Mail einmal je Label: gelesen werden
+nicht: der Ordner mit `\Drafts` und jede Mail mit dem Flag `\Draft` in jedem Ordner. Markiert
+der Server keinen Ordner mit `\Drafts`, bleibt ein Ordner mit einem Entwurfsnamen (Drafts,
+Entwürfe, Brouillons, Borradores, Bozze, Concepten) nur auf oberster Ebene oder direkt unter
+INBOX außen vor; ein gleichnamiger Ordner tiefer im Baum ("Kunden/Bozze") wird erfasst. Bei Gmail und Google Workspace erscheint jede Mail einmal je Label: gelesen werden
 dort nur `[Gmail]/All Mail` (Alle Nachrichten), Spam und Papierkorb, die jede Mail genau einmal
 halten. Erkannt wird ein Google-Konto an der OAuth2-Quelle von Google, am Host
 `imap.gmail.com`/`imap.googlemail.com` oder an der Ordnerliste (`\All` unter `[Gmail]`).
@@ -326,10 +328,17 @@ dahin übernimmt einmalig der Backfill-Job ("Archiv-Übernahme", fortsetzbar, ma
 nachträglich erfasst), danach erfasst jeder Durchlauf nur Neues: STATUS je Ordner, und nur ein
 Ordner, dessen UIDNEXT weitergerückt ist, wird geöffnet; von neuen UIDs erst die Metadaten,
 dann nur die Quellen der Mails, die das Archiv für dieses Konto noch nicht hält (nach
-`<Ordner>;<UIDVALIDITY>;<UID>` oder Message-ID). Eine verschobene Mail oder eine schon
-weitergeleitete Kopie wird so nicht erneut geladen. Ändert sich UIDVALIDITY, wird der Ordner
-von vorn gelesen, ohne Doppel im Archiv. Ein Neuabgleich aus der Oberfläche liest alle
-Ordner von vorn.
+`<Ordner>;<UIDVALIDITY>;<UID>`, oder nach Message-ID zusammen mit der Größe RFC822.SIZE oder
+dem Date-Header aus dem ENVELOPE). Eine verschobene Mail wird so nicht erneut geladen, auch bei
+Exchange, das ohne `Set-ImapSettings -EnableExactRFC822Size $true` nur eine geschätzte Größe
+meldet. Eine Mail mit bekannter Message-ID, aber anderer Größe und anderem Datum wird geladen: Ist es dieselbe Mail (etwa eine schon weitergeleitete Kopie mit
+anderen Kopfzeilen), wird sie eine Erfassungszeile am vorhandenen Objekt; hat sie einen
+anderen Inhalt, bleibt sie als eigenes Objekt erhalten (`message-id-conflict`, seit 0.5.0;
+vorher wurde sie ohne Download übersprungen). Ändert sich UIDVALIDITY, wird der Ordner von
+vorn gelesen, ohne Doppel im Archiv und ohne die schon archivierten Mails erneut zu laden. Ein Neuabgleich aus der Oberfläche liest alle
+Ordner von vorn. Ordner, die der Server immer wieder verweigert, und Nachrichten, die er nie
+ausliefert, hält Restow als Lücke der Erfassung fest und zeigt das Konto als unvollständig
+(docs/ARCHIVE.md, "Lücken der Erfassung").
 
 **IDLE und Polling.** Jeder Worker-Prozess beobachtet bis zu `ARCHIVE_IMAP_IDLE_MAX` Konten
 (Standard 300, `0` schaltet IDLE ab) mit je einer Verbindung per IMAP IDLE auf INBOX (bei
@@ -358,9 +367,14 @@ für Microsoft 365 ist eine Microsoft-365-Quelle mit Graph oder Journaling der b
 Ein Anbieter kann jede Mail eines Kontos schon beim Transport als Kopie an das Archiv schicken.
 Das erfasst Mail, bevor ein Nutzer sie löschen kann (stärker als die Synchronisation aus dem
 Postfach) und braucht keine IMAP-Verbindung. Der Empfänger ist derselbe wie für Exchange
-Online (Abschnitt "SMTP-Journal-Empfänger", Edition Business und Service Provider); er erkennt
-Journal-Reports am Header `X-MS-Journal-Report` oder an ihrem Aufbau und nimmt alles andere als
-einfache Kopie (Quelle `smtp_forward`).
+Online (Abschnitt "SMTP-Journal-Empfänger", Edition Business und Service Provider). Als
+Journal-Report nimmt er nur eine Mail mit dem Header `X-MS-Journal-Report`, die allein an die
+Mandanten-Adresse ging; alles andere ist eine einfache Kopie (Quelle `smtp_forward`) und wird
+so archiviert, wie es ankam. Eine Mail an eine Konto-Adresse ist das immer, auch mit dem Header:
+Den Header und den Umschlagtext eines Reports kann jeder Absender schreiben, und ein Report
+würde den Postfächern zugeordnet, die sein Umschlag nennt. Eine Kopie, die wie ein Report
+aufgebaut ist (der Header an anderer Stelle oder nur der Aufbau eines Reports), trägt die
+Markierung `journal-shaped`.
 
 **Adressen.**
 
@@ -428,6 +442,11 @@ gewählt hat, und den Kopien der letzten 7 Tage (je Konto und für die Mandanten
   Absenderprüfung (Zielbild, nicht in 0.1.0): Exchange Online liefert aus
   `*.protection.outlook.com`; den SPF des Absenders zu prüfen ist noch nicht umgesetzt (Journal-Reports
   kommen von der Tenant-Domain bzw. `MicrosoftExchange329e71ec88ae4615bbc36ab6ce41109e@<tenant>.onmicrosoft.com`).
+  Wer die Journal-Adresse zusätzlich absichern will, lässt Port 25 in der Firewall nur aus den
+  Adressbereichen von Exchange Online Protection zu (Microsoft veröffentlicht sie unter
+  "Office 365 URLs and IP address ranges", Bereich Exchange Online, Port 25) und verlangt am
+  Connector TLS mit dem Zertifikat des Journal-Hosts; Weiterleitungen anderer Anbieter an
+  Konto-Adressen brauchen dann eigene Freigaben.
 - Verarbeitung: Report parsen (Envelope-Text: Sender, Message-Id, Recipients mit
   To/Cc/Bcc-Kennzeichnung), Original aus Anhang extrahieren, beides speichern. Ab 0.3.0
   ordnet der Empfänger jeden Report den Postfächern zu, deren Adresse der Umschlag nennt
@@ -439,4 +458,10 @@ gewählt hat, und den Kopien der letzten 7 Tage (je Konto und für die Mandanten
 - Bei Fehlern (kein Anhang, nicht parsbar): rohe Report-Mail trotzdem archivieren
   und als "unvollständig" markieren; nie verwerfen. Antwort an Exchange immer 250
   nach erfolgreicher Persistierung, sonst 4xx (Exchange versucht erneut).
+- Erneut zugestellter Report (seit 0.5.0): geht das 250 verloren oder kommt es nach dem
+  Zeitlimit von Exchange an, sendet Exchange denselben Report noch einmal. Der Empfänger
+  kennt ihn am Hash des Reports, wie er ankam, ohne Transportfelder (Received, Return-Path,
+  DKIM- und ARC-Signaturen; `archive_items.report_hash`), antwortet 250 und legt kein
+  zweites Element an, auch nicht bei zwei gleichzeitigen Zustellungen. Ein anderer Report
+  derselben Mail (andere Empfänger, eine andere Journalregel) bleibt ein eigenes Element.
 - Kein Relay, kein Versand über diesen Port.

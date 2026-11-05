@@ -365,9 +365,13 @@ function archiveContentProblem(error: unknown): ProblemError {
     detail:
       problem === "mismatch"
         ? "The stored message does not match the SHA-256 recorded when it was archived."
-        : problem === "not_recorded"
-          ? "This item was archived before its content reference was recorded; it can only be exported."
-          : "The message could not be read from the repository.",
+        : problem === "missing"
+          ? "Parts of the stored message are missing from the repository."
+          : problem === "damaged"
+            ? "The stored message is damaged in the repository and cannot be decoded."
+            : problem === "not_recorded"
+              ? "This item was archived before its content reference was recorded; it can only be exported."
+              : "The message could not be read from the repository.",
     extensions: { problem },
   });
 }

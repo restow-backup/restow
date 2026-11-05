@@ -552,7 +552,9 @@
     "archiveReason": {
       "capture_error": "Die Archiv-Erfassung aus diesem Postfach schlägt seit mehr als einer Stunde fehl. Neue Mail des Postfachs kommt erst wieder ins Archiv, wenn sie funktioniert.",
       "forward_stale": "Seit mehr als 24 Stunden ist keine weitergeleitete Kopie dieses Kontos angekommen, vorher kamen Kopien an. Prüfen Sie die Weiterleitungsregel beim Mail-Anbieter.",
-      "journal_stale": "Seit mehr als 24 Stunden ist kein Journal-Report angekommen, vorher kamen Reports an. Prüfen Sie die Journalregel und den Connector in Exchange Online und ob der Journal-Empfänger erreichbar ist."
+      "journal_stale": "Seit mehr als 24 Stunden ist kein Journal-Report angekommen, vorher kamen Reports an. Prüfen Sie die Journalregel und den Connector in Exchange Online und ob der Journal-Empfänger erreichbar ist.",
+      "backfill_stalled": "Die einmalige Übernahme des Altbestands dieses Postfachs ist 48 Stunden nach dem Start nicht abgeschlossen oder ihr letzter Lauf ist fehlgeschlagen. Mail, die vor dem Start der Erfassung im Postfach lag, ist noch nicht im Archiv. {appName} versucht die Übernahme selbst erneut; sehen Sie sich den Fehler des letzten Laufs unter Jobs an.",
+      "capture_gap": "Die Archiv-Erfassung konnte Ordner oder Nachrichten dieses Postfachs nicht übernehmen: Der Server hat sie mehrfach verweigert oder nie ausgeliefert, oder Microsoft 365 liefert keinen MIME-Export. Sie sind nicht im Archiv. Die Archiv-Seite zeigt beim Postfach, wie viele es sind; die Liste liefert die API (GET /api/v1/archive/capture/mailboxes/<Postfach-ID>/gaps). {appName} fragt einmal am Tag erneut nach denen, die bis dahin abrufbar sein können, und ein Neuabgleich des Postfachs versucht alle erneut. Eine Mail, die für einen MIME-Export zu groß ist oder die Exchange nicht umwandeln kann, bleibt außerhalb des Archivs; daran ändert kein neuer Versuch etwas."
     },
     "clientId": "Anwendungs-ID (Client)",
     "credential": "Zugangsdaten",
@@ -623,7 +625,9 @@
       "failed": "Archiv-Abgleich fehlgeschlagen: {object}",
       "capture_error": "Archiv-Erfassung seit über einer Stunde fehlerhaft: {object}",
       "forward_stale": "Seit 24 Stunden keine weitergeleiteten Kopien: {object}",
-      "journal_stale": "Seit 24 Stunden keine Journal-Reports"
+      "journal_stale": "Seit 24 Stunden keine Journal-Reports",
+      "backfill_stalled": "Übernahme des Altbestands hängt: {object}",
+      "capture_gap": "Archiv-Erfassung unvollständig: {object}"
     },
     "directory": {
       "failed": "Verzeichnisabgleich fehlgeschlagen"

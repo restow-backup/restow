@@ -11,12 +11,18 @@
  * This handler adds what only the worker knows:
  *   - packs the latest scrub left corrupt, so an object whose data sits in a
  *     damaged pack is never rated green just because the sample missed it
+ *   - the items the run that made the checked snapshot could not back up
+ *     (`jobs.item_failure_summary`; red when the same items failed in each of
+ *     the last runs), so a partial backup is never rated green just because
+ *     what it holds reads back fine
  *   - an optional test-restore probe per object (registered by the
  *     integration layer once a tenant has a test target)
  * and persists the outcome: a `verify_reports` row (the rating of the checked
  * snapshot, linked by `snapshot_id`, with its date), `jobs.payload.result` for
  * the job views, and an in-app notification whenever the rating changes for
- * the worse, or recovers. Every recorded outcome is also announced as the
+ * the worse, or recovers, and when it stays as bad but for a worse cause: a red
+ * that was only "the backup is too old" and now finds data missing or damaged,
+ * a yellow with a new cause that needs attention (0.5.0). Every recorded outcome is also announced as the
  * `verify.completed` webhook.
  *
  * An object removed from its source (status `orphaned`, its backups kept) is
@@ -40,18 +46,27 @@
  * fails the attempt, so pg-boss repeats it with the queue's backoff; the last
  * attempt completes the job instead of failing it, so an outage never becomes
  * a failed job, a `job.failed` webhook or a red rating. The next scheduled
- * check tries again.
+ * check tries again. Once {@link INCOMPLETE_CHECKS_LIMIT} checks of the same
+ * backup ended so in a row (each on its last attempt, none completed since),
+ * the handler records a yellow `check_incomplete` report for that backup (core
+ * `unverifiedOutcome`): an earlier green no longer counts as proof while
+ * nobody can read the backup, and the change raises "needs attention".
  */
 import {
+  type BackupFailureFacts,
   DEFAULT_SAMPLE_SIZE,
   type FailureCause,
+  INCOMPLETE_CHECKS_LIMIT,
   isEmptyFinding,
   mailObjectEligible,
   mailObjectsInNoJob,
+  PERSISTENT_FAILURE_RUNS,
   type ProtectedObjectRef,
   type RecoveryReadiness,
   type RestoreProbe,
   readinessWithoutFreshness,
+  type SnapshotRecord,
+  unverifiedOutcome,
   VerifyIncompleteError,
   type VerifyJobPayload,
   type VerifyKind,
@@ -63,6 +78,7 @@ import {
   backupJobs,
   type Database,
   emptyConfirmations,
+  itemFailures,
   jobs,
   type NewNotification,
   type NewVerifyReport,
@@ -121,6 +137,7 @@ function objectLabel(object: ProtectedObjectRef): string {
 const RED_EVIDENCE = new Set([
   "no_snapshot",
   "manifest_unreadable",
+  "manifest_missing",
   "items_missing",
   "items_unreadable",
   "items_mismatched",
@@ -142,10 +159,47 @@ export function redReasonOf(reasons: readonly string[]): "outdated" | "damaged" 
 }
 
 /**
+ * The yellow reasons that name a problem of the backup or its storage (not its age, not an
+ * empty object): a new one of them is news even while the rating stays yellow.
+ */
+const YELLOW_ATTENTION = new Set([
+  "storage_unreadable",
+  "backup_incomplete",
+  "test_restore_unconfirmed",
+  "check_incomplete",
+]);
+
+/**
+ * Whether a rating that stayed the same got a worse cause: red that was only "too old" and now
+ * finds data missing or damaged, or yellow with a new cause that needs attention. Unknown earlier
+ * reasons (null) change nothing.
+ */
+export function causeWorsened(
+  current: RecoveryReadiness,
+  previousReasons: readonly string[] | null,
+  reasons: readonly string[],
+): boolean {
+  if (previousReasons === null) {
+    return false;
+  }
+  if (current === "red") {
+    return redReasonOf(previousReasons) === "outdated" && redReasonOf(reasons) === "damaged";
+  }
+  if (current === "yellow") {
+    const before = new Set(previousReasons);
+    return reasons.some((reason) => YELLOW_ATTENTION.has(reason) && !before.has(reason));
+  }
+  return false;
+}
+
+/**
  * The notification for a rating change, or null when nothing changed for the
- * operator: a first report that is green, or the same rating as last time. A
- * red one says whether data is damaged or missing or the newest backup is
- * merely too old (`details.redReason`, which the bell and the alert mail word).
+ * operator: a first report that is green, or the same rating as last time for
+ * the same kind of cause. A red one says whether data is damaged or missing or
+ * the newest backup is merely too old (`details.redReason`, which the bell and
+ * the alert mail word); a red that stays red but turns from "too old" to
+ * damaged is raised again, and so is a yellow with a new cause that needs
+ * attention ({@link causeWorsened}).
  */
 export function readinessNotification(input: {
   readonly tenantId: string;
@@ -154,9 +208,13 @@ export function readinessNotification(input: {
   readonly current: RecoveryReadiness;
   readonly reportId: string;
   readonly reasons: readonly string[];
+  /** The reasons of the object's previous report; null when unknown. */
+  readonly previousReasons?: readonly string[] | null;
 }): NewNotification | null {
   const { previous, current, object } = input;
-  if (previous === current || (previous === null && current === "green")) {
+  const worsened =
+    previous === current && causeWorsened(current, input.previousReasons ?? null, input.reasons);
+  if ((previous === current && !worsened) || (previous === null && current === "green")) {
     return null;
   }
   const details = {
@@ -178,7 +236,11 @@ export function readinessNotification(input: {
         redReason === "outdated"
           ? `Recovery readiness of ${objectLabel(object)} is red: the newest backup is too old, newer data could not be restored.`
           : `Recovery readiness of ${objectLabel(object)} is red: a restore would not be complete.`,
-      details: { ...details, redReason },
+      details: {
+        ...details,
+        redReason,
+        ...(worsened ? { previousRedReason: "outdated" as const } : {}),
+      },
     };
   }
   if (current === "yellow") {
@@ -244,12 +306,15 @@ export interface StoredIncompleteVerify {
   failure: Pick<FailureCause, "code" | "params" | "transient">;
   willRetry: boolean;
   completedAt: string;
+  /** The backup the check tried to read (its newest one then); absent before 0.5.0. */
+  snapshotId?: string | null;
 }
 
 export function toStoredIncompleteVerify(
   error: VerifyIncompleteError,
   willRetry: boolean,
   at: Date,
+  snapshotId: string | null = null,
 ): StoredIncompleteVerify {
   return {
     incomplete: true,
@@ -261,6 +326,7 @@ export function toStoredIncompleteVerify(
     },
     willRetry,
     completedAt: at.toISOString(),
+    snapshotId,
   };
 }
 
@@ -289,6 +355,8 @@ export interface VerifyRecord {
   readonly outcome: VerifyOutcome;
   /** The object's rating before this run (any snapshot), for the notification. */
   readonly previous: RecoveryReadiness | null;
+  /** The reason codes of that rating's report; null or absent when unknown. */
+  readonly previousReasons?: readonly string[] | null;
   readonly checkedAt: Date;
 }
 
@@ -343,6 +411,7 @@ export function verifyRecordNotification(
     current: record.outcome.readiness,
     reportId,
     reasons: record.outcome.details.reasons.map((reason) => reason.code),
+    previousReasons: record.previousReasons ?? null,
   });
 }
 
@@ -384,6 +453,11 @@ export interface VerifyStore {
     protectedObjectId: string,
     options?: { readonly withoutFreshness?: boolean },
   ): Promise<RecoveryReadiness | null>;
+  /**
+   * The reason codes of the object's newest report (the one {@link previousReadiness} rates);
+   * null before the first. Absent: not known, no "cause worsened" notification.
+   */
+  previousReasons?(protectedObjectId: string): Promise<string[] | null>;
   /** The object's protection status; null when the row is gone. */
   objectStatus(protectedObjectId: string): Promise<ProtectedObject["status"] | null>;
   /**
@@ -394,12 +468,23 @@ export interface VerifyStore {
   /** Storage keys of the packs known damaged or unreadable (scrub.ts `loadPackFindings`). */
   packFindings(): Promise<PackFindings>;
   /**
+   * The items the run that made `snapshot` could not back up (`jobs.item_failure_summary`),
+   * and how many of them failed in each of the object's last PERSISTENT_FAILURE_RUNS backup
+   * runs (`item_failures`); null when the run had none or is not known. Absent: not known.
+   */
+  backupFailures?(snapshot: SnapshotRecord): Promise<BackupFailureFacts | null>;
+  /**
    * Record the report, the job result and the notification for a rating
    * change, all or nothing (one transaction in Postgres).
    */
   record(record: VerifyRecord): Promise<StoredVerifyResult>;
   /** Note on the job that this attempt could not complete; nothing else is written. */
   recordIncomplete(jobId: string, result: StoredIncompleteVerify): Promise<void>;
+  /**
+   * How many checks of `snapshotId` ended incomplete on their last attempt since the object's
+   * last recorded check (the one just noted included). Absent: not counted, never downgraded.
+   */
+  incompleteChecks?(protectedObjectId: string, snapshotId: string): Promise<number>;
 }
 
 /** The production store: tenant-pinned transactions on the worker database (RLS applies). */
@@ -429,6 +514,63 @@ export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
       return options?.withoutFreshness
         ? readinessWithoutFreshness(storedReasons(row.reasons))
         : row.readiness;
+    },
+
+    async previousReasons(protectedObjectId) {
+      const [row] = await run((tx) =>
+        tx
+          .select({ reasons: sql<unknown>`${verifyReports.details}->'reasons'` })
+          .from(verifyReports)
+          .where(
+            and(
+              eq(verifyReports.tenantId, tenantId),
+              eq(verifyReports.protectedObjectId, protectedObjectId),
+            ),
+          )
+          .orderBy(desc(verifyReports.checkedAt), desc(verifyReports.createdAt))
+          .limit(1),
+      );
+      return row ? storedReasons(row.reasons).map((reason) => reason.code) : null;
+    },
+
+    async backupFailures(snapshot) {
+      if (!snapshot.jobId) {
+        return null;
+      }
+      const jobId = snapshot.jobId;
+      return run(async (tx) => {
+        const [job] = await tx
+          .select({ summary: jobs.itemFailureSummary, completedAt: jobs.completedAt })
+          .from(jobs)
+          .where(and(eq(jobs.tenantId, tenantId), eq(jobs.id, jobId)))
+          .limit(1);
+        const failed = job?.summary?.total ?? 0;
+        if (!job || failed <= 0) {
+          return null;
+        }
+        // The same items failed in each of the object's last runs, the checked one included.
+        const result = await tx.execute<{ runs: number; persistent: number }>(sql`
+          with runs as (
+            select id from ${jobs}
+             where tenant_id = ${tenantId}::uuid
+               and protected_object_id = ${snapshot.protectedObjectId}::uuid
+               and queue = 'backup'
+               and completed_at is not null
+               and completed_at <= ${(job.completedAt ?? new Date()).toISOString()}::timestamptz
+             order by completed_at desc
+             limit ${PERSISTENT_FAILURE_RUNS}
+          ), failing as (
+            select item_ref from ${itemFailures}
+             where tenant_id = ${tenantId}::uuid and job_id in (select id from runs)
+             group by item_ref
+            having count(distinct job_id) = ${PERSISTENT_FAILURE_RUNS}
+          )
+          select (select count(*)::int from runs) as runs,
+                 (select count(*)::int from failing) as persistent`);
+        const row = result.rows[0];
+        const persistent = row && row.runs >= PERSISTENT_FAILURE_RUNS ? row.persistent : 0;
+        return { failed, persistent };
+      });
     },
 
     async objectStatus(protectedObjectId) {
@@ -559,6 +701,27 @@ export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
       });
     },
 
+    async incompleteChecks(protectedObjectId, snapshotId) {
+      const result = await run((tx) =>
+        tx.execute<{ count: number }>(sql`
+          SELECT count(*)::int AS count
+            FROM ${jobs} AS j
+           WHERE j.tenant_id = ${tenantId}::uuid
+             AND j.queue = 'verify'
+             AND j.protected_object_id = ${protectedObjectId}::uuid
+             AND j.payload->'result'->>'incomplete' = 'true'
+             AND j.payload->'result'->>'willRetry' = 'false'
+             AND j.payload->'result'->>'snapshotId' = ${snapshotId}
+             AND (j.payload->'result'->>'completedAt')::timestamptz > coalesce((
+               SELECT max(r.checked_at) FROM ${verifyReports} AS r
+                WHERE r.tenant_id = ${tenantId}::uuid
+                  AND r.protected_object_id = ${protectedObjectId}::uuid
+                  AND coalesce(r.details->>'origin', '') <> 'scrub'
+             ), '-infinity'::timestamptz)`),
+      );
+      return result.rows[0]?.count ?? 0;
+    },
+
     async recordIncomplete(jobId, result) {
       await run((tx) =>
         tx
@@ -621,13 +784,15 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
       const retained =
         (await store.objectStatus(object.id)) === "orphaned" ||
         (await store.withoutJob?.(object.id)) === true;
-      const [previous, findings] = await Promise.all([
+      const [previous, previousReasons, findings] = await Promise.all([
         store.previousReadiness(object.id, { withoutFreshness: retained }),
+        store.previousReasons?.(object.id) ?? Promise.resolve(null),
         store.packFindings(),
       ]);
       const resolver = options.probes();
       const probe = kind === "verify" && resolver ? await resolver(ctx, object) : null;
 
+      const startedAt = ctx.now();
       let outcome: VerifyOutcome;
       try {
         outcome = await verifyProtectedObject(ctx, object, {
@@ -637,6 +802,13 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
           unreadablePacks: findings.unreadable,
           persistentlyUnreadablePacks: findings.persistentlyUnreadable,
           probe,
+          // A backup that left items out is never green, however well the rest reads back.
+          ...(store.backupFailures
+            ? {
+                backupFailures: (snapshot) =>
+                  store.backupFailures?.(snapshot) ?? Promise.resolve(null),
+              }
+            : {}),
         });
       } catch (error) {
         if (!(error instanceof VerifyIncompleteError)) {
@@ -645,7 +817,8 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
         // No rating: the storage (or the test target) could not be asked. pg-boss repeats the
         // attempt with the queue's backoff; the last one completes the job instead of failing it.
         const willRetry = ctx.attempt < QUEUE_DEFINITIONS.verify.retryLimit;
-        const result = toStoredIncompleteVerify(error, willRetry, ctx.now());
+        const snapshot = await ctx.snapshots.latestCompleted(object.id);
+        const result = toStoredIncompleteVerify(error, willRetry, ctx.now(), snapshot?.id ?? null);
         await store.recordIncomplete(ctx.jobId, result);
         ctx.logger.warn("restore check could not complete", {
           reason: result.reason,
@@ -656,7 +829,22 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
         if (willRetry) {
           throw error;
         }
-        return { summary: { ...result, kind, previous } };
+        // Checks of this backup that stayed incomplete one after the other: its earlier rating
+        // stops counting as proof (yellow, "the last checks could not complete").
+        const incompleteChecks =
+          snapshot && store.incompleteChecks
+            ? await store.incompleteChecks(object.id, snapshot.id)
+            : 0;
+        if (!snapshot || incompleteChecks < INCOMPLETE_CHECKS_LIMIT) {
+          return { summary: { ...result, kind, previous } };
+        }
+        outcome = unverifiedOutcome({
+          record: snapshot,
+          kind,
+          incompleteChecks,
+          startedAt,
+          now: ctx.now(),
+        });
       }
       if (retained) {
         outcome = { ...outcome, readiness: readinessWithoutFreshness(outcome.details.reasons) };
@@ -668,6 +856,7 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
         kind,
         outcome,
         previous,
+        previousReasons,
         checkedAt: ctx.now(),
       });
       const reasons = outcome.details.reasons.map((reason) => reason.code);

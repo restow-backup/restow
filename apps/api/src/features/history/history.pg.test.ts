@@ -835,4 +835,49 @@ describe.skipIf(!testDatabaseAdminUrl)("history against Postgres", () => {
     const definition = finished.messages.find((message) => message.event === "definition");
     expect(JSON.parse(definition?.data ?? "{}").lastRun.running).toBe(0);
   });
+
+  it("lists a red restore check as failed and a yellow one as needing attention, not as completed", async () => {
+    const check = (name: string, result: Record<string, unknown>, minutesAgo: number) =>
+      mailRun(name, {
+        queue: "verify",
+        objectId: objects.clara,
+        createdAt: minutes(minutesAgo),
+        startedAt: minutes(minutesAgo),
+        completedAt: minutes(minutesAgo - 1),
+        payload: { kind: "verify", result },
+      });
+    // Every sampled item read back fine, yet the check is red: a pack the storage check found
+    // damaged, or a backup too old. Nothing failed as an item.
+    await check("claraRed", { readiness: "red", checked: 20, mismatched: 0, missing: 0 }, 400);
+    await check(
+      "claraYellow",
+      { readiness: "yellow", checked: 20, mismatched: 0, missing: 0 },
+      401,
+    );
+    await check("claraGreen", { readiness: "green", checked: 20, mismatched: 0, missing: 0 }, 402);
+    await check(
+      "claraIncomplete",
+      { incomplete: true, willRetry: false, reason: "storage did not answer" },
+      403,
+    );
+    const listed = new Map((await all("?type=restore_check")).map((run) => [run.id, run]));
+    expect(listed.get(runs.claraRed as string)).toMatchObject({
+      state: "failed",
+      checkReadiness: "red",
+    });
+    expect(listed.get(runs.claraYellow as string)).toMatchObject({
+      state: "partial",
+      checkReadiness: "yellow",
+    });
+    expect(listed.get(runs.claraGreen as string)).toMatchObject({
+      state: "succeeded",
+      checkReadiness: "green",
+    });
+    expect(listed.get(runs.claraIncomplete as string)).toMatchObject({
+      checkIncomplete: true,
+      checkReadiness: null,
+    });
+    // The detail reads the same.
+    expect(await detail(runs.claraRed as string)).toMatchObject({ state: "failed" });
+  });
 });

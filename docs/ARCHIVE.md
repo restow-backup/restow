@@ -161,6 +161,68 @@ Kurz: Journaling beweist jede Mail so, wie sie durch den Server ging; die zeitna
 liefert jede Mail so, wie sie kurz danach im Postfach lag. Restow kennzeichnet beides und
 behauptet für die zeitnahe Erfassung keine Vollständigkeit.
 
+### Lücken der Erfassung
+
+Was ein Weg aus dem Postfach nicht übernehmen kann, hält Restow seit 0.5.0 dauerhaft fest
+(`archive_capture_gaps`), statt es nur zu protokollieren: einen Ordner, den der Server verweigert
+(STATUS, EXAMINE, SEARCH oder FETCH mit NO), eine Nachricht, die er auflistet, aber nie
+ausliefert, und bei Graph eine Nachricht ohne MIME-Export (docs/MICROSOFT.md). Ein
+fehlgeschlagener Versuch zählt höchstens einmal je Stunde (Migration 0088, `last_attempt_at`),
+denn Durchgänge laufen Minuten auseinander und ein Server, der eine Viertelstunde lang verweigert
+(eine Folge von 5xx, ein gedrosselter Ordner), soll nicht alle Versuche einer Mail verbrauchen,
+die kurz darauf wieder abrufbar ist. Vom dritten gezählten Versuch an (frühestens nach zwei
+Stunden, oder wenn der Weg sofort aufgibt) ist die Lücke offen. Eine offene Lücke ist nicht
+endgültig: Einmal am Tag fragt die Erfassung erneut nach einer nicht ausgelieferten
+IMAP-Nachricht, nach dem Altbestand eines Ordners, den die Übernahme aufgegeben hat (der Ordner
+wird dafür von der ersten UID an gelesen), und nach einer Graph-Nachricht, deren Export oder
+Abruf scheiterte (`export_failed`, `fetch_failed`, über die Liste der ausstehenden Mails). Eine
+Mail über ~150 MB oder eine, die Exchange nicht umwandeln kann, fragt sie nicht erneut ab: daran
+ändert ein neuer Versuch nichts. Eine Grenze des Kontos (`imap.server_limit`, etwa Gmails "[OVERQUOTA] Account exceeded
+command or bandwidth limits") zählt nicht gegen den Ordner: Die Übernahme hält an und setzt mit
+dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
+
+- **Übernahme des Altbestands (IMAP):** Ein verweigerter Ordner bleibt offen und wird von den
+  nächsten Jobs erneut versucht (der nächste Job frühestens eine Stunde nach einem, der so
+  endete; dieser nennt den Ordner und die Nachrichten, die warten, als fehlgeschlagene
+  Elemente, er gilt also nicht als einfach erfolgreich), eine nicht ausgelieferte Nachricht bleibt in der Position der
+  Übernahme und wird erneut angefordert; erst nach drei Jobs wird sie als Lücke aufgegeben und
+  die Übernahme kann abschließen. Vorher galt ein solcher Ordner nach dem ersten Fehler als
+  erledigt, eine solche Nachricht nach einem Versuch. Die Übernahme zählt einen Ordner als
+  eigene Lücke (Art `backfill_folder`, Migration 0087), getrennt von der laufenden Erfassung:
+  Ein Durchgang, der nur STATUS fragt oder die neue Mail liest, setzt ihre Versuche nicht
+  zurück und schließt sie nicht, denn den Altbestand des Ordners hat er nicht gelesen. Erledigt
+  ist sie erst, wenn der Altbestand übernommen ist (durch die Übernahme oder einen Neuabgleich,
+  der den Ordner von vorn liest).
+- **Laufende Erfassung (IMAP):** Ein Ordner, der drei Durchgänge in Folge verweigert wird, ist
+  eine offene Lücke; eine Nachricht, die nach drei Durchgängen aufgegeben wird, ebenso.
+- **Graph:** Eine Mail über ~150 MB (`too_large`) oder eine, die Exchange nicht in MIME umwandeln
+  kann (`not_convertible`), ist sofort eine offene Lücke; das Archiv hält nur MIME und baut aus
+  den JSON-Teilen keine Mail nach. Scheitert der MIME-Export mit einem 5xx, bleibt die Mail
+  ausstehend und wird bei den nächsten Durchgängen erneut geholt; nach drei Fehlschlägen ist sie
+  eine Lücke (`export_failed`). Eine gemeldete Mail, die sich nicht abrufen lässt (Graph
+  antwortet etwa 403 `ErrorAccessDenied` für ein Element, das die App nicht lesen darf), bleibt
+  ausstehend und zählt ihre Versuche (Migration 0085); seltener versuchte Meldungen kommen zuerst
+  an die Reihe, eine gescheiterte wartet vor dem nächsten Abruf (10 Minuten, dann doppelt so lang,
+  höchstens eine Stunde; der Stream wird zu diesem Zeitpunkt wieder fällig), auch wenn Durchgänge
+  wegen eines vollen Stapels direkt aufeinander folgen, und nach fünf Fehlschlägen wird sie als
+  offene Lücke (`fetch_failed`) aus der
+  Warteschlange genommen und dem Nachholen überlassen. Ein Durchgang, in dem keine Meldung
+  abgerufen werden konnte, schlägt nicht mehr fehl und überspringt das Nachholen nicht (vorher
+  blockierte schon eine solche Meldung jeden Durchgang des Postfachs). docs/MICROSOFT.md,
+  "Abholen". Verweigert Graph den MIME-Export einer einzelnen Nachricht mit 403
+  (oder 400, 409, 422), scheitern Nachholen und Übernahme daran nicht mehr (vorher hielt jeder
+  Durchgang an derselben Nachricht an, die Delta-Position wurde nie gespeichert und neuere Mail
+  des Ordners blockiert): Sie zählt wie ein gescheiterter Export und ist nach drei Versuchen
+  eine Lücke (`fetch_failed`).
+- **Anzeige:** Die Archiv-Seite zeigt beim Weg, wie viele Postfächer unvollständig sind, und je
+  Postfach die Zahl der offenen Lücken (gelb, nie als in Ordnung).
+  `GET /api/v1/archive/capture/mailboxes/:objectId/gaps` listet sie (Art, Ordner oder Nachricht,
+  Grund, Versuche, seit wann). Die Erfassungs-Warnung `capture_gap` (Ereignis `archive.failed`)
+  geht je Stream hinaus, wenn eine Lücke neu offen ist.
+- **Schließen:** Wird der Ordner später gelesen oder die Nachricht doch erfasst (ein Durchgang,
+  die tägliche erneute Abfrage, ein Neuabgleich, der alle Ordner von vorn liest), ist die Lücke
+  erledigt; sie bleibt als Eintrag erhalten.
+
 ## Exchange-Online-Journaling einrichten
 
 Journaling liefert die Kopie jeder Mail an Restow, bevor der Nutzer sie verändern oder
@@ -356,6 +418,12 @@ Verzeichnissynchronisierung speichert (`users.mail_addresses`); ein IMAP-Konto �
 Die Zuordnung steht in `archive_item_mailboxes` (nur hinzufügen, nie ändern, wie
 `archive_items`).
 
+- Als Journal-Report gilt nur eine Mail mit dem Header `X-MS-Journal-Report`, die allein an die
+  Journal-Adresse des Mandanten ging (seit 0.5.0). Header und Umschlagtext kann jeder Absender
+  schreiben; eine Mail an die Archiv-Adresse eines Kontos (`archive+<token>`) oder ohne den
+  Header wird deshalb nie nach ihrem Umschlag zugeordnet, sondern so archiviert, wie sie ankam
+  (Quelle `smtp_forward`, für eine Konto-Adresse nur diesem Konto). Ist sie wie ein Report
+  aufgebaut, trägt sie die Markierung `journal-shaped` (docs/IMAP.md, "Weiterleitung").
 - Ein Report, der kein Postfach des Mandanten nennt, wird trotzdem archiviert und gehört dann nur
   dem Mandanten. Nichts wird verworfen.
 - Suche, Export und Legal Hold je Postfach berücksichtigen zugeordnete Journal-Reports.
@@ -433,6 +501,12 @@ Wann was:
   Datensatz je Objekt: `tenants/<tid>/archive/<jahr>/<monat>/<archive_item_id>.json`
   (Format: `packages/core/src/archive/FORMAT.md`). Auf einem S3-Ziel mit Object Lock
   (Compliance-Modus) trägt dieser Datensatz eine Retention bis zum Fristende des Archivs.
+  Seit 0.5.0 kopieren der Kopie-Spiegel der Speicherprüfung, die Speichermigration (`move`)
+  und die Vollständigkeitsprüfung vor dem Hochstufen einer Kopie auch diese Datensätze, jeden
+  mit dem Fristende seiner Katalogzeile (`retention_until`); ein Repository mit Datensätzen,
+  die kein anderes Ziel hat, lässt sich nicht entfernen (docs/STORAGE.md, "Copies and the
+  archive"). Vorher erreichten Datensätze ein später hinzugefügtes Ziel nie, und nach einem
+  `move` lagen die älteren nur noch auf dem alten Ziel.
 - **Seit 0.4.0** lässt sich Object Lock je Repository einschalten (docs/STORAGE.md,
   "Immutable backups"). Dann sind auch die Packs des Chunk-Stores gesperrt, also auch die
   Inhalte archivierter Mails: für die Frist des Repositories (1 bis 3650 Tage), verlängert,
@@ -449,7 +523,14 @@ Wann was:
   ab 1 und Element), den Abgleich mit jedem Anker (erkennt am Ende abgeschnittene Einträge bis
   zum neuesten Anker; Einträge danach sind noch nicht versiegelt) und optional eine Stichprobe
   von Nachrichten, die aus dem Speicher gelesen und mit Größe und SHA-256 der Erfassung
-  verglichen werden. Jede Prüfung steht im Audit-Log (`archive.chain.verified`). Zielbild:
+  verglichen werden. Als Fehler der Stichprobe zählt seit 0.5.0 nur ein Beleg: ein fehlender
+  Chunk oder Pack (`missing`), Daten, die sich nicht entschlüsseln oder lesen lassen
+  (`damaged`), oder ein abweichender Inhalt (`mismatch`). Liefert der Speicher nicht
+  (Zeitüberschreitung, 5xx, verweigerter Zugriff), ist die Nachricht nicht geprüft; das
+  Ergebnis heißt dann "Nicht geprüft, bitte wiederholen" (`ok: null`), nie "nicht bestanden".
+  Nach Fristablauf gelöschte Objekte zählen über ihren Löschvermerk mit
+  (Abschnitt "Löschkonzept"). Jede Prüfung steht im Audit-Log (`archive.chain.verified`, mit Element und Ursache
+  jedes Fehlers und der Zahl nicht geprüfter Nachrichten). Zielbild:
   Versand der Anker per E-Mail und externe Zeitstempel (RFC 3161).
 - Dedupe: Gleiche Inhalte liegen im Chunk-Store einmal je Mandant. Seit 0.4.4 erkennt das
   Archiv dieselbe Mail aus mehreren Erfassungswegen an Message-ID und Inhalt (exakte Bytes oder
@@ -457,8 +538,15 @@ Wann was:
   Erfassungszeile an diesem Objekt (`archive_item_captures`, Beleg außerhalb der Kette) und
   eine Zuordnung zum Postfach; eine stärkere wird ein neues Objekt, das das schwächere
   ersetzt (`supersedes_item_id`; das alte bleibt unverändert). Gleiche Message-ID mit anderem
-  Body bleibt zweimal erhalten (`message-id-conflict`). Journal-Reports und importierte Mail
-  bleiben eigene Objekte. Alle Schreiber hängen über einen gemeinsamen Weg an die Kette an:
+  Body bleibt zweimal erhalten (`message-id-conflict`). Vor dem Download überspringt die
+  Erfassung aus dem Postfach eine Mail nur, wenn ihre Fundstelle (Graph-ID, IMAP-Ordner und
+  UID) bekannt ist oder unter ihrer Message-ID eine Mail mit gleichem Merkmal archiviert ist:
+  bei IMAP die Größe (RFC822.SIZE), bei Graph das Datum aus dem Date-Header
+  (`sentDateTime`, auf die Sekunde). Sonst wird sie geladen und wie oben entschieden (seit
+  0.5.0; vorher genügte die Message-ID, und eine andere Mail mit derselben Message-ID kam nie
+  ins Archiv). Journal-Reports und importierte Mail
+  bleiben eigene Objekte; nur derselbe Journal-Report, von Exchange nach einem verlorenen 250
+  erneut gesendet, wird kein zweites (seit 0.5.0, docs/IMAP.md "Journal-Empfänger"). Alle Schreiber hängen über einen gemeinsamen Weg an die Kette an:
   das Original wird vor der Sperre der Kette hochgeladen, unter der Sperre steigt
   `created_at` je Mandant streng monoton (seit 0.4.4 keine Gabelung der Kette bei gleichem
   Zeitstempel mehr).
@@ -495,8 +583,52 @@ und Legal Hold sind Edition Business und Service Provider.
   `{ "reason": … }`), den das Audit-Log (`archive.legal_hold.released`) festhält; ein bereits
   freigegebener Hold wird nicht ein zweites Mal freigegeben (409).
 - Löschlauf: täglich (Aufgabe `retention`, empfohlener Zeitplan 04:30), löscht nur abgelaufene
-  Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Zielbild: ein Löschprotokoll
-  (Anzahl, Zeitraum, Hashes der gelöschten Objekte) als eigener Eintrag der Kette.
+  Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Seit 0.5.0 seitenweise: je 500
+  fällige Objekte in der Reihenfolge des Fristendes (Index aus Migration 0082), je Seite eine
+  Transaktion; der Legal Hold wird in der Löschanweisung selbst geprüft, ein während des Laufs
+  gesetzter Hold schützt also alles, was der Lauf noch nicht erreicht hat. Ein abgebrochener
+  Job hört nach der laufenden Seite auf.
+
+### Löschkonzept
+
+Was der Löschlauf für ein Objekt nach Fristablauf tut, in einer Transaktion je Seite:
+
+- Die Zeile in `archive_items` wird gelöscht, mit ihr Betreff, Text, Umschlag, Zuordnungen zu
+  Postfächern (`archive_item_mailboxes`) und weitere Erfassungen (`archive_item_captures`).
+- Das Kettenglied bleibt als Löschvermerk (`archive_chain_tombstones`, Migration 0083, seit
+  0.5.0): ID und SHA-256 des Objekts, Eingangszeit, Kettenwert des Vorgängers und eigener
+  Kettenwert, Position (`created_at` der gelöschten Zeile), Fristende und Löschzeit. Kein Inhalt,
+  kein Betreff, keine Adresse. Die Vermerke sind für beide Datenbankrollen nur anfügbar.
+- Die Chunk-Referenzen des Objekts werden in derselben Transaktion freigegeben, genau die, die
+  der Schreiber genommen hat (eine je Vorkommen eines Chunks). Chunks, die eine Sicherung oder
+  ein anderes Archivobjekt noch braucht, behalten ihre Referenzen; alle anderen räumt die
+  Speicherbereinigung (Speicherprüfung) nach ihrer Schonfrist ab. Packs werden nie direkt
+  gelöscht.
+- Der versiegelte Datensatz (`tenants/<tid>/archive/…`) wird in derselben Transaktion zum
+  Löschen vorgemerkt (`archive_record_deletions`, Migration 0084) und gleich nach dem Commit auf
+  dem primären Ziel und jeder Kopie gelöscht. Verweigert ein Ziel das Löschen (Object Lock noch
+  aktiv, Ausfall), bleibt die Vormerkung mit Versuchen und Fehler stehen, der Lauf meldet sie als
+  aufgeschoben (`recordsDeferred`, Warnung im Worker-Log, einmal `archive.record.deletion_deferred`
+  im Audit-Log) und der nächste Lauf versucht es erneut; gelöschte Datensätze stehen gesammelt in
+  `archive.records.deleted`. Ein stillgelegtes Ziel (`previous`) wird nie beschrieben und behält
+  seine Kopie, bis es entfernt wird.
+- Das Audit-Log erhält je Objekt `archive.item.deleted` mit Hash, Kettenwert, Frist und was
+  gelöscht wurde (Zeile, Zahl der freigegebenen Referenzen, Datensatz vorgemerkt). Vor 0.5.0
+  löschte der Lauf nur die Zeile: Die Mail ließ sich aus dem Speicher weiter rekonstruieren, und
+  ihr Speicher wurde nie frei.
+
+Die Archivprüfung geht Objekte und Löschvermerke zusammen in Kettenreihenfolge durch: Ein
+Vermerk wird geprüft wie das Objekt, dessen Platz er einnimmt, liefert dem nächsten Eintrag den
+Vorgänger und zählt für die Positionen der Tagesanker mit (der Ankerlauf zählt beide). Das
+Ergebnis nennt die Zahl der nach Fristablauf gelöschten Einträge ("dokumentiert gelöscht"),
+kein Bruch. Eine Zeile, die ohne Vermerk fehlt (von Hand gelöscht), bleibt ein Bruch, ebenso ein
+geänderter oder verschobener Vermerk. Das gilt für eine gelöschte Spitze der Kette (die ältesten
+Objekte), für Lücken mitten in der Kette (neben Objekten unter Legal Hold oder spät erfassten)
+und für das jüngste Objekt: Der nächste Schreiber hängt an den Vermerk an. Vor 0.5.0 löschte der
+Lauf auch das Kettenglied, und die Prüfung meldete ab der ersten berechtigten Löschung für immer
+einen Bruch; Löschungen aus dieser Zeit (frühestens sechs Jahre nach der Erfassung, der
+kürzesten Frist, die eine Aufbewahrungsregel festlegen kann; ohne eigene Regel acht Jahre) lassen
+sich nicht nachträglich mit Vermerken versehen.
 
 ## Suche und Export
 
@@ -670,6 +802,22 @@ Geprüft gegen den Code von 0.5.0; was hier nicht steht, ist nicht umgesetzt.
   des Altbestands läuft als Job "Archiv-Übernahme" (fortsetzbar, als nachträglich erfasst
   markiert). Er hält bei Update-Drain und Shutdown an und pausiert einen Mandanten, während
   dessen Speicher das Ziel wechselt.
+- **Übernahme des Altbestands** (seit 0.5.0 abgeglichen statt einmalig eingeplant). Ihre
+  Position steht am Stream (`archive_capture_streams.backfill_cursor`), nicht nur im Job: Ein
+  Job, der sein Zeitbudget aufgebraucht hat (Graph 2 Stunden, IMAP 30 Minuten), reiht eine
+  Fortsetzung ein, und die liest dort weiter, wo er aufgehört hat; IMAP hält dafür auch mitten
+  in einem großen Ordner an (nach jedem Stapel von Metadaten). Jeder Durchgang des
+  Erfassungsdienstes prüft für einen aktivierten Stream ohne abgeschlossene Übernahme, ob ein
+  Übernahme-Job eingereiht ist oder läuft, und reiht sonst einen ein: nach einem
+  fehlgeschlagenen Einreihen bei der Aktivierung, nach aufgebrauchten Wiederholungen, nach
+  einem Lauf, der übersprungen wurde (Stream aus, Fähigkeit geschlossen). Nach einem
+  fehlgeschlagenen Job wartet er dafür eine Stunde. Ein fehlgeschlagener Übernahme-Job lässt
+  sich unter Jobs auch von Hand wiederholen; er setzt ebenfalls an der gespeicherten Position
+  fort. Ist die Übernahme 48 Stunden nach der Aktivierung nicht abgeschlossen oder ist ihr
+  letzter Job fehlgeschlagen, zeigt die Archiv-Seite sie als hängend (gelb, beim Weg und je
+  Postfach), und die Erfassungs-Warnung `backfill_stalled` (Ereignis `archive.failed`) geht
+  einmal je Stream und Aktivierung hinaus: Mail von vor der Aktivierung ist dann noch nicht im
+  Archiv.
 - **Graph-Erfassung** (docs/MICROSOFT.md, "Archiv-Erfassung per Graph"): Abonnement je
   Postfach mit Verlängerung, Lebenszyklus-Hooks und Neuanlage bei App-Wechsel, Abholen
   benachrichtigter Mail, Nachholen per Delta über alle Ordner und

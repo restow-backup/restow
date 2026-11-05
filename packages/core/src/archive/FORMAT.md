@@ -159,6 +159,15 @@ elapsed — the sealed item record would still look intact, but
 longer rebuild the original from it. References are released only by the
 retention deletion run (ARCHIVE-JOURNAL), never by the writer itself.
 
+The upload (`storeArchiveContent`) and the commit (`commitArchiveItem`) are
+two steps, and deduplication may reuse a chunk that is already old and
+unreferenced (left by a pruned backup), which GC can collect in between. So
+the commit takes its references first and then locates every chunk; a chunk
+that is gone makes it release those references and throw
+`ArchiveChunksMissingError`, and the caller stores the content again (the
+missing chunks are rewritten) before committing once more. No record is ever
+written for a chunk that exists nowhere.
+
 ## One mail, several captures (0.4.4)
 
 Every writer appends through `append.ts` (`captureArchiveItem`). A capture is the

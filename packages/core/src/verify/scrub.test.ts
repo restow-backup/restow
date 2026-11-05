@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ChunkReader } from "../engine/chunkstore.js";
-import { packPrefix } from "../engine/layout.js";
+import { manifestKey, packPrefix } from "../engine/layout.js";
 import { noopLogger } from "../engine/logger.js";
 import { SnapshotWriter } from "../engine/snapshot.js";
 import type { ChunkIndex, ChunkLocation } from "../engine/types.js";
@@ -14,7 +14,13 @@ import {
 } from "./gc.js";
 import { sampleSizeFor, selectPacks } from "./integrity.js";
 import { seededRandom } from "./random.js";
-import { runScrub, type ScrubOptions, type ScrubReport, scrubFindingDetails } from "./scrub.js";
+import {
+  findMissingManifests,
+  runScrub,
+  type ScrubOptions,
+  type ScrubReport,
+  scrubFindingDetails,
+} from "./scrub.js";
 import {
   createStoreFixture,
   fixtureBytes,
@@ -722,5 +728,71 @@ describe("scrubFindingDetails", () => {
       reasons: [{ code: "storage_corrupt", severity: "red", count: 1 }],
       packs: [{ path: "tenants/t/packs/ab/p1" }],
     });
+  });
+});
+
+describe("findMissingManifests", () => {
+  async function twoSnapshots() {
+    const fixture = createStoreFixture({ copies: 1 });
+    const first = await writeSnapshot(fixture, mailboxItems(2));
+    const second = await writeSnapshot(fixture, mailboxItems(3));
+    const manifests = [first, second].map((snapshot) => ({
+      snapshotId: snapshot.snapshotId,
+      protectedObjectId: fixture.protectedObject.id,
+      path: manifestKey(fixture.ctx.tenantId, snapshot.snapshotId),
+    }));
+    return { fixture, manifests, targets: [fixture.primary, ...fixture.copies] };
+  }
+
+  it("names a manifest no target has while the targets hold the tenant's other manifests", async () => {
+    const { fixture, manifests, targets } = await twoSnapshots();
+    for (const target of targets) {
+      await target.delete(manifests[1]?.path as string);
+    }
+    const presence = await findMissingManifests(fixture.storage, fixture.ctx.tenantId, manifests);
+    expect(presence).toEqual({ checked: 2, missing: [manifests[1]], unknown: 0 });
+  });
+
+  it("finds nothing missing when one target still has the manifest", async () => {
+    const { fixture, manifests } = await twoSnapshots();
+    await fixture.primary.delete(manifests[1]?.path as string);
+    const presence = await findMissingManifests(fixture.storage, fixture.ctx.tenantId, manifests);
+    expect(presence.missing).toEqual([]);
+  });
+
+  it("proves nothing on an emptied target or one that cannot be asked", async () => {
+    const emptied = await twoSnapshots();
+    for (const target of emptied.targets) {
+      for (const manifest of emptied.manifests) {
+        await target.delete(manifest.path);
+      }
+    }
+    expect(
+      await findMissingManifests(
+        emptied.fixture.storage,
+        emptied.fixture.ctx.tenantId,
+        emptied.manifests,
+      ),
+    ).toEqual({ checked: 2, missing: [], unknown: 2 });
+
+    const unreachable = await twoSnapshots();
+    const copy = unreachable.fixture.copies[0] as MemoryStorage;
+    copy.head = async () => {
+      throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+    };
+    await unreachable.fixture.primary.delete(unreachable.manifests[1]?.path as string);
+    const presence = await findMissingManifests(
+      unreachable.fixture.storage,
+      unreachable.fixture.ctx.tenantId,
+      unreachable.manifests,
+    );
+    expect(presence.missing).toEqual([]);
+    expect(presence.unknown).toBeGreaterThan(0);
+  });
+
+  it("rates the object red with the missing manifests named", () => {
+    const details = scrubFindingDetails("job", [], [], [{ snapshotId: "s2", path: "m2" }]);
+    expect(details.reasons).toEqual([{ code: "manifest_missing", severity: "red", count: 1 }]);
+    expect(details.manifests).toEqual([{ snapshotId: "s2", path: "m2" }]);
   });
 });

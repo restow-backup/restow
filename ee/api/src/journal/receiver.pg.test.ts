@@ -41,7 +41,15 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_ARCHIVE_RETENTION_POLICY } from "../../../../apps/api/src/features/archive/retention-policy.js";
 import { setInstallationDefaultResolver } from "../../../../apps/api/src/lib/installation-default.js";
-import { receiveJournalReport } from "./receiver.js";
+import { type JournalReportResult, receiveJournalReport } from "./receiver.js";
+
+/** The item a report became; fails the test for a retransmission. */
+function stored(result: JournalReportResult) {
+  if (result.outcome !== "stored") {
+    throw new Error(`expected a new item, got ${result.outcome}`);
+  }
+  return result.record;
+}
 
 // These suites set the installation default in the environment (STORAGE_*); read it from there,
 // uncached, instead of from the installation pool of a configured server
@@ -73,12 +81,12 @@ async function recreateTestDatabase(base: string): Promise<string> {
 
 function rawJournalReport(
   subject: string,
-  envelope: { sender?: string; recipients?: string[] } = {},
+  envelope: { sender?: string; recipients?: string[]; originalTo?: string } = {},
 ): Buffer {
   const recipients = envelope.recipients ?? ["mailbox@contoso.example"];
   const original = [
     "From: sender@contoso.example",
-    `To: ${recipients[0]}`,
+    `To: ${envelope.originalTo ?? recipients[0]}`,
     `Subject: ${subject}`,
     "Message-ID: <msg-1@contoso.example>",
     "",
@@ -158,11 +166,15 @@ describe.skipIf(!adminUrl)("receiveJournalReport against Postgres", () => {
       retentionPolicyFor: async () => DEFAULT_ARCHIVE_RETENTION_POLICY,
     };
 
-    const first = await receiveJournalReport(tenantId, rawJournalReport("First report"), deps);
+    const first = stored(
+      await receiveJournalReport(tenantId, rawJournalReport("First report"), deps),
+    );
     expect(first.prevChainHash).toBeNull();
     expect(first.flags).toEqual([]);
 
-    const second = await receiveJournalReport(tenantId, rawJournalReport("Second report"), deps);
+    const second = stored(
+      await receiveJournalReport(tenantId, rawJournalReport("Second report"), deps),
+    );
     expect(second.prevChainHash).toBe(first.chainHash);
 
     const rows = await db
@@ -170,6 +182,58 @@ describe.skipIf(!adminUrl)("receiveJournalReport against Postgres", () => {
       .from(archiveItems)
       .where(eq(archiveItems.tenantId, tenantId));
     expect(rows).toHaveLength(2);
+  }, 60_000);
+
+  it("archives a report Exchange sends again after a lost 250 once, another report of the mail twice", async () => {
+    const kek = (globalThis as { __journalTestKek?: Buffer }).__journalTestKek as Buffer;
+    const deps = {
+      db,
+      keyProvider: new EnvKeyProvider(kek),
+      now: () => new Date("2026-01-05T10:00:00Z"),
+      retentionPolicyFor: async () => DEFAULT_ARCHIVE_RETENTION_POLICY,
+    };
+    const count = async () =>
+      (
+        await db
+          .select({ id: archiveItems.id })
+          .from(archiveItems)
+          .where(eq(archiveItems.tenantId, tenantId))
+      ).length;
+    const before = await count();
+    const report = rawJournalReport("Sent twice", {
+      recipients: ["anna@contoso.example"],
+      originalTo: "team@contoso.example",
+    });
+    const first = stored(await receiveJournalReport(tenantId, report, deps));
+    // The retransmission went through another Exchange front end: one more Received line.
+    const resent = Buffer.concat([
+      Buffer.from("Received: from AM0PR02MB5678.eurprd02.prod.outlook.com by mx; now\r\n"),
+      report,
+    ]);
+    expect(await receiveJournalReport(tenantId, resent, deps)).toEqual({
+      outcome: "retransmitted",
+      itemId: first.id,
+    });
+    expect(await receiveJournalReport(tenantId, report, deps)).toEqual({
+      outcome: "retransmitted",
+      itemId: first.id,
+    });
+    expect(await count()).toBe(before + 1);
+    // Exchange's second report for the same mail (another journal rule, other recipients):
+    // the same original, another envelope; it stays an item of its own.
+    const other = stored(
+      await receiveJournalReport(
+        tenantId,
+        rawJournalReport("Sent twice", {
+          recipients: ["carol@contoso.example"],
+          originalTo: "team@contoso.example",
+        }),
+        deps,
+      ),
+    );
+    expect(other.itemHash).toBe(first.itemHash);
+    expect(other.id).not.toBe(first.id);
+    expect(await count()).toBe(before + 2);
   }, 60_000);
 
   it("assigns a report to every mailbox its envelope names, by address, alias or as the sender", async () => {
@@ -224,21 +288,25 @@ describe.skipIf(!adminUrl)("receiveJournalReport against Postgres", () => {
       ])
       .returning();
 
-    const sent = await receiveJournalReport(
-      tenantId,
-      rawJournalReport("To the info alias", {
-        sender: "Bob@Contoso.example",
-        recipients: ["INFO@contoso.example", "someone@elsewhere.example"],
-      }),
-      deps,
+    const sent = stored(
+      await receiveJournalReport(
+        tenantId,
+        rawJournalReport("To the info alias", {
+          sender: "Bob@Contoso.example",
+          recipients: ["INFO@contoso.example", "someone@elsewhere.example"],
+        }),
+        deps,
+      ),
     );
-    const outside = await receiveJournalReport(
-      tenantId,
-      rawJournalReport("Nobody of ours", {
-        sender: "a@elsewhere.example",
-        recipients: ["b@elsewhere.example"],
-      }),
-      deps,
+    const outside = stored(
+      await receiveJournalReport(
+        tenantId,
+        rawJournalReport("Nobody of ours", {
+          sender: "a@elsewhere.example",
+          recipients: ["b@elsewhere.example"],
+        }),
+        deps,
+      ),
     );
 
     const assigned = async (itemId: string) =>
@@ -269,10 +337,8 @@ describe.skipIf(!adminUrl)("receiveJournalReport against Postgres", () => {
       retentionPolicyFor: async () => DEFAULT_ARCHIVE_RETENTION_POLICY,
     };
 
-    const record = await receiveJournalReport(
-      tenantId,
-      Buffer.from("not a valid mime report"),
-      deps,
+    const record = stored(
+      await receiveJournalReport(tenantId, Buffer.from("not a valid mime report"), deps),
     );
     expect(record.flags.length).toBeGreaterThan(0);
 
@@ -332,12 +398,13 @@ describe.skipIf(!adminUrl)("receiveJournalReport against Postgres", () => {
       ["Content-Type: text/plain", "Content-Transfer-Encoding: quoted-printable"],
       "=\r\n=3D".repeat(4_000_000),
     );
-    const { value: record, ticks } = await ticking(() =>
+    const { value: result, ticks } = await ticking(() =>
       receiveJournalReport(tenantId, hostile, {
         ...hostileDeps("07"),
         parseLimits: { timeoutMs: 1000 },
       }),
     );
+    const record = stored(result);
 
     expect(record.flags).toEqual(["report-parse-timeout", "original-message-missing"]);
     // Stored exactly as received: the whole report, not a part of it.
@@ -361,9 +428,10 @@ describe.skipIf(!adminUrl)("receiveJournalReport against Postgres", () => {
       ["Content-Type: text/plain"],
       "<".repeat(30 * 1024 * 1024),
     );
-    const { value: record, ticks } = await ticking(() =>
+    const { value: result, ticks } = await ticking(() =>
       receiveJournalReport(tenantId, inflating, hostileDeps("08")),
     );
+    const record = stored(result);
     // Read in its own process within the limits: the original is extracted, nothing is lost.
     expect(record.flags).toContain("envelope-unparseable");
     expect(record.flags).not.toContain("report-parse-memory-limit");

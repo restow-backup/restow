@@ -153,6 +153,29 @@ describe("captureArchiveItem", () => {
     expect(f.store.captures).toHaveLength(0);
   });
 
+  it("stores a journal report delivered again once, also when both deliveries run at once", async () => {
+    const f = fixture();
+    const report = (n: string) =>
+      f.base({ source: "journal", duplicates: "keep", reportHash: `report-${n}` });
+    const first = await captureArchiveItem(report("a"));
+    expect(first.outcome).toBe("stored");
+    const again = await captureArchiveItem(report("a"));
+    expect(again).toEqual({
+      outcome: "retransmitted",
+      itemId: (first as { record: ArchiveItemRecord }).record.id,
+    });
+    // Two deliveries of another report at the same time: the lock decides.
+    const both = await Promise.all([
+      captureArchiveItem(report("b")),
+      captureArchiveItem(report("b")),
+    ]);
+    expect(both.map((result) => result.outcome).sort()).toEqual(["retransmitted", "stored"]);
+    // Another report of the same mail (same original, other hash) is an item of its own.
+    expect(f.store.items).toHaveLength(2);
+    expect(f.store.captures).toHaveLength(0);
+    expect(refcounts(f.index).every((count) => count === 2)).toBe(true);
+  });
+
   it("keeps createdAt strictly increasing and the chain verifiable on one clock value", async () => {
     const f = fixture();
     // Concurrent captures of different mails, all at the same instant.

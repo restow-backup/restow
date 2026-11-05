@@ -333,7 +333,7 @@
   },
   "completeness": {
     "title": "Check copy {name}",
-    "description": "Compares the copy with the primary: every pack, backup manifest and key must be present.",
+    "description": "Compares the copy with the primary: every pack, backup manifest, key and sealed archive record must be present.",
     "checking": "Comparing the copy with the primary …",
     "complete": {
       "title": "The copy is complete",
@@ -341,11 +341,13 @@
     },
     "incomplete": {
       "title": "The copy is not complete yet",
-      "description": "{bytes} of backup data is still missing. The copy run mirrors it; new backups reach the copy right away."
+      "description": "{bytes} of backup data is still missing. The copy run mirrors it; new backups reach the copy right away.",
+      "objects": "Objects counted below are still missing. The copy run mirrors them; new backups and archive items reach the copy right away."
     },
     "packs": "Packs (backup data)",
     "manifests": "Backup manifests",
     "keys": "Encrypted keys",
+    "archive": "Sealed archive records",
     "count": "{present} of {expected}",
     "listingOnly": "Presence is checked by listing. The copy run and the storage check verify contents by checksum.",
     "again": "Check again"

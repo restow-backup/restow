@@ -6,6 +6,7 @@ import {
   planFull,
   planSample,
   quotaFor,
+  SAMPLED_VERSIONS_PER_FILE,
   sampleCategoryOf,
 } from "./sampling.js";
 
@@ -39,6 +40,7 @@ describe("sampleCategoryOf", () => {
     expect(sampleCategoryOf(object("contacts/Contacts/1", "contact"))).toBe("contact");
     expect(sampleCategoryOf(object("mail/Inbox", "folder", 0))).toBeNull();
     expect(sampleCategoryOf(object("Documents/empty.txt", "file", 0))).toBeNull();
+    // Not drawn on their own: read back as parts of their file or message (planSample, planFull).
     expect(sampleCategoryOf(object("Documents/a.pdf:versions/1", "file-version"))).toBeNull();
     expect(sampleCategoryOf(object("Notebooks/Work", "package"))).toBeNull();
     expect(sampleCategoryOf(object("mail/Inbox/1/att", "attachment"))).toBeNull();
@@ -149,5 +151,70 @@ describe("pickRandom", () => {
       expect(count).toBeGreaterThan(850);
       expect(count).toBeLessThan(1150);
     }
+  });
+});
+
+describe("parts of messages and files", () => {
+  const message: ManifestObject = { ...object("mail/Inbox/Big (A1).json", "mail"), id: "A1" };
+  const byPath: ManifestObject = {
+    ...object("mail/Inbox/Big (A1).attachments/a.pdf", "attachment"),
+    metadata: { messagePath: message.path },
+  };
+  const byId: ManifestObject = {
+    ...object("mail/Inbox/Big (A1).attachments/b.pdf", "attachment"),
+    metadata: { messageItemId: "A1" },
+  };
+  const orphan: ManifestObject = {
+    ...object("mail/Gone (Z9).attachments/c.pdf", "attachment"),
+    metadata: { messagePath: "mail/Gone (Z9).json" },
+  };
+  const file = object("Documents/Q3.xlsx", "file");
+  const version = object("Documents/Q3.xlsx:versions/1.0", "file-version");
+  const objects = [message, byPath, byId, orphan, file, version];
+
+  it("reads a sampled message's attachments and a sampled file's versions with it", () => {
+    const plan = planSample(objects, quotaFor(), seededRandom(1));
+    const sampled = new Map(plan.items.map((item) => [item.object.path, item.parts ?? []]));
+    expect(sampled.get(message.path)?.map((part) => part.path)).toEqual([byPath.path, byId.path]);
+    expect(sampled.get(file.path)?.map((part) => part.path)).toEqual([version.path]);
+    expect(plan.eligible).toMatchObject({ mail: 1, file: 1 });
+  });
+
+  it("reads every part in a health check, an attachment without its message on its own", () => {
+    const plan = planFull(objects);
+    const read = plan.items.flatMap((item) => [item.object, ...(item.parts ?? [])]);
+    expect(read.map((entry) => entry.path).sort()).toEqual(
+      objects.map((entry) => entry.path).sort(),
+    );
+    expect(plan.items.find((item) => item.object.path === orphan.path)?.category).toBe("mail");
+    expect(plan.eligible).toMatchObject({ mail: 2, file: 1 });
+  });
+
+  it("reads a bounded share of a sampled file's many versions, all of them in a health check", () => {
+    const big = object("Documents/Budget.xlsx", "file", 1024);
+    const versions = Array.from({ length: 100 }, (_, n) => ({
+      ...object(`Documents/Budget.xlsx:versions/${n + 1}.0`, "file-version", 1024),
+      mtime: Date.UTC(2026, 0, 1) + n * 86_400_000,
+    }));
+    const all = [big, ...versions];
+    for (const seed of [1, 2, 3]) {
+      const plan = planSample(all, quotaFor(), seededRandom(seed));
+      const parts = plan.items.find((item) => item.object.path === big.path)?.parts ?? [];
+      expect(parts).toHaveLength(SAMPLED_VERSIONS_PER_FILE);
+      // The newest and the oldest version are always among them.
+      expect(parts.map((part) => part.path)).toEqual(
+        expect.arrayContaining([versions[0]?.path, versions[99]?.path]),
+      );
+    }
+    const full = planFull(all);
+    expect(full.items.find((item) => item.object.path === big.path)?.parts).toHaveLength(100);
+  });
+
+  it("reads in a health check the versions of a file emptied to 0 bytes", () => {
+    const emptied = object("Documents/Notes.txt", "file", 0);
+    const earlier = object("Documents/Notes.txt:versions/3.0", "file-version", 4096);
+    const plan = planFull([emptied, earlier]);
+    expect(plan.items.map((item) => item.object.path)).toEqual([earlier.path]);
+    expect(plan.eligible.file).toBe(1);
   });
 });

@@ -210,6 +210,8 @@ export interface FakeServerStats {
   idles: number;
   /** Every UID whose source was delivered, as "<folder>:<uid>". */
   sourcesDelivered: string[];
+  /** Every UID whose metadata was returned, as "<folder>:<uid>" (how often a run read it). */
+  metaDelivered: string[];
 }
 
 export interface FakeServerFaults {
@@ -256,6 +258,41 @@ export interface FakeServerFaults {
    * command; sets without it answer OK. FLAGS (from the index) still lists it.
    */
   unreadable: Set<string>;
+  /**
+   * Folders whose next EXAMINE/SELECT answers a NO (STATUS still works), `remaining` times
+   * (Infinity: always), with the RFC 5530 code the server sends: "OVERQUOTA" or "LIMIT" for
+   * Gmail's and Exchange's throttling ("Account exceeded command or bandwidth limits"),
+   * null for a plain NO.
+   */
+  refuseOpen: Map<string, { code: string | null; remaining: number }>;
+  /**
+   * Added to every RFC822.SIZE the server reports: Exchange's estimated size (without
+   * `Set-ImapSettings -EnableExactRFC822Size $true`), which differs from the bytes of BODY[].
+   */
+  sizeSkew: number;
+  /** Like {@link refuseOpen}, for STATUS (Gmail's cap answers every command with the NO). */
+  refuseStatus: Map<string, { code: string | null; remaining: number }>;
+}
+
+/**
+ * A NO as imapflow reports it: Gmail's and Exchange's throttling carries an RFC 5530 code
+ * ("OVERQUOTA", "LIMIT") with "Account exceeded command or bandwidth limits", a plain NO
+ * Exchange's "Server Unavailable. 15".
+ */
+function refusedCommand(
+  verb: "EXAMINE" | "STATUS",
+  path: string,
+  code: string | null,
+): ImapSessionError {
+  const text = code ? "Account exceeded command or bandwidth limits" : "Server Unavailable. 15";
+  const cause = Object.assign(new Error("Command failed"), {
+    responseStatus: "NO",
+    responseText: text,
+    executedCommand:
+      verb === "STATUS" ? `1A STATUS "${path}" (UIDNEXT UIDVALIDITY)` : `1A EXAMINE "${path}"`,
+    ...(code ? { serverResponseCode: code } : {}),
+  });
+  return new ImapSessionError(`${verb} ${path}: NO ${text}`, false, { cause });
 }
 
 export class FakeImapServer implements ImapConnector {
@@ -272,6 +309,7 @@ export class FakeImapServer implements ImapConnector {
     statusCalls: 0,
     idles: 0,
     sourcesDelivered: [],
+    metaDelivered: [],
   };
   readonly faults: FakeServerFaults = {
     rejectAuth: false,
@@ -288,6 +326,9 @@ export class FakeImapServer implements ImapConnector {
     downloadCap: null,
     limitMeta: new Set(),
     unreadable: new Set(),
+    refuseOpen: new Map(),
+    refuseStatus: new Map(),
+    sizeSkew: 0,
   };
   private readonly arrivalListeners = new Set<ArrivalListener>();
   /**
@@ -493,6 +534,11 @@ class FakeSession implements ImapSession {
     if (!folder?.selectable || this.server.faults.openFailures.has(path)) {
       throw new ImapSessionError(`STATUS ${path}: NO Mailbox does not exist`, false);
     }
+    const refusal = this.server.faults.refuseStatus.get(path);
+    if (refusal && refusal.remaining > 0) {
+      refusal.remaining--;
+      throw refusedCommand("STATUS", path, refusal.code);
+    }
     return {
       path,
       uidValidity: String(folder.uidValidity),
@@ -578,6 +624,11 @@ class FakeSession implements ImapSession {
     if (this.server.faults.openFailures.has(path)) {
       throw new ImapSessionError(`EXAMINE ${path}: NO Mailbox does not exist`, false);
     }
+    const refusal = this.server.faults.refuseOpen.get(path);
+    if (refusal && refusal.remaining > 0) {
+      refusal.remaining--;
+      throw refusedCommand("EXAMINE", path, refusal.code);
+    }
     const folder = this.server.folders.get(path);
     if (!folder?.selectable) {
       throw new ImapSessionError(`EXAMINE ${path}: NO Mailbox does not exist`, false);
@@ -652,9 +703,10 @@ class FakeSession implements ImapSession {
       if (!message || this.server.faults.omit.has(key)) {
         continue;
       }
+      this.server.stats.metaDelivered.push(key);
       result.push({
         uid,
-        size: message.source.length,
+        size: message.source.length + this.server.faults.sizeSkew,
         flags: [...message.flags],
         internalDate: message.internalDate,
         messageId: message.messageId,
@@ -708,7 +760,7 @@ class FakeSession implements ImapSession {
       this.server.stats.sourcesDelivered.push(key);
       yield {
         uid,
-        size: message.source.length,
+        size: message.source.length + this.server.faults.sizeSkew,
         flags: [...message.flags],
         internalDate: message.internalDate,
         messageId: message.messageId,

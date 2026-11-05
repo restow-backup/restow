@@ -32,16 +32,28 @@ export function headerBlock(raw: Buffer, limit = HEADER_SCAN_BYTES): string {
 }
 
 /**
- * Whether `raw` is an Exchange journal report: the `X-MS-Journal-Report` header Exchange
- * Online puts on every report, or (a report relayed without it) the report's structure, a
- * multipart message whose first part is the envelope text (`Sender:`, `Message-ID:` and a
- * recipient line). Reads at most the first {@link HEADER_SCAN_BYTES}.
+ * Whether `raw` carries the `X-MS-Journal-Report` header Exchange Online puts on every
+ * journal report. Only this (and only at the tenant's journal address) makes the receiver
+ * take a mail as a journal report: the header names who received the mail, so anything
+ * weaker would let an outsider choose the mailboxes a forged report is assigned to.
+ */
+export function hasJournalReportHeader(raw: Buffer): boolean {
+  return /^x-ms-journal-report\s*:/im.test(headerBlock(raw));
+}
+
+/**
+ * Whether `raw` looks like an Exchange journal report: the `X-MS-Journal-Report` header, or
+ * the report's structure, a multipart message whose first part is the envelope text
+ * (`Sender:`, `Message-ID:` and a recipient line). Anyone can write either, so this only
+ * flags a plain copy `journal-shaped`; the journal path needs
+ * {@link hasJournalReportHeader} at the journal address. Reads at most the first
+ * {@link HEADER_SCAN_BYTES}.
  */
 export function isJournalReport(raw: Buffer): boolean {
-  const headers = headerBlock(raw);
-  if (/^x-ms-journal-report\s*:/im.test(headers)) {
+  if (hasJournalReportHeader(raw)) {
     return true;
   }
+  const headers = headerBlock(raw);
   const type = /^content-type\s*:\s*multipart\/[^;]*;(.*)$/im.exec(headers);
   const boundary = type ? /boundary\s*=\s*"?([^";\s]+)"?/i.exec(type[1] ?? "")?.[1] : undefined;
   if (!boundary) {

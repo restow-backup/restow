@@ -18,30 +18,42 @@
  *     stream went live `captured-late`.
  *
  * Every request names immutable ids (`Prefer: IdType="ImmutableId"`), so a message keeps
- * its external ref across folder moves and is captured once. Messages too large for a
- * MIME export (above ~150 MB) are not archived and are reported back (`oversized`).
+ * its external ref across folder moves and is captured once.
+ *
+ * A message whose MIME export fails is never dropped silently (0.5.0, docs/ARCHIVE.md
+ * "Lücken der Erfassung"): too large for a MIME export (above ~150 MB, `too_large`) or one
+ * Exchange cannot convert (IRM, corrupt items: `not_convertible`) is recorded as an open
+ * gap at once; the archive keeps MIME only, it does not invent a message from the JSON
+ * parts. A 5xx is no refusal: the message is tried again later (the drain keeps it pending,
+ * the catch-up and the backfill hand it to {@link GraphCaptureSink.retryLater}), and only
+ * after three failed attempts it becomes a gap (`export_failed`). An item-level failure of
+ * `$value` (403 `ErrorAccessDenied` and the like) is handled the same way (`fetch_failed`):
+ * it never fails the run, which would stop the catch-up at that message on every pass.
  *
  * Nothing here touches Postgres or the archive store: the worker's Graph way
  * (apps/worker/src/archive-capture/graph.ts) wires the sink and the state.
  */
 import { JobAbortedError } from "../engine/chunkstore.js";
 import type { GraphClient } from "../graph/client.js";
-import { GraphError, isGone, isNotFound } from "../graph/errors.js";
+import { GraphError, isGone, isGraphError, isNotFound } from "../graph/errors.js";
 import { userPath } from "../graph/resources/common.js";
 import {
-  fetchMessageContent,
+  isMimeTooLargeError,
   listMailFolderTree,
+  openMessageMime,
   resolveWellKnownFolders,
   type WellKnownFolderName,
 } from "../graph/resources/mail.js";
 import { IMMUTABLE_ID_PREFER } from "../graph/resources/subscriptions.js";
-import { messageKey } from "./identity.js";
+import { type CaptureGapSink, GAP_OPEN_AFTER_ATTEMPTS } from "./capture-gaps.js";
+import { type HeldMails, heldBySentAt, holdMail } from "./identity.js";
 
 /** Metadata the capture reads per message, in delta pages and in the drain's `$batch`. */
 export const GRAPH_CAPTURE_MESSAGE_SELECT = [
   "id",
   "internetMessageId",
   "receivedDateTime",
+  "sentDateTime",
   "isDraft",
   "parentFolderId",
 ] as const;
@@ -74,6 +86,8 @@ export interface GraphMessageMeta {
   readonly id: string;
   readonly internetMessageId?: string | null;
   readonly receivedDateTime?: string | null;
+  /** The Date header. */
+  readonly sentDateTime?: string | null;
   readonly isDraft?: boolean | null;
   readonly parentFolderId?: string | null;
   readonly "@removed"?: unknown;
@@ -81,16 +95,27 @@ export interface GraphMessageMeta {
 
 /** Where captured mail goes (the worker's capture context). */
 export interface GraphCaptureSink {
-  /** Which refs and Message-IDs (as {@link messageKey}s) the archive holds for the mailbox. */
+  /**
+   * Which refs the archive holds for the mailbox, and what it holds under the given
+   * Message-IDs (size and date of each mail, to compare before a download).
+   */
   alreadyCaptured(query: {
     readonly externalRefs?: readonly string[];
     readonly messageIds?: readonly string[];
-  }): Promise<{ externalRefs: Set<string>; messageKeys: Set<string> }>;
+  }): Promise<{ externalRefs: Set<string>; messages: HeldMails }>;
   append(mail: {
     readonly original: Buffer;
     readonly externalRef: string;
     readonly receivedByService: Date | null;
   }): Promise<unknown>;
+  /** Where messages without a MIME export are recorded (./capture-gaps.ts). */
+  readonly gaps?: CaptureGapSink;
+  /**
+   * Fetch these messages again on a later pass (the worker puts them into the drain's
+   * pending list): a MIME export that failed with a 5xx in a catch-up or the backfill,
+   * whose cursor moves on past the message. Without it such a failure fails the run.
+   */
+  retryLater?(refs: readonly string[]): Promise<void>;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -107,23 +132,67 @@ function dateOf(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Download one message's MIME; null when Graph refuses the MIME export (too large). */
+/** Exchange cannot convert the item to MIME (IRM, corrupt or special item classes). */
+function isConversionRefused(error: unknown): boolean {
+  if (!isGraphError(error) || [401, 403, 404, 410, 429].includes(error.status)) {
+    return false;
+  }
+  const wording = `${error.code ?? ""} ${error.innerCode ?? ""} ${error.message}`;
+  return /MimeContentConversion|ConversionFailed|CorruptData/i.test(wording);
+}
+
+type MimeOutcome =
+  | { readonly original: Buffer }
+  | { readonly refused: "too_large" | "not_convertible" }
+  | { readonly failed: GraphError; readonly reason: "export_failed" | "fetch_failed" };
+
+/**
+ * Statuses Graph answers for one item that are no fault of the mailbox as a whole: 403
+ * `ErrorAccessDenied` for an item the app may not read, 400 for an item Graph will not hand
+ * out, 409 and 422 for one in a state it cannot export. They are counted against the message
+ * (a gap after three attempts) instead of failing the run; a 401 (the token), 429 (throttling
+ * the client gave up on) and the network still fail it, they are the mailbox's.
+ */
+const ITEM_FAILURE_STATUSES: ReadonlySet<number> = new Set([400, 403, 409, 422]);
+
+/**
+ * Download one message's MIME (`$value`). A refusal (too large, not convertible), a 5xx and
+ * an item-level failure (403 and the like) are told apart, never both "too large"; anything
+ * else (404, auth, throttling the client gave up on, the network) is thrown.
+ */
 async function downloadMime(
   client: GraphClient,
   userId: string,
   messageId: string,
   signal: AbortSignal | undefined,
-): Promise<Buffer | null> {
-  const content = await fetchMessageContent(client, userId, messageId);
-  if (content.kind !== "mime") {
-    return null;
+): Promise<MimeOutcome> {
+  let stream: Awaited<ReturnType<typeof openMessageMime>>;
+  try {
+    stream = await openMessageMime(client, userId, messageId);
+  } catch (error) {
+    if (isMimeTooLargeError(error)) {
+      return { refused: "too_large" };
+    }
+    if (isConversionRefused(error)) {
+      return { refused: "not_convertible" };
+    }
+    if (isGraphError(error) && error.status >= 500) {
+      return { failed: error, reason: "export_failed" };
+    }
+    if (isGraphError(error) && ITEM_FAILURE_STATUSES.has(error.status)) {
+      // One item Graph will not hand out (a 403 for an item the app may not read): before,
+      // it failed the catch-up on every pass at the same message, its delta position was
+      // never saved and newer mail of the folder was blocked for good.
+      return { failed: error, reason: "fetch_failed" };
+    }
+    throw error;
   }
   const chunks: Buffer[] = [];
-  for await (const chunk of content.stream) {
+  for await (const chunk of stream) {
     throwIfAborted(signal);
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
   }
-  return Buffer.concat(chunks);
+  return { original: Buffer.concat(chunks) };
 }
 
 /** Counters every capture function reports. */
@@ -132,13 +201,36 @@ export interface GraphCaptureCounts {
   captured: number;
   /** Mail the archive already held for the mailbox, not downloaded. */
   skipped: number;
-  /** Ids of messages too large for a MIME export: not archived. */
+  /** Ids of messages too large for a MIME export: not archived, recorded as gaps. */
   oversized: string[];
+  /** Ids of messages Exchange cannot convert to MIME: not archived, recorded as gaps. */
+  notConvertible: string[];
+  /**
+   * Ids whose MIME export failed (a 5xx, or an item-level 403 and the like) and that are
+   * tried again later.
+   */
+  deferred: string[];
+  /** Ids whose MIME export failed three times: given up, recorded as gaps. */
+  exportFailed: string[];
+}
+
+function emptyCounts(): GraphCaptureCounts {
+  return {
+    captured: 0,
+    skipped: 0,
+    oversized: [],
+    notConvertible: [],
+    deferred: [],
+    exportFailed: [],
+  };
 }
 
 /**
  * Capture the messages of one page: those the archive does not hold yet for the mailbox
- * (by ref or Message-ID) are downloaded and appended, in page order.
+ * are downloaded and appended, in page order. Held means the ref (immutable id) is known,
+ * or a mail with the same Message-ID and the same Date header is: the same Message-ID with
+ * another date is downloaded, and the append keeps it if its body differs
+ * (`message-id-conflict`) or merges it if it is the same mail.
  */
 async function capturePage(
   options: {
@@ -149,6 +241,8 @@ async function capturePage(
   },
   messages: readonly GraphMessageMeta[],
   counts: GraphCaptureCounts,
+  /** A failed (5xx) export is kept for later (the caller sees `deferred`), not thrown. */
+  defer = true,
 ): Promise<void> {
   if (messages.length === 0) {
     return;
@@ -161,14 +255,19 @@ async function capturePage(
   });
   for (const message of messages) {
     throwIfAborted(options.signal);
-    const key = messageKey(message.internetMessageId ?? null);
-    if (known.externalRefs.has(message.id) || (key !== null && known.messageKeys.has(key))) {
+    const sentAt = dateOf(message.sentDateTime);
+    if (
+      known.externalRefs.has(message.id) ||
+      heldBySentAt(known.messages, message.internetMessageId, sentAt)
+    ) {
+      // In the archive: a gap of it (an earlier failure, asked for again) is closed.
+      await options.sink.gaps?.resolved("message", message.id);
       counts.skipped++;
       continue;
     }
-    let original: Buffer | null;
+    let outcome: MimeOutcome;
     try {
-      original = await downloadMime(options.client, options.userId, message.id, options.signal);
+      outcome = await downloadMime(options.client, options.userId, message.id, options.signal);
     } catch (error) {
       // Gone between listing and download (deleted, moved out of reach): nothing to keep.
       if (isNotFound(error)) {
@@ -176,21 +275,62 @@ async function capturePage(
       }
       throw error;
     }
-    if (original === null) {
-      counts.oversized.push(message.id);
+    if ("refused" in outcome) {
+      // No MIME export of this message, now or later: an open gap, never silently dropped.
+      await options.sink.gaps?.gaveUp({
+        kind: "message",
+        ref: message.id,
+        reason: outcome.refused,
+      });
+      (outcome.refused === "too_large" ? counts.oversized : counts.notConvertible).push(message.id);
       continue;
     }
+    if ("failed" in outcome) {
+      if (!defer) {
+        throw outcome.failed;
+      }
+      const attempts = options.sink.gaps
+        ? await options.sink.gaps.failed({
+            kind: "message",
+            ref: message.id,
+            reason: outcome.reason,
+          })
+        : 1;
+      if (attempts >= GAP_OPEN_AFTER_ATTEMPTS) {
+        counts.exportFailed.push(message.id);
+      } else {
+        counts.deferred.push(message.id);
+      }
+      continue;
+    }
+    const original = outcome.original;
     await options.sink.append({
       original,
       externalRef: message.id,
       receivedByService: dateOf(message.receivedDateTime),
     });
-    if (key !== null) {
-      // A second copy of the same mail later in the page is not downloaded again.
-      known.messageKeys.add(key);
-    }
+    // A second copy of the same mail later in the page is not downloaded again.
+    holdMail(known.messages, message.internetMessageId, { sizeBytes: original.length, sentAt });
     known.externalRefs.add(message.id);
     counts.captured++;
+  }
+}
+
+/**
+ * Capture a page of a catch-up or the backfill. Their cursor moves past the page, so a
+ * message whose export failed (5xx) is handed to the sink's `retryLater` (the drain asks for
+ * it again); a sink without one fails the run instead, as before 0.5.0.
+ */
+async function capturePageMovingOn(
+  options: Parameters<typeof capturePage>[0],
+  messages: readonly GraphMessageMeta[],
+  counts: GraphCaptureCounts,
+): Promise<void> {
+  const before = counts.deferred.length;
+  await capturePage(options, messages, counts, options.sink.retryLater !== undefined);
+  const deferred = counts.deferred.slice(before);
+  if (deferred.length > 0) {
+    await options.sink.retryLater?.(deferred);
   }
 }
 
@@ -253,7 +393,10 @@ export interface GraphDrainOptions {
 }
 
 export interface GraphDrainResult extends GraphCaptureCounts {
-  /** Refs that are done (captured, held already, drafts, gone): delete them from pending. */
+  /**
+   * Refs that are done (captured, held already, drafts, gone, given up as a gap): delete
+   * them from pending. A ref in `deferred` is not, it is fetched again on the next pass.
+   */
   handled: string[];
   /** Refs Graph no longer found (404): moved or deleted before the fetch; a catch-up looks. */
   missing: number;
@@ -264,6 +407,8 @@ export interface GraphDrainResult extends GraphCaptureCounts {
    * retries); its refs are not in `handled` and stay pending.
    */
   failure: GraphError | null;
+  /** Every ref whose fetch failed other than with 404 (403, 5xx after retries): still pending. */
+  failed: string[];
 }
 
 /**
@@ -276,9 +421,8 @@ export async function drainGraphPending(options: GraphDrainOptions): Promise<Gra
     missing: 0,
     drafts: 0,
     failure: null,
-    captured: 0,
-    skipped: 0,
-    oversized: [],
+    failed: [],
+    ...emptyCounts(),
   };
   const refs = [...new Set(options.refs)];
   if (refs.length === 0) {
@@ -289,6 +433,7 @@ export async function drainGraphPending(options: GraphDrainOptions): Promise<Gra
   const open: string[] = [];
   for (const ref of refs) {
     if (held.externalRefs.has(ref)) {
+      await options.sink.gaps?.resolved("message", ref);
       result.handled.push(ref);
       result.skipped++;
     } else {
@@ -316,6 +461,7 @@ export async function drainGraphPending(options: GraphDrainOptions): Promise<Gra
       continue;
     }
     if (response.status < 200 || response.status >= 300) {
+      result.failed.push(response.id);
       result.failure ??= new GraphError({
         status: response.status,
         method: "GET",
@@ -340,8 +486,13 @@ export async function drainGraphPending(options: GraphDrainOptions): Promise<Gra
     messages.push({ ...message, id: response.id });
   }
   await capturePage(options, messages, result);
+  // A message whose export failed (5xx) stays pending for the next pass; given up after
+  // three attempts it is a gap and done here.
+  const later = new Set(result.deferred);
   for (const message of messages) {
-    result.handled.push(message.id);
+    if (!later.has(message.id)) {
+      result.handled.push(message.id);
+    }
   }
   return result;
 }
@@ -362,6 +513,13 @@ export interface GraphFolderCursor {
 /** The Graph way's own part of the stream state (keys of ../../apps/worker graph.ts). */
 export interface GraphCatchUpState {
   readonly folders?: Record<string, GraphFolderCursor>;
+  /**
+   * The folders the mailbox had when capture started (and every folder seen since). Only
+   * their first enumeration leaves the older mail to the backfill; a folder first seen
+   * later is enumerated in full: the backfill fixed its folder list at its start, so mail
+   * moved into a folder made since would otherwise be taken over by nobody.
+   */
+  readonly knownFolders?: readonly string[];
 }
 
 export interface GraphCatchUpOptions {
@@ -410,17 +568,24 @@ export async function catchUpGraphMailbox(
       }
     }
   }
+  // Before 0.5.0 the state named no known folders: those with a cursor are the known ones;
+  // on the very first catch-up (no cursor at all) every folder there is now.
+  const known = new Set(
+    options.state.knownFolders ??
+      (Object.keys(options.state.folders ?? {}).length > 0
+        ? Object.keys(options.state.folders ?? {})
+        : folders.map((folder) => folder.id)),
+  );
+  const knownFolders = () => [...new Set([...known, ...folders.map((folder) => folder.id)])];
   const result: GraphCatchUpResult = {
-    state: { ...options.state, folders: cursors },
+    state: { ...options.state, folders: cursors, knownFolders: knownFolders() },
     folders: folders.length,
     resynced: 0,
     leftToBackfill: 0,
-    captured: 0,
-    skipped: 0,
-    oversized: [],
+    ...emptyCounts(),
   };
   const save = async () => {
-    result.state = { ...options.state, folders: { ...cursors } };
+    result.state = { ...options.state, folders: { ...cursors }, knownFolders: knownFolders() };
     await options.checkpoint?.(result.state);
   };
   const activatedAt = options.activatedAt?.getTime() ?? null;
@@ -430,8 +595,11 @@ export async function catchUpGraphMailbox(
     const initialUrl = messagesDeltaInitialUrl(options.userId, folder.id);
     let cursor = cursors[folder.id] ?? {};
     // A folder's first enumeration (not after a 410, not a full resync) leaves the older
-    // mail to the backfill while that has not run.
-    let initial = cursor.nextLink ? cursor.initial === true : cursor.deltaLink === undefined;
+    // mail to the backfill while that has not run, but only for a folder the mailbox had
+    // when capture started: one made since is not in the backfill's folder list.
+    let initial = cursor.nextLink
+      ? cursor.initial === true
+      : cursor.deltaLink === undefined && known.has(folder.id);
     if (options.fullResync) {
       initial = false;
     }
@@ -462,7 +630,7 @@ export async function catchUpGraphMailbox(
             }
             wanted.push(message);
           }
-          await capturePage(options, wanted, result);
+          await capturePageMovingOn(options, wanted, result);
           cursor = page.deltaLink
             ? { deltaLink: page.deltaLink }
             : {
@@ -501,13 +669,38 @@ export async function catchUpGraphMailbox(
 // ---------------------------------------------------------------------------
 // Backfill
 
+/**
+ * Where the backfill stands inside a folder: it pages by `receivedDateTime` ascending and
+ * asks each page afresh from the last one's time (a keyset), never by an offset. Graph's
+ * nextLink of `/mailFolders/{id}/messages` is offset-based (`$skip`): every mail deleted or
+ * moved out of the part already paged (over hours or days of continuations) shifted the
+ * rest, and one older mail per removal was never listed.
+ */
+export interface GraphBackfillPosition {
+  /** `receivedDateTime` of the last message taken (the next page asks `ge` this). */
+  readonly receivedDateTime: string;
+  /** Ids already taken with exactly that time (the next page starts with them again). */
+  readonly ids: readonly string[];
+  /**
+   * More messages share that time than one page holds: the next page of that same query
+   * (Graph's nextLink, offset within that one second only).
+   */
+  readonly nextLink?: string;
+}
+
 /** The backfill's resumable position (the `archive` job's cursor). */
 export interface GraphBackfillCursor {
   /** The folders to take over, fixed when the backfill started. */
   readonly folders: readonly string[];
   /** Index into `folders` of the folder in progress. */
   readonly index: number;
-  /** The next page of that folder, when one was started. */
+  /** Where that folder stands, when one page of it was taken. */
+  readonly position?: GraphBackfillPosition;
+  /**
+   * Before 0.5.0: Graph's offset-based nextLink of the folder in progress. Not followed any
+   * more (it may skip mail); that folder is paged again from its start, held mail is skipped
+   * without a download.
+   */
   readonly nextLink?: string;
   readonly captured: number;
   readonly skipped: number;
@@ -525,7 +718,8 @@ export interface GraphBackfillOptions {
   readonly now?: () => number;
   /** Progress per page (messages looked at). */
   readonly onPage?: (info: { folder: number; folders: number; messages: number }) => void;
-  readonly folders?: readonly GraphCaptureFolder[];
+  /** Folder list (tests); fetched with {@link graphCaptureFolders} otherwise. */
+  readonly folders?: readonly GraphCaptureFolder[] | (() => Promise<readonly GraphCaptureFolder[]>);
 }
 
 export interface GraphBackfillResult extends GraphCaptureCounts {
@@ -533,8 +727,55 @@ export interface GraphBackfillResult extends GraphCaptureCounts {
   cursor: GraphBackfillCursor;
 }
 
-function backfillFolderUrl(userId: string, folderId: string): string {
-  return `${userPath(userId)}/mailFolders/${encodeURIComponent(folderId)}/messages?$select=${GRAPH_CAPTURE_MESSAGE_SELECT.join(",")}&$top=${PAGE_SIZE}`;
+/** Before every message Graph holds (the first page of a folder). */
+const BACKFILL_START = "1900-01-01T00:00:00Z";
+
+/**
+ * One page of a folder from `since` on, oldest first. `$filter` and `$orderby` name the same
+ * property in the same order, as Graph requires for messages.
+ */
+function backfillFolderUrl(userId: string, folderId: string, since: string): string {
+  const filter = encodeURIComponent(`receivedDateTime ge ${since}`);
+  const order = encodeURIComponent("receivedDateTime asc");
+  return `${userPath(userId)}/mailFolders/${encodeURIComponent(folderId)}/messages?$select=${GRAPH_CAPTURE_MESSAGE_SELECT.join(",")}&$filter=${filter}&$orderby=${order}&$top=${PAGE_SIZE}`;
+}
+
+/** Graph's DateTimeOffset as a filter literal (seconds, UTC); null when it is no date. */
+function filterTime(value: string | null | undefined): string | null {
+  const date = dateOf(value);
+  return date ? `${date.toISOString().slice(0, 19)}Z` : null;
+}
+
+/**
+ * Where the folder stands after a page: the newest time taken and the ids taken at it. A
+ * page whose messages all share the time of the position it was asked from (more mail in one
+ * second than a page holds) moves on with Graph's nextLink of that query.
+ */
+function nextPosition(
+  previous: GraphBackfillPosition | undefined,
+  page: readonly GraphMessageMeta[],
+  nextLink: string | undefined,
+): GraphBackfillPosition {
+  let position: GraphBackfillPosition = previous ?? { receivedDateTime: BACKFILL_START, ids: [] };
+  for (const message of page) {
+    const time = filterTime(message.receivedDateTime);
+    if (time === null) {
+      continue;
+    }
+    position =
+      time === position.receivedDateTime
+        ? { receivedDateTime: time, ids: [...new Set([...position.ids, message.id])] }
+        : time > position.receivedDateTime
+          ? { receivedDateTime: time, ids: [message.id] }
+          : position;
+  }
+  const sameSecond =
+    page.length > 0 &&
+    previous !== undefined &&
+    page.every((message) => filterTime(message.receivedDateTime) === previous.receivedDateTime);
+  return sameSecond && nextLink
+    ? { receivedDateTime: position.receivedDateTime, ids: position.ids, nextLink }
+    : { receivedDateTime: position.receivedDateTime, ids: position.ids };
 }
 
 /** Take over every message of the mailbox's capture folders, page by page; resumable. */
@@ -543,32 +784,57 @@ export async function backfillGraphMailbox(
 ): Promise<GraphBackfillResult> {
   const now = options.now ?? Date.now;
   const started = now();
+  const listFolders = async (): Promise<readonly GraphCaptureFolder[]> =>
+    typeof options.folders === "function"
+      ? options.folders()
+      : (options.folders ?? (await graphCaptureFolders(options.client, options.userId)));
   let cursor: GraphBackfillCursor =
     options.cursor ??
     ({
-      folders: (options.folders ?? (await graphCaptureFolders(options.client, options.userId))).map(
-        (folder) => folder.id,
-      ),
+      folders: (await listFolders()).map((folder) => folder.id),
       index: 0,
       captured: 0,
       skipped: 0,
     } satisfies GraphBackfillCursor);
   await options.saveCursor(cursor);
-  const counts: GraphCaptureCounts = { captured: 0, skipped: 0, oversized: [] };
+  const counts = emptyCounts();
   const result = (completed: boolean): GraphBackfillResult => ({ ...counts, completed, cursor });
 
-  while (cursor.index < cursor.folders.length) {
+  for (;;) {
+    if (cursor.index >= cursor.folders.length) {
+      // Folders made while the backfill ran (old mail moved into them is in none of the
+      // listed ones any more): appended and taken over too before it reports completed.
+      const added = (await listFolders())
+        .map((folder) => folder.id)
+        .filter((id) => !cursor.folders.includes(id));
+      if (added.length === 0) {
+        break;
+      }
+      cursor = { ...cursor, folders: [...cursor.folders, ...added] };
+      await options.saveCursor(cursor);
+    }
     const folderId = cursor.folders[cursor.index] as string;
-    let url: string | undefined = cursor.nextLink ?? backfillFolderUrl(options.userId, folderId);
-    while (url) {
+    if (cursor.nextLink !== undefined) {
+      // A position of an earlier version (an offset): this folder again from its start.
+      const { nextLink: _offset, position: _none, ...rest } = cursor;
+      cursor = rest;
+    }
+    let more = true;
+    let gone = false;
+    while (more) {
       throwIfAborted(options.signal);
       if (options.budgetMs !== undefined && now() - started >= options.budgetMs) {
         return result(false);
       }
+      const position = cursor.position;
+      const url =
+        position?.nextLink ??
+        backfillFolderUrl(options.userId, folderId, position?.receivedDateTime ?? BACKFILL_START);
       const response: { status: number; headers: Record<string, string>; body: unknown } =
         await options.client.request({ method: "GET", url, headers: graphCaptureHeaders() });
       if (response.status === 404) {
         // The folder was deleted since the backfill started.
+        gone = true;
         break;
       }
       if (response.status < 200 || response.status >= 300) {
@@ -584,14 +850,22 @@ export async function backfillGraphMailbox(
         value?: GraphMessageMeta[];
         "@odata.nextLink"?: string;
       };
-      const messages = (page.value ?? []).filter((m) => m.isDraft !== true);
+      const listed = page.value ?? [];
+      // The ids taken at the position's time come back first: not looked at twice.
+      const taken = new Set(position?.ids ?? []);
+      const fresh = listed.filter((m) => !taken.has(m.id));
+      const messages = fresh.filter((m) => m.isDraft !== true);
       const before = { captured: counts.captured, skipped: counts.skipped };
-      await capturePage(options, messages, counts);
-      url = page["@odata.nextLink"];
-      const { nextLink: _previous, ...rest } = cursor;
+      await capturePageMovingOn(options, messages, counts);
+      const next = nextPosition(position, listed, page["@odata.nextLink"]);
+      // Done with the folder when Graph has no further page, or a page brought nothing new
+      // and no further page of the same second.
+      more =
+        page["@odata.nextLink"] !== undefined && (fresh.length > 0 || next.nextLink !== undefined);
+      const { position: _previous, ...rest } = cursor;
       cursor = {
         ...rest,
-        ...(url ? { nextLink: url } : { index: cursor.index + 1 }),
+        ...(more ? { position: next } : { index: cursor.index + 1 }),
         captured: cursor.captured + counts.captured - before.captured,
         skipped: cursor.skipped + counts.skipped - before.skipped,
       };
@@ -599,12 +873,11 @@ export async function backfillGraphMailbox(
       options.onPage?.({
         folder: cursor.index,
         folders: cursor.folders.length,
-        messages: (page.value ?? []).length,
+        messages: listed.length,
       });
     }
-    if (cursor.folders[cursor.index] === folderId) {
-      // Left by the 404 above.
-      const { nextLink: _gone, ...rest } = cursor;
+    if (gone) {
+      const { position: _gone, ...rest } = cursor;
       cursor = { ...rest, index: cursor.index + 1 };
       await options.saveCursor(cursor);
     }

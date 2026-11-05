@@ -117,6 +117,14 @@ export const archiveItems = pgTable(
      * would be an UPDATE, which the append-only trigger refuses.
      */
     supersedesItemId: uuid("supersedes_item_id"),
+    /**
+     * Journal reports only (0.5.0): SHA-256 (hex) of the report as delivered, its transport
+     * fields left out (@restow/core archive/identity.ts `journalReportHash`). The same report
+     * sent again after a lost 250 finds its item here and is not stored twice; another report
+     * for the same mail has another hash. Null for every other source and for items received
+     * before 0.5.0.
+     */
+    reportHash: text("report_hash"),
     ...createdOnly(),
   },
   (t) => [
@@ -131,6 +139,11 @@ export const archiveItems = pgTable(
       sql`lower(btrim(${t.messageId}, '<> '))`,
     ),
     index("archive_items_tenant_item_hash_idx").on(t.tenantId, t.itemHash),
+    // One item per journal report: a retransmission is answered from here, and two
+    // concurrent deliveries of one report cannot both commit.
+    uniqueIndex("archive_items_tenant_report_hash_uq")
+      .on(t.tenantId, t.reportHash)
+      .where(sql`${t.reportHash} IS NOT NULL`),
     // "Already captured from this mailbox?" before a mailbox capture downloads a mail.
     index("archive_items_object_external_ref_idx")
       .on(t.protectedObjectId, t.externalRef)
@@ -148,6 +161,13 @@ export const archiveItems = pgTable(
       t.protectedObjectId,
       t.receivedAt,
     ),
+    // The deletion run pages the items whose retention ended (ee/worker archive-retention.ts)
+    // in (retention_until, id) order: an index range instead of the tenant's whole archive.
+    // Partial: items without an end (unlimited) are never due, and no other query of the
+    // tenant's archive can pick this index instead of its own.
+    index("archive_items_tenant_retention_idx")
+      .on(t.tenantId, t.retentionUntil, t.id)
+      .where(sql`${t.retentionUntil} IS NOT NULL`),
   ],
 );
 
@@ -224,6 +244,69 @@ export const archiveItemCaptures = pgTable(
     index("archive_item_captures_object_external_ref_idx")
       .on(t.protectedObjectId, t.externalRef)
       .where(sql`${t.externalRef} IS NOT NULL`),
+  ],
+);
+
+/**
+ * The chain link of an archive item the deletion run removed after its retention (0.5.0,
+ * docs/ARCHIVE.md "Löschkonzept"): the content columns go with the `archive_items` row, the
+ * link stays here, written in the same transaction as the delete and its audit entry. The
+ * chain check walks items and tombstones together in (created_at, id) order: a tombstone is
+ * verified like an item and gives the next entry its predecessor, and it keeps its position,
+ * so the daily anchors (counted over both) stay comparable. A gap without a tombstone is
+ * tampering. Append-only for both roles (sql/rls.sql, roles.ts).
+ */
+export const archiveChainTombstones = pgTable(
+  "archive_chain_tombstones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    // The deleted item's id (no foreign key: the row is gone).
+    itemId: uuid("item_id").notNull(),
+    itemHash: text("item_hash").notNull(),
+    prevChainHash: text("prev_chain_hash"),
+    chainHash: text("chain_hash").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+    // The deleted row's `created_at`: its position in the chain.
+    itemCreatedAt: timestamp("item_created_at", { withTimezone: true }).notNull(),
+    retentionUntil: timestamp("retention_until", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+    ...createdOnly(),
+  },
+  (t) => [
+    uniqueIndex("archive_chain_tombstones_tenant_item_uq").on(t.tenantId, t.itemId),
+    uniqueIndex("archive_chain_tombstones_tenant_chain_hash_uq").on(t.tenantId, t.chainHash),
+    index("archive_chain_tombstones_tenant_created_idx").on(t.tenantId, t.itemCreatedAt, t.itemId),
+  ],
+);
+
+/**
+ * A sealed archive record the deletion run still has to remove from storage (0.5.0, docs/
+ * ARCHIVE.md "Löschkonzept"). Written in the transaction that deletes the item's row (and
+ * releases its chunk references); the run then deletes the record on the primary and every
+ * copy and removes this row. A target that refuses (Object Lock still holding it, an outage)
+ * leaves the row with its attempts and error: the next run tries again, and the run's summary
+ * counts it as deferred, never as deleted.
+ */
+export const archiveRecordDeletions = pgTable(
+  "archive_record_deletions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    // The deleted item's id (no foreign key: the row is gone).
+    itemId: uuid("item_id").notNull(),
+    storagePath: text("storage_path").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("archive_record_deletions_tenant_item_uq").on(t.tenantId, t.itemId),
+    index("archive_record_deletions_tenant_created_idx").on(t.tenantId, t.createdAt, t.id),
   ],
 );
 
@@ -304,6 +387,8 @@ export type NewArchiveItem = typeof archiveItems.$inferInsert;
 export type ArchiveItemCapture = typeof archiveItemCaptures.$inferSelect;
 export type NewArchiveItemCapture = typeof archiveItemCaptures.$inferInsert;
 export type ArchiveCapture = (typeof archiveCaptureEnum.enumValues)[number];
+export type ArchiveChainTombstone = typeof archiveChainTombstones.$inferSelect;
+export type ArchiveRecordDeletion = typeof archiveRecordDeletions.$inferSelect;
 export type ArchiveAnchor = typeof archiveAnchor.$inferSelect;
 export type NewArchiveAnchor = typeof archiveAnchor.$inferInsert;
 export type RetentionPolicy = typeof retentionPolicies.$inferSelect;

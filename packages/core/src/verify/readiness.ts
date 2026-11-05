@@ -3,16 +3,24 @@
  * operator, with every reason that led to it.
  *
  *   red     a restore of this object would fail or be incomplete today: no
- *           backup, unreadable manifest, sampled items that do not come back
+ *           backup, unreadable manifest or one gone from every storage target
+ *           that still holds the tenant's other data (0.5.0), sampled items that do not come back
  *           byte-exact, storage the scrub found corrupt (or could not read in
  *           several checks over more than a day), a failed test restore,
- *           or a latest backup so old that recent data is not recoverable
+ *           a latest backup so old that recent data is not recoverable, or
+ *           items that failed to back up in each of the last runs
+ *           ({@link PERSISTENT_FAILURE_RUNS}), so they are missing from it
  *   yellow  restorable, but something needs attention: the latest backup is
  *           getting old, the storage check could not read a pack of it yet, the
  *           snapshot is empty (only default folders or system pages, 0 bytes) or
- *           holds data of no type a check can read back, or a test restore
- *           landed without the target confirming it
+ *           holds data of no type a check can read back, a test restore
+ *           landed without the target confirming it, or the run that made
+ *           the checked backup could not back up some items (0.5.0), or the
+ *           last checks of the backup could not complete one after the other
+ *           (`check_incomplete`, 0.5.0: an earlier green no longer proves it)
  *   green   every sampled item came back byte-exact from a current backup
+ *           that is complete: green needs both, an intact read-back and a
+ *           backup without failed items
  *
  * The verdict is the worst severity among the reasons. Reasons are machine
  * codes with parameters; the UI translates them.
@@ -23,6 +31,7 @@ import type { ItemCheckStatus } from "./check.js";
 export type ReadinessReasonCode =
   | "no_snapshot"
   | "manifest_unreadable"
+  | "manifest_missing"
   | "items_missing"
   | "items_unreadable"
   | "items_mismatched"
@@ -34,7 +43,10 @@ export type ReadinessReasonCode =
   | "snapshot_stale"
   | "snapshot_empty"
   | "nothing_to_verify"
-  | "test_restore_unconfirmed";
+  | "test_restore_unconfirmed"
+  | "backup_incomplete"
+  | "backup_incomplete_persistent"
+  | "check_incomplete";
 
 export type ReadinessSeverity = "yellow" | "red";
 
@@ -66,6 +78,11 @@ export type ReadinessFacts = {
   snapshotCompletedAt: Date | null;
   hasSnapshot: boolean;
   manifestReadable: boolean;
+  /**
+   * The manifest that could not be read is gone from every target, while each target still
+   * holds the tenant's other data (presence.ts): evidence, `manifest_missing`.
+   */
+  manifestMissing?: boolean;
   /** Objects that were read back. */
   checked: number;
   /**
@@ -88,8 +105,22 @@ export type ReadinessFacts = {
   persistentlyUnreadablePacks?: number;
   /** Test-restore outcome, when one ran. */
   testRestore: { failed: number; unconfirmed: number } | null;
+  /**
+   * Items the backup run that made the checked snapshot could not back up (they are not in
+   * it): `failed` in that run, `persistent` of them failed in each of the object's last
+   * {@link PERSISTENT_FAILURE_RUNS} runs. Null or absent: none, or not known.
+   */
+  backupFailures?: BackupFailureFacts | null;
   now: Date;
 };
+
+export type BackupFailureFacts = {
+  readonly failed: number;
+  readonly persistent: number;
+};
+
+/** Runs in a row an item must have failed in to make the rating red. */
+export const PERSISTENT_FAILURE_RUNS = 3;
 
 export type ReadinessAssessment = {
   readiness: RecoveryReadiness;
@@ -113,7 +144,13 @@ function ageInHours(from: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - from.getTime()) / 3_600_000));
 }
 
-function freshnessReason(
+/**
+ * The age reason of a backup completed at `completedAt`, judged at `now`: red when recent data
+ * is no longer recoverable, yellow when it is getting old, null while it is current. Applied by
+ * a verify run at check time, and by the readiness views at view time (the age keeps growing
+ * after the check).
+ */
+export function freshnessReason(
   completedAt: Date | null,
   now: Date,
   policy: ReadinessPolicy,
@@ -147,7 +184,10 @@ export function assessReadiness(
   };
 
   if (!facts.manifestReadable) {
-    reasons.push({ code: "manifest_unreadable", severity: "red" });
+    reasons.push({
+      code: facts.manifestMissing ? "manifest_missing" : "manifest_unreadable",
+      severity: "red",
+    });
   }
   add("items_missing", "red", facts.outcomes.missing);
   add("items_unreadable", "red", facts.outcomes.unreadable);
@@ -155,6 +195,13 @@ export function assessReadiness(
   add("storage_corrupt", "red", facts.damagedPacks);
   add("storage_unreadable_persistent", "red", facts.persistentlyUnreadablePacks ?? 0);
   add("test_restore_failed", "red", facts.testRestore?.failed ?? 0);
+  // A backup that left items out is not a complete restore, however well the rest reads back.
+  const persistent = Math.min(
+    facts.backupFailures?.persistent ?? 0,
+    facts.backupFailures?.failed ?? 0,
+  );
+  add("backup_incomplete_persistent", "red", persistent);
+  add("backup_incomplete", "yellow", (facts.backupFailures?.failed ?? 0) - persistent);
 
   const freshness = freshnessReason(facts.snapshotCompletedAt, facts.now, policy);
   if (freshness) {

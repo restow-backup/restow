@@ -64,7 +64,7 @@ import {
   sources,
   verifyReports,
 } from "@restow/db";
-import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
 import type { TenantTxRunner } from "../progress.js";
 import {
   configuredRetentionHoldMode,
@@ -80,6 +80,7 @@ import {
   type ResolvedTenantStorage,
   tenantRunner,
   type WorkerJobContext,
+  withTenantTx,
 } from "./framework.js";
 import { recordDeferredDeletion } from "./immutability.js";
 
@@ -244,16 +245,21 @@ export function pgRetentionStore(run: TenantTxRunner, tenantId: string): Retenti
       if (rows.length === 0) {
         return [];
       }
-      const ids = rows.map((row) => row.id);
+      // Joined against the same snapshot filter, never as an id list: a tenant
+      // past 65,535 restore points would exceed the bind parameter limit and
+      // fail every run (nothing pruned, so it never recovers).
       const verifiedRows = await run((tx) =>
         tx
           .selectDistinct({ snapshotId: verifyReports.snapshotId })
           .from(verifyReports)
+          .innerJoin(snapshots, eq(snapshots.id, verifyReports.snapshotId))
           .where(
             and(
               eq(verifyReports.tenantId, tenantId),
-              inArray(verifyReports.snapshotId, ids),
               eq(verifyReports.recoveryReadiness, "green"),
+              eq(snapshots.tenantId, tenantId),
+              eq(snapshots.status, "active"),
+              isNotNull(snapshots.manifestPath),
             ),
           ),
       );
@@ -590,10 +596,48 @@ export function createSnapshotRetentionTask(
 // The handler
 // ---------------------------------------------------------------------------
 
+/** One or more retention tasks failed; the others ran. Carries the run's summary. */
+export class RetentionTasksFailedError extends Error {
+  constructor(
+    readonly tasks: readonly string[],
+    readonly summary: Readonly<Record<string, unknown>>,
+  ) {
+    super(`retention tasks failed: ${tasks.join(", ")}`);
+    this.name = "RetentionTasksFailedError";
+  }
+}
+
 /** Registered retention tasks; the archive module adds its deletion run at startup. */
 export const retentionTasks = new RetentionTaskRegistry([createSnapshotRetentionTask()]);
 
-export function createRetentionHandler(registry: RetentionTaskRegistry): JobHandler<"retention"> {
+/**
+ * Keep a run's summary in `jobs.payload.result` (the API's job detail reads it): what every
+ * task did, also when one failed and the job ends failed (the framework keeps only the
+ * error then).
+ */
+export async function recordRetentionResult(
+  ctx: WorkerJobContext,
+  summary: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  await withTenantTx(ctx.db, ctx.tenantId, (tx) =>
+    tx.execute(sql`
+      update jobs
+         set payload = coalesce(payload, '{}'::jsonb) || ${JSON.stringify({ result: summary })}::jsonb
+       where id = ${ctx.jobId}::uuid
+    `),
+  );
+}
+
+export function createRetentionHandler(
+  registry: RetentionTaskRegistry,
+  options: {
+    readonly recordResult?: (
+      ctx: WorkerJobContext,
+      summary: Readonly<Record<string, unknown>>,
+    ) => Promise<void>;
+  } = {},
+): JobHandler<"retention"> {
+  const recordResult = options.recordResult ?? recordRetentionResult;
   return {
     queue: "retention",
     // Housekeeping runs one at a time per process; it competes with nobody for Graph quota.
@@ -602,11 +646,51 @@ export function createRetentionHandler(registry: RetentionTaskRegistry): JobHand
     async run(ctx: WorkerJobContext, payload: RetentionJobPayload): Promise<JobOutcome> {
       const dryRun = payload.dryRun === true;
       const summary: Record<string, unknown> = { dryRun };
+      const failed: string[] = [];
+      // Each task on its own: a failing snapshot run must not starve the
+      // mail-file sweep, the Object Lock renewal or the archive deletion
+      // registered after it. A failed task still fails the job at the end,
+      // so the run is never reported as a success.
       for (const task of registry.list()) {
         if (ctx.signal.aborted) {
           break;
         }
-        summary[task.name] = await task.run(ctx, { dryRun });
+        try {
+          summary[task.name] = await task.run(ctx, { dryRun });
+        } catch (error) {
+          if (ctx.signal.aborted) {
+            throw error;
+          }
+          const failure = classifyFailure(reportableError(error));
+          summary[task.name] = {
+            status: "failed",
+            error: safeErrorMessage(error),
+            code: failure.code,
+          };
+          failed.push(task.name);
+          ctx.progress.fail(
+            `task:${task.name}`,
+            `retention task ${task.name} failed: ${safeErrorMessage(error)}`,
+            failure,
+          );
+          ctx.logger.error("retention task failed", {
+            task: task.name,
+            error: safeErrorMessage(error),
+          });
+        }
+      }
+      // Kept before the job ends either way: a failed job would otherwise carry only
+      // "retention tasks failed: …", not what the tasks that ran did (items deleted, records
+      // deferred, Object Lock renewals).
+      try {
+        await recordResult(ctx, { ...summary, ...(failed.length > 0 ? { failed } : {}) });
+      } catch (error) {
+        ctx.logger.warn("retention: the run's summary could not be stored", {
+          error: safeErrorMessage(error),
+        });
+      }
+      if (failed.length > 0) {
+        throw new RetentionTasksFailedError(failed, summary);
       }
       return { summary };
     },

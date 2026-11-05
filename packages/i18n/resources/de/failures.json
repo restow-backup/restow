@@ -371,6 +371,10 @@
         "title": "Das Verzeichnis des letzten Backups lässt sich nicht lesen",
         "why": "{appName} konnte die Liste dessen, was das letzte Backup enthält, nicht lesen. Ohne sie lässt sich aus diesem Backup nichts prüfen oder wiederherstellen."
       },
+      "manifest_missing": {
+        "title": "Das Verzeichnis einer Sicherung fehlt im Speicher",
+        "why": "Die Liste dessen, was die Sicherung enthält, fehlt auf jedem Speicherziel, obwohl dort die übrigen Daten dieses Mandanten liegen: Sie wurde dort gelöscht, etwa durch eine Lifecycle-Regel oder eine Bereinigung von Hand. Ohne sie lässt sich aus dieser Sicherung nichts wiederherstellen. Stellen Sie die Datei aus einer Kopie oder einem versionierten Bucket wieder her, oder führen Sie eine vollständige Sicherung aus."
+      },
       "no_snapshot": {
         "title": "Es gibt noch kein Backup zum Wiederherstellen",
         "why": "Dieses Objekt hat kein abgeschlossenes Backup, eine Wiederherstellung würde also nichts finden."
@@ -382,6 +386,14 @@
       "snapshot_stale": {
         "title": "Das letzte Backup wird alt",
         "why": "Das neueste Backup ist {ageHours, plural, one {# Stunde} other {# Stunden}} alt, mehr als ein Zeitplan normalerweise zulässt."
+      },
+      "backup_incomplete": {
+        "title": "Die geprüfte Sicherung ist unvollständig",
+        "why": "{has_count, select, yes {{count, plural, one {# Element konnte} other {# Elemente konnten}}} other {Einige Elemente konnten}} beim Lauf, der diese Sicherung erstellt hat, nicht gesichert werden. Sie fehlen in der Sicherung, auch wenn alles andere einwandfrei zurückgelesen wird; der Lauf nennt sie mit ihrer Ursache. Der nächste Lauf versucht sie erneut."
+      },
+      "backup_incomplete_persistent": {
+        "title": "Dieselben Elemente fehlen in jeder Sicherung",
+        "why": "{has_count, select, yes {{count, plural, one {# Element konnte} other {# Elemente konnten}}} other {Einige Elemente konnten}} in den letzten drei Läufen in Folge nicht gesichert werden. Eine Wiederherstellung wäre unvollständig, bis die Ursache behoben ist; der Lauf nennt sie."
       },
       "snapshot_empty": {
         "title": "Leer: Es gibt nichts wiederherzustellen",
@@ -398,6 +410,10 @@
       "incomplete": {
         "title": "Die Restore-Prüfung konnte nicht abgeschlossen werden",
         "why": "{appName} konnte die Backup-Daten nicht zurücklesen, aus einem Grund, der nichts über das Backup selbst aussagt. Es wurde nichts bewertet, das letzte Ergebnis bleibt bestehen; die Prüfung wird automatisch wiederholt. Die technischen Details nennen, was fehlgeschlagen ist."
+      },
+      "check_incomplete": {
+        "title": "Die letzten Prüfungen konnten nicht abgeschlossen werden",
+        "why": "{has_count, select, yes {{count, plural, one {Die letzte Prüfung} other {Die letzten # Prüfungen}}} other {Die letzten Prüfungen}} dieser Sicherung konnten sie nicht zurücklesen, weil der Speicher nicht geantwortet hat. Bis eine Prüfung abgeschlossen ist, gilt ein früheres Ergebnis nicht mehr als Beleg, dass sich die Sicherung wiederherstellen lässt."
       }
     },
     "config": {

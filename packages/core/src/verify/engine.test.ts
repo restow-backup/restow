@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { manifestKey } from "../engine/layout.js";
+import { manifestKey, wrappedKeyKey } from "../engine/layout.js";
 import { noopLogger } from "../engine/logger.js";
 import { sealManifest } from "../engine/sealed-manifest.js";
 import { loadManifest } from "../engine/snapshot.js";
@@ -320,6 +320,70 @@ describe("verifyProtectedObject", () => {
     expect(outcome.readiness).toBe("red");
   });
 
+  it("reads the attachments of a JSON-format message with it: a missing attachment chunk is red", async () => {
+    const fixture = createStoreFixture();
+    // A 60 MB message stored as Graph JSON plus attachment objects (backup/exchange/mail.ts).
+    const message = "mail/Inbox/Big report (AAMk1).json";
+    const { objects } = await writeSnapshot(fixture, [
+      { path: "mail/Inbox", type: "folder", size: 0 },
+      { path: message, type: "mail", size: 900, seed: 3, metadata: { format: "json" } },
+      {
+        path: "mail/Inbox/Big report (AAMk1).attachments/report.pdf (AAMkA1)",
+        type: "attachment",
+        size: 4000,
+        seed: 4,
+        metadata: { messagePath: message, messageItemId: "AAMk1" },
+      },
+      {
+        path: "mail/Inbox/Big report (AAMk1).attachments/data.xlsx (AAMkA2)",
+        type: "attachment",
+        size: 3000,
+        seed: 5,
+        metadata: { messagePath: message, messageItemId: "AAMk1" },
+      },
+    ]);
+    const healthy = await verify(fixture);
+    expect(healthy.readiness).toBe("green");
+    expect(healthy.details.items.find((item) => item.path === message)).toMatchObject({
+      status: "verified",
+      parts: 2,
+    });
+
+    const attachment = objects.find((object) => object.path.endsWith("data.xlsx (AAMkA2)"));
+    fixture.index.chunks.delete(attachment?.chunks[0] as string);
+    const sample = await verify(fixture);
+    expect(sample.readiness).toBe("red");
+    expect(sample.details.reasons[0]).toMatchObject({ code: "items_missing", severity: "red" });
+    expect(sample.details.items[0]).toMatchObject({
+      path: message,
+      status: "missing",
+      failedPart: attachment?.path,
+    });
+    const health = await verify(fixture, { kind: "health_check" });
+    expect(health.readiness).toBe("red");
+    expect(health.missing).toBe(1);
+  });
+
+  it("reads a file's historical versions in a health check and with a sampled file", async () => {
+    const fixture = createStoreFixture({ kind: "onedrive" });
+    const { objects } = await writeSnapshot(fixture, [
+      { path: "Documents/Q3.xlsx", type: "file", size: 800, seed: 7 },
+      { path: "Documents/Q3.xlsx:versions/2.0", type: "file-version", size: 780, seed: 8 },
+      { path: "Documents/Q3.xlsx:versions/1.0", type: "file-version", size: 760, seed: 9 },
+    ]);
+    const version = objects.find((object) => object.path.endsWith(":versions/1.0"));
+    fixture.index.chunks.delete(version?.chunks[0] as string);
+    for (const kind of ["verify", "health_check"] as const) {
+      const outcome = await verify(fixture, { kind });
+      expect(outcome.readiness).toBe("red");
+      expect(outcome.details.items[0]).toMatchObject({
+        path: "Documents/Q3.xlsx",
+        status: "missing",
+        failedPart: version?.path,
+      });
+    }
+  });
+
   it("stops on cancellation instead of recording findings", async () => {
     const fixture = await mailboxFixture(3);
     const controller = new AbortController();
@@ -377,6 +441,54 @@ describe("a check that cannot read the data rates nothing", () => {
       await gone.primary.delete(key);
     }
     await expect(verify(gone)).rejects.toBeInstanceOf(VerifyIncompleteError);
+  });
+
+  it("rates a manifest gone from every target red when the targets still hold the tenant", async () => {
+    // A lifecycle rule on the manifests prefix (or a cleanup by hand) removed the latest
+    // backup's manifest on the primary and its copy; the tenant's wrapped key is still on both,
+    // as the worker mirrors it to every target.
+    const fixture = createStoreFixture({ copies: 1 });
+    await writeSnapshot(fixture, mailboxItems(3));
+    const { tenantId } = fixture.ctx;
+    for (const target of [fixture.primary, ...fixture.copies]) {
+      await target.put(wrappedKeyKey(tenantId, 1), Buffer.from("wrapped dek"));
+      for (const key of await target.list(`tenants/${tenantId}/manifests/`)) {
+        await target.delete(key);
+      }
+    }
+    const outcome = await verify(fixture);
+    expect(outcome.readiness).toBe("red");
+    expect(outcome.details.reasons.map((reason) => reason.code)).toEqual(["manifest_missing"]);
+    expect(outcome.details.manifestCause?.code).toBe("verify.manifest_missing");
+    expect(fixture.ctx.progressSink.failures).toHaveLength(1);
+  });
+
+  it("rates a manifest missing on every target red when an older manifest is still there", async () => {
+    const fixture = createStoreFixture({ copies: 1 });
+    await writeSnapshot(fixture, mailboxItems(3));
+    fixture.clock.now = new Date(fixture.clock.now.getTime() + HOUR);
+    const latest = await writeSnapshot(fixture, mailboxItems(4));
+    const key = manifestKey(fixture.ctx.tenantId, latest.snapshotId);
+    for (const target of [fixture.primary, ...fixture.copies]) {
+      await target.delete(key);
+    }
+    const outcome = await verify(fixture);
+    expect(outcome.details.reasons[0]).toMatchObject({ code: "manifest_missing", severity: "red" });
+  });
+
+  it("stays incomplete for a missing manifest when a copy target is empty or cannot be listed", async () => {
+    const empty = createStoreFixture({ copies: 1 });
+    await writeSnapshot(empty, mailboxItems(3));
+    const { tenantId } = empty.ctx;
+    await empty.primary.put(wrappedKeyKey(tenantId, 1), Buffer.from("wrapped dek"));
+    // The copy is an emptied bucket: it holds nothing of the tenant.
+    for (const key of (await empty.copies[0]?.list(`tenants/${tenantId}/`)) ?? []) {
+      await empty.copies[0]?.delete(key);
+    }
+    for (const key of await empty.primary.list(`tenants/${tenantId}/manifests/`)) {
+      await empty.primary.delete(key);
+    }
+    await expect(verify(empty)).rejects.toBeInstanceOf(VerifyIncompleteError);
   });
 
   it("rates a manifest that does not decode red", async () => {

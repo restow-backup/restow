@@ -665,6 +665,11 @@ export async function provisionRoles(
         "archive_item_mailboxes",
         `REVOKE DELETE ON archive_item_mailboxes FROM ${tenant}`,
       ),
+      // The chain links of items deleted after their retention stay for good (0.5.0).
+      whenTableExists(
+        "archive_chain_tombstones",
+        `REVOKE UPDATE, DELETE, TRUNCATE ON archive_chain_tombstones FROM ${both}`,
+      ),
       // So are its further captures (0.4.4): the tenant role selects and inserts.
       whenTableExists(
         "archive_item_captures",

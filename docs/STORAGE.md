@@ -542,8 +542,9 @@ data already on it), the add-target dialog offers a role choice:
   - **Move existing backups** (recommended): the new target is added as a copy
     immediately (so every backup from this point on already reaches it), and a
     background job copies everything that existed before — every pack, backup
-    manifest (mail and VM/container restore points alike), wrapped tenant key, and the
-    restic repositories of the tenant's containers (`pve-guests/<id>/`), machines
+    manifest (mail and VM/container restore points alike), wrapped tenant key, sealed
+    archive record (`tenants/<tid>/archive/`, written with the item's retention, see
+    "Copies and the archive" below), and the restic repositories of the tenant's containers (`pve-guests/<id>/`), machines
     (`endpoints/<id>/`) and file shares (`file-shares/<id>/`) — onto it, verifies the
     copy against the source by SHA-256, and only then switches the primary over
     atomically. The old location is kept, attached read-only, until removed by hand.
@@ -614,7 +615,7 @@ row (`storage_migrations`) tracking its state, independent of the generic job li
 the target's card in the Repositories section can show it directly:
 
 1. **queued** — accepted, waiting for a worker.
-2. **copying** — every pack, manifest and wrapped key the current primary holds (or,
+2. **copying** — every pack, manifest, wrapped key and sealed archive record the current primary holds (or,
    without a primary row, the installation default), and every file of the tenant's
    restic repositories (see "restic repositories in a move" below), is compared
    against what the
@@ -844,6 +845,26 @@ repair** card (`apps/worker/src/handlers/repository-repair.ts`,
 - One scan or repair runs at a time per tenant; a worker that stops in the middle queues
   it again, and every step is safe to repeat.
 
+### Copies and the archive
+
+The sealed record of each archived mail (`tenants/<tid>/archive/<year>/<month>/<id>.json`,
+`packages/core/src/archive/FORMAT.md`) is written once, to the primary and every copy that
+exists at that moment, with an Object Lock retention up to the end of the item's retention
+period. Since 0.5.0 everything that copies a tenant's store copies these records too: the
+scrub's mirror onto a copy added later, a `move` migration, and the completeness check
+before a copy is promoted (it counts them under "Sealed archive records"). Each record is
+copied with the `retention_until` of its catalog row, so on an Object Lock target it is
+locked exactly as long as on the target it was first written to; records of items deleted
+after their retention are not copied. The scrub's mirror reads the records from the catalog
+(`archive_items`, by creation time, a thousand at a time), not from a listing of the archive
+prefix: a scheduled (sample) check takes only the records written since the position the last
+check reached for the same copies (kept in its result, `copies.archiveThrough`, and moved only
+while every record before it is on every copy); a full check, and the first check after a copy
+is added, replaced or pointed elsewhere, goes through every record. Records younger than 15
+minutes wait for the next check (their row may not be committed yet). Before 0.5.0 none of these paths knew the archive
+prefix: a target added later never received the records written before it, and after a
+`move` they existed only on the retired location.
+
 ## Removing an old location
 
 A `previous` target is never deleted automatically. Once an admin no longer needs the
@@ -858,7 +879,10 @@ either side); the API refuses with a clear reason instead of leaving a dangling
 reference. A `previous` target additionally cannot be removed while it still holds
 backup data no other target has: Restow lists its packs against the tenant's current
 primary and copies before every removal and refuses with `previous-holds-exclusive-data`
-if any pack exists only there — the exact packs a "keep" replacement left behind. The same
+if any pack exists only there — the exact packs a "keep" replacement left behind — or any
+committed manifest, wrapped key or sealed archive record of an item the archive still holds
+(since 0.5.0; before, archive records were not compared, and a location holding the only
+copy of years of records could be removed). The same
 holds for restic repositories (`previous-holds-endpoint-repositories`): any data, index,
 snapshot, key or `config` file of a container's, machine's or file share's repository
 that no current target has blocks the removal, not only a `config` (a run that a switch

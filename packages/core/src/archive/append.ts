@@ -7,7 +7,9 @@
  *      anything is uploaded.
  *   2. The original is chunked and uploaded outside the chain lock
  *      (./writer.ts `storeArchiveContent`): the slow part never blocks other captures of
- *      the tenant. Nothing references the chunks yet; scrub GC's grace period keeps them.
+ *      the tenant. Nothing references the chunks yet; scrub GC's grace period keeps fresh
+ *      ones. A deduplicated chunk that was already old can be collected meanwhile: the
+ *      commit finds it missing after pinning, and the content is stored again.
  *   3. Under the tenant's chain lock ({@link ArchiveAppendStore.withChainLock}) the
  *      duplicate decision is made again (another capture may have won meanwhile), then
  *      either a capture row on the existing item, or: the chain tip, a `createdAt`
@@ -38,7 +40,14 @@ import type { JournalEnvelope } from "./journal.js";
 import { archiveItemKey } from "./layout.js";
 import type { RetentionPolicy } from "./retention.js";
 import type { ArchiveFlag, ArchiveItemRecord, ArchiveSource } from "./types.js";
-import { type ArchiveContent, commitArchiveItem, storeArchiveContent } from "./writer.js";
+import {
+  ARCHIVE_COMMIT_ATTEMPTS,
+  ArchiveChunksMissingError,
+  type ArchiveContent,
+  type CommitArchiveItemOptions,
+  commitArchiveItem,
+  storeArchiveContent,
+} from "./writer.js";
 
 /** The last item of a tenant's chain, in (created_at, id) order. */
 export interface ArchiveChainTip {
@@ -76,6 +85,8 @@ export interface ArchiveItemInsert {
   readonly bodyHash: string;
   readonly externalRef: string | null;
   readonly supersedesItemId: string | null;
+  /** {@link CaptureArchiveItemOptions.reportHash}: the journal report it came in; else null. */
+  readonly reportHash: string | null;
 }
 
 /** A further capture of an existing item (no chain entry). */
@@ -94,6 +105,8 @@ export interface ArchiveCaptureInsert {
 export interface ArchiveChainSession {
   tip(): Promise<ArchiveChainTip | null>;
   candidates(query: ArchiveCandidateQuery): Promise<ArchiveMatchCandidate[]>;
+  /** The item a journal report with this hash became, if any. */
+  itemByReportHash(reportHash: string): Promise<string | null>;
   insertItem(item: ArchiveItemInsert): Promise<void>;
   insertCapture(capture: ArchiveCaptureInsert): Promise<void>;
   /** Assign `itemId` to the mailboxes named (never to its own); returns how many rows were added. */
@@ -105,6 +118,8 @@ export interface ArchiveAppendStore {
   readonly tenantId: string;
   /** Candidates outside the lock: only a hint (the decision is made again under it). */
   candidates(query: ArchiveCandidateQuery): Promise<ArchiveMatchCandidate[]>;
+  /** Outside the lock, a hint as {@link ArchiveChainSession.itemByReportHash}. */
+  itemByReportHash(reportHash: string): Promise<string | null>;
   /** Run `fn` in one transaction holding the tenant's chain lock. */
   withChainLock<T>(fn: (session: ArchiveChainSession) => Promise<T>): Promise<T>;
 }
@@ -143,6 +158,12 @@ export interface CaptureArchiveItemOptions {
   readonly externalRef?: string | null;
   /** Default `merge` (see ./identity.ts {@link DuplicatePolicy}). */
   readonly duplicates?: DuplicatePolicy;
+  /**
+   * A journal report's {@link journalReportHash}. An item that came in with the same hash is
+   * this very report delivered again (the sender never saw the 250): nothing is stored or
+   * recorded, whatever the duplicate policy, and the result is `retransmitted`.
+   */
+  readonly reportHash?: string | null;
   /** The new item's id; default a random UUID. */
   readonly itemId?: string;
   readonly now?: () => Date;
@@ -161,6 +182,12 @@ export type CaptureArchiveItemResult =
       /** The existing item this capture was recorded on. */
       readonly itemId: string;
       readonly mailboxes: number;
+    }
+  | {
+      /** The same journal report again ({@link CaptureArchiveItemOptions.reportHash}). */
+      readonly outcome: "retransmitted";
+      /** The item the report became the first time. */
+      readonly itemId: string;
     };
 
 /** Capture one mail into the tenant's archive (see the module docstring). */
@@ -180,6 +207,14 @@ export async function captureArchiveItem(
     messageKey: identity.messageKey,
   };
 
+  const reportHash = options.reportHash ?? null;
+  if (reportHash !== null) {
+    const earlier = await options.store.itemByReportHash(reportHash);
+    if (earlier !== null) {
+      return retransmitted(options, earlier);
+    }
+  }
+
   // A capture the archive already holds needs no upload at all.
   let content: ArchiveContent | null = null;
   const hint =
@@ -191,6 +226,11 @@ export async function captureArchiveItem(
   }
 
   return options.store.withChainLock(async (session) => {
+    // Two deliveries of one report at once (a retry while the first still uploads).
+    const earlier = reportHash === null ? null : await session.itemByReportHash(reportHash);
+    if (earlier !== null) {
+      return retransmitted(options, earlier);
+    }
     const decision = decideDuplicate(identity, await session.candidates(query), policy);
     if (decision.kind === "duplicate") {
       await session.insertCapture({
@@ -225,24 +265,26 @@ export async function captureArchiveItem(
     if (decision.conflict && !flags.includes("message-id-conflict")) {
       flags.push("message-id-conflict");
     }
-    const record = await commitArchiveItem({
-      tenantId: options.tenantId,
-      itemId,
-      storage: options.storage,
-      keys: options.keys,
-      index: options.index,
-      content: stored,
-      receivedAt: options.receivedAt,
-      envelope: options.envelope,
-      flags,
-      source: options.source,
-      retentionPolicy: options.retentionPolicy,
-      legalHold: options.legalHold,
-      prevChainHash: tip?.chainHash ?? null,
-      createdAt: nextCreatedAt(tip?.createdAt ?? null, now()),
-      bodyHash: identity.bodyHash ?? undefined,
-      ...(decision.supersedes ? { supersedesItemId: decision.supersedes } : {}),
-    });
+    const commit = (content: ArchiveContent) =>
+      commitArchiveItem({
+        tenantId: options.tenantId,
+        itemId,
+        storage: options.storage,
+        keys: options.keys,
+        index: options.index,
+        content,
+        receivedAt: options.receivedAt,
+        envelope: options.envelope,
+        flags,
+        source: options.source,
+        retentionPolicy: options.retentionPolicy,
+        legalHold: options.legalHold,
+        prevChainHash: tip?.chainHash ?? null,
+        createdAt: nextCreatedAt(tip?.createdAt ?? null, now()),
+        bodyHash: identity.bodyHash ?? undefined,
+        ...(decision.supersedes ? { supersedesItemId: decision.supersedes } : {}),
+      } satisfies CommitArchiveItemOptions);
+    const record = await commitWithRestore(options, stored, commit);
     await session.insertItem({
       record,
       storagePath: archiveItemKey(record.tenantId, record.receivedAt, record.id),
@@ -255,6 +297,7 @@ export async function captureArchiveItem(
       bodyHash: identity.bodyHash as string,
       externalRef: options.externalRef ?? null,
       supersedesItemId: decision.supersedes,
+      reportHash,
     });
     const mailboxes = await session.assignMailboxes(record.id, {
       objectIds: options.mailboxes?.objectIds ?? [],
@@ -262,6 +305,44 @@ export async function captureArchiveItem(
     });
     return { outcome: "stored", record, mailboxes };
   });
+}
+
+function retransmitted(
+  options: CaptureArchiveItemOptions,
+  itemId: string,
+): CaptureArchiveItemResult {
+  options.logger?.info("journal report delivered again; the archive holds it already", {
+    itemId,
+    source: options.source,
+  });
+  return { outcome: "retransmitted", itemId };
+}
+
+/**
+ * Commit, and when chunks vanished between storing and pinning (scrub GC collected an old
+ * deduplicated chunk meanwhile), store the content again (the missing chunks are rewritten)
+ * and commit once more. Runs under the chain lock; the second upload is the rare case.
+ */
+async function commitWithRestore(
+  options: CaptureArchiveItemOptions,
+  first: ArchiveContent,
+  commit: (content: ArchiveContent) => Promise<ArchiveItemRecord>,
+): Promise<ArchiveItemRecord> {
+  let content = first;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await commit(content);
+    } catch (error) {
+      if (!(error instanceof ArchiveChunksMissingError) || attempt >= ARCHIVE_COMMIT_ATTEMPTS) {
+        throw error;
+      }
+      options.logger?.warn("archive capture chunks vanished before commit; storing again", {
+        source: options.source,
+        missing: error.missing.length,
+      });
+      content = await store(options);
+    }
+  }
 }
 
 function store(options: CaptureArchiveItemOptions): Promise<ArchiveContent> {

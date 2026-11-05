@@ -47,6 +47,11 @@ import {
 import { archiveRetentionPolicyFor } from "../handlers/import-archive.js";
 import { recordLoginFailure, recordLoginSuccess } from "../imap-login-state.js";
 import { alreadyCapturedFor, appendCapturedMail } from "./append.js";
+import { PgCaptureGaps } from "./gaps.js";
+
+/** Failed fetches after which an announced ref is dropped from pending as a capture gap. */
+export const PENDING_MAX_ATTEMPTS = 5;
+
 import { reconcileCaptureStreams } from "./reconcile.js";
 import { CAPTURE_WAYS } from "./registry.js";
 import { PgStreamStore, type StreamOutcome } from "./streams.js";
@@ -138,6 +143,9 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 export function backoffMs(failuresInARow: number): number {
   return Math.min(60, 2 ** Math.max(0, failuresInARow - 1)) * 60_000;
 }
+
+/** A backfill whose last job failed or ended `retry_later` is queued again after this long. */
+export const BACKFILL_REQUEUE_AFTER_FAILURE_MS = 60 * 60_000;
 
 /** The status a stream that works has, from where it stands. */
 export function workingStatus(stream: {
@@ -392,11 +400,16 @@ export class ArchiveCaptureService {
     this.running.set(stream.id, { stream, controller, done });
   }
 
+  /**
+   * Why this pass runs. A resync request decides first: it is only set by an administrator
+   * and only cleared by a pass that ran as a resync, so it must not depend on `dirty_since`,
+   * which a pass started by a notification clears although a resync arrived meanwhile.
+   */
   private reasonOf(stream: CaptureStream): PassReason {
-    if (stream.dirtySince === null) {
-      return "scheduled";
+    if (stream.state.resyncRequestedAt !== undefined) {
+      return "resync";
     }
-    return stream.state.resyncRequestedAt !== undefined ? "resync" : "notified";
+    return stream.dirtySince === null ? "scheduled" : "notified";
   }
 
   private async pass(stream: CaptureStream, signal: AbortSignal): Promise<void> {
@@ -428,6 +441,7 @@ export class ArchiveCaptureService {
         this.retention.get(stream.tenantId),
       ]);
       const index = new PgChunkIndex(tenantRunner(this.deps.db, stream.tenantId), stream.tenantId);
+      const gaps = new PgCaptureGaps(this.deps.db, stream.tenantId, stream.id);
       const ctx = (): CaptureContext => ({
         db: this.deps.db,
         tenantId: stream.tenantId,
@@ -455,8 +469,10 @@ export class ArchiveCaptureService {
             mail,
           );
           captured++;
+          await gaps.resolved("message", mail.externalRef);
           return result;
         },
+        gaps,
         alreadyCaptured: (query) =>
           alreadyCapturedFor(this.deps.db, stream.tenantId, stream.protectedObjectId, query),
         checkpoint: async (next) => {
@@ -498,6 +514,12 @@ export class ArchiveCaptureService {
         backfillJobId =
           (await this.enqueueBackfill({ ...stream, state, activatedAt })) ?? undefined;
         logger.info("archive capture stream activated", { backfillJobId });
+      } else if (
+        stream.activatedAt !== null &&
+        stream.backfillCompletedAt === null &&
+        ensured.activated
+      ) {
+        backfillJobId = (await this.requeueBackfill(stream, logger)) ?? undefined;
       }
       const status = workingStatus({
         activatedAt: activatedAt ?? stream.activatedAt,
@@ -516,14 +538,45 @@ export class ArchiveCaptureService {
       }
 
       step = "drain";
+      if (way.retryGaps) {
+        const retried = await way.retryGaps(ctx());
+        if (retried > 0) {
+          logger.info("open capture gaps are asked for again", { gaps: retried });
+        }
+      }
       const refs = await this.store.pendingRefs(stream, this.settings.drainBatch);
       let morePending = false;
       if (refs.length > 0) {
         const drained = await way.drain(ctx(), refs);
         state = drained.state ?? state;
         await this.store.deletePending(stream, drained.handled);
+        await this.store.deferPending(stream, drained.deferred ?? [], "MIME export failed");
+        if (drained.failed && drained.failed.refs.length > 0) {
+          // Counted per ref; after PENDING_MAX_ATTEMPTS passes a ref is dropped as an open
+          // capture gap (shown, alerted) and left to the catch-up, which finds it in its
+          // folder if Graph lists it there.
+          const exhausted = await this.store.failPending(
+            stream,
+            drained.failed.refs,
+            drained.failed.error,
+            PENDING_MAX_ATTEMPTS,
+          );
+          for (const ref of exhausted) {
+            await gaps.gaveUp({ kind: "message", ref, reason: "fetch_failed" });
+          }
+          if (exhausted.length > 0) {
+            logger.warn("announced mail that could not be fetched repeatedly is a capture gap", {
+              refs: exhausted.length,
+              error: drained.failed.error,
+            });
+          }
+        }
+        // A full batch: more may wait, the next pass follows at once. Refs that failed or were
+        // deferred now wait out their delay, so that pass never asks for them again.
         morePending = refs.length >= this.settings.drainBatch;
       }
+      // Refs waiting out their delay: the stream is due again when the first may be fetched.
+      const pendingRetryAt = await this.store.nextPendingRetryAt(stream);
 
       step = "catch_up";
       const caught = await way.catchUp(ctx());
@@ -532,11 +585,18 @@ export class ArchiveCaptureService {
         _mode: ensured.mode,
         _pollReason: ensured.pollReason ?? null,
       };
-      if (state.resyncRequestedAt !== undefined) {
+      // The request this pass ran as a resync for is done; only that one (the value it was
+      // claimed with). One asked for meanwhile is merged back by complete().
+      if (
+        this.reasonOf(stream) === "resync" &&
+        state.resyncRequestedAt === stream.state.resyncRequestedAt
+      ) {
         const { resyncRequestedAt: _done, ...rest } = state;
         state = rest;
       }
-      const due = [caught.nextDueAt, ensured.nextDueAt].filter((d): d is Date => d !== undefined);
+      const due = [caught.nextDueAt, ensured.nextDueAt, pendingRetryAt ?? undefined].filter(
+        (d): d is Date => d !== undefined,
+      );
       const nextDueAt = morePending
         ? passStartedAt
         : new Date(Math.min(...due.map((d) => d.getTime())));
@@ -585,6 +645,49 @@ export class ArchiveCaptureService {
       });
     } finally {
       release();
+    }
+  }
+
+  /**
+   * The backfill is reconciled, not queued once: a stream whose takeover is not done and
+   * has no backfill job queued or running gets one again (the enqueue at activation failed,
+   * the pass was aborted before it, the job used up its retries, or it ran while the stream
+   * was off or the gate closed). It resumes from the stream's backfill cursor; the
+   * singleton key keeps two from being queued. After a failed job it waits
+   * {@link BACKFILL_REQUEUE_AFTER_FAILURE_MS}, so a backfill that keeps failing is retried
+   * hourly, not every pass (the capture alert names it, ./alerts.ts). A failing enqueue
+   * does not fail the pass: live capture goes on, the next pass tries again.
+   */
+  private async requeueBackfill(stream: CaptureStream, logger: Logger): Promise<string | null> {
+    try {
+      const jobs = await this.store.backfillJobs(stream);
+      if (jobs.live) {
+        return null;
+      }
+      // After a job that failed, or one that ended waiting to retry what the server refused
+      // (`retry_later`: a throttled account, a refused folder): not before the delay, or every
+      // pass would hit the server again while it refuses.
+      const waitFrom = Math.max(
+        jobs.lastFailedAt?.getTime() ?? Number.NEGATIVE_INFINITY,
+        jobs.lastRetryLaterAt?.getTime() ?? Number.NEGATIVE_INFINITY,
+      );
+      if (this.now().getTime() - waitFrom < BACKFILL_REQUEUE_AFTER_FAILURE_MS) {
+        return null;
+      }
+      const jobId = await this.enqueueBackfill(stream);
+      if (jobId !== null) {
+        logger.info("archive backfill queued again", {
+          backfillJobId: jobId,
+          afterFailure: jobs.lastFailedAt !== null,
+          afterRetryLater: jobs.lastRetryLaterAt !== null,
+        });
+      }
+      return jobId;
+    } catch (error) {
+      logger.warn("archive backfill could not be queued again; the next pass tries", {
+        errorMessage: safeErrorMessage(error),
+      });
+      return null;
     }
   }
 

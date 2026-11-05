@@ -371,6 +371,10 @@
         "title": "The catalogue of the latest backup cannot be read",
         "why": "{appName} could not read the list of what the latest backup contains. Without it nothing can be verified or restored from this backup."
       },
+      "manifest_missing": {
+        "title": "The catalogue of a backup is gone from storage",
+        "why": "The list of what the backup contains is missing on every storage target, although the targets still hold this tenant's other data: it was deleted there, for example by a lifecycle rule or a cleanup by hand. Without it nothing can be restored from this backup. Restore the file from a copy or a versioned bucket, or run a full backup."
+      },
       "no_snapshot": {
         "title": "There is no backup to restore yet",
         "why": "This object has no completed backup, so a restore would find nothing."
@@ -382,6 +386,14 @@
       "snapshot_stale": {
         "title": "The latest backup is getting old",
         "why": "The newest backup is {ageHours, plural, one {# hour} other {# hours}} old, which is more than a schedule normally leaves."
+      },
+      "backup_incomplete": {
+        "title": "The checked backup is incomplete",
+        "why": "{has_count, select, yes {{count, plural, one {# item} other {# items}}} other {Some items}} could not be backed up by the run that made this backup. They are missing from it, even though everything else reads back fine; the run lists them with their cause. The next run tries them again."
+      },
+      "backup_incomplete_persistent": {
+        "title": "The same items are missing from every backup",
+        "why": "{has_count, select, yes {{count, plural, one {# item} other {# items}}} other {Some items}} could not be backed up in each of the last three runs. A restore would be incomplete until the cause is fixed; the run names it."
       },
       "snapshot_empty": {
         "title": "Empty: nothing to restore",
@@ -398,6 +410,10 @@
       "incomplete": {
         "title": "The restore check could not complete",
         "why": "{appName} could not read the backup data back, for a reason that says nothing about the backup itself. Nothing was rated and the last result stays as it was; the check is repeated automatically. The technical details name what failed."
+      },
+      "check_incomplete": {
+        "title": "The last restore checks could not complete",
+        "why": "{has_count, select, yes {{count, plural, one {The last check} other {The last # checks}}} other {The last checks}} of this backup could not read it back because the storage did not answer. Until a check completes, an earlier result no longer counts as proof that the backup can be restored."
       }
     },
     "config": {

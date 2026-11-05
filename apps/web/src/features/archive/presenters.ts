@@ -143,8 +143,11 @@ export function archiveProtectionOf(list: StorageTargetList | undefined): Archiv
   }
 }
 
-/** The overall verdict of an archive check: passed, or which part failed first. */
-export type ChainVerdict = "empty" | "ok" | "broken" | "anchor" | "content";
+/**
+ * The overall verdict of an archive check: passed, which part failed first, or
+ * `inconclusive` (nothing failed, but sampled content could not be read: not proven).
+ */
+export type ChainVerdict = "empty" | "ok" | "broken" | "anchor" | "content" | "inconclusive";
 
 export function chainVerdictOf(result: ChainVerification): ChainVerdict {
   if (result.brokenAt) {
@@ -155,6 +158,9 @@ export function chainVerdictOf(result: ChainVerification): ChainVerdict {
   }
   if ((result.content?.failures.length ?? 0) > 0) {
     return "content";
+  }
+  if ((result.content?.inconclusive ?? 0) > 0) {
+    return "inconclusive";
   }
   return result.checked === 0 ? "empty" : "ok";
 }

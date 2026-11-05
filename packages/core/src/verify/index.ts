@@ -13,6 +13,7 @@ export { VerifyIncompleteError } from "./errors.js";
 export * from "./evidence.js";
 export * from "./gc.js";
 export * from "./integrity.js";
+export * from "./presence.js";
 export * from "./probe.js";
 export * from "./random.js";
 export * from "./readiness.js";

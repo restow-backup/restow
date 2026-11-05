@@ -290,6 +290,8 @@ export interface CopyCompleteness {
   packs: CompletenessCount & { bytesExpected: number; bytesMissing: number };
   manifests: CompletenessCount;
   keys: CompletenessCount;
+  /** Sealed archive records of items the catalog still holds. */
+  archive: CompletenessCount;
   missingSample: string[];
   checkedAt: string;
 }

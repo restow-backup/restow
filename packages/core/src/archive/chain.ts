@@ -20,6 +20,11 @@ export interface ArchiveChainEntry {
   readonly receivedAt: Date;
   /** The chain hash this entry claims (computed at write time, or read back from storage). */
   readonly chainHash: string;
+  /**
+   * The entry's item was deleted after its retention and only its chain link (a tombstone)
+   * remains: verified like any entry, it keeps the chain linked and its position counted.
+   */
+  readonly deleted?: boolean;
 }
 
 /** Compute the chain hash of the next entry from its predecessor's chain hash. */
@@ -46,6 +51,8 @@ export interface ChainVerificationResult {
   readonly ok: boolean;
   /** The first break, or null when every entry verified. */
   readonly brokenAt: ChainBreak | null;
+  /** Entries verified that are tombstones of items deleted after their retention. */
+  readonly deleted: number;
 }
 
 /**
@@ -59,7 +66,10 @@ export interface ChainVerificationResult {
  * - Deletion: an entry is missing from the sequence — the next surviving
  *   entry's stored `chainHash` was computed against a predecessor that is no
  *   longer there, so recomputing against the entry that is now its neighbour
- *   does not match.
+ *   does not match. A legitimate deletion after the retention period leaves
+ *   a tombstone in the entry's place (`deleted: true`, the item's hash, time
+ *   and chain hash): it verifies like the item did and is counted in
+ *   `deleted`, so only a deletion without one breaks the chain.
  * - Reordering: two entries were swapped — the same reasoning applies at the
  *   first swapped position.
  *
@@ -72,6 +82,7 @@ export function verifyChain(
   genesisPrevChainHash: string | null = null,
 ): ChainVerificationResult {
   let prev = genesisPrevChainHash;
+  let deleted = 0;
   for (let index = 0; index < entries.length; index++) {
     const entry = entries[index] as ArchiveChainEntry;
     const expected = computeArchiveChainHash(prev, entry.itemHash, entry.receivedAt);
@@ -79,11 +90,15 @@ export function verifyChain(
       return {
         ok: false,
         brokenAt: { index, expectedChainHash: expected, actualChainHash: entry.chainHash },
+        deleted,
       };
+    }
+    if (entry.deleted) {
+      deleted++;
     }
     prev = entry.chainHash;
   }
-  return { ok: true, brokenAt: null };
+  return { ok: true, brokenAt: null, deleted };
 }
 
 /**
@@ -97,7 +112,7 @@ export interface DailyAnchor {
   /** UTC calendar day the anchor covers, `YYYY-MM-DD`. */
   readonly date: string;
   readonly chainHash: string;
-  /** Cumulative number of chain entries through this anchor, from genesis. */
+  /** Cumulative number of chain entries through this anchor, from genesis (tombstones included). */
   readonly itemCount: number;
 }
 

@@ -148,6 +148,7 @@
   "reason": {
     "no_snapshot": "No completed backup exists.",
     "manifest_unreadable": "The index of the latest backup cannot be read.",
+    "manifest_missing": "The index of the latest backup is gone from every storage target, which still hold the other data. The backup cannot be restored.",
     "items_missing": "{count, plural, one {# item refers} other {# items refer}} to data that is missing from the chunk index or from the storage.",
     "items_unreadable": "{count, plural, one {# item is} other {# items are}} damaged in the storage: the data does not open or decrypt.",
     "items_mismatched": "{count, plural, one {# item} other {# items}} came back different from what was backed up.",
@@ -161,6 +162,9 @@
     "nothing_to_verify": "The latest backup holds data ({size}) of a type a check cannot read back.",
     "nothing_to_verify_unsized": "The latest backup contains nothing that could be verified.",
     "test_restore_unconfirmed": "The test target did not confirm {count, plural, one {# restored item} other {# restored items}}.",
+    "backup_incomplete": "The run that made this backup could not back up {count, plural, one {# item} other {# items}}; {count, plural, one {it is} other {they are}} missing from the backup.",
+    "backup_incomplete_persistent": "{count, plural, one {# item} other {# items}} could not be backed up in each of the last three runs; a restore would be incomplete.",
+    "check_incomplete": "The last {count, plural, one {check} other {# checks}} of this backup could not complete because the storage did not answer; an earlier result no longer proves it restorable.",
     "unknown": "Finding \"{code}\" was reported by a newer version and cannot be described here."
   },
   "storage": {

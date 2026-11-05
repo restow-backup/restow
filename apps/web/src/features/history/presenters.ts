@@ -32,6 +32,9 @@ export interface StateView {
     | "failed"
     | "cancelled"
     | "incomplete"
+    | "checkPassed"
+    | "checkAttention"
+    | "checkFailed"
     | "limited"
     | "notBackedUp_account_disabled"
     | "notBackedUp_no_license"
@@ -50,10 +53,22 @@ export interface StateView {
  */
 export function stateView(
   run: Pick<Run, "state" | "kind" | "checkIncomplete" | "serviceLimited"> &
-    Partial<Pick<Run, "notBackedUp">>,
+    Partial<Pick<Run, "notBackedUp" | "checkReadiness">>,
 ): StateView {
   if (run.checkIncomplete && run.state !== "running" && run.state !== "queued") {
     return { key: "incomplete", tone: "info", live: false };
+  }
+  // A finished restore check reads by its rating: red is "not restorable", never "Completed";
+  // green is the proof a check gives.
+  if (run.kind === "restore_check" && run.checkReadiness && isFinishedState(run.state)) {
+    switch (run.checkReadiness) {
+      case "red":
+        return { key: "checkFailed", tone: "destructive", live: false };
+      case "yellow":
+        return { key: "checkAttention", tone: "warning", live: false };
+      default:
+        return { key: "checkPassed", tone: "success", live: false };
+    }
   }
   // Held back by Graph or the storage: amber, not red; the next scheduled run tries again.
   if (isHeldBack(run)) {
@@ -442,4 +457,8 @@ export function withRun(
 ): Record<string, unknown> {
   const { run: _closed, ...rest } = search;
   return runId ? { ...rest, run: runId } : rest;
+}
+
+function isFinishedState(state: Run["state"]): boolean {
+  return state !== "queued" && state !== "running";
 }

@@ -867,7 +867,17 @@ Code: `packages/core/src/graph/resources/subscriptions.ts`, `packages/core/src/a
   parentFolderId`), Entwürfe übersprungen (eine gesendete Mail kommt als eigene Nachricht in
   Gesendete Elemente), was das Archiv für das Postfach schon hat, wird nicht geladen; dann MIME
   über `$value`. 404 heißt: inzwischen gelöscht oder verschoben, das Nachholen schaut nach.
-  Mails über ~150 MB (kein MIME-Export) werden nicht archiviert und protokolliert.
+  Das Archiv hält nur MIME. Eine Mail ohne MIME-Export wird nicht archiviert, aber nie still
+  übergangen (seit 0.5.0): über ~150 MB (413, `too_large`) und ein Element, das Exchange nicht
+  in MIME umwandeln kann (IRM, beschädigt: `ConversionFailed`, `CorruptData`,
+  `not_convertible`), werden sofort als offene Lücke der Erfassung festgehalten (docs/ARCHIVE.md,
+  "Lücken der Erfassung"). Ein 5xx ist keine Weigerung: Die Mail bleibt ausstehend (aus dem
+  Nachholen und der Übernahme kommt sie dafür in die Liste der ausstehenden Mails) und wird bei
+  den nächsten Durchgängen erneut geholt, mit wachsendem Abstand (10 Minuten, dann doppelt so
+  lang, höchstens eine Stunde); erst nach drei Fehlschlägen, die mindestens je eine Stunde
+  auseinanderliegen, ist sie eine Lücke (`export_failed`), und auch dann fragt Restow einmal am
+  Tag erneut nach ihr. Bis 0.4.12 galt jede solche Mail als "zu groß", auch nach zwei
+  vorübergehenden 500ern, und war für immer verloren.
 - **Nachholen:** Delta über alle Ordner (versteckte eingeschlossen; ohne Suchordner, Entwürfe,
   Postausgang, Synchronisierungsprobleme) plus `recoverableitemsdeletions`, alle
   `ARCHIVE_GRAPH_CATCHUP_MINUTES` (360) mit Benachrichtigungen. 410 Gone → dieser Ordner wird neu
@@ -876,9 +886,22 @@ Code: `packages/core/src/graph/resources/subscriptions.ts`, `packages/core/src/a
   `Purges`, `Versions`, `DiscoveryHolds` sind über v1.0 nicht erreichbar. Was ein Benutzer
   endgültig löscht, bevor Restow es abholt (Sekunden bis Minuten mit Benachrichtigungen), kann
   fehlen; nur Journaling erfasst vor der Zustellung.
-- **Übernahme:** Die vorhandenen Mails übernimmt einmalig ein `archive`-Job seitenweise (Cursor
-  im Job, nach zwei Stunden fortgesetzt im nächsten Job); Mails, die vor dem Start der Erfassung
-  eingingen, sind als `captured-late` markiert.
+- **Übernahme:** Die vorhandenen Mails übernimmt einmalig ein `archive`-Job seitenweise (Position
+  am Stream, nach zwei Stunden fortgesetzt im nächsten Job, docs/ARCHIVE.md "Übernahme des
+  Altbestands"); Mails, die vor dem Start der Erfassung eingingen, sind als `captured-late`
+  markiert. Ihre Ordnerliste steht beim Start fest; bevor sie abschließt, listet sie die Ordner
+  erneut und übernimmt auch die, die inzwischen angelegt wurden (seit 0.5.0). Je Ordner blättert
+  sie nach `receivedDateTime` aufsteigend und fragt jede Seite neu ab der Zeit der letzten
+  (`$filter=receivedDateTime ge …`, die schon übernommenen Ids dieser Sekunde gemerkt), nicht
+  über Graphs `nextLink`: Der ist für `/mailFolders/{id}/messages` ein Versatz (`$skip`), und
+  jede Mail, die der Benutzer aus dem schon gelesenen Teil löschte oder verschob, ließ eine
+  ältere aus (seit 0.5.0). Nur mehr Mails in einer Sekunde, als eine Seite fasst, blättert sie
+  innerhalb dieser Sekunde mit dem `nextLink`.
+- **Neue Ordner:** Das Nachholen merkt sich die Ordner, die das Postfach beim Start der Erfassung
+  hatte (`knownFolders` im Zustand des Streams). Nur deren erste Aufzählung überlässt ältere
+  Mail der Übernahme; ein später angelegter Ordner wird vollständig erfasst. Vorher ging alte
+  Mail verloren, die ein Benutzer während der Übernahme in einen neuen Ordner verschob: Die
+  Übernahme kannte den Ordner nicht, das Nachholen überließ sie ihr.
 
 ### Holds (Aufbewahrung im Tenant)
 
