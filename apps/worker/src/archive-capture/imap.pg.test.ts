@@ -31,6 +31,7 @@ import {
   backupJobs,
   createDb,
   type Database,
+  jobs,
   notifications,
   protectedObjects,
   providers,
@@ -424,6 +425,105 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
       .where(eq(archiveCaptureStreams.protectedObjectId, object));
     expect(stream?.status).toBe("live");
     expect(stream?.backfillCursor).toBeNull();
+  });
+
+  it("waits an hour before it queues a backfill again that ended retry_later at the server's limit", async () => {
+    const object = await account("gmail-cap@example.net");
+    const old = { internalDate: new Date("2025-06-01T08:00:00Z") };
+    // The built core's fake: its NOs are the ImapSessionError the worker's capture knows.
+    const dist = new DistFakeImapServer();
+    dist
+      .addFolder("INBOX")
+      .add(mail("old@example.net"), { ...old, messageId: "<old@example.net>" });
+    const way = createImapCaptureWay({ connector: dist, env: {} });
+    await db.execute(sql`delete from jobs`);
+    const queued: string[] = [];
+    // Like pgBackfillEnqueuer: the jobs row the pass looks at.
+    const enqueueBackfill = async (stream: { tenantId: string; protectedObjectId: string }) => {
+      const [row] = await db
+        .insert(jobs)
+        .values({
+          tenantId: stream.tenantId,
+          queue: "archive",
+          status: "queued",
+          protectedObjectId: stream.protectedObjectId,
+          payload: { mode: "backfill", capture: "imap_sync" },
+        })
+        .returning();
+      queued.push(row?.id as string);
+      return row?.id as string;
+    };
+    const instance = new ArchiveCaptureService({
+      db,
+      providerDb: db,
+      keyrings: new TenantCache(async () => keys),
+      storage: new TenantCache(async () => storage),
+      logger: silent,
+      gate: open,
+      ways: { imap_sync: way },
+      settings: { gateCheckMs: 0, reconcileMs: 0, leaseMs: 60_000 },
+      enqueueBackfill,
+    });
+    await instance.tick();
+    await instance.settle();
+    expect(queued).toHaveLength(1);
+    // Gmail's cap on EXAMINE for hours ("Account exceeded command or bandwidth limits").
+    dist.faults.refuseOpen.set("INBOX", { code: "OVERQUOTA", remaining: Number.POSITIVE_INFINITY });
+    const failedItems: string[] = [];
+    configureArchiveHandler({ providerDb: db, gate: open, ways: { imap_sync: way } });
+    try {
+      const ctx = {
+        jobId: queued[0],
+        db,
+        tenantId,
+        storage,
+        keys,
+        chunkIndex: new MemoryChunkIndex(),
+        logger: silent,
+        signal: new AbortController().signal,
+        now: () => new Date(),
+        progress: {
+          phase: () => {},
+          advance: () => {},
+          fail: (ref: string) => failedItems.push(ref),
+        },
+        cursor: { load: async () => null, save: async () => {}, clear: async () => {} },
+      } as unknown as WorkerJobContext;
+      const outcome = await archiveHandler.run(ctx, {
+        jobId: queued[0] as string,
+        tenantId,
+        protectedObjectId: object,
+        capture: "imap_sync",
+        mode: "backfill",
+      });
+      expect(outcome).toMatchObject({ summary: { status: "retry_later" } });
+    } finally {
+      configureArchiveHandler(null);
+    }
+    // What waits is a failed item of the job, so it does not read as a plain success.
+    expect(failedItems).toEqual(["INBOX"]);
+    // The framework completes the job.
+    await db
+      .update(jobs)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(jobs.id, queued[0] as string));
+    const [row] = await db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.id, queued[0] as string));
+    expect((row?.payload as { result?: { status?: string } }).result?.status).toBe("retry_later");
+    // Two passes right after: no new job hits the capped account again.
+    await pass(instance);
+    await pass(instance);
+    expect(queued).toHaveLength(1);
+    // An hour later it is queued again.
+    await db
+      .update(jobs)
+      .set({ completedAt: new Date(Date.now() - 2 * 3_600_000) })
+      .where(eq(jobs.id, queued[0] as string));
+    await pass(instance);
+    expect(queued).toHaveLength(2);
+    await db.execute(sql`delete from jobs`);
   });
 
   it("records a message never delivered and a folder always refused as open gaps, alerted once", async () => {

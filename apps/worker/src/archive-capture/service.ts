@@ -144,7 +144,7 @@ export function backoffMs(failuresInARow: number): number {
   return Math.min(60, 2 ** Math.max(0, failuresInARow - 1)) * 60_000;
 }
 
-/** A backfill whose last job failed is queued again after this long (./service.ts). */
+/** A backfill whose last job failed or ended `retry_later` is queued again after this long. */
 export const BACKFILL_REQUEUE_AFTER_FAILURE_MS = 60 * 60_000;
 
 /** The status a stream that works has, from where it stands. */
@@ -664,10 +664,14 @@ export class ArchiveCaptureService {
       if (jobs.live) {
         return null;
       }
-      if (
-        jobs.lastFailedAt !== null &&
-        this.now().getTime() - jobs.lastFailedAt.getTime() < BACKFILL_REQUEUE_AFTER_FAILURE_MS
-      ) {
+      // After a job that failed, or one that ended waiting to retry what the server refused
+      // (`retry_later`: a throttled account, a refused folder): not before the delay, or every
+      // pass would hit the server again while it refuses.
+      const waitFrom = Math.max(
+        jobs.lastFailedAt?.getTime() ?? Number.NEGATIVE_INFINITY,
+        jobs.lastRetryLaterAt?.getTime() ?? Number.NEGATIVE_INFINITY,
+      );
+      if (this.now().getTime() - waitFrom < BACKFILL_REQUEUE_AFTER_FAILURE_MS) {
         return null;
       }
       const jobId = await this.enqueueBackfill(stream);
@@ -675,6 +679,7 @@ export class ArchiveCaptureService {
         logger.info("archive backfill queued again", {
           backfillJobId: jobId,
           afterFailure: jobs.lastFailedAt !== null,
+          afterRetryLater: jobs.lastRetryLaterAt !== null,
         });
       }
       return jobId;

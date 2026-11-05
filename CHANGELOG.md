@@ -555,7 +555,10 @@ private repository.
   "taking over" for good with no alert, and its older mail never reached the archive. The
   position is now kept on the capture stream (migration 0079 `backfill_cursor`), IMAP also stops
   inside a large folder, every capture pass queues the backfill again when none is queued or
-  running (after a failed job, once an hour), a failed backfill job can be retried under Jobs,
+  running (after a failed job, and after one that ended waiting to retry what the server
+  refused, once an hour: before, such a job ended plainly completed and the next pass queued a
+  new one at once, hitting an account under Gmail's cap again on every pass; it now lists what
+  waits as failed items), a failed backfill job can be retried under Jobs,
   and a takeover not done after 48 hours or whose last job failed is shown as stuck on the
   archive page and raises the capture alert `backfill_stalled`.
 - Mail archive: IMAP capture dropped mail with only a warning in the log, and the account stayed

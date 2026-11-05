@@ -798,6 +798,12 @@ export interface ImapBackfillResult {
   readonly retryLater: boolean;
   /** Folders and messages given up in this run (open gaps). */
   readonly gaveUp: number;
+  /**
+   * What this run left to a later job because the server refused it (a folder path, or a
+   * message ref) and why (a failure code, or `undelivered`): the job reports them as failed
+   * items, so a run that took nothing of them in never reads as a plain success.
+   */
+  readonly waiting: readonly { readonly ref: string; readonly reason: string }[];
   readonly cursor: ImapBackfillCursor;
 }
 
@@ -843,12 +849,14 @@ export async function backfillImapCapture(
   let skipped = 0;
   let gaveUp = 0;
   let retryLater = false;
+  const waiting: { ref: string; reason: string }[] = [];
   const result = (complete: boolean, later = retryLater): ImapBackfillResult => ({
     captured,
     skipped,
     completed: complete,
     retryLater: !complete && later,
     gaveUp,
+    waiting,
     cursor: cursor(),
   });
   /** Count a failed attempt; true when the gap is now given up. */
@@ -894,6 +902,7 @@ export async function backfillImapCapture(
           errorMessage: error.message,
         });
         retryLater = true;
+        waiting.push({ ref: path, reason });
         await options.saveCursor(cursor());
         return result(false, true);
       }
@@ -912,6 +921,7 @@ export async function backfillImapCapture(
           errorMessage: error.message,
         });
         retryLater = true;
+        waiting.push({ ref: path, reason });
       }
       continue;
     }
@@ -998,6 +1008,7 @@ export async function backfillImapCapture(
       active[path] = { uidValidity, lastUid: upTo };
       retry[path] = kept;
       retryLater = true;
+      waiting.push(...kept.map((uid) => ({ ref: refOf(uid), reason: "undelivered" })));
     } else {
       // Taken over: every UID up to backfillUpTo is in the archive or an open message gap.
       done(path);

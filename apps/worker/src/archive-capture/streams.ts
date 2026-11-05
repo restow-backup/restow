@@ -433,14 +433,25 @@ export class PgStreamStore {
    * when the newest failed one ended. The capture pass queues a backfill again when none
    * is live (a failed enqueue, retries used up, a skipped run).
    */
-  async backfillJobs(
-    stream: CaptureStream,
-  ): Promise<{ readonly live: boolean; readonly lastFailedAt: Date | null }> {
-    const result = await this.db.execute<{ live: boolean; last_failed_at: Date | string | null }>(
+  async backfillJobs(stream: CaptureStream): Promise<{
+    readonly live: boolean;
+    readonly lastFailedAt: Date | null;
+    /** The newest job that ended waiting to retry what failed (`payload.result.status`). */
+    readonly lastRetryLaterAt: Date | null;
+  }> {
+    const result = await this.db.execute<{
+      live: boolean;
+      last_failed_at: Date | string | null;
+      last_retry_later_at: Date | string | null;
+    }>(
       sql`
       select bool_or(j.status in ('queued', 'active')) as live,
              max(coalesce(j.completed_at, j.updated_at)) filter (where j.status = 'failed')
-               as last_failed_at
+               as last_failed_at,
+             max(coalesce(j.completed_at, j.updated_at))
+               filter (where j.status = 'completed'
+                         and j.payload->'result'->>'status' = 'retry_later')
+               as last_retry_later_at
         from jobs j
        where j.tenant_id = ${stream.tenantId}::uuid and j.queue = 'archive'
          and j.protected_object_id = ${stream.protectedObjectId}::uuid
@@ -448,6 +459,10 @@ export class PgStreamStore {
     `,
     );
     const row = result.rows[0];
-    return { live: row?.live === true, lastFailedAt: date(row?.last_failed_at ?? null) };
+    return {
+      live: row?.live === true,
+      lastFailedAt: date(row?.last_failed_at ?? null),
+      lastRetryLaterAt: date(row?.last_retry_later_at ?? null),
+    };
   }
 }

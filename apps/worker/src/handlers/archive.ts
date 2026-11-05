@@ -30,7 +30,12 @@ import { type BackfillEnqueuer, pgBackfillEnqueuer } from "../archive-capture/se
 import { PgStreamStore } from "../archive-capture/streams.js";
 import type { BackfillContext, CaptureWay, MailboxWay } from "../archive-capture/ways.js";
 import type { WorkerFeatureGate } from "../extensions.js";
-import type { JobHandler, JobOutcome, WorkerJobContext } from "./framework.js";
+import {
+  type JobHandler,
+  type JobOutcome,
+  type WorkerJobContext,
+  withTenantTx,
+} from "./framework.js";
 import { archiveRetentionPolicyFor } from "./import-archive.js";
 
 export interface ArchiveHandlerDeps {
@@ -153,15 +158,21 @@ async function backfill(
   }
   if (!result.completed && result.retryLater) {
     // Folders or messages failed and are tried again later: not at once (the server would
-    // most likely refuse again), but by the next capture pass, which queues the backfill
-    // again as no job of it is queued or running (../archive-capture/service.ts).
+    // most likely refuse again), but once BACKFILL_REQUEUE_AFTER_FAILURE_MS has passed: the
+    // capture pass reads this job's result (`payload.result.status`) and queues the backfill
+    // again then (../archive-capture/service.ts). What waits is recorded as failed items of
+    // the job (the way's `progress.fail`), so the job reads "completed with failed items".
     logger.info("archive backfill waits to retry what failed", {
       captured: result.captured,
       skipped: result.skipped,
     });
-    return {
-      summary: { status: "retry_later", captured: result.captured, skipped: result.skipped },
-    };
+    const summary = {
+      status: "retry_later",
+      captured: result.captured,
+      skipped: result.skipped,
+    } as const;
+    await recordResult(ctx, summary);
+    return { summary };
   }
   if (!result.completed) {
     // The way stopped on its own budget: the next job resumes from the stream's cursor.
@@ -174,6 +185,16 @@ async function backfill(
   await ctx.cursor.clear();
   logger.info("archive backfill completed", { captured: result.captured, skipped: result.skipped });
   return { summary: { status: "completed", captured: result.captured, skipped: result.skipped } };
+}
+
+/** Keep a backfill job's result in `jobs.payload.result` (read by the capture pass). */
+async function recordResult(ctx: WorkerJobContext, result: Record<string, unknown>): Promise<void> {
+  await withTenantTx(ctx.db, ctx.tenantId, (tx) =>
+    tx.execute(sql`
+      update jobs set payload = coalesce(payload, '{}'::jsonb) || ${JSON.stringify({ result })}::jsonb
+       where id = ${ctx.jobId}::uuid
+    `),
+  );
 }
 
 /**

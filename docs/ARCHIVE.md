@@ -182,7 +182,9 @@ command or bandwidth limits") zählt nicht gegen den Ordner: Die Übernahme häl
 dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
 
 - **Übernahme des Altbestands (IMAP):** Ein verweigerter Ordner bleibt offen und wird von den
-  nächsten Jobs erneut versucht, eine nicht ausgelieferte Nachricht bleibt in der Position der
+  nächsten Jobs erneut versucht (der nächste Job frühestens eine Stunde nach einem, der so
+  endete; dieser nennt den Ordner und die Nachrichten, die warten, als fehlgeschlagene
+  Elemente, er gilt also nicht als einfach erfolgreich), eine nicht ausgelieferte Nachricht bleibt in der Position der
   Übernahme und wird erneut angefordert; erst nach drei Jobs wird sie als Lücke aufgegeben und
   die Übernahme kann abschließen. Vorher galt ein solcher Ordner nach dem ersten Fehler als
   erledigt, eine solche Nachricht nach einem Versuch. Die Übernahme zählt einen Ordner als

@@ -389,6 +389,16 @@ export function createImapCaptureWay(options: ImapCaptureWayOptions = {}): Captu
           saveCursor: (cursor) => ctx.job.cursor.save({ ...(saved ?? {}), [CURSOR_KEY]: cursor }),
         }),
       );
+      // What waits for a later job is a failed item of this one: a run that could not take
+      // those in is never a plain success in Jobs.
+      for (const item of result.waiting) {
+        ctx.job.progress.fail(
+          item.ref,
+          item.reason === "undelivered"
+            ? "the server listed this message but did not deliver it; a later run asks again"
+            : `the server refused this folder (${item.reason}); a later run tries again`,
+        );
+      }
       return {
         captured: result.captured,
         skipped: result.skipped,
