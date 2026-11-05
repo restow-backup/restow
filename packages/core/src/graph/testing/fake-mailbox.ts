@@ -132,6 +132,13 @@ export class FakeMailboxGraph {
     }
   }
 
+  /** A folder created later (a user makes one during the backfill). */
+  addFolder(userId: string, folder: FakeFolder): void {
+    const state = this.mailbox(userId);
+    state.folders.push(folder);
+    state.log.set(folder.id, []);
+  }
+
   addMessage(userId: string, message: FakeMessage): void {
     const state = this.mailbox(userId);
     state.messages.set(message.id, message);

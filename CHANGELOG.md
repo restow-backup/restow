@@ -569,6 +569,13 @@ private repository.
   mailbox as incomplete with the count, `GET /api/v1/archive/capture/mailboxes/:objectId/gaps`
   lists them, the capture alert `capture_gap` names them, and a gap that is taken in later is
   resolved.
+- Mail archive: Graph capture lost old mail that a user moved into a folder made while the
+  takeover of the existing mail ran. The takeover fixed its folder list when it started, and the
+  catch-up's first look at the new folder left every mail received before capture started to the
+  takeover, then stored the folder's delta link, so nobody ever read those mails again (certain
+  without change notifications). The catch-up now remembers the folders the mailbox had when
+  capture started and reads a folder made later in full, and the takeover lists the folders again
+  before it reports completed and takes over the new ones.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

@@ -649,9 +649,16 @@ Code: `packages/core/src/graph/resources/subscriptions.ts`, `packages/core/src/a
   `Purges`, `Versions`, `DiscoveryHolds` sind über v1.0 nicht erreichbar. Was ein Benutzer
   endgültig löscht, bevor Restow es abholt (Sekunden bis Minuten mit Benachrichtigungen), kann
   fehlen; nur Journaling erfasst vor der Zustellung.
-- **Übernahme:** Die vorhandenen Mails übernimmt einmalig ein `archive`-Job seitenweise (Cursor
-  im Job, nach zwei Stunden fortgesetzt im nächsten Job); Mails, die vor dem Start der Erfassung
-  eingingen, sind als `captured-late` markiert.
+- **Übernahme:** Die vorhandenen Mails übernimmt einmalig ein `archive`-Job seitenweise (Position
+  am Stream, nach zwei Stunden fortgesetzt im nächsten Job, docs/ARCHIVE.md "Übernahme des
+  Altbestands"); Mails, die vor dem Start der Erfassung eingingen, sind als `captured-late`
+  markiert. Ihre Ordnerliste steht beim Start fest; bevor sie abschließt, listet sie die Ordner
+  erneut und übernimmt auch die, die inzwischen angelegt wurden (seit 0.5.0).
+- **Neue Ordner:** Das Nachholen merkt sich die Ordner, die das Postfach beim Start der Erfassung
+  hatte (`knownFolders` im Zustand des Streams). Nur deren erste Aufzählung überlässt ältere
+  Mail der Übernahme; ein später angelegter Ordner wird vollständig erfasst. Vorher ging alte
+  Mail verloren, die ein Benutzer während der Übernahme in einen neuen Ordner verschob: Die
+  Übernahme kannte den Ordner nicht, das Nachholen überließ sie ihr.
 
 ### Holds (Aufbewahrung im Tenant)
 

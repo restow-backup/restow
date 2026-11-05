@@ -451,6 +451,7 @@ interface SubscriptionState {
 
 interface GraphState extends ArchiveStreamState {
   readonly folders?: archive.GraphCatchUpState["folders"];
+  readonly knownFolders?: archive.GraphCatchUpState["knownFolders"];
   readonly subscription?: SubscriptionState | null;
   readonly subscriptionRetryAt?: string | null;
   readonly forceCatchUp?: boolean;
@@ -797,13 +798,17 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
       const result = await archive.catchUpGraphMailbox({
         client: access.client,
         userId: access.userId,
-        state: { folders: state.folders ?? {} },
+        state: {
+          folders: state.folders ?? {},
+          ...(state.knownFolders ? { knownFolders: state.knownFolders } : {}),
+        },
         sink: ctx,
         activatedAt: ctx.stream.activatedAt,
         backfillCompleted: ctx.stream.backfillCompletedAt !== null,
         fullResync: ctx.reason === "resync",
         signal: ctx.signal,
-        checkpoint: (next) => ctx.checkpoint({ ...state, folders: next.folders }),
+        checkpoint: (next) =>
+          ctx.checkpoint({ ...state, folders: next.folders, knownFolders: next.knownFolders }),
       });
       if (result.oversized.length > 0) {
         ctx.logger.warn("mail too large for a MIME export is not archived", {
@@ -824,6 +829,7 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
         state: {
           ...rest,
           folders: result.state.folders ?? {},
+          ...(result.state.knownFolders ? { knownFolders: result.state.knownFolders } : {}),
           lastCatchUpAt: ctx.now().toISOString(),
           nextCatchUpAt: next.toISOString(),
         },

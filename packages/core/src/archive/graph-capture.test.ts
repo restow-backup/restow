@@ -250,6 +250,42 @@ describe("catchUpGraphMailbox", () => {
     expect(sink.refs()).toEqual(["m2", "m3", "m4", "m5", "x1"]);
   });
 
+  it("captures old mail moved into a folder made after capture started, in full", async () => {
+    const fake = mailbox();
+    const client = fake.client();
+    const sink = new MemorySink();
+    const first = await catchUpGraphMailbox({
+      client,
+      userId: USER,
+      state: {},
+      sink,
+      activatedAt: ACTIVATED,
+      backfillCompleted: false,
+    });
+    expect(first.leftToBackfill).toBe(1);
+    expect([...(first.state.knownFolders ?? [])].sort()).toEqual([
+      "deletions",
+      "inbox",
+      "projects",
+      "sent",
+    ]);
+    // While the backfill runs, the user makes a folder and moves old mail into it.
+    fake.addFolder(USER, { id: "projekt-x", displayName: "Projekt X", parentFolderId: "inbox" });
+    fake.moveMessage(USER, "m1", "projekt-x");
+    const second = await catchUpGraphMailbox({
+      client,
+      userId: USER,
+      state: first.state,
+      sink,
+      activatedAt: ACTIVATED,
+      backfillCompleted: false,
+    });
+    // Not left to the backfill: it never lists this folder.
+    expect(second).toMatchObject({ captured: 1, leftToBackfill: 0 });
+    expect(sink.refs()).toContain("m1");
+    expect(second.state.knownFolders).toContain("projekt-x");
+  });
+
   it("enumerates a folder again after 410 Gone and captures what is unknown", async () => {
     const fake = mailbox();
     const client = fake.client();
@@ -332,6 +368,38 @@ describe("catchUpGraphMailbox", () => {
 });
 
 describe("backfillGraphMailbox", () => {
+  it("takes over a folder made while it ran, before it reports completed", async () => {
+    const fake = mailbox();
+    fake.addMessage(USER, {
+      id: "old-sent",
+      folderId: "sent",
+      receivedDateTime: "2026-09-01T08:00:00Z",
+    });
+    const sink = new MemorySink();
+    let cursor: GraphBackfillCursor | null = null;
+    let moved = false;
+    const done = await backfillGraphMailbox({
+      client: fake.client(),
+      userId: USER,
+      sink,
+      cursor,
+      saveCursor: async (next) => {
+        cursor = next;
+      },
+      onPage: () => {
+        if (!moved) {
+          // After the first page of Inbox: a new folder, and old mail of Sent moved into it.
+          moved = true;
+          fake.addFolder(USER, { id: "projekt-x", displayName: "Projekt X" });
+          fake.moveMessage(USER, "old-sent", "projekt-x");
+        }
+      },
+    });
+    expect(done.completed).toBe(true);
+    expect(sink.refs()).toContain("old-sent");
+    expect(done.cursor.folders).toContain("projekt-x");
+  });
+
   it("takes over every folder page by page and resumes from its cursor", async () => {
     const fake = mailbox();
     const client = fake.client();

@@ -372,6 +372,13 @@ export interface GraphFolderCursor {
 /** The Graph way's own part of the stream state (keys of ../../apps/worker graph.ts). */
 export interface GraphCatchUpState {
   readonly folders?: Record<string, GraphFolderCursor>;
+  /**
+   * The folders the mailbox had when capture started (and every folder seen since). Only
+   * their first enumeration leaves the older mail to the backfill; a folder first seen
+   * later is enumerated in full: the backfill fixed its folder list at its start, so mail
+   * moved into a folder made since would otherwise be taken over by nobody.
+   */
+  readonly knownFolders?: readonly string[];
 }
 
 export interface GraphCatchUpOptions {
@@ -420,8 +427,17 @@ export async function catchUpGraphMailbox(
       }
     }
   }
+  // Before 0.5.0 the state named no known folders: those with a cursor are the known ones;
+  // on the very first catch-up (no cursor at all) every folder there is now.
+  const known = new Set(
+    options.state.knownFolders ??
+      (Object.keys(options.state.folders ?? {}).length > 0
+        ? Object.keys(options.state.folders ?? {})
+        : folders.map((folder) => folder.id)),
+  );
+  const knownFolders = () => [...new Set([...known, ...folders.map((folder) => folder.id)])];
   const result: GraphCatchUpResult = {
-    state: { ...options.state, folders: cursors },
+    state: { ...options.state, folders: cursors, knownFolders: knownFolders() },
     folders: folders.length,
     resynced: 0,
     leftToBackfill: 0,
@@ -430,7 +446,7 @@ export async function catchUpGraphMailbox(
     oversized: [],
   };
   const save = async () => {
-    result.state = { ...options.state, folders: { ...cursors } };
+    result.state = { ...options.state, folders: { ...cursors }, knownFolders: knownFolders() };
     await options.checkpoint?.(result.state);
   };
   const activatedAt = options.activatedAt?.getTime() ?? null;
@@ -440,8 +456,11 @@ export async function catchUpGraphMailbox(
     const initialUrl = messagesDeltaInitialUrl(options.userId, folder.id);
     let cursor = cursors[folder.id] ?? {};
     // A folder's first enumeration (not after a 410, not a full resync) leaves the older
-    // mail to the backfill while that has not run.
-    let initial = cursor.nextLink ? cursor.initial === true : cursor.deltaLink === undefined;
+    // mail to the backfill while that has not run, but only for a folder the mailbox had
+    // when capture started: one made since is not in the backfill's folder list.
+    let initial = cursor.nextLink
+      ? cursor.initial === true
+      : cursor.deltaLink === undefined && known.has(folder.id);
     if (options.fullResync) {
       initial = false;
     }
@@ -535,7 +554,8 @@ export interface GraphBackfillOptions {
   readonly now?: () => number;
   /** Progress per page (messages looked at). */
   readonly onPage?: (info: { folder: number; folders: number; messages: number }) => void;
-  readonly folders?: readonly GraphCaptureFolder[];
+  /** Folder list (tests); fetched with {@link graphCaptureFolders} otherwise. */
+  readonly folders?: readonly GraphCaptureFolder[] | (() => Promise<readonly GraphCaptureFolder[]>);
 }
 
 export interface GraphBackfillResult extends GraphCaptureCounts {
@@ -553,12 +573,14 @@ export async function backfillGraphMailbox(
 ): Promise<GraphBackfillResult> {
   const now = options.now ?? Date.now;
   const started = now();
+  const listFolders = async (): Promise<readonly GraphCaptureFolder[]> =>
+    typeof options.folders === "function"
+      ? options.folders()
+      : (options.folders ?? (await graphCaptureFolders(options.client, options.userId)));
   let cursor: GraphBackfillCursor =
     options.cursor ??
     ({
-      folders: (options.folders ?? (await graphCaptureFolders(options.client, options.userId))).map(
-        (folder) => folder.id,
-      ),
+      folders: (await listFolders()).map((folder) => folder.id),
       index: 0,
       captured: 0,
       skipped: 0,
@@ -567,7 +589,19 @@ export async function backfillGraphMailbox(
   const counts: GraphCaptureCounts = { captured: 0, skipped: 0, oversized: [] };
   const result = (completed: boolean): GraphBackfillResult => ({ ...counts, completed, cursor });
 
-  while (cursor.index < cursor.folders.length) {
+  for (;;) {
+    if (cursor.index >= cursor.folders.length) {
+      // Folders made while the backfill ran (old mail moved into them is in none of the
+      // listed ones any more): appended and taken over too before it reports completed.
+      const added = (await listFolders())
+        .map((folder) => folder.id)
+        .filter((id) => !cursor.folders.includes(id));
+      if (added.length === 0) {
+        break;
+      }
+      cursor = { ...cursor, folders: [...cursor.folders, ...added] };
+      await options.saveCursor(cursor);
+    }
     const folderId = cursor.folders[cursor.index] as string;
     let url: string | undefined = cursor.nextLink ?? backfillFolderUrl(options.userId, folderId);
     while (url) {
