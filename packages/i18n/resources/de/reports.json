@@ -552,7 +552,8 @@
     "archiveReason": {
       "capture_error": "Die Archiv-Erfassung aus diesem Postfach schlägt seit mehr als einer Stunde fehl. Neue Mail des Postfachs kommt erst wieder ins Archiv, wenn sie funktioniert.",
       "forward_stale": "Seit mehr als 24 Stunden ist keine weitergeleitete Kopie dieses Kontos angekommen, vorher kamen Kopien an. Prüfen Sie die Weiterleitungsregel beim Mail-Anbieter.",
-      "journal_stale": "Seit mehr als 24 Stunden ist kein Journal-Report angekommen, vorher kamen Reports an. Prüfen Sie die Journalregel und den Connector in Exchange Online und ob der Journal-Empfänger erreichbar ist."
+      "journal_stale": "Seit mehr als 24 Stunden ist kein Journal-Report angekommen, vorher kamen Reports an. Prüfen Sie die Journalregel und den Connector in Exchange Online und ob der Journal-Empfänger erreichbar ist.",
+      "backfill_stalled": "Die einmalige Übernahme des Altbestands dieses Postfachs ist 48 Stunden nach dem Start nicht abgeschlossen oder ihr letzter Lauf ist fehlgeschlagen. Mail, die vor dem Start der Erfassung im Postfach lag, ist noch nicht im Archiv. {appName} versucht die Übernahme selbst erneut; sehen Sie sich den Fehler des letzten Laufs unter Jobs an."
     },
     "clientId": "Anwendungs-ID (Client)",
     "credential": "Zugangsdaten",
@@ -623,7 +624,8 @@
       "failed": "Archiv-Abgleich fehlgeschlagen: {object}",
       "capture_error": "Archiv-Erfassung seit über einer Stunde fehlerhaft: {object}",
       "forward_stale": "Seit 24 Stunden keine weitergeleiteten Kopien: {object}",
-      "journal_stale": "Seit 24 Stunden keine Journal-Reports"
+      "journal_stale": "Seit 24 Stunden keine Journal-Reports",
+      "backfill_stalled": "Übernahme des Altbestands hängt: {object}"
     },
     "directory": {
       "failed": "Verzeichnisabgleich fehlgeschlagen"

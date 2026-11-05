@@ -167,6 +167,8 @@ export interface FakeServerStats {
   idles: number;
   /** Every UID whose source was delivered, as "<folder>:<uid>". */
   sourcesDelivered: string[];
+  /** Every UID whose metadata was returned, as "<folder>:<uid>" (how often a run read it). */
+  metaDelivered: string[];
 }
 
 export interface FakeServerFaults {
@@ -210,6 +212,7 @@ export class FakeImapServer implements ImapConnector {
     statusCalls: 0,
     idles: 0,
     sourcesDelivered: [],
+    metaDelivered: [],
   };
   readonly faults: FakeServerFaults = {
     rejectAuth: false,
@@ -462,6 +465,7 @@ class FakeSession implements ImapSession {
       if (!message || this.server.faults.omit.has(key)) {
         continue;
       }
+      this.server.stats.metaDelivered.push(key);
       result.push({
         uid,
         size: message.source.length,

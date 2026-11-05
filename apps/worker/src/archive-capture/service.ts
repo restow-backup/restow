@@ -139,6 +139,9 @@ export function backoffMs(failuresInARow: number): number {
   return Math.min(60, 2 ** Math.max(0, failuresInARow - 1)) * 60_000;
 }
 
+/** A backfill whose last job failed is queued again after this long (./service.ts). */
+export const BACKFILL_REQUEUE_AFTER_FAILURE_MS = 60 * 60_000;
+
 /** The status a stream that works has, from where it stands. */
 export function workingStatus(stream: {
   activatedAt: Date | null;
@@ -503,6 +506,12 @@ export class ArchiveCaptureService {
         backfillJobId =
           (await this.enqueueBackfill({ ...stream, state, activatedAt })) ?? undefined;
         logger.info("archive capture stream activated", { backfillJobId });
+      } else if (
+        stream.activatedAt !== null &&
+        stream.backfillCompletedAt === null &&
+        ensured.activated
+      ) {
+        backfillJobId = (await this.requeueBackfill(stream, logger)) ?? undefined;
       }
       const status = workingStatus({
         activatedAt: activatedAt ?? stream.activatedAt,
@@ -595,6 +604,44 @@ export class ArchiveCaptureService {
       });
     } finally {
       release();
+    }
+  }
+
+  /**
+   * The backfill is reconciled, not queued once: a stream whose takeover is not done and
+   * has no backfill job queued or running gets one again (the enqueue at activation failed,
+   * the pass was aborted before it, the job used up its retries, or it ran while the stream
+   * was off or the gate closed). It resumes from the stream's backfill cursor; the
+   * singleton key keeps two from being queued. After a failed job it waits
+   * {@link BACKFILL_REQUEUE_AFTER_FAILURE_MS}, so a backfill that keeps failing is retried
+   * hourly, not every pass (the capture alert names it, ./alerts.ts). A failing enqueue
+   * does not fail the pass: live capture goes on, the next pass tries again.
+   */
+  private async requeueBackfill(stream: CaptureStream, logger: Logger): Promise<string | null> {
+    try {
+      const jobs = await this.store.backfillJobs(stream);
+      if (jobs.live) {
+        return null;
+      }
+      if (
+        jobs.lastFailedAt !== null &&
+        this.now().getTime() - jobs.lastFailedAt.getTime() < BACKFILL_REQUEUE_AFTER_FAILURE_MS
+      ) {
+        return null;
+      }
+      const jobId = await this.enqueueBackfill(stream);
+      if (jobId !== null) {
+        logger.info("archive backfill queued again", {
+          backfillJobId: jobId,
+          afterFailure: jobs.lastFailedAt !== null,
+        });
+      }
+      return jobId;
+    } catch (error) {
+      logger.warn("archive backfill could not be queued again; the next pass tries", {
+        errorMessage: safeErrorMessage(error),
+      });
+      return null;
     }
   }
 

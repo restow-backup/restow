@@ -682,6 +682,22 @@ Geprüft gegen den Code von 0.5.0; was hier nicht steht, ist nicht umgesetzt.
   des Altbestands läuft als Job "Archiv-Übernahme" (fortsetzbar, als nachträglich erfasst
   markiert). Er hält bei Update-Drain und Shutdown an und pausiert einen Mandanten, während
   dessen Speicher das Ziel wechselt.
+- **Übernahme des Altbestands** (seit 0.5.0 abgeglichen statt einmalig eingeplant). Ihre
+  Position steht am Stream (`archive_capture_streams.backfill_cursor`), nicht nur im Job: Ein
+  Job, der sein Zeitbudget aufgebraucht hat (Graph 2 Stunden, IMAP 30 Minuten), reiht eine
+  Fortsetzung ein, und die liest dort weiter, wo er aufgehört hat; IMAP hält dafür auch mitten
+  in einem großen Ordner an (nach jedem Stapel von Metadaten). Jeder Durchgang des
+  Erfassungsdienstes prüft für einen aktivierten Stream ohne abgeschlossene Übernahme, ob ein
+  Übernahme-Job eingereiht ist oder läuft, und reiht sonst einen ein: nach einem
+  fehlgeschlagenen Einreihen bei der Aktivierung, nach aufgebrauchten Wiederholungen, nach
+  einem Lauf, der übersprungen wurde (Stream aus, Fähigkeit geschlossen). Nach einem
+  fehlgeschlagenen Job wartet er dafür eine Stunde. Ein fehlgeschlagener Übernahme-Job lässt
+  sich unter Jobs auch von Hand wiederholen; er setzt ebenfalls an der gespeicherten Position
+  fort. Ist die Übernahme 48 Stunden nach der Aktivierung nicht abgeschlossen oder ist ihr
+  letzter Job fehlgeschlagen, zeigt die Archiv-Seite sie als hängend (gelb, beim Weg und je
+  Postfach), und die Erfassungs-Warnung `backfill_stalled` (Ereignis `archive.failed`) geht
+  einmal je Stream und Aktivierung hinaus: Mail von vor der Aktivierung ist dann noch nicht im
+  Archiv.
 - **Graph-Erfassung** (docs/MICROSOFT.md, "Archiv-Erfassung per Graph"): Abonnement je
   Postfach mit Verlängerung, Lebenszyklus-Hooks und Neuanlage bei App-Wechsel, Abholen
   benachrichtigter Mail, Nachholen per Delta über alle Ordner und

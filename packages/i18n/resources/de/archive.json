@@ -379,7 +379,8 @@
     "backfill": {
       "label": "Übernommener Altbestand",
       "progress": "Altbestand übernommen: {completed} von {total} Postfächern",
-      "late": "{count, plural, one {# E-Mail} other {# E-Mails}} in den letzten 7 Tagen nachträglich erfasst"
+      "late": "{count, plural, one {# E-Mail} other {# E-Mails}} in den letzten 7 Tagen nachträglich erfasst",
+      "stalled": "{count, plural, one {# Postfach übernimmt} other {# Postfächer übernehmen}} den Altbestand seit mehr als 48 Stunden oder nach einem Fehler; deren ältere Mail ist noch nicht im Archiv. {appName} versucht es selbst erneut."
     },
     "mailboxes": {
       "title": "Je Postfach",
@@ -398,6 +399,7 @@
         "poll": "im Intervall abgefragt"
       },
       "backfillDone": "Altbestand übernommen",
+      "backfillStalled": "Übernahme hängt: ältere Mail noch nicht im Archiv",
       "resync": "Neu abgleichen",
       "resyncFor": "{mailbox} vollständig neu abgleichen",
       "resyncDone": "{mailbox} wird beim nächsten Durchlauf vollständig abgeglichen.",

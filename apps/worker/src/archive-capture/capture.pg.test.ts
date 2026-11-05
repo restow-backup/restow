@@ -32,6 +32,8 @@ import {
   backupJobs,
   createDb,
   type Database,
+  jobs,
+  notifications,
   PgArchiveAppendStore,
   protectedObjects,
   providers,
@@ -658,6 +660,97 @@ describe.skipIf(!adminUrl)("archive capture (Postgres)", () => {
       await reconcileCaptureStreams(db);
       expect((await streams())[0]?.status).not.toBe("disabled");
     });
+  });
+
+  it("queues the backfill again after a failed enqueue, a used-up job and a skipped run", async () => {
+    const object = await imapObject("requeue@example.net");
+    await member(object);
+    await db.execute(sql`delete from jobs`);
+    let failEnqueue = true;
+    const queued: string[] = [];
+    // Like pgBackfillEnqueuer: the jobs row the pass looks at, queued.
+    const enqueueBackfill = async (stream: { tenantId: string; protectedObjectId: string }) => {
+      if (failEnqueue) {
+        failEnqueue = false;
+        throw new Error("pg-boss is not reachable");
+      }
+      const [row] = await db
+        .insert(jobs)
+        .values({
+          tenantId: stream.tenantId,
+          queue: "archive",
+          status: "queued",
+          protectedObjectId: stream.protectedObjectId,
+          payload: { mode: "backfill", capture: "imap_sync" },
+        })
+        .returning();
+      queued.push(row?.id as string);
+      return row?.id as string;
+    };
+    const { instance } = service({ imap_sync: fakeWay(new Map()) }, { enqueueBackfill });
+    const due = async () => {
+      await db.update(archiveCaptureStreams).set({ nextDueAt: new Date(0) });
+      await instance.tick();
+      await instance.settle();
+    };
+    // Activation: activated_at is committed, then the enqueue fails.
+    await instance.tick();
+    await instance.settle();
+    let [stream] = await streams();
+    expect(stream?.activatedAt).not.toBeNull();
+    expect(queued).toEqual([]);
+    // The next pass finds no backfill job and queues it; one more pass leaves it alone.
+    await due();
+    expect(queued).toHaveLength(1);
+    await due();
+    expect(queued).toHaveLength(1);
+    [stream] = await streams();
+    expect(stream?.status).toBe("backfilling");
+
+    // The job used up its retries an hour ago: queued again, and announced as stalled.
+    await db
+      .update(jobs)
+      .set({
+        status: "failed",
+        completedAt: new Date(Date.now() - 2 * 3_600_000),
+        failure: {
+          v: 1,
+          code: "imap.auth_failed",
+          transient: false,
+          params: {},
+          technical: {},
+          occurredAt: new Date().toISOString(),
+          step: "backfill",
+          retry: null,
+        },
+      })
+      .where(eq(jobs.id, queued[0] as string));
+    const { alertArchiveCapture } = await import("./alerts.js");
+    expect(await alertArchiveCapture({ db, providerDb: db }, new Date())).toBe(1);
+    const [alert] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.event, "archive.failed"));
+    expect(alert?.details).toMatchObject({
+      reason: "backfill_stalled",
+      protectedObjectId: object,
+      captureWay: "imap_sync",
+      failure: expect.objectContaining({ code: "imap.auth_failed" }),
+    });
+    // Once per activation.
+    expect(await alertArchiveCapture({ db, providerDb: db }, new Date())).toBe(0);
+    await due();
+    expect(queued).toHaveLength(2);
+
+    // A run skipped while the stream was off: queued again once it works again.
+    await db
+      .update(jobs)
+      .set({ status: "completed" })
+      .where(eq(jobs.id, queued[1] as string));
+    await due();
+    expect(queued).toHaveLength(3);
+    await db.execute(sql`delete from notifications`);
+    await db.execute(sql`delete from jobs`);
   });
 
   it("runs a resync asked for during a pass a notification started, then clears it", async () => {

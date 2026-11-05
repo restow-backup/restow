@@ -412,14 +412,27 @@ function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
 }
 
-/** Whether a finished job can be re-enqueued: backups and verifies of an object that still exists. */
+/** An `archive` job that takes over a mailbox's existing mail (the backfill, 0.4.4). */
+export function isArchiveBackfill(job: Pick<Job, "queue"> & { payload?: Job["payload"] }): boolean {
+  return (
+    job.queue === "archive" &&
+    job.payload?.mode === "backfill" &&
+    (job.payload.capture === "graph_sync" || job.payload.capture === "imap_sync")
+  );
+}
+
+/**
+ * Whether a finished job can be re-enqueued: backups and verifies of an object that still
+ * exists, and the backfill of an archived mailbox (it resumes where the stream's backfill
+ * stopped, apps/worker handlers/archive.ts).
+ */
 export function isRetryable(
-  job: Pick<Job, "queue" | "status">,
+  job: Pick<Job, "queue" | "status"> & { payload?: Job["payload"] },
   object: JobObjectDto | null,
 ): boolean {
   return (
     (job.status === "failed" || job.status === "cancelled") &&
-    RETRYABLE_QUEUES.has(job.queue) &&
+    (RETRYABLE_QUEUES.has(job.queue) || isArchiveBackfill(job)) &&
     object !== null &&
     object.status === "active"
   );

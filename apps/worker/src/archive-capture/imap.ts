@@ -253,6 +253,8 @@ export function imapMode(input: {
 export interface ImapCaptureWayOptions {
   readonly connector?: ImapConnector;
   readonly settings?: Partial<ImapCaptureSettings>;
+  /** Batch sizes of the capture (tests make them small); the core's defaults otherwise. */
+  readonly limits?: archive.ImapCaptureLimits;
   readonly env?: Env;
   /** Account resolution (tests replace it). */
   readonly loadAccount?: typeof loadImapAccount;
@@ -345,6 +347,7 @@ export function createImapCaptureWay(options: ImapCaptureWayOptions = {}): Captu
         archive.catchUpImapCapture(session, previous, sink(ctx), {
           gmail: loaded.gmail,
           rescan: ctx.reason === "resync",
+          ...(options.limits ? { limits: options.limits } : {}),
           logger: ctx.logger,
           checkpoint: (state) => ctx.checkpoint(withImapState(ctx.stream.state, state)),
         }),
@@ -365,6 +368,7 @@ export function createImapCaptureWay(options: ImapCaptureWayOptions = {}): Captu
       const start = archive.readImapBackfillCursor(saved?.[CURSOR_KEY]);
       const result = await withSession(ctx, loaded, (session) =>
         archive.backfillImapCapture(session, state, start, sink(ctx), {
+          ...(options.limits ? { limits: options.limits } : {}),
           logger: ctx.logger,
           deadline: ctx.now().getTime() + settings.backfillBudgetMs,
           now: () => ctx.now().getTime(),

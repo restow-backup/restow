@@ -379,7 +379,8 @@
     "backfill": {
       "label": "Existing mail taken over",
       "progress": "Existing mail taken over: {completed} of {total} mailboxes",
-      "late": "{count, plural, one {# mail} other {# mails}} in the last 7 days captured afterwards"
+      "late": "{count, plural, one {# mail} other {# mails}} in the last 7 days captured afterwards",
+      "stalled": "{count, plural, one {# mailbox has} other {# mailboxes have}} been taking over existing mail for more than 48 hours or after an error; their older mail is not in the archive yet. {appName} tries again by itself."
     },
     "mailboxes": {
       "title": "Per mailbox",
@@ -398,6 +399,7 @@
         "poll": "checked at intervals"
       },
       "backfillDone": "Existing mail taken over",
+      "backfillStalled": "Takeover stuck: older mail not in the archive yet",
       "resync": "Catch up",
       "resyncFor": "Catch up {mailbox} completely",
       "resyncDone": "{mailbox} is caught up on the next pass.",

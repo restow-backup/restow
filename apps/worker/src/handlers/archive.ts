@@ -6,8 +6,8 @@
  *
  *   - `mode: "backfill"`: the one-time takeover of a mailbox's existing mail by a capture
  *     way, queued by the capture service once the stream went live (the `jobs` row shows it
- *     as the archive takeover). The way's `backfill` runs checkpointed in the job's cursor;
- *     interrupted, it resumes there. Mail received before the stream went live is flagged
+ *     as the archive takeover). The way's `backfill` runs checkpointed in a cursor kept on the
+ *     stream (`backfill_cursor`); interrupted, continued or queued again, it resumes there. Mail received before the stream went live is flagged
  *     `captured-late`. Done, the stream is `live`.
  *   - without a mode (the archive schedules of older releases): the named mailboxes, or
  *     every mailbox of the named source, are made due for the capture service now.
@@ -15,7 +15,12 @@
  * While the gate `archive.mailboxCapture` is closed (the Community build) the job ends
  * at once as skipped, with the reason in its summary.
  */
-import { type ArchiveJobPayload, JobAbortedError } from "@restow/core";
+import {
+  type ArchiveJobPayload,
+  type Cursor,
+  type CursorStore,
+  JobAbortedError,
+} from "@restow/core";
 import type { Database } from "@restow/db";
 import { sql } from "drizzle-orm";
 import { alreadyCapturedFor, appendCapturedMail } from "../archive-capture/append.js";
@@ -97,6 +102,12 @@ async function backfill(
   }
   const retentionPolicy = await archiveRetentionPolicyFor(ctx.db, ctx.tenantId);
   const logger = ctx.logger.child({ streamId: stream.id, way: stream.way });
+  // The way's position lives on the stream, so the next job (a continuation, a retry, a
+  // backfill the capture pass queued again) resumes where this one stopped.
+  const job: WorkerJobContext = {
+    ...ctx,
+    cursor: streamBackfillCursor(store, stream.id, ctx.cursor),
+  };
   const backfillContext: BackfillContext = {
     db: ctx.db,
     tenantId: ctx.tenantId,
@@ -107,7 +118,7 @@ async function backfill(
     logger,
     signal: ctx.signal,
     now: ctx.now,
-    job: ctx,
+    job,
     append: (mail) =>
       appendCapturedMail(
         {
@@ -126,8 +137,8 @@ async function backfill(
       ),
     alreadyCaptured: (query) =>
       alreadyCapturedFor(ctx.db, ctx.tenantId, stream.protectedObjectId, query),
-    // The backfill's own position lives in the job's cursor; the stream's state belongs to
-    // the live passes and is not written from here.
+    // The backfill's own position is its cursor (`job.cursor`, kept on the stream); the
+    // stream's state belongs to the live passes and is not written from here.
     checkpoint: async () => undefined,
   };
   const result = await way.backfill(backfillContext);
@@ -135,7 +146,7 @@ async function backfill(
     throw new JobAbortedError();
   }
   if (!result.completed) {
-    // The way stopped on its own budget: the next job resumes from the cursor.
+    // The way stopped on its own budget: the next job resumes from the stream's cursor.
     const next = await (deps.enqueueBackfill ?? pgBackfillEnqueuer(ctx.db))(stream);
     return {
       summary: { status: "continued", captured: result.captured, skipped: result.skipped, next },
@@ -145,6 +156,31 @@ async function backfill(
   await ctx.cursor.clear();
   logger.info("archive backfill completed", { captured: result.captured, skipped: result.skipped });
   return { summary: { status: "completed", captured: result.captured, skipped: result.skipped } };
+}
+
+/**
+ * The backfill cursor of a stream (`archive_capture_streams.backfill_cursor`), with the
+ * job's own cursor as the fallback a job from before 0.5.0 left and as a copy (the
+ * framework counts a job's checkpoints there, to give an interrupted attempt back).
+ */
+export function streamBackfillCursor(
+  store: Pick<PgStreamStore, "backfillCursor" | "saveBackfillCursor">,
+  streamId: string,
+  jobCursor: CursorStore,
+): CursorStore {
+  return {
+    async load() {
+      return ((await store.backfillCursor(streamId)) as Cursor | null) ?? (await jobCursor.load());
+    },
+    async save(cursor) {
+      await store.saveBackfillCursor(streamId, cursor);
+      await jobCursor.save(cursor);
+    },
+    async clear() {
+      await store.saveBackfillCursor(streamId, null);
+      await jobCursor.clear();
+    },
+  };
 }
 
 export const archiveHandler: JobHandler<"archive"> = {

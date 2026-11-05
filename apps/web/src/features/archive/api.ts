@@ -250,7 +250,8 @@ export interface MailboxWayStatus extends CaptureCounts {
   /** Why streams poll (a failure code), with how many streams name it. */
   pollReasons: Record<string, number>;
   /** The one-time takeover of the mail already in the mailboxes. */
-  backfill: { total: number; completed: number };
+  /** Stalled: not done 48 hours after activation, or its newest job failed. */
+  backfill: { total: number; completed: number; stalled: number };
   capturedLate7d: number;
 }
 
@@ -291,6 +292,8 @@ export interface CaptureMailbox {
   mode: "notifications" | "poll" | null;
   activatedAt: string | null;
   backfillCompletedAt: string | null;
+  /** The takeover of the existing mail is stalled (see `backfill.stalled`). */
+  backfillStalled: boolean;
   lastCaptureAt: string | null;
   lastSuccessAt: string | null;
   nextDueAt: string | null;

@@ -325,14 +325,56 @@ export class PgStreamStore {
     return row ? streamFromRow(row) : null;
   }
 
-  /** The backfill of a stream finished: it is live from now on. */
+  /** The backfill of a stream finished: it is live from now on, its cursor is done. */
   async backfillCompleted(id: string): Promise<void> {
     await this.db.execute(sql`
       update archive_capture_streams set
         backfill_completed_at = coalesce(backfill_completed_at, now()),
+        backfill_cursor = null,
         status = case when status = 'backfilling' then 'live'::archive_stream_status else status end,
         updated_at = now()
        where id = ${id}::uuid
     `);
+  }
+
+  /** Where the stream's backfill stands (any job of it saved it); null before the first save. */
+  async backfillCursor(id: string): Promise<Record<string, unknown> | null> {
+    const result = await this.db.execute<{ cursor: Record<string, unknown> | null }>(sql`
+      select backfill_cursor as cursor from archive_capture_streams where id = ${id}::uuid
+    `);
+    return result.rows[0]?.cursor ?? null;
+  }
+
+  /** Persist the backfill's position on the stream (not while it is completed already). */
+  async saveBackfillCursor(id: string, cursor: Record<string, unknown> | null): Promise<void> {
+    await this.db.execute(sql`
+      update archive_capture_streams
+         set backfill_cursor = ${cursor === null ? null : JSON.stringify(cursor)}::jsonb,
+             updated_at = now()
+       where id = ${id}::uuid and backfill_completed_at is null
+    `);
+  }
+
+  /**
+   * The stream's backfill jobs (their `jobs` rows): whether one is queued or running, and
+   * when the newest failed one ended. The capture pass queues a backfill again when none
+   * is live (a failed enqueue, retries used up, a skipped run).
+   */
+  async backfillJobs(
+    stream: CaptureStream,
+  ): Promise<{ readonly live: boolean; readonly lastFailedAt: Date | null }> {
+    const result = await this.db.execute<{ live: boolean; last_failed_at: Date | string | null }>(
+      sql`
+      select bool_or(j.status in ('queued', 'active')) as live,
+             max(coalesce(j.completed_at, j.updated_at)) filter (where j.status = 'failed')
+               as last_failed_at
+        from jobs j
+       where j.tenant_id = ${stream.tenantId}::uuid and j.queue = 'archive'
+         and j.protected_object_id = ${stream.protectedObjectId}::uuid
+         and j.payload->>'mode' = 'backfill' and j.payload->>'capture' = ${stream.way}
+    `,
+    );
+    const row = result.rows[0];
+    return { live: row?.live === true, lastFailedAt: date(row?.last_failed_at ?? null) };
   }
 }

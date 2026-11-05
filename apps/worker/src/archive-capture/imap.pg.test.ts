@@ -324,6 +324,106 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
     expect(items.some((item) => item.subject === "draft@example.net")).toBe(false);
   });
 
+  it("resumes a backfill across jobs from the stream's cursor, reading each mail once", async () => {
+    const object = await account("hanna@example.net");
+    const old = { internalDate: new Date("2025-06-01T08:00:00Z") };
+    for (let n = 1; n <= 7; n++) {
+      server
+        .folder("INBOX")
+        .add(mail(`big-${n}@example.net`), { ...old, messageId: `<big-${n}@example.net>` });
+    }
+    for (let n = 1; n <= 2; n++) {
+      server
+        .folder("Sent")
+        .add(mail(`sent-${n}@example.net`), { ...old, messageId: `<sent-${n}@example.net>` });
+    }
+    // A budget that runs out after every batch of two: the backfill needs several jobs, and
+    // stops inside INBOX (a huge folder) instead of only between folders.
+    const way = createImapCaptureWay({
+      connector: server,
+      env: {},
+      settings: { backfillBudgetMs: 1 },
+      limits: { metaBatch: 2, maxBatchBytes: 1024 * 1024, maxBatchMessages: 10 },
+    });
+    const { instance } = captureService(way);
+    await instance.tick();
+    await instance.settle();
+    let clock = Date.now();
+    const continued: string[] = [];
+    configureArchiveHandler({
+      providerDb: db,
+      gate: open,
+      ways: { imap_sync: way },
+      enqueueBackfill: async () => {
+        const id = randomUUID();
+        continued.push(id);
+        return id;
+      },
+    });
+    const statuses: unknown[] = [];
+    try {
+      for (let job = 0; job < 12; job++) {
+        // Every continuation is a new job with an empty cursor of its own.
+        let jobCursor: Record<string, unknown> | null = null;
+        const ctx = {
+          db,
+          tenantId,
+          storage,
+          keys,
+          chunkIndex: new MemoryChunkIndex(),
+          logger: silent,
+          signal: new AbortController().signal,
+          now: () => {
+            clock += 1;
+            return new Date(clock);
+          },
+          progress: { phase: () => {}, advance: () => {} },
+          cursor: {
+            load: async () => jobCursor,
+            save: async (next: Record<string, unknown>) => {
+              jobCursor = next;
+            },
+            clear: async () => {
+              jobCursor = null;
+            },
+          },
+        } as unknown as WorkerJobContext;
+        const outcome = await archiveHandler.run(ctx, {
+          jobId: randomUUID(),
+          tenantId,
+          protectedObjectId: object,
+          capture: "imap_sync",
+          mode: "backfill",
+        });
+        const status = (outcome as { summary?: { status?: string } } | undefined)?.summary?.status;
+        statuses.push(status);
+        if (status !== "continued") {
+          break;
+        }
+      }
+    } finally {
+      configureArchiveHandler(null);
+    }
+    expect(statuses.at(-1)).toBe("completed");
+    expect(statuses.length).toBeGreaterThanOrEqual(3);
+    expect(continued).toHaveLength(statuses.length - 1);
+    // Each old mail was read (metadata and source) exactly once across all the jobs.
+    const delivered = server.stats.sourcesDelivered;
+    expect(delivered).toHaveLength(9);
+    expect(new Set(delivered).size).toBe(9);
+    const meta = server.stats.metaDelivered;
+    expect(new Set(meta).size).toBe(meta.length);
+    const items = await itemsOf(object);
+    expect(items).toHaveLength(9);
+    expect(items.every((item) => (item.flags ?? []).includes("captured-late"))).toBe(true);
+    const [stream] = await db
+      .select()
+      .from(archiveCaptureStreams)
+      .where(eq(archiveCaptureStreams.protectedObjectId, object));
+    expect(stream?.status).toBe("live");
+    expect(stream?.backfillCursor).toBeNull();
+  });
+
   it("does not download mail the archive already holds for the account", async () => {
     const object = await account("ben@example.net");
     const way = createImapCaptureWay({ connector: server, env: {} });

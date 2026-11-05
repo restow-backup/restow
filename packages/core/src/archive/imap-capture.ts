@@ -220,6 +220,8 @@ export interface UidCaptureOutcome {
    * other UID was still captured, `handledUpTo` stays before the first of them.
    */
   readonly missing: readonly number[];
+  /** The deadline passed before every UID was read; `handledUpTo` says how far it got. */
+  readonly stopped: boolean;
 }
 
 function abortIfNeeded(signal: AbortSignal): void {
@@ -246,6 +248,12 @@ export async function captureFolderUids(
     /** Called after each batch with the UID handled up to (a checkpoint). */
     readonly progress?: (handledUpTo: number) => Promise<void>;
     readonly logger?: Logger;
+    /**
+     * Stop after the batch during which this time (epoch ms) passed (`stopped`), so a very
+     * large folder yields mid-folder and the caller resumes from the checkpoint.
+     */
+    readonly deadline?: number;
+    readonly now?: () => number;
   } = {},
 ): Promise<UidCaptureOutcome> {
   const limits = options.limits ?? DEFAULT_IMAP_CAPTURE_LIMITS;
@@ -262,8 +270,14 @@ export async function captureFolderUids(
     captured++;
     abortIfNeeded(sink.signal);
   };
+  const now = options.now ?? Date.now;
+  let stopped = false;
   for (let start = 0; start < uids.length; start += limits.metaBatch) {
     abortIfNeeded(sink.signal);
+    if (start > 0 && options.deadline !== undefined && now() >= options.deadline) {
+      stopped = true;
+      break;
+    }
     const group = uids.slice(start, start + limits.metaBatch);
     const metas = (await session.fetchMeta(group)).filter(
       (meta) => !meta.flags.some((flag) => flag.toLowerCase() === "\\draft"),
@@ -340,7 +354,7 @@ export async function captureFolderUids(
     }
   }
   missing.sort((a, b) => a - b);
-  return { captured, skipped, handledUpTo, missing };
+  return { captured, skipped, handledUpTo, missing, stopped };
 }
 
 /**
@@ -618,12 +632,15 @@ export async function backfillImapCapture(
   const cursor = (): ImapBackfillCursor => ({ completed: [...completed], active: { ...active } });
   let captured = 0;
   let skipped = 0;
+  // A job always reads at least one folder (or one batch of it) before its budget may stop
+  // it, so every job moves the cursor on, however small the budget.
+  let worked = false;
   const listed = new Set((await session.listFolders()).map((folder) => folder.path));
   for (const [path, folder] of Object.entries(state.folders)) {
     if (completed.has(path)) {
       continue;
     }
-    if (options.deadline !== undefined && now() >= options.deadline) {
+    if (worked && options.deadline !== undefined && now() >= options.deadline) {
       return { captured, skipped, completed: false, cursor: cursor() };
     }
     abortIfNeeded(sink.signal);
@@ -652,6 +669,7 @@ export async function backfillImapCapture(
       delete active[path];
       continue;
     }
+    worked = true;
     const resumeAfter =
       active[path]?.uidValidity === opened.uidValidity ? (active[path]?.lastUid ?? 0) : 0;
     const uids = (await session.uidsAbove(resumeAfter)).filter((uid) => uid <= upTo);
@@ -663,6 +681,7 @@ export async function backfillImapCapture(
       {
         ...(options.limits ? { limits: options.limits } : {}),
         ...(options.logger ? { logger: options.logger } : {}),
+        ...(options.deadline !== undefined ? { deadline: options.deadline, now } : {}),
         progress: async (handledUpTo) => {
           active[path] = { uidValidity: opened.uidValidity, lastUid: handledUpTo };
           await options.saveCursor(cursor());
@@ -672,6 +691,11 @@ export async function backfillImapCapture(
     captured += outcome.captured;
     skipped += outcome.skipped;
     await session.closeFolder();
+    if (outcome.stopped) {
+      // The budget ran out inside the folder: the next job resumes after `active[path]`.
+      await options.saveCursor(cursor());
+      return { captured, skipped, completed: false, cursor: cursor() };
+    }
     // The UIDs after a message listed but not delivered were still read. That message itself
     // is not retried by anyone (live capture starts above backfillUpTo; only a requested
     // resync reads below it): an expunged message is gone anyway, and one without a source

@@ -543,6 +543,19 @@ private repository.
   (`sentDateTime`). Anything else is downloaded and decided by the append, which merges a true
   duplicate and keeps a different mail. A rescan after a UIDVALIDITY change still downloads
   nothing that is archived already.
+- Mail archive: the one-time takeover of a mailbox's existing mail (the backfill) could restart
+  forever or never run. Its position lived only in the job's cursor, and a continuation after the
+  time budget (2 hours for Graph, 30 minutes for IMAP, the latter only checked between folders)
+  is a new job with an empty cursor, so every continuation started again with the first folder:
+  quadratic work, and for a large mailbox a backfill that never got past its biggest folder. The
+  backfill was also queued exactly once, at activation: a failed enqueue, a job that used up its
+  retries during an outage, or a run skipped while the stream was off left the stream
+  "taking over" for good with no alert, and its older mail never reached the archive. The
+  position is now kept on the capture stream (migration 0079 `backfill_cursor`), IMAP also stops
+  inside a large folder, every capture pass queues the backfill again when none is queued or
+  running (after a failed job, once an hour), a failed backfill job can be retried under Jobs,
+  and a takeover not done after 48 hours or whose last job failed is shown as stuck on the
+  archive page and raises the capture alert `backfill_stalled`.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

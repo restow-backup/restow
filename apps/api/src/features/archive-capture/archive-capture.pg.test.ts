@@ -17,6 +17,7 @@ import {
   backupJobs,
   createDb,
   type Database,
+  jobs,
   protectedObjects,
   providers,
   sources,
@@ -203,7 +204,7 @@ describe.skipIf(!testDatabaseAdminUrl)("archive capture routes against Postgres"
       streams: { live: 1, backfilling: 1, disabled: 1, pending: 0, error: 0, paused: 0 },
       modes: { notifications: 1, poll: 1 },
       pollReasons: { "graph.notification_url_unavailable": 1 },
-      backfill: { total: 2, completed: 1 },
+      backfill: { total: 2, completed: 1, stalled: 0 },
       items24h: 2,
       items7d: 2,
       captures24h: 1,
@@ -336,6 +337,35 @@ describe.skipIf(!testDatabaseAdminUrl)("archive capture routes against Postgres"
       await app.request("/archive/capture", { headers: as(fabrikam) })
     ).json()) as { mailbox: { items7d: number; streams: { live: number } }[] };
     expect(status.mailbox.every((way) => way.items7d === 0 && way.streams.live === 0)).toBe(true);
+  });
+
+  it("shows a takeover whose newest job failed as stalled, the way and the mailbox", async () => {
+    const [failed] = await owner
+      .insert(jobs)
+      .values({
+        tenantId: contoso,
+        queue: "archive",
+        status: "failed",
+        protectedObjectId: mailboxes[1] as string,
+        payload: { mode: "backfill", capture: "graph_sync" },
+      })
+      .returning();
+    try {
+      const status = (await (
+        await app.request("/archive/capture", { headers: as(contoso) })
+      ).json()) as { mailbox: { way: string; backfill: unknown }[] };
+      expect(status.mailbox.find((way) => way.way === "graph_sync")?.backfill).toEqual({
+        total: 2,
+        completed: 1,
+        stalled: 1,
+      });
+      const page = (await (
+        await app.request("/archive/capture/mailboxes?status=backfilling", { headers: as(contoso) })
+      ).json()) as { items: { backfillStalled: boolean }[] };
+      expect(page.items.map((row) => row.backfillStalled)).toEqual([true]);
+    } finally {
+      await owner.delete(jobs).where(eq(jobs.id, failed?.id as string));
+    }
   });
 
   it("lists the mailboxes with a cursor and filters", async () => {

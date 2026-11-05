@@ -554,6 +554,13 @@
       "when": 1793846420254,
       "tag": "0078_write_once_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1793874524484,
+      "tag": "0079_archive_backfill_cursor",
+      "breakpoints": true
     }
   ]
 }

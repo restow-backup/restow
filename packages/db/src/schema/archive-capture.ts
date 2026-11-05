@@ -78,6 +78,10 @@ export const archiveCaptureStreams = pgTable(
     // The `jobs` row of the one-time backfill ("Archiv-Übernahme"), while or after it ran.
     backfillJobId: uuid("backfill_job_id"),
     backfillCompletedAt: timestamp("backfill_completed_at", { withTimezone: true }),
+    // Where the one-time takeover stands (the way's backfill cursor, 0.5.0): kept on the
+    // stream, not in the job, so a continuation, a retry or a re-queued backfill resumes
+    // where the last job stopped. Cleared with `backfill_completed_at`.
+    backfillCursor: jsonb("backfill_cursor").$type<Record<string, unknown>>(),
     state: jsonb("state").$type<ArchiveStreamState>().notNull().default({}),
     // A notification or a resync asked for a pass; cleared when a pass started after it ends.
     dirtySince: timestamp("dirty_since", { withTimezone: true }),

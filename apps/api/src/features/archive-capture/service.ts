@@ -7,6 +7,7 @@
  */
 import {
   type ArchiveCaptureSettings,
+  backfillStalledSql,
   type CaptureKind,
   captureChoicePending,
   captureKindSql,
@@ -65,8 +66,16 @@ export interface MailboxWayStatusDto extends CaptureCounts {
   readonly modes: { readonly notifications: number; readonly poll: number };
   /** Why streams poll (a failure code), with how many streams name it. */
   readonly pollReasons: Record<string, number>;
-  /** The one-time takeover: streams activated, and of them those done. */
-  readonly backfill: { readonly total: number; readonly completed: number };
+  /**
+   * The one-time takeover: streams activated, of them those done, and those stalled (not
+   * done 48 hours after activation, or the newest backfill job failed; packages/db
+   * `backfillStalledSql`).
+   */
+  readonly backfill: {
+    readonly total: number;
+    readonly completed: number;
+    readonly stalled: number;
+  };
   /** Items of this way flagged `captured-late` in the last 7 days. */
   readonly capturedLate7d: number;
 }
@@ -166,15 +175,17 @@ export async function captureStatus(
       poll_reason: string | null;
       activated: boolean;
       backfilled: boolean;
+      stalled: boolean;
       n: number;
     }>(sql`
-      select way::text as way, status::text as status,
-             state->>'_mode' as mode, state->>'_pollReason' as poll_reason,
-             activated_at is not null as activated, backfill_completed_at is not null as backfilled,
+      select s.way::text as way, s.status::text as status,
+             s.state->>'_mode' as mode, s.state->>'_pollReason' as poll_reason,
+             s.activated_at is not null as activated, s.backfill_completed_at is not null as backfilled,
+             ${backfillStalledSql("s")} as stalled,
              count(*)::int as n
-        from archive_capture_streams
-       where tenant_id = ${tenantId}::uuid
-       group by 1, 2, 3, 4, 5, 6
+        from archive_capture_streams s
+       where s.tenant_id = ${tenantId}::uuid
+       group by 1, 2, 3, 4, 5, 6, 7
     `);
 
     const counts = (way: CaptureSourceName): CaptureCounts & { late: number } => {
@@ -201,6 +212,7 @@ export async function captureStatus(
       const pollReasons: Record<string, number> = {};
       let total = 0;
       let completed = 0;
+      let stalled = 0;
       for (const row of streams.rows.filter((r) => r.way === way)) {
         byStatus[row.status] += row.n;
         if (row.status === "disabled") {
@@ -215,6 +227,7 @@ export async function captureStatus(
         if (row.activated) {
           total += row.n;
           completed += row.backfilled ? row.n : 0;
+          stalled += row.stalled ? row.n : 0;
         }
       }
       return {
@@ -225,7 +238,7 @@ export async function captureStatus(
         streams: byStatus,
         modes,
         pollReasons,
-        backfill: { total, completed },
+        backfill: { total, completed, stalled },
         capturedLate7d: late,
       };
     });
@@ -319,6 +332,8 @@ export interface CaptureMailboxDto {
   readonly mode: "notifications" | "poll" | null;
   readonly activatedAt: string | null;
   readonly backfillCompletedAt: string | null;
+  /** The takeover is stalled (see {@link MailboxWayStatusDto.backfill}). */
+  readonly backfillStalled: boolean;
   readonly lastCaptureAt: string | null;
   readonly lastSuccessAt: string | null;
   readonly nextDueAt: string | null;
@@ -353,6 +368,7 @@ export async function captureMailboxes(
       mode: string | null;
       activated_at: string | null;
       backfill_completed_at: string | null;
+      backfill_stalled: boolean;
       last_capture_at: string | null;
       last_success_at: string | null;
       next_due_at: string | null;
@@ -362,6 +378,7 @@ export async function captureMailboxes(
       select s.id, s.protected_object_id, po.kind::text as kind, po.external_id, po.display_name,
              s.way::text as way, s.status::text as status, s.state->>'_mode' as mode,
              s.activated_at::text as activated_at, s.backfill_completed_at::text as backfill_completed_at,
+             ${backfillStalledSql("s")} as backfill_stalled,
              s.last_capture_at::text as last_capture_at, s.last_success_at::text as last_success_at,
              s.next_due_at::text as next_due_at, s.consecutive_failures, s.failure
         from archive_capture_streams s
@@ -386,6 +403,7 @@ export async function captureMailboxes(
         mode: row.mode === "notifications" || row.mode === "poll" ? row.mode : null,
         activatedAt: iso(row.activated_at),
         backfillCompletedAt: iso(row.backfill_completed_at),
+        backfillStalled: row.backfill_stalled === true,
         lastCaptureAt: iso(row.last_capture_at),
         lastSuccessAt: iso(row.last_success_at),
         nextDueAt: iso(row.next_due_at),

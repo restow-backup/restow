@@ -73,7 +73,7 @@ const STATUS: CaptureStatus = {
       streams: { live: 3, backfilling: 1, pending: 0, paused: 0, disabled: 2, error: 1 },
       modes: { notifications: 2, poll: 1 },
       pollReasons: { "graph.notification_url_unavailable": 1 },
-      backfill: { total: 4, completed: 3 },
+      backfill: { total: 4, completed: 3, stalled: 1 },
       capturedLate7d: 40,
     },
     {
@@ -84,7 +84,7 @@ const STATUS: CaptureStatus = {
       streams: { live: 0, backfilling: 0, pending: 0, paused: 0, disabled: 0, error: 0 },
       modes: { notifications: 0, poll: 0 },
       pollReasons: {},
-      backfill: { total: 0, completed: 0 },
+      backfill: { total: 0, completed: 0, stalled: 0 },
       capturedLate7d: 0,
     },
   ],
@@ -103,6 +103,7 @@ const MAILBOX: CaptureMailbox = {
   mode: "notifications",
   activatedAt: "2026-10-01T00:00:00.000Z",
   backfillCompletedAt: "2026-10-02T00:00:00.000Z",
+  backfillStalled: false,
   lastCaptureAt: "2026-10-22T09:00:00.000Z",
   lastSuccessAt: "2026-10-22T09:00:00.000Z",
   nextDueAt: null,
@@ -307,6 +308,10 @@ describe("capture on the archive page", () => {
     // The reason's text comes from the failure catalog where it has one (workstream B's).
     expect(slot("capture-poll-reasons")?.textContent).toContain("1 mailbox checked at intervals:");
     expect(slot("capture-backfill")?.textContent).toContain("3 of 4 mailboxes");
+    // A takeover that is stuck is said so, not counted as running fine.
+    expect(slot("capture-backfill-stalled")?.textContent).toContain(
+      "1 mailbox has been taking over existing mail for more than 48 hours",
+    );
     expect(graph?.textContent).toContain("Near-time");
     // IMAP archiving is not in this edition: said so, without counts of streams.
     expect(slot("capture-way-imap_sync")?.textContent).toContain("Business edition");

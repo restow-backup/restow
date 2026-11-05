@@ -348,10 +348,15 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     // An alert of the archive capture (apps/worker archive-capture/alerts.ts): what stopped,
     // since when, and when something last arrived.
     const reason = text(details.reason);
-    if (reason === "capture_error" || reason === "forward_stale" || reason === "journal_stale") {
+    if (
+      reason === "capture_error" ||
+      reason === "forward_stale" ||
+      reason === "journal_stale" ||
+      reason === "backfill_stalled"
+    ) {
       rows.push([t("reports:mail.archiveProblem"), t(`reports:mail.archiveReason.${reason}`)]);
     }
-    const since = formatWhen(text(details.errorSince), input.language);
+    const since = formatWhen(text(details.errorSince) ?? text(details.activatedAt), input.language);
     if (since) rows.push([t("reports:mail.archiveSince"), `${since} UTC`]);
     const last = formatWhen(text(details.lastCopyAt) ?? text(details.lastReportAt), input.language);
     if (last) rows.push([t("reports:mail.archiveLast"), `${last} UTC`]);
