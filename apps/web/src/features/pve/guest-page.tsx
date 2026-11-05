@@ -61,6 +61,7 @@ import {
   type PveGuest,
   type PveGuestDetail,
   type PveRepositoryChain,
+  type PveRepositoryProblem,
   type PveRestorePoint,
   type PveRun,
   pveKeys,
@@ -474,34 +475,84 @@ function chainTarget(
     : chain.target.name;
 }
 
+/** The i18n key of a chain record's reason (`guest.chain.<key>`, `<key>Title`). */
+function chainKey(reason: PveRepositoryChain["reason"]): string {
+  return reason === "points_lost" ? "pointsLost" : reason;
+}
+
 /**
- * The newest new backup chain of a container (docs/PVE.md, "New backup chain"): the repository
- * was missing on the primary when a backup began, or an administrator reset it.
+ * The newest change of a container's backup chain (docs/PVE.md, "Repository problems"): the
+ * repository was missing on the primary when a backup began, an administrator reset it, or the
+ * repository repair found it lost (a new chain begins) or rebuilt it without some restore points
+ * (the chain goes on).
  */
 export function RepositoryChainNotice({ chain }: { chain: PveRepositoryChain }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
   const language = i18n.resolvedLanguage ?? i18n.language;
   const date = formatDateTime(chain.at, language);
   const target = chainTarget(chain, t);
+  const key = chainKey(chain.reason);
   return (
     <Alert
-      variant={chain.reason === "missing" ? "warning" : "info"}
+      variant={chain.reason === "reset" ? "info" : "warning"}
       data-slot="pve-repository-chain"
+      data-reason={chain.reason}
     >
       <History />
-      <AlertTitle>
-        {t(chain.reason === "missing" ? "guest.chain.missingTitle" : "guest.chain.resetTitle", {
-          date,
-        })}
-      </AlertTitle>
+      <AlertTitle>{t(`guest.chain.${key}Title`, { date })}</AlertTitle>
       <AlertDescription>
-        {chain.reason === "missing"
-          ? t("guest.chain.missing", { target, count: chain.unavailablePoints })
-          : t("guest.chain.reset", {
-              target,
-              count: chain.unavailablePoints,
-              actor: chain.actor ?? t("guest.chain.someone"),
-            })}
+        {t(`guest.chain.${key}`, {
+          target,
+          count: chain.unavailablePoints,
+          actor: chain.actor ?? t("guest.chain.someone"),
+        })}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/** The problem types the guest page explains (docs/PVE.md, "Repository problems"). */
+const PROBLEM_KEYS: Record<string, "elsewhere" | "split" | "missing" | "repairFailed"> = {
+  "pve-repository-elsewhere": "elsewhere",
+  "pve-repository-split": "split",
+  "pve-repository-missing": "missing",
+  "pve-repository-repair-failed": "repairFailed",
+};
+
+/**
+ * Why the last backup of a container was refused for its repository, and the way out: the
+ * repository repair under Repositories, or a reset of the repository (docs/PVE.md, "Repository
+ * problems").
+ */
+export function RepositoryProblemNotice({ problem }: { problem: PveRepositoryProblem }) {
+  const { t, i18n } = useTranslation(PVE_NAMESPACE);
+  const found = PROBLEM_KEYS[problem.type];
+  if (!found) {
+    return null;
+  }
+  // Split with no other holder: the primary has data without config or keys, nothing elsewhere.
+  const kind = found === "split" && problem.heldBy === null ? "splitPrimaryOnly" : found;
+  const titleKind = kind === "splitPrimaryOnly" ? "split" : kind;
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const target =
+    problem.heldBy === null
+      ? null
+      : problem.heldBy === "installation_default"
+        ? t("guest.chain.installationDefault")
+        : problem.heldBy;
+  return (
+    <Alert variant="destructive" data-slot="pve-repository-problem" data-problem={kind}>
+      <History />
+      <AlertTitle>{t(`guest.repositoryProblem.${titleKind}Title`)}</AlertTitle>
+      <AlertDescription>
+        <p>
+          {t(`guest.repositoryProblem.${kind}`, {
+            target: target ?? t("guest.repositoryProblem.noTarget"),
+            count: problem.activePoints,
+            date: formatDateTime(problem.at, language),
+          })}
+        </p>
+        <p>{t(`guest.repositoryProblem.${kind}Action`, { count: problem.activePoints })}</p>
       </AlertDescription>
     </Alert>
   );
@@ -918,6 +969,9 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         ) : null}
       </PageHeader>
       {data && canManage ? <BackupDestinationNote /> : null}
+      {data?.repository?.problem ? (
+        <RepositoryProblemNotice problem={data.repository.problem} />
+      ) : null}
       {chains[0] ? <RepositoryChainNotice chain={chains[0]} /> : null}
       {data?.guest.attention.includes("no_restow_node") ? (
         <Alert variant="warning" data-slot="pve-guest-no-restow-node">
@@ -1084,11 +1138,15 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                     </TableCell>
                     <TableCell>{t("guest.chain.history")}</TableCell>
                     <TableCell>
-                      <Badge variant={row.chain.reason === "missing" ? "warning" : "info"}>
+                      <Badge variant={row.chain.reason === "reset" ? "info" : "warning"}>
                         {t(
                           row.chain.reason === "missing"
                             ? "guest.chain.historyMissing"
-                            : "guest.chain.historyReset",
+                            : row.chain.reason === "lost"
+                              ? "guest.chain.historyLost"
+                              : row.chain.reason === "points_lost"
+                                ? "guest.chain.historyPointsLost"
+                                : "guest.chain.historyReset",
                           {
                             target: chainTarget(row.chain, t),
                             actor: row.chain.actor ?? t("guest.chain.someone"),

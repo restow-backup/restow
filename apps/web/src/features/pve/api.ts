@@ -444,12 +444,12 @@ export interface PveOpenTask {
 }
 
 /**
- * A new backup chain of a container's repository (docs/PVE.md, "New backup chain"): the
+ * A new backup chain of a container's repository (docs/PVE.md, "Repository problems"): the
  * repository was missing on the primary when a backup began, or an administrator reset it.
  */
 export interface PveRepositoryChain {
   at: string;
-  reason: "missing" | "reset";
+  reason: "missing" | "reset" | "lost" | "points_lost";
   /** Where the repository was looked for; `location` is null for the installation default. */
   target: {
     name: string;
@@ -461,13 +461,32 @@ export interface PveRepositoryChain {
   actor: string | null;
 }
 
+/**
+ * Why the last backup of a container was refused for its repository (docs/PVE.md, "Repository
+ * problems"): it lies on another storage target, is split across targets, or is missing while
+ * restore points refer to it.
+ */
+export interface PveRepositoryProblem {
+  at: string;
+  /** `pve-repository-elsewhere`, `pve-repository-split` or `pve-repository-missing`. */
+  type: string;
+  /** The target holding (part of) it: a name, or `installation_default`. */
+  heldBy: string | null;
+  activePoints: number;
+}
+
 export interface PveGuestDetail {
   guest: PveGuest;
   cluster: { id: string; name: string; storageId: string } | null;
   snapshots: PveRestorePoint[];
   runs: PveRun[];
   /** A container's repository and its new backup chains (newest first); null for a VM, missing before 0.4.2. */
-  repository?: { readyAt: string | null; chains: PveRepositoryChain[] } | null;
+  repository?: {
+    readyAt: string | null;
+    chains: PveRepositoryChain[];
+    /** Missing before 0.5.0. */
+    problem?: PveRepositoryProblem | null;
+  } | null;
   /** The guest's open tasks; missing on old servers. */
   tasks?: PveOpenTask[];
   /** What a follow-up backup added on average; missing on servers before 0.3.7. */

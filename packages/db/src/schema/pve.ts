@@ -286,7 +286,13 @@ export type PveDiskState = Record<
  */
 export type PveRepositoryChain = {
   at: string;
-  reason: "missing" | "reset";
+  /**
+   * `missing`: a backup found the repository nowhere and began a new chain; `reset`: an
+   * administrator reset it; `lost`: the repository repair found it on no target and the next
+   * backup begins a new chain; `points_lost`: the repair rebuilt the repository (its chain goes
+   * on), but some restore points' snapshots were in none of its parts.
+   */
+  reason: "missing" | "reset" | "lost" | "points_lost";
   target: {
     name: string;
     kind: string | null;
@@ -298,6 +304,30 @@ export type PveRepositoryChain = {
   /** Who reset it (`reset` only). */
   actor: string | null;
 };
+
+/**
+ * Why the server refused the last backup of a container (docs/PVE.md, "Repository problems"):
+ * the repository lies on another storage target, is split across targets, or is missing while
+ * restore points still refer to it. Null once a backup found its repository again.
+ */
+export type PveRepositoryProblem = {
+  at: string;
+  /** The problem type without its `urn:restow:problem:` prefix, e.g. `pve-repository-split`. */
+  type: string;
+  /** The target that holds (part of) the repository, when one does. */
+  heldBy: string | null;
+  /** Restore points that still refer to the repository. */
+  activePoints: number;
+};
+
+/**
+ * The problem type the repository repair records when it could not rebuild a container's
+ * repository (a file that could not be copied and verified, or restic found the result not
+ * sound). Unlike the others it is not cleared by a backup that finds `config` and a key on the
+ * primary: those may be what the failed repair left there, next to data that is not. Backups,
+ * retention and the check refuse until a repair succeeds or the repository is reset.
+ */
+export const PVE_REPOSITORY_REPAIR_FAILED = "pve-repository-repair-failed";
 
 /** How many chain changes a guest keeps (newest first). */
 export const PVE_REPOSITORY_CHAINS_KEPT = 10;
@@ -347,6 +377,8 @@ export const pveGuests = pgTable(
       .$type<PveRepositoryChain[]>()
       .notNull()
       .default([]),
+    // Why the last backup was refused for the repository (null: none, or found again).
+    repositoryProblem: jsonb("repository_problem").$type<PveRepositoryProblem>(),
     lastBackupAt: timestamp("last_backup_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastSnapshotId: uuid("last_snapshot_id"),
@@ -532,6 +564,11 @@ export const pveRuns = pgTable(
     // A short-lived restic credential of a container run (SHA-256 only).
     resticTokenHash: text("restic_token_hash"),
     resticExpiresAt: timestamp("restic_expires_at", { withTimezone: true }),
+    // The storage target the run's credential was issued for (a target id, or
+    // `installation_default`), and the tenant's storage generation then (docs/STORAGE.md,
+    // "Runs and storage changes"): every restic request of the run goes to exactly this target.
+    storageTarget: text("storage_target"),
+    storageGeneration: text("storage_generation"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     // Stop requested in the UI (0.4.2): the run shows "Cancelling" until the node stopped it.
@@ -690,6 +727,9 @@ export const pveSnapshots = pgTable(
     verifyRequestedAt: timestamp("verify_requested_at", { withTimezone: true }),
     prunedAt: timestamp("pruned_at", { withTimezone: true }),
     unavailableAt: timestamp("unavailable_at", { withTimezone: true }),
+    // Why it became unavailable: `chain` (a new backup chain or a reset), `lost` (a repository
+    // repair found its snapshot or data on no storage target). Null on older rows (`chain`).
+    unavailableReason: text("unavailable_reason").$type<"chain" | "lost">(),
     ...timestamps(),
   },
   (t) => [

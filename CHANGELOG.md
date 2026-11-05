@@ -369,6 +369,89 @@ private repository.
   the path, the error's name and message (with secrets masked) and the first frames of its stack.
   Until now such a request failed in the browser while `docker compose logs api` showed nothing,
   so the cause could not be found without a debugger.
+- Data safety: container repositories split across storage targets, a promotion that dropped
+  the installation default, silent new backup chains and the HTTP 500 that followed. What
+  happened on one installation: on 16 October 2026 (0.4.1) a copy target was promoted to primary
+  while a container's first backup ran. Nothing pinned a run to one target, so its config, keys
+  and first packs landed on the installation default and its later packs, index and snapshot on
+  the new primary; the restore point looked fine and cannot be restored. The promotion also
+  dropped the installation default from the tenant's targets (no placeholder was kept, unlike
+  "keep" and "move"), so every repository that lay only there became invisible. The container's
+  next backups failed with "get the restic credential of this run: Restow server answered 500"
+  (`restic init` refused a prefix that already held a snapshot), also after "Reset repository",
+  and each attempt left an orphan secret; from 0.4.2 on, every other container whose repository
+  was not on the new primary silently began a new chain and its restore points became
+  unavailable, although the repository was intact on the installation default. Now:
+  - A container backup, a container restore and a file share run are pinned to the target their
+    credential was issued for (`pve_runs.storage_target`, `file_share_runs.storage_target`).
+    Credential issue, machine enrollment and every change of the primary take one lock per
+    tenant; promoting a copy and "keep" refuse while a Proxmox VE backup (container or VM) or a
+    file share run is running (`storage-switch-blocked-by-runs`), the switch of a "move" waits. A backup whose target stops being the primary anyway gets
+    `403 storage-switched-during-run` for its writes and fails cleanly instead of finishing on
+    another target. Caches of the tenant's targets (API and worker) compare the tenant's storage
+    generation instead of only running out after one or five minutes.
+  - Promoting a copy is refused while the tenant has any restic repository, now counting
+    machines (revoked ones included) and file shares whose repository is being created (a
+    container's first backup counts through its running run); "keep" counts the same. A promotion away from the installation default keeps it
+    attached read-only (`previous`).
+  - Before a backup, a container's repository must be complete on the primary (config and a
+    key). Otherwise every target and the installation default are searched and the backup is
+    refused with `pve-repository-elsewhere`, `pve-repository-split` or `pve-repository-missing`;
+    the guest page explains it and the way out. A new chain begins without asking only when the
+    repository is nowhere and no restore point refers to it. Data without a config is never
+    passed to `restic init` (no more 500), the password is stored only after `restic init`
+    succeeded, and after a reset whatever is left at the prefix is moved aside
+    (`pve-guests/<id>.orphaned-<time>/`), never deleted (0.4.x deleted a leftover with a config).
+    Retention and check of a container search the same places, the installation default
+    included, and refuse with the same problems instead of "unable to open config file"; they
+    also refuse while an active restore point's snapshot lies only on another target, where a
+    prune on the primary would have removed the data it needs. No restore test of the container
+    is planned while the guest records such a problem. File share
+    runs check their repository the same way (`share.repository_unavailable`) and restores read
+    from the target that holds it.
+  - A "move" collects each repository from every target (primary, copies, retired targets, the
+    installation default) and merges the halves of a split one; a repository that cannot be
+    copied whole rejects the migration with a list, and restic checks every copied repository
+    on the destination before the switch. Previously a data-only half was skipped silently.
+  - Removing a retired location is refused while it holds any file of a repository no other
+    target has, not only a `config`, and while it is the only place with a moved-aside folder
+    (`previous-holds-moved-aside`; a "move" does not copy those). A directory target lists only
+    the folder a prefix lies in.
+  - New: Repositories › Repository repair (docs/STORAGE.md, "Repository repair"). A scan shows
+    every repository of the tenant on every target and what each holds (`ok`, `elsewhere`,
+    `split`, `data_only`, `password_only`, `missing`, `conflict`); the repair (recent sign-in,
+    typed `REPAIR`) rebuilds split and misplaced repositories on the primary, verified by hash
+    and by `restic check`; `config` and the keys are copied last, and taken away again when a
+    file or the check fails (the container then refuses backups and retention with
+    `pve-repository-repair-failed` until a repair succeeds or it is reset). It works only while
+    no backup, file share run or storage migration of the tenant is active (backups wait for it
+    meanwhile, and the primary cannot change), only on a scan that read every place (a directory
+    whose folder is empty or missing counts as not read: a share that is not mounted), only on
+    what still looks as in that scan, and under each repository's lock. Restore points whose
+    snapshot is in none of a repository's parts become unavailable; a container repository with
+    data but no config or key anywhere is moved aside and its restore points become unavailable
+    ("lost"). A repository on no target is never marked lost by the repair: "Reset repository"
+    is the deliberate way. An old location can be attached read-only for it ("Attach an old
+    location read-only"). Audited as `storage.repositories.scanned`, `storage.repository.merged`
+    and `storage.repository.lost`.
+
+  **After updating, check:** run Repositories › Repository repair › Scan for every tenant that
+  ever changed its primary (promoted a copy, "keep", "move"), with every storage share mounted.
+  A container shown as `split` or `elsewhere` can be rebuilt; one shown as `data_only` (like a
+  container whose config and keys lay only in a folder that is gone) cannot be opened without
+  its config and keys: if an earlier location or a restored copy of it still has them, attach it
+  read-only and scan again before you repair. Look in the audit log for
+  `pve.repository.reinitialized` with `reason: "missing"` after a storage change: each one is a
+  container whose old chain may still lie on an earlier location (for a promotion of 0.4.1, the
+  installation default, by default the volume `/data/chunks`). The repair does not bring those
+  restore points back (the new chain on the primary is complete, so the scan shows `ok`); they
+  stay unavailable. Keep that location attached read-only so its data is not removed while only
+  it has it; the old chain can be restored by hand with restic from there (its password is
+  sealed next to it in `restow-repository-password.json`). What was checked about a missing
+  `/data/chunks/pve-guests`: from 0.4.1 to 0.4.12 every delete on a directory target, restic's
+  own included (it reaches storage through Restow's REST listener), removes single files and
+  never a folder, so a `pve-guests` folder that does not exist at all (not merely empty) was not
+  removed by those versions; check the host's shell history and volume restores.
 - The page "Restow is temporarily unavailable" (the edge's page while the server restarts or is
   updated) speaks the language the app shows. It followed only the browser's language, so a
   German browser got it in German even where Restow was set to English, as on the public demo,
@@ -1125,7 +1208,7 @@ private repository.
 
 ### Upgrade Notes
 
-Four database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+Five database migrations run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
@@ -1140,8 +1223,11 @@ opens the journal setup on the Archive page (it stays reachable by its address) 
 address there; the address itself keeps working. 0076 adds three nullable columns to `pve_guests`
 (`repository_reconciled_at`, `smbios_uuid`, `retired_at`) without a rewrite and rebuilds the
 unique index on cluster and VMID once, now for guests that are not retired; every container's
-repository is compared with its restore points once after the update. The first directory sync after the update reads
-the owners and members of every Microsoft 365 group once (three Graph reads per group, through
+repository is compared with its restore points once after the update. 0077 adds nullable
+columns to `pve_runs`, `file_share_runs`, `pve_guests` and `pve_snapshots` and creates the table
+`storage_repository_repairs` without rewriting a table; after the update, scan the repositories
+of every tenant that ever changed its primary (see Fixed). The first directory sync after the
+update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
 fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.

@@ -46,6 +46,7 @@ import {
   DEFAULT_SCHEDULE_TIMEZONE,
   decodeBlockMap,
   deleteOnAllTargets,
+  INSTALLATION_DEFAULT_TARGET_ID,
   isDeleteRefused,
   isObjectLocked,
   listLockFiles,
@@ -82,6 +83,7 @@ import {
   resticPrune,
   resticSnapshots,
   resticUnlock,
+  type StorageBackend,
   type StorageTargets,
   sampleDataBlocks,
   storageStaleLocks,
@@ -91,6 +93,7 @@ import {
 import {
   type Database,
   EndpointRepositoryBusyError,
+  PVE_REPOSITORY_REPAIR_FAILED,
   type PveGuest,
   type PveJob,
   type PveSnapshot,
@@ -126,7 +129,9 @@ import {
   sql,
 } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
+import { processDefaultStorage } from "../default-storage.js";
 import {
+  freshTenantStorage,
   PgChunkIndex,
   PgSecretReader,
   tenantRunner,
@@ -152,6 +157,8 @@ export interface PveDeps {
   >;
   /** How long retention and the check wait for the API's reads of a container repository. */
   readonly repositoryLockWaitMs?: number;
+  /** The installation default (tests pin it); the current one without it. */
+  readonly installationDefault?: () => Promise<StorageBackend | null>;
   /**
    * New starts are paused for an update (#46): no backup tasks are planned, and retention,
    * verify and restore checks wait; runs that never ended are still closed.
@@ -884,7 +891,8 @@ async function retainGuest(
  * time limit. A storage that refuses to delete a stale lock (write-once: `deletesRefused`) gets
  * no forget and no prune: they take the exclusive lock and delete, so they could only fail and
  * leave one more lock file behind each time; the comparison stays claimed and is tried again
- * after the retry delay.
+ * after the retry delay. Neither does a repository with a problem (`repositoryProblem`: not
+ * complete on the primary, split across targets, a failed repair): it stays claimed as well.
  *
  * The comparison is claimed first: `repositoryReconciledAt` is set to a claim time that makes
  * it due again after {@link PVE_RECONCILE_RETRY_MS}, so a pass that fails is tried again an
@@ -909,6 +917,17 @@ export async function reconcileGuestRepository(
   await withTenantTx(deps.db, guest.tenantId, (tx) =>
     tx.update(pveGuests).set({ repositoryReconciledAt: claim }).where(eq(pveGuests.id, guest.id)),
   );
+  // A repository that is not whole on the primary (elsewhere, split, missing, a failed repair)
+  // gets no forget and no prune: a prune there would remove data a restore point needs
+  // (docs/PVE.md, "Repository problems"). Left claimed: tried again after the retry delay.
+  const problem = await repositoryProblem(deps, guest, access);
+  if (problem) {
+    deps.runtime.logger.warn("pve retention: restic forget skipped", {
+      guestId: guest.id,
+      problem,
+    });
+    return { forgotten: [], deletesRefused: false };
+  }
   const signal = deps.runtime.shutdownSignal;
   const forgotten = await withGuestRepository(deps, guest.id, () =>
     withRepository(access, async (session) => {
@@ -1032,7 +1051,13 @@ async function repositoryAccess(deps: PveDeps, guest: PveGuest) {
   if (!password) {
     return null;
   }
-  const storage = await deps.runtime.storage.get(guest.tenantId);
+  // Resolved afresh after a change of the primary (the storage generation), not up to five
+  // minutes later (docs/STORAGE.md, "Runs and storage changes").
+  const storage = await freshTenantStorage(
+    tenantRunner(deps.db, guest.tenantId),
+    deps.runtime.storage,
+    guest.tenantId,
+  );
   return {
     storage: storage.primary,
     prefix: `pve-guests/${guest.id}/`,
@@ -1040,7 +1065,173 @@ async function repositoryAccess(deps: PveDeps, guest: PveGuest) {
     repositoryKey: guest.id,
     binary: resticBinary(),
     cacheBase: resticCacheBase(),
+    targets: storage.targets ?? [],
   };
+}
+
+/** How much a recorded repository problem says: a less specific one never replaces it. */
+const PROBLEM_RANK: Record<string, number> = {
+  "pve-repository-missing": 1,
+  "pve-repository-elsewhere": 2,
+  "pve-repository-split": 2,
+  [PVE_REPOSITORY_REPAIR_FAILED]: 3,
+};
+
+/** The places a container repository may lie besides the primary, the installation default included. */
+async function otherPlaces(
+  deps: PveDeps,
+  access: NonNullable<Awaited<ReturnType<typeof repositoryAccess>>>,
+): Promise<{ id: string; name: string | null; backend: StorageBackend }[]> {
+  const places = access.targets
+    .filter((target) => target.backend !== access.storage)
+    .map((target) => ({ id: target.id, name: target.name, backend: target.backend }));
+  // After a promotion of 0.4.1 the installation default is no target of the tenant any more,
+  // yet it may hold the repository (docs/STORAGE.md): searched as the API does before a backup.
+  if (!access.targets.some((target) => target.id === INSTALLATION_DEFAULT_TARGET_ID)) {
+    const fallback = deps.installationDefault
+      ? await deps.installationDefault().catch(() => null)
+      : await processDefaultStorage()
+          .current()
+          .then((current) => current.targets.primary)
+          .catch(() => null);
+    if (fallback && fallback !== access.storage && !places.some((p) => p.backend === fallback)) {
+      places.push({ id: INSTALLATION_DEFAULT_TARGET_ID, name: null, backend: fallback });
+    }
+  }
+  return places;
+}
+
+/**
+ * Why the server's restic must not work on a container repository, in words, or null when it
+ * may. It may when `config` and a key are on the primary and the snapshot of every active
+ * restore point lies there too: a snapshot that lies only on another target is a split
+ * repository, and a prune on the primary would delete the data it needs. A repair that failed
+ * (`pve-repository-repair-failed`) always refuses. Otherwise the other targets of the tenant and
+ * the installation default are searched as the API does before a backup (docs/PVE.md,
+ * "Repository problems"), and the guest records the problem, so its page explains it instead of
+ * restic's "unable to open config file"; a problem the API recorded that says more (where the
+ * repository lies) is not replaced by one that says less.
+ */
+async function repositoryProblem(
+  deps: PveDeps,
+  guest: PveGuest,
+  access: NonNullable<Awaited<ReturnType<typeof repositoryAccess>>>,
+): Promise<string | null> {
+  const prefix = access.prefix;
+  const [current] = await withTenantTx(deps.db, guest.tenantId, (tx) =>
+    tx
+      .select({ problem: pveGuests.repositoryProblem })
+      .from(pveGuests)
+      .where(eq(pveGuests.id, guest.id))
+      .limit(1),
+  );
+  const recorded = current?.problem ?? null;
+  if (recorded?.type === PVE_REPOSITORY_REPAIR_FAILED) {
+    return "the repository repair could not rebuild the container's repository; retention and the check wait until a repair succeeds or it is reset (see the guest page)";
+  }
+  const primaryFiles = (await access.storage.list(prefix)).filter(
+    (key) => !key.startsWith(`${prefix}locks/`),
+  );
+  const activePoints = await withTenantTx(deps.db, guest.tenantId, (tx) =>
+    tx
+      .select({ resticSnapshotId: pveSnapshots.resticSnapshotId })
+      .from(pveSnapshots)
+      .where(
+        and(
+          eq(pveSnapshots.guestId, guest.id),
+          eq(pveSnapshots.kind, "ct"),
+          eq(pveSnapshots.status, "active"),
+        ),
+      ),
+  );
+  const places = () => otherPlaces(deps, access);
+  const label = (place: { id: string; name: string | null }) =>
+    place.id === INSTALLATION_DEFAULT_TARGET_ID ? "installation_default" : (place.name ?? place.id);
+  const say = (place: { id: string; name: string | null }) =>
+    place.id === INSTALLATION_DEFAULT_TARGET_ID
+      ? "the installation default"
+      : (place.name ?? "another target");
+  let type: string;
+  let heldBy: string | null = null;
+  let message: string;
+  if (
+    primaryFiles.includes(`${prefix}config`) &&
+    primaryFiles.some((key) => key.startsWith(`${prefix}keys/`))
+  ) {
+    const onPrimary = new Set(primaryFiles);
+    const absent = activePoints
+      .map((point) => point.resticSnapshotId)
+      .filter((id): id is string => id !== null && !onPrimary.has(`${prefix}snapshots/${id}`));
+    if (absent.length === 0) {
+      return null;
+    }
+    // A restore point's snapshot is not on the primary: elsewhere, the repository is split.
+    let holder: { id: string; name: string | null } | null = null;
+    for (const place of await places()) {
+      const held = await place.backend.list(`${prefix}snapshots/`).catch(() => [] as string[]);
+      if (absent.some((id) => held.includes(`${prefix}snapshots/${id}`))) {
+        holder = place;
+        break;
+      }
+    }
+    if (!holder) {
+      // Gone everywhere: no other target keeps data a prune could take away from it.
+      return null;
+    }
+    type = "pve-repository-split";
+    heldBy = label(holder);
+    message = `the snapshots of ${absent.length} restore point(s) lie on ${say(holder)} but not on the primary storage target: the repository is split, and a prune would remove data they need (see the guest page)`;
+  } else if (primaryFiles.length > 0) {
+    type = "pve-repository-split";
+    message =
+      "the container's repository on the primary storage target holds data without its config or keys: it is split across targets (see the guest page)";
+    for (const place of await places()) {
+      const held = await place.backend.list(prefix).catch(() => [] as string[]);
+      if (held.some((key) => !key.startsWith(`${prefix}locks/`))) {
+        heldBy = label(place);
+        break;
+      }
+    }
+  } else {
+    type = "pve-repository-missing";
+    message =
+      "the container's repository is on no storage target of this tenant (see the guest page)";
+    for (const place of await places()) {
+      const held = (await place.backend.list(prefix).catch(() => [] as string[])).filter(
+        (key) => !key.startsWith(`${prefix}locks/`),
+      );
+      if (held.length === 0) {
+        continue;
+      }
+      heldBy = label(place);
+      const complete =
+        held.includes(`${prefix}config`) && held.some((key) => key.startsWith(`${prefix}keys/`));
+      type = complete ? "pve-repository-elsewhere" : "pve-repository-split";
+      message = complete
+        ? `the container's repository is not on the primary storage target but on ${say(place)} (see the guest page)`
+        : `parts of the container's repository lie on ${say(place)}, without its config (see the guest page)`;
+      break;
+    }
+  }
+  // What the API recorded before a backup may say more (it searched the same places, with a
+  // run's target): kept unless this pass found as much.
+  if (recorded && (PROBLEM_RANK[recorded.type] ?? 0) > (PROBLEM_RANK[type] ?? 0)) {
+    return message;
+  }
+  await withTenantTx(deps.db, guest.tenantId, (tx) =>
+    tx
+      .update(pveGuests)
+      .set({
+        repositoryProblem: {
+          at: deps.runtime.now().toISOString(),
+          type,
+          heldBy,
+          activePoints: activePoints.length,
+        },
+      })
+      .where(eq(pveGuests.id, guest.id)),
+  );
+  return message;
 }
 
 /**
@@ -1205,6 +1396,11 @@ export async function verifySnapshot(
     const access = guest ? await repositoryAccess(deps, guest) : null;
     if (!access) {
       result.errors.push("the container repository is not available");
+      return result;
+    }
+    const problem = guest ? await repositoryProblem(deps, guest, access) : null;
+    if (problem) {
+      result.errors.push(problem);
       return result;
     }
     try {
@@ -1698,6 +1894,14 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
       }
       const nodes = await tx.select().from(pveNodes).where(isNull(pveNodes.revokedAt));
       for (const guest of due) {
+        // A container whose repository has a problem recorded (elsewhere, split, missing, a
+        // failed repair: `repositoryProblem`, the API before a backup) is not tested: the node's
+        // credential would read from the first target that holds a config, a split half, or
+        // nothing at all. The guest's page shows the problem; a backup that finds the
+        // repository again, or a repair, clears it.
+        if (guest.kind === "ct" && guest.repositoryProblem) {
+          continue;
+        }
         const node =
           nodes.find((x) => x.clusterId === guest.clusterId && x.name === guest.node) ?? null;
         if (pveRestoreCheckBlocker(node, now) !== null || !node) {

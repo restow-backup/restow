@@ -868,6 +868,22 @@ export async function resticCheck(
   return { output: `${stdout}\n${stderr}`.trim().slice(-4000) };
 }
 
+/**
+ * `restic check` without reading pack data: the structure of the repository (config, keys,
+ * index and snapshots readable with the password, every pack the index names present). What a
+ * storage change and the repository repair run on a repository they copied together
+ * (docs/STORAGE.md, "Repository repair") before anything relies on it.
+ */
+export async function resticCheckStructure(
+  session: ResticSession,
+  options: { signal?: AbortSignal } = {},
+): Promise<{ output: string }> {
+  const { stdout, stderr } = await runRestic(session, ["check", "--no-lock"], {
+    signal: options.signal,
+  });
+  return { output: `${stdout}\n${stderr}`.trim().slice(-4000) };
+}
+
 /** A `--retry-lock` duration restic understands: whole seconds, minutes or hours. */
 const RETRY_LOCK = /^\d{1,4}[smh]$/;
 

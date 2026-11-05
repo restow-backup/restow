@@ -22,6 +22,8 @@
     "primaryHint": "Backups are written here first; restores read from here.",
     "copyHint": "Every new backup is also written here. Data from before the copy existed is mirrored and verified by the copy run.",
     "previousHint": "Retired: no longer written to. Kept until removed; restore, checks, downloads and later backups of objects protected before the switch still read from it whenever a restore point lives only here.",
+    "attachPrevious": "Attach an old location read-only",
+    "attachPreviousHint": "Nothing is written here. Restores read from it, and the repository repair (below) takes the parts of repositories it holds, for example a restored copy of an earlier primary.",
     "replacePrimary": "Replace the primary",
     "replacePrimaryHint": "Choose below whether existing backups move to the new repository first, or stay where they are."
   },
@@ -390,7 +392,11 @@
     "immutabilityModeNotAvailable": "This mode is not available for this kind of repository.",
     "immutabilityNotWritable": "Nothing is written to this location any more; immutability applies to what is written from now on.",
     "immutabilityNotObjectLock": "Only a repository with Object Lock is checked with the storage.",
-    "switchBlockedByRepositories": "Containers or file shares of this tenant have backup repositories on the current primary. Keeping existing backups where they are, or promoting a copy, would leave those repositories behind, and their next backups would fail or begin from scratch. Replace the primary with \"move\" instead: it copies the repositories and verifies them before it switches."
+    "switchBlockedByRepositories": "Containers, machines or file shares of this tenant have backup repositories on the current primary. Keeping existing backups where they are, or promoting a copy, would leave those repositories behind, and their next backups would fail or begin from scratch. Replace the primary with \"move\" instead: it copies the repositories and verifies them before it switches.",
+    "switchBlockedByRuns": "A Proxmox VE backup (container or VM) or a file share run of this tenant is running. It writes to the current primary until it ends, and switching now would split its backup between two storage targets. Wait for it to finish, or stop it, then try again.",
+    "switchBlockedByRepair": "A repository repair of this tenant is queued or running (Repositories › Repository repair). It rebuilds repositories on the current primary; switching now would leave them half rebuilt. Wait for it to end, then try again.",
+    "repairBlocked": "The repair has to wait: a Proxmox VE backup, a file share run or a storage migration of this tenant is running. Repair once it has ended.",
+    "previousHoldsMovedAside": "This location holds repository folders that the repository repair or a new backup chain moved aside (….orphaned-…), and no other target has them. A \"move\" does not copy them. Copy them elsewhere, or delete them by hand once they are not needed, then remove this location."
   },
   "immutability": {
     "title": "Immutable backups",
@@ -482,5 +488,70 @@
       "title": "Backups land on the server's system disk",
       "description": "This directory is on the same disk as the operating system, Docker and the database of {appName}. When backups fill it, the database and {appName} itself stop, not only the backups. Put the repository on a second disk, a network share or object storage."
     }
+  },
+  "repair": {
+    "title": "Repository repair",
+    "description": "Checks every backup repository of containers, machines and file shares on every storage target of this tenant, the installation default included, and shows where their parts lie. A scan changes nothing. The repair rebuilds on the primary what the parts allow. It does not bring back the restore points of a chain that an earlier version replaced silently with a new one.",
+    "scan": "Scan repositories",
+    "repair": "Repair…",
+    "lastRepair": "Last repair",
+    "installationDefault": "Installation default",
+    "holding": "{name}: config {config}, {keys} keys, {files} files, {snapshots} snapshots",
+    "yes": "yes",
+    "no": "no",
+    "nowhere": "On no storage target",
+    "allOk": "{count, plural, =0 {This tenant has no backup repositories.} one {The repository is complete on the primary.} other {All # repositories are complete on the primary.}}",
+    "nothingChanged": "Nothing needed changing.",
+    "queued": "Repair queued. It runs in the background; this card shows the result.",
+    "dialogTitle": "Repair the repositories?",
+    "dialogDescription": "The repair acts only on repositories that still look as in this scan, and only when every storage target answers. For every repository the scan found split or on another target, the missing files are copied onto the primary first and checked by hash, then the keys and the config; restic checks the result. If that fails, the keys and config it copied are moved aside again and backups of the container stay refused. Restore points whose snapshot is not in the rebuilt repository become unavailable. Container repositories with data but no config or no key on any target are moved aside on the primary (not deleted), their restore points become unavailable, and their next backup begins a new chain. A repository on no target is left as it is. Backups wait while the repair runs.",
+    "typeWord": "Type {word} to confirm",
+    "confirm": "Repair",
+    "cancel": "Cancel",
+    "failed": "The repair could not be queued.",
+    "columns": {
+      "repository": "Repository",
+      "state": "State",
+      "where": "Where its parts lie",
+      "points": "Restore points",
+      "outcome": "Result"
+    },
+    "kind": {
+      "container": "Container",
+      "machine": "Machine",
+      "file_share": "File share"
+    },
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "completed": "Done",
+      "failed": "Failed"
+    },
+    "class": {
+      "ok": "Complete",
+      "elsewhere": "On another target",
+      "split": "Split",
+      "data_only": "Data without config",
+      "password_only": "Password file only",
+      "missing": "Missing",
+      "conflict": "Two repositories"
+    },
+    "classHint": {
+      "ok": "Complete on the primary.",
+      "elsewhere": "Complete on another target. The repair copies {count, plural, one {# file} other {# files}} onto the primary.",
+      "split": "Its parts lie on more than one target. The repair brings {count, plural, one {# file} other {# files}} together on the primary.",
+      "data_only": "Data, but no config or no key on any target: it cannot be opened. Attach an old location that may still hold them, or the repair marks its restore points as lost.",
+      "password_only": "Only the sealed password file: the repository itself is on no target.",
+      "missing": "On no target. The repair leaves it as it is; if it is not coming back, reset the repository on the guest page.",
+      "conflict": "Two different repositories under one prefix, none on the primary: decide which one to keep."
+    },
+    "outcome": {
+      "merged": "Rebuilt on the primary ({copied} files copied); {count, plural, =0 {every restore point is in it} one {# restore point was not in it and is now unavailable} other {# restore points were not in it and are now unavailable}}.",
+      "lost": "Lost: {count, plural, one {# restore point is} other {# restore points are}} now unavailable; the next backup begins a new chain.",
+      "moved_aside": "Leftovers moved aside to {movedTo}; the next backup begins a new chain.",
+      "unchanged": "Left as it is.",
+      "failed": "Not repaired. Keys and config it copied were moved aside again; backups of a container stay refused until a repair succeeds or the repository is reset."
+    },
+    "unreachable": "This scan could not read {names} (no answer, or its folder is empty or missing: a share that is not mounted?). No repair is made on it. Scan again once every storage target answers."
   }
 }

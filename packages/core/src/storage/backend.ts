@@ -82,6 +82,13 @@ export interface StorageBackend {
    * `ObjectLockedError` (storage/immutability.ts) and deletes nothing when one is.
    */
   deleteAllVersions?(key: string, now: Date): Promise<void>;
+  /**
+   * Optional (a directory): whether the root exists and holds anything. A mounted share that
+   * is not mounted at the moment shows as an empty (or missing) folder, and a listing of it
+   * answers "nothing here" instead of failing; a caller that must not take an absent share for
+   * an empty one (the repository repair) asks this first.
+   */
+  rootState?(): Promise<"present" | "empty" | "missing">;
 }
 
 /**

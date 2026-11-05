@@ -428,6 +428,15 @@
         "promoted": "Repository zum primären gemacht",
         "tested": "Repository getestet",
         "updated": "Repository geändert"
+      },
+      "repositories": {
+        "scan_requested": "Prüfung der Repositorys angefordert",
+        "scanned": "Repositorys auf allen Speicherzielen geprüft",
+        "repair_requested": "Reparatur der Repositorys angefordert"
+      },
+      "repository": {
+        "merged": "Repository aus seinen Teilen auf dem primären Repository wieder aufgebaut",
+        "lost": "Repository verloren: seine Sicherungsstände wurden unverfügbar"
       }
     },
     "tenant": {
@@ -732,6 +741,7 @@
     "source": "Quelle",
     "stats": "Statistik",
     "storage_location": "Repository",
+    "storage_repository_repair": "Prüfung oder Reparatur der Repositorys",
     "storage_target": "Repository",
     "tenant": "Mandant",
     "user": "Benutzer",

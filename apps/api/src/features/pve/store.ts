@@ -6,13 +6,17 @@ import {
   type ChunkRecord,
   ChunkWriter,
   decodeBlockMap,
+  INSTALLATION_DEFAULT_TARGET_ID,
   type PackRecord,
+  type ResolvedStorageTarget,
   resolveStorageTargets,
   type SecretReader,
+  type StorageBackend,
   type StorageTargets,
+  storageTargetById,
   type TenantKeyring,
 } from "@restow/core";
-import { chunks, packs, secrets, storageTargets } from "@restow/db";
+import { chunks, packs, secrets, storageGeneration, storageTargets } from "@restow/db";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { config } from "../../config.js";
 import { db } from "../../db.js";
@@ -57,41 +61,77 @@ export interface TenantChunkStore {
   readonly read: StorageTargets;
   readonly keys: TenantKeyring;
   readonly index: ChunkIndex;
+  /**
+   * Every target of the tenant by the id a run records (`pve_runs.storage_target`): primary,
+   * copies, retired targets (a retired installation default as `installation_default`).
+   */
+  readonly targets: readonly ResolvedStorageTarget[];
+  /** The primary's id: its row id, or `installation_default`. */
+  readonly primaryTarget: string;
+  /** The tenant's storage generation these targets were resolved at (`@restow/db`). */
+  readonly generation: string;
+  /**
+   * The installation default, also when it is no target of the tenant (a promotion of 0.4.1
+   * dropped it without a trace): runs pinned to it and the search for a repository still
+   * reach it. Null when it cannot be opened.
+   */
+  readonly installationDefault: StorageBackend | null;
 }
 
 const CACHE_MS = 60_000;
 const cache = new Map<string, { store: TenantChunkStore; expiresAt: number }>();
 
-/** The chunk store of a tenant, cached for a minute (keys rotate rarely). */
+/**
+ * The chunk store of a tenant, cached for a minute (keys rotate rarely). A caller that knows
+ * the tenant's current storage generation (the restic routes read it with the run) passes it:
+ * a cached store of another generation is resolved afresh, so a change of the primary is seen
+ * at once instead of after up to a minute (docs/STORAGE.md, "Runs and storage changes").
+ */
 export async function tenantChunkStore(
   tenantId: string,
   now = Date.now(),
+  generation?: string,
 ): Promise<TenantChunkStore> {
   const hit = cache.get(tenantId);
-  if (hit && hit.expiresAt > now) {
+  if (
+    hit &&
+    hit.expiresAt > now &&
+    (generation === undefined || hit.store.generation === generation)
+  ) {
     return hit.store;
   }
-  const resolved = await withTenantTx(db, tenantId, async (tx) => {
+  const { resolved, current } = await withTenantTx(db, tenantId, async (tx) => {
     const rows = await tx
       .select()
       .from(storageTargets)
       .where(eq(storageTargets.tenantId, tenantId))
       .orderBy(asc(storageTargets.createdAt));
-    return resolveStorageTargets(rows, {
+    const current = await storageGeneration(tx, tenantId);
+    const resolved = await resolveStorageTargets(rows, {
       secrets: tenantSecretReader(tx, tenantId),
       defaults: async () => {
         const d = await currentDefaultStorage();
         return { primary: d.primary, copies: d.copies };
       },
     });
+    return { resolved, current };
   });
   const keys = await loadTenantKeyring(db, tenantId);
+  const installationDefault =
+    resolved.targets.find((target) => target.id === INSTALLATION_DEFAULT_TARGET_ID)?.backend ??
+    (await currentDefaultStorage()
+      .then((d) => d.primary)
+      .catch(() => null));
   const store: TenantChunkStore = {
     tenantId,
     write: { primary: resolved.primary, copies: resolved.copies },
     read: { primary: resolved.primary, copies: [...resolved.copies, ...resolved.previous] },
     keys,
     index: new PveChunkIndex(tenantId),
+    targets: resolved.targets,
+    primaryTarget: resolved.primaryTarget,
+    generation: current,
+    installationDefault,
   };
   if (cache.size > 200) {
     cache.clear();
@@ -106,6 +146,43 @@ export function forgetTenantChunkStore(tenantId?: string): void {
   } else {
     cache.clear();
   }
+}
+
+/** A target of the store by the id a run recorded, or null when the tenant has none such. */
+export function storeTarget(store: TenantChunkStore, id: string): StorageBackend | null {
+  return (
+    storageTargetById(store, id) ??
+    (id === INSTALLATION_DEFAULT_TARGET_ID ? store.installationDefault : null)
+  );
+}
+
+/** One place a repository may lie: a target of the tenant, or the installation default. */
+export interface SearchedTarget {
+  readonly id: string;
+  readonly name: string | null;
+  readonly role: "primary" | "copy" | "previous" | "installation_default";
+  readonly backend: StorageBackend;
+}
+
+/**
+ * Every place a restic repository of the tenant may lie (docs/STORAGE.md, "Repository
+ * problems"): the tenant's targets, and the installation default even when it is no target
+ * of the tenant any more (a promotion of 0.4.1 dropped it without a trace). The primary first.
+ */
+export async function searchedTargets(store: TenantChunkStore): Promise<SearchedTarget[]> {
+  const out: SearchedTarget[] = store.targets.map((target) => ({ ...target }));
+  if (
+    store.installationDefault &&
+    !out.some((target) => target.id === INSTALLATION_DEFAULT_TARGET_ID)
+  ) {
+    out.push({
+      id: INSTALLATION_DEFAULT_TARGET_ID,
+      name: null,
+      role: "installation_default",
+      backend: store.installationDefault,
+    });
+  }
+  return out;
 }
 
 export function newChunkWriter(store: TenantChunkStore): ChunkWriter {

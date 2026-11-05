@@ -214,7 +214,7 @@ export function targetFormSchema(kind: EditableKind, stored: StoredLocation | nu
   return z
     .object({
       name: z.string().trim().min(1, "required").max(200, "too_long"),
-      role: z.enum(["primary", "copy"]),
+      role: z.enum(["primary", "copy", "previous"]),
       migrationMode: z.enum(["move", "keep"]),
       basePath: z.string(),
       preset: z.enum(S3_PRESETS),

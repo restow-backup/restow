@@ -621,6 +621,14 @@
         "title": "The restic repository of the share reported damage",
         "why": "restic reported that the share's repository is damaged or cannot be opened."
       },
+      "repository_unavailable": {
+        "title": "The share's repository is not complete on the primary storage target",
+        "why": "Its repository lies on another storage target, is split across targets (a run went on while the primary changed), or is on no target while restore points still refer to it. Nothing was backed up. Repositories › Repository repair shows where its parts are and rebuilds it on the primary where they allow."
+      },
+      "repository_repair_running": {
+        "title": "A repository repair is running",
+        "why": "A repository repair of this tenant is queued or running (Repositories › Repository repair). The share was not backed up so that the repair does not rebuild or move aside the repository while it is written to. The next scheduled run backs it up as usual."
+      },
       "quota_exceeded": {
         "title": "The storage budget for file share backups is used up",
         "why": "The budget of this share, or of all of the tenant's shares, is used up, so new backups are refused. Restores and copies keep working."

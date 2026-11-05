@@ -538,6 +538,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/storage/targets/:id/test": operate(),
   "POST /api/v1/storage/targets/:id/completeness": operate(),
   "POST /api/v1/storage/targets/:id/promote": configure(),
+  // The repository repair (docs/STORAGE.md): a scan changes nothing, the repair does.
+  "GET /api/v1/storage/repositories/repairs": view(),
+  "POST /api/v1/storage/repositories/scan": operate(),
+  "POST /api/v1/storage/repositories/repair": configure(),
   "POST /api/v1/storage/targets/:id/migration/cancel": configure(),
   "POST /api/v1/storage/targets/:id/migration/retry": configure(),
   // Immutable backups: raising is configure(); lowering is checked in the handler (provider

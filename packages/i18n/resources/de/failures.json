@@ -621,6 +621,14 @@
         "title": "Das restic-Repository der Freigabe meldet einen Schaden",
         "why": "restic meldet, dass das Repository der Freigabe beschädigt ist oder sich nicht öffnen lässt."
       },
+      "repository_unavailable": {
+        "title": "Das Repository der Freigabe ist auf dem primären Repository nicht vollständig",
+        "why": "Sein Repository liegt auf einem anderen Speicherziel, ist auf mehrere Speicherziele verteilt (ein Lauf ging weiter, während das primäre Repository wechselte) oder liegt auf keinem Speicherziel, obwohl Sicherungsstände darauf verweisen. Es wurde nichts gesichert. Repositories › Repositorys reparieren zeigt, wo seine Teile liegen, und baut es auf dem primären Repository wieder auf, soweit sie es erlauben."
+      },
+      "repository_repair_running": {
+        "title": "Eine Reparatur der Repositorys läuft",
+        "why": "Eine Reparatur der Repositorys dieses Mandanten ist eingeplant oder läuft (Repositories › Repositorys reparieren). Die Freigabe wurde nicht gesichert, damit die Reparatur das Repository nicht wieder aufbaut oder beiseitelegt, während darauf geschrieben wird. Der nächste geplante Lauf sichert sie wie gewohnt."
+      },
       "quota_exceeded": {
         "title": "Das Speicherbudget für Freigabe-Sicherungen ist aufgebraucht",
         "why": "Das Budget dieser Freigabe oder aller Freigaben des Mandanten ist aufgebraucht; neue Sicherungen werden abgelehnt. Wiederherstellungen und Kopien funktionieren weiter."

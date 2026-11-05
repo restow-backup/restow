@@ -986,12 +986,15 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         : null,
       diskState: guest.diskState,
       // A container's repository: whether it exists yet and its new backup chains (docs/PVE.md,
-      // "New backup chain"), newest first.
+      // "Repository problems"), newest first.
       repository:
         guest.kind === "ct"
           ? {
               readyAt: guest.repositoryReadyAt?.toISOString() ?? null,
               chains: guest.repositoryChains ?? [],
+              // Why the last backup was refused for the repository (docs/PVE.md, "Repository
+              // problems"); null once a backup found it again.
+              problem: guest.repositoryProblem ?? null,
             }
           : null,
       snapshots: listed.map((s) => ({

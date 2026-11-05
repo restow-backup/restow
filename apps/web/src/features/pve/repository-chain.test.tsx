@@ -5,11 +5,11 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { i18n } from "@/i18n";
 
 import "./i18n";
-import type { PveRepositoryChain, PveRun } from "./api";
-import { historyRows, RepositoryChainNotice } from "./guest-page";
+import type { PveRepositoryChain, PveRepositoryProblem, PveRun } from "./api";
+import { historyRows, RepositoryChainNotice, RepositoryProblemNotice } from "./guest-page";
 
 /**
- * A container's new backup chain on its page (docs/PVE.md, "New backup chain"): what the
+ * A container's new backup chain on its page (docs/PVE.md, "Repository problems"): what the
  * notice says for a repository not found and for a reset, and the chain in the guest's history.
  */
 
@@ -73,5 +73,104 @@ describe("the guest's history", () => {
       "chain",
       "old",
     ]);
+  });
+});
+
+describe("the notice of a refused backup (docs/PVE.md, Repository problems)", () => {
+  const problem: PveRepositoryProblem = {
+    at: "2026-10-22T08:00:00.000Z",
+    type: "pve-repository-split",
+    heldBy: "installation_default",
+    activePoints: 1,
+  };
+
+  it("says the repository is split, where its parts are, and the two ways out", () => {
+    const html = render(<RepositoryProblemNotice problem={problem} />);
+    expect(html).toContain("Backups refused: the repository is split across storage targets");
+    expect(html).toContain("parts of it lie on the installation default");
+    expect(html).toContain("Repository repair");
+    expect(html).toContain("1 restore point becomes unavailable");
+  });
+
+  it("names the target of a repository found elsewhere, and a missing one's restore points", () => {
+    const elsewhere = render(
+      <RepositoryProblemNotice
+        problem={{ ...problem, type: "pve-repository-elsewhere", heldBy: "Old NAS" }}
+      />,
+    );
+    expect(elsewhere).toContain("but on Old NAS");
+    const missing = render(
+      <RepositoryProblemNotice
+        problem={{ ...problem, type: "pve-repository-missing", heldBy: null, activePoints: 5 }}
+      />,
+    );
+    expect(missing).toContain("5 restore points still refer to it");
+    expect(missing).toContain("attach it read-only");
+  });
+
+  it("says so when the primary holds data without config or keys and no other target holds any (CT 109)", () => {
+    const html = render(
+      <RepositoryProblemNotice problem={{ ...problem, heldBy: null, activePoints: 1 }} />,
+    );
+    expect(html).toContain("Backups refused: the repository is split across storage targets");
+    expect(html).toContain("holds its data but not its config or keys");
+    expect(html).toContain("no other storage target of this tenant holds them");
+    expect(html).not.toContain("another storage target");
+    expect(html).toContain("Repositories › Repository repair");
+    expect(html).toContain("1 restore point becomes unavailable");
+  });
+
+  it("explains a failed repository repair, which a backup cannot clear", () => {
+    const html = render(
+      <RepositoryProblemNotice
+        problem={{ ...problem, type: "pve-repository-repair-failed", heldBy: null }}
+      />,
+    );
+    expect(html).toContain("Backups refused: the repository repair failed");
+    expect(html).toContain("Repositories › Repository repair");
+  });
+
+  it("names the Repositories page, never a page called Storage", () => {
+    for (const type of [
+      "pve-repository-split",
+      "pve-repository-elsewhere",
+      "pve-repository-missing",
+    ]) {
+      const html = render(<RepositoryProblemNotice problem={{ ...problem, type }} />);
+      expect(html).toContain("Repositories › Repository repair");
+      expect(html).not.toContain("Storage,");
+    }
+  });
+
+  it("shows nothing for a problem type it does not know", () => {
+    expect(render(<RepositoryProblemNotice problem={{ ...problem, type: "other" }} />)).toBe("");
+  });
+
+  it("explains a chain the repository repair began", () => {
+    const html = render(
+      <RepositoryChainNotice
+        chain={{ ...missing, reason: "lost", actor: "admin@contoso.example", unavailablePoints: 2 }}
+      />,
+    );
+    expect(html).toContain("Repository lost on");
+    expect(html).toContain("2 restore points are no longer available");
+  });
+
+  it("says a repaired repository goes on when some restore points were missing from it", () => {
+    const html = render(
+      <RepositoryChainNotice
+        chain={{
+          ...missing,
+          reason: "points_lost",
+          actor: "admin@contoso.example",
+          unavailablePoints: 1,
+        }}
+      />,
+    );
+    expect(html).toContain("Repository repaired on");
+    expect(html).toContain("its chain goes on");
+    expect(html).toContain("1 restore point whose snapshot was on no storage target");
+    expect(html).not.toContain("new chain");
+    expect(html).not.toContain("Repository lost");
   });
 });

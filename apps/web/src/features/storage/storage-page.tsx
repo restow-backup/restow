@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CopyDialog } from "./components/copy-dialog";
 import { DefaultTargetCard } from "./components/default-target-card";
 import { DeleteTargetDialog } from "./components/delete-target-dialog";
+import { RepositoryRepairCard } from "./components/repository-repair-card";
 import { type TargetAction, TargetCard } from "./components/target-card";
 import { TargetDialog } from "./components/target-dialog";
 import { UsageCard } from "./components/usage-card";
@@ -119,6 +120,7 @@ export function StoragePage() {
             />
           )}
         </section>
+        <RepositoryRepairCard />
       </>
     );
   }

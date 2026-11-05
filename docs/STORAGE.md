@@ -35,8 +35,18 @@ the storage form"). Every target has a role:
 - **copy** — receives every new backup too, in addition to the primary. Data written
   before the copy existed is mirrored onto it, verified by hash, during the weekly
   scrub. Any number of copies is allowed; a copy can later be promoted to primary
-  (`POST /storage/targets/:id/promote`) once it is proven complete.
-- **previous** — a retired primary, left behind by a storage migration (see below).
+  (`POST /storage/targets/:id/promote`) once it is proven complete. A promotion copies
+  nothing: it is refused while the tenant has any restic repository (a container's, a
+  machine's, revoked ones included, or a file share's; a copy never receives them) or a
+  backup run is running (`storage-switch-blocked-by-runs`). The old primary becomes a
+  copy; when it is the installation default, a placeholder row keeps it attached
+  read-only (`previous`). Before 0.5.0 nothing did, and the installation default dropped
+  out of every list of the tenant's targets (the 0.4.1 field incident, "Runs and storage
+  changes" below).
+- **previous** — a retired primary, left behind by a storage migration (see below), or an
+  old location an admin attached read-only ("Attach an old location read-only" in the
+  add-target dialog, for example a restored copy of an earlier primary for the
+  repository repair, "Repository repair" below).
   Never written to again. Kept until an admin explicitly removes it (the data itself
   is never deleted automatically — only the target's registration with Restow is),
   and an admin cannot remove it while it still holds backup data no other target
@@ -482,8 +492,15 @@ data already on it), the add-target dialog offers a role choice:
     0.4.1 field incident: every container with an existing repository then failed with
     `repository does not exist`). Choose "move" for such a tenant; promoting a copy is
     refused for the same reason (a copy never receives the restic repositories).
-    Revoked machines do not block it: their repositories are only read, from whichever
-    target holds them. Otherwise nothing is copied. The new target
+    Since 0.5.0 a file share counts as soon as its repository password is stored (its
+    creation stores it before `restic init`), a container once its repository is created
+    (its password is recorded together with its ready time, after `restic init`; while its
+    first backup creates it, that running backup is what refuses the switch), and machines
+    count too, revoked ones included. A running Proxmox VE backup (container or VM) or file
+    share run refuses the switch as well (`storage-switch-blocked-by-runs`, "Runs and
+    storage changes" below), and so does a queued or running repository repair
+    (`storage-switch-blocked-by-repair`). Otherwise
+    nothing is copied. The new target
     becomes the primary immediately, in the same request, once a quick write/read/
     delete probe has confirmed it is actually reachable (the same check
     `POST /storage/targets/:id/test` runs); the old one retires to `previous` in the
@@ -623,168 +640,146 @@ the primary. The chunk store's copies never receive them, so a switch without th
 leave every one of them with an empty repository. A `move` therefore copies them too
 (`apps/worker/src/handlers/storage-migration-restic.ts`):
 
-- Each repository is copied from the one target that holds its `config`: the current
-  primary first, then a `previous` target an earlier "keep" left behind. Files of two
-  repositories under one prefix (a new chain on the primary, the old one on a retired
-  target) are never mixed.
-- restic names its data, index, snapshot and key files by the SHA-256 of their content:
-  those are copied and verified against that hash, like packs against theirs, so damage
-  on the source fails the migration (`source_corrupt`) instead of spreading. `config` and
-  the sealed password file are compared with the source. `locks/` is skipped.
-- Reconciliation also waits while a container backup or a file share run of the tenant is
+- Each repository is collected from every place it may lie: the current primary, the
+  copies (the destination aside), every `previous` target and the installation default
+  (also when it is no target of the tenant any more). A run that went on while the
+  primary changed (before 0.5.0) left its first files on one target and the rest on
+  another; both halves are merged. restic names its data, index, snapshot and key files
+  by the SHA-256 of their content, so the same name is the same file wherever it lies.
+- A repository's chain is the one whose `config` the primary holds, else the first target
+  that holds one. A target with another `config` holds another chain (a new chain on the
+  primary, the old one on a retired target): its files are never mixed in.
+- A repository that was created but cannot be copied whole from all targets together
+  (data without a `config` or without a key anywhere, two different chains and none on the
+  primary) rejects the migration before anything is copied, and
+  again right before the switch, naming each one: switching would leave it behind
+  silently. Run the repository repair first ("Repository repair" below).
+- Data, index, snapshot and key files are copied and verified against their hash, like
+  packs against theirs, so damage on the source fails the migration (`source_corrupt`)
+  instead of spreading. `config` and the sealed password file are compared with the
+  source. `locks/` is skipped.
+- Right before the switch, restic checks the structure of every copied repository on the
+  destination (`restic check` without reading pack data: config and keys open with the
+  password, index and snapshots read, every pack the index names present). A repository
+  that fails rejects the migration; the old primary stays as it is.
+- Reconciliation also waits while a Proxmox VE backup or a file share run of the tenant is
   running (they write to the old primary), and retention of containers and file shares
   waits for a running migration, so no restic file is pruned away under it. A restic file
   that is gone from the source when it is copied (restic's own maintenance) is skipped.
 - Up to 32 repositories of a kind are listed one prefix at a time; more are listed under
-  the kind's prefix once and sorted out by id (a directory target walks its tree for
-  every listing).
+  the kind's prefix once and sorted out by id. A directory target walks only the folder a
+  prefix lies in (since 0.5.0; before, every listing walked the whole tree).
 
-A container backup that starts in the API's minute-long storage cache window right
-around the switch could still write to the old primary; the next backup's repository
-check (docs/PVE.md, "New backup chain") then finds the repository on the new primary.
+The switch itself runs under the tenant's storage lock, which credential issue takes too
+("Runs and storage changes"): when a container backup or a file share run is running at
+that moment, the switch waits, brings over what it wrote and tries again; a machine
+enrolled while the migration ran (its agent writes to the current primary) rejects it.
 
-### Where backups land
+### Runs and storage changes
 
-`GET /api/v1/storage/destination` names the effective primary of the tenant: its own
-primary target (name, kind, path or bucket) or the installation default (its path only
-for provider admins). The guest page and "Back up now" of a VM or container, the PVE job
-dialog, a machine's and a file share's page and the job editors show it as one line;
-the installation default on the server's local disk is highlighted. When the effective
-primary is a directory on a disk of the server itself — not a network file system
-(NFS, SMB, ...), as `/proc/self/mountinfo` tells for the path; without it, the
-installation default counts as the server's disk — the Repositories section and the
-dialogs that add PVE nodes, machines and file shares warn: "Backups land on the
-server's own disk", with a link to choose another repository.
+Every restic request of a container backup or a file share run goes to exactly one target:
+the one its credential was issued for (`pve_runs.storage_target`,
+`file_share_runs.storage_target`: a target id, or `installation_default`), recorded with
+the tenant's storage generation (a fingerprint of its `storage_targets` rows,
+`packages/db/src/storage-generation.ts`). Before 0.5.0 the target was looked up per
+request, through caches of up to one (API) or five (worker) minutes: a promotion on
+2026-10-16 changed the primary in the middle of a container's first backup, and its
+config, keys and first packs landed on the installation default, its later packs, index
+and snapshot on the new primary. The restore point looked fine and could not be restored.
 
-**On the system disk (0.4.5).** Worse than a disk of the server is its system disk: the
-disk under the operating system, Docker's data directory and, usually, PostgreSQL. When
-backups fill it, the database and every service stop, not only the backups (this
-happened on 16 October 2026 with a default repository in the app volume). The api
-recognises it from inside its container (`apps/api/src/features/storage/system-disk.ts`):
-a directory is on the system disk when it is on the same device (`st_dev`) as `/` (the
-container's overlay, which lives in Docker's data directory), `/etc/hostname`,
-`/etc/hosts` or `/etc/resolv.conf` (bind mounts of files in
-`/var/lib/docker/containers/<id>/`), or on the same block device as one of them according
-to `/proc/self/mountinfo` (btrfs subvolumes and the like give every subvolume a device
-number of its own). A path that does not exist yet counts by the nearest directory above
-it. A named volume on the default data directory, a host directory on the root disk and a
-mount point under `/mnt/restow` whose NFS share is not mounted (it is then a directory in
-the container's own layer) all count; a share mounted by the mounter or a bind mount of a
-second disk does not. The api and the worker mount the same volumes and shares at the same
-paths, so what the api sees is where the worker writes. The flag `onSystemDisk` is on
-`GET /api/v1/storage/destination`, on every target of the Repositories list and on the
-installation default; the line "Backups land in" gets a "System disk" badge, the warning
-above says what is at stake, and the storage tile of the dashboard warns as well. Provider
-admins see there how much of the disk is free and how fast that shrinks: the api reads `/`
-with its other watched disks every 15 minutes and keeps the free space once an hour for two
-weeks (`settings.disk_alerts.system.samples`); the trend is a straight line through the last
-week, with the day the disk would be full at that rate. Nothing is blocked.
+- Credential issue (container backups and restores, the file share dispatcher) and every
+  change of the primary (promoting a copy, "keep", the switch of a "move") take a
+  per-tenant advisory lock (`lockTenantStorage`). A credential is never issued for a
+  primary a concurrent switch is about to retire, and a switch sees every run that
+  already has one.
+- Promoting a copy and "keep" refuse while such a run is running
+  (`storage-switch-blocked-by-runs`: a Proxmox VE backup of a container or a VM, or a file
+  share run); the switch of a "move" waits.
+- Enrolling a machine takes the same lock while it records the machine: a change of the
+  primary either committed before (the repository is created on the new primary) or sees
+  the active machine and refuses. `restic init`, the sealed password file and the cleanup
+  after a failed enrollment all use the one target resolved then.
+- A backup whose target stopped being the primary anyway (a change straight in the
+  database, a run from before the update) gets `403 storage-switched-during-run` for every
+  write (restic takes a 403 as final; it would retry a 409 for minutes) and fails cleanly;
+  it may still read and release its own locks on its own target. Asking for a credential
+  again then answers `409` with the same type.
+  The next run uses the new primary.
+- A restore reads from the target that held the repository when its credential was
+  issued: the primary, a copy, a retired target or the installation default.
+- The caches of the resolved targets (the API's chunk store and endpoint storage, the
+  worker's per-tenant storage for write-queue jobs, the file share dispatcher and the PVE
+  maintenance) compare the storage generation instead of relying on their time to live
+  only, so a change of the primary is seen at the next request.
 
-### Retrying a failed move
+### Repository repair
 
-A failed `move` can be tried again from its card ("Retry") instead of deleting the
-destination and adding it again (which `location_overlap` would refuse anyway while
-it is still there). This re-queues a fresh job for the same destination and source;
-objects already copied and verified are found in place quickly rather than rewritten,
-so a retry after a transient problem (the destination briefly unreachable) picks up
-close to where the failed attempt left off. "Keep" has no job to retry — it either
-switches immediately or is refused up front (see above).
+For installations whose restic repositories were split across targets, or dropped with the
+installation default by a promotion of 0.4.1, the Repositories page has a **Repository
+repair** card (`apps/worker/src/handlers/repository-repair.ts`,
+`POST /storage/repositories/scan`, `POST /storage/repositories/repair`):
 
-### Garbage collection yields to a migration
-
-The weekly scrub's garbage-collection pass (re-packing and deleting unreferenced
-chunks) does not run at all for a tenant while a `move` migration is active: the
-migration is reading the primary's packs to copy them, and is about to retire it, so
-nothing may be re-packed or deleted underneath it. This is checked both before the
-scrub starts and continuously while it runs, so a migration that begins after
-garbage collection is already under way stops it just as reliably as one that was
-already running. The scrub's other duties (integrity checking, mirroring genuine copy
-targets) are unaffected. Once the migration finishes — completed, failed or cancelled
-— garbage collection resumes on the next scrub run.
-
-A tenant whose most recent replacement was a "keep" has a permanent, narrower
-exclusion on top of that: packs written before the switch live only on the retired
-`previous` target, which the current primary and copies never had. The scrub does not
-check or mirror those packs (checking them against targets that never held them would
-wrongly report them "missing" and mark them damaged), so they are not covered by
-integrity checking or the copy job until a later `move` replacement copies them onto
-the current targets and closes the gap. This is a known, accepted limitation of
-"keep", not a bug: the packs are exactly where "keep" said they would stay, on the
-target the operator chose to leave them on.
-
-## Storage integrity (scrub)
-
-The scrub (`packages/core/src/verify/scrub.ts`, worker `apps/worker/src/handlers/scrub.ts`)
-reads every selected pack file from the primary and every copy and checks it against what
-Postgres recorded: size, SHA-256 of the whole file, a well-formed pack of this tenant, and an
-index that still holds every chunk the chunk index puts there. A sample runs weekly, every
-pack monthly; **Recovery readiness › Storage integrity** also starts a sample, a full check,
-or a re-check of only the flagged packs (`POST /verify/scrub` with `mode: "recheck"`).
-
-**Reading a pack.** A read streams through the hash into a buffer of the recorded size, so
-a pack never takes more memory than its catalog size, whatever the storage sends. A read
-that breaks off with a transfer error (Node's "aborted" for a body cut mid-download,
-ECONNRESET, EPIPE, "socket hang up", timeouts, S3 5xx, `SlowDown`, `RequestTimeout`) is
-repeated, whole, up to 3 times in all, 2 s and then 8 s apart, and only then reported
-`unreadable`. Errors that are an answer (a missing object, denied access) are not repeated.
-Separately, the S3 backend resumes every object read whose body breaks off (`get`,
-`getStream`, `getRange`, which restores and restore checks use): it asks for the rest with a
-`Range` from the first byte not yet delivered, pinned to the first response's ETag with
-`If-Match`, up to 3 requests in all (the SDK retries requests, but not a body that breaks
-after the headers). Writes are unchanged.
-
-**Damaged versus temporarily unreadable.** A pack without an intact copy on any target is
-
-- **damaged** when every target answered with damage: missing, wrong size, checksum
-  differs, not a valid pack, another tenant's, or contents that differ from the chunk index.
-  It is listed under `corrupt` in the report, marked `packs.damaged_at` (backups stop
-  deduplicating against it and write its content again), and every object using it is rated
-  red at once ("Not restorable");
-- **temporarily unreadable** when a target could not be read (a transfer or permission
-  error even after reading again). That proves nothing about the data. It is listed under
-  `unreadable`, never marked damaged, and `pack_read_failures` keeps its run of failed
-  checks: how many consecutive checks could not read it, the first and the latest, and the
-  latest error. Objects using it are rated yellow ("Attention", reason
-  `storage_unreadable`). Only once the pack could not be read in **3 consecutive checks
-  spanning at least 24 hours** (core `isPersistentlyUnreadable`) are they rated red (reason
-  `storage_unreadable_persistent`) and an error notification (`scrub.corrupt`) is raised;
-  three quick re-checks within an hour are not enough.
-
-Every scrub reads the flagged packs first: those marked damaged, those with a run of failed
-checks, and those the previous report listed, whatever the sample draws. A check that reads
-a pack (intact, or proven damaged) ends its run of failures. When every pack an object's
-storage finding named was read intact again, the scrub files a green "cleared" finding: it
-rates nothing and ends the earlier finding, so the object's own restore checks rate it again
-(`ratingReport`, `apps/api/src/features/verify/verification-state.ts`). A restore check reads
-the same split (`loadPackFindings`): a damaged pack of the checked backup is red
-(`storage_corrupt`), an unreadable one yellow, one unreadable for long enough red.
-
-Reports written before 0.4.2 listed unreadable packs under `corrupt`. The API, the worker
-and the restore check read an entry with an `unreadable` target as temporarily unreadable,
-and the next check reads it first; garbage collection leaves damaged and unreadable packs
-alone.
-
-`pack_read_failures` holds a row only for a pack that is failing at the moment (unique on
-the pack id, an index on the tenant), so it stays small however many packs a tenant has.
-
-## RBAC and audit
-
-Starting, cancelling or retrying a migration is available to tenant admins and
-provider admins only, the same as every other storage-target change (`tenant_admin`
-minimum role; local filesystem targets additionally require a provider admin, since a
-mounted path is part of the server, not the tenant's own configuration). Every step —
-started, verify failed, switched, cancelled — is written to the tenant's audit log
-with the actor, the source and destination target, and (once known) the byte and
-object totals; a retry is recorded as a new "started" entry so the log reads as what
-actually happened (a second attempt), not as a repeat of the first one.
-
-While a migration is unfinished, neither its source nor its destination can be edited
-(a location change) or promoted through the ordinary copy-promotion shortcut: the
-migration's own worker job opened both at the start and keeps writing to that same
-addressing throughout, so changing either out from under it, or promoting a third
-target to primary, would collide with its own atomic switch. The API refuses both
-with `migration-in-progress`, the same reason starting a second migration gets; a
-name-only edit (no location change) is unaffected.
+- **Scan** lists every restic repository of the tenant on every place it may lie (the
+  primary, the copies, the retired targets, an old location attached read-only, and the
+  installation default) and classifies it: `ok` (complete on the primary), `elsewhere`
+  (complete on another target), `split` (its parts on more than one target), `data_only`
+  (data, but no `config` or no key anywhere), `password_only` (only the sealed password
+  file), `missing`, or `conflict` (two different repositories under one prefix, none on the
+  primary). It shows what each target holds and changes nothing. A place that could not be
+  read is named on the card: one that did not answer, and a directory target whose folder
+  is empty or does not exist (a share that is not mounted lists as an empty folder, not as
+  an error; `rootState` in `packages/core/src/storage/local.ts`). Audited as
+  `storage.repositories.scanned`.
+- An old location that may still hold the missing parts (a restored copy of
+  `/data/chunks`, a snapshot of the NAS share) can be attached first: "Attach an old
+  location read-only" in the add-target dialog (role `previous`). Nothing is written there.
+- **Repair** (an administrator, a recent sign-in and the typed word `REPAIR`, on the
+  newest completed scan) is refused (`storage-repair-blocked`) while a Proxmox VE backup,
+  a file share run or a storage migration of the tenant is active, and the worker checks
+  again when it starts. From the moment it is queued until it ends, backups of containers
+  and file shares get no credential (`storage-repair-running`, the share run's failure
+  `share.repository_repair_running`) and the primary does not change
+  (`storage-switch-blocked-by-repair`); both checks run under the tenant's storage lock.
+  The repair refuses a scan that could not read every place, and stops without changing
+  anything when a place does not answer now (the installation default included) or a
+  target the scan read is gone. It plans again from a fresh listing and acts only on a
+  repository whose class and holders are what the confirmed scan showed; anything else is
+  reported as changed and left. Per repository, under the lock retention, the check and the
+  file restore's reads take (`pveGuestRepositoryLockKey`, the machine's and the share's):
+  - `elsewhere`, `split`: copies every data, index and snapshot file the primary lacks
+    onto it, each verified against its SHA-256, and stops at the first that fails; only
+    after all of them the keys, then the password file, then `config` (compared with its
+    source). Then `restic check` (structure) and `restic snapshots` run there. When a file
+    cannot be copied, or restic finds the result not sound, the keys and `config` this
+    repair copied are moved aside again (`<prefix>.orphaned-<time>/`), and a container
+    records `pve-repository-repair-failed`: its backups, retention and check refuse until a
+    repair succeeds (a later repair checks such a container again even when it looks
+    complete) or the repository is reset. Restore points created before the repair began
+    whose restic snapshot is not in the rebuilt repository become unavailable; the chain
+    goes on, and the guest page says so ("Repository repaired"). Audited as
+    `storage.repository.merged`.
+  - a container's repository that cannot be opened (`data_only`, `password_only`): its
+    restore points become unavailable ("lost"), what lies at its prefix on the primary is
+    moved aside to `pve-guests/<id>.orphaned-<time>/` (never deleted), and the next backup
+    begins a new chain; the guest page says so. Audited as `storage.repository.lost`.
+  - `missing` (on no place at all) is left as it is: an unmounted share looks the same.
+    "Reset repository" on the guest page is the deliberate way to let its points go.
+  - everything else (a `conflict`, a machine's or a file share's incomplete repository) is
+    listed and left as it is for an operator to decide.
+- **What it does not bring back:** the restore points of a chain that 0.4.2 to 0.4.12
+  replaced silently (`pve.repository.reinitialized`, reason `missing`). The primary holds
+  the new chain, complete, so the scan classes it `ok`; the old chain on another place is
+  no part of it, and its restore points stay unavailable. Attaching the old location
+  read-only keeps that data from being forgotten (removing that target is refused while
+  only it holds it), and the old chain can be restored by hand with restic from there
+  (its password is sealed next to it in `restow-repository-password.json`).
+- **Moved-aside folders** (`<prefix>.orphaned-<time>/`, from the repair or from a backup
+  that began a new chain after a reset) are not copied by a `move` and are not part of any
+  repository. Removing a retired target is refused (`previous-holds-moved-aside`) while it
+  is the only place that holds one: copy it elsewhere or delete it by hand once it is not
+  needed.
+- One scan or repair runs at a time per tenant; a worker that stops in the middle queues
+  it again, and every step is safe to repeat.
 
 ## Removing an old location
 
@@ -800,7 +795,15 @@ either side); the API refuses with a clear reason instead of leaving a dangling
 reference. A `previous` target additionally cannot be removed while it still holds
 backup data no other target has: Restow lists its packs against the tenant's current
 primary and copies before every removal and refuses with `previous-holds-exclusive-data`
-if any pack exists only there — the exact packs a "keep" replacement left behind.
+if any pack exists only there — the exact packs a "keep" replacement left behind. The same
+holds for restic repositories (`previous-holds-endpoint-repositories`): any data, index,
+snapshot, key or `config` file of a container's, machine's or file share's repository
+that no current target has blocks the removal, not only a `config` (a run that a switch
+split left early packs on the old target while its `config` was on the new one as well).
+A folder the repository repair or a new backup chain moved aside
+(`<prefix>.orphaned-<time>/`) that no current target has blocks it too
+(`previous-holds-moved-aside`): a `move` does not copy those folders, so copy it elsewhere
+or delete it by hand once it is not needed.
 Run a `move`
 replacement first to copy them onto the current targets, which also closes the
 scrub's integrity-checking gap for them (see above); removal is possible once nothing
@@ -810,6 +813,12 @@ depends on the old location any more.
 
 Honestly stated rather than hidden, per Restow's own rule that known limits are shown,
 not papered over:
+
+- **The repository repair rebuilds, it does not decide.** A machine's or a file share's
+  repository that cannot be opened (no `config` or no key on any target), and two
+  different repositories under one prefix, are listed by the scan and left as they are;
+  such a repository also stops a `move`. A machine's page does not show the scan's finding
+  yet: read it on the Repositories page.
 
 - **There is no migration back to the installation default.** A tenant whose own
   primary already holds backups cannot replace it with the installation default: a

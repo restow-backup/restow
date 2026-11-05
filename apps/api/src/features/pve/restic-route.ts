@@ -4,7 +4,7 @@ import {
   type StorageBackend,
   secretMatchesHash,
 } from "@restow/core";
-import { pveGuests, pveRuns, tenants } from "@restow/db";
+import { pveGuests, pveRuns, storageGenerationSql, tenants } from "@restow/db";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import {
@@ -16,8 +16,8 @@ import { withTenantTx } from "../../lib/tenant-context.js";
 import { authFailures } from "../endpoints/agent-auth.js";
 import { auditPve, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { PVE_RESTIC_PATH } from "./meta.js";
-import { guestRepositoryPrefix } from "./repository.js";
-import { type TenantChunkStore, tenantChunkStore } from "./store.js";
+import { guestRepositoryPrefix, storageSwitchedDuringRun } from "./repository.js";
+import { searchedTargets, storeTarget, type TenantChunkStore, tenantChunkStore } from "./store.js";
 
 /**
  * /agent/pve/restic/:guestId: the restic REST backend of one container's
@@ -59,7 +59,9 @@ export async function resolvePveRunCredential(
       startedAt: pveRuns.startedAt,
       tokenHash: pveRuns.resticTokenHash,
       expiresAt: pveRuns.resticExpiresAt,
+      storageTarget: pveRuns.storageTarget,
       tenantStatus: tenants.status,
+      generation: sql<string>`${storageGenerationSql(sql`${pveRuns.tenantId}`)}`,
     })
     .from(pveRuns)
     .innerJoin(tenants, eq(tenants.id, pveRuns.tenantId))
@@ -80,27 +82,42 @@ export async function resolvePveRunCredential(
   // A backup stopped in the UI, or a run that has ended: restic fails at its next write (a node
   // without cancel orders), but may still release the lock it holds on the way out. Otherwise
   // the lock stays until it is stale and blocks the check and the retention of the repository.
-  const closing = run.status !== "running" || run.cancelRequestedAt !== null;
-  const store = await tenantChunkStore(run.tenantId);
+  let closing = run.status !== "running" || run.cancelRequestedAt !== null;
+  // The store of the tenant's current storage generation: a change of the primary is seen at
+  // the next request, not when a cache runs out.
+  const store = await tenantChunkStore(run.tenantId, Date.now(), run.generation ?? undefined);
+  const prefix = guestRepositoryPrefix(guestId);
+  // Every request of a run goes to the one target its credential was issued for
+  // (docs/STORAGE.md, "Runs and storage changes"). A backup whose target stopped being the
+  // primary gets 403 for every write (restic takes it as final) instead of writing the rest of
+  // its backup elsewhere.
+  const pinned = run.storageTarget ? storeTarget(store, run.storageTarget) : null;
+  let refuseWrites: ReturnType<typeof storageSwitchedDuringRun> | undefined;
+  let storage: StorageBackend;
+  if (run.kind === "backup") {
+    if (run.storageTarget && run.storageTarget !== store.primaryTarget) {
+      refuseWrites = storageSwitchedDuringRun(403);
+      closing = true;
+    }
+    // A run from before 0.5.0 has no target recorded: the primary, as it always was.
+    storage = pinned ?? store.write.primary;
+  } else {
+    storage = pinned ?? (await readingBackend(run.id, store, prefix));
+  }
   return {
     ok: true,
     access: {
       tenantId: run.tenantId,
       runId: run.id,
       principal: closing ? "closing" : "agent",
-      prefix: guestRepositoryPrefix(guestId),
-      // A backup writes to the primary only (its credential made sure the repository is
-      // there, repository.ts); a restore reads from whichever target holds the repository,
-      // a retired primary included.
-      storage:
-        run.kind === "backup"
-          ? store.write.primary
-          : await readingBackend(run.id, store, guestRepositoryPrefix(guestId)),
+      prefix,
+      storage,
+      ...(refuseWrites ? { refuseWrites } : {}),
     },
   };
 }
 
-/** The target a restore run reads from, found once per run (bounded). */
+/** The target a restore run from before 0.5.0 (no target recorded) reads from, found once per run. */
 const readingBackends = new Map<string, StorageBackend>();
 
 async function readingBackend(
@@ -113,12 +130,10 @@ async function readingBackend(
     return known;
   }
   let found = store.write.primary;
-  if (!(await store.write.primary.head(`${prefix}config`).catch(() => null))) {
-    for (const other of store.read.copies) {
-      if (await other.head(`${prefix}config`).catch(() => null)) {
-        found = other;
-        break;
-      }
+  for (const target of await searchedTargets(store)) {
+    if (await target.backend.head(`${prefix}config`).catch(() => null)) {
+      found = target.backend;
+      break;
     }
   }
   if (readingBackends.size > 1000) {

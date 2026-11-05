@@ -241,7 +241,9 @@ unique per installation).
   never taken for one that never committed. A snapshot the storage still locks
   stays. Forget and prune wait up to two minutes for another run's lock
   (`--retry-lock`), each within its time limit; on a storage that refuses to
-  delete a stale lock (write-once) the comparison forgets and prunes nothing. A
+  delete a stale lock (write-once) the comparison forgets and prunes nothing,
+  nor while the repository has a problem (not complete on the primary, split
+  across targets, a failed repair: see "Repository problems"). A
   comparison that did not get through is repeated an hour later, at most ten a
   pass beside the ones a prune asked for. One guest whose retention fails is
   logged and the others go on. A restore point
@@ -406,38 +408,96 @@ unique per installation).
   server's local disk is highlighted, and a warning says when backups land on
   the server's own disk.
 
-### New backup chain
+### Repository problems
 
 `repository_ready_at` only says a container's repository was created once.
-Before a backup run gets its restic credential, the server makes sure the
-repository is really on the tenant's primary (a `HEAD` of
-`pve-guests/<guest id>/config`, once per run; `features/pve/repository.ts`):
+Before a backup run gets its restic credential, the run is pinned to the
+tenant's primary (docs/STORAGE.md, "Runs and storage changes"), and the server
+makes sure the repository is complete there: its `config` and at least one key
+(`pve-guests/<guest id>/`, once per run; `features/pve/repository.ts`):
 
 - **There:** the backup runs as always.
-- **Only on another target of the tenant** (a retired primary after "keep
-  existing backups where they are"): the backup is refused with
-  `pve-repository-elsewhere` and a message that says to move the backups with a
-  storage "move" or to reset the repository. Nothing is created. Restores of
-  the container read from whichever target holds the repository.
-- **Nowhere:** a new repository is created (a new password, `restic init`, the
-  sealed password file next to it) and a **new backup chain** begins. The
-  container's earlier restore points become `unavailable`: they can no longer
-  be restored, browsed or checked, readiness and the overviews no longer count
-  them, and retention leaves them alone. The guest records the chain
+- **Not there:** every target of the tenant (copies, retired targets, an old
+  location attached read-only) and the installation default (also when it is
+  no target of the tenant any more) are searched, and the backup is refused,
+  without creating anything, with a problem of its own:
+  - `pve-repository-elsewhere`: complete on another target (a retired primary
+    after "keep existing backups where they are", the installation default
+    after a promotion of 0.4.1). The way out: the repository repair or a
+    storage "move" brings it over;
+  - `pve-repository-split`: data on the primary without its `config` or keys,
+    or parts of it on another target. A backup that ran while the primary
+    changed wrote to two targets (the 2026-10-16 field incident). The way out:
+    the repository repair, which rebuilds it on the primary where its parts
+    allow;
+  - `pve-repository-missing`: on no target, while restore points still refer
+    to it. The way out: attach an old location that may still hold it and run
+    the repository repair, or reset the repository;
+  - `pve-repository-repair-failed`: the repository repair could not rebuild
+    it (a file could not be copied and verified, or restic found the result not
+    sound). Refused even when `config` and a key are on the primary, and not
+    cleared by a backup: they may sit next to data that is not whole. The way
+    out: attach the missing parts and repair again, or reset the repository.
+
+  The guest records the problem (`pve_guests.repository_problem`) and its page
+  explains it with both ways out, until a backup finds the repository again.
+  The server's own retention and check of the container search the same
+  places (the installation default included, also when it is no target of the
+  tenant any more) and refuse with the same problem instead of restic's
+  "unable to open config file"; a problem the API recorded that says where the
+  repository lies is not replaced by a vaguer one. They also refuse while the
+  snapshot of an active restore point lies on another target but not on the
+  primary: a prune there would remove data that restore point needs. No
+  monthly restore test of the container is planned while the guest records a
+  problem (it would read from the first target that holds a config, or from a
+  split half); it is planned again once the problem is cleared.
+  While a repository repair of the tenant is queued or running, a backup gets
+  `409 storage-repair-running` instead of a credential. The
+  storage not answering is not "missing": the backup fails with
+  `pve-repository-unreachable` instead. Restores of the container read from
+  whichever target holds the repository.
+- **Nowhere, and no restore point refers to it** (all pruned, or after a
+  reset): a new repository is created (a new password, `restic init`, the
+  sealed password file next to it) and a **new backup chain** begins. Nothing
+  is lost by it. The guest records the chain
   (`pve_guests.repository_chains`, the newest ten) and the audit log
-  `pve.repository.reinitialized` (with the run, the target and how many
-  restore points became unavailable). The guest page shows "New backup chain
-  started on <date>: the previous repository was not found at <target>", the
-  unavailable restore points as "Not available", and the chain in the guest's
-  history. The storage not answering is not "missing": the backup fails with
-  `pve-repository-unreachable` instead.
+  `pve.repository.reinitialized`.
+
+From 0.4.2 to 0.4.12 the server did not ask: a repository it did not find on
+the primary started a new chain at once, and every restore point of the
+container became `unavailable`, also when the repository was intact on the
+installation default a promotion had dropped. Such chains show in the audit log
+as `pve.repository.reinitialized` with `reason: "missing"`. The repository
+repair does not bring those restore points back: the primary holds the new
+chain, complete, and the old one is no part of it. They stay unavailable; the
+old chain can only be restored by hand with restic from the place that still
+holds it (attach it read-only so that it is not removed while only it has it;
+docs/STORAGE.md, "Repository repair").
+
+A repository is created only on an empty prefix: data left there without a
+`config` is refused with `pve-repository-split` (before 0.5.0 `restic init`
+failed on it with "repository already contains snapshots" and the node got an
+HTTP 500, "get the restic credential of this run"). The repository password is
+stored only once `restic init` succeeded, so a failed attempt leaves no secret
+behind.
+
+Unavailable restore points can no longer be restored, browsed or checked,
+readiness and the overviews no longer count them, and retention leaves them
+alone. They say why (`pve_snapshots.unavailable_reason`): a new chain or a
+reset (`chain`), or a repository repair that found their data on no target
+(`lost`; the guest page says "Repository lost" when the whole repository could
+not be opened and a new chain begins, "Repository repaired" when it was rebuilt
+and only some restore points' snapshots were missing from it).
 
 **Reset repository** (guest page, danger zone, containers only): for a damaged
 repository or one that lies on a target that is gone. It needs the guest's
 name typed and a recent sign-in, and is audited (`pve.repository.reset`). Every
 restore point of the container becomes unavailable at once; the next backup
-removes what is left of the old repository on the primary and begins a new
-chain. A retired target is never touched.
+moves what is left of the old repository on the primary aside to
+`pve-guests/<id>.orphaned-<time>/` (never deleted: it may be half of a split
+repository that is still wanted; only an empty repository, `config` and keys
+without any data, is removed) and begins a new chain. A retired target is never
+touched.
 
 ## Stopping a backup
 

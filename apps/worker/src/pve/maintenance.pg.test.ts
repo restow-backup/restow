@@ -833,6 +833,100 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     await owner.delete(pveJobs).where(eq(pveJobs.id, jobId));
   });
 
+  it("plans no restore test of a container whose repository has a problem recorded (split, failed repair)", async () => {
+    await owner.delete(pveTasks);
+    await owner.delete(pveRuns).where(eq(pveRuns.status, "running"));
+    const [job] = await owner
+      .insert(pveJobs)
+      .values({
+        tenantId,
+        name: "containers with a repository problem",
+        scopeAll: false,
+        schedule: { kind: "daily", timeOfDay: "03:00", timeZone: "UTC" },
+        settings: { restoreTest: { enabled: true, targetStorage: "local-lvm" } },
+      })
+      .returning();
+    const jobId = job?.id ?? "";
+    const [pve1] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: clock, facts: { restoresAllowed: true } })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    const container = async (vmid: number, type: string | null) => {
+      const [guest] = await owner
+        .insert(pveGuests)
+        .values({
+          tenantId,
+          clusterId,
+          vmid,
+          kind: "ct",
+          node: "pve1",
+          jobId,
+          repositoryProblem: type
+            ? { at: clock.toISOString(), type, heldBy: "copy", activePoints: 1 }
+            : null,
+        })
+        .returning();
+      const [point] = await owner
+        .insert(pveSnapshots)
+        .values({
+          tenantId,
+          clusterId,
+          guestId: guest?.id ?? "",
+          sequence: 1,
+          kind: "ct",
+          archiveName: `ct/${vmid}/2026-10-20T22:00:00Z`,
+          storageId: "restow",
+          manifestPath: `ct-${vmid}`,
+          guestConfig: "arch: amd64\nunprivileged: 1\n",
+          backupAt: new Date(clock.getTime() - DAY),
+        })
+        .returning();
+      await owner
+        .update(pveGuests)
+        .set({ lastSnapshotId: point?.id ?? null })
+        .where(eq(pveGuests.id, guest?.id ?? ""));
+      return guest?.id ?? "";
+    };
+    // Both problem guests wait longer (never tested) than the healthy one.
+    const split = await container(221, "pve-repository-split");
+    const repairFailed = await container(222, "pve-repository-repair-failed");
+    const healthy = await container(223, null);
+    await owner
+      .update(pveGuests)
+      .set({ lastRestoreTestAt: new Date(clock.getTime() - 40 * DAY) })
+      .where(eq(pveGuests.id, healthy));
+    const ids = [split, repairFailed, healthy];
+    const restoreTasks = async (id: string) =>
+      owner
+        .select()
+        .from(pveTasks)
+        .where(and(eq(pveTasks.guestId, id), eq(pveTasks.kind, "restore")));
+    const stampOf = async (id: string) =>
+      (await owner.select().from(pveGuests).where(eq(pveGuests.id, id)))[0]?.lastRestoreTestAt;
+    try {
+      expect(await planRestoreTests(deps, clock)).toBe(1);
+      expect(await restoreTasks(split)).toHaveLength(0);
+      expect(await restoreTasks(repairFailed)).toHaveLength(0);
+      expect(await stampOf(split)).toBeNull();
+      expect(await stampOf(repairFailed)).toBeNull();
+      expect(await restoreTasks(healthy)).toHaveLength(1);
+      // Once the problem is cleared (a backup found the repository, a repair succeeded), the
+      // guest is tested on the next pass.
+      await owner.update(pveGuests).set({ repositoryProblem: null }).where(eq(pveGuests.id, split));
+      expect(await planRestoreTests(deps, clock)).toBe(1);
+      expect(await restoreTasks(split)).toHaveLength(1);
+      expect(await restoreTasks(repairFailed)).toHaveLength(0);
+    } finally {
+      await owner.delete(pveRuns).where(inArray(pveRuns.guestId, ids));
+      await owner.delete(pveTasks).where(inArray(pveTasks.guestId, ids));
+      await owner.update(pveGuests).set({ lastSnapshotId: null }).where(inArray(pveGuests.id, ids));
+      await owner.delete(pveSnapshots).where(inArray(pveSnapshots.guestId, ids));
+      await owner.delete(pveGuests).where(inArray(pveGuests.id, ids));
+      await owner.delete(pveJobs).where(eq(pveJobs.id, jobId));
+    }
+  });
+
   it("closes a backup run its node no longer lists, after a grace, and only with a fresh list (#46)", async () => {
     const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
     const nodeId = node?.id ?? "";
@@ -957,6 +1051,161 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     expect(await dropPveTokenSecrets(deps, clock)).toBe(0);
   });
 
+  /** The repository's config and a key on the primary (the fake restic needs nothing more). */
+  async function completeRepository(id: string): Promise<void> {
+    await storage.primary.put(`pve-guests/${id}/config`, Buffer.from("config"));
+    await storage.primary.put(`pve-guests/${id}/keys/${"a".repeat(64)}`, Buffer.from("key"));
+  }
+
+  it("reports a repository not complete on the primary instead of restic's own error", async () => {
+    const keys = await deps.runtime.keyrings.get(tenantId);
+    const secretId = randomUUID();
+    await owner.insert(secrets).values({
+      id: secretId,
+      tenantId,
+      kind: "pve_ct_repository",
+      ciphertext: sealSecret(keys.current, secretId, "repository-password"),
+    });
+    const [ct] = await owner
+      .insert(pveGuests)
+      .values({
+        tenantId,
+        clusterId,
+        vmid: 330,
+        kind: "ct",
+        node: "pve1",
+        repositorySecretId: secretId,
+      })
+      .returning();
+    const guest = ct?.id ?? "";
+    // CT 109 on NFW-01: data and a snapshot, no config and no keys.
+    await storage.primary.put(`pve-guests/${guest}/data/ab/${"ab".repeat(32)}`, Buffer.from("x"));
+    const [point] = await owner
+      .insert(pveSnapshots)
+      .values({
+        tenantId,
+        clusterId,
+        guestId: guest,
+        sequence: 1,
+        kind: "ct",
+        archiveName: "ct/330/2026-10-16T14:07:57Z",
+        storageId: "restow",
+        resticSnapshotId: "f".repeat(64),
+        manifestPath: `tenants/${tenantId}/manifests/${randomUUID()}`,
+        backupAt: clock,
+      })
+      .returning();
+    const result = await verifySnapshot(deps, point as never);
+    expect(result.errors).toEqual([
+      expect.stringContaining("holds data without its config or keys: it is split across targets"),
+    ]);
+    const [row] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guest));
+    expect(row?.repositoryProblem).toMatchObject({
+      type: "pve-repository-split",
+      activePoints: 1,
+    });
+    await owner.delete(pveGuests).where(eq(pveGuests.id, guest));
+  });
+
+  /** A container with a stored repository password and one active restore point. */
+  async function containerWithActivePoint(vmid: number, snapshotId = "f".repeat(64)) {
+    const keys = await deps.runtime.keyrings.get(tenantId);
+    const secretId = randomUUID();
+    await owner.insert(secrets).values({
+      id: secretId,
+      tenantId,
+      kind: "pve_ct_repository",
+      ciphertext: sealSecret(keys.current, secretId, "repository-password"),
+    });
+    const [ct] = await owner
+      .insert(pveGuests)
+      .values({ tenantId, clusterId, vmid, kind: "ct", node: "pve1", repositorySecretId: secretId })
+      .returning();
+    const [point] = await owner
+      .insert(pveSnapshots)
+      .values({
+        tenantId,
+        clusterId,
+        guestId: ct?.id ?? "",
+        sequence: 1,
+        kind: "ct",
+        archiveName: `ct/${vmid}/2026-10-16T14:07:57Z`,
+        storageId: "restow",
+        resticSnapshotId: snapshotId,
+        manifestPath: `tenants/${tenantId}/manifests/${randomUUID()}`,
+        backupAt: clock,
+      })
+      .returning();
+    return { guest: ct?.id ?? "", point };
+  }
+
+  it("searches the dropped installation default and keeps the API's more specific finding", async () => {
+    const defaults = new LocalStorageBackend(join(work, "installation-default"));
+    const withDefault: PveDeps = { ...deps, installationDefault: async () => defaults };
+    const { guest, point } = await containerWithActivePoint(331);
+    // CT 100 after 0.4.1's promotion: complete on the installation default only.
+    await defaults.put(`pve-guests/${guest}/config`, Buffer.from("config"));
+    await defaults.put(`pve-guests/${guest}/keys/${"a".repeat(64)}`, Buffer.from("key"));
+    const found = await verifySnapshot(withDefault, point as never);
+    expect(found.errors).toEqual([expect.stringContaining("but on the installation default")]);
+    const [row] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guest));
+    expect(row?.repositoryProblem).toMatchObject({
+      type: "pve-repository-elsewhere",
+      heldBy: "installation_default",
+    });
+    // Where the default cannot be searched (here: none given), what the API recorded stays.
+    const blind: PveDeps = { ...deps, installationDefault: async () => null };
+    const vague = await verifySnapshot(blind, point as never);
+    expect(vague.errors).toEqual([expect.stringContaining("on no storage target")]);
+    const [after] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guest));
+    expect(after?.repositoryProblem).toMatchObject({
+      type: "pve-repository-elsewhere",
+      heldBy: "installation_default",
+    });
+    await owner.delete(pveGuests).where(eq(pveGuests.id, guest));
+  });
+
+  it("refuses after a failed repair even with config and a key on the primary", async () => {
+    const { guest, point } = await containerWithActivePoint(332);
+    await completeRepository(guest);
+    const problem = {
+      at: clock.toISOString(),
+      type: "pve-repository-repair-failed",
+      heldBy: null,
+      activePoints: 1,
+    };
+    await owner
+      .update(pveGuests)
+      .set({ repositoryProblem: problem })
+      .where(eq(pveGuests.id, guest));
+    const result = await verifySnapshot(deps, point as never);
+    expect(result.errors).toEqual([expect.stringContaining("repository repair could not rebuild")]);
+    const [row] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guest));
+    expect(row?.repositoryProblem).toEqual(problem);
+    await owner.delete(pveGuests).where(eq(pveGuests.id, guest));
+  });
+
+  it("refuses while an active restore point's snapshot lies only on another target", async () => {
+    const defaults = new LocalStorageBackend(join(work, "installation-default-split"));
+    const withDefault: PveDeps = { ...deps, installationDefault: async () => defaults };
+    const snapshotId = "d".repeat(64);
+    const { guest, point } = await containerWithActivePoint(333, snapshotId);
+    // Config and a key on the primary, the snapshot on the installation default: a prune on
+    // the primary would remove the packs that snapshot needs.
+    await completeRepository(guest);
+    await defaults.put(`pve-guests/${guest}/snapshots/${snapshotId}`, Buffer.from("snapshot"));
+    const result = await verifySnapshot(withDefault, point as never);
+    expect(result.errors).toEqual([
+      expect.stringContaining("lie on the installation default but not on the primary"),
+    ]);
+    const [row] = await owner.select().from(pveGuests).where(eq(pveGuests.id, guest));
+    expect(row?.repositoryProblem).toMatchObject({
+      type: "pve-repository-split",
+      heldBy: "installation_default",
+    });
+    await owner.delete(pveGuests).where(eq(pveGuests.id, guest));
+  });
+
   it("checks a container repository only while the file restore does not read it (#62)", async () => {
     const keys = await deps.runtime.keyrings.get(tenantId);
     const secretId = randomUUID();
@@ -977,6 +1226,7 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
         repositorySecretId: secretId,
       })
       .returning();
+    await completeRepository(ct?.id ?? "");
     const [point] = await owner
       .insert(pveSnapshots)
       .values({
@@ -1095,6 +1345,7 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
           repositorySecretId: secretId,
         })
         .returning();
+      await completeRepository(ct?.id ?? "");
       const [point] = await owner
         .insert(pveSnapshots)
         .values({
@@ -1311,6 +1562,8 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       .insert(pveGuests)
       .values({ tenantId, clusterId, vmid, kind: "ct", node: "pve1", repositorySecretId: secretId })
       .returning();
+    // Complete on the primary, so the check is not refused as a repository problem.
+    await completeRepository(ct?.id ?? "");
     const [point] = await owner
       .insert(pveSnapshots)
       .values({
@@ -1991,6 +2244,77 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
   );
 
   it.skipIf(!resticOk)(
+    "forgets and prunes nothing while the repository has a problem (split, a failed repair)",
+    async () => {
+      const defaults = new LocalStorageBackend(join(work, "installation-default-reconcile"));
+      const warned: { message: string; problem: unknown }[] = [];
+      const logger: typeof noopLogger = {
+        debug: () => undefined,
+        info: () => undefined,
+        error: () => undefined,
+        warn: (message: string, fields?: Record<string, unknown>) => {
+          warned.push({ message, problem: fields?.problem });
+        },
+        child: () => logger,
+      };
+      const withDefault: PveDeps = {
+        ...deps,
+        installationDefault: async () => defaults,
+        runtime: { ...deps.runtime, logger },
+      };
+      const ct = await realContainer(325);
+      const runs = { pruned: randomUUID(), active: randomUUID() };
+      const prunedId = await ct.backup(runs.pruned);
+      await ct.point(1, prunedId, runs.pruned, "pruned");
+      // An active restore point whose snapshot lies only on the installation default: split.
+      const elsewhere = "c".repeat(64);
+      await ct.point(2, elsewhere, runs.active);
+      await defaults.put(`pve-guests/${ct.id}/snapshots/${elsewhere}`, Buffer.from("snapshot"));
+      const now = new Date();
+      const split = await reconcileGuestRepository(withDefault, (await ct.row()) as never, now);
+      expect(split).toEqual({ forgotten: [], deletesRefused: false });
+      expect(await ct.listed()).toContain(prunedId);
+      expect(warned).toContainEqual({
+        message: "pve retention: restic forget skipped",
+        problem: expect.stringContaining("the repository is split"),
+      });
+      expect((await ct.row())?.repositoryProblem).toMatchObject({ type: "pve-repository-split" });
+      // Left claimed: due again after the retry delay, not stamped as compared.
+      expect((await ct.row())?.repositoryReconciledAt).toEqual(
+        new Date(now.getTime() - PVE_RECONCILE_EVERY_MS + PVE_RECONCILE_RETRY_MS),
+      );
+
+      // A failed repair refuses even with the repository whole on the primary.
+      await defaults.delete(`pve-guests/${ct.id}/snapshots/${elsewhere}`);
+      await owner
+        .update(pveSnapshots)
+        .set({ status: "pruned", prunedAt: new Date() })
+        .where(eq(pveSnapshots.resticSnapshotId, elsewhere));
+      await owner
+        .update(pveGuests)
+        .set({
+          repositoryProblem: {
+            at: now.toISOString(),
+            type: "pve-repository-repair-failed",
+            heldBy: null,
+            activePoints: 0,
+          },
+        })
+        .where(eq(pveGuests.id, ct.id));
+      const failed = await reconcileGuestRepository(withDefault, (await ct.row()) as never, now);
+      expect(failed.forgotten).toEqual([]);
+      expect(await ct.listed()).toContain(prunedId);
+
+      // Once the problem is gone, the comparison forgets the pruned point's snapshot.
+      await owner.update(pveGuests).set({ repositoryProblem: null }).where(eq(pveGuests.id, ct.id));
+      const done = await reconcileGuestRepository(withDefault, (await ct.row()) as never, now);
+      expect(done.forgotten).toEqual([prunedId]);
+      expect(await ct.listed()).not.toContain(prunedId);
+    },
+    120_000,
+  );
+
+  it.skipIf(!resticOk)(
     "a restore point pruned while the repository is compared keeps the comparison due",
     async () => {
       const ct = await realContainer(324);
@@ -2019,7 +2343,9 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       const watched = new Proxy(primary, {
         get(target, key, receiver) {
           const value = Reflect.get(target, key, receiver);
-          if ((key === "list" || key === "listWithSizes") && typeof value === "function") {
+          // The measurement after the prune (listWithSizes); the search for repository problems
+          // before the comparison lists the prefix as well, before the rows are read.
+          if (key === "listWithSizes" && typeof value === "function") {
             return async (listed: string, ...rest: unknown[]) => {
               if (listed === prefix) {
                 await prunedMeanwhile();
@@ -2108,6 +2434,8 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
             repositorySecretId: secretId,
           })
           .returning();
+        // Complete on the primary: what fails is restic, not the search for the repository.
+        await completeRepository(ct?.id ?? "");
         const [point] = await owner
           .insert(pveSnapshots)
           .values({
@@ -2172,6 +2500,7 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
           repositorySecretId: secretId,
         })
         .returning();
+      await completeRepository(ct?.id ?? "");
       const [point] = await owner
         .insert(pveSnapshots)
         .values({
