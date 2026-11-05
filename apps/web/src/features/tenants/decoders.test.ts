@@ -15,6 +15,8 @@ import {
 
 /** Fixtures in the shape of the API DTOs (apps/api/src/features/*). */
 
+const IMMEDIATE = { error: "immediate", warning: "immediate", info: "immediate" } as const;
+
 const tenantDto = {
   id: "0b6c3a55-7c0e-4a55-9c55-3f7c1d0e0001",
   name: "Example Ltd",
@@ -128,8 +130,19 @@ describe("decodeTenantDetail", () => {
         // From a server before the matrix: the categories stand for their events.
         events: ["backup.failed", "restore.failed", "archive.failed", "directory.failed"],
         categories: ["jobFailures"],
+        // From a server before 0.5.0: everything at once, no failure known.
+        delivery: IMMEDIATE,
+        failure: null,
       },
-      { id: "r2", email: "dev@b.co", name: null, events: ["verify.yellow"], categories: [] },
+      {
+        id: "r2",
+        email: "dev@b.co",
+        name: null,
+        events: ["verify.yellow"],
+        categories: [],
+        delivery: IMMEDIATE,
+        failure: null,
+      },
     ]);
   });
 
@@ -343,5 +356,44 @@ describe("decodeInvitationDetails", () => {
 
   it("treats a plain member invitation as a user invitation", () => {
     expect(decodeInvitationDetails({ id: "i2", role: "member" }).role).toBe("tenant_user");
+  });
+});
+
+describe("the 0.5.0 fields of contacts and recipients", () => {
+  it("reads the monthly report flag, the delivery modes and the failure episode", () => {
+    const [contact] = decodeContactList([
+      { id: "c1", name: "Alice", email: "a@b.co", isPrimary: true, monthlyReport: true },
+    ]);
+    expect(contact?.monthlyReport).toBe(true);
+    const [recipient] = decodeRecipientList([
+      {
+        id: "r1",
+        email: "a@b.co",
+        events: ["backup.failed", "report.monthly"],
+        delivery: { error: "immediate", warning: "hourly", info: "daily" },
+        failure: { since: "2026-11-05T08:00:00.000Z", reason: "recipient_rejected", detail: "550" },
+      },
+    ]);
+    expect(recipient?.delivery).toEqual({ error: "immediate", warning: "hourly", info: "daily" });
+    expect(recipient?.failure).toEqual({
+      since: "2026-11-05T08:00:00.000Z",
+      reason: "recipient_rejected",
+      detail: "550",
+    });
+    expect(recipient?.events).toContain("report.monthly");
+  });
+
+  it("reads an older or odd answer as at once, without failure and without the report", () => {
+    const [contact] = decodeContactList([{ id: "c1", name: "Alice", isPrimary: true }]);
+    expect(contact?.monthlyReport).toBe(false);
+    const [recipient] = decodeRecipientList([
+      { id: "r1", email: "a@b.co", delivery: { error: "weekly" }, failure: { reason: "x" } },
+    ]);
+    expect(recipient?.delivery).toEqual({
+      error: "immediate",
+      warning: "immediate",
+      info: "immediate",
+    });
+    expect(recipient?.failure).toBeNull();
   });
 });

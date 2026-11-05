@@ -1,15 +1,29 @@
 import type { ReportSection } from "@restow/core";
-import { isReportSection } from "@restow/core";
+import { isReportSection, REPORT_SECTIONS } from "@restow/core";
+import { tenants } from "@restow/db";
 import { createI18n } from "@restow/i18n";
+import { asc, eq } from "drizzle-orm";
 import type { ApiExtension } from "../../../../apps/api/src/extensions.js";
-import type { ReportSummaryRenderer } from "../../../../apps/api/src/features/reports/hooks.js";
+import type {
+  ReportRenderInput,
+  ReportSummaryRenderer,
+} from "../../../../apps/api/src/features/reports/hooks.js";
 import { renderSummaryFrame } from "../../../../apps/api/src/features/reports/render.js";
-import { aggregateTenant } from "../../../../apps/api/src/features/stats/aggregate.js";
+import {
+  aggregateTenant,
+  type TenantAggregate,
+} from "../../../../apps/api/src/features/stats/aggregate.js";
 import { buildStats } from "../../../../apps/api/src/features/stats/build.js";
 import { collectTenantFacts } from "../../../../apps/api/src/features/stats/collect.js";
 import { isUnavailable, type KpiDto } from "../../../../apps/api/src/features/stats/dto.js";
-import { resolvePeriod, utcDay } from "../../../../apps/api/src/features/stats/period.js";
-import type { Transaction } from "../../../../apps/api/src/lib/tenant-context.js";
+import {
+  type ResolvedPeriod,
+  resolvePeriod,
+  utcDay,
+} from "../../../../apps/api/src/features/stats/period.js";
+import { type Transaction, withTenantTx } from "../../../../apps/api/src/lib/tenant-context.js";
+import { renderStatsReport } from "../../../../apps/api/src/reports/stats-report.js";
+import { customerReportHooks } from "./customer.js";
 
 /**
  * Summary reports (Business, capability `reports.scheduled`): the key figures
@@ -17,6 +31,11 @@ import type { Transaction } from "../../../../apps/api/src/lib/tenant-context.js
  * The core queues and delivers the report (apps/api features/reports); this
  * module only builds its content, from the same code the statistics page
  * uses, so a report never says something the page would not.
+ *
+ * Since 0.5.0 a report covers the calendar day, week or month its rule names (the scheduler puts
+ * the period's days, `fromDay` and `toDay`, into the payload), the provider's report sums every
+ * active tenant (scope `provider`, the tenants read one tenant-pinned transaction each), and with
+ * `attachPdf` the statistics report goes along as a PDF in the mail's brand.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -50,35 +69,88 @@ function withPrevious(kpi: KpiDto, format: (value: number | null) => string, pre
     : `${format(kpi.value)} (${previous}: ${format(kpi.previous)})`;
 }
 
-export const summaryRenderer: ReportSummaryRenderer = {
-  async render(input) {
-    const i18n = createI18n({ lng: input.language });
-    const t = (key: string, values?: Record<string, unknown>) => String(i18n.t(key, values));
-    const locale = input.language === "de" ? "de-DE" : "en-GB";
-    const payload = input.payload;
-    const end = new Date(String(payload.periodEnd ?? new Date().toISOString()));
-    const days = typeof payload.periodDays === "number" ? payload.periodDays : 7;
-    const period = resolvePeriod(
-      { from: utcDay(new Date(end.getTime() - (days - 1) * DAY_MS)), to: utcDay(end) },
-      end,
-    );
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The statistics period of a report: the calendar days the payload names (a cadence rule), else
+ * the `periodDays` ending with the run (a rule with its own interval or cron).
+ */
+export function summaryPeriod(payload: Record<string, unknown>, generatedAt: Date): ResolvedPeriod {
+  const end = new Date(String(payload.periodEnd ?? generatedAt.toISOString()));
+  const fromDay =
+    typeof payload.fromDay === "string" && DAY_PATTERN.test(payload.fromDay)
+      ? payload.fromDay
+      : null;
+  const toDay =
+    typeof payload.toDay === "string" && DAY_PATTERN.test(payload.toDay) ? payload.toDay : null;
+  if (fromDay && toDay) {
+    return resolvePeriod({ from: fromDay, to: toDay }, end);
+  }
+  const days = typeof payload.periodDays === "number" ? payload.periodDays : 7;
+  return resolvePeriod(
+    { from: utcDay(new Date(end.getTime() - (days - 1) * DAY_MS)), to: utcDay(end) },
+    end,
+  );
+}
+
+/** The figures of one tenant, or of every active tenant for the provider. */
+export async function summaryAggregates(
+  input: Pick<
+    ReportRenderInput,
+    "db" | "providerDb" | "tenantPool" | "scope" | "tenantId" | "tenantName"
+  >,
+  period: ResolvedPeriod,
+): Promise<{ aggregates: TenantAggregate[]; tenantCount: number }> {
+  if (input.scope === "tenant" && input.tenantId) {
     const facts = await collectTenantFacts(
       input.db as Transaction,
       { id: input.tenantId, name: input.tenantName },
       period,
     );
+    return { aggregates: [aggregateTenant(facts, period, "tenant")], tenantCount: 1 };
+  }
+  const covered = await input.providerDb
+    .select({ id: tenants.id, name: tenants.name })
+    .from(tenants)
+    .where(eq(tenants.status, "active"))
+    .orderBy(asc(tenants.name), asc(tenants.id));
+  const aggregates: TenantAggregate[] = [];
+  for (const tenant of covered) {
+    const facts = await withTenantTx(input.tenantPool, tenant.id, (tx) =>
+      collectTenantFacts(tx, tenant, period),
+    );
+    aggregates.push(aggregateTenant(facts, period, "provider"));
+  }
+  return { aggregates, tenantCount: covered.length };
+}
+
+export const summaryRenderer: ReportSummaryRenderer = {
+  async render(input) {
+    const i18n = createI18n(
+      input.brand
+        ? { lng: input.language, appName: input.brand.senderName }
+        : { lng: input.language },
+    );
+    const t = (key: string, values?: Record<string, unknown>) => String(i18n.t(key, values));
+    const locale = input.language === "de" ? "de-DE" : "en-GB";
+    const payload = input.payload;
+    const generatedAt = new Date();
+    const period = summaryPeriod(payload, generatedAt);
+    const { aggregates, tenantCount } = await summaryAggregates(input, period);
     const stats = buildStats({
       period,
-      scope: "tenant",
-      tenants: [aggregateTenant(facts, period, "tenant")],
-      generatedAt: end,
+      scope: input.scope,
+      tenants: aggregates,
+      generatedAt: new Date(String(payload.periodEnd ?? generatedAt.toISOString())),
     });
     const { kpis } = stats;
     const previous = t("reports:summary.previous");
-    const sections = (Array.isArray(payload.sections) ? payload.sections : []).filter(
+    // The provider's report and a cadence rule without a choice of sections show every block.
+    const requested = (Array.isArray(payload.sections) ? payload.sections : []).filter(
       (section): section is ReportSection =>
         typeof section === "string" && isReportSection(section),
     );
+    const sections = requested.length > 0 ? requested : [...REPORT_SECTIONS];
 
     const rows: [string, string][] = [];
     for (const section of sections) {
@@ -136,6 +208,10 @@ export const summaryRenderer: ReportSummaryRenderer = {
       }
     }
 
+    if (input.scope === "provider") {
+      rows.unshift([t("reports:summary.tenants"), count(tenantCount, locale)]);
+    }
+
     const message = renderSummaryFrame(
       {
         language: input.language,
@@ -143,9 +219,27 @@ export const summaryRenderer: ReportSummaryRenderer = {
         ruleName: input.ruleName,
         payload,
         test: input.test,
+        brand: input.brand,
       },
       rows,
     );
+    const attachments = input.attachPdf
+      ? [
+          {
+            filename: `summary-${period.current.from}-${period.current.to}.pdf`,
+            contentType: "application/pdf",
+            content: await renderStatsReport({
+              stats,
+              language: input.language,
+              subject:
+                input.scope === "provider"
+                  ? { kind: "provider", tenantCount }
+                  : { kind: "tenant", name: input.tenantName },
+              brand: input.pdfBrand ?? null,
+            }),
+          },
+        ]
+      : [];
     return {
       ...message,
       headline: {
@@ -153,10 +247,12 @@ export const summaryRenderer: ReportSummaryRenderer = {
         verifiedShare: kpis.verifiedShare.value,
         failedItems: kpis.failedItems.value,
       },
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
   },
 };
 
 export const reportsExtensionHooks: NonNullable<ApiExtension["hooks"]> = {
   reportSummary: summaryRenderer,
+  ...customerReportHooks,
 };

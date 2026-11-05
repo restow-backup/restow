@@ -5,7 +5,9 @@ import {
   EVENT_GROUPS,
   emptyRuleForm,
   eventGroupsFor,
+  failureReasonKey,
   formToInput,
+  groupEventsFor,
   parseOverdueHours,
   parseRecipients,
   presetCron,
@@ -59,9 +61,10 @@ describe("validateRuleForm", () => {
 });
 
 describe("formToInput / ruleToForm", () => {
-  it("turns a weekly report into a cron rule and back", () => {
+  it("turns a weekly report on an own schedule into a cron rule and back", () => {
     const form = {
       ...emptyRuleForm("schedule", "Europe/Berlin"),
+      cadence: null,
       name: " Weekly report ",
       recipientsText: "a@x.de\nb@x.de",
     };
@@ -168,15 +171,112 @@ describe("a rule's own deadline for missing backups", () => {
 describe("event groups", () => {
   it("offers the installation's own events to provider administrators only", () => {
     expect(eventGroupsFor(true)).toContain("system");
-    expect(eventGroupsFor(false)).not.toContain("system");
-    expect(eventGroupsFor(false)).toEqual(["jobs", "recoverability", "storage"]);
+    // A failed delivery (0.5.0) is about the tenant's own channels: the group stays, with it only.
+    expect(eventGroupsFor(false)).toEqual(["jobs", "recoverability", "storage", "system"]);
+    expect(groupEventsFor("system", false)).toEqual(["notification.delivery_failed"]);
     expect(EVENT_GROUPS.system).toEqual([
       "update.available",
       "installation.disk_low",
       "installation.app_secret_expiring",
       "installation.restore_mode",
       "installation.key_mirror_conflict",
+      "notification.delivery_failed",
     ]);
     expect(EVENT_GROUPS.jobs).toContain("source.app_secret_expiring");
+  });
+});
+
+describe("calendar cadences (0.5.0)", () => {
+  it("starts a new report on the calendar week and sends the cadence instead of a cron", () => {
+    const form = { ...emptyRuleForm("schedule", "Europe/Berlin"), name: "Weekly" };
+    expect(form.cadence).toBe("weekly");
+    expect(validateRuleForm(form)).toEqual({});
+    expect(formToInput({ ...form, attachPdf: true })).toMatchObject({
+      trigger: "schedule",
+      cadence: "weekly",
+      attachPdf: true,
+      cron: null,
+      intervalMinutes: null,
+    });
+  });
+
+  it("does not check the own time or cron while a cadence is chosen", () => {
+    const form = {
+      ...emptyRuleForm("schedule", "UTC"),
+      name: "Monthly",
+      cadence: "monthly" as const,
+    };
+    expect(validateRuleForm({ ...form, frequency: "custom", cron: "nonsense" })).toEqual({});
+    expect(
+      validateRuleForm({ ...form, cadence: null, frequency: "custom", cron: "nonsense" }).cron,
+    ).toBe("editor.errors.cron");
+  });
+
+  it("sends an own schedule with no cadence, and an alert with neither cadence nor PDF", () => {
+    const own = formToInput({
+      ...emptyRuleForm("schedule", "UTC"),
+      name: "Own",
+      cadence: null,
+      frequency: "daily",
+      time: "06:30",
+    });
+    expect(own).toMatchObject({ cadence: null, cron: "30 6 * * *", attachPdf: false });
+    const alert = formToInput({ ...emptyRuleForm("event", "UTC"), name: "Alerts" });
+    expect(alert).not.toHaveProperty("cadence");
+    expect(alert).not.toHaveProperty("attachPdf");
+  });
+
+  it("reads the cadence and the PDF switch of a stored rule", () => {
+    const rule = {
+      id: "r1",
+      name: "Daily",
+      enabled: true,
+      trigger: "schedule",
+      events: [],
+      throttleMinutes: 60,
+      intervalMinutes: null,
+      cron: "0 7 * * *",
+      timezone: "UTC",
+      nextRunAt: null,
+      lastRunAt: null,
+      periodDays: 1,
+      sections: ["backups"],
+      emailRecipients: [],
+      recipientCategory: null,
+      inApp: true,
+      webhookId: null,
+      language: null,
+      locked: false,
+      lastDelivery: null,
+      cadence: "daily",
+      attachPdf: true,
+      createdAt: "",
+      updatedAt: "",
+    } as ReportRule;
+    expect(ruleToForm(rule)).toMatchObject({ cadence: "daily", attachPdf: true });
+    expect(ruleToForm({ ...rule, cadence: undefined, attachPdf: undefined })).toMatchObject({
+      cadence: null,
+      attachPdf: false,
+      frequency: "daily",
+    });
+  });
+});
+
+describe("failed deliveries in rules (0.5.0)", () => {
+  it("offers a tenant administrator the failed delivery but not the installation events", () => {
+    expect(groupEventsFor("system", false)).toEqual(["notification.delivery_failed"]);
+    expect(groupEventsFor("system", true)).toContain("update.available");
+    expect(eventGroupsFor(false)).toContain("system");
+  });
+
+  it("names the words of a failing channel's reason, generic for unknown codes", () => {
+    expect(failureReasonKey("email", "recipient_rejected")).toBe(
+      "settings:mail.test.reasons.recipient_rejected",
+    );
+    expect(failureReasonKey("email", "something_new")).toBe(
+      "settings:mail.test.reasons.transport_error",
+    );
+    expect(failureReasonKey("webhook", "timeout")).toBe("integrations:deliveries.errors.timeout");
+    expect(failureReasonKey("webhook", "teapot")).toBe("integrations:deliveries.errors.unknown");
   });
 });

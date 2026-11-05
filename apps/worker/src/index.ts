@@ -131,7 +131,7 @@ import { handlers } from "./handlers/index.js";
 import { mailFilesCleanupTask } from "./handlers/mail-files-cleanup.js";
 import { startRepositoryRepairs } from "./handlers/repository-repair.js";
 import { retentionTasks } from "./handlers/retention.js";
-import { emitJobWebhook, webhooksHandler } from "./handlers/webhooks.js";
+import { emitJobWebhook, webhookOptionsFromEnv, webhooksHandler } from "./handlers/webhooks.js";
 import { JobPauseGate } from "./job-pause.js";
 import { startManifestConversion } from "./manifest-conversion.js";
 import {
@@ -144,7 +144,7 @@ import {
 import { startPveMaintenance } from "./pve/maintenance.js";
 import { pgBossQueueOptions, QUEUE_NAMES, queuePriority } from "./queues.js";
 import { startJobReconciler } from "./reconcile.js";
-import { raiseJobFinished } from "./reporting.js";
+import { configureReportTimeZone, raiseJobFinished } from "./reporting.js";
 import {
   checkAtStart,
   configureRestoreModeRuntime,
@@ -353,6 +353,9 @@ async function main(): Promise<void> {
   retentionTasks.register(immutabilityTask);
   // Snapshot retention waits for the ransomware judgement while the detection is on (suspicion/holds.ts).
   configureSuspicionHolds({ providerDb });
+  // The daily digest of a tenant without its own zone follows the installation's zone
+  // (settings.time_zone, read on the installation pool), as on the API's raise path.
+  configureReportTimeZone({ providerDb });
   // Retention tasks contributed by extensions, e.g. the archive deletion run
   // (ee/worker), which gets the installation pool: only the installation
   // role may delete from `archive_items` (packages/db/src/roles.ts).
@@ -480,12 +483,17 @@ async function main(): Promise<void> {
       await withTenantTx(db, tenantId, (tx) => raiseJobFinished(tx, tenantId, job));
     },
   };
-  // Deliveries are claimed across tenants: the dispatcher runs on the installation pool.
-  const webhookDispatcher = webhooksHandler.start({ ...runtime, db: providerDb });
-
   // Archive capture from the mailbox (docs/ARCHIVE.md "Erfassungswege"): idle unless the
-  // gate archive.mailboxCapture is open (an extension decides, ee/ by the license).
+  // gate archive.mailboxCapture is open (an extension decides, ee/ by the license). The same
+  // gate decides whether chat webhooks carry the branding (branding.provider, branding.tenant).
   const featureGate = extensionFeatureGate({ providerDb });
+
+  // Deliveries are claimed across tenants: the dispatcher runs on the installation pool.
+  const webhookDispatcher = webhooksHandler.start(
+    { ...runtime, db: providerDb },
+    webhookOptionsFromEnv(),
+    featureGate,
+  );
   configureArchiveHandler({ providerDb, gate: featureGate });
   const archiveCapture = new ArchiveCaptureService({
     db,

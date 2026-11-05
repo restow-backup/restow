@@ -53,6 +53,8 @@ export * from "./node-guard.js";
 export * from "./node-roles.js";
 // How many connections each pool may open (RESTOW_DB_POOL_MAX and its siblings).
 export * from "./pool-size.js";
+// Raising events for the bell, the rules and the provider's recipients (0.5.0).
+export * from "./report-events.js";
 // The lock that keeps the server's own work on one endpoint repository from overlapping.
 export * from "./repository-lock.js";
 // Services that need a manual restart, and why (the Updates tab shows them).

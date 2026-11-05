@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
 import { zodResolver } from "@/lib/form";
+import { hasFeature, useSession } from "@/lib/session";
 
 import {
   type CustomerDataFormValues,
@@ -140,6 +141,11 @@ export function CustomerDataPanel({ tenant, readOnly = false }: CustomerDataPane
                   <span className="font-medium">{contact.name}</span>
                   {contact.isPrimary ? (
                     <Badge variant="secondary">{t("customerPanel.primaryBadge")}</Badge>
+                  ) : null}
+                  {contact.monthlyReport ? (
+                    <Badge variant="outline" data-slot="contact-monthly-badge">
+                      {t("contacts.monthlyReportBadge")}
+                    </Badge>
                   ) : null}
                   {contact.role ? (
                     <span className="text-muted-foreground">{contact.role}</span>
@@ -428,6 +434,9 @@ function EditContactsDialog({
 
 function ContactsForm({ tenant, onDone }: { tenant: TenantDetail; onDone: () => void }) {
   const { t } = useTranslation("tenants");
+  // The customer monthly report (0.5.0, Service Provider) goes to the contacts that receive it.
+  const session = useSession();
+  const monthlyReport = session.isProviderAdmin && hasFeature(session, "reports.customer");
   const replace = useReplaceTenantContacts(tenant.id);
   const [submitError, setSubmitError] = React.useState<Message | null>(null);
   const form = useForm<TenantWizardValues>({
@@ -447,6 +456,7 @@ function ContactsForm({ tenant, onDone }: { tenant: TenantDetail; onDone: () => 
               email: contact.email ?? "",
               phone: contact.phone ?? "",
               isPrimary: contact.isPrimary,
+              monthlyReport: contact.monthlyReport,
             }))
           : [emptyContact(true)],
     },
@@ -467,6 +477,8 @@ function ContactsForm({ tenant, onDone }: { tenant: TenantDetail; onDone: () => 
           email: undefinedIfBlank(contact.email),
           phone: undefinedIfBlank(contact.phone),
           isPrimary: contact.isPrimary,
+          // Always sent as loaded: the server replaces the list, and a missing flag reads false.
+          monthlyReport: contact.monthlyReport === true,
         })),
       );
       toast.success(t("customerPanel.contactsSaved"));
@@ -478,7 +490,7 @@ function ContactsForm({ tenant, onDone }: { tenant: TenantDetail; onDone: () => 
 
   return (
     <div className="space-y-4">
-      <ContactsStep form={form} />
+      <ContactsStep form={form} monthlyReport={monthlyReport} />
       {submitError ? (
         <Alert variant="destructive">
           <TriangleAlert />

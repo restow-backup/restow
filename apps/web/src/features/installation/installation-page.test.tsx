@@ -122,6 +122,8 @@ describe("who opens the installation page", () => {
     expect(subnavEntries()).toEqual([
       "Server",
       "Notification mail",
+      "Notifications",
+      "Branding",
       "Microsoft multi-tenant app",
       "Default repository & network shares",
       "Cluster",

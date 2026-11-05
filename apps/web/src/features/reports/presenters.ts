@@ -1,5 +1,8 @@
+import { MAIL_TEST_FAILURE_REASONS as MAIL_FAILURE_REASON_KEYS } from "@/features/settings/api";
+
 import {
   REPORT_EVENTS,
+  type ReportCadence,
   type ReportEvent,
   type ReportRule,
   type ReportRuleInput,
@@ -23,6 +26,14 @@ export interface RuleFormState {
   enabled: boolean;
   events: ReportEvent[];
   throttleMinutes: number;
+  /**
+   * A report's calendar period (0.5.0): the previous day, week (Monday to Sunday) or month,
+   * sent at 07:00 in the rule's time zone. Null: an own schedule (`frequency`, `time`, `cron`)
+   * over the last `periodDays`.
+   */
+  cadence: ReportCadence | null;
+  /** The PDF statistics go along with the report (0.5.0). */
+  attachPdf: boolean;
   frequency: Frequency;
   /** 0 = Sunday … 6 = Saturday, as in cron. */
   weekday: number;
@@ -116,20 +127,39 @@ export const EVENT_GROUPS: Record<
     "endpoint.storage_quota",
     "file_share.storage_quota",
   ],
-  // About the installation, not a tenant's data: only provider administrators may pick these.
+  // About the installation, not a tenant's data: only provider administrators may pick these,
+  // except a failed delivery (0.5.0), which is about the tenant's own channels.
   system: [
     "update.available",
     "installation.disk_low",
     "installation.app_secret_expiring",
     "installation.restore_mode",
     "installation.key_mirror_conflict",
+    "notification.delivery_failed",
   ],
 };
 
-/** The event groups a person may put into a rule (installation events are the provider's). */
+/** The installation events (packages/core `isInstallationReportEvent`): the provider's own. */
+export const INSTALLATION_EVENTS: readonly ReportEvent[] = [
+  "update.available",
+  "installation.disk_low",
+  "installation.app_secret_expiring",
+];
+
+/** The events of `group` a person may put into a rule (installation events are the provider's). */
+export function groupEventsFor(
+  group: keyof typeof EVENT_GROUPS,
+  providerAdmin: boolean,
+): readonly ReportEvent[] {
+  return providerAdmin
+    ? EVENT_GROUPS[group]
+    : EVENT_GROUPS[group].filter((event) => !INSTALLATION_EVENTS.includes(event));
+}
+
+/** The event groups a person may put into a rule: those with at least one event for them. */
 export function eventGroupsFor(providerAdmin: boolean): (keyof typeof EVENT_GROUPS)[] {
   return (Object.keys(EVENT_GROUPS) as (keyof typeof EVENT_GROUPS)[]).filter(
-    (group) => group !== "system" || providerAdmin,
+    (group) => groupEventsFor(group, providerAdmin).length > 0,
   );
 }
 
@@ -149,6 +179,8 @@ export function emptyRuleForm(trigger: ReportTrigger, timezone = browserTimeZone
     events:
       trigger === "event" ? ["backup.failed", "restore.failed", "verify.red", "scrub.corrupt"] : [],
     throttleMinutes: 60,
+    cadence: trigger === "schedule" ? "weekly" : null,
+    attachPdf: false,
     frequency: "weekly",
     weekday: 1,
     time: "07:00",
@@ -217,6 +249,8 @@ export function ruleToForm(rule: ReportRule): RuleFormState {
     enabled: rule.enabled,
     events: [...rule.events],
     throttleMinutes: rule.throttleMinutes,
+    cadence: rule.trigger === "schedule" ? (rule.cadence ?? null) : null,
+    attachPdf: rule.attachPdf ?? false,
     frequency: preset?.frequency ?? "custom",
     weekday: preset?.weekday ?? 1,
     time: preset?.time ?? "07:00",
@@ -284,7 +318,9 @@ export function validateRuleForm(form: RuleFormState): RuleFormErrors {
   }
   if (form.trigger === "schedule") {
     if (form.sections.length === 0) errors.sections = "editor.errors.sections";
-    if (form.frequency === "custom") {
+    if (form.cadence) {
+      // A calendar period has its own time (07:00); nothing else to check.
+    } else if (form.frequency === "custom") {
       if (form.cron.trim().split(/\s+/).length !== 5) errors.cron = "editor.errors.cron";
     } else if (!TIME.test(form.time)) {
       errors.time = "editor.errors.time";
@@ -303,11 +339,14 @@ export function validateRuleForm(form: RuleFormState): RuleFormErrors {
 /** The request for a valid form. */
 export function formToInput(form: RuleFormState): ReportRuleInput {
   const schedule = form.trigger === "schedule";
-  const cron = !schedule
-    ? null
-    : form.frequency === "custom"
-      ? form.cron.trim()
-      : presetCron(form.frequency, form.weekday, form.time);
+  const cadence = schedule ? form.cadence : null;
+  // A calendar cadence brings its own cron (the server sets it); sending one as well is refused.
+  const cron =
+    !schedule || cadence
+      ? null
+      : form.frequency === "custom"
+        ? form.cron.trim()
+        : presetCron(form.frequency, form.weekday, form.time);
   return {
     trigger: form.trigger,
     name: form.name.trim(),
@@ -324,8 +363,38 @@ export function formToInput(form: RuleFormState): ReportRuleInput {
     webhookId: form.webhookId,
     language: form.language,
     overdueAfterHours: usesOverdueDeadline(form) ? parseOverdueHours(form.overdueHours) : null,
+    ...(schedule ? { cadence, attachPdf: form.attachPdf } : {}),
   };
 }
+
+/**
+ * The namespaced i18n key of why a channel's deliveries fail (0.5.0): a mail reason of the
+ * notification mail (settings), a webhook's error code (integrations); unknown codes read as
+ * the generic one of their channel.
+ */
+export function failureReasonKey(channel: "email" | "webhook", reason: string): string {
+  if (channel === "email") {
+    const known = (MAIL_FAILURE_REASON_KEYS as readonly string[]).includes(reason);
+    return `settings:mail.test.reasons.${known ? reason : "transport_error"}`;
+  }
+  const known = (WEBHOOK_FAILURE_CODES as readonly string[]).includes(reason);
+  return `integrations:deliveries.errors.${known ? reason : "unknown"}`;
+}
+
+/** The webhook error codes the delivery log words (apps/worker handlers/webhooks.ts). */
+const WEBHOOK_FAILURE_CODES = [
+  "http_error",
+  "redirect",
+  "timeout",
+  "connection_failed",
+  "dns_failed",
+  "tls_failed",
+  "blocked_address",
+  "invalid_url",
+  "secret_missing",
+  "webhook_disabled",
+  "internal",
+] as const;
 
 /** Channels of a rule for the list: "2 recipients · bell · webhook". */
 export function channelSummary(

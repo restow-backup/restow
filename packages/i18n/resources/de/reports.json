@@ -226,7 +226,18 @@
     },
     "panelTitle": "Regeln für Alarme und Berichte",
     "panelDescription": "Ein Alarm wird gesendet, wenn etwas passiert, ein Bericht zu einem Zeitpunkt. Die Empfänger oben speisen die Regeln, die mit ihnen gekennzeichnet sind.",
-    "noChannel": "Sendet nichts: kein Kanal"
+    "noChannel": "Sendet nichts: kein Kanal",
+    "calendar": {
+      "daily": "Vortag, um 07:00",
+      "weekly": "Vorwoche (Montag bis Sonntag), montags um 07:00",
+      "monthly": "Vormonat, am 1. um 07:00"
+    },
+    "withPdf": "mit PDF",
+    "deliveryProblems": {
+      "title": "Zustellungen scheitern",
+      "email": "{recipient}: scheitert seit {since}. {reason}",
+      "webhook": "Webhook: scheitert seit {since}. {reason}"
+    }
   },
   "deliveries": {
     "title": "Zustellprotokoll",
@@ -240,7 +251,8 @@
       "what": "Betrifft",
       "channel": "Kanal",
       "status": "Status",
-      "tenant": "Mandant"
+      "tenant": "Mandant",
+      "audience": "Für"
     },
     "channel": {
       "email": "E-Mail",
@@ -281,7 +293,22 @@
     },
     "loadMore": "Ältere laden",
     "openRule": "Regel unter Mandant › Benachrichtigungen öffnen",
-    "openWebhook": "Zustellung am Webhook ansehen"
+    "openWebhook": "Zustellung am Webhook ansehen",
+    "audience": {
+      "installation": "Installation",
+      "about": "zu {tenant}",
+      "tenant": "Mandant",
+      "provider": "Provider"
+    },
+    "digestWaiting": {
+      "hourly": "Wartet auf die stündliche Sammelmail",
+      "daily": "Wartet auf die tägliche Sammelmail"
+    },
+    "digestDue": "Geht hinaus",
+    "digestSent": {
+      "hourly": "In der stündlichen Sammelmail gesendet",
+      "daily": "In der täglichen Sammelmail gesendet"
+    }
   },
   "editor": {
     "title": {
@@ -365,7 +392,25 @@
       "timezone": "Diese Zeitzone ist unbekannt. Wählen Sie eine aus der Liste, z. B. Europe/Berlin.",
       "overdueHours": "Geben Sie eine ganze Zahl von Stunden zwischen 24 und 720 ein."
     },
-    "recipientsManaged": "Das sind die Empfänger, die diese Kategorie unter Empfänger gewählt haben. Ändern Sie sie dort."
+    "recipientsManaged": "Das sind die Empfänger, die diese Kategorie unter Empfänger gewählt haben. Ändern Sie sie dort.",
+    "cadence": {
+      "label": "Zeitraum",
+      "options": {
+        "daily": "Vortag",
+        "weekly": "Vorwoche (Montag bis Sonntag)",
+        "monthly": "Vormonat",
+        "custom": "Eigenes Intervall oder Cron"
+      },
+      "hints": {
+        "daily": "Wird täglich um 07:00 in der Zeitzone unten gesendet, über den Vortag.",
+        "weekly": "Wird jeden Montag um 07:00 in der Zeitzone unten gesendet, über die Kalenderwoche davor.",
+        "monthly": "Wird am 1. um 07:00 in der Zeitzone unten gesendet, über den Kalendermonat davor.",
+        "custom": "Ihr eigener Zeitplan, über die unten gewählten letzten Tage."
+      }
+    },
+    "attachPdf": "PDF-Statistik anhängen",
+    "attachPdfHint": "Die Berichtsmail trägt die PDF-Statistik des Zeitraums.",
+    "attachPdfUnavailable": "Die PDF-Statistik steht auf dieser Installation nicht zur Verfügung."
   },
   "eventGroups": {
     "jobs": "Läufe",
@@ -431,6 +476,9 @@
     "object": {
       "inactive": "Objekt nicht mehr gesichert, bitte bestätigen",
       "inactive_many": "Viele Objekte nicht mehr gesichert"
+    },
+    "notification": {
+      "delivery_failed": "Benachrichtigung nicht zustellbar"
     }
   },
   "eventHints": {
@@ -491,6 +539,9 @@
     "object": {
       "inactive": "Einmal je Objekt, wenn {appName} es nicht mehr sichert, weil die Quelle es nicht mehr kennt, das Konto deaktiviert oder ohne Lizenz ist oder Microsoft das OneDrive oder die Website gesperrt hat. Außerdem einmal je IMAP-Konto, wenn die Anmeldung seit mehreren Tagen abgelehnt wird und eine Antwort fehlt, ob das Konto abgeschaltet wurde. Kein Fehler: Bestätigen oder beantworten Sie es unter Schutz.",
       "inactive_many": "Eine Warnung statt vieler Hinweise, wenn bei einem Mandanten an einem Tag mehr als 10 Objekte oder mehr als 20 % der gesicherten Objekte nicht mehr gesichert werden, zum Beispiel weil Lizenzen entfernt wurden oder der Abgleich falsch eingegrenzt ist. Ebenso bei IMAP-Konten, deren Anmeldefragen gleichzeitig entstehen, etwa nach einer Passwortänderung der Quelle."
+    },
+    "notification": {
+      "delivery_failed": "Eine Benachrichtigung konnte nicht zugestellt werden: Der Mailserver hat eine Adresse abgewiesen, der Mailversand ist gestört oder ein Webhook schlägt wiederholt fehl. Wird einmal je Störung ausgelöst, nie über den gestörten Kanal, immer in der Glocke und an die Pflichtempfänger des Providers."
     }
   },
   "sections": {
@@ -585,6 +636,19 @@
     "inactiveConfirm": "Prüfen Sie unter Schutz, ob das beabsichtigt ist, und bestätigen Sie es mit \"Ja, beabsichtigt\". Vorhandene Sicherungen bleiben erhalten. Wird das Objekt an der Quelle wieder aktiv, sichert {appName} es von selbst wieder.",
     "loginQuestionConfirm": "Beantworten Sie unter Schutz, ob dieses Konto abgeschaltet wurde. Mit \"Ja, abgeschaltet\" werden keine Sicherungen mehr erstellt und das Konto wird grau angezeigt; mit \"Nein, Anmeldung korrigieren\" bleibt es geschützt. Vorhandene Sicherungen bleiben in beiden Fällen erhalten.",
     "loginQuestionSourceFirst": "Die Anmeldung wird bei mehreren Konten derselben Quelle abgelehnt. Prüfen Sie zuerst das Passwort der Quelle und beantworten Sie dann unter Schutz, ob die Konten abgeschaltet wurden. Vorhandene Sicherungen bleiben in beiden Fällen erhalten.",
+    "installation": "Installation",
+    "deliveryFailed": {
+      "channel": "Kanal",
+      "email": "E-Mail",
+      "webhook": "Webhook",
+      "webhookName": "Webhook",
+      "recipient": "Empfänger",
+      "transport": "Der Mailversand insgesamt",
+      "reason": "Grund",
+      "since": "Gestört seit",
+      "count": "Nicht zugestellte Benachrichtigungen",
+      "rule": "Regel"
+    },
     "restoreModeTodo": "Prüfen Sie die zurückgespielte Datenbank unter Installation, Wiederherstellungsmodus, übernehmen Sie Schlüsselversionen aus dem Speicher und beenden Sie dann den Wiederherstellungsmodus. Bis dahin wird nichts gelöscht; Sicherungen laufen weiter.",
     "keyMirrorTodo": "Behalten Sie den gespeicherten Schlüssel: Daten, die damit geschrieben wurden, brauchen ihn möglicherweise. Vergleichen Sie ihn unter Installation, Wiederherstellungsmodus mit dem der Datenbank (docs/STORAGE.md).",
     "keyVersion": "Schlüsselversion",
@@ -601,7 +665,8 @@
     "noFailures": "Keine in diesem Zeitraum",
     "logicalBytes": "Geschützte Daten",
     "physicalBytes": "Gespeichert nach Deduplizierung",
-    "restores": "Wiederherstellungen"
+    "restores": "Wiederherstellungen",
+    "tenants": "Mandanten"
   },
   "bell": {
     "label": "Benachrichtigungen",
@@ -701,6 +766,11 @@
       "inactive_many": "{count} Objekte werden seit heute nicht mehr gesichert, bitte prüfen und bestätigen",
       "login_question": "{object}: Die Anmeldung wird seit mehreren Tagen abgelehnt, wurde das Konto abgeschaltet?",
       "login_question_many": "{count} IMAP-Konten: Die Anmeldung wird seit mehreren Tagen abgelehnt, bitte Passwort der Quelle prüfen und beantworten, ob sie abgeschaltet wurden"
+    },
+    "notification": {
+      "delivery_failed_transport": "Benachrichtigungsmail kann nicht gesendet werden",
+      "delivery_failed_recipient": "Mail an {recipient} kann nicht zugestellt werden",
+      "delivery_failed_webhook": "Webhook scheitert weiter: {webhook}"
     }
   },
   "toasts": {
@@ -743,7 +813,11 @@
     "weeklyReport": "Wochenbericht",
     "errors": "Weitere Fehler",
     "warnings": "Warnungen",
-    "notices": "Hinweise"
+    "notices": "Hinweise",
+    "dailyReport": "Tagesbericht",
+    "monthlyReport": "Monatsbericht",
+    "customerReport": "Monatlicher Kundenbericht",
+    "provider": "Provider-Benachrichtigungen"
   },
   "history": {
     "title": "Benachrichtigungen",
@@ -762,5 +836,55 @@
     "empty": "Keine Benachrichtigungen.",
     "loadError": "Die Benachrichtigungen konnten nicht geladen werden.",
     "loadMore": "Ältere laden"
+  },
+  "digest": {
+    "subject": "{count, plural, one {# Benachrichtigung} other {# Benachrichtigungen}} in der Sammelmail",
+    "subjectProvider": "{appName}: {count, plural, one {# Benachrichtigung} other {# Benachrichtigungen}} in der Sammelmail",
+    "intro": "{count, plural, one {# Benachrichtigung} other {# Benachrichtigungen}} vom {from} bis {to} (UTC).",
+    "more": "Und {count, plural, one {# weitere} other {# weitere}}.",
+    "tenantHeading": "{tenant}",
+    "hourly": "Stündliche Sammelmail",
+    "daily": "Tägliche Sammelmail",
+    "footer": "Sie erhalten diese Sammelmail, weil Ihre Benachrichtigungseinstellungen in {appName} diese Benachrichtigungen sammeln. Kritische Ereignisse werden immer sofort gesendet.",
+    "level": {
+      "error": "Fehler",
+      "warning": "Warnung",
+      "info": "Hinweis"
+    }
+  },
+  "customer": {
+    "title": "Monatsbericht",
+    "subtitle": "{tenant}, {month}",
+    "period": "Berichtszeitraum: {month}",
+    "kpis": {
+      "title": "Auf einen Blick",
+      "backupSuccessRate": "Erfolgreiche Sicherungen",
+      "verifiedShare": "Nachweislich wiederherstellbar",
+      "restores": "Wiederherstellungen",
+      "storedBytes": "Belegter Speicher",
+      "suspicious": "Verdächtige Befunde"
+    },
+    "objects": {
+      "title": "Was geschützt ist",
+      "kind": "Art",
+      "count": "Anzahl",
+      "empty": "Noch ist nichts geschützt."
+    },
+    "incidents": {
+      "title": "Häufigste Ursachen fehlgeschlagener Sicherungen",
+      "cause": "Ursache",
+      "count": "Anzahl",
+      "empty": "Keine fehlgeschlagenen Sicherungen in diesem Monat."
+    },
+    "kinds": {
+      "mailbox": "Postfächer",
+      "onedrive": "OneDrive",
+      "imap": "IMAP-Konten",
+      "site": "SharePoint-Websites",
+      "group": "Microsoft-365-Gruppen",
+      "endpoint": "Server und Clients",
+      "file_share": "Dateifreigaben",
+      "pve_guest": "Virtuelle Maschinen und Container"
+    }
   }
 }

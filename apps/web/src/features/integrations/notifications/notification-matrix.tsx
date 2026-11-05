@@ -1,8 +1,9 @@
-import { Bell, ChevronDown, Mail, Webhook as WebhookIcon } from "lucide-react";
+import { Bell, ChevronDown, Lock, Mail, TriangleAlert, Webhook as WebhookIcon } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
+import { HintTooltip } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +25,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import type { MatrixChannel, NotificationMatrix, ReportEvent } from "@/features/reports/api";
+import { failureReasonKey } from "@/features/reports/presenters";
+import "@/features/settings/i18n";
 
 import { useNotificationMatrix, useSaveNotificationMatrix } from "../hooks";
 import { integrationErrorKey } from "../presenters";
@@ -32,12 +35,15 @@ import {
   CHANNEL_PRESETS,
   type ChannelPreset,
   changedChannels,
+  channelFailure,
   channelKey,
   channelSubtitle,
   channelTitle,
+  digestModesOf,
   draftFrom,
   groupedRows,
   LEVEL_VARIANT,
+  lockedEventsOf,
   type MatrixDraft,
   type MatrixRow,
   presetOf,
@@ -50,6 +56,10 @@ import {
  * recipient); a cell says whether the channel gets the event. Each column has quick choices
  * (errors only, errors and warnings, everything). Changes stay a draft until saved, so a few
  * clicks become one save.
+ *
+ * The bell's critical cells are locked on (0.5.0): security and data-loss events and failed
+ * deliveries always reach it. An e-mail column shows its digest modes as a chip, and a channel
+ * whose deliveries keep failing a warning sign with the reason.
  *
  * Keyboard: every cell is a checkbox in the tab order, and the arrow keys move between the cells
  * of the matrix like in a grid. On a phone the matrix shows one channel at a time, chosen above
@@ -90,10 +100,16 @@ function MatrixEditor({ matrix }: { matrix: NotificationMatrix }) {
   const changes = changedChannels(matrix, draft);
   const dirty = changes.length > 0;
 
-  const toggle = (key: string, event: ReportEvent, on: boolean) =>
+  const lockedByKey = React.useMemo(
+    () => new Map(matrix.channels.map((channel) => [channelKey(channel), lockedEventsOf(channel)])),
+    [matrix.channels],
+  );
+  const toggle = (key: string, event: ReportEvent, on: boolean) => {
+    if (!on && lockedByKey.get(key)?.includes(event)) return;
     setDraft((current) => toggleCell(current, key, event, on, rows));
+  };
   const preset = (key: string, choice: ChannelPreset) =>
-    setDraft((current) => applyPreset(current, key, choice, rows));
+    setDraft((current) => applyPreset(current, key, choice, rows, lockedByKey.get(key) ?? []));
 
   async function onSave() {
     try {
@@ -237,7 +253,78 @@ function EventLabel({ row }: { row: MatrixRow }) {
         {t(`reports:events.${row.name}`)}
       </span>
       <Badge variant={LEVEL_VARIANT[row.level]}>{t(`matrix.levels.${row.level}`)}</Badge>
+      {row.critical ? (
+        <Badge variant="outline" data-slot="matrix-critical">
+          {t("matrix.critical")}
+        </Badge>
+      ) : null}
     </span>
+  );
+}
+
+/** The chips under a column's title: its digest modes, and a sign when its deliveries fail. */
+function ChannelState({ channel }: { channel: MatrixChannel }) {
+  const { t, i18n } = useTranslation("integrations");
+  const digests = digestModesOf(channel);
+  const failure = channelFailure(channel);
+  if (digests.length === 0 && !failure) return null;
+  const since = failure?.since
+    ? new Date(failure.since).toLocaleString(i18n.resolvedLanguage ?? i18n.language)
+    : "";
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-1">
+      {digests.map(([level, mode]) => (
+        <Badge key={level} variant="muted" data-slot="matrix-digest">
+          {t("matrix.digestChip", {
+            level: t(`matrix.levels.${level}`),
+            mode: t(`matrix.delivery.${mode}`),
+          })}
+        </Badge>
+      ))}
+      {failure ? (
+        <HintTooltip
+          content={t("matrix.failing", {
+            since,
+            // A mail reason is a code with words of its own; a webhook's last error is a line.
+            reason:
+              channel.kind === "email" && failure.reason
+                ? t(failureReasonKey("email", failure.reason))
+                : failure.reason || t("matrix.failingUnknown"),
+          })}
+        >
+          <button
+            type="button"
+            className="inline-flex rounded-sm text-destructive-text outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={t("matrix.failingLabel", { channel: channelTitle(channel, t) })}
+            data-slot="matrix-failing"
+          >
+            <TriangleAlert aria-hidden="true" className="size-3.5" />
+          </button>
+        </HintTooltip>
+      ) : null}
+    </span>
+  );
+}
+
+/** A cell the column cannot switch off: ticked, closed, with the reason on hover or focus. */
+function LockedCell({ label, row, column }: { label: string; row?: number; column?: number }) {
+  const { t } = useTranslation("integrations");
+  return (
+    <HintTooltip content={t("matrix.locked")}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the arrow keys move on from a locked cell like from any other */}
+      <span
+        className="inline-flex items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: the reason has to be reachable by keyboard
+        tabIndex={0}
+        onKeyDown={moveFocus}
+        data-row={row}
+        data-column={column}
+        data-slot="matrix-locked-cell"
+      >
+        <Checkbox checked disabled aria-label={label} tabIndex={-1} />
+        <Lock aria-hidden="true" className="size-3 text-muted-foreground" />
+      </span>
+    </HintTooltip>
   );
 }
 
@@ -296,6 +383,7 @@ function GridView({ matrix, groups, draft, rows, onToggle, onPreset }: ViewProps
                       ? ` · ${t("matrix.paused")}`
                       : null}
                   </span>
+                  <ChannelState channel={channel} />
                   <PresetMenu
                     channel={channel}
                     events={draft[key] ?? []}
@@ -329,6 +417,17 @@ function GridView({ matrix, groups, draft, rows, onToggle, onPreset }: ViewProps
                   {matrix.channels.map((channel, column) => {
                     const key = channelKey(channel);
                     const on = (draft[key] ?? []).includes(row.name);
+                    const label = t("matrix.cell", {
+                      event: t(`reports:events.${row.name}`),
+                      channel: channelTitle(channel, t),
+                    });
+                    if (lockedEventsOf(channel).includes(row.name)) {
+                      return (
+                        <td key={key} className="px-2 py-2">
+                          <LockedCell label={label} row={rowIndex} column={column} />
+                        </td>
+                      );
+                    }
                     return (
                       <td key={key} className="px-2 py-2">
                         <Checkbox
@@ -337,10 +436,7 @@ function GridView({ matrix, groups, draft, rows, onToggle, onPreset }: ViewProps
                           onKeyDown={moveFocus}
                           data-row={rowIndex}
                           data-column={column}
-                          aria-label={t("matrix.cell", {
-                            event: t(`reports:events.${row.name}`),
-                            channel: channelTitle(channel, t),
-                          })}
+                          aria-label={label}
                         />
                       </td>
                     );
@@ -386,6 +482,7 @@ function PhoneView({ matrix, groups, draft, rows, onToggle, onPreset }: ViewProp
           </SelectContent>
         </Select>
       </div>
+      <ChannelState channel={channel} />
       <fieldset className="flex flex-wrap gap-2">
         <legend className="sr-only">{t("matrix.presetsLabel")}</legend>
         {CHANNEL_PRESETS.map((preset) => (
@@ -409,6 +506,19 @@ function PhoneView({ matrix, groups, draft, rows, onToggle, onPreset }: ViewProp
           <ul className="space-y-2">
             {groupRows.map((row) => {
               const id = `matrix-phone-${row.name.replace(".", "-")}`;
+              if (lockedEventsOf(channel).includes(row.name)) {
+                return (
+                  <li key={row.name} className="flex items-start gap-2.5">
+                    <LockedCell
+                      label={t("matrix.cell", {
+                        event: t(`reports:events.${row.name}`),
+                        channel: channelTitle(channel, t),
+                      })}
+                    />
+                    <EventLabel row={row} />
+                  </li>
+                );
+              }
               return (
                 <li key={row.name} className="flex items-start gap-2.5">
                   <Checkbox

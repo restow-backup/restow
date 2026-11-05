@@ -22,6 +22,8 @@
     "agentPolicy": "Richtlinie der Agenten",
     "proxmox": "Proxmox VE",
     "pricing": "Preise",
+    "notifications": "Benachrichtigungen",
+    "branding": "Branding",
     "restoreMode": "Wiederherstellungsmodus",
     "cluster": "Cluster"
   },
@@ -42,6 +44,8 @@
     "agentPolicy": "Sicherungsfenster, verpasste Sicherungen, Bandbreite, Netzteil und Wiederholungen der Server und Clients, und was Mandanten ändern dürfen.",
     "proxmox": "Wie die Sicherungsstände von VMs und Containern geprüft werden, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts.",
+    "notifications": "Wer auf Ihrer Seite was über {scope, select, organisation {Ihre Organisation} other {jeden Mandanten}} und die Installation erfährt: die Empfänger, die verpflichtenden, Sammelmails und die Zusammenfassungen.",
+    "branding": "Ihr Logo, Absender, Akzentfarbe und Fußzeile in den Mails und Chat-Nachrichten {scope, select, organisation {Ihrer Organisation} other {aller Mandanten}}.",
     "restoreMode": "Nach dem Zurückspielen eines Datenbank-Dumps: Nichts wird gelöscht, bis ein Provider-Inhaber die zurückgespielte Datenbank geprüft hat.",
     "cluster": "Worker-Knoten auf anderen Hosts: was sie brauchen, Einmal-Beitrittstoken, einen Knoten entfernen."
   },
@@ -633,6 +637,7 @@
       "loadError": "Die Liste der Mandanten mit eigenen Preisen konnte nicht geladen werden."
     }
   },
+  "featureLocked": "Nicht Teil dieses Builds",
   "restoreMode": {
     "banner": {
       "text": "Der Wiederherstellungsmodus ist aktiv: {appName} löscht nichts (keine Aufbewahrung, keine Bereinigung, kein Löschen von Freigaben). Sicherungen laufen weiter. Ein Provider-Inhaber beendet ihn nach der Prüfung.",

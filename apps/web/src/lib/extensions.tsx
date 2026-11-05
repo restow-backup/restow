@@ -7,6 +7,7 @@ import type { CaptureWays } from "@/features/backup-jobs/capture-ways";
 import type { ProviderView } from "@/features/dashboard/api";
 import type { WidgetView } from "@/features/dashboard/presenters";
 import type { ReadinessState } from "@/features/verify/search";
+import type { GatedFeature } from "@/lib/api";
 import type { NavItem, NavLock } from "@/lib/navigation";
 import type { SessionTenant } from "@/lib/session";
 
@@ -111,6 +112,14 @@ export interface SlotProps {
    * which edition has them and, to whom may open it, where the key goes.
    */
   "reports.scheduleLocked": Record<string, never>;
+  /**
+   * Why a part of a page is closed because the installation does not enable the gated feature
+   * `feature` (0.5.0: branding, the customer monthly report, the summary reports of the
+   * provider's recipients). The core renders a neutral note with the way to Installation ›
+   * Edition as the fallback; an extension names the edition that unlocks it and, to whom may open
+   * it, where the key goes.
+   */
+  "feature.locked": { feature: GatedFeature };
 }
 
 export type SlotName = keyof SlotProps;
@@ -193,6 +202,8 @@ export interface TenantSectionSpec {
   readonly order: number;
   readonly component: React.ComponentType<TenantSectionProps>;
   readonly lock?: NavLock;
+  /** Only provider administrators see the section (the tenant's own administrators never). */
+  readonly providerOnly?: boolean;
 }
 
 type SlotComponents = { [K in SlotName]?: React.ComponentType<SlotProps[K]> };

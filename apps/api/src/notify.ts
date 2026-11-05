@@ -1,4 +1,4 @@
-import type { AppCredentials } from "@restow/core";
+import { type AppCredentials, addressOf, isPlainEmail } from "@restow/core";
 import type { SupportedLanguage } from "@restow/i18n";
 import nodemailer, { type Transporter } from "nodemailer";
 import type { Config } from "./config.js";
@@ -9,13 +9,16 @@ import {
   type NotificationMessage,
   type Notifier,
   type NotifyResult,
+  singleLine,
   testNotification,
 } from "./notify-core.js";
 import { GoogleNotifier, type GoogleServiceAccountKey } from "./notify-google.js";
 import { type GraphMailApp, GraphNotifier } from "./notify-graph.js";
 
 export {
+  isTransportFailureReason,
   MAIL_FAILURE_REASONS,
+  type MailAttachment,
   type MailFailureReason,
   type NotificationMessage,
   type Notifier,
@@ -121,6 +124,91 @@ export function smtpFailureReason(err: unknown): MailFailureReason {
   return "transport_error";
 }
 
+/** SMTP answers that refuse a recipient or the message for good. */
+const PERMANENT_SMTP_CODES: ReadonlySet<number> = new Set([550, 551, 553, 554]);
+
+function smtpErrorFields(err: unknown): {
+  responseCode?: unknown;
+  command: string;
+  code?: unknown;
+  /** The server's reply and the error's message, where the reply's wording is found. */
+  text: string;
+} {
+  if (typeof err !== "object" || err === null) {
+    return { command: "", text: "" };
+  }
+  const { responseCode, command, code, response } = err as {
+    responseCode?: unknown;
+    command?: unknown;
+    code?: unknown;
+    response?: unknown;
+  };
+  return {
+    responseCode,
+    code,
+    command: typeof command === "string" ? command.toUpperCase() : "",
+    text: `${typeof response === "string" ? response : ""}\n${errorMessage(err)}`,
+  };
+}
+
+/**
+ * The wording of a server that refuses the sender after MAIL FROM: Postfix and its relatives
+ * (`reject_sender_login_mismatch`, `smtpd_delay_reject`) answer at RCPT TO with "Sender address
+ * rejected" or "not owned by user", Exchange Online after DATA with 5.2.252 `SendAsDenied` ("not
+ * allowed to send as") or 5.7.60 ("does not have permissions to send as this sender").
+ */
+const SENDER_REFUSAL_WORDING =
+  /sender address rejected|not owned by (?:the )?(?:auth(?:enticated)? )?user|\b5\.2\.252\b|sendasdenied|not (?:allowed|authori[sz]ed|permitted) to send (?:as|on behalf)|permissions? to send as/i;
+
+/**
+ * Whether a nodemailer error is a permanent refusal of the recipient or the message: a 550, 551,
+ * 553 or 554 answer to RCPT TO or DATA. nodemailer reports a refused envelope as `EENVELOPE`
+ * whichever step refused it, so the step (`command`) decides: a refused MAIL FROM is the sender
+ * (see {@link isSmtpSenderRejection}), never the recipient. Retrying cannot change it; the
+ * address raises a delivery failure alert instead (0.5.0).
+ */
+export function isPermanentSmtpRejection(err: unknown): boolean {
+  const { responseCode, command } = smtpErrorFields(err);
+  if (typeof responseCode !== "number" || !PERMANENT_SMTP_CODES.has(responseCode)) {
+    return false;
+  }
+  if (isSmtpSenderRejection(err)) {
+    return false;
+  }
+  return command.startsWith("RCPT") || command === "DATA" || command === "MESSAGE";
+}
+
+/**
+ * Whether the server refused the sender, e.g. a branded From the relay will not send as: a 5xx
+ * answer to MAIL FROM, or a 5xx answer to RCPT TO or DATA whose wording names the sender
+ * ({@link SENDER_REFUSAL_WORDING}; many servers check the sender only there). That concerns every
+ * message, not one address: it is reported as `smtp_sender_rejected`, a failure of the transport
+ * (one episode), and retried like one.
+ */
+export function isSmtpSenderRejection(err: unknown): boolean {
+  const { responseCode, command, text } = smtpErrorFields(err);
+  if (typeof responseCode !== "number" || responseCode < 500 || responseCode >= 600) {
+    return false;
+  }
+  if (command === "MAIL FROM") {
+    return true;
+  }
+  const later = command.startsWith("RCPT") || command === "DATA" || command === "MESSAGE";
+  return later && SENDER_REFUSAL_WORDING.test(text);
+}
+
+/** nodemailer's attachment shape for ours (inline when it has a Content-ID). */
+export function nodemailerAttachments(message: NotificationMessage) {
+  return (message.attachments ?? []).map((attachment) => ({
+    filename: singleLine(attachment.filename),
+    contentType: attachment.contentType,
+    content: attachment.content,
+    ...(attachment.cid
+      ? { cid: singleLine(attachment.cid), contentDisposition: "inline" as const }
+      : {}),
+  }));
+}
+
 /** SMTP transport via nodemailer. */
 export class SmtpNotifier implements Notifier {
   private readonly transporter: Transporter;
@@ -131,17 +219,39 @@ export class SmtpNotifier implements Notifier {
     this.from = smtp.from ?? "";
   }
 
+  /** The From of a message: the branding's name and address, else the configured sender. */
+  private fromOf(message: NotificationMessage): string | { name: string; address: string } {
+    if (!message.from) {
+      return this.from;
+    }
+    const address =
+      message.from.address && isPlainEmail(message.from.address)
+        ? message.from.address
+        : (addressOf(this.from) ?? this.from);
+    return { name: singleLine(message.from.name), address };
+  }
+
   async send(message: NotificationMessage): Promise<NotifyResult> {
     try {
       await this.transporter.sendMail({
-        from: this.from,
+        from: this.fromOf(message),
         to: message.to,
         subject: message.subject,
         text: message.text,
         html: message.html,
+        ...(message.replyTo && isPlainEmail(message.replyTo)
+          ? { replyTo: singleLine(message.replyTo) }
+          : {}),
+        ...(message.attachments?.length ? { attachments: nodemailerAttachments(message) } : {}),
       });
       return { ok: true };
     } catch (err) {
+      if (isSmtpSenderRejection(err)) {
+        return failed("smtp_sender_rejected", errorMessage(err));
+      }
+      if (isPermanentSmtpRejection(err)) {
+        return { ...failed("recipient_rejected", errorMessage(err)), permanent: true };
+      }
       return failed(smtpFailureReason(err), errorMessage(err));
     }
   }

@@ -38,6 +38,14 @@ export const CAPABILITIES = [
   /** The audit log viewer: search, entry details and chain verification
    *  (Business+). Recording every read and restore stays in every edition. */
   "audit.log",
+  /** The provider's branding on mails, reports and chat webhooks: logo, accent, sender name,
+   *  From, Reply-To and footer (Business+). Community keeps the product name only. */
+  "branding.provider",
+  /** A tenant's own branding, overriding the provider's for its messages (Service Provider). */
+  "branding.tenant",
+  /** The customer monthly report (HTML mail and PDF with the provider's branding) to the
+   *  tenant's contacts (Service Provider). */
+  "reports.customer",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -61,6 +69,9 @@ export const CAPABILITY_MIN_EDITION: Readonly<Record<Capability, LicenseEdition>
   "auth.microsoftSso": "business",
   "reports.scheduled": "business",
   "audit.log": "business",
+  "branding.provider": "business",
+  "branding.tenant": "service_provider",
+  "reports.customer": "service_provider",
 };
 
 /** Whether `edition` includes `capability`. Editions are cumulative: a later

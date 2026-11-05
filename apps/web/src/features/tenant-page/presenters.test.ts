@@ -5,13 +5,14 @@ import type { TenantSectionSpec } from "@/lib/extensions";
 import type { NavLock } from "@/lib/navigation";
 import { TENANT_SECTION_IDS } from "@/lib/tenant-paths";
 
-import { TENANT_SECTION_META } from "./meta";
+import { TENANT_SECTION_META, visibleSectionMeta } from "./meta";
 import {
   isCoreSectionId,
   isSectionClosed,
   parseConnectionsSearch,
   tenantSectionStates,
 } from "./presenters";
+import { tenantSections } from "./sections";
 
 const lock = (locked: boolean): NavLock => ({
   isLocked: () => locked,
@@ -24,7 +25,7 @@ function spec(id: string, order: number, withLock?: NavLock): TenantSectionSpec 
 }
 
 describe("the sections of the tenant page", () => {
-  it("are the twelve the core offers, in the order of the sub-navigation, the audit log's place left open", () => {
+  it("are the thirteen the core offers, in the order of the sub-navigation, the audit log's place left open", () => {
     expect(TENANT_SECTION_META.map((meta) => meta.id)).toEqual([...TENANT_SECTION_IDS]);
     expect(TENANT_SECTION_META.map((meta) => meta.id)).toEqual([
       "overview",
@@ -36,6 +37,7 @@ describe("the sections of the tenant page", () => {
       "agents",
       "archive",
       "notifications",
+      "branding",
       "integrations",
       "members",
       "master-data",
@@ -63,6 +65,17 @@ describe("the sections of the tenant page", () => {
   });
 });
 
+describe("the sections for provider administrators only (0.5.0)", () => {
+  it("leave the tenant's own branding out for the tenant's administrators", () => {
+    expect(visibleSectionMeta(true).map((meta) => meta.id)).toContain("branding");
+    expect(visibleSectionMeta(false).map((meta) => meta.id)).not.toContain("branding");
+    expect(visibleSectionMeta(false)).toHaveLength(TENANT_SECTION_META.length - 1);
+    expect(tenantSections(false).map((section) => section.id)).not.toContain("branding");
+    expect(tenantSections(true).map((section) => section.id)).toContain("branding");
+    expect(tenantSections().find((section) => section.id === "branding")?.providerOnly).toBe(true);
+  });
+});
+
 describe("the tabs of Connections", () => {
   it("open Microsoft 365 unless the address names another one", () => {
     expect(parseConnectionsSearch({})).toEqual({ tab: "microsoft365" });
@@ -86,7 +99,7 @@ describe("which sections a viewer who may not change settings sees closed", () =
     const closed = TENANT_SECTION_META.map((meta) => meta.id).filter((id) =>
       isSectionClosed(id, "demo"),
     );
-    expect(closed).toEqual(["agents", "archive", "notifications", "master-data"]);
+    expect(closed).toEqual(["agents", "archive", "notifications", "branding", "master-data"]);
   });
 
   it("closes nothing for a viewer who may change settings", () => {

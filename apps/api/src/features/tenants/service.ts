@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { completeDeliveryModes, storedDeliveryModes } from "@restow/core";
 import {
   type Database,
   invitation,
@@ -38,6 +39,7 @@ import {
   hasSignInMethod,
   invalidatePreviousLinks,
 } from "../accounts/service.js";
+import { syncCustomerReportRecipients } from "../reports/customer-report.js";
 import {
   categoriesOfEvents,
   eventsOfCategories,
@@ -183,16 +185,25 @@ export interface TenantContactDto {
   email: string | null;
   phone: string | null;
   isPrimary: boolean;
+  /** Receives the customer monthly report (0.5.0). */
+  monthlyReport: boolean;
 }
 
 export interface NotificationRecipientDto {
   id: string;
   email: string;
   name: string | null;
-  /** The recipient's column of the notification matrix: catalog events and `report.weekly`. */
+  /**
+   * The recipient's column of the notification matrix: catalog events and the summary reports
+   * (`report.daily`, `report.weekly`, `report.monthly`).
+   */
   events: string[];
   /** The categories whose events `events` holds completely, for clients from before the matrix. */
   categories: NotificationCategory[];
+  /** How the recipient wants each severity (0.5.0): at once or in a digest. */
+  delivery: Record<"error" | "warning" | "info", "immediate" | "hourly" | "daily">;
+  /** The address's failure episode (0.5.0), or null while its mail gets through. */
+  failure: { since: string; reason: string; detail: string | null } | null;
 }
 
 export interface MemberDto {
@@ -262,6 +273,7 @@ function toContactDto(row: TenantContact): TenantContactDto {
     email: row.email,
     phone: row.phone,
     isPrimary: row.isPrimary,
+    monthlyReport: row.monthlyReport,
   };
 }
 
@@ -280,6 +292,14 @@ function toRecipientDto(row: TenantNotificationRecipient): NotificationRecipient
     name: row.name,
     events,
     categories: categoriesOfEvents(events),
+    delivery: completeDeliveryModes(row.delivery),
+    failure: row.failingSince
+      ? {
+          since: row.failingSince.toISOString(),
+          reason: row.lastFailureReason ?? "transport_error",
+          detail: null,
+        }
+      : null,
   };
 }
 
@@ -682,6 +702,8 @@ export async function replaceTenantContacts(
             .values(contacts.map((contact) => ({ tenantId: id, ...contact })))
             .returning()
         : [];
+    // The customer monthly report goes to the contacts that receive it (0.5.0).
+    await syncCustomerReportRecipients(tx, id, new Date());
     await audit(tx, {
       tenantId: id,
       actor: actor.email,
@@ -730,20 +752,29 @@ export async function replaceTenantNotificationRecipients(
     if (current.status === "deleting") {
       throw new ProblemError(409, "Tenant is being deleted");
     }
-    const previous = (
-      await tx
-        .select()
-        .from(tenantNotificationRecipients)
-        .where(eq(tenantNotificationRecipients.tenantId, id))
-    ).map((row) => ({ email: row.email, events: normalizeRecipientEvents(row.events) }));
+    const previousRows = await tx
+      .select()
+      .from(tenantNotificationRecipients)
+      .where(eq(tenantNotificationRecipients.tenantId, id));
+    const previous = previousRows.map((row) => ({
+      email: row.email,
+      events: normalizeRecipientEvents(row.events),
+    }));
+    // A saved recipient keeps its digest modes (unless given) and its failure episode.
+    const previousRow = new Map(previousRows.map((row) => [row.email.trim().toLowerCase(), row]));
     const previousEvents = new Map(
       previous.map((recipient) => [recipient.email.trim().toLowerCase(), recipient.events]),
     );
     const next = recipients.map((recipient) => {
       const events = eventsOfInput(recipient);
+      const before = previousRow.get(recipient.email.trim().toLowerCase());
       return {
         email: recipient.email,
         name: recipient.name ?? null,
+        delivery: storedDeliveryModes(recipient.delivery ?? before?.delivery ?? {}),
+        failingSince: before?.failingSince ?? null,
+        failureAlertedAt: before?.failureAlertedAt ?? null,
+        lastFailureReason: before?.lastFailureReason ?? null,
         // Installation events (an update is available) are the provider's to choose.
         events: actor.isProviderAdmin
           ? events

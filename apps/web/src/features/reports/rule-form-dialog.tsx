@@ -26,15 +26,15 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useWebhooks } from "@/features/integrations/hooks";
 
-import type { ReportEvent, ReportRule, ReportSection, ReportTrigger } from "./api";
-import { REPORT_SECTIONS } from "./api";
+import type { ReportCadence, ReportEvent, ReportRule, ReportSection, ReportTrigger } from "./api";
+import { REPORT_CADENCES, REPORT_SECTIONS } from "./api";
 import { useCreateRule, useReportsScope, useUpdateRule } from "./hooks";
 import {
-  EVENT_GROUPS,
   emptyRuleForm,
   eventGroupsFor,
   type Frequency,
   formToInput,
+  groupEventsFor,
   knownTimeZones,
   OVERDUE_DEADLINE_HOURS,
   type RuleFormErrors,
@@ -52,6 +52,11 @@ interface RuleFormDialogProps {
   rule?: ReportRule;
   trigger?: ReportTrigger;
   periods: readonly number[];
+  /**
+   * Whether a report can carry the PDF statistics (the catalog's `pdfAvailable`, 0.5.0); the
+   * switch stays closed with the reason where it cannot.
+   */
+  pdfAvailable?: boolean;
 }
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const;
@@ -63,6 +68,7 @@ export function RuleFormDialog({
   rule,
   trigger,
   periods,
+  pdfAvailable = false,
 }: RuleFormDialogProps) {
   const { t } = useTranslation("reports");
   const kind: ReportTrigger = rule?.trigger ?? trigger ?? "event";
@@ -95,7 +101,8 @@ export function RuleFormDialog({
     const found = validateRuleForm(form);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
-    const input = formToInput(form);
+    // Without the PDF statistics the switch shows off; the rule is saved that way as well.
+    const input = formToInput(pdfAvailable ? form : { ...form, attachPdf: false });
     const done = {
       onSuccess: () => {
         toast.success(t(rule ? "toasts.updated" : "toasts.created"));
@@ -147,7 +154,7 @@ export function RuleFormDialog({
                       {t(`eventGroups.${group}`)}
                     </p>
                     <ul className="grid gap-2 sm:grid-cols-2">
-                      {EVENT_GROUPS[group].map((name: ReportEvent) => {
+                      {groupEventsFor(group, isProviderAdmin).map((name: ReportEvent) => {
                         const id = `rule-event-${name.replace(".", "-")}`;
                         return (
                           <li key={name}>
@@ -261,74 +268,108 @@ export function RuleFormDialog({
             </>
           ) : (
             <>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Field id="rule-frequency" label={t("editor.frequency")}>
-                  <Select
-                    value={form.frequency}
-                    onValueChange={(value) => set("frequency", value as Frequency)}
+              <Field
+                id="rule-cadence"
+                label={t("editor.cadence.label")}
+                hint={
+                  form.cadence
+                    ? t(`editor.cadence.hints.${form.cadence}`)
+                    : t("editor.cadence.hints.custom")
+                }
+              >
+                <Select
+                  value={form.cadence ?? "custom"}
+                  onValueChange={(value) =>
+                    set("cadence", value === "custom" ? null : (value as ReportCadence))
+                  }
+                >
+                  <SelectTrigger
+                    id="rule-cadence"
+                    className="w-full"
+                    aria-describedby={messageId("rule-cadence")}
                   >
-                    <SelectTrigger id="rule-frequency" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(["daily", "weekly", "monthly", "custom"] as const).map((frequency) => (
-                        <SelectItem key={frequency} value={frequency}>
-                          {t(`editor.frequencies.${frequency}`)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                {form.frequency === "weekly" ? (
-                  <Field id="rule-weekday" label={t("editor.weekday")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {REPORT_CADENCES.map((cadence) => (
+                      <SelectItem key={cadence} value={cadence}>
+                        {t(`editor.cadence.options.${cadence}`)}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="custom">{t("editor.cadence.options.custom")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              {form.cadence ? null : (
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field id="rule-frequency" label={t("editor.frequency")}>
                     <Select
-                      value={String(form.weekday)}
-                      onValueChange={(value) => set("weekday", Number(value))}
+                      value={form.frequency}
+                      onValueChange={(value) => set("frequency", value as Frequency)}
                     >
-                      <SelectTrigger id="rule-weekday" className="w-full">
+                      <SelectTrigger id="rule-frequency" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {WEEKDAYS.map((day) => (
-                          <SelectItem key={day} value={String(day)}>
-                            {t(`weekdays.${day}`)}
+                        {(["daily", "weekly", "monthly", "custom"] as const).map((frequency) => (
+                          <SelectItem key={frequency} value={frequency}>
+                            {t(`editor.frequencies.${frequency}`)}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </Field>
-                ) : null}
-                {form.frequency === "custom" ? (
-                  <Field
-                    id="rule-cron"
-                    label={t("editor.cron")}
-                    error={error("cron")}
-                    hint={t("editor.cronHint")}
-                    className="sm:col-span-2"
-                  >
-                    <Input
+                  {form.frequency === "weekly" ? (
+                    <Field id="rule-weekday" label={t("editor.weekday")}>
+                      <Select
+                        value={String(form.weekday)}
+                        onValueChange={(value) => set("weekday", Number(value))}
+                      >
+                        <SelectTrigger id="rule-weekday" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {WEEKDAYS.map((day) => (
+                            <SelectItem key={day} value={String(day)}>
+                              {t(`weekdays.${day}`)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  ) : null}
+                  {form.frequency === "custom" ? (
+                    <Field
                       id="rule-cron"
-                      className="font-mono"
-                      value={form.cron}
-                      placeholder="0 7 * * 1"
-                      aria-invalid={errors.cron !== undefined}
-                      aria-describedby={messageId("rule-cron")}
-                      onChange={(e) => set("cron", e.target.value)}
-                    />
-                  </Field>
-                ) : (
-                  <Field id="rule-time" label={t("editor.time")} error={error("time")}>
-                    <Input
-                      id="rule-time"
-                      type="time"
-                      value={form.time}
-                      aria-invalid={errors.time !== undefined}
-                      aria-describedby={messageId("rule-time")}
-                      onChange={(e) => set("time", e.target.value)}
-                    />
-                  </Field>
-                )}
-              </div>
+                      label={t("editor.cron")}
+                      error={error("cron")}
+                      hint={t("editor.cronHint")}
+                      className="sm:col-span-2"
+                    >
+                      <Input
+                        id="rule-cron"
+                        className="font-mono"
+                        value={form.cron}
+                        placeholder="0 7 * * 1"
+                        aria-invalid={errors.cron !== undefined}
+                        aria-describedby={messageId("rule-cron")}
+                        onChange={(e) => set("cron", e.target.value)}
+                      />
+                    </Field>
+                  ) : (
+                    <Field id="rule-time" label={t("editor.time")} error={error("time")}>
+                      <Input
+                        id="rule-time"
+                        type="time"
+                        value={form.time}
+                        aria-invalid={errors.time !== undefined}
+                        aria-describedby={messageId("rule-time")}
+                        onChange={(e) => set("time", e.target.value)}
+                      />
+                    </Field>
+                  )}
+                </div>
+              )}
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field
                   id="rule-timezone"
@@ -353,23 +394,39 @@ export function RuleFormDialog({
                     ))}
                   </datalist>
                 </Field>
-                <Field id="rule-period" label={t("editor.period")}>
-                  <Select
-                    value={String(form.periodDays)}
-                    onValueChange={(value) => set("periodDays", Number(value))}
-                  >
-                    <SelectTrigger id="rule-period" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {periods.map((days) => (
-                        <SelectItem key={days} value={String(days)}>
-                          {t("editor.periodDays", { count: days })}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
+                {form.cadence ? null : (
+                  <Field id="rule-period" label={t("editor.period")}>
+                    <Select
+                      value={String(form.periodDays)}
+                      onValueChange={(value) => set("periodDays", Number(value))}
+                    >
+                      <SelectTrigger id="rule-period" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {periods.map((days) => (
+                          <SelectItem key={days} value={String(days)}>
+                            {t("editor.periodDays", { count: days })}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                )}
+              </div>
+              <div className="flex items-start gap-3" data-slot="rule-attach-pdf">
+                <Switch
+                  id="rule-attach-pdf"
+                  checked={pdfAvailable && form.attachPdf}
+                  disabled={!pdfAvailable}
+                  onCheckedChange={(checked) => set("attachPdf", checked)}
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="rule-attach-pdf">{t("editor.attachPdf")}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {pdfAvailable ? t("editor.attachPdfHint") : t("editor.attachPdfUnavailable")}
+                  </p>
+                </div>
               </div>
               <fieldset className="space-y-2" aria-describedby="rule-sections-message">
                 <legend className="text-sm font-medium">{t("editor.sections")}</legend>

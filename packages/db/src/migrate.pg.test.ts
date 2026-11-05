@@ -2235,3 +2235,95 @@ describe.skipIf(!adminUrl)(
     }, 60_000);
   },
 );
+
+describe.skipIf(!adminUrl)(
+  "upgrading to 0.5.0: the tenants' weekly report moves to the calendar week (0079)",
+  () => {
+    const base = adminUrl as string;
+    const database = `restow_db_migrate_cadence_${suffix}`;
+    const owner: RoleLogin = {
+      name: `restow_mig_cadence_${suffix}`,
+      password: randomBytes(18).toString("base64url"),
+    };
+    const ids = { provider: randomUUID(), tenant: randomUUID(), other: randomUUID() };
+    let folder = "";
+
+    beforeAll(async () => {
+      folder = migrationsFolderUpTo("0078_write_once_storage");
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(
+          `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+        );
+        await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    afterAll(async () => {
+      if (folder) rmSync(folder, { recursive: true, force: true });
+      await dropTestDatabase(base, database);
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    const rulesOf = (pool: pg.Pool, tenantId: string) =>
+      asTenant(pool, tenantId, async (client) => {
+        const { rows } = await client.query<{ name: string; cadence: string | null }>(
+          "SELECT name, cadence FROM report_rules ORDER BY name",
+        );
+        return rows;
+      });
+
+    it("sets the weekly cadence on the recipients' weekly rule, for an owner bound by RLS", async () => {
+      const url = urlFor(base, database, owner);
+      await applyReleasedSchema(url, folder, null);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        await pool.query("INSERT INTO providers (id, name) VALUES ($1, 'p')", [ids.provider]);
+        for (const [tenantId, slug] of [
+          [ids.tenant, "contoso"],
+          [ids.other, "fabrikam"],
+        ] as const) {
+          await asTenant(pool, tenantId, async (client) => {
+            await client.query(
+              "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, $3, $3)",
+              [tenantId, ids.provider, slug],
+            );
+            await client.query(
+              `INSERT INTO report_rules (tenant_id, name, trigger, cron, recipient_category)
+               VALUES ($1, 'Weekly', 'schedule', '0 7 * * 1', 'weeklyReport')`,
+              [tenantId],
+            );
+            // A schedule rule of its own keeps its rolling period.
+            await client.query(
+              `INSERT INTO report_rules (tenant_id, name, trigger, cron)
+               VALUES ($1, 'Own', 'schedule', '0 7 * * 1')`,
+              [tenantId],
+            );
+          });
+        }
+
+        await runMigrations(url);
+
+        for (const tenantId of [ids.tenant, ids.other]) {
+          expect(await rulesOf(pool, tenantId)).toEqual([
+            { name: "Own", cadence: null },
+            { name: "Weekly", cadence: "weekly" },
+          ]);
+        }
+        const { rows } = await pool.query<{ force: boolean }>(
+          "SELECT relforcerowsecurity AS force FROM pg_class WHERE relname = 'report_rules' AND relkind = 'r'",
+        );
+        expect(rows).toEqual([{ force: true }]);
+      } finally {
+        await pool.end();
+      }
+    }, 120_000);
+  },
+);

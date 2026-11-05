@@ -163,6 +163,8 @@
     "warning": "Warnings",
     "database": "Database",
     "suspicion": "Ransomware detection",
+    "branding": "Branding",
+    "provider_notifications": "Provider notifications",
     "installation": "Installation",
     "cluster": "Worker nodes"
   },
@@ -517,7 +519,11 @@
         "deleted": "Report rule deleted"
       },
       "test_sent": "Report rule test sent",
-      "matrix_updated": "Notification matrix changed"
+      "matrix_updated": "Notification matrix changed",
+      "customer": {
+        "updated": "Customer monthly report changed",
+        "test_sent": "Customer monthly report test sent"
+      }
     },
     "update": {
       "check": "Update check",
@@ -718,6 +724,18 @@
       "false_alarm_revoked": "False alarm of a restore point taken back",
       "hold_released": "Retention hold of an object released"
     },
+    "branding": {
+      "updated": "Branding changed",
+      "logo_uploaded": "Logo uploaded",
+      "logo_removed": "Logo removed",
+      "test_sent": "Branding test mail sent"
+    },
+    "provider_notifications": {
+      "recipients_updated": "Provider notification recipients changed",
+      "test_sent": "Test notification sent to a provider recipient",
+      "summary_updated": "Summary report across tenants changed",
+      "summary_test_sent": "Summary report across tenants test sent"
+    },
     "installation": {
       "restore_mode": {
         "started": "Restore mode switched on",
@@ -790,6 +808,9 @@
     "database": "Database",
     "dump": "Database backup",
     "restore_point": "Restore point",
+    "branding": "Branding",
+    "notification_recipients": "Notification recipients",
+    "summary_report": "Summary report",
     "cluster_join_token": "Join token",
     "cluster_node": "Worker node"
   },

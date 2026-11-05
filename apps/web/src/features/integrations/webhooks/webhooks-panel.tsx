@@ -52,7 +52,12 @@ import { useIntegrationsFormat } from "../use-format";
 import { WebhookRulesNotice } from "./rules-using-webhook";
 import { SignatureHelp } from "./signature-help";
 import { WebhookFormDialog } from "./webhook-form-dialog";
-import { InsecureBadge, WebhookHealthBadge, WebhookStatsLine } from "./webhook-status";
+import {
+  InsecureBadge,
+  WebhookFailingBadge,
+  WebhookHealthBadge,
+  WebhookStatsLine,
+} from "./webhook-status";
 
 /** The webhooks tab: the tenant's webhooks, their health and how to verify requests. */
 export function WebhooksPanel() {
@@ -273,6 +278,7 @@ function WebhookRow({
       <TableCell>
         <div className="flex flex-col items-start gap-1">
           <WebhookHealthBadge webhook={webhook} />
+          <WebhookFailingBadge webhook={webhook} />
           <WebhookStatsLine webhook={webhook} />
         </div>
       </TableCell>

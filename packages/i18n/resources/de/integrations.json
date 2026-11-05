@@ -229,7 +229,8 @@
       "rules": "{count, plural, one {Diese Regel sendet an den Webhook:} other {Diese # Regeln senden an den Webhook:}}",
       "rulesAlone": "{count, plural, one {Eine davon hat keinen anderen Kanal und sendet danach nichts mehr.} other {# davon haben keinen anderen Kanal und senden danach nichts mehr.}}"
     },
-    "loadError": "Die Webhooks konnten nicht geladen werden."
+    "loadError": "Die Webhooks konnten nicht geladen werden.",
+    "failingSince": "Scheitert seit {since}"
   },
   "webhookForm": {
     "createTitle": "Webhook hinzufügen",
@@ -309,6 +310,13 @@
     "pausedNotice": {
       "title": "Dieser Webhook ist pausiert",
       "description": "Er erhält keine Ereignisse und keine Testereignisse, bis er aktiviert wird."
+    },
+    "health": {
+      "title": "Zustellungen scheitern weiter",
+      "since": "Scheitert seit {since}, {count, plural, one {# Versuch} other {# Versuche}} in Folge.",
+      "lastError": "Letzter Fehler:",
+      "alerted": "Ein Alarm ging am {at} über die anderen Kanäle hinaus.",
+      "notAlerted": "Noch ging kein Alarm hinaus: Er wird ausgelöst, sobald die Fehler eine Weile anhalten."
     }
   },
   "deliveries": {
@@ -434,6 +442,22 @@
     "discard": "Verwerfen",
     "save": "Speichern",
     "saved": "Benachrichtigungen gespeichert.",
-    "loadError": "Die Benachrichtigungsmatrix konnte nicht geladen werden."
+    "loadError": "Die Benachrichtigungsmatrix konnte nicht geladen werden.",
+    "critical": "Kritisch",
+    "locked": "Immer an: Kritische Ereignisse und fehlgeschlagene Zustellungen erreichen immer die Glocke.",
+    "digestChip": "{level}: {mode}",
+    "delivery": {
+      "immediate": "Sofort",
+      "hourly": "Stündliche Sammelmail",
+      "daily": "Tägliche Sammelmail"
+    },
+    "failing": "Zustellungen scheitern seit {since}: {reason}",
+    "failingUnknown": "ohne Angabe eines Grundes",
+    "failingLabel": "Warum Zustellungen an {channel} scheitern",
+    "reports": {
+      "daily": "Tagesbericht",
+      "weekly": "Wochenbericht",
+      "monthly": "Monatsbericht"
+    }
   }
 }

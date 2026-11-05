@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BELL_LOCKED_EVENTS,
   bellEventsOf,
+  CRITICAL_REPORT_EVENTS,
+  cadenceOfSummaryEntry,
   DEFAULT_BELL_EVENTS,
   defaultWebhookEvents,
+  FLOOR_REPORT_EVENTS,
+  isCriticalReportEvent,
+  isFloorReportEvent,
+  isReportCadence,
+  isSummaryEntry,
   isWebhookEvent,
   presetEvents,
   REPORT_EVENT_INFO,
@@ -99,8 +107,14 @@ describe("channel columns", () => {
     for (const routine of ROUTINE_REPORT_EVENTS) {
       expect(DEFAULT_BELL_EVENTS).not.toContain(routine);
     }
-    expect(bellEventsOf(["verify.red", "nonsense"])).toEqual(["verify.red"]);
-    expect(bellEventsOf([])).toEqual([]);
+    // The critical events and the failed delivery are always on (0.5.0).
+    expect(bellEventsOf(["backup.failed", "nonsense"])).toEqual([
+      "backup.failed",
+      ...REPORT_EVENTS.filter((event) => FLOOR_REPORT_EVENTS.includes(event)),
+    ]);
+    expect(bellEventsOf([])).toEqual(
+      REPORT_EVENTS.filter((event) => FLOOR_REPORT_EVENTS.includes(event)),
+    );
   });
 
   it("starts a chat webhook with errors and warnings, a signed one with everything", () => {
@@ -156,5 +170,41 @@ describe("channel columns", () => {
       "restore.completed",
       "verify.red",
     ]);
+  });
+});
+
+describe("critical events (0.5.0)", () => {
+  it("are the security and data-loss events", () => {
+    expect(CRITICAL_REPORT_EVENTS).toEqual([
+      "backup.suspicious",
+      "verify.red",
+      "scrub.corrupt",
+      "endpoint.suspicious_snapshot",
+      "installation.disk_low",
+    ]);
+    expect(isCriticalReportEvent("backup.suspicious")).toBe(true);
+    expect(isCriticalReportEvent("backup.failed")).toBe(false);
+    expect(isCriticalReportEvent("notification.delivery_failed")).toBe(false);
+  });
+
+  it("put the failed delivery on the floor and lock both in the bell", () => {
+    expect(FLOOR_REPORT_EVENTS).toEqual([
+      ...CRITICAL_REPORT_EVENTS,
+      "notification.delivery_failed",
+    ]);
+    expect(isFloorReportEvent("notification.delivery_failed")).toBe(true);
+    expect(BELL_LOCKED_EVENTS).toEqual(FLOOR_REPORT_EVENTS);
+    expect(REPORT_EVENT_INFO["notification.delivery_failed"]).toEqual({
+      group: "system",
+      level: "error",
+    });
+  });
+
+  it("knows the summary entries and cadences", () => {
+    expect(isSummaryEntry("report.monthly")).toBe(true);
+    expect(isSummaryEntry("report.yearly")).toBe(false);
+    expect(cadenceOfSummaryEntry("report.daily")).toBe("daily");
+    expect(isReportCadence("weekly")).toBe(true);
+    expect(isReportCadence("hourly")).toBe(false);
   });
 });

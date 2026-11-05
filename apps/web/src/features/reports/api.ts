@@ -39,8 +39,61 @@ export const REPORT_EVENTS = [
   "installation.app_secret_expiring",
   "installation.restore_mode",
   "installation.key_mirror_conflict",
+  "notification.delivery_failed",
 ] as const;
 export type ReportEvent = (typeof REPORT_EVENTS)[number];
+
+/** The event raised when a notification could not be delivered (0.5.0). */
+export const DELIVERY_FAILED_EVENT = "notification.delivery_failed" satisfies ReportEvent;
+
+/**
+ * The security and data-loss events (mirrors `critical` in packages/core reports/catalog.ts):
+ * always in the bell, always sent at once, always to the provider's mandatory recipients.
+ * The server says so per event as well (`critical`); this list is for the places that have no
+ * catalog at hand.
+ */
+export const CRITICAL_REPORT_EVENTS: readonly ReportEvent[] = [
+  "backup.suspicious",
+  "verify.red",
+  "scrub.corrupt",
+  "endpoint.suspicious_snapshot",
+  "installation.disk_low",
+];
+
+/** How a recipient gets the notifications of one severity (0.5.0). */
+export type DeliveryMode = "immediate" | "hourly" | "daily";
+export const DELIVERY_MODES: readonly DeliveryMode[] = ["immediate", "hourly", "daily"];
+export type DeliveryModes = Record<"error" | "warning" | "info", DeliveryMode>;
+export const DELIVERY_LEVELS = ["error", "warning", "info"] as const;
+
+/** The failure episode of an address whose mail does not get through (0.5.0). */
+export interface RecipientFailure {
+  since: string;
+  reason: string;
+  detail: string | null;
+}
+
+/** The calendar cadences of a summary report (0.5.0). */
+export const REPORT_CADENCES = ["daily", "weekly", "monthly"] as const;
+export type ReportCadence = (typeof REPORT_CADENCES)[number];
+
+/** A webhook's health as the worker records it after each attempt (0.5.0). */
+export interface WebhookHealth {
+  status: "ok" | "failing";
+  failingSince: string | null;
+  consecutiveFailures: number;
+  lastError: string | null;
+  alertedAt: string | null;
+}
+
+/** A failing channel of a rule (0.5.0). */
+export interface RuleDeliveryProblem {
+  channel: "email" | "webhook";
+  /** The address, or the webhook's id. */
+  recipient: string;
+  since: string;
+  reason: string;
+}
 
 /**
  * The webhook stream event that also carries a catalog event (mirrors `webhookEvent` in
@@ -97,6 +150,14 @@ export interface ReportRule {
   overdueAfterHours?: number | null;
   locked: boolean;
   lastDelivery: { at: string; status: DeliveryStatus } | null;
+  /** A schedule rule's calendar cadence (0.5.0); null (or absent) for an own interval or cron. */
+  cadence?: ReportCadence | null;
+  /** The PDF statistics go along (0.5.0). */
+  attachPdf?: boolean;
+  /** A summary report, or the customer monthly report (0.5.0). */
+  kind?: "summary" | "customer";
+  /** The rule's channels that are failing right now (0.5.0). */
+  deliveryProblems?: RuleDeliveryProblem[];
   createdAt: string;
   updatedAt: string;
 }
@@ -118,6 +179,10 @@ export interface ReportRuleInput {
   language: "de" | "en" | null;
   /** The rule's own deadline for `backup.overdue` in hours; null follows the schedules. */
   overdueAfterHours?: number | null;
+  /** A calendar cadence instead of an own interval or cron (schedule rules, 0.5.0). */
+  cadence?: ReportCadence | null;
+  /** Attach the PDF statistics (schedule rules, 0.5.0). */
+  attachPdf?: boolean;
 }
 
 export type ReportRulePatch = Partial<Omit<ReportRuleInput, "trigger">>;
@@ -146,8 +211,18 @@ export interface ReportDelivery {
   };
   /** A webhook alert: the webhook and the delivery it was handed to (its outcome is `status`). */
   webhook?: { id: string; deliveryId: string | null } | null;
-  /** In the view across tenants: whose alert it is. */
+  /** In the view across tenants: whose alert it is (absent for the provider's own, 0.5.0). */
   tenant?: { id: string; name: string };
+  /** Held for the recipient's hourly or daily digest (0.5.0). */
+  digest?: "hourly" | "daily" | null;
+  /** Shared by the rows one digest mail carried. */
+  digestGroup?: string | null;
+  /** When a pending row goes out: its digest, or its next attempt. */
+  scheduledFor?: string | null;
+  /** A tenant's own delivery, or one to the provider's recipients (0.5.0). */
+  audience?: "tenant" | "provider";
+  /** The tenant a provider delivery is about; null for the installation's own events. */
+  aboutTenant?: { id: string; name: string } | null;
 }
 
 /** Filters of the delivery log (all optional); `before` pages back. */
@@ -161,10 +236,16 @@ export type EventGroup = "jobs" | "recoverability" | "storage" | "system";
 export type EventLevel = "error" | "warning" | "info";
 
 export interface ReportCatalog {
-  events: { name: ReportEvent; group: EventGroup; level: string }[];
+  events: { name: ReportEvent; group: EventGroup; level: string; critical?: boolean }[];
   sections: ReportSection[];
   periods: number[];
   scheduledAvailable: boolean;
+  /** The calendar cadences of a summary report (0.5.0). */
+  cadences?: ReportCadence[];
+  /** A summary report can carry the PDF statistics (0.5.0). */
+  pdfAvailable?: boolean;
+  /** The customer monthly report is offered (`reports.customer`, 0.5.0). */
+  customerAvailable?: boolean;
 }
 
 export interface BellNotification {
@@ -205,7 +286,14 @@ export interface NotificationFilters {
 
 /** One channel of the notification matrix and the events it gets. */
 export type MatrixChannel =
-  | { kind: "bell"; id: "bell"; events: ReportEvent[]; custom: boolean }
+  | {
+      kind: "bell";
+      id: "bell";
+      events: ReportEvent[];
+      custom: boolean;
+      /** Events the bell always shows (0.5.0): the critical ones and failed deliveries. */
+      locked?: ReportEvent[];
+    }
   | {
       kind: "webhook";
       id: string;
@@ -214,6 +302,8 @@ export type MatrixChannel =
       format: "restow" | "discord" | "slack" | "teams";
       active: boolean;
       events: ReportEvent[];
+      /** Whether its deliveries keep failing (0.5.0). */
+      health?: WebhookHealth;
     }
   | {
       kind: "email";
@@ -222,11 +312,17 @@ export type MatrixChannel =
       name: string | null;
       events: ReportEvent[];
       weeklyReport: boolean;
+      /** The summary reports the recipient gets (0.5.0). */
+      reports?: { daily: boolean; weekly: boolean; monthly: boolean };
+      /** At once or in a digest, per severity (0.5.0). */
+      delivery?: DeliveryModes;
+      /** The address's failure episode (0.5.0). */
+      failure?: RecipientFailure | null;
     };
 
 /** GET /reports/matrix: the rows (events) and the columns (channels) of the matrix. */
 export interface NotificationMatrix {
-  events: { name: ReportEvent; group: EventGroup; level: EventLevel }[];
+  events: { name: ReportEvent; group: EventGroup; level: EventLevel; critical?: boolean }[];
   channels: MatrixChannel[];
 }
 
@@ -234,7 +330,16 @@ export interface NotificationMatrix {
 export interface MatrixUpdate {
   channels: (
     | { kind: "bell"; events: ReportEvent[] }
-    | { kind: "webhook" | "email"; id: string; events: ReportEvent[] }
+    | { kind: "webhook"; id: string; events: ReportEvent[] }
+    | {
+        kind: "email";
+        id: string;
+        events: ReportEvent[];
+        /** Digest mode per severity (0.5.0); left out keeps the recipient's. */
+        delivery?: Partial<DeliveryModes>;
+        /** The summary reports (0.5.0); left out keeps the recipient's choice. */
+        reports?: Partial<{ daily: boolean; weekly: boolean; monthly: boolean }>;
+      }
   )[];
 }
 

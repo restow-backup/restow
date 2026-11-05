@@ -22,6 +22,8 @@
     "agentPolicy": "Agent policy",
     "proxmox": "Proxmox VE",
     "pricing": "Prices",
+    "notifications": "Notifications",
+    "branding": "Branding",
     "restoreMode": "Restore mode",
     "cluster": "Cluster"
   },
@@ -42,6 +44,8 @@
     "agentPolicy": "Backup window, missed backups, bandwidth, AC power and retries of servers and clients, and what tenants may change.",
     "proxmox": "How the restore points of VMs and containers are checked, for {scope, select, organisation {your organisation} other {all tenants}}.",
     "pricing": "What you charge your customers per month: per mailbox and per GB or TB of backups. The dashboard and each tenant's overview show what it comes to at these prices. Nothing is billed.",
+    "notifications": "Who on your side is told what about {scope, select, organisation {your organisation} other {every tenant}} and the installation: the recipients, the mandatory ones, digests and the summary reports.",
+    "branding": "Your logo, sender, accent colour and footer on the mails and chat messages of {scope, select, organisation {your organisation} other {every tenant}}.",
     "restoreMode": "After restoring a database dump: nothing is deleted until a provider owner has checked the restored database.",
     "cluster": "Worker nodes on other hosts: what they need, one-time join tokens, removing a node."
   },
@@ -633,6 +637,7 @@
       "loadError": "The list of tenants with their own prices could not be loaded."
     }
   },
+  "featureLocked": "Not part of this build",
   "restoreMode": {
     "banner": {
       "text": "Restore mode is on: {appName} deletes nothing (no retention, no clean-up, no purge). Backups continue. A provider owner ends it after checking.",

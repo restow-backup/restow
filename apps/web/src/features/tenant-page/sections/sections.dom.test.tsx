@@ -242,6 +242,8 @@ describe("Notifications", () => {
       "GET /reports/catalog": () =>
         json({ events: [], sections: [], periods: [1, 7], scheduledAvailable: true }),
       "GET /reports/rules": () => json([]),
+      // The customer monthly report's card (0.5.0, Service Provider): closed in this edition.
+      "GET /tenants/mueller/customer-report": () => json({ available: false }),
       "PUT /tenants/mueller/notification-recipients": (request) => {
         saved.push(request.body);
         return json([
@@ -286,6 +288,8 @@ describe("Notifications", () => {
           email: "ops@example.test",
           name: "Ops",
           events: [...JOB_FAILURES, "backup.overdue", "verify.red", "scrub.corrupt"],
+          // At once unless the recipient chose a digest (0.5.0).
+          delivery: { error: "immediate", warning: "immediate", info: "immediate" },
         },
       ],
     ]);

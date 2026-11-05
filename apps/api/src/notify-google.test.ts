@@ -168,6 +168,36 @@ describe("buildMimeMessage", () => {
     expect(raw).not.toMatch(/^Bcc:/m);
   });
 
+  it("names the branded sender, sets Reply-To and carries the inline logo (0.5.0)", async () => {
+    const raw = (
+      await buildMimeMessage({
+        from: "alerts@example.com",
+        message: {
+          to: "a@example.com",
+          subject: "s",
+          text: "plain",
+          html: '<img src="cid:brand-logo.abc@mail.invalid">',
+          from: { name: "MSP\r\nBcc: victim@example.com", address: "other@example.com" },
+          replyTo: "help@msp.example",
+          attachments: [
+            {
+              filename: "logo.png",
+              contentType: "image/png",
+              content: Buffer.from("png"),
+              cid: "brand-logo.abc@mail.invalid",
+            },
+          ],
+        },
+      })
+    ).toString("utf8");
+    // The delegated mailbox stays the sender: only the name is branded.
+    expect(raw).toMatch(/^From: "?MSP Bcc: victim@example\.com"? <alerts@example\.com>\r?$/m);
+    expect(raw).not.toMatch(/^Bcc:/m);
+    expect(raw).toMatch(/^Reply-To: help@msp\.example\r?$/m);
+    expect(raw).toContain("Content-ID: <brand-logo.abc@mail.invalid>");
+    expect(raw).toContain("Content-Disposition: inline");
+  });
+
   it("sends HTML as an alternative to the text", async () => {
     const raw = (
       await buildMimeMessage({

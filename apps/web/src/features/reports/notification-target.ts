@@ -13,7 +13,7 @@ import { sourceDetailTo } from "@/features/sources/paths";
 import { verifyReportTo } from "@/features/verify/paths";
 import { tenantPagePath } from "@/lib/tenant-paths";
 
-import type { BellNotification } from "./api";
+import { type BellNotification, DELIVERY_FAILED_EVENT } from "./api";
 import { REPORTS_PATH } from "./paths";
 
 /**
@@ -42,6 +42,9 @@ export function notificationTarget(
   viewer: TargetViewer,
 ): NotificationTarget | null {
   const details = item.details ?? {};
+  if (item.event === DELIVERY_FAILED_EVENT) {
+    return deliveryFailureTarget(item, details, viewer);
+  }
   if (item.event.startsWith("update.")) {
     return viewer.isProviderAdmin
       ? { to: installationSectionPath("updates"), tenantId: null }
@@ -147,4 +150,37 @@ export function notificationTarget(
     return at("/verify?state=red");
   }
   return null;
+}
+
+/**
+ * A notification that could not be delivered (0.5.0) leads to the channel that failed: the
+ * webhook's page, the tenant's recipients, the provider's recipients, or the notification mail
+ * itself when the transport as a whole is down. The installation's pages are for provider
+ * administrators only.
+ */
+function deliveryFailureTarget(
+  item: Pick<BellNotification, "tenantId">,
+  details: Record<string, unknown>,
+  viewer: TargetViewer,
+): NotificationTarget | null {
+  const scope = text(details.scope);
+  const audience = text(details.audience) ?? (item.tenantId ? "tenant" : "provider");
+  const tenantId = item.tenantId;
+  if (scope === "transport") {
+    return viewer.isProviderAdmin ? { to: installationSectionPath("mail"), tenantId: null } : null;
+  }
+  const webhookId = text(details.webhookId);
+  if (scope === "webhook" || webhookId) {
+    if (!viewer.canManage || !tenantId || !webhookId) return null;
+    return {
+      to: tenantPagePath(tenantId, "integrations", "webhooks", webhookId),
+      tenantId,
+    };
+  }
+  if (audience === "provider" || !tenantId) {
+    return viewer.isProviderAdmin
+      ? { to: installationSectionPath("notifications"), tenantId: null }
+      : null;
+  }
+  return viewer.canManage ? { to: tenantPagePath(tenantId, "notifications"), tenantId } : null;
 }

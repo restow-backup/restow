@@ -48,7 +48,8 @@ CREATE POLICY tenant_isolation_self ON tenants
 -- ---------------------------------------------------------------------------
 -- Per-tenant policy template, applied uniformly to every table that carries a
 -- tenant_id column. Tables whose tenant_id is nullable (users, user_roles,
--- audit_log, audit_anchor, secrets, api_keys, notifications) intentionally hide
+-- audit_log, audit_anchor, secrets, api_keys, notifications, report_events,
+-- report_deliveries) intentionally hide
 -- their provider-scope (NULL) rows from a tenant-pinned session; those rows are
 -- reached only via the BYPASSRLS provider role. Lookups that happen before a
 -- tenant is known (API-key authentication, the provider team) run on that
@@ -122,6 +123,10 @@ DECLARE
     'notifications',
     'report_rules',
     'report_deliveries',
+    -- Every event that reached the rules, for the provider's recipients (0.5.0).
+    'report_events',
+    -- A tenant's own branding (0.5.0, Service Provider).
+    'tenant_branding',
     'import_uploads',
     'import_upload_segments',
     'mail_imports',

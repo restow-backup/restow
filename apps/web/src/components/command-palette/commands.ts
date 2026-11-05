@@ -18,7 +18,7 @@ import {
 
 import { PALETTES, type Palette, type Theme } from "@/components/theme-provider";
 import { directoryPath } from "@/features/directory/search";
-import { TENANT_SECTION_META } from "@/features/tenant-page/meta";
+import { visibleSectionMeta } from "@/features/tenant-page/meta";
 import { TENANTS_PATH } from "@/features/tenants/paths";
 import { ACCOUNT_PATH } from "@/lib/entry";
 import {
@@ -161,7 +161,9 @@ function setupGroup(input: PaletteInput): PaletteGroup | null {
   const heading = managesTenants
     ? t("nav.items.tenantSettings")
     : t("nav.items.organisationSettings");
-  const sections = TENANT_SECTION_META.filter((meta) => meta.id !== "overview");
+  const sections = visibleSectionMeta(input.isProviderAdmin).filter(
+    (meta) => meta.id !== "overview",
+  );
   return {
     id: "setup",
     heading,

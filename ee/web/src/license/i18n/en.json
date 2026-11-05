@@ -108,5 +108,8 @@
     "endingSoon": "Your update period ends on {date}. Every version released until then keeps working with all modules, permanently. For later versions you can renew the update period for another year; install the new key here and it replaces this one.",
     "ended": "Your update period ended on {date}. The installed version and every version released until then keep working with all modules, permanently. For later versions you can renew the update period.",
     "runAsCommunity": "This version of {appName} was released after the update period of your key ended and runs as Community at the operator's request (RESTOW_RUN_AS_COMMUNITY). Your data is unchanged. Install a key whose update period covers this version and every module is back at once."
+  },
+  "feature": {
+    "askProvider": "The administrators of the installation (your provider) can unlock it."
   }
 }

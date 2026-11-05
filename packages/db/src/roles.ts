@@ -435,6 +435,12 @@ export const TABLE_ACCESS: Readonly<Record<string, TableAccess>> = {
   provider_members: "installation",
   // Carries tenant_id and a policy, a second line should it ever be granted.
   provider_member_tenants: "installation",
+  // The provider's notification recipients and its summary reports across tenants (0.5.0).
+  provider_notification_recipients: "installation",
+  provider_report_rules: "installation",
+  // Branding (0.5.0): the provider's, and the logos the public image route serves.
+  provider_branding: "installation",
+  branding_images: "installation",
 };
 
 /** The tables {@link TABLE_ACCESS} gives `access`. */

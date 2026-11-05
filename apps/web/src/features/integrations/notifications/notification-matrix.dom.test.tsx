@@ -174,3 +174,59 @@ describe("NotificationMatrixPanel", () => {
     expect(cell("Backup overdue for Bell")?.getAttribute("aria-checked")).toBe("false");
   });
 });
+
+describe("locked cells, digests and failing channels (0.5.0)", () => {
+  const LOCKED: NotificationMatrix = {
+    events: MATRIX.events.map((event) =>
+      event.name === "verify.red" ? { ...event, critical: true } : event,
+    ),
+    channels: MATRIX.channels.map((channel) => {
+      if (channel.kind === "bell") return { ...channel, locked: ["verify.red"] };
+      if (channel.kind === "webhook") {
+        return {
+          ...channel,
+          health: {
+            status: "failing",
+            failingSince: "2026-11-05T07:00:00.000Z",
+            consecutiveFailures: 4,
+            lastError: "http_error 500",
+            alertedAt: "2026-11-05T07:30:00.000Z",
+          },
+        };
+      }
+      return {
+        ...channel,
+        delivery: { error: "immediate", warning: "hourly", info: "daily" },
+        failure: { since: "2026-11-05T08:00:00.000Z", reason: "recipient_rejected", detail: null },
+      };
+    }),
+  };
+
+  it("locks the bell's critical cell, marks the event critical and keeps it on", async () => {
+    const { requests } = await open({ "GET /reports/matrix": () => json(LOCKED) });
+    const locked = grid()?.querySelector("[data-slot=matrix-locked-cell]");
+    expect(locked?.querySelector("[role=checkbox]")?.getAttribute("aria-label")).toBe(
+      "Restore check failed for Bell",
+    );
+    expect(locked?.querySelector("[role=checkbox]")?.hasAttribute("disabled")).toBe(true);
+    expect(grid()?.querySelectorAll("[data-slot=matrix-critical]")).toHaveLength(1);
+    // The webhook's cell of the same event stays a plain checkbox.
+    expect(cell("Restore check failed for Ops channel")?.hasAttribute("disabled")).toBe(false);
+    expect(requests.some((request) => request.method === "PUT")).toBe(false);
+  });
+
+  it("shows a recipient's digest modes and a warning sign on failing channels", async () => {
+    await open({ "GET /reports/matrix": () => json(LOCKED) });
+    const chips = [...(grid()?.querySelectorAll("[data-slot=matrix-digest]") ?? [])].map(
+      (chip) => chip.textContent,
+    );
+    expect(chips).toEqual(["Warning: Hourly digest", "Info: Daily digest"]);
+    const failing = [...(grid()?.querySelectorAll("[data-slot=matrix-failing]") ?? [])].map(
+      (sign) => sign.getAttribute("aria-label"),
+    );
+    expect(failing).toEqual([
+      "Why deliveries to Ops channel fail",
+      "Why deliveries to ops@contoso.example fail",
+    ]);
+  });
+});

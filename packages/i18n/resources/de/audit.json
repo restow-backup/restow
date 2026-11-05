@@ -163,6 +163,8 @@
     "warning": "Warnungen",
     "database": "Datenbank",
     "suspicion": "Ransomware-Erkennung",
+    "branding": "Branding",
+    "provider_notifications": "Provider-Benachrichtigungen",
     "installation": "Installation",
     "cluster": "Worker-Knoten"
   },
@@ -517,7 +519,11 @@
         "deleted": "Berichtsregel gelöscht"
       },
       "test_sent": "Test einer Berichtsregel gesendet",
-      "matrix_updated": "Benachrichtigungsmatrix geändert"
+      "matrix_updated": "Benachrichtigungsmatrix geändert",
+      "customer": {
+        "updated": "Monatlicher Kundenbericht geändert",
+        "test_sent": "Monatlicher Kundenbericht als Test gesendet"
+      }
     },
     "update": {
       "check": "Update-Prüfung",
@@ -718,6 +724,18 @@
       "false_alarm_revoked": "Fehlalarm eines Sicherungsstands zurückgenommen",
       "hold_released": "Angehaltene Aufbewahrung eines Objekts freigegeben"
     },
+    "branding": {
+      "updated": "Branding geändert",
+      "logo_uploaded": "Logo hochgeladen",
+      "logo_removed": "Logo entfernt",
+      "test_sent": "Testmail des Brandings gesendet"
+    },
+    "provider_notifications": {
+      "recipients_updated": "Benachrichtigungsempfänger des Providers geändert",
+      "test_sent": "Testbenachrichtigung an einen Empfänger des Providers gesendet",
+      "summary_updated": "Zusammenfassung über alle Mandanten geändert",
+      "summary_test_sent": "Zusammenfassung über alle Mandanten als Test gesendet"
+    },
     "installation": {
       "restore_mode": {
         "started": "Wiederherstellungsmodus eingeschaltet",
@@ -790,6 +808,9 @@
     "database": "Datenbank",
     "dump": "Datenbanksicherung",
     "restore_point": "Sicherungsstand",
+    "branding": "Branding",
+    "notification_recipients": "Benachrichtigungsempfänger",
+    "summary_report": "Zusammenfassung",
     "cluster_join_token": "Beitrittstoken",
     "cluster_node": "Worker-Knoten"
   },

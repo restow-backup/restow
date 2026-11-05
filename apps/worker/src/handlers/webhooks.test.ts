@@ -13,7 +13,11 @@ import { webhookColumnUpdate, webhookSubscriptionUpdate } from "@restow/core";
 import {
   createDb,
   type Database,
+  notifications,
   providers,
+  reportDeliveries,
+  reportEvents,
+  reportRules,
   secrets,
   settings,
   tenants,
@@ -43,6 +47,7 @@ import {
   failureForResponse,
   formatDeliveryError,
   isAddressAllowed,
+  isDeliveryFailureAlert,
   isDemoModeEnabled,
   isPermanentFailure,
   jobEventData,
@@ -60,6 +65,7 @@ import {
   WEBHOOK_MAX_ATTEMPTS,
   WebhookDispatcher,
   type WebhookHttpRequest,
+  webhookFailureAlertDue,
   webhookOptionsFromEnv,
 } from "./webhooks.js";
 
@@ -1165,6 +1171,52 @@ async function recreateTestDatabase(base: string): Promise<string> {
   return url.toString();
 }
 
+describe("webhook health (0.5.0)", () => {
+  const since = new Date(NOW.getTime() - 20 * MINUTE);
+  it("alerts on a permanent failure at once", () => {
+    expect(
+      webhookFailureAlertDue({
+        failure: new DeliveryFailure("http_error", null, 410),
+        format: "restow",
+        consecutiveFailures: 1,
+        failingSince: NOW,
+        now: NOW,
+      }),
+    ).toBe(true);
+    expect(
+      webhookFailureAlertDue({
+        failure: new DeliveryFailure("http_error", null, 404),
+        format: "discord",
+        consecutiveFailures: 1,
+        failingSince: NOW,
+        now: NOW,
+      }),
+    ).toBe(true);
+  });
+
+  it("alerts after three failures in a row over at least 15 minutes", () => {
+    const failure = new DeliveryFailure("http_error", null, 503);
+    const due = (consecutiveFailures: number, failingSince: Date) =>
+      webhookFailureAlertDue({
+        failure,
+        format: "restow",
+        consecutiveFailures,
+        failingSince,
+        now: NOW,
+      });
+    expect(due(2, since)).toBe(false);
+    expect(due(3, new Date(NOW.getTime() - 10 * MINUTE))).toBe(false);
+    expect(due(3, since)).toBe(true);
+  });
+
+  it("knows an alert about a failed delivery", () => {
+    expect(isDeliveryFailureAlert({ data: { deliveryFailure: true } })).toBe(true);
+    expect(isDeliveryFailureAlert({ data: { event: "notification.delivery_failed" } })).toBe(true);
+    expect(isDeliveryFailureAlert({ data: { details: { deliveryFailure: true } } })).toBe(true);
+    expect(isDeliveryFailureAlert({ data: { event: "backup.failed" } })).toBe(false);
+  });
+});
+
 describe.skipIf(!adminUrl)("webhook deliveries against Postgres", () => {
   let db: Database;
   let tenantId: string;
@@ -1404,6 +1456,7 @@ describe.skipIf(!adminUrl)("webhook deliveries against Postgres", () => {
         tenantName: "Contoso",
         publicUrl: "https://backup.example.com",
         objectName: null,
+        brand: null,
       });
       const sent: WebhookHttpRequest[] = [];
       const dispatcher = new WebhookDispatcher(
@@ -1442,5 +1495,121 @@ describe.skipIf(!adminUrl)("webhook deliveries against Postgres", () => {
       await db.delete(settings);
       await db.update(tenants).set({ language: null }).where(eq(tenants.id, tenantId));
     }
+  });
+
+  describe("health (0.5.0)", () => {
+    async function attempt(failure: DeliveryFailure | null, now: Date, payload = {}) {
+      const [row] = await db
+        .insert(webhookDeliveries)
+        .values({ tenantId, webhookId: other, event: "report.alert", payload, status: "pending" })
+        .returning();
+      const store = new PgDeliveryStore(db);
+      const due = { id: row?.id ?? "", tenantId };
+      const loaded = (await store.load(due)) as LoadedDelivery;
+      const plan = planAfterAttempt({ attemptsBefore: 0, failure, now, format: "restow" });
+      await store.record(due, plan, now, { delivery: loaded, failure });
+    }
+    const health = async () => {
+      const [row] = await db.select().from(webhooks).where(eq(webhooks.id, other));
+      return row;
+    };
+    const alerts = () =>
+      db
+        .select()
+        .from(notifications)
+        .where(eq(notifications.event, "notification.delivery_failed"));
+
+    it("alerts once when a webhook keeps failing, never through that webhook, and resets", async () => {
+      await db.delete(notifications);
+      await db.delete(reportDeliveries);
+      await db.delete(reportEvents);
+      const [rule] = await db
+        .insert(reportRules)
+        .values({
+          tenantId,
+          name: "Errors",
+          trigger: "event",
+          events: ["notification.delivery_failed"],
+          emailRecipients: ["ops@contoso.example"],
+          webhookId: other,
+        })
+        .returning();
+      await db
+        .update(webhooks)
+        .set({ events: ["notification.delivery_failed", "verify.completed"] })
+        .where(eq(webhooks.id, other));
+      try {
+        const failure = new DeliveryFailure("http_error", "unavailable", 503);
+        const start = new Date("2026-09-23T12:00:00.000Z");
+        await attempt(failure, start);
+        await attempt(failure, new Date(start.getTime() + MINUTE));
+        expect(await alerts()).toHaveLength(0);
+        // Webhook disabled is no failure of the receiver.
+        await attempt(
+          new DeliveryFailure("webhook_disabled"),
+          new Date(start.getTime() + 5 * MINUTE),
+        );
+        expect((await health())?.consecutiveFailures).toBe(2);
+        await attempt(failure, new Date(start.getTime() + 21 * MINUTE));
+        const raised = await alerts();
+        expect(raised).toHaveLength(1);
+        expect(raised[0]?.details).toMatchObject({
+          channel: "webhook",
+          webhookId: other,
+          reason: "http_error",
+          httpStatus: 503,
+          deliveryFailure: true,
+        });
+        expect((await health())?.failureAlertedAt).not.toBeNull();
+        // Planned to the rule's address, never to the failing webhook.
+        const planned = await db
+          .select()
+          .from(reportDeliveries)
+          .where(eq(reportDeliveries.event, "notification.delivery_failed"));
+        expect(planned.map((row) => [row.channel, row.recipient])).toEqual([
+          ["email", "ops@contoso.example"],
+        ]);
+        // Further failures of the episode raise nothing new.
+        await attempt(failure, new Date(start.getTime() + 40 * MINUTE));
+        expect(await alerts()).toHaveLength(1);
+        // A delivered attempt ends the episode.
+        await attempt(null, new Date(start.getTime() + 60 * MINUTE));
+        expect(await health()).toMatchObject({
+          consecutiveFailures: 0,
+          failingSince: null,
+          failureAlertedAt: null,
+          lastFailure: null,
+        });
+        // An alert about a failed delivery that fails itself counts, but raises nothing.
+        await attempt(
+          new DeliveryFailure("http_error", null, 410),
+          new Date(start.getTime() + 70 * MINUTE),
+          {
+            data: { deliveryFailure: true },
+          },
+        );
+        expect((await health())?.consecutiveFailures).toBe(1);
+        expect(await alerts()).toHaveLength(1);
+        // A permanent failure of an ordinary delivery alerts at once.
+        await attempt(
+          new DeliveryFailure("http_error", null, 410),
+          new Date(start.getTime() + 71 * MINUTE),
+        );
+        expect(await alerts()).toHaveLength(2);
+      } finally {
+        await db.delete(reportRules).where(eq(reportRules.id, rule?.id ?? ""));
+        await db
+          .update(webhooks)
+          .set({
+            events: webhookSubscriptionUpdate([], ["verify.completed"]),
+            consecutiveFailures: 0,
+            failingSince: null,
+            failureAlertedAt: null,
+            lastFailure: null,
+          })
+          .where(eq(webhooks.id, other));
+        await db.delete(webhookDeliveries);
+      }
+    });
   });
 });
