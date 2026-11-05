@@ -525,6 +525,15 @@ private repository.
   if it is still missing, comes back as a 502; a 200 that is not Graph's envelope (a proxy's
   page, a body without `responses`) is an error. A folder whose subfolders could not be listed
   (left out, server error, throttled) keeps its stored subtree and is recorded as a failure.
+- Mail backup: two quick HTTP 500 answers from Microsoft for a message's MIME export stored that
+  message as JSON for good. It then had no original file for EML, MBOX or PST export, and no
+  later incremental run asked for its MIME again. A plain 500 (without a conversion code) is
+  now asked again twice with backoff; if it stays, the message is an item failure that the next
+  run retries, and only after three runs in a row is its content kept as JSON. Every JSON copy
+  now records why (too large, conversion refused, server error), each one is logged and counted
+  in the run's summary, and a JSON copy stored after a server error or by an earlier version
+  without a reason gets its MIME asked for again on the next runs and is replaced by it when
+  Microsoft hands it out.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

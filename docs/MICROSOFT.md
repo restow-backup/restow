@@ -99,6 +99,20 @@ Schutzumfang" anzeigen, nicht als Fehler).
   erzeugen kein neues MIME; Metadaten separat speichern.
 - Große Anhänge (>4 MB) kommen im MIME mit; `$value` kann für sehr große Mails
   (>150 MB) fehlschlagen; Fallback: Anhänge einzeln über `/attachments/{id}/$value`.
+- JSON-Format (Graph-JSON der Nachricht mit `body` und `internetMessageHeaders`, dazu jeder
+  Anhang als eigenes Objekt) nur, wenn `$value` die Nachricht wirklich verweigert. Der Grund
+  steht im Objekt als `formatReason`: `too_large` (413 oder ein Größen-Code), `conversion_refused`
+  (Exchange kann das Element nicht in MIME umwandeln: `ErrorMimeContentConversionFailed`,
+  `ConversionFailed`, `CorruptData`). Ein einfacher 500 ohne solchen Code ist kein Grund: `$value`
+  wird mit Backoff (1 s, 2 s, plus Jitter; `Retry-After` gilt) insgesamt dreimal gefragt; bleibt
+  es beim 500, ist die Nachricht ein Elementfehler und der nächste Lauf holt sie über
+  `mailRetry` erneut. Erst nach drei Läufen in Folge mit nur 500 wird die JSON-Form gesichert
+  (`server_error`, gezählt in `mailMimeServerErrors` im Zustand), damit der Inhalt sicher ist.
+  Eine JSON-Kopie mit `server_error` oder ohne `formatReason` (vor 0.5.0 reichten zwei schnelle
+  500 für die JSON-Form auf Dauer) fragt jeder inkrementelle Lauf noch einmal nach dem MIME
+  (höchstens 200 je Ordner und Lauf); kommt es, ersetzt es die JSON-Kopie samt Anhängen, sonst
+  bleibt die Kopie unverändert. Jede JSON-Sicherung steht im Protokoll ("message stored as JSON
+  instead of MIME" mit Grund) und gezählt im Abschluss des Laufs (`jsonFallbacks`).
 - Kalender: `/users/{id}/calendars` und `/events` (Serientermine als Master plus
   Ausnahmen; `calendarView` nur für Ansicht, nicht für Backup). Kontakte:
   `/contactFolders` und `/contacts`. Beides als JSON mit Graph-Schema sichern.

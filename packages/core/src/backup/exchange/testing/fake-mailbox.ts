@@ -60,6 +60,11 @@ export interface FakeMessage {
   attachments?: FakeAttachment[];
   /** Responses served for `$value` before the real one (e.g. a 429, or a 404 forever). */
   mimeResponses?: FixtureResponse[];
+  /**
+   * Served for every `$value` after the scripted ones while set: Exchange answering a plain
+   * 500 (`UnknownError`, no conversion code) for as long as its backend has the problem.
+   */
+  mimeUnavailable?: FixtureResponse;
 }
 
 export interface FakeCalendar {
@@ -592,6 +597,9 @@ export class FakeMailbox {
     const scripted = message.mimeResponses?.[served];
     if (scripted) {
       return scripted;
+    }
+    if (message.mimeUnavailable) {
+      return message.mimeUnavailable;
     }
     if (message.mimeTooLarge) {
       return {

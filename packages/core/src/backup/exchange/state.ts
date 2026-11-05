@@ -60,6 +60,13 @@ export interface ExchangeState {
    * link has moved past them, so the next run fetches them one by one.
    */
   mailRetry: Record<string, string[]>;
+  /**
+   * Message id -> number of runs in a row in which its `$value` answered a plain 500 on
+   * every attempt. Such a message is an item failure (and in `mailRetry`) until this
+   * reaches MIME_SERVER_ERROR_RUNS; then its JSON is stored so the content is safe
+   * (`formatReason` "server_error") and the MIME is asked again on later runs.
+   */
+  mailMimeServerErrors: Record<string, number>;
   /** Calendars by id -> object path. */
   calendars: Record<string, string>;
   /** Contact folders by id (the default folder uses the empty string) -> object path. */
@@ -79,6 +86,7 @@ export function emptyState(): ExchangeState {
     mailDeltaLinks: {},
     mailFolders: {},
     mailRetry: {},
+    mailMimeServerErrors: {},
     calendars: {},
     contactFolders: {},
     conversationThreads: {},
@@ -100,6 +108,19 @@ function readRetry(value: unknown): Record<string, string[]> {
     }
   }
   return retry;
+}
+
+function readCounts(value: unknown): Record<string, number> {
+  const counts: Record<string, number> = {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return counts;
+  }
+  for (const [id, count] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof count === "number" && Number.isInteger(count) && count > 0) {
+      counts[id] = count;
+    }
+  }
+  return counts;
 }
 
 function isRecordOfStrings(value: unknown): value is Record<string, string> {
@@ -155,6 +176,7 @@ export function readState(raw: Record<string, unknown> | undefined): ExchangeSta
     mailDeltaLinks: isRecordOfStrings(record.mailDeltaLinks) ? { ...record.mailDeltaLinks } : {},
     mailFolders: folders,
     mailRetry: readRetry(record.mailRetry),
+    mailMimeServerErrors: readCounts(record.mailMimeServerErrors),
     calendars: isRecordOfStrings(record.calendars) ? { ...record.calendars } : {},
     contactFolders: isRecordOfStrings(record.contactFolders) ? { ...record.contactFolders } : {},
     conversationThreads: isRecordOfStrings(record.conversationThreads)

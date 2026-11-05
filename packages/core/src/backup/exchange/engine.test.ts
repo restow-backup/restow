@@ -269,6 +269,7 @@ describe("ExchangeBackupEngine", () => {
     return new ExchangeBackupEngine({
       graph: () => graph.client(),
       checkpointEveryItems: 1,
+      mimeServerErrorBackoffMs: 0,
       snapshotIdGenerator: () => `snap-${nextSnapshot++}`,
       packIdGenerator: () => `pack-${nextPack++}`,
       ...options,
@@ -1046,6 +1047,117 @@ describe("ExchangeBackupEngine", () => {
     expect(byId(manifest2, "AAMkMsg4").path).toBe(failedRef);
     expect(mailObjects(manifest2)).toHaveLength(MESSAGE_COUNT - 1);
     expect(readState(manifest2.state).mailRetry).toEqual({});
+  });
+
+  describe("a plain HTTP 500 on $value", () => {
+    /** Exchange's answer while its backend cannot hand out the MIME: no conversion code. */
+    const plain500 = {
+      status: 500,
+      json: graphError("UnknownError", "An internal server error occurred."),
+    };
+    const ref = mailObjectPath("mail/Inbox/Projects", "Kickoff / agenda", "AAMkMsg4");
+
+    it("asks again with backoff and keeps the MIME format when the third attempt works", async () => {
+      fake("AAMkMsg4").mimeResponses = [plain500, plain500];
+      const result = await engine.run(newContext(), mailbox, {});
+      expect(result.failures).toEqual([]);
+      expect(mimeDownloads().filter((id) => id === "AAMkMsg4")).toHaveLength(3);
+      const stored = byId(await manifestOf(result.snapshotId), "AAMkMsg4");
+      expect(messageFormatOf(stored)).toBe("mime");
+      expect(stored.path).toBe(ref);
+    });
+
+    it("is an item failure retried next run, never a JSON copy, until three runs in a row failed", async () => {
+      fake("AAMkMsg4").mimeUnavailable = plain500;
+      const first = await engine.run(newContext(), mailbox, {});
+      expect(first.failures.map((f) => [f.itemRef, f.cause?.code])).toEqual([
+        [ref, "graph.service_unavailable"],
+      ]);
+      let manifest = await manifestOf(first.snapshotId);
+      expect(manifest.objects.find((o) => o.id === "AAMkMsg4")).toBeUndefined();
+      expect(readState(manifest.state).mailRetry).toEqual({ [F.projects]: ["AAMkMsg4"] });
+      expect(readState(manifest.state).mailMimeServerErrors).toEqual({ AAMkMsg4: 1 });
+
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(second.failures.map((f) => f.itemRef)).toEqual([ref]);
+      manifest = await manifestOf(second.snapshotId);
+      expect(manifest.objects.find((o) => o.id === "AAMkMsg4")).toBeUndefined();
+      expect(readState(manifest.state).mailMimeServerErrors).toEqual({ AAMkMsg4: 2 });
+
+      // The third run in a row: the content is kept as JSON, marked as a server error.
+      const third = await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      expect(third.failures).toEqual([]);
+      manifest = await manifestOf(third.snapshotId);
+      const json = byId(manifest, "AAMkMsg4");
+      expect(messageFormatOf(json)).toBe("json");
+      expect(json.metadata?.[META.formatReason]).toBe("server_error");
+      expect(readState(manifest.state).mailRetry).toEqual({});
+      expect(readState(manifest.state).mailMimeServerErrors).toEqual({});
+
+      // Exchange hands out the MIME again: the next incremental run replaces the JSON.
+      fake("AAMkMsg4").mimeUnavailable = undefined;
+      graph.calls.length = 0;
+      const fourth = await engine.run(newContext({ jobId: "job-4" }), mailbox, {});
+      expect(fourth.failures).toEqual([]);
+      expect(mimeDownloads()).toEqual(["AAMkMsg4"]);
+      manifest = await manifestOf(fourth.snapshotId);
+      const healed = byId(manifest, "AAMkMsg4");
+      expect(messageFormatOf(healed)).toBe("mime");
+      expect(healed.path).toBe(ref);
+      expect(healed.metadata?.[META.formatReason]).toBeUndefined();
+      expect(
+        manifest.objects.filter((o) => o.metadata?.[META.messageItemId] === "AAMkMsg4"),
+      ).toEqual([]);
+      expect(mailObjects(manifest)).toHaveLength(MESSAGE_COUNT);
+    });
+
+    it("stores a message Exchange cannot convert as JSON with its reason and does not ask again", async () => {
+      fake("AAMkMsg4").mimeUnavailable = {
+        status: 500,
+        json: graphError("ErrorMimeContentConversionFailed", "MIME conversion failed."),
+      };
+      const first = await engine.run(newContext(), mailbox, {});
+      expect(first.failures).toEqual([]);
+      expect(mimeDownloads().filter((id) => id === "AAMkMsg4")).toHaveLength(1);
+      const json = byId(await manifestOf(first.snapshotId), "AAMkMsg4");
+      expect(messageFormatOf(json)).toBe("json");
+      expect(json.metadata?.[META.formatReason]).toBe("conversion_refused");
+
+      graph.calls.length = 0;
+      await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual([]);
+    });
+
+    it("asks again for the MIME of a JSON copy stored without a reason (before 0.5.0)", async () => {
+      fake("AAMkMsg4").mimeResponses = [
+        { status: 500, json: graphError("ErrorMimeContentConversionFailed") },
+      ];
+      const first = await engine.run(newContext(), mailbox, {});
+      // What 0.4 left after two quick plain 500s: a JSON copy that says nothing about why.
+      const record = must(await snapshots.get(first.snapshotId));
+      const manifest1 = await manifestOf(first.snapshotId);
+      const legacy = {
+        ...manifest1,
+        objects: manifest1.objects.map((o) => {
+          if (o.id !== "AAMkMsg4") {
+            return o;
+          }
+          const { [META.formatReason]: _reason, ...metadata } = o.metadata ?? {};
+          return { ...o, metadata };
+        }),
+      };
+      await new LocalStorageBackend(root).put(
+        must(record.manifestPath),
+        await sealManifest(legacy, dek, must(record.manifestPath)),
+      );
+      graph.calls.length = 0;
+
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(second.failures).toEqual([]);
+      expect(mimeDownloads()).toEqual(["AAMkMsg4"]);
+      const healed = byId(await manifestOf(second.snapshotId), "AAMkMsg4");
+      expect(messageFormatOf(healed)).toBe("mime");
+    });
   });
 
   it("fails the run resumably when throttling outlasts the client's retries", async () => {

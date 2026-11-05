@@ -36,12 +36,15 @@ import { type DeltaMode, isRemoved, RecordDeltaTokenStore } from "../../graph/de
 import {
   fetchMessageContent,
   getMessage,
+  isMimeServerError,
   listMailFolderTree,
   type MailFolderNode,
   MESSAGE_DELTA_SELECT,
   type MessageContent,
   type MessageDeltaEntry,
   messagesDelta,
+  mimeRefusalReason,
+  openMessageMime,
   resolveWellKnownFolders,
   type WellKnownFolderName,
 } from "../../graph/resources/mail.js";
@@ -87,6 +90,8 @@ export interface MailPhaseOptions {
   readonly includeHiddenFolders: boolean;
   readonly skipWellKnownFolders: ReadonlySet<WellKnownFolderName>;
   readonly deltaPageSize: number;
+  /** Base of the backoff between `$value` attempts after a plain 500. */
+  readonly mimeServerErrorBackoffMs?: number;
 }
 
 export interface PlannedFolder {
@@ -644,6 +649,9 @@ function ridersOf(run: BackupRun, message: ManifestObject): ManifestObject[] {
 }
 
 function removeMessage(run: BackupRun, message: ManifestObject): void {
+  if (message.id !== undefined) {
+    delete run.state.mailMimeServerErrors[message.id];
+  }
   run.removeItem(message, ridersOf(run, message));
 }
 
@@ -660,6 +668,7 @@ const CONTENT_METADATA = [
   META.attachmentCount,
   META.referenceAttachments,
   META.protection,
+  META.formatReason,
 ] as const;
 
 /** Refresh a stored message without fetching its bytes again. */
@@ -669,6 +678,7 @@ function carryMessage(
   entry: MailDeltaEntry,
   existing: ManifestObject,
   mtime: number,
+  contentUpdate: Record<string, string> = {},
 ): void {
   const json = isJsonMessage(existing);
   const path = json
@@ -681,6 +691,7 @@ function carryMessage(
       metadata[key] = value;
     }
   }
+  Object.assign(metadata, contentUpdate);
   const riders = ridersOf(run, existing);
   const oldPath = existing.path;
   run.carryForward(existing, { path, mtime, metadata });
@@ -784,6 +795,7 @@ async function storeJsonMessage(
   const metadata: Record<string, string> = {
     ...base.metadata,
     [META.format]: MESSAGE_FORMAT.json,
+    [META.formatReason]: content.fallbackReason,
     [META.contentType]: "application/json",
     [META.attachmentCount]: String(attachments.length),
   };
@@ -814,6 +826,74 @@ async function storeJsonMessage(
   ]);
 }
 
+/** Runs in a row with a plain 500 on `$value` after which a message's JSON is stored instead. */
+export const MIME_SERVER_ERROR_RUNS = 3;
+
+/** JSON reasons that are final: asking for the MIME again would be refused the same way. */
+const FINAL_JSON_REASONS: ReadonlySet<string> = new Set(["too_large", "conversion_refused"]);
+
+/**
+ * A JSON message whose MIME is worth asking for again: stored after a plain 500
+ * (`server_error`), or by a version that did not record why (before 0.5.0 a plain 500
+ * twice in a row was enough to store a message as JSON for good).
+ */
+export function needsMimeAgain(object: ManifestObject | undefined): boolean {
+  return (
+    object !== undefined &&
+    isJsonMessage(object) &&
+    !FINAL_JSON_REASONS.has(object.metadata?.[META.formatReason] ?? "")
+  );
+}
+
+/** Count a JSON fallback of this run and say so in the log. */
+function noteJsonFallback(run: BackupRun, entry: MailDeltaEntry, reason: string): void {
+  run.jsonFallbacks[reason] = (run.jsonFallbacks[reason] ?? 0) + 1;
+  run.logger.info("message stored as JSON instead of MIME", { messageId: entry.id, reason });
+}
+
+/**
+ * Ask once more for the MIME of a JSON message whose content has not changed
+ * ({@link needsMimeAgain}). The MIME replaces the JSON when Graph hands it out now; a
+ * refusal only records its reason on the stored copy, and a server error keeps the copy
+ * as it is for the next run. Never downloads the JSON and attachments again.
+ */
+async function askMimeAgain(
+  run: BackupRun,
+  folder: PlannedFolder,
+  entry: MailDeltaEntry,
+  existing: ManifestObject,
+  mtime: number,
+  fingerprint: string,
+): Promise<void> {
+  let stream: Readable;
+  try {
+    stream = await openMessageMime(run.client, run.userId, entry.id);
+  } catch (error) {
+    const reason = mimeRefusalReason(error);
+    if (reason !== null) {
+      carryMessage(run, folder, entry, existing, mtime, { [META.formatReason]: reason });
+      return;
+    }
+    if (isMimeServerError(error)) {
+      run.logger.info("MIME of a message stored as JSON still unavailable, JSON kept", {
+        messageId: entry.id,
+      });
+      carryMessage(run, folder, entry, existing, mtime);
+      return;
+    }
+    throw error;
+  }
+  run.logger.info("MIME of a message stored as JSON is available again, stored as MIME", {
+    messageId: entry.id,
+  });
+  delete run.state.mailMimeServerErrors[entry.id];
+  const metadata: Record<string, string> = {
+    ...mailMetadata(entry, folder, existing),
+    [META.fingerprint]: fingerprint,
+  };
+  await storeMimeMessage(run, folder, entry, existing, mtime, metadata, stream);
+}
+
 /** Fetch a message's content and store it as MIME, or as JSON when Graph refuses the MIME. */
 async function fetchMessage(
   run: BackupRun,
@@ -822,8 +902,25 @@ async function fetchMessage(
   existing: ManifestObject | undefined,
   mtime: number,
   fingerprint: string,
+  options: MailPhaseOptions,
 ): Promise<void> {
-  const content = await fetchMessageContent(run.client, run.userId, entry.id);
+  const serverErrorRuns = run.state.mailMimeServerErrors[entry.id] ?? 0;
+  let content: MessageContent;
+  try {
+    content = await fetchMessageContent(run.client, run.userId, entry.id, {
+      signal: run.ctx.signal,
+      serverErrorBackoffMs: options.mimeServerErrorBackoffMs,
+      // The third run in a row with nothing but a plain 500: keep the content as JSON.
+      jsonAfterServerError: serverErrorRuns + 1 >= MIME_SERVER_ERROR_RUNS,
+    });
+  } catch (error) {
+    if (isMimeServerError(error)) {
+      // An item failure, retried next run (mailRetry); never a reason to give up the MIME.
+      run.state.mailMimeServerErrors[entry.id] = serverErrorRuns + 1;
+    }
+    throw error;
+  }
+  delete run.state.mailMimeServerErrors[entry.id];
   const metadata: Record<string, string> = {
     ...mailMetadata(entry, folder, existing),
     [META.fingerprint]: fingerprint,
@@ -835,9 +932,23 @@ async function fetchMessage(
       metadata[META.protection] = protection;
     }
     await storeJsonMessage(run, folder, entry, existing, content, { mtime, metadata });
+    noteJsonFallback(run, entry, content.fallbackReason);
     return;
   }
-  const { stream, header } = sniffMimeHeader(content.stream);
+  await storeMimeMessage(run, folder, entry, existing, mtime, metadata, content.stream);
+}
+
+/** Store a message's MIME, replacing whatever version (MIME or JSON) the snapshot had. */
+async function storeMimeMessage(
+  run: BackupRun,
+  folder: PlannedFolder,
+  entry: MailDeltaEntry,
+  existing: ManifestObject | undefined,
+  mtime: number,
+  metadata: Record<string, string>,
+  mime: Readable,
+): Promise<void> {
+  const { stream, header } = sniffMimeHeader(mime);
   const written = await run.writeContent(stream);
   const head = await header;
   const protection =
@@ -846,6 +957,10 @@ async function fetchMessage(
   if (protection) {
     metadata[META.protection] = protection;
   }
+  // Content metadata of an earlier JSON version does not describe the MIME.
+  delete metadata[META.formatReason];
+  delete metadata[META.attachmentCount];
+  delete metadata[META.referenceAttachments];
   if (existing) {
     // An earlier JSON version leaves its attachments behind otherwise.
     for (const rider of ridersOf(run, existing)) {
@@ -874,15 +989,20 @@ async function storeMessage(
   run: BackupRun,
   folder: PlannedFolder,
   entry: MailDeltaEntry,
+  options: MailPhaseOptions,
 ): Promise<void> {
   const fingerprint = contentFingerprint(entry);
   const mtime = toMillis(entry.lastModifiedDateTime) || toMillis(entry.receivedDateTime);
   const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
   if (run.reusable(existing, fingerprint)) {
+    if (needsMimeAgain(existing) && !run.fetchedInThisRun(existing)) {
+      await askMimeAgain(run, folder, entry, existing, mtime, fingerprint);
+      return;
+    }
     carryMessage(run, folder, entry, existing, mtime);
     return;
   }
-  await fetchMessage(run, folder, entry, existing, mtime, fingerprint);
+  await fetchMessage(run, folder, entry, existing, mtime, fingerprint, options);
 }
 
 type EntryOutcome = "stored" | "removed" | "vanished" | "failed";
@@ -902,6 +1022,7 @@ async function processEntry(
   folder: PlannedFolder,
   entry: MailDeltaEntry,
   seen: Set<string>,
+  options: MailPhaseOptions,
 ): Promise<EntryOutcome> {
   if (isRemoved(entry)) {
     const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
@@ -915,7 +1036,7 @@ async function processEntry(
   seen.add(entry.id);
   const itemRef = mailObjectPath(folder.path, entry.subject, entry.id);
   try {
-    await storeMessage(run, folder, entry);
+    await storeMessage(run, folder, entry, options);
     return "stored";
   } catch (error) {
     if (isVanished(error)) {
@@ -951,11 +1072,13 @@ async function retryFailedMessages(
   ids: readonly string[],
   seen: Set<string>,
   failed: Set<string>,
+  options: MailPhaseOptions,
+  why = "retrying messages that failed in the previous run",
 ): Promise<void> {
   if (ids.length === 0) {
     return;
   }
-  run.logger.info("retrying messages that failed in the previous run", {
+  run.logger.info(why, {
     folderId: folder.node.id,
     messages: ids.length,
   });
@@ -985,13 +1108,49 @@ async function retryFailedMessages(
       run.reporter.advance(1, 0);
       continue;
     }
-    const outcome = await processEntry(run, folder, { ...message, id } as MailDeltaEntry, seen);
+    const outcome = await processEntry(
+      run,
+      folder,
+      { ...message, id } as MailDeltaEntry,
+      seen,
+      options,
+    );
     if (outcome === "failed") {
       failed.add(id);
     }
     run.setPosition(folder.node.id, id);
     await run.maybeCheckpoint();
   }
+}
+
+/** At most this many JSON messages per folder and run get their MIME asked again. */
+export const MAX_MIME_AGAIN_PER_FOLDER = 200;
+
+/** The JSON messages of a folder whose MIME is asked again in this run ({@link needsMimeAgain}). */
+function jsonMessagesToAskAgain(
+  run: BackupRun,
+  folder: PlannedFolder,
+  listed: ReadonlySet<string>,
+  retried: readonly string[],
+): string[] {
+  const skip = new Set(retried);
+  const ids: string[] = [];
+  for (const member of run.index.members(mailGroup(folder.node.id))) {
+    if (ids.length >= MAX_MIME_AGAIN_PER_FOLDER) {
+      break;
+    }
+    if (
+      member.type === OBJECT_TYPES.mail &&
+      member.id !== undefined &&
+      !listed.has(member.id) &&
+      !skip.has(member.id) &&
+      needsMimeAgain(member) &&
+      !run.fetchedInThisRun(member)
+    ) {
+      ids.push(member.id);
+    }
+  }
+  return ids;
 }
 
 /** Remember this run's failed messages of a folder for the next run. */
@@ -1080,7 +1239,7 @@ export async function syncMailFolder(
     for (const entry of batch.items as MailDeltaEntry[]) {
       run.throwIfAborted();
       listed.add(entry.id);
-      const outcome = await processEntry(run, folder, entry, seen);
+      const outcome = await processEntry(run, folder, entry, seen, options);
       if (outcome === "failed") {
         failed.add(entry.id);
       } else {
@@ -1094,7 +1253,19 @@ export async function syncMailFolder(
 
   if (mode === "incremental") {
     const pending = (run.state.mailRetry[folderId] ?? []).filter((id) => !listed.has(id));
-    await retryFailedMessages(run, folder, pending, seen, failed);
+    await retryFailedMessages(run, folder, pending, seen, failed, options);
+    // JSON copies whose MIME may be available (stored after a plain 500, or by a version
+    // that did not say why): the delta will not list them again unless they change.
+    const again = jsonMessagesToAskAgain(run, folder, listed, pending);
+    await retryFailedMessages(
+      run,
+      folder,
+      again,
+      seen,
+      failed,
+      options,
+      "asking again for the MIME of messages stored as JSON",
+    );
   } else {
     // A full enumeration lists everything, earlier failures included.
     removeUnseen(run, folder, seen);

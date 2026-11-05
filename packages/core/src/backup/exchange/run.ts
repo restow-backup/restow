@@ -83,6 +83,12 @@ export const META = {
   messageItemId: "messageItemId",
   /** For folder objects: `mail`, `calendar`, `contacts`, `attachments` or `root`. */
   folderKind: "folderKind",
+  /**
+   * For JSON messages: why the MIME is not stored (`too_large`, `conversion_refused`,
+   * `server_error`; graph/resources/mail.ts MimeFallbackReason). A JSON message without
+   * it, or with `server_error`, gets its MIME asked again (mail.ts needsMimeAgain).
+   */
+  formatReason: "formatReason",
   /** For JSON messages: number of attachment objects stored with the message. */
   attachmentCount: "attachmentCount",
   /** For JSON messages: names of link attachments, whose target Graph v1.0 does not expose. */
@@ -344,6 +350,8 @@ export class BackupRun {
   };
   /** Every item failure of this run, in order (also reported through the progress reporter). */
   readonly failures: ItemFailureRecord[] = [];
+  /** Messages stored as JSON in this run instead of MIME, by reason (logged with the result). */
+  readonly jsonFallbacks: Record<string, number> = {};
 
   private readonly checkpoints: CheckpointPolicy;
   private phase: ExchangePhase = "mail";
