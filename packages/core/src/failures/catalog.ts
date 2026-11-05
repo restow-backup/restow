@@ -189,6 +189,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("wait_automatic"), step("check_service_health")],
   },
+  "graph.online_archive_not_covered": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("check_archive_policy")],
+  },
   "graph.item_not_found": {
     category: "microsoft",
     transient: true,

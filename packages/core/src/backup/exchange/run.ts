@@ -19,6 +19,7 @@ import type {
   ProgressReporter,
 } from "../../engine/types.js";
 import { classifyFailure } from "../../failures/classify.js";
+import type { FailureCause } from "../../failures/types.js";
 import { type GraphClient, RETRYABLE_STATUSES } from "../../graph/client.js";
 import { isGraphError, isMailboxUnavailable, isNotFound } from "../../graph/errors.js";
 import type { MailboxOwner } from "../../graph/resources/common.js";
@@ -586,6 +587,17 @@ export class BackupRun {
     this.logger.debug("item deleted in the mailbox while the backup ran", {
       itemRef: redactItemRef(itemRef),
     });
+  }
+
+  /**
+   * Record a warning about the run as a whole (no source item failed): an item failure with a
+   * cause the operator can read and acknowledge, so the run is never plain green. Not counted
+   * in {@link counters}, which count source items.
+   */
+  warn(itemRef: string, reason: string, cause: FailureCause): void {
+    this.failures.push({ itemRef, reason, cause });
+    this.reporter.fail(itemRef, reason, cause);
+    this.logger.warn("backup warning", { itemRef: redactItemRef(itemRef), code: cause.code });
   }
 
   /** Record an item failure (never fatal for the run). */

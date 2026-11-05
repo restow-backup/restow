@@ -121,6 +121,10 @@
         "title": "Microsoft hat nicht bestätigt, ob die Änderung ausgeführt wurde",
         "why": "{appName} hat bei Microsoft etwas angelegt (zum Beispiel eine Nachricht, einen Kontakt oder einen Ordner). Microsoft hat {reason, select, timeout {nicht rechtzeitig geantwortet} other {mit einem Gateway- oder Dienstfehler geantwortet{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}}}. Ob das Element angelegt wurde, ist damit unbekannt. Damit keine Doppelung entsteht, sendet {appName} die Anfrage nicht blind erneut; der nächste Versuch prüft zuerst, was im Ziel schon vorhanden ist."
       },
+      "online_archive_not_covered": {
+        "title": "Das Online-Archiv dieses Postfachs wird nicht gesichert",
+        "why": "Dieses Postfach hat ein Online-Archiv (In-Place Archive). Microsoft Graph bietet dafür keine allgemein verfügbare Schnittstelle, deshalb sichert {appName} nur das primäre Postfach. Mails, die eine Aufbewahrungsrichtlinie oder ein Benutzer ins Online-Archiv verschiebt, fehlen ab dann in den neuen Sicherungsständen; ältere Sicherungsstände behalten sie, bis deren Aufbewahrung abläuft."
+      },
       "item_not_found": {
         "title": "Das Element wurde inzwischen bei Microsoft geändert oder gelöscht",
         "why": "{appName} hatte dieses Element aufgelistet, konnte es danach aber nicht lesen, weil es dazwischen bei Microsoft verschoben oder gelöscht wurde. Der nächste Lauf sieht den neuen Stand."
@@ -692,6 +696,7 @@
     "check_app_password": "Prüfen Sie Benutzername und Passwort in den Quelleneinstellungen. Verlangt der Anbieter eine Zwei-Faktor-Anmeldung, erstellen Sie ein App-Passwort und verwenden Sie dieses.",
     "enable_imap_access": "Stellen Sie sicher, dass der IMAP-Zugriff für das Konto beim Mailanbieter eingeschaltet ist.",
     "show_gmail_all_mail_in_imap": "Schalten Sie in Gmail unter Einstellungen > Labels bei „Alle Nachrichten“ die Option „In IMAP anzeigen“ ein. Der nächste Lauf sichert jede Nachricht dann nur noch einmal.",
+    "check_archive_policy": "Prüfen Sie, ob eine Aufbewahrungsrichtlinie Mails ins Online-Archiv verschiebt. Sichern Sie das Archiv bei Bedarf auf anderem Weg (zum Beispiel mit einem eDiscovery-Export), oder bewahren Sie die Sicherungsstände so lange auf, wie Sie diese Mails brauchen.",
     "reauthorize_oauth": "Verbinden Sie das Konto in den Quelleneinstellungen neu, damit {appName} ein neues OAuth-Token erhält.",
     "set_object_password": "Setzen oder korrigieren Sie das Passwort dieses Kontos auf der Seite Geschützte Objekte.",
     "check_host_reachable": "{has_host, select, yes {Prüfen Sie, ob {host}{has_port, select, yes {:{port}} other {}} vom Server von {appName} aus erreichbar ist} other {Prüfen Sie, ob der Server von dem Rechner aus erreichbar ist, auf dem {appName} läuft}}: Name, Port, Firewall und Proxy.",

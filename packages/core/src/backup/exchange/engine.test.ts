@@ -1637,6 +1637,70 @@ describe("ExchangeBackupEngine", () => {
     expect(byId(manifest, "AAMkMsg1").metadata?.[META.fetchedInSnapshot]).toBe("snap-2");
   });
 
+  describe("online archive (In-Place Archive)", () => {
+    function archiveProbes(): number {
+      return graph.callsTo("GET", "/settings/exchange").length;
+    }
+
+    it("warns on every run that a mailbox with an online archive is not fully covered", async () => {
+      box.onlineArchive = "MBX:archive@a7809c93";
+      const first = await engine.run(newContext(), mailbox, {});
+      expect(first.failures).toEqual([
+        expect.objectContaining({
+          itemRef: "online-archive",
+          cause: expect.objectContaining({
+            code: "graph.online_archive_not_covered",
+            transient: false,
+          }),
+        }),
+      ]);
+      expect(first.counters.failed).toBe(0);
+      expect(sink.failures.map((failure) => failure.itemRef)).toContain("online-archive");
+      const state = readState((await manifestOf(first.snapshotId)).state);
+      expect(state.onlineArchive).toEqual({
+        status: "present",
+        checkedAt: "2026-09-22T10:00:00.000Z",
+      });
+      expect(new URL(must(graph.callsTo("GET", "/settings/exchange")[0]).url).pathname).toBe(
+        `/beta/users/${encodeURIComponent(USER)}/settings/exchange`,
+      );
+
+      // The next run the same day: the answer comes from the state, the warning again.
+      graph.calls.length = 0;
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(archiveProbes()).toBe(0);
+      expect(second.failures.map((failure) => failure.cause?.code)).toEqual([
+        "graph.online_archive_not_covered",
+      ]);
+    });
+
+    it("records nothing for a mailbox without an online archive", async () => {
+      const result = await engine.run(newContext(), mailbox, {});
+      expect(archiveProbes()).toBe(1);
+      expect(result.failures).toEqual([]);
+      expect(readState((await manifestOf(result.snapshotId)).state).onlineArchive).toMatchObject({
+        status: "none",
+      });
+    });
+
+    it("claims nothing when Graph refuses the probe, and asks again next run", async () => {
+      box.onlineArchive = {
+        status: 403,
+        json: graphError("Authorization_RequestDenied", "Insufficient privileges"),
+      };
+      const result = await engine.run(newContext(), mailbox, {});
+      expect(result.failures).toEqual([]);
+      expect(readState((await manifestOf(result.snapshotId)).state).onlineArchive).toBeUndefined();
+      graph.calls.length = 0;
+      box.onlineArchive = "MBX:archive@a7809c93";
+      const next = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(archiveProbes()).toBe(1);
+      expect(next.failures.map((failure) => failure.cause?.code)).toEqual([
+        "graph.online_archive_not_covered",
+      ]);
+    });
+  });
+
   it("refuses protected objects of another kind", async () => {
     await expect(engine.run(newContext(), { ...mailbox, kind: "onedrive" }, {})).rejects.toThrow(
       /handles mailboxes/,

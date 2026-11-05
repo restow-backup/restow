@@ -146,6 +146,12 @@ export class FakeMailbox {
    * Graph itself has done: the envelope is a 200 whose `responses` lack these ids.
    */
   omitBatchSub: ((url: string) => boolean) | undefined;
+  /**
+   * Graph beta mailbox discovery (`GET /beta/users/{id}/settings/exchange`): the id of the
+   * online archive (In-Place Archive) when the mailbox has one, null when it has none, or the
+   * answer Graph gives instead (403 without User.Read.All).
+   */
+  onlineArchive: string | null | FixtureResponse = null;
 
   private version = 0;
   private readonly log: ChangeLogEntry[] = [];
@@ -319,6 +325,9 @@ export class FakeMailbox {
       return intercepted;
     }
     const url = new URL(call.url);
+    if (call.method === "GET" && /^\/beta\/users\/[^/]+\/settings\/exchange$/.test(url.pathname)) {
+      return this.exchangeSettings();
+    }
     if (call.method === "POST" && url.pathname.endsWith("/$batch")) {
       const envelope = batchEnvelope(call, (sub) => this.answerBatchSub(sub.url));
       const omit = this.omitBatchSub;
@@ -334,6 +343,22 @@ export class FakeMailbox {
       };
     }
     return this.answer(url);
+  }
+
+  private exchangeSettings(): FixtureResponse {
+    const archive = this.onlineArchive;
+    if (archive !== null && typeof archive === "object") {
+      return archive;
+    }
+    return {
+      status: 200,
+      json: {
+        "@odata.context": `https://graph.microsoft.com/beta/$metadata#users('${this.userId}')/settings/exchange/$entity`,
+        id: this.userId,
+        primaryMailboxId: "MBX:4eba5149@a7809c93",
+        inPlaceArchiveMailboxId: archive,
+      },
+    };
   }
 
   private notFound(what: string): FixtureResponse {

@@ -77,6 +77,32 @@ export interface ExchangeState {
    * so its posts are not listed again (backup/groups/conversations.ts).
    */
   conversationThreads: Record<string, string>;
+  /**
+   * Whether the mailbox has an online archive (In-Place Archive) that the backup does not
+   * reach, and when that was last asked (./online-archive.ts). Only a known answer is kept;
+   * an unknown one is asked again on the next run.
+   */
+  onlineArchive?: OnlineArchiveState;
+}
+
+export interface OnlineArchiveState {
+  readonly status: "present" | "none";
+  /** ISO 8601. */
+  readonly checkedAt: string;
+}
+
+function readOnlineArchive(value: unknown): { onlineArchive?: OnlineArchiveState } {
+  const record = value as { status?: unknown; checkedAt?: unknown } | null | undefined;
+  if (
+    record &&
+    typeof record === "object" &&
+    (record.status === "present" || record.status === "none") &&
+    typeof record.checkedAt === "string" &&
+    !Number.isNaN(Date.parse(record.checkedAt))
+  ) {
+    return { onlineArchive: { status: record.status, checkedAt: record.checkedAt } };
+  }
+  return {};
 }
 
 export function emptyState(): ExchangeState {
@@ -182,6 +208,7 @@ export function readState(raw: Record<string, unknown> | undefined): ExchangeSta
     conversationThreads: isRecordOfStrings(record.conversationThreads)
       ? { ...record.conversationThreads }
       : {},
+    ...readOnlineArchive(record.onlineArchive),
   };
 }
 

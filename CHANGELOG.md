@@ -572,6 +572,12 @@ private repository.
   no longer carries the per-label copies of earlier restore points forward (those keep them). If
   All Mail is hidden from IMAP in the Gmail settings, the account is still backed up folder by
   folder and every run says so in a warning.
+- Mail backup: a Microsoft 365 mailbox with an online archive (In-Place Archive) gave no sign
+  that the archive is not backed up. Mail that a retention policy or the user moved there was
+  reported as removed by Graph, left the new restore points, and the run stayed green. Every run
+  now asks Microsoft whether the mailbox has an online archive and, if it has one, ends with a
+  warning that it is not covered (Graph offers no generally available way to read it). When
+  Microsoft does not answer that question, nothing is claimed and the next run asks again.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

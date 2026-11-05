@@ -37,6 +37,7 @@ import { backupCalendar } from "./calendar.js";
 import { backupContacts } from "./contacts.js";
 import { folderObjectAt } from "./folders.js";
 import { backupMail, DEFAULT_SKIPPED_FOLDERS, type MailPhaseOptions } from "./mail.js";
+import { checkOnlineArchive } from "./online-archive.js";
 import { CALENDAR_ROOT, CONTACTS_ROOT, MAIL_ROOT } from "./paths.js";
 import {
   BackupRun,
@@ -174,6 +175,9 @@ export class ExchangeBackupEngine<Db = unknown> implements BackupEngine<Db> {
 
     try {
       addRootFolders(run);
+      // Before the mail phase, so a mailbox whose archive is not covered says so even when
+      // a later phase fails.
+      await checkOnlineArchive(run);
       await backupMail(run, this.mailOptions);
       if (this.options.includeCalendar ?? true) {
         await backupCalendar(run, {

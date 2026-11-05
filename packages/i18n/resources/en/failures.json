@@ -121,6 +121,10 @@
         "title": "Microsoft did not confirm whether the change was carried out",
         "why": "{appName} asked Microsoft to create something (for example a message, a contact or a folder). Microsoft {reason, select, timeout {did not answer in time} other {answered with a gateway or service error{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}}}. Whether the item was created is therefore unknown. To avoid a duplicate, {appName} does not blindly send the request again; the next attempt first checks what the target already holds."
       },
+      "online_archive_not_covered": {
+        "title": "The online archive of this mailbox is not backed up",
+        "why": "This mailbox has an online archive (In-Place Archive). Microsoft Graph offers no generally available interface for it, so {appName} backs up the primary mailbox only. Mail that a retention policy or the user moves to the online archive is missing from new restore points from then on; older restore points keep it until their retention ends."
+      },
       "item_not_found": {
         "title": "The item was changed or deleted at Microsoft in the meantime",
         "why": "{appName} listed this item but could not read it afterwards, because it was moved or deleted at Microsoft in between. The next run sees the new state."
@@ -692,6 +696,7 @@
     "check_app_password": "Check the username and the password in the source settings. If the provider requires two-step verification, create an app password and use that.",
     "enable_imap_access": "Make sure IMAP access is switched on for the account at the mail provider.",
     "show_gmail_all_mail_in_imap": "In Gmail, open Settings > Labels and tick \"Show in IMAP\" for All Mail. The next run then backs up each message only once.",
+    "check_archive_policy": "Check whether a retention policy moves mail to the online archive. If needed, back up the archive another way (for example with an eDiscovery export), or keep the restore points for as long as you need that mail.",
     "reauthorize_oauth": "Connect the account again in the source settings so that {appName} receives a new OAuth token.",
     "set_object_password": "Set or correct the password of this account on the Protected objects page.",
     "check_host_reachable": "{has_host, select, yes {Check that {host}{has_port, select, yes {:{port}} other {}} is reachable from the {appName} server} other {Check that the server is reachable from the {appName} server}}: name, port, firewall and proxy.",

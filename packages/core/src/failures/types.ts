@@ -51,6 +51,9 @@ export const FAILURE_CODES = [
   // A request that creates something got no answer that says whether it was carried out
   // (504, 503 without Retry-After, timeout); it was not sent again (graph/errors.ts).
   "graph.outcome_unknown",
+  // The mailbox has an online archive (In-Place Archive) the backup does not reach
+  // (backup/exchange/online-archive.ts). A warning on every run of that mailbox.
+  "graph.online_archive_not_covered",
   "graph.item_not_found",
   "graph.item_too_large",
   "graph.item_unreadable",
@@ -299,6 +302,7 @@ export const FAILURE_STEP_IDS = [
   "check_app_password",
   "enable_imap_access",
   "show_gmail_all_mail_in_imap",
+  "check_archive_policy",
   "reauthorize_oauth",
   "set_object_password",
   "check_host_reachable",

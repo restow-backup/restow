@@ -27,7 +27,7 @@ je Kunden-Tenant. Application Permissions (keine delegierten) für Backup:
 - Sites.ReadWrite.All (SharePoint Online, optional; Sites.Read.All genügt für die Sicherung,
   die Wiederherstellung in eine Website braucht ReadWrite; siehe „SharePoint Online" unten)
 - User.Read.All, Group.Read.All, Directory.Read.All (Verzeichnis-Sync, Schutzregeln;
-  Group.Read.All liest auch die Microsoft-365-Gruppen und ihre Unterhaltungen, siehe
+  User.Read.All erkennt auch ein Online-Archiv, siehe „Exchange: Sichern“; Group.Read.All liest auch die Microsoft-365-Gruppen und ihre Unterhaltungen, siehe
   „Gruppenpostfächer" unten)
 - Organization.Read.All (Tenant-Name, Lizenzen)
 - Mail.Send (optional, nur wenn Benachrichtigungen über diese App statt über eine eigene
@@ -134,9 +134,21 @@ Schutzumfang" anzeigen, nicht als Fehler).
   Zeitzone der Serie über Sommer- und Winterzeit. Ein einzeln gelöschter Termin einer Serie ist
   im Backup nicht vermerkt (Graph v1.0 nennt keine abgesagten Vorkommen) und erscheint daher
   noch, so wie ihn eine Wiederherstellung der Serie auch wieder anlegt.
-- Archivpostfach (In-Place Archive): über Graph nur eingeschränkt erreichbar
-  (`/users/{id}/mailFolders` liefert das primäre Postfach). Dokumentieren, in v1 nicht
-  versprechen.
+- Online-Archiv (In-Place Archive) wird nicht gesichert: Graph v1.0 liest nur das primäre
+  Postfach (`/users/{id}/mailFolders`), und Restow liest das Archiv nicht über Beta-APIs. Mails,
+  die eine Aufbewahrungsrichtlinie (MRM, etwa „nach 2 Jahren ins Archiv verschieben“) oder der
+  Benutzer ins Online-Archiv verschiebt, meldet das Ordner-Delta als entfernt; sie fehlen ab
+  dann in den neuen Sicherungsständen, ältere behalten sie bis zum Ende ihrer Aufbewahrung. Damit
+  das nie still geschieht, fragt jeder Lauf einmal (Antwort einen Tag im Zustand gemerkt,
+  `onlineArchive`) Graph beta `GET /beta/users/{id}/settings/exchange` (exchangeSettings,
+  Anwendungsberechtigung User.Read.All, die die App für den Verzeichnis-Sync ohnehin hat). Nennt
+  Graph ein `inPlaceArchiveMailboxId`, endet jeder Lauf des Postfachs mit der Warnung
+  `graph.online_archive_not_covered` (Element `online-archive`, nicht wiederholbar), nie einfach
+  grün; die Warnung lässt sich bestätigen. Verweigert Graph die Abfrage (fehlende Berechtigung,
+  Beta nicht verfügbar), steht „unbekannt“ im Protokoll und es wird nichts behauptet; der
+  nächste Lauf fragt erneut. Wer das Archiv braucht, sichert es auf anderem Weg (etwa per
+  eDiscovery-Export) oder bewahrt die Sicherungsstände so lange auf, wie die Mails gebraucht
+  werden.
 - Geteilte Postfächer und Ressourcen: normale Nutzerobjekte ohne Lizenz; Schutzregel
   muss sie einschließen können.
 - Gelöschte Nutzer: Graph `directory/deletedItems/microsoft.graph.user` 30 Tage; das
