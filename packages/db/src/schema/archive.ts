@@ -269,6 +269,34 @@ export const archiveChainTombstones = pgTable(
   ],
 );
 
+/**
+ * A sealed archive record the deletion run still has to remove from storage (0.5.0, docs/
+ * ARCHIVE.md "Löschkonzept"). Written in the transaction that deletes the item's row (and
+ * releases its chunk references); the run then deletes the record on the primary and every
+ * copy and removes this row. A target that refuses (Object Lock still holding it, an outage)
+ * leaves the row with its attempts and error: the next run tries again, and the run's summary
+ * counts it as deferred, never as deleted.
+ */
+export const archiveRecordDeletions = pgTable(
+  "archive_record_deletions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    // The deleted item's id (no foreign key: the row is gone).
+    itemId: uuid("item_id").notNull(),
+    storagePath: text("storage_path").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("archive_record_deletions_tenant_item_uq").on(t.tenantId, t.itemId),
+    index("archive_record_deletions_tenant_created_idx").on(t.tenantId, t.createdAt, t.id),
+  ],
+);
+
 /** Daily anchor of the archive hash chain (date, last chain value, count). */
 export const archiveAnchor = pgTable(
   "archive_anchor",
@@ -347,6 +375,7 @@ export type ArchiveItemCapture = typeof archiveItemCaptures.$inferSelect;
 export type NewArchiveItemCapture = typeof archiveItemCaptures.$inferInsert;
 export type ArchiveCapture = (typeof archiveCaptureEnum.enumValues)[number];
 export type ArchiveChainTombstone = typeof archiveChainTombstones.$inferSelect;
+export type ArchiveRecordDeletion = typeof archiveRecordDeletions.$inferSelect;
 export type ArchiveAnchor = typeof archiveAnchor.$inferSelect;
 export type NewArchiveAnchor = typeof archiveAnchor.$inferInsert;
 export type RetentionPolicy = typeof retentionPolicies.$inferSelect;

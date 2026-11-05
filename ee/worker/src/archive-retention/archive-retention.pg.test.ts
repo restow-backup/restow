@@ -8,16 +8,28 @@
  * named `restow_worker_archive_retention_test` is dropped and recreated
  * there on every run, then migrated). Without it the suite is skipped.
  */
-import { archive, generateDek, Keyring, MemoryChunkIndex } from "@restow/core";
+
+import { randomUUID } from "node:crypto";
+import {
+  archive,
+  generateDek,
+  Keyring,
+  MemoryChunkIndex,
+  ObjectLockedError,
+  type StorageBackend,
+} from "@restow/core";
 import {
   archiveChainTombstones,
   archiveItemMailboxes,
   archiveItems,
+  archiveRecordDeletions,
   auditLog,
+  chunks,
   createDb,
   type Database,
   legalHolds,
   PgArchiveAppendStore,
+  packs,
   protectedObjects,
   providers,
   sources,
@@ -525,4 +537,185 @@ describe.skipIf(!adminUrl)("runArchiveRetention against Postgres", () => {
       await db.$client.end();
     }
   }, 120_000);
+  it("releases exactly the deleted items' chunk references and deletes their sealed records on every target", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    try {
+      const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+        .returning();
+      const tenantId = tenant?.id as string;
+      const [pack] = await db
+        .insert(packs)
+        .values({ tenantId, path: `tenants/${tenantId}/packs/aa/p1`, sha256: "s", size: 100 })
+        .returning();
+      // "shared" is also referenced by a backup (1) besides the two items; "own" only by the
+      // first item, twice (a chunk can occur twice in one mail); "kept" by an item not due.
+      const refs: Record<string, number> = { shared: 3, own: 2, kept: 1 };
+      for (const [storedId, refcount] of Object.entries(refs)) {
+        await db.insert(chunks).values({
+          tenantId,
+          storedId,
+          length: 10,
+          packId: pack?.id as string,
+          refcount,
+        });
+      }
+      const primary = new MemoryStorage();
+      const copy = new MemoryStorage();
+      const received = new Date("2026-01-10T00:00:00.000Z");
+      const items = [
+        { label: "a", chunks: ["shared", "own", "own"], due: true },
+        { label: "b", chunks: ["shared"], due: true },
+        { label: "c", chunks: ["kept"], due: false },
+      ];
+      const paths: string[] = [];
+      let prev: string | null = null;
+      for (const [n, item] of items.entries()) {
+        const id = randomUUID();
+        const storagePath = archive.archiveItemKey(tenantId, received, id);
+        paths.push(storagePath);
+        for (const target of [primary, copy]) {
+          await target.put(storagePath, Buffer.from(`sealed ${item.label}`));
+        }
+        const chainHash = archive.computeArchiveChainHash(prev, `h-${item.label}`, received);
+        await db.insert(archiveItems).values({
+          id,
+          tenantId,
+          messageId: `m-${item.label}`,
+          itemHash: `h-${item.label}`,
+          prevChainHash: prev,
+          chainHash,
+          receivedAt: received,
+          capturedVia: "journal",
+          retentionUntil: item.due ? daysAgo(1) : daysAgo(-1000),
+          storagePath,
+          chunks: item.chunks,
+          createdAt: new Date(received.getTime() + n),
+        });
+        prev = chainHash;
+      }
+
+      const summary = await runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+        storage: { primary, copies: [copy] },
+      });
+
+      expect(summary).toMatchObject({
+        deleted: 2,
+        chunkReferencesReleased: 4,
+        recordsDeleted: 2,
+        recordsDeferred: 0,
+        recordsPending: 0,
+      });
+      const counts = await db
+        .select({ storedId: chunks.storedId, refcount: chunks.refcount })
+        .from(chunks)
+        .where(eq(chunks.tenantId, tenantId));
+      expect(Object.fromEntries(counts.map((row) => [row.storedId, row.refcount]))).toEqual({
+        shared: 1, // the backup's reference survives
+        own: 0,
+        kept: 1,
+      });
+      for (const target of [primary, copy]) {
+        expect(await target.head(paths[0] as string)).toBeNull();
+        expect(await target.head(paths[1] as string)).toBeNull();
+        expect(await target.head(paths[2] as string)).not.toBeNull();
+      }
+      expect(await db.select().from(archiveRecordDeletions)).toHaveLength(0);
+      const audit = await db
+        .select({ action: auditLog.action, details: auditLog.details })
+        .from(auditLog)
+        .where(eq(auditLog.tenantId, tenantId));
+      const itemEntry = audit.find((row) => row.action === "archive.item.deleted");
+      expect(itemEntry?.details).toMatchObject({
+        deleted: { row: true, sealedRecord: "queued" },
+      });
+      expect(audit.some((row) => row.action === "archive.records.deleted")).toBe(true);
+
+      // A second run releases nothing again.
+      const again = await runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+        storage: { primary, copies: [copy] },
+      });
+      expect(again).toMatchObject({ deleted: 0, chunkReferencesReleased: 0, recordsDeleted: 0 });
+    } finally {
+      await db.$client.end();
+    }
+  }, 60_000);
+
+  it("keeps a record a target refuses queued, reports it deferred, and deletes it on a later run", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    try {
+      const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+        .returning();
+      const tenantId = tenant?.id as string;
+      const primary = new MemoryStorage();
+      const lockedUntil = new Date(NOW.getTime() + 86_400_000);
+      let locked = true;
+      // An Object Lock copy whose lock on the record has not run out yet.
+      const inner = new MemoryStorage();
+      const copy: StorageBackend = Object.assign(Object.create(inner), {
+        delete: async (key: string) => {
+          if (locked) {
+            throw new ObjectLockedError(key, lockedUntil, "object_lock");
+          }
+          await inner.delete(key);
+        },
+      });
+      const id = randomUUID();
+      const storagePath = archive.archiveItemKey(tenantId, daysAgo(3000), id);
+      await primary.put(storagePath, Buffer.from("sealed"));
+      await inner.put(storagePath, Buffer.from("sealed"));
+      await db.insert(archiveItems).values({
+        id,
+        tenantId,
+        messageId: "m",
+        itemHash: "h",
+        chainHash: archive.computeArchiveChainHash(null, "h", daysAgo(3000)),
+        receivedAt: daysAgo(3000),
+        capturedVia: "journal",
+        retentionUntil: daysAgo(1),
+        storagePath,
+      });
+
+      const first = await runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+        storage: { primary, copies: [copy] },
+      });
+      expect(first).toMatchObject({
+        deleted: 1,
+        recordsDeleted: 0,
+        recordsDeferred: 1,
+        recordsPending: 1,
+      });
+      const [queued] = await db.select().from(archiveRecordDeletions);
+      expect(queued).toMatchObject({ itemId: id, attempts: 1 });
+      expect(queued?.lastError).toContain("locked");
+      expect(await inner.head(storagePath)).not.toBeNull();
+      const deferredAudit = await db
+        .select({ action: auditLog.action })
+        .from(auditLog)
+        .where(eq(auditLog.action, "archive.record.deletion_deferred"));
+      expect(deferredAudit).toHaveLength(1);
+
+      locked = false;
+      const later = await runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+        storage: { primary, copies: [copy] },
+      });
+      expect(later).toMatchObject({
+        deleted: 0,
+        recordsDeleted: 1,
+        recordsDeferred: 0,
+        recordsPending: 0,
+      });
+      expect(await inner.head(storagePath)).toBeNull();
+      expect(await db.select().from(archiveRecordDeletions)).toHaveLength(0);
+    } finally {
+      await db.$client.end();
+    }
+  }, 60_000);
 });

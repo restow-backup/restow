@@ -103,6 +103,8 @@ DECLARE
     'archive_anchor',
     -- Chain links of items deleted after their retention (0.5.0).
     'archive_chain_tombstones',
+    -- Sealed records the deletion run still has to remove from storage (0.5.0).
+    'archive_record_deletions',
     -- Archive capture from the mailbox (0.4.4, docs/ARCHIVE.md "Erfassungswege").
     'archive_capture_streams',
     'archive_capture_pending',

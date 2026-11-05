@@ -618,6 +618,14 @@ private repository.
   for the anchors (so do the nightly anchors) and reports "deleted after the retention period"
   separately from a break; a row removed without a tombstone is still a break. The next capture
   after a deleted newest item links to its tombstone.
+- Mail archive: the deletion run after the retention period removed only the item's row in the
+  database. The chunk references the item held were never released, so storage only grew, and
+  its sealed record stayed on the primary and every copy, so the "deleted" mail could still be
+  rebuilt, while the audit log said it was deleted. The run now releases exactly the item's
+  references in the same transaction (chunks a backup or another item still uses keep theirs;
+  garbage collection decides), and deletes the sealed record on the primary and every copy. A
+  target that refuses (Object Lock still active, an outage) keeps the record queued (migration
+  0083) for the next run; the run reports it as deferred and audits it, never as deleted.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

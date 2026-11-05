@@ -562,7 +562,23 @@ Was der Löschlauf für ein Objekt nach Fristablauf tut, in einer Transaktion je
   0.5.0): ID und SHA-256 des Objekts, Eingangszeit, Kettenwert des Vorgängers und eigener
   Kettenwert, Position (`created_at` der gelöschten Zeile), Fristende und Löschzeit. Kein Inhalt,
   kein Betreff, keine Adresse. Die Vermerke sind für beide Datenbankrollen nur anfügbar.
-- Das Audit-Log erhält je Objekt `archive.item.deleted` mit Hash, Kettenwert und Frist.
+- Die Chunk-Referenzen des Objekts werden in derselben Transaktion freigegeben, genau die, die
+  der Schreiber genommen hat (eine je Vorkommen eines Chunks). Chunks, die eine Sicherung oder
+  ein anderes Archivobjekt noch braucht, behalten ihre Referenzen; alle anderen räumt die
+  Speicherbereinigung (Speicherprüfung) nach ihrer Schonfrist ab. Packs werden nie direkt
+  gelöscht.
+- Der versiegelte Datensatz (`tenants/<tid>/archive/…`) wird in derselben Transaktion zum
+  Löschen vorgemerkt (`archive_record_deletions`, Migration 0083) und gleich nach dem Commit auf
+  dem primären Ziel und jeder Kopie gelöscht. Verweigert ein Ziel das Löschen (Object Lock noch
+  aktiv, Ausfall), bleibt die Vormerkung mit Versuchen und Fehler stehen, der Lauf meldet sie als
+  aufgeschoben (`recordsDeferred`, Warnung im Worker-Log, einmal `archive.record.deletion_deferred`
+  im Audit-Log) und der nächste Lauf versucht es erneut; gelöschte Datensätze stehen gesammelt in
+  `archive.records.deleted`. Ein stillgelegtes Ziel (`previous`) wird nie beschrieben und behält
+  seine Kopie, bis es entfernt wird.
+- Das Audit-Log erhält je Objekt `archive.item.deleted` mit Hash, Kettenwert, Frist und was
+  gelöscht wurde (Zeile, Zahl der freigegebenen Referenzen, Datensatz vorgemerkt). Vor 0.5.0
+  löschte der Lauf nur die Zeile: Die Mail ließ sich aus dem Speicher weiter rekonstruieren, und
+  ihr Speicher wurde nie frei.
 
 Die Archivprüfung geht Objekte und Löschvermerke zusammen in Kettenreihenfolge durch: Ein
 Vermerk wird geprüft wie das Objekt, dessen Platz er einnimmt, liefert dem nächsten Eintrag den
