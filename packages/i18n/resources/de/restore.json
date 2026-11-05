@@ -351,7 +351,7 @@
         "onedrive": "Der Benutzer (UPN) oder die Laufwerks-ID des Ziel-OneDrive; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
         "site": "Die Bibliothek, in die wiederhergestellt wird, aus einer gesicherten Website desselben Microsoft-365-Tenants; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
         "group": "Die Adresse des Benutzerpostfachs im selben Microsoft-365-Tenant, das die Termine des Gruppenkalenders und die Unterhaltungen (als Mails) erhält.",
-        "imap": "Die Anmeldung eines IMAP-Kontos dieses Mandanten."
+        "imap": "Die Anmeldung eines IMAP-Kontos dieses Mandanten. Wählen Sie sie aus den Vorschlägen, wenn zwei Server dieselbe Anmeldung kennen."
       }
     },
     "mode": {
@@ -390,6 +390,7 @@
       "accountRequired": "Geben Sie das Konto an, in das wiederhergestellt werden soll.",
       "reasonRequired": "Geben Sie eine Begründung mit mindestens 3 Zeichen an.",
       "targetUnknown": "Dieses Konto ist in diesem Mandanten nicht bekannt. IMAP-Wiederherstellungen sind nur in Konten dieses Mandanten möglich.",
+      "targetAmbiguous": "Mehrere Konten dieses Mandanten haben diese Anmeldung oder Adresse. Wählen Sie das Konto aus den Vorschlägen, die seine Quelle nennen.",
       "selectionUnknown": "Einige ausgewählte Einträge gibt es an diesem Sicherungsstand nicht mehr. Laden Sie den Ordner neu und wählen Sie erneut aus.",
       "originalGone": "Das ursprüngliche Konto existiert nicht mehr. Stellen Sie in ein anderes Konto wieder her oder laden Sie die Daten herunter.",
       "queueUnavailable": "Die Warteschlange ist nicht verfügbar. Stellen Sie sicher, dass der Worker von {appName} läuft, und versuchen Sie es erneut.",

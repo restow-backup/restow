@@ -567,6 +567,16 @@ private repository.
   became "A%2FB"); they are now the real mailbox names, and in "skip" mode `INBOX` goes into the
   target's inbox and a mailbox with a SPECIAL-USE (`\Sent`, `\Drafts`, `\Trash`, `\Junk`,
   `\Archive`) into the matching folder, instead of new top-level folders "INBOX" and "Sent".
+- Restore into another IMAP account: the target was stored as the bare login and looked up without
+  order, source or status, so with two IMAP sources that know the same login (an old and a new
+  server during a migration) a restore could write into the wrong server while the job reported
+  success, and it could even pick an account that is no longer protected. The dialog now sends the
+  chosen account itself (its suggestions name each account's source), the API records the
+  account's id and the worker resolves exactly that active account. A login that more than one
+  active account has is refused with the sources named ("Choose the account from the
+  suggestions"); a login that only one account has, as sent by older API clients or jobs queued
+  before the update, still works. A restore of an imported mailbox into a Microsoft 365 mailbox
+  whose address two mailboxes of the tenant share is refused the same way instead of picking one.
 - Mail restore: a message that Exchange created as a draft (a MIME import whose header lacks Date
   or From, for example) counted as confirmed as soon as its Message-ID matched, although it was
   no draft in the backup and Outlook shows it as an unsent draft. The draft state of every

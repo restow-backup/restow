@@ -758,7 +758,88 @@ describe.skipIf(!adminUrl)("restore store against Postgres", () => {
         type: "other",
         ref: "ghost@example.test",
       }),
-    ).rejects.toThrow(/not an account of this tenant/);
+    ).rejects.toThrow(/not an active IMAP account of this tenant/);
+    // The API records the account by its id.
+    expect(
+      await imapTargetAccount(run, tenantId, store, imapObject, {
+        type: "other",
+        ref: imapObject.id,
+      }),
+    ).toEqual(expected);
+  });
+
+  it("never writes into the wrong server or an inactive account when two sources share a login", async () => {
+    const run = tenantRunner(db, tenantId);
+    const store = { loadSource: async () => ({}) as never };
+    const [secret] = await db
+      .insert(secrets)
+      .values({ tenantId, kind: "imap_password", ciphertext: "sealed-new" })
+      .returning();
+    const server = async (name: string, host: string) => {
+      const [source] = await db
+        .insert(sources)
+        .values({
+          tenantId,
+          kind: "imap",
+          name,
+          host,
+          port: 993,
+          security: "tls",
+          secretRef: secret?.id,
+        })
+        .returning();
+      return source?.id as string;
+    };
+    const oldServer = await server("Old mail server", "old-mail.example.test");
+    const newServer = await server("New mail server", "new-mail.example.test");
+    const account = async (sourceId: string, status: "active" | "orphaned" = "active") => {
+      const [row] = await db
+        .insert(protectedObjects)
+        .values({ tenantId, sourceId, kind: "imap", externalId: "shared@firma.test", status })
+        .returning();
+      return row?.id as string;
+    };
+    await account(oldServer);
+    const onNew = await account(newServer);
+
+    await expect(
+      imapTargetAccount(run, tenantId, store, imapObject, {
+        type: "other",
+        ref: "shared@firma.test",
+      }),
+    ).rejects.toThrow(/several IMAP accounts of this tenant have the login/);
+    expect(
+      await imapTargetAccount(run, tenantId, store, imapObject, { type: "other", ref: onNew }),
+    ).toMatchObject({ host: "new-mail.example.test", username: "shared@firma.test" });
+
+    // An account that is no longer active is never a target, by id or by login.
+    const [gone] = await db
+      .insert(sources)
+      .values({
+        tenantId,
+        kind: "imap",
+        name: "Retired",
+        host: "retired.example.test",
+        port: 993,
+        security: "tls",
+        secretRef: secret?.id,
+      })
+      .returning();
+    const [retired] = await db
+      .insert(protectedObjects)
+      .values({
+        tenantId,
+        sourceId: gone?.id as string,
+        kind: "imap",
+        externalId: "retired@firma.test",
+        status: "orphaned",
+      })
+      .returning();
+    for (const ref of [retired?.id as string, "retired@firma.test"]) {
+      await expect(
+        imapTargetAccount(run, tenantId, store, imapObject, { type: "other", ref }),
+      ).rejects.toThrow(/not an active IMAP account/);
+    }
   });
 
   it("resolves a per_mailbox account from the object's own secret, not the source's", async () => {

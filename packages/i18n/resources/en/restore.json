@@ -351,7 +351,7 @@
         "onedrive": "The user (UPN) or drive id of the target OneDrive; add :/Folder to restore into a subfolder.",
         "site": "The library to restore into, from a backed-up site of the same Microsoft 365 tenant; add :/Folder to restore into a subfolder.",
         "group": "The address of the user mailbox in the same Microsoft 365 tenant that receives the group calendar's events and the conversations (as mail).",
-        "imap": "The login of an IMAP account of this tenant."
+        "imap": "The login of an IMAP account of this tenant. Choose it from the suggestions when two servers know the same login."
       }
     },
     "mode": {
@@ -390,6 +390,7 @@
       "accountRequired": "Enter the account to restore into.",
       "reasonRequired": "Enter a reason of at least 3 characters.",
       "targetUnknown": "This account is not known in this tenant. IMAP restores can only go into accounts of this tenant.",
+      "targetAmbiguous": "More than one account of this tenant has this login or address. Choose the account from the suggestions, which name its source.",
       "selectionUnknown": "Some selected entries no longer exist at this restore point. Reload the folder and select again.",
       "originalGone": "The original account no longer exists. Restore into another account or download the data.",
       "queueUnavailable": "The queue is not available. Make sure the {appName} worker is running, then try again.",

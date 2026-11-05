@@ -416,6 +416,8 @@ export interface RestoreTargetAccount {
   displayName: string | null;
   /** The linked user's email or UPN (#55); older servers omit it. */
   ownerEmail?: string | null;
+  /** The source the account belongs to (two IMAP servers may know one login); older servers omit it. */
+  sourceName?: string | null;
 }
 
 export interface RestoreProgress {

@@ -257,6 +257,35 @@ describe.skipIf(!testDatabaseAdminUrl)("restoring imported mailboxes against Pos
     expect(await storedSelection(created.id)).toMatchObject({ options: { targetKind: "imap" } });
   });
 
+  it("refuses an address that two Microsoft 365 mailboxes share, and takes an IMAP account by id", async () => {
+    const [secondTenant] = await db
+      .insert(sources)
+      .values({ tenantId: f.tenantId, kind: "m365", name: "Second M365", status: "active" })
+      .returning();
+    const [twin] = await db
+      .insert(protectedObjects)
+      .values({
+        tenantId: f.tenantId,
+        sourceId: secondTenant?.id as string,
+        kind: "mailbox",
+        externalId: "bob@contoso.test",
+        displayName: "Bob (second)",
+      })
+      .returning();
+    try {
+      await expect(
+        restoreImported({ type: "other", accountId: "bob@contoso.test" }),
+      ).rejects.toMatchObject({ status: 422, type: "urn:restow:problem:restore-target-ambiguous" });
+    } finally {
+      await db.delete(protectedObjects).where(eq(protectedObjects.id, twin?.id as string));
+      await db.delete(sources).where(eq(sources.id, secondTenant?.id as string));
+    }
+    const created = await restoreImported({ type: "other", accountId: dualImap });
+    expect(await storedSelection(created.id)).toMatchObject({ options: { targetKind: "imap" } });
+    const [job] = await db.select().from(restoreJobs).where(eq(restoreJobs.id, created.id));
+    expect(job?.targetRef).toBe(dualImap);
+  });
+
   it("prefers the Exchange mailbox when an address is both", async () => {
     const created = await restoreImported({ type: "other", accountId: "dual@contoso.test" });
     expect(await storedSelection(created.id)).toMatchObject({ options: { targetKind: "mailbox" } });

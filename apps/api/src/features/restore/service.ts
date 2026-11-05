@@ -169,6 +169,8 @@ export interface RestoreTargetDto {
   displayName: string | null;
   /** The linked user's email or UPN, to tell accounts apart by their person (#55). */
   ownerEmail: string | null;
+  /** The source the account belongs to, to tell two accounts with the same login apart. */
+  sourceName: string | null;
 }
 
 function iso(value: Date | null | undefined): string | null {
@@ -344,45 +346,84 @@ async function assertLibraryTargetKnown(
   }
 }
 
-async function assertImapTargetKnown(
-  tx: DbExecutor,
-  tenantId: string,
-  accountId: string,
-): Promise<void> {
-  if (!(await imapTargetExists(tx, tenantId, accountId))) {
-    throw new ProblemError(422, "Unknown target account", {
-      type: "urn:restow:problem:restore-target-unknown",
-      detail:
-        "IMAP restores can only go into accounts of this tenant, because the server and credentials come from their source.",
-      extensions: { accountId },
-    });
-  }
-}
+/** A protected object id: what the restore dialog sends for an IMAP account. */
+const OBJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * An IMAP account of the tenant with this login. Imported mailboxes (source
- * kind `import`) are protected objects of kind `imap` too, but they hold no
- * server and no credentials: nothing can be restored into them.
+ * The IMAP account a restore writes into, as its protected object id, or
+ * null when there is none: an active IMAP account of the tenant (its source
+ * holds the server and the credential; an imported mailbox, source kind
+ * `import`, holds neither and is never a target). The dialog sends the
+ * account's id; a bare login (an older API client, a queued request) is
+ * accepted only when exactly one active account has it, because a login is
+ * unique per source only: two servers during a migration can both have
+ * info@firma.de, and picking one would write into the wrong server.
  */
-async function imapTargetExists(
+async function resolveImapTarget(
   tx: DbExecutor,
   tenantId: string,
   accountId: string,
-): Promise<boolean> {
-  const [row] = await tx
-    .select({ id: protectedObjects.id })
+): Promise<string | null> {
+  const rows = await tx
+    .select({ id: protectedObjects.id, source: sources.name })
     .from(protectedObjects)
     .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
     .where(
       and(
         eq(protectedObjects.tenantId, tenantId),
         eq(protectedObjects.kind, "imap"),
-        ne(sources.kind, "import"),
-        eq(sql`lower(${protectedObjects.externalId})`, normalizeEmail(accountId)),
+        eq(sources.kind, "imap"),
+        eq(protectedObjects.status, "active"),
+        OBJECT_ID.test(accountId)
+          ? or(
+              eq(protectedObjects.id, accountId),
+              eq(sql`lower(${protectedObjects.externalId})`, normalizeEmail(accountId)),
+            )
+          : eq(sql`lower(${protectedObjects.externalId})`, normalizeEmail(accountId)),
       ),
     )
-    .limit(1);
-  return row !== undefined;
+    .orderBy(asc(sources.name), asc(protectedObjects.id))
+    .limit(20);
+  const byId = rows.find((row) => row.id === accountId);
+  if (byId !== undefined) {
+    return byId.id;
+  }
+  if (rows.length > 1) {
+    throw ambiguousTarget(
+      accountId,
+      `Several IMAP accounts of this tenant have the login "${accountId}" (sources: ${rows
+        .map((row) => row.source)
+        .join(", ")}). Choose the account from the list, which names its source.`,
+      rows.map((row) => row.source),
+    );
+  }
+  return rows[0]?.id ?? null;
+}
+
+function ambiguousTarget(accountId: string, detail: string, sources: string[]): ProblemError {
+  return new ProblemError(422, "Ambiguous target account", {
+    type: "urn:restow:problem:restore-target-ambiguous",
+    detail,
+    extensions: { accountId, sources },
+  });
+}
+
+/** {@link resolveImapTarget}, refusing an account that is not there. */
+async function imapTargetOrThrow(
+  tx: DbExecutor,
+  tenantId: string,
+  accountId: string,
+): Promise<string> {
+  const id = await resolveImapTarget(tx, tenantId, accountId);
+  if (id === null) {
+    throw new ProblemError(422, "Unknown target account", {
+      type: "urn:restow:problem:restore-target-unknown",
+      detail:
+        "IMAP restores can only go into active accounts of this tenant, because the server and credentials come from their source.",
+      extensions: { accountId },
+    });
+  }
+  return id;
 }
 
 /** Whether the object belongs to the tenant's import source (an imported mailbox, docs/IMPORT.md). */
@@ -401,14 +442,21 @@ async function isImportedObject(tx: DbExecutor, object: ProtectedObject): Promis
  * the tenant. Anything else is refused: the restore needs the target's source
  * for its credentials.
  */
-async function importedTargetKind(
+async function importedTarget(
   tx: DbExecutor,
   tenantId: string,
   accountId: string,
-): Promise<RestoreTargetKind> {
+): Promise<{ kind: RestoreTargetKind; targetRef: string }> {
+  // An IMAP account chosen in the dialog comes as its id.
+  if (OBJECT_ID.test(accountId)) {
+    const imap = await resolveImapTarget(tx, tenantId, accountId);
+    if (imap === accountId) {
+      return { kind: "imap", targetRef: imap };
+    }
+  }
   const address = normalizeEmail(accountId);
-  const [mailbox] = await tx
-    .select({ id: protectedObjects.id })
+  const mailboxes = await tx
+    .select({ id: protectedObjects.id, source: sources.name })
     .from(protectedObjects)
     .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
     .leftJoin(users, eq(users.id, protectedObjects.userId))
@@ -424,14 +472,21 @@ async function importedTargetKind(
         ),
       ),
     )
-    // The worker's mailboxTargetObject resolves the same address with the same
-    // filter and order, so a duplicate address picks the same mailbox on both sides.
+    // The worker's mailboxTargetObject resolves the address with the same
+    // filter and refuses it the same way when it is not unique.
     .orderBy(asc(protectedObjects.id))
-    .limit(1);
-  const kind = pickRestoreTargetKind({
-    mailbox: mailbox !== undefined,
-    imap: mailbox === undefined && (await imapTargetExists(tx, tenantId, accountId)),
-  });
+    .limit(20);
+  if (mailboxes.length > 1) {
+    throw ambiguousTarget(
+      accountId,
+      `Several Microsoft 365 mailboxes of this tenant have the address "${accountId}" (sources: ${mailboxes
+        .map((row) => row.source)
+        .join(", ")}). Enter the mailbox's object id instead.`,
+      mailboxes.map((row) => row.source),
+    );
+  }
+  const imap = mailboxes.length === 0 ? await resolveImapTarget(tx, tenantId, accountId) : null;
+  const kind = pickRestoreTargetKind({ mailbox: mailboxes.length > 0, imap: imap !== null });
   if (!kind) {
     throw new ProblemError(422, "Unknown target account", {
       type: "urn:restow:problem:restore-target-unknown",
@@ -440,7 +495,7 @@ async function importedTargetKind(
       extensions: { accountId },
     });
   }
-  return kind;
+  return { kind, targetRef: kind === "imap" && imap !== null ? imap : accountId };
 }
 
 export async function createRestore(
@@ -527,11 +582,15 @@ export async function createRestore(
       });
     }
     // The worker routes an imported mailbox on the target's kind (options.targetKind).
-    let importedTarget: RestoreTargetKind | null = null;
+    let importedTargetKind: RestoreTargetKind | null = null;
+    // What the job records as the target: an IMAP account by its id, never by a login.
+    let resolvedTargetRef: string | null = null;
     if (input.target.type === "other" && imported) {
-      importedTarget = await importedTargetKind(tx, tenantId, input.target.accountId);
+      const resolved = await importedTarget(tx, tenantId, input.target.accountId);
+      importedTargetKind = resolved.kind;
+      resolvedTargetRef = resolved.targetRef;
     } else if (input.target.type === "other" && object.kind === "imap") {
-      await assertImapTargetKnown(tx, tenantId, input.target.accountId);
+      resolvedTargetRef = await imapTargetOrThrow(tx, tenantId, input.target.accountId);
     } else if (input.target.type === "other" && object.kind === "site") {
       await assertLibraryTargetKnown(tx, tenantId, object, input.target.accountId);
     }
@@ -585,7 +644,8 @@ export async function createRestore(
 
     const restoreJobId = randomUUID();
     const jobId = randomUUID();
-    const targetRef = input.target.type === "other" ? input.target.accountId : null;
+    const targetRef =
+      input.target.type === "other" ? (resolvedTargetRef ?? input.target.accountId) : null;
     // "replace" is meaningless for a download (mode has no effect on a ZIP
     // archive, isReplaceModeAllowedFor) — stored and audited as "rename" so
     // a mailbox or IMAP object's history never reads as a replaced original.
@@ -593,7 +653,7 @@ export async function createRestore(
     const payload = { jobId, tenantId, restoreJobId, protectedObjectId: object.id };
     // The engines read presentation options next to the selection
     // (packages/core restore/common.ts, restoreRequestOptions).
-    const storedOptions = storedRestoreOptions(input.options, importedTarget);
+    const storedOptions = storedRestoreOptions(input.options, importedTargetKind);
     const sourceSelection: Record<string, unknown> = {
       ...resolved.selection,
       ...(storedOptions ? { options: storedOptions } : {}),
@@ -705,6 +765,7 @@ export async function listTargets(
         externalId: library.driveId,
         displayName: `${library.siteName ?? ""} › ${library.library}`.trim(),
         ownerEmail: null,
+        sourceName: null,
       }));
     }
     const imported = await isImportedObject(tx, object);
@@ -715,6 +776,7 @@ export async function listTargets(
         externalId: protectedObjects.externalId,
         displayName: protectedObjects.displayName,
         ownerEmail: sql<string | null>`coalesce(${users.email}, ${users.upn})`,
+        sourceName: sources.name,
       })
       .from(protectedObjects)
       .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))

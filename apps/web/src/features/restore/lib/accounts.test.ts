@@ -6,8 +6,10 @@ import {
   accountAddress,
   accountKeywords,
   accountOptionLabel,
+  accountOptionValue,
   matchesAccountType,
   sortAccounts,
+  targetAccountId,
 } from "./accounts";
 
 function object(patch: Partial<SnapshotObject>): SnapshotObject {
@@ -110,5 +112,47 @@ describe("accountOptionLabel (#55)", () => {
     };
     expect(accountOptionLabel(account)).toBe("Anna Berger · anna@example.com");
     expect(accountOptionLabel({ ...account, displayName: null })).toBe("anna@example.com");
+  });
+});
+
+describe("IMAP targets with one login on two servers (K29)", () => {
+  const account = (id: string, sourceName: string, externalId = "info@firma.de") => ({
+    id,
+    kind: "imap" as const,
+    externalId,
+    displayName: null,
+    ownerEmail: null,
+    sourceName,
+  });
+  const all = [
+    account("po-old", "old-mail.example"),
+    account("po-new", "new-mail.example"),
+    account("po-sales", "new-mail.example", "sales@firma.de"),
+  ];
+
+  it("names the server of each suggestion and sends the chosen account's id", () => {
+    expect(all.map((entry) => accountOptionValue(entry, all))).toEqual([
+      "info@firma.de · old-mail.example",
+      "info@firma.de · new-mail.example",
+      "sales@firma.de",
+    ]);
+    expect(accountOptionLabel(all[1] as (typeof all)[number])).toBe(
+      "info@firma.de · new-mail.example",
+    );
+    expect(targetAccountId("info@firma.de · new-mail.example", all)).toBe("po-new");
+    expect(targetAccountId(" sales@firma.de ", all)).toBe("po-sales");
+  });
+
+  it("sends a typed login or another kind of account as typed", () => {
+    // The server refuses a login that two accounts have.
+    expect(targetAccountId("info@firma.de", all)).toBe("info@firma.de");
+    const mailbox = {
+      id: "po-mb",
+      kind: "mailbox" as const,
+      externalId: "anna@firma.de",
+      displayName: "Anna",
+      ownerEmail: "anna@firma.de",
+    };
+    expect(targetAccountId("anna@firma.de", [mailbox])).toBe("anna@firma.de");
   });
 });
