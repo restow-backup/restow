@@ -48,8 +48,10 @@ private repository.
   PowerShell script that fetches exactly that file with restic, checks its SHA-256 and restores
   it under a new name with fixed T-SQL and parameters only, without this server. It works in a new
   folder of its own (below `-StagingDir` or TEMP) that only SYSTEM, the administrators, the user
-  and the SQL Server service of the target instance can open, and deletes only that folder. The
-  download is audited and carries no secret.
+  and the SQL Server service of the target instance can open, and deletes only that folder; since
+  restic restores the permissions stored with the backup (which grant only the SQL Server service
+  of the source instance), the script sets that access again on everything it fetched before the
+  file is read, and refuses links. The download is audited and carries no secret.
 - CHECKDB verification (W2a): once a week at the job's check slot (default Sunday 03:00 in the
   zone of its schedule) the server plans a `sql_verify` task per instance; the agent restores the
   newest full of each database from the repository under a check name, runs DBCC CHECKDB on it

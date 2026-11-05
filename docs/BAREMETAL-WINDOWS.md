@@ -1690,8 +1690,13 @@ Express (2019 und 2022), auf echter Hardware mit 2019 Standard und 2022 Express 
   `restow-sql-restore-<guid>` unter `-StagingDir` (ein vorhandener Ordner) oder unter `TEMP` an,
   mit geschützter DACL: Vollzugriff für SYSTEM, Administratoren und den ausführenden Benutzer,
   Lesen für die Dienst-SID der Zielinstanz (aus `-Instance` abgeleitet, `-SqlServiceAccount`
-  überschreibt), die die Datei mit ihrem eigenen Konto öffnet. Gelöscht wird am Ende nur dieser
-  Ordner, nie der angegebene.
+  überschreibt), die die Datei mit ihrem eigenen Konto öffnet. restic 0.19.1 stellt die
+  gesicherten Security Descriptors über das Geholte (WINDOWS-AGENT.md); die Staging-Ordner des
+  Agenten geben nur der Dienst-SID der Quellinstanz Lesen. Darum setzt das Skript direkt nach
+  `restic restore`, vor dem Hash und vor `RESTORE FILELISTONLY`, auf jedes geholte Element die
+  DACL seines Ordners (`Set-RestowStagingAccess`: von oben nach unten, ein Ordner wird erst nach
+  dem Setzen gelesen, ein Link bricht ab wie `SetReadSIDs` im Agenten). Gelöscht wird am Ende nur
+  dieser Ordner, nie der angegebene.
 
 #### 5.1.5 Point-in-Time (W2b)
 
@@ -2749,7 +2754,8 @@ ganzen Rechner ist sichtbar.
   im Job-Editor (Datenbanken, Auslassen, Staging-Ordner, Prüftermin, `maxGiB`, PHYSICAL_ONLY,
   Abstandsprüfung C21). Texte de und en.
 - CI `.github/workflows/sql-server.yml` (Jobs `tsql-linux`, `windows-multivolume`, `windows-sql`
-  mit 2019 und 2022), aus `release.yml` mit `strict: true` aufgerufen. `biome check` lässt die
+  mit 2019 und 2022), aus `release.yml` mit `strict: true` aufgerufen, dazu bei Push und Pull
+  Request auf die SQL-Pfade (Push auch auf Zweige ohne Pull Request, außer `dependabot/**`). `biome check` lässt die
   Testdaten unter `agent/**/testdata` aus: Die Golden-Dateien schreibt Go mit
   `json.MarshalIndent` und vergleicht sie Byte für Byte.
 
@@ -2824,6 +2830,8 @@ Oberfläche "Vorschau".
 | CHECKDB, das nicht lief, wurde rot (tempdb voll 1105/8921, 701, 9002, 2520, 50001, Verbindungsabbruch) | Angenommen: Urteil im Agenten (`JudgeCheckdb`, 5.1.7), Beleg nur aus Zeilen und einer Liste von Konsistenzfehlern; aufgezeichnete Läufe für tempdb voll, 8921 als Zeile und Verbindungsabbruch (mit und ohne Ergebnis) ergeben unvollständig. **Abgelehnt** ist ein Teil des Vorschlags: 2533 auszunehmen. 2533 ("page … was not seen") ist ein Tabellenfehler von CHECKDB, also Beleg; ein aufgezeichneter Lauf mit ausgelöstem 2533 ergibt rot. Die Ausnahme im alten Code hatte keinen Grund; "Datenbank nicht gefunden" ist 2520 und steht bei den Abbrüchen |
 | Restore-Skript löscht den Ordner von `-StagingDir` | Angenommen: immer ein neuer eigener Ordner, nur der wird gelöscht (5.1.4); Unit-Test und CI-Fall mit fremder Datei |
 | Restore-Skript: Standard-Staging für SQL Server nicht lesbar | Angenommen: geschützte DACL mit Lesen für die Dienst-SID; CI-Lauf ohne `-StagingDir` und ohne `icacls` |
+| Restore-Skript: restic stellt die gesicherten Security Descriptors über das Geholte; die `.bak` gibt nur der Dienst-SID der Quellinstanz Lesen, auf einer Instanz mit anderem Namen (`RESTOWB` aus einer Sicherung von `SQLEXPRESS`) scheitert `RESTORE FILELISTONLY` mit OS-Fehler 5 | Angenommen: `Set-RestowStagingAccess` direkt nach `restic restore` setzt auf jedes geholte Element die geschützte DACL des Ordners (SYSTEM, Administratoren, ausführender Benutzer, Lesen für die Dienst-SID der Zielinstanz), von oben nach unten, Links brechen ab. Vor dem Hash statt danach: Ohne Erhöhung (restic setzt dann nur die DACL, Administratoren gelten nur zum Verweigern) könnte der Benutzer die Datei sonst nicht einmal hashen, und `Get-FileHash` folgt keinem Link mehr. `icacls /reset /T` ist abgelehnt: es setzt auch den eigenen Ordner auf die geerbte DACL von TEMP zurück (oder braucht `*`), und Links ließen sich nur getrennt prüfen. Unit-Test prüft die Reihenfolge restic, Rechte, Hash, FILELISTONLY; der CI-Fall auf `RESTOWB` ist der Beleg |
+| `sql-server.yml` lief auf Zweigen ohne Pull Request nie (schedule und workflow_dispatch nur auf dem Standardzweig) | Angenommen: `push` mit denselben `paths` und `branches-ignore: ["dependabot/**"]` wie `ci.yml`; die Concurrency-Gruppe enthält das Ereignis, damit Push, Zeitplan und Handstart einander nicht abbrechen |
 | Platzprüfung von Restore und Prüfung ohne Reserve | Angenommen: Reserve je Volume (5.1.7); Flows-Tests mit frei = Bedarf + 1 MiB (abgelehnt), mit einem Zehntel eines großen Volumes und knapp darüber (angenommen) |
 | Staging-Ordner bleibt nach gescheiterter Sicherung, Stopp, gescheitertem Snapshot | Angenommen: Löschen auf jedem Weg aus dem Lauf (5.1.3); Golden-Tests prüfen den leeren Ordner, neuer Fall "jede BACKUP gescheitert, eine halb geschrieben" |
 | Aufräumen nach gescheitertem RESTORE konnte eine Kundendatenbank löschen | Angenommen: Namensprüfung im Batch, `DropRestoring` nur im Zustand `RESTORING`, Kollisionsfehler 50003, 1801, 3154 räumen nie auf |

@@ -93,7 +93,8 @@ describe("renderSqlRestoreScript", () => {
     // -StagingDir is the parent: the script makes a new restow-sql-restore-<guid> folder below it
     // (below TEMP without it) and never deletes, empties or reuses the folder the user named.
     expect(script).toContain("if (-not $StagingDir) { $StagingDir = $env:TEMP }");
-    expect(script).toContain("$staging = New-RestowStagingFolder $StagingDir $SqlServiceAccount");
+    expect(script).toContain("$readerSid = Get-RestowServiceSid $SqlServiceAccount");
+    expect(script).toContain("$staging = New-RestowStagingFolder $StagingDir $readerSid");
     expect(script).toContain(
       "$folder = Join-Path $Parent ('restow-sql-restore-' + [guid]::NewGuid().ToString('N'))",
     );
@@ -116,17 +117,62 @@ describe("renderSqlRestoreScript", () => {
   it("gives the SQL Server service, and only those who need it, access to the fetched file", () => {
     const script = renderSqlRestoreScript(input);
     expect(script).toContain("$acl.SetAccessRuleProtection($true, $false)");
+    expect(script).toContain("$acl = New-RestowStagingSecurity $true $ReaderSid");
     expect(script).toContain("[void][System.IO.Directory]::CreateDirectory($folder, $acl)");
     expect(script).toContain("$SqlServiceAccount = 'NT SERVICE\\MSSQLSERVER'");
     expect(script).toContain("$SqlServiceAccount = 'NT SERVICE\\MSSQL$' + $instanceName");
     expect(script).toContain(
-      "FileSystemAccessRule($readerSid, 'ReadAndExecute', $inherit, $propagate, $allow)",
+      "FileSystemAccessRule($ReaderSid, 'ReadAndExecute', $inherit, $propagate, $allow)",
     );
     // SYSTEM, Administrators and the user running the script get full control; nobody else.
     expect(script).toContain("'S-1-5-18'");
     expect(script).toContain("'S-1-5-32-544'");
     expect(script).toContain("[System.Security.Principal.WindowsIdentity]::GetCurrent().User");
     expect(script.match(/FileSystemAccessRule\(/g)).toHaveLength(2);
+    // A file gets the same entries without inheritance flags.
+    expect(script).toContain("$acl = New-Object System.Security.AccessControl.FileSecurity");
+    expect(script).toContain("$inherit = [System.Security.AccessControl.InheritanceFlags]::None");
+  });
+
+  it("gives what restic fetched the folder's access again before SQL Server reads it", () => {
+    // restic restores the security descriptors of the snapshot: the agent's staging folders grant
+    // only the SQL Server service of the machine that made the backup, so another instance here
+    // could not open the file (RESTORE FILELISTONLY, OS error 5) without this step.
+    const script = renderSqlRestoreScript(input);
+    const restic = script.indexOf("& $Restic -r $Repository");
+    const exitCheck = script.indexOf("restic restore ended with exit code");
+    const access = script.indexOf("  Set-RestowStagingAccess $staging $readerSid\n");
+    const hash = script.indexOf("Get-FileHash -LiteralPath $bak");
+    const fileList = script.indexOf("$command = New-RestowCommand $connection 'FileListOnly'");
+    expect(restic).toBeGreaterThan(0);
+    expect(access).toBeGreaterThan(exitCheck);
+    expect(exitCheck).toBeGreaterThan(restic);
+    // Before the file is read at all (also the hash), and so before FILELISTONLY and RESTORE.
+    expect(hash).toBeGreaterThan(access);
+    expect(fileList).toBeGreaterThan(hash);
+    expect(script.split("\n").filter((line) => line.includes("Set-RestowStagingAccess $"))).toEqual(
+      ["  Set-RestowStagingAccess $staging $readerSid"],
+    );
+    // Every item gets the DACL of the staging folder, top down, and a link is refused, never
+    // followed (as the agent's SetReadSIDs does).
+    const body = script.slice(script.indexOf("function Set-RestowStagingAccess"));
+    const fn = body.slice(0, body.indexOf("\n}\n") + 3);
+    expect(fn).toContain("$folderAcl = New-RestowStagingSecurity $true $ReaderSid");
+    expect(fn).toContain("$fileAcl = New-RestowStagingSecurity $false $ReaderSid");
+    expect(fn).toContain("[System.IO.Directory]::SetAccessControl($Folder, $folderAcl)");
+    expect(fn).toContain("foreach ($item in @(Get-ChildItem -LiteralPath $dir -Force))");
+    expect(fn).toContain(
+      "if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {",
+    );
+    expect(fn).toContain("[System.IO.Directory]::SetAccessControl($item.FullName, $folderAcl)");
+    expect(fn).toContain("[System.IO.File]::SetAccessControl($item.FullName, $fileAcl)");
+    expect(fn).not.toMatch(/-Recurse/);
+    // The reparse check comes before any change to the item, and a folder is listed only after
+    // it has the new DACL.
+    expect(fn.indexOf("ReparsePoint")).toBeLessThan(fn.indexOf("SetAccessControl($item.FullName"));
+    expect(fn.indexOf("SetAccessControl($item.FullName, $folderAcl)")).toBeLessThan(
+      fn.indexOf("$pending.Push($item.FullName)"),
+    );
   });
 
   it("checks the name again in the batch of the RESTORE", () => {

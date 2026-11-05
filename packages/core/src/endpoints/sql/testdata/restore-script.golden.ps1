@@ -14,8 +14,9 @@
 
   The backup file is fetched into a new folder restow-sql-restore-<id> below -StagingDir (an
   existing folder) or below TEMP. Only SYSTEM, the Administrators, you and the SQL Server service
-  (-SqlServiceAccount, by default the service SID of -Instance) can open it, and only this new
-  folder is deleted at the end.
+  (-SqlServiceAccount, by default the service SID of -Instance) can open it: restic restores the
+  permissions stored with the backup, so the script sets this access again on everything it
+  fetched before SQL Server reads the file. Only this new folder is deleted at the end.
 
 .EXAMPLE
   .\restore.ps1 -Repository 'D:\Backups\endpoints\<id>' -PasswordFile .\password.txt -Instance '.\SQLEXPRESS' -CheckDb
@@ -98,24 +99,29 @@ function Add-RestowParameter([System.Data.SqlClient.SqlCommand]$Command, [string
   $parameter.Value = $Value
 }
 
-# New-RestowStagingFolder creates a new folder of the script's own below an existing folder,
-# with a protected DACL: full control for SYSTEM, the Administrators and the user running the
-# script, Read and Execute for the SQL Server service. It never reuses a folder that exists.
-function New-RestowStagingFolder([string]$Parent, [string]$Reader) {
-  if (-not (Test-Path -LiteralPath $Parent -PathType Container)) {
-    throw ('The staging folder ' + $Parent + ' does not exist; pass an existing folder with -StagingDir.')
-  }
-  $folder = Join-Path $Parent ('restow-sql-restore-' + [guid]::NewGuid().ToString('N'))
-  if (Test-Path -LiteralPath $folder) { throw ('The folder ' + $folder + ' exists already.') }
+# Get-RestowServiceSid is the SID of the account SQL Server runs as on this computer.
+function Get-RestowServiceSid([string]$Account) {
   try {
-    $readerSid = (New-Object System.Security.Principal.NTAccount $Reader).Translate([System.Security.Principal.SecurityIdentifier])
+    return (New-Object System.Security.Principal.NTAccount $Account).Translate([System.Security.Principal.SecurityIdentifier])
   } catch {
-    throw ('The SQL Server service account ' + $Reader + ' is not known on this computer; pass the account SQL Server runs as with -SqlServiceAccount.')
+    throw ('The SQL Server service account ' + $Account + ' is not known on this computer; pass the account SQL Server runs as with -SqlServiceAccount.')
   }
-  $inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+}
+
+# New-RestowStagingSecurity is the protected DACL of the staging folder and of everything fetched
+# into it: full control for SYSTEM, the Administrators and the user running the script, Read and
+# Execute for the SQL Server service. A folder hands it down to new items; a file gets the same
+# entries without inheritance flags, which a file cannot carry.
+function New-RestowStagingSecurity([bool]$Container, [System.Security.Principal.SecurityIdentifier]$ReaderSid) {
+  if ($Container) {
+    $acl = New-Object System.Security.AccessControl.DirectorySecurity
+    $inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+  } else {
+    $acl = New-Object System.Security.AccessControl.FileSecurity
+    $inherit = [System.Security.AccessControl.InheritanceFlags]::None
+  }
   $propagate = [System.Security.AccessControl.PropagationFlags]::None
   $allow = [System.Security.AccessControl.AccessControlType]::Allow
-  $acl = New-Object System.Security.AccessControl.DirectorySecurity
   $acl.SetAccessRuleProtection($true, $false)
   $owners = @(
     (New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-18'),
@@ -125,9 +131,49 @@ function New-RestowStagingFolder([string]$Parent, [string]$Reader) {
   foreach ($sid in $owners) {
     $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', $inherit, $propagate, $allow)))
   }
-  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($readerSid, 'ReadAndExecute', $inherit, $propagate, $allow)))
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($ReaderSid, 'ReadAndExecute', $inherit, $propagate, $allow)))
+  return $acl
+}
+
+# New-RestowStagingFolder creates a new folder of the script's own below an existing folder,
+# with the DACL of New-RestowStagingSecurity. It never reuses a folder that exists.
+function New-RestowStagingFolder([string]$Parent, [System.Security.Principal.SecurityIdentifier]$ReaderSid) {
+  if (-not (Test-Path -LiteralPath $Parent -PathType Container)) {
+    throw ('The staging folder ' + $Parent + ' does not exist; pass an existing folder with -StagingDir.')
+  }
+  $folder = Join-Path $Parent ('restow-sql-restore-' + [guid]::NewGuid().ToString('N'))
+  if (Test-Path -LiteralPath $folder) { throw ('The folder ' + $folder + ' exists already.') }
+  $acl = New-RestowStagingSecurity $true $ReaderSid
   [void][System.IO.Directory]::CreateDirectory($folder, $acl)
   return $folder
+}
+
+# Set-RestowStagingAccess gives the staging folder and everything restic fetched into it the
+# DACL of New-RestowStagingSecurity again. restic restores the security descriptors stored in the
+# snapshot, and the agent's staging folders grant only the SQL Server service of the machine that
+# made the backup; another instance here could not open the file. The walk goes top down, so a
+# fetched folder is listed only once it has this DACL, never descends into a link and refuses
+# one: a fetched backup holds none.
+function Set-RestowStagingAccess([string]$Folder, [System.Security.Principal.SecurityIdentifier]$ReaderSid) {
+  $folderAcl = New-RestowStagingSecurity $true $ReaderSid
+  $fileAcl = New-RestowStagingSecurity $false $ReaderSid
+  [System.IO.Directory]::SetAccessControl($Folder, $folderAcl)
+  $pending = New-Object System.Collections.Generic.Stack[string]
+  $pending.Push($Folder)
+  while ($pending.Count -gt 0) {
+    $dir = $pending.Pop()
+    foreach ($item in @(Get-ChildItem -LiteralPath $dir -Force)) {
+      if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw ($item.FullName + ' is a link; a fetched backup holds none. Nothing is restored.')
+      }
+      if ($item.PSIsContainer) {
+        [System.IO.Directory]::SetAccessControl($item.FullName, $folderAcl)
+        $pending.Push($item.FullName)
+      } else {
+        [System.IO.File]::SetAccessControl($item.FullName, $fileAcl)
+      }
+    }
+  }
 }
 
 function Get-RestowSafeName([string]$Value) {
@@ -140,16 +186,21 @@ function Get-RestowSafeName([string]$Value) {
 Write-Host ('Backup of ' + $Data.database + ' on ' + $Data.hostname + '\' + $Data.instance + ', finished ' + $Data.backup.backupFinish)
 
 # 1. Fetch exactly the backup file from the repository, into a new folder of this script.
-$staging = New-RestowStagingFolder $StagingDir $SqlServiceAccount
+$readerSid = Get-RestowServiceSid $SqlServiceAccount
+$staging = New-RestowStagingFolder $StagingDir $readerSid
 $connection = $null
 try {
   & $Restic -r $Repository --password-file $PasswordFile restore $Data.backup.snapshotId --include $Data.backup.pathInSnapshot --target $staging
   if ($LASTEXITCODE -ne 0) { throw ('restic restore ended with exit code ' + $LASTEXITCODE + '.') }
+
+  # 2. restic restored the permissions of the backed-up machine; give the fetched items the
+  #    access of this script's folder again (SQL Server of this instance may read), no links.
+  Set-RestowStagingAccess $staging $readerSid
   $relative = $Data.backup.pathInSnapshot.TrimStart('/') -replace '/', '\'
   $bak = Join-Path $staging $relative
   if (-not (Test-Path -LiteralPath $bak -PathType Leaf)) { throw ('restic did not restore ' + $Data.backup.pathInSnapshot + '.') }
 
-  # 2. The file must be the one that was backed up.
+  # 3. The file must be the one that was backed up.
   $hash = (Get-FileHash -LiteralPath $bak -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($hash -ne $Data.backup.sha256) {
     throw ('The fetched file has the SHA-256 ' + $hash + ', the backup recorded ' + $Data.backup.sha256 + '. It is not restored.')
@@ -172,7 +223,7 @@ try {
   })
   $connection.Open()
 
-  # 3. Never over an existing database (checked again in the batch of the RESTORE).
+  # 4. Never over an existing database (checked again in the batch of the RESTORE).
   $command = New-RestowCommand $connection 'DbExists'
   Add-RestowParameter $command '@new' $NewName
   if (-not ($command.ExecuteScalar() -is [System.DBNull])) {
@@ -206,7 +257,7 @@ try {
     Write-Warning 'The backup file names another number of files than recorded; the fetched file decides.'
   }
 
-  # 4. Restore under the new name, every file moved into the target folders.
+  # 5. Restore under the new name, every file moved into the target folders.
   $base = (Get-RestowSafeName $NewName) + '_' + [guid]::NewGuid().ToString('N').Substring(0, 8)
   $command = New-RestowCommand $connection 'Restore'
   $command.CommandText = $command.CommandText.Replace('{{MOVES}}', (New-RestowMoveClause $files.Count))
@@ -230,7 +281,7 @@ try {
   [void]$command.ExecuteNonQuery()
   Write-Host ('Restored as ' + $NewName + '.')
 
-  # 5. Optionally check the copy.
+  # 6. Optionally check the copy.
   if ($CheckDb) {
     $connection.FireInfoMessageEventOnUserErrors = $true
     $command = New-RestowCommand $connection 'CheckDb'

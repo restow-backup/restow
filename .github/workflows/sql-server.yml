@@ -30,6 +30,20 @@ name: SQL Server
 # Pin policy as in ci.yml: every third-party action by full commit SHA, every image by digest.
 
 on:
+  # push: schedule and workflow_dispatch only work once this file is on the default branch, so a
+  # push to any branch that touches these paths runs it too (a wip branch without a pull request
+  # included). Dependabot branches are covered by their pull_request run, as in ci.yml.
+  push:
+    branches-ignore: ["dependabot/**"]
+    paths:
+      - "agent/internal/sqlserver/**"
+      - "agent/internal/core/sql*.go"
+      - "agent/internal/sysinfo/**"
+      - "agent/internal/restic/multivolume*"
+      - "agent/scripts/test-sql-windows.ps1"
+      - "packages/core/src/endpoints/sql/**"
+      - "scripts/ci/render-sql-restore-script.mts"
+      - ".github/workflows/sql-server.yml"
   pull_request:
     paths:
       - "agent/internal/sqlserver/**"
@@ -56,8 +70,12 @@ on:
         type: boolean
         default: false
 
+# A newer run of the same event on the same ref cancels the older one. The event is part of the
+# group: a push run (refs/heads/<branch>) and a pull_request run (refs/pull/<n>/merge) differ in
+# the ref anyway, and on the default branch the nightly schedule or a manual run neither cancels
+# nor is cancelled by a push run. Called from the release, github.workflow is "Release".
 concurrency:
-  group: sql-server-${{ github.workflow }}-${{ github.ref }}
+  group: sql-server-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
