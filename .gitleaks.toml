@@ -19,6 +19,8 @@ paths = [
   '''(^|/)deploy/install/test\.sh$''',
   # The PVE node installer's shell test feeds made-up enrollment and PVE API tokens to pve.sh
   '''(^|/)agent/scripts/test-pve-install\.sh$''',
+  # Synthetic bare-metal layout recordings: SHA-256 sums of boot loaders and partition ids
+  '''(^|/)agent/internal/baremetal/testdata/''',
 ]
 regexes = [
   # i18n keys such as "m365.consentResult.granted" in presenters

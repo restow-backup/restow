@@ -118,6 +118,14 @@ func TestProtectedFoldersAndFilesReplaceWhatUsersPrepared(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The previews' installer ran elevated, so the folder belonged to
+	// Administrators. An elevated process owns what it creates itself only
+	// where the policy "Default owner for objects created by members of the
+	// Administrators group" says so (the Windows runner's account, LA), and the
+	// agent rightly refuses such a folder; set the owner the previews left.
+	if out, err := exec.Command("icacls", root, "/setowner", "*S-1-5-32-544").CombinedOutput(); err != nil {
+		t.Fatalf("icacls /setowner: %v %s", err, out)
+	}
 	empty, full := filepath.Join(root, "state"), filepath.Join(root, "data")
 	for _, d := range []string{empty, full} {
 		if err := os.Mkdir(d, 0o755); err != nil {
