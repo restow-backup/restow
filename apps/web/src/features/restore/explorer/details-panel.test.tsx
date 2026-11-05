@@ -132,7 +132,7 @@ describe("DetailsPanel", () => {
     expect(render(mailEntry)).not.toContain("Not all attachments backed up");
     const html = render({ ...mailEntry, mail: { ...mail, attachmentsNotBackedUp: true } });
     expect(html).toContain("Not all attachments backed up");
-    expect(html).toContain("or they are link or item attachments, which the backup does not hold");
+    expect(html).toContain("or some of them could not be read at the backup");
   });
 
   it("says when a SharePoint library holds the files of an earlier backup", () => {
