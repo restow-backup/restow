@@ -552,6 +552,11 @@ private repository.
   next to its new name, so a restore brought back a folder that no longer existed and every
   message of a renamed folder twice. Folders the server no longer lists are now dropped from
   the resumed restore point, also a folder the earlier attempt was still in.
+- Mail backup: on an IMAP server that reports a NIL hierarchy delimiter (a flat namespace) or
+  leaves out UIDNEXT when a folder is opened, the folder's state could not be read back, so
+  every run downloaded the whole folder again, every night, which can hit the server's download
+  limits. Such folders are now backed up incrementally. A folder the server opens without
+  UIDVALIDITY made the whole run fail; now only that folder fails and keeps its previous copy.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

@@ -439,6 +439,41 @@ describe("ImapBackupEngine", () => {
     });
   });
 
+  describe("servers that leave out the delimiter, UIDNEXT or UIDVALIDITY", () => {
+    it("reads a folder with a NIL delimiter and no UIDNEXT incrementally on the next run", async () => {
+      const inbox = server.addFolder("INBOX", { delimiter: null, noUidNext: true });
+      inbox.add(eml("one"));
+      inbox.add(eml("two"));
+      const first = await engine().run(context(), protectedObject, {});
+      const state = (await manifestOf(first.snapshotId)).state as {
+        imap: { folders: Record<string, Record<string, unknown>> };
+      };
+      expect(state.imap.folders.INBOX).toMatchObject({ uidValidity: "1000", delimiter: "" });
+      expect(state.imap.folders.INBOX?.uidNext).toBeUndefined();
+      inbox.add(eml("three"));
+
+      const logs: LogRecord[] = [];
+      server.stats.sourcesDelivered.length = 0;
+      const second = await engine().run(context({ logs }), protectedObject, {});
+      expect(logLine(logs, "imap folder planned", "INBOX")).toMatchObject({
+        mode: "incremental",
+        toFetch: 1,
+      });
+      expect(server.stats.sourcesDelivered).toEqual(["INBOX:3"]);
+      expect(messages(await manifestOf(second.snapshotId))).toHaveLength(3);
+    });
+
+    it("fails only the folder that comes without UIDVALIDITY and commits the others", async () => {
+      server.addFolder("INBOX").add(eml("inbox"));
+      server.addFolder("Odd", { noUidValidity: true }).add(eml("odd"));
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures.map((f) => f.itemRef)).toEqual(["Odd"]);
+      expect(messages(await manifestOf(result.snapshotId)).map((o) => o.path)).toEqual([
+        "mail/INBOX/1.eml",
+      ]);
+    });
+  });
+
   it("uses at most two connections per account, and both of them", async () => {
     for (let i = 0; i < 6; i++) {
       const folder = server.addFolder(`Folder${i}`);

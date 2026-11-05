@@ -36,10 +36,15 @@ export interface FakeMessage {
 }
 
 export interface FakeFolderOptions {
-  readonly delimiter?: string;
+  /** `null`: the server answers NIL (flat namespace); the session reports it as imapflow does, null. */
+  readonly delimiter?: string | null;
   readonly specialUse?: string;
   readonly selectable?: boolean;
   readonly uidValidity?: number;
+  /** EXAMINE answers without OK [UIDNEXT]: the session reports uidNext as imapflow does, undefined. */
+  readonly noUidNext?: boolean;
+  /** EXAMINE answers without OK [UIDVALIDITY]: refused as the connector refuses it. */
+  readonly noUidValidity?: boolean;
 }
 
 /** Envelope fields a test cares about; anything left out defaults to "empty" (no attachments, no protection). */
@@ -72,6 +77,10 @@ export class FakeFolder {
   readonly name: string;
   readonly parent: string[];
   readonly delimiter: string;
+  /** The server's LIST answers NIL as the delimiter. */
+  readonly nilDelimiter: boolean;
+  readonly noUidNext: boolean;
+  readonly noUidValidity: boolean;
   readonly specialUse: string | undefined;
   readonly selectable: boolean;
   uidValidity: number;
@@ -84,8 +93,11 @@ export class FakeFolder {
     readonly path: string,
     options: FakeFolderOptions = {},
   ) {
-    this.delimiter = options.delimiter ?? "/";
-    const parts = path.split(this.delimiter);
+    this.nilDelimiter = options.delimiter === null;
+    this.noUidNext = options.noUidNext === true;
+    this.noUidValidity = options.noUidValidity === true;
+    this.delimiter = options.delimiter ?? (this.nilDelimiter ? "" : "/");
+    const parts = this.delimiter === "" ? [path] : path.split(this.delimiter);
     this.name = parts[parts.length - 1];
     this.parent = parts.slice(0, -1);
     this.specialUse =
@@ -418,7 +430,8 @@ class FakeSession implements ImapSession {
       path: folder.path,
       name: folder.name,
       parent: [...folder.parent],
-      delimiter: folder.delimiter,
+      // As imapflow reports a NIL delimiter: null.
+      delimiter: folder.nilDelimiter ? (null as unknown as string) : folder.delimiter,
       selectable: folder.selectable,
       ...(folder.specialUse ? { specialUse: folder.specialUse } : {}),
     }));
@@ -434,11 +447,19 @@ class FakeSession implements ImapSession {
     if (!folder?.selectable) {
       throw new ImapSessionError(`EXAMINE ${path}: NO Mailbox does not exist`, false);
     }
+    if (folder.noUidValidity) {
+      // What ImapFlowSession.openFolder throws for an EXAMINE without OK [UIDVALIDITY].
+      throw new ImapSessionError(
+        `EXAMINE ${path}: the server sent no UIDVALIDITY, so its UIDs cannot be tracked`,
+        false,
+      );
+    }
     this.current = folder;
     return {
       path,
       uidValidity: String(folder.uidValidity),
-      uidNext: folder.uidNext,
+      // As imapflow reports an EXAMINE without OK [UIDNEXT]: undefined.
+      uidNext: folder.noUidNext ? (undefined as unknown as number) : folder.uidNext,
       exists: folder.messages.size,
     };
   }

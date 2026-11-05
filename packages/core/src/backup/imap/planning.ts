@@ -80,11 +80,17 @@ export interface FetchBreakdown {
   readonly retried: number;
 }
 
-/** Split an incremental download list by the UIDNEXT the previous run saw. */
+/**
+ * Split an incremental download list by the UIDNEXT the previous run saw; nothing to say
+ * when that run did not get one from the server.
+ */
 export function breakdownByUidNext(
   uids: readonly number[],
-  previousUidNext: number,
-): FetchBreakdown {
+  previousUidNext: number | undefined,
+): FetchBreakdown | Record<string, never> {
+  if (previousUidNext === undefined || previousUidNext <= 0) {
+    return {};
+  }
   let arrived = 0;
   for (const uid of uids) {
     if (uid >= previousUidNext) {
@@ -156,8 +162,13 @@ export function readImapState(state: Record<string, unknown> | undefined): ImapE
   }
   const clean: Record<string, ImapFolderState> = {};
   for (const [path, value] of Object.entries(folders as Record<string, unknown>)) {
-    if (isFolderState(value)) {
-      clean[path] = value;
+    // A NIL delimiter was stored as null before 0.5.0; it means the same as "".
+    const normalized =
+      value && typeof value === "object" && (value as { delimiter?: unknown }).delimiter === null
+        ? { ...(value as Record<string, unknown>), delimiter: "" }
+        : value;
+    if (isFolderState(normalized)) {
+      clean[path] = normalized;
     }
   }
   return { imap: { version: 1, folders: clean } };
@@ -170,7 +181,8 @@ function isFolderState(value: unknown): value is ImapFolderState {
   const candidate = value as Record<string, unknown>;
   return (
     typeof candidate.uidValidity === "string" &&
-    typeof candidate.uidNext === "number" &&
+    candidate.uidValidity.length > 0 &&
+    (candidate.uidNext === undefined || typeof candidate.uidNext === "number") &&
     typeof candidate.delimiter === "string" &&
     typeof candidate.messages === "number"
   );

@@ -586,6 +586,64 @@ describe("ImapFlowSession.fetchMeta", () => {
   });
 });
 
+describe("ImapFlowSession folder answers of servers that leave things out", () => {
+  async function sessionOver(client: Record<string, unknown>) {
+    const connector = new ImapFlowConnector({
+      createClient: () =>
+        ({
+          secureConnection: true,
+          usable: true,
+          mailbox: false,
+          connect: async () => {},
+          logout: async () => {},
+          close: () => {},
+          on: () => undefined,
+          once: () => undefined,
+          ...client,
+        }) as never,
+    });
+    return connector.connect(
+      account,
+      { kind: "password", password: "p" },
+      { logger: noopLogger, signal: new AbortController().signal },
+    );
+  }
+
+  it("reports a NIL hierarchy delimiter as an empty string", async () => {
+    // imapflow's list() for `* LIST (\HasNoChildren) NIL "INBOX"`.
+    const session = await sessionOver({
+      list: async () => [
+        { path: "INBOX", name: "INBOX", parent: [], delimiter: null, flags: new Set() },
+      ],
+    });
+    expect(await session.listFolders()).toEqual([
+      { path: "INBOX", name: "INBOX", parent: [], delimiter: "", selectable: true },
+    ]);
+  });
+
+  it("reports a missing UIDNEXT as 0", async () => {
+    const session = await sessionOver({
+      mailboxOpen: async () => ({ path: "INBOX", uidValidity: 7n, exists: 2 }),
+    });
+    expect(await session.openFolder("INBOX")).toEqual({
+      path: "INBOX",
+      uidValidity: "7",
+      uidNext: 0,
+      exists: 2,
+    });
+  });
+
+  it("refuses a folder without UIDVALIDITY with a command error, not a crash of the run", async () => {
+    const session = await sessionOver({
+      mailboxOpen: async () => ({ path: "Odd", uidNext: 3, exists: 2 }),
+    });
+    const error = await session.openFolder("Odd").catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ImapSessionError);
+    expect(error).toMatchObject({ connectionLost: false });
+    expect((error as Error).message).toContain("no UIDVALIDITY");
+  });
+});
+
 describe("ImapFlowSession archive capture commands", () => {
   function captureClient() {
     const listeners = new Map<string, Set<(event: unknown) => void>>();

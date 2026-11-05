@@ -269,13 +269,26 @@ class ImapFlowSession implements ImapSession {
   }
 
   async openFolder(path: string): Promise<ImapFolderStatus> {
-    const mailbox = await this.guard(() => this.client.mailboxOpen(path, { readOnly: true }));
-    return {
-      path: mailbox.path,
-      uidValidity: mailbox.uidValidity.toString(),
-      uidNext: mailbox.uidNext,
-      exists: mailbox.exists,
-    };
+    return this.guard(async () => {
+      const mailbox = await this.client.mailboxOpen(path, { readOnly: true });
+      // imapflow sets uidValidity and uidNext only when the server sent OK [UIDVALIDITY] and
+      // OK [UIDNEXT]. Without UIDVALIDITY no UID can be trusted across runs: this folder
+      // fails (and keeps its previous copy), never the whole run.
+      const uidValidity = mailbox.uidValidity as bigint | number | undefined | null;
+      if (uidValidity === undefined || uidValidity === null) {
+        throw new ImapSessionError(
+          `EXAMINE ${path}: the server sent no UIDVALIDITY, so its UIDs cannot be tracked`,
+          false,
+        );
+      }
+      const uidNext = mailbox.uidNext as number | undefined | null;
+      return {
+        path: mailbox.path ?? path,
+        uidValidity: uidValidity.toString(),
+        uidNext: typeof uidNext === "number" ? uidNext : 0,
+        exists: mailbox.exists ?? 0,
+      };
+    });
   }
 
   async listFlags(): Promise<ImapMessageFlags[]> {
@@ -495,7 +508,8 @@ function toFolderInfo(entry: ListResponse): ImapFolderInfo {
     path: entry.path,
     name: entry.name,
     parent: [...entry.parent],
-    delimiter: entry.delimiter,
+    // imapflow hands a NIL delimiter (flat namespace) through as null.
+    delimiter: (entry.delimiter as string | null | undefined) ?? "",
     selectable,
   };
   return entry.specialUse ? { ...info, specialUse: entry.specialUse } : info;

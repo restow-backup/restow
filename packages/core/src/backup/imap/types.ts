@@ -82,6 +82,7 @@ export interface ImapFolderInfo {
   readonly name: string;
   /** Parent path components, outermost first. */
   readonly parent: readonly string[];
+  /** Hierarchy delimiter; "" when the server answers NIL (a flat namespace, RFC 3501 LIST). */
   readonly delimiter: string;
   /** SPECIAL-USE flag when known ("\\Sent", "\\Trash", ...; INBOX reports "\\Inbox"). */
   readonly specialUse?: string;
@@ -93,6 +94,7 @@ export interface ImapFolderStatus {
   readonly path: string;
   /** UIDVALIDITY as a decimal string (32-bit unsigned; kept as string for JSON safety). */
   readonly uidValidity: string;
+  /** UIDNEXT; 0 when the server did not send it (RFC 3501 asks clients to cope with that). */
   readonly uidNext: number;
   /** Message count (EXISTS). */
   readonly exists: number;
@@ -206,7 +208,12 @@ export interface ImapConnector {
 /** Per-folder incremental state, stored in the manifest under `state.imap.folders[path]`. */
 export interface ImapFolderState {
   readonly uidValidity: string;
-  readonly uidNext: number;
+  /**
+   * UIDNEXT the run saw; absent when the server did not send one. Only reported in the log:
+   * what an incremental run downloads is the set difference of UIDs, not "UIDs >= UIDNEXT".
+   */
+  readonly uidNext?: number;
+  /** "" for a NIL delimiter. */
   readonly delimiter: string;
   readonly specialUse?: string;
   /** Message count at the end of the run. */

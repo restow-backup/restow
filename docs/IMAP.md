@@ -10,7 +10,11 @@
   beachten.
 - Inkrementell über UIDVALIDITY und UIDNEXT je Ordner; ändert sich UIDVALIDITY, wird
   der Ordner voll neu gelesen (Dedupe über Message-ID plus Hash verhindert Doppelung
-  im Speicher).
+  im Speicher). Geladen wird die Differenz der UIDs (was der vorige Stand nicht hat), nicht
+  "ab UIDNEXT": Ein Server ohne `OK [UIDNEXT]` (RFC 3501 verlangt, dass Clients damit umgehen)
+  und ein NIL-Trennzeichen (flacher Namensraum, gespeichert als `""`) lassen den Ordner
+  inkrementell. Ein Ordner ohne `OK [UIDVALIDITY]` schlägt als Ordner fehl und behält seinen
+  vorigen Stand; die anderen Ordner werden gesichert.
 - Inhalt: RFC 5322 byte-genau (`BODY.PEEK[]`), Flags separat, interne Datumsangabe.
 - Gelöschte Mails: beim nächsten Lauf per UID-Vergleich erkannt; Snapshot behält sie.
 - Eine Nachricht, die der Server nicht lesen kann (Dovecot mit beschädigter oder fehlender

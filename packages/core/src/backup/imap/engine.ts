@@ -1217,7 +1217,7 @@ class BackupRun {
   ): ManifestObject {
     const metadata: Record<string, string> = {
       [META.mailbox]: folder.path,
-      [META.delimiter]: folder.delimiter,
+      [META.delimiter]: delimiterOf(folder),
       [META.uid]: String(message.uid),
       [META.uidValidity]: status.uidValidity,
       [META.flags]: encodeFlags(message.flags),
@@ -1254,7 +1254,7 @@ class BackupRun {
   ): ManifestObject {
     const metadata: Record<string, string> = {
       [META.mailbox]: folder.path,
-      [META.delimiter]: folder.delimiter,
+      [META.delimiter]: delimiterOf(folder),
       [META.uidValidity]: status.uidValidity,
     };
     if (folder.specialUse) {
@@ -1336,13 +1336,21 @@ class BackupRun {
 // ---------------------------------------------------------------------------
 
 function folderStateOf(folder: ImapFolderInfo, status: ImapFolderStatus): ImapFolderState {
+  // A server without UIDNEXT, or a NIL delimiter, must not make the state unreadable (the
+  // next run would read the folder in full again, every night).
+  const uidNext = status.uidNext as number | undefined;
   return {
     uidValidity: status.uidValidity,
-    uidNext: status.uidNext,
-    delimiter: folder.delimiter,
+    ...(typeof uidNext === "number" && uidNext > 0 ? { uidNext } : {}),
+    delimiter: delimiterOf(folder),
     ...(folder.specialUse ? { specialUse: folder.specialUse } : {}),
     messages: status.exists,
   };
+}
+
+/** The folder's delimiter as a string; "" for a NIL delimiter. */
+function delimiterOf(folder: ImapFolderInfo): string {
+  return (folder.delimiter as string | null | undefined) ?? "";
 }
 
 function groupByFolder(objects: readonly ManifestObject[]): Map<string, ManifestObject[]> {
