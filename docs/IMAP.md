@@ -366,4 +366,10 @@ gewählt hat, und den Kopien der letzten 7 Tage (je Konto und für die Mandanten
 - Bei Fehlern (kein Anhang, nicht parsbar): rohe Report-Mail trotzdem archivieren
   und als "unvollständig" markieren; nie verwerfen. Antwort an Exchange immer 250
   nach erfolgreicher Persistierung, sonst 4xx (Exchange versucht erneut).
+- Erneut zugestellter Report (seit 0.5.0): geht das 250 verloren oder kommt es nach dem
+  Zeitlimit von Exchange an, sendet Exchange denselben Report noch einmal. Der Empfänger
+  kennt ihn am Hash des Reports, wie er ankam, ohne Transportfelder (Received, Return-Path,
+  DKIM- und ARC-Signaturen; `archive_items.report_hash`), antwortet 250 und legt kein
+  zweites Element an, auch nicht bei zwei gleichzeitigen Zustellungen. Ein anderer Report
+  derselben Mail (andere Empfänger, eine andere Journalregel) bleibt ein eigenes Element.
 - Kein Relay, kein Versand über diesen Port.

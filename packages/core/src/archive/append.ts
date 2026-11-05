@@ -85,6 +85,8 @@ export interface ArchiveItemInsert {
   readonly bodyHash: string;
   readonly externalRef: string | null;
   readonly supersedesItemId: string | null;
+  /** {@link CaptureArchiveItemOptions.reportHash}: the journal report it came in; else null. */
+  readonly reportHash: string | null;
 }
 
 /** A further capture of an existing item (no chain entry). */
@@ -103,6 +105,8 @@ export interface ArchiveCaptureInsert {
 export interface ArchiveChainSession {
   tip(): Promise<ArchiveChainTip | null>;
   candidates(query: ArchiveCandidateQuery): Promise<ArchiveMatchCandidate[]>;
+  /** The item a journal report with this hash became, if any. */
+  itemByReportHash(reportHash: string): Promise<string | null>;
   insertItem(item: ArchiveItemInsert): Promise<void>;
   insertCapture(capture: ArchiveCaptureInsert): Promise<void>;
   /** Assign `itemId` to the mailboxes named (never to its own); returns how many rows were added. */
@@ -114,6 +118,8 @@ export interface ArchiveAppendStore {
   readonly tenantId: string;
   /** Candidates outside the lock: only a hint (the decision is made again under it). */
   candidates(query: ArchiveCandidateQuery): Promise<ArchiveMatchCandidate[]>;
+  /** Outside the lock, a hint as {@link ArchiveChainSession.itemByReportHash}. */
+  itemByReportHash(reportHash: string): Promise<string | null>;
   /** Run `fn` in one transaction holding the tenant's chain lock. */
   withChainLock<T>(fn: (session: ArchiveChainSession) => Promise<T>): Promise<T>;
 }
@@ -152,6 +158,12 @@ export interface CaptureArchiveItemOptions {
   readonly externalRef?: string | null;
   /** Default `merge` (see ./identity.ts {@link DuplicatePolicy}). */
   readonly duplicates?: DuplicatePolicy;
+  /**
+   * A journal report's {@link journalReportHash}. An item that came in with the same hash is
+   * this very report delivered again (the sender never saw the 250): nothing is stored or
+   * recorded, whatever the duplicate policy, and the result is `retransmitted`.
+   */
+  readonly reportHash?: string | null;
   /** The new item's id; default a random UUID. */
   readonly itemId?: string;
   readonly now?: () => Date;
@@ -170,6 +182,12 @@ export type CaptureArchiveItemResult =
       /** The existing item this capture was recorded on. */
       readonly itemId: string;
       readonly mailboxes: number;
+    }
+  | {
+      /** The same journal report again ({@link CaptureArchiveItemOptions.reportHash}). */
+      readonly outcome: "retransmitted";
+      /** The item the report became the first time. */
+      readonly itemId: string;
     };
 
 /** Capture one mail into the tenant's archive (see the module docstring). */
@@ -189,6 +207,14 @@ export async function captureArchiveItem(
     messageKey: identity.messageKey,
   };
 
+  const reportHash = options.reportHash ?? null;
+  if (reportHash !== null) {
+    const earlier = await options.store.itemByReportHash(reportHash);
+    if (earlier !== null) {
+      return retransmitted(options, earlier);
+    }
+  }
+
   // A capture the archive already holds needs no upload at all.
   let content: ArchiveContent | null = null;
   const hint =
@@ -200,6 +226,11 @@ export async function captureArchiveItem(
   }
 
   return options.store.withChainLock(async (session) => {
+    // Two deliveries of one report at once (a retry while the first still uploads).
+    const earlier = reportHash === null ? null : await session.itemByReportHash(reportHash);
+    if (earlier !== null) {
+      return retransmitted(options, earlier);
+    }
     const decision = decideDuplicate(identity, await session.candidates(query), policy);
     if (decision.kind === "duplicate") {
       await session.insertCapture({
@@ -266,6 +297,7 @@ export async function captureArchiveItem(
       bodyHash: identity.bodyHash as string,
       externalRef: options.externalRef ?? null,
       supersedesItemId: decision.supersedes,
+      reportHash,
     });
     const mailboxes = await session.assignMailboxes(record.id, {
       objectIds: options.mailboxes?.objectIds ?? [],
@@ -273,6 +305,17 @@ export async function captureArchiveItem(
     });
     return { outcome: "stored", record, mailboxes };
   });
+}
+
+function retransmitted(
+  options: CaptureArchiveItemOptions,
+  itemId: string,
+): CaptureArchiveItemResult {
+  options.logger?.info("journal report delivered again; the archive holds it already", {
+    itemId,
+    source: options.source,
+  });
+  return { outcome: "retransmitted", itemId };
 }
 
 /**

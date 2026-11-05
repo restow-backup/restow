@@ -117,6 +117,14 @@ export const archiveItems = pgTable(
      * would be an UPDATE, which the append-only trigger refuses.
      */
     supersedesItemId: uuid("supersedes_item_id"),
+    /**
+     * Journal reports only (0.5.0): SHA-256 (hex) of the report as delivered, its transport
+     * fields left out (@restow/core archive/identity.ts `journalReportHash`). The same report
+     * sent again after a lost 250 finds its item here and is not stored twice; another report
+     * for the same mail has another hash. Null for every other source and for items received
+     * before 0.5.0.
+     */
+    reportHash: text("report_hash"),
     ...createdOnly(),
   },
   (t) => [
@@ -131,6 +139,11 @@ export const archiveItems = pgTable(
       sql`lower(btrim(${t.messageId}, '<> '))`,
     ),
     index("archive_items_tenant_item_hash_idx").on(t.tenantId, t.itemHash),
+    // One item per journal report: a retransmission is answered from here, and two
+    // concurrent deliveries of one report cannot both commit.
+    uniqueIndex("archive_items_tenant_report_hash_uq")
+      .on(t.tenantId, t.reportHash)
+      .where(sql`${t.reportHash} IS NOT NULL`),
     // "Already captured from this mailbox?" before a mailbox capture downloads a mail.
     index("archive_items_object_external_ref_idx")
       .on(t.protectedObjectId, t.externalRef)

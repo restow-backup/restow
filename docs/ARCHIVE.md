@@ -516,7 +516,8 @@ Wann was:
   (`sentDateTime`, auf die Sekunde). Sonst wird sie geladen und wie oben entschieden (seit
   0.5.0; vorher genügte die Message-ID, und eine andere Mail mit derselben Message-ID kam nie
   ins Archiv). Journal-Reports und importierte Mail
-  bleiben eigene Objekte. Alle Schreiber hängen über einen gemeinsamen Weg an die Kette an:
+  bleiben eigene Objekte; nur derselbe Journal-Report, von Exchange nach einem verlorenen 250
+  erneut gesendet, wird kein zweites (seit 0.5.0, docs/IMAP.md "Journal-Empfänger"). Alle Schreiber hängen über einen gemeinsamen Weg an die Kette an:
   das Original wird vor der Sperre der Kette hochgeladen, unter der Sperre steigt
   `created_at` je Mandant streng monoton (seit 0.4.4 keine Gabelung der Kette bei gleichem
   Zeitstempel mehr).

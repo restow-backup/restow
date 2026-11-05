@@ -164,6 +164,51 @@ export function itemHashOf(original: Buffer): string {
   return createHash("sha256").update(original).digest("hex");
 }
 
+/**
+ * Header fields a hop adds or rewrites on the way (trace fields and per-transmission
+ * signatures): a report Exchange sends again after a lost 250, through another front end,
+ * may differ in them and in nothing else.
+ */
+const TRANSPORT_FIELDS =
+  /^(received|x-received|return-path|dkim-signature|arc-seal|arc-message-signature|arc-authentication-results)$/i;
+
+/**
+ * SHA-256 (hex) of a journal report as delivered, its transport fields left out: the key
+ * that tells a retransmission of the same report (same SMTP message, sent again because the
+ * 250 was lost or came too late) from another report. Distinct reports for one message
+ * (another envelope, other recipients, a split per recipient) differ in their own
+ * Message-ID and envelope text and keep distinct keys; {@link itemHashOf} of the embedded
+ * original would not tell them apart. Every other header byte and the body count exactly.
+ */
+export function journalReportHash(raw: Buffer): string {
+  const start = bodyStart(raw);
+  const header = raw.subarray(0, start).toString("latin1");
+  const kept: string[] = [];
+  let field: string[] = [];
+  const flush = () => {
+    if (field.length > 0) {
+      const name = /^([^:\s]+)\s*:/.exec(field[0] as string)?.[1] ?? "";
+      if (!TRANSPORT_FIELDS.test(name)) {
+        kept.push(...field);
+      }
+    }
+    field = [];
+  };
+  for (const line of header.split(/(?<=\n)/)) {
+    if (/^[ \t]/.test(line) && field.length > 0) {
+      field.push(line);
+    } else {
+      flush();
+      field.push(line);
+    }
+  }
+  flush();
+  return createHash("sha256")
+    .update(Buffer.from(kept.join(""), "latin1"))
+    .update(raw.subarray(start))
+    .digest("hex");
+}
+
 /** What a new capture is, for the decision. */
 export interface CaptureIdentity {
   readonly source: ArchiveSource;

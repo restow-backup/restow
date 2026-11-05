@@ -655,6 +655,13 @@ private repository.
   warning. Only the folder marked `\Drafts` is now left out; a server that marks none has a
   folder skipped by its name only at the top level or directly under INBOX. Drafts in any other
   folder are still skipped by their `\Draft` flag.
+- Mail archive: a journal report Exchange sent again, because Restow's 250 was lost or came
+  after Exchange's timeout, became a second item: search, export and archive restore showed the
+  mail twice for every mailbox it belonged to. Each journal item now keeps the hash of its report
+  as delivered, transport fields (Received, Return-Path, DKIM and ARC signatures) left out
+  (migration 0085 `report_hash`, unique per tenant); the same report again is answered with 250
+  before it is parsed and adds nothing, also when both deliveries arrive at once. Another report
+  for the same mail (other recipients, another journal rule) stays an item of its own.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

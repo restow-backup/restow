@@ -68,6 +68,7 @@ export interface ArchiveAppendItemRow {
   readonly bodyHash: string;
   readonly externalRef: string | null;
   readonly supersedesItemId: string | null;
+  readonly reportHash: string | null;
 }
 
 export interface ArchiveAppendCaptureRow {
@@ -117,6 +118,19 @@ export function archiveEnvelopeRow(envelope: CoreEnvelope | null) {
 
 /** Most candidates looked at per capture: a Message-ID shared by more mails is spam. */
 const MAX_CANDIDATES = 50;
+
+async function itemByReportHashOn(
+  tx: ArchiveExecutor,
+  tenantId: string,
+  reportHash: string,
+): Promise<string | null> {
+  const result = await tx.execute<{ id: string }>(sql`
+    select id from archive_items
+     where tenant_id = ${tenantId}::uuid and report_hash = ${reportHash}
+     limit 1
+  `);
+  return result.rows[0]?.id ?? null;
+}
 
 async function candidatesOn(
   tx: ArchiveExecutor,
@@ -316,6 +330,10 @@ class PgArchiveChainSession {
     return candidatesOn(this.tx, this.tenantId, query);
   }
 
+  itemByReportHash(reportHash: string): Promise<string | null> {
+    return itemByReportHashOn(this.tx, this.tenantId, reportHash);
+  }
+
   async insertItem(item: ArchiveAppendItemRow): Promise<void> {
     const { record } = item;
     await this.tx.insert(archiveItems).values({
@@ -343,6 +361,7 @@ class PgArchiveChainSession {
       bodyHash: item.bodyHash,
       externalRef: item.externalRef,
       supersedesItemId: item.supersedesItemId,
+      reportHash: item.reportHash,
       createdAt: record.createdAt,
     });
   }
@@ -384,6 +403,10 @@ export class PgArchiveAppendStore {
 
   candidates(query: ArchiveAppendQuery): Promise<ArchiveAppendCandidate[]> {
     return this.inTenant((tx) => candidatesOn(tx, this.tenantId, query));
+  }
+
+  itemByReportHash(reportHash: string): Promise<string | null> {
+    return this.inTenant((tx) => itemByReportHashOn(tx, this.tenantId, reportHash));
   }
 
   withChainLock<T>(fn: (session: PgArchiveChainSession) => Promise<T>): Promise<T> {
