@@ -529,7 +529,10 @@ private repository.
   message as JSON for good. It then had no original file for EML, MBOX or PST export, and no
   later incremental run asked for its MIME again. A plain 500 (without a conversion code) is
   now asked again twice with backoff; if it stays, the message is an item failure that the next
-  run retries, and only after three runs in a row is its content kept as JSON. Every JSON copy
+  run retries, and only after three runs in a row is its content kept as JSON. When five
+  messages in a row get nothing but a 500 (an outage of the mailbox's backend), the run stops
+  waiting for each further message: they fail at once and are retried on the next run, and a
+  single request a minute checks whether Microsoft answers again. Every JSON copy
   now records why (too large, conversion refused, server error) and is logged. A copy stored
   after server errors ends the run with a warning on the message, in every run until its MIME
   arrives, since it has no original file for export yet. Such a copy, and one stored by an

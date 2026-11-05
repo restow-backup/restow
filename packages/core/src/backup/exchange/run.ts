@@ -377,6 +377,15 @@ export class BackupRun {
   readonly failures: ItemFailureRecord[] = [];
   /** Messages stored as JSON in this run instead of MIME, by reason (logged with the result). */
   readonly jsonFallbacks: Record<string, number> = {};
+  /**
+   * Plain 500s on `$value` across messages (mail.ts {@link MIME_OUTAGE_AFTER}): how many
+   * messages in a row had nothing else, when `$value` was last asked, and the last answer.
+   */
+  readonly mimeOutage: { consecutive: number; lastAskedAt: number; lastError: unknown } = {
+    consecutive: 0,
+    lastAskedAt: 0,
+    lastError: undefined,
+  };
 
   private readonly checkpoints: CheckpointPolicy;
   private phase: ExchangePhase = "mail";

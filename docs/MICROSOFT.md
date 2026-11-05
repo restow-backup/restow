@@ -128,7 +128,12 @@ ein Ordner liefert, bleibt ein Ordnerfehler.
   `ConversionFailed`, `CorruptData`). Ein einfacher 500 ohne solchen Code ist kein Grund: `$value`
   wird mit Backoff (1 s, 2 s, plus Jitter; `Retry-After` gilt) insgesamt dreimal gefragt; bleibt
   es beim 500, ist die Nachricht ein Elementfehler und der nächste Lauf holt sie über
-  `mailRetry` erneut. Erst nach drei Läufen in Folge mit nur 500 wird die JSON-Form gesichert
+  `mailRetry` erneut. Antworten fünf Nachrichten in Folge mit nichts als 500 (ein Ausfall im
+  Exchange-Backend trifft ganze Postfächer), fragt der Lauf weitere Nachrichten nicht mehr und
+  wartet auch keinen Backoff mehr ab: Sie sind sofort Elementfehler (wiederholt über
+  `mailRetry`, ohne Zählung in `mailMimeServerErrors`), und höchstens einmal je Minute geht ein
+  einzelner Versuch ohne Backoff hinaus; antwortet er, läuft alles wieder normal.
+  Erst nach drei Läufen in Folge mit nur 500 wird die JSON-Form gesichert
   (`server_error`, gezählt in `mailMimeServerErrors` im Zustand), damit der Inhalt sicher ist.
   Eine JSON-Kopie mit `server_error` oder ohne `formatReason` (vor 0.5.0 reichten zwei schnelle
   500 für die JSON-Form auf Dauer) fragt jeder inkrementelle Lauf noch einmal nach dem MIME

@@ -37,6 +37,7 @@ import {
 import { planRestore } from "../../restore/selection.js";
 import { LocalStorageBackend } from "../../storage/local.js";
 import { ExchangeBackupEngine, type ExchangeBackupEngineOptions } from "./engine.js";
+import { MIME_OUTAGE_AFTER } from "./mail.js";
 import { mailObjectPath, shortId } from "./paths.js";
 import { EXCHANGE_PHASES, MailboxAccessError, META } from "./run.js";
 import { MAIL_SELECT_VERSION, parseCursor, readState } from "./state.js";
@@ -1297,6 +1298,28 @@ describe("ExchangeBackupEngine", () => {
         manifest.objects.filter((o) => o.metadata?.[META.messageItemId] === "AAMkMsg4"),
       ).toEqual([]);
       expect(mailObjects(manifest)).toHaveLength(MESSAGE_COUNT);
+    });
+
+    it("stops the backoff for the rest of the run when $value answers 500 for every message", async () => {
+      for (const message of box.messages.values()) {
+        message.mimeUnavailable = plain500;
+      }
+      const first = await engine.run(newContext(), mailbox, {});
+      // Five messages paid their three attempts; every further one was not asked at all.
+      expect(mimeDownloads()).toHaveLength(MIME_OUTAGE_AFTER * 3);
+      expect(first.failures).toHaveLength(MESSAGE_COUNT);
+      expect(first.failures.every((f) => f.cause?.transient === true)).toBe(true);
+      const state = readState((await manifestOf(first.snapshotId)).state);
+      // Only the messages actually asked count towards the JSON fallback.
+      expect(Object.keys(state.mailMimeServerErrors)).toHaveLength(MIME_OUTAGE_AFTER);
+      expect(Object.values(state.mailRetry).flat()).toHaveLength(MESSAGE_COUNT);
+
+      for (const message of box.messages.values()) {
+        message.mimeUnavailable = undefined;
+      }
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(second.failures).toEqual([]);
+      expect(mailObjects(await manifestOf(second.snapshotId))).toHaveLength(MESSAGE_COUNT);
     });
 
     it("stores a message Exchange cannot convert as JSON with its reason and does not ask again", async () => {

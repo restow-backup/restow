@@ -908,9 +908,16 @@ async function askMimeAgain(
   mtime: number,
   fingerprint: string,
 ): Promise<void> {
+  if (mimeOutageSkips(run)) {
+    carryMessage(run, folder, entry, existing, mtime);
+    warnStoredWithoutMime(run, existing.path);
+    return;
+  }
   let stream: Readable;
+  run.mimeOutage.lastAskedAt = run.ctx.now().getTime();
   try {
     stream = await openMessageMime(run.client, run.userId, entry.id);
+    noteMimeOutcome(run, true);
   } catch (error) {
     const reason = mimeRefusalReason(error);
     if (reason !== null) {
@@ -918,6 +925,7 @@ async function askMimeAgain(
       return;
     }
     if (isMimeServerError(error)) {
+      noteMimeOutcome(run, false, error);
       run.logger.info("MIME of a message stored as JSON still unavailable, JSON kept", {
         messageId: entry.id,
       });
@@ -943,6 +951,52 @@ async function askMimeAgain(
   await storeMimeMessage(run, folder, entry, existing, mtime, metadata, stream);
 }
 
+/**
+ * After this many messages in a row whose `$value` answered nothing but a plain 500 (all their
+ * attempts), the mailbox's MIME export is taken to be down for now (an Exchange backend
+ * incident hits whole mailboxes): the run stops paying the backoff for every further message.
+ */
+export const MIME_OUTAGE_AFTER = 5;
+/** While the export is down, `$value` is asked again once (no backoff) at most this often. */
+export const MIME_OUTAGE_PROBE_MS = 60_000;
+
+/** Whether `$value` is down for this run and the next probe is not due yet. */
+function mimeOutageSkips(run: BackupRun): boolean {
+  const outage = run.mimeOutage;
+  return (
+    outage.consecutive >= MIME_OUTAGE_AFTER &&
+    run.ctx.now().getTime() - outage.lastAskedAt < MIME_OUTAGE_PROBE_MS
+  );
+}
+
+/** The item failure of a message not asked because `$value` is down. */
+function mimeOutageError(run: BackupRun): ItemError {
+  return new ItemError(
+    `Microsoft answered HTTP 500 for the original file (MIME) of ${run.mimeOutage.consecutive} messages in a row; this message was not asked in this run and is retried on the next run`,
+    { cause: run.mimeOutage.lastError },
+  );
+}
+
+/** `$value` answered (`answered`), or gave nothing but a plain 500 (`error`). */
+function noteMimeOutcome(run: BackupRun, answered: boolean, error?: unknown): void {
+  const outage = run.mimeOutage;
+  if (answered) {
+    if (outage.consecutive >= MIME_OUTAGE_AFTER) {
+      run.logger.info("MIME export of the mailbox answers again");
+    }
+    outage.consecutive = 0;
+    return;
+  }
+  outage.consecutive++;
+  outage.lastError = error ?? outage.lastError;
+  if (outage.consecutive === MIME_OUTAGE_AFTER) {
+    run.logger.warn(
+      "MIME export answers HTTP 500 for every message, not asking further messages in this run (asked again once a minute)",
+      { messages: outage.consecutive },
+    );
+  }
+}
+
 /** Fetch a message's content and store it as MIME, or as JSON when Graph refuses the MIME. */
 async function fetchMessage(
   run: BackupRun,
@@ -955,21 +1009,32 @@ async function fetchMessage(
   signature: string | undefined,
 ): Promise<void> {
   const serverErrorRuns = run.state.mailMimeServerErrors[entry.id] ?? 0;
+  if (mimeOutageSkips(run)) {
+    // Not asked, so not counted towards the JSON fallback either.
+    throw mimeOutageError(run);
+  }
+  const probing = run.mimeOutage.consecutive >= MIME_OUTAGE_AFTER;
   let content: MessageContent;
+  run.mimeOutage.lastAskedAt = run.ctx.now().getTime();
   try {
     content = await fetchMessageContent(run.client, run.userId, entry.id, {
       signal: run.ctx.signal,
       serverErrorBackoffMs: options.mimeServerErrorBackoffMs,
+      // While the export is down: one attempt, no backoff.
+      ...(probing ? { serverErrorAttempts: 1 } : {}),
       // The third run in a row with nothing but a plain 500: keep the content as JSON.
       jsonAfterServerError: serverErrorRuns + 1 >= MIME_SERVER_ERROR_RUNS,
     });
   } catch (error) {
     if (isMimeServerError(error)) {
+      noteMimeOutcome(run, false, error);
       // An item failure, retried next run (mailRetry); never a reason to give up the MIME.
       run.state.mailMimeServerErrors[entry.id] = serverErrorRuns + 1;
     }
     throw error;
   }
+  // A JSON copy after the third run of 500s: `$value` itself is still down.
+  noteMimeOutcome(run, !(content.kind === "parts" && content.fallbackReason === "server_error"));
   delete run.state.mailMimeServerErrors[entry.id];
   const metadata: Record<string, string> = {
     ...mailMetadata(entry, folder, existing),
