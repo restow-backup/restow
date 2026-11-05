@@ -541,6 +541,12 @@ private repository.
   on a first backup the folder was missing from the restore point altogether. The request is now
   split until the unreadable messages are found: each of them is an item failure naming the
   message, and the rest of the folder, new mail included, is backed up.
+- Mail backup: an IMAP folder that failed during a full read (a requested full backup, or after
+  the server changed its UIDVALIDITY, for example after a migration) kept only what that attempt
+  had downloaded, often nothing, although the previous restore point held all of its mail. In a
+  requested full backup the previous messages that were not read again are now carried forward
+  with their current flags; after a UIDVALIDITY change the previous copy of the folder is kept
+  as it was and the next run reads the folder in full again.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

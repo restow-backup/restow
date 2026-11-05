@@ -24,7 +24,10 @@
  *
  * Failures are scoped: a message the server does not return is recorded and
  * retried on the next run; a folder that keeps failing is recorded and its
- * previous objects are carried forward; a dropped connection is re-opened. The
+ * previous objects are carried forward (in a full read under the same
+ * UIDVALIDITY those not read again yet; after a UIDVALIDITY change the
+ * previous picture as a whole, so the restore point is never worse than the
+ * last one); a dropped connection is re-opened. The
  * job checkpoints (packs, partial manifest, cursor) after every folder and
  * every few hundred messages, so a restarted worker resumes without
  * downloading anything it already stored.
@@ -354,6 +357,11 @@ class BackupRun {
   /** EXAMINE results of folders opened in this attempt. */
   private readonly opened = new Map<string, ImapFolderStatus>();
   private readonly reconciled = new Set<string>();
+  /** Plan and FLAGS listing of folders reconciled in this attempt (what a failure falls back to). */
+  private readonly planned = new Map<
+    string,
+    { readonly plan: FolderPlan; readonly liveFlags: ReadonlyMap<number, readonly string[]> }
+  >();
   private readonly queue: ImapFolderInfo[] = [];
 
   private touched = false;
@@ -534,6 +542,7 @@ class BackupRun {
     const live = await worker.session.listFlags();
     const liveFlags = new Map(live.map((message) => [message.uid, message.flags]));
     const components = folderComponents(folder);
+    this.planned.set(folder.path, { plan, liveFlags });
 
     const { known, deleted } = await this.reconcile(
       worker,
@@ -727,7 +736,10 @@ class BackupRun {
     this.logger.error("imap folder failed", { folder: folder.path, error });
 
     const status = this.opened.get(folder.path);
-    if (this.reconciled.has(folder.path) && status) {
+    const planned = this.planned.get(folder.path);
+    if (this.reconciled.has(folder.path) && status && planned?.plan.mode === "full") {
+      this.fullReadFailed(folder, status, planned.liveFlags);
+    } else if (this.reconciled.has(folder.path) && status) {
       // Reconciled against the live folder: what was not downloaded is absent and retried next run.
       this.folderState[folder.path] = folderStateOf(folder, status);
     } else if (this.partialByFolder.has(folder.path)) {
@@ -752,6 +764,78 @@ class BackupRun {
     this.publishState();
     this.active.delete(folder.path);
     this.completed.add(folder.path);
+  }
+
+  /**
+   * A full read (requested, or after a UIDVALIDITY change) that failed after reconcile: it
+   * carried nothing forward, so the folder would hold only what this attempt read. The
+   * restore point must not be worse than the previous one.
+   *
+   *  - Same UIDVALIDITY as the previous snapshot (`full` requested): the previous objects
+   *    whose UID was not read again and is still in the folder are carried forward with
+   *    their current flags. The live state is kept only when that covers every live UID;
+   *    otherwise the previous state stays and the next run plans the folder again.
+   *  - UIDVALIDITY changed: the old objects cannot be mixed with the new UIDs (same paths,
+   *    other messages). What this attempt stored for the folder is dropped and the previous
+   *    picture is kept as it was, state included, so the next run reads it in full again.
+   */
+  private fullReadFailed(
+    folder: ImapFolderInfo,
+    status: ImapFolderStatus,
+    liveFlags: ReadonlyMap<number, readonly string[]>,
+  ): void {
+    const previousState = this.previousState.imap.folders[folder.path];
+    const previousObjects = this.previousByFolder.get(folder.path) ?? [];
+    if (!previousState) {
+      // A first backup: nothing older to fall back to; the next run fetches what is missing.
+      this.folderState[folder.path] = folderStateOf(folder, status);
+      return;
+    }
+    if (previousState.uidValidity !== status.uidValidity) {
+      let dropped = 0;
+      for (const object of this.writer.listObjects()) {
+        if (objectMailbox(object) === folder.path && this.writer.remove(object.path)) {
+          dropped++;
+        }
+      }
+      for (const object of previousObjects) {
+        this.writer.add(object);
+      }
+      this.folderState[folder.path] = previousState;
+      this.logger.warn(
+        "imap folder re-read after a UIDVALIDITY change failed, previous copy kept",
+        {
+          folder: folder.path,
+          dropped,
+          carried: previousObjects.length,
+        },
+      );
+      return;
+    }
+    const components = folderComponents(folder);
+    let carried = 0;
+    for (const object of previousObjects) {
+      if (!isMessageObject(object) || object.metadata?.[META.uidValidity] !== status.uidValidity) {
+        continue;
+      }
+      const uid = objectUid(object);
+      const flags = uid === null ? undefined : liveFlags.get(uid);
+      if (uid === null || flags === undefined || this.writer.has(object.path)) {
+        continue;
+      }
+      this.writer.add(withFlags(object, flags));
+      carried++;
+    }
+    const covered = [...liveFlags.keys()].every((uid) =>
+      this.writer.has(messageObjectPath(components, uid)),
+    );
+    this.writer.add(this.folderObject(folder, status, components));
+    this.folderState[folder.path] = covered ? folderStateOf(folder, status) : previousState;
+    this.logger.warn("imap folder full read failed, previous messages carried forward", {
+      folder: folder.path,
+      carried,
+      covered,
+    });
   }
 
   private logVanishedFolders(folders: readonly ImapFolderInfo[]): void {

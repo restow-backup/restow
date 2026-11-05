@@ -21,6 +21,12 @@
   Ordner, nicht eine Nachricht, und der Ordner schlägt fehl wie bisher). Jede unlesbare
   Nachricht ist ein Elementfehler mit der Antwort des Servers, der Rest des Ordners wird
   gesichert, und der nächste Lauf versucht sie erneut.
+- Ein Ordner, der in einem Voll-Lauf auch beim zweiten Versuch scheitert, macht den
+  Sicherungsstand nicht schlechter als den vorigen: Bei verlangtem Voll-Lauf und gleicher
+  UIDVALIDITY kommen die vorigen Nachrichten, die noch nicht neu gelesen wurden und noch im Ordner
+  liegen, mit ihren aktuellen Flags mit. Nach einem UIDVALIDITY-Wechsel bleibt der vorige Stand des
+  Ordners samt Ordnerzustand unverändert (alte und neue UIDs lassen sich nicht mischen); der
+  nächste Lauf liest ihn erneut voll.
 - Parallelität: max. 2 Verbindungen je Konto (viele Server limitieren).
 - Restore: APPEND in Zielordner mit Original-Datum und Flags; Zielordner anlegen, falls
   fehlend; Duplikate über Message-ID prüfen. Geprüft wird gegen den Stand des Ordners,

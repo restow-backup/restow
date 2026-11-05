@@ -369,6 +369,76 @@ describe("ImapBackupEngine", () => {
     expect(server.stats.sourcesDelivered).toHaveLength(5);
   });
 
+  describe("a full read that fails mid-folder (download cap after four messages, twice)", () => {
+    function capAfterFour(): void {
+      server.faults.refuseSource.add("INBOX:5");
+      server.faults.refuseSourceCode = "OVERQUOTA";
+    }
+
+    function inboxOf(manifest: SnapshotManifest) {
+      return messages(manifest)
+        .filter((o) => o.metadata?.[META.mailbox] === "INBOX")
+        .map((o) => [Number(o.metadata?.[META.uid]), o.metadata?.[META.uidValidity]])
+        .sort((a, b) => Number(a[0]) - Number(b[0]));
+    }
+
+    it("keeps every previous message of a folder in a requested full run", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 6; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      const first = await engine().run(context(), protectedObject, {});
+      inbox.setFlags(6, ["Seen"]);
+      capAfterFour();
+
+      const result = await engine().run(context(), protectedObject, { full: true });
+      expect(result.failures.map((f) => [f.itemRef, f.cause?.code])).toEqual([
+        ["INBOX", "imap.server_limit"],
+      ]);
+      const manifest = await manifestOf(result.snapshotId);
+      expect(inboxOf(manifest)).toEqual(inboxOf(await manifestOf(first.snapshotId)));
+      // Carried with the flags the folder has now.
+      const six = messages(manifest).find((o) => o.path === "mail/INBOX/6.eml");
+      expect(decodeFlags(six?.metadata?.[META.flags] ?? "")).toEqual(["Seen"]);
+      expect(manifest.objects.some((o) => o.type === "folder" && o.path === "mail/INBOX")).toBe(
+        true,
+      );
+    });
+
+    it("keeps the previous copy and state after a UIDVALIDITY change, and reads it in full next run", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 6; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      const first = await engine().run(context(), protectedObject, {});
+      const before = await manifestOf(first.snapshotId);
+      inbox.resetUidValidity(2000);
+      capAfterFour();
+
+      const failed = await engine().run(context(), protectedObject, {});
+      expect(failed.failures.map((f) => f.itemRef)).toEqual(["INBOX"]);
+      const manifest = await manifestOf(failed.snapshotId);
+      expect(inboxOf(manifest)).toEqual(inboxOf(before));
+      expect(inboxOf(manifest).every(([, validity]) => validity === "1000")).toBe(true);
+      const state = manifest.state as {
+        imap: { folders: Record<string, { uidValidity: string }> };
+      };
+      expect(state.imap.folders.INBOX.uidValidity).toBe("1000");
+
+      server.faults.refuseSource.clear();
+      const logs: LogRecord[] = [];
+      const next = await engine().run(context({ logs }), protectedObject, {});
+      expect(next.failures).toEqual([]);
+      expect(logLine(logs, "imap folder planned", "INBOX")).toMatchObject({
+        mode: "full",
+        reason: "uidvalidity_changed",
+      });
+      const healed = inboxOf(await manifestOf(next.snapshotId));
+      expect(healed).toHaveLength(6);
+      expect(healed.every(([, validity]) => validity === "2000")).toBe(true);
+    });
+  });
+
   it("uses at most two connections per account, and both of them", async () => {
     for (let i = 0; i < 6; i++) {
       const folder = server.addFolder(`Folder${i}`);
